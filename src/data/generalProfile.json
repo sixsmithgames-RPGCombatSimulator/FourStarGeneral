@@ -1,0 +1,22 @@
+{
+  "identity": {
+    "name": "",
+    "regionKey": null,
+    "regionLabel": null,
+    "schoolKey": null,
+    "schoolLabel": null,
+    "commissionedAt": null
+  },
+  "metrics": {
+    "successRate": 0,
+    "missionsCompleted": 0,
+    "objectivesReached": 0,
+    "unitsLost": 0,
+    "unitsFielded": 0
+  },
+  "campaign": {
+    "campaignsParticipated": 0,
+    "campaignStatus": "reserve",
+    "lastCampaign": null
+  }
+}

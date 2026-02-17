@@ -1,0 +1,62 @@
+{
+  "plains": {
+    "moveCost": { "leg": 1, "wheel": 1, "track": 1, "air": 1 },
+    "defense": 0,
+    "accMod": 0,
+    "blocksLOS": false
+  },
+  "forest": {
+    "moveCost": { "leg": 2, "wheel": 3, "track": 2, "air": 1 },
+    "defense": 3,
+    "accMod": -30,
+    "blocksLOS": true
+  },
+  "hill": {
+    "moveCost": { "leg": 2, "wheel": 2, "track": 2, "air": 1 },
+    "defense": 3,
+    "accMod": -16,
+    "blocksLOS": true
+  },
+  "mountain": {
+    "moveCost": { "leg": 3, "wheel": 999, "track": 999, "air": 1 },
+    "defense": 5,
+    "accMod": -24,
+    "blocksLOS": true
+  },
+  "city": {
+    "moveCost": { "leg": 1, "wheel": 1, "track": 2, "air": 1 },
+    "defense": 4,
+    "accMod": -20,
+    "blocksLOS": true
+  },
+  "marsh": {
+    "moveCost": { "leg": 2, "wheel": 4, "track": 3, "air": 1 },
+    "defense": -1,
+    "accMod": -10,
+    "blocksLOS": false
+  },
+  "river": {
+    "moveCost": { "leg": 999, "wheel": 999, "track": 999, "air": 1 },
+    "defense": 0,
+    "accMod": 10,
+    "blocksLOS": false
+  },
+  "road": {
+    "moveCost": { "leg": 1, "wheel": 0.5, "track": 0.75, "air": 1 },
+    "defense": 0,
+    "accMod": 6,
+    "blocksLOS": false
+  },
+  "beach": {
+    "moveCost": { "leg": 1, "wheel": 1.5, "track": 1.2, "air": 1 },
+    "defense": -2,
+    "accMod": 16,
+    "blocksLOS": false
+  },
+  "sea": {
+    "moveCost": { "leg": 999, "wheel": 999, "track": 999, "air": 1 },
+    "defense": 0,
+    "accMod": 20,
+    "blocksLOS": false
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run dev)",
+      "Bash(dir:*)",
+      "Bash(npm run build:*)",
+      "Bash(mkdir:*)",
+      "Bash(npx tsc:*)",
+      "Bash(cat:*)",
+      "Bash(sed:*)",
+      "Bash(jq:*)",
+      "Bash(awk:*)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(node -e:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(/dev/null)",
+      "Bash(python:*)",
+      "Bash(nul)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

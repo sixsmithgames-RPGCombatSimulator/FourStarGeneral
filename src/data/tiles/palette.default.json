@@ -1,0 +1,177 @@
+{
+  "SEA": {
+    "terrain": "sea",
+    "terrainType": "water",
+    "density": "sparse",
+    "features": [],
+    "recon": "aerial"
+  },
+  "BEACH_TRENCH_INT": {
+    "terrain": "beach",
+    "terrainType": "coastal",
+    "density": "sparse",
+    "features": ["trenches"],
+    "recon": "intel"
+  },
+  "BEACH_TRENCH_FIRST": {
+    "terrain": "beach",
+    "terrainType": "coastal",
+    "density": "sparse",
+    "features": ["trenches"],
+    "recon": "firsthand"
+  },
+  "BEACH_CLEAR_FIRST": {
+    "terrain": "beach",
+    "terrainType": "coastal",
+    "density": "sparse",
+    "features": [],
+    "recon": "firsthand"
+  },
+  "PLAINS_SPARSE_INT": {
+    "terrain": "plains",
+    "terrainType": "grass",
+    "density": "sparse",
+    "features": ["pastures"],
+    "recon": "intel"
+  },
+  "PLAINS_AVG_INT": {
+    "terrain": "plains",
+    "terrainType": "grass",
+    "density": "average",
+    "features": ["pastures"],
+    "recon": "intel"
+  },
+  "PLAINS_AVG_FIRST": {
+    "terrain": "plains",
+    "terrainType": "grass",
+    "density": "average",
+    "features": ["pastures"],
+    "recon": "firsthand"
+  },
+  "PLAINS_AVG_NONE": {
+    "terrain": "plains",
+    "terrainType": "grass",
+    "density": "average",
+    "features": ["pastures"],
+    "recon": "none"
+  },
+  "FOREST_DENSE_INT": {
+    "terrain": "forest",
+    "terrainType": "rural",
+    "density": "dense",
+    "features": ["trees", "shrubs"],
+    "recon": "intel"
+  },
+  "FOREST_DENSE_FIRST": {
+    "terrain": "forest",
+    "terrainType": "rural",
+    "density": "dense",
+    "features": ["trees", "shrubs"],
+    "recon": "firsthand"
+  },
+  "FOREST_TREES_INT": {
+    "terrain": "forest",
+    "terrainType": "rural",
+    "density": "dense",
+    "features": ["trees"],
+    "recon": "intel"
+  },
+  "FOREST_TREES_FIRST": {
+    "terrain": "forest",
+    "terrainType": "rural",
+    "density": "dense",
+    "features": ["trees"],
+    "recon": "firsthand"
+  },
+  "HILL_AVG_INT": {
+    "terrain": "hill",
+    "terrainType": "rural",
+    "density": "average",
+    "features": ["foothills"],
+    "recon": "intel"
+  },
+  "HILL_AVG_FIRST": {
+    "terrain": "hill",
+    "terrainType": "rural",
+    "density": "average",
+    "features": ["foothills"],
+    "recon": "firsthand"
+  },
+  "HILL_AVG_NONE": {
+    "terrain": "hill",
+    "terrainType": "rural",
+    "density": "average",
+    "features": ["foothills"],
+    "recon": "none"
+  },
+  "ROAD_BRIDGE_INT": {
+    "terrain": "road",
+    "terrainType": "rural",
+    "density": "sparse",
+    "features": ["bridge"],
+    "recon": "intel"
+  },
+  "ROAD_BRIDGE_FIRST": {
+    "terrain": "road",
+    "terrainType": "rural",
+    "density": "sparse",
+    "features": ["bridge"],
+    "recon": "firsthand"
+  },
+  "ROAD_CLEAR_INT": {
+    "terrain": "road",
+    "terrainType": "rural",
+    "density": "sparse",
+    "features": [],
+    "recon": "intel"
+  },
+  "ROAD_CLEAR_FIRST": {
+    "terrain": "road",
+    "terrainType": "rural",
+    "density": "sparse",
+    "features": [],
+    "recon": "firsthand"
+  },
+  "CITY_DEF_INT": {
+    "terrain": "city",
+    "terrainType": "urban",
+    "density": "dense",
+    "features": ["walls", "moderate fortifications"],
+    "recon": "intel"
+  },
+  "CITY_DEF_FIRST": {
+    "terrain": "city",
+    "terrainType": "urban",
+    "density": "dense",
+    "features": ["walls", "moderate fortifications"],
+    "recon": "firsthand"
+  },
+  "MOUNTAIN_AVG_INT": {
+    "terrain": "mountain",
+    "terrainType": "mountain",
+    "density": "average",
+    "features": ["cliffs"],
+    "recon": "intel"
+  },
+  "MOUNTAIN_DENSE_INT": {
+    "terrain": "mountain",
+    "terrainType": "mountain",
+    "density": "dense",
+    "features": ["cliffs"],
+    "recon": "intel"
+  },
+  "MOUNTAIN_DENSE_NONE": {
+    "terrain": "mountain",
+    "terrainType": "mountain",
+    "density": "dense",
+    "features": ["cliffs"],
+    "recon": "none"
+  },
+  "MOUNTAIN_DENSE_FOOTHILLS_NONE": {
+    "terrain": "mountain",
+    "terrainType": "mountain",
+    "density": "dense",
+    "features": ["cliffs", "foothills"],
+    "recon": "none"
+  }
+}

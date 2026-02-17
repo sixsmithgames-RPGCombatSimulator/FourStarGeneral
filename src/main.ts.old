@@ -1,0 +1,882 @@
+import scenarioDataJson from "./data/scenario01.json";
+import generalProfileDataJson from "./data/generalProfile.json";
+import unitTypesData from "./data/unitTypes.json";
+import { HEX_HEIGHT, HEX_RADIUS, ui as balanceUi } from "./core/balance";
+import type { Axial } from "./core/Hex";
+import type { ScenarioData, TerrainDictionary, UnitTypeDictionary, ScenarioUnit } from "./core/types";
+import type { SupplyRouteSummary } from "./core/Supply";
+
+const storedSelection = window.localStorage.getItem(SELECTED_GENERAL_STORAGE_KEY);
+if (storedSelection && typeof storedSelection === "string") {
+  selectedGeneralId = storedSelection;
+}
+
+const battleHexElementMap = new Map<string, SVGGElement>();
+const battleHexPolygonMap = new Map<string, SVGPolygonElement>();
+const battleHexLabelMap = new Map<string, SVGTextElement>();
+const battleHexUnitImageMap = new Map<string, SVGImageElement>();
+
+const baseCampMarker = document.createElementNS(SVG_NS, "circle");
+baseCampMarker.setAttribute("r", "12");
+baseCampMarker.setAttribute("class", "base-camp-marker");
+
+let lastSelectedBattleHex: Axial | null = null;
+let reserveEventsBound = false;
+
+const baseCampStatus = requireElement(
+  battleScreen.querySelector<HTMLParagraphElement>("#baseCampStatus"),
+  "#baseCampStatus"
+);
+const baseCampAssignButton = requireElement(
+  battleScreen.querySelector<HTMLButtonElement>("#assignBaseCamp"),
+  "#assignBaseCamp"
+);
+const beginBattleButton = requireElement(
+  battleScreen.querySelector<HTMLButtonElement>("#beginBattle"),
+  "#beginBattle"
+);
+const endTurnButton = requireElement(
+  battleScreen.querySelector<HTMLButtonElement>("#endTurn"),
+  "#endTurn"
+);
+const reserveList = requireElement(
+  battleScreen.querySelector<HTMLUListElement>("#reserveList"),
+  "#reserveList"
+);
+
+const battleMapCanvas = requireElement(battleScreen.querySelector<HTMLDivElement>("#battleMapCanvas"), "#battleMapCanvas");
+const battleHexMap = requireElement(battleScreen.querySelector<SVGSVGElement>("#battleHexMap"), "#battleHexMap");
+const battleLoadoutList = requireElement(battleScreen.querySelector<HTMLUListElement>("#battleLoadoutList"), "#battleLoadoutList");
+const battleBriefing = requireElement(battleScreen.querySelector<HTMLElement>("#battleBriefing"), "#battleBriefing");
+const toggleBriefingButton = requireElement(battleScreen.querySelector<HTMLButtonElement>("#toggleBriefing"), "#toggleBriefing");
+const deploymentPanel = requireElement(battleScreen.querySelector<HTMLElement>("#deploymentPanel"), "#deploymentPanel");
+const deploymentStatus = requireElement(battleScreen.querySelector<HTMLParagraphElement>("#deploymentStatus"), "#deploymentStatus");
+const deploymentZoneList = requireElement(battleScreen.querySelector<HTMLUListElement>("#deploymentZoneList"), "#deploymentZoneList");
+const deploymentUnitList = requireElement(battleScreen.querySelector<HTMLUListElement>("#deploymentUnitList"), "#deploymentUnitList");
+const battleSidebarButtons = Array.from(battleScreen.querySelectorAll<HTMLButtonElement>(".sidebar-button"));
+const battlePopupLayer = requireElement(battleScreen.querySelector<HTMLDivElement>('#battlePopupLayer'), '#battlePopupLayer');
+const battlePopupTitle = requireElement(battlePopupLayer.querySelector<HTMLElement>('[data-popup-title]'), '[data-popup-title]');
+const battlePopupBody = requireElement(battlePopupLayer.querySelector<HTMLDivElement>('[data-popup-body]'), '[data-popup-body]');
+const battlePopupDialog = requireElement(battlePopupLayer.querySelector<HTMLElement>('.battle-popup'), '.battle-popup');
+const battlePopupClose = requireElement(battleScreen.querySelector<HTMLButtonElement>('#battlePopupClose'), '#battlePopupClose');
+const warRoomOverlay = requireElement(battleScreen.querySelector<HTMLDivElement>('#warRoomOverlay'), '#warRoomOverlay');
+const warRoomDialog = requireElement(warRoomOverlay.querySelector<HTMLElement>('.war-room-surface'), '.war-room-surface');
+const warRoomAnnouncer = requireElement(warRoomOverlay.querySelector<HTMLDivElement>('#warRoomAnnouncer'), '#warRoomAnnouncer');
+const warRoomHotspotLayer = requireElement(warRoomOverlay.querySelector<HTMLDivElement>('.war-room-hotspot-layer'), '.war-room-hotspot-layer');
+const warRoomDetailPanel = requireElement(battleScreen.querySelector<HTMLDivElement>('#warRoomDetail'), '#warRoomDetail');
+const warRoomDetailTitle = requireElement(warRoomDetailPanel.querySelector<HTMLHeadingElement>('#warRoomDetailTitle'), '#warRoomDetailTitle');
+const warRoomDetailMeta = requireElement(warRoomDetailPanel.querySelector<HTMLParagraphElement>('#warRoomDetailMeta'), '#warRoomDetailMeta');
+const warRoomDetailBody = requireElement(warRoomDetailPanel.querySelector<HTMLDivElement>('#warRoomDetailBody'), '#warRoomDetailBody');
+const warRoomClose = requireElement(battleScreen.querySelector<HTMLButtonElement>('#warRoomClose'), '#warRoomClose');
+const battleZoomInButton = battleScreen.querySelector<HTMLButtonElement>("#battleZoomIn");
+const battleZoomOutButton = battleScreen.querySelector<HTMLButtonElement>("#battleZoomOut");
+const battleResetViewButton = battleScreen.querySelector<HTMLButtonElement>("#battleResetView");
+const battlePanButtons = Array.from(battleScreen.querySelectorAll<HTMLButtonElement>("[data-pan]"));
+const endMissionButton = requireElement(battleScreen.querySelector<HTMLButtonElement>("#endMissionButton"), "#endMissionButton");
+
+let warRoomHotspotButtons: HTMLButtonElement[] = [];
+
+function syncSidebarButtons(targetKey: PopupKey | null): void {
+  battleSidebarButtons.forEach((button) => {
+    const matches = button.dataset.popup === targetKey;
+    button.classList.toggle("is-active", matches);
+    button.setAttribute("aria-expanded", matches ? "true" : "false");
+  });
+}
+
+function openWarRoomOverlay(): void {
+  warRoomOverlay.classList.remove('hidden');
+  warRoomOverlay.setAttribute('aria-hidden', 'false');
+  if (warRoomHotspotButtons.length === 0) {
+    renderWarRoomHotspots();
+  }
+  const firstHotspot = warRoomHotspotButtons[0];
+  if (firstHotspot) {
+    firstHotspot.focus();
+  } else {
+    warRoomDialog.focus();
+  }
+}
+
+function closeWarRoomOverlay(): void {
+  warRoomOverlay.classList.add('hidden');
+  warRoomOverlay.setAttribute('aria-hidden', 'true');
+  announceWarRoom("");
+}
+
+function announceWarRoom(message: string): void {
+  warRoomAnnouncer.textContent = message;
+}
+
+/**
+ * Populates the logistics popup with current convoy metadata, reacting to state toggles. Without this
+ * adapter the popup would continue to show the placeholder HTML that ships with the template.
+ */
+function syncLogisticsPopup(): void {}
+
+function renderWarRoomHotspots(): void {
+  warRoomHotspotLayer.innerHTML = "";
+  warRoomHotspotButtons = [];
+  const fragment = document.createDocumentFragment();
+  const sorted = [...warRoomHotspots].sort((a, b) => a.focusOrder - b.focusOrder);
+  sorted.forEach((hotspot) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "war-room-hotspot";
+    button.dataset.hotspotId = hotspot.id;
+    button.style.left = `${hotspot.coords.x}%`;
+    button.style.top = `${hotspot.coords.y}%`;
+    button.style.width = `${hotspot.coords.width}%`;
+    button.style.height = `${hotspot.coords.height}%`;
+    button.setAttribute("aria-label", hotspot.label);
+    const descriptionId = `war-room-${hotspot.id}-desc`;
+    const description = document.createElement("span");
+    description.id = descriptionId;
+    description.className = "sr-only";
+    description.textContent = hotspot.ariaDescription;
+    button.appendChild(description);
+    button.setAttribute("aria-describedby", descriptionId);
+    button.addEventListener("focus", () => {
+      announceWarRoom(`${hotspot.label}. ${hotspot.ariaDescription}`);
+    });
+    button.addEventListener("click", () => {
+      handleWarRoomHotspotActivation(hotspot);
+    });
+    fragment.appendChild(button);
+    warRoomHotspotButtons.push(button);
+  });
+  warRoomHotspotLayer.appendChild(fragment);
+}
+
+function handleWarRoomHotspotActivation(hotspot: WarRoomHotspot): void {
+  const summary = getWarRoomSummary(hotspot);
+  const messageSegments = [hotspot.label];
+  if (hotspot.statusAnnouncer) {
+    messageSegments.push(hotspot.statusAnnouncer);
+  }
+  if (summary) {
+    messageSegments.push(summary);
+  }
+  announceWarRoom(messageSegments.join(" "));
+}
+
+function getWarRoomSummary(hotspot: WarRoomHotspot): string {
+  const payload = warRoomData[hotspot.dataKey];
+  switch (hotspot.dataKey) {
+    case "intelBriefs": {
+      const entry = (payload as IntelBrief[])[0];
+      if (!entry) {
+        return "No intel briefs on record.";
+      }
+      return `${entry.title}. ${entry.summary}`;
+    }
+    case "reconReports": {
+      const report = (payload as ReconReport[])[0];
+      if (!report) {
+        return "No recon reports available.";
+      }
+      return `${report.sector}. ${report.finding}`;
+    }
+    case "supplyStatus": {
+      const status = payload as SupplySummary;
+      return `${status.status.toUpperCase()} status. ${status.note}`;
+    }
+    case "requisitions": {
+      const request = (payload as RequisitionRecord[])[0];
+      if (!request) {
+        return "No requisitions in queue.";
+      }
+      return `${request.item}. ${request.status.toUpperCase()} as of ${request.updatedAt}.`;
+    }
+    case "casualtyLedger": {
+      const ledger = payload as CasualtySummary;
+      return `KIA ${ledger.kia}, WIA ${ledger.wia}, MIA ${ledger.mia}. Updated ${ledger.updatedAt}.`;
+    }
+    case "engagementLog": {
+      const engagement = (payload as EngagementSummary[])[0];
+      if (!engagement) {
+        return "No engagements logged.";
+      }
+      return `${engagement.theater}. ${engagement.result.toUpperCase()} - ${engagement.note}`;
+    }
+    case "logisticsSummary": {
+      const digest = payload as LogisticsDigest;
+      const extra = digest.bottleneck ? ` Bottleneck: ${digest.bottleneck}.` : "";
+      return `${digest.throughput}.${extra}`.trim();
+    }
+    case "commandOrders": {
+      const directive = (payload as CommandDirective[])[0];
+      if (!directive) {
+        return "No active directives.";
+      }
+      return `${directive.title}. ${directive.objective}`;
+    }
+    case "readinessState": {
+      const readiness = payload as ReadinessStatus;
+      return `${readiness.level.toUpperCase()} readiness. ${readiness.comment}`;
+    }
+    case "campaignClock": {
+      const timing = payload as CampaignTiming;
+      return `Day ${timing.day}, ${timing.time}. ${timing.note}`;
+    }
+    default:
+      return "";
+  }
+}
+
+function openPopup(key: PopupKey, trigger?: HTMLButtonElement): void {
+  if (key === 'baseOperations') {
+    closeWarRoomOverlay();
+    battlePopupLayer.classList.add('hidden');
+    battlePopupLayer.setAttribute('aria-hidden', 'true');
+    activePopup = key;
+    lastTriggerButton = trigger ?? null;
+    syncSidebarButtons(key);
+    openWarRoomOverlay();
+    return;
+  }
+
+  if (key === "recon") {
+    closeWarRoomOverlay();
+    const content = POPUP_CONTENT.recon;
+    battlePopupTitle.textContent = content.title;
+    battlePopupBody.innerHTML = renderReconPopupContent();
+    battlePopupLayer.classList.remove('hidden');
+    battlePopupLayer.setAttribute('aria-hidden', 'false');
+    activePopup = key;
+    lastTriggerButton = trigger ?? null;
+    syncSidebarButtons(key);
+    bindReconPopupEvents();
+    battlePopupDialog.focus();
+    return;
+  }
+
+  const content = POPUP_CONTENT[key];
+  if (!content) {
+    return;
+  }
+
+  closeWarRoomOverlay();
+  battlePopupTitle.textContent = content.title;
+  battlePopupBody.innerHTML = content.body;
+  battlePopupLayer.classList.remove('hidden');
+  battlePopupLayer.setAttribute('aria-hidden', 'false');
+  activePopup = key;
+  lastTriggerButton = trigger ?? null;
+  syncSidebarButtons(key);
+  if (key === 'armyRoster') {
+    renderArmyRoster();
+  }
+  battlePopupDialog.focus();
+}
+
+function closePopup(): void {
+  if (!activePopup) {
+    return;
+  }
+
+  if (activePopup === 'baseOperations') {
+    closeWarRoomOverlay();
+  } else {
+    battlePopupLayer.classList.add('hidden');
+    battlePopupLayer.setAttribute('aria-hidden', 'true');
+  }
+
+  syncSidebarButtons(null);
+  const trigger = lastTriggerButton;
+  activePopup = null;
+  lastTriggerButton = null;
+  if (trigger) {
+    trigger.focus();
+  }
+}
+
+let activePopup: PopupKey | null = null;
+let lastTriggerButton: HTMLButtonElement | null = null;
+
+missionButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const mission = button.dataset.mission as MissionKey | undefined;
+    if (!mission) {
+      return;
+    }
+
+    missionButtons.forEach((otherButton) => {
+      otherButton.classList.toggle("is-active", otherButton === button);
+    });
+    missionStatus.textContent = missionBriefings[mission];
+    landingStatus.textContent = `Mission selected: ${missionTitles[mission]}`;
+    selectedMission = mission;
+    updateGeneralSelectionUi();
+  });
+});
+
+generalForm.addEventListener("submit", commissionGeneralFromForm);
+clearGeneralSelectionButton.addEventListener("click", () => {
+  clearGeneralSelection();
+  if (feedback) {
+    feedback.textContent = "General assignment cleared.";
+  }
+});
+
+const exportRosterButton = requireElement(
+  landingScreen.querySelector<HTMLButtonElement>("#exportRosterButton"),
+  "#exportRosterButton"
+);
+const importRosterInput = requireElement(
+  landingScreen.querySelector<HTMLInputElement>("#importRosterInput"),
+  "#importRosterInput"
+);
+
+exportRosterButton.addEventListener("click", () => {
+  if (generalRosterEntries.length === 0) {
+    if (feedback) {
+      feedback.textContent = "No generals in roster to export.";
+    }
+    return;
+  }
+  saveRosterToFile();
+  if (feedback) {
+    feedback.textContent = `Roster exported to ${ROSTER_FILE_NAME}`;
+  }
+});
+
+importRosterInput.addEventListener("change", async (event) => {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) {
+    return;
+  }
+  try {
+    await loadRosterFromFile(file);
+    if (feedback) {
+      feedback.textContent = `Roster loaded from ${file.name} - ${generalRosterEntries.length} general(s) imported.`;
+    }
+  } catch (error) {
+    if (feedback) {
+      feedback.textContent = "Failed to import roster. Please check the file format.";
+    }
+  }
+  input.value = "";
+});
+enterPrecombat.addEventListener("click", () => {
+  if (!selectedGeneralId || !selectedMission) {
+    return;
+  }
+  landingStatus.textContent = `General ${generalProfile.identity.name} leading ${missionTitles[selectedMission]}.`;
+  precombatBriefing.textContent = missionBriefings[selectedMission];
+  precombatOperation.textContent = missionTitles[selectedMission];
+  showScreen(precombatScreen);
+  initializeAllocationUi();
+  syncAllocationUi();
+  bindAllocationEvents();
+  startDeploymentPhase();
+});
+returnToLanding.addEventListener("click", () => {
+  showScreen(landingScreen);
+});
+proceedToBattle.addEventListener("click", () => {
+  handlePrecombatDeploymentAttempt();
+});
+allocationWarningReturn.addEventListener("click", () => {
+  hideAllocationWarning();
+  returnToLanding.focus();
+});
+allocationWarningProceed.addEventListener("click", () => {
+  hideAllocationWarning();
+  enterBattleDeployment();
+});
+beginBattleButton.addEventListener("click", () => {
+  finalizeDeploymentWithEngine();
+});
+endTurnButton.addEventListener("click", () => {
+  endPlayerTurn();
+});
+
+renderRoster();
+updateGeneralSelectionUi();
+syncGeneralDoctrine(generalProfile);
+syncLogisticsPopup();
+
+battleSidebarButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const key = button.dataset.popup as PopupKey | undefined;
+    if (!key) {
+      return;
+    }
+
+    if (activePopup === key) {
+      closePopup();
+      return;
+    }
+
+    if (key === "logistics") {
+      syncLogisticsPopup();
+    }
+    openPopup(key, button);
+  });
+});
+
+battlePopupClose.addEventListener('click', () => {
+  closePopup();
+});
+
+battlePopupLayer.addEventListener('click', (event) => {
+  if (event.target === battlePopupLayer) {
+    closePopup();
+  }
+});
+
+warRoomClose.addEventListener('click', () => {
+  closePopup();
+});
+
+endMissionButton.addEventListener('click', () => {
+  const deployedUnits = ensureDeploymentState().pool.reduce((sum, entry) => {
+    const totalAllocated = getUnitCount(entry.key);
+    const deployed = totalAllocated - entry.remaining;
+    return sum + deployed;
+  }, 0);
+
+  const dialog = confirm(
+    `End this mission and return to headquarters?\n\nThis will record your performance in ${generalProfile.identity.name || 'the general'}'s service record.`
+  );
+
+  if (!dialog) {
+    return;
+  }
+
+  const objectivesInput = prompt("Objectives completed (0-10):", "0");
+  const casualtiesInput = prompt("Units lost:", "0");
+
+  if (objectivesInput === null || casualtiesInput === null) {
+    return;
+  }
+
+  const objectives = Math.max(0, Math.min(10, parseInt(objectivesInput) || 0));
+  const casualties = Math.max(0, parseInt(casualtiesInput) || 0);
+  const success = objectives >= 5;
+
+  recordMissionCompletion({
+    success,
+    objectivesCompleted: objectives,
+    unitsDeployed: deployedUnits,
+    unitsCasualties: casualties
+  });
+
+  if (selectedMission === "campaign") {
+    updateCampaignStatus(scenario.name, success ? "active" : "reserve");
+  }
+
+  alert(`Mission ${success ? 'completed successfully' : 'ended'}!\n\nGeneral ${generalProfile.identity.name}'s record has been updated.`);
+
+  showScreen(landingScreen);
+  resetDeploymentState();
+  resetBattleSupportState();
+});
+
+function renderBattleLoadout(): void {
+  const pool = ensureDeploymentState().pool;
+  if (pool.length === 0) {
+    battleLoadoutList.innerHTML = '<li class="loadout-empty">No units allocated for this operation.</li>';
+    return;
+  }
+  battleLoadoutList.innerHTML = pool
+    .map((entry) => {
+      const totalAllocated = getUnitCount(entry.key);
+      const deployed = totalAllocated - entry.remaining;
+      return `
+        <li class="loadout-item">
+          <strong>${escapeHtml(entry.label)}</strong>
+          <span>${deployed} / ${totalAllocated} deployed</span>
+        </li>
+      `;
+    })
+    .join("");
+}
+
+toggleBriefingButton?.addEventListener("click", () => {
+  const isCollapsed = battleBriefing.classList.contains("is-collapsed");
+  battleBriefing.classList.toggle("is-collapsed", !isCollapsed);
+  toggleBriefingButton.textContent = isCollapsed ? "Hide Briefing" : "Show Briefing";
+  toggleBriefingButton.setAttribute("aria-expanded", String(isCollapsed));
+});
+
+let battleMapInitialized = false;
+
+const battleMapTransform = {
+  zoom: 1,
+  panX: 0,
+  panY: 0
+};
+
+function resetBattleView(): void {
+  battleMapTransform.zoom = 1;
+  battleMapTransform.panX = 0;
+  battleMapTransform.panY = 0;
+  updateBattleMapTransform();
+}
+
+function updateBattleMapTransform(): void {
+  battleHexMap.style.transform = `translate(${battleMapTransform.panX}px, ${battleMapTransform.panY}px) scale(${battleMapTransform.zoom})`;
+}
+
+function initializeBattleMap(force = false): void {
+  if (!battleMapInitialized || force) {
+    renderHexMap(battleHexMap, battleMapCanvas, scenario);
+    cacheBattleHexReferences();
+    battleMapInitialized = true;
+    resetBattleView();
+  }
+}
+
+function adjustBattleZoom(delta: number): void {
+  battleMapTransform.zoom = clamp(battleMapTransform.zoom + delta, MIN_ZOOM, MAX_ZOOM);
+  updateBattleMapTransform();
+}
+
+function panBattleMap(dx: number, dy: number): void {
+  battleMapTransform.panX += dx;
+  battleMapTransform.panY += dy;
+  updateBattleMapTransform();
+}
+
+battleZoomInButton?.addEventListener("click", () => {
+  initializeBattleMap();
+  adjustBattleZoom(ZOOM_INCREMENT);
+});
+
+battleZoomOutButton?.addEventListener("click", () => {
+  initializeBattleMap();
+  adjustBattleZoom(-ZOOM_INCREMENT);
+});
+
+battleResetViewButton?.addEventListener("click", () => {
+  initializeBattleMap();
+  resetBattleView();
+});
+
+battlePanButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    initializeBattleMap();
+    const direction = button.dataset.pan;
+    switch (direction) {
+      case "up":
+        panBattleMap(0, PAN_STEP);
+        break;
+      case "down":
+        panBattleMap(0, -PAN_STEP);
+        break;
+      case "left":
+        panBattleMap(PAN_STEP, 0);
+        break;
+      case "right":
+        panBattleMap(-PAN_STEP, 0);
+        break;
+    }
+  });
+});
+
+function refreshBattleLoadout(): void {
+  renderBattleLoadout();
+}
+
+warRoomOverlay.addEventListener('click', (event) => {
+  if (event.target === warRoomOverlay) {
+    closePopup();
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && activePopup) {
+    closePopup();
+  }
+});
+
+function renderHexMap(svg: SVGSVGElement, canvas: HTMLDivElement, data: ScenarioData): void {
+  const margin = HEX_RADIUS * 2;
+  const hexes: Array<{ tile: TileDetails; x: number; y: number; col: number; row: number; recon: ReconStatusKey }> = [];
+  resetReconOverlayState();
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  data.tiles.forEach((rowTiles, rowIndex) => {
+    rowTiles.forEach((entry, columnIndex) => {
+      const tile = resolveTile(entry, data.tilePalette);
+      if (!tile) {
+        return;
+      }
+
+      const { q, r } = offsetToAxial(columnIndex, rowIndex);
+      const { x, y } = axialToPixel(q, r);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      const reconStatus = normalizeReconStatus(tile.recon);
+      const hexKey = makeHexKey(columnIndex, rowIndex);
+      trackHexReconStatus(hexKey, reconStatus);
+      hexes.push({ tile, x, y, col: columnIndex, row: rowIndex, recon: reconStatus });
+    });
+  });
+
+  if (hexes.length === 0) {
+    svg.innerHTML = "";
+    return;
+  }
+
+  const mapWidth = maxX - minX + margin * 2;
+  const mapHeight = maxY - minY + margin * 2;
+
+  canvas.style.width = `${mapWidth}px`;
+  canvas.style.height = `${mapHeight}px`;
+  svg.setAttribute("viewBox", `0 0 ${mapWidth} ${mapHeight}`);
+  svg.setAttribute("width", `${mapWidth}`);
+  svg.setAttribute("height", `${mapHeight}`);
+
+  const markup = hexes
+    .map(({ tile, x, y, col, row }) => {
+      const cx = x - minX + margin;
+      const cy = y - minY + margin;
+      const points = hexPoints(cx, cy);
+      const fill = terrainFill(tile.terrain, tile.terrainType);
+      const tooltip = hexTooltip(tile);
+      const hexKey = makeHexKey(col, row);
+      const clipId = `clip-${hexKey.replace(/[^a-z0-9]/gi, "-")}`;
+      const sprite = terrainSprite(tile);
+      const spriteBleed = sprite ? 2 : 0; // Extend sprite bounds slightly so the clip path fills corners without dark seams between hexes.
+      const imageX = cx - HEX_RADIUS - spriteBleed;
+      const imageY = cy - HEX_HEIGHT / 2 - spriteBleed;
+      const imageWidth = HEX_RADIUS * 2 + spriteBleed * 2;
+      const imageHeight = HEX_HEIGHT + spriteBleed * 2;
+      const polygonFill = fill; // Keep a solid hex fill underneath the sprite as a visual backstop.
+      const roadOverlay = drawRoadOverlay(cx, cy, tile, col, row, data.tiles, data.tilePalette);
+      return `
+        <g class="hex-cell" data-terrain="${tile.terrain}" data-hex="${hexKey}" data-col="${col}" data-row="${row}" data-cx="${cx}" data-cy="${cy}" data-clip-id="${clipId}">
+          <defs>
+            <clipPath id="${clipId}">
+              <polygon points="${points}"></polygon>
+            </clipPath>
+          </defs>
+          ${sprite ? `<image href="${sprite}" x="${imageX}" y="${imageY}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})" class="terrain-sprite" />` : ""}
+          <polygon class="hex-tile" points="${points}" fill="${polygonFill}" stroke="${HEX_DEFAULT_STROKE}" stroke-width="${HEX_DEFAULT_STROKE_WIDTH}"></polygon>
+          ${roadOverlay}
+          <title>${tooltip}</title>
+        </g>
+      `;
+    })
+    .join("");
+
+  svg.innerHTML = markup;
+}
+
+function cacheBattleHexReferences(): void {
+  battleHexElementMap.clear();
+  battleHexPolygonMap.clear();
+  battleHexLabelMap.clear();
+  battleHexUnitImageMap.clear();
+  const hexCells = Array.from(battleHexMap.querySelectorAll<SVGGElement>(".hex-cell"));
+  hexCells.forEach((cell) => {
+    const hexKey = cell.dataset.hex;
+    if (!hexKey) {
+      return;
+    }
+    battleHexElementMap.set(hexKey, cell);
+    const polygon = cell.querySelector<SVGPolygonElement>("polygon.hex-tile");
+    if (polygon) {
+      battleHexPolygonMap.set(hexKey, polygon);
+    }
+  });
+  applyReconOverlayClasses();
+}
+
+function resolveTile(entry: TileEntry, palette: ScenarioData["tilePalette"]): TileDetails | null {
+  if (isTileReference(entry)) {
+    return palette[entry.tile] ?? null;
+  }
+  return entry;
+}
+
+function isTileReference(entry: TileEntry): entry is { tile: string } {
+  return typeof (entry as { tile?: unknown }).tile === "string";
+}
+
+function offsetToAxial(column: number, row: number): { q: number; r: number } {
+  const q = column - Math.floor(row / 2);
+  const r = row;
+  return { q, r };
+}
+
+function axialToOffset(q: number, r: number): { col: number; row: number } {
+  const row = r;
+  const col = q + Math.floor(row / 2);
+  return { col, row };
+}
+
+function axialKeyToOffsetKey(key: string): string | null {
+  const [qPart, rPart] = key.split(",");
+  const q = Number(qPart);
+  const r = Number(rPart);
+  if (!Number.isFinite(q) || !Number.isFinite(r)) {
+    return null;
+  }
+  const { col, row } = axialToOffset(q, r);
+  return makeHexKey(col, row);
+}
+
+function axialToPixel(q: number, r: number): { x: number; y: number } {
+  const x = HEX_RADIUS * (1.5 * q);
+  const y = HEX_HEIGHT * (r + q / 2);
+  return { x, y };
+}
+
+function makeHexKey(col: number, row: number): string {
+  return `${col},${row}`;
+}
+
+function parseHexKey(key: string): GridCoordinate | null {
+  const [colPart, rowPart] = key.split(",");
+  const col = Number(colPart);
+  const row = Number(rowPart);
+  if (Number.isFinite(col) && Number.isFinite(row)) {
+    return { col, row };
+  }
+  return null;
+}
+
+function hexPoints(cx: number, cy: number): string {
+  const halfHeight = HEX_HEIGHT / 2;
+  const points: Array<[number, number]> = [
+    [cx + HEX_RADIUS, cy],
+    [cx + HEX_RADIUS / 2, cy + halfHeight],
+    [cx - HEX_RADIUS / 2, cy + halfHeight],
+    [cx - HEX_RADIUS, cy],
+    [cx - HEX_RADIUS / 2, cy - halfHeight],
+    [cx + HEX_RADIUS / 2, cy - halfHeight]
+  ];
+  return points.map(([x, y]) => `${x},${y}`).join(" ");
+}
+
+const terrainPalette: Record<string, string> = {
+  sea: "#1c3a5d",
+  beach: "#c79d67",
+  plains: "#4f7a3a",
+  forest: "#1f4f3c",
+  hill: "#7a6a4d",
+  road: "#bfae97",
+  city: "#7e7b8b",
+  mountain: "#65616a"
+};
+
+function terrainFill(terrain: string, terrainType: string): string {
+  if (terrainPalette[terrain]) {
+    return terrainPalette[terrain];
+  }
+  if (terrainPalette[terrainType]) {
+    return terrainPalette[terrainType];
+  }
+  return "#3c445c";
+}
+
+function terrainSprite(tile: TileDetails): string | null {
+  const keys = [tile.terrain, tile.terrainType].map((value) => value.toLowerCase());
+  for (const key of keys) {
+    if (key === "road") {
+      return TERRAIN_SPRITES.plains;
+    }
+    if (key in TERRAIN_SPRITES) {
+      return TERRAIN_SPRITES[key as keyof typeof TERRAIN_SPRITES];
+    }
+  }
+  return null;
+}
+
+function hasRoad(tile: TileDetails | null | undefined): boolean {
+  if (!tile) {
+    return false;
+  }
+  return tile.terrain.toLowerCase() === "road" || tile.terrainType.toLowerCase() === "road";
+}
+
+function drawRoadOverlay(cx: number, cy: number, tile: TileDetails, col: number, row: number, tiles: TileEntry[][], tilePalette: Record<string, TileDetails>): string {
+  if (!hasRoad(tile)) {
+    return "";
+  }
+  const isPaved = tile.features?.includes("paved") || false;
+  const strokeColor = isPaved ? "#2a2a2a" : "#8b6f47";
+  const strokeWidth = isPaved ? 2 : 3;
+
+  // Determine neighboring hexes and capture the vector from the current hex centre to each neighbour.
+  // We later use half of this vector so road segments terminate on the shared edge midpoint rather than the corner.
+  const isEvenRow = row % 2 === 0;
+  const neighborOffsets = isEvenRow
+    ? [[1, 0], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1]]  // Even row
+    : [[1, 0], [1, 1], [0, 1], [-1, 0], [0, -1], [1, -1]];   // Odd row
+
+  const hasRoadNeighbor: boolean[] = [];
+  const edgeVectors: Array<{ dx: number; dy: number }> = [];
+  const currentAxial = offsetToAxial(col, row);
+  const currentPixel = axialToPixel(currentAxial.q, currentAxial.r);
+
+  for (const [dcol, drow] of neighborOffsets) {
+    const nCol = col + dcol;
+    const nRow = row + drow;
+    if (nRow >= 0 && nRow < tiles.length && nCol >= 0 && nCol < tiles[nRow].length) {
+      const neighborEntry = tiles[nRow][nCol];
+      const neighborTile = resolveTile(neighborEntry, tilePalette);
+      hasRoadNeighbor.push(hasRoad(neighborTile));
+      if (neighborTile) {
+        const neighborAxial = offsetToAxial(nCol, nRow);
+        const neighborPixel = axialToPixel(neighborAxial.q, neighborAxial.r);
+        edgeVectors.push({ dx: neighborPixel.x - currentPixel.x, dy: neighborPixel.y - currentPixel.y });
+      } else {
+        edgeVectors.push({ dx: 0, dy: 0 });
+      }
+    } else {
+      hasRoadNeighbor.push(false);
+      edgeVectors.push({ dx: 0, dy: 0 });
+    }
+  }
+
+  // The hub visually blends multi-direction roads; using stroke width keeps scale consistent for paved/dirt variants.
+  const hubRadius = strokeWidth * 0.6;
+
+  let paths = `<circle cx="${cx}" cy="${cy}" r="${hubRadius}" fill="${strokeColor}" />`;
+  edgeVectors.forEach(({ dx, dy }, index) => {
+    if (!hasRoadNeighbor[index]) {
+      return;
+    }
+    const edgeX = cx + dx / 2;
+    const edgeY = cy + dy / 2;
+    paths += `<line x1="${cx}" y1="${cy}" x2="${edgeX}" y2="${edgeY}" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-linecap="round" />`;
+  });
+
+  // Returning the composed SVG fragments allows the caller to inline overlay visuals alongside terrain sprites.
+  return paths;
+}
+
+function hexTooltip(tile: TileDetails): string {
+  const segments = [
+    tile.terrain.toUpperCase(),
+    tile.features.length > 0 ? `Features: ${tile.features.join(", ")}` : null,
+    `Density: ${tile.density}`,
+    `Recon: ${tile.recon}`
+  ].filter((segment): segment is string => Boolean(segment));
+  return segments.join("\n");
+}
+
+function abbreviateLabel(label: string): string {
+  const initials = label
+    .split(/\s+/)
+    .map((part) => part.charAt(0))
+    .join("")
+    .slice(0, 3)
+    .toUpperCase();
+  if (initials.length > 0) {
+    return initials;
+  }
+  return label.slice(0, 3).toUpperCase();
+}

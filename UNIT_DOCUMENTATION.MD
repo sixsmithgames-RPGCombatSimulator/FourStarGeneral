@@ -1,0 +1,43 @@
+# Unit Catalog Documentation
+
+This document aggregates every allocation entry currently exposed to the precombat UI and downstream engine templates. Each table row lists the core data sourced from the existing game assets alongside the newly tracked composition estimates.
+
+| Key | Label | Category | Cost | Sprite | Soft AT | Hard AT | Armor (F/S/T) | Move | Shots/T | Combat Class | Fuel | Ammo | Fuel/T | Ammo/Eng | Personnel | Vehicles | Equipment Summary | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| infantry | Infantry Battalion | units | 50000 | Infantry.png | 25 | 45 | 1/1/1 | 1 | 21000 | infantry | 0 | 6 | 0 | 3 | 720 | 0 | 3 rifle companies; 1 weapons company with MG and mortar platoons; 18–27 bazookas in AT section | Baseline infantry regiment referenced by multiple campaign scenarios. |
+| airborneDetachment | Airborne Detachment | units | 100000 | Paratrooper.png | 28 | 4 | 2/2/2 | 1 | 7200 | infantry | 0 | 6 | 0 | 3 | 240 | 0 | 4 parachute infantry platoons; Light mortar section; Pathfinder radios | Air-delivered unit requiring dedicated transport wing support. |
+| engineer | Engineering Corps | units | 80000 | Engineer.png | 20 | 8 | 2/2/2 | 1 | 4800 | specialist | 0 | 5 | 0 | 3 | 160 | 12 | Pontoon bridging kits; Explosive breaching gear; Earthmoving tools |  |
+| tank | Tank Company | units | 200000 | Medium_Tank.png | 40 | 28 | 15/8/4 | 3 | 250 | tank | 40 | 7 | 3 | 4 | 60 | 25 | 25 medium tanks; Organic maintenance and recovery detachment | Standard armored company-sized formation in campaign rosters. |
+| heavyTankCompany | Heavy Tank Company | units | 280000 | Heavy_Tank.png | 42 | 38 | 18/10/5 | 1 | 80 | tank | 35 | 6 | 3 | 3 | 96 | 8 | 8 heavy breakthrough tanks; Recovery vehicle | Heavier armor and ammunition footprint than the baseline tank company. |
+| tankDestroyerCompany | Tank Destroyer Company | units | 255000 | Anti_Tank_Tank.png | 10 | 55 | 14/8/4 | 3 | 60 | tank | 35 | 6 | 3 | 3 | 90 | 6 | 6 dedicated tank destroyers; Spotter jeeps | Pairs long-range guns with reconnaissance liaison teams. |
+| assaultGunBattalion | Assault Gun Battalion | units | 240000 | Assault_Gun.png | 45 | 32 | 16/9/4 | 1 | 60 | tank | 30 | 6 | 3 | 3 | 110 | 6 | 6 assault guns; Forward observation detachment | Indirect fire capable with armored protection for frontline pushes. |
+| howitzer | Howitzer Battery | units | 180000 | Howitzer_105.png | 50 | 14 | 2/2/2 | 1 | 60 | artillery | 0 | 6 | 0 | 3 | 180 | 18 | 6 towed 105mm howitzers; 12 prime movers | Includes fire direction center and ammunition train. |
+| rocketArtilleryBattalion | Rocket Artillery Battalion | units | 260000 | Rocket_Artillery.png | 60 | 16 | 3/3/2 | 1 | 0 | artillery | 30 | 5 | 3 | 3 | 150 | 12 | 4 rocket launch trucks; Reload vehicles | Salvo: 4 launchers × 8 rockets (32) for saturation bombardment. |
+| spArtilleryGroup | Self-Propelled Artillery Group | units | 275000 | SP_Artillery.png | 52 | 20 | 6/5/3 | 1 | 80 | artillery | 40 | 6 | 3 | 3 | 140 | 8 | 8 self-propelled guns; Armored ammunition carriers | Armored chassis allows shoot-and-scoot tactics after firing. |
+| antiTankBattery | Anti-Tank Gun Battery | units | 165000 | AT_Gun_50mm.png | 5 | 50 | 1/1/1 | 1 | 48 | specialist | 0 | 5 | 0 | 3 | 132 | 18 | 6 50mm AT guns; 12 towing trucks | Crew-served guns with integral ammo limbers and logistics detail. |
+| flakBattery | Flak Battery | units | 210000 | Flak_88.png | 15 | 70 | 4/3/3 | 1 | 40 | specialist | 0 | 6 | 0 | 3 | 160 | 16 | 4 heavy AA guns; Radar trailer; Ammunition loaders | Ready to provide both strategic air defense and point-defense coverage. |
+| recon | Recon Squad | units | 75000 | Recon_ArmoredCar.png | 20 | 12 | 6/5/3 | 1 | 4500 | recon | 45 | 6 | 4 | 3 | 150 | 18 | 18 armored cars; Signals relay section | Mobility-first unit for screening and intelligence gathering. |
+| reconBike | Recon Bike Patrol | units | 65000 | Recon_Bike.png | 16 | 0 | 4/3/2 | 3 | 2880 | recon | 30 | 5 | 3 | 3 | 96 | 32 | 32 reconnaissance motorbikes; Light MG teams | Focuses on rapid scouting and flank security with minimal footprint. |
+| scoutPlaneWing | Scout Plane Wing | units | 185000 | Scout_Plane.png | 0 | 0 | 4/4/4 | 3 | 0 | recon | 55 | 2 | 5 | 1 | 90 | 6 | 6 reconnaissance aircraft; Photo lab trailer | Includes ground crews and analysts for aerial reconnaissance packages. |
+| fighter | Fighter Squadron | units | 240000 | Fighter.png | 18 | 10 | 6/6/6 | 5 | 4 | air | 50 | 6 | 4 | 3 | 120 | 12 | 12 fighter aircraft; Workshop tents | Split across two flights with rotating alert schedules. |
+| interceptorWing | Interceptor Wing | units | 255000 | Interceptor.png | 20 | 12 | 7/7/7 | 5 | 4 | air | 55 | 7 | 5 | 4 | 110 | 10 | 10 interceptor aircraft; Early-warning radar liaison | Optimized for high-altitude scramble missions. |
+| groundAttackWing | Ground Attack Wing | units | 265000 | Ground_Attack.png | 35 | 24 | 8/8/8 | 1 | 4 | air | 55 | 5 | 5 | 3 | 130 | 8 | 8 ground-attack aircraft; Rocket/ordnance stocks | Carries mixed HE and anti-armor ordnance for close air support. |
+| bomber | Tactical Bomber Wing | units | 260000 | Bomber.png | 45 | 16 | 10/10/10 | 1 | 4 | air | 60 | 4 | 5 | 2 | 150 | 6 | 6 tactical bombers; Bomb assembly team | Includes dedicated navigation and bombardier crews. |
+| transportWing | Transport Air Wing | units | 190000 | Transport_Plane.png | 0 | 0 | 6/6/6 | 1 | 4 | air | 65 | 0 | 5 | 0 | 140 | 5 | 5 transport aircraft; Airborne cargo rigging kits | Supports airborne operations and rapid logistical lifts. |
+| apcTruckColumn | APC Truck Column | units | 140000 | APC_Truck.png | 0 | 0 | 4/3/2 | 1 | 1000 | vehicle | 60 | 0 | 5 | 0 | 200 | 40 | 32 troop trucks; 8 light escort vehicles | Configured to shuttle infantry between forward staging areas. |
+| apcHalftrackCompany | APC Halftrack Company | units | 175000 | APC_Halftrack.png | 18 | 0 | 6/5/3 | 3 | 1000 | vehicle | 50 | 2 | 4 | 1 | 180 | 24 | 24 halftracks; Field repair trailer | Provides armored mobility for mechanized infantry detachments. |
+| supplyConvoy | Supply Convoy | units | 120000 | Supply_Truck.png | 0 | 0 | 3/2/2 | 1 | 1000 | vehicle | 70 | 0 | 6 | 0 | 180 | 30 | 30 supply trucks; Mobile depot staff | Carries mixed fuel, ammo, and ration loads for frontline sustainment. |
+| ammo | Ammunition Cache | supplies | 30000 | — | 0 | 0 | 0/0/0 | 0 | 0 | — | 0 | 0 | 0 | 0 | 48 | 12 | 12 ammunition trucks; Mobile storage tents | Dedicated to replenishing artillery and armored formations. |
+| fuel | Fuel Depot | supplies | 25000 | — | 0 | 0 | 0/0/0 | 0 | 0 | — | 0 | 0 | 0 | 0 | 42 | 14 | 14 tanker lorries; Pump assemblies | Supports mechanized units with forward refuel capability. |
+| medic | Medical Team | support | 60000 | — | 0 | 0 | 0/0/0 | 0 | 0 | — | 0 | 0 | 0 | 0 | 72 | 10 | 4 ambulance trucks; 6 field aid jeeps; Mobile surgical kits | Combines frontline aid posts with evacuation transport. |
+| transport | Transport Column | logistics | 70000 | — | 0 | 0 | 0/0/0 | 0 | 0 | — | 0 | 0 | 0 | 0 | 90 | 26 | 20 cargo trucks; 6 liaison jeeps | General-purpose lift that supplements dedicated supply convoys. |
+| maintenance | Maintenance Crew | logistics | 55000 | — | 0 | 0 | 0/0/0 | 0 | 0 | — | 0 | 0 | 0 | 0 | 84 | 18 | Mobile machine shop; Recovery crane; Spare parts trailers | Keeps armored and motorized assets serviceable near the front. |
+
+* **Cost** is denominated in precombat requisition credits and pulled from `unitAllocation.ts`.
+* **Sprite** references the underlying PNG asset in `src/assets/units/` as wired through `unitSpriteCatalog.ts`.
+* **Soft AT**, **Hard AT**, **Armor**, **Move**, **Fuel**, and **Ammo** are read from the canonical unit definitions in `unitTypes.json` via `unitCombatProfiles.ts`. Armor is displayed as front/side/top.
+* **Shots/T** and **Combat Class** surface the balance heuristics defined in `core/balance.ts` (`combat.damage.shotsPerTurn`). These represent the volleys a full-strength unit can deliver in a five-minute turn and the class key used by the combat resolver.
+* **Fuel/T** and **Ammo/Eng** are heuristic consumption estimates derived in `unitCombatProfiles.ts` to aid sustainment planning (fuel per tactical turn, ammo expended per major engagement).
+* **Personnel**, **Vehicles**, and **Equipment Summary** originate from `unitComposition.ts` and remain living estimates until the order of battle is finalized.
+
+Update this table whenever allocation options, unit definitions, or composition profiles change. The goal is to keep designers, UI, and data layers aligned on both mechanical stats and narrative framing.

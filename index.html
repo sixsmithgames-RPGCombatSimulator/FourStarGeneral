@@ -1,0 +1,4412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Four Star General</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-gradient: radial-gradient(circle at top, rgba(55, 74, 112, 0.75), rgba(9, 11, 17, 0.95));
+      --surface: rgba(16, 20, 30, 0.88);
+      --surface-muted: rgba(20, 26, 38, 0.86);
+      --text-primary: #f9fbff;
+      --text-muted: rgba(249, 251, 255, 0.58);
+      --accent-strong: #f5c46d;
+      --link-blue: #8ab4ff;
+      --panel-glass: rgba(10, 14, 22, 0.92);
+      --sidebar-width: 92px;
+      --activity-log-width: 320px;
+      --deployment-panel-width: 260px;
+      --toggle-radius: 1.25rem;
+      --scrollbar-track: rgba(255, 255, 255, 0.06);
+      --scrollbar-thumb: rgba(245, 196, 109, 0.5);
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-gradient);
+      min-height: 100vh;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #080a11;
+      color: var(--text-primary);
+    }
+    body {
+      background-image: var(--bg-gradient);
+      background-size: cover;
+      background-attachment: fixed;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+      padding: 2rem;
+    }
+    #app {
+      width: min(1280px, 100%);
+      height: min(800px, 100%);
+      background: rgba(9, 12, 20, 0.62);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 26px;
+      overflow: hidden;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 30px 80px rgba(5, 8, 16, 0.6);
+      display: flex;
+    }
+    .app-shell {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+    }
+    .screen {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 2.5rem 2.75rem;
+      gap: 2.5rem;
+      background: rgba(12, 16, 25, 0.82);
+      /* Ensure tall panels remain accessible by enabling internal scrolling when content exceeds the viewport. */
+      overflow-y: auto;
+    }
+    /* Screen entrance animation triggered by ScreenManager */
+    .screen.screen-entering {
+      animation: screenFadeIn 0.4s ease-out forwards;
+    }
+    @keyframes screenFadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .hidden {
+      display: none !important;
+    }
+    .landing-screen {
+      background: rgba(13, 18, 28, 0.86);
+    }
+    .landing-header {
+      display: grid;
+      gap: 0.75rem;
+      max-width: 720px;
+    }
+    .landing-header h1 {
+      margin: 0;
+      font-size: clamp(2.2rem, 3.6vw, 3.1rem);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .landing-header p {
+      margin: 0;
+      color: var(--text-muted);
+      line-height: 1.5;
+      font-size: 1rem;
+    }
+    .landing-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr);
+      gap: 2rem;
+      align-items: start;
+    }
+    .landing-secondary {
+      display: grid;
+      gap: 1.5rem;
+    }
+    /* Right column that stacks the primary selection panes (Operations, Campaigns). Pin to column 2 so both tiles share the same vertical flow. */
+    .landing-primary {
+      grid-column: 2;
+      display: grid;
+      gap: 1.5rem;
+    }
+    .status-summary {
+      display: grid;
+      gap: 1rem;
+      margin-top: 1.25rem;
+    }
+    .status-card {
+      background: rgba(7, 10, 16, 0.78);
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 1.2rem 1.4rem;
+      display: grid;
+      gap: 0.5rem;
+      color: var(--text-muted);
+    }
+    .status-card h3 {
+      margin: 0;
+      color: var(--text-primary);
+      font-size: 1.05rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .status-headline {
+      margin: 0;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: 0.04em;
+    }
+    .status-card p {
+      margin: 0;
+      line-height: 1.6;
+    }
+    .status-subtext {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      letter-spacing: 0.02em;
+    }
+    .general-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.65rem 1rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .general-detail-bonuses {
+      display: grid;
+      gap: 0.35rem;
+      margin: 0.65rem 0 0.2rem;
+      padding: 0;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .general-detail-bonus {
+      display: grid;
+      gap: 0.25rem;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      background: rgba(9, 12, 20, 0.6);
+    }
+    .general-detail-bonus-heading {
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin: 0 0 0.25rem;
+    }
+    .general-detail-bonus-copy {
+      margin: 0;
+      color: var(--text-primary);
+      font-size: 0.85rem;
+    }
+    .general-detail-grid dt {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+    .general-detail-grid dd {
+      margin: 0;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      color: var(--text-primary);
+    }
+    .pane {
+      background: rgba(10, 14, 22, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 18px;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+    }
+    .pane h2 {
+      margin: 0;
+      font-size: 1.35rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .mission-grid {
+      display: grid;
+      gap: 0.9rem;
+    }
+
+    /* Campaign selection tiles mirror mission buttons but live in their own grid for flexibility. */
+    .campaign-grid {
+      display: grid;
+      gap: 0.9rem;
+    }
+
+    .campaign-card {
+      display: grid;
+      gap: 0.35rem;
+      padding: 1rem 1.25rem;
+      background: rgba(12, 16, 24, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      text-align: left;
+      color: inherit;
+      cursor: pointer;
+      transition: border-color 160ms ease, box-shadow 160ms ease, transform 120ms ease;
+    }
+
+    .campaign-card strong {
+      font-size: 1.05rem;
+      letter-spacing: 0.02em;
+    }
+
+    .campaign-card span {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .campaign-card:hover,
+    .campaign-card:focus-visible,
+    .campaign-card.is-active {
+      border-color: rgba(245, 196, 109, 0.6);
+      box-shadow: 0 0 0 2px rgba(245, 196, 109, 0.16);
+      outline: none;
+      transform: translateY(-1px);
+    }
+
+    .campaign-card.is-disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .campaign-card.is-disabled:hover,
+    .campaign-card.is-disabled:focus-visible {
+      border-color: rgba(255, 255, 255, 0.08);
+      box-shadow: none;
+      transform: none;
+    }
+    .mission-button {
+      padding: 0.95rem 1.2rem;
+      border-radius: 14px;
+      border: 1px solid rgba(245, 196, 109, 0.35);
+      background: linear-gradient(135deg, rgba(245, 196, 109, 0.18), rgba(14, 16, 24, 0.25));
+      color: var(--text-primary);
+      font-size: 1rem;
+      font-weight: 600;
+      text-align: left;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border 0.2s ease;
+      cursor: pointer;
+    }
+    .mission-button.is-disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    .mission-button span {
+      display: block;
+      margin-top: 0.35rem;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+    .mission-button:hover,
+    .mission-button:focus-visible {
+      transform: translateY(-4px);
+      box-shadow: 0 18px 40px rgba(245, 196, 109, 0.22);
+      border-color: var(--accent-strong);
+      outline: none;
+    }
+    .mission-button.is-active {
+      border-color: var(--accent-strong);
+      box-shadow: 0 16px 38px rgba(245, 196, 109, 0.28);
+      background: linear-gradient(135deg, rgba(245, 196, 109, 0.35), rgba(12, 12, 14, 0.1));
+    }
+    .allocation-item header,
+    .deployment-item {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .allocation-visual,
+    .deployment-visual {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.04);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .allocation-thumb,
+    .deployment-thumb {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .allocation-fallback,
+    .deployment-fallback {
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: 0.08em;
+      color: var(--accent-strong);
+    }
+    .allocation-copy {
+      display: grid;
+      gap: 0.35rem;
+    }
+    .allocation-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .allocation-title-row h4 {
+      margin: 0;
+      font-size: 1.05rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      flex: 1;
+    }
+    .allocation-meta {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.35rem;
+      text-align: center;
+    }
+    .allocation-cost {
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .allocation-quantity {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+      padding: 0.2rem 0.5rem;
+      background: rgba(9, 12, 20, 0.7);
+    }
+    .allocation-quantity .allocation-count {
+      min-width: 1.5rem;
+      text-align: center;
+      font-weight: 600;
+    }
+    .deployment-item-title,
+    .deployment-item-meta {
+      display: block;
+    }
+    .status-panel {
+      background: rgba(8, 11, 18, 0.88);
+      border-radius: 16px;
+      padding: 1rem 1.25rem;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+    }
+    .form-grid {
+      display: grid;
+      gap: 1.1rem;
+    }
+    .general-roster {
+      display: grid;
+      gap: 0.85rem;
+      padding: 1rem;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(9, 12, 20, 0.72);
+    }
+    .general-selection-actions {
+      display: grid;
+      gap: 0.5rem;
+    }
+    .general-selection-actions.hidden {
+      display: none;
+    }
+    .general-selection-buttons {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .commissioning-benefits {
+      display: grid;
+      gap: 0.75rem;
+      padding: 0.85rem 1rem;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(8, 11, 18, 0.7);
+    }
+    .commissioning-benefits__content {
+      display: grid;
+      gap: 0.6rem;
+    }
+    .commissioning-benefits__placeholder {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+    .commissioning-benefit {
+      display: grid;
+      gap: 0.25rem;
+      padding: 0.5rem 0.65rem;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(9, 12, 20, 0.6);
+    }
+    .commissioning-benefit__heading {
+      margin: 0;
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .commissioning-benefit__summary,
+    .commissioning-benefit__stats {
+      margin: 0;
+      font-size: 0.88rem;
+      color: var(--text-primary);
+    }
+    .commissioning-benefits__legend {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 0.75rem;
+      display: grid;
+      gap: 0.45rem;
+    }
+    .commissioning-benefits__legend h4 {
+      margin: 0;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .commissioning-benefits__legend ul {
+      margin: 0;
+      padding-left: 1.1rem;
+      display: grid;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .commissioning-benefits__legend li {
+      line-height: 1.4;
+    }
+    .general-selection-status {
+      margin: 0;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+    }
+    .general-roster-empty {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    .general-roster-list {
+      display: grid;
+      gap: 1rem;
+    }
+    .general-roster-card {
+      display: grid;
+      gap: 0.75rem;
+      padding: 1rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: rgba(7, 10, 16, 0.8);
+    }
+    .general-roster-card.is-selected {
+      border-color: var(--accent-strong);
+      box-shadow: 0 14px 32px rgba(245, 196, 109, 0.2);
+    }
+    .general-profile {
+      display: grid;
+      gap: 1.5rem;
+    }
+    .general-profile__header {
+      display: grid;
+      grid-template-columns: minmax(0, 160px) minmax(0, 1fr);
+      gap: 1.5rem;
+      align-items: center;
+    }
+    .general-profile__portrait {
+      width: 160px;
+      height: 160px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.06);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      font-size: 3rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--accent-strong);
+    }
+    .general-profile__summary {
+      margin: 0.25rem 0 0;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+    .general-profile__stats {
+      display: grid;
+      gap: 0.6rem 1.25rem;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      margin: 0;
+    }
+    .general-profile__stats dt {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin: 0;
+    }
+    .general-profile__stats dd {
+      margin: 0;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .general-profile__section {
+      display: grid;
+      gap: 0.85rem;
+      padding: 1.25rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      background: rgba(9, 12, 20, 0.6);
+    }
+    .general-profile__section h4 {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .general-profile__traits {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .general-profile__traits li {
+      padding: 0.4rem 0.75rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      font-size: 0.9rem;
+      color: var(--accent-strong);
+      background: rgba(245, 196, 109, 0.08);
+    }
+    .general-profile__directives {
+      margin: 0;
+      padding-left: 1.25rem;
+      display: grid;
+      gap: 0.75rem;
+    }
+    .general-profile__directives li {
+      line-height: 1.55;
+      color: var(--text-primary);
+    }
+    .general-profile__history {
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+    .general-profile__empty {
+      list-style: none;
+      color: var(--text-muted);
+    }
+    .general-roster-details {
+      display: grid;
+      gap: 0.4rem;
+    }
+    .general-roster-details h3 {
+      margin: 0;
+      font-size: 1.15rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .general-roster-details p {
+      margin: 0;
+      color: var(--text-muted);
+      line-height: 1.45;
+      font-size: 0.9rem;
+    }
+    .general-roster-summary-block {
+      display: grid;
+      gap: 0.5rem;
+    }
+    .general-roster-summary {
+      margin: 0;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .general-roster-actions {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .danger-button {
+      padding: 0.85rem 1.1rem;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 95, 109, 0.45);
+      background: rgba(64, 12, 18, 0.8);
+      color: #ff9aa6;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: transform 0.2s ease, border 0.2s ease, background 0.2s ease;
+    }
+    .danger-button:hover,
+    .danger-button:focus-visible {
+      transform: translateY(-2px);
+      border-color: rgba(255, 143, 154, 0.8);
+      background: rgba(115, 18, 29, 0.86);
+      outline: none;
+    }
+    .form-grid.hidden {
+      display: none;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    label {
+      display: grid;
+      gap: 0.45rem;
+      font-size: 0.95rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    input[type="text"],
+    select {
+      padding: 0.95rem 1.1rem;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(9, 12, 22, 0.88);
+      color: var(--text-primary);
+      font-size: 1rem;
+      transition: border 0.2s ease, box-shadow 0.2s ease;
+    }
+    input[type="text"]:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(245, 196, 109, 0.22);
+    }
+    .primary-button {
+      padding: 0.85rem 1.2rem;
+      border-radius: 16px;
+      border: none;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: var(--text-primary);
+      font-weight: 700;
+      font-size: 0.92rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .primary-button:hover,
+    .primary-button:focus-visible {
+      transform: translateY(-2px);
+      box-shadow: 0 16px 35px rgba(245, 196, 109, 0.32);
+      outline: none;
+    }
+    .secondary-button {
+      padding: 0.8rem 1.1rem;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: transparent;
+      color: var(--text-primary);
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: transform 0.2s ease, border 0.2s ease;
+    }
+    .secondary-button:hover,
+    .secondary-button:focus-visible {
+      transform: translateY(-2px);
+      border-color: var(--accent-strong);
+      outline: none;
+    }
+
+    /* Compact controls support secondary actions (like auto-deploy presets) without overwhelming the panel header. */
+    .compact-button {
+      padding: 0.45rem 0.75rem;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(15, 20, 32, 0.6);
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: transform 0.2s ease, border 0.2s ease, background 0.2s ease;
+    }
+
+    .compact-button:hover,
+    .compact-button:focus-visible {
+      transform: translateY(-1px);
+      border-color: var(--accent-strong);
+      background: rgba(30, 42, 68, 0.85);
+      outline: none;
+    }
+    .primary-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+      box-shadow: none;
+      transform: none;
+    }
+    .feedback {
+      min-height: 40px;
+      color: var(--accent-strong);
+      font-size: 0.98rem;
+      letter-spacing: 0.03em;
+    }
+    .landing-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+      margin-top: 1.75rem;
+    }
+    .landing-footer .primary-button {
+      min-width: 240px;
+    }
+    .difficulty-selector {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .difficulty-selector label {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin: 0;
+    }
+    .difficulty-selector select {
+      padding: 0.5rem 0.85rem;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(9, 12, 22, 0.88);
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .difficulty-selector select:hover,
+    .difficulty-selector select:focus {
+      border-color: var(--accent-strong);
+      box-shadow: 0 0 0 2px rgba(245, 196, 109, 0.18);
+      outline: none;
+    }
+    .difficulty-selector select option {
+      background: rgba(9, 12, 22, 0.95);
+      color: var(--text-primary);
+    }
+    .screen-content {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 2.2rem;
+    }
+    .precombat-screen .screen-content {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding-bottom: 2rem;
+    }
+    .precombat-screen {
+      background: rgba(11, 14, 23, 0.9);
+    }
+    .precombat-toolbar {
+      display: grid;
+      grid-template-columns: auto auto auto;
+      align-items: center;
+      gap: 1.25rem;
+      width: 100%;
+    }
+    .precombat-toolbar-button-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      white-space: nowrap;
+    }
+    .precombat-toolbar button {
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    /* Base camp marker styling ensures the sprite stays visible above terrain and units. */
+    .base-camp-marker {
+      pointer-events: none;
+      image-rendering: crisp-edges;
+      filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.85)) drop-shadow(0 0 4px rgba(245, 196, 109, 0.65));
+    }
+    .precombat-toolbar-budget {
+      justify-self: center;
+    }
+    .precombat-summary {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.35rem 0 0.5rem;
+      flex-wrap: nowrap;
+      width: 100%;
+      overflow: hidden;
+    }
+    .precombat-summary h2 {
+      margin: 0;
+      font-size: 1.55rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      flex: 0 0 auto;
+      max-width: 32%;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+    }
+    .precombat-summary p {
+      margin: 0;
+      color: var(--text-muted);
+      line-height: 1.1;
+      white-space: nowrap;
+      font-size: 0.85rem;
+      letter-spacing: 0.03em;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+    }
+    .precombat-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.75rem;
+      padding: 1.25rem 0;
+      background: linear-gradient(180deg, rgba(11, 14, 23, 0.95) 0%, rgba(11, 14, 23, 0.4) 100%);
+      backdrop-filter: blur(6px);
+    }
+    .precombat-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1.5rem;
+      width: 100%;
+    }
+    .precombat-title {
+      display: contents;
+    }
+    .precombat-subtitle {
+      margin: 0;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+    .precombat-topbar {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: nowrap;
+    }
+    .topbar-budget {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.2rem 0.75rem;
+      padding: 0.75rem 1rem;
+      border-radius: 16px;
+      background: rgba(9, 12, 20, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      align-items: center;
+    }
+    #precombatBudgetPanel {
+      transition: border 0.24s ease, box-shadow 0.24s ease, transform 0.24s ease;
+    }
+    #precombatBudgetPanel[data-state="within-budget"] {
+      border-color: rgba(245, 196, 109, 0.45);
+      box-shadow: 0 0 18px rgba(245, 196, 109, 0.2);
+    }
+    #precombatBudgetPanel[data-state="over-budget"] {
+      border-color: rgba(255, 138, 128, 0.65);
+      box-shadow: 0 0 24px rgba(255, 138, 128, 0.32);
+      transform: translateY(-1px);
+    }
+    #precombatBudgetPanel[data-state="over-budget"] .budget-value {
+      color: #ff9aa6;
+    }
+    #allocationFeedback.feedback--warning {
+      color: #ff9aa6;
+      font-weight: 600;
+    }
+    #allocationFeedback.feedback--ready {
+      color: var(--accent-strong);
+      font-weight: 600;
+    }
+    .topbar-budget .budget-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      grid-row: 1 / span 2;
+      align-self: start;
+    }
+    .topbar-budget .budget-value {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-align: right;
+    }
+    .topbar-budget.budget-negative {
+      border-color: rgba(255, 138, 128, 0.65);
+      box-shadow: 0 0 20px rgba(255, 138, 128, 0.2);
+    }
+    .topbar-budget.budget-negative .budget-value {
+      color: #ff9aa6;
+    }
+    .precombat-screen .screen-content {
+      display: grid;
+      gap: 2.5rem;
+    }
+    .precombat-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+      gap: 2rem;
+      align-items: start;
+    }
+    .predeployed-panel {
+      margin-top: 1.75rem;
+      background: rgba(8, 11, 19, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 1.25rem;
+      display: grid;
+      gap: 0.75rem;
+    }
+    .predeployed-panel h3 {
+      margin: 0;
+      font-size: 1.1rem;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    .predeployed-summary {
+      margin: 0;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+    .predeployed-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.5rem;
+    }
+    .predeployed-list li {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.45rem 0.65rem;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .predeployed-label {
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    .predeployed-count {
+      font-variant-numeric: tabular-nums;
+      color: var(--accent);
+    }
+    .allocation-lock {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      background: rgba(245, 196, 109, 0.12);
+      border: 1px solid rgba(245, 196, 109, 0.4);
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--accent-strong);
+    }
+    .precombat-info {
+      display: grid;
+      gap: 1.5rem;
+    }
+    .precombat-info h2 {
+      margin: 0;
+      font-size: 1.6rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .precombat-info p {
+      margin: 0;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .info-block {
+      background: rgba(9, 12, 20, 0.88);
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 1.25rem 1.5rem;
+      display: grid;
+      gap: 0.5rem;
+    }
+    .info-block strong {
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .precombat-overview {
+      display: grid;
+      gap: 1.5rem;
+      align-content: start;
+    }
+    .map-card .map-preview {
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      max-height: none;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(4, 7, 14, 0.9);
+      display: grid;
+      place-items: center;
+    }
+    .mini-map-canvas {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+    }
+
+    /* Campaign map viewport stays scrollable so the strategic illustration keeps its native scale
+       (≈5 km per hex) and commanders can pan to inspect the entire theater without shrinking art. */
+    .campaign-map-viewport {
+      width: 100%;
+      flex: 1;
+      max-height: 80vh;
+      overflow: auto;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(4, 7, 14, 0.9);
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-start;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+      min-height: 0;
+    }
+
+    .campaign-map-canvas {
+      position: relative;
+      display: inline-block;
+      min-width: min-content;
+      min-height: min-content;
+    }
+
+    .campaign-map-viewport::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    .campaign-map-viewport::-webkit-scrollbar-thumb {
+      background: rgba(140, 160, 200, 0.25);
+      border-radius: 999px;
+    }
+
+    .campaign-map-viewport::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .campaign-map-viewport::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+    /* Campaign hex overlay: selection and origin highlights */
+    .campaign-hex polygon {
+      transition: fill 120ms ease, stroke 120ms ease, stroke-width 120ms ease;
+    }
+    .campaign-hex.selected polygon {
+      fill: rgba(91, 192, 255, 0.18);
+      stroke: #5bc0ff;
+      stroke-width: 1.5;
+    }
+    .campaign-hex.origin polygon {
+      fill: rgba(245, 196, 109, 0.18);
+      stroke: #f5c46d;
+      stroke-width: 1.5;
+    }
+    .campaign-hex.bulk-terrain polygon {
+      fill: rgba(245, 196, 109, 0.12);
+      stroke: rgba(245, 196, 109, 0.85);
+      stroke-width: 1.25;
+    }
+    /* Front lines slightly thinner and more transparent for readability over map */
+    .campaign-front {
+      filter: drop-shadow(0 1px 0 rgba(0,0,0,0.35));
+      opacity: 0.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    /* Campaign layout: sidebar on left, map on right */
+    .campaign-layout {
+      display: flex;
+      flex-direction: row;
+      gap: 1.5rem;
+      height: 100vh;
+      max-height: 100vh;
+      align-items: stretch;
+      overflow: hidden;
+    }
+    .campaign-sidebar {
+      order: -1;
+      min-width: 280px;
+      max-width: 300px;
+      width: 300px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      padding: 1rem 0.875rem;
+      background: linear-gradient(165deg, rgba(12, 16, 24, 0.92) 0%, rgba(8, 12, 18, 0.95) 100%);
+      border: 1px solid rgba(100, 120, 160, 0.25);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      flex-shrink: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      max-height: 100vh;
+    }
+    /* Scrollbar styling for sidebar */
+    .campaign-sidebar::-webkit-scrollbar {
+      width: 8px;
+    }
+    .campaign-sidebar::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 4px;
+    }
+    .campaign-sidebar::-webkit-scrollbar-thumb {
+      background: rgba(100, 120, 160, 0.4);
+      border-radius: 4px;
+    }
+    .campaign-sidebar::-webkit-scrollbar-thumb:hover {
+      background: rgba(100, 120, 160, 0.6);
+    }
+
+    /* Sidebar Sections */
+    .sidebar-section {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 0.75rem 0.875rem;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 8px;
+      transition: all 0.2s ease;
+    }
+    .sidebar-section:hover {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Sidebar Headings */
+    .sidebar-heading {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(200, 220, 255, 0.9);
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .heading-icon {
+      font-size: 1em;
+      opacity: 0.8;
+    }
+
+    /* Time Section */
+    .time-display-container {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .time-display {
+      font-size: 1.05em;
+      font-weight: 700;
+      text-align: center;
+      padding: 0.6rem;
+      background: linear-gradient(135deg, rgba(60, 90, 150, 0.25) 0%, rgba(40, 60, 100, 0.25) 100%);
+      border: 1px solid rgba(100, 150, 255, 0.3);
+      border-radius: 6px;
+      color: rgba(200, 230, 255, 1);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+      letter-spacing: 0.02em;
+    }
+    .time-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .time-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 6px;
+      color: rgba(255, 255, 255, 0.85);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .time-btn:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: translateY(-1px);
+    }
+    .time-btn:active:not(:disabled) {
+      transform: translateY(0);
+    }
+    .time-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .time-btn-primary {
+      background: linear-gradient(135deg, rgba(60, 160, 80, 0.4) 0%, rgba(40, 120, 60, 0.4) 100%);
+      border-color: rgba(80, 200, 100, 0.5);
+      color: rgba(220, 255, 220, 1);
+    }
+    .time-btn-primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, rgba(80, 180, 100, 0.5) 0%, rgba(60, 140, 80, 0.5) 100%);
+      border-color: rgba(100, 220, 120, 0.6);
+    }
+    .btn-icon {
+      font-size: 1em;
+    }
+    .btn-label {
+      font-size: 0.85em;
+    }
+    .speed-controls {
+      display: flex;
+      gap: 0.3rem;
+    }
+    .speed-btn {
+      flex: 1;
+      padding: 0.4rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 5px;
+      color: rgba(255, 255, 255, 0.6);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .speed-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.85);
+    }
+    .speed-btn.active {
+      background: linear-gradient(135deg, rgba(255, 180, 60, 0.3) 0%, rgba(220, 140, 40, 0.3) 100%);
+      border-color: rgba(255, 200, 80, 0.5);
+      color: rgba(255, 240, 200, 1);
+    }
+
+    /* Map Controls */
+    .control-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.35rem;
+    }
+    .control-btn {
+      padding: 0.45rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 5px;
+      color: rgba(255, 255, 255, 0.8);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .control-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.25);
+      transform: translateY(-1px);
+    }
+    .control-btn-wide {
+      grid-column: 1 / -1;
+    }
+    .pan-controls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+      margin-top: 0.35rem;
+    }
+    .pan-row {
+      display: flex;
+      gap: 0.25rem;
+    }
+    .pan-btn {
+      width: 2rem;
+      height: 2rem;
+      padding: 0;
+      font-size: 0.95rem;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 5px;
+      color: rgba(255, 255, 255, 0.8);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .pan-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    /* Session Controls */
+    .session-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.35rem;
+    }
+    .session-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 5px;
+      color: rgba(255, 255, 255, 0.85);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .session-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.25);
+      transform: translateY(-1px);
+    }
+    .session-btn-exit {
+      background: rgba(200, 60, 60, 0.2);
+      border-color: rgba(255, 100, 100, 0.3);
+    }
+    .session-btn-exit:hover {
+      background: rgba(220, 80, 80, 0.3);
+      border-color: rgba(255, 120, 120, 0.4);
+    }
+
+    /* Selection Info */
+    .selection-info {
+      min-height: 2.5rem;
+      padding: 0.6rem;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    /* Engagement Button */
+    .action-section {
+      padding: 0 0.875rem 0.5rem;
+    }
+    .engagement-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: linear-gradient(135deg, rgba(200, 60, 60, 0.4) 0%, rgba(160, 40, 40, 0.4) 100%);
+      border: 2px solid rgba(255, 100, 100, 0.5);
+      border-radius: 8px;
+      color: rgba(255, 220, 220, 1);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(200, 60, 60, 0.3);
+    }
+    .engagement-btn:hover:not(:disabled) {
+      background: linear-gradient(135deg, rgba(220, 80, 80, 0.5) 0%, rgba(180, 60, 60, 0.5) 100%);
+      border-color: rgba(255, 120, 120, 0.6);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(200, 60, 60, 0.4);
+    }
+    .engagement-btn:active:not(:disabled) {
+      transform: translateY(0);
+    }
+    .engagement-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .campaign-map {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      overflow: hidden;
+    }
+    .campaign-map h2 {
+      margin: 0;
+      font-size: 1.2rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    #precombatHexMap {
+      width: 100%;
+      height: 100%;
+      display: block;
+      pointer-events: none;
+    }
+    .map-card svg {
+      width: 100%;
+      height: 100%;
+    }
+    .theater-card {
+      gap: 0.75rem;
+    }
+    .theater-card p {
+      margin: 0;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+    .allocation-panel {
+      grid-column: 1 / -1;
+    }
+    .allocation-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--allocation-gap);
+      grid-template-areas:
+        "units supplies"
+        "units support"
+        "units logistics";
+      align-items: start;
+    }
+    .allocation-section {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      background: var(--allocation-bg);
+      border-radius: 20px;
+      border: 1px solid var(--allocation-border);
+      padding: 1.5rem;
+      height: 420px;
+    }
+    .allocation-section--units {
+      grid-area: units;
+    }
+    .allocation-section--supplies {
+      grid-area: supplies;
+    }
+    .allocation-section--support {
+      grid-area: support;
+    }
+    .allocation-section--logistics {
+      grid-area: logistics;
+    }
+    .allocation-section header h3 {
+      margin: 0;
+      font-size: 1.1rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .allocation-section header p {
+      margin: 0.4rem 0 0;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .allocation-section header {
+      flex-shrink: 0;
+    }
+    .allocation-items {
+      display: grid;
+      gap: 1rem;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      flex: 1 1 auto;
+      overflow-y: auto;
+      scrollbar-width: thin;
+    }
+    .allocation-items::-webkit-scrollbar {
+      width: 6px;
+    }
+    .allocation-items::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 999px;
+    }
+    .allocation-items::-webkit-scrollbar-thumb {
+      background: rgba(245, 196, 109, 0.35);
+      border-radius: 999px;
+    }
+    .allocation-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.85rem 1rem;
+      background: var(--allocation-item-bg);
+      border: 1px solid var(--allocation-item-border);
+      border-radius: 16px;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+      transition: border 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    }
+    .allocation-item:hover {
+      border-color: var(--accent);
+      box-shadow: 0 16px 36px rgba(5, 8, 16, 0.35);
+      transform: translateY(-1px);
+    }
+    .allocation-info {
+      display: grid;
+      gap: 0.35rem;
+    }
+    .allocation-info strong {
+      font-size: 1.02rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .allocation-cost {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .allocation-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .allocation-btn {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      border: 1px solid var(--border-soft);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-primary);
+      font-size: 1.35rem;
+      font-weight: 600;
+      transition: background 0.16s ease, border 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+    }
+    .allocation-btn:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .allocation-btn:focus-visible {
+      outline: 2px solid transparent;
+      box-shadow: 0 0 0 3px var(--allocation-focus-ring), 0 10px 24px var(--allocation-focus-glow);
+      border-color: var(--accent-strong);
+      transform: translateY(-1px);
+    }
+    .allocation-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    .allocation-quantity {
+      min-width: 3ch;
+      text-align: center;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .allocation-total {
+      font-weight: 600;
+      color: var(--accent);
+      text-align: right;
+      letter-spacing: 0.04em;
+    }
+    @media (max-width: 1440px) {
+      .allocation-grid {
+        gap: 1.25rem;
+        grid-template-areas:
+          "units units"
+          "supplies support"
+          "logistics logistics";
+      }
+    }
+    @media (max-width: 1180px) {
+      .allocation-grid {
+        gap: 1.25rem;
+      }
+    }
+    @media (max-width: 1024px) {
+      .allocation-grid {
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        grid-template-areas:
+          "units"
+          "supplies"
+          "support"
+          "logistics";
+      }
+    }
+    @media (max-width: 960px) {
+      .precombat-heading {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+      }
+      .precombat-topbar {
+        width: 100%;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+      }
+      .allocation-grid {
+        gap: 1.25rem;
+      }
+    }
+    .objective-list {
+      margin: 0;
+      padding-left: 1.1rem;
+      display: grid;
+      gap: 0.4rem;
+      color: var(--text-muted);
+    }
+    .turn-limit {
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--text-primary);
+    }
+    #precombatHexMap {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .precombat-warning-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(7, 10, 17, 0.86);
+      display: grid;
+      place-items: center;
+      z-index: 40;
+      padding: 2rem;
+      backdrop-filter: blur(12px);
+      animation: allocationOverlayIn 0.28s ease;
+    }
+    .warning-dialog {
+      width: min(520px, 100%);
+      background: rgba(12, 16, 25, 0.94);
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 2rem;
+      display: grid;
+      gap: 1.5rem;
+      box-shadow: 0 18px 48px rgba(7, 10, 17, 0.55);
+      animation: allocationModalIn 0.3s ease;
+    }
+    .warning-dialog-header {
+      display: grid;
+      gap: 0.5rem;
+    }
+    .warning-dialog h2 {
+      margin: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 1.2rem;
+    }
+    .warning-dialog p {
+      margin: 0;
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+    .warning-dialog-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      justify-content: flex-end;
+    }
+    #allocationWarningModal {
+      display: grid;
+      gap: 1.5rem;
+    }
+    .battle-ui {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) 1fr;
+      grid-template-rows: 1fr auto;
+      grid-template-areas:
+        "sidebar main"
+        "sidebar loadout";
+      height: 100%;
+      width: 100%;
+    }
+    .control-sidebar {
+      width: var(--sidebar-width);
+      background: rgba(8, 11, 19, 0.9);
+      border-right: 1px solid rgba(255, 255, 255, 0.04);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.25rem 0.75rem;
+      gap: 0.75rem;
+    }
+    .battle-main {
+      grid-area: main;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) var(--activity-log-width) var(--deployment-panel-width);
+      transition: grid-template-columns 0.25s ease;
+      position: relative;
+      align-items: stretch;
+      height: 100%;
+      min-height: 0;
+    }
+    .battle-main[data-panel-collapsed="true"] {
+      grid-template-columns: minmax(0, 1fr) var(--activity-log-width);
+    }
+    .battle-main[data-activity-collapsed="true"] {
+      grid-template-columns: minmax(0, 1fr) 0 var(--deployment-panel-width);
+    }
+    .battle-main[data-panel-collapsed="true"][data-activity-collapsed="true"] {
+      grid-template-columns: minmax(0, 1fr) 0;
+    }
+    .battle-loadout {
+      grid-area: loadout;
+      background: rgba(8, 11, 19, 0.78);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 1rem 1.25rem;
+    }
+    .sidebar-button {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border: 1px solid transparent;
+      border-radius: 18px;
+      background: var(--surface-muted);
+      color: var(--text-primary);
+      display: grid;
+      place-items: center;
+      gap: 0.25rem;
+      padding: 0.4rem;
+      font-size: 1.35rem;
+      cursor: pointer;
+      transition: transform 0.18s ease, border 0.18s ease, box-shadow 0.18s ease;
+    }
+    .sidebar-button .label {
+      font-size: 0.65rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .sidebar-button:hover,
+    .sidebar-button:focus-visible {
+      border-color: rgba(245, 196, 109, 0.6);
+      box-shadow: 0 8px 20px rgba(245, 196, 109, 0.28);
+      transform: translateY(-2px);
+      outline: none;
+    }
+    .sidebar-button.is-active {
+      border-color: var(--accent-strong);
+      box-shadow: 0 12px 28px rgba(245, 196, 109, 0.32);
+      background: rgba(245, 196, 109, 0.15);
+    }
+    .map-shell {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: rgba(12, 16, 24, 0.82);
+      position: relative;
+      min-height: 0;
+    }
+    /* Keep the battlefield pane stretched so the SVG renderer always receives a positive viewport size. */
+    .battle-map-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .deployment-toggle-floating {
+      position: absolute;
+      top: 1rem;
+      right: calc(var(--deployment-panel-width) - var(--toggle-radius));
+      display: grid;
+      place-items: center;
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(20, 26, 36, 0.82);
+      color: var(--text-primary);
+      font-size: 1.25rem;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.2s ease;
+    }
+    .deployment-toggle-floating:hover,
+    .deployment-toggle-floating:focus-visible {
+      background: rgba(245, 196, 109, 0.25);
+      transform: translateY(-1px);
+      outline: none;
+    }
+    .battle-main[data-panel-collapsed="true"] .deployment-toggle-floating {
+      right: calc(-1 * var(--toggle-radius));
+    }
+    .battle-main[data-activity-collapsed="true"] .deployment-toggle-floating {
+      right: calc(var(--deployment-panel-width) - var(--toggle-radius));
+    }
+    .battle-main[data-panel-collapsed="true"][data-activity-collapsed="true"] .deployment-toggle-floating {
+      right: calc(-1 * var(--toggle-radius));
+    }
+    .activity-toggle-floating {
+      position: absolute;
+      top: 1rem;
+      right: calc(var(--deployment-panel-width) + var(--activity-log-width) - var(--toggle-radius));
+      display: grid;
+      place-items: center;
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(20, 26, 36, 0.82);
+      color: var(--text-primary);
+      font-size: 1.25rem;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.2s ease;
+      z-index: 9;
+    }
+    .activity-toggle-floating:hover,
+    .activity-toggle-floating:focus-visible {
+      background: rgba(245, 196, 109, 0.25);
+      transform: translateY(-1px);
+      outline: none;
+    }
+    .battle-main[data-panel-collapsed="true"] .activity-toggle-floating {
+      right: calc(var(--activity-log-width) - var(--toggle-radius));
+    }
+    .battle-main[data-activity-collapsed="true"] .activity-toggle-floating {
+      right: calc(var(--deployment-panel-width) - var(--toggle-radius));
+    }
+    .battle-main[data-panel-collapsed="true"][data-activity-collapsed="true"] .activity-toggle-floating {
+      right: calc(-1 * var(--toggle-radius));
+    }
+    .battle-activity-log[data-activity-collapsed="true"] {
+      opacity: 0;
+      pointer-events: none;
+      width: 0;
+      min-width: 0;
+      padding: 0;
+      border-left: none;
+      overflow: hidden;
+    }
+    .battle-activity-log[data-activity-collapsed="true"] .battle-activity-log__scroll {
+      padding: 0;
+      border-width: 0;
+    }
+    .battle-activity-log[data-activity-collapsed="true"] .battle-activity-log__header,
+    .battle-activity-log[data-activity-collapsed="true"] .battle-activity-log__empty {
+      display: none;
+    }
+
+    .battle-intel-overlay {
+      position: absolute;
+      top: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.35rem 0.85rem;
+      background: rgba(12, 16, 26, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      color: var(--text-primary);
+      font-size: 0.85rem;
+      line-height: 1.2;
+      max-width: calc(100% - 2rem);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      z-index: 30;
+      box-shadow: 0 16px 32px rgba(4, 6, 12, 0.4);
+    }
+    .battle-intel-overlay.hidden {
+      display: none;
+    }
+    .battle-intel-overlay__dismiss {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0;
+      line-height: 1;
+    }
+    .battle-intel-overlay__dismiss:focus-visible {
+      outline: 2px solid var(--accent-strong);
+      outline-offset: 2px;
+    }
+    .battle-intel-overlay__header {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      margin: 0;
+    }
+    .battle-intel-overlay__title {
+      display: none;
+    }
+    .battle-intel-overlay__meta {
+      margin: 0;
+    }
+    #battleIntelOverlayBody,
+    #battleIntelOverlayNotes {
+      display: none !important;
+    }
+    .map-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.6rem 0.9rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    /* Battlefield header condenses to a single row so the map retains vertical space. */
+    .battle-map-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.5rem 0.75rem;
+      min-height: 0;
+    }
+    .battle-map-header__primary {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      min-width: 0;
+    }
+    .battle-map-title {
+      margin: 0;
+      font-size: 1.35rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .turn-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+    .battle-map-header__actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+    .map-pan-grid {
+      display: grid;
+      grid-template-columns: repeat(3, auto);
+      grid-template-rows: repeat(3, auto);
+      gap: 0.15rem;
+      align-items: center;
+      justify-items: center;
+    }
+    .map-pan-grid .map-control-button {
+      min-width: 24px;
+      height: 24px;
+      font-size: 0.7rem;
+    }
+    .map-pan-grid .map-control-button[data-pan="up"] {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .map-pan-grid .map-control-button[data-pan="left"] {
+      grid-column: 1;
+      grid-row: 2;
+    }
+    .map-pan-grid .map-control-button[data-pan="down"] {
+      grid-column: 2;
+      grid-row: 3;
+    }
+    .map-pan-grid .map-control-button[data-pan="right"] {
+      grid-column: 3;
+      grid-row: 2;
+    }
+    .map-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(11, 15, 23, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 999px;
+      padding: 0.35rem 0.5rem;
+    }
+    .tool-button {
+      border: none;
+      background: rgba(21, 28, 40, 0.92);
+      color: var(--text-primary);
+      border-radius: 14px;
+      padding: 0.45rem 0.8rem;
+      font-size: 0.8rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: transform 0.18s ease, background 0.18s ease;
+    }
+    .tool-button:hover,
+    .tool-button:focus-visible {
+      background: rgba(245, 196, 109, 0.2);
+      transform: translateY(-1px);
+      outline: none;
+    }
+    .battle-briefing {
+      padding: 1.5rem 1.75rem;
+      display: grid;
+      gap: 1.25rem;
+      background: rgba(8, 11, 19, 0.78);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      max-height: 40vh;
+      overflow-y: auto;
+    }
+    .battle-briefing.is-collapsed {
+      display: none;
+    }
+    .map-viewport {
+      position: relative;
+      flex: 1;
+      background: rgba(5, 8, 15, 0.9);
+      border-radius: 22px;
+      overflow: hidden;
+    }
+    .battle-activity-log {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      background: rgba(8, 11, 19, 0.78);
+      border-left: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 1rem 1.15rem;
+      border-radius: 22px;
+      overflow: hidden;
+      width: var(--activity-log-width);
+      max-height: 100%;
+      min-height: 0;
+      align-self: stretch;
+    }
+    .battle-activity-log__header {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .battle-activity-log__title {
+      margin: 0;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .battle-activity-log__subtitle {
+      margin: 0;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+    }
+
+    .battle-activity-log__scroll {
+      flex: 1;
+      overflow-y: auto;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      background: rgba(12, 16, 24, 0.78);
+      padding: 0.85rem 1rem;
+      /* Allow the log list to scroll without stretching the parent panel. */
+      min-height: 0;
+    }
+
+    .battle-activity-log__list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .battle-activity-log__item {
+      display: grid;
+      gap: 0.45rem;
+      padding-bottom: 0.45rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .battle-activity-log__item:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .battle-activity-log__meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      align-items: baseline;
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .battle-activity-log__timestamp {
+      font-weight: 600;
+      color: var(--accent-strong);
+    }
+
+    .battle-activity-log__badge {
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      font-weight: 600;
+    }
+
+    .battle-activity-log__badge--player {
+      background: rgba(108, 198, 109, 0.28);
+      color: #9ee9a0;
+    }
+
+    .battle-activity-log__badge--enemy {
+      background: rgba(245, 124, 124, 0.28);
+      color: #ff9aa6;
+    }
+
+    .battle-activity-log__badge--system {
+      background: rgba(77, 182, 255, 0.24);
+      color: #9fd4ff;
+    }
+
+    .battle-activity-log__summary {
+      margin: 0;
+      font-size: 0.9rem;
+      line-height: 1.45;
+      letter-spacing: 0.02em;
+    }
+
+    .battle-activity-log__empty {
+      margin: 0;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      letter-spacing: 0.03em;
+    }
+    .map-canvas {
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      display: inline-block;
+    }
+    #hexMap {
+      display: block;
+    }
+    .popup-layer {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(8, 10, 16, 0.72);
+      padding: 2rem;
+      z-index: 20;
+    }
+    .popup-layer.hidden {
+      display: none;
+    }
+    .war-room-overlay {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(3, 6, 12, 0.85);
+      backdrop-filter: blur(4px);
+      z-index: 30;
+      padding: 2rem;
+    }
+    .war-room-overlay.hidden {
+      display: none;
+    }
+    .battle-dialog {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(8, 10, 16, 0.85);
+      backdrop-filter: blur(2px);
+      z-index: 40;
+      padding: 2rem;
+    }
+    .battle-dialog.hidden {
+      display: none;
+    }
+    .battle-dialog__surface {
+      position: relative;
+      width: min(580px, 90%);
+      max-height: 85vh;
+      background: linear-gradient(135deg, rgba(18, 22, 32, 0.98) 0%, rgba(12, 16, 24, 0.98) 100%);
+      border: 1px solid rgba(245, 196, 109, 0.3);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .battle-dialog__header {
+      padding: 1.5rem 2rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(245, 196, 109, 0.05);
+    }
+    .battle-dialog__header h2 {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--accent-strong);
+      letter-spacing: 0.02em;
+    }
+    .battle-dialog__body {
+      padding: 2rem;
+      overflow-y: auto;
+      flex: 1;
+      font-size: 1rem;
+      line-height: 1.6;
+    }
+    .battle-dialog__body p {
+      margin: 0 0 1rem 0;
+    }
+    .battle-dialog__body strong {
+      color: var(--accent-strong);
+      font-weight: 600;
+    }
+    .battle-dialog__footer {
+      padding: 1.5rem 2rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      gap: 1rem;
+      justify-content: flex-end;
+      background: rgba(0, 0, 0, 0.2);
+    }
+    /* Idle warning uses the same overlay treatment as other battle dialogs so it floats above the UI. */
+    .idle-warning-layer {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      background: rgba(1, 4, 12, 0.82);
+      backdrop-filter: blur(2px);
+      z-index: 50;
+    }
+    .idle-warning-layer.hidden {
+      display: none;
+    }
+    /* Provide standalone surface styling so the reminder reads as a modal dialog instead of sidebar content. */
+    .idle-warning-dialog {
+      width: min(520px, 92%);
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      padding: 2rem 2.5rem;
+      border-radius: 18px;
+      background: linear-gradient(145deg, rgba(18, 27, 44, 0.98), rgba(9, 13, 22, 0.95));
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 26px 60px rgba(0, 0, 0, 0.45);
+      color: var(--text-primary, #f8f9fb);
+    }
+    .idle-warning-header h3 {
+      margin: 0 0 0.25rem 0;
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--accent-strong, #f5c46d);
+    }
+    .idle-warning-header p {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: rgba(248, 249, 251, 0.85);
+    }
+    .idle-warning-list {
+      margin: 0;
+      padding-left: 1.35rem;
+      max-height: 32vh;
+      overflow-y: auto;
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+    .idle-warning-list li {
+      margin-bottom: 0.5rem;
+    }
+    .idle-warning-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .idle-warning-button {
+      min-width: 180px;
+      padding: 0.75rem 1.5rem;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: transform 120ms ease, box-shadow 120ms ease;
+    }
+    .idle-warning-button:focus-visible {
+      outline: 2px solid var(--accent-strong, #f5c46d);
+      outline-offset: 2px;
+    }
+    .idle-warning-button--primary {
+      background: var(--accent-strong, #f5c46d);
+      color: #141b2c;
+      box-shadow: 0 14px 30px rgba(245, 196, 109, 0.35);
+    }
+    .idle-warning-button--primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 18px 34px rgba(0, 0, 0, 0.35);
+    }
+    .idle-warning-button--secondary {
+      background: transparent;
+      color: rgba(248, 249, 251, 0.9);
+      border-color: rgba(248, 249, 251, 0.25);
+    }
+    .idle-warning-button--secondary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 14px 28px rgba(0, 0, 0, 0.3);
+    }
+    .war-room-surface {
+      position: relative;
+      width: min(1200px, 100%);
+      height: min(90vh, 720px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 48px 96px rgba(5, 8, 16, 0.55);
+      background: rgba(12, 16, 24, 0.92);
+      outline: none;
+    }
+    .war-room-image {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      filter: saturate(1.1) contrast(0.96);
+    }
+    .war-room-hotspot-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .war-room-hotspot {
+      position: absolute;
+      pointer-events: auto;
+      border: none;
+      background: rgba(245, 196, 109, 0.02);
+      box-sizing: border-box;
+      border-radius: 18px;
+      transition: background 0.2s ease;
+    }
+    .war-room-hotspot:hover,
+    .war-room-hotspot:focus-visible {
+      background: rgba(245, 196, 109, 0.08);
+      outline: none;
+    }
+    .war-room-close {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      z-index: 3;
+    }
+    /* Detail panel displays as a centered modal within the war room surface. */
+    .war-room-detail-panel {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(720px, 86%);
+      max-height: 82%;
+      background: rgba(12, 16, 24, 0.98);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
+      padding: 1rem 1.25rem 1.25rem 1.25rem;
+      overflow-y: auto;
+      z-index: 2;
+      color: var(--text-primary, #f8f9fb);
+    }
+    .war-room-detail-panel h3 {
+      margin: 0 2rem 0.35rem 0;
+      font-size: 1.25rem;
+      color: var(--accent-strong, #f5c46d);
+    }
+    .war-room-detail-panel p {
+      margin: 0.35rem 0 0.6rem 0;
+    }
+    .war-room-detail-close {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      width: 2rem;
+      height: 2rem;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(20, 26, 36, 0.85);
+      color: var(--text-primary, #f8f9fb);
+      cursor: pointer;
+    }
+    .war-room-detail-close:hover,
+    .war-room-detail-close:focus-visible {
+      background: rgba(245, 196, 109, 0.22);
+      outline: none;
+    }
+    /* Small numeric/status badge in a hotspot's corner. */
+    .war-room-badge {
+      position: absolute;
+      top: -0.4rem;
+      left: -0.4rem;
+      padding: 0.2rem 0.45rem;
+      border-radius: 999px;
+      background: var(--accent-strong, #f5c46d);
+      color: #141b2c;
+      font-weight: 700;
+      font-size: 0.7rem;
+      letter-spacing: 0.02em;
+      pointer-events: none;
+      box-shadow: 0 6px 14px rgba(245, 196, 109, 0.25);
+    }
+    /* Detail content spacing + readability */
+    .war-room-detail-panel section,
+    .war-room-detail-panel article {
+      margin-bottom: 0.75rem;
+    }
+    .war-room-detail-panel table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      margin: 0.25rem 0 0.5rem 0;
+    }
+    .war-room-detail-panel table th,
+    .war-room-detail-panel table td {
+      padding: 0.4rem 0.6rem;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .war-room-detail-panel table thead th {
+      position: sticky;
+      top: 0;
+      background: rgba(20, 26, 36, 0.95);
+      z-index: 1;
+    }
+    .war-room-detail-list {
+      margin: 0.25rem 0 0.5rem 1rem;
+    }
+    .war-room-detail-list li { margin: 0.25rem 0; }
+    .war-room-metric-cards {
+      list-style: none;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+    }
+    .war-room-metric-cards li {
+      background: rgba(24, 30, 44, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 0.5rem 0.6rem;
+      display: grid;
+      gap: 0.15rem;
+    }
+    .war-room-metric-cards .label {
+      opacity: 0.85;
+      font-size: 0.8rem;
+      letter-spacing: 0.02em;
+    }
+    .war-room-metric-cards .value { font-size: 1.15rem; font-weight: 700; }
+    .war-room-order-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .war-room-engagements { margin: 0.25rem 0 0.5rem 1rem; }
+    .war-room-engagements li { margin: 0.25rem 0; }
+    .battle-popup {
+      /* Wider modal so roster entries have breathing room for condensed layout. */
+      width: min(640px, 100%);
+      max-height: 85vh;
+      background: var(--surface);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      box-shadow: 0 24px 60px rgba(5, 8, 16, 0.45);
+      padding: 1.5rem 1.75rem;
+      display: grid;
+      gap: 1.25rem;
+      outline: none;
+      grid-template-rows: auto 1fr;
+      overflow: hidden;
+    }
+    [data-popup-body] {
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 0.5rem;
+    }
+    .popup-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .popup-title {
+      margin: 0;
+      font-size: 1.2rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .popup-body p {
+      margin: 0 0 0.75rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+      letter-spacing: 0.03em;
+    }
+    .popup-body p:last-child {
+      margin-bottom: 0;
+    }
+    .deployment-panel {
+      display: grid;
+      gap: 1.25rem;
+    }
+    .deployment-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .deployment-panel-body {
+      display: grid;
+      gap: 0.9rem;
+    }
+    .deployment-status-card {
+      display: grid;
+      gap: 0.25rem;
+      padding: 0.6rem 0.7rem;
+      background: rgba(8, 11, 19, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      font-size: 0.74rem;
+      line-height: 1.3;
+    }
+    .deployment-status-line {
+      margin: 0;
+      color: var(--text-muted);
+    }
+    .deployment-subheading {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .deployment-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 0.5rem;
+    }
+    .deployment-zone-section,
+    .deployment-unit-section {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .deployment-section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+    }
+    .deployment-section-title {
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .deployment-section-hint,
+    .deployment-zone-summary {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .deployment-zone-list,
+    .deployment-unit-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 0.45rem;
+      min-height: 0;
+      overflow-y: auto;
+    }
+    .deployment-zone {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.25rem 0.5rem;
+      padding: 0.45rem 0.55rem;
+      background: rgba(12, 16, 24, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .deployment-zone:hover,
+    .deployment-zone:focus-visible {
+      border-color: rgba(245, 196, 109, 0.4);
+      outline: none;
+    }
+    .deployment-zone.is-selected {
+      border-color: rgba(245, 196, 109, 0.7);
+      box-shadow: 0 0 0 2px rgba(245, 196, 109, 0.1);
+    }
+    .deployment-zone-name {
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    .deployment-zone-capacity {
+      justify-self: end;
+      font-variant-numeric: tabular-nums;
+      color: var(--accent-strong);
+    }
+    .deployment-unit {
+      display: grid;
+      grid-template-columns: 2.25rem 1fr;
+      align-items: center;
+      gap: 0.2rem 0.3rem;
+      padding: 0.2rem 0.35rem;
+      min-height: 2.2rem;
+      background: rgba(12, 16, 24, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+      font-size: 0.68rem;
+      line-height: 1.1;
+      cursor: pointer;
+    }
+    .deployment-unit[data-deployment-disabled="true"],
+    .deployment-unit[data-deployment-disabled="true"]:hover {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+    .deployment-unit:hover,
+    .deployment-unit:focus-visible {
+      border-color: rgba(245, 196, 109, 0.4);
+      outline: none;
+    }
+    .deployment-unit-visual {
+      width: 2.25rem;
+      height: 2.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .deployment-unit-thumb {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .deployment-unit-fallback {
+      display: flex;
+      width: 2rem;
+      height: 2rem;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 50%;
+    }
+    .deployment-unit-label {
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .deployment-unit-remaining,
+    .deployment-unit-deployed {
+      justify-self: end;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+    }
+    .deployment-unit-remaining {
+      color: var(--accent-strong);
+    }
+    .deployment-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: flex-end;
+    }
+    @media (max-width: 1280px) {
+      .landing-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+    @media (max-width: 960px) {
+      body {
+        padding: 1.25rem;
+      }
+      #app {
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+      }
+      .screen {
+        padding: 2rem 1.75rem;
+      }
+      .control-sidebar {
+        width: 64px;
+      }
+      .map-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 1rem;
+      }
+      .toolbar-controls {
+        justify-content: center;
+      }
+      .general-roster {
+        padding: 1rem;
+      }
+      :root {
+        --activity-log-width: 280px;
+        --deployment-panel-width: 220px;
+      }
+    }
+    @media (max-width: 600px) {
+      body {
+        padding: 0;
+      }
+      .control-sidebar {
+        flex-direction: row;
+        width: 100%;
+        height: 80px;
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        justify-content: center;
+        gap: 0.5rem;
+      }
+      .battle-ui {
+        flex-direction: column;
+      }
+      .sidebar-button {
+        width: 64px;
+        aspect-ratio: unset;
+      }
+      .precombat-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .battle-loadout h3 {
+      margin: 0 0 1rem;
+      font-size: 1.1rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .deployment-panel {
+      width: var(--deployment-panel-width);
+      background: rgba(8, 11, 19, 0.9);
+      border-left: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      flex-direction: column;
+      transition: opacity 0.2s ease;
+      height: 100%;
+      max-height: calc(100vh - 2.5rem);
+    }
+    .battle-main[data-panel-collapsed="true"] #deploymentPanel {
+      display: none;
+    }
+    /* Keep the header copy on its own row while letting action buttons wrap inside the slim sidebar. */
+    .deployment-panel-header {
+      display: grid;
+      grid-template-columns: 1fr;
+      align-items: start;
+      padding: 0.65rem 0.8rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      gap: 0.65rem;
+    }
+    .deployment-header-actions {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+      gap: 0.4rem;
+      justify-items: stretch;
+    }
+    .deployment-collapse-button {
+      display: inline-flex;
+      width: 28px;
+      height: 28px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(12, 16, 24, 0.9);
+      font-size: 0.85rem;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    .deployment-collapse-button:hover,
+    .deployment-collapse-button:focus-visible {
+      background: rgba(245, 196, 109, 0.25);
+      outline: none;
+    }
+    .deployment-panel-body {
+      flex: 1;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+      padding: 0.8rem;
+      gap: 0.9rem;
+      overflow: hidden;
+    }
+    .deployment-list h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.95rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .deployment-list ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 0.5rem;
+    }
+    .deployment-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: flex-end;
+    }
+    .loadout-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 0.5rem;
+    }
+    .loadout-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      background: rgba(12, 16, 24, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+    }
+    .loadout-empty {
+      text-align: center;
+      color: var(--text-muted);
+      font-style: italic;
+      padding: 1rem;
+    }
+    .reserve-list h4 {
+      margin: 1rem 0 0.5rem;
+      font-size: 1rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    /* Reserve list visual polish */
+    #reserveList {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 0.5rem;
+    }
+    .reserve-item {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.75rem;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+      background: rgba(12, 16, 24, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+    }
+    .reserve-visual {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.06);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .reserve-thumb {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .reserve-thumb--fallback {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: var(--accent-strong);
+    }
+    .reserve-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .reserve-copy strong {
+      margin: 0;
+    }
+    .reserve-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    .reserve-status-badge {
+      display: inline-block;
+      padding: 0.1rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      font-size: 0.75rem;
+    }
+    .reserve-status-badge--ready {
+      border-color: rgba(102, 187, 106, 0.6);
+      color: #8ee0a0;
+    }
+    .reserve-status-badge--exhausted {
+      border-color: rgba(255, 138, 128, 0.6);
+      color: #ff9aa6;
+    }
+
+    /* All roster entries have subtle hover feedback */
+    .reserve-item:hover {
+      border-color: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+    /* Clickable reserves during battle phase */
+    .reserve-item--clickable,
+    .reserves-selectable {
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+    }
+    .reserve-item--clickable:hover,
+    .reserves-selectable:hover {
+      background: rgba(55, 74, 112, 0.3);
+      border-color: rgba(102, 187, 106, 0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(102, 187, 106, 0.15);
+    }
+    .reserve-item--clickable:active,
+    .reserves-selectable:active {
+      transform: translateY(0);
+      background: rgba(55, 74, 112, 0.4);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+    .reserve-item--changed {
+      animation: reserveChange 0.3s ease-out;
+    }
+    /* Army roster entries use a tighter, two-line presentation for quick scanning. */
+    .army-roster-entry .reserve-copy {
+      gap: 0.35rem;
+    }
+    .army-roster-line {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .army-roster-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.1rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+    .army-roster-status--frontline {
+      border-color: rgba(102, 187, 106, 0.45);
+      color: #8fe0a4;
+    }
+    .army-roster-status--reserve {
+      border-color: rgba(129, 212, 250, 0.45);
+      color: #90caf9;
+    }
+    .army-roster-status--exhausted {
+      border-color: rgba(255, 138, 128, 0.45);
+      color: #ff9aa6;
+    }
+    .army-roster-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 0.9rem;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .army-roster-stat {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-variant-numeric: tabular-nums;
+      padding: 0.15rem 0.4rem;
+      border-radius: 6px;
+      background: rgba(17, 24, 36, 0.5);
+      transition: background 0.15s ease;
+    }
+    .army-roster-stat abbr {
+      text-decoration: none;
+      color: var(--accent-strong);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    .army-roster-stat strong {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    /* Color-coded stat values for quick visual assessment */
+    .army-roster-stat--critical strong {
+      color: #ff9aa6;
+    }
+    .army-roster-stat--warning strong {
+      color: #ffc46d;
+    }
+    .army-roster-stat--good strong {
+      color: #8fe0a4;
+    }
+    /* Roster entry layout to accommodate deploy button */
+    .army-roster-entry {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .army-roster-entry .reserve-copy {
+      flex: 1;
+      min-width: 0;
+    }
+    .roster-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+    .roster-deploy-btn {
+      padding: 0.35rem 0.65rem;
+      border-radius: 8px;
+      border: 1px solid rgba(102, 187, 106, 0.5);
+      background: rgba(102, 187, 106, 0.15);
+      color: #8fe0a4;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+    }
+    .roster-deploy-btn:hover,
+    .roster-deploy-btn:focus-visible {
+      background: rgba(102, 187, 106, 0.3);
+      border-color: rgba(102, 187, 106, 0.8);
+      transform: translateY(-1px);
+      outline: none;
+    }
+    .roster-deploy-btn:active {
+      transform: translateY(0);
+    }
+    @keyframes reserveChange {
+      0%, 100% {
+        background: rgba(12, 16, 24, 0.8);
+      }
+      50% {
+        background: rgba(102, 187, 106, 0.2);
+      }
+    }
+
+    @keyframes deployment-zone-pulse {
+      0%, 100% {
+        stroke: #ff4444;
+        stroke-width: 3;
+        stroke-opacity: 1;
+      }
+      50% {
+        stroke: #ff8888;
+        stroke-width: 4;
+        stroke-opacity: 0.7;
+      }
+    }
+
+    @keyframes allocationOverlayIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes allocationModalIn {
+      from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.98);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .hex-selection-glow {
+      fill: rgba(245, 196, 109, 0.16);
+      stroke: rgba(245, 196, 109, 0.95);
+      stroke-width: 3;
+      filter: drop-shadow(0 0 10px rgba(245, 196, 109, 0.45));
+      pointer-events: none;
+      transform-origin: center;
+      transition: opacity 150ms ease, transform 150ms ease;
+    }
+
+    .hex-cell.is-selected .hex-tile {
+      stroke: rgba(245, 196, 109, 0.95);
+      stroke-width: 3.5;
+      filter: drop-shadow(0 0 6px rgba(245, 196, 109, 0.45));
+    }
+
+    /* Idle unit outlines: bright blue stroke with a subtle glow so idle hexes pop above terrain and sprites. */
+    .hex-tile.idle-unit-highlight,
+    .hex-cell.idle-unit-highlight .hex-tile {
+      stroke: rgba(94, 173, 255, 0.95);
+      stroke-width: 3;
+      filter: drop-shadow(0 0 5px rgba(94, 173, 255, 0.55));
+      transition: filter 120ms ease, stroke 120ms ease;
+    }
+
+    .hex-cell.idle-unit-highlight .unit-icon {
+      filter: drop-shadow(0 0 4px rgba(94, 173, 255, 0.35));
+    }
+
+    .hex-tile.deployment-zone {
+      animation: deployment-zone-pulse 2s ease-in-out infinite;
+      stroke-dasharray: 4 3;
+      stroke-width: 2.5;
+      filter: drop-shadow(0 0 6px rgba(255, 87, 138, 0.3));
+    }
+
+    /* Campaign Map Editor Styles */
+    #campaignEditPanel {
+      background: rgba(20, 30, 40, 0.95);
+      border: 1px solid #3a5a7a;
+      border-radius: 4px;
+      padding: 12px;
+      margin-top: 12px;
+    }
+
+    #campaignEditPanel h4 {
+      margin: 8px 0 4px 0;
+      font-size: 0.9em;
+      color: #6ac0ff;
+    }
+
+    #campaignEditorControls select,
+    #campaignEditorControls input {
+      background: rgba(30, 40, 50, 0.8);
+      border: 1px solid #4a6a8a;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 3px;
+      margin: 4px 2px;
+    }
+
+    #campaignEditorControls button {
+      margin: 4px 2px;
+      padding: 4px 12px;
+      font-size: 0.85em;
+    }
+
+    #editorUnitList {
+      background: rgba(10, 20, 30, 0.6);
+      border: 1px solid #2a4a6a;
+      border-radius: 3px;
+      padding: 8px;
+      margin: 8px 0;
+      min-height: 60px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .editor-delete-unit {
+      background: rgba(180, 60, 60, 0.8);
+      border: 1px solid #a04040;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 1.2em;
+      line-height: 1;
+    }
+
+    .editor-delete-unit:hover {
+      background: rgba(200, 70, 70, 0.9);
+    }
+
+    #campaignEditMode {
+      background: rgba(70, 130, 180, 0.8);
+      border: 1px solid #5a9ac0;
+    }
+
+    #campaignEditMode:hover {
+      background: rgba(80, 140, 190, 0.9);
+    }
+
+    #campaignExportJSON {
+      background: rgba(70, 160, 90, 0.8);
+      border: 1px solid #5ac070;
+    }
+
+    #campaignExportJSON:hover {
+      background: rgba(80, 170, 100, 0.9);
+    }
+
+    /* =====================================================
+       TUTORIAL OVERLAY SYSTEM
+       Professional-grade tutorial overlays for training
+       ===================================================== */
+
+    .tutorial-overlay-container {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      pointer-events: none;
+    }
+
+    .tutorial-overlay-container.hidden {
+      display: none !important;
+    }
+
+    .tutorial-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      pointer-events: auto;
+    }
+
+    .tutorial-spotlight {
+      position: fixed;
+      border-radius: 12px;
+      box-shadow:
+        0 0 0 9999px rgba(0, 0, 0, 0.6),
+        0 0 0 4px var(--accent-strong),
+        0 0 30px rgba(245, 196, 109, 0.4);
+      z-index: 10001;
+      pointer-events: none;
+      animation: tutorialPulse 2s ease-in-out infinite;
+    }
+
+    .tutorial-spotlight.hidden {
+      display: none;
+    }
+
+    @keyframes tutorialPulse {
+      0%, 100% {
+        box-shadow:
+          0 0 0 9999px rgba(0, 0, 0, 0.6),
+          0 0 0 4px var(--accent-strong),
+          0 0 30px rgba(245, 196, 109, 0.4);
+      }
+      50% {
+        box-shadow:
+          0 0 0 9999px rgba(0, 0, 0, 0.6),
+          0 0 0 6px var(--accent-strong),
+          0 0 50px rgba(245, 196, 109, 0.6);
+      }
+    }
+
+    .tutorial-panel {
+      position: fixed;
+      width: 380px;
+      max-width: calc(100vw - 80px);
+      background: linear-gradient(165deg, rgba(18, 24, 38, 0.98), rgba(12, 16, 26, 0.98));
+      border: 1px solid rgba(245, 196, 109, 0.35);
+      border-radius: 20px;
+      padding: 0;
+      box-shadow:
+        0 25px 80px rgba(0, 0, 0, 0.5),
+        0 0 40px rgba(245, 196, 109, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      z-index: 10002;
+      pointer-events: auto;
+      animation: tutorialSlideIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      backdrop-filter: blur(12px);
+    }
+
+    @keyframes tutorialSlideIn {
+      from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .tutorial-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.15);
+      border-radius: 20px 20px 0 0;
+    }
+
+    .tutorial-step-indicator {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent-strong);
+      padding: 0.35rem 0.75rem;
+      background: rgba(245, 196, 109, 0.12);
+      border-radius: 999px;
+      border: 1px solid rgba(245, 196, 109, 0.25);
+    }
+
+    .tutorial-header-buttons {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .tutorial-back-btn,
+    .tutorial-skip-btn {
+      padding: 0.4rem 0.85rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .tutorial-back-btn:hover,
+    .tutorial-back-btn:focus-visible,
+    .tutorial-skip-btn:hover,
+    .tutorial-skip-btn:focus-visible {
+      color: var(--text-primary);
+      border-color: rgba(255, 255, 255, 0.3);
+      background: rgba(255, 255, 255, 0.05);
+      outline: none;
+    }
+
+    .tutorial-panel-content {
+      padding: 1.5rem 1.5rem 1.25rem;
+    }
+
+    .tutorial-title {
+      margin: 0 0 0.85rem;
+      font-size: 1.3rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--text-primary);
+      line-height: 1.3;
+    }
+
+    .tutorial-description {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.65;
+      color: var(--text-muted);
+    }
+
+    .tutorial-panel-footer {
+      padding: 0 1.5rem 1.5rem;
+    }
+
+    .tutorial-action-btn {
+      width: 100%;
+      padding: 1rem 1.5rem;
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: linear-gradient(135deg, var(--accent-strong), #d4a456);
+      color: #1a1a24;
+      border: none;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      box-shadow: 0 8px 25px rgba(245, 196, 109, 0.25);
+    }
+
+    .tutorial-action-btn:hover,
+    .tutorial-action-btn:focus-visible {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 35px rgba(245, 196, 109, 0.4);
+      outline: none;
+    }
+
+    .tutorial-action-btn:disabled,
+    .tutorial-action-btn.waiting {
+      background: rgba(100, 100, 100, 0.4);
+      color: var(--text-muted);
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .tutorial-action-btn.waiting::after {
+      content: " (Complete the action above)";
+      font-size: 0.75rem;
+      font-weight: 400;
+      letter-spacing: 0.02em;
+      text-transform: none;
+      opacity: 0.8;
+    }
+
+    /* Tutorial Arrow Indicators */
+    .tutorial-arrow {
+      position: absolute;
+      width: 0;
+      height: 0;
+    }
+
+    .tutorial-arrow.hidden {
+      display: none;
+    }
+
+    .tutorial-arrow-up {
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border-left: 12px solid transparent;
+      border-right: 12px solid transparent;
+      border-bottom: 14px solid rgba(245, 196, 109, 0.35);
+      margin-bottom: -1px;
+    }
+
+    .tutorial-arrow-up::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: -10px;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-bottom: 12px solid rgba(18, 24, 38, 0.98);
+    }
+
+    .tutorial-arrow-down {
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border-left: 12px solid transparent;
+      border-right: 12px solid transparent;
+      border-top: 14px solid rgba(245, 196, 109, 0.35);
+      margin-top: -1px;
+    }
+
+    .tutorial-arrow-left {
+      right: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      border-top: 12px solid transparent;
+      border-bottom: 12px solid transparent;
+      border-right: 14px solid rgba(245, 196, 109, 0.35);
+      margin-right: -1px;
+    }
+
+    .tutorial-arrow-right {
+      left: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      border-top: 12px solid transparent;
+      border-bottom: 12px solid transparent;
+      border-left: 14px solid rgba(245, 196, 109, 0.35);
+      margin-left: -1px;
+    }
+
+    /* Tutorial Highlight Effect on Target Elements */
+    .tutorial-highlight {
+      position: relative;
+      z-index: 10003 !important;
+      box-shadow: 0 0 0 4px var(--accent-strong), 0 0 30px rgba(245, 196, 109, 0.5) !important;
+      border-radius: 12px;
+      animation: tutorialHighlightPulse 2s ease-in-out infinite;
+      /* Ensure highlighted elements can receive clicks through the overlay */
+      pointer-events: auto !important;
+    }
+
+    @keyframes tutorialHighlightPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 4px var(--accent-strong), 0 0 30px rgba(245, 196, 109, 0.5);
+      }
+      50% {
+        box-shadow: 0 0 0 6px var(--accent-strong), 0 0 45px rgba(245, 196, 109, 0.7);
+      }
+    }
+
+    /* Position-specific panel adjustments */
+    .tutorial-position-center {
+      max-width: 450px;
+    }
+
+    .tutorial-position-left,
+    .tutorial-position-right {
+      max-width: 360px;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .tutorial-panel {
+        width: calc(100vw - 32px);
+        max-width: none;
+        left: 16px !important;
+        right: 16px !important;
+        bottom: 24px !important;
+        top: auto !important;
+        transform: none !important;
+      }
+
+      .tutorial-arrow {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Battle Screen -->
+    <div id="battleScreen" class="screen battle-ui hidden" aria-labelledby="battleScreenHeading">
+      <!-- Control Sidebar -->
+      <nav class="control-sidebar">
+        <button type="button" class="sidebar-button" data-popup="baseOperations" title="Headquarters overview">
+          <span class="label">HQ</span>
+          <span class="icon" aria-hidden="true">🏛️</span>
+        </button>
+        <button type="button" class="sidebar-button" data-popup="generalProfile" title="Commander Profile">
+          <span class="label">General</span>
+          <span class="icon">🎖️</span>
+        </button>
+        <button type="button" class="sidebar-button" data-popup="recon">
+          <span class="label">Recon</span>
+          <span class="icon">🔍</span>
+        </button>
+        <button type="button" class="sidebar-button" data-popup="intelligence">
+          <span class="label">Intel</span>
+          <span class="icon">🕵️</span>
+        </button>
+        <button type="button" class="sidebar-button" data-popup="logistics">
+          <span class="label">Logistics</span>
+          <span class="icon">🚛</span>
+        </button>
+        <button type="button" class="sidebar-button" data-popup="supplies">
+          <span class="label">Supplies</span>
+          <span class="icon">📦</span>
+        </button>
+        <button type="button" class="sidebar-button" data-popup="armyRoster">
+          <span class="label">Roster</span>
+          <span class="icon">👥</span>
+        </button>
+      </nav>
+
+      <!-- Main Battle Area -->
+      <div class="battle-main">
+        <!-- Map View -->
+        <div class="map-shell">
+          <!-- Map Toolbar -->
+          <section class="pane battle-map-pane">
+            <div class="battle-map-header">
+              <div class="battle-map-header__primary">
+                <h2 id="battleScreenHeading" class="battle-map-title">
+                  <span id="battleMissionTitle">Operation Pending</span>
+                </h2>
+                <div class="turn-status" role="status" aria-live="polite">
+                  <span id="battleTurnIndicator" class="turn-indicator">Deployment</span>
+                  <span class="turn-separator" aria-hidden="true">•</span>
+                  <span id="battlePhaseIndicator" class="phase-indicator">Phase pending</span>
+                  <span class="turn-separator" aria-hidden="true">•</span>
+                  <span id="battleFactionIndicator" class="faction-indicator">—</span>
+                </div>
+              </div>
+              <div class="battle-map-header__actions">
+                <button id="battleCycleObjective" type="button" class="compact-button" aria-label="Cycle objective focus">Cycle Objective</button>
+                <button id="beginBattle" type="button">Begin Battle</button>
+                <button id="endTurn" type="button" disabled>End Turn</button>
+                <button id="endMissionButton" type="button">End Mission</button>
+                <!-- Air Support compact HUD: shows quick counts and opens the Air Support panel -->
+                <div id="airHudWidget" class="air-hud compact-hud" aria-label="Air Support status">
+                  <button type="button" class="compact-button" data-airhud-open aria-label="Open Air Support panel">✈ Air</button>
+                  <div class="air-hud__counts" aria-live="polite">
+                    <span class="air-hud__chip" title="Queued">Q <span data-airhud-queued>0</span></span>
+                    <span class="air-hud__chip" title="In flight">IF <span data-airhud-inflight>0</span></span>
+                    <span class="air-hud__chip" title="Resolving">R <span data-airhud-resolving>0</span></span>
+                    <span class="air-hud__chip" title="Completed">Done <span data-airhud-completed>0</span></span>
+                    <span class="air-hud__chip" title="Refit">Refit <span data-airhud-refit>0</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Battle Briefing -->
+            <div id="battleBriefing" class="battle-briefing is-collapsed">
+              <h3>Mission Briefing</h3>
+              <p>Mission details will be loaded here.</p>
+            </div>
+
+            <div id="battleAnnouncements" class="sr-only" aria-live="polite"></div>
+
+            <!-- Map Viewport -->
+            <div class="map-viewport">
+              <section
+                id="battleIntelOverlay"
+                class="battle-intel-overlay hidden"
+                role="dialog"
+                aria-live="polite"
+                aria-modal="false"
+                tabindex="-1"
+              >
+                <button id="battleIntelOverlayDismiss" type="button" class="battle-intel-overlay__dismiss" aria-label="Dismiss intel card">×</button>
+                <header class="battle-intel-overlay__header">
+                  <h3 id="battleIntelOverlayTitle" class="battle-intel-overlay__title">Intel</h3>
+                  <p id="battleIntelOverlayMeta" class="battle-intel-overlay__meta">Awaiting selection.</p>
+                </header>
+                <div id="battleIntelOverlayBody"></div>
+                <div id="battleIntelOverlayNotes" class="battle-intel-overlay__notes hidden"></div>
+              </section>
+              <div id="battleMapCanvas" class="map-canvas">
+                <svg id="battleHexMap" xmlns="http://www.w3.org/2000/svg"></svg>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <button
+          id="battleActivityLogToggle"
+          type="button"
+          class="activity-toggle-floating hidden"
+          aria-expanded="false"
+          aria-controls="battleActivityLog"
+          aria-label="Expand activity log"
+        >
+          ⟩
+        </button>
+
+        <aside
+          id="battleActivityLog"
+          class="battle-activity-log hidden"
+          aria-labelledby="battleActivityLogHeading"
+          data-activity-visible="false"
+          data-activity-collapsed="true"
+        >
+          <header class="battle-activity-log__header">
+            <div>
+              <h3 id="battleActivityLogHeading" class="battle-activity-log__title">Activity Log</h3>
+              <p class="battle-activity-log__subtitle">Latest operations will appear in sequence.</p>
+            </div>
+          </header>
+          <div
+            id="battleActivityLogScroll"
+            class="battle-activity-log__scroll"
+            role="log"
+            aria-live="polite"
+            tabindex="0"
+          >
+            <ul id="battleActivityLogList" class="battle-activity-log__list"></ul>
+          </div>
+          <p id="battleActivityLogEmpty" class="battle-activity-log__empty">Engagement updates will appear here.</p>
+        </aside>
+
+        <button
+          id="deploymentPanelToggle"
+          type="button"
+          class="deployment-toggle-floating"
+          aria-expanded="true"
+          aria-controls="deploymentPanelBody"
+          aria-label="Collapse deployment panel"
+        >
+          ⟩
+        </button>
+
+        <!-- Deployment Panel: refreshed structure per TODO_deployment_markup_refresh.md -->
+        <div id="deploymentPanel" class="deployment-panel" data-panel-collapsed="false">
+          <div class="deployment-panel-header" aria-live="polite">
+            <h2 class="deployment-subheading">Unit Deployment</h2>
+            <div class="deployment-header-actions" role="group" aria-label="Deployment actions">
+              <!-- Compact auto-deploy controls keep the panel header tidy while exposing quick placement strategies. -->
+              <button id="assignBaseCamp" type="button" class="secondary-button" title="Lock a base camp to unlock unit placement">Assign Base Camp</button>
+              <button id="autoDeployEvenly" type="button" class="compact-button" data-auto-deploy-mode="even" title="Place one of each unit across available hexes">Deploy Evenly</button>
+              <button id="autoDeployGrouped" type="button" class="compact-button" data-auto-deploy-mode="grouped" title="Place units by type in sequence">Deploy Grouped</button>
+            </div>
+          </div>
+
+          <div id="deploymentPanelBody" class="deployment-panel-body" data-mobile-dock="sidebar" role="region" aria-labelledby="deploymentPanel">
+            <div class="deployment-status-card">
+              <p id="deploymentStatus" class="deployment-status-line">Units deployed: 0 / 0</p>
+              <p id="baseCampStatus" class="deployment-status-line">No base camp assigned.</p>
+            </div>
+
+            <!-- Move Units section above Zones so the roster is higher in the panel -->
+            <div class="deployment-unit-section">
+              <header class="deployment-section-header">
+                <span class="deployment-section-title">Units</span>
+                <span class="deployment-section-hint">Tap a unit to queue deployment.</span>
+              </header>
+              <ul id="deploymentUnitList" class="deployment-unit-list" data-list-type="units"></ul>
+            </div>
+
+            <!-- Reserve call-up list lives inside the deployment panel so players can deploy reinforcements without opening the roster modal. -->
+            <div class="deployment-reserve-section">
+              <header class="deployment-section-header">
+                <span class="deployment-section-title">Reserves</span>
+                <span class="deployment-section-hint">During battle, tap a reserve to deploy it to the selected hex.</span>
+              </header>
+              <ul id="deploymentReserveList" class="deployment-unit-list deployment-reserve-list" data-list-type="reserves"></ul>
+            </div>
+
+            <div class="deployment-zone-section">
+              <header class="deployment-section-header">
+                <span class="deployment-section-title">Zones</span>
+                <span id="deploymentZoneSummary" class="deployment-zone-summary">No zone selected.</span>
+              </header>
+              <ul id="deploymentZoneList" class="deployment-zone-list" data-scrollable="true"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Idle Unit Warning Modal -->
+      <div class="idle-warning-layer hidden" id="idleWarningLayer" aria-hidden="true">
+        <section class="idle-warning-dialog" role="dialog" aria-labelledby="idleWarningTitle" aria-modal="true">
+          <header class="idle-warning-header">
+            <h3 id="idleWarningTitle">Idle Formations Detected</h3>
+            <p id="idleWarningCopy">You still have units with unused movement or attacks. Commanders typically resolve these before ending the turn.</p>
+          </header>
+          <ul class="idle-warning-list" id="idleWarningList" aria-label="Idle unit overview"></ul>
+          <footer class="idle-warning-actions">
+            <button type="button" class="idle-warning-button idle-warning-button--primary" id="idleContinueButton">Continue Commanding</button>
+            <button type="button" class="idle-warning-button idle-warning-button--secondary" id="idleEndTurnButton">End Turn Anyway</button>
+          </footer>
+        </section>
+      </div>
+
+      <!-- Battle Attack Confirmation Dialog -->
+      <div id="battleAttackConfirm" class="battle-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="battleAttackConfirmTitle" aria-describedby="battleAttackConfirmBody">
+        <div class="battle-dialog__surface">
+          <header class="battle-dialog__header">
+            <h2 id="battleAttackConfirmTitle">Confirm Attack</h2>
+          </header>
+          <div id="battleAttackConfirmBody" class="battle-dialog__body"></div>
+          <footer class="battle-dialog__footer">
+            <button type="button" id="battleAttackConfirmAccept" class="primary-button">Attack</button>
+            <button type="button" id="battleAttackConfirmCancel" class="secondary-button">Cancel</button>
+          </footer>
+        </div>
+      </div>
+    </div>
+
+    <!-- Precombat Screen -->
+    <div id="precombatScreen" class="screen precombat-screen hidden">
+      <div class="screen-content">
+        <div class="precombat-header">
+          <div class="precombat-toolbar">
+            <div class="precombat-toolbar-button-group">
+              <button id="returnToLanding" type="button" class="secondary-button">Return to Headquarters</button>
+            </div>
+            <div class="precombat-toolbar-budget">
+              <div id="precombatBudgetPanel" class="topbar-budget" data-state="within-budget">
+                <div class="budget-label">Budget</div>
+                <div id="budgetSpent" class="budget-value">Spent: $0</div>
+                <div id="budgetRemaining" class="budget-value">Remaining: $10,000,000</div>
+              </div>
+            </div>
+            <div class="precombat-toolbar-button-group">
+              <button id="resetAllocations" type="button" class="secondary-button">Reset Allocations</button>
+              <button id="proceedToBattle" type="button" class="primary-button" disabled>Begin Battle</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="precombat-summary">
+          <h2 id="precombatMissionTitle">Training Exercise</h2>
+          <p id="precombatMissionBriefing" class="precombat-subtitle">
+            This is a low-stakes training exercise designed to familiarize your forces with operational procedures. Focus on unit coordination and terrain assessment. No hostile contact expected.
+          </p>
+        </div>
+
+        <div class="precombat-layout">
+          <!-- Allocation Panel -->
+          <div class="allocation-panel">
+            <h2>Unit Allocation</h2>
+            <div class="allocation-grid">
+              <div class="allocation-section allocation-section--units">
+                <header>
+                  <h3>Units</h3>
+                  <p>Combat formations and support elements</p>
+                </header>
+                <ul id="allocationUnitList" class="allocation-items"></ul>
+              </div>
+              <div class="allocation-section allocation-section--supplies">
+                <header>
+                  <h3>Supplies</h3>
+                  <p>Ammunition and fuel reserves</p>
+                </header>
+                <ul id="allocationSupplyList" class="allocation-items"></ul>
+              </div>
+              <div class="allocation-section allocation-section--support">
+                <header>
+                  <h3>Support</h3>
+                  <p>Engineering and medical assets</p>
+                </header>
+                <ul id="allocationSupportList" class="allocation-items"></ul>
+              </div>
+              <div class="allocation-section allocation-section--logistics">
+                <header>
+                  <h3>Logistics</h3>
+                  <p>Transport and maintenance</p>
+                </header>
+                <ul id="allocationLogisticsList" class="allocation-items"></ul>
+              </div>
+            </div>
+            <section class="predeployed-panel">
+              <h3>Scenario Forces</h3>
+              <p id="predeployedSummary" class="predeployed-summary">Scenario units will appear here once mission data loads.</p>
+              <ul id="predeployedUnitList" class="predeployed-list"></ul>
+            </section>
+          </div>
+
+          <!-- Map Preview -->
+          <div class="map-card">
+            <h2>Theater Overview</h2>
+            <div class="map-preview">
+              <div id="precombatMapCanvas" class="mini-map-canvas">
+                <svg id="precombatHexMap" xmlns="http://www.w3.org/2000/svg"></svg>
+              </div>
+            </div>
+            <div class="info-block">
+              <strong>Objectives:</strong>
+              <ul id="objectiveList" class="objective-list"></ul>
+            </div>
+            <div class="info-block">
+              <strong>Turn Limit:</strong>
+              <p id="missionTurnLimit">Pending</p>
+            </div>
+            <div class="info-block">
+              <strong>Baseline Supplies:</strong>
+              <ul id="baselineSupplyList" class="baseline-supply-list"></ul>
+            </div>
+            <div class="info-block">
+              <strong>Doctrine Notes:</strong>
+              <p id="missionDoctrineNotes">Doctrine brief will appear here.</p>
+            </div>
+            <div id="commanderSummaryCard" class="info-block">
+              <strong>Commander Overview</strong>
+              <h3 id="commanderName">No commander assigned.</h3>
+              <p id="commanderSummary">Select a commander to review their readiness stats.</p>
+              <dl class="general-detail-grid">
+                <div>
+                  <dt>Missions</dt>
+                  <dd id="commanderMissions">0</dd>
+                </div>
+                <div>
+                  <dt>Victories</dt>
+                  <dd id="commanderVictories">0</dd>
+                </div>
+                <div>
+                  <dt>Units Deployed</dt>
+                  <dd id="commanderUnits">0</dd>
+                </div>
+                <div>
+                  <dt>Casualties</dt>
+                  <dd id="commanderCasualties">0</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+        </div>
+
+        <div id="allocationFeedback" class="status-panel">Allocate forces and supplies to prepare for deployment.</div>
+
+        <!-- Warning Overlay -->
+        <div id="allocationWarningOverlay" class="precombat-warning-overlay hidden">
+          <div id="allocationWarningModal" class="warning-dialog">
+            <div class="warning-dialog-header">
+              <h2>Deployment Incomplete</h2>
+              <p>You have unallocated units that will be unavailable for this mission.</p>
+            </div>
+            <div class="warning-dialog-actions">
+              <button id="allocationWarningReturn" type="button">Return to Allocation</button>
+              <button id="allocationWarningProceed" type="button">Proceed Anyway</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Landing Screen -->
+    <div id="landingScreen" class="screen landing-screen">
+      <div class="screen-content">
+        <div class="landing-header">
+          <h1>Four Star General</h1>
+          <p>Command strategic military operations across diverse theaters of war.</p>
+        </div>
+
+        <div class="landing-layout">
+          <div class="landing-secondary">
+            <div class="pane">
+              <h2>Command Roster</h2>
+              <p>Commission and assign generals to lead your forces.</p>
+              <button id="commissionNewButton" type="button" class="primary-button" style="margin-bottom: 1rem;">Commission New General</button>
+              <div id="generalRosterList" class="general-roster"></div>
+              <div id="generalFormSection" class="form-grid hidden">
+                <form id="generalForm" class="general-roster">
+                  <h3>Commission New General</h3>
+                  <label>
+                    Name
+                    <input type="text" name="generalName" required />
+                  </label>
+                  <label>
+                    Region
+                    <select id="generalRegion" name="regionKey" required data-placeholder="Select a region">
+                      <option value="" disabled selected hidden>Select a region</option>
+                    </select>
+                  </label>
+                  <label>
+                    War College
+                    <select id="generalSchool" name="schoolKey" required data-placeholder="Select a war college">
+                      <option value="" disabled selected hidden>Select a war college</option>
+                    </select>
+                  </label>
+                  <label>
+                    Commission Date
+                    <input type="date" name="commissionedAt" />
+                  </label>
+                  <button type="submit" class="primary-button">Commission</button>
+                </form>
+                <div class="commissioning-benefits" id="commissioningBenefits">
+                  <div id="commissioningBenefitsContent" class="commissioning-benefits__content" aria-live="polite">
+                    <p class="commissioning-benefits__placeholder">Select a commissioning region and war college to preview their combined bonuses.</p>
+                  </div>
+                  <div class="commissioning-benefits__legend">
+                    <h4>Stat meanings</h4>
+                    <ul>
+                      <li><strong>Accuracy</strong>: Percentage multiplier applied to final hit chance.</li>
+                      <li><strong>Damage</strong>: Percentage multiplier applied to damage per hit.</li>
+                      <li><strong>Mobility</strong>: Percentage multiplier applied to unit movement allowance.</li>
+                      <li><strong>Supply</strong>: Percentage reduction to upkeep draw and out-of-supply attrition.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div class="general-selection-actions">
+                <button id="clearGeneralSelection" type="button" class="secondary-button">Clear Selection</button>
+                <button id="exportRosterButton" type="button" class="secondary-button">Export Roster</button>
+                <input id="importRosterInput" type="file" accept=".json" style="display: none;" />
+              </div>
+            </div>
+
+            <div class="status-summary">
+              <div class="status-card">
+                <h3>Assignment Status</h3>
+                <p id="generalAssignmentHeadline" class="status-headline">No general assigned.</p>
+                <p id="generalAssignmentDetails" class="status-subtext">Select a commander to unlock tailored operations.</p>
+              </div>
+              <div class="status-card">
+                <h3>Operation Briefing</h3>
+                <p id="missionHeadline" class="status-headline">Awaiting mission briefing.</p>
+                <p id="missionStatus" class="status-subtext">Choose a mission once a commander is assigned.</p>
+              </div>
+              <div id="generalDetailPanel" class="status-card hidden" aria-live="polite">
+                <h3>Command Record</h3>
+                <p id="generalDetailName" class="status-headline">No commander selected.</p>
+                <p id="generalDetailSummary" class="status-subtext">Activate a commander and choose "View" to review their history.</p>
+                <div id="generalDetailBonuses" class="general-detail-bonuses"></div>
+                <dl class="general-detail-grid">
+                  <dt>Missions</dt>
+                  <dd id="generalDetailMissions">0</dd>
+                  <dt>Victories</dt>
+                  <dd id="generalDetailVictories">0</dd>
+                  <dt>Units Deployed</dt>
+                  <dd id="generalDetailUnits">0</dd>
+                  <dt>Casualties</dt>
+                  <dd id="generalDetailCasualties">0</dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right column: stack Operations above Campaigns so both are visible without scrolling horizontally. -->
+          <div class="landing-primary">
+            <div class="pane">
+              <h2>Operations</h2>
+              <p id="missionListSummary">Select a commander to receive tailored operations.</p>
+              <div id="missionList" class="mission-grid" data-mission-list></div>
+            </div>
+
+            <!-- Campaign selection pane promotes long-form theaters like Western Europe. Placed beneath Operations to keep core flows visible. -->
+            <div class="pane">
+              <h2>Campaigns</h2>
+              <p>Select a theater to launch the strategic campaign layer.</p>
+              <div id="campaignList" class="campaign-grid" data-campaign-list>
+                <button type="button" class="campaign-card" data-campaign-id="western-europe" data-mission="campaign">
+                  <strong>Western Europe</strong>
+                  <span>Lead allied forces across occupied territory in a multi-phase offensive.</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="landing-footer">
+          <div class="difficulty-selector">
+            <label for="difficultySelect">Difficulty</label>
+            <select id="difficultySelect">
+              <option value="Easy">Easy</option>
+              <option value="Normal" selected>Normal</option>
+              <option value="Hard">Hard</option>
+            </select>
+          </div>
+          <div class="feedback" id="feedback"></div>
+          <button id="enterPrecombat" type="button" disabled>Enter Operations</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Campaign Screen -->
+    <div id="campaignScreen" class="screen hidden">
+      <div class="screen-content">
+        <div class="campaign-layout">
+          <div class="campaign-map">
+            <h2>Campaign Map</h2>
+            <div class="campaign-map-viewport" aria-label="Campaign theater viewport">
+              <div id="campaignMapCanvas" class="campaign-map-canvas" data-map-scroll="campaign">
+                <svg id="campaignHexMap" xmlns="http://www.w3.org/2000/svg"></svg>
+              </div>
+            </div>
+          </div>
+          <aside class="campaign-sidebar">
+            <!-- TIME CONTROL SECTION -->
+            <section class="sidebar-section time-section">
+              <h3 class="sidebar-heading">
+                <span class="heading-icon">⏰</span>
+                <span>Campaign Progress</span>
+              </h3>
+              <div class="time-display-container">
+                <div id="campaignTimeDisplay" class="time-display">
+                  Day 1, 00:00-03:00
+                </div>
+                <div class="time-controls">
+                  <button id="campaignPause" type="button" class="time-btn" title="Pause" disabled>
+                    <span class="btn-icon">⏸</span>
+                  </button>
+                  <button id="campaignAdvanceSegment" type="button" class="time-btn time-btn-primary" title="Advance 3 hours">
+                    <span class="btn-icon">▶</span>
+                    <span class="btn-label">3 Hours</span>
+                  </button>
+                  <div class="speed-controls">
+                    <button id="campaignSpeed1x" type="button" class="speed-btn active" title="Normal speed" data-speed="1">1×</button>
+                    <button id="campaignSpeed2x" type="button" class="speed-btn" title="2x speed" data-speed="2">2×</button>
+                    <button id="campaignSpeed4x" type="button" class="speed-btn" title="4x speed" data-speed="4">4×</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- ECONOMY SECTION -->
+            <section class="sidebar-section economy-section">
+              <h3 class="sidebar-heading">
+                <span class="heading-icon">💰</span>
+                <span>Resources</span>
+              </h3>
+              <div id="campaignEconomySummary"></div>
+            </section>
+
+            <!-- MAP CONTROLS SECTION -->
+            <section class="sidebar-section map-controls-section">
+              <h3 class="sidebar-heading">
+                <span class="heading-icon">🗺️</span>
+                <span>Map Controls</span>
+              </h3>
+              <div class="control-grid">
+                <button id="campaignZoomIn" type="button" class="control-btn" title="Zoom in">
+                  <span style="font-size: 1.2em;">＋</span>
+                </button>
+                <button id="campaignZoomOut" type="button" class="control-btn" title="Zoom out">
+                  <span style="font-size: 1.2em;">－</span>
+                </button>
+                <button id="campaignResetView" type="button" class="control-btn control-btn-wide" title="Reset view">
+                  <span>Reset</span>
+                </button>
+              </div>
+              <div class="pan-controls">
+                <button type="button" data-campaign-pan="up" class="pan-btn" title="Pan up">↑</button>
+                <div class="pan-row">
+                  <button type="button" data-campaign-pan="left" class="pan-btn" title="Pan left">←</button>
+                  <button type="button" data-campaign-pan="right" class="pan-btn" title="Pan right">→</button>
+                </div>
+                <button type="button" data-campaign-pan="down" class="pan-btn" title="Pan down">↓</button>
+              </div>
+            </section>
+
+            <!-- SESSION SECTION -->
+            <section class="sidebar-section session-section">
+              <h3 class="sidebar-heading">
+                <span class="heading-icon">💾</span>
+                <span>Session</span>
+              </h3>
+              <div class="session-controls">
+                <button id="campaignSave" type="button" class="session-btn" title="Save campaign progress">
+                  <span class="btn-icon">💾</span>
+                  <span>Save</span>
+                </button>
+                <button id="campaignLoad" type="button" class="session-btn" title="Load last saved campaign">
+                  <span class="btn-icon">📂</span>
+                  <span>Load</span>
+                </button>
+                <button id="campaignEditMode" type="button" class="session-btn" title="Toggle map editor">
+                  <span class="btn-icon">✏️</span>
+                  <span>Edit</span>
+                </button>
+                <button id="campaignExit" type="button" class="session-btn session-btn-exit" title="Exit to main menu">
+                  <span class="btn-icon">🚪</span>
+                  <span>Exit</span>
+                </button>
+                <button id="campaignExportJSON" type="button" class="session-btn hidden" title="Export campaign JSON">
+                  <span class="btn-icon">📤</span>
+                  <span>Export</span>
+                </button>
+              </div>
+            </section>
+            <section id="campaignEditPanel" class="hidden">
+              <h3>Map Editor</h3>
+              <div id="campaignEditorControls">
+                <p><strong>Selected Hex:</strong> <span id="editorSelectedHex">None</span></p>
+                <div id="editorCoordinateSection">
+                  <h4>Coordinates</h4>
+                  <div style="display: flex; gap: 8px; align-items: center; margin: 4px 0;">
+                    <label>Col:</label>
+                    <input id="editorCol" type="number" min="0" max="49" style="width: 60px;" />
+                    <label>Row:</label>
+                    <input id="editorRow" type="number" min="0" max="78" style="width: 60px;" />
+                    <button id="editorMoveBase" type="button">Move Base</button>
+                  </div>
+                  <div style="font-size: 0.85em; color: #888; margin: 4px 0;">
+                    Axial: <span id="editorAxialCoords">-</span>
+                  </div>
+                </div>
+                <div id="editorBaseSection">
+                  <h4>Base</h4>
+                  <select id="editorBaseType">
+                    <option value="">No Base</option>
+                    <option value="playerNavalBase">Player Naval Base</option>
+                    <option value="playerAirbase">Player Airbase</option>
+                    <option value="playerLogistics">Player Logistics</option>
+                    <option value="playerFortificationHeavy">Player Heavy Fortification</option>
+                    <option value="playerFortificationLight">Player Light Fortification</option>
+                    <option value="botNavalBase">Bot Naval Base</option>
+                    <option value="botAirbase">Bot Airbase</option>
+                    <option value="botLogistics">Bot Logistics</option>
+                    <option value="botFortificationHeavy">Bot Heavy Fortification</option>
+                    <option value="botFortificationLight">Bot Light Fortification</option>
+                  </select>
+                  <div style="margin-top: 0.5em;">
+                    <label style="display: block; margin-bottom: 0.25em; font-size: 0.9em;">Sprite Rotation:</label>
+                    <select id="editorRotation" style="width: 100%;">
+                      <option value="0">0° (Default)</option>
+                      <option value="90">90° (Clockwise)</option>
+                      <option value="180">180° (Upside Down)</option>
+                      <option value="270">270° (Counter-clockwise)</option>
+                    </select>
+                  </div>
+                  <button id="editorApplyBase" type="button">Apply Base</button>
+                  <button id="editorDeleteBase" type="button">Delete Base</button>
+                </div>
+                <div id="editorTerrainSection">
+                  <h4>Terrain</h4>
+                  <div style="margin-bottom: 0.5em; font-size: 0.9em;">
+                    Mark hexes as water for validation
+                  </div>
+                  <button id="editorMarkWater" type="button" style="width: 48%; margin-right: 4%;">Mark Water</button>
+                  <button id="editorMarkLand" type="button" style="width: 48%;">Mark Land</button>
+                  <div id="editorTerrainStatus" style="margin-top: 0.5em; font-size: 0.85em; color: #888;"></div>
+                </div>
+                <div id="editorUnitSection">
+                  <h4>Units</h4>
+                  <div id="editorUnitList"></div>
+                  <div>
+                    <select id="editorUnitType">
+                      <option value="Infantry_42">Infantry Battalion</option>
+                      <option value="Panzer_IV">Armor Company</option>
+                      <option value="Artillery_155mm">Heavy Artillery</option>
+                      <option value="Fighter">Fighter</option>
+                      <option value="Bomber">Bomber</option>
+                      <option value="Battleship">Naval Forces</option>
+                      <option value="Transport_Ship">Transport Ships</option>
+                      <option value="Supply_Truck">Supply Column</option>
+                    </select>
+                    <input id="editorUnitCount" type="number" min="1" value="5" style="width: 60px;" />
+                    <input id="editorUnitLabel" type="text" placeholder="Label" style="width: 120px;" />
+                  </div>
+                  <button id="editorAddUnit" type="button">Add Unit</button>
+                </div>
+                <div id="editorResourceSection">
+                  <h4>Economy Resources</h4>
+                  <div style="font-size: 0.85em; color: #888; margin-bottom: 0.5em;">Edit faction resources</div>
+                  <div style="margin-bottom: 0.5em;">
+                    <label style="display: block; margin-bottom: 0.25em;">Faction:</label>
+                    <select id="editorResourceFaction" style="width: 100%;">
+                      <option value="Player">Player</option>
+                      <option value="Bot">Bot</option>
+                    </select>
+                  </div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5em; margin-bottom: 0.5em;">
+                    <div>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">👥 Manpower:</label>
+                      <input id="editorManpower" type="number" min="0" step="100" style="width: 100%;" />
+                    </div>
+                    <div>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">📦 Supplies:</label>
+                      <input id="editorSupplies" type="number" min="0" step="100" style="width: 100%;" />
+                    </div>
+                    <div>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">⛽ Fuel:</label>
+                      <input id="editorFuel" type="number" min="0" step="100" style="width: 100%;" />
+                    </div>
+                    <div>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">💣 Ammo:</label>
+                      <input id="editorAmmo" type="number" min="0" step="100" style="width: 100%;" />
+                    </div>
+                    <div>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">✈️ Air Power:</label>
+                      <input id="editorAirPower" type="number" min="0" step="1" style="width: 100%;" />
+                    </div>
+                    <div>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">⚓ Naval Power:</label>
+                      <input id="editorNavalPower" type="number" min="0" step="1" style="width: 100%;" />
+                    </div>
+                    <div>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">🔍 Intel:</label>
+                      <input id="editorIntelCoverage" type="number" min="0" step="1" style="width: 100%;" />
+                    </div>
+                  </div>
+                  <button id="editorApplyResources" type="button">Apply Resources</button>
+                  <button id="editorLoadResources" type="button" style="margin-top: 0.25em;">Load Current</button>
+                </div>
+              </div>
+            </section>
+            <!-- SELECTION SECTION -->
+            <section class="sidebar-section selection-section">
+              <h3 class="sidebar-heading">
+                <span class="heading-icon">🎯</span>
+                <span>Selection</span>
+              </h3>
+              <div id="campaignSelectionInfo" class="selection-info"></div>
+            </section>
+
+            <!-- ENGAGEMENT ACTION -->
+            <div class="action-section">
+              <button id="campaignQueueEngagement" type="button" class="engagement-btn" disabled>
+                <span class="btn-icon">⚔️</span>
+                <span>Queue Engagement</span>
+              </button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <!-- Battle Popup Layer -->
+    <div id="battlePopupLayer" class="popup-layer hidden" aria-hidden="true">
+      <div class="battle-popup" role="dialog" aria-labelledby="battle-popup-title">
+        <div class="popup-header">
+          <h2 id="battle-popup-title" data-popup-title></h2>
+          <button id="battlePopupClose" type="button" aria-label="Close popup">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <div data-popup-body></div>
+      </div>
+    </div>
+
+    <!-- War Room Overlay -->
+    <div id="warRoomOverlay" class="war-room-overlay hidden" aria-hidden="true">
+      <div class="war-room-surface">
+        <div id="warRoomAnnouncer" class="sr-only" aria-live="polite"></div>
+        <img class="war-room-image" src="/src/assets/Interface/War_Room.png" alt="" aria-hidden="true" />
+        <div class="war-room-hotspot-layer"></div>
+        <div class="war-room-close">
+          <button id="warRoomClose" type="button" aria-label="Close war room">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <div id="warRoomDetail" class="war-room-detail-panel hidden">
+          <button id="warRoomDetailClose" type="button" class="war-room-detail-close" aria-label="Close details">
+            <span aria-hidden="true">×</span>
+          </button>
+          <h3 id="warRoomDetailTitle"></h3>
+          <p id="warRoomDetailMeta"></p>
+          <div id="warRoomDetailBody"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

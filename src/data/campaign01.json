@@ -1,0 +1,2103 @@
+{
+  "key": "central_channel",
+  "title": "Operation Overlord - Central Channel Sector",
+  "description": "Command the invasion forces across the English Channel. Secure airbases, establish supply lines, and coordinate the largest amphibious operation in history.",
+  "hexScaleKm": 10,
+  "dimensions": {
+    "cols": 50,
+    "rows": 35
+  },
+  "mapExtents": {
+    "description": "50×35 hex grid representing English Channel theater (odd-q axial coordinates). Each hex = 10 km.",
+    "corners": {
+      "nw": { "q": 0, "r": 0, "label": "England Northwest" },
+      "ne": { "q": 49, "r": 0, "label": "England Northeast" },
+      "sw": { "q": 0, "r": 34, "label": "France Southwest" },
+      "se": { "q": 49, "r": 34, "label": "France Southeast" }
+    },
+    "zones": [
+      { "rMin": 0, "rMax": 15, "terrain": "land", "label": "England" },
+      { "rMin": 16, "rMax": 19, "terrain": "water", "label": "English Channel" },
+      { "rMin": 20, "rMax": 34, "terrain": "land", "label": "France" }
+    ]
+  },
+  "background": {
+    "imageUrl": "/src/assets/campaign/Campaign Map -- Central Channel.png",
+    "attribution": "Strategic Theater Map",
+    "stretchMode": "cover",
+    "nativeWidth": 2500,
+    "nativeHeight": 1750,
+    "nominalWidthKm": 250
+  },
+  "tilePalette": {
+    "playerAirbase": {
+      "role": "airbase",
+      "factionControl": "Player",
+      "spriteKey": "airbase",
+      "supplyValue": 5,
+      "airSortieCapacity": 8,
+      "intelConfirmed": true,
+      "notes": "Primary air support base"
+    },
+    "playerNavalBase": {
+      "role": "navalBase",
+      "factionControl": "Player",
+      "spriteKey": "navalBase",
+      "supplyValue": 8,
+      "navalCapacity": 12,
+      "intelConfirmed": true,
+      "notes": "Naval staging port"
+    },
+    "playerLogistics": {
+      "role": "logisticsHub",
+      "factionControl": "Player",
+      "spriteKey": "logisticsHub",
+      "supplyValue": 10,
+      "intelConfirmed": true,
+      "notes": "Supply depot"
+    },
+    "playerFortificationHeavy": {
+      "role": "fortificationHeavy",
+      "factionControl": "Player",
+      "spriteKey": "fortificationHeavy",
+      "supplyValue": 3,
+      "intelConfirmed": true,
+      "notes": "Heavy fortified position"
+    },
+    "playerFortificationLight": {
+      "role": "fortificationLight",
+      "factionControl": "Player",
+      "spriteKey": "fortificationLight",
+      "supplyValue": 2,
+      "intelConfirmed": true,
+      "notes": "Light fortified position"
+    },
+    "botNavalBase": {
+      "role": "navalBase",
+      "factionControl": "Bot",
+      "spriteKey": "navalBase",
+      "supplyValue": 8,
+      "navalCapacity": 12,
+      "intelConfirmed": false,
+      "notes": "Enemy naval port"
+    },
+    "botAirbase": {
+      "role": "airbase",
+      "factionControl": "Bot",
+      "spriteKey": "airbase",
+      "supplyValue": 5,
+      "airSortieCapacity": 8,
+      "intelConfirmed": false,
+      "notes": "Enemy air support"
+    },
+    "botLogistics": {
+      "role": "logisticsHub",
+      "factionControl": "Bot",
+      "spriteKey": "logisticsHub",
+      "supplyValue": 10,
+      "intelConfirmed": false,
+      "notes": "Enemy supply depot"
+    },
+    "botFortificationHeavy": {
+      "role": "fortificationHeavy",
+      "factionControl": "Bot",
+      "spriteKey": "fortificationHeavy",
+      "supplyValue": 3,
+      "intelConfirmed": false,
+      "notes": "Enemy heavy fortified position"
+    },
+    "botFortificationLight": {
+      "role": "fortificationLight",
+      "factionControl": "Bot",
+      "spriteKey": "fortificationLight",
+      "supplyValue": 2,
+      "intelConfirmed": false,
+      "notes": "Enemy light fortified position"
+    },
+    "neutralRegion": {
+      "role": "region",
+      "factionControl": "Neutral",
+      "notes": "Open terrain"
+    }
+  },
+  "tiles": [
+    {
+      "tile": "playerNavalBase",
+      "hex": {
+        "q": 26,
+        "r": 12
+      },
+      "forces": [
+        {
+          "unitType": "Transport_Ship",
+          "count": 8,
+          "label": "Invasion Fleet Alpha"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 12,
+          "label": "1st Infantry Division"
+        },
+        {
+          "unitType": "Battleship",
+          "count": 5,
+          "label": ""
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerNavalBase",
+      "hex": {
+        "q": 37,
+        "r": -1
+      },
+      "forces": [
+        {
+          "unitType": "Transport_Ship",
+          "count": 6,
+          "label": "Invasion Fleet Bravo"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 10,
+          "label": "2nd Infantry Division"
+        },
+        {
+          "unitType": "Battleship",
+          "count": 5,
+          "label": ""
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerAirbase",
+      "hex": {
+        "q": -1,
+        "r": 11
+      },
+      "forces": [
+        {
+          "unitType": "Fighter",
+          "count": 6,
+          "label": "Fighter Wing A"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerAirbase",
+      "hex": {
+        "q": 29,
+        "r": 2
+      },
+      "forces": [
+        {
+          "unitType": "Bomber",
+          "count": 4,
+          "label": "Bomber Group 1"
+        },
+        {
+          "unitType": "Fighter",
+          "count": 4,
+          "label": "Fighter Escort"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerLogistics",
+      "hex": {
+        "q": 16,
+        "r": 2
+      },
+      "controlSinceDay": 1,
+      "forces": [
+        {
+          "unitType": "Artillery_155mm",
+          "count": 5,
+          "label": ""
+        },
+        {
+          "unitType": "Panzer_IV",
+          "count": 5,
+          "label": ""
+        }
+      ],
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerNavalBase",
+      "hex": {
+        "q": 2,
+        "r": 13
+      },
+      "forces": [
+        {
+          "unitType": "Transport_Ship",
+          "count": 5,
+          "label": "Western Task Force"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 8,
+          "label": "4th Infantry Division"
+        },
+        {
+          "unitType": "Battleship",
+          "count": 5,
+          "label": ""
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerNavalBase",
+      "hex": {
+        "q": 28,
+        "r": 4
+      },
+      "forces": [
+        {
+          "unitType": "Transport_Ship",
+          "count": 7,
+          "label": "Eastern Task Force"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 6,
+          "label": "Armoured Brigade Reserve"
+        },
+        {
+          "unitType": "Battleship",
+          "count": 5,
+          "label": ""
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerAirbase",
+      "hex": {
+        "q": 8,
+        "r": 10
+      },
+      "forces": [
+        {
+          "unitType": "Fighter",
+          "count": 6,
+          "label": "Fighter Wing B"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerAirbase",
+      "hex": {
+        "q": 21,
+        "r": 8
+      },
+      "forces": [
+        {
+          "unitType": "Fighter",
+          "count": 4,
+          "label": "Tactical Fighter Group"
+        },
+        {
+          "unitType": "Bomber",
+          "count": 3,
+          "label": "Medium Bomber Squadron"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerAirbase",
+      "hex": {
+        "q": 4,
+        "r": 8
+      },
+      "forces": [
+        {
+          "unitType": "Bomber",
+          "count": 5,
+          "label": "Coastal Bomber Group"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerLogistics",
+      "hex": {
+        "q": -4,
+        "r": 12
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 6,
+          "label": "Western Supply Depot"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 3,
+          "label": "Depot Security Battalion"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerLogistics",
+      "hex": {
+        "q": 4,
+        "r": 11
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 6,
+          "label": "Central Supply Depot"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerLogistics",
+      "hex": {
+        "q": 7,
+        "r": 6
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 6,
+          "label": "Marshalling Area Troops"
+        },
+        {
+          "unitType": "Supply_Truck",
+          "count": 4,
+          "label": "Embarkation Support"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 25,
+        "r": 28
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 4,
+          "label": "Supply Convoy"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 30,
+        "r": 25
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 5,
+          "label": "Luftwaffe Wing"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 35,
+        "r": 30
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 6,
+          "label": "21st Panzer Division"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 8,
+          "label": "352nd Infantry"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 24,
+        "r": 33
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 7,
+          "label": "Coastal Defense Regiment"
+        },
+        {
+          "unitType": "Artillery_155mm",
+          "count": 2,
+          "label": "Harbour Batteries"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 28,
+        "r": 28
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 10,
+          "label": "Port Garrison"
+        },
+        {
+          "unitType": "Artillery_105mm",
+          "count": 3,
+          "label": "Port Artillery Group"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 22,
+        "r": 28
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 4,
+          "label": "Armoured Reserve Battalion"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 6,
+          "label": "Caen Security Regiment"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 32,
+        "r": 27
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 6,
+          "label": "Eastern Supply Depot"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 26,
+        "r": 32
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 6,
+          "label": "Forward Interceptor Gruppe"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 34,
+        "r": 22
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 4,
+          "label": "Reserve Fighters"
+        },
+        {
+          "unitType": "Bomber",
+          "count": 3,
+          "label": "Tactical Bombers"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": -2,
+        "r": 36
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 5,
+          "label": "Eastern Air Defense Wing"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 40,
+        "r": 28
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 5,
+          "label": "Armoured Reserve Group"
+        },
+        {
+          "unitType": "Supply_Truck",
+          "count": 4,
+          "label": "Fuel and Ammo Park"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 28,
+        "r": 30
+      },
+      "forces": [
+        {
+          "unitType": "Artillery_155mm",
+          "count": 3,
+          "label": "Corps Artillery Park"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 6,
+          "label": "Rear Area Security"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerNavalBase",
+      "hex": {
+        "q": 37,
+        "r": 6
+      },
+      "forces": [
+        {
+          "unitType": "Transport_Ship",
+          "count": 6,
+          "label": "Western Fleet"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 8,
+          "label": "5th Division"
+        },
+        {
+          "unitType": "Battleship",
+          "count": 5,
+          "label": ""
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerNavalBase",
+      "hex": {
+        "q": 13,
+        "r": -3
+      },
+      "forces": [
+        {
+          "unitType": "Transport_Ship",
+          "count": 5,
+          "label": "Eastern Fleet"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerNavalBase",
+      "hex": {
+        "q": 15,
+        "r": 13
+      },
+      "forces": [
+        {
+          "unitType": "Transport_Ship",
+          "count": 7,
+          "label": "Central Fleet"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 6,
+          "label": "Commandos"
+        },
+        {
+          "unitType": "Battleship",
+          "count": 5,
+          "label": ""
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerNavalBase",
+      "hex": {
+        "q": -5,
+        "r": 14
+      },
+      "forces": [
+        {
+          "unitType": "Transport_Ship",
+          "count": 4,
+          "label": "Reserve Fleet"
+        },
+        {
+          "unitType": "Battleship",
+          "count": 5,
+          "label": ""
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerAirbase",
+      "hex": {
+        "q": 2,
+        "r": 0
+      },
+      "forces": [
+        {
+          "unitType": "Fighter",
+          "count": 6,
+          "label": "Fighter Wing C"
+        },
+        {
+          "unitType": "Bomber",
+          "count": 3,
+          "label": "Bomber Squadron"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerAirbase",
+      "hex": {
+        "q": 28,
+        "r": 9
+      },
+      "forces": [
+        {
+          "unitType": "Bomber",
+          "count": 5,
+          "label": "Heavy Bombers"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerAirbase",
+      "hex": {
+        "q": 8,
+        "r": 6
+      },
+      "forces": [
+        {
+          "unitType": "Fighter",
+          "count": 7,
+          "label": "Coastal Defense"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerAirbase",
+      "hex": {
+        "q": 13,
+        "r": 8
+      },
+      "forces": [
+        {
+          "unitType": "Fighter",
+          "count": 4,
+          "label": "Fighter Wing D"
+        },
+        {
+          "unitType": "Bomber",
+          "count": 2,
+          "label": "Tactical Bombers"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerLogistics",
+      "hex": {
+        "q": 5,
+        "r": 1
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 8,
+          "label": "Western Depot"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerLogistics",
+      "hex": {
+        "q": 16,
+        "r": 10
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 6,
+          "label": "Central Arsenal"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 4,
+          "label": "Guards"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerLogistics",
+      "hex": {
+        "q": 26,
+        "r": 10
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 7,
+          "label": "Eastern Depot"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerLogistics",
+      "hex": {
+        "q": 27,
+        "r": 5
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 5,
+          "label": "Southern Hub"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 3,
+          "label": "Security"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 6,
+        "r": 35
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 8,
+          "label": "Coastal Battery 1"
+        },
+        {
+          "unitType": "Artillery_155mm",
+          "count": 2,
+          "label": "Heavy Guns"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": -2,
+        "r": 34
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 9,
+          "label": "Beach Defense 1"
+        },
+        {
+          "unitType": "Artillery_105mm",
+          "count": 3,
+          "label": "Artillery"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 1,
+        "r": 45
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_Elite",
+          "count": 7,
+          "label": "Atlantic Wall"
+        },
+        {
+          "unitType": "Artillery_155mm",
+          "count": 2,
+          "label": "Fortress Guns"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 14,
+        "r": 29
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 10,
+          "label": "Beach Defense 2"
+        },
+        {
+          "unitType": "Artillery_105mm",
+          "count": 4,
+          "label": "Coastal Artillery"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 39,
+        "r": 15
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_Elite",
+          "count": 6,
+          "label": "Eastern Coastal"
+        },
+        {
+          "unitType": "Artillery_155mm",
+          "count": 2,
+          "label": "Shore Batteries"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 10,
+        "r": 35
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 6,
+          "label": "Western Defense"
+        },
+        {
+          "unitType": "Artillery_105mm",
+          "count": 2,
+          "label": "Battery Support"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 4,
+        "r": 38
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 5,
+          "label": "Coastal Air Defense"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 16,
+        "r": 29
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 6,
+          "label": "Fighter Wing North"
+        },
+        {
+          "unitType": "Bomber",
+          "count": 2,
+          "label": "Strike Squadron"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 43,
+        "r": 14
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 4,
+          "label": "Eastern Interceptors"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 41,
+        "r": 25
+      },
+      "forces": [
+        {
+          "unitType": "Bomber",
+          "count": 3,
+          "label": "Tactical Bombers"
+        },
+        {
+          "unitType": "Interceptor",
+          "count": 3,
+          "label": "Escort Fighters"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 1,
+        "r": 37
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 3,
+          "label": "Mobile Reserve A"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 5,
+          "label": "Quick Reaction"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 39,
+        "r": 22
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 4,
+          "label": "Mobile Reserve B"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 7,
+          "label": "Garrison"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 34,
+        "r": 23
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 5,
+          "label": "Forward Supply"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 4,
+          "label": "Security"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 42,
+        "r": 19
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 5,
+          "label": "Armoured East"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 6,
+          "label": "Panzergrenadiers"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 21,
+        "r": 26
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 8,
+          "label": "Reserve Infantry"
+        },
+        {
+          "unitType": "Artillery_105mm",
+          "count": 2,
+          "label": "Support Artillery"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 25,
+        "r": 31
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 9,
+          "label": "Defense Battalion"
+        },
+        {
+          "unitType": "Artillery_155mm",
+          "count": 3,
+          "label": "Heavy Artillery"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 18,
+        "r": 29
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 6,
+          "label": "Logistics West"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 31,
+        "r": 27
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 5,
+          "label": "Central Fighters"
+        },
+        {
+          "unitType": "Bomber",
+          "count": 3,
+          "label": "Ground Attack"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 12,
+        "r": 39
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 6,
+          "label": "Reserve Division"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 8,
+          "label": "Elite Grenadiers"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 23,
+        "r": 38
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 7,
+          "label": "City Garrison"
+        },
+        {
+          "unitType": "Supply_Truck",
+          "count": 3,
+          "label": "Municipal Supply"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 29,
+        "r": 34
+      },
+      "forces": [
+        {
+          "unitType": "Artillery_155mm",
+          "count": 4,
+          "label": "Corps Artillery"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 5,
+          "label": "Artillery Support"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 35,
+        "r": 32
+      },
+      "forces": [
+        {
+          "unitType": "Bomber",
+          "count": 4,
+          "label": "Strategic Bombers"
+        },
+        {
+          "unitType": "Interceptor",
+          "count": 3,
+          "label": "Escorts"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 20,
+        "r": 43
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 7,
+          "label": "Central Depot"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 4,
+          "label": "Depot Security"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 40,
+        "r": 35
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 3,
+          "label": "Local Armour"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 6,
+          "label": "Support Infantry"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 26,
+        "r": 41
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 7,
+          "label": "Heavy Panzers"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 9,
+          "label": "Mechanized"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 13,
+        "r": 38
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 6,
+          "label": "Defense Wing"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 16,
+        "r": 45
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 8,
+          "label": "Reserve Regiment"
+        },
+        {
+          "unitType": "Artillery_105mm",
+          "count": 3,
+          "label": "Field Guns"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 38,
+        "r": 39
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 5,
+          "label": "Supply Hub"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 3,
+          "label": "Guards"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 22,
+        "r": 50
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 5,
+          "label": "Eastern Panzers"
+        },
+        {
+          "unitType": "Artillery_155mm",
+          "count": 2,
+          "label": "SP Artillery"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 27,
+        "r": 46
+      },
+      "forces": [
+        {
+          "unitType": "Bomber",
+          "count": 3,
+          "label": "Night Bombers"
+        },
+        {
+          "unitType": "Interceptor",
+          "count": 4,
+          "label": "Night Fighters"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 34,
+        "r": 48
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_Elite",
+          "count": 7,
+          "label": "Grenadier Division"
+        },
+        {
+          "unitType": "Supply_Truck",
+          "count": 4,
+          "label": "Supply Train"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 41,
+        "r": 43
+      },
+      "forces": [
+        {
+          "unitType": "Artillery_105mm",
+          "count": 4,
+          "label": "Artillery Regiment"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 5,
+          "label": "Gun Crews"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 18,
+        "r": 55
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 6,
+          "label": "Defense Force"
+        },
+        {
+          "unitType": "Supply_Truck",
+          "count": 3,
+          "label": "Supply Cache"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 30,
+        "r": 51
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 7,
+          "label": "Elite Fighters"
+        },
+        {
+          "unitType": "Bomber",
+          "count": 4,
+          "label": "Strike Bombers"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 24,
+        "r": 58
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 4,
+          "label": "Training Panzers"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 7,
+          "label": "Training Regiment"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 37,
+        "r": 52
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 8,
+          "label": "Main Depot"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 5,
+          "label": "Depot Battalion"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 21,
+        "r": 63
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_Elite",
+          "count": 6,
+          "label": "Elite Battalion"
+        },
+        {
+          "unitType": "Artillery_155mm",
+          "count": 3,
+          "label": "Heavy Guns"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 32,
+        "r": 56
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 8,
+          "label": "Strategic Panzers"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 10,
+          "label": "Elite Division"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 39,
+        "r": 57
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 5,
+          "label": "Reserve Fighters"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 26,
+        "r": 62
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 6,
+          "label": "Rear Supply"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 4,
+          "label": "Rear Security"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 19,
+        "r": 68
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 7,
+          "label": "Security Regiment"
+        },
+        {
+          "unitType": "Artillery_105mm",
+          "count": 2,
+          "label": "Support Guns"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 35,
+        "r": 59
+      },
+      "forces": [
+        {
+          "unitType": "Bomber",
+          "count": 5,
+          "label": "Deep Strike"
+        },
+        {
+          "unitType": "Interceptor",
+          "count": 4,
+          "label": "Long Range"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 28,
+        "r": 66
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 5,
+          "label": "Central Armour"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 7,
+          "label": "Support Infantry"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 42,
+        "r": 61
+      },
+      "forces": [
+        {
+          "unitType": "Artillery_155mm",
+          "count": 5,
+          "label": "Army Artillery"
+        },
+        {
+          "unitType": "Supply_Truck",
+          "count": 4,
+          "label": "Ammo Train"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 23,
+        "r": 70
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 8,
+          "label": "Reserve Division"
+        },
+        {
+          "unitType": "Supply_Truck",
+          "count": 3,
+          "label": "Division Supply"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 31,
+        "r": 64
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 6,
+          "label": "Deep Panzers"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 8,
+          "label": "Grenadiers"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 17,
+        "r": 72
+      },
+      "forces": [
+        {
+          "unitType": "Interceptor",
+          "count": 6,
+          "label": "Rear Defense"
+        },
+        {
+          "unitType": "Bomber",
+          "count": 3,
+          "label": "Reserve Bombers"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 36,
+        "r": 67
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 7,
+          "label": "Army Supply Base"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 5,
+          "label": "Base Security"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 29,
+        "r": 73
+      },
+      "forces": [
+        {
+          "unitType": "Infantry_42",
+          "count": 6,
+          "label": "Rear Guard"
+        },
+        {
+          "unitType": "Artillery_105mm",
+          "count": 2,
+          "label": "AA Battery"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 40,
+        "r": 69
+      },
+      "forces": [
+        {
+          "unitType": "Panzer_IV",
+          "count": 7,
+          "label": "Reserve Armour"
+        },
+        {
+          "unitType": "Infantry_Elite",
+          "count": 9,
+          "label": "Elite Reserve"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botAirbase",
+      "hex": {
+        "q": 25,
+        "r": 71
+      },
+      "forces": [
+        {
+          "unitType": "Bomber",
+          "count": 4,
+          "label": "Medium Bombers"
+        },
+        {
+          "unitType": "Interceptor",
+          "count": 3,
+          "label": "Fighter Support"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botLogistics",
+      "hex": {
+        "q": 33,
+        "r": 74
+      },
+      "forces": [
+        {
+          "unitType": "Supply_Truck",
+          "count": 6,
+          "label": "Deep Depot"
+        },
+        {
+          "unitType": "Infantry_42",
+          "count": 4,
+          "label": "Guard Battalion"
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "playerAirbase",
+      "hex": {
+        "q": 17,
+        "r": 2
+      },
+      "forces": [
+        {
+          "unitType": "Fighter",
+          "count": 5,
+          "label": ""
+        },
+        {
+          "unitType": "Bomber",
+          "count": 5,
+          "label": ""
+        }
+      ],
+      "controlSinceDay": 1,
+      "controlSinceSegment": 0
+    },
+    {
+      "tile": "botFortificationHeavy",
+      "hex": {
+        "q": 35,
+        "r": 13
+      },
+      "forces": [
+        {
+          "unitType": "Artillery_155mm",
+          "count": 5,
+          "label": ""
+        }
+      ]
+    },
+    {
+      "tile": "botFortificationHeavy",
+      "hex": {
+        "q": 35,
+        "r": 14
+      },
+      "forces": [
+        {
+          "unitType": "Artillery_155mm",
+          "count": 5,
+          "label": ""
+        }
+      ]
+    },
+    {
+      "tile": "botFortificationHeavy",
+      "hex": {
+        "q": 36,
+        "r": 13
+      },
+      "forces": [
+        {
+          "unitType": "Artillery_155mm",
+          "count": 5,
+          "label": ""
+        }
+      ],
+      "rotation": 0
+    }
+  ],
+  "fronts": [
+    {
+      "key": "normandy_coast",
+      "label": "Normandy Beachhead",
+      "hexKeys": [
+        "15,18",
+        "16,18",
+        "17,18",
+        "18,18",
+        "19,18",
+        "20,18",
+        "21,18",
+        "22,18",
+        "23,18",
+        "24,18"
+      ],
+      "initiative": "Player",
+      "modifiers": [
+        "amphibiousAssault",
+        "navalSupport"
+      ]
+    },
+    {
+      "key": "eastern_flank",
+      "label": "Eastern Sector",
+      "hexKeys": [
+        "25,19",
+        "26,20",
+        "27,21",
+        "28,22",
+        "29,23"
+      ],
+      "initiative": "Bot",
+      "modifiers": [
+        "fortified",
+        "artillery"
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "key": "secure_beachhead",
+      "label": "Establish Beachhead",
+      "description": "Capture and hold the coastal positions to allow reinforcements to land",
+      "hex": {
+        "q": 20,
+        "r": 18
+      },
+      "owner": "Neutral",
+      "rewards": [
+        "supplyBonus:5",
+        "reinforcements:available"
+      ]
+    },
+    {
+      "key": "capture_port",
+      "label": "Capture Strategic Port",
+      "description": "Seize the enemy port facility to enable heavy equipment unloading",
+      "hex": {
+        "q": 28,
+        "r": 24
+      },
+      "owner": "Bot",
+      "rewards": [
+        "navalCapacity:+10",
+        "supplyBonus:8"
+      ],
+      "penalties": [
+        "enemyReinforcement:-50%"
+      ]
+    },
+    {
+      "key": "airfield_control",
+      "label": "Secure Forward Airfield",
+      "description": "Capture the enemy airbase to establish air superiority",
+      "hex": {
+        "q": 30,
+        "r": 25
+      },
+      "owner": "Bot",
+      "rewards": [
+        "airSuperiority",
+        "airSortieCapacity:+8"
+      ],
+      "penalties": [
+        "enemyAirPower:-30%"
+      ]
+    }
+  ],
+  "economies": [
+    {
+      "faction": "Player",
+      "manpower": 120000,
+      "supplies": 200000,
+      "fuel": 1000000,
+      "airPower": 169,
+      "navalPower": 163,
+      "intelCoverage": 52,
+      "ammo": 1000000
+    },
+    {
+      "faction": "Bot",
+      "manpower": 350000,
+      "supplies": 60000,
+      "fuel": 80000,
+      "airPower": 204,
+      "navalPower": 0,
+      "intelCoverage": 128
+    }
+  ]
+}
