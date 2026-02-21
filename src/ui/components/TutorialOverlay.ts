@@ -204,35 +204,52 @@ export class TutorialOverlay {
       }
     }
 
-    // CRITICAL: When waiting for user action, allow clicks through to the UI
-    // Hide the backdrop completely and rely on spotlight's box-shadow for darkening.
-    // This ensures clicks can reach highlighted elements regardless of their stacking context.
-    if (this.backdropElement) {
-      if (waitingForAction) {
-        // Hide backdrop entirely - spotlight's box-shadow provides darkening
-        // and has pointer-events: none to allow clicks through to highlighted elements
-        this.backdropElement.style.display = "none";
-      } else {
-        // Show backdrop to block clicks - tutorial is presenting information
-        this.backdropElement.style.display = "";
-        this.backdropElement.style.pointerEvents = "auto";
+    // CRITICAL: When waiting for user action, make the ENTIRE overlay non-blocking
+    // except for the panel's interactive buttons
+    if (waitingForAction) {
+      // Ensure container allows all clicks through - even though CSS has pointer-events: none,
+      // we set it explicitly to be certain
+      if (this.container) {
+        this.container.style.pointerEvents = "none";
       }
-    }
 
-    // Also disable pointer events on the panel container when waiting for action
-    // This allows clicks to pass through empty areas of the panel to reach highlighted elements
-    // But keep buttons interactive by setting pointer-events: auto on them
-    if (this.panelElement) {
-      if (waitingForAction) {
+      // Hide backdrop entirely
+      if (this.backdropElement) {
+        this.backdropElement.style.display = "none";
+      }
+
+      // Ensure spotlight is non-blocking
+      if (this.spotlightElement) {
+        this.spotlightElement.style.pointerEvents = "none";
+      }
+
+      // Panel should be non-blocking except for its buttons
+      if (this.panelElement) {
         this.panelElement.style.pointerEvents = "none";
-        // Re-enable pointer events on interactive elements within the panel
+        // Re-enable pointer events only on interactive elements within the panel
         const interactiveElements = this.panelElement.querySelectorAll<HTMLElement>(
           "button, a, input, select, textarea"
         );
         interactiveElements.forEach(el => {
           el.style.pointerEvents = "auto";
         });
-      } else {
+      }
+    } else {
+      // When NOT waiting for action, restore blocking behavior
+      if (this.container) {
+        this.container.style.pointerEvents = "";
+      }
+
+      if (this.backdropElement) {
+        this.backdropElement.style.display = "";
+        this.backdropElement.style.pointerEvents = "auto";
+      }
+
+      if (this.spotlightElement) {
+        this.spotlightElement.style.pointerEvents = "";
+      }
+
+      if (this.panelElement) {
         this.panelElement.style.pointerEvents = "";
         // Clear inline styles on interactive elements
         const interactiveElements = this.panelElement.querySelectorAll<HTMLElement>(
