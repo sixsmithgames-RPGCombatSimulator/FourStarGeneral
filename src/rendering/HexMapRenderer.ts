@@ -1070,14 +1070,9 @@ export class HexMapRenderer implements IMapRenderer {
 
   private applyFacingAngleToGroup(group: SVGGElement, cx: number, cy: number, angleDeg: number): void {
     const facingGroup = this.ensureFacingGroup(group);
-    const unitClass = (group.dataset.unitClass ?? "") as UnitClass;
-    const horizontalFacingOnly =
-      unitClass === "vehicle" || unitClass === "tank" || unitClass === "artillery" || unitClass === "recon" || unitClass === "specialist";
-    if (!horizontalFacingOnly) {
-      facingGroup.setAttribute("transform", `rotate(${angleDeg} ${cx} ${cy})`);
-      return;
-    }
-
+    // All unit types use horizontal flip only. Rotating 2D sprites makes them appear
+    // tilted/laying down which looks unprofessional. The facing angle determines
+    // whether the sprite faces left or right.
     const normalized = ((angleDeg % 360) + 360) % 360;
     const faceLeft = normalized > 90 && normalized < 270;
     const sx = faceLeft ? -1 : 1;
@@ -2386,8 +2381,12 @@ export class HexMapRenderer implements IMapRenderer {
       const a = this.extractHexCenter(attackerElement);
       const d = this.extractHexCenter(defenderElementForFacing);
       if (a && d) {
-        const angleDeg = this.resolveAngleDegFromVector(d.cx - a.cx, d.cy - a.cy);
-        this.setHexFacingAngle(attackerHexKey, a.cx, a.cy, angleDeg);
+        // Attacker faces defender
+        const attackAngle = this.resolveAngleDegFromVector(d.cx - a.cx, d.cy - a.cy);
+        this.setHexFacingAngle(attackerHexKey, a.cx, a.cy, attackAngle);
+        // Defender turns to face the incoming threat
+        const defendAngle = this.resolveAngleDegFromVector(a.cx - d.cx, a.cy - d.cy);
+        this.setHexFacingAngle(defenderHexKey, d.cx, d.cy, defendAngle);
       }
     }
 

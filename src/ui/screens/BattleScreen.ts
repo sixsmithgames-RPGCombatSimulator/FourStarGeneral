@@ -3056,9 +3056,8 @@ export class BattleScreen {
       }
     } catch {}
 
-    if (this.popupManager.getActivePopup() === "armyRoster") {
-      this.popupManager.closePopup();
-    }
+    // Keep the roster popup open so the player can deploy multiple reserves without reopening it.
+    // The roster will refresh in-place via the battleUpdate subscription after deployment mirrors update.
 
     // If a selected hex exists and is valid, attempt to deploy there first; otherwise fall back to nearest free.
     if (this.selectedHexKey) {
@@ -3071,6 +3070,7 @@ export class BattleScreen {
           this.renderEngineUnits();
           this.refreshDeploymentMirrors("deploy", { unitKey, hexKey: this.selectedHexKey, label });
           this.announceBattleUpdate(`Called up ${label} to ${this.selectedHexKey}.`);
+          this.battleState.emitBattleUpdate("deploymentUpdated");
           return;
         } catch {
           // Fall through to auto-placement below
@@ -3085,6 +3085,7 @@ export class BattleScreen {
       this.renderEngineUnits();
       this.refreshDeploymentMirrors("deploy", { unitKey, hexKey, label });
       this.announceBattleUpdate(`Called up ${label} to ${hexKey}.`);
+      this.battleState.emitBattleUpdate("deploymentUpdated");
       return;
     }
 
