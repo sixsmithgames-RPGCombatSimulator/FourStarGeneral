@@ -303,6 +303,10 @@ export class PrecombatScreen {
 
     const currentPhase = tutorialState.getCurrentPhase();
 
+    if (currentPhase === "adjust_quantity") {
+      tutorialState.setCanProceed(true);
+    }
+
     // Check if user has added infantry (for select_infantry phase)
     if (currentPhase === "select_infantry" && optionKey === "infantry" && newQuantity > 0) {
       tutorialState.setCanProceed(true);
@@ -318,6 +322,14 @@ export class PrecombatScreen {
       tutorialState.setCanProceed(true);
       setTimeout(() => {
         const nextPhase = getNextPhase("select_tanks");
+        if (nextPhase) tutorialState.advancePhase(nextPhase);
+      }, 800);
+    }
+
+    if (currentPhase === "select_support" && optionKey === "howitzer" && newQuantity > 0) {
+      tutorialState.setCanProceed(true);
+      setTimeout(() => {
+        const nextPhase = getNextPhase("select_support");
         if (nextPhase) tutorialState.advancePhase(nextPhase);
       }, 800);
     }

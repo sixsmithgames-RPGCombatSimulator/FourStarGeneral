@@ -44,6 +44,8 @@ import { SelectionIntelOverlay } from "../announcements/SelectionIntelOverlay";
 import { BattleActivityLog } from "../announcements/BattleActivityLog";
 import type { ActivityDetailSection } from "../announcements/AnnouncementTypes";
 import { ensureCampaignState } from "../../state/CampaignState";
+import { ensureTutorialState, type TutorialPhase } from "../../state/TutorialState";
+import { getNextPhase } from "../../data/tutorialSteps";
 import {
   ensureDeploymentState,
   type DeploymentPoolEntry,
@@ -977,6 +979,26 @@ export class BattleScreen {
     return div.innerHTML;
   }
 
+  private completeTutorialPhase(phase: TutorialPhase, shouldAdvance = true): void {
+    const tutorialState = ensureTutorialState();
+    if (!tutorialState.isTutorialActive()) {
+      return;
+    }
+    if (tutorialState.getCurrentPhase() !== phase) {
+      return;
+    }
+    tutorialState.setCanProceed(true);
+    if (!shouldAdvance) {
+      return;
+    }
+    setTimeout(() => {
+      const nextPhase = getNextPhase(phase);
+      if (nextPhase) {
+        tutorialState.advancePhase(nextPhase);
+      }
+    }, 800);
+  }
+
   private bindPanelEvents(): void {
     if (!this.deploymentPanel) {
       return;
@@ -1011,6 +1033,7 @@ export class BattleScreen {
             const label = this.resolveUnitLabel(unitKey);
             this.announceBattleUpdate(`Deployed ${label} to ${hexKey}.`);
             this.refreshDeploymentMirrors("deploy", { unitKey, hexKey, label });
+            this.completeTutorialPhase("place_units");
           } catch (error) {
             console.error("Failed to deploy unit via key", unitKey, error);
             this.announceBattleUpdate("Unable to deploy unit. Check console for details.");
@@ -2258,6 +2281,7 @@ export class BattleScreen {
       this.renderEngineUnits();
 
       this.announceBattleUpdate("All units deployed. Battle phase begins immediately.");
+      this.completeTutorialPhase("begin_battle");
     } catch (error) {
       console.error("Failed to finalize deployment after auto placement", error);
       this.announceBattleUpdate("Deployment finalized, but transitioning to battle failed. Check console for details.");
@@ -2313,6 +2337,8 @@ export class BattleScreen {
       this.announceBattleUpdate(
         `Battle phase started. ${reserveCount} reserves standing by. Active faction: ${turnSummary.activeFaction}. Phase: ${turnSummary.phase}.`
       );
+
+      this.completeTutorialPhase("begin_battle");
 
     } catch (error) {
       const message = error instanceof Error
@@ -2440,6 +2466,7 @@ export class BattleScreen {
       }
 
       await this.executeTurnAdvance(preflightSummary);
+      this.completeTutorialPhase("turn_end");
     } catch (error) {
       console.error("Failed to end turn:", error);
       this.announceBattleUpdate("Unable to advance turn. Check console for details.");
@@ -2509,6 +2536,7 @@ export class BattleScreen {
       return;
     }
     void this.executeTurnAdvance(pending.summary);
+    this.completeTutorialPhase("turn_end");
   }
 
   /** Executes the actual turn advance and downstream updates. */
@@ -2661,6 +2689,7 @@ export class BattleScreen {
     this.hexMapRenderer?.renderBaseCampMarker(offsetKey);
     // Base camp selection adjusts engine state; mirror right away so banners reflect the change.
     this.refreshDeploymentMirrors("baseCamp", { hexKey: this.selectedHexKey });
+    this.completeTutorialPhase("base_camp");
   }
 
   /**
@@ -3277,6 +3306,8 @@ export class BattleScreen {
         this.baseCampStatus.textContent = `${unitLabel} @ ${key} — Move:${this.playerMoveHexes.size} Attack:${this.playerAttackHexes.size}`;
       }
       this.announceBattleUpdate(statusMessage);
+
+      this.completeTutorialPhase("movement_intro");
 
       const selectionIntel: BattleSelectionIntel = {
         kind: "battle",

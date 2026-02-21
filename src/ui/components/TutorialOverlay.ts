@@ -152,11 +152,6 @@ export class TutorialOverlay {
       this.hide();
       return;
     }
-
-    // If this step requires the player to interact with the underlying UI,
-    // force the step into a non-proceedable state on first entry so the overlay
-    // becomes click-through (see renderStep waitingForAction behavior).
-    // Do not force this when the phase was already completed (e.g. user navigated Back).
     if (
       !this.syncingCanProceed &&
       step.waitForAction === true &&
@@ -208,7 +203,6 @@ export class TutorialOverlay {
     if (titleEl) titleEl.textContent = step.title;
     if (descEl) descEl.textContent = step.content;
 
-    // Determine if we're waiting for user to interact with the UI
     const waitingForAction = step.waitForAction === true && !progress.canProceed;
 
     // Update action button
@@ -224,26 +218,19 @@ export class TutorialOverlay {
       }
     }
 
-    // CRITICAL: When waiting for user action, make the ENTIRE overlay non-blocking
-    // except for the panel's interactive buttons
-    if (waitingForAction) {
-      // Ensure container allows all clicks through - even though CSS has pointer-events: none,
-      // we set it explicitly to be certain
+    if (step.waitForAction === true) {
       if (this.container) {
         this.container.style.pointerEvents = "none";
       }
 
-      // Hide backdrop entirely
       if (this.backdropElement) {
-        this.backdropElement.style.display = "none";
+        this.backdropElement.style.pointerEvents = "none";
       }
 
-      // Ensure spotlight is non-blocking
       if (this.spotlightElement) {
         this.spotlightElement.style.pointerEvents = "none";
       }
 
-      // Panel should be non-blocking except for its buttons
       if (this.panelElement) {
         this.panelElement.style.pointerEvents = "none";
         // Re-enable pointer events only on interactive elements within the panel
@@ -255,13 +242,11 @@ export class TutorialOverlay {
         });
       }
     } else {
-      // When NOT waiting for action, restore blocking behavior
       if (this.container) {
         this.container.style.pointerEvents = "";
       }
 
       if (this.backdropElement) {
-        this.backdropElement.style.display = "";
         this.backdropElement.style.pointerEvents = "auto";
       }
 

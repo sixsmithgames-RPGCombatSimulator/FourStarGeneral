@@ -67,6 +67,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightSelector: ".allocation-quantity",
     position: "right",
     arrowDirection: "left",
+    waitForAction: true,
     actionLabel: "Continue"
   },
   {
