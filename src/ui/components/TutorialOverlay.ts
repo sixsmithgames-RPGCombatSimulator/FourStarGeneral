@@ -179,6 +179,10 @@ export class TutorialOverlay {
 
     const tutorialState = ensureTutorialState();
 
+    if (this.backdropElement) {
+      this.backdropElement.style.background = step.highlightSelector ? "rgba(0, 0, 0, 0)" : "";
+    }
+
     // Update step indicator
     const stepIndicator = this.panelElement.querySelector(".tutorial-step-indicator");
     if (stepIndicator) {

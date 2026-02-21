@@ -3395,7 +3395,7 @@
     .tutorial-backdrop {
       position: absolute;
       inset: 0;
-      background: rgba(0, 0, 0, 0.65);
+      background: rgba(0, 0, 0, 0.45);
       pointer-events: auto;
     }
 
@@ -3403,7 +3403,7 @@
       position: fixed;
       border-radius: 12px;
       box-shadow:
-        0 0 0 9999px rgba(0, 0, 0, 0.6),
+        0 0 0 9999px rgba(0, 0, 0, 0.52),
         0 0 0 4px var(--accent-strong),
         0 0 30px rgba(245, 196, 109, 0.4);
       z-index: 10001;
@@ -3418,13 +3418,13 @@
     @keyframes tutorialPulse {
       0%, 100% {
         box-shadow:
-          0 0 0 9999px rgba(0, 0, 0, 0.6),
+          0 0 0 9999px rgba(0, 0, 0, 0.52),
           0 0 0 4px var(--accent-strong),
           0 0 30px rgba(245, 196, 109, 0.4);
       }
       50% {
         box-shadow:
-          0 0 0 9999px rgba(0, 0, 0, 0.6),
+          0 0 0 9999px rgba(0, 0, 0, 0.52),
           0 0 0 6px var(--accent-strong),
           0 0 50px rgba(245, 196, 109, 0.6);
       }
@@ -3642,9 +3642,7 @@
     .tutorial-highlight {
       position: relative;
       z-index: 10003 !important;
-      box-shadow: 0 0 0 4px var(--accent-strong), 0 0 30px rgba(245, 196, 109, 0.5) !important;
       border-radius: 12px;
-      animation: tutorialHighlightPulse 2s ease-in-out infinite;
       /* Ensure highlighted elements can receive clicks through the overlay */
       pointer-events: auto !important;
     }

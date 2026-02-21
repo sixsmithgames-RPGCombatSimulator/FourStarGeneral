@@ -122,33 +122,35 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "deployment_intro",
     title: "Deployment Phase",
     content:
-      "Welcome to the battlefield. Before combat begins, you must deploy your forces in the designated zones. " +
-      "The highlighted hexes show where you can place units.",
-    position: "center",
+      "Welcome to the battlefield. Before combat begins, you must deploy your forces from the Unit Deployment panel. " +
+      "You can manually place units, or use Deploy Evenly / Deploy Grouped to auto-place quickly.",
+    highlightSelector: "#deploymentPanel .deployment-header-actions",
+    position: "left",
+    arrowDirection: "right",
     actionLabel: "Continue"
-  },
-  {
-    phase: "place_units",
-    title: "Placing Units",
-    content:
-      "Select a unit from your reserves on the left, then click a highlighted hex to place it. " +
-      "Consider terrain when positioning - forests provide cover, hills offer visibility.",
-    highlightSelector: ".deployment-reserves, .reserve-list",
-    position: "right",
-    arrowDirection: "left",
-    waitForAction: true,
-    actionLabel: "Deploy a Unit"
   },
   {
     phase: "base_camp",
     title: "Establish Base Camp",
     content:
-      "Your base camp is your supply hub. Place it in a safe location - if it's captured or destroyed, resupply becomes difficult.",
-    highlightSelector: "#baseCampAssign, .base-camp-status",
+      "Your base camp is your supply hub. Select a deployment hex, then click Assign Base Camp to lock in your staging area.",
+    highlightSelector: "#assignBaseCamp, #baseCampStatus",
     position: "left",
     arrowDirection: "right",
     waitForAction: true,
     actionLabel: "Set Base Camp"
+  },
+  {
+    phase: "place_units",
+    title: "Placing Units",
+    content:
+      "Now select a unit from the Unit Deployment roster, then click a highlighted hex to place it. " +
+      "Consider terrain when positioning - forests provide cover, hills offer visibility.",
+    highlightSelector: "#deploymentUnitList",
+    position: "left",
+    arrowDirection: "right",
+    waitForAction: true,
+    actionLabel: "Deploy a Unit"
   },
   {
     phase: "begin_battle",
@@ -274,7 +276,7 @@ export function getPrecombatPhases(): TutorialPhase[] {
  * Gets the ordered list of phases for deployment.
  */
 export function getDeploymentPhases(): TutorialPhase[] {
-  return ["deployment_intro", "place_units", "base_camp", "begin_battle"];
+  return ["deployment_intro", "base_camp", "place_units", "begin_battle"];
 }
 
 /**
