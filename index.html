@@ -2059,6 +2059,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
+      flex-wrap: wrap;
       padding: 0.5rem 0.75rem;
       min-height: 0;
     }
@@ -2066,14 +2067,19 @@
       display: flex;
       align-items: center;
       gap: 0.75rem;
+      flex-wrap: wrap;
       min-width: 0;
+      flex: 1 1 520px;
     }
     .battle-map-title {
       margin: 0;
-      font-size: 1.35rem;
+      font-size: clamp(1.05rem, 1.1vw + 0.9rem, 1.35rem);
       letter-spacing: 0.08em;
       text-transform: uppercase;
       white-space: nowrap;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .turn-status {
       display: inline-flex;
@@ -2088,6 +2094,9 @@
       align-items: center;
       gap: 0.5rem;
       flex-shrink: 0;
+      flex: 1 1 360px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
     }
     .map-pan-grid {
       display: grid;
@@ -3529,7 +3538,7 @@
       margin: 0;
       font-size: 0.95rem;
       line-height: 1.65;
-      color: var(--text-muted);
+      color: rgba(248, 249, 251, 0.82);
     }
 
     .tutorial-panel-footer {
@@ -3561,8 +3570,8 @@
 
     .tutorial-action-btn:disabled,
     .tutorial-action-btn.waiting {
-      background: rgba(100, 100, 100, 0.4);
-      color: var(--text-muted);
+      background: rgba(120, 120, 120, 0.55);
+      color: var(--text-primary);
       cursor: not-allowed;
       box-shadow: none;
       transform: none;
