@@ -266,6 +266,7 @@ export class LandingScreen {
    */
   private bindEvents(): void {
     // General form submission
+    this.generalForm?.addEventListener("submit", (e) => this.handleGeneralFormSubmit(e));
     this.generalRegionSelect?.addEventListener("change", () => {
       this.syncSchoolOptions();
       this.refreshCommissioningPreview();
