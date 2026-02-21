@@ -20,6 +20,8 @@ export class TutorialOverlay {
   private spotlightElement: HTMLElement | null = null;
   private unsubscribe: (() => void) | null = null;
   private currentStep: TutorialStep | null = null;
+  private lastRenderedPhase: TutorialPhase | null = null;
+  private syncingCanProceed = false;
 
   /**
    * Initializes the tutorial overlay and subscribes to state changes.
@@ -151,7 +153,25 @@ export class TutorialOverlay {
       return;
     }
 
+    // If this step requires the player to interact with the underlying UI,
+    // force the step into a non-proceedable state on first entry so the overlay
+    // becomes click-through (see renderStep waitingForAction behavior).
+    // Do not force this when the phase was already completed (e.g. user navigated Back).
+    if (
+      !this.syncingCanProceed &&
+      step.waitForAction === true &&
+      progress.canProceed === true &&
+      this.lastRenderedPhase !== progress.currentPhase &&
+      !progress.completedPhases.includes(progress.currentPhase)
+    ) {
+      this.syncingCanProceed = true;
+      ensureTutorialState().setCanProceed(false);
+      this.syncingCanProceed = false;
+      return;
+    }
+
     this.currentStep = step;
+    this.lastRenderedPhase = progress.currentPhase;
     this.show();
     this.renderStep(step, progress);
   }
