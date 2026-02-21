@@ -22,6 +22,7 @@ import { CampaignScreen } from "./ui/screens/CampaignScreen";
 import { CampaignMapRenderer } from "./rendering/CampaignMapRenderer";
 import type { CampaignScenarioData } from "./core/campaignTypes";
 import campaignScenarioData from "./data/campaign01.json";
+import campaignMapImage from "./assets/campaign/Campaign Map -- Central Channel.png";
 import { ensureCampaignState } from "./state/CampaignState";
 import { ensureBattleState } from "./state/BattleState";
 import { PopupManager } from "./ui/components/PopupManager";
@@ -137,7 +138,15 @@ function initializeApplication(): void {
     screenManager.showScreenById("precombat");
   });
   // Render the campaign scenario immediately so entering the Campaign screen shows the map.
-  campaignScreen.renderScenario(campaignScenarioData as CampaignScenarioData);
+  // Patch the background image URL since JSON files can't use new URL() for asset bundling
+  const patchedCampaignData: CampaignScenarioData = {
+    ...(campaignScenarioData as any),
+    background: {
+      ...(campaignScenarioData as any).background,
+      imageUrl: campaignMapImage
+    }
+  };
+  campaignScreen.renderScenario(patchedCampaignData);
   battleScreen.initialize();
 
   // Initialize tutorial overlay system
