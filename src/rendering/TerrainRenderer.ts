@@ -3,21 +3,20 @@ import type { TerrainKey } from "../core/types";
 
 /**
  * Terrain sprite mapping.
+ * Note: Vite requires new URL() with literal string paths for proper asset bundling.
  */
-const toSpritePath = (relative: string): string => new URL(relative, import.meta.url).href;
-
 const TERRAIN_SPRITES: Record<string, string> = {
-  sea: toSpritePath("../assets/terrain/Sea.png"),
-  beach: toSpritePath("../assets/terrain/Beach.png"),
-  plains: toSpritePath("../assets/terrain/Plain.png"),
-  forest: toSpritePath("../assets/terrain/Forest.png"),
-  hill: toSpritePath("../assets/terrain/Hill.png"),
-  mountain: toSpritePath("../assets/terrain/Mountain.png"),
-  city: toSpritePath("../assets/terrain/Village.png"),
-  marsh: toSpritePath("../assets/terrain/Marsh.png"),
-  river: toSpritePath("../assets/terrain/River.png"),
-  road: toSpritePath("../assets/terrain/grasslands.png"),
-  grass: toSpritePath("../assets/terrain/grasslands.png")
+  sea: new URL("../assets/terrain/Sea.png", import.meta.url).href,
+  beach: new URL("../assets/terrain/Beach.png", import.meta.url).href,
+  plains: new URL("../assets/terrain/Plain.png", import.meta.url).href,
+  forest: new URL("../assets/terrain/Forest.png", import.meta.url).href,
+  hill: new URL("../assets/terrain/Hill.png", import.meta.url).href,
+  mountain: new URL("../assets/terrain/Mountain.png", import.meta.url).href,
+  city: new URL("../assets/terrain/Village.png", import.meta.url).href,
+  marsh: new URL("../assets/terrain/Marsh.png", import.meta.url).href,
+  river: new URL("../assets/terrain/River.png", import.meta.url).href,
+  road: new URL("../assets/terrain/grasslands.png", import.meta.url).href,
+  grass: new URL("../assets/terrain/grasslands.png", import.meta.url).href
 };
 
 /**
