@@ -219,6 +219,31 @@ export class TutorialOverlay {
       }
     }
 
+    // Also disable pointer events on the panel container when waiting for action
+    // This allows clicks to pass through empty areas of the panel to reach highlighted elements
+    // But keep buttons interactive by setting pointer-events: auto on them
+    if (this.panelElement) {
+      if (waitingForAction) {
+        this.panelElement.style.pointerEvents = "none";
+        // Re-enable pointer events on interactive elements within the panel
+        const interactiveElements = this.panelElement.querySelectorAll<HTMLElement>(
+          "button, a, input, select, textarea"
+        );
+        interactiveElements.forEach(el => {
+          el.style.pointerEvents = "auto";
+        });
+      } else {
+        this.panelElement.style.pointerEvents = "";
+        // Clear inline styles on interactive elements
+        const interactiveElements = this.panelElement.querySelectorAll<HTMLElement>(
+          "button, a, input, select, textarea"
+        );
+        interactiveElements.forEach(el => {
+          el.style.pointerEvents = "";
+        });
+      }
+    }
+
     // Handle highlighting
     tutorialState.clearHighlight();
     if (step.highlightSelector) {
