@@ -3,7 +3,13 @@ import { rmSync } from "fs";
 
 export default defineConfig({
   root: ".",
-  server: { port: 5175, open: true },
+  server: { 
+    port: 5175, 
+    open: true,
+    headers: {
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://*.clerk.accounts.dev https://*.clerk.com blob:; worker-src 'self' blob:; connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk.sixsmithgames.com https://api.clerk.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com;"
+    }
+  },
   build: {
     outDir: "dist",
     // Disable automatic directory clearing to avoid Windows file locking issues
