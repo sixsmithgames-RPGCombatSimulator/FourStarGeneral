@@ -14,12 +14,17 @@ export type TutorialPhase =
   | "select_support"
   | "review_allocation"
   | "proceed_to_battle"
+  | "ui_overview"
+  | "mission_briefing"
+  | "deployment_panel_intro"
   | "deployment_intro"
   | "place_units"
   | "base_camp"
+  | "air_support_intro"
   | "begin_battle"
   | "movement_intro"
   | "attack_intro"
+  | "air_missions"
   | "turn_end"
   | "complete";
 

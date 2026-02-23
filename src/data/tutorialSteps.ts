@@ -98,32 +98,60 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "review_allocation",
     title: "Review Your Force",
     content:
-      "Before proceeding, review your allocations. Ensure you have a balanced force within budget. " +
-      "You can reset allocations if you want to start over.",
-    highlightSelector: "#resetAllocations",
-    position: "bottom",
-    arrowDirection: "up",
-    actionLabel: "Continue"
+      "Take your time to review and adjust your force. You have Reset Allocations to start over, and Begin Battle when ready. " +
+      "I'll let you work freely now - click Continue to dismiss this overlay and review your force at your own pace. When you're satisfied, click Begin Battle to proceed.",
+    highlightSelector: "#resetAllocations, #proceedToBattle",
+    position: "center",
+    actionLabel: "Continue (Dismiss)"
   },
   {
     phase: "proceed_to_battle",
     title: "Ready for Deployment",
     content:
-      "Your force is assembled! Click 'Begin Battle' to proceed to the deployment phase where you'll position your units on the battlefield.",
+      "Click 'Begin Battle' to proceed to the deployment phase.",
     highlightSelector: "#proceedToBattle",
     position: "top",
     arrowDirection: "down",
     waitForAction: true,
-    actionLabel: "Proceed to Battle"
+    actionLabel: "Proceed"
   },
 
   // === DEPLOYMENT PHASE ===
   {
-    phase: "deployment_intro",
-    title: "Deployment Phase",
+    phase: "ui_overview",
+    title: "Battle Interface Overview",
     content:
-      "Welcome to the battlefield. Before combat begins, you must deploy your forces from the Unit Deployment panel. " +
-      "You can manually place units, or use Deploy Evenly / Deploy Grouped to auto-place quickly.",
+      "Welcome to the battlefield! Let's familiarize you with the interface. The sidebar on the left provides quick access to HQ, Intel, Logistics, and your Army Roster.",
+    highlightSelector: ".control-sidebar",
+    position: "right",
+    arrowDirection: "left",
+    actionLabel: "Continue"
+  },
+  {
+    phase: "mission_briefing",
+    title: "Mission Information",
+    content:
+      "The top bar shows your mission objective, current turn/phase, and key actions like Begin Battle and End Turn. Keep an eye on your objectives!",
+    highlightSelector: ".battle-map-header",
+    position: "bottom",
+    arrowDirection: "up",
+    actionLabel: "Continue"
+  },
+  {
+    phase: "deployment_panel_intro",
+    title: "Unit Deployment Panel",
+    content:
+      "This panel on the right shows your available units and deployment zones. You can manually place each unit, or use auto-deploy buttons for quick setup.",
+    highlightSelector: "#deploymentPanel",
+    position: "left",
+    arrowDirection: "right",
+    actionLabel: "Continue"
+  },
+  {
+    phase: "deployment_intro",
+    title: "Deployment Options",
+    content:
+      "You have three deployment options: Assign Base Camp first, then Deploy Evenly (spread across zones), Deploy Grouped (concentrate forces), or manually place each unit.",
     highlightSelector: "#deploymentPanel .deployment-header-actions",
     position: "left",
     arrowDirection: "right",
@@ -144,13 +172,24 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "place_units",
     title: "Placing Units",
     content:
-      "Now select a unit from the Unit Deployment roster, then click a highlighted hex to place it. " +
-      "Consider terrain when positioning - forests provide cover, hills offer visibility.",
-    highlightSelector: "#deploymentUnitList",
+      "Now deploy your units. You can click a unit in the roster then click a hex, or use Deploy Evenly/Grouped. " +
+      "Deploy multiple units to see how terrain affects positioning - forests provide cover, hills offer visibility. You can also open the Army Roster (sidebar) to see all your forces.",
+    highlightSelector: "#deploymentUnitList, .control-sidebar [data-popup='armyRoster']",
     position: "left",
     arrowDirection: "right",
     waitForAction: true,
-    actionLabel: "Deploy a Unit"
+    actionLabel: "Deploy Units"
+  },
+  {
+    phase: "air_support_intro",
+    title: "Air Support",
+    content:
+      "Air units work differently - they don't deploy to the map during the deployment phase. Instead, they remain at airbases and can be tasked with missions during battle. " +
+      "Open the Air Support panel (sidebar) or click the Air widget (top bar) to schedule reconnaissance, air cover, or strike missions.",
+    highlightSelector: ".control-sidebar [data-popup='airSupport'], #airHudWidget",
+    position: "left",
+    arrowDirection: "right",
+    actionLabel: "Continue"
   },
   {
     phase: "begin_battle",
@@ -169,19 +208,30 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "movement_intro",
     title: "Movement & Action",
     content:
-      "Each turn, your units can move and attack. Click a friendly unit to select it - you'll see its movement range (blue) and attack range (red). " +
-      "Try selecting one of your units now.",
+      "Each turn, you can move and attack with your units. Click a friendly unit to select it - you'll see its movement range (blue) and attack range (red). " +
+      "Try selecting different units to see how their ranges vary by type and terrain.",
     position: "center",
     waitForAction: true,
-    actionLabel: "Select a Unit"
+    actionLabel: "Select Units"
   },
   {
     phase: "attack_intro",
     title: "Engaging the Enemy",
     content:
-      "When an enemy is within range (red hexes), click on them to attack. A preview will show expected damage. " +
-      "Position is crucial - flanking attacks are more effective than frontal assaults.",
+      "When an enemy is within range (red hexes), click them to attack. A detailed preview shows expected damage, accuracy, and armor penetration. " +
+      "Flanking attacks and combined arms (infantry + tanks + artillery) are far more effective than single-unit assaults.",
     position: "center",
+    actionLabel: "Continue"
+  },
+  {
+    phase: "air_missions",
+    title: "Air Mission Execution",
+    content:
+      "During battle, your air units execute scheduled missions. Bombers strike ground targets, fighters provide air cover (CAP) to intercept enemy bombers, and scouts reveal enemy positions. " +
+      "Check the Air Support panel or Air widget to see mission status and schedule new sorties.",
+    highlightSelector: "#airHudWidget",
+    position: "left",
+    arrowDirection: "right",
     actionLabel: "Continue"
   },
   {
@@ -276,12 +326,12 @@ export function getPrecombatPhases(): TutorialPhase[] {
  * Gets the ordered list of phases for deployment.
  */
 export function getDeploymentPhases(): TutorialPhase[] {
-  return ["deployment_intro", "base_camp", "place_units", "begin_battle"];
+  return ["ui_overview", "mission_briefing", "deployment_panel_intro", "deployment_intro", "base_camp", "place_units", "air_support_intro", "begin_battle"];
 }
 
 /**
  * Gets the ordered list of phases for combat.
  */
 export function getCombatPhases(): TutorialPhase[] {
-  return ["movement_intro", "attack_intro", "turn_end", "complete"];
+  return ["movement_intro", "attack_intro", "air_missions", "turn_end", "complete"];
 }
