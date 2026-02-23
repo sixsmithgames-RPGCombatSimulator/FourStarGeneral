@@ -3034,9 +3034,30 @@ export class BattleScreen {
     const engine = this.battleState.ensureGameEngine();
     const turnSummary = engine.getTurnSummary();
 
+    // During deployment phase, place units from roster using normal deployment flow
     if (turnSummary.phase === "deployment") {
-      this.announceBattleUpdate("Reserves deploy after the battle begins.");
-      return;
+      if (!this.selectedHexKey) {
+        this.announceBattleUpdate("Select a deployment hex first, then deploy from the roster.");
+        return;
+      }
+      const parsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
+      if (!parsed) {
+        return;
+      }
+      const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+      try {
+        engine.deployUnitByKey(axial, unitKey);
+        const label = this.resolveUnitLabel(unitKey);
+        this.renderEngineUnits();
+        this.refreshDeploymentMirrors("deploy", { unitKey, hexKey: this.selectedHexKey, label });
+        this.announceBattleUpdate(`Deployed ${label} to ${this.selectedHexKey}.`);
+        this.battleState.emitBattleUpdate("deploymentUpdated");
+        return;
+      } catch (error) {
+        console.error("Failed to deploy unit from roster", unitKey, error);
+        this.announceBattleUpdate("Unable to deploy unit. Check zone capacity and hex availability.");
+        return;
+      }
     }
 
     if (turnSummary.turnNumber <= 1) {
