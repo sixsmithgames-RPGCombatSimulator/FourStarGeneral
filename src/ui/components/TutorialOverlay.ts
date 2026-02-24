@@ -22,6 +22,7 @@ export class TutorialOverlay {
   private currentStep: TutorialStep | null = null;
   private lastRenderedPhase: TutorialPhase | null = null;
   private syncingCanProceed = false;
+  private onViewportChange: (() => void) | null = null;
 
   /**
    * Initializes the tutorial overlay and subscribes to state changes.
@@ -49,6 +50,11 @@ export class TutorialOverlay {
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = null;
+    }
+    if (this.onViewportChange) {
+      window.removeEventListener("resize", this.onViewportChange);
+      window.removeEventListener("scroll", this.onViewportChange, true);
+      this.onViewportChange = null;
     }
     this.removeOverlayElements();
   }
@@ -136,6 +142,19 @@ export class TutorialOverlay {
         this.handleAction();
       }
     });
+
+    if (!this.onViewportChange) {
+      this.onViewportChange = () => {
+        // Keep spotlight/panel aligned as the UI changes (scrolling, resize, popups opening)
+        if (this.currentStep?.highlightSelector) {
+          this.positionSpotlight(this.currentStep.highlightSelector);
+        }
+        this.positionPanelForCurrentStep();
+      };
+      window.addEventListener("resize", this.onViewportChange);
+      // Capture scroll events from nested scroll containers (sidebars/panels)
+      window.addEventListener("scroll", this.onViewportChange, true);
+    }
   }
 
   /**
@@ -352,10 +371,15 @@ export class TutorialOverlay {
     const rect = targetElement.getBoundingClientRect();
     const padding = 8;
 
-    this.spotlightElement.style.left = `${rect.left - padding}px`;
-    this.spotlightElement.style.top = `${rect.top - padding}px`;
-    this.spotlightElement.style.width = `${rect.width + padding * 2}px`;
-    this.spotlightElement.style.height = `${rect.height + padding * 2}px`;
+    const left = Math.max(0, rect.left - padding);
+    const top = Math.max(0, rect.top - padding);
+    const right = Math.min(window.innerWidth, rect.right + padding);
+    const bottom = Math.min(window.innerHeight, rect.bottom + padding);
+
+    this.spotlightElement.style.left = `${left}px`;
+    this.spotlightElement.style.top = `${top}px`;
+    this.spotlightElement.style.width = `${Math.max(0, right - left)}px`;
+    this.spotlightElement.style.height = `${Math.max(0, bottom - top)}px`;
     this.spotlightElement.classList.remove("hidden");
   }
 
@@ -385,10 +409,13 @@ export class TutorialOverlay {
 
     // Viewport boundaries with minimum margin
     const viewportMargin = 20;
-    const panelWidth = 380;
-    const panelHeight = 280; // Approximate max height
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
+
+    // Use actual rendered size so we never guess wrong and end up off-screen.
+    const panelRect = this.panelElement.getBoundingClientRect();
+    const panelWidth = Math.max(1, panelRect.width || 380);
+    const panelHeight = Math.max(1, panelRect.height || 280);
 
     if (step.position === "center") {
       this.panelElement.style.left = "50%";
@@ -422,7 +449,9 @@ export class TutorialOverlay {
             const idealTop = rect.top + rect.height / 2 - panelHeight / 2;
             const clampedTop = Math.max(viewportMargin, Math.min(idealTop, viewportHeight - panelHeight - viewportMargin));
 
-            this.panelElement.style.left = `${leftPos}px`;
+            const clampedLeft = Math.max(viewportMargin, Math.min(leftPos, viewportWidth - panelWidth - viewportMargin));
+
+            this.panelElement.style.left = `${clampedLeft}px`;
             this.panelElement.style.top = `${clampedTop}px`;
             break;
           }
@@ -431,8 +460,10 @@ export class TutorialOverlay {
             const idealLeft = rect.left + rect.width / 2 - panelWidth / 2;
             const clampedLeft = Math.max(viewportMargin, Math.min(idealLeft, viewportWidth - panelWidth - viewportMargin));
 
+            const panelBottomInPx = Math.max(viewportMargin, Math.min(bottomPos, viewportHeight - panelHeight - viewportMargin));
+
             this.panelElement.style.left = `${clampedLeft}px`;
-            this.panelElement.style.bottom = `${bottomPos}px`;
+            this.panelElement.style.bottom = `${panelBottomInPx}px`;
             break;
           }
           case "bottom": {
@@ -440,13 +471,21 @@ export class TutorialOverlay {
             const idealLeft = rect.left + rect.width / 2 - panelWidth / 2;
             const clampedLeft = Math.max(viewportMargin, Math.min(idealLeft, viewportWidth - panelWidth - viewportMargin));
 
+            const clampedTop = Math.max(viewportMargin, Math.min(topPos, viewportHeight - panelHeight - viewportMargin));
+
             this.panelElement.style.left = `${clampedLeft}px`;
-            this.panelElement.style.top = `${topPos}px`;
+            this.panelElement.style.top = `${clampedTop}px`;
             break;
           }
         }
         return;
       }
+
+      // If the highlight target isn't present (user changed tabs/panels), fall back to a safe center position.
+      this.panelElement.style.left = "50%";
+      this.panelElement.style.top = "50%";
+      this.panelElement.style.transform = "translate(-50%, -50%)";
+      return;
     }
 
     // Default positioning when no target - centered in viewport quadrant

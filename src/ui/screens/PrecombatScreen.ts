@@ -369,6 +369,11 @@ export class PrecombatScreen {
    * Handles proceeding to battle screen.
    */
   private handleProceedToBattle(force = false): void {
+    const tutorialState = ensureTutorialState();
+    if (tutorialState.isTutorialActive() && tutorialState.getCurrentPhase() === "review_allocation") {
+      tutorialState.advancePhase("proceed_to_battle");
+    }
+
     const entries = this.toDeploymentEntries();
     console.log("[PrecombatScreen] toDeploymentEntries built", entries.map((e) => ({ key: e.key, remaining: e.remaining })));
     if (entries.length === 0 && !force) {
@@ -401,9 +406,8 @@ export class PrecombatScreen {
     this.allocationDirty = false;
 
     // Advance tutorial to deployment phase if active
-    const tutorialState = ensureTutorialState();
     if (tutorialState.isTutorialActive() && tutorialState.getCurrentPhase() === "proceed_to_battle") {
-      tutorialState.advancePhase("deployment_intro");
+      tutorialState.advancePhase("ui_overview");
     }
 
     this.screenManager.showScreenById("battle");
