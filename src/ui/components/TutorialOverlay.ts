@@ -23,6 +23,10 @@ export class TutorialOverlay {
   private lastRenderedPhase: TutorialPhase | null = null;
   private syncingCanProceed = false;
   private onViewportChange: (() => void) | null = null;
+  private domObserver: MutationObserver | null = null;
+  private anchorAttemptId = 0;
+  private anchorTimeoutId: number | null = null;
+  private lastResolvedAnchorSelector: string | null = null;
 
   /**
    * Initializes the tutorial overlay and subscribes to state changes.
@@ -56,6 +60,8 @@ export class TutorialOverlay {
       window.removeEventListener("scroll", this.onViewportChange, true);
       this.onViewportChange = null;
     }
+    this.stopDomObserver();
+    this.clearAnchorRetry();
     this.removeOverlayElements();
   }
 
@@ -292,11 +298,11 @@ export class TutorialOverlay {
     // Handle highlighting
     tutorialState.clearHighlight();
     if (step.highlightSelector) {
-      // First scroll the target element into view so users can see and interact with it
-      this.scrollTargetIntoView(step.highlightSelector);
-      tutorialState.highlightElement(step.highlightSelector);
-      this.positionSpotlight(step.highlightSelector);
+      // Premium anchoring: attempt to ensure the target exists (panels may be closed / DOM may be async)
+      this.ensureAnchorTarget(step.highlightSelector);
     } else {
+      this.stopDomObserver();
+      this.clearAnchorRetry();
       this.hideSpotlight();
     }
 
@@ -305,6 +311,140 @@ export class TutorialOverlay {
 
     // Handle arrow
     this.updateArrow(step);
+  }
+
+  private clearAnchorRetry(): void {
+    if (this.anchorTimeoutId !== null) {
+      window.clearTimeout(this.anchorTimeoutId);
+      this.anchorTimeoutId = null;
+    }
+  }
+
+  private stopDomObserver(): void {
+    if (this.domObserver) {
+      this.domObserver.disconnect();
+      this.domObserver = null;
+    }
+  }
+
+  private startDomObserver(): void {
+    if (this.domObserver) {
+      return;
+    }
+    this.domObserver = new MutationObserver(() => {
+      if (!this.currentStep?.highlightSelector) {
+        return;
+      }
+
+      // If the target exists now (e.g. user opened the correct panel), anchor immediately.
+      const el = document.querySelector<HTMLElement>(this.currentStep.highlightSelector);
+      if (el) {
+        this.anchorToTarget(this.currentStep.highlightSelector);
+      }
+    });
+
+    this.domObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style", "hidden", "aria-hidden", "data-panel-collapsed"]
+    });
+  }
+
+  private ensureAnchorTarget(selector: string): void {
+    this.lastResolvedAnchorSelector = selector;
+    this.anchorAttemptId += 1;
+    const attemptId = this.anchorAttemptId;
+
+    // First attempt: if it exists right now, anchor immediately.
+    const existing = document.querySelector<HTMLElement>(selector);
+    if (existing) {
+      this.anchorToTarget(selector);
+      return;
+    }
+
+    // Context-aware assist: try to open the correct UI surface if we can infer it.
+    this.tryAutoOpenContextForSelector(selector);
+
+    // Start observing DOM mutations so the spotlight snaps in as soon as the target appears.
+    this.startDomObserver();
+
+    // Retry loop: poll briefly because some UI updates are async and don't always produce a mutation we can rely on.
+    this.clearAnchorRetry();
+    const startedAt = performance.now();
+    const timeoutMs = 1200;
+    const intervalMs = 120;
+
+    const tick = () => {
+      if (attemptId !== this.anchorAttemptId) {
+        return;
+      }
+
+      const el = document.querySelector<HTMLElement>(selector);
+      if (el) {
+        this.anchorToTarget(selector);
+        return;
+      }
+
+      if (performance.now() - startedAt >= timeoutMs) {
+        // Graceful fallback: no spotlight; keep the panel visible and centered.
+        this.hideSpotlight();
+        ensureTutorialState().clearHighlight();
+        this.positionPanelForCurrentStep();
+        return;
+      }
+
+      this.anchorTimeoutId = window.setTimeout(tick, intervalMs);
+    };
+
+    this.anchorTimeoutId = window.setTimeout(tick, intervalMs);
+  }
+
+  private anchorToTarget(selector: string): void {
+    this.clearAnchorRetry();
+    this.startDomObserver();
+
+    // First scroll the target element into view so users can see and interact with it
+    this.scrollTargetIntoView(selector);
+
+    const tutorialState = ensureTutorialState();
+    tutorialState.highlightElement(selector);
+    this.positionSpotlight(selector);
+
+    if (this.currentStep) {
+      this.positionPanel(this.currentStep);
+    }
+  }
+
+  private tryAutoOpenContextForSelector(selector: string): void {
+    // If selector includes an obvious popup/panel, attempt to open it.
+    // This is deliberately conservative: we only auto-open when we can infer intent.
+    if (selector.includes("#deploymentPanel")) {
+      return;
+    }
+
+    // Sidebar popups use [data-popup="..."] triggers.
+    if (selector.includes("armyRoster") || selector.includes("data-popup='armyRoster'") || selector.includes("data-popup=\"armyRoster\"")) {
+      this.clickIfPresent(".control-sidebar [data-popup=\"armyRoster\"]");
+      return;
+    }
+    if (selector.includes("airSupport") || selector.includes("airHudWidget") || selector.includes("data-popup='airSupport'") || selector.includes("data-popup=\"airSupport\"")) {
+      // Prefer the Air HUD widget if present (it exists in the battle header), otherwise fall back to sidebar popup.
+      this.clickIfPresent("[data-airhud-open]");
+      this.clickIfPresent(".control-sidebar [data-popup=\"airSupport\"]");
+      return;
+    }
+  }
+
+  private clickIfPresent(selector: string): void {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (el && typeof (el as any).click === "function") {
+      try {
+        (el as any).click();
+      } catch {
+        // ignore
+      }
+    }
   }
 
   /**
