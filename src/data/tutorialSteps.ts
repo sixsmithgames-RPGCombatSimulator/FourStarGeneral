@@ -106,14 +106,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "proceed_to_battle",
-    title: "Ready for Deployment",
-    content:
-      "Click 'Begin Battle' to proceed to the deployment phase.",
-    highlightSelector: "#proceedToBattle",
-    position: "top",
-    arrowDirection: "down",
-    waitForAction: true,
-    actionLabel: "Proceed"
+    title: "",
+    content: "",
+    position: "center"
   },
 
   // === DEPLOYMENT PHASE ===

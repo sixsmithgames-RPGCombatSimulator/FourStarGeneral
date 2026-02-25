@@ -371,7 +371,7 @@ export class PrecombatScreen {
   private handleProceedToBattle(force = false): void {
     const tutorialState = ensureTutorialState();
     if (tutorialState.isTutorialActive() && tutorialState.getCurrentPhase() === "review_allocation") {
-      tutorialState.advancePhase("proceed_to_battle");
+      tutorialState.advancePhase("ui_overview");
     }
 
     const entries = this.toDeploymentEntries();
