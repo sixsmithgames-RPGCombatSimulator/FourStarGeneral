@@ -24,9 +24,12 @@ export class TutorialOverlay {
   private syncingCanProceed = false;
   private onViewportChange: (() => void) | null = null;
   private domObserver: MutationObserver | null = null;
+  private domObserverScheduled = false;
+  private domObserverRafId: number | null = null;
   private anchorAttemptId = 0;
   private anchorTimeoutId: number | null = null;
   private lastResolvedAnchorSelector: string | null = null;
+  private lastAnchoredSelector: string | null = null;
 
   /**
    * Initializes the tutorial overlay and subscribes to state changes.
@@ -325,6 +328,11 @@ export class TutorialOverlay {
       this.domObserver.disconnect();
       this.domObserver = null;
     }
+    if (this.domObserverRafId !== null) {
+      cancelAnimationFrame(this.domObserverRafId);
+      this.domObserverRafId = null;
+    }
+    this.domObserverScheduled = false;
   }
 
   private startDomObserver(): void {
@@ -336,11 +344,32 @@ export class TutorialOverlay {
         return;
       }
 
-      // If the target exists now (e.g. user opened the correct panel), anchor immediately.
-      const el = document.querySelector<HTMLElement>(this.currentStep.highlightSelector);
-      if (el) {
-        this.anchorToTarget(this.currentStep.highlightSelector);
+      // Debounce mutation bursts to avoid feedback loops (anchoring itself mutates DOM).
+      if (this.domObserverScheduled) {
+        return;
       }
+      this.domObserverScheduled = true;
+      this.domObserverRafId = requestAnimationFrame(() => {
+        this.domObserverRafId = null;
+        this.domObserverScheduled = false;
+
+        if (!this.currentStep?.highlightSelector) {
+          return;
+        }
+        const selector = this.currentStep.highlightSelector;
+        if (this.lastAnchoredSelector === selector) {
+          // Still keep spotlight positioned in case layout shifted.
+          this.positionSpotlight(selector);
+          this.positionPanelForCurrentStep();
+          return;
+        }
+
+        // If the target exists now (e.g. user opened the correct panel), anchor.
+        const el = document.querySelector<HTMLElement>(selector);
+        if (el) {
+          this.anchorToTarget(selector);
+        }
+      });
     });
 
     this.domObserver.observe(document.body, {
@@ -353,6 +382,7 @@ export class TutorialOverlay {
 
   private ensureAnchorTarget(selector: string): void {
     this.lastResolvedAnchorSelector = selector;
+    this.lastAnchoredSelector = null;
     this.anchorAttemptId += 1;
     const attemptId = this.anchorAttemptId;
 
@@ -403,6 +433,9 @@ export class TutorialOverlay {
   private anchorToTarget(selector: string): void {
     this.clearAnchorRetry();
     this.startDomObserver();
+
+    // Mark as anchored early to avoid mutation feedback loops.
+    this.lastAnchoredSelector = selector;
 
     // First scroll the target element into view so users can see and interact with it
     this.scrollTargetIntoView(selector);
@@ -471,19 +504,16 @@ export class TutorialOverlay {
       rect.right > viewportWidth - margin;
 
     if (isOutOfView) {
-      // Scroll the element into view with some padding
+      // Avoid smooth-scroll loops that can repeatedly trigger observers/scroll handlers.
       targetElement.scrollIntoView({
-        behavior: "smooth",
+        behavior: "auto",
         block: "center",
         inline: "center"
       });
 
-      // After scroll completes, reposition spotlight to match new element location
-      // Use a timeout since smooth scroll doesn't have a completion callback
-      setTimeout(() => {
-        this.positionSpotlight(selector);
-        this.positionPanelForCurrentStep();
-      }, 400);
+      // Reposition immediately since auto scroll completes synchronously.
+      this.positionSpotlight(selector);
+      this.positionPanelForCurrentStep();
     }
   }
 
