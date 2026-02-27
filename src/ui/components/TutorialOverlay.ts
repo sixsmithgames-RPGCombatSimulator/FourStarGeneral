@@ -30,6 +30,7 @@ export class TutorialOverlay {
   private anchorTimeoutId: number | null = null;
   private lastResolvedAnchorSelector: string | null = null;
   private lastAnchoredSelector: string | null = null;
+  private suppressCurrentPhaseDisplay = false;
 
   /**
    * Initializes the tutorial overlay and subscribes to state changes.
@@ -173,6 +174,16 @@ export class TutorialOverlay {
     if (!progress.isActive || progress.currentPhase === "inactive") {
       this.hide();
       return;
+    }
+
+    if (this.suppressCurrentPhaseDisplay && progress.currentPhase === "review_allocation") {
+      // Stay hidden after the user dismisses the free-review step. We'll re-enable when phase changes.
+      this.lastRenderedPhase = progress.currentPhase;
+      return;
+    }
+
+    if (this.suppressCurrentPhaseDisplay && progress.currentPhase !== "review_allocation") {
+      this.suppressCurrentPhaseDisplay = false;
     }
 
     const step = getTutorialStep(progress.currentPhase);
@@ -853,6 +864,13 @@ export class TutorialOverlay {
 
     // If waiting for action and can't proceed yet, do nothing
     if (this.currentStep.waitForAction && !progress.canProceed) {
+      return;
+    }
+
+    // Special case: review_allocation is a dismiss-only overlay. Hide and wait for Begin Battle to advance.
+    if (this.currentStep.phase === "review_allocation") {
+      this.suppressCurrentPhaseDisplay = true;
+      this.hide();
       return;
     }
 
