@@ -2261,30 +2261,17 @@ export class BattleScreen {
    */
   private finishDeploymentAfterAutoPlacement(engine: GameEngine): void {
     try {
-      const reserves = engine.finalizeDeployment();
-      engine.startPlayerTurnPhase();
+      // Auto-deploy should *not* auto-start the battle. Leave the player in deployment so they can review and click Begin Battle.
       this.refreshDeploymentMirrors("sync");
 
-      const deploymentState = ensureDeploymentState();
-      deploymentState.cacheFrozenReserves(reserves);
-      const mirroredReserves = deploymentState.getReserves();
-      this.reservePresenter?.markBattlePhaseStarted(reserves, mirroredReserves);
-      this.lockDeploymentInteractions();
-      this.deploymentPanel?.enableReserveCallups();
-      this.updateUIForBattlePhase({
-        turnNumber: this.battleState.getCurrentTurnSummary().turnNumber,
-        activeFaction: this.battleState.getCurrentTurnSummary().activeFaction,
-        reserveCount: mirroredReserves.length,
-        phase: this.battleState.getCurrentTurnSummary().phase
-      });
-      this.collapseDeploymentPanelForBattlePhase();
-      this.renderEngineUnits();
+      // Mark tutorial progress for deploy step in case no manual deploy events fired.
+      this.completeTutorialPhase("place_units", /* shouldAdvance */ true);
 
-      this.announceBattleUpdate("All units deployed. Battle phase begins immediately.");
-      this.completeTutorialPhase("begin_battle");
+      // Let the player know they're ready to proceed manually.
+      this.announceBattleUpdate("All units deployed. Click Begin Battle when you're ready to start the fight.");
     } catch (error) {
-      console.error("Failed to finalize deployment after auto placement", error);
-      this.announceBattleUpdate("Deployment finalized, but transitioning to battle failed. Check console for details.");
+      console.error("Failed post auto placement wrap-up", error);
+      this.announceBattleUpdate("Deployment synced, but cannot proceed. Check console for details.");
     }
   }
 
