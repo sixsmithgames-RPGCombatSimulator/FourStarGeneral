@@ -208,6 +208,8 @@ export class BattleScreen {
   private idleWarningPreviousFocus: HTMLElement | null = null;
   private idleWarningKeyHandler: ((event: KeyboardEvent) => void) | null = null;
   private pendingIdleTurnAdvance: { summary: TurnSummary } | null = null;
+  private lastFocusedHexKey: string | null = null;
+  private lastViewportTransform: { zoom: number; panX: number; panY: number } | null = null;
 
   // Hex selection state
   private selectedHexKey: string | null = null;
@@ -1692,6 +1694,34 @@ export class BattleScreen {
 
     console.log("[BattleScreen] Calling mapViewport.centerOn:", { cx, cy });
     this.mapViewport.centerOn(cx, cy);
+    this.lastFocusedHexKey = hexKey;
+    this.lastViewportTransform = this.mapViewport.getTransform();
+  }
+
+  private recenterLastFocus(): void {
+    if (!this.lastFocusedHexKey) {
+      return;
+    }
+    this.focusCameraOnHex(this.lastFocusedHexKey);
+  }
+
+  private restoreViewportAfterIdleDismiss(): void {
+    if (!this.mapViewport) {
+      return;
+    }
+
+    // Recenter on the last focused hex when available.
+    if (this.lastFocusedHexKey) {
+      this.focusCameraOnHex(this.lastFocusedHexKey);
+    }
+
+    // Reapply the previous zoom/pan to avoid unexpected resets.
+    if (this.lastViewportTransform) {
+      const { zoom, panX, panY } = this.lastViewportTransform;
+      this.mapViewport.adjustZoom(zoom - this.mapViewport.getTransform().zoom);
+      const current = this.mapViewport.getTransform();
+      this.mapViewport.pan(panX - current.panX, panY - current.panY);
+    }
   }
 
   /**
@@ -2051,17 +2081,20 @@ export class BattleScreen {
       if (event.key === "Escape") {
         event.preventDefault();
         this.dismissIdleWarning();
+        this.restoreViewportAfterIdleDismiss();
       }
     };
 
     this.idleWarningLayer.addEventListener("click", (event) => {
       if (event.target === this.idleWarningLayer) {
         this.dismissIdleWarning();
+        this.restoreViewportAfterIdleDismiss();
       }
     });
 
     this.idleContinueButton?.addEventListener("click", () => {
       this.dismissIdleWarning();
+      this.restoreViewportAfterIdleDismiss();
     });
 
     this.idleEndTurnButton?.addEventListener("click", () => {
