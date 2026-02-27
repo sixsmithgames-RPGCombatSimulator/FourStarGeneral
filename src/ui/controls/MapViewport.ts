@@ -261,12 +261,17 @@ export class MapViewport implements IMapViewport {
 
     console.log("[MapViewport] Before clamping:", { panX, panY, zoom });
 
-    // Clamp only when the scaled map overflows the container.
+    // Clamp when the scaled map overflows the container; otherwise, keep the map centred
+    // so panning math cannot move the entire canvas out of view (blank screen when zoomed out).
     if (scaledWidth > containerWidth) {
       const minPanX = containerWidth - baseOffsetX - scaledWidth;
       const maxPanX = -baseOffsetX;
       panX = this.clamp(panX, minPanX, maxPanX);
       console.log("[MapViewport] Clamped X:", { minPanX, maxPanX, panX });
+    } else {
+      const centeredPanX = containerCenterX - baseOffsetX - scaledWidth / 2;
+      panX = centeredPanX;
+      console.log("[MapViewport] Centering X (map narrower than container):", { panX });
     }
 
     if (scaledHeight > containerHeight) {
@@ -274,6 +279,10 @@ export class MapViewport implements IMapViewport {
       const maxPanY = -baseOffsetY;
       panY = this.clamp(panY, minPanY, maxPanY);
       console.log("[MapViewport] Clamped Y:", { minPanY, maxPanY, panY });
+    } else {
+      const centeredPanY = containerCenterY - baseOffsetY - scaledHeight / 2;
+      panY = centeredPanY;
+      console.log("[MapViewport] Centering Y (map shorter than container):", { panY });
     }
 
     const targetScreenX = baseOffsetX + zoom * x + panX;

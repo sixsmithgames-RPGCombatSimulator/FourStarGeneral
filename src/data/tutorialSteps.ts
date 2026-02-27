@@ -163,7 +163,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     content:
       "Now deploy your units. You can click a unit in the roster then click a hex, or use Deploy Evenly/Grouped. " +
       "Deploy multiple units to see how terrain affects positioning - forests provide cover, hills offer visibility. You can also open the Army Roster (sidebar) to see all your forces.",
-    highlightSelector: "#deploymentUnitList, .control-sidebar [data-popup='armyRoster']",
+    highlightSelector: "#deploymentPanel .deployment-header-actions, #deploymentUnitList",
     position: "left",
     arrowDirection: "right",
     waitForAction: true,
@@ -186,8 +186,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     content:
       "With your forces deployed, you're ready to begin combat operations. Click 'Begin Battle' to start your first turn.",
     highlightSelector: "#beginBattle",
-    position: "top",
-    arrowDirection: "down",
+    position: "bottom",
+    arrowDirection: "up",
     waitForAction: true,
     actionLabel: "Begin Battle"
   },
