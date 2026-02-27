@@ -1,0 +1,8 @@
+You are operating in the `FourStarGeneral` repository. 
+
+Whenever you are asked to write, refactor, or test code in this repository, you MUST first read and strictly adhere to the rules in `CODING_STANDARDS.md`.
+
+Do not propose any UI changes that interact with the engine without confirming they use the established Event-Driven Rendering patterns (e.g. `CustomEvent` or PubSub).
+Do not write implicitly typed variables, and ensure linting via `npm run lint` and compiling via `npm run build` succeeds before considering any task complete.
+
+If modifying any files listed in the "High-Risk File Protocol" section of `CODING_STANDARDS.md` (such as `BattleScreen.ts` or `HexMapRenderer.ts`), you must follow the stated procedures, including writing an `implementation_plan.md` first.

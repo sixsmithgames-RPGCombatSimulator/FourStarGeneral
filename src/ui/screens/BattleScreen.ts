@@ -1087,6 +1087,7 @@ export class BattleScreen {
         }
       }
     });
+
     this.baseCampAssignButton?.addEventListener("click", () => this.handleAssignBaseCamp());
     this.deploymentPanelToggleButton?.addEventListener("click", () => {
       this.deploymentPanelBody?.classList.toggle("hidden");
@@ -1095,6 +1096,29 @@ export class BattleScreen {
         this.deploymentPanelBody?.classList.contains("hidden") ? "false" : "true"
       );
     });
+
+    // Hook into tutorial overlay's request to focus a hex safely utilizing the engine's viewport tools.
+    document.addEventListener("tutorial:focusHex", ((event: CustomEvent<{ selector: string; element: HTMLElement }>) => {
+      if (!this.hexMapRenderer) return;
+
+      const { selector, element } = event.detail;
+
+      // Extract hex key
+      let hexKey: string | null = null;
+      if (element.hasAttribute("data-hex")) {
+        hexKey = element.getAttribute("data-hex");
+      } else if (element.hasAttribute("data-q") && element.hasAttribute("data-r")) {
+        const q = parseInt(element.getAttribute("data-q") || "0", 10);
+        const r = parseInt(element.getAttribute("data-r") || "0", 10);
+        const offset = CoordinateSystem.axialToOffset(q, r);
+        hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+      }
+
+      if (hexKey) {
+        // Safe programmatic pan via the established battle canvas methods.
+        this.hexMapRenderer.focusOnHex(hexKey, { behavior: "smooth", padding: 100 });
+      }
+    }) as EventListener);
   }
 
   /**
@@ -2207,7 +2231,7 @@ export class BattleScreen {
   /**
    * Builds an iterator of unit keys based on the desired auto-deploy mode.
    */
-  private *buildUnitQueue(mode: "even" | "grouped"): Generator<string, void, void> {
+  private * buildUnitQueue(mode: "even" | "grouped"): Generator<string, void, void> {
     const deploymentState = ensureDeploymentState();
     const entries = deploymentState.pool
       .map((entry) => ({ key: entry.key, remaining: deploymentState.getReserveCount(entry.key) }))
@@ -2570,41 +2594,41 @@ export class BattleScreen {
     // Consume and announce bot turn actions
     const botSummary = this.battleState.consumeBotTurnSummary();
     if (botSummary) {
-        // WAIT for animations to complete before continuing
-        try {
-          await this.playBotTurnAnimations(botSummary);
-        } catch (error) {
-          console.error("Failed to play bot turn animations:", error);
-          this.renderEngineUnits();
-        }
-        this.logBotTurnActivity(botSummary);
-        this.announceBotTurnActions(botSummary);
+      // WAIT for animations to complete before continuing
+      try {
+        await this.playBotTurnAnimations(botSummary);
+      } catch (error) {
+        console.error("Failed to play bot turn animations:", error);
+        this.renderEngineUnits();
       }
-
-      // Clear selection so player must reselect units with fresh action flags
-      this.clearSelectedHex();
-
-      this.refreshDeploymentMirrors("sync");
-      this.updateTurnStatusDisplay(summary);
-      this.updateTurnControls(summary);
-      // Keep idle outlines aligned with the new phase so highlights disappear during bot actions and repopulate on the next player turn.
-      this.refreshIdleUnitHighlights(summary);
-
-      this.announceBattleUpdate(
-        `Turn ${summary.turnNumber} begins. Active faction: ${summary.activeFaction}. Phase: ${summary.phase}.`
-      );
-      this.announceSupplyAttrition(report);
-
-      // Auto-open the roster at the start of the player's turn when reserves are available.
-      if (summary.activeFaction === "Player" && summary.phase === "playerTurn") {
-        try {
-          const engineReserves = this.battleState.ensureGameEngine().getReserveSnapshot();
-          if (engineReserves.length > 0 && this.popupManager.getActivePopup() !== "armyRoster") {
-            this.popupManager.openPopup("armyRoster");
-          }
-        } catch {}
-      }
+      this.logBotTurnActivity(botSummary);
+      this.announceBotTurnActions(botSummary);
     }
+
+    // Clear selection so player must reselect units with fresh action flags
+    this.clearSelectedHex();
+
+    this.refreshDeploymentMirrors("sync");
+    this.updateTurnStatusDisplay(summary);
+    this.updateTurnControls(summary);
+    // Keep idle outlines aligned with the new phase so highlights disappear during bot actions and repopulate on the next player turn.
+    this.refreshIdleUnitHighlights(summary);
+
+    this.announceBattleUpdate(
+      `Turn ${summary.turnNumber} begins. Active faction: ${summary.activeFaction}. Phase: ${summary.phase}.`
+    );
+    this.announceSupplyAttrition(report);
+
+    // Auto-open the roster at the start of the player's turn when reserves are available.
+    if (summary.activeFaction === "Player" && summary.phase === "playerTurn") {
+      try {
+        const engineReserves = this.battleState.ensureGameEngine().getReserveSnapshot();
+        if (engineReserves.length > 0 && this.popupManager.getActivePopup() !== "armyRoster") {
+          this.popupManager.openPopup("armyRoster");
+        }
+      } catch { }
+    }
+  }
 
   /**
    * Handles ending the mission and returning to headquarters.
@@ -2654,7 +2678,7 @@ export class BattleScreen {
         spentFuel = 0;
         void snap; // placeholder to acknowledge variable
       }
-    } catch {}
+    } catch { }
 
     // Apply the outcome back to the strategic layer: deduct resources, shift the active front, and
     // remove the resolved engagement. This keeps the feedback loop tight without breaking existing flows.
@@ -3095,7 +3119,7 @@ export class BattleScreen {
         this.announceBattleUpdate(`${label} is an Air Support asset and cannot be deployed as a ground reserve.`);
         return;
       }
-    } catch {}
+    } catch { }
 
     // Keep the roster popup open so the player can deploy multiple reserves without reopening it.
     // The roster will refresh in-place via the battleUpdate subscription after deployment mirrors update.
@@ -3280,12 +3304,12 @@ export class BattleScreen {
         : `Selected ${key}. ${terrainLabel}.`;
       const capacityDetails = zoneMeta
         ? (() => {
-            const definition = deploymentState.getZoneDefinition(zoneMeta.key);
-            const remaining = deploymentState.getRemainingZoneCapacity(zoneMeta.key);
-            const capacity = definition?.capacity ?? zoneMeta.totalCapacity;
-            const zoneName = definition?.name ?? zoneMeta.name ?? "Deployment zone";
-            return remaining !== null ? `${remaining} of ${capacity} slots open in ${zoneName}.` : `${zoneName} capacity syncing.`;
-          })()
+          const definition = deploymentState.getZoneDefinition(zoneMeta.key);
+          const remaining = deploymentState.getRemainingZoneCapacity(zoneMeta.key);
+          const capacity = definition?.capacity ?? zoneMeta.totalCapacity;
+          const zoneName = definition?.name ?? zoneMeta.name ?? "Deployment zone";
+          return remaining !== null ? `${remaining} of ${capacity} slots open in ${zoneName}.` : `${zoneName} capacity syncing.`;
+        })()
         : null;
       const combinedAnnouncement = capacityDetails ? `${baseAnnouncement} ${capacityDetails}` : baseAnnouncement;
       this.announceBattleUpdate(combinedAnnouncement);
