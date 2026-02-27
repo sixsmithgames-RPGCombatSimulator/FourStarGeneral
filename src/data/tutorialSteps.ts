@@ -306,8 +306,7 @@ export function getPrecombatPhases(): TutorialPhase[] {
     "adjust_quantity",
     "select_tanks",
     "select_support",
-    "review_allocation",
-    "proceed_to_battle"
+    "review_allocation"
   ];
 }
 
