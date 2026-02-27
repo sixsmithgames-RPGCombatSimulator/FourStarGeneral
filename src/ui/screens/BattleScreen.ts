@@ -1098,27 +1098,30 @@ export class BattleScreen {
     });
 
     // Hook into tutorial overlay's request to focus a hex safely utilizing the engine's viewport tools.
-    document.addEventListener("tutorial:focusHex", ((event: CustomEvent<{ selector: string; element: HTMLElement }>) => {
-      if (!this.hexMapRenderer) return;
+    if (this.element.dataset.tutorialFocusBound !== "true") {
+      this.element.dataset.tutorialFocusBound = "true";
+      document.addEventListener("tutorial:focusHex", ((event: CustomEvent<{ selector: string; element: HTMLElement }>) => {
+        if (!this.hexMapRenderer) return;
 
-      const { selector, element } = event.detail;
+        const { element } = event.detail;
 
-      // Extract hex key
-      let hexKey: string | null = null;
-      if (element.hasAttribute("data-hex")) {
-        hexKey = element.getAttribute("data-hex");
-      } else if (element.hasAttribute("data-q") && element.hasAttribute("data-r")) {
-        const q = parseInt(element.getAttribute("data-q") || "0", 10);
-        const r = parseInt(element.getAttribute("data-r") || "0", 10);
-        const offset = CoordinateSystem.axialToOffset(q, r);
-        hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
-      }
+        // Extract hex key
+        let hexKey: string | null = null;
+        if (element.hasAttribute("data-hex")) {
+          hexKey = element.getAttribute("data-hex");
+        } else if (element.hasAttribute("data-q") && element.hasAttribute("data-r")) {
+          const q = parseInt(element.getAttribute("data-q") || "0", 10);
+          const r = parseInt(element.getAttribute("data-r") || "0", 10);
+          const offset = CoordinateSystem.axialToOffset(q, r);
+          hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+        }
 
-      if (hexKey) {
-        // Safe programmatic pan via the established battle canvas methods.
-        this.hexMapRenderer.focusOnHex(hexKey, { behavior: "smooth", padding: 100 });
-      }
-    }) as EventListener);
+        if (hexKey) {
+          // Safe programmatic pan via the established battle canvas methods.
+          this.focusCameraOnHex(hexKey);
+        }
+      }) as EventListener);
+    }
   }
 
   /**
