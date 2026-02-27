@@ -594,6 +594,53 @@ export class TutorialOverlay {
       return;
     }
 
+    const clamp = (value: number, min: number, max: number): number => {
+      if (Number.isNaN(value)) return min;
+      return Math.max(min, Math.min(value, max));
+    };
+
+    const getPanelRect = (): DOMRect => this.panelElement!.getBoundingClientRect();
+    const overlaps = (a: DOMRect, b: DOMRect): boolean => {
+      return !(
+        a.right <= b.left ||
+        a.left >= b.right ||
+        a.bottom <= b.top ||
+        a.top >= b.bottom
+      );
+    };
+
+    const nudgeWithinViewport = (): void => {
+      const rect = getPanelRect();
+      const maxLeft = viewportWidth - rect.width - viewportMargin;
+      const maxTop = viewportHeight - rect.height - viewportMargin;
+      const desiredLeft = clamp(rect.left, viewportMargin, maxLeft);
+      const desiredTop = clamp(rect.top, viewportMargin, maxTop);
+      const dx = desiredLeft - rect.left;
+      const dy = desiredTop - rect.top;
+      if (dx !== 0 || dy !== 0) {
+        const currentLeft = parseFloat(this.panelElement!.style.left || "0");
+        const currentTop = parseFloat(this.panelElement!.style.top || "0");
+
+        if (this.panelElement!.style.left) {
+          this.panelElement!.style.left = `${currentLeft + dx}px`;
+        } else if (this.panelElement!.style.right) {
+          const currentRight = parseFloat(this.panelElement!.style.right || "0");
+          this.panelElement!.style.right = `${currentRight - dx}px`;
+        } else {
+          this.panelElement!.style.left = `${desiredLeft}px`;
+        }
+
+        if (this.panelElement!.style.top) {
+          this.panelElement!.style.top = `${currentTop + dy}px`;
+        } else if (this.panelElement!.style.bottom) {
+          const currentBottom = parseFloat(this.panelElement!.style.bottom || "0");
+          this.panelElement!.style.bottom = `${currentBottom - dy}px`;
+        } else {
+          this.panelElement!.style.top = `${desiredTop}px`;
+        }
+      }
+    };
+
     // Position relative to highlighted element if one exists
     if (step.highlightSelector) {
       const targetElement = document.querySelector<HTMLElement>(step.highlightSelector);
@@ -601,15 +648,32 @@ export class TutorialOverlay {
         const rect = targetElement.getBoundingClientRect();
         const offset = 20;
 
+        const idealCenteredTop = rect.top + rect.height / 2 - panelHeight / 2;
+        const centeredTop = Math.max(
+          viewportMargin,
+          Math.min(idealCenteredTop, viewportHeight - panelHeight - viewportMargin)
+        );
+
+        const idealCenteredLeft = rect.left + rect.width / 2 - panelWidth / 2;
+        const centeredLeft = Math.max(
+          viewportMargin,
+          Math.min(idealCenteredLeft, viewportWidth - panelWidth - viewportMargin)
+        );
+
         switch (step.position) {
           case "left": {
-            const rightPos = viewportWidth - rect.left + offset;
+            const idealRight = viewportWidth - rect.left + offset;
             // Calculate where the top would be (centered on target)
             const idealTop = rect.top + rect.height / 2 - panelHeight / 2;
             // Clamp to viewport bounds
             const clampedTop = Math.max(viewportMargin, Math.min(idealTop, viewportHeight - panelHeight - viewportMargin));
 
-            this.panelElement.style.right = `${rightPos}px`;
+            // Clamp the right position so the panel stays fully on-screen.
+            const minRight = viewportMargin;
+            const maxRight = viewportWidth - panelWidth - viewportMargin;
+            const clampedRight = clamp(idealRight, minRight, maxRight);
+
+            this.panelElement.style.right = `${clampedRight}px`;
             this.panelElement.style.top = `${clampedTop}px`;
             // Don't use transform since we're manually positioning
             break;
@@ -647,6 +711,41 @@ export class TutorialOverlay {
             this.panelElement.style.top = `${clampedTop}px`;
             break;
           }
+        }
+
+        // Final safety: keep inside viewport and avoid covering the highlighted target.
+        nudgeWithinViewport();
+
+        const panelNow = getPanelRect();
+        const targetNow = rect;
+        if (overlaps(panelNow, targetNow)) {
+          // Try flipping to the opposite side if possible.
+          if (step.position === "left") {
+            const leftPos = rect.right + offset;
+            const clampedLeft = clamp(leftPos, viewportMargin, viewportWidth - panelWidth - viewportMargin);
+            this.panelElement.style.removeProperty("right");
+            this.panelElement.style.left = `${clampedLeft}px`;
+            this.panelElement.style.top = `${centeredTop}px`;
+          } else if (step.position === "right") {
+            const idealRight = viewportWidth - rect.left + offset;
+            const clampedRight = clamp(idealRight, viewportMargin, viewportWidth - panelWidth - viewportMargin);
+            this.panelElement.style.removeProperty("left");
+            this.panelElement.style.right = `${clampedRight}px`;
+            this.panelElement.style.top = `${centeredTop}px`;
+          } else if (step.position === "top") {
+            const topPos = rect.bottom + offset;
+            const clampedTop2 = clamp(topPos, viewportMargin, viewportHeight - panelHeight - viewportMargin);
+            this.panelElement.style.removeProperty("bottom");
+            this.panelElement.style.top = `${clampedTop2}px`;
+            this.panelElement.style.left = `${centeredLeft}px`;
+          } else if (step.position === "bottom") {
+            const bottomPos = viewportHeight - rect.top + offset;
+            const clampedBottom = clamp(bottomPos, viewportMargin, viewportHeight - panelHeight - viewportMargin);
+            this.panelElement.style.removeProperty("top");
+            this.panelElement.style.bottom = `${clampedBottom}px`;
+            this.panelElement.style.left = `${centeredLeft}px`;
+          }
+          nudgeWithinViewport();
         }
         return;
       }

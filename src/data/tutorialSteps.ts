@@ -104,12 +104,6 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "center",
     actionLabel: "Continue (Dismiss)"
   },
-  {
-    phase: "proceed_to_battle",
-    title: "",
-    content: "",
-    position: "center"
-  },
 
   // === DEPLOYMENT PHASE ===
   {
