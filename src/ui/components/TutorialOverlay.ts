@@ -500,6 +500,36 @@ export class TutorialOverlay {
     const targetElement = document.querySelector<HTMLElement>(selector);
     if (!targetElement) return;
 
+    // Premium anchoring: if this is a map tile, delegate to the battle map's viewport controller.
+    // Map tiles use SVG `<g>` elements and typically have `data-hex` or `data-q` attributes.
+    // The native `.scrollIntoView` interacts poorly with our custom ZoomPanControls viewport.
+    if (selector.includes("[data-hex=") || selector.includes("[data-q=") || targetElement.tagName.toLowerCase() === "g") {
+      let hexKey: string | null = null;
+      if (targetElement.hasAttribute("data-hex")) {
+        hexKey = targetElement.getAttribute("data-hex");
+      } else if (targetElement.hasAttribute("data-q") && targetElement.hasAttribute("data-r")) {
+        const q = targetElement.getAttribute("data-q");
+        const r = targetElement.getAttribute("data-r");
+        if (q && r) {
+          // Hex keys in this codebase are typically "<col>,<row>". We may need to convert axial or assume col,row.
+          // Fallback: dispatch the selector itself if we can't extract the exact key cleanly here,
+          // though BattleScreen will need to parse it. 
+          // For now, let's just pass the selector so BattleScreen can query it or we can pass the key if available.
+        }
+      }
+
+      // Dispatch a generic event so BattleScreen can hook into it.
+      const event = new CustomEvent("tutorial:focusHex", {
+        detail: { selector, element: targetElement }
+      });
+      document.dispatchEvent(event);
+
+      // Reposition instantly since we let the map handle smooth panning
+      this.positionSpotlight(selector);
+      this.positionPanelForCurrentStep();
+      return;
+    }
+
     const rect = targetElement.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
     const viewportWidth = window.innerWidth;
