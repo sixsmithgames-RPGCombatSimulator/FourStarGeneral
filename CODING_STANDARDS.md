@@ -6,6 +6,9 @@ This document defines the mandatory engineering standards for the Four Star Gene
 > [!IMPORTANT]
 > No change is considered complete unless it satisfies every applicable section below.
 
+## 0. No Fallbacks
+No fallbacks are allowed, instead you must properly trap errors and provide clear error messages to the user. Clear messages must tell the user what was tried, what went wrong, and how to fix it.
+
 ## 1. Architectural Guardrails (Non-Negotiable)
 ### 1.1 Separation of Concerns
 The project enforces strict architectural boundaries:

@@ -1644,9 +1644,11 @@ export class PopupManager implements IPopupManager {
     // Fetch both ledgers so the toggle can instantly switch between Player and Bot views.
     const playerSnapshot = this.pullSupplySnapshot("Player");
     const botSnapshot = this.pullSupplySnapshot("Bot");
+    const allySnapshot = this.pullSupplySnapshot("Ally");
     const availability: Record<TurnFaction, boolean> = {
       Player: Boolean(playerSnapshot),
-      Bot: Boolean(botSnapshot)
+      Bot: Boolean(botSnapshot),
+      Ally: Boolean(allySnapshot)
     };
 
     if (controls) {

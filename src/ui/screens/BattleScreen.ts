@@ -171,6 +171,9 @@ export class BattleScreen {
   private selectionIntelOverlay: SelectionIntelOverlay | null = null;
   private readonly battleActivityLog: BattleActivityLog | null;
 
+  /** Temporary debug overlay to visualize bot/player placements regardless of recon/LOS. Disable when done. */
+  private readonly debugPlacementOverlayEnabled = true;
+
   // Air Support: temporary range overlay keys while picking mission targets
   private airPreviewKeys: Set<string> = new Set();
   private airPreviewListener: ((e: Event) => void) | null = null;
@@ -1101,9 +1104,20 @@ export class BattleScreen {
     if (this.element.dataset.tutorialFocusBound !== "true") {
       this.element.dataset.tutorialFocusBound = "true";
       document.addEventListener("tutorial:focusHex", ((event: CustomEvent<{ selector: string; element: HTMLElement }>) => {
-        if (!this.hexMapRenderer) return;
+        if (!this.hexMapRenderer) {
+          console.warn("[BattleScreen][tutorial:focusHex] renderer not ready; skipping focus");
+          return;
+        }
 
         const { element } = event.detail;
+
+        console.log("[BattleScreen][tutorial:focusHex] event received", {
+          hasHexAttr: element.hasAttribute("data-hex"),
+          hasQ: element.hasAttribute("data-q"),
+          hasR: element.hasAttribute("data-r"),
+          rendererHasElements: typeof this.hexMapRenderer.getHexElement === "function",
+          rendererInitialized: Boolean((this.hexMapRenderer as any).initialized)
+        });
 
         // Extract hex key
         let hexKey: string | null = null;
@@ -1119,6 +1133,10 @@ export class BattleScreen {
         if (hexKey) {
           // Safe programmatic pan via the established battle canvas methods.
           this.focusCameraOnHex(hexKey);
+        } else {
+          console.warn("[BattleScreen][tutorial:focusHex] no hex key resolved from element", {
+            outerHTML: element.outerHTML?.slice?.(0, 200)
+          });
         }
       }) as EventListener);
     }
@@ -1446,9 +1464,9 @@ export class BattleScreen {
         await this.waitForNextFrame();
 
         // Engagement participants generally report squadron IDs (unitId). Resolve them to their current hex positions.
-        const resolveUnitOffsetKey = (squadronIdOrHexKey: string, faction: "Player" | "Bot"): string | null => {
+        const resolveUnitOffsetKey = (squadronIdOrHexKey: string, faction: "Player" | "Bot" | "Ally"): string | null => {
           const reserves = faction === "Player" ? (engine.reserveUnits ?? []).map((entry) => entry.unit) : [];
-          const units = faction === "Player" ? [...(engine.playerUnits ?? []), ...reserves] : (engine.botUnits ?? []);
+          const units = faction === "Player" ? [...(engine.playerUnits ?? []), ...reserves] : faction === "Bot" ? (engine.botUnits ?? []) : (engine.allyUnits ?? []);
           const unit = units.find((u) => u.unitId === squadronIdOrHexKey);
           if (!unit) {
             // Some call sites still emit axial hex keys ("q,r") instead of unitId. Support both formats.
@@ -1613,6 +1631,8 @@ export class BattleScreen {
     switch (phase) {
       case "playerTurn":
         return "Player Turn";
+      case "allyTurn":
+        return "Ally Turn";
       case "botTurn":
         return "Enemy Turn";
       case "deployment":
@@ -1625,7 +1645,38 @@ export class BattleScreen {
   }
 
   private formatFactionLabel(faction: TurnSummary["activeFaction"]): string {
-    return faction === "Player" ? "Player" : "Enemy";
+    if (faction === "Player") return "Player";
+    if (faction === "Ally") return "Ally";
+    return "Enemy";
+  }
+
+  /** Attempts to transfer an ally-controlled unit at the selected hex to the player. */
+  private tryTransferAllyControl(hexKey: string): boolean {
+    const engine = this.battleState.ensureGameEngine();
+    const parsed = CoordinateSystem.parseHexKey(hexKey);
+    if (!parsed) {
+      return false;
+    }
+    const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+    const allyPresent = engine.allyUnits.some((unit) => CoordinateSystem.makeHexKey(CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r).col, CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r).row) === hexKey);
+    if (!allyPresent) {
+      return false;
+    }
+
+    try {
+      const transferred = engine.transferAllyControl(axial);
+      if (!transferred) {
+        return false;
+      }
+      this.renderEngineUnits();
+      this.applySelectedHex(hexKey);
+      this.announceBattleUpdate("Ally unit transferred to your command.");
+      return true;
+    } catch (error) {
+      console.error("Failed to transfer ally control", { hexKey, error });
+      this.announceBattleUpdate("Could not transfer ally control at the selected hex.");
+      return false;
+    }
   }
 
   /**
@@ -1705,14 +1756,30 @@ export class BattleScreen {
 
     const cell = this.hexMapRenderer.getHexElement(hexKey);
     if (!cell) {
-      console.warn("[BattleScreen] focusCameraOnHex: cell not found for hexKey:", hexKey);
+      const hasGetter = typeof this.hexMapRenderer.getHexElement === "function";
+      const rendererInitialized = Boolean((this.hexMapRenderer as any).initialized);
+      console.warn("[BattleScreen] focusCameraOnHex: cell not found for hexKey:", hexKey, {
+        rendererInitialized,
+        hasGetter,
+        lastFocusedHexKey: this.lastFocusedHexKey
+      });
       return;
     }
 
     const cx = Number(cell.dataset.cx ?? 0);
     const cy = Number(cell.dataset.cy ?? 0);
 
-    console.log("[BattleScreen] focusCameraOnHex:", { hexKey, cx, cy, dataset: cell.dataset });
+    console.log("[BattleScreen] focusCameraOnHex:", {
+      hexKey,
+      hasDatasetCx: cell.dataset.cx !== undefined,
+      hasDatasetCy: cell.dataset.cy !== undefined,
+      cx,
+      cy,
+      datasetHex: cell.dataset.hex,
+      datasetQ: cell.dataset.q,
+      datasetR: cell.dataset.r,
+      viewportTransform: this.mapViewport.getTransform()
+    });
 
     if (cx === 0 && cy === 0) {
       console.warn("[BattleScreen] focusCameraOnHex: cx and cy are both 0, skipping", { hexKey });
@@ -1737,6 +1804,12 @@ export class BattleScreen {
       return;
     }
 
+    console.log("[BattleScreen] restoreViewportAfterIdleDismiss start", {
+      lastFocusedHexKey: this.lastFocusedHexKey,
+      lastViewportTransform: this.lastViewportTransform,
+      currentTransform: this.mapViewport.getTransform()
+    });
+
     // Recenter on the last focused hex when available.
     if (this.lastFocusedHexKey) {
       this.focusCameraOnHex(this.lastFocusedHexKey);
@@ -1748,6 +1821,14 @@ export class BattleScreen {
       this.mapViewport.adjustZoom(zoom - this.mapViewport.getTransform().zoom);
       const current = this.mapViewport.getTransform();
       this.mapViewport.pan(panX - current.panX, panY - current.panY);
+      console.log("[BattleScreen] restoreViewportAfterIdleDismiss applied", {
+        targetTransform: this.lastViewportTransform,
+        finalTransform: this.mapViewport.getTransform()
+      });
+    } else {
+      console.log("[BattleScreen] restoreViewportAfterIdleDismiss: no stored transform", {
+        finalTransform: this.mapViewport.getTransform()
+      });
     }
   }
 
@@ -1858,6 +1939,14 @@ export class BattleScreen {
             committedEntries: ensureDeploymentState().getCommittedEntryKeys(),
             deploymentPrimed: this.deploymentPrimed
           });
+          const summary = this.battleState.ensureGameEngine().getTurnSummary();
+          if (summary.phase !== "deployment") {
+            console.warn("[BattleScreen] deploymentUpdated ignored: engine not in deployment phase", {
+              phase: summary.phase,
+              activeFaction: summary.activeFaction
+            });
+            break;
+          }
           // Force mirrors to refresh from the latest committed state so UI components stay accurate.
           this.deploymentPrimed = false;
           this.initializeDeploymentMirrors();
@@ -2558,6 +2647,11 @@ export class BattleScreen {
    * Closes the idle reminder, restores focus to the previously active element, and clears pending state.
    */
   private dismissIdleWarning(): void {
+    console.log("[BattleScreen] dismissIdleWarning invoked", {
+      lastFocusedHexKey: this.lastFocusedHexKey,
+      lastViewportTransform: this.lastViewportTransform,
+      currentTransform: this.mapViewport?.getTransform?.()
+    });
     if (!this.idleWarningLayer) {
       return;
     }
@@ -2570,6 +2664,12 @@ export class BattleScreen {
     const focusTarget = this.idleWarningPreviousFocus;
     this.idleWarningPreviousFocus = null;
     this.pendingIdleTurnAdvance = null;
+    console.log("[BattleScreen] dismissIdleWarning: focus restored", {
+      focusTarget: focusTarget?.id ?? focusTarget?.className ?? focusTarget?.tagName,
+      lastFocusedHexKey: this.lastFocusedHexKey,
+      lastViewportTransform: this.lastViewportTransform,
+      currentTransform: this.mapViewport?.getTransform?.()
+    });
     focusTarget?.focus();
   }
 
@@ -2758,6 +2858,7 @@ export class BattleScreen {
       if (!seededFromPrecombat) {
         engine.beginDeployment();
       }
+      this.assertBotUnitsHydrated();
       this.deploymentPrimed = true;
     }
     this.refreshDeploymentMirrors("sync");
@@ -2805,6 +2906,7 @@ export class BattleScreen {
       newReserveCount: engine.getReserveSnapshot().length,
       deploymentPrimed: this.deploymentPrimed
     });
+    this.assertBotUnitsHydrated();
   }
 
   /**
@@ -2813,6 +2915,15 @@ export class BattleScreen {
    * `initializeFromAllocations()` trigger the engine's reserve rebuild. Returns true when seeding occurred.
    */
   private seedEngineFromDeploymentState(engine: GameEngine): boolean {
+    const summary = engine.getTurnSummary();
+    if (summary.phase !== "deployment") {
+      console.warn("[BattleScreen] seedEngineFromDeploymentState skipped: engine not in deployment phase", {
+        phase: summary.phase,
+        activeFaction: summary.activeFaction
+      });
+      return false;
+    }
+
     const deploymentState = ensureDeploymentState();
     const reserveBlueprints = deploymentState.toReserveBlueprints();
     console.log("[BattleScreen] seedEngineFromDeploymentState blueprint summary", {
@@ -2964,6 +3075,11 @@ export class BattleScreen {
     } else {
       this.battleMainContainer.removeAttribute("data-activity-collapsed");
     }
+
+    // Layout width changes when the activity log toggles; recenter on the next frame so measurements reflect the new width.
+    if (this.lastFocusedHexKey) {
+      window.requestAnimationFrame(() => this.recenterLastFocus());
+    }
   }
 
   /**
@@ -3055,18 +3171,39 @@ export class BattleScreen {
       terrain: this.cloneTerrain(),
       playerSide,
       botSide: this.cloneScenarioSide(this.scenario.sides.Bot),
+      allySide: this.scenario.sides.Ally ? this.cloneScenarioSide(this.scenario.sides.Ally) : undefined,
       // Enable the heuristic planner so campaign battles use the upgraded enemy AI rather than the legacy simple bot.
       botStrategyMode: "Heuristic",
       // Use difficulty from UIState if available, default to Normal
       botDifficulty: this.uiState?.selectedDifficulty ?? "Normal"
     };
     this.battleState.initializeEngine(config);
+    this.assertBotUnitsHydrated();
+  }
+
+  /**
+   * Asserts that bot units from the scenario are hydrated into the engine. Fails fast to avoid silent enemy removal.
+   */
+  private assertBotUnitsHydrated(): void {
+    const engine = this.battleState.ensureGameEngine();
+    const scenarioBotCount = this.scenario.sides.Bot.units.length;
+    const engineBotCount = engine.botUnits.length;
+
+    if (scenarioBotCount > 0 && engineBotCount === 0) {
+      const summary = engine.getTurnSummary();
+      throw new Error(
+        `[BattleScreen] Bot units missing after initialization. scenarioBotCount=${scenarioBotCount}, engineBotCount=${engineBotCount}, phase=${summary.phase}, activeFaction=${summary.activeFaction}`
+      );
+    }
   }
 
   private handleHexSelection(key: string): void {
     const engine = this.battleState.ensureGameEngine();
     const summary = engine.getTurnSummary();
     if (summary.phase === "playerTurn") {
+      if (this.tryTransferAllyControl(key)) {
+        return;
+      }
       this.onPlayerTurnMapClick(key);
       return;
     }
@@ -3455,7 +3592,15 @@ export class BattleScreen {
 
       this.battleState.emitBattleUpdate("manual");
     } catch (err) {
-      console.error("Failed to move unit:", err);
+      console.error("Failed to move unit", {
+        error: err,
+        phase: engine.getTurnSummary().phase,
+        activeFaction: engine.getTurnSummary().activeFaction,
+        playerUnits: engine.playerUnits.length,
+        botUnits: engine.botUnits.length,
+        reserves: engine.getReserveSnapshot().length,
+        placements: engine.getPlayerPlacementsSnapshot().length
+      });
       if (moveHandle) {
         moveHandle.dispose();
       }
@@ -3957,12 +4102,17 @@ export class BattleScreen {
       return;
     }
 
+    const renderer = this.hexMapRenderer;
     this.clearAllUnitIcons();
+    if (renderer.clearDebugMarkers) {
+      renderer.clearDebugMarkers();
+    }
 
     const engine = this.battleState.ensureGameEngine();
-    const factions: Array<{ units: ScenarioUnit[]; label: "Player" | "Bot" }> = [
-      { units: engine.playerUnits, label: "Player" },
-      { units: engine.botUnits, label: "Bot" }
+    const factions: Array<{ units: ScenarioUnit[]; label: "Player" | "Bot" | "Ally" }> = [
+      { units: engine.playerUnits ?? [], label: "Player" },
+      { units: engine.botUnits ?? [], label: "Bot" },
+      { units: engine.allyUnits ?? [], label: "Ally" }
     ];
 
     factions.forEach(({ units, label }) => {
@@ -3981,9 +4131,36 @@ export class BattleScreen {
           isSpottedOnly = this.checkIfSpottedOnly(unit.hex);
         }
 
-        this.hexMapRenderer?.renderUnit(hexKey, unit, label, isSpottedOnly);
+        renderer.renderUnit(hexKey, unit, label, isSpottedOnly);
+
+        // Temporary debug overlay: mark placements regardless of recon/LOS
+        if (this.debugPlacementOverlayEnabled && typeof renderer.renderDebugMarker === "function") {
+          renderer.renderDebugMarker(hexKey, {
+            label: label === "Player" ? "P" : label === "Bot" ? "B" : "A",
+            color: label === "Player" ? "#1890ff" : label === "Bot" ? "#fa541c" : "#52c41a",
+            opacity: label === "Player" ? 0.55 : 0.5
+          });
+        }
       });
     });
+
+    // Fallback debug markers if the engine reports no units (diagnostic only).
+    if (this.debugPlacementOverlayEnabled && typeof renderer.renderDebugMarker === "function") {
+      if (engine.playerUnits.length === 0) {
+        this.scenario.sides.Player.units.forEach((unit) => {
+          const { col, row } = CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r);
+          const hexKey = CoordinateSystem.makeHexKey(col, row);
+          renderer.renderDebugMarker(hexKey, { label: "P?", color: "#40a9ff", opacity: 0.35 });
+        });
+      }
+      if (engine.botUnits.length === 0) {
+        this.scenario.sides.Bot.units.forEach((unit) => {
+          const { col, row } = CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r);
+          const hexKey = CoordinateSystem.makeHexKey(col, row);
+          renderer.renderDebugMarker(hexKey, { label: "B?", color: "#ff7a45", opacity: 0.35 });
+        });
+      }
+    }
 
     // Ensure idle formations retain their blue outline after sprite redraws.
     this.refreshIdleUnitHighlights();
@@ -4093,21 +4270,46 @@ export class BattleScreen {
       hex: this.tupleToAxial(objective.hex as [number, number])
     }));
 
-    const convertSide = (sideKey: "Player" | "Bot"): ScenarioSide => {
-      const side = raw.sides[sideKey];
+    const convertSide = (sideKey: "Player" | "Bot" | "Ally"): ScenarioSide => {
+      const sidesRecord = raw.sides as unknown as Record<"Player" | "Bot" | "Ally", {
+        hq?: [number, number] | Axial;
+        general?: ScenarioSide["general"];
+        units?: Array<Partial<ScenarioUnit> & { type?: unknown; hex?: unknown }>;
+        goal?: string;
+        strategy?: string;
+        resources?: number;
+        objectives?: string[];
+      } | undefined>;
+      const side = sidesRecord[sideKey];
+      if (!side) {
+        // Provide an empty scaffold to keep typing satisfied when optional Ally side is absent.
+        return {
+          hq: this.tupleToAxial([0, 0]),
+          general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 },
+          units: []
+        } satisfies ScenarioSide;
+      }
+      const general = side.general ?? { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 };
+      const hqTuple: [number, number] = Array.isArray(side.hq)
+        ? [Number(side.hq[0] ?? 0), Number(side.hq[1] ?? 0)]
+        : [0, 0];
       const normalized: ScenarioSide = {
-        hq: this.tupleToAxial(side.hq as [number, number]),
-        general: this.deepCloneValue(side.general),
-        units: side.units.map((unit) =>
+        hq: this.tupleToAxial(hqTuple),
+        general: this.deepCloneValue(general),
+        units: (side.units ?? []).map((unit) =>
           this.normalizeScenarioUnit({
-            type: unit.type,
-            hex: unit.hex as [number, number],
-            strength: unit.strength,
-            experience: unit.experience,
-            ammo: unit.ammo,
-            fuel: unit.fuel,
-            entrench: unit.entrench,
-            facing: unit.facing as ScenarioUnit["facing"]
+            type: (unit.type as string) ?? "Unknown_Unit",
+            hex: Array.isArray(unit.hex)
+              ? [Number(unit.hex[0] ?? 0), Number(unit.hex[1] ?? 0)]
+              : [0, 0],
+            strength: (unit.strength as number) ?? 0,
+            experience: (unit.experience as number) ?? 0,
+            ammo: (unit.ammo as number) ?? 0,
+            fuel: (unit.fuel as number) ?? 0,
+            entrench: (unit.entrench as number) ?? 0,
+            facing: unit.facing as ScenarioUnit["facing"],
+            preDeployed: (unit as { preDeployed?: boolean }).preDeployed,
+            unitId: (unit as { unitId?: string }).unitId
           })
         )
       } satisfies ScenarioSide;
@@ -4135,6 +4337,14 @@ export class BattleScreen {
       return normalized;
     };
 
+    const sides: ScenarioData["sides"] = {
+      Player: convertSide("Player"),
+      Bot: convertSide("Bot")
+    };
+    if (raw.sides && (raw.sides as Record<string, unknown>).Ally) {
+      sides.Ally = convertSide("Ally");
+    }
+
     return {
       name: raw.name,
       size: this.deepCloneValue(raw.size),
@@ -4142,10 +4352,7 @@ export class BattleScreen {
       tiles,
       objectives,
       turnLimit: raw.turnLimit,
-      sides: {
-        Player: convertSide("Player"),
-        Bot: convertSide("Bot")
-      }
+      sides
     } satisfies ScenarioData;
   }
 
@@ -4200,6 +4407,8 @@ export class BattleScreen {
     fuel: number;
     entrench: number;
     facing: ScenarioUnit["facing"];
+    preDeployed?: boolean;
+    unitId?: string;
   }): ScenarioUnit {
     return {
       type: unit.type as ScenarioUnit["type"],
@@ -4209,15 +4418,19 @@ export class BattleScreen {
       ammo: unit.ammo,
       fuel: unit.fuel,
       entrench: unit.entrench,
-      facing: unit.facing
+      facing: unit.facing,
+      // Preserve optional fields so pre-placed units remain on the map and IDs stay stable when present.
+      preDeployed: unit.preDeployed,
+      unitId: unit.unitId
     } satisfies ScenarioUnit;
   }
 
   /**
    * Adapts [q, r] tuples from JSON into the Axial structure shared across engine modules.
    */
-  private tupleToAxial([q, r]: [number, number]): Axial {
-    return { q, r } satisfies Axial;
+  private tupleToAxial([col, row]: [number, number]): Axial {
+    // Scenario JSON encodes hexes as offset coordinates [col, row]; convert to axial for engine/rendering.
+    return CoordinateSystem.offsetToAxial(col, row);
   }
 
   /**

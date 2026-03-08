@@ -78,12 +78,14 @@ export class BattleState {
   private logisticsSnapshot: LogisticsSnapshot | null = null;
   private supplySnapshotByFaction: Record<TurnFaction, SupplySnapshot | null> = {
     Player: null,
-    Bot: null
+    Bot: null,
+    Ally: null
   };
   /** Cached supply snapshot accessible to UI helpers without a live engine reference. */
   private readonly supplySnapshotCache: Record<TurnFaction, SupplySnapshot | null> = {
     Player: null,
-    Bot: null
+    Bot: null,
+    Ally: null
   };
   /** Commander assigned for the upcoming battle. Persisted once precombat locks in. */
   private assignedCommanderId: string | null = null;

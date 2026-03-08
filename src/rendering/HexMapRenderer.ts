@@ -89,6 +89,8 @@ export class HexMapRenderer implements IMapRenderer {
   /** Tracks the unit scenario type occupying each hex so visuals can vary beyond the broad UnitClass. */
   private readonly hexUnitScenarioTypeMap: Map<string, string> = new Map();
   private readonly aftermathByHexKey: Map<string, AftermathEntry> = new Map();
+  /** Temporary debug markers for visualizing placements independent of recon/LOS. */
+  private readonly debugMarkerMap: Map<string, SVGGElement> = new Map();
   private selectionGlow: SVGCircleElement | null = null;
 
   private svgElement: SVGSVGElement | null = null;
@@ -1319,6 +1321,62 @@ export class HexMapRenderer implements IMapRenderer {
     this.reconOverlayState.clear();
   }
 
+  /** Removes all debug markers. Intended for temporary diagnostics only. */
+  clearDebugMarkers(): void {
+    this.debugMarkerMap.forEach((marker) => marker.remove());
+    this.debugMarkerMap.clear();
+  }
+
+  /** Renders a small marker on the given hex regardless of recon/LOS for diagnostics. */
+  renderDebugMarker(hexKey: string, options?: { label?: string; color?: string; opacity?: number }): void {
+    const cell = this.hexElementMap.get(hexKey);
+    if (!cell) {
+      return;
+    }
+
+    const existing = this.debugMarkerMap.get(hexKey);
+    if (existing) {
+      existing.remove();
+      this.debugMarkerMap.delete(hexKey);
+    }
+
+    const cx = Number(cell.dataset.cx ?? 0);
+    const cy = Number(cell.dataset.cy ?? 0);
+    const group = document.createElementNS(SVG_NS, "g");
+    group.classList.add("debug-placement-marker");
+
+    const circle = document.createElementNS(SVG_NS, "circle");
+    circle.setAttribute("cx", String(cx));
+    circle.setAttribute("cy", String(cy));
+    circle.setAttribute("r", String(HEX_RADIUS * 0.35));
+    circle.setAttribute("fill", options?.color ?? "#ff4d4f");
+    circle.setAttribute("opacity", String(options?.opacity ?? 0.45));
+    circle.setAttribute("stroke", "#111");
+    circle.setAttribute("stroke-width", "1.5");
+    group.appendChild(circle);
+
+    const label = options?.label;
+    if (label) {
+      const text = document.createElementNS(SVG_NS, "text");
+      text.setAttribute("x", String(cx));
+      text.setAttribute("y", String(cy + 4));
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("fill", "#fff");
+      text.setAttribute("font-size", "10");
+      text.setAttribute("font-weight", "700");
+      text.textContent = label;
+      group.appendChild(text);
+    }
+
+    // Append to the SVG so markers share the same coordinate space and stacking as units.
+    if (this.svgElement) {
+      this.svgElement.appendChild(group);
+    } else {
+      this.canvasElement?.appendChild(group);
+    }
+    this.debugMarkerMap.set(hexKey, group);
+  }
+
   /**
    * Tracks recon status for a specific hex so CSS overlays can be applied.
    */
@@ -1344,10 +1402,10 @@ export class HexMapRenderer implements IMapRenderer {
    * Renders or updates a unit icon on a hex cell.
    * @param hexKey - The hex coordinate key
    * @param unit - The unit to render
-   * @param faction - The faction (Player or Bot)
+   * @param faction - The faction (Player, Bot, or Ally)
    * @param isSpottedOnly - If true, renders unit with reduced opacity (spotted via recon, no direct LOS)
    */
-  renderUnit(hexKey: string, unit: ScenarioUnit, faction: "Player" | "Bot", isSpottedOnly = false): void {
+  renderUnit(hexKey: string, unit: ScenarioUnit, faction: "Player" | "Bot" | "Ally", isSpottedOnly = false): void {
     const cell = this.hexElementMap.get(hexKey);
     if (!cell) {
       return;
@@ -1395,7 +1453,7 @@ export class HexMapRenderer implements IMapRenderer {
       image.dataset.ox = String(spec.ox);
       image.dataset.oy = String(spec.oy);
       image.classList.add("unit-icon");
-      image.classList.remove("faction-player", "faction-bot");
+      image.classList.remove("faction-player", "faction-bot", "faction-ally");
       image.classList.add(`faction-${faction.toLowerCase()}`);
 
       if (isSpottedOnly) {

@@ -402,16 +402,23 @@
       "strategy": "Anchor armor on hills, artillery screens advances, recon seeks unknown enemy tiles.",
       "resources": 600,
       "units": [
-        { "type": "AT_Gun_50mm", "hex": [6, 7], "strength": 89, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 2, "facing": "S" },
-        { "type": "Howitzer_105", "hex": [8, 6], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "S" },
-        { "type": "Infantry_42", "hex": [5, 7], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 2, "facing": "S" },
-        { "type": "Infantry_42", "hex": [7, 8], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "S" },
-        { "type": "Engineer", "hex": [9, 6], "strength": 89, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "S" },
-        { "type": "Panzer_IV", "hex": [10, 6], "strength": 100, "experience": 0, "ammo": 7, "fuel": 40, "entrench": 0, "facing": "S" },
-        { "type": "Heavy_Tank", "hex": [12, 5], "strength": 100, "experience": 0, "ammo": 6, "fuel": 35, "entrench": 0, "facing": "S" },
-        { "type": "Recon_Bike", "hex": [11, 7], "strength": 89, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "S" },
-        { "type": "Fighter", "hex": [13, 5], "strength": 100, "experience": 0, "ammo": 6, "fuel": 50, "entrench": 0, "facing": "S" },
-        { "type": "Bomber", "hex": [14, 4], "strength": 100, "experience": 0, "ammo": 4, "fuel": 60, "entrench": 0, "facing": "S" }
+        { "type": "AT_Gun_50mm", "hex": [12, 8], "strength": 89, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 2, "facing": "S" },
+        { "type": "Howitzer_105", "hex": [14, 7], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "S" },
+        { "type": "Infantry_42", "hex": [9, 6], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "S" },
+        { "type": "Infantry_42", "hex": [11, 9], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "S" },
+        { "type": "Engineer", "hex": [12, 9], "strength": 89, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "S" },
+        { "type": "Panzer_IV", "hex": [13, 7], "strength": 100, "experience": 0, "ammo": 7, "fuel": 40, "entrench": 0, "facing": "S" },
+        { "type": "Heavy_Tank", "hex": [14, 6], "strength": 100, "experience": 0, "ammo": 6, "fuel": 35, "entrench": 0, "facing": "S" },
+        { "type": "Recon_Bike", "hex": [10, 10], "strength": 89, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "S" },
+        { "type": "Fighter", "hex": [11, 10], "strength": 100, "experience": 0, "ammo": 6, "fuel": 50, "entrench": 0, "facing": "S" },
+        { "type": "Bomber", "hex": [14, 8], "strength": 100, "experience": 0, "ammo": 4, "fuel": 60, "entrench": 0, "facing": "S" }
+      ]
+    },
+    "Ally": {
+      "hq": [2, 12],
+      "general": { "accBonus": 0, "dmgBonus": 0, "moveBonus": 0, "supplyBonus": 0 },
+      "units": [
+        { "type": "Recon_Bike", "hex": [8, 6], "strength": 89, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "N", "preDeployed": true }
       ]
     }
   }

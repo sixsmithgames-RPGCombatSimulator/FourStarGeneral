@@ -239,7 +239,8 @@ export const SCENARIO_UNIT_PROPERTY_TUPLES = [
   ["ammo", "Current ammunition stock."],
   ["fuel", "Current fuel reserve."],
   ["entrench", "Entrenchment level on the tile."],
-  ["facing", "Hexside direction the unit faces."]
+  ["facing", "Hexside direction the unit faces."],
+  ["preDeployed", "When true, unit begins play on its hex instead of in reserves (optional)."]
 ] as const;
 
 enforceUniqueTuples(SCENARIO_UNIT_PROPERTY_TUPLES, "scenario unit property");

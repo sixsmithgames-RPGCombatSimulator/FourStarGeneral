@@ -74,9 +74,13 @@ export interface ScenarioUnit {
   fuel: number;
   entrench: number;
   facing: "N" | "NE" | "SE" | "S" | "SW" | "NW";
+  /** When true, unit begins play placed on its hex instead of in reserves. Optional. */
+  preDeployed?: boolean;
   /** Stable unique identifier for this unit instance. Generated once and persisted across saves/loads.
    *  Used to distinguish multiple squadrons of the same type at the same base (air units) or same hex. */
   unitId?: string;
+  /** Indicates which controller manages this unit. Defaults to the owning faction's AI. Player control enables direct command. */
+  controlledBy?: "AI" | "Player";
 }
 
 export interface ScenarioSide {
@@ -99,7 +103,7 @@ export interface ScenarioDeploymentZone {
   label: string;
   description: string;
   capacity: number;
-  faction: "Player" | "Bot";
+  faction: "Player" | "Bot" | "Ally";
   hexes: readonly [number, number][];
 }
 
@@ -113,6 +117,7 @@ export interface ScenarioData {
   sides: {
     Player: ScenarioSide;
     Bot: ScenarioSide;
+    Ally?: ScenarioSide;
   };
   deploymentZones?: ScenarioDeploymentZone[];
 }

@@ -145,13 +145,13 @@ import type { DeploymentUnitTemplate } from "./adapters";
  * Identifiers for the participant currently taking a turn. Explicit string union keeps the API simple
  * while enabling future expansion (e.g. additional AI factions).
  */
-export type TurnFaction = "Player" | "Bot";
+export type TurnFaction = "Player" | "Bot" | "Ally";
 
 /**
  * Lifecycle phases the battle screen can be in. Deployment concludes once the player presses Begin,
  * after which normal turn sequencing governs the flow.
  */
-export type BattlePhase = "deployment" | "playerTurn" | "botTurn" | "completed";
+export type BattlePhase = "deployment" | "playerTurn" | "allyTurn" | "botTurn" | "completed";
 
 /**
  * Map of hex-key to scenario units representing deployed forces. This structure powers engine queries
@@ -256,7 +256,7 @@ export function buildScenarioUnitsFromAllocation(
     if (!template) {
       throw new Error(`No deployment template registered for key '${placement.unitKey}'.`);
     }
-    
+
     if (!unitTypes[template.type as keyof UnitTypeDictionary]) {
       throw new Error(`Unit type '${template.type}' is not defined in the unit dictionary.`);
     }
@@ -819,6 +819,8 @@ export interface GameEngineConfig {
   terrain: TerrainDictionary;
   playerSide: ScenarioSide;
   botSide: ScenarioSide;
+  /** Optional ally faction side. When present, ally units are AI-controlled but can be transferred to player control. */
+  allySide?: ScenarioSide;
   /** Optional override that selects the tactical planner driving enemy turns. Defaults to "Heuristic". */
   botStrategyMode?: BotStrategyMode;
   /** Optional per-hex airbase capacity cap. If provided, tryScheduleAirMission enforces max queued departures per hex. */
@@ -838,8 +840,11 @@ export interface GameEngineAPI {
   readonly baseCamp: BaseCamp | null;
   readonly playerUnits: ScenarioUnit[];
   readonly botUnits: ScenarioUnit[];
+  readonly allyUnits: ScenarioUnit[];
   readonly reserveUnits: ReserveUnit[];
   readonly supportAssets: SupportAssetSnapshot[];
+  /** Transfers an ally unit at the specified hex to player control. Returns true on success. */
+  transferAllyControl(hex: Axial): boolean;
   getSupplySnapshot(faction?: TurnFaction): SupplySnapshot;
   getSupplyHistory(faction?: TurnFaction): SupplySnapshot[];
   getReconIntelSnapshot(): ReconIntelSnapshot;
@@ -891,6 +896,7 @@ export interface GameEngineAPI {
   queueSupportAction(assetId: string, targetHex: Axial): void;
   cancelQueuedSupport(assetId: string): void;
   consumeBotTurnSummary(): BotTurnSummary | null;
+  transferAllyControl(hex: Axial): boolean;
 }
 
 /**
@@ -941,10 +947,12 @@ export class GameEngine implements GameEngineAPI {
   /** Player-facing and AI-facing scenario slices kept immutable to derive fresh unit instances. */
   private readonly playerSide: ScenarioSide;
   private readonly botSide: ScenarioSide;
+  private readonly allySide: ScenarioSide | null;
 
   /** Cache of deployed units on the battle map keyed by hex coordinate. */
   private readonly playerPlacements: UnitPlacementMap = new Map();
   private readonly botPlacements: UnitPlacementMap = new Map();
+  private readonly allyPlacements: UnitPlacementMap = new Map();
 
   /** Units not deployed at battle start; accessible via reserve UI. */
   private readonly reserves: ReserveUnit[] = [];
@@ -992,7 +1000,8 @@ export class GameEngine implements GameEngineAPI {
   /** Rolling supply ledger grouped by faction so consumption trends can be derived quickly. */
   private readonly supplyHistoryByFaction: Record<TurnFaction, SupplySnapshot[]> = {
     Player: [],
-    Bot: []
+    Bot: [],
+    Ally: []
   };
 
   /**
@@ -1045,7 +1054,7 @@ export class GameEngine implements GameEngineAPI {
    * Sums current ammo and fuel values for all supply-mirrored units controlled by the requested faction.
    */
   private calculateUnitStockTotals(faction: TurnFaction): { ammo: number; fuel: number } {
-    const units = faction === "Player" ? this.playerSupply : this.botSupply;
+    const units = faction === "Player" ? this.playerSupply : faction === "Bot" ? this.botSupply : this.allySupply;
     return units.reduce<{ ammo: number; fuel: number }>((accumulator, unit, index) => {
       if (!unit) {
         console.warn("[GameEngine] calculateUnitStockTotals skipped null supply entry", { faction, index });
@@ -2199,10 +2208,12 @@ export class GameEngine implements GameEngineAPI {
   /** Current supply mirror used between turns to track attrition. */
   private playerSupply: SupplyUnitState[] = [];
   private botSupply: SupplyUnitState[] = [];
+  private allySupply: SupplyUnitState[] = [];
   /** Faction-level supply ledgers tracking stockpiles, shipments, and production history. */
   private supplyStateByFaction: Record<TurnFaction, SupplyState> = {
     Player: createSupplyState({ baseline: { ammo: 0, fuel: 0, rations: 0, parts: 0 } }),
-    Bot: createSupplyState({ baseline: { ammo: 0, fuel: 0, rations: 0, parts: 0 } })
+    Bot: createSupplyState({ baseline: { ammo: 0, fuel: 0, rations: 0, parts: 0 } }),
+    Ally: createSupplyState({ baseline: { ammo: 0, fuel: 0, rations: 0, parts: 0 } })
   };
 
   /** Per-turn action flags keyed by hex for basic gating. */
@@ -2325,11 +2336,15 @@ export class GameEngine implements GameEngineAPI {
    * Returns 1 for the bot faction to prevent cross-faction leakage.
    */
   private commanderSupplyScalar(faction: TurnFaction): number {
-    if (faction !== "Player") {
-      return 1;
+    if (faction === "Player") {
+      const bonus = this.playerSide.general?.supplyBonus ?? 0;
+      return 1 - bonus / 100;
     }
-    const pct = this.playerCommanderStats.supplyBonus ?? 0;
-    return Math.max(0, 1 - pct / 100);
+    if (faction === "Ally" && this.allySide) {
+      const bonus = this.allySide.general?.supplyBonus ?? 0;
+      return 1 - bonus / 100;
+    }
+    return 1;
   }
 
   /**
@@ -2343,11 +2358,16 @@ export class GameEngine implements GameEngineAPI {
   }
 
   constructor(config: GameEngineConfig) {
+    if (!config.botSide) {
+      throw new Error("GameEngine initialization failed: botSide missing in config. Provide enemy forces in scenario before starting engine.");
+    }
+
     this.scenario = config.scenario;
     this.unitTypes = config.unitTypes;
     this.terrain = config.terrain;
     this.playerSide = structuredClone(config.playerSide);
     this.botSide = structuredClone(config.botSide);
+    this.allySide = config.allySide ? structuredClone(config.allySide) : null;
     // Default to legacy Simple bot to avoid behavior changes unless explicitly enabled.
     this.botStrategyMode = config.botStrategyMode ?? "Simple";
     // Default to Normal difficulty if not specified.
@@ -2356,6 +2376,7 @@ export class GameEngine implements GameEngineAPI {
     this.playerCommanderStats = structuredClone(generalStats);
     this.playerSupply = createSupplyUnits(this.playerSide.units ?? []);
     this.botSupply = createSupplyUnits(this.botSide.units ?? []);
+    this.allySupply = createSupplyUnits(this.allySide?.units ?? []);
     this.rebuildSupplyStates();
     (this.botSide.units ?? []).forEach((unit) => {
       const clone = structuredClone(unit);
@@ -2363,10 +2384,27 @@ export class GameEngine implements GameEngineAPI {
       this.ensureUnitId(clone);
       this.botPlacements.set(axialKey(clone.hex), clone);
     });
+    // Seed ally placements if ally side is present. Ally units are always predeployed.
+    if (this.allySide) {
+      (this.allySide.units ?? []).forEach((unit) => {
+        const clone = structuredClone(unit);
+        this.ensureUnitId(clone);
+        this.allyPlacements.set(axialKey(clone.hex), clone);
+      });
+    }
+    if ((this.botSide.units?.length ?? 0) > 0 && this.botPlacements.size === 0) {
+      // Fail fast so missing enemies are explicit instead of silently disappearing.
+      throw new Error(
+        `GameEngine initialization failed: seeded 0 bot placements from ${(this.botSide.units ?? []).length} bot units. Ensure scenario bot units are present and valid.`
+      );
+    }
     this.seedSupportAssets();
     this.resetSupplyHistory();
     this.recordSupplySnapshot("Player");
     this.recordSupplySnapshot("Bot");
+    if (this.allySide) {
+      this.recordSupplySnapshot("Ally");
+    }
 
     // Initialize optional airbase capacity map from configuration if present.
     if (config.airbaseCapacities && Object.keys(config.airbaseCapacities).length > 0) {
@@ -2555,6 +2593,13 @@ export class GameEngine implements GameEngineAPI {
    */
   get botUnits(): ScenarioUnit[] {
     return Array.from(this.botPlacements.values()).map((unit) => structuredClone(unit));
+  }
+
+  /**
+   * Surfaces ally deployments with defensive copies. Ally units are AI-controlled but can be transferred to player control.
+   */
+  get allyUnits(): ScenarioUnit[] {
+    return Array.from(this.allyPlacements.values()).map((unit) => structuredClone(unit));
   }
 
   /**
@@ -3040,10 +3085,32 @@ export class GameEngine implements GameEngineAPI {
     this.airMissionRefitTimers.clear();
     const deploymentState = ensureDeploymentState();
     const reserveBlueprints = deploymentState.toReserveBlueprints();
+    // Capture scenario-authored units (including any preDeployed flags) before allocations overwrite the roster.
+    const scenarioUnits: ScenarioUnit[] = (this.playerSide.units ?? []).map((unit) => structuredClone(unit));
 
     if (reserveBlueprints.length > 0) {
       // Mirror precombat-approved units into the engine roster so reserves reflect the latest allocation state.
       this.playerSide.units = reserveBlueprints.map((blueprint) => structuredClone(blueprint.unit));
+
+      // Preserve any scenario-authored predeployed units even when precombat allocations are present.
+      const scenarioPredeployed = scenarioUnits
+        .filter((unit) => (unit as { preDeployed?: boolean }).preDeployed === true)
+        .map((unit) => structuredClone(unit));
+
+      if (scenarioPredeployed.length > 0) {
+        scenarioPredeployed.forEach((unit) => {
+          this.ensureUnitId(unit);
+          const key = axialKey(unit.hex);
+          this.playerPlacements.set(key, unit);
+        });
+        // Keep predeployed units in the playerSide roster so downstream snapshots stay consistent.
+        this.playerSide.units.push(...scenarioPredeployed);
+        console.warn("[GameEngine] Preserved scenario predeployed units alongside precombat allocations", {
+          count: scenarioPredeployed.length,
+          hexes: scenarioPredeployed.map((u) => axialKey(u.hex))
+        });
+      }
+
       this.populateReservesFromBlueprints(reserveBlueprints);
     } else {
       // Default to whatever units the scenario already listed for the player side.
@@ -3433,10 +3500,20 @@ export class GameEngine implements GameEngineAPI {
     this.advanceAirMissionRefits(this._activeFaction);
 
     if (this._phase === "playerTurn") {
-      // Player upkeep resolves before the bot acts so ledgers and alerts update immediately.
+      // Player upkeep resolves before the ally/bot acts so ledgers and alerts update immediately.
       const playerSupplyReport = this.applySupplyTickFor("Player");
 
-      // Player turn -> Bot turn. Execute bot logic immediately before UI refresh.
+      // If allies are present, run their turn next.
+      if (this.allySide && this.allyPlacements.size > 0) {
+        this._phase = "allyTurn";
+        this._activeFaction = "Ally";
+        this.stepAirMissionsForFaction("Ally");
+        this.advanceAirMissionRefits("Ally");
+        this.applySupplyTickFor("Ally");
+        this.executeHeuristicAllyTurn();
+      }
+
+      // Ally (if any) complete → Bot turn. Execute bot logic immediately before UI refresh.
       this._phase = "botTurn";
       this._activeFaction = "Bot";
       this.botActionFlags.clear();
@@ -3456,7 +3533,7 @@ export class GameEngine implements GameEngineAPI {
     }
 
     // Bot turn was already resolved, so simply advance to the player's next turn.
-    if (this._phase === "botTurn") {
+    if (this._phase === "botTurn" || this._phase === "allyTurn") {
       this._phase = "playerTurn";
       this._activeFaction = "Player";
       this._turnNumber += 1;
@@ -3694,11 +3771,13 @@ export class GameEngine implements GameEngineAPI {
 
   /** Attackable enemy hexes within unit range where LOS is clear. */
   getAttackableTargets(attackerHex: Axial): Axial[] {
-    const attacker = this.lookupUnit(attackerHex, "Player");
-    if (!attacker) return [];
+    const unit = this.lookupUnit(attackerHex, "Player");
+    if (!unit) {
+      return [];
+    }
     const flags = this.playerActionFlags.get(axialKey(attackerHex)) ?? { movementPointsUsed: 0, attacksUsed: 0, retaliationsUsed: 0, isRushing: false };
 
-    const def = this.getUnitDefinition(attacker.type);
+    const def = this.getUnitDefinition(unit.type);
     const halfMovement = Math.floor(def.movement / 2);
 
     // Determine if unit can attack based on movement and attacks used
@@ -3739,7 +3818,7 @@ export class GameEngine implements GameEngineAPI {
       if (distance >= rangeMin && distance <= rangeMax && distance !== 0) {
         const defender = this.lookupUnit(hex, "Bot");
         if (defender) {
-          const req = this.buildAttackRequest(attacker, defender, "Player", "Bot");
+          const req = this.buildAttackRequest(unit, defender, "Player", "Bot");
           if (req) {
             out.push(structuredClone(hex));
           }
@@ -4391,6 +4470,44 @@ export class GameEngine implements GameEngineAPI {
     return result;
   }
 
+  /** Transfers an ally unit at the specified hex to player control. Returns true if a unit was transferred. */
+  transferAllyControl(hex: Axial): boolean {
+    const key = axialKey(hex);
+    const allyUnit = this.allyPlacements.get(key);
+    if (!allyUnit) {
+      return false;
+    }
+
+    // Remove from ally placements and supply mirror.
+    this.allyPlacements.delete(key);
+    this.allySupply = this.allySupply.filter((s) => axialKey(s.hex) !== key);
+
+    // Transfer to player placements and supply mirror.
+    const clone = structuredClone(allyUnit);
+    this.ensureUnitId(clone);
+    this.playerPlacements.set(key, clone);
+    const [supplyEntry] = createSupplyUnits([clone]);
+    if (supplyEntry) {
+      this.playerSupply.push(supplyEntry);
+    }
+
+    // Reset action flags/idle state for the new player unit.
+    this.playerActionFlags.set(key, this.createDefaultActionFlags());
+    this.updateIdleRegistryFor(key);
+
+    // Keep mirrors and caches consistent.
+    this.invalidateRosterCache();
+    this.recordSupplySnapshot("Player");
+
+    return true;
+  }
+
+  /** Executes the ally turn. Placeholder: allies hold position until dedicated ally AI is implemented. */
+  private executeAllyTurn(): void {
+    // Intentionally minimal: allies currently do not perform autonomous maneuvers.
+    // Supply upkeep and air mission progression are still applied in endTurn sequencing.
+  }
+
   getLogisticsSnapshot(): LogisticsSnapshot {
     const placements = Array.from(this.playerPlacements.values());
     const totalUnits = placements.length;
@@ -4902,8 +5019,8 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /** Check if target hex is spotted by any friendly unit that can plausibly see it. */
-  private checkTargetSpotted(targetHex: Axial, faction: "Player" | "Bot"): boolean {
-    const placements = faction === "Player" ? this.playerPlacements : this.botPlacements;
+  private checkTargetSpotted(targetHex: Axial, faction: "Player" | "Bot" | "Ally"): boolean {
+    const placements = faction === "Player" ? this.playerPlacements : faction === "Bot" ? this.botPlacements : this.allyPlacements;
     const lister = this.createLosLister();
 
     // Check all friendly units for spotting capability
@@ -4940,8 +5057,8 @@ export class GameEngine implements GameEngineAPI {
    * Apply supply upkeep or attrition to whichever faction just finished its turn.
    */
   private applySupplyTickFor(faction: TurnFaction): SupplyTickReport {
-    const units = faction === "Player" ? this.playerSupply : this.botSupply;
-    const placements = faction === "Player" ? this.playerPlacements : this.botPlacements;
+    const units = faction === "Player" ? this.playerSupply : faction === "Bot" ? this.botSupply : this.allySupply;
+    const placements = faction === "Player" ? this.playerPlacements : faction === "Bot" ? this.botPlacements : this.allyPlacements;
     const supplyState = this.supplyStateByFaction[faction];
     // Credit baseline production and deliver any shipments slated for this turn before upkeep drains consume stock.
     this.advanceFactionSupplyState(faction);
@@ -5013,8 +5130,8 @@ export class GameEngine implements GameEngineAPI {
     if (faction === "Player" && this._baseCamp) {
       sources.push(this._baseCamp.hex);
     }
-    const side = faction === "Player" ? this.playerSide : this.botSide;
-    if (side.hq) {
+    const side = faction === "Player" ? this.playerSide : faction === "Bot" ? this.botSide : this.allySide;
+    if (side?.hq) {
       sources.push(side.hq);
     }
     return {
@@ -5049,7 +5166,7 @@ export class GameEngine implements GameEngineAPI {
   /** True if any unit occupies the hex. */
   private isOccupied(hex: Axial): boolean {
     const key = axialKey(hex);
-    return this.playerPlacements.has(key) || this.botPlacements.has(key);
+    return this.playerPlacements.has(key) || this.botPlacements.has(key) || this.allyPlacements.has(key);
   }
 
   /** Update cached player supply entry position after a move. */
@@ -5093,7 +5210,18 @@ export class GameEngine implements GameEngineAPI {
     const map = new Map<string, "bot" | "player">();
     this.playerPlacements.forEach((_u, key) => map.set(key, "player"));
     this.botPlacements.forEach((_u, key) => map.set(key, "bot"));
+    // Treat ally units as friendly to player for movement blocking purposes.
+    this.allyPlacements.forEach((_u, key) => map.set(key, "player"));
     return map;
+  }
+
+  /** Build a unified occupancy set covering all factions for plan application. */
+  private buildUnifiedOccupancySet(): Set<string> {
+    const keys: string[] = [];
+    this.playerPlacements.forEach((_u, key) => keys.push(key));
+    this.botPlacements.forEach((_u, key) => keys.push(key));
+    this.allyPlacements.forEach((_u, key) => keys.push(key));
+    return new Set(keys);
   }
 
   private plannerMovementAllowance(snapshot: PlannerUnitSnapshot): number {
@@ -5161,26 +5289,34 @@ export class GameEngine implements GameEngineAPI {
     return { expectedDamage, expectedRetaliation };
   }
 
-  private buildBotPlannerInput(): BotPlannerInput {
-    const botUnits: PlannerUnitSnapshot[] = [];
-    const playerUnits: PlannerUnitSnapshot[] = [];
-    this.botPlacements.forEach((unit) => {
+  private buildPlannerInputFor(
+    acting: UnitPlacementMap,
+    opposing: UnitPlacementMap,
+    difficulty: BotDifficulty,
+    opposingExtras: UnitPlacementMap[] = []
+  ): BotPlannerInput {
+    const actingUnits: PlannerUnitSnapshot[] = [];
+    const opposingUnits: PlannerUnitSnapshot[] = [];
+    acting.forEach((unit) => {
       const def = this.getUnitDefinition(unit.type);
-      // Keep bot aircraft out of the ground-move planner so they operate via the air mission system
-      // instead of marching around the map like ground units.
       if (def.moveType === "air") {
         return;
       }
-      botUnits.push({ unit: structuredClone(unit), definition: def });
+      actingUnits.push({ unit: structuredClone(unit), definition: def });
     });
-    this.playerPlacements.forEach((unit) => {
-      const def = this.getUnitDefinition(unit.type);
-      playerUnits.push({ unit: structuredClone(unit), definition: def });
+    const opposingMaps = [opposing, ...opposingExtras];
+    opposingMaps.forEach((map) => {
+      map.forEach((unit) => {
+        const def = this.getUnitDefinition(unit.type);
+        opposingUnits.push({ unit: structuredClone(unit), definition: def });
+      });
     });
+
     const occupancy = this.buildOccupancyMap();
-    const input: BotPlannerInput = {
-      botUnits,
-      playerUnits,
+
+    return {
+      botUnits: actingUnits,
+      playerUnits: opposingUnits,
       objectives: this.scenario.objectives ?? [],
       occupancy,
       map: {
@@ -5191,9 +5327,8 @@ export class GameEngine implements GameEngineAPI {
       losAllows: (a, b, isAir) => this.plannerLOSAllows(a, b, isAir),
       movementAllowance: (snap) => this.plannerMovementAllowance(snap),
       attackEstimator: (a, ah, d, dh) => this.plannerAttackEstimate(a, ah, d, dh),
-      difficulty: this.botDifficulty
-    };
-    return input;
+      difficulty
+    } satisfies BotPlannerInput;
   }
 
   private executeHeuristicBotTurn(): BotTurnSummary {
@@ -5207,10 +5342,15 @@ export class GameEngine implements GameEngineAPI {
       return { moves, attacks, supplyReport };
     }
 
-    const input = this.buildBotPlannerInput();
+    const input = this.buildPlannerInputFor(
+      this.botPlacements,
+      this.playerPlacements,
+      this.botDifficulty,
+      this.allyPlacements.size > 0 ? [this.allyPlacements] : []
+    );
     const plans = planHeuristicBotTurn(input);
 
-    const occupancy = new Set<string>(Array.from(this.buildOccupancyMap().keys()));
+    const occupancy = this.buildUnifiedOccupancySet();
 
     for (const plan of plans) {
       const fromKey = axialKey(plan.origin);
@@ -5260,6 +5400,67 @@ export class GameEngine implements GameEngineAPI {
 
     const supplyReport = this.applySupplyTickFor("Bot");
     return { moves, attacks, supplyReport };
+  }
+
+  private executeHeuristicAllyTurn(): void {
+    if (this.botPlacements.size === 0 || this.allyPlacements.size === 0) {
+      return;
+    }
+
+    const input = this.buildPlannerInputFor(this.allyPlacements, this.botPlacements, this.botDifficulty);
+    const plans = planHeuristicBotTurn(input);
+    const occupancy = this.buildUnifiedOccupancySet();
+
+    for (const plan of plans) {
+      const fromKey = axialKey(plan.origin);
+      const toKey = axialKey(plan.destination);
+      const unit = this.allyPlacements.get(fromKey);
+      if (!unit) {
+        continue;
+      }
+      if (toKey !== fromKey && occupancy.has(toKey)) {
+        continue;
+      }
+
+      let current = structuredClone(plan.origin);
+      const visited: Axial[] = [structuredClone(plan.origin)];
+      if (toKey !== fromKey) {
+        this.allyPlacements.delete(fromKey);
+        const moved = structuredClone(unit);
+        for (let i = 1; i < plan.path.length; i += 1) {
+          const step = plan.path[i];
+          const stepKey = axialKey(step);
+          if (occupancy.has(stepKey)) {
+            break;
+          }
+          moved.hex = structuredClone(step);
+          current = structuredClone(step);
+          visited.push(structuredClone(step));
+        }
+        this.allyPlacements.set(axialKey(current), moved);
+        occupancy.delete(fromKey);
+        occupancy.add(axialKey(current));
+      }
+
+      if (plan.attackTarget) {
+        const attacker = this.allyPlacements.get(axialKey(current));
+        const defender = this.botPlacements.get(axialKey(plan.attackTarget));
+        if (attacker && defender) {
+          const request = this.buildAttackRequest(attacker, defender, "Ally", "Bot");
+          if (request) {
+            const result = resolveAttack(request);
+            const updatedDefender = structuredClone(defender);
+            updatedDefender.strength = Math.max(0, defender.strength - Math.round(result.expectedDamage));
+            if (updatedDefender.strength <= 0) {
+              this.botPlacements.delete(axialKey(plan.attackTarget));
+              occupancy.delete(axialKey(plan.attackTarget));
+            } else {
+              this.botPlacements.set(axialKey(plan.attackTarget), updatedDefender);
+            }
+          }
+        }
+      }
+    }
   }
 
   /** Sync defender strength to bot supply mirror after combat. */
@@ -5647,7 +5848,9 @@ export class GameEngine implements GameEngineAPI {
 
   /** Resolves a bot attack against the nearest player unit when adjacency allows it. */
   private resolveBotAttack(attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial): BotAttackSummary | null {
-    const defender = this.lookupUnit(targetHex, "Player");
+    // Bot should target either Player or Ally units depending on occupancy.
+    const defenderFaction: TurnFaction = this.playerPlacements.has(axialKey(targetHex)) ? "Player" : "Ally";
+    const defender = this.lookupUnit(targetHex, defenderFaction);
     if (!defender) {
       return null;
     }
