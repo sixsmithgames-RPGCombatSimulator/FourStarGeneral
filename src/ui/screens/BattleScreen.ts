@@ -19,6 +19,7 @@ import type {
   ScenarioData,
   ScenarioSide,
   ScenarioUnit,
+  ScenarioDeploymentZone,
   TerrainDefinition,
   TerrainDensity,
   TerrainDictionary,
@@ -148,8 +149,8 @@ export class BattleScreen {
   private readonly reservePresenter: ReserveListPresenter | null;
   private readonly mapViewport: MapViewport | null;
   private readonly zoomPanControls: ZoomPanControls | null;
-  private scenario: ScenarioData;
-  private scenarioSource: ScenarioSource;
+  private scenario!: ScenarioData;
+  private scenarioSource!: ScenarioSource;
   private readonly unitTypes: UnitTypeDictionary;
   private readonly terrain: TerrainDictionary;
   private element: HTMLElement;
@@ -4406,15 +4407,24 @@ export class BattleScreen {
   }
 
   private buildScenarioData(): ScenarioData {
-    const raw = this.deepCloneValue(this.scenarioSource) as ScenarioSource;
+    const raw = this.deepCloneValue(this.scenarioSource) as {
+      name?: unknown;
+      size?: { cols?: unknown; rows?: unknown } | unknown;
+      tilePalette: Record<string, unknown>;
+      tiles: unknown[];
+      objectives: unknown[];
+      turnLimit?: unknown;
+      sides?: Record<string, unknown>;
+      deploymentZones?: unknown[];
+    };
 
-    const paletteEntries = Object.entries(raw.tilePalette).map(([key, definition]) => {
-      return [key, this.normalizeTileDefinition(definition)];
+    const paletteEntries = Object.entries(raw.tilePalette ?? {}).map(([key, definition]) => {
+      return [key, this.normalizeTileDefinition(definition as { terrain: string; terrainType: string; density: string; features: string[]; recon: string })];
     });
     const palette: TilePalette = Object.fromEntries(paletteEntries);
 
-    const tiles: TileInstance[][] = raw.tiles.map((row, rowIndex) =>
-      row.map((entry, columnIndex) => {
+    const tiles: TileInstance[][] = (raw.tiles as unknown[] ?? []).map((row: unknown, rowIndex: number) =>
+      (row as unknown[]).map((entry: unknown, columnIndex: number) => {
         if (typeof entry === "string") {
           return { tile: entry } satisfies TileInstance;
         }
@@ -4424,16 +4434,20 @@ export class BattleScreen {
         }
 
         const inlineKey = `inline_${rowIndex}_${columnIndex}`;
-        palette[inlineKey] = this.normalizeTileDefinition(entry as TileDefinition);
+        const inlineDefinition = entry as unknown as TileDefinition;
+        palette[inlineKey] = this.normalizeTileDefinition(inlineDefinition);
         return { tile: inlineKey } satisfies TileInstance;
       })
     );
 
-    const objectives = raw.objectives.map((objective) => ({
-      owner: objective.owner as "Player" | "Bot",
-      vp: objective.vp,
-      hex: this.tupleToAxial(objective.hex as [number, number])
-    }));
+    const objectives = (raw.objectives as unknown[] ?? []).map((objective: unknown) => {
+      const obj = objective as { owner?: unknown; vp?: unknown; hex?: unknown };
+      return {
+        owner: (obj.owner as "Player" | "Bot") ?? "Bot",
+        vp: Number(obj.vp ?? 0),
+        hex: this.tupleToAxial((obj.hex as [number, number]) ?? [0, 0])
+      };
+    });
 
     const convertSide = (sideKey: "Player" | "Bot" | "Ally"): ScenarioSide => {
       const sidesRecord = raw.sides as unknown as Record<"Player" | "Bot" | "Ally", {
@@ -4502,24 +4516,37 @@ export class BattleScreen {
       return normalized;
     };
 
-    const sides: ScenarioData["sides"] = {
-      Player: convertSide("Player"),
-      Bot: convertSide("Bot")
-    };
-    if (raw.sides && (raw.sides as Record<string, unknown>).Ally) {
-      sides.Ally = convertSide("Ally");
-    }
-
     return {
-      name: raw.name,
-      size: this.deepCloneValue(raw.size),
+      name: (raw.name as string) ?? "Unnamed Scenario",
+      size: { cols: Number((raw.size as { cols?: unknown })?.cols ?? 0), rows: Number((raw.size as { rows?: unknown })?.rows ?? 0) },
       tilePalette: palette,
       tiles,
       objectives,
-      turnLimit: raw.turnLimit,
-      sides
+      turnLimit: Number(raw.turnLimit ?? 0),
+      sides: {
+        Player: convertSide("Player"),
+        Bot: convertSide("Bot"),
+        Ally: convertSide("Ally")
+      },
+      deploymentZones: (raw.deploymentZones as unknown[] | undefined)?.map((zone: unknown): ScenarioDeploymentZone => {
+        const z = zone as { key?: string; label?: string; description?: string; capacity?: number; faction?: string; hexes?: Array<[number, number]> };
+        const hexes: readonly [number, number][] = (z.hexes ?? []).map((hex) => {
+          const tuple: [number, number] = Array.isArray(hex)
+            ? [Number(hex[0] ?? 0), Number(hex[1] ?? 0)]
+            : [0, 0];
+          return tuple;
+        });
+        return {
+          key: z.key ?? "unknown-zone",
+          label: z.label ?? "",
+          description: z.description ?? "",
+          capacity: z.capacity ?? 0,
+          faction: (z.faction as "Player" | "Bot" | "Ally") ?? "Player",
+          hexes
+        } satisfies ScenarioDeploymentZone;
+      })
     } satisfies ScenarioData;
-  }
+  };
 
   /**
    * Provides a defensive copy of the unit type dictionary so downstream systems remain immutable.
@@ -4593,9 +4620,13 @@ export class BattleScreen {
   /**
    * Adapts [q, r] tuples from JSON into the Axial structure shared across engine modules.
    */
-  private tupleToAxial([col, row]: [number, number]): Axial {
+  private tupleToAxial(coord: [number, number] | Axial): Axial {
     // Scenario JSON encodes hexes as offset coordinates [col, row]; convert to axial for engine/rendering.
-    return CoordinateSystem.offsetToAxial(col, row);
+    if (Array.isArray(coord)) {
+      const [col, row] = coord;
+      return CoordinateSystem.offsetToAxial(Number(col ?? 0), Number(row ?? 0));
+    }
+    return coord;
   }
 
   /**

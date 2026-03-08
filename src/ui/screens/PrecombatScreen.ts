@@ -482,7 +482,14 @@ export class PrecombatScreen {
 
   private registerScenarioDeploymentZones(): void {
     const deploymentState = ensureDeploymentState();
-    const rawZones = this.scenarioSource.deploymentZones ?? [];
+    const rawZones = (this.scenarioSource.deploymentZones ?? []) as Array<{
+      key: string;
+      label: string;
+      description: string;
+      capacity: number;
+      faction?: string;
+      hexes?: Array<[number, number]>;
+    }>;
     if (rawZones.length === 0) {
       throw new Error("Scenario did not declare any deployment zones. Unable to initialize deployment UI.");
     }
@@ -503,7 +510,7 @@ export class PrecombatScreen {
         capacity: zone.capacity,
         // Fallback to Player for planner consumption when faction is omitted to preserve hex anchoring assumptions.
         faction: normalizedFaction ?? "Player",
-        hexes: (zone.hexes ?? []).map(([col, row]) => [col, row] as [number, number])
+        hexes: (zone.hexes ?? []).map(([col, row]: [number, number]) => [col, row] as [number, number])
       };
       const plannedHexes = planDeploymentZoneHexes(sanitizedZone, this.miniMapScenario);
       // Anchor deployment zones to edge-coastal tiles so the battle screen mirrors the intended landing corridors.
@@ -914,7 +921,9 @@ export class PrecombatScreen {
     this.predeployedCounts.clear();
     this.predeployedRoster.clear();
 
-    const rawUnits = (this.scenarioSource.sides?.Player?.units ?? []) as unknown as Array<ScenarioUnit & { preDeployed?: boolean }>;
+    const rawUnits = ((this.scenarioSource.sides as { Player?: { units?: ScenarioUnit[] } } | undefined)?.Player?.units ?? []) as unknown as Array<
+      ScenarioUnit & { preDeployed?: boolean }
+    >;
     // Only scenario units explicitly marked preDeployed=true are treated as baseline assets.
     const playerUnits = rawUnits.filter((u) => (u as unknown as { preDeployed?: boolean }).preDeployed === true);
     if (playerUnits.length === 0) {

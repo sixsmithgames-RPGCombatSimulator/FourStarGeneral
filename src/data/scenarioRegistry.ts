@@ -1,7 +1,9 @@
 import defaultScenario from "./scenario01.json";
 import riverWatchScenario from "./scenario_river_watch.json";
 
-export type ScenarioSource = typeof defaultScenario;
+// ScenarioSource is intentionally loose (any) because map JSON varies; downstream code normalizes.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ScenarioSource = any;
 
 /**
  * Returns the raw scenario data source for a given mission key.
