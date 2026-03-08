@@ -810,10 +810,10 @@ export class LandingScreen {
     const missionsCompleted = general.serviceRecord?.missionsCompleted ?? 0;
     const victories = general.serviceRecord?.victoriesAchieved ?? 0;
     if (missionsCompleted < 2) {
-      return ["training", "patrol"];
+      return ["training", "patrol", "patrol_river_watch"];
     }
     if (victories < 3) {
-      return ["training", "patrol", "assault"];
+      return ["training", "patrol", "patrol_river_watch", "assault"];
     }
     return UIState.getMissionKeys();
   }

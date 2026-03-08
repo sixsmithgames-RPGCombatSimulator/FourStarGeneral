@@ -1,0 +1,94 @@
+{
+  "name": "River Crossing Watch",
+  "size": { "cols": 14, "rows": 12 },
+  "tilePalette": {
+    "PLAINS": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": [], "recon": "intel" },
+    "FOREST": { "terrain": "forest", "terrainType": "rural", "density": "dense", "features": ["trees", "shrubs"], "recon": "intel" },
+    "HILL": { "terrain": "hill", "terrainType": "rural", "density": "average", "features": ["foothills"], "recon": "intel" },
+    "ROAD": { "terrain": "road", "terrainType": "rural", "density": "sparse", "features": [], "recon": "intel" },
+    "HAMLET": { "terrain": "city", "terrainType": "urban", "density": "sparse", "features": ["buildings"], "recon": "intel" },
+    "RIVER_DEEP": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": [], "recon": "intel" },
+    "RIVER_SHALLOW": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": ["ford"], "recon": "intel" },
+    "RUBBLE_BRIDGE": { "terrain": "road", "terrainType": "rural", "density": "sparse", "features": ["bridge", "rubble"], "recon": "intel" }
+  },
+  "tiles": [
+    ["PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","FOREST","FOREST","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS"],
+    ["PLAINS","PLAINS","ROAD","ROAD","PLAINS","HILL","FOREST","RIVER_DEEP","RIVER_DEEP","PLAINS","PLAINS","HILL","PLAINS","PLAINS"],
+    ["PLAINS","PLAINS","ROAD","PLAINS","PLAINS","HILL","RIVER_SHALLOW","RIVER_SHALLOW","PLAINS","PLAINS","FOREST","HILL","PLAINS","PLAINS"],
+    ["PLAINS","FOREST","PLAINS","PLAINS","HILL","RIVER_DEEP","RIVER_DEEP","FOREST","PLAINS","PLAINS","FOREST","PLAINS","PLAINS","PLAINS"],
+    ["PLAINS","FOREST","PLAINS","PLAINS","RUBBLE_BRIDGE","RIVER_SHALLOW","RIVER_SHALLOW","FOREST","PLAINS","HILL","PLAINS","PLAINS","PLAINS","PLAINS"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","HILL","RIVER_DEEP","RIVER_DEEP","HILL","PLAINS","HILL","PLAINS","PLAINS","FOREST","PLAINS"],
+    ["PLAINS","PLAINS","ROAD","PLAINS","PLAINS","RIVER_SHALLOW","RIVER_SHALLOW","PLAINS","PLAINS","FOREST","PLAINS","PLAINS","FOREST","PLAINS"],
+    ["PLAINS","HAMLET","ROAD","PLAINS","HILL","RIVER_DEEP","RIVER_DEEP","PLAINS","PLAINS","FOREST","PLAINS","PLAINS","PLAINS","PLAINS"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","FOREST","RIVER_DEEP","RIVER_DEEP","PLAINS","PLAINS","HILL","PLAINS","PLAINS","PLAINS","PLAINS"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","FOREST","RIVER_SHALLOW","RIVER_SHALLOW","PLAINS","FOREST","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","RIVER_DEEP","RIVER_DEEP","PLAINS","FOREST","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS"]
+  ],
+  "objectives": [
+    { "hex": [6, 2], "owner": "Bot", "vp": 50 },
+    { "hex": [6, 4], "owner": "Bot", "vp": 50 },
+    { "hex": [5, 9], "owner": "Bot", "vp": 50 }
+  ],
+  "deploymentZones": [
+    {
+      "key": "allied-start",
+      "label": "Allied Start",
+      "description": "Covered hedgerow approach on the west bank",
+      "capacity": 12,
+      "faction": "Player",
+      "hexes": [[0,1],[1,1],[2,1],[0,2],[1,2],[2,2],[0,3],[1,3],[2,3],[0,4],[1,4],[2,4]]
+    },
+    {
+      "key": "enemy-entry-north",
+      "label": "Enemy North Approach",
+      "description": "Northern ford approach",
+      "capacity": 8,
+      "faction": "Bot",
+      "hexes": [[11,0],[12,0],[13,0],[11,1],[12,1],[13,1],[11,2],[12,2]]
+    },
+    {
+      "key": "enemy-entry-center",
+      "label": "Enemy Center Approach",
+      "description": "Central ford approach",
+      "capacity": 8,
+      "faction": "Bot",
+      "hexes": [[11,4],[12,4],[13,4],[11,5],[12,5],[13,5],[11,6],[12,6]]
+    },
+    {
+      "key": "enemy-entry-south",
+      "label": "Enemy South Approach",
+      "description": "Southern ford approach",
+      "capacity": 8,
+      "faction": "Bot",
+      "hexes": [[11,8],[12,8],[13,8],[11,9],[12,9],[13,9],[11,10],[12,10]]
+    }
+  ],
+  "turnLimit": 12,
+  "sides": {
+    "Player": {
+      "hq": [1, 2],
+      "general": { "accBonus": 0, "dmgBonus": 0, "moveBonus": 0, "supplyBonus": 0 },
+      "units": [
+        { "type": "Infantry_42", "hex": [1,2], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "E", "preDeployed": true },
+        { "type": "Infantry_42", "hex": [2,2], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "E", "preDeployed": true },
+        { "type": "Engineer", "hex": [1,3], "strength": 100, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "E", "preDeployed": true },
+        { "type": "Recon_Bike", "hex": [2,3], "strength": 100, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "E", "preDeployed": true }
+      ]
+    },
+    "Bot": {
+      "hq": [12, 5],
+      "general": { "accBonus": 0, "dmgBonus": 0, "moveBonus": 0, "supplyBonus": 0 },
+      "goal": "Establish foothold across river fords.",
+      "strategy": "Probe multiple crossings, then commit reserves where resistance is weakest.",
+      "resources": 300,
+      "units": [
+        { "type": "Infantry_42", "hex": [11,2], "strength": 90, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
+        { "type": "Infantry_42", "hex": [11,5], "strength": 90, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
+        { "type": "Engineer", "hex": [12,4], "strength": 90, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "W" },
+        { "type": "AT_Infantry", "hex": [12,6], "strength": 90, "experience": 0, "ammo": 7, "fuel": 0, "entrench": 0, "facing": "W" },
+        { "type": "Recon_Bike", "hex": [11,8], "strength": 90, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "W" }
+      ]
+    }
+  }
+}

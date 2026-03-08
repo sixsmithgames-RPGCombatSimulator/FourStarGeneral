@@ -10,7 +10,13 @@ import type { BotDifficulty } from "../game/bot/BotPlanner";
 /**
  * Mission type identifiers for the landing screen.
  */
-export type MissionKey = "training" | "patrol" | "assault" | "campaign" | string;
+export type MissionKey =
+  | "training"
+  | "patrol"
+  | "patrol_river_watch"
+  | "assault"
+  | "campaign"
+  | string;
 
 /**
  * Centralized UI state management for the application.

@@ -18,7 +18,7 @@ import { ensureTutorialState, isTrainingMission } from "../../state/TutorialStat
 import { getNextPhase } from "../../data/tutorialSteps";
 import { HexMapRenderer } from "../../rendering/HexMapRenderer";
 import type { ScenarioData, ScenarioDeploymentZone, ScenarioUnit } from "../../core/types";
-import scenarioSource from "../../data/scenario01.json";
+import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
 import { planDeploymentZoneHexes } from "../utils/deploymentZonePlanner";
 
 type AllocationListElement = HTMLElement & { __allocationListenersAttached?: boolean };
@@ -27,7 +27,7 @@ const MISSION_SUMMARY_FALLBACKS: Record<string, {
   readonly objectives: readonly string[];
   readonly turnLimit: number;
   readonly doctrine: string;
-  readonly supplies: readonly { label: string; amount: string }[];
+  readonly supplies: ReadonlyArray<{ readonly label: string; readonly amount: string }>;
 }> = {
   training: {
     objectives: [
@@ -53,6 +53,19 @@ const MISSION_SUMMARY_FALLBACKS: Record<string, {
       { label: "Rations", amount: "Standard patrol pack" },
       { label: "Fuel", amount: "50% reserve" },
       { label: "Ammo", amount: "Issue combat load" }
+    ]
+  },
+  patrol_river_watch: {
+    objectives: [
+      "Deny enemy control of any river ford for 4 consecutive turns",
+      "Optional: Destroy the enemy comms team before it reaches the central ford",
+      "Optional: Keep at least one recon unit alive"
+    ],
+    turnLimit: 12,
+    doctrine: "Screen all three crossings, delay infiltrators, and counter-push where pressure builds. Use limited off-map mortar and hedgerow cover to shape approaches.",
+    supplies: [
+      { label: "Turn Limit", amount: "12" },
+      { label: "Off-map Mortar", amount: "2 calls" }
     ]
   },
   assault: {
@@ -123,7 +136,9 @@ export class PrecombatScreen {
   private miniMapSvg!: SVGSVGElement;
 
   private readonly miniMapRenderer = new HexMapRenderer();
-  private readonly miniMapScenario: ScenarioData;
+  private miniMapScenario: ScenarioData;
+
+  private scenarioSource: ScenarioSource;
 
   // Campaign integration: active mission and dynamic caps derived from campaign economy when applicable.
   private activeMissionKey: MissionKey | null = null;
@@ -151,7 +166,8 @@ export class PrecombatScreen {
   constructor(screenManager: IScreenManager, battleState: BattleState) {
     this.screenManager = screenManager;
     this.battleState = battleState;
-    this.miniMapScenario = JSON.parse(JSON.stringify(scenarioSource)) as ScenarioData;
+    this.scenarioSource = getScenarioByMissionKey("training");
+    this.miniMapScenario = JSON.parse(JSON.stringify(this.scenarioSource)) as ScenarioData;
 
     const precombatScreen = document.getElementById("precombatScreen");
     if (!precombatScreen) {
@@ -254,6 +270,8 @@ export class PrecombatScreen {
    */
   setup(missionKey: MissionKey, selectedGeneralId: string | null): void {
     this.activeMissionKey = missionKey;
+    this.scenarioSource = getScenarioByMissionKey(missionKey);
+    this.miniMapScenario = JSON.parse(JSON.stringify(this.scenarioSource)) as ScenarioData;
     this.primeAllocationState();
     this.seedDeploymentCaches();
     this.registerScenarioDeploymentZones();
@@ -464,7 +482,7 @@ export class PrecombatScreen {
 
   private registerScenarioDeploymentZones(): void {
     const deploymentState = ensureDeploymentState();
-    const rawZones = scenarioSource.deploymentZones ?? [];
+    const rawZones = this.scenarioSource.deploymentZones ?? [];
     if (rawZones.length === 0) {
       throw new Error("Scenario did not declare any deployment zones. Unable to initialize deployment UI.");
     }
@@ -896,7 +914,7 @@ export class PrecombatScreen {
     this.predeployedCounts.clear();
     this.predeployedRoster.clear();
 
-    const rawUnits = (scenarioSource.sides?.Player?.units ?? []) as unknown as Array<ScenarioUnit & { preDeployed?: boolean }>;
+    const rawUnits = (this.scenarioSource.sides?.Player?.units ?? []) as unknown as Array<ScenarioUnit & { preDeployed?: boolean }>;
     // Only scenario units explicitly marked preDeployed=true are treated as baseline assets.
     const playerUnits = rawUnits.filter((u) => (u as unknown as { preDeployed?: boolean }).preDeployed === true);
     if (playerUnits.length === 0) {

@@ -53,9 +53,10 @@ import {
   type ReserveBlueprint
 } from "../../state/DeploymentState";
 import type { UIState } from "../../state/UIState";
-import scenarioSource from "../../data/scenario01.json";
+import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
 import terrainSource from "../../data/terrain.json";
 import unitTypesSource from "../../data/unitTypes.json";
+import { createMissionRulesController, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
 
 /**
  * Provides structured data for the centered intel overlay describing the currently highlighted hex.
@@ -147,7 +148,8 @@ export class BattleScreen {
   private readonly reservePresenter: ReserveListPresenter | null;
   private readonly mapViewport: MapViewport | null;
   private readonly zoomPanControls: ZoomPanControls | null;
-  private readonly scenario: ScenarioData;
+  private scenario: ScenarioData;
+  private scenarioSource: ScenarioSource;
   private readonly unitTypes: UnitTypeDictionary;
   private readonly terrain: TerrainDictionary;
   private element: HTMLElement;
@@ -155,6 +157,10 @@ export class BattleScreen {
   private defaultSelectionKey: string | null;
   private deploymentPrimed = false;
   private battleUpdateUnsubscribe: (() => void) | null = null;
+  private missionRulesController: MissionRulesController | null = null;
+  private missionStatus: MissionStatus | null = null;
+  private missionEndPrompted = false;
+  private missionEndModal: HTMLElement | null = null;
   private static readonly BOT_MOVE_ANIMATION_MS = 500;
   private static readonly BOT_CAMERA_PADDING = 96;
   private static readonly ACTIVITY_EVENT_LIMIT = 120;
@@ -269,7 +275,7 @@ export class BattleScreen {
     // Get unit labels from the unit type definitions
     const attackerType = preview.attacker.type;
     const defenderType = preview.defender.type;
-    const attackerDef = this.unitTypes[attackerType];
+    const attackerDef = this.unitTypes?.[attackerType];
     const attackerLabel = this.toTitleCase(attackerType);
     const defenderLabel = this.toTitleCase(defenderType);
 
@@ -691,6 +697,7 @@ export class BattleScreen {
             : null;
           const attackerClass = attackerDefinition?.class;
           const retaliationTargetIsHardTarget = attackerClass === "vehicle" || attackerClass === "tank" || attackerClass === "air";
+
           await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
           await this.hexMapRenderer.playAttackSequence(defenderHex, attackerHex, retaliationTargetIsHardTarget);
         } catch (animationError) {
@@ -1244,6 +1251,149 @@ export class BattleScreen {
     this.updateTurnStatusDisplay(summary);
     this.updateTurnControls(summary);
     this.refreshIdleUnitHighlights(summary);
+  }
+
+  private evaluateMissionRules(): void {
+    if (!this.missionRulesController || !this.battleState.hasEngine()) {
+      return;
+    }
+
+    const engine = this.battleState.ensureGameEngine();
+    const turnSummary = engine.getTurnSummary();
+    const occupancy = new Map<string, TurnFaction>();
+
+    engine.playerUnits.forEach((unit) => {
+      occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Player");
+    });
+    engine.botUnits.forEach((unit) => {
+      occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Bot");
+    });
+    engine.allyUnits?.forEach((unit) => {
+      occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Ally");
+    });
+
+    const status = this.missionRulesController.onTurnAdvanced({
+      turnSummary,
+      scenario: this.scenario,
+      occupancy,
+      playerUnits: engine.playerUnits,
+      botUnits: engine.botUnits
+    });
+
+    this.missionStatus = status;
+
+    if (status.outcome.state !== "inProgress") {
+      const reason = status.outcome.reason ?? (status.outcome.state === "playerVictory" ? "Mission success." : "Mission failed.");
+      this.announceBattleUpdate(reason);
+      if (!this.missionEndPrompted) {
+        this.missionEndPrompted = true;
+        this.showMissionEndModal(status.outcome.state, reason);
+      }
+    }
+
+    this.renderMissionStatus();
+    this.battleState.emitBattleUpdate("missionUpdated");
+  }
+
+  private renderMissionStatus(): void {
+    const objectivesElement = this.missionObjectivesList;
+    const doctrineElement = this.missionDoctrineElement;
+    const turnLimitElement = this.missionTurnLimitElement;
+    const outcome = this.missionStatus?.outcome ?? null;
+
+    if (!objectivesElement) {
+      return;
+    }
+
+    const missionInfo: PrecombatMissionInfo | null = this.battleState.getPrecombatMissionInfo();
+
+    if (!this.missionStatus) {
+      // Fall back to static briefing copy when mission rules have not evaluated yet.
+      const objectives = missionInfo?.objectives ?? [];
+      objectivesElement.innerHTML = objectives.length
+        ? objectives.map((objective) => `<li>${objective}</li>`).join("")
+        : "<li>Operational objectives will appear here.</li>";
+      if (turnLimitElement && missionInfo?.turnLimit !== undefined && missionInfo?.turnLimit !== null) {
+        turnLimitElement.textContent = `${missionInfo.turnLimit} turns`;
+      }
+      return;
+    }
+
+    const stateBadge = (state: string): string => {
+      if (state === "completed") return '<span class="mission-pill mission-pill--success">Completed</span>';
+      if (state === "failed") return '<span class="mission-pill mission-pill--danger">Failed</span>';
+      if (state === "inProgress") return '<span class="mission-pill mission-pill--progress">In progress</span>';
+      return `<span class="mission-pill">${state}</span>`;
+    };
+
+    objectivesElement.innerHTML = this.missionStatus.objectives
+      .map((objective) => `<li><strong>${objective.label}</strong> ${stateBadge(objective.state)}${objective.detail ? `<div class="mission-objective-detail">${objective.detail}</div>` : ""}</li>`)
+      .join("");
+
+    if (turnLimitElement) {
+      if (missionInfo?.turnLimit !== undefined && missionInfo?.turnLimit !== null) {
+        turnLimitElement.textContent = `${missionInfo.turnLimit} turns`;
+      } else {
+        turnLimitElement.textContent = "Pending";
+      }
+    }
+
+    if (doctrineElement && missionInfo?.doctrine) {
+      doctrineElement.textContent = missionInfo.doctrine;
+    }
+
+    if (outcome && outcome.state !== "inProgress") {
+      if (this.endMissionButton) {
+        this.endMissionButton.classList.add("battle-button--highlight");
+      }
+
+      if (this.missionBriefingElement) {
+        const label = outcome.state === "playerVictory" ? "Mission Complete" : "Mission Failed";
+        this.missionBriefingElement.textContent = outcome.reason ? `${label}: ${outcome.reason}` : label;
+      }
+    }
+  }
+
+  private showMissionEndModal(outcome: "playerVictory" | "playerDefeat", reason: string): void {
+    this.disposeMissionEndModal();
+
+    const container = document.createElement("div");
+    container.className = "mission-end-modal";
+    container.setAttribute("role", "dialog");
+    container.setAttribute("aria-modal", "true");
+    container.innerHTML = `
+      <div class="mission-end-modal__backdrop"></div>
+      <div class="mission-end-modal__content">
+        <h2 class="mission-end-modal__title">${outcome === "playerVictory" ? "Mission Complete" : "Mission Failed"}</h2>
+        <p class="mission-end-modal__reason">${this.escapeHtml(reason)}</p>
+        <p class="mission-end-modal__prompt">Return to headquarters now?</p>
+        <div class="mission-end-modal__actions">
+          <button type="button" class="battle-button mission-end-modal__button mission-end-modal__button--primary" data-mission-end="confirm">End Mission</button>
+          <button type="button" class="battle-button mission-end-modal__button" data-mission-end="continue">Keep Playing</button>
+        </div>
+      </div>
+    `;
+
+    container.querySelector<HTMLButtonElement>("[data-mission-end='confirm']")?.addEventListener("click", () => {
+      this.disposeMissionEndModal();
+      this.handleEndMission();
+    });
+
+    container.querySelector<HTMLButtonElement>("[data-mission-end='continue']")?.addEventListener("click", () => {
+      this.disposeMissionEndModal();
+      this.announceBattleUpdate("Continuing mission at commander request. Press End Mission when ready to exit.");
+      this.endMissionButton?.classList.add("battle-button--highlight");
+    });
+
+    this.element.appendChild(container);
+    this.missionEndModal = container;
+  }
+
+  private disposeMissionEndModal(): void {
+    if (this.missionEndModal && this.missionEndModal.parentElement) {
+      this.missionEndModal.parentElement.removeChild(this.missionEndModal);
+    }
+    this.missionEndModal = null;
   }
 
   /**
@@ -1958,8 +2108,7 @@ export class BattleScreen {
             this.hexMapRenderer?.advanceAftermathTurn();
           }
           this.syncTurnContext();
-          this.updateAirHudWidget();
-          this.syncAirMissionLogs();
+          this.evaluateMissionRules();
           break;
         }
         case "missionUpdated": {
@@ -1997,7 +2146,7 @@ export class BattleScreen {
     this.mapViewport = mapViewport;
     this.zoomPanControls = zoomPanControls;
     this.battleActivityLog = battleActivityLog;
-    this.scenario = this.buildScenarioData();
+    this.refreshScenario();
     this.unitTypes = this.buildUnitTypeDictionary();
     this.terrain = this.buildTerrainDictionary();
     this.keyboardNavigationHandler = (event) => this.handleMapNavigation(event);
@@ -2492,6 +2641,7 @@ export class BattleScreen {
    * synchronously so UI and engine state cannot diverge.
    */
   private prepareBattleState(enforceAllocations: boolean): GameEngine {
+    this.refreshScenario();
     // Initialize the engine on first use so flows that call prepareBattleState before the renderer mounts still succeed.
     // Some boot sequences (e.g. direct battle loads) invoke this path without touching initializeBattleMap(), so we must
     // lazily provision the engine here to avoid crashing when BattleState.ensureGameEngine() runs.
@@ -3101,14 +3251,15 @@ export class BattleScreen {
     if (!this.hexMapRenderer) {
       return;
     }
+    this.refreshScenario();
+    this.ensureEngine();
+    const scenarioClone = this.cloneScenario();
     const svg = this.element.querySelector<SVGSVGElement>("#battleHexMap");
     const canvas = this.element.querySelector<HTMLDivElement>("#battleMapCanvas");
     if (!svg || !canvas) {
       return;
     }
 
-    this.ensureEngine();
-    const scenarioClone = this.cloneScenario();
     this.hexMapRenderer.render(svg, canvas, scenarioClone);
     this.hexMapRenderer.onHexClick((key) => this.handleHexSelection(key));
     this.hexMapRenderer.onSelectionChanged((key) => this.handleRendererSelection(key));
@@ -4244,8 +4395,18 @@ export class BattleScreen {
   /**
    * Normalizes the scenario JSON source into the strongly typed structure required by the engine.
    */
+  private refreshScenario(): void {
+    const missionKey = this.uiState?.selectedMission ?? "training";
+    this.scenarioSource = getScenarioByMissionKey(missionKey);
+    this.scenario = this.buildScenarioData();
+    this.missionRulesController = createMissionRulesController(missionKey, this.scenario);
+    this.missionStatus = null;
+    this.missionEndPrompted = false;
+    this.disposeMissionEndModal();
+  }
+
   private buildScenarioData(): ScenarioData {
-    const raw = this.deepCloneValue(scenarioSource) as typeof scenarioSource;
+    const raw = this.deepCloneValue(this.scenarioSource) as ScenarioSource;
 
     const paletteEntries = Object.entries(raw.tilePalette).map(([key, definition]) => {
       return [key, this.normalizeTileDefinition(definition)];
@@ -4254,6 +4415,10 @@ export class BattleScreen {
 
     const tiles: TileInstance[][] = raw.tiles.map((row, rowIndex) =>
       row.map((entry, columnIndex) => {
+        if (typeof entry === "string") {
+          return { tile: entry } satisfies TileInstance;
+        }
+
         if ((entry as { tile?: string }).tile) {
           return this.normalizeTileInstance(entry as { tile: string; recon?: string; density?: string; features?: string[] });
         }

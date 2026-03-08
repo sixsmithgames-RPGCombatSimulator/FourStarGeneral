@@ -12,6 +12,7 @@ import type { MissionKey } from "../state/UIState";
 export const missionTitles: Record<MissionKey, string> = {
   training: "Training Exercise",
   patrol: "Border Patrol",
+  patrol_river_watch: "River Crossing Watch",
   assault: "Tactical Assault",
   // Campaign is surfaced on the landing screen as "Western Europe" to anchor the first grand-operation offering.
   campaign: "Western Europe Campaign"
@@ -29,6 +30,10 @@ export const missionBriefings: Record<MissionKey, string> = {
   patrol:
     "Conduct a routine border patrol to secure the perimeter and identify potential enemy reconnaissance units. " +
     "Maintain defensive posture and report any suspicious activity. Light resistance anticipated.",
+
+  patrol_river_watch:
+    "Recon reports infiltrators massing along a winding river. Multiple shallow fords and a ruined bridge offer crossing points. " +
+    "Scramble your patrol, lock down each ford, and deny the enemy any foothold across the water.",
 
   assault:
     "Execute a tactical assault on enemy positions to secure strategic objectives. " +
