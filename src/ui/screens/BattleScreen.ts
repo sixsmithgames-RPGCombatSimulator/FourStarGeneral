@@ -2148,6 +2148,11 @@ export class BattleScreen {
     this.zoomPanControls = zoomPanControls;
     this.battleActivityLog = battleActivityLog;
     this.refreshScenario();
+    console.info("[BattleScreen] scenario loaded", {
+      missionKey: this.uiState?.selectedMission ?? "training",
+      scenarioName: (this.scenarioSource as { name?: string }).name,
+      size: (this.scenarioSource as { size?: { cols?: number; rows?: number } }).size
+    });
     this.unitTypes = this.buildUnitTypeDictionary();
     this.terrain = this.buildTerrainDictionary();
     this.keyboardNavigationHandler = (event) => this.handleMapNavigation(event);
