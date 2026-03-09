@@ -271,6 +271,16 @@ export class PrecombatScreen {
   setup(missionKey: MissionKey, selectedGeneralId: string | null): void {
     this.activeMissionKey = missionKey;
     this.scenarioSource = getScenarioByMissionKey(missionKey);
+
+    if (missionKey === "patrol_river_watch") {
+      const sourceName = (this.scenarioSource as { name?: string }).name;
+      if (sourceName !== "River Crossing Watch") {
+        const message = "River Crossing Watch scenario failed to load; expected river map, got " + (sourceName ?? "unknown");
+        console.error(message);
+        throw new Error(message);
+      }
+    }
+
     this.miniMapScenario = JSON.parse(JSON.stringify(this.scenarioSource)) as ScenarioData;
     this.primeAllocationState();
     this.seedDeploymentCaches();

@@ -4399,6 +4399,14 @@ export class BattleScreen {
   private refreshScenario(): void {
     const missionKey = this.uiState?.selectedMission ?? "training";
     this.scenarioSource = getScenarioByMissionKey(missionKey);
+    if (missionKey === "patrol_river_watch") {
+      const sourceName = (this.scenarioSource as { name?: string }).name;
+      if (sourceName !== "River Crossing Watch") {
+        const message = "River Crossing Watch scenario failed to load; expected river map, got " + (sourceName ?? "unknown");
+        console.error(message);
+        throw new Error(message);
+      }
+    }
     this.scenario = this.buildScenarioData();
     this.missionRulesController = createMissionRulesController(missionKey, this.scenario);
     this.missionStatus = null;
