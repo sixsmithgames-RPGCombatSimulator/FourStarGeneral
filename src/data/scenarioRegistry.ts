@@ -10,10 +10,19 @@ export type ScenarioSource = any;
  * Falls back to the default scenario when no specialized map exists.
  */
 export function getScenarioByMissionKey(missionKey: string): ScenarioSource {
+  const resolvedKey = missionKey.trim();
+  let scenario: ScenarioSource;
   switch (missionKey) {
     case "patrol_river_watch":
-      return riverWatchScenario as ScenarioSource;
+      scenario = riverWatchScenario as ScenarioSource;
+      break;
     default:
-      return defaultScenario as ScenarioSource;
+      scenario = defaultScenario as ScenarioSource;
+      break;
   }
+
+  const name = (scenario as { name?: string }).name;
+  const size = (scenario as { size?: { cols?: number; rows?: number } }).size;
+  console.info("[scenarioRegistry] resolve scenario", { missionKey: resolvedKey, name, size });
+  return scenario;
 }

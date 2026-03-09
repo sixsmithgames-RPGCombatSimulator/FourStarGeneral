@@ -272,6 +272,12 @@ export class PrecombatScreen {
     this.activeMissionKey = missionKey;
     this.scenarioSource = getScenarioByMissionKey(missionKey);
 
+    console.info("[PrecombatScreen] setup mission", {
+      missionKey,
+      scenarioName: (this.scenarioSource as { name?: string }).name,
+      size: (this.scenarioSource as { size?: { cols?: number; rows?: number } }).size
+    });
+
     if (missionKey === "patrol_river_watch") {
       const sourceName = (this.scenarioSource as { name?: string }).name;
       if (sourceName !== "River Crossing Watch") {
