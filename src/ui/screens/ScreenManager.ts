@@ -56,6 +56,12 @@ export class ScreenManager implements IScreenManager {
       throw new Error(`Screen with id "${id}" not found. Did you register it?`);
     }
     this.showScreen(screen);
+    document.dispatchEvent(new CustomEvent("screen:shown", {
+      detail: {
+        id,
+        element: screen
+      }
+    }));
   }
 
   /**

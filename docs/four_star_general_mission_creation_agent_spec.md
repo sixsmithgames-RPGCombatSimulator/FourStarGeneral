@@ -767,6 +767,8 @@ Use this checklist when introducing or modifying a mission.
 4. Mission-specific logic.
    - add mission-specific setup in `PrecombatScreen.setup`, such as tutorials, caps, special loadout constraints, or scenario flags keyed off `missionKey`
    - if the mission uses unique scenarios, AI, or terrain, point precombat and battle loaders at the correct scenario modules
+   - if the mission uses a unique battle map, require an explicit battle-screen activation path that refreshes the scenario and rebuilds the engine/map when the battle screen is shown; do not assume startup initialization will be correct for later mission selections
+   - validate that the battle screen's active scenario name matches the mission-selected scenario before rendering player interaction state; fail with a clear error if the names diverge
 
 5. Tutorials and onboarding.
    - if the mission requires guidance, add a dedicated tutorial gate similar to `isTrainingMission` and start it in precombat
@@ -774,6 +776,20 @@ Use this checklist when introducing or modifying a mission.
 6. Testing.
    - add or adjust UI tests for mission availability and rendering
    - add a small flow test to ensure the mission routes and initializes correctly
+   - add a mission-transition regression test that starts from app boot, selects the mission, enters precombat, then enters battle and verifies the battle map uses the correct scenario name and dimensions rather than the startup default
+
+## Appendix D — Mission Map Activation Contract
+
+Any mission that introduces a unique scenario map must satisfy all of the following implementation checks:
+
+1. `LandingScreen` selects the intended `missionKey` and routes to the correct flow.
+2. `PrecombatScreen.setup` resolves the correct scenario source for that `missionKey`.
+3. `BattleScreen` must not rely on constructor-time scenario or engine state when the application booted under a different mission.
+4. Entering the battle screen must trigger scenario refresh and engine validation for the currently selected mission.
+5. If the active battle scenario differs from the selected mission scenario, the engine and rendered map must be rebuilt before the player can interact.
+6. If the expected scenario cannot be loaded, the game must throw a clear error describing the mission key, expected scenario, actual scenario, and likely correction path.
+
+This contract was missing during River Crossing Watch integration. The mission file and registry entry existed, but the battle screen retained the startup training scenario because mission creation workflow covered loader wiring without requiring battle-screen reactivation validation.
 
 ## Appendix C — WWII-Aligned Map Architecture Checklist
 

@@ -302,6 +302,20 @@ export class BattleState {
     this.notifyBattleUpdate("reset");
   }
 
+  resetEngineState(): void {
+    this.gameEngine = null;
+    this.engineConfig = null;
+    this.rosterSnapshot = null;
+    this.logisticsSnapshot = null;
+    this.supplySnapshotByFaction.Player = null;
+    this.supplySnapshotByFaction.Bot = null;
+    this.supplySnapshotByFaction.Ally = null;
+    this.supplySnapshotCache.Player = null;
+    this.supplySnapshotCache.Bot = null;
+    this.supplySnapshotCache.Ally = null;
+    this.notifyBattleUpdate("reset");
+  }
+
   /**
    * Returns a serialized snapshot of the current battle state.
    * Useful for save/load functionality.

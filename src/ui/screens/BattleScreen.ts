@@ -155,6 +155,7 @@ export class BattleScreen {
   private readonly terrain: TerrainDictionary;
   private element: HTMLElement;
   private keyboardNavigationHandler: (event: KeyboardEvent) => void;
+  private screenShownHandler: (event: Event) => void;
   private defaultSelectionKey: string | null;
   private deploymentPrimed = false;
   private battleUpdateUnsubscribe: (() => void) | null = null;
@@ -177,6 +178,7 @@ export class BattleScreen {
   private activityEventSequence = 0;
   private selectionIntelOverlay: SelectionIntelOverlay | null = null;
   private readonly battleActivityLog: BattleActivityLog | null;
+  private activeScenarioName: string | null = null;
 
   /** Temporary debug overlay to visualize bot/player placements regardless of recon/LOS. Disable when done. */
   private readonly debugPlacementOverlayEnabled = true;
@@ -2156,6 +2158,7 @@ export class BattleScreen {
     this.unitTypes = this.buildUnitTypeDictionary();
     this.terrain = this.buildTerrainDictionary();
     this.keyboardNavigationHandler = (event) => this.handleMapNavigation(event);
+    this.screenShownHandler = (event) => this.handleScreenShown(event);
     this.attackDialogKeydownHandler = (event) => this.handleAttackDialogKeydown(event);
     this.defaultSelectionKey = this.computeDefaultSelectionKey();
 
@@ -2214,6 +2217,8 @@ export class BattleScreen {
     this.battleActivityLog?.registerCollapsedChangeListener((collapsed) => this.reflectActivityLogState(collapsed));
     this.battleActivityLog?.sync(this.activityEvents);
 
+    document.addEventListener("screen:shown", this.screenShownHandler);
+
     // Keyboard navigation wiring.
     window.addEventListener("keydown", this.keyboardNavigationHandler);
   }
@@ -2228,6 +2233,7 @@ export class BattleScreen {
       this.battleUpdateUnsubscribe = null;
     }
     window.removeEventListener("keydown", this.keyboardNavigationHandler);
+    document.removeEventListener("screen:shown", this.screenShownHandler);
 
     // Clear any lingering visual announcements and pending timers when the screen unloads.
     this.selectionIntelOverlay?.dispose();
@@ -3267,6 +3273,7 @@ export class BattleScreen {
     }
 
     this.hexMapRenderer.render(svg, canvas, scenarioClone);
+    this.activeScenarioName = scenarioClone.name;
     this.hexMapRenderer.onHexClick((key) => this.handleHexSelection(key));
     this.hexMapRenderer.onSelectionChanged((key) => this.handleRendererSelection(key));
     // Mirror zone metadata once the map is ready so deployment overlays and base camp validation share the same registry.
@@ -3336,6 +3343,32 @@ export class BattleScreen {
     };
     this.battleState.initializeEngine(config);
     this.assertBotUnitsHydrated();
+  }
+
+  private handleScreenShown(event: Event): void {
+    const detail = (event as CustomEvent<{ id?: string }>).detail;
+    if (detail?.id !== "battle") {
+      return;
+    }
+
+    this.refreshScenario();
+    const nextScenarioName = this.scenario.name;
+    const scenarioChanged = this.activeScenarioName !== nextScenarioName;
+
+    if (scenarioChanged) {
+      this.battleState.resetEngineState();
+      this.deploymentPrimed = false;
+      this.initializeBattleMap();
+      this.prepareBattleState(false);
+      this.initializeDeploymentMirrors();
+      this.syncTurnContext();
+      this.selectionIntelOverlay?.update(this.selectionIntel);
+      this.battleActivityLog?.sync(this.activityEvents);
+      console.info("[BattleScreen] screen activation refreshed scenario", {
+        scenarioName: nextScenarioName,
+        missionKey: this.uiState?.selectedMission ?? "training"
+      });
+    }
   }
 
   /**
