@@ -6,6 +6,13 @@ import { CampaignMapRenderer } from "../../rendering/CampaignMapRenderer";
 import { MapViewport } from "../controls/MapViewport";
 import { ensureCampaignState } from "../../state/CampaignState";
 
+interface CampaignScreenStatusMessage {
+  title: string;
+  detail: string;
+  action: string;
+  tone: "info" | "success" | "warning";
+}
+
 export class CampaignScreen {
   private readonly screenManager: IScreenManager;
   private readonly campaignState = ensureCampaignState();
@@ -37,6 +44,7 @@ export class CampaignScreen {
   private terrainDragHandlersAttached = false;
   // Stores the first corner of a rectangular selection when Ctrl+Click is used.
   private rectSelectionCorner: string | null = null;
+  private campaignStatusMessage: CampaignScreenStatusMessage | null = null;
 
   constructor(screenManager: IScreenManager, renderer: CampaignMapRenderer) {
     this.screenManager = screenManager;
@@ -226,11 +234,22 @@ export class CampaignScreen {
       const transportMode = modeSelect.value;
       const result = this.campaignState.scheduleRedeploy(originOffsetKey, destOffsetKey, selections, transportMode);
       if (!result.ok) {
-        window.alert(result.reason ?? "Unable to schedule");
+        this.setCampaignStatusMessage({
+          title: "Redeployment failed.",
+          detail: result.reason ?? "The redeployment order could not be scheduled.",
+          action: "Adjust the route, unit selection, or transport mode and try again.",
+          tone: "warning"
+        });
         return;
       }
       layer.classList.add("hidden");
       layer.setAttribute("aria-hidden", "true");
+      this.setCampaignStatusMessage({
+        title: "Redeployment queued.",
+        detail: `Movement order logged from ${originOffsetKey} to ${destOffsetKey}.`,
+        action: "Advance the campaign clock to process the transfer or queue another order.",
+        tone: "success"
+      });
     };
     cancelBtn.onclick = () => {
       layer.classList.add("hidden");
@@ -394,6 +413,12 @@ export class CampaignScreen {
     // Handle hex clicks by recording selection and detecting if the hex is part of a front
     this.renderer.onHexClick((hexKey) => {
       const scenario = this.campaignState.getScenario();
+      if (this.campaignStatusMessage) {
+        this.campaignStatusMessage = null;
+      }
+      if (this.campaignState.getHeadquartersStatusMessage()) {
+        this.campaignState.setHeadquartersStatusMessage(null);
+      }
       this.selectedFrontKey = null;
       // Front selection path
       if (scenario && scenario.fronts && scenario.fronts.length > 0) {
@@ -610,6 +635,22 @@ export class CampaignScreen {
       return;
     }
     const items: string[] = [];
+    const statusSections: Array<{ source: "campaign" | "headquarters"; message: CampaignScreenStatusMessage }> = [];
+    if (this.campaignStatusMessage) {
+      statusSections.push({ source: "campaign", message: this.campaignStatusMessage });
+    }
+    const headquartersStatus = this.campaignState.getHeadquartersStatusMessage();
+    if (headquartersStatus) {
+      statusSections.push({ source: "headquarters", message: headquartersStatus });
+    }
+    if (statusSections.length > 0) {
+      items.push(...statusSections.map(({ source, message }) => this.composeStatusMarkup(source, message)));
+      this.selectionContainer.setAttribute("aria-live", "assertive");
+      this.selectionContainer.setAttribute("data-status", statusSections[0].message.tone);
+    } else {
+      this.selectionContainer.removeAttribute("aria-live");
+      this.selectionContainer.removeAttribute("data-status");
+    }
     if (this.selectedHexKey) {
       items.push(`<div>Selected hex: ${this.selectedHexKey}</div>`);
     }
@@ -635,6 +676,24 @@ export class CampaignScreen {
     if (this.editMode) {
       this.updateEditPanel();
     }
+  }
+
+  private setCampaignStatusMessage(message: CampaignScreenStatusMessage | null): void {
+    this.campaignStatusMessage = message ? { ...message } : null;
+    this.renderSelection();
+  }
+
+  private composeStatusMarkup(source: "campaign" | "headquarters", message: CampaignScreenStatusMessage): string {
+    return `<div data-${source}-status="${message.tone}"><strong>${this.escapeHtml(message.title)}</strong><div>${this.escapeHtml(message.detail)}</div><div>${this.escapeHtml(message.action)}</div></div>`;
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   /** Resolves an offset hex key ("col,row") from a DOM event target on the campaign SVG. */
@@ -923,7 +982,7 @@ export class CampaignScreen {
     const { q, r } = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
 
     // Find or create tile
-    let tile = scenario.tiles.find((t) => t.hex.q === q && t.hex.r === r);
+    const tile = scenario.tiles.find((t) => t.hex.q === q && t.hex.r === r);
 
     if (!baseType) {
       // Remove base if empty selection
@@ -1144,11 +1203,15 @@ export class CampaignScreen {
     if (!parsed) return;
 
     const { q, r } = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
-    let tile = scenario.tiles.find((t) => t.hex.q === q && t.hex.r === r);
+    const tile = scenario.tiles.find((t) => t.hex.q === q && t.hex.r === r);
 
     if (!tile) {
-      // Need a base before adding units
-      alert("Please create a base first before adding units");
+      this.setCampaignStatusMessage({
+        title: "Unit placement failed.",
+        detail: "No base is present at the selected hex.",
+        action: "Create or select a base before adding units to this location.",
+        tone: "warning"
+      });
       return;
     }
 
@@ -1160,6 +1223,12 @@ export class CampaignScreen {
 
     this.campaignState.setScenario(scenario);
     this.renderSelection();
+    this.setCampaignStatusMessage({
+      title: "Unit added.",
+      detail: `${unitType} x${count} assigned to ${this.selectedHexKey}.`,
+      action: "Review the updated garrison or continue editing the force package.",
+      tone: "success"
+    });
 
     // Clear inputs
     if (unitCountInput) unitCountInput.value = "5";
@@ -1197,7 +1266,12 @@ export class CampaignScreen {
     const newRow = parseInt(rowInput.value);
 
     if (isNaN(newCol) || isNaN(newRow)) {
-      alert("Invalid coordinates");
+      this.setCampaignStatusMessage({
+        title: "Base move failed.",
+        detail: "The destination coordinates are invalid.",
+        action: "Enter numeric column and row values, then try the move again.",
+        tone: "warning"
+      });
       return;
     }
 
@@ -1214,14 +1288,24 @@ export class CampaignScreen {
     const tileIdx = scenario.tiles.findIndex((t) => t.hex.q === oldAxial.q && t.hex.r === oldAxial.r);
 
     if (tileIdx < 0) {
-      alert("No base at current location to move");
+      this.setCampaignStatusMessage({
+        title: "Base move failed.",
+        detail: "No base exists at the currently selected location.",
+        action: "Select an existing base before issuing a relocation order.",
+        tone: "warning"
+      });
       return;
     }
 
     // Check if destination already has a base
     const destTile = scenario.tiles.find((t) => t.hex.q === newAxial.q && t.hex.r === newAxial.r);
     if (destTile) {
-      alert("Destination already has a base");
+      this.setCampaignStatusMessage({
+        title: "Base move failed.",
+        detail: `Destination (${newCol}, ${newRow}) already contains a base.`,
+        action: "Choose an open destination hex and retry the relocation.",
+        tone: "warning"
+      });
       return;
     }
 
@@ -1236,8 +1320,12 @@ export class CampaignScreen {
     this.renderer.clearAllHighlights("selected");
     this.renderer.highlightHex(this.selectedHexKey, "selected");
     this.renderSelection();
-
-    alert(`Base moved to (${newCol}, ${newRow})`);
+    this.setCampaignStatusMessage({
+      title: "Base moved.",
+      detail: `Base repositioned to (${newCol}, ${newRow}).`,
+      action: "Review the new frontage and continue editing if further adjustments are needed.",
+      tone: "success"
+    });
   }
 
   private loadCurrentResources(): void {
@@ -1279,7 +1367,12 @@ export class CampaignScreen {
 
     const economy = scenario.economies.find((e) => e.faction === faction);
     if (!economy) {
-      alert(`No economy found for faction: ${faction}`);
+      this.setCampaignStatusMessage({
+        title: "Resource update failed.",
+        detail: `No economy record exists for faction ${faction}.`,
+        action: "Choose a faction with a configured economy or repair the campaign data before retrying.",
+        tone: "warning"
+      });
       return;
     }
 
@@ -1303,8 +1396,12 @@ export class CampaignScreen {
 
     // Update the scenario
     this.campaignState.setScenario(scenario);
-
-    alert(`Resources updated for ${faction}`);
+    this.setCampaignStatusMessage({
+      title: "Resources updated.",
+      detail: `${faction} economy values were saved to the active campaign state.`,
+      action: "Review the updated ledgers or continue editing the scenario.",
+      tone: "success"
+    });
   }
 
   /**
@@ -1360,7 +1457,12 @@ export class CampaignScreen {
   private exportCampaignJSON(): void {
     const scenario = this.campaignState.getScenario();
     if (!scenario) {
-      alert("No scenario loaded");
+      this.setCampaignStatusMessage({
+        title: "Export failed.",
+        detail: "No campaign scenario is currently loaded.",
+        action: "Load a campaign scenario before exporting JSON.",
+        tone: "warning"
+      });
       return;
     }
 
@@ -1396,10 +1498,16 @@ export class CampaignScreen {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      const msg = warnings.length > 0
-        ? `Campaign JSON exported with full palette!\n\n⚠ ${warnings.length} validation warning(s) - check console.`
-        : "Campaign JSON exported with full palette!";
-      alert(msg);
+      this.setCampaignStatusMessage({
+        title: warnings.length > 0 ? "Campaign JSON exported with warnings." : "Campaign JSON exported.",
+        detail: warnings.length > 0
+          ? `Downloaded a full-palette export with ${warnings.length} validation warning(s).`
+          : "Downloaded a full-palette campaign JSON export.",
+        action: warnings.length > 0
+          ? "Review the console warnings before using the exported file."
+          : "Use the downloaded JSON for archival or scenario review.",
+        tone: warnings.length > 0 ? "warning" : "success"
+      });
     }).catch((err) => {
       console.error("Failed to load original campaign data:", err);
       // Fallback to exporting as-is
@@ -1413,14 +1521,24 @@ export class CampaignScreen {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      alert("Campaign JSON exported (without palette restoration)");
+      this.setCampaignStatusMessage({
+        title: "Campaign JSON exported with warnings.",
+        detail: "Palette restoration failed, so the download contains the current scenario state only.",
+        action: "Review the exported file and console output before treating it as a final source asset.",
+        tone: "warning"
+      });
     });
   }
 
   private saveCampaignToFile(): void {
     const scenario = this.campaignState.getScenario();
     if (!scenario) {
-      alert("No scenario loaded");
+      this.setCampaignStatusMessage({
+        title: "Save failed.",
+        detail: "No campaign scenario is currently loaded.",
+        action: "Load a campaign scenario before saving an export file.",
+        tone: "warning"
+      });
       return;
     }
 
@@ -1456,13 +1574,27 @@ export class CampaignScreen {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      const msg = warnings.length > 0
-        ? `Campaign saved! Replace src/data/campaign01.json with the downloaded file.\n\n⚠ ${warnings.length} validation warning(s) - check console.`
-        : "Campaign saved! Replace src/data/campaign01.json with the downloaded file.";
-      alert(msg);
+      this.setCampaignStatusMessage({
+        title: warnings.length > 0 ? "Campaign saved with warnings." : "Campaign saved.",
+        detail: warnings.length > 0
+          ? `Downloaded campaign01.json with ${warnings.length} validation warning(s).`
+          : "Downloaded campaign01.json for source replacement.",
+        action: warnings.length > 0
+          ? "Review the console warnings before replacing the source file."
+          : "Replace src/data/campaign01.json with the downloaded file when ready.",
+        tone: warnings.length > 0 ? "warning" : "success"
+      });
     }).catch((err) => {
       console.error("Failed to load original campaign data:", err);
-      alert("Error saving campaign: " + err.message);
+      const detail = err instanceof Error
+        ? err.message
+        : "Original campaign data could not be loaded for palette restoration.";
+      this.setCampaignStatusMessage({
+        title: "Save failed.",
+        detail,
+        action: "Retry the save. If palette restoration keeps failing, inspect the source campaign data first.",
+        tone: "warning"
+      });
     });
   }
 
@@ -1484,7 +1616,12 @@ export class CampaignScreen {
 
           // Validate it's a campaign scenario
           if (!scenario.key || !scenario.tilePalette || !scenario.tiles) {
-            alert("Invalid campaign scenario file");
+            this.setCampaignStatusMessage({
+              title: "Campaign load failed.",
+              detail: "The selected file is not a valid campaign scenario.",
+              action: "Choose a campaign JSON export with scenario key, palette, and tile data.",
+              tone: "warning"
+            });
             return;
           }
 
@@ -1504,13 +1641,24 @@ export class CampaignScreen {
             this.renderer.render(svg, canvas, scenario);
           }
 
-          const msg = warnings.length > 0
-            ? `Campaign loaded successfully!\n\n⚠ ${warnings.length} validation warning(s) - check console.`
-            : "Campaign loaded successfully!";
-          alert(msg);
+          this.setCampaignStatusMessage({
+            title: warnings.length > 0 ? "Campaign loaded with warnings." : "Campaign loaded.",
+            detail: warnings.length > 0
+              ? `Scenario imported with ${warnings.length} validation warning(s).`
+              : "Scenario imported into the active campaign view.",
+            action: warnings.length > 0
+              ? "Review the console warnings before editing or saving the imported scenario."
+              : "Review the map, fronts, and ledgers before continuing.",
+            tone: warnings.length > 0 ? "warning" : "success"
+          });
         } catch (err) {
           console.error("Failed to parse campaign file:", err);
-          alert("Error loading campaign: Invalid JSON file");
+          this.setCampaignStatusMessage({
+            title: "Campaign load failed.",
+            detail: "The selected file could not be parsed as valid JSON.",
+            action: "Choose a valid campaign JSON file and retry the import.",
+            tone: "warning"
+          });
         }
       };
 

@@ -1,7 +1,29 @@
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { axialDirections } from "../../core/Hex";
-import type { ScenarioData, ScenarioDeploymentZone, TileDefinition, TileInstance, TilePalette, TerrainDefinition, TerrainDictionary } from "../../core/types";
+import type { ScenarioData, ScenarioDeploymentZone, TileDefinition, TileInstance, TilePalette, TerrainDictionary } from "../../core/types";
+import type { MissionKey } from "../../state/UIState";
+import { getMissionDeploymentZoneDoctrine } from "../../data/missions";
 import terrainData from "../../data/terrain.json";
+
+export interface FinalizedDeploymentZoneDefinition {
+  zoneKey: string;
+  capacity: number;
+  hexKeys: readonly string[];
+  name: string;
+  description: string;
+  faction: "Player" | "Bot";
+}
+
+export interface DeploymentZonePlanningScenario {
+  size: ScenarioData["size"];
+  tilePalette: TilePalette;
+  tiles: TileInstance[][];
+}
+
+export interface DeploymentZoneGeometryMetrics {
+  frontage: number;
+  depth: number;
+}
 
 /**
  * Detects whether a deployment zone description implies a water landing.
@@ -11,12 +33,23 @@ function requiresWaterLanding(zone: ScenarioDeploymentZone): boolean {
   return text.includes("beach") || text.includes("landing") || text.includes("amphib") || text.includes("naval");
 }
 
+function resolveTargetCapacity(zone: ScenarioDeploymentZone, missionKey?: MissionKey): number {
+  if (zone.faction !== "Player" || !missionKey) {
+    return zone.capacity;
+  }
+  const doctrine = getMissionDeploymentZoneDoctrine(missionKey, zone.key);
+  if (!doctrine) {
+    return zone.capacity;
+  }
+  return Math.max(zone.capacity, doctrine.minimumCapacity);
+}
+
 /**
  * Resolves a tile definition for the provided offset coordinate.
  * Supports scenarios that reference palette tiles as well as inline definitions.
  */
 function resolveTileDefinition(
-  scenario: ScenarioData,
+  scenario: DeploymentZonePlanningScenario,
   col: number,
   row: number
 ): TileDefinition | (TileDefinition & Partial<TileInstance>) {
@@ -66,7 +99,7 @@ function isPassableForGroundUnits(definition: TileDefinition): boolean {
 /**
  * Determines whether the supplied offset coordinate is itself water/coastal or touches a water hex.
  */
-function touchesWater(scenario: ScenarioData, col: number, row: number): boolean {
+function touchesWater(scenario: DeploymentZonePlanningScenario, col: number, row: number): boolean {
   const definition = resolveTileDefinition(scenario, col, row);
   if (isWaterTerrain(definition) || isCoastalTerrain(definition)) {
     return true;
@@ -104,51 +137,164 @@ function determineAnchorColumns(width: number, originalHexes: readonly [number, 
   return ordered;
 }
 
+function parseHexKey(hexKey: string): { col: number; row: number } | null {
+  const [colText, rowText] = hexKey.split(",");
+  const col = Number.parseInt(colText ?? "", 10);
+  const row = Number.parseInt(rowText ?? "", 10);
+  if (Number.isNaN(col) || Number.isNaN(row)) {
+    return null;
+  }
+  return { col, row };
+}
+
+function determineExpansionColumns(width: number, seededHexKeys: readonly string[], originalHexes: readonly [number, number][]): number[] {
+  if (seededHexKeys.length === 0) {
+    return determineAnchorColumns(width, originalHexes);
+  }
+
+  const seededColumns = seededHexKeys
+    .map((hexKey) => parseHexKey(hexKey)?.col ?? null)
+    .filter((value): value is number => value !== null);
+  if (seededColumns.length === 0) {
+    return determineAnchorColumns(width, originalHexes);
+  }
+
+  const minimumColumn = Math.min(...seededColumns);
+  const maximumColumn = Math.max(...seededColumns);
+  const averageColumn = seededColumns.reduce((sum, value) => sum + value, 0) / seededColumns.length;
+  const anchorLeft = averageColumn < width / 2;
+  const ordered: number[] = [];
+
+  if (anchorLeft) {
+    for (let col = maximumColumn + 1; col < width; col += 1) {
+      ordered.push(col);
+    }
+    for (let col = minimumColumn - 1; col >= 0; col -= 1) {
+      ordered.push(col);
+    }
+  } else {
+    for (let col = minimumColumn - 1; col >= 0; col -= 1) {
+      ordered.push(col);
+    }
+    for (let col = maximumColumn + 1; col < width; col += 1) {
+      ordered.push(col);
+    }
+  }
+
+  return ordered;
+}
+
+function determinePreferredRows(height: number, seededHexKeys: readonly string[]): number[] {
+  if (seededHexKeys.length === 0) {
+    return [...Array(height).keys()];
+  }
+
+  const seededRows = seededHexKeys
+    .map((hexKey) => parseHexKey(hexKey)?.row ?? null)
+    .filter((value): value is number => value !== null);
+  if (seededRows.length === 0) {
+    return [...Array(height).keys()];
+  }
+
+  const minimumRow = Math.min(...seededRows);
+  const maximumRow = Math.max(...seededRows);
+  return [...Array(height).keys()].sort((left, right) => {
+    const leftDistance = left < minimumRow ? minimumRow - left : left > maximumRow ? left - maximumRow : 0;
+    const rightDistance = right < minimumRow ? minimumRow - right : right > maximumRow ? right - maximumRow : 0;
+    if (leftDistance !== rightDistance) {
+      return leftDistance - rightDistance;
+    }
+    return left - right;
+  });
+}
+
+function determineSeedRowBand(seededHexKeys: readonly string[]): { minimumRow: number; maximumRow: number } | null {
+  const seededRows = seededHexKeys
+    .map((hexKey) => parseHexKey(hexKey)?.row ?? null)
+    .filter((value): value is number => value !== null);
+  if (seededRows.length === 0) {
+    return null;
+  }
+  return {
+    minimumRow: Math.min(...seededRows),
+    maximumRow: Math.max(...seededRows)
+  };
+}
+
+function isEligibleHexForZone(scenario: DeploymentZonePlanningScenario, zone: ScenarioDeploymentZone, col: number, row: number): boolean {
+  if (col < 0 || row < 0 || col >= scenario.size.cols || row >= scenario.size.rows) {
+    return false;
+  }
+
+  const definition = resolveTileDefinition(scenario, col, row);
+  if (!isPassableForGroundUnits(definition)) {
+    return false;
+  }
+
+  if (requiresWaterLanding(zone)) {
+    if (isWaterTerrain(definition)) {
+      return false;
+    }
+    return isCoastalTerrain(definition) || touchesWater(scenario, col, row);
+  }
+
+  return !isWaterTerrain(definition);
+}
+
+function isEligibleAuthoredHexForZone(scenario: DeploymentZonePlanningScenario, zone: ScenarioDeploymentZone, col: number, row: number): boolean {
+  if (col < 0 || row < 0 || col >= scenario.size.cols || row >= scenario.size.rows) {
+    return false;
+  }
+
+  const definition = resolveTileDefinition(scenario, col, row);
+  if (!isPassableForGroundUnits(definition)) {
+    return false;
+  }
+
+  return !isWaterTerrain(definition);
+}
+
+function collectAuthoredHexes(zone: ScenarioDeploymentZone, scenario: DeploymentZonePlanningScenario): string[] {
+  const authoredHexes = new Set<string>();
+  zone.hexes.forEach(([col, row]) => {
+    if (!isEligibleAuthoredHexForZone(scenario, zone, col, row)) {
+      throw new Error(`Deployment zone '${zone.key}' includes an unusable authored hex at ${col},${row}.`);
+    }
+    authoredHexes.add(CoordinateSystem.makeHexKey(col, row));
+  });
+  return Array.from(authoredHexes.values()).sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeZoneFaction(zone: ScenarioDeploymentZone): "Player" | "Bot" {
+  if (zone.faction === "Player" || zone.faction === "Bot") {
+    return zone.faction;
+  }
+  throw new Error(`Deployment zone '${zone.key}' uses unsupported faction '${zone.faction}'.`);
+}
+
 function selectCandidateHexes(
-  scenario: ScenarioData,
+  scenario: DeploymentZonePlanningScenario,
   zone: ScenarioDeploymentZone,
-  targetCount: number
+  targetCount: number,
+  seededHexKeys: readonly string[] = []
 ): string[] {
-  const requiresWater = requiresWaterLanding(zone);
-  const columnOrder = determineAnchorColumns(scenario.size.cols, zone.hexes);
-  const selected = new Set<string>();
+  const columnOrder = determineExpansionColumns(scenario.size.cols, seededHexKeys, zone.hexes);
+  const rowOrder = determinePreferredRows(scenario.size.rows, seededHexKeys);
+  const seedRowBand = determineSeedRowBand(seededHexKeys);
+  const focusedRows = seedRowBand
+    ? rowOrder.filter((row) => row >= seedRowBand.minimumRow && row <= seedRowBand.maximumRow)
+    : rowOrder;
+  const secondaryRows = seedRowBand
+    ? rowOrder.filter((row) => row < seedRowBand.minimumRow || row > seedRowBand.maximumRow)
+    : [];
+  const selected = new Set<string>(seededHexKeys);
 
   const considerHex = (col: number, row: number): void => {
     if (selected.size >= targetCount) {
       return;
     }
-    if (col < 0 || row < 0 || col >= scenario.size.cols || row >= scenario.size.rows) {
+    if (!isEligibleHexForZone(scenario, zone, col, row)) {
       return;
-    }
-    const definition = resolveTileDefinition(scenario, col, row);
-
-    // Exclude impassable terrain (rivers, deep water, mountains for wheeled, etc.)
-    if (!isPassableForGroundUnits(definition)) {
-      return;
-    }
-
-    // For amphibious landings: include beach hexes and hexes adjacent to water (but NOT water itself)
-    // Water hexes are impassable for ground units (moveCost 999)
-    if (requiresWater) {
-      const isWater = isWaterTerrain(definition);
-      const isBeach = isCoastalTerrain(definition);
-      const nearWater = touchesWater(scenario, col, row);
-
-      // Exclude water hexes - ground units can't deploy on them
-      if (isWater) {
-        return;
-      }
-
-      // Accept: beach hexes or land hexes touching water (for amphibious assault)
-      const qualifies = isBeach || nearWater;
-      if (!qualifies) {
-        return;
-      }
-    } else {
-      // Regular deployment: no water hexes
-      if (isWaterTerrain(definition)) {
-        return;
-      }
     }
 
     const hexKey = CoordinateSystem.makeHexKey(col, row);
@@ -156,13 +302,14 @@ function selectCandidateHexes(
   };
 
   // Pass 1: Priority edge hexes (water and beach for amphibious, first 4 columns otherwise)
+  const requiresWater = requiresWaterLanding(zone);
   const maxEdgeDistance = requiresWater ? 4 : 2; // Expand to 5 columns for beach landings
   columnOrder.forEach((col) => {
     const distanceFromEdge = columnOrder.indexOf(col);
     if (distanceFromEdge > maxEdgeDistance) {
       return;
     }
-    for (let row = 0; row < scenario.size.rows; row += 1) {
+    for (const row of focusedRows) {
       considerHex(col, row);
       if (selected.size >= targetCount) {
         return;
@@ -170,10 +317,25 @@ function selectCandidateHexes(
     }
   });
 
+  if (selected.size < targetCount) {
+    columnOrder.forEach((col) => {
+      const distanceFromEdge = columnOrder.indexOf(col);
+      if (distanceFromEdge > maxEdgeDistance) {
+        return;
+      }
+      for (const row of secondaryRows) {
+        considerHex(col, row);
+        if (selected.size >= targetCount) {
+          return;
+        }
+      }
+    });
+  }
+
   // Pass 2: expand across the map while maintaining ordering if more slots are required.
   if (selected.size < targetCount) {
     columnOrder.forEach((col) => {
-      for (let row = 0; row < scenario.size.rows; row += 1) {
+      for (const row of rowOrder) {
         considerHex(col, row);
         if (selected.size >= targetCount) {
           return;
@@ -196,10 +358,45 @@ function selectCandidateHexes(
 /**
  * Computes edge-anchored deployment hexes for a scenario zone, enforcing water adjacency when required.
  */
-export function planDeploymentZoneHexes(zone: ScenarioDeploymentZone, scenario: ScenarioData): string[] {
-  const targetCount = zone.capacity;
+export function measureDeploymentZoneGeometry(hexKeys: readonly string[]): DeploymentZoneGeometryMetrics {
+  const columns = new Set<number>();
+  const rows = new Set<number>();
+  hexKeys.forEach((hexKey) => {
+    const [colText, rowText] = hexKey.split(",");
+    const col = Number.parseInt(colText ?? "", 10);
+    const row = Number.parseInt(rowText ?? "", 10);
+    if (Number.isNaN(col) || Number.isNaN(row)) {
+      return;
+    }
+    columns.add(col);
+    rows.add(row);
+  });
+  return {
+    frontage: columns.size,
+    depth: rows.size
+  };
+}
+
+export function planDeploymentZoneHexes(zone: ScenarioDeploymentZone, scenario: DeploymentZonePlanningScenario, missionKey?: MissionKey): string[] {
+  const targetCount = resolveTargetCapacity(zone, missionKey);
   if (targetCount <= 0) {
     throw new Error(`Deployment zone '${zone.key}' reported a non-positive capacity.`);
   }
-  return selectCandidateHexes(scenario, zone, targetCount);
+  const authoredHexes = collectAuthoredHexes(zone, scenario);
+  if (authoredHexes.length >= targetCount) {
+    return authoredHexes;
+  }
+  return selectCandidateHexes(scenario, zone, targetCount, authoredHexes);
+}
+
+export function finalizeDeploymentZone(zone: ScenarioDeploymentZone, scenario: DeploymentZonePlanningScenario, missionKey?: MissionKey): FinalizedDeploymentZoneDefinition {
+  const capacity = resolveTargetCapacity(zone, missionKey);
+  return {
+    zoneKey: zone.key,
+    capacity,
+    hexKeys: planDeploymentZoneHexes(zone, scenario, missionKey),
+    name: zone.label,
+    description: zone.description,
+    faction: normalizeZoneFaction(zone)
+  };
 }

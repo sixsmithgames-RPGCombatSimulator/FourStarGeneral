@@ -28,10 +28,17 @@ registerTest("CAMPAIGN_STATE_NOTIFIES", async ({ Given, When, Then }) => {
   await When("scenario and engagements are updated", async () => {
     state.setScenario(scenario);
     state.setPendingEngagements([{ id: "e1", frontKey: null, objectiveKey: null, attacker: "Player", defender: "Bot", hexKeys: [], tags: [] }]);
+    state.setHeadquartersStatusMessage({
+      title: "Report received.",
+      detail: "Headquarters logged the last engagement.",
+      action: "Review the map and continue.",
+      tone: "success"
+    });
   });
 
   await Then("listeners receive notifications", async () => {
     if (!calls.includes("scenarioLoaded")) throw new Error("scenarioLoaded not emitted");
     if (!calls.includes("engagementsUpdated")) throw new Error("engagementsUpdated not emitted");
+    if (!calls.includes("headquartersStatusUpdated")) throw new Error("headquartersStatusUpdated not emitted");
   });
 });

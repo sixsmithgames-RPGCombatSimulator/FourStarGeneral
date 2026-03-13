@@ -134,7 +134,7 @@ function initializeApplication(): void {
       pendingEngagements: campaignState.getPendingEngagements()
     } as const;
     battleState.setCampaignBridgeState(bridge);
-    precombatScreen.setup("campaign", generalId);
+    precombatScreen.setup("campaign", generalId, uiState.selectedDifficulty);
     screenManager.showScreenById("precombat");
   });
   // Render the campaign scenario immediately so entering the Campaign screen shows the map.

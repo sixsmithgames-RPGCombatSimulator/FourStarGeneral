@@ -858,7 +858,7 @@ export class LandingScreen {
     }
 
     if (this.precombatScreen) {
-      this.precombatScreen.setup(missionKey, this.uiState.selectedGeneralId);
+      this.precombatScreen.setup(missionKey, this.uiState.selectedGeneralId, this.uiState.selectedDifficulty);
     } else {
       console.warn("Precombat screen reference missing; skipping setup before transition.");
     }

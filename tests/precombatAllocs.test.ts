@@ -16,6 +16,7 @@ import {
 import { PrecombatScreen } from "../src/ui/screens/PrecombatScreen";
 import type { IScreenManager } from "../src/contracts/IScreenManager";
 import { BattleState } from "../src/state/BattleState";
+import { getMissionBriefing, getMissionProfile, getMissionSummaryPackage, getMissionTitle } from "../src/data/missions";
 
 const allowedCategories: ReadonlySet<AllocationCategory> = new Set<AllocationCategory>([
   "units",
@@ -145,8 +146,8 @@ registerTest("PRECOMBAT_RENDER_IDEMPOTENCE", async ({ Given, When, Then }) => {
   });
 
   await When("rendering allocations twice and forcing a manual rerender", async () => {
-    screen.setup("training", null);
-    screen.setup("patrol", null);
+    screen.setup("training", null, "Normal");
+    screen.setup("patrol", null, "Normal");
 
     const internals = screen as unknown as {
       allocationUnitList: HTMLElement;
@@ -185,6 +186,269 @@ registerTest("PRECOMBAT_RENDER_IDEMPOTENCE", async ({ Given, When, Then }) => {
     }
 
     document.body.innerHTML = "";
+  });
+});
+
+registerTest("PRECOMBAT_RIVER_WATCH_USES_AUTHORED_MISSION_PACKAGE", async ({ Given, When, Then }) => {
+  let screen: PrecombatScreen;
+  let battleState: BattleState;
+  let objectiveList: HTMLUListElement | null = null;
+  let briefingElement: HTMLElement | null = null;
+  let doctrineElement: HTMLElement | null = null;
+  let turnLimitElement: HTMLElement | null = null;
+  let supplyList: HTMLUListElement | null = null;
+
+  await Given("a precombat screen with the full River Watch mission briefing scaffold", async () => {
+    document.body.innerHTML = `
+      <section id="precombatScreen">
+        <h1 id="precombatMissionTitle"></h1>
+        <p id="precombatMissionBriefing"></p>
+        <ul id="objectiveList"></ul>
+        <span id="missionTurnLimit"></span>
+        <ul id="baselineSupplyList"></ul>
+        <p id="missionDoctrineNotes"></p>
+        <button id="returnToLanding"></button>
+        <button id="proceedToBattle"></button>
+        <button id="allocationWarningReturn"></button>
+        <button id="allocationWarningProceed"></button>
+        <div id="allocationUnitList"></div>
+        <div id="allocationSupplyList"></div>
+        <div id="allocationSupportList"></div>
+        <div id="allocationLogisticsList"></div>
+        <button id="resetAllocations"></button>
+        <div id="allocationWarningOverlay" class="hidden"></div>
+        <div id="allocationWarningModal"></div>
+        <div id="predeployedSummary"></div>
+        <div id="predeployedUnitList"></div>
+        <aside id="precombatBudgetPanel" data-state="ready">
+          <span id="budgetSpent"></span>
+          <span id="budgetRemaining"></span>
+          <div id="allocationFeedback"></div>
+        </aside>
+        <article id="commanderSummaryCard">
+          <h2 id="commanderName"></h2>
+          <p id="commanderSummary"></p>
+          <span id="commanderMissions"></span>
+          <span id="commanderVictories"></span>
+          <span id="commanderUnits"></span>
+          <span id="commanderCasualties"></span>
+        </article>
+        <div id="precombatMapCanvas"></div>
+        <svg id="precombatHexMap"></svg>
+        <footer class="precombat-footer"></footer>
+      </section>
+    `;
+
+    objectiveList = document.getElementById("objectiveList") as HTMLUListElement | null;
+    briefingElement = document.getElementById("precombatMissionBriefing");
+    doctrineElement = document.getElementById("missionDoctrineNotes");
+    turnLimitElement = document.getElementById("missionTurnLimit");
+    supplyList = document.getElementById("baselineSupplyList") as HTMLUListElement | null;
+
+    const fakeScreenManager: IScreenManager = {
+      showScreen: () => {},
+      showScreenById: () => {},
+      getCurrentScreen: () => null
+    };
+
+    battleState = new BattleState();
+    screen = new PrecombatScreen(fakeScreenManager, battleState);
+    // @ts-expect-error - overriding private helper purely for testing efficiency.
+    screen.renderMiniMap = () => {};
+    screen.initialize();
+  });
+
+  await When("River Crossing Watch is set up in precombat", async () => {
+    screen.setup("patrol_river_watch", null, "Normal");
+  });
+
+  await Then("the authored mission package drives both the DOM and BattleState handoff", async () => {
+    const summary = getMissionSummaryPackage("patrol_river_watch", "Normal");
+    const missionInfo = battleState.getPrecombatMissionInfo();
+    const titleElement = document.getElementById("precombatMissionTitle");
+
+    if (!titleElement || titleElement.textContent !== getMissionTitle("patrol_river_watch")) {
+      throw new Error(`Expected authored mission title, received ${titleElement?.textContent}`);
+    }
+    if (!briefingElement || briefingElement.textContent !== getMissionBriefing("patrol_river_watch")) {
+      throw new Error(`Expected authored mission briefing, received ${briefingElement?.textContent}`);
+    }
+    if (!objectiveList) {
+      throw new Error("Expected objective list element to exist.");
+    }
+    const objectiveText = objectiveList.textContent ?? "";
+    if (!objectiveText.includes(summary.objectives[0])) {
+      throw new Error(`Expected primary authored objective, received ${objectiveText}`);
+    }
+    if (!objectiveText.includes(summary.objectives[1])) {
+      throw new Error("Expected authored secondary objective to render.");
+    }
+    if (!doctrineElement || doctrineElement.textContent !== summary.doctrine) {
+      throw new Error(`Expected authored doctrine, received ${doctrineElement?.textContent}`);
+    }
+    if (!turnLimitElement || turnLimitElement.textContent !== `${summary.turnLimit} turns`) {
+      throw new Error(`Expected authored turn limit, received ${turnLimitElement?.textContent}`);
+    }
+    if (!supplyList) {
+      throw new Error("Expected supply list element to exist.");
+    }
+    const supplyText = supplyList.textContent ?? "";
+    if (!supplyText.includes("Predeployed Patrol")) {
+      throw new Error(`Expected authored patrol package summary, received ${supplyText}`);
+    }
+    if (supplyText.includes("Turn Limit")) {
+      throw new Error("Expected authored mission package supplies to replace the old fallback entries.");
+    }
+    if (!missionInfo) {
+      throw new Error("Expected BattleState mission handoff to be populated.");
+    }
+    if (missionInfo.briefing !== getMissionBriefing("patrol_river_watch")) {
+      throw new Error("Expected BattleState mission briefing to match the authored package.");
+    }
+    if (missionInfo.objectives.join("|") !== summary.objectives.join("|")) {
+      throw new Error("Expected BattleState mission objectives to match the authored package.");
+    }
+    if (missionInfo.baselineSupplies.map((item) => `${item.label}:${item.amount}`).join("|") !== summary.supplies.map((item) => `${item.label}:${item.amount}`).join("|")) {
+      throw new Error("Expected BattleState baseline supplies to match the authored package.");
+    }
+    document.body.innerHTML = "";
+  });
+});
+
+registerTest("PRECOMBAT_RIVER_WATCH_HARD_DIFFICULTY_UPDATES_EXTRACTION_WINDOW", async ({ Given, When, Then }) => {
+  let screen: PrecombatScreen;
+  let battleState: BattleState;
+  let turnLimitElement: HTMLElement | null = null;
+  let supplyList: HTMLUListElement | null = null;
+
+  await Given("a precombat screen configured for River Watch difficulty checks", async () => {
+    document.body.innerHTML = `
+      <section id="precombatScreen">
+        <h1 id="precombatMissionTitle"></h1>
+        <p id="precombatMissionBriefing"></p>
+        <ul id="objectiveList"></ul>
+        <span id="missionTurnLimit"></span>
+        <ul id="baselineSupplyList"></ul>
+        <p id="missionDoctrineNotes"></p>
+        <button id="returnToLanding"></button>
+        <button id="proceedToBattle"></button>
+        <button id="allocationWarningReturn"></button>
+        <button id="allocationWarningProceed"></button>
+        <div id="allocationUnitList"></div>
+        <div id="allocationSupplyList"></div>
+        <div id="allocationSupportList"></div>
+        <div id="allocationLogisticsList"></div>
+        <button id="resetAllocations"></button>
+        <div id="allocationWarningOverlay" class="hidden"></div>
+        <div id="allocationWarningModal"></div>
+        <div id="predeployedSummary"></div>
+        <div id="predeployedUnitList"></div>
+        <aside id="precombatBudgetPanel" data-state="ready">
+          <span id="budgetSpent"></span>
+          <span id="budgetRemaining"></span>
+          <div id="allocationFeedback"></div>
+        </aside>
+        <article id="commanderSummaryCard">
+          <h2 id="commanderName"></h2>
+          <p id="commanderSummary"></p>
+          <span id="commanderMissions"></span>
+          <span id="commanderVictories"></span>
+          <span id="commanderUnits"></span>
+          <span id="commanderCasualties"></span>
+        </article>
+        <div id="precombatMapCanvas"></div>
+        <svg id="precombatHexMap"></svg>
+        <footer class="precombat-footer"></footer>
+      </section>
+    `;
+
+    turnLimitElement = document.getElementById("missionTurnLimit");
+    supplyList = document.getElementById("baselineSupplyList") as HTMLUListElement | null;
+
+    const fakeScreenManager: IScreenManager = {
+      showScreen: () => {},
+      showScreenById: () => {},
+      getCurrentScreen: () => null
+    };
+
+    battleState = new BattleState();
+    screen = new PrecombatScreen(fakeScreenManager, battleState);
+    // @ts-expect-error - overriding private helper purely for testing efficiency.
+    screen.renderMiniMap = () => {};
+    screen.initialize();
+  });
+
+  await When("River Crossing Watch is rendered on Hard", async () => {
+    screen.setup("patrol_river_watch", null, "Hard");
+  });
+
+  await Then("the authored extraction window and mission handoff use the Hard timer", async () => {
+    const summary = getMissionSummaryPackage("patrol_river_watch", "Hard");
+    const missionInfo = battleState.getPrecombatMissionInfo();
+
+    if (!turnLimitElement || turnLimitElement.textContent !== "11 turns") {
+      throw new Error(`Expected Hard extraction window of 11 turns, received ${turnLimitElement?.textContent}`);
+    }
+    if (!supplyList) {
+      throw new Error("Expected supply list element to exist.");
+    }
+    const supplyText = supplyList.textContent ?? "";
+    if (!supplyText.includes("Hold until dawn on turn 11")) {
+      throw new Error(`Expected Hard extraction-window supply copy, received ${supplyText}`);
+    }
+    if (!missionInfo) {
+      throw new Error("Expected BattleState mission handoff to be populated.");
+    }
+    if (missionInfo.turnLimit !== 11) {
+      throw new Error(`Expected BattleState Hard turn limit to be 11, received ${missionInfo.turnLimit}`);
+    }
+    if (missionInfo.baselineSupplies.map((item) => `${item.label}:${item.amount}`).join("|") !== summary.supplies.map((item) => `${item.label}:${item.amount}`).join("|")) {
+      throw new Error("Expected BattleState Hard supply summary to match the authored package.");
+    }
+    document.body.innerHTML = "";
+  });
+});
+
+registerTest("MISSION_PROFILE_EXPOSES_REUSABLE_CATEGORY_AND_DEPLOYMENT_DEFAULTS", async ({ When, Then }) => {
+  let riverWatchProfile = getMissionProfile("patrol_river_watch", "Hard");
+  let patrolProfile = getMissionProfile("patrol", "Normal");
+
+  await When("mission profiles are resolved for flagship and baseline patrol missions", async () => {
+    riverWatchProfile = getMissionProfile("patrol_river_watch", "Hard");
+    patrolProfile = getMissionProfile("patrol", "Normal");
+  });
+
+  await Then("shared mission metadata exposes category and deployment defaults for future mission authoring", async () => {
+    if (riverWatchProfile.category !== "patrol") {
+      throw new Error(`Expected River Watch to resolve as patrol category, received ${riverWatchProfile.category}`);
+    }
+    if (riverWatchProfile.deployment.preferredZoneKey !== "allied-start") {
+      throw new Error(`Expected River Watch preferred deployment zone allied-start, received ${riverWatchProfile.deployment.preferredZoneKey}`);
+    }
+    if (riverWatchProfile.deployment.focusLabel !== "line of departure") {
+      throw new Error(`Expected River Watch deployment focus label to be line of departure, received ${riverWatchProfile.deployment.focusLabel}`);
+    }
+    if (riverWatchProfile.deployment.validation.minimumPlayerZoneCapacityTotal !== 20) {
+      throw new Error(`Expected River Watch deployment doctrine to require 20 player slots, received ${riverWatchProfile.deployment.validation.minimumPlayerZoneCapacityTotal}`);
+    }
+    if (riverWatchProfile.deployment.zoneDoctrine[0]?.zoneKey !== "allied-start") {
+      throw new Error(`Expected River Watch zone doctrine to target allied-start, received ${riverWatchProfile.deployment.zoneDoctrine[0]?.zoneKey}`);
+    }
+    if (riverWatchProfile.deployment.zoneDoctrine[0]?.minimumCapacity !== 20) {
+      throw new Error(`Expected River Watch zone doctrine minimum capacity 20, received ${riverWatchProfile.deployment.zoneDoctrine[0]?.minimumCapacity}`);
+    }
+    if (riverWatchProfile.summary.turnLimit !== 11) {
+      throw new Error(`Expected Hard River Watch mission profile to resolve turn limit 11, received ${riverWatchProfile.summary.turnLimit}`);
+    }
+    if (patrolProfile.category !== "patrol") {
+      throw new Error(`Expected baseline patrol mission to resolve as patrol category, received ${patrolProfile.category}`);
+    }
+    if (patrolProfile.deployment.preferredZoneKey !== "zone-alpha") {
+      throw new Error(`Expected baseline patrol preferred deployment zone zone-alpha, received ${patrolProfile.deployment.preferredZoneKey}`);
+    }
+    if (patrolProfile.deployment.zoneDoctrine.length !== 2) {
+      throw new Error(`Expected baseline patrol doctrine to expose two deployment zones, received ${patrolProfile.deployment.zoneDoctrine.length}`);
+    }
   });
 });
 

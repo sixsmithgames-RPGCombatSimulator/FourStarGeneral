@@ -37,7 +37,7 @@ import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { losClearAdvanced } from "../../core/LOS";
 import { MapViewport } from "../controls/MapViewport";
 import { ZoomPanControls } from "../controls/ZoomPanControls";
-import { DeploymentPanel, type SelectedHexContext } from "../components/DeploymentPanel";
+import { DeploymentPanel, type DeploymentPanelCriticalError, type SelectedHexContext } from "../components/DeploymentPanel";
 import { BattleLoadout } from "../components/BattleLoadout";
 import { ReserveListPresenter } from "../components/BattleReserves";
 import { hexDistance } from "../../core/Hex";
@@ -55,9 +55,11 @@ import {
 } from "../../state/DeploymentState";
 import type { UIState } from "../../state/UIState";
 import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
+import { getMissionDeploymentProfile, getMissionTurnLimit } from "../../data/missions";
 import terrainSource from "../../data/terrain.json";
 import unitTypesSource from "../../data/unitTypes.json";
-import { createMissionRulesController, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
+import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
+import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 
 /**
  * Provides structured data for the centered intel overlay describing the currently highlighted hex.
@@ -114,6 +116,18 @@ interface PendingAttackContext {
   readonly preview: CombatPreview | null;
 }
 
+interface MissionEndResolution {
+  readonly success: boolean;
+  readonly objectivesCompleted: number;
+  readonly objectivesFailed: number;
+  readonly objectivesContested: number;
+  readonly casualties: number;
+  readonly reason: string;
+  readonly headquartersTitle: string;
+  readonly headquartersAction: string;
+  readonly aborted?: boolean;
+}
+
 interface ActivityEvent {
   readonly id: string;
   readonly timestamp: string;
@@ -161,6 +175,7 @@ export class BattleScreen {
   private battleUpdateUnsubscribe: (() => void) | null = null;
   private missionRulesController: MissionRulesController | null = null;
   private missionStatus: MissionStatus | null = null;
+  private lastMissionPhaseId: MissionPhaseStatus["id"] | null = null;
   private missionEndPrompted = false;
   private missionEndModal: HTMLElement | null = null;
   private static readonly BOT_MOVE_ANIMATION_MS = 500;
@@ -178,7 +193,7 @@ export class BattleScreen {
   private activityEventSequence = 0;
   private selectionIntelOverlay: SelectionIntelOverlay | null = null;
   private readonly battleActivityLog: BattleActivityLog | null;
-  private activeScenarioName: string | null = null;
+  private activeMissionSessionKey: string | null = null;
 
   /** Temporary debug overlay to visualize bot/player placements regardless of recon/LOS. Disable when done. */
   private readonly debugPlacementOverlayEnabled = true;
@@ -1034,24 +1049,42 @@ export class BattleScreen {
             return zoneKey ? deploymentState.getRemainingZoneCapacity(zoneKey) : null;
           })();
           if (remainingCapacity !== null && remainingCapacity <= 0) {
-            this.announceBattleUpdate("Deployment zone is at capacity. Choose a different hex.");
+            const zoneName = this.deploymentPanel?.resolveZoneForHex(hexKey)?.name ?? hexKey;
+            this.reportDeploymentPanelError({
+              title: "Deployment failed.",
+              detail: `${zoneName} is already at capacity.`,
+              action: "Choose a different open hex in a player deployment zone and try again.",
+              recoverable: true
+            });
             return;
           }
 
           const parsed = CoordinateSystem.parseHexKey(hexKey);
           if (!parsed) {
+            this.reportDeploymentPanelError({
+              title: "Deployment failed.",
+              detail: `The target hex (${hexKey}) could not be parsed.`,
+              action: "Select a valid deployment-zone hex and try again.",
+              recoverable: true
+            });
             return;
           }
           const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+          const label = this.resolveUnitLabel(unitKey);
           try {
             engine.deployUnitByKey(axial, unitKey);
-            const label = this.resolveUnitLabel(unitKey);
+            this.deploymentPanel?.setCriticalError(null);
             this.announceBattleUpdate(`Deployed ${label} to ${hexKey}.`);
             this.refreshDeploymentMirrors("deploy", { unitKey, hexKey, label });
             this.completeTutorialPhase("place_units");
           } catch (error) {
             console.error("Failed to deploy unit via key", unitKey, error);
-            this.announceBattleUpdate("Unable to deploy unit. Check console for details.");
+            this.reportDeploymentPanelError({
+              title: "Deployment failed.",
+              detail: `${label} could not be deployed to ${hexKey}.`,
+              action: "Choose a valid open hex and retry the deployment.",
+              recoverable: true
+            });
           }
           break;
         }
@@ -1060,17 +1093,29 @@ export class BattleScreen {
           if (!hexKey) {
             return;
           }
+          const recalledLabel = this.resolveUnitLabelForHex(hexKey);
+          if (!recalledLabel) {
+            this.reportDeploymentPanelError({
+              title: "Recall failed.",
+              detail: `No deployed unit could be resolved at ${hexKey}.`,
+              action: "Select a hex occupied by one of your deployed units and try again.",
+              recoverable: true
+            });
+            return;
+          }
           try {
             engine.recallUnitByHexKey(hexKey);
-            const recalledLabel = this.resolveUnitLabelForHex(hexKey);
-            if (!recalledLabel) {
-              throw new Error(`[BattleScreen] Unable to resolve label while recalling unit at ${hexKey}.`);
-            }
+            this.deploymentPanel?.setCriticalError(null);
             this.announceBattleUpdate(`Recalled ${recalledLabel} from ${hexKey}.`);
             this.refreshDeploymentMirrors("recall", { hexKey, label: recalledLabel });
           } catch (error) {
             console.error("Failed to recall unit from", hexKey, error);
-            this.announceBattleUpdate("Unable to recall unit. Check console for details.");
+            this.reportDeploymentPanelError({
+              title: "Recall failed.",
+              detail: `${recalledLabel} could not be recalled from ${hexKey}.`,
+              action: "Retry the recall. If the hex remains occupied, reload the mission state.",
+              recoverable: true
+            });
             return;
           }
           break;
@@ -1242,7 +1287,12 @@ export class BattleScreen {
       }
     } catch (error) {
       console.error("Error refreshing deployment mirrors:", error);
-      this.announceBattleUpdate("Deployment action failed. Check console for details.");
+      this.reportDeploymentPanelError({
+        title: "Deployment panel sync failed.",
+        detail: "The battle screen could not refresh deployment state after the last action.",
+        action: "Reload the mission before issuing additional deployment commands.",
+        recoverable: true
+      });
     }
   }
 
@@ -1261,6 +1311,7 @@ export class BattleScreen {
       return;
     }
 
+    const previousStatus = this.missionStatus;
     const engine = this.battleState.ensureGameEngine();
     const turnSummary = engine.getTurnSummary();
     const occupancy = new Map<string, TurnFaction>();
@@ -1284,6 +1335,14 @@ export class BattleScreen {
     });
 
     this.missionStatus = status;
+
+    if (status.phase && status.phase.id !== this.lastMissionPhaseId) {
+      const isPhaseChange = previousStatus !== null && previousStatus.phase?.id !== status.phase.id;
+      this.lastMissionPhaseId = status.phase.id;
+      if (isPhaseChange) {
+        this.announceBattleUpdate(status.phase.announcement);
+      }
+    }
 
     if (status.outcome.state !== "inProgress") {
       const reason = status.outcome.reason ?? (status.outcome.state === "playerVictory" ? "Mission success." : "Mission failed.");
@@ -1345,14 +1404,20 @@ export class BattleScreen {
       doctrineElement.textContent = missionInfo.doctrine;
     }
 
+    if (this.missionBriefingElement) {
+      if (outcome && outcome.state !== "inProgress") {
+        const label = outcome.state === "playerVictory" ? "Mission Complete" : "Mission Failed";
+        this.missionBriefingElement.textContent = outcome.reason ? `${label}: ${outcome.reason}` : label;
+      } else {
+        const phaseLabel = this.missionStatus.phase ? `${this.missionStatus.phase.label}. ${this.missionStatus.phase.detail}` : "";
+        const parts = [missionInfo?.briefing ?? "", phaseLabel].filter((part) => part.length > 0);
+        this.missionBriefingElement.textContent = parts.join(" ");
+      }
+    }
+
     if (outcome && outcome.state !== "inProgress") {
       if (this.endMissionButton) {
         this.endMissionButton.classList.add("battle-button--highlight");
-      }
-
-      if (this.missionBriefingElement) {
-        const label = outcome.state === "playerVictory" ? "Mission Complete" : "Mission Failed";
-        this.missionBriefingElement.textContent = outcome.reason ? `${label}: ${outcome.reason}` : label;
       }
     }
   }
@@ -1848,7 +1913,12 @@ export class BattleScreen {
    */
   private promptForBaseCamp(): void {
     if (!this.baseCampAssignButton) {
-      alert("Please assign a base camp before beginning the battle.");
+      this.reportDeploymentPanelError({
+        title: "Base camp controls unavailable.",
+        detail: "The assign-base-camp control is missing from the battle screen.",
+        action: "Reload the mission and retry base camp assignment.",
+        recoverable: true
+      }, { mirrorToBaseCampStatus: true });
       return;
     }
 
@@ -2070,9 +2140,27 @@ export class BattleScreen {
     if (this.selectedHexKey) {
       return;
     }
-    const fallback = this.computeDefaultSelectionKey();
-    if (fallback) {
-      this.applySelectedHex(fallback);
+    try {
+      const defaultSelectionKey = this.computeDefaultSelectionKey();
+      this.defaultSelectionKey = defaultSelectionKey;
+      this.deploymentPanel?.setCriticalError(null);
+      this.applySelectedHex(defaultSelectionKey);
+    } catch (error) {
+      const detail = error instanceof Error
+        ? error.message
+        : "The battle screen could not resolve a valid deployment focus from the registered mission zones.";
+      console.error("[BattleScreen] failed to resolve default selection", {
+        missionKey: this.uiState?.selectedMission ?? "training",
+        scenarioName: this.scenario.name,
+        error
+      });
+      this.defaultSelectionKey = null;
+      this.reportDeploymentPanelError({
+        title: "Mission selection context unavailable.",
+        detail,
+        action: "Reload the mission or repair the scenario's player deployment zones before continuing.",
+        recoverable: false
+      }, { mirrorToBaseCampStatus: true });
     }
   }
 
@@ -2160,7 +2248,7 @@ export class BattleScreen {
     this.keyboardNavigationHandler = (event) => this.handleMapNavigation(event);
     this.screenShownHandler = (event) => this.handleScreenShown(event);
     this.attackDialogKeydownHandler = (event) => this.handleAttackDialogKeydown(event);
-    this.defaultSelectionKey = this.computeDefaultSelectionKey();
+    this.defaultSelectionKey = null;
 
     const battleScreen = document.getElementById("battleScreen");
     if (!battleScreen) {
@@ -2210,6 +2298,7 @@ export class BattleScreen {
     this.prepareBattleState(false);
     this.initializeDeploymentMirrors();
     this.syncTurnContext();
+    this.renderMissionStatus();
 
     // Initialize overlays now that DOM scaffolding is available.
     this.selectionIntelOverlay = new SelectionIntelOverlay();
@@ -2286,7 +2375,7 @@ export class BattleScreen {
     this.idleEndTurnButton = this.element.querySelector("#idleEndTurnButton");
   }
 
-  private hydrateMissionBriefing(): void {
+  private hydrateMissionBriefing(announce = true): void {
     const missionInfo: PrecombatMissionInfo | null = this.battleState.getPrecombatMissionInfo();
 
     const title = missionInfo?.title ?? "Mission Briefing";
@@ -2321,7 +2410,9 @@ export class BattleScreen {
 
     const announcementTitle = missionInfo?.title ?? "Mission ready";
     const announcementSummary = missionInfo?.briefing ?? "Awaiting mission briefing details.";
-    this.announceBattleUpdate(`${announcementTitle}. ${announcementSummary}`);
+    if (announce) {
+      this.announceBattleUpdate(`${announcementTitle}. ${announcementSummary}`);
+    }
   }
 
   /**
@@ -2569,7 +2660,7 @@ export class BattleScreen {
   /**
    * Finalizes deployment and transitions to the battle phase once auto-deploy places every unit.
    */
-  private finishDeploymentAfterAutoPlacement(engine: GameEngine): void {
+  private finishDeploymentAfterAutoPlacement(_engine: GameEngine): void {
     try {
       // Auto-deploy should *not* auto-start the battle. Leave the player in deployment so they can review and click Begin Battle.
       this.refreshDeploymentMirrors("sync");
@@ -2638,12 +2729,20 @@ export class BattleScreen {
       this.completeTutorialPhase("begin_battle");
 
     } catch (error) {
-      const message = error instanceof Error
+      const detail = error instanceof Error
         ? error.message
-        : "Failed to begin battle. Check console for details.";
-      console.error("Failed to begin battle:", error);
-      this.announceBattleUpdate(message);
-      alert(message);
+        : "The battle phase could not start because deployment state validation failed.";
+      console.error("[BattleScreen] failed to begin battle", {
+        missionKey: this.uiState?.selectedMission ?? "training",
+        scenarioName: this.scenario.name,
+        error
+      });
+      this.reportDeploymentPanelError({
+        title: "Begin battle failed.",
+        detail,
+        action: "Correct the deployment issue and try Begin Battle again. Reload the mission if the state remains invalid.",
+        recoverable: true
+      }, { mirrorToBaseCampStatus: true });
     }
   }
 
@@ -2899,7 +2998,7 @@ export class BattleScreen {
    * Handles ending the mission and returning to headquarters.
    */
   private handleEndMission(): void {
-    const confirmed = confirm(
+    const confirmed = window.confirm(
       "End this mission and return to headquarters?\n\n" +
       "This will record your performance in your service record."
     );
@@ -2908,18 +3007,10 @@ export class BattleScreen {
       return;
     }
 
-    // Gather mission statistics. In Phase 1 we prompt for objectives and casualties to keep the
-    // flow simple while the engine outcome hooks mature. Casualties map to campaign manpower later.
-    const objectivesInput = prompt("Objectives completed (0-10):", "0");
-    const casualtiesInput = prompt("Units lost:", "0");
-
-    if (objectivesInput === null || casualtiesInput === null) {
+    const resolution = this.resolveMissionEndResolution();
+    if (resolution.aborted) {
       return;
     }
-
-    const objectives = Math.max(0, Math.min(10, parseInt(objectivesInput) || 0));
-    const casualties = Math.max(0, parseInt(casualtiesInput) || 0);
-    const success = objectives >= 5;
 
     // Compute a coarse resource expenditure snapshot so the campaign economy reflects this battle.
     // We prefer supply history deltas when available; otherwise fall back to the most recent snapshot.
@@ -2947,25 +3038,137 @@ export class BattleScreen {
 
     // Apply the outcome back to the strategic layer: deduct resources, shift the active front, and
     // remove the resolved engagement. This keeps the feedback loop tight without breaking existing flows.
-    try {
-      const campaign = ensureCampaignState();
-      const active = campaign.getActiveEngagement();
-      campaign.applyBattleOutcome({
-        activeEngagementId: campaign.getActiveEngagementId(),
-        frontKey: active?.frontKey ?? null,
-        result: success ? "PlayerVictory" : "PlayerDefeat",
-        casualties,
-        spentAmmo,
-        spentFuel
+    const campaign = ensureCampaignState();
+    let outcomeAppliedToCampaign = false;
+    if (!campaign.getScenario()) {
+      console.error("[BattleScreen] mission end could not record campaign outcome", {
+        missionKey: this.uiState?.selectedMission ?? "training",
+        scenarioName: this.scenario.name,
+        reason: "Campaign scenario unavailable during mission-end handoff."
       });
-    } catch (err) {
-      console.warn("Failed to apply battle outcome to campaign layer", err);
+    } else {
+      try {
+        const active = campaign.getActiveEngagement();
+        campaign.applyBattleOutcome({
+          activeEngagementId: campaign.getActiveEngagementId(),
+          frontKey: active?.frontKey ?? null,
+          result: resolution.success ? "PlayerVictory" : "PlayerDefeat",
+          casualties: resolution.casualties,
+          spentAmmo,
+          spentFuel
+        });
+        outcomeAppliedToCampaign = true;
+      } catch (err) {
+        console.error("[BattleScreen] mission end failed to apply battle outcome to campaign layer", {
+          missionKey: this.uiState?.selectedMission ?? "training",
+          scenarioName: this.scenario.name,
+          error: err
+        });
+      }
+    }
+    const objectiveLabel = resolution.objectivesCompleted === 1 ? "objective" : "objectives";
+    const casualtyLabel = resolution.casualties === 1 ? "casualty" : "casualties";
+    campaign.setHeadquartersStatusMessage({
+      title: resolution.headquartersTitle,
+      detail: outcomeAppliedToCampaign
+        ? `${this.scenario.name} recorded ${resolution.objectivesCompleted} ${objectiveLabel}, ${resolution.casualties} ${casualtyLabel}, ${spentAmmo} ammo spent, and ${spentFuel} fuel spent. ${resolution.reason}`
+        : `${this.scenario.name} ended, but headquarters could not record the strategic outcome cleanly.`,
+      action: outcomeAppliedToCampaign
+        ? resolution.headquartersAction
+        : "Review the campaign state immediately. If the front or resources did not update, reload before continuing.",
+      tone: outcomeAppliedToCampaign && resolution.success ? "success" : "warning"
+    });
+
+    this.announceBattleUpdate(
+      outcomeAppliedToCampaign
+        ? `Mission report sent to headquarters. Returning to campaign.`
+        : `Mission report incomplete. Returning to campaign for review.`
+    );
+
+    if (this.battleAnnouncements) {
+      this.battleAnnouncements.textContent = "";
     }
 
-    alert(`Mission ${success ? "completed successfully" : "ended"}!`);
+    if (this.baseCampStatus) {
+      this.baseCampStatus.removeAttribute("aria-live");
+    }
 
     // Return to the campaign screen so the commander sees the updated fronts and resources immediately.
     this.screenManager.showScreenById("campaign");
+  }
+
+  private resolveMissionEndResolution(): MissionEndResolution {
+    const missionStatus = this.missionStatus;
+    if (missionStatus && missionStatus.objectives.length > 0 && missionStatus.outcome.state !== "inProgress") {
+      const objectivesCompleted = missionStatus.objectives.filter((objective) => objective.state === "completed").length;
+      const objectivesFailed = missionStatus.objectives.filter((objective) => objective.state === "failed").length;
+      const objectivesContested = missionStatus.objectives.filter((objective) => objective.state === "inProgress" || objective.state === "pending").length;
+      const casualties = this.computePlayerCasualties();
+      const success = missionStatus.outcome.state === "playerVictory";
+      const reason = missionStatus.outcome.reason
+        ? `${missionStatus.outcome.reason} Objective board: ${objectivesCompleted} completed, ${objectivesFailed} failed, ${objectivesContested} contested.`
+        : `Objective board: ${objectivesCompleted} completed, ${objectivesFailed} failed, ${objectivesContested} contested.`;
+      return {
+        success,
+        objectivesCompleted,
+        objectivesFailed,
+        objectivesContested,
+        casualties,
+        reason,
+        headquartersTitle: success ? "Mission completed successfully." : "Mission failed.",
+        headquartersAction: success
+          ? "Review the updated front and headquarters ledgers, then queue the next engagement when ready."
+          : "Review the updated front, losses, and objective board before committing the next patrol.",
+      };
+    }
+
+    const objectivesInput = window.prompt("Objectives completed (0-10):", "0");
+    const casualtiesInput = window.prompt("Units lost:", "0");
+    if (objectivesInput === null || casualtiesInput === null) {
+      return {
+        success: false,
+        objectivesCompleted: 0,
+        objectivesFailed: 0,
+        objectivesContested: 0,
+        casualties: 0,
+        reason: "Mission report was cancelled before headquarters metrics were confirmed.",
+        headquartersTitle: "Mission ended.",
+        headquartersAction: "Re-open the debrief and confirm the mission report when ready.",
+        aborted: true
+      };
+    }
+
+    const objectivesCompleted = Math.max(0, Math.min(10, parseInt(objectivesInput) || 0));
+    const casualties = Math.max(0, parseInt(casualtiesInput) || 0);
+    const success = objectivesCompleted >= 5;
+    return {
+      success,
+      objectivesCompleted,
+      objectivesFailed: 0,
+      objectivesContested: 0,
+      casualties,
+      reason: "Mission report used manual commander input while mission-specific objective hooks are still maturing.",
+      headquartersTitle: success ? "Mission completed successfully." : "Mission ended.",
+      headquartersAction: success
+        ? "Review the updated front and headquarters ledgers, then queue the next engagement when ready."
+        : "Review the campaign state immediately. If the front or resources did not update, reload before continuing."
+    };
+  }
+
+  private computePlayerCasualties(): number {
+    const initialUnitCount = this.scenario.sides.Player.units.length;
+    if (!this.battleState || typeof (this.battleState as BattleState).hasEngine !== "function") {
+      return 0;
+    }
+    if (!(this.battleState as BattleState).hasEngine()) {
+      return 0;
+    }
+    try {
+      const engine = (this.battleState as BattleState).ensureGameEngine();
+      return Math.max(0, initialUnitCount - engine.playerUnits.length);
+    } catch {
+      return 0;
+    }
   }
 
   /**
@@ -2973,32 +3176,57 @@ export class BattleScreen {
    */
   private handleAssignBaseCamp(): void {
     if (!this.selectedHexKey) {
-      alert("Select a hex before assigning a base camp.");
+      this.reportDeploymentPanelError({
+        title: "Base camp assignment failed.",
+        detail: "No hex is currently selected.",
+        action: "Select a deployment-zone hex and try again.",
+        recoverable: true
+      }, { mirrorToBaseCampStatus: true });
       return;
     }
     const engine = this.battleState.ensureGameEngine();
     const parsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
     if (!parsed) {
-      alert("Unable to parse selected hex.");
+      this.reportDeploymentPanelError({
+        title: "Base camp assignment failed.",
+        detail: `The selected hex (${this.selectedHexKey}) could not be parsed.`,
+        action: "Clear selection, choose a valid deployment hex, and retry.",
+        recoverable: true
+      }, { mirrorToBaseCampStatus: true });
       return;
     }
     const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
     const deploymentState = ensureDeploymentState();
     const zoneKey = deploymentState.getZoneKeyForHex(this.selectedHexKey);
     if (!zoneKey) {
-      this.announceBattleUpdate("Select a deployment zone hex before assigning a base camp.");
+      this.reportDeploymentPanelError({
+        title: "Base camp assignment failed.",
+        detail: `Hex ${this.selectedHexKey} is not inside a registered deployment zone.`,
+        action: "Select a highlighted player deployment hex and try again.",
+        recoverable: true
+      }, { mirrorToBaseCampStatus: true });
       return;
     }
-    engine.setBaseCamp(axial);
-    if (this.baseCampStatus) {
-      this.baseCampStatus.textContent = `Base camp: ${this.selectedHexKey}`;
+    try {
+      engine.setBaseCamp(axial);
+      this.deploymentPanel?.setCriticalError(null);
+      if (this.baseCampStatus) {
+        this.baseCampStatus.textContent = `Base camp: ${this.selectedHexKey}`;
+      }
+      this.deploymentPanel?.markBaseCampAssigned(zoneKey);
+      const offsetKey = CoordinateSystem.makeHexKey(parsed.col, parsed.row);
+      this.hexMapRenderer?.renderBaseCampMarker(offsetKey);
+      this.refreshDeploymentMirrors("baseCamp", { hexKey: this.selectedHexKey });
+      this.completeTutorialPhase("base_camp");
+    } catch (error) {
+      console.error("Failed to assign base camp", { hexKey: this.selectedHexKey, error });
+      this.reportDeploymentPanelError({
+        title: "Base camp assignment failed.",
+        detail: `The engine could not anchor the base camp at ${this.selectedHexKey}.`,
+        action: "Retry with a valid deployment hex. If the issue persists, reload the mission.",
+        recoverable: true
+      }, { mirrorToBaseCampStatus: true });
     }
-    this.deploymentPanel?.markBaseCampAssigned(zoneKey);
-    const offsetKey = CoordinateSystem.makeHexKey(parsed.col, parsed.row);
-    this.hexMapRenderer?.renderBaseCampMarker(offsetKey);
-    // Base camp selection adjusts engine state; mirror right away so banners reflect the change.
-    this.refreshDeploymentMirrors("baseCamp", { hexKey: this.selectedHexKey });
-    this.completeTutorialPhase("base_camp");
   }
 
   /**
@@ -3260,6 +3488,7 @@ export class BattleScreen {
    * Renders the battle map SVG and wires input handlers once DOM and engine dependencies are ready.
    */
   private initializeBattleMap(): void {
+    this.activeMissionSessionKey = this.getMissionSessionKey();
     if (!this.hexMapRenderer) {
       return;
     }
@@ -3273,7 +3502,6 @@ export class BattleScreen {
     }
 
     this.hexMapRenderer.render(svg, canvas, scenarioClone);
-    this.activeScenarioName = scenarioClone.name;
     this.hexMapRenderer.onHexClick((key) => this.handleHexSelection(key));
     this.hexMapRenderer.onSelectionChanged((key) => this.handleRendererSelection(key));
     // Mirror zone metadata once the map is ready so deployment overlays and base camp validation share the same registry.
@@ -3295,21 +3523,11 @@ export class BattleScreen {
    */
   private registerScenarioZones(): void {
     const deploymentState = ensureDeploymentState();
+    const missionKey = this.uiState?.selectedMission;
     if (!this.scenario.deploymentZones || this.scenario.deploymentZones.length === 0) {
       return;
     }
-    const definitions = this.scenario.deploymentZones.map((zone) => {
-      const faction: "Player" | "Bot" | undefined = zone.faction === "Player" ? "Player" : zone.faction === "Bot" ? "Bot" : undefined;
-      const hexKeys = zone.hexes.map(([col, row]) => CoordinateSystem.makeHexKey(col, row));
-      return {
-        zoneKey: zone.key,
-        capacity: zone.capacity,
-        hexKeys,
-        name: zone.label,
-        description: zone.description,
-        faction
-      };
-    });
+    const definitions = this.scenario.deploymentZones.map((zone) => finalizeDeploymentZone(zone, this.scenario, missionKey ?? undefined));
     deploymentState.registerZones(definitions);
   }
 
@@ -3345,6 +3563,10 @@ export class BattleScreen {
     this.assertBotUnitsHydrated();
   }
 
+  private getMissionSessionKey(): string {
+    return `${this.uiState?.selectedMission ?? "training"}:${this.uiState?.selectedDifficulty ?? "Normal"}:${this.scenario.name}`;
+  }
+
   private handleScreenShown(event: Event): void {
     const detail = (event as CustomEvent<{ id?: string }>).detail;
     if (detail?.id !== "battle") {
@@ -3352,20 +3574,25 @@ export class BattleScreen {
     }
 
     this.refreshScenario();
-    const nextScenarioName = this.scenario.name;
-    const scenarioChanged = this.activeScenarioName !== nextScenarioName;
+    const nextMissionSessionKey = this.getMissionSessionKey();
+    const scenarioChanged = this.activeMissionSessionKey !== nextMissionSessionKey;
 
     if (scenarioChanged) {
+      this.resetMissionDerivedUiState();
       this.battleState.resetEngineState();
       this.deploymentPrimed = false;
+      this.refreshScenario();
+      this.hydrateMissionBriefing(false);
       this.initializeBattleMap();
       this.prepareBattleState(false);
       this.initializeDeploymentMirrors();
       this.syncTurnContext();
+      this.renderMissionStatus();
       this.selectionIntelOverlay?.update(this.selectionIntel);
       this.battleActivityLog?.sync(this.activityEvents);
       console.info("[BattleScreen] screen activation refreshed scenario", {
-        scenarioName: nextScenarioName,
+        scenarioName: this.scenario.name,
+        missionSessionKey: nextMissionSessionKey,
         missionKey: this.uiState?.selectedMission ?? "training"
       });
     }
@@ -3959,24 +4186,30 @@ export class BattleScreen {
    * Computes the default hex key that should be focused when keyboard navigation begins. Prefers
    * deployment zones so the player immediately sees actionable tiles.
    */
-  private computeDefaultSelectionKey(): string | null {
-    const preferredZones = ["zone-alpha", "zone-bravo"];
-    for (const zoneKey of preferredZones) {
-      const zoneHexes = this.deploymentPanel?.getZoneHexes(zoneKey);
-      if (!zoneHexes) {
-        continue;
+  private computeDefaultSelectionKey(): string {
+    const deploymentState = ensureDeploymentState();
+    const baseCampKey = deploymentState.getBaseCampKey();
+    if (baseCampKey && deploymentState.isHexWithinPlayerZone(baseCampKey)) {
+      return baseCampKey;
+    }
+    const preferredZoneKey = getMissionDeploymentProfile(this.uiState?.selectedMission ?? "training").preferredZoneKey;
+    if (preferredZoneKey) {
+      const preferredHex = deploymentState.getZoneHexes(preferredZoneKey)[0];
+      if (preferredHex) {
+        return preferredHex;
       }
-      const iterator = zoneHexes[Symbol.iterator]();
-      const first = iterator.next();
-      if (!first.done) {
-        return first.value;
+    }
+    const playerZones = deploymentState.getZoneUsageSummaries().filter((zone) => zone.faction === "Player");
+    for (const zone of playerZones) {
+      const firstHex = deploymentState.getZoneHexes(zone.zoneKey)[0];
+      if (firstHex) {
+        return firstHex;
       }
     }
 
-    if (this.scenario.size.cols === 0 || this.scenario.size.rows === 0) {
-      return null;
-    }
-    return CoordinateSystem.makeHexKey(0, 0);
+    throw new Error(
+      `[BattleScreen] Unable to compute a default selection for mission ${(this.uiState?.selectedMission ?? "training")}: no registered player deployment hexes are available in scenario ${this.scenario.name}.`
+    );
   }
 
   /**
@@ -4078,6 +4311,26 @@ export class BattleScreen {
   private publishSelectionIntel(intel: SelectionIntel | null): void {
     this.selectionIntel = intel;
     this.selectionIntelOverlay?.update(intel);
+  }
+
+  private reportDeploymentPanelError(
+    error: DeploymentPanelCriticalError,
+    options?: { mirrorToBaseCampStatus?: boolean }
+  ): void {
+    console.error("[BattleScreen] deployment panel error", {
+      missionKey: this.uiState?.selectedMission ?? "training",
+      scenarioName: this.scenario.name,
+      title: error.title,
+      detail: error.detail,
+      action: error.action,
+      recoverable: error.recoverable
+    });
+    this.deploymentPanel?.setCriticalError(error);
+    if (options?.mirrorToBaseCampStatus && this.baseCampStatus) {
+      this.baseCampStatus.setAttribute("aria-live", "assertive");
+      this.baseCampStatus.textContent = error.title;
+    }
+    this.announceBattleUpdate(`${error.title} ${error.action}`);
   }
 
   /**
@@ -4446,13 +4699,55 @@ export class BattleScreen {
       }
     }
     this.scenario = this.buildScenarioData();
-    this.missionRulesController = createMissionRulesController(missionKey, this.scenario);
-    this.missionStatus = null;
+    this.missionRulesController = createMissionRulesController(missionKey, this.scenario, this.uiState?.selectedDifficulty ?? "Normal");
+    this.missionStatus = this.missionRulesController.getStatus();
+    this.lastMissionPhaseId = this.missionStatus.phase?.id ?? null;
     this.missionEndPrompted = false;
     this.disposeMissionEndModal();
   }
 
+  private resetMissionDerivedUiState(): void {
+    this.hideAttackDialog();
+    this.pendingAttack = null;
+    this.attackConfirmationLocked = false;
+    this.missionRulesController = null;
+    this.missionStatus = null;
+    this.lastMissionPhaseId = null;
+    this.missionEndPrompted = false;
+    this.selectedHexKey = null;
+    this.defaultSelectionKey = null;
+    this.playerMoveHexes.clear();
+    this.playerAttackHexes.clear();
+    this.pendingIdleTurnAdvance = null;
+    this.lastFocusedHexKey = null;
+    this.lastViewportTransform = null;
+    this.lastAnnouncement = null;
+    this.publishSelectionIntel(null);
+    this.activityEvents.length = 0;
+    this.activityEventSequence = 0;
+    this.battleActivityLog?.sync(this.activityEvents);
+    if (this.idleUnitHighlightKeys.size > 0) {
+      this.hexMapRenderer?.clearIdleUnitHighlights();
+      this.idleUnitHighlightKeys.clear();
+    }
+    this.clearAirPreviewOverlay();
+    this.hexMapRenderer?.toggleSelectionGlow(false);
+    this.hexMapRenderer?.setZoneHighlights([]);
+    this.hexMapRenderer?.renderBaseCampMarker(null);
+    if (this.battleAnnouncements) {
+      this.battleAnnouncements.textContent = "";
+    }
+    if (this.baseCampStatus) {
+      this.baseCampStatus.removeAttribute("aria-live");
+      this.baseCampStatus.textContent = "No hex selected.";
+    }
+    this.endMissionButton?.classList.remove("battle-button--highlight");
+    this.deploymentPanel?.resetScenarioState();
+    this.disposeMissionEndModal();
+  }
+
   private buildScenarioData(): ScenarioData {
+    const missionKey = this.uiState?.selectedMission ?? "training";
     const raw = this.deepCloneValue(this.scenarioSource) as {
       name?: unknown;
       size?: { cols?: unknown; rows?: unknown } | unknown;
@@ -4568,7 +4863,7 @@ export class BattleScreen {
       tilePalette: palette,
       tiles,
       objectives,
-      turnLimit: Number(raw.turnLimit ?? 0),
+      turnLimit: getMissionTurnLimit(missionKey, this.uiState?.selectedDifficulty ?? "Normal"),
       sides: {
         Player: convertSide("Player"),
         Bot: convertSide("Bot"),

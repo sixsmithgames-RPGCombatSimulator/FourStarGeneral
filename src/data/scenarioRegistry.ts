@@ -1,25 +1,29 @@
 import defaultScenario from "./scenario01.json";
 import riverWatchScenario from "./scenario_river_watch.json";
+import type { MissionKey } from "../state/UIState";
+import { assertScenarioSourceValid } from "./scenarioValidation";
 
-// ScenarioSource is intentionally loose (any) because map JSON varies; downstream code normalizes.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ScenarioSource = any;
+export type ScenarioSource = typeof defaultScenario | typeof riverWatchScenario;
+
+const scenarioSourcesByMissionKey: Record<"training" | "patrol" | "patrol_river_watch" | "assault" | "campaign", ScenarioSource> = {
+  training: defaultScenario as ScenarioSource,
+  patrol: defaultScenario as ScenarioSource,
+  patrol_river_watch: riverWatchScenario as ScenarioSource,
+  assault: defaultScenario as ScenarioSource,
+  campaign: defaultScenario as ScenarioSource
+};
 
 /**
  * Returns the raw scenario data source for a given mission key.
- * Falls back to the default scenario when no specialized map exists.
  */
 export function getScenarioByMissionKey(missionKey: string): ScenarioSource {
-  const resolvedKey = missionKey.trim();
-  let scenario: ScenarioSource;
-  switch (missionKey) {
-    case "patrol_river_watch":
-      scenario = riverWatchScenario as ScenarioSource;
-      break;
-    default:
-      scenario = defaultScenario as ScenarioSource;
-      break;
+  const resolvedKey = missionKey.trim() as MissionKey;
+  if (!(resolvedKey in scenarioSourcesByMissionKey)) {
+    throw new Error(`[scenarioRegistry] Unknown mission key: ${missionKey}`);
   }
+
+  const scenario = scenarioSourcesByMissionKey[resolvedKey as keyof typeof scenarioSourcesByMissionKey];
+  assertScenarioSourceValid(scenario, resolvedKey);
 
   const name = (scenario as { name?: string }).name;
   const size = (scenario as { size?: { cols?: number; rows?: number } }).size;

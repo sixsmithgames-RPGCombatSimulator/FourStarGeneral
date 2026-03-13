@@ -37,8 +37,8 @@ function makeSnapshot(
   return { controller, status };
 }
 
-registerTest("missionRules: river watch defeat after 4 holds", async ({ Given, When, Then }) => {
-  let controller = createMissionRulesController("patrol_river_watch", riverWatchScenario);
+registerTest("missionRules: river watch defeat after 4 holds", async ({ Given, Then }) => {
+  const controller = createMissionRulesController("patrol_river_watch", riverWatchScenario);
   let status = controller.onTurnAdvanced({
     turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 },
     scenario: riverWatchScenario,
@@ -70,7 +70,7 @@ registerTest("missionRules: river watch defeat after 4 holds", async ({ Given, W
   });
 });
 
-registerTest("missionRules: river watch victory on time when fords denied", async ({ Given, When, Then }) => {
+registerTest("missionRules: river watch victory on time when fords denied", async ({ When, Then }) => {
   const controller = createMissionRulesController("patrol_river_watch", riverWatchScenario);
   let status = controller.onTurnAdvanced({
     turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 },
@@ -110,6 +110,7 @@ registerTest("missionRules: secondary and tertiary flags", async ({ Then }) => {
     [],
     [playerRecon],
     [
+      { type: "Recon_Bike", hex: { q: 2, r: 2 }, strength: 90, experience: 0, ammo: 0, fuel: 0, entrench: 0, facing: "NW" },
       { type: "Infantry_42", hex: { q: 1, r: 1 }, strength: 90, experience: 0, ammo: 0, fuel: 0, entrench: 0, facing: "NW" }
     ]
   );
@@ -132,6 +133,86 @@ registerTest("missionRules: secondary and tertiary flags", async ({ Then }) => {
     const tertiaryFail = noRecon.objectives.find((o) => o.id === "tertiary_keep_recon");
     if (!tertiaryFail || tertiaryFail.state !== "failed") {
       throw new Error("Tertiary should fail when no recon remains");
+    }
+  });
+});
+
+registerTest("missionRules: river watch phases escalate on Normal", async ({ Given, When, Then }) => {
+  const controller = createMissionRulesController("patrol_river_watch", riverWatchScenario, "Normal");
+  let turnFourPhase = "";
+  let turnSixPhase = "";
+
+  await Given("River Watch is tracking authored pacing phases on Normal", async () => {
+    controller.onTurnAdvanced({
+      turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 },
+      scenario: riverWatchScenario,
+      occupancy: new Map(),
+      playerUnits: [],
+      botUnits: []
+    });
+  });
+
+  await When("the battle reaches turn 4 and then holds all three fords for two turns", async () => {
+    turnFourPhase = controller.onTurnAdvanced({
+      turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 4 },
+      scenario: riverWatchScenario,
+      occupancy: new Map(),
+      playerUnits: [],
+      botUnits: []
+    }).phase?.id ?? "";
+
+    controller.onTurnAdvanced({
+      turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 5 },
+      scenario: riverWatchScenario,
+      occupancy: new Map<string, TurnFaction>([["6,2", "Player"], ["6,4", "Player"], ["5,9", "Player"]]),
+      playerUnits: [],
+      botUnits: []
+    });
+
+    turnSixPhase = controller.onTurnAdvanced({
+      turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 6 },
+      scenario: riverWatchScenario,
+      occupancy: new Map<string, TurnFaction>([["6,2", "Player"], ["6,4", "Player"], ["5,9", "Player"]]),
+      playerUnits: [],
+      botUnits: []
+    }).phase?.id ?? "";
+  });
+
+  await Then("the controller moves from phase 2 commitment into phase 3 escalation", async () => {
+    if (turnFourPhase !== "phase2_commitment") {
+      throw new Error(`Expected turn 4 to enter phase2_commitment, received ${turnFourPhase}`);
+    }
+    if (turnSixPhase !== "phase3_escalation") {
+      throw new Error(`Expected two blocked turns to enter phase3_escalation, received ${turnSixPhase}`);
+    }
+  });
+});
+
+registerTest("missionRules: river watch Easy suppresses phase 3 escalation", async ({ When, Then }) => {
+  const controller = createMissionRulesController("patrol_river_watch", riverWatchScenario, "Easy");
+  let phaseId = "";
+
+  await When("all three fords stay blocked for two turns on Easy", async () => {
+    controller.onTurnAdvanced({
+      turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 5 },
+      scenario: riverWatchScenario,
+      occupancy: new Map<string, TurnFaction>([["6,2", "Player"], ["6,4", "Player"], ["5,9", "Player"]]),
+      playerUnits: [],
+      botUnits: []
+    });
+
+    phaseId = controller.onTurnAdvanced({
+      turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 6 },
+      scenario: riverWatchScenario,
+      occupancy: new Map<string, TurnFaction>([["6,2", "Player"], ["6,4", "Player"], ["5,9", "Player"]]),
+      playerUnits: [],
+      botUnits: []
+    }).phase?.id ?? "";
+  });
+
+  await Then("the mission remains in phase 2 instead of spawning reserve pressure", async () => {
+    if (phaseId !== "phase2_commitment") {
+      throw new Error(`Expected Easy difficulty to remain in phase2_commitment, received ${phaseId}`);
     }
   });
 });

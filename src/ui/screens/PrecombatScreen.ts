@@ -1,12 +1,13 @@
 import type { IScreenManager } from "../../contracts/IScreenManager";
 import type { BattleState, PrecombatAllocationSummary } from "../../state/BattleState";
+import type { BotDifficulty } from "../../game/bot/BotPlanner";
 import {
   ALLOCATION_BY_CATEGORY,
   allocationOptions,
   getAllocationOption,
   type UnitAllocationOption
 } from "../../data/unitAllocation";
-import { getMissionBriefing, getMissionTitle } from "../../data/missions";
+import { getMissionBriefing, getMissionSummaryPackage, getMissionTitle } from "../../data/missions";
 import {
   ensureDeploymentState,
   type DeploymentPoolEntry
@@ -19,82 +20,9 @@ import { getNextPhase } from "../../data/tutorialSteps";
 import { HexMapRenderer } from "../../rendering/HexMapRenderer";
 import type { ScenarioData, ScenarioDeploymentZone, ScenarioUnit } from "../../core/types";
 import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
-import { planDeploymentZoneHexes } from "../utils/deploymentZonePlanner";
+import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 
 type AllocationListElement = HTMLElement & { __allocationListenersAttached?: boolean };
-
-const MISSION_SUMMARY_FALLBACKS: Record<string, {
-  readonly objectives: readonly string[];
-  readonly turnLimit: number;
-  readonly doctrine: string;
-  readonly supplies: ReadonlyArray<{ readonly label: string; readonly amount: string }>;
-}> = {
-  training: {
-    objectives: [
-      "Execute training maneuvers without exceeding casualty thresholds.",
-      "Rotate every unit type through live-fire exercises."
-    ],
-    turnLimit: 8,
-    doctrine: "Emphasize combined-arms rehearsal; focus on communication drills over live combat.",
-    supplies: [
-      { label: "Rations", amount: "Full stock" },
-      { label: "Fuel", amount: "Minimal usage expected" },
-      { label: "Ammo", amount: "Live-fire allotment only" }
-    ]
-  },
-  patrol: {
-    objectives: [
-      "Reconnoiter border checkpoints and report hostile sightings.",
-      "Maintain radio contact with HQ at each waypoint."
-    ],
-    turnLimit: 10,
-    doctrine: "Maintain flexible response posture; adhere to reconnaissance-in-force doctrine.",
-    supplies: [
-      { label: "Rations", amount: "Standard patrol pack" },
-      { label: "Fuel", amount: "50% reserve" },
-      { label: "Ammo", amount: "Issue combat load" }
-    ]
-  },
-  patrol_river_watch: {
-    objectives: [
-      "Deny enemy control of any river ford for 4 consecutive turns",
-      "Optional: Destroy the enemy comms team before it reaches the central ford",
-      "Optional: Keep at least one recon unit alive"
-    ],
-    turnLimit: 12,
-    doctrine: "Screen all three crossings, delay infiltrators, and counter-push where pressure builds. Use limited off-map mortar and hedgerow cover to shape approaches.",
-    supplies: [
-      { label: "Turn Limit", amount: "12" },
-      { label: "Off-map Mortar", amount: "2 calls" }
-    ]
-  },
-  assault: {
-    objectives: [
-      "Seize primary defensive line within allotted turns.",
-      "Neutralize hardened positions before reinforcements arrive."
-    ],
-    turnLimit: 14,
-    doctrine: "Coordinate armored thrust with artillery suppression per breakthrough doctrine.",
-    supplies: [
-      { label: "Rations", amount: "Forward stockpile" },
-      { label: "Fuel", amount: "Full combat reserve" },
-      { label: "Ammo", amount: "High consumption expected" }
-    ]
-  },
-  campaign: {
-    objectives: [
-      "Capture sequential strategic nodes to cut enemy logistics.",
-      "Sustain momentum across multi-phase offensive."
-    ],
-    turnLimit: 20,
-    doctrine: "Apply deep operations doctrine; safeguard supply corridors at all times.",
-    supplies: [
-      { label: "Rations", amount: "Bulk depot established" },
-      { label: "Fuel", amount: "Escort convoys nightly" },
-      { label: "Ammo", amount: "Allocate heavy artillery shells" }
-    ]
-  }
-};
 
 export class PrecombatScreen {
   private readonly screenManager: IScreenManager;
@@ -268,7 +196,7 @@ export class PrecombatScreen {
   /**
    * Sets up the screen with mission-specific data.
    */
-  setup(missionKey: MissionKey, selectedGeneralId: string | null): void {
+  setup(missionKey: MissionKey, selectedGeneralId: string | null, selectedDifficulty: BotDifficulty): void {
     this.activeMissionKey = missionKey;
     this.scenarioSource = getScenarioByMissionKey(missionKey);
 
@@ -291,7 +219,7 @@ export class PrecombatScreen {
     this.primeAllocationState();
     this.seedDeploymentCaches();
     this.registerScenarioDeploymentZones();
-    this.renderMissionSummary(missionKey);
+    this.renderMissionSummary(missionKey, selectedDifficulty);
     this.seedPredeployedAllocations();
     this.renderPredeployedOverview();
     // Persist the command assignment so battle overlays reference the same general profile as precombat.
@@ -498,6 +426,7 @@ export class PrecombatScreen {
 
   private registerScenarioDeploymentZones(): void {
     const deploymentState = ensureDeploymentState();
+    const missionKey = this.activeMissionKey;
     const rawZones = (this.scenarioSource.deploymentZones ?? []) as Array<{
       key: string;
       label: string;
@@ -511,33 +440,15 @@ export class PrecombatScreen {
     }
 
     const zones = rawZones.map((zone) => {
-      // JSON payloads hydrate faction as a plain string, so normalize the value to the strict union expected by
-      // `ScenarioDeploymentZone` before feeding it into the planner. This keeps downstream typing consistent and
-      // avoids treating unexpected tokens as valid factions.
-      const normalizedFaction: "Player" | "Bot" | undefined = zone.faction === "Player"
-        ? "Player"
-        : zone.faction === "Bot"
-          ? "Bot"
-          : undefined;
-      const sanitizedZone: ScenarioDeploymentZone = {
+      const finalizedZone = finalizeDeploymentZone({
         key: zone.key,
         label: zone.label,
         description: zone.description,
         capacity: zone.capacity,
-        // Fallback to Player for planner consumption when faction is omitted to preserve hex anchoring assumptions.
-        faction: normalizedFaction ?? "Player",
+        faction: zone.faction === "Player" || zone.faction === "Bot" ? zone.faction : (zone.faction as ScenarioDeploymentZone["faction"]),
         hexes: (zone.hexes ?? []).map(([col, row]: [number, number]) => [col, row] as [number, number])
-      };
-      const plannedHexes = planDeploymentZoneHexes(sanitizedZone, this.miniMapScenario);
-      // Anchor deployment zones to edge-coastal tiles so the battle screen mirrors the intended landing corridors.
-      return {
-        zoneKey: zone.key,
-        capacity: zone.capacity,
-        hexKeys: plannedHexes,
-        name: zone.label,
-        description: zone.description,
-        faction: normalizedFaction
-      };
+      }, this.miniMapScenario, missionKey ?? undefined);
+      return finalizedZone;
     });
     deploymentState.registerZones(zones);
   }
@@ -1038,15 +949,10 @@ export class PrecombatScreen {
   /**
    * Populates the mission briefing panel with objectives, timeline, and logistical expectations.
    */
-  private renderMissionSummary(missionKey: MissionKey): void {
+  private renderMissionSummary(missionKey: MissionKey, selectedDifficulty: BotDifficulty): void {
     const title = getMissionTitle(missionKey);
     const briefing = getMissionBriefing(missionKey);
-    const summary = MISSION_SUMMARY_FALLBACKS[missionKey] ?? {
-      objectives: ["Operational objectives will be synchronized once mission data is linked."],
-      turnLimit: 0,
-      doctrine: "Doctrine brief will populate when campaign data is connected.",
-      supplies: [{ label: "Supplies", amount: "Awaiting logistics data" }]
-    } satisfies (typeof MISSION_SUMMARY_FALLBACKS)[string];
+    const summary = getMissionSummaryPackage(missionKey, selectedDifficulty);
 
     this.missionTitleElement.textContent = title;
     this.missionBriefingElement.textContent = briefing;

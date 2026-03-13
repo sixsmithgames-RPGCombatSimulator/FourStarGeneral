@@ -3,6 +3,7 @@
  * Defines all available mission types with their titles and detailed briefing text.
  */
 
+import type { BotDifficulty } from "../game/bot/BotPlanner";
 import type { MissionKey } from "../state/UIState";
 
 /**
@@ -32,8 +33,8 @@ export const missionBriefings: Record<MissionKey, string> = {
     "Maintain defensive posture and report any suspicious activity. Light resistance anticipated.",
 
   patrol_river_watch:
-    "Recon reports infiltrators massing along a winding river. Multiple shallow fords and a ruined bridge offer crossing points. " +
-    "Scramble your patrol, lock down each ford, and deny the enemy any foothold across the water.",
+    "Recon reports enemy infiltrators massing along the river. Multiple shallow fords cut through the bend—if they slip across, they’ll have a lodgment before dawn. " +
+    "Scramble your patrols, lock down each crossing, and deny them a foothold.",
 
   assault:
     "Execute a tactical assault on enemy positions to secure strategic objectives. " +
@@ -43,6 +44,256 @@ export const missionBriefings: Record<MissionKey, string> = {
     "Launch the Western Europe offensive to liberate occupied territory and secure critical ports. " +
     "Advance fronts, manage scarce resources, and coordinate air support over multiple linked operations."
 };
+
+export interface MissionSummaryPackage {
+  readonly objectives: readonly string[];
+  readonly turnLimit: number;
+  readonly doctrine: string;
+  readonly supplies: ReadonlyArray<{ readonly label: string; readonly amount: string }>;
+}
+
+export type MissionCategory = "training" | "patrol" | "assault" | "campaign";
+
+export interface MissionDeploymentZoneDoctrine {
+  readonly zoneKey: string;
+  readonly minimumCapacity: number;
+  readonly minimumFrontage: number;
+  readonly minimumDepth: number;
+}
+
+export interface MissionDeploymentValidationProfile {
+  readonly minimumPlayerZoneCapacityTotal: number;
+  readonly minimumPlayerZoneFrontage: number;
+  readonly minimumPlayerZoneDepth: number;
+}
+
+export interface MissionDeploymentProfile {
+  readonly preferredZoneKey: string | null;
+  readonly focusLabel: string;
+  readonly validation: MissionDeploymentValidationProfile;
+  readonly zoneDoctrine: readonly MissionDeploymentZoneDoctrine[];
+}
+
+export interface MissionProfile {
+  readonly title: string;
+  readonly briefing: string;
+  readonly category: MissionCategory;
+  readonly summary: MissionSummaryPackage;
+  readonly deployment: MissionDeploymentProfile;
+}
+
+const RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
+  Easy: 14,
+  Normal: 12,
+  Hard: 11
+};
+
+export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> = {
+  training: {
+    objectives: [
+      "Execute training maneuvers without exceeding casualty thresholds.",
+      "Rotate every unit type through live-fire exercises."
+    ],
+    turnLimit: 8,
+    doctrine: "Emphasize combined-arms rehearsal; focus on communication drills over live combat.",
+    supplies: [
+      { label: "Rations", amount: "Full stock" },
+      { label: "Fuel", amount: "Minimal usage expected" },
+      { label: "Ammo", amount: "Live-fire allotment only" }
+    ]
+  },
+  patrol: {
+    objectives: [
+      "Reconnoiter border checkpoints and report hostile sightings.",
+      "Maintain radio contact with HQ at each waypoint."
+    ],
+    turnLimit: 10,
+    doctrine: "Maintain flexible response posture; adhere to reconnaissance-in-force doctrine.",
+    supplies: [
+      { label: "Rations", amount: "Standard patrol pack" },
+      { label: "Fuel", amount: "50% reserve" },
+      { label: "Ammo", amount: "Issue combat load" }
+    ]
+  },
+  patrol_river_watch: {
+    objectives: [
+      "Primary: Deny enemy control of any crossing for 4 consecutive turns until extraction.",
+      "Optional: Destroy the enemy comms team before it reaches the central ford.",
+      "Optional: Keep at least one recon unit alive."
+    ],
+    turnLimit: 12,
+    doctrine: "Screen all three crossings at night, shift between hedgerow lanes before the enemy can mass, and hold the two off-map 81mm mortar fire missions for the ford that starts to buckle.",
+    supplies: [
+      { label: "Predeployed Patrol", amount: "2 rifle squads, engineers, recon bike patrol" },
+      { label: "Off-map 81mm Mortar", amount: "2 fire missions" },
+      { label: "Extraction Window", amount: "Hold until dawn on turn 12" }
+    ]
+  },
+  assault: {
+    objectives: [
+      "Seize primary defensive line within allotted turns.",
+      "Neutralize hardened positions before reinforcements arrive."
+    ],
+    turnLimit: 14,
+    doctrine: "Coordinate armored thrust with artillery suppression per breakthrough doctrine.",
+    supplies: [
+      { label: "Rations", amount: "Forward stockpile" },
+      { label: "Fuel", amount: "Full combat reserve" },
+      { label: "Ammo", amount: "High consumption expected" }
+    ]
+  },
+  campaign: {
+    objectives: [
+      "Capture sequential strategic nodes to cut enemy logistics.",
+      "Sustain momentum across multi-phase offensive."
+    ],
+    turnLimit: 20,
+    doctrine: "Apply deep operations doctrine; safeguard supply corridors at all times.",
+    supplies: [
+      { label: "Rations", amount: "Bulk depot established" },
+      { label: "Fuel", amount: "Escort convoys nightly" },
+      { label: "Ammo", amount: "Allocate heavy artillery shells" }
+    ]
+  }
+};
+
+const missionCategories: Record<MissionKey, MissionCategory> = {
+  training: "training",
+  patrol: "patrol",
+  patrol_river_watch: "patrol",
+  assault: "assault",
+  campaign: "campaign"
+};
+
+const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = {
+  training: {
+    preferredZoneKey: "zone-alpha",
+    focusLabel: "training line",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 20,
+      minimumPlayerZoneFrontage: 5,
+      minimumPlayerZoneDepth: 4
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "zone-alpha",
+        minimumCapacity: 12,
+        minimumFrontage: 5,
+        minimumDepth: 4
+      },
+      {
+        zoneKey: "zone-bravo",
+        minimumCapacity: 16,
+        minimumFrontage: 5,
+        minimumDepth: 4
+      }
+    ]
+  },
+  patrol: {
+    preferredZoneKey: "zone-alpha",
+    focusLabel: "patrol line",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 20,
+      minimumPlayerZoneFrontage: 5,
+      minimumPlayerZoneDepth: 4
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "zone-alpha",
+        minimumCapacity: 12,
+        minimumFrontage: 5,
+        minimumDepth: 4
+      },
+      {
+        zoneKey: "zone-bravo",
+        minimumCapacity: 16,
+        minimumFrontage: 5,
+        minimumDepth: 4
+      }
+    ]
+  },
+  patrol_river_watch: {
+    preferredZoneKey: "allied-start",
+    focusLabel: "line of departure",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 20,
+      minimumPlayerZoneFrontage: 5,
+      minimumPlayerZoneDepth: 4
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "allied-start",
+        minimumCapacity: 20,
+        minimumFrontage: 5,
+        minimumDepth: 4
+      }
+    ]
+  },
+  assault: {
+    preferredZoneKey: "zone-alpha",
+    focusLabel: "assault line",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 20,
+      minimumPlayerZoneFrontage: 5,
+      minimumPlayerZoneDepth: 4
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "zone-alpha",
+        minimumCapacity: 12,
+        minimumFrontage: 5,
+        minimumDepth: 4
+      },
+      {
+        zoneKey: "zone-bravo",
+        minimumCapacity: 16,
+        minimumFrontage: 5,
+        minimumDepth: 4
+      }
+    ]
+  },
+  campaign: {
+    preferredZoneKey: "zone-alpha",
+    focusLabel: "forward line",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 20,
+      minimumPlayerZoneFrontage: 5,
+      minimumPlayerZoneDepth: 4
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "zone-alpha",
+        minimumCapacity: 12,
+        minimumFrontage: 5,
+        minimumDepth: 4
+      },
+      {
+        zoneKey: "zone-bravo",
+        minimumCapacity: 16,
+        minimumFrontage: 5,
+        minimumDepth: 4
+      }
+    ]
+  }
+};
+
+export function getMissionProfile(mission: MissionKey, difficulty: BotDifficulty): MissionProfile {
+  return {
+    title: getMissionTitle(mission),
+    briefing: getMissionBriefing(mission),
+    category: missionCategories[mission],
+    summary: getMissionSummaryPackage(mission, difficulty),
+    deployment: missionDeploymentProfiles[mission]
+  };
+}
+
+export function getMissionDeploymentProfile(mission: MissionKey): MissionDeploymentProfile {
+  return missionDeploymentProfiles[mission];
+}
+
+export function getMissionDeploymentZoneDoctrine(mission: MissionKey, zoneKey: string): MissionDeploymentZoneDoctrine | null {
+  return missionDeploymentProfiles[mission].zoneDoctrine.find((zone) => zone.zoneKey === zoneKey) ?? null;
+}
 
 /**
  * Get mission title by key.
@@ -60,6 +311,33 @@ export function getMissionTitle(mission: MissionKey): string {
  */
 export function getMissionBriefing(mission: MissionKey): string {
   return missionBriefings[mission] ?? "No briefing available.";
+}
+
+export function getMissionTurnLimit(mission: MissionKey, difficulty: BotDifficulty): number {
+  if (mission === "patrol_river_watch") {
+    return RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY[difficulty];
+  }
+
+  return missionSummaryPackages[mission].turnLimit;
+}
+
+export function getMissionSummaryPackage(mission: MissionKey, difficulty: BotDifficulty): MissionSummaryPackage {
+  const summary = missionSummaryPackages[mission];
+  const turnLimit = getMissionTurnLimit(mission, difficulty);
+
+  if (mission !== "patrol_river_watch") {
+    return summary;
+  }
+
+  return {
+    ...summary,
+    turnLimit,
+    supplies: summary.supplies.map((item) =>
+      item.label === "Extraction Window"
+        ? { ...item, amount: `Hold until dawn on turn ${turnLimit}` }
+        : item
+    )
+  };
 }
 
 /**

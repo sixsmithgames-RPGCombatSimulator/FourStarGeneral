@@ -16,6 +16,13 @@ export interface SelectedHexContext {
   zoneLabel: string | null;
 }
 
+export interface DeploymentPanelCriticalError {
+  title: string;
+  detail: string;
+  action: string;
+  recoverable: boolean;
+}
+
 interface DeploymentZoneMeta {
   /** Unique identifier shared with engine snapshot wiring. */
   key: string;
@@ -74,6 +81,7 @@ export class DeploymentPanel {
   private queuedUnitKey: string | null = null;
   /** Enables reserve call-ups once the battle phase begins so the panel exposes reinforcements. */
   private reserveCallupsEnabled = false;
+  private criticalError: DeploymentPanelCriticalError | null = null;
 
   constructor() {
     this.panel = this.requireElement("#deploymentPanel");
@@ -216,6 +224,19 @@ export class DeploymentPanel {
   renderDeploymentStatus(): void {
     const deploymentState = ensureDeploymentState();
     const isBattlePhaseLayout = this.panel.getAttribute("data-phase") === "battle";
+
+    if (this.criticalError) {
+      const retryGuidance = this.criticalError.recoverable
+        ? "Retry once the issue is corrected."
+        : "Resolve the issue before continuing.";
+      this.panel.setAttribute("data-status", "error");
+      this.statusElement.setAttribute("aria-live", "assertive");
+      this.statusElement.innerHTML = `<strong>${this.escapeHtml(this.criticalError.title)}</strong> ${this.escapeHtml(this.criticalError.detail)} ${this.escapeHtml(this.criticalError.action)} ${this.escapeHtml(retryGuidance)}`;
+      return;
+    }
+
+    this.panel.removeAttribute("data-status");
+    this.statusElement.removeAttribute("aria-live");
 
     if (isBattlePhaseLayout) {
       const reserves = deploymentState.getReserves();
@@ -371,7 +392,12 @@ export class DeploymentPanel {
    * @param context - Supplemental details describing the selected location
    */
   setSelectedHex(key: string | null, context?: SelectedHexContext): void {
+    const selectionChanged = this.selectedHexKey !== key;
     this.selectedHexKey = key;
+    if (selectionChanged && this.criticalError) {
+      this.criticalError = null;
+      this.panel.removeAttribute("data-status");
+    }
     if (key && this.lockedZoneKey) {
       const owningZone = this.hexZoneIndex.get(key);
       if (owningZone && owningZone !== this.lockedZoneKey) {
@@ -675,6 +701,40 @@ export class DeploymentPanel {
     this.renderDeploymentStatus();
   }
 
+  setCriticalError(error: DeploymentPanelCriticalError | null): void {
+    this.criticalError = error;
+    if (!error) {
+      this.panel.removeAttribute("data-status");
+    }
+    this.renderDeploymentStatus();
+  }
+
+  resetScenarioState(): void {
+    this.criticalError = null;
+    this.selectedHexKey = null;
+    this.selectedTerrainLabel = null;
+    this.selectedZoneKey = null;
+    this.selectedZoneLabel = null;
+    this.interactionsLocked = false;
+    this.baseCampAssigned = false;
+    this.lockedZoneKey = null;
+    this.queuedUnitKey = null;
+    this.reserveCallupsEnabled = false;
+    this.zoneMetaMap.clear();
+    this.zoneHexLookup.clear();
+    this.hexZoneIndex.clear();
+    this.panel.setAttribute("data-basecamp-ready", "false");
+    this.panel.removeAttribute("data-zone-locked");
+    this.panel.removeAttribute("data-phase");
+    this.panel.removeAttribute("data-deployment-locked");
+    this.panel.removeAttribute("aria-disabled");
+    this.panel.removeAttribute("data-status");
+    this.renderDeploymentStatus();
+    this.renderDeploymentZones();
+    this.renderDeploymentUnits();
+    this.renderReserveList();
+  }
+
   /** Allows tests or tooling to rewind the panel back to deployment-only state. */
   disableReserveCallups(): void {
     if (!this.reserveCallupsEnabled) {
@@ -689,11 +749,13 @@ export class DeploymentPanel {
    */
   markBaseCampPending(): void {
     if (!this.baseCampAssigned && this.lockedZoneKey === null) {
+      this.criticalError = null;
       this.panel.setAttribute("data-basecamp-ready", "false");
       this.panel.removeAttribute("data-zone-locked");
       this.panel.removeAttribute("data-phase");
       return;
     }
+    this.criticalError = null;
     this.baseCampAssigned = false;
     this.lockedZoneKey = null;
     this.panel.setAttribute("data-basecamp-ready", "false");
@@ -714,6 +776,7 @@ export class DeploymentPanel {
     if (this.baseCampAssigned && this.lockedZoneKey === zoneKey) {
       return;
     }
+    this.criticalError = null;
     this.baseCampAssigned = true;
     this.lockedZoneKey = zoneKey;
     this.panel.setAttribute("data-basecamp-ready", "true");

@@ -1,6 +1,6 @@
 import type { CampaignDecision, CampaignPendingEngagement, CampaignScenarioData, CampaignTurnState, CampaignTileInstance, TransportMode } from "../core/campaignTypes";
 import { hexDistance } from "../core/Hex";
-import { getTransportMode, getApplicableTransportModes, getUnitClassification, INFANTRY_UNITS, ARMOR_MOTORIZED_UNITS, NAVAL_TRANSPORT_UNITS, NAVAL_WARSHIP_UNITS, BOMBER_UNITS, FIGHTER_UNITS } from "../data/transportModes";
+import { getTransportMode, INFANTRY_UNITS } from "../data/transportModes";
 
 // Hexes per day by unit type. Slowest selected unit determines redeploy ETA.
 // Each hex = 5km, so multiply by 5 to get km/day, or divide 10 by (speed × 5) to get days per 10km.
@@ -37,10 +37,20 @@ export type CampaignUpdateReason =
   | "turnAdvanced"
   | "decisionsUpdated"
   | "engagementsUpdated"
+  | "headquartersStatusUpdated"
   | "reset"
   | "manual";
 
 type CampaignUpdateListener = (reason: CampaignUpdateReason) => void;
+
+type HeadquartersStatusTone = "info" | "success" | "warning";
+
+export interface HeadquartersStatusMessage {
+  title: string;
+  detail: string;
+  action: string;
+  tone: HeadquartersStatusTone;
+}
 
 /**
  * Lightweight state container for the strategic campaign layer.
@@ -55,6 +65,7 @@ export class CampaignState {
   private activeEngagementId: string | null = null;
   /** Current campaign time in 3-hour segments (0 = Day 1, 00:00-03:00; 8 = Day 2, 00:00-03:00) */
   private currentSegment: number = 0;
+  private headquartersStatusMessage: HeadquartersStatusMessage | null = null;
   private readonly listeners = new Set<CampaignUpdateListener>();
   private static readonly SAVE_KEY = "fourstar.campaign.save.v1";
 
@@ -219,6 +230,15 @@ export class CampaignState {
     if (!id) return null;
     const found = this.engagements.find((e) => e.id === id) ?? null;
     return found ? structuredClone(found) : null;
+  }
+
+  setHeadquartersStatusMessage(message: HeadquartersStatusMessage | null): void {
+    this.headquartersStatusMessage = message ? { ...message } : null;
+    this.notify("headquartersStatusUpdated");
+  }
+
+  getHeadquartersStatusMessage(): HeadquartersStatusMessage | null {
+    return this.headquartersStatusMessage ? { ...this.headquartersStatusMessage } : null;
   }
 
   /** Returns the current campaign segment (0 = Day 1, 00:00-03:00). */
@@ -482,8 +502,6 @@ export class CampaignState {
     for (const sel of selections) {
       const unitCount = sel.count;
       if (unitCount <= 0) continue;
-
-      const classification = getUnitClassification(sel.unitType);
 
       if (transportMode.key === "foot") {
         // ON FOOT: 0 fuel, 1 supply per man per hex
@@ -964,6 +982,7 @@ export class CampaignState {
     this.engagements = [];
     this.activeEngagementId = null;
     this.currentSegment = 0;
+    this.headquartersStatusMessage = null;
     this.notify("reset");
   }
 }
