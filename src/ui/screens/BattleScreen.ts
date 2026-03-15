@@ -196,7 +196,7 @@ export class BattleScreen {
   private activeMissionSessionKey: string | null = null;
 
   /** Temporary debug overlay to visualize bot/player placements regardless of recon/LOS. Disable when done. */
-  private readonly debugPlacementOverlayEnabled = true;
+  private readonly debugPlacementOverlayEnabled = false;
 
   // Air Support: temporary range overlay keys while picking mission targets
   private airPreviewKeys: Set<string> = new Set();
