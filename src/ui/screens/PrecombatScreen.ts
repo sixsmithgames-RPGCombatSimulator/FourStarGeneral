@@ -12,6 +12,7 @@ import {
   ensureDeploymentState,
   type DeploymentPoolEntry
 } from "../../state/DeploymentState";
+import { ensureUnlockState } from "../../state/UnlockState";
 import { findTemplateForUnitKey } from "../../game/adapters";
 import type { MissionKey } from "../../state/UIState";
 import { findGeneralById, getAllGenerals } from "../../utils/rosterStorage";
@@ -90,6 +91,7 @@ export class PrecombatScreen {
   private allocationDirty = false;
   private readonly predeployedCounts = new Map<string, number>();
   private readonly predeployedRoster = new Map<string, { label: string; scenarioType: string; count: number }>();
+  private readonly unlockState = ensureUnlockState();
 
   constructor(screenManager: IScreenManager, battleState: BattleState) {
     this.screenManager = screenManager;
@@ -116,6 +118,10 @@ export class PrecombatScreen {
     this.registerScenarioDeploymentZones();
     // Ensure allocation widgets are hydrated before presenting the screen so keyboard / pointer controls are responsive immediately.
     this.initializeAllocationUI();
+    this.unlockState.subscribe(() => {
+      this.rerenderAllocations();
+      this.updateBudgetDisplay();
+    });
     this.renderMiniMap();
   }
 
@@ -557,28 +563,18 @@ export class PrecombatScreen {
   private renderAllocationItem(option: UnitAllocationOption, quantity: number): string {
     const totalCost = option.costPerUnit * quantity;
     const lockedBaseline = this.predeployedCounts.get(option.key) ?? 0;
-    const decrementDisabled = quantity <= lockedBaseline;
-    const incrementDisabled = quantity >= option.maxQuantity;
+    const locked = this.unlockState.isUnitLocked(option.key);
+    const decrementDisabled = locked || quantity <= lockedBaseline;
+    const incrementDisabled = locked || quantity >= option.maxQuantity;
     const baselineBadge = lockedBaseline > 0
       ? `<span class="allocation-lock" aria-label="Scenario provides ${lockedBaseline} ${option.label} unit${lockedBaseline === 1 ? "" : "s"}.">Scenario asset ×${lockedBaseline}</span>`
       : "";
-    return `
-      <li class="allocation-item" data-key="${option.key}">
-        <header>
-          <div class="allocation-visual">
-            ${option.spriteUrl ? `<img src="${option.spriteUrl}" alt="${option.label}" class="allocation-thumb" />` : `<div class="allocation-fallback">${option.label.charAt(0)}</div>`}
-          </div>
-          <div class="allocation-copy">
-            <div class="allocation-title-row">
-              <h4>${option.label}</h4>
-              <span class="allocation-cost">$${option.costPerUnit.toLocaleString()} ea.</span>
-            </div>
-            <p>${option.description}</p>
-            ${baselineBadge}
-          </div>
-        </header>
-        <footer class="allocation-meta">
-          <div class="allocation-quantity" role="group" aria-label="${option.label} quantity controls">
+    const unlockBadge = locked
+      ? `<span class="allocation-lock" aria-label="${option.label} requires a roster unlock before you can requisition it.">Unlock required</span>`
+      : "";
+    const controlsMarkup = locked
+      ? `<div class="allocation-quantity" role="group" aria-label="${option.label} unlock controls"><span class="allocation-count">Roster locked</span><a class="secondary-button allocation-unlock-link" href="${this.unlockState.buildPurchaseUrlForSku(option.key)}">Unlock Unit</a></div>`
+      : `<div class="allocation-quantity" role="group" aria-label="${option.label} quantity controls">
             <button
               type="button"
               class="allocation-btn"
@@ -598,7 +594,25 @@ export class PrecombatScreen {
               aria-label="Increase ${option.label}"
               ${incrementDisabled ? "disabled" : ""}
             >+</button>
+          </div>`;
+    return `
+      <li class="allocation-item" data-key="${option.key}" data-locked="${locked ? "true" : "false"}">
+        <header>
+          <div class="allocation-visual">
+            ${option.spriteUrl ? `<img src="${option.spriteUrl}" alt="${option.label}" class="allocation-thumb" />` : `<div class="allocation-fallback">${option.label.charAt(0)}</div>`}
           </div>
+          <div class="allocation-copy">
+            <div class="allocation-title-row">
+              <h4>${option.label}</h4>
+              <span class="allocation-cost">$${option.costPerUnit.toLocaleString()} ea.</span>
+            </div>
+            <p>${option.description}</p>
+            ${baselineBadge}
+            ${unlockBadge}
+          </div>
+        </header>
+        <footer class="allocation-meta">
+          ${controlsMarkup}
           <span class="allocation-total">$${totalCost.toLocaleString()}</span>
         </footer>
       </li>
@@ -690,6 +704,13 @@ export class PrecombatScreen {
     const option = getAllocationOption(optionKey);
     if (!option) {
       console.warn("Attempted to adjust unknown allocation option", optionKey);
+      return;
+    }
+
+    if (this.unlockState.isUnitLocked(optionKey)) {
+      this.allocationFeedbackElement.classList.remove("feedback--ready");
+      this.allocationFeedbackElement.classList.add("feedback--warning");
+      this.allocationFeedbackElement.textContent = `${option.label} requires an unlock before it can be requisitioned.`;
       return;
     }
 

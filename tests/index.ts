@@ -13,6 +13,7 @@ import "./CampaignMapRenderer.render.test.js";
 import "./CampaignState.observe.test.js";
 import "./CampaignScreen.status.test.js";
 import "./MissionRules.riverWatch.test.js";
+import "./unlockPurchases.test.js";
 // Air Support system tests
 import "./AirMissions.arrivals.test.js";
 import "./AirInterception.parity.test.js";

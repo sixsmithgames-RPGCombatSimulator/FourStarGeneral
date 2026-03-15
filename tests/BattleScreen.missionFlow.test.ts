@@ -139,6 +139,207 @@ registerTest("BATTLESCREEN_DEFAULT_SELECTION_PREFERS_ASSIGNED_BASE_CAMP", async 
   });
 });
 
+registerTest("BATTLESCREEN_INVALID_DEPLOYMENT_SELECTION_KEEPS_PLAYER_ZONE_HIGHLIGHTED", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let highlightedHexes: string[] = [];
+  let selectedHexContext: { key: string | null; context?: { terrainName: string; zoneKey: string | null; zoneLabel: string | null } } | null = null;
+  let baseCampButton: HTMLButtonElement;
+  let baseCampStatus: HTMLDivElement;
+
+  await Given("a River Watch deployment screen with registered player deployment zones", async () => {
+    mountBattleScreenRoot();
+    resetDeploymentState();
+    ensureDeploymentState().registerZones([
+      {
+        zoneKey: "allied-start",
+        capacity: 20,
+        hexKeys: [
+          "0,1","1,1","2,1","3,1","4,1",
+          "0,2","1,2","2,2","3,2","4,2",
+          "0,3","1,3","2,3","3,3","4,3",
+          "0,4","1,4","2,4","3,4","4,4"
+        ],
+        name: "Allied Start",
+        description: "Covered west-bank line of departure",
+        faction: "Player"
+      }
+    ]);
+
+    const fakeBattleState = {
+      ensureGameEngine() {
+        return {
+          getTurnSummary() {
+            return { phase: "deployment", activeFaction: "Player", turnNumber: 1 };
+          }
+        };
+      }
+    } as any;
+
+    const fakeRenderer = {
+      setZoneHighlights(keys: Iterable<string>) {
+        highlightedHexes = Array.from(keys);
+      }
+    } as any;
+
+    const fakeDeploymentPanel = {
+      setSelectedHex(key: string | null, context?: { terrainName: string; zoneKey: string | null; zoneLabel: string | null }) {
+        selectedHexContext = { key, context };
+      }
+    } as any;
+
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      fakeRenderer,
+      fakeDeploymentPanel,
+      null,
+      null,
+      null,
+      null,
+      null,
+      { selectedMission: "patrol_river_watch" } as any
+    );
+
+    baseCampButton = document.createElement("button");
+    baseCampStatus = document.createElement("div");
+    (screen as any).baseCampAssignButton = baseCampButton;
+    (screen as any).baseCampStatus = baseCampStatus;
+  });
+
+  await When("the commander selects an out-of-zone hex during deployment", async () => {
+    (screen as any).updateSelectionFeedback("0,6");
+  });
+
+  await Then("the map keeps valid player deployment hexes highlighted and disables base-camp assignment", async () => {
+    if (baseCampButton.disabled !== true) {
+      throw new Error("Expected base-camp assignment button to stay disabled for an invalid deployment hex.");
+    }
+    if (!baseCampStatus.textContent?.includes("outside player deployment zones")) {
+      throw new Error(`Expected invalid-selection guidance in base-camp status, received ${baseCampStatus.textContent}`);
+    }
+    if (!selectedHexContext || selectedHexContext.key !== "0,6") {
+      throw new Error("Expected deployment panel to receive the selected invalid hex context.");
+    }
+    if (selectedHexContext.context?.zoneKey !== null) {
+      throw new Error(`Expected invalid selection to resolve no deployment zone, received ${selectedHexContext.context?.zoneKey}`);
+    }
+    if (!highlightedHexes.includes("0,1") || !highlightedHexes.includes("4,4")) {
+      throw new Error(`Expected player deployment frontage to remain highlighted, received: ${highlightedHexes.join(", ")}`);
+    }
+    if (highlightedHexes.includes("0,6")) {
+      throw new Error("Expected invalid hex to remain outside the highlighted player deployment frontage.");
+    }
+    resetDeploymentState();
+  });
+});
+
+registerTest("BATTLESCREEN_ASSIGNS_BASE_CAMP_ON_VALID_PLAYER_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let assignedAxial: { q: number; r: number } | null = null;
+  let assignedZoneKey: string | null = null;
+  let renderedBaseCampMarker: string | null = null;
+  let mirroredReason: string | null = null;
+
+  await Given("a selected River Watch player deployment hex", async () => {
+    mountBattleScreenRoot();
+    resetDeploymentState();
+    ensureDeploymentState().registerZones([
+      {
+        zoneKey: "allied-start",
+        capacity: 20,
+        hexKeys: [
+          "0,1","1,1","2,1","3,1","4,1",
+          "0,2","1,2","2,2","3,2","4,2",
+          "0,3","1,3","2,3","3,3","4,3",
+          "0,4","1,4","2,4","3,4","4,4"
+        ],
+        name: "Allied Start",
+        description: "Covered west-bank line of departure",
+        faction: "Player"
+      },
+      {
+        zoneKey: "enemy-entry-north",
+        capacity: 8,
+        hexKeys: ["11,0", "12,0"],
+        name: "Enemy North Approach",
+        description: "Northern ford approach",
+        faction: "Bot"
+      }
+    ]);
+
+    const fakeEngine = {
+      setBaseCamp(axial: { q: number; r: number }) {
+        assignedAxial = axial;
+      }
+    };
+
+    const fakeBattleState = {
+      ensureGameEngine() {
+        return fakeEngine;
+      }
+    } as any;
+
+    const fakeDeploymentPanel = {
+      setCriticalError() {
+      },
+      markBaseCampAssigned(zoneKey: string | null) {
+        assignedZoneKey = zoneKey;
+      }
+    } as any;
+
+    const fakeRenderer = {
+      renderBaseCampMarker(hexKey: string | null) {
+        renderedBaseCampMarker = hexKey;
+      }
+    } as any;
+
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      fakeRenderer,
+      fakeDeploymentPanel,
+      null,
+      null,
+      null,
+      null,
+      null,
+      { selectedMission: "patrol_river_watch" } as any
+    );
+
+    (screen as any).selectedHexKey = "0,1";
+    (screen as any).baseCampStatus = document.createElement("div");
+    (screen as any).refreshDeploymentMirrors = (reason: string) => {
+      mirroredReason = reason;
+    };
+    (screen as any).completeTutorialPhase = () => {};
+  });
+
+  await When("base camp assignment runs", async () => {
+    (screen as any).handleAssignBaseCamp();
+  });
+
+  await Then("the engine and deployment panel receive the valid player deployment zone assignment", async () => {
+    if (!assignedAxial || assignedAxial.q !== 0 || assignedAxial.r !== 1) {
+      throw new Error(`Expected base camp axial assignment 0,1, received ${JSON.stringify(assignedAxial)}`);
+    }
+    if (assignedZoneKey !== "allied-start") {
+      throw new Error(`Expected base camp to lock allied-start, received ${assignedZoneKey}`);
+    }
+    if (renderedBaseCampMarker !== "0,1") {
+      throw new Error(`Expected base camp marker to render at 0,1, received ${renderedBaseCampMarker}`);
+    }
+    if (mirroredReason !== "baseCamp") {
+      throw new Error(`Expected deployment mirrors to refresh for baseCamp, received ${mirroredReason}`);
+    }
+    if (!((screen as any).baseCampStatus.textContent ?? "").includes("Base camp: 0,1")) {
+      throw new Error(`Expected base camp status to confirm the assigned hex, received ${(screen as any).baseCampStatus.textContent}`);
+    }
+    resetDeploymentState();
+  });
+});
+
 registerTest("BATTLESCREEN_REPORTS_MISSING_PLAYER_SELECTION_CONTEXT", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let criticalError: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null = null;

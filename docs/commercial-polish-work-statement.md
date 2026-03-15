@@ -335,6 +335,7 @@ Observed implementation evidence:
 
 - `BattleScreen.computeDefaultSelectionKey()` now asks the authored `MissionProfile` for a preferred deployment zone first
 - `River Crossing Watch` can declare `allied-start` as its deployment default while baseline missions continue to use `zone-alpha`
+- deployment-phase selection and base-camp validation now resolve from registered `DeploymentState` geometry, so invalid off-zone picks keep the valid player frontage highlighted instead of leaving the commander without guidance
 
 That removes the old legacy assumption, but the surrounding deployment UX still presents a mostly generic status model.
 
@@ -342,13 +343,19 @@ Result:
 
 - keyboard navigation and initial focus no longer depend on hidden hardcoded zone names
 - new mission authoring is safer because deployment defaults live in a shared mission catalog
+- commanders now get clearer deployment-phase guidance because invalid base-camp picks keep the valid player line of departure highlighted and disable the assignment control until a player-zone hex is selected
 - the remaining polish gap is presenting those authored defaults with stronger mission-specific posture copy and visual framing
 
 ### 7. Critical deployment failures are still reported too softly
 
-Current failure handling relies too heavily on announcements, console output, and in at least one important path, `alert(...)`.
+The highest-risk deployment failures now route through structured in-panel messaging, but richer proactive posture guidance is still needed.
 
-That is acceptable for low-stakes informational updates, but too weak for critical deployment gates such as:
+Observed implementation evidence:
+
+- begin-battle and base-camp assignment failures now route through deployment-panel error states with corrective action instead of `alert(...)`
+- invalid deployment-phase selection now explains that the chosen hex is outside player deployment zones and preserves the valid player frontage highlight for recovery
+
+Commercial polish still requires stronger proactive guidance around:
 
 - invalid base-camp assignment
 - invalid zone selection
@@ -805,11 +812,16 @@ One excellent mission is far more valuable for playtesting, showcasing, acquisit
 - completed: `finalizeDeploymentZone()` now accepts mission context so precombat and battle register doctrine-normalized player zones instead of trusting raw authored capacity alone
 - completed: scenario validation now measures doctrine-driven finalized deployment geometry, allowing recoverable authored seed patches while still rejecting impossible capacity declarations
 - completed: new deployment planner and scenario validation regressions now prove River Watch can recover a narrow authored seed patch to its 20-slot frontage through mission doctrine
+- completed: deployment-phase selection and base-camp assignment now resolve from registered player deployment geometry instead of panel-local cache state, preventing false-positive assignment attempts on off-zone hexes
+- completed: invalid base-camp picks now keep the valid player deployment frontage highlighted and disable the assignment control until a real player-zone hex is selected
+- completed: new battle-flow regressions now prove invalid River Watch deployment picks stay visually guided and valid player-zone picks assign base camp successfully
+- completed: the gameplay shell now allocates materially more room to battle and precombat by expanding the desktop app canvas, reducing over-reserved side-column widths, and giving the theater preview a larger structural share of the screen
+- completed: battle and precombat layout work is now explicitly prioritized ahead of fine-grain map/deployment polish so the commander first gets a broader readable battlefield presentation before aesthetic tuning resumes
 - completed: River Watch mission rules now surface authored pacing phases at runtime so the flagship mission can distinguish probe, commitment, and reserve-pressure states instead of exposing only objective counters
 - completed: River Watch phase 3 reserve-pressure messaging is now difficulty-aware, staying suppressed on Easy while Normal/Hard escalate after turn 4 once all three fords stay blocked for two turns
 - completed: `BattleScreen` now announces River Watch phase changes exactly once and folds the active phase detail into the battle mission summary so commanders can read escalation state mid-mission
 - completed: new River Watch mission-rules and battle-flow regressions now prove phase 2 commitment, phase 3 reserve pressure, and Easy suppression behavior
-- remaining: evolve doctrine-normalized seed patches into richer mission-authored posture generation and UI framing, and bind River Watch pacing phases to concrete enemy composition or reinforcement/smoke events so authored mission metadata drives both battlefield pressure and commander-facing presentation
+- remaining: continue the broader structural pass by pairing the larger screen layout with an authoritative scale doctrine and eventual scenario/map rescale, while leaving fine-grain deployment highlighting and posture cosmetics for a later polish slice
 
 ### Deliverables
 

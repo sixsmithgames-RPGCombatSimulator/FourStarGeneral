@@ -21,6 +21,7 @@ import {
   type CommissionOption
 } from "../../data/commissioningOptions";
 import type { GeneralRosterEntry } from "../../utils/rosterStorage";
+import { ensureUnlockState } from "../../state/UnlockState";
 import { PrecombatScreen } from "./PrecombatScreen";
 import { CampaignScreen } from "./CampaignScreen";
 
@@ -85,6 +86,7 @@ export class LandingScreen {
   private activeMissionButton: HTMLButtonElement | null = null;
   private precombatScreen: PrecombatScreen | null = null;
   private campaignScreen: CampaignScreen | null = null;
+  private readonly unlockState = ensureUnlockState();
 
   attachPrecombatScreen(precombatScreen: PrecombatScreen): void {
     this.precombatScreen = precombatScreen;
@@ -146,6 +148,13 @@ export class LandingScreen {
       wrapper.append(heading, summary, stats);
       container.append(wrapper);
     });
+
+    if (region && this.unlockState.isRegionLocked(region.key)) {
+      container.append(this.buildUnlockCallout(`${region.label} is locked.`, region.key, "Unlock faction"));
+    }
+    if (school && this.unlockState.isSchoolLocked(school.key)) {
+      container.append(this.buildUnlockCallout(`${school.label} is locked.`, school.key, "Unlock college"));
+    }
   }
 
   constructor(screenManager: IScreenManager, uiState: UIState) {
@@ -168,6 +177,11 @@ export class LandingScreen {
     ensureRosterInitialized();
     this.reconcileGeneralSelection();
     this.cacheElements();
+    this.unlockState.subscribe(() => {
+      this.populateCommissioningSelections();
+      this.refreshCommissioningPreview();
+      this.updateUI();
+    });
     this.bindEvents();
     this.updateUI();
     this.populateCommissioningSelections();
@@ -189,20 +203,56 @@ export class LandingScreen {
       return;
     }
 
-    this.populateSelect(this.generalRegionSelect, REGION_OPTIONS);
-    this.populateSelect(this.generalSchoolSelect, SCHOOL_OPTIONS);
+    this.populateSelect(this.generalRegionSelect, REGION_OPTIONS, (option) => this.unlockState.isRegionLocked(option.key));
+    this.populateSelect(this.generalSchoolSelect, SCHOOL_OPTIONS, (option) => this.unlockState.isSchoolLocked(option.key));
     this.syncSchoolOptions();
   }
 
-  private populateSelect(select: HTMLSelectElement, options: readonly CommissionOption[]): void {
+  private populateSelect(
+    select: HTMLSelectElement,
+    options: readonly CommissionOption[],
+    isLocked: (option: CommissionOption) => boolean
+  ): void {
+    const previousValue = select.value;
     const placeholder = select.dataset.placeholder ?? "Select an option";
     select.innerHTML = `<option value="" disabled selected hidden>${placeholder}</option>`;
     for (const option of options) {
       const element = document.createElement("option");
+      const locked = isLocked(option);
       element.value = option.key;
-      element.textContent = option.label;
+      element.textContent = locked ? `${option.label} — Unlock Required` : option.label;
+      element.dataset.locked = locked ? "true" : "false";
       select.append(element);
     }
+    if (previousValue && Array.from(select.options).some((option) => option.value === previousValue)) {
+      select.value = previousValue;
+      return;
+    }
+    select.selectedIndex = 0;
+  }
+
+  private buildUnlockCallout(title: string, sku: string, buttonLabel: string): HTMLElement {
+    const wrapper = document.createElement("article");
+    wrapper.className = "commissioning-benefit";
+
+    const heading = document.createElement("p");
+    heading.className = "commissioning-benefit__heading";
+    heading.textContent = title;
+
+    const summary = document.createElement("p");
+    summary.className = "commissioning-benefit__summary";
+    summary.textContent = "This content sits behind the current paid roster. Open pricing to unlock it.";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary-button";
+    button.textContent = buttonLabel;
+    button.addEventListener("click", () => {
+      window.location.assign(this.unlockState.buildPurchaseUrlForSku(sku));
+    });
+
+    wrapper.append(heading, summary, button);
+    return wrapper;
   }
 
   private syncSchoolOptions(): void {
@@ -407,6 +457,18 @@ export class LandingScreen {
 
     if (!school) {
       this.showFeedback("Selected war college is unavailable.");
+      return;
+    }
+
+    if (this.unlockState.isRegionLocked(region.key)) {
+      this.showFeedback(`${region.label} requires an unlock before you can commission a commander from that faction.`);
+      this.refreshCommissioningPreview();
+      return;
+    }
+
+    if (this.unlockState.isSchoolLocked(school.key)) {
+      this.showFeedback(`${school.label} requires an unlock before you can commission a commander from that college.`);
+      this.refreshCommissioningPreview();
       return;
     }
 

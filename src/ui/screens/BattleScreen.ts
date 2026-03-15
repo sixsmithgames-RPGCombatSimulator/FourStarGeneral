@@ -3197,11 +3197,15 @@ export class BattleScreen {
     }
     const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
     const deploymentState = ensureDeploymentState();
-    const zoneKey = deploymentState.getZoneKeyForHex(this.selectedHexKey);
-    if (!zoneKey) {
+    const selection = this.resolvePlayerDeploymentSelection(this.selectedHexKey);
+    if (!selection.zoneKey) {
+      const availableZones = deploymentState.getZoneUsageSummaries()
+        .filter((zone) => zone.faction === "Player")
+        .map((zone) => zone.name ?? zone.zoneKey);
+      const zoneSummary = availableZones.length > 0 ? ` Available player deployment zones: ${availableZones.join(", ")}.` : "";
       this.reportDeploymentPanelError({
         title: "Base camp assignment failed.",
-        detail: `Hex ${this.selectedHexKey} is not inside a registered deployment zone.`,
+        detail: `Hex ${this.selectedHexKey} is outside the registered player deployment zones.${zoneSummary}`,
         action: "Select a highlighted player deployment hex and try again.",
         recoverable: true
       }, { mirrorToBaseCampStatus: true });
@@ -3213,7 +3217,7 @@ export class BattleScreen {
       if (this.baseCampStatus) {
         this.baseCampStatus.textContent = `Base camp: ${this.selectedHexKey}`;
       }
-      this.deploymentPanel?.markBaseCampAssigned(zoneKey);
+      this.deploymentPanel?.markBaseCampAssigned(selection.zoneKey);
       const offsetKey = CoordinateSystem.makeHexKey(parsed.col, parsed.row);
       this.hexMapRenderer?.renderBaseCampMarker(offsetKey);
       this.refreshDeploymentMirrors("baseCamp", { hexKey: this.selectedHexKey });
@@ -3529,6 +3533,7 @@ export class BattleScreen {
     }
     const definitions = this.scenario.deploymentZones.map((zone) => finalizeDeploymentZone(zone, this.scenario, missionKey ?? undefined));
     deploymentState.registerZones(definitions);
+    this.deploymentPanel?.update();
   }
 
   private ensureEngine(): void {
@@ -3816,6 +3821,7 @@ export class BattleScreen {
     const phase = engine.getTurnSummary().phase;
 
     if (!key) {
+      this.syncBaseCampAssignButton(phase, false);
       if (this.baseCampStatus) {
         this.baseCampStatus.textContent = phase === "deployment" ? "No hex selected." : "Select a unit to move or attack.";
       }
@@ -3830,44 +3836,32 @@ export class BattleScreen {
 
     if (phase === "deployment") {
       const terrainLabel = this.lookupTerrainName(key);
-      const deploymentState = ensureDeploymentState();
-      const zoneMeta = this.deploymentPanel?.resolveZoneForHex(key) ?? null;
-      const zoneKey = zoneMeta?.key ?? null;
-      const zoneLabel = zoneMeta?.name ?? null;
-      const zoneHexes = this.deploymentPanel ? this.deploymentPanel.getZoneHexes(zoneKey) : [];
+      const selection = this.resolvePlayerDeploymentSelection(key);
+      const zoneHexes = selection.zoneKey ? selection.zoneHexes : this.getPlayerDeploymentZoneHexes();
+      this.syncBaseCampAssignButton(phase, selection.zoneKey !== null);
 
       if (this.baseCampStatus) {
-        this.baseCampStatus.textContent = `Selected hex: ${key}`;
+        this.baseCampStatus.setAttribute("aria-live", "polite");
+        if (selection.zoneKey && selection.remainingCapacity !== null && selection.totalCapacity !== null) {
+          const capacityMessage = `${selection.remainingCapacity} of ${selection.totalCapacity} positions open in ${selection.zoneLabel ?? "Deployment zone"}.`;
+          this.baseCampStatus.textContent = `Selected hex: ${key} — ${capacityMessage}`;
+        } else {
+          this.baseCampStatus.textContent = `Selected hex: ${key} — outside player deployment zones. Choose a highlighted hex for base camp placement.`;
+        }
       }
       this.hexMapRenderer?.setZoneHighlights(zoneHexes);
       this.deploymentPanel?.setSelectedHex(key, {
         terrainName: terrainLabel,
-        zoneKey,
-        zoneLabel
+        zoneKey: selection.zoneKey,
+        zoneLabel: selection.zoneLabel
       } satisfies SelectedHexContext);
 
-      if (zoneMeta && this.baseCampStatus) {
-        const definition = deploymentState.getZoneDefinition(zoneMeta.key);
-        const remaining = deploymentState.getRemainingZoneCapacity(zoneMeta.key);
-        const capacity = definition?.capacity ?? zoneMeta.totalCapacity;
-        const name = definition?.name ?? zoneMeta.name ?? "Deployment zone";
-        const capacityMessage = remaining !== null ? `${remaining} of ${capacity} positions open in ${name}.` : `${name} capacity syncing.`;
-        this.baseCampStatus.setAttribute("aria-live", "polite");
-        this.baseCampStatus.textContent = `Selected hex: ${key} — ${capacityMessage}`;
-      }
-
-      const baseAnnouncement = zoneLabel
-        ? `Selected ${key}. ${terrainLabel}. Zone ${zoneLabel}.`
-        : `Selected ${key}. ${terrainLabel}.`;
-      const capacityDetails = zoneMeta
-        ? (() => {
-          const definition = deploymentState.getZoneDefinition(zoneMeta.key);
-          const remaining = deploymentState.getRemainingZoneCapacity(zoneMeta.key);
-          const capacity = definition?.capacity ?? zoneMeta.totalCapacity;
-          const zoneName = definition?.name ?? zoneMeta.name ?? "Deployment zone";
-          return remaining !== null ? `${remaining} of ${capacity} slots open in ${zoneName}.` : `${zoneName} capacity syncing.`;
-        })()
-        : null;
+      const baseAnnouncement = selection.zoneLabel
+        ? `Selected ${key}. ${terrainLabel}. Zone ${selection.zoneLabel}.`
+        : `Selected ${key}. ${terrainLabel}. Outside player deployment zones.`;
+      const capacityDetails = selection.zoneKey && selection.remainingCapacity !== null && selection.totalCapacity !== null
+        ? `${selection.remainingCapacity} of ${selection.totalCapacity} slots open in ${selection.zoneLabel ?? "Deployment zone"}.`
+        : "Choose a highlighted player deployment hex to place the base camp.";
       const combinedAnnouncement = capacityDetails ? `${baseAnnouncement} ${capacityDetails}` : baseAnnouncement;
       this.announceBattleUpdate(combinedAnnouncement);
 
@@ -3875,10 +3869,10 @@ export class BattleScreen {
         kind: "deployment",
         hexKey: key,
         terrainName: terrainLabel,
-        zoneLabel,
-        remainingCapacity: zoneMeta ? deploymentState.getRemainingZoneCapacity(zoneMeta.key) : null,
-        totalCapacity: zoneMeta ? deploymentState.getZoneDefinition(zoneMeta.key)?.capacity ?? zoneMeta.totalCapacity : null,
-        notes: zoneMeta ? [zoneMeta.name ?? "Deployment zone"] : []
+        zoneLabel: selection.zoneLabel,
+        remainingCapacity: selection.remainingCapacity,
+        totalCapacity: selection.totalCapacity,
+        notes: selection.zoneLabel ? [selection.zoneLabel] : ["Outside player deployment zones"]
       };
       this.publishSelectionIntel(zoneIntel);
       return;
@@ -4515,6 +4509,63 @@ export class BattleScreen {
     }
     const name = definition.name ?? zoneKey;
     return `${remaining} slots remaining in ${name}.`;
+  }
+
+  private getPlayerDeploymentZoneHexes(): string[] {
+    const deploymentState = ensureDeploymentState();
+    return deploymentState.getZoneUsageSummaries()
+      .filter((zone) => zone.faction === "Player")
+      .flatMap((zone) => deploymentState.getZoneHexes(zone.zoneKey));
+  }
+
+  private resolvePlayerDeploymentSelection(hexKey: string): {
+    zoneKey: string | null;
+    zoneLabel: string | null;
+    zoneHexes: readonly string[];
+    remainingCapacity: number | null;
+    totalCapacity: number | null;
+  } {
+    const deploymentState = ensureDeploymentState();
+    const zoneKey = deploymentState.getZoneKeyForHex(hexKey);
+    if (!zoneKey) {
+      return {
+        zoneKey: null,
+        zoneLabel: null,
+        zoneHexes: [],
+        remainingCapacity: null,
+        totalCapacity: null
+      };
+    }
+    const definition = deploymentState.getZoneDefinition(zoneKey);
+    if (!definition || definition.faction !== "Player") {
+      return {
+        zoneKey: null,
+        zoneLabel: null,
+        zoneHexes: [],
+        remainingCapacity: null,
+        totalCapacity: null
+      };
+    }
+    return {
+      zoneKey,
+      zoneLabel: definition.name ?? this.toTitleCase(zoneKey),
+      zoneHexes: deploymentState.getZoneHexes(zoneKey),
+      remainingCapacity: deploymentState.getRemainingZoneCapacity(zoneKey),
+      totalCapacity: definition.capacity
+    };
+  }
+
+  private syncBaseCampAssignButton(phase: TurnSummary["phase"], hasValidPlayerDeploymentHex: boolean): void {
+    if (!this.baseCampAssignButton) {
+      return;
+    }
+    const enabled = phase === "deployment" && hasValidPlayerDeploymentHex;
+    this.baseCampAssignButton.disabled = !enabled;
+    if (enabled) {
+      this.baseCampAssignButton.removeAttribute("aria-disabled");
+      return;
+    }
+    this.baseCampAssignButton.setAttribute("aria-disabled", "true");
   }
 
   private cloneScenario(): ScenarioData {

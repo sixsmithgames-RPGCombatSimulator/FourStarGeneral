@@ -13,6 +13,26 @@
       var DUMMY_EMAILS = ['sexsmith2005@gmail.com'];
       var ADMIN_EMAILS = ('' || '').split(',').map(function(e){ return e.trim().toLowerCase(); }).filter(Boolean);
 
+      function getPlanIds(meta) {
+        var planIds = [];
+        if (meta && Array.isArray(meta.subscriptionPlans)) {
+          meta.subscriptionPlans.forEach(function(planId) {
+            if (typeof planId === 'string' && planId.length > 0 && planIds.indexOf(planId) === -1) {
+              planIds.push(planId);
+            }
+          });
+        }
+        if (meta && typeof meta.subscriptionPlan === 'string' && meta.subscriptionPlan.length > 0 && planIds.indexOf(meta.subscriptionPlan) === -1) {
+          planIds.push(meta.subscriptionPlan);
+        }
+        return planIds;
+      }
+
+      function publishAuthContext(context) {
+        window.__FSG_AUTH_CONTEXT__ = context;
+        document.dispatchEvent(new CustomEvent('fsg:authResolved', { detail: context }));
+      }
+
       function showGate(message, url, btnText) {
         document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#080a11;color:#fff;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;text-align:center;padding:2rem;">'
           + '<div style="font-size:3rem;margin-bottom:1rem;">🎖️</div>'
@@ -34,6 +54,7 @@
       // Keep Clerk authentication gating, but do not require an active plan or bundle for launch.
       var APP_SLUG = 'fourstargeneral';
       var BUNDLE_SLUG = 'bundle';
+      publishAuthContext({ resolved: false, isAuthenticated: false, email: null, subscriptionStatus: null, planIds: [], isPrivileged: false });
 
       var script = document.createElement('script');
       script.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@latest/dist/clerk.browser.js';
@@ -42,15 +63,30 @@
         window.Clerk.load().then(function() {
           var user = window.Clerk.user;
           if (!user) {
+            publishAuthContext({ resolved: true, isAuthenticated: false, email: null, subscriptionStatus: null, planIds: [], isPrivileged: false });
             showGate('Sign in to your Sixsmith Games account to access Four Star General.', SIGN_IN_URL, 'Sign In to Play →');
             return;
           }
           var email = (user.primaryEmailAddress && user.primaryEmailAddress.emailAddress) || '';
           var meta = user.publicMetadata || {};
-          // Admin/dummy users still bypass gating; all other signed-in users may launch without plan validation.
-          if (isAdmin(email) || isDummySubscriber(email)) { return; }
-          // Four Star General is “free-core” once authenticated; proceed without redirecting to pricing.
-          console.info('Clerk session verified for Four Star General free-core access', { email, plans: meta.subscriptionPlans, plan: meta.subscriptionPlan });
+          var subscriptionStatus = typeof meta.subscriptionStatus === 'string' ? meta.subscriptionStatus : null;
+          var planIds = getPlanIds(meta);
+          var privileged = isAdmin(email) || isDummySubscriber(email);
+          publishAuthContext({
+            resolved: true,
+            isAuthenticated: true,
+            email: email || null,
+            subscriptionStatus: subscriptionStatus,
+            planIds: planIds,
+            isPrivileged: privileged
+          });
+          if (privileged) { return; }
+          console.info('Clerk session verified for Four Star General free-core access', {
+            email,
+            plans: planIds,
+            subscriptionStatus,
+            fullAccess: planIds.indexOf(APP_SLUG) !== -1 || planIds.indexOf(BUNDLE_SLUG) !== -1
+          });
         });
       };
 
@@ -68,9 +104,9 @@
       --accent-strong: #f5c46d;
       --link-blue: #8ab4ff;
       --panel-glass: rgba(10, 14, 22, 0.92);
-      --sidebar-width: 92px;
-      --activity-log-width: 320px;
-      --deployment-panel-width: 260px;
+      --sidebar-width: 84px;
+      --activity-log-width: 280px;
+      --deployment-panel-width: 248px;
       --toggle-radius: 1.25rem;
       --scrollbar-track: rgba(255, 255, 255, 0.06);
       --scrollbar-thumb: rgba(245, 196, 109, 0.5);
@@ -98,11 +134,11 @@
       display: flex;
       align-items: stretch;
       justify-content: center;
-      padding: 2rem;
+      padding: clamp(0.75rem, 2vw, 1.5rem);
     }
     #app {
-      width: min(1280px, 100%);
-      height: min(800px, 100%);
+      width: min(1600px, calc(100vw - clamp(1.5rem, 4vw, 3rem)));
+      height: min(920px, calc(100vh - clamp(1.5rem, 4vw, 3rem)));
       background: rgba(9, 12, 20, 0.62);
       border: 1px solid rgba(255, 255, 255, 0.04);
       border-radius: 26px;
@@ -122,8 +158,8 @@
       flex: 1;
       display: flex;
       flex-direction: column;
-      padding: 2.5rem 2.75rem;
-      gap: 2.5rem;
+      padding: clamp(1rem, 1.8vw, 1.75rem) clamp(1.1rem, 2vw, 2rem);
+      gap: clamp(1.25rem, 2vw, 2rem);
       background: rgba(12, 16, 25, 0.82);
       /* Ensure tall panels remain accessible by enabling internal scrolling when content exceeds the viewport. */
       overflow-y: auto;
@@ -246,7 +282,6 @@
       letter-spacing: 0.06em;
       font-size: 0.72rem;
       color: var(--text-muted);
-      margin: 0 0 0.25rem;
     }
     .general-detail-bonus-copy {
       margin: 0;
@@ -1042,8 +1077,8 @@
     }
     .precombat-layout {
       display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-      gap: 2rem;
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+      gap: 1.75rem;
       align-items: start;
     }
     .predeployed-panel {
@@ -1138,7 +1173,8 @@
     }
     .map-card .map-preview {
       width: 100%;
-      aspect-ratio: 16 / 10;
+      aspect-ratio: 4 / 3;
+      min-height: clamp(280px, 34vh, 420px);
       max-height: none;
       border-radius: 16px;
       overflow: hidden;
@@ -1688,8 +1724,8 @@
       transform: translateY(-1px);
     }
     .allocation-btn:focus-visible {
-      outline: 2px solid transparent;
-      box-shadow: 0 0 0 3px var(--allocation-focus-ring), 0 10px 24px var(--allocation-focus-glow);
+      outline: 2px solid var(--accent-strong);
+      outline-offset: 2px;
       border-color: var(--accent-strong);
       transform: translateY(-1px);
     }
@@ -2056,7 +2092,7 @@
       justify-content: space-between;
       gap: 1rem;
       flex-wrap: wrap;
-      padding: 0.5rem 0.75rem;
+      padding: 0.45rem 0.65rem;
       min-height: 0;
     }
     .battle-map-header__primary {
@@ -2151,12 +2187,12 @@
       outline: none;
     }
     .battle-briefing {
-      padding: 1.5rem 1.75rem;
+      padding: 1.1rem 1.25rem;
       display: grid;
-      gap: 1.25rem;
+      gap: 1rem;
       background: rgba(8, 11, 19, 0.78);
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      max-height: 40vh;
+      max-height: 32vh;
       overflow-y: auto;
     }
     .battle-briefing.is-collapsed {
@@ -2166,7 +2202,7 @@
       position: relative;
       flex: 1;
       background: rgba(5, 8, 15, 0.9);
-      border-radius: 22px;
+      border-radius: 18px;
       overflow: hidden;
     }
     .battle-activity-log {
@@ -2934,7 +2970,8 @@
       flex-direction: column;
       transition: opacity 0.2s ease;
       height: 100%;
-      max-height: calc(100vh - 2.5rem);
+      max-height: 100%;
+      min-height: 0;
     }
     .battle-main[data-panel-collapsed="true"] #deploymentPanel {
       display: none;
