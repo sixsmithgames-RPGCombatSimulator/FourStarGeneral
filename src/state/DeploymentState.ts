@@ -6,6 +6,12 @@ import { getAllocationOption } from "../data/unitAllocation";
 import type { GameEngineAPI, ReserveUnit } from "../game/GameEngine";
 import unitTypesSource from "../data/unitTypes.json";
 
+ function axialToOffsetKey(hex: { q: number; r: number }): string {
+  const col = hex.q;
+  const row = hex.r + Math.floor(hex.q / 2);
+  return `${col},${row}`;
+ }
+
 export interface DeploymentPoolEntry {
   key: string;
   label: string;
@@ -238,8 +244,12 @@ export class DeploymentState {
     this.totalAllocationMap.clear();
     this.spriteMap.clear();
     this.reserveCountMap.clear();
+    this.committedEntries = [];
     this.baseCampKey = null;
+    this.zoneDefinitions.clear();
     this.zoneOccupancy.clear();
+    this.hexToZoneKey.clear();
+    this.primeSpriteCatalog();
   }
 
   /**
@@ -513,7 +523,7 @@ export class DeploymentState {
       placementCounts.set(unitKey, (placementCounts.get(unitKey) ?? 0) + 1);
     });
 
-    this.baseCampKey = engine.baseCamp ? engine.baseCamp.key : null;
+    this.baseCampKey = engine.baseCamp ? axialToOffsetKey(engine.baseCamp.hex) : null;
 
     const reserveSnapshot = engine.getReserveSnapshot();
     const aggregated = this.aggregateReserves(reserveSnapshot);
