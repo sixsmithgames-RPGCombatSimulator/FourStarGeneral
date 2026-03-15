@@ -1036,6 +1036,20 @@ export class HexMapRenderer implements IMapRenderer {
     return (Math.atan2(dy, dx) * 180) / Math.PI;
   }
 
+  private normalizeFacing(facing: ScenarioUnit["facing"] | string | null | undefined): ScenarioUnit["facing"] {
+    switch (facing) {
+      case "N":
+      case "NE":
+      case "SE":
+      case "S":
+      case "SW":
+      case "NW":
+        return facing;
+      default:
+        return "N";
+    }
+  }
+
   private resolveFacingAngleDeg(facing: ScenarioUnit["facing"]): number {
     const facingVectors: Record<ScenarioUnit["facing"], { q: number; r: number }> = {
       N: { q: 0, r: -1 },
@@ -1482,7 +1496,7 @@ export class HexMapRenderer implements IMapRenderer {
         });
         this.positionUnitStack(existing, cx, cy);
         const storedAngle = this.hexUnitFacingAngleMap.get(hexKey);
-        const angleDeg = storedAngle ?? this.resolveFacingAngleDeg(unit.facing);
+        const angleDeg = storedAngle ?? this.resolveFacingAngleDeg(this.normalizeFacing(unit.facing));
         this.applyFacingAngleToGroup(existing, cx, cy, angleDeg);
         if (storedAngle === undefined) {
           this.hexUnitFacingAngleMap.set(hexKey, angleDeg);
@@ -1507,7 +1521,7 @@ export class HexMapRenderer implements IMapRenderer {
     group.appendChild(facingGroup);
     this.positionUnitStack(group, cx, cy);
     const storedAngle = this.hexUnitFacingAngleMap.get(hexKey);
-    const angleDeg = storedAngle ?? this.resolveFacingAngleDeg(unit.facing);
+    const angleDeg = storedAngle ?? this.resolveFacingAngleDeg(this.normalizeFacing(unit.facing));
     this.applyFacingAngleToGroup(group, cx, cy, angleDeg);
     if (storedAngle === undefined) {
       this.hexUnitFacingAngleMap.set(hexKey, angleDeg);

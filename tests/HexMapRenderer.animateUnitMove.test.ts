@@ -140,3 +140,73 @@ registerTest("HEXMAP_ANIMATE_UNIT_MOVE", async ({ Given, When, Then }) => {
     viewport.remove();
   });
 });
+
+registerTest("HEXMAP_RENDERUNIT_REJECTS_MALFORMED_FACING_WITHOUT_CRASHING", async ({ Given, When, Then }) => {
+  const viewport = document.createElement("div");
+  viewport.style.width = "300px";
+  viewport.style.height = "200px";
+  Object.defineProperty(viewport, "clientWidth", { value: 300, configurable: true });
+  Object.defineProperty(viewport, "clientHeight", { value: 200, configurable: true });
+
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  viewport.appendChild(canvas);
+  document.body.appendChild(viewport);
+
+  const scenario: ScenarioData = {
+    name: "Facing Guard Harness",
+    size: { cols: 1, rows: 1 },
+    tilePalette: {
+      PLAINS: {
+        terrain: "plains",
+        terrainType: "grass",
+        density: "average",
+        features: [],
+        recon: "intel"
+      }
+    },
+    tiles: [[{ tile: "PLAINS" }]],
+    objectives: [],
+    turnLimit: 1,
+    sides: {
+      Player: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] },
+      Bot: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] }
+    }
+  };
+
+  const renderer = new HexMapRenderer();
+
+  await Given("a rendered map", async () => {
+    renderer.render(svg as SVGSVGElement, canvas as HTMLDivElement, scenario);
+  });
+
+  let thrown: unknown = null;
+  await When("a unit render request carries a malformed facing value", async () => {
+    try {
+      renderer.renderUnit("0,0", {
+        type: "Infantry" as never,
+        hex: { q: 0, r: 0 },
+        strength: 10,
+        experience: 0,
+        ammo: 6,
+        fuel: 0,
+        entrench: 0,
+        facing: "BROKEN" as unknown as "N"
+      }, "Player");
+    } catch (error) {
+      thrown = error;
+    }
+  });
+
+  await Then("the renderer keeps drawing the unit instead of throwing", async () => {
+    if (thrown) {
+      throw new Error(`Expected malformed facing to be tolerated, received ${String(thrown)}`);
+    }
+    const unit = svg.querySelector("g.unit-stack");
+    if (!unit) {
+      throw new Error("Expected the unit stack to render despite malformed facing input.");
+    }
+    viewport.remove();
+  });
+});

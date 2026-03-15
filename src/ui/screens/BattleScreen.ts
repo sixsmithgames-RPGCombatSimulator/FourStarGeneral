@@ -4616,6 +4616,16 @@ export class BattleScreen {
         if (def?.moveType === "air") {
           return;
         }
+        if (!unit.hex || !Number.isFinite(unit.hex.q) || !Number.isFinite(unit.hex.r)) {
+          console.warn("[BattleScreen] Skipping malformed engine unit without a valid hex during render", {
+            label,
+            type: unit.type,
+            unitId: unit.unitId ?? null,
+            hex: unit.hex ?? null,
+            facing: (unit as { facing?: unknown }).facing ?? null
+          });
+          return;
+        }
         const { col, row } = CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r);
         const hexKey = CoordinateSystem.makeHexKey(col, row);
 
