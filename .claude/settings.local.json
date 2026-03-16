@@ -23,7 +23,8 @@
       "Bash(npm install:*)",
       "Bash(find:*)",
       "Bash(git commit:*)",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []
