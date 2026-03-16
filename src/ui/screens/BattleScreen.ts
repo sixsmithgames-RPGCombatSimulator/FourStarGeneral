@@ -1872,17 +1872,29 @@ export class BattleScreen {
   private tryTransferAllyControl(hexKey: string): boolean {
     const engine = this.battleState.ensureGameEngine();
     const parsed = CoordinateSystem.parseHexKey(hexKey);
+    console.log("[BattleScreen] tryTransferAllyControl", { hexKey, parsed });
     if (!parsed) {
+      console.log("[BattleScreen] tryTransferAllyControl - parse failed, returning false");
       return false;
     }
     const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
     const allyPresent = engine.allyUnits.some((unit) => CoordinateSystem.makeHexKey(CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r).col, CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r).row) === hexKey);
+    console.log("[BattleScreen] tryTransferAllyControl - ally check", {
+      hexKey,
+      axial,
+      allyPresent,
+      allyUnitCount: engine.allyUnits.length,
+      allyUnits: engine.allyUnits.map(u => ({ hex: u.hex, type: u.type }))
+    });
     if (!allyPresent) {
+      console.log("[BattleScreen] tryTransferAllyControl - no ally present, returning false");
       return false;
     }
 
+    console.log("[BattleScreen] tryTransferAllyControl - attempting transfer");
     try {
       const transferred = engine.transferAllyControl(axial);
+      console.log("[BattleScreen] tryTransferAllyControl - transfer result", { transferred });
       if (!transferred) {
         return false;
       }
