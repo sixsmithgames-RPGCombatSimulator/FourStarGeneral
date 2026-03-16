@@ -1108,10 +1108,18 @@ export class HexMapRenderer implements IMapRenderer {
    */
   private rebindHexInteractions(): void {
     if (!this.svgElement) {
+      console.warn("[HexMapRenderer] rebindHexInteractions skipped - no SVG element");
       return;
     }
 
     const hexCells = Array.from(this.svgElement.querySelectorAll<SVGGElement>(".hex-cell"));
+    console.log("[HexMapRenderer] rebindHexInteractions", {
+      hexCellCount: hexCells.length,
+      hasClickHandler: !!this.hexClickHandler,
+      svgPointerEvents: this.svgElement.style.pointerEvents || "default",
+      svgComputedPointerEvents: window.getComputedStyle(this.svgElement).pointerEvents
+    });
+
     hexCells.forEach((cell) => {
       const key = cell.dataset.hex;
       if (!key) {
@@ -1119,7 +1127,14 @@ export class HexMapRenderer implements IMapRenderer {
       }
       cell.onclick = null;
       if (this.hexClickHandler) {
-        cell.addEventListener("click", () => {
+        cell.addEventListener("click", (event) => {
+          console.log("[HexMapRenderer] Hex clicked", {
+            hexKey: key,
+            cellPointerEvents: cell.style.pointerEvents || "default",
+            cellComputedPointerEvents: window.getComputedStyle(cell).pointerEvents,
+            target: event.target,
+            currentTarget: event.currentTarget
+          });
           this.hexClickHandler?.(key);
           // Also broadcast a DOM event so non-renderer components (e.g., PopupManager) can react to map picks.
           document.dispatchEvent(new CustomEvent("battle:hexClicked", { detail: { offsetKey: key } }));

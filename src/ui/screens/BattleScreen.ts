@@ -2728,6 +2728,68 @@ export class BattleScreen {
 
       this.completeTutorialPhase("begin_battle");
 
+      // Diagnostic logging for click handling
+      setTimeout(() => {
+        const tutorialContainer = document.getElementById("tutorialOverlayContainer");
+        const tutorialBackdrop = tutorialContainer?.querySelector(".tutorial-backdrop") as HTMLElement;
+        const tutorialPanel = tutorialContainer?.querySelector(".tutorial-panel") as HTMLElement;
+        const svg = document.getElementById("battleHexMap");
+        const canvas = document.getElementById("battleMapCanvas");
+
+        console.log("[BattleScreen] Post-battle-start diagnostic", {
+          tutorialContainer: {
+            exists: !!tutorialContainer,
+            classList: tutorialContainer?.classList.toString(),
+            pointerEvents: tutorialContainer?.style.pointerEvents || "default",
+            computedPointerEvents: tutorialContainer ? window.getComputedStyle(tutorialContainer).pointerEvents : "n/a"
+          },
+          tutorialBackdrop: {
+            exists: !!tutorialBackdrop,
+            pointerEvents: tutorialBackdrop?.style.pointerEvents || "default",
+            computedPointerEvents: tutorialBackdrop ? window.getComputedStyle(tutorialBackdrop).pointerEvents : "n/a"
+          },
+          tutorialPanel: {
+            exists: !!tutorialPanel,
+            pointerEvents: tutorialPanel?.style.pointerEvents || "default",
+            computedPointerEvents: tutorialPanel ? window.getComputedStyle(tutorialPanel).pointerEvents : "n/a"
+          },
+          svg: {
+            exists: !!svg,
+            pointerEvents: svg ? (svg as HTMLElement).style.pointerEvents || "default" : "n/a",
+            computedPointerEvents: svg ? window.getComputedStyle(svg).pointerEvents : "n/a"
+          },
+          canvas: {
+            exists: !!canvas,
+            pointerEvents: canvas ? canvas.style.pointerEvents || "default" : "n/a",
+            computedPointerEvents: canvas ? window.getComputedStyle(canvas).pointerEvents : "n/a"
+          }
+        });
+
+        // Add temporary diagnostic click listener to SVG
+        if (svg) {
+          svg.addEventListener("click", (event) => {
+            console.log("[BattleScreen] SVG clicked (direct listener)", {
+              target: event.target,
+              currentTarget: event.currentTarget,
+              eventPhase: event.eventPhase,
+              bubbles: event.bubbles,
+              cancelable: event.cancelable,
+              defaultPrevented: event.defaultPrevented
+            });
+          });
+        }
+
+        // Add click listener to document to see if ANY clicks are happening
+        document.addEventListener("click", (event) => {
+          console.log("[BattleScreen] Document clicked", {
+            target: event.target,
+            targetTagName: (event.target as HTMLElement)?.tagName,
+            targetClass: (event.target as HTMLElement)?.className,
+            targetId: (event.target as HTMLElement)?.id
+          });
+        }, { capture: true });
+      }, 1000);
+
     } catch (error) {
       const detail = error instanceof Error
         ? error.message
@@ -3622,6 +3684,12 @@ export class BattleScreen {
   private handleHexSelection(key: string): void {
     const engine = this.battleState.ensureGameEngine();
     const summary = engine.getTurnSummary();
+    console.log("[BattleScreen] handleHexSelection", {
+      hexKey: key,
+      phase: summary.phase,
+      activeFaction: summary.activeFaction,
+      turnNumber: summary.turnNumber
+    });
     if (summary.phase === "playerTurn") {
       if (this.tryTransferAllyControl(key)) {
         return;
