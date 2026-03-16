@@ -3836,6 +3836,7 @@ export class BattleScreen {
    * direct invocation of the selection synchronization routine.
    */
   private applySelectedHex(key: string): void {
+    console.log("[BattleScreen] applySelectedHex", { hexKey: key, hasRenderer: !!this.hexMapRenderer });
     if (this.hexMapRenderer) {
       this.hexMapRenderer.applyHexSelection(key);
       return;
@@ -3860,19 +3861,28 @@ export class BattleScreen {
    * avoiding redundant work when the key is unchanged.
    */
   private handleRendererSelection(key: string | null): void {
+    console.log("[BattleScreen] handleRendererSelection", {
+      hexKey: key,
+      currentSelection: this.selectedHexKey,
+      isSame: this.selectedHexKey === key
+    });
     if (this.selectedHexKey === key) {
+      console.log("[BattleScreen] handleRendererSelection - skipping, same key already selected");
       return;
     }
 
     // Only enforce zone lock during deployment phase, not during battle
     const engine = this.battleState.ensureGameEngine();
     const phase = engine.getTurnSummary().phase;
+    console.log("[BattleScreen] handleRendererSelection - phase check", { phase });
     if (phase === "deployment" && key && this.deploymentPanel?.isZoneLocked() && !this.deploymentPanel.isHexWithinLockedZone(key)) {
       const lockedLabel = this.deploymentPanel.getLockedZoneLabel() ?? "locked deployment zone";
       this.announceBattleUpdate(`Base camp assigned to ${lockedLabel}. Select a hex within that zone.`);
+      console.log("[BattleScreen] handleRendererSelection - blocked by zone lock");
       return;
     }
 
+    console.log("[BattleScreen] handleRendererSelection - updating selection", { from: this.selectedHexKey, to: key });
     this.selectedHexKey = key;
     this.updateSelectionFeedback(key);
   }
@@ -3948,11 +3958,20 @@ export class BattleScreen {
 
     // Gameplay selection: compute move/attack overlays for player units.
     const parsed = CoordinateSystem.parseHexKey(key);
+    console.log("[BattleScreen] updateSelectionFeedback - battle phase", { hexKey: key, parsed });
     if (!parsed) {
+      console.warn("[BattleScreen] updateSelectionFeedback - failed to parse hex key");
       return;
     }
     const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
     const holdsPlayer = engine.playerUnits.some((u) => u.hex.q === axial.q && u.hex.r === axial.r);
+    console.log("[BattleScreen] updateSelectionFeedback - unit check", {
+      hexKey: key,
+      axial,
+      holdsPlayer,
+      playerUnitCount: engine.playerUnits.length,
+      playerUnits: engine.playerUnits.map(u => ({ hex: u.hex, type: u.type, faction: u.faction }))
+    });
     if (holdsPlayer) {
       const moves = engine.getReachableHexes(axial);
       const targets = engine.getAttackableTargets(axial);
@@ -4009,6 +4028,7 @@ export class BattleScreen {
       };
       this.publishSelectionIntel(selectionIntel);
     } else {
+      console.log("[BattleScreen] updateSelectionFeedback - hex does not hold player unit");
       this.playerMoveHexes.clear();
       this.playerAttackHexes.clear();
       this.hexMapRenderer?.setZoneHighlights([]);
@@ -4101,7 +4121,15 @@ export class BattleScreen {
   private onPlayerTurnMapClick(key: string): void {
     const _engine = this.battleState.ensureGameEngine();
     const parsed = CoordinateSystem.parseHexKey(key);
+    console.log("[BattleScreen] onPlayerTurnMapClick", {
+      hexKey: key,
+      parsed,
+      selectedHexKey: this.selectedHexKey,
+      playerMoveHexes: this.playerMoveHexes.size,
+      playerAttackHexes: this.playerAttackHexes.size
+    });
     if (!parsed) {
+      console.warn("[BattleScreen] onPlayerTurnMapClick - failed to parse hex key", key);
       return;
     }
     const clickedAxial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
@@ -4109,6 +4137,7 @@ export class BattleScreen {
     // If there is an active selection and the user clicked a move/attack destination, execute the action.
     if (this.selectedHexKey) {
       if (this.playerMoveHexes.has(key)) {
+        console.log("[BattleScreen] onPlayerTurnMapClick - executing move", { from: this.selectedHexKey, to: key });
         const selParsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
         if (!selParsed) return;
         const selAxial = CoordinateSystem.offsetToAxial(selParsed.col, selParsed.row);
@@ -4119,6 +4148,7 @@ export class BattleScreen {
         return;
       }
       if (this.playerAttackHexes.has(key)) {
+        console.log("[BattleScreen] onPlayerTurnMapClick - prompting attack", { from: this.selectedHexKey, to: key });
         const selParsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
         if (!selParsed) return;
         const selAxial = CoordinateSystem.offsetToAxial(selParsed.col, selParsed.row);
@@ -4129,9 +4159,11 @@ export class BattleScreen {
 
     // Otherwise treat as a selection change.
     if (this.selectedHexKey === key) {
+      console.log("[BattleScreen] onPlayerTurnMapClick - clearing selection (same hex clicked)");
       this.clearSelectedHex();
       return;
     }
+    console.log("[BattleScreen] onPlayerTurnMapClick - applying selection", { hexKey: key });
     this.applySelectedHex(key);
   }
 
