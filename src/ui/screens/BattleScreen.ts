@@ -3694,22 +3694,41 @@ export class BattleScreen {
   }
 
   private handleHexSelection(key: string): void {
-    const engine = this.battleState.ensureGameEngine();
-    const summary = engine.getTurnSummary();
-    console.log("[BattleScreen] handleHexSelection", {
-      hexKey: key,
-      phase: summary.phase,
-      activeFaction: summary.activeFaction,
-      turnNumber: summary.turnNumber
-    });
-    if (summary.phase === "playerTurn") {
-      if (this.tryTransferAllyControl(key)) {
+    console.log("[BattleScreen] handleHexSelection START", { hexKey: key });
+    try {
+      const engine = this.battleState.ensureGameEngine();
+      const summary = engine.getTurnSummary();
+      console.log("[BattleScreen] handleHexSelection got summary", {
+        hexKey: key,
+        phase: summary.phase,
+        activeFaction: summary.activeFaction,
+        turnNumber: summary.turnNumber
+      });
+
+      console.log("[BattleScreen] handleHexSelection checking phase", {
+        phase: summary.phase,
+        isPlayerTurn: summary.phase === "playerTurn"
+      });
+
+      if (summary.phase === "playerTurn") {
+        console.log("[BattleScreen] handleHexSelection IN PLAYER TURN BLOCK");
+        const transferResult = this.tryTransferAllyControl(key);
+        console.log("[BattleScreen] handleHexSelection transfer result", { transferResult });
+        if (transferResult) {
+          console.log("[BattleScreen] handleHexSelection EXITING after transfer");
+          return;
+        }
+        console.log("[BattleScreen] handleHexSelection CALLING onPlayerTurnMapClick");
+        this.onPlayerTurnMapClick(key);
+        console.log("[BattleScreen] handleHexSelection AFTER onPlayerTurnMapClick");
         return;
       }
-      this.onPlayerTurnMapClick(key);
-      return;
+      console.log("[BattleScreen] handleHexSelection NOT player turn, calling applySelectedHex");
+      this.applySelectedHex(key);
+    } catch (error) {
+      console.error("[BattleScreen] handleHexSelection EXCEPTION", error);
+      throw error;
     }
-    this.applySelectedHex(key);
   }
 
   /**
