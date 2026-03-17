@@ -80,6 +80,7 @@ export class HexMapRenderer implements IMapRenderer {
   private combatAnimator: SpriteSheetAnimator | null = null;
 
   private hexClickHandler: ((key: string) => void) | null = null;
+  private boundDelegatedClickHandler: ((event: MouseEvent) => void) | null = null;
   private selectionChangedHandler: ((key: string | null) => void) | null = null;
   private highlightedHexKey: string | null = null;
   private readonly activeZoneKeys = new Set<string>();
@@ -1106,49 +1107,45 @@ export class HexMapRenderer implements IMapRenderer {
   /**
    * Rebinds click handlers for hex selection.
    */
+  /**
+   * Rebinds click handlers for hex selection using event delegation.
+   *
+   * Uses a single delegated event listener on the parent SVG instead of individual
+   * listeners on each hex cell. This is performant and prevents duplicate handler bugs.
+   */
   private rebindHexInteractions(): void {
     if (!this.svgElement) {
-      console.warn("[HexMapRenderer] rebindHexInteractions skipped - no SVG element");
       return;
     }
 
-    const hexCells = Array.from(this.svgElement.querySelectorAll<SVGGElement>(".hex-cell"));
-    console.log("[HexMapRenderer] rebindHexInteractions", {
-      hexCellCount: hexCells.length,
-      hasClickHandler: !!this.hexClickHandler,
-      svgPointerEvents: this.svgElement.style.pointerEvents || "default",
-      svgComputedPointerEvents: window.getComputedStyle(this.svgElement).pointerEvents
-    });
+    // Remove any existing delegated listener by removing and re-adding it
+    // (we store the bound function so removeEventListener works correctly)
+    if (this.boundDelegatedClickHandler) {
+      this.svgElement.removeEventListener("click", this.boundDelegatedClickHandler);
+    }
 
-    hexCells.forEach((cell) => {
-      const key = cell.dataset.hex;
-      if (!key) {
-        return;
-      }
+    // Create and store the bound handler so we can remove it later
+    this.boundDelegatedClickHandler = (event: MouseEvent) => {
+      if (!this.hexClickHandler) return;
 
-      // Clone the node to remove ALL event listeners (including addEventListener ones)
-      const clonedCell = cell.cloneNode(true) as SVGGElement;
-      cell.parentNode?.replaceChild(clonedCell, cell);
+      // Find the closest .hex-cell ancestor from the click target
+      const target = event.target as Element;
+      const hexCell = target.closest(".hex-cell") as SVGGElement | null;
 
-      // Now bind the click handler to the clean cloned node
-      if (this.hexClickHandler) {
-        clonedCell.onclick = (event) => {
-          console.log("[HexMapRenderer] Hex clicked", {
-            hexKey: key,
-            cellPointerEvents: clonedCell.style.pointerEvents || "default",
-            cellComputedPointerEvents: window.getComputedStyle(clonedCell).pointerEvents,
-            target: event.target,
-            currentTarget: event.currentTarget
-          });
-          this.hexClickHandler?.(key);
-          // Also broadcast a DOM event so non-renderer components (e.g., PopupManager) can react to map picks.
-          document.dispatchEvent(new CustomEvent("battle:hexClicked", { detail: { offsetKey: key } }));
-        };
-      }
-    });
+      if (!hexCell) return;
 
-    // Rebuild hex element cache after cloning
-    this.cacheHexReferences();
+      const key = hexCell.dataset.hex;
+      if (!key) return;
+
+      this.hexClickHandler(key);
+      // Also broadcast a DOM event so non-renderer components (e.g., PopupManager) can react to map picks.
+      document.dispatchEvent(new CustomEvent("battle:hexClicked", { detail: { offsetKey: key } }));
+    };
+
+    // Add the single delegated listener to the parent SVG
+    if (this.hexClickHandler) {
+      this.svgElement.addEventListener("click", this.boundDelegatedClickHandler);
+    }
   }
 
   /**

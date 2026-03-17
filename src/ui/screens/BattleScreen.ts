@@ -1872,29 +1872,17 @@ export class BattleScreen {
   private tryTransferAllyControl(hexKey: string): boolean {
     const engine = this.battleState.ensureGameEngine();
     const parsed = CoordinateSystem.parseHexKey(hexKey);
-    console.log("[BattleScreen] tryTransferAllyControl", { hexKey, parsed });
     if (!parsed) {
-      console.log("[BattleScreen] tryTransferAllyControl - parse failed, returning false");
       return false;
     }
     const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
     const allyPresent = engine.allyUnits.some((unit) => CoordinateSystem.makeHexKey(CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r).col, CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r).row) === hexKey);
-    console.log("[BattleScreen] tryTransferAllyControl - ally check", {
-      hexKey,
-      axial,
-      allyPresent,
-      allyUnitCount: engine.allyUnits.length,
-      allyUnits: engine.allyUnits.map(u => ({ hex: u.hex, type: u.type }))
-    });
     if (!allyPresent) {
-      console.log("[BattleScreen] tryTransferAllyControl - no ally present, returning false");
       return false;
     }
 
-    console.log("[BattleScreen] tryTransferAllyControl - attempting transfer");
     try {
       const transferred = engine.transferAllyControl(axial);
-      console.log("[BattleScreen] tryTransferAllyControl - transfer result", { transferred });
       if (!transferred) {
         return false;
       }
@@ -2742,64 +2730,6 @@ export class BattleScreen {
 
       // Diagnostic logging for click handling
       setTimeout(() => {
-        const tutorialContainer = document.getElementById("tutorialOverlayContainer");
-        const tutorialBackdrop = tutorialContainer?.querySelector(".tutorial-backdrop") as HTMLElement;
-        const tutorialPanel = tutorialContainer?.querySelector(".tutorial-panel") as HTMLElement;
-        const svg = document.getElementById("battleHexMap");
-        const canvas = document.getElementById("battleMapCanvas");
-
-        console.log("[BattleScreen] Post-battle-start diagnostic", {
-          tutorialContainer: {
-            exists: !!tutorialContainer,
-            classList: tutorialContainer?.classList.toString(),
-            pointerEvents: tutorialContainer?.style.pointerEvents || "default",
-            computedPointerEvents: tutorialContainer ? window.getComputedStyle(tutorialContainer).pointerEvents : "n/a"
-          },
-          tutorialBackdrop: {
-            exists: !!tutorialBackdrop,
-            pointerEvents: tutorialBackdrop?.style.pointerEvents || "default",
-            computedPointerEvents: tutorialBackdrop ? window.getComputedStyle(tutorialBackdrop).pointerEvents : "n/a"
-          },
-          tutorialPanel: {
-            exists: !!tutorialPanel,
-            pointerEvents: tutorialPanel?.style.pointerEvents || "default",
-            computedPointerEvents: tutorialPanel ? window.getComputedStyle(tutorialPanel).pointerEvents : "n/a"
-          },
-          svg: {
-            exists: !!svg,
-            pointerEvents: svg ? (svg as HTMLElement).style.pointerEvents || "default" : "n/a",
-            computedPointerEvents: svg ? window.getComputedStyle(svg).pointerEvents : "n/a"
-          },
-          canvas: {
-            exists: !!canvas,
-            pointerEvents: canvas ? canvas.style.pointerEvents || "default" : "n/a",
-            computedPointerEvents: canvas ? window.getComputedStyle(canvas).pointerEvents : "n/a"
-          }
-        });
-
-        // Add temporary diagnostic click listener to SVG
-        if (svg) {
-          svg.addEventListener("click", (event) => {
-            console.log("[BattleScreen] SVG clicked (direct listener)", {
-              target: event.target,
-              currentTarget: event.currentTarget,
-              eventPhase: event.eventPhase,
-              bubbles: event.bubbles,
-              cancelable: event.cancelable,
-              defaultPrevented: event.defaultPrevented
-            });
-          });
-        }
-
-        // Add click listener to document to see if ANY clicks are happening
-        document.addEventListener("click", (event) => {
-          console.log("[BattleScreen] Document clicked", {
-            target: event.target,
-            targetTagName: (event.target as HTMLElement)?.tagName,
-            targetClass: (event.target as HTMLElement)?.className,
-            targetId: (event.target as HTMLElement)?.id
-          });
-        }, { capture: true });
       }, 1000);
 
     } catch (error) {
@@ -3694,41 +3624,18 @@ export class BattleScreen {
   }
 
   private handleHexSelection(key: string): void {
-    console.log("[BattleScreen] handleHexSelection START", { hexKey: key });
-    try {
-      const engine = this.battleState.ensureGameEngine();
-      const summary = engine.getTurnSummary();
-      console.log("[BattleScreen] handleHexSelection got summary", {
-        hexKey: key,
-        phase: summary.phase,
-        activeFaction: summary.activeFaction,
-        turnNumber: summary.turnNumber
-      });
+    const engine = this.battleState.ensureGameEngine();
+    const summary = engine.getTurnSummary();
 
-      console.log("[BattleScreen] handleHexSelection checking phase", {
-        phase: summary.phase,
-        isPlayerTurn: summary.phase === "playerTurn"
-      });
-
-      if (summary.phase === "playerTurn") {
-        console.log("[BattleScreen] handleHexSelection IN PLAYER TURN BLOCK");
-        const transferResult = this.tryTransferAllyControl(key);
-        console.log("[BattleScreen] handleHexSelection transfer result", { transferResult });
-        if (transferResult) {
-          console.log("[BattleScreen] handleHexSelection EXITING after transfer");
-          return;
-        }
-        console.log("[BattleScreen] handleHexSelection CALLING onPlayerTurnMapClick");
-        this.onPlayerTurnMapClick(key);
-        console.log("[BattleScreen] handleHexSelection AFTER onPlayerTurnMapClick");
+    if (summary.phase === "playerTurn") {
+      const transferResult = this.tryTransferAllyControl(key);
+      if (transferResult) {
         return;
       }
-      console.log("[BattleScreen] handleHexSelection NOT player turn, calling applySelectedHex");
-      this.applySelectedHex(key);
-    } catch (error) {
-      console.error("[BattleScreen] handleHexSelection EXCEPTION", error);
-      throw error;
+      this.onPlayerTurnMapClick(key);
+      return;
     }
+    this.applySelectedHex(key);
   }
 
   /**
