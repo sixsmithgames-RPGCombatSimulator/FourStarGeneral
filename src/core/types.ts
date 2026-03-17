@@ -120,6 +120,12 @@ export interface ScenarioData {
     Ally?: ScenarioSide;
   };
   deploymentZones?: ScenarioDeploymentZone[];
+  /** Mission-specific budget override. If not specified, uses default 10,000,000. */
+  playerBudget?: number;
+  /** Unit types restricted from purchase. Mutually exclusive with allowedUnits. */
+  restrictedUnits?: string[];
+  /** Exclusive list of allowed unit types. If specified, only these units can be purchased. */
+  allowedUnits?: string[];
 }
 
 export type UnitClass =

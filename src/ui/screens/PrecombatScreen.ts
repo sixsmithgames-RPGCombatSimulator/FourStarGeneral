@@ -407,6 +407,16 @@ export class PrecombatScreen {
     allocationOptions.forEach((option) => {
       this.allocationCounts.set(option.key, 0);
     });
+
+    // Apply scenario-specific budget override
+    const scenarioBudget = (this.scenarioSource as ScenarioData).playerBudget;
+    this.allocationBudget = scenarioBudget ?? 10_000_000;
+
+    console.info("[PrecombatScreen] Budget initialized:", {
+      scenarioBudget,
+      effectiveBudget: this.allocationBudget
+    });
+
     this.allocationDirty = false;
     this.seedPredeployedAllocations();
     this.updateBudgetDisplay();
@@ -523,6 +533,26 @@ export class PrecombatScreen {
   /**
    * Renders allocation rows for the provided category containers with current counts.
    */
+  /**
+   * Check if a unit type is allowed for purchase based on scenario restrictions.
+   */
+  private isUnitAllowedByScenario(unitKey: string): boolean {
+    const scenario = this.scenarioSource as ScenarioData;
+
+    // If allowedUnits is specified, ONLY those units are available
+    if (scenario.allowedUnits && scenario.allowedUnits.length > 0) {
+      return scenario.allowedUnits.includes(unitKey);
+    }
+
+    // If restrictedUnits is specified, exclude those units
+    if (scenario.restrictedUnits && scenario.restrictedUnits.length > 0) {
+      return !scenario.restrictedUnits.includes(unitKey);
+    }
+
+    // No restrictions, all units allowed
+    return true;
+  }
+
   private rerenderAllocations(): void {
     const categoryTargets: Array<["units" | "supplies" | "support" | "logistics", HTMLElement | null]> = [
       ["units", this.allocationUnitList],
@@ -540,7 +570,9 @@ export class PrecombatScreen {
         container.innerHTML = "";
         return;
       }
-      container.innerHTML = allocations
+      // Filter allocations based on scenario restrictions
+      const filteredAllocations = allocations.filter((option) => this.isUnitAllowedByScenario(option.key));
+      container.innerHTML = filteredAllocations
         .map((option) => this.renderAllocationItem(option, this.allocationCounts.get(option.key) ?? 0))
         .join("");
     });
