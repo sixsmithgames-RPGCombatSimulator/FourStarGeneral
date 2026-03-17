@@ -4007,15 +4007,32 @@ export class BattleScreen {
       const moves = engine.getReachableHexes(axial);
       const targets = engine.getAttackableTargets(axial);
       const movementBudget = engine.getMovementBudget(axial);
+      console.log("[BattleScreen] updateSelectionFeedback - raw moves/targets", {
+        movesCount: moves.length,
+        movesAxial: moves,
+        targetsCount: targets.length,
+        targetsAxial: targets
+      });
       this.playerMoveHexes = new Set(moves.map(({ q, r }) => {
         const { col, row } = CoordinateSystem.axialToOffset(q, r);
-        return CoordinateSystem.makeHexKey(col, row);
+        const key = CoordinateSystem.makeHexKey(col, row);
+        console.log("[BattleScreen] Converting move hex", { axial: { q, r }, offset: { col, row }, key });
+        return key;
       }));
       this.playerAttackHexes = new Set(targets.map(({ q, r }) => {
         const { col, row } = CoordinateSystem.axialToOffset(q, r);
-        return CoordinateSystem.makeHexKey(col, row);
+        const key = CoordinateSystem.makeHexKey(col, row);
+        console.log("[BattleScreen] Converting attack hex", { axial: { q, r }, offset: { col, row }, key });
+        return key;
       }));
+      console.log("[BattleScreen] updateSelectionFeedback - populated sets", {
+        playerMoveHexes: Array.from(this.playerMoveHexes),
+        playerAttackHexes: Array.from(this.playerAttackHexes)
+      });
       const overlay = new Set<string>([...this.playerMoveHexes, ...this.playerAttackHexes]);
+      console.log("[BattleScreen] updateSelectionFeedback - calling setZoneHighlights", {
+        overlayKeys: Array.from(overlay)
+      });
       this.hexMapRenderer?.setZoneHighlights(overlay);
 
       // Provide clear feedback about unit's action state. Resolve labels strictly so bad data surfaces immediately.
@@ -4157,7 +4174,9 @@ export class BattleScreen {
       parsed,
       selectedHexKey: this.selectedHexKey,
       playerMoveHexes: this.playerMoveHexes.size,
-      playerAttackHexes: this.playerAttackHexes.size
+      playerMoveHexesKeys: Array.from(this.playerMoveHexes),
+      playerAttackHexes: this.playerAttackHexes.size,
+      playerAttackHexesKeys: Array.from(this.playerAttackHexes)
     });
     if (!parsed) {
       console.warn("[BattleScreen] onPlayerTurnMapClick - failed to parse hex key", key);
@@ -4167,6 +4186,13 @@ export class BattleScreen {
 
     // If there is an active selection and the user clicked a move/attack destination, execute the action.
     if (this.selectedHexKey) {
+      console.log("[BattleScreen] onPlayerTurnMapClick - checking move/attack", {
+        clickedKey: key,
+        hasInMoveSet: this.playerMoveHexes.has(key),
+        hasInAttackSet: this.playerAttackHexes.has(key),
+        moveSetKeys: Array.from(this.playerMoveHexes),
+        attackSetKeys: Array.from(this.playerAttackHexes)
+      });
       if (this.playerMoveHexes.has(key)) {
         console.log("[BattleScreen] onPlayerTurnMapClick - executing move", { from: this.selectedHexKey, to: key });
         const selParsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
