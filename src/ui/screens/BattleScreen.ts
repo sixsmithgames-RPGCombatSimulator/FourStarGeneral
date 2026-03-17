@@ -4001,7 +4001,7 @@ export class BattleScreen {
       axial,
       holdsPlayer,
       playerUnitCount: engine.playerUnits.length,
-      playerUnits: engine.playerUnits.map(u => ({ hex: u.hex, type: u.type, faction: u.faction }))
+      playerUnits: engine.playerUnits.map(u => ({ hex: u.hex, type: u.type }))
     });
     if (holdsPlayer) {
       const moves = engine.getReachableHexes(axial);
