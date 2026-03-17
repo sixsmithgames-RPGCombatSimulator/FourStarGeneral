@@ -3595,8 +3595,9 @@ export class GameEngine implements GameEngineAPI {
   /**
    * Normalizes terrain move costs so the rest of the engine can treat air movement as a flat cost per hex.
    * Airframes ignore ground terrain entirely, while ground units fall back to terrain-specific tables.
+   * Ford features override river impassability for ground units.
    */
-  private resolveMoveCost(moveType: string, terrain: TerrainDefinition | null): number {
+  private resolveMoveCost(moveType: string, terrain: TerrainDefinition | null, hex?: Axial): number {
     if (moveType === "air") {
       return 1;
     }
@@ -3604,8 +3605,42 @@ export class GameEngine implements GameEngineAPI {
     if (!catalog) {
       return 1;
     }
-    const cost = catalog[moveType as keyof typeof catalog];
-    return typeof cost === "number" ? cost : 1;
+    let cost = catalog[moveType as keyof typeof catalog];
+    if (typeof cost !== "number") {
+      cost = 1;
+    }
+
+    // Check for ford feature that makes rivers crossable
+    if (cost >= 999 && hex) {
+      const features = this.getTileFeaturesAt(hex);
+      if (features.includes("ford")) {
+        // Ford reduces river crossing cost: infantry can wade, vehicles struggle
+        if (moveType === "leg") {
+          return 2; // Infantry can ford rivers with effort
+        } else if (moveType === "track") {
+          return 3; // Tracked vehicles can cross fords slowly
+        } else if (moveType === "wheel") {
+          return 4; // Wheeled vehicles struggle at fords
+        }
+      }
+    }
+
+    return cost;
+  }
+
+  /**
+   * Returns the features array for the tile at the given hex.
+   */
+  private getTileFeaturesAt(hex: Axial): readonly string[] {
+    const entry = this.lookupTileEntry(hex);
+    if (!entry) {
+      return [];
+    }
+    const paletteEntry = this.scenario.tilePalette[entry.tile];
+    if (!paletteEntry) {
+      return [];
+    }
+    return paletteEntry.features ?? [];
   }
 
   /**
@@ -3697,7 +3732,7 @@ export class GameEngine implements GameEngineAPI {
         const nKey = axialKey(neighbor);
 
         const terrain = this.terrainAt(neighbor);
-        const moveCost = this.resolveMoveCost(moveType, terrain);
+        const moveCost = this.resolveMoveCost(moveType, terrain, neighbor);
         if (moveCost >= 999) {
           continue;
         }
@@ -3750,7 +3785,7 @@ export class GameEngine implements GameEngineAPI {
         }
 
         const terrain = this.terrainAt(neighbor);
-        const moveCost = this.resolveMoveCost(moveType, terrain);
+        const moveCost = this.resolveMoveCost(moveType, terrain, neighbor);
         if (moveCost >= 999) {
           continue;
         }
@@ -5322,7 +5357,7 @@ export class GameEngine implements GameEngineAPI {
       map: {
         inBounds: (hex) => this.inBounds(hex),
         terrainAt: (hex) => this.terrainAt(hex),
-        movementCost: (hex, moveType) => this.resolveMoveCost(moveType, this.terrainAt(hex))
+        movementCost: (hex, moveType) => this.resolveMoveCost(moveType, this.terrainAt(hex), hex)
       },
       losAllows: (a, b, isAir) => this.plannerLOSAllows(a, b, isAir),
       movementAllowance: (snap) => this.plannerMovementAllowance(snap),
