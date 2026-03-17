@@ -1125,22 +1125,30 @@ export class HexMapRenderer implements IMapRenderer {
       if (!key) {
         return;
       }
-      cell.onclick = null;
+
+      // Clone the node to remove ALL event listeners (including addEventListener ones)
+      const clonedCell = cell.cloneNode(true) as SVGGElement;
+      cell.parentNode?.replaceChild(clonedCell, cell);
+
+      // Now bind the click handler to the clean cloned node
       if (this.hexClickHandler) {
-        cell.addEventListener("click", (event) => {
+        clonedCell.onclick = (event) => {
           console.log("[HexMapRenderer] Hex clicked", {
             hexKey: key,
-            cellPointerEvents: cell.style.pointerEvents || "default",
-            cellComputedPointerEvents: window.getComputedStyle(cell).pointerEvents,
+            cellPointerEvents: clonedCell.style.pointerEvents || "default",
+            cellComputedPointerEvents: window.getComputedStyle(clonedCell).pointerEvents,
             target: event.target,
             currentTarget: event.currentTarget
           });
           this.hexClickHandler?.(key);
           // Also broadcast a DOM event so non-renderer components (e.g., PopupManager) can react to map picks.
           document.dispatchEvent(new CustomEvent("battle:hexClicked", { detail: { offsetKey: key } }));
-        });
+        };
       }
     });
+
+    // Rebuild hex element cache after cloning
+    this.cacheHexReferences();
   }
 
   /**
