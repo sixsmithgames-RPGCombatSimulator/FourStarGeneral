@@ -200,39 +200,49 @@ export class MapViewport implements IMapViewport {
       return;
     }
 
-    // Convert pointer screen position to map coordinates under the cursor before zooming.
+    // Convert pointer screen position to viewBox coordinates under the cursor before zooming.
+    // With transform-box: view-box, the transformation is:
+    //   screen = (viewBox * zoom + pan) * renderScale + baseOffset
+    // Solving for viewBox:
+    //   viewBox = ((screen - baseOffset) / renderScale - pan) / zoom
     const viewportRect = viewport.getBoundingClientRect();
     const screenX = clientX - viewportRect.left;
     const screenY = clientY - viewportRect.top;
-    const mapX = (screenX - baseOffsetX - this.transform.panX) / (viewScale * oldZoom);
-    const mapY = (screenY - baseOffsetY - this.transform.panY) / (viewScale * oldZoom);
+    const mapX = ((screenX - baseOffsetX) / viewScale - this.transform.panX) / oldZoom;
+    const mapY = ((screenY - baseOffsetY) / viewScale - this.transform.panY) / oldZoom;
 
     const scaledWidth = mapWidth * viewScale * newZoom;
     const scaledHeight = mapHeight * viewScale * newZoom;
-    const scaledX = viewScale * newZoom * mapX;
-    const scaledY = viewScale * newZoom * mapY;
+    const scaledX = newZoom * mapX;  // viewBox units after zoom (not multiplied by viewScale)
+    const scaledY = newZoom * mapY;
 
-    let panX = screenX - baseOffsetX - scaledX;
-    let panY = screenY - baseOffsetY - scaledY;
+    // Calculate pan to keep the cursor position stationary:
+    //   screen = (scaledX + pan) * renderScale + baseOffset
+    //   pan = (screen - baseOffset) / renderScale - scaledX
+    let panX = (screenX - baseOffsetX) / viewScale - scaledX;
+    let panY = (screenY - baseOffsetY) / viewScale - scaledY;
 
+    // Clamp pan (in viewBox units) to keep map edges within container
     if (scaledWidth > containerWidth) {
-      const minPanX = containerWidth - baseOffsetX - scaledWidth;
-      const maxPanX = -baseOffsetX;
+      const maxPanX = -baseOffsetX / viewScale;
+      const minPanX = (containerWidth - baseOffsetX) / viewScale - mapWidth * newZoom;
       panX = this.clamp(panX, minPanX, maxPanX);
       console.log("[MapViewport] adjustZoomAt clamped X", { minPanX, maxPanX, panX });
     } else {
-      const centeredPanX = containerWidth / 2 - baseOffsetX - scaledWidth / 2;
+      // Center the map when it's smaller than the container
+      const centeredPanX = (containerWidth / 2 - baseOffsetX) / viewScale - (mapWidth * newZoom) / 2;
       panX = centeredPanX;
       console.log("[MapViewport] adjustZoomAt centering X", { panX });
     }
 
     if (scaledHeight > containerHeight) {
-      const minPanY = containerHeight - baseOffsetY - scaledHeight;
-      const maxPanY = -baseOffsetY;
+      const maxPanY = -baseOffsetY / viewScale;
+      const minPanY = (containerHeight - baseOffsetY) / viewScale - mapHeight * newZoom;
       panY = this.clamp(panY, minPanY, maxPanY);
       console.log("[MapViewport] adjustZoomAt clamped Y", { minPanY, maxPanY, panY });
     } else {
-      const centeredPanY = containerHeight / 2 - baseOffsetY - scaledHeight / 2;
+      // Center the map when it's smaller than the container
+      const centeredPanY = (containerHeight / 2 - baseOffsetY) / viewScale - (mapHeight * newZoom) / 2;
       panY = centeredPanY;
       console.log("[MapViewport] adjustZoomAt centering Y", { panY });
     }
@@ -346,37 +356,46 @@ export class MapViewport implements IMapViewport {
 
     console.log("[MapViewport] Zoom and scaling:", { zoom, renderScale, scaledWidth, scaledHeight, containerCenterX, containerCenterY });
 
-    // With transform-origin at (0,0) and CSS matrix(zoom,0,0,zoom,panX,panY),
-    // the screen position of a map coordinate (x,y) is: (zoom*x + panX, zoom*y + panY).
-    // Solve pan so that the requested coordinate lands at the container centre.
-    // Because the canvas element recenters itself when the map is smaller than the viewport,
-    // we subtract that base offset so our translation math operates in the true viewport coordinate space.
-    const scaledX = renderScale * zoom * x;
-    const scaledY = renderScale * zoom * y;
-    let panX = containerCenterX - baseOffsetX - scaledX;
-    let panY = containerCenterY - baseOffsetY - scaledY;
+    // With transform-origin at (0,0), transform-box: view-box, and CSS matrix(zoom,0,0,zoom,panX,panY):
+    // - The matrix operates in viewBox coordinate space (not screen pixels)
+    // - A viewBox point (x,y) transforms to viewBox (zoom*x + panX, zoom*y + panY)
+    // - Then maps to screen: ((zoom*x + panX) * renderScale + baseOffsetX, ...)
+    //
+    // To center viewBox coordinate (x,y) at screen position containerCenter:
+    //   (zoom*x + panX) * renderScale + baseOffsetX = containerCenterX
+    //   panX = (containerCenterX - baseOffsetX) / renderScale - zoom*x
+    const scaledX = zoom * x;  // viewBox units after zoom
+    const scaledY = zoom * y;
+    let panX = (containerCenterX - baseOffsetX) / renderScale - scaledX;
+    let panY = (containerCenterY - baseOffsetY) / renderScale - scaledY;
 
     console.log("[MapViewport] Before clamping:", { panX, panY, zoom });
 
     const overflowTolerance = 0.5; // ignore float noise when sizes are effectively equal
 
-    // Clamp only when the scaled map overflows the container. Otherwise keep the pan that centers the target point.
+    // Clamp pan values (in viewBox units) to keep map edges within container bounds.
+    // With transform: screen = (viewBox * zoom + pan) * renderScale + baseOffset
+    // Constraints:
+    //   Left edge: (0 + panX) * renderScale + baseOffsetX >= 0  →  panX >= -baseOffsetX / renderScale
+    //   Right edge: (mapWidth * zoom + panX) * renderScale + baseOffsetX <= containerWidth
+    //               →  panX <= (containerWidth - baseOffsetX) / renderScale - mapWidth * zoom
     if (scaledWidth - containerWidth > overflowTolerance) {
-      const minPanX = containerWidth - baseOffsetX - scaledWidth;
-      const maxPanX = -baseOffsetX;
+      const maxPanX = -baseOffsetX / renderScale;
+      const minPanX = (containerWidth - baseOffsetX) / renderScale - mapWidth * zoom;
       panX = this.clamp(panX, minPanX, maxPanX);
       console.log("[MapViewport] Clamped X:", { minPanX, maxPanX, panX });
     }
 
     if (scaledHeight - containerHeight > overflowTolerance) {
-      const minPanY = containerHeight - baseOffsetY - scaledHeight;
-      const maxPanY = -baseOffsetY;
+      const maxPanY = -baseOffsetY / renderScale;
+      const minPanY = (containerHeight - baseOffsetY) / renderScale - mapHeight * zoom;
       panY = this.clamp(panY, minPanY, maxPanY);
       console.log("[MapViewport] Clamped Y:", { minPanY, maxPanY, panY });
     }
 
-    const targetScreenX = baseOffsetX + scaledX + panX;
-    const targetScreenY = baseOffsetY + scaledY + panY;
+    // Verify: calculate where the target point will actually appear on screen
+    const targetScreenX = (scaledX + panX) * renderScale + baseOffsetX;
+    const targetScreenY = (scaledY + panY) * renderScale + baseOffsetY;
     console.log("[MapViewport] Target vs container centre:", {
       targetScreenX,
       targetScreenY,
