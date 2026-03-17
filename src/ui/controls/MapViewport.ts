@@ -369,6 +369,21 @@ export class MapViewport implements IMapViewport {
     let panX = (containerCenterX - baseOffsetX) / renderScale - scaledX;
     let panY = (containerCenterY - baseOffsetY) / renderScale - scaledY;
 
+    console.log("[MapViewport] centerOn calculation details:", {
+      x,
+      y,
+      zoom,
+      renderScale,
+      baseOffsetX,
+      baseOffsetY,
+      containerCenterX,
+      containerCenterY,
+      scaledX,
+      scaledY,
+      calculatedPanX: panX,
+      calculatedPanY: panY,
+      formula: "panX = (containerCenterX - baseOffsetX) / renderScale - zoom * x"
+    });
     console.log("[MapViewport] Before clamping:", { panX, panY, zoom });
 
     const overflowTolerance = 0.5; // ignore float noise when sizes are effectively equal
