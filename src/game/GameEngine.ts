@@ -3279,7 +3279,23 @@ export class GameEngine implements GameEngineAPI {
 
   initializeFromAllocations(units: ScenarioUnit[]): void {
     this.assertPhase("deployment", "Allocations can only be loaded during deployment.");
+    // Capture any scenario-predeployed units BEFORE replacing playerSide.units with allocations.
+    // This preserves predeployed units even when precombat flows provide a replacement roster.
+    const scenarioPredeployed = (this.playerSide.units ?? [])
+      .filter((unit) => (unit as { preDeployed?: boolean }).preDeployed === true)
+      .map((unit) => structuredClone(unit));
+
     this.playerSide.units = units.map((unit) => structuredClone(unit));
+
+    // Append preserved predeployed units so beginDeployment can detect and place them.
+    if (scenarioPredeployed.length > 0) {
+      this.playerSide.units.push(...scenarioPredeployed);
+      console.log("[GameEngine] initializeFromAllocations preserved predeployed scenario units", {
+        count: scenarioPredeployed.length,
+        types: scenarioPredeployed.map((u) => u.type)
+      });
+    }
+
     this.beginDeployment();
   }
 

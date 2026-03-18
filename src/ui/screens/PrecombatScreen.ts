@@ -487,6 +487,11 @@ export class PrecombatScreen {
         continue;
       }
 
+      // Only include units category - supplies/support/logistics are not deployable entities.
+      if (option.category !== "units") {
+        continue;
+      }
+
       if (option.spriteUrl) {
         deploymentState.registerSprite(option.key, option.spriteUrl);
       }
