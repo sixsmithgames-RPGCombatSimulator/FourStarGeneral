@@ -831,19 +831,35 @@ export class BattleScreen {
 
     // Animate bot movements
     for (const move of botSummary.moves) {
+      console.log("[BattleScreen] Bot move animation starting:", {
+        fromAxial: move.from,
+        toAxial: move.to
+      });
+
       const fromKey = this.toHexKey(move.from);
       const toKey = this.toHexKey(move.to);
+
+      console.log("[BattleScreen] Converted to hex keys:", {
+        fromKey,
+        toKey,
+        fromValid: !!fromKey,
+        toValid: !!toKey
+      });
+
       if (!fromKey || !toKey) {
+        console.warn("[BattleScreen] Skipping move - invalid hex key", { fromKey, toKey });
         continue;
       }
 
       const moveHandle = this.hexMapRenderer.primeUnitMove(fromKey, toKey);
       if (!moveHandle) {
+        console.warn("[BattleScreen] Skipping move - no move handle", { fromKey, toKey });
         continue;
       }
 
       // Keep the camera tracking the unit before and after the renderer handles sprite duplication/animation.
       if (canFocusCamera) {
+        console.log("[BattleScreen] Focusing camera on fromKey:", fromKey);
         this.focusCameraOnHex(fromKey);
       }
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -1969,6 +1985,8 @@ export class BattleScreen {
    * Focuses the camera on a specific hex using MapViewport transforms.
    */
   private focusCameraOnHex(hexKey: string): void {
+    console.log("[BattleScreen] ═══ focusCameraOnHex CALLED ═══", { hexKey });
+
     if (!this.mapViewport || !this.hexMapRenderer) {
       console.warn("[BattleScreen] focusCameraOnHex: mapViewport or hexMapRenderer is null", {
         hasViewport: !!this.mapViewport,
@@ -1989,19 +2007,28 @@ export class BattleScreen {
       return;
     }
 
+    console.log("[BattleScreen] Hex cell found. Dataset:", {
+      hex: cell.dataset.hex,
+      col: cell.dataset.col,
+      row: cell.dataset.row,
+      cx: cell.dataset.cx,
+      cy: cell.dataset.cy,
+      q: cell.dataset.q,
+      r: cell.dataset.r,
+      terrain: cell.dataset.terrain
+    });
+
     const cx = Number(cell.dataset.cx ?? 0);
     const cy = Number(cell.dataset.cy ?? 0);
 
-    console.log("[BattleScreen] focusCameraOnHex:", {
+    console.log("[BattleScreen] Parsed cx/cy values:", {
       hexKey,
-      hasDatasetCx: cell.dataset.cx !== undefined,
-      hasDatasetCy: cell.dataset.cy !== undefined,
+      cxRaw: cell.dataset.cx,
+      cyRaw: cell.dataset.cy,
       cx,
       cy,
-      datasetHex: cell.dataset.hex,
-      datasetQ: cell.dataset.q,
-      datasetR: cell.dataset.r,
-      viewportTransform: this.mapViewport.getTransform()
+      bothZero: cx === 0 && cy === 0,
+      currentTransform: this.mapViewport.getTransform()
     });
 
     if (cx === 0 && cy === 0) {
@@ -2009,10 +2036,16 @@ export class BattleScreen {
       return;
     }
 
-    console.log("[BattleScreen] Calling mapViewport.centerOn:", { cx, cy });
+    console.log("[BattleScreen] >>> Calling mapViewport.centerOn <<<", { hexKey, cx, cy });
     this.mapViewport.centerOn(cx, cy);
+
     this.lastFocusedHexKey = hexKey;
     this.lastViewportTransform = this.mapViewport.getTransform();
+
+    console.log("[BattleScreen] ═══ focusCameraOnHex COMPLETE ═══", {
+      hexKey,
+      newTransform: this.mapViewport.getTransform()
+    });
   }
 
   private recenterLastFocus(): void {
