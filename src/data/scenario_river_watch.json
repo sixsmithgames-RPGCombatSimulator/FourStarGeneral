@@ -73,10 +73,10 @@
       "hq": [1, 2],
       "general": { "accBonus": 0, "dmgBonus": 0, "moveBonus": 0, "supplyBonus": 0 },
       "units": [
-        { "type": "Infantry_42", "hex": [1,2], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "E", "preDeployed": true },
-        { "type": "Infantry_42", "hex": [2,2], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "E", "preDeployed": true },
-        { "type": "Engineer", "hex": [1,3], "strength": 100, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "E", "preDeployed": true },
-        { "type": "Recon_Bike", "hex": [2,3], "strength": 100, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "E", "preDeployed": true }
+        { "type": "Infantry_42", "hex": [1,2], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "SE", "preDeployed": true },
+        { "type": "Infantry_42", "hex": [2,2], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "SE", "preDeployed": true },
+        { "type": "Engineer", "hex": [1,3], "strength": 100, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "SE", "preDeployed": true },
+        { "type": "Recon_Bike", "hex": [2,3], "strength": 100, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "SE", "preDeployed": true }
       ]
     },
     "Bot": {

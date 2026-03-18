@@ -807,13 +807,18 @@ export class PrecombatScreen {
     this.budgetSpentElement.textContent = `Spent: $${spent.toLocaleString()}`;
     this.budgetRemainingElement.textContent = `Remaining: $${Math.max(remaining, 0).toLocaleString()}`;
     this.budgetPanel.dataset.state = remaining < 0 ? "over-budget" : "within-budget";
-    this.proceedToBattleButton.disabled = remaining < 0 || spent === 0;
+
+    // Calculate total forces including predeployed units so missions with scenario-provided units can proceed.
+    const totalPredeployedUnits = Array.from(this.predeployedCounts.values()).reduce((sum, count) => sum + count, 0);
+    const hasAnyForces = spent > 0 || totalPredeployedUnits > 0;
+
+    this.proceedToBattleButton.disabled = remaining < 0 || !hasAnyForces;
     // Normalize feedback styling before we decide which state to present so repeated calls cannot accumulate stale classes.
     this.allocationFeedbackElement.classList.remove("feedback--warning", "feedback--ready");
     if (remaining < 0) {
       this.allocationFeedbackElement.textContent = "Over budget: adjust allocations before proceeding.";
       this.allocationFeedbackElement.classList.add("feedback--warning");
-    } else if (spent === 0) {
+    } else if (!hasAnyForces) {
       this.allocationFeedbackElement.textContent = "Allocate at least one asset to continue.";
     } else {
       this.allocationFeedbackElement.textContent = "Budget status nominal. You may proceed when ready.";
