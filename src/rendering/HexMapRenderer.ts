@@ -1635,9 +1635,10 @@ export class HexMapRenderer implements IMapRenderer {
       data.tiles,
       data.tilePalette
     );
+    const featureOverlay = this.renderTerrainFeatureOverlay(tile, cx, cy, clipId);
 
     return `
-      <g class="hex-cell" data-terrain="${tile.terrain}" data-terrain-type="${tile.terrainType}" data-hex="${hexKey}" data-col="${col}" data-row="${row}" data-cx="${cx}" data-cy="${cy}" data-clip-id="${clipId}" data-defense="${defense}" data-acc-mod="${accMod}" data-blocks-los="${blocksLOS}">
+      <g class="hex-cell" data-terrain="${tile.terrain}" data-terrain-type="${tile.terrainType}" data-features="${tile.features.join("|")}" data-hex="${hexKey}" data-col="${col}" data-row="${row}" data-cx="${cx}" data-cy="${cy}" data-clip-id="${clipId}" data-defense="${defense}" data-acc-mod="${accMod}" data-blocks-los="${blocksLOS}">
         <defs>
           <clipPath id="${clipId}" clipPathUnits="userSpaceOnUse">
             <polygon points="${points}"></polygon>
@@ -1646,7 +1647,86 @@ export class HexMapRenderer implements IMapRenderer {
         ${sprite ? `<image href="${sprite}" x="${imageX}" y="${imageY}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})" class="terrain-sprite" />` : ""}
         <polygon class="hex-tile" points="${points}" fill="${fill}" fill-opacity="${sprite ? 0.35 : 1}" stroke="${HEX_DEFAULT_STROKE}" stroke-width="${HEX_DEFAULT_STROKE_WIDTH}"></polygon>
         ${roadOverlay}
+        ${featureOverlay}
         <title>${tooltip}</title>
+      </g>
+    `;
+  }
+
+  private renderTerrainFeatureOverlay(tile: TileDetails, cx: number, cy: number, clipId: string): string {
+    if (tile.features.length === 0) {
+      return "";
+    }
+
+    const features = new Set(tile.features.map((feature) => feature.toLowerCase()));
+    const overlays: string[] = [];
+
+    if (features.has("shallow")) {
+      overlays.push(this.renderShallowCrossingOverlay(cx, cy, clipId));
+    }
+    if (features.has("ford")) {
+      overlays.push(this.renderFordOverlay(cx, cy, clipId));
+    }
+    if (features.has("bridge") && features.has("rubble")) {
+      overlays.push(this.renderRubbleBridgeOverlay(cx, cy, clipId));
+    }
+
+    return overlays.join("");
+  }
+
+  private renderShallowCrossingOverlay(cx: number, cy: number, clipId: string): string {
+    const startX = cx - HEX_WIDTH * 0.24;
+    const endX = cx + HEX_WIDTH * 0.24;
+    const topY = cy - HEX_HEIGHT * 0.12;
+    const midY = cy;
+    const bottomY = cy + HEX_HEIGHT * 0.12;
+
+    return `
+      <g class="terrain-feature-overlay terrain-feature-overlay--shallow" clip-path="url(#${clipId})" opacity="0.95">
+        <path d="M ${startX} ${topY} C ${cx - HEX_WIDTH * 0.12} ${topY - 4}, ${cx + HEX_WIDTH * 0.04} ${topY + 4}, ${endX} ${topY}" fill="none" stroke="#d8ecf7" stroke-width="2.4" stroke-linecap="round" />
+        <path d="M ${startX} ${midY} C ${cx - HEX_WIDTH * 0.1} ${midY - 5}, ${cx + HEX_WIDTH * 0.08} ${midY + 5}, ${endX} ${midY}" fill="none" stroke="#f3f8fb" stroke-width="2.8" stroke-linecap="round" />
+        <path d="M ${startX} ${bottomY} C ${cx - HEX_WIDTH * 0.08} ${bottomY - 4}, ${cx + HEX_WIDTH * 0.12} ${bottomY + 4}, ${endX} ${bottomY}" fill="none" stroke="#d8ecf7" stroke-width="2.4" stroke-linecap="round" />
+      </g>
+    `;
+  }
+
+  private renderFordOverlay(cx: number, cy: number, clipId: string): string {
+    const stoneOffsets = [-20, -10, 0, 10, 20];
+    const stones = stoneOffsets
+      .map((offset, index) => {
+        const radius = index % 2 === 0 ? 3.4 : 2.8;
+        const y = cy + (index % 2 === 0 ? -2 : 2);
+        return `<circle cx="${cx + offset}" cy="${y}" r="${radius}" fill="#d7c099" fill-opacity="0.95" stroke="#755f41" stroke-width="0.9" />`;
+      })
+      .join("");
+
+    return `
+      <g class="terrain-feature-overlay terrain-feature-overlay--ford" clip-path="url(#${clipId})">
+        <path d="M ${cx - HEX_WIDTH * 0.28} ${cy} L ${cx + HEX_WIDTH * 0.28} ${cy}" fill="none" stroke="#8b6f47" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.85" />
+        ${stones}
+      </g>
+    `;
+  }
+
+  private renderRubbleBridgeOverlay(cx: number, cy: number, clipId: string): string {
+    const beamWidth = HEX_WIDTH * 0.2;
+    const beamHeight = 5;
+    const rubble = [
+      { x: cx - 9, y: cy + 6, r: 2.4 },
+      { x: cx - 3, y: cy + 8, r: 2.1 },
+      { x: cx + 5, y: cy + 7, r: 2.5 },
+      { x: cx + 11, y: cy + 5, r: 1.9 }
+    ]
+      .map(({ x, y, r }) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#756451" fill-opacity="0.95" />`)
+      .join("");
+
+    return `
+      <g class="terrain-feature-overlay terrain-feature-overlay--rubble-bridge" clip-path="url(#${clipId})" opacity="0.95">
+        <rect x="${cx - beamWidth - 4}" y="${cy - beamHeight / 2}" width="${beamWidth}" height="${beamHeight}" rx="1.4" fill="#6c5945" />
+        <rect x="${cx + 4}" y="${cy - beamHeight / 2}" width="${beamWidth}" height="${beamHeight}" rx="1.4" fill="#6c5945" />
+        <line x1="${cx - 4}" y1="${cy - 3}" x2="${cx + 4}" y2="${cy + 3}" stroke="#4f4031" stroke-width="2" />
+        <line x1="${cx - 4}" y1="${cy + 3}" x2="${cx + 4}" y2="${cy - 3}" stroke="#4f4031" stroke-width="2" />
+        ${rubble}
       </g>
     `;
   }

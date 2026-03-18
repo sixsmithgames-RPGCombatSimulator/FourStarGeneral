@@ -4880,6 +4880,9 @@ export class BattleScreen {
       tiles: unknown[];
       objectives: unknown[];
       turnLimit?: unknown;
+      playerBudget?: unknown;
+      restrictedUnits?: unknown[];
+      allowedUnits?: unknown[];
       sides?: Record<string, unknown>;
       deploymentZones?: unknown[];
     };
@@ -4989,6 +4992,9 @@ export class BattleScreen {
       tiles,
       objectives,
       turnLimit: getMissionTurnLimit(missionKey, this.uiState?.selectedDifficulty ?? "Normal"),
+      playerBudget: typeof raw.playerBudget === "number" ? raw.playerBudget : undefined,
+      restrictedUnits: Array.isArray(raw.restrictedUnits) ? raw.restrictedUnits.map((unitKey: unknown) => String(unitKey)) : undefined,
+      allowedUnits: Array.isArray(raw.allowedUnits) ? raw.allowedUnits.map((unitKey: unknown) => String(unitKey)) : undefined,
       sides: {
         Player: convertSide("Player"),
         Bot: convertSide("Bot"),

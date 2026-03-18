@@ -241,7 +241,7 @@ export class PrecombatScreen {
     }
     if (typeof console !== "undefined") {
       console.assert(
-        (ALLOCATION_BY_CATEGORY.get("units")?.length ?? 0) ===
+        (ALLOCATION_BY_CATEGORY.get("units")?.filter((option) => this.isUnitAllowedByScenario(option.key)).length ?? 0) ===
           this.allocationUnitList.children.length,
         "Precombat allocation list did not render the expected number of unit entries."
       );
@@ -408,8 +408,8 @@ export class PrecombatScreen {
       this.allocationCounts.set(option.key, 0);
     });
 
-    // Apply scenario-specific budget override
-    const scenarioBudget = (this.scenarioSource as ScenarioData).playerBudget;
+    const rawScenarioBudget = (this.scenarioSource as Record<string, unknown>)["playerBudget"];
+    const scenarioBudget: number | undefined = typeof rawScenarioBudget === "number" ? rawScenarioBudget : undefined;
     this.allocationBudget = scenarioBudget ?? 10_000_000;
 
     console.info("[PrecombatScreen] Budget initialized:", {
@@ -537,19 +537,25 @@ export class PrecombatScreen {
    * Check if a unit type is allowed for purchase based on scenario restrictions.
    */
   private isUnitAllowedByScenario(unitKey: string): boolean {
-    const scenario = this.scenarioSource as ScenarioData;
+    const scenario = this.scenarioSource as {
+      allowedUnits?: unknown[];
+      restrictedUnits?: unknown[];
+    };
+    const allowedUnits = Array.isArray(scenario.allowedUnits)
+      ? scenario.allowedUnits.map((entry: unknown) => String(entry))
+      : [];
+    const restrictedUnits = Array.isArray(scenario.restrictedUnits)
+      ? scenario.restrictedUnits.map((entry: unknown) => String(entry))
+      : [];
 
-    // If allowedUnits is specified, ONLY those units are available
-    if (scenario.allowedUnits && scenario.allowedUnits.length > 0) {
-      return scenario.allowedUnits.includes(unitKey);
+    if (allowedUnits.length > 0) {
+      return allowedUnits.includes(unitKey);
     }
 
-    // If restrictedUnits is specified, exclude those units
-    if (scenario.restrictedUnits && scenario.restrictedUnits.length > 0) {
-      return !scenario.restrictedUnits.includes(unitKey);
+    if (restrictedUnits.length > 0) {
+      return !restrictedUnits.includes(unitKey);
     }
 
-    // No restrictions, all units allowed
     return true;
   }
 
@@ -571,7 +577,9 @@ export class PrecombatScreen {
         return;
       }
       // Filter allocations based on scenario restrictions
-      const filteredAllocations = allocations.filter((option) => this.isUnitAllowedByScenario(option.key));
+      const filteredAllocations = category === "units"
+        ? allocations.filter((option) => this.isUnitAllowedByScenario(option.key))
+        : allocations;
       container.innerHTML = filteredAllocations
         .map((option) => this.renderAllocationItem(option, this.allocationCounts.get(option.key) ?? 0))
         .join("");

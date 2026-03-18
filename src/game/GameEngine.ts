@@ -3614,13 +3614,21 @@ export class GameEngine implements GameEngineAPI {
     if (cost >= 999 && hex) {
       const features = this.getTileFeaturesAt(hex);
       if (features.includes("ford")) {
-        // Ford reduces river crossing cost: infantry can wade, vehicles struggle
         if (moveType === "leg") {
-          return 2; // Infantry can ford rivers with effort
+          return 2;
         } else if (moveType === "track") {
-          return 3; // Tracked vehicles can cross fords slowly
+          return 3;
         } else if (moveType === "wheel") {
-          return 4; // Wheeled vehicles struggle at fords
+          return 4;
+        }
+      }
+      if (features.includes("shallow")) {
+        if (moveType === "leg") {
+          return 3;
+        } else if (moveType === "track") {
+          return 5;
+        } else if (moveType === "wheel") {
+          return 999;
         }
       }
     }

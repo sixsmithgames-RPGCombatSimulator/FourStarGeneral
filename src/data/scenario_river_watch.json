@@ -7,28 +7,29 @@
     "HILL": { "terrain": "hill", "terrainType": "rural", "density": "average", "features": ["foothills"], "recon": "intel" },
     "ROAD": { "terrain": "road", "terrainType": "rural", "density": "sparse", "features": [], "recon": "intel" },
     "HAMLET": { "terrain": "city", "terrainType": "urban", "density": "sparse", "features": ["buildings"], "recon": "intel" },
-    "RIVER_DEEP": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": [], "recon": "intel" },
-    "RIVER_SHALLOW": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": ["ford"], "recon": "intel" },
+    "RIVER_DEEP": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": ["large river"], "recon": "intel" },
+    "SHALLOW_CROSSING": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": ["large river", "shallow"], "recon": "intel" },
+    "FORD": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": ["large river", "shallow", "ford"], "recon": "intel" },
     "RUBBLE_BRIDGE": { "terrain": "road", "terrainType": "rural", "density": "sparse", "features": ["bridge", "rubble"], "recon": "intel" }
   },
   "tiles": [
     ["PLAINS","PLAINS","FOREST","HILL","PLAINS","PLAINS","RIVER_DEEP","RIVER_DEEP","PLAINS","HILL","FOREST","HILL","PLAINS","PLAINS"],
-    ["PLAINS","PLAINS","ROAD","FOREST","PLAINS","HILL","RIVER_DEEP","RIVER_SHALLOW","PLAINS","PLAINS","FOREST","HILL","PLAINS","PLAINS"],
-    ["PLAINS","HAMLET","ROAD","PLAINS","PLAINS","HILL","RIVER_DEEP","RIVER_SHALLOW","PLAINS","PLAINS","FOREST","HILL","PLAINS","PLAINS"],
+    ["PLAINS","PLAINS","ROAD","FOREST","PLAINS","HILL","RIVER_DEEP","SHALLOW_CROSSING","PLAINS","PLAINS","FOREST","HILL","PLAINS","PLAINS"],
+    ["PLAINS","HAMLET","ROAD","PLAINS","PLAINS","HILL","RIVER_DEEP","FORD","PLAINS","PLAINS","FOREST","HILL","PLAINS","PLAINS"],
     ["PLAINS","FOREST","PLAINS","PLAINS","HILL","RUBBLE_BRIDGE","RIVER_DEEP","RIVER_DEEP","PLAINS","PLAINS","FOREST","PLAINS","PLAINS","PLAINS"],
-    ["PLAINS","FOREST","PLAINS","PLAINS","HILL","RIVER_SHALLOW","RIVER_DEEP","FOREST","PLAINS","HILL","PLAINS","PLAINS","PLAINS","PLAINS"],
+    ["PLAINS","FOREST","PLAINS","PLAINS","HILL","SHALLOW_CROSSING","RIVER_DEEP","FOREST","PLAINS","HILL","PLAINS","PLAINS","PLAINS","PLAINS"],
     ["PLAINS","PLAINS","PLAINS","PLAINS","HILL","RIVER_DEEP","RIVER_DEEP","HILL","PLAINS","HILL","PLAINS","PLAINS","FOREST","PLAINS"],
-    ["PLAINS","PLAINS","ROAD","PLAINS","PLAINS","RIVER_SHALLOW","RIVER_DEEP","PLAINS","PLAINS","FOREST","PLAINS","PLAINS","FOREST","PLAINS"],
-    ["PLAINS","PLAINS","PLAINS","PLAINS","HILL","RIVER_DEEP","RIVER_SHALLOW","PLAINS","PLAINS","FOREST","PLAINS","PLAINS","PLAINS","PLAINS"],
+    ["PLAINS","PLAINS","ROAD","PLAINS","PLAINS","FORD","RIVER_DEEP","PLAINS","PLAINS","FOREST","PLAINS","PLAINS","FOREST","PLAINS"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","HILL","RIVER_DEEP","SHALLOW_CROSSING","PLAINS","PLAINS","FOREST","PLAINS","PLAINS","PLAINS","PLAINS"],
     ["PLAINS","PLAINS","PLAINS","PLAINS","FOREST","RIVER_DEEP","RIVER_DEEP","PLAINS","PLAINS","HILL","PLAINS","PLAINS","PLAINS","PLAINS"],
-    ["PLAINS","PLAINS","PLAINS","PLAINS","FOREST","RIVER_SHALLOW","RIVER_DEEP","PLAINS","FOREST","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS"],
-    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","RIVER_DEEP","RIVER_DEEP","PLAINS","FOREST","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS"],
-    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS"]
+    ["PLAINS","PLAINS","PLAINS","PLAINS","FOREST","FORD","RIVER_DEEP","PLAINS","FOREST","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","RIVER_DEEP","SHALLOW_CROSSING","PLAINS","FOREST","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","RIVER_DEEP","RIVER_DEEP","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS"]
   ],
   "objectives": [
-    { "hex": [6, 4], "owner": "Bot", "vp": 50 },
-    { "hex": [7, 6], "owner": "Bot", "vp": 50 },
-    { "hex": [5, 7], "owner": "Bot", "vp": 50 }
+    { "hex": [7, 2], "owner": "Bot", "vp": 50 },
+    { "hex": [5, 6], "owner": "Bot", "vp": 50 },
+    { "hex": [5, 9], "owner": "Bot", "vp": 50 }
   ],
   "deploymentZones": [
     {
@@ -65,6 +66,8 @@
     }
   ],
   "turnLimit": 12,
+  "playerBudget": 200000,
+  "allowedUnits": ["infantry", "engineer", "reconBike", "recon"],
   "sides": {
     "Player": {
       "hq": [1, 2],
@@ -81,13 +84,17 @@
       "general": { "accBonus": 0, "dmgBonus": 0, "moveBonus": 0, "supplyBonus": 0 },
       "goal": "Establish foothold across river fords.",
       "strategy": "Probe multiple crossings, then commit reserves where resistance is weakest.",
-      "resources": 300,
+      "resources": 450,
       "units": [
-        { "type": "Infantry_42", "hex": [11,2], "strength": 90, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
-        { "type": "Infantry_42", "hex": [11,5], "strength": 90, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
-        { "type": "Engineer", "hex": [12,4], "strength": 90, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "W" },
-        { "type": "AT_Infantry", "hex": [12,6], "strength": 90, "experience": 0, "ammo": 7, "fuel": 0, "entrench": 0, "facing": "W" },
-        { "type": "Recon_Bike", "hex": [11,8], "strength": 90, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "W" }
+        { "type": "Infantry_42", "hex": [11,1], "strength": 90, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
+        { "type": "Infantry_42", "hex": [12,2], "strength": 90, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
+        { "type": "Engineer", "hex": [12,3], "strength": 95, "experience": 1, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "W" },
+        { "type": "Infantry_42", "hex": [11,5], "strength": 95, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
+        { "type": "AT_Gun_50mm", "hex": [12,5], "strength": 85, "experience": 1, "ammo": 5, "fuel": 0, "entrench": 1, "facing": "W" },
+        { "type": "AT_Infantry", "hex": [12,6], "strength": 95, "experience": 1, "ammo": 7, "fuel": 0, "entrench": 0, "facing": "W" },
+        { "type": "Infantry_42", "hex": [11,8], "strength": 90, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
+        { "type": "Recon_Bike", "hex": [12,9], "strength": 85, "experience": 1, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "W" },
+        { "type": "Engineer", "hex": [12,10], "strength": 90, "experience": 1, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "W" }
       ]
     }
   }
