@@ -5396,6 +5396,8 @@ export class GameEngine implements GameEngineAPI {
     const moves: BotMoveSummary[] = [];
     const attacks: BotAttackSummary[] = [];
 
+    console.log(`[Bot AI] Heuristic bot turn starting. Bot units: ${this.botPlacements.size}, Player units: ${this.playerPlacements.size}`);
+
     if (this.playerPlacements.size === 0) {
       const supplyReport = this.applySupplyTickFor("Bot");
       return { moves, attacks, supplyReport };
@@ -5408,41 +5410,51 @@ export class GameEngine implements GameEngineAPI {
       this.allyPlacements.size > 0 ? [this.allyPlacements] : []
     );
     const plans = planHeuristicBotTurn(input);
+    console.log(`[Bot AI] Planner generated ${plans.length} plans`);
 
     const occupancy = this.buildUnifiedOccupancySet();
 
     for (const plan of plans) {
       const fromKey = axialKey(plan.origin);
       const toKey = axialKey(plan.destination);
+      console.log(`[Bot AI] Plan for ${plan.unit.unit.type} at ${fromKey}: ${plan.rationale} (score: ${plan.score.toFixed(1)}, destination: ${toKey}, path length: ${plan.path.length})`);
       const unit = this.botPlacements.get(fromKey);
       if (!unit) {
+        console.log(`[Bot AI] Unit not found at ${fromKey}, skipping plan`);
         continue;
       }
       if (toKey !== fromKey && occupancy.has(toKey)) {
+        console.log(`[Bot AI] Destination ${toKey} is occupied, skipping plan`);
         continue;
       }
 
       let current = structuredClone(plan.origin);
       const visited: Axial[] = [structuredClone(plan.origin)];
       if (toKey !== fromKey) {
+        console.log(`[Bot AI] Executing move for ${unit.type} from ${fromKey} to ${toKey}`);
         this.botPlacements.delete(fromKey);
         const moved = structuredClone(unit);
         for (let i = 1; i < plan.path.length; i += 1) {
           const step = plan.path[i];
           const stepKey = axialKey(step);
           if (occupancy.has(stepKey)) {
+            console.log(`[Bot AI] Path blocked at ${stepKey}, stopping movement`);
             break;
           }
           moved.hex = structuredClone(step);
           current = structuredClone(step);
           visited.push(structuredClone(step));
         }
-        this.botPlacements.set(axialKey(current), moved);
+        const finalKey = axialKey(current);
+        console.log(`[Bot AI] ${unit.type} moved from ${fromKey} to ${finalKey} (${visited.length - 1} steps)`);
+        this.botPlacements.set(finalKey, moved);
         occupancy.delete(fromKey);
-        occupancy.add(axialKey(current));
+        occupancy.add(finalKey);
         this.updateBotSupplyPosition(plan.origin, current);
         const distance = visited.length - 1;
         moves.push({ unitType: moved.type, from: structuredClone(plan.origin), to: structuredClone(current), path: visited, distance, duration: Math.max(1, distance) });
+      } else {
+        console.log(`[Bot AI] ${unit.type} holding position at ${fromKey}`);
       }
 
       if (plan.attackTarget) {
@@ -5458,6 +5470,7 @@ export class GameEngine implements GameEngineAPI {
     }
 
     const supplyReport = this.applySupplyTickFor("Bot");
+    console.log(`[Bot AI] Heuristic bot turn complete. Moves: ${moves.length}, Attacks: ${attacks.length}`);
     return { moves, attacks, supplyReport };
   }
 
