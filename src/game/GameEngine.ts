@@ -5551,10 +5551,16 @@ export class GameEngine implements GameEngineAPI {
         return;
       }
       const origin = structuredClone(unit.hex);
+      console.log(`[Bot AI] ${unit.type} at (${origin.q},${origin.r}) evaluating movement`);
+
       const nearest = this.findNearestPlayerHex(origin, playerPositions);
       if (!nearest) {
+        console.log(`[Bot AI] ${unit.type}: No player targets found`);
         return;
       }
+
+      const distance = hexDistance(origin, nearest);
+      console.log(`[Bot AI] ${unit.type}: Nearest player at (${nearest.q},${nearest.r}), distance: ${distance}`);
 
       const attemptAttack = (attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial): void => {
         const attack = this.resolveBotAttack(attackingUnit, attackerHex, targetHex);
@@ -5573,14 +5579,21 @@ export class GameEngine implements GameEngineAPI {
 
       // Attack first when already adjacent; otherwise move one step closer before checking again.
       if (hexDistance(origin, nearest) <= 1) {
+        console.log(`[Bot AI] ${unit.type}: Already adjacent, attempting attack`);
         attemptAttack(unit, origin, nearest);
         return;
       }
 
-      const plannedPath = this.planBotPath(unit.hex, nearest, this.calculateBotMovementAllowance(unit));
+      const movementAllowance = this.calculateBotMovementAllowance(unit);
+      console.log(`[Bot AI] ${unit.type}: Movement allowance: ${movementAllowance}`);
+
+      const plannedPath = this.planBotPath(unit.hex, nearest, movementAllowance);
       if (!plannedPath) {
+        console.log(`[Bot AI] ${unit.type}: No valid path found to target`);
         return;
       }
+
+      console.log(`[Bot AI] ${unit.type}: Planned path with ${plannedPath.length - 1} steps`);
 
       // Execute each step in the planned path, animating them sequentially.
       let current = structuredClone(origin);
@@ -5694,18 +5707,46 @@ export class GameEngine implements GameEngineAPI {
 
   /** Choose the single-step axial move that most reduces distance to the target. */
   private selectBotStepToward(origin: Axial, target: Axial): Axial | null {
+    const originUnit = this.lookupUnit(origin, "Bot");
+    if (!originUnit) {
+      return null;
+    }
+    const unitDef = this.getUnitDefinition(originUnit.type);
+    const moveType = unitDef.moveType;
+
     let best: Axial | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
+    let impassableCount = 0;
+
     neighbors(origin).forEach((candidate) => {
       if (!this.inBounds(candidate)) {
         return;
       }
+
+      // Check if the hex is occupied
+      if (this.isOccupied(candidate)) {
+        return;
+      }
+
+      // Check if the terrain is passable for this unit type
+      const terrain = this.terrainAt(candidate);
+      const moveCost = this.resolveMoveCost(moveType, terrain, candidate);
+      if (moveCost >= 999) {
+        impassableCount++;
+        return; // Impassable terrain
+      }
+
       const distance = hexDistance(candidate, target);
       if (distance < bestDistance) {
         bestDistance = distance;
         best = structuredClone(candidate);
       }
     });
+
+    if (impassableCount > 0) {
+      console.log(`[Bot AI] selectBotStepToward: Skipped ${impassableCount} impassable neighbors`);
+    }
+
     return best;
   }
 

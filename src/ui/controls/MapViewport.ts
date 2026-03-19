@@ -275,13 +275,44 @@ export class MapViewport implements IMapViewport {
 
   /**
    * Centers the viewport on the specified map coordinates.
+   *
+   * CRITICAL: This function performs complex coordinate transformations from viewBox space to screen space.
+   * The coordinate system depends on CSS transform-box: view-box being set on the SVG element.
+   *
+   * Coordinate Transformation Formula:
+   *   screen = (viewBox * zoom + pan) * renderScale + baseOffset
+   *
+   * To center a viewBox point (x, y) at screen center:
+   *   panX = (containerCenterX - baseOffsetX) / renderScale - zoom * x
+   *   panY = (containerCenterY - baseOffsetY) / renderScale - zoom * y
+   *
+   * Key Concepts:
+   * - viewBox coordinates: (x, y) input parameters, in SVG viewBox space
+   * - zoom: Applied via CSS matrix in viewBox coordinate space
+   * - pan: Translation in viewBox units (NOT pixels)
+   * - renderScale: Ratio of element size to viewBox size
+   * - baseOffset: Canvas position relative to viewport container
+   *
+   * Clamping:
+   * - Pan values are clamped to keep map edges within viewport bounds
+   * - Prevents camera from panning completely off the map
+   * - Uses overflowTolerance to handle float precision issues
+   *
+   * CSS Requirements:
+   * - transform-origin: 0 0 (anchor to top-left)
+   * - transform-box: view-box (CRITICAL: use viewBox coordinates, not bbox)
+   * - transform: matrix(zoom, 0, 0, zoom, panX, panY)
+   *
+   * @param x - ViewBox X coordinate (from hex cell dataset.cx)
+   * @param y - ViewBox Y coordinate (from hex cell dataset.cy)
+   *
+   * @see docs/CAMERA_FOCUS_BUG_POSTMORTEM.md for detailed explanation
+   * @see updateTransform() for CSS transform application
    */
   centerOn(x: number, y: number): void {
-    console.log("[MapViewport] centerOn called:", { x, y, currentTransform: { ...this.transform } });
-
     const context = this.computeViewportContext();
     if (!context) {
-      console.error("[MapViewport] centerOn failed: viewport context unavailable", { x, y });
+      console.error("[MapViewport] centerOn failed: viewport context unavailable");
       return;
     }
 
@@ -300,76 +331,15 @@ export class MapViewport implements IMapViewport {
       zoom
     } = context;
 
-    console.log("[MapViewport] Canvas element:", {
-      tagName: canvas.tagName,
-      id: canvas.id,
-      className: canvas.className,
-      clientWidth: canvas.clientWidth,
-      clientHeight: canvas.clientHeight,
-      offsetWidth: canvas.offsetWidth,
-      offsetHeight: canvas.offsetHeight
-    });
-
-    console.log("[MapViewport] Viewport element:", {
-      tagName: viewport.tagName,
-      id: viewport.id,
-      className: viewport.className,
-      clientWidth: viewport.clientWidth,
-      clientHeight: viewport.clientHeight,
-      offsetWidth: viewport.offsetWidth,
-      offsetHeight: viewport.offsetHeight
-    });
-    console.log("[MapViewport] Viewport dimensions (used for centering):", { containerWidth, containerHeight });
-    console.log("[MapViewport] Base canvas offsets relative to viewport:", { baseOffsetX, baseOffsetY });
-
-    console.log("[MapViewport] Map dimensions:", {
-      mapWidth: context.mapWidth,
-      mapHeight: context.mapHeight,
-      renderedWidth: elementWidth,
-      renderedHeight: elementHeight,
-      renderScale,
-      contentOffsetX,
-      contentOffsetY,
-      zoom
-    });
-
     const scaledElementWidth = elementWidth * zoom;
     const scaledElementHeight = elementHeight * zoom;
     const containerCenterX = containerWidth / 2;
     const containerCenterY = containerHeight / 2;
 
-    console.log("[MapViewport] Zoom and scaling:", {
-      zoom,
-      renderScale,
-      scaledWidth: scaledElementWidth,
-      scaledHeight: scaledElementHeight,
-      containerCenterX,
-      containerCenterY
-    });
-
     const scaledX = zoom * (contentOffsetX + renderScale * x);
     const scaledY = zoom * (contentOffsetY + renderScale * y);
     let panX = containerCenterX - baseOffsetX - scaledX;
     let panY = containerCenterY - baseOffsetY - scaledY;
-
-    console.log("[MapViewport] centerOn calculation details:", {
-      x,
-      y,
-      zoom,
-      renderScale,
-      contentOffsetX,
-      contentOffsetY,
-      baseOffsetX,
-      baseOffsetY,
-      containerCenterX,
-      containerCenterY,
-      scaledX,
-      scaledY,
-      calculatedPanX: panX,
-      calculatedPanY: panY,
-      formula: "panX = containerCenterX - baseOffsetX - zoom * (contentOffsetX + renderScale * x)"
-    });
-    console.log("[MapViewport] Before clamping:", { panX, panY, zoom });
 
     const overflowTolerance = 0.5; // ignore float noise when sizes are effectively equal
 
@@ -377,31 +347,17 @@ export class MapViewport implements IMapViewport {
       const maxPanX = -baseOffsetX;
       const minPanX = containerWidth - baseOffsetX - scaledElementWidth;
       panX = this.clamp(panX, minPanX, maxPanX);
-      console.log("[MapViewport] Clamped X:", { minPanX, maxPanX, panX });
     }
 
     if (scaledElementHeight - containerHeight > overflowTolerance) {
       const maxPanY = -baseOffsetY;
       const minPanY = containerHeight - baseOffsetY - scaledElementHeight;
       panY = this.clamp(panY, minPanY, maxPanY);
-      console.log("[MapViewport] Clamped Y:", { minPanY, maxPanY, panY });
     }
-
-    const targetScreenX = baseOffsetX + panX + scaledX;
-    const targetScreenY = baseOffsetY + panY + scaledY;
-    console.log("[MapViewport] Target vs container centre:", {
-      targetScreenX,
-      targetScreenY,
-      containerCenterX,
-      containerCenterY,
-      deltaX: targetScreenX - containerCenterX,
-      deltaY: targetScreenY - containerCenterY
-    });
 
     this.transform.panX = panX;
     this.transform.panY = panY;
 
-    console.log("[MapViewport] Calling updateTransform with:", this.transform);
     this.updateTransform();
   }
 
@@ -418,19 +374,6 @@ export class MapViewport implements IMapViewport {
     this.mapElement.style.setProperty("transform-box", "view-box");
     // Use a CSS matrix to avoid ambiguity in transform order.
     this.mapElement.style.transform = `matrix(${zoom}, 0, 0, ${zoom}, ${panX}, ${panY})`;
-    const rect = this.mapElement.getBoundingClientRect();
-    console.log("[MapViewport] updateTransform applied", {
-      zoom,
-      panX,
-      panY,
-      cssTransform: this.mapElement.style.transform,
-      rect: {
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height
-      }
-    });
   }
 
   /**

@@ -68,7 +68,7 @@
     "softAttack": 20,
     "ap": 4,
     "accuracyBase": 62,
-    "traits": ["entrenchBuster"],
+    "traits": ["entrenchBuster", "engineer"],
     "cost": 160
   },
   "Combat_Engineer": {
@@ -86,7 +86,7 @@
     "softAttack": 22,
     "ap": 6,
     "accuracyBase": 60,
-    "traits": ["entrenchBuster", "suppression"],
+    "traits": ["entrenchBuster", "suppression", "engineer"],
     "sprite": "units/Combat_Engineer.png",
     "cost": 190
   },

@@ -18,6 +18,65 @@ export type TileEntry = TileInstance | TileDetails;
 /**
  * Coordinate system utilities for hex grid operations.
  * Provides conversions between offset, axial, and pixel coordinate systems.
+ *
+ * CRITICAL: This class manages three distinct coordinate systems used throughout the application.
+ * Understanding these systems is essential for camera focus, rendering, and game logic.
+ *
+ * THREE COORDINATE SYSTEMS:
+ *
+ * 1. AXIAL COORDINATES (q, r)
+ *    - Used by: Game engine, bot AI, unit positions in game state
+ *    - Format: {q: number, r: number}
+ *    - Layout: Odd-q vertical layout for pointy-top hexagons
+ *    - Purpose: Hex math operations (distance, neighbors, pathfinding)
+ *    - Example: {q: 5, r: 3} represents a hex in the game grid
+ *
+ * 2. OFFSET COORDINATES (col, row)
+ *    - Used by: Array indexing, hex keys, DOM element lookup
+ *    - Format: {col: number, row: number} or string "col,row"
+ *    - Layout: Standard 2D array indexing
+ *    - Purpose: Efficient array access and DOM element identification
+ *    - Example: [5, 3] or "5,3" for array scenario.tiles[row][col]
+ *
+ * 3. VIEWBOX/PIXEL COORDINATES (x, y)
+ *    - Used by: SVG rendering, camera positioning, visual display
+ *    - Format: {x: number, y: number}
+ *    - Units: SVG viewBox pixels (not screen pixels!)
+ *    - Purpose: Positioning elements in SVG coordinate space
+ *    - Example: {x: 450, y: 225} for center position in SVG
+ *
+ * COORDINATE CONVERSIONS:
+ *
+ *   offsetToAxial(col, row)     → {q, r}      [Offset → Axial]
+ *   axialToOffset(q, r)         → {col, row}  [Axial → Offset]
+ *   axialToPixel(q, r)          → {x, y}      [Axial → ViewBox]
+ *   makeHexKey(col, row)        → "col,row"   [Offset → String Key]
+ *   parseHexKey("col,row")      → {col, row}  [String Key → Offset]
+ *
+ * TRANSFORMATION RULES:
+ *
+ * Offset ↔ Axial (odd-q vertical layout):
+ *   - offsetToAxial: q = col, r = row - floor(col / 2)
+ *   - axialToOffset: col = q, row = r + floor(q / 2)
+ *
+ * Axial → Pixel (pointy-top hex):
+ *   - x = HEX_WIDTH * (q + r / 2)
+ *   - y = HEX_HEIGHT * 3/4 * r
+ *
+ * USAGE PATTERNS:
+ *
+ * 1. Game Engine → Renderer:
+ *    engine.unit.hex (axial) → axialToOffset() → makeHexKey() → DOM lookup
+ *
+ * 2. Camera Focus:
+ *    bot.move (axial) → axialToOffset() → makeHexKey() → getHexElement() → read dataset.cx/cy
+ *
+ * 3. User Click → Game Logic:
+ *    DOM element → parseHexKey() → offsetToAxial() → engine.selectUnit()
+ *
+ * WARNING: Never mix coordinate systems! Always convert explicitly at boundaries.
+ *
+ * @see docs/CAMERA_FOCUS_BUG_POSTMORTEM.md for detailed coordinate system documentation
  */
 export class CoordinateSystem {
   /**

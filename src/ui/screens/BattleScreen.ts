@@ -831,35 +831,20 @@ export class BattleScreen {
 
     // Animate bot movements
     for (const move of botSummary.moves) {
-      console.log("[BattleScreen] Bot move animation starting:", {
-        fromAxial: move.from,
-        toAxial: move.to
-      });
-
       const fromKey = this.toHexKey(move.from);
       const toKey = this.toHexKey(move.to);
 
-      console.log("[BattleScreen] Converted to hex keys:", {
-        fromKey,
-        toKey,
-        fromValid: !!fromKey,
-        toValid: !!toKey
-      });
-
       if (!fromKey || !toKey) {
-        console.warn("[BattleScreen] Skipping move - invalid hex key", { fromKey, toKey });
         continue;
       }
 
       const moveHandle = this.hexMapRenderer.primeUnitMove(fromKey, toKey);
       if (!moveHandle) {
-        console.warn("[BattleScreen] Skipping move - no move handle", { fromKey, toKey });
         continue;
       }
 
       // Keep the camera tracking the unit before and after the renderer handles sprite duplication/animation.
       if (canFocusCamera) {
-        console.log("[BattleScreen] Focusing camera on fromKey:", fromKey);
         this.focusCameraOnHex(fromKey);
       }
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -990,6 +975,24 @@ export class BattleScreen {
 
   /**
    * Converts an axial coordinate into the renderer's offset-key string, returning null when outside the map bounds.
+   *
+   * CRITICAL: This function bridges the game engine coordinate system (axial) and the renderer coordinate system (offset).
+   *
+   * Coordinate Systems:
+   * - Input: Axial (q, r) - Used by game engine for hex math
+   * - Output: Hex key "col,row" - Used by renderer for DOM element lookup
+   *
+   * Validation:
+   * - Ensures numeric conversion succeeded (catches NaN/Infinity)
+   * - Ensures coordinates are within map bounds
+   * - Returns null for invalid coordinates (caller must handle)
+   *
+   * Used by: Bot animations, attack animations, camera focus operations
+   *
+   * @param axial - Game engine axial coordinate {q, r}
+   * @returns Hex key string "col,row" or null if invalid/out-of-bounds
+   *
+   * @see docs/CAMERA_FOCUS_BUG_POSTMORTEM.md for coordinate system details
    */
   private toHexKey(axial: Axial): string | null {
     const { col, row } = CoordinateSystem.axialToOffset(axial.q, axial.r);
@@ -1983,69 +1986,55 @@ export class BattleScreen {
 
   /**
    * Focuses the camera on a specific hex using MapViewport transforms.
+   *
+   * CRITICAL: This function performs coordinate transformations to center the camera on a hex.
+   * It retrieves viewBox coordinates (cx, cy) from the hex cell's dataset and passes them to MapViewport.
+   *
+   * Coordinate Flow:
+   * 1. Input: Hex key string "col,row" (offset coordinates)
+   * 2. Retrieve: Hex cell element from DOM via HexMapRenderer
+   * 3. Read: dataset.cx and dataset.cy (viewBox coordinates set during render)
+   * 4. Pass: ViewBox coordinates to MapViewport.centerOn()
+   * 5. Transform: MapViewport applies zoom/pan/scale to center on screen
+   *
+   * Validation:
+   * - Checks mapViewport and hexMapRenderer exist
+   * - Validates hex cell element exists in DOM
+   * - Ensures cx/cy are non-zero (zero indicates missing/invalid coordinates)
+   * - Logs comprehensive diagnostic information for debugging
+   *
+   * Used by: Bot movement animations, attack animations, objective cycling, deployment focus
+   *
+   * @param hexKey - Hex key in "col,row" format (offset coordinates)
+   *
+   * @see docs/CAMERA_FOCUS_BUG_POSTMORTEM.md for detailed coordinate system documentation
+   * @see MapViewport.centerOn() for transform calculation details
    */
   private focusCameraOnHex(hexKey: string): void {
     console.log("[BattleScreen] ═══ focusCameraOnHex CALLED ═══", { hexKey });
 
     if (!this.mapViewport || !this.hexMapRenderer) {
-      console.warn("[BattleScreen] focusCameraOnHex: mapViewport or hexMapRenderer is null", {
-        hasViewport: !!this.mapViewport,
-        hasRenderer: !!this.hexMapRenderer
-      });
+      console.warn("[BattleScreen] focusCameraOnHex: mapViewport or hexMapRenderer is null");
       return;
     }
 
     const cell = this.hexMapRenderer.getHexElement(hexKey);
     if (!cell) {
-      const hasGetter = typeof this.hexMapRenderer.getHexElement === "function";
-      const rendererInitialized = Boolean((this.hexMapRenderer as any).initialized);
-      console.warn("[BattleScreen] focusCameraOnHex: cell not found for hexKey:", hexKey, {
-        rendererInitialized,
-        hasGetter,
-        lastFocusedHexKey: this.lastFocusedHexKey
-      });
+      console.warn("[BattleScreen] focusCameraOnHex: cell not found for hexKey:", hexKey);
       return;
     }
-
-    console.log("[BattleScreen] Hex cell found. Dataset:", {
-      hex: cell.dataset.hex,
-      col: cell.dataset.col,
-      row: cell.dataset.row,
-      cx: cell.dataset.cx,
-      cy: cell.dataset.cy,
-      q: cell.dataset.q,
-      r: cell.dataset.r,
-      terrain: cell.dataset.terrain
-    });
 
     const cx = Number(cell.dataset.cx ?? 0);
     const cy = Number(cell.dataset.cy ?? 0);
 
-    console.log("[BattleScreen] Parsed cx/cy values:", {
-      hexKey,
-      cxRaw: cell.dataset.cx,
-      cyRaw: cell.dataset.cy,
-      cx,
-      cy,
-      bothZero: cx === 0 && cy === 0,
-      currentTransform: this.mapViewport.getTransform()
-    });
-
     if (cx === 0 && cy === 0) {
-      console.warn("[BattleScreen] focusCameraOnHex: cx and cy are both 0, skipping", { hexKey });
+      console.warn("[BattleScreen] focusCameraOnHex: invalid coordinates for hex", hexKey);
       return;
     }
 
-    console.log("[BattleScreen] >>> Calling mapViewport.centerOn <<<", { hexKey, cx, cy });
     this.mapViewport.centerOn(cx, cy);
-
     this.lastFocusedHexKey = hexKey;
     this.lastViewportTransform = this.mapViewport.getTransform();
-
-    console.log("[BattleScreen] ═══ focusCameraOnHex COMPLETE ═══", {
-      hexKey,
-      newTransform: this.mapViewport.getTransform()
-    });
   }
 
   private recenterLastFocus(): void {
