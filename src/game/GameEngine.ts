@@ -3631,20 +3631,20 @@ export class GameEngine implements GameEngineAPI {
       const features = this.getTileFeaturesAt(hex);
       if (features.includes("ford")) {
         if (moveType === "leg") {
-          return 2;
+          return 1; // Infantry can cross fords at normal speed
         } else if (moveType === "track") {
-          return 3;
+          return 2;
         } else if (moveType === "wheel") {
-          return 4;
+          return 3;
         }
       }
       if (features.includes("shallow")) {
         if (moveType === "leg") {
-          return 3;
+          return 1; // Infantry can cross shallow water at normal speed
         } else if (moveType === "track") {
-          return 5;
+          return 2;
         } else if (moveType === "wheel") {
-          return 999;
+          return 999; // Wheeled vehicles still can't cross shallow water
         }
       }
     }
