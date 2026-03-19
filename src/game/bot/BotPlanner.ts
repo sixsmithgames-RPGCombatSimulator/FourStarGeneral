@@ -456,6 +456,9 @@ export function computeReachableHexes(
     path: [origin]
   }];
 
+  let impassableCount = 0;
+  let highCostCount = 0;
+
   while (frontier.length > 0) {
     frontier.sort((a, b) => a.cost - b.cost);
     const current = frontier.shift();
@@ -485,7 +488,11 @@ export function computeReachableHexes(
       const neighborKey = axialKey(neighbor);
       const terrainCost = input.map.movementCost(neighbor, moveType);
       if (!Number.isFinite(terrainCost) || terrainCost >= 999) {
+        impassableCount++;
         continue; // Treat very high cost as impassable for land units.
+      }
+      if (terrainCost > 1) {
+        highCostCount++;
       }
 
       const occupant = input.occupancy.get(neighborKey);
@@ -513,6 +520,8 @@ export function computeReachableHexes(
       });
     }
   }
+
+  console.log(`[Bot Planner] Pathfinding from ${originKey}: Found ${results.size} reachable hexes (allowance=${allowance}, moveType=${moveType}, impassable=${impassableCount}, highCost=${highCostCount})`);
 
   return results;
 }

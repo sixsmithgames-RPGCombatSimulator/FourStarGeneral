@@ -3629,23 +3629,39 @@ export class GameEngine implements GameEngineAPI {
     // Check for ford feature that makes rivers crossable
     if (cost >= 999 && hex) {
       const features = this.getTileFeaturesAt(hex);
+      const hexKey = `${hex.q},${hex.r}`;
+
+      if (features.length > 0) {
+        console.log(`[Movement Cost] High-cost terrain at ${hexKey}: terrain cost=${cost}, moveType=${moveType}, features=[${features.join(', ')}]`);
+      }
+
       if (features.includes("ford")) {
         if (moveType === "leg") {
+          console.log(`[Movement Cost] Ford crossing at ${hexKey}: leg unit, cost=1`);
           return 1; // Infantry can cross fords at normal speed
         } else if (moveType === "track") {
+          console.log(`[Movement Cost] Ford crossing at ${hexKey}: track unit, cost=2`);
           return 2;
         } else if (moveType === "wheel") {
+          console.log(`[Movement Cost] Ford crossing at ${hexKey}: wheel unit, cost=3`);
           return 3;
         }
       }
       if (features.includes("shallow")) {
         if (moveType === "leg") {
+          console.log(`[Movement Cost] Shallow crossing at ${hexKey}: leg unit, cost=1`);
           return 1; // Infantry can cross shallow water at normal speed
         } else if (moveType === "track") {
+          console.log(`[Movement Cost] Shallow crossing at ${hexKey}: track unit, cost=2`);
           return 2;
         } else if (moveType === "wheel") {
+          console.log(`[Movement Cost] Shallow crossing at ${hexKey}: wheel unit, impassable`);
           return 999; // Wheeled vehicles still can't cross shallow water
         }
+      }
+
+      if (cost >= 999 && features.length > 0) {
+        console.log(`[Movement Cost] Impassable at ${hexKey}: cost=${cost}, features present but no ford/shallow match`);
       }
     }
 
