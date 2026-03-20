@@ -6046,6 +6046,14 @@ export class GameEngine implements GameEngineAPI {
       return null;
     }
 
+    // Check weapon range
+    const distance = hexDistance(attackerHex, targetHex);
+    const minRange = attackerDef.rangeMin ?? 1;
+    const maxRange = attackerDef.rangeMax ?? 1;
+    if (distance < minRange || distance > maxRange) {
+      return null; // Target out of weapon range
+    }
+
     // Pre-attack interception: layered Player CAP vs bot escort resolution before bot strike.
     if (attackerIsAircraft && !defenderIsAircraft) {
       const defHexKey = axialKey(targetHex);
