@@ -3901,6 +3901,71 @@
         min-width: unset;
       }
     }
+
+    /* Objective Marker Animations - Professional polish with pulsing and rotation */
+    @keyframes objectivePulse {
+      0%, 100% {
+        opacity: 0.6;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 0.9;
+        transform: scale(1.15);
+      }
+    }
+
+    @keyframes objectiveRingRotate {
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes objectiveEnemyPulse {
+      0%, 100% {
+        opacity: 0.6;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1.2);
+      }
+    }
+
+    /* Apply animations to objective markers */
+    .objective-marker .objective-glow {
+      animation: objectivePulse 2.5s ease-in-out infinite;
+    }
+
+    .objective-marker--enemy .objective-glow {
+      animation: objectiveEnemyPulse 1.5s ease-in-out infinite;
+    }
+
+    .objective-marker .objective-ring {
+      transform-origin: center;
+      animation: objectiveRingRotate 12s linear infinite;
+    }
+
+    .objective-marker--enemy .objective-ring {
+      animation: objectiveRingRotate 8s linear infinite;
+    }
+
+    /* Smooth fade-in when markers appear */
+    .objective-marker {
+      animation: fadeIn 0.5s ease-out;
+    }
+
+    /* Hover effect for objective markers */
+    .objective-marker {
+      transition: filter 0.2s ease;
+      cursor: help;
+    }
+
+    .objective-marker:hover {
+      filter: brightness(1.3);
+    }
   </style>
 </head>
 <body>

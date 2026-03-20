@@ -92,6 +92,8 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly aftermathByHexKey: Map<string, AftermathEntry> = new Map();
   /** Temporary debug markers for visualizing placements independent of recon/LOS. */
   private readonly debugMarkerMap: Map<string, SVGGElement> = new Map();
+  /** Professional objective markers showing hold status with distinct styling */
+  private readonly objectiveMarkerMap: Map<string, SVGGElement> = new Map();
   private selectionGlow: SVGCircleElement | null = null;
 
   private svgElement: SVGSVGElement | null = null;
@@ -1409,6 +1411,222 @@ export class HexMapRenderer implements IMapRenderer {
       this.canvasElement?.appendChild(group);
     }
     this.debugMarkerMap.set(hexKey, group);
+  }
+
+  /** Removes all objective markers */
+  clearObjectiveMarkers(): void {
+    this.objectiveMarkerMap.forEach((marker) => marker.remove());
+    this.objectiveMarkerMap.clear();
+  }
+
+  /**
+   * Renders a professional objective marker on the given hex.
+   * Uses distinct visual styling with gradients, glows, and animations
+   */
+  renderObjectiveMarker(hexKey: string, options?: { status?: "unoccupied" | "player" | "enemy"; counter?: string }): void {
+    const cell = this.hexElementMap.get(hexKey);
+    if (!cell) {
+      return;
+    }
+
+    // Remove existing marker
+    const existing = this.objectiveMarkerMap.get(hexKey);
+    if (existing) {
+      existing.remove();
+      this.objectiveMarkerMap.delete(hexKey);
+    }
+
+    const cx = Number(cell.dataset.cx ?? 0);
+    const cy = Number(cell.dataset.cy ?? 0);
+    const group = document.createElementNS(SVG_NS, "g");
+    group.classList.add("objective-marker");
+
+    const status = options?.status ?? "unoccupied";
+
+    // Color scheme based on status with professional gradients
+    let primaryColor: string;
+    let secondaryColor: string;
+    let glowColor: string;
+    let labelText: string;
+    let animationClass: string;
+
+    switch (status) {
+      case "player":
+        primaryColor = "#22c55e";
+        secondaryColor = "#16a34a";
+        glowColor = "rgba(34, 197, 94, 0.6)";
+        labelText = "SECURED";
+        animationClass = "objective-marker--secured";
+        break;
+      case "enemy":
+        primaryColor = "#ef4444";
+        secondaryColor = "#dc2626";
+        glowColor = "rgba(239, 68, 68, 0.6)";
+        labelText = options?.counter ?? "ENEMY";
+        animationClass = "objective-marker--enemy";
+        break;
+      default: // unoccupied
+        primaryColor = "#f5c46d";
+        secondaryColor = "#d4a054";
+        glowColor = "rgba(245, 196, 109, 0.5)";
+        labelText = "OBJECTIVE";
+        animationClass = "objective-marker--neutral";
+    }
+
+    group.classList.add(animationClass);
+
+    // Create gradient definitions
+    const defsId = `obj-grad-${hexKey}`;
+    const defs = document.createElementNS(SVG_NS, "defs");
+
+    // Radial gradient for glow effect
+    const glowGradient = document.createElementNS(SVG_NS, "radialGradient");
+    glowGradient.setAttribute("id", `${defsId}-glow`);
+    const glowStop1 = document.createElementNS(SVG_NS, "stop");
+    glowStop1.setAttribute("offset", "0%");
+    glowStop1.setAttribute("stop-color", glowColor);
+    glowStop1.setAttribute("stop-opacity", "0.8");
+    const glowStop2 = document.createElementNS(SVG_NS, "stop");
+    glowStop2.setAttribute("offset", "100%");
+    glowStop2.setAttribute("stop-color", glowColor);
+    glowStop2.setAttribute("stop-opacity", "0");
+    glowGradient.appendChild(glowStop1);
+    glowGradient.appendChild(glowStop2);
+    defs.appendChild(glowGradient);
+
+    // Linear gradient for star
+    const starGradient = document.createElementNS(SVG_NS, "linearGradient");
+    starGradient.setAttribute("id", `${defsId}-star`);
+    starGradient.setAttribute("x1", "0%");
+    starGradient.setAttribute("y1", "0%");
+    starGradient.setAttribute("x2", "0%");
+    starGradient.setAttribute("y2", "100%");
+    const starStop1 = document.createElementNS(SVG_NS, "stop");
+    starStop1.setAttribute("offset", "0%");
+    starStop1.setAttribute("stop-color", primaryColor);
+    const starStop2 = document.createElementNS(SVG_NS, "stop");
+    starStop2.setAttribute("offset", "100%");
+    starStop2.setAttribute("stop-color", secondaryColor);
+    starGradient.appendChild(starStop1);
+    starGradient.appendChild(starStop2);
+    defs.appendChild(starGradient);
+
+    group.appendChild(defs);
+
+    // Outer glow circle (pulsing effect)
+    const outerGlow = document.createElementNS(SVG_NS, "circle");
+    outerGlow.setAttribute("cx", String(cx));
+    outerGlow.setAttribute("cy", String(cy));
+    outerGlow.setAttribute("r", String(HEX_RADIUS * 0.85));
+    outerGlow.setAttribute("fill", `url(#${defsId}-glow)`);
+    outerGlow.setAttribute("opacity", "0.6");
+    outerGlow.classList.add("objective-glow");
+    group.appendChild(outerGlow);
+
+    // Backdrop circle with drop shadow
+    const backdrop = document.createElementNS(SVG_NS, "circle");
+    backdrop.setAttribute("cx", String(cx));
+    backdrop.setAttribute("cy", String(cy));
+    backdrop.setAttribute("r", String(HEX_RADIUS * 0.45));
+    backdrop.setAttribute("fill", "rgba(0, 0, 0, 0.7)");
+    backdrop.setAttribute("filter", "drop-shadow(0px 4px 8px rgba(0, 0, 0, 0.5))");
+    group.appendChild(backdrop);
+
+    // Inner circle with border
+    const innerCircle = document.createElementNS(SVG_NS, "circle");
+    innerCircle.setAttribute("cx", String(cx));
+    innerCircle.setAttribute("cy", String(cy));
+    innerCircle.setAttribute("r", String(HEX_RADIUS * 0.42));
+    innerCircle.setAttribute("fill", "rgba(0, 0, 0, 0.5)");
+    innerCircle.setAttribute("stroke", primaryColor);
+    innerCircle.setAttribute("stroke-width", "3");
+    innerCircle.setAttribute("filter", "drop-shadow(0px 0px 6px " + glowColor + ")");
+    group.appendChild(innerCircle);
+
+    // Rotating ring decoration
+    const ringRadius = HEX_RADIUS * 0.5;
+    const ring = document.createElementNS(SVG_NS, "circle");
+    ring.setAttribute("cx", String(cx));
+    ring.setAttribute("cy", String(cy));
+    ring.setAttribute("r", String(ringRadius));
+    ring.setAttribute("fill", "none");
+    ring.setAttribute("stroke", primaryColor);
+    ring.setAttribute("stroke-width", "1.5");
+    ring.setAttribute("stroke-dasharray", "8 12");
+    ring.setAttribute("opacity", "0.5");
+    ring.classList.add("objective-ring");
+    group.appendChild(ring);
+
+    // Star icon at center
+    const starSize = 22;
+    const starPath = this.createStarPath(cx, cy - 3, starSize);
+    const starShadow = document.createElementNS(SVG_NS, "path");
+    starShadow.setAttribute("d", starPath);
+    starShadow.setAttribute("fill", "#000");
+    starShadow.setAttribute("opacity", "0.4");
+    starShadow.setAttribute("transform", `translate(2, 2)`);
+    group.appendChild(starShadow);
+
+    const star = document.createElementNS(SVG_NS, "path");
+    star.setAttribute("d", starPath);
+    star.setAttribute("fill", `url(#${defsId}-star)`);
+    star.setAttribute("stroke", primaryColor);
+    star.setAttribute("stroke-width", "1.5");
+    star.setAttribute("filter", `drop-shadow(0px 0px 4px ${glowColor})`);
+    group.appendChild(star);
+
+    // Status label below with background
+    const textY = cy + HEX_RADIUS * 0.58;
+
+    // Label background pill
+    const labelBg = document.createElementNS(SVG_NS, "rect");
+    const labelWidth = labelText.length * 7.5;
+    labelBg.setAttribute("x", String(cx - labelWidth / 2));
+    labelBg.setAttribute("y", String(textY - 11));
+    labelBg.setAttribute("width", String(labelWidth));
+    labelBg.setAttribute("height", "16");
+    labelBg.setAttribute("rx", "8");
+    labelBg.setAttribute("fill", "rgba(0, 0, 0, 0.85)");
+    labelBg.setAttribute("stroke", primaryColor);
+    labelBg.setAttribute("stroke-width", "1.5");
+    group.appendChild(labelBg);
+
+    // Status label text
+    const text = document.createElementNS(SVG_NS, "text");
+    text.setAttribute("x", String(cx));
+    text.setAttribute("y", String(textY));
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("fill", primaryColor);
+    text.setAttribute("font-size", "10");
+    text.setAttribute("font-weight", "800");
+    text.setAttribute("letter-spacing", "0.8");
+    text.setAttribute("font-family", "sans-serif");
+    text.textContent = labelText;
+    group.appendChild(text);
+
+    // Append to SVG
+    if (this.svgElement) {
+      this.svgElement.appendChild(group);
+    } else {
+      this.canvasElement?.appendChild(group);
+    }
+    this.objectiveMarkerMap.set(hexKey, group);
+  }
+
+  /**
+   * Creates an SVG path for a 5-pointed star
+   */
+  private createStarPath(cx: number, cy: number, size: number): string {
+    const points = [];
+    for (let i = 0; i < 10; i++) {
+      const angle = (Math.PI / 5) * i - Math.PI / 2;
+      const radius = i % 2 === 0 ? size : size * 0.4;
+      const x = cx + radius * Math.cos(angle);
+      const y = cy + radius * Math.sin(angle);
+      points.push(`${i === 0 ? 'M' : 'L'} ${x} ${y}`);
+    }
+    points.push('Z');
+    return points.join(' ');
   }
 
   /**

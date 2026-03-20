@@ -475,10 +475,7 @@ export class BattleScreen {
     if (!this.hexMapRenderer) return;
     if (this.airPreviewKeys.size > 0) {
       this.airPreviewKeys.clear();
-      // Restore objective hex highlights after clearing air preview
-      const engine = this.battleState.hasEngine() ? this.battleState.ensureGameEngine() : null;
-      const phase = engine?.getTurnSummary().phase;
-      this.hexMapRenderer.setZoneHighlights(phase === "deployment" ? [] : this.objectiveHexKeys);
+      this.hexMapRenderer.setZoneHighlights([]);
     }
   }
 
@@ -1280,8 +1277,8 @@ export class BattleScreen {
           })();
           this.hexMapRenderer.setZoneHighlights(activeZoneKeys);
         } else {
-          // During gameplay, highlight objective hexes so players know which hexes they must defend
-          this.hexMapRenderer.setZoneHighlights(this.objectiveHexKeys);
+          // During gameplay, zone highlights are not shown; objective markers provide visual feedback
+          this.hexMapRenderer.setZoneHighlights([]);
         }
       }
 
@@ -1423,30 +1420,27 @@ export class BattleScreen {
       }
     }
 
-    // Update markers for each objective hex
+    // Update professional objective markers for each hex
     for (const objective of this.scenario.objectives) {
       const key = `${objective.hex.q},${objective.hex.r}`;
       const occupant = occupancy.get(key);
       const counter = fordCounters.get(key) ?? 0;
 
-      let color: string;
-      let label: string;
+      let status: "unoccupied" | "player" | "enemy";
+      let counterText: string | undefined;
 
       if (occupant === "Bot") {
-        color = "#ff4444"; // Red for enemy
-        label = `${counter}/8`;
+        status = "enemy";
+        counterText = `${counter}/8`;
       } else if (occupant === "Player" || occupant === "Ally") {
-        color = "#44ff44"; // Green for player
-        label = "HELD";
+        status = "player";
       } else {
-        color = "#888888"; // Gray for unoccupied
-        label = "OBJ";
+        status = "unoccupied";
       }
 
-      this.hexMapRenderer.renderDebugMarker(key, {
-        label,
-        color,
-        opacity: 0.6
+      this.hexMapRenderer.renderObjectiveMarker(key, {
+        status,
+        counter: counterText
       });
     }
   }
@@ -3928,8 +3922,8 @@ export class BattleScreen {
       if (this.baseCampStatus) {
         this.baseCampStatus.textContent = phase === "deployment" ? "No hex selected." : "Select a unit to move or attack.";
       }
-      // During gameplay, keep objective hexes visible; during deployment, clear all highlights
-      this.hexMapRenderer?.setZoneHighlights(phase === "deployment" ? [] : this.objectiveHexKeys);
+      // Clear all zone highlights
+      this.hexMapRenderer?.setZoneHighlights([]);
       this.deploymentPanel?.setSelectedHex(null);
       this.playerMoveHexes.clear();
       this.playerAttackHexes.clear();
@@ -4004,7 +3998,7 @@ export class BattleScreen {
         const key = CoordinateSystem.makeHexKey(col, row);
         return key;
       }));
-      const overlay = new Set<string>([...this.playerMoveHexes, ...this.playerAttackHexes, ...this.objectiveHexKeys]);
+      const overlay = new Set<string>([...this.playerMoveHexes, ...this.playerAttackHexes]);
       this.hexMapRenderer?.setZoneHighlights(overlay);
 
       // Provide clear feedback about unit's action state. Resolve labels strictly so bad data surfaces immediately.
@@ -4051,7 +4045,7 @@ export class BattleScreen {
       console.log("[BattleScreen] updateSelectionFeedback - hex does not hold player unit");
       this.playerMoveHexes.clear();
       this.playerAttackHexes.clear();
-      this.hexMapRenderer?.setZoneHighlights(this.objectiveHexKeys);
+      this.hexMapRenderer?.setZoneHighlights([]);
       if (this.baseCampStatus) {
         this.baseCampStatus.textContent = `Selected hex: ${key}`;
       }
