@@ -3629,39 +3629,24 @@ export class GameEngine implements GameEngineAPI {
     // Check for ford feature that makes rivers crossable
     if (cost >= 999 && hex) {
       const features = this.getTileFeaturesAt(hex);
-      const hexKey = `${hex.q},${hex.r}`;
-
-      if (features.length > 0) {
-        console.log(`[Movement Cost] High-cost terrain at ${hexKey}: terrain cost=${cost}, moveType=${moveType}, features=[${features.join(', ')}]`);
-      }
 
       if (features.includes("ford")) {
         if (moveType === "leg") {
-          console.log(`[Movement Cost] Ford crossing at ${hexKey}: leg unit, cost=1`);
           return 1; // Infantry can cross fords at normal speed
         } else if (moveType === "track") {
-          console.log(`[Movement Cost] Ford crossing at ${hexKey}: track unit, cost=2`);
           return 2;
         } else if (moveType === "wheel") {
-          console.log(`[Movement Cost] Ford crossing at ${hexKey}: wheel unit, cost=3`);
           return 3;
         }
       }
       if (features.includes("shallow")) {
         if (moveType === "leg") {
-          console.log(`[Movement Cost] Shallow crossing at ${hexKey}: leg unit, cost=1`);
           return 1; // Infantry can cross shallow water at normal speed
         } else if (moveType === "track") {
-          console.log(`[Movement Cost] Shallow crossing at ${hexKey}: track unit, cost=2`);
           return 2;
         } else if (moveType === "wheel") {
-          console.log(`[Movement Cost] Shallow crossing at ${hexKey}: wheel unit, impassable`);
           return 999; // Wheeled vehicles still can't cross shallow water
         }
-      }
-
-      if (cost >= 999 && features.length > 0) {
-        console.log(`[Movement Cost] Impassable at ${hexKey}: cost=${cost}, features present but no ford/shallow match`);
       }
     }
 
@@ -5459,6 +5444,7 @@ export class GameEngine implements GameEngineAPI {
         const unitDef = this.getUnitDefinition(unit.type);
         const maxMovement = unitDef.movement ?? 1;
         let movementSpent = 0;
+        let hexesMoved = 0;
 
         for (let i = 1; i < plan.path.length; i += 1) {
           const step = plan.path[i];
@@ -5472,9 +5458,10 @@ export class GameEngine implements GameEngineAPI {
           const terrain = this.terrainAt(step);
           const stepCost = this.resolveMoveCost(unitDef.moveType, terrain, step);
 
-          // Check if we have enough movement points remaining
-          if (movementSpent + stepCost > maxMovement) {
-            console.log(`[Bot AI] Movement exhausted at step ${i}: spent ${movementSpent}, step cost ${stepCost}, max ${maxMovement}`);
+          // Units can always move at least 1 hex per turn, even through difficult terrain
+          // After the first hex, check if we have movement points remaining
+          if (hexesMoved > 0 && movementSpent + stepCost > maxMovement) {
+            console.log(`[Bot AI] Movement exhausted after ${hexesMoved} hex(es): spent ${movementSpent}, next step cost ${stepCost}, max ${maxMovement}`);
             break;
           }
 
@@ -5482,6 +5469,7 @@ export class GameEngine implements GameEngineAPI {
           current = structuredClone(step);
           visited.push(structuredClone(step));
           movementSpent += stepCost;
+          hexesMoved += 1;
         }
         const finalKey = axialKey(current);
         console.log(`[Bot AI] ${unit.type} moved from ${fromKey} to ${finalKey} (${visited.length - 1} steps)`);

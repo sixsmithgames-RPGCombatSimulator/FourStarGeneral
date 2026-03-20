@@ -467,14 +467,12 @@ export class MapViewport implements IMapViewport {
     // Prefer the SVG viewBox so our pan math stays in the same coordinate space as the cx/cy dataset values.
     const viewBox = this.mapElement.viewBox.baseVal;
     if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
-      console.log("[MapViewport] getMapDimensions: using viewBox (primary)", { width: viewBox.width, height: viewBox.height });
       return { width: viewBox.width, height: viewBox.height };
     }
 
     // Fallback to getBBox when the SVG lacks an explicit viewBox (e.g., legacy renders or tests).
     const bbox = this.mapElement.getBBox?.();
     if (bbox && bbox.width > 0 && bbox.height > 0) {
-      console.log("[MapViewport] getMapDimensions: using getBBox (fallback)", { width: bbox.width, height: bbox.height });
       return { width: bbox.width, height: bbox.height };
     }
 
@@ -482,13 +480,11 @@ export class MapViewport implements IMapViewport {
     const attrWidth = parseFloat(this.mapElement.getAttribute("width") ?? "0");
     const attrHeight = parseFloat(this.mapElement.getAttribute("height") ?? "0");
     if (attrWidth > 0 && attrHeight > 0) {
-      console.log("[MapViewport] getMapDimensions: using width/height attributes (fallback)", { width: attrWidth, height: attrHeight });
       return { width: attrWidth, height: attrHeight };
     }
 
     // Last resort: getBoundingClientRect (includes transforms)
     const rect = this.mapElement.getBoundingClientRect();
-    console.log("[MapViewport] getMapDimensions: using getBoundingClientRect (last resort)", { width: rect.width, height: rect.height });
     return { width: rect.width, height: rect.height };
   }
 }

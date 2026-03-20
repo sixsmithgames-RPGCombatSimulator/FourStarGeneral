@@ -521,7 +521,6 @@ export function computeReachableHexes(
     }
   }
 
-  console.log(`[Bot Planner] Pathfinding from ${originKey}: Found ${results.size} reachable hexes (allowance=${allowance}, moveType=${moveType}, impassable=${impassableCount}, highCost=${highCostCount})`);
 
   return results;
 }

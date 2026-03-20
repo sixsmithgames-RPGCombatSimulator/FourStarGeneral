@@ -1291,33 +1291,22 @@ export class HexMapRenderer implements IMapRenderer {
    * Any keys omitted from the new collection have their outline removed.
    */
   setZoneHighlights(keys: Iterable<string>): void {
-    const keysArray = Array.from(keys);
-    console.log("[HexMapRenderer] setZoneHighlights", {
-      incomingKeys: keysArray,
-      incomingCount: keysArray.length,
-      currentActiveKeys: Array.from(this.activeZoneKeys),
-      hexElementMapSize: this.hexElementMap.size,
-      hexElementMapKeys: Array.from(this.hexElementMap.keys()).slice(0, 10)
-    });
     const nextKeys = new Set<string>();
     for (const key of keys) {
       nextKeys.add(key);
       if (!this.activeZoneKeys.has(key)) {
-        console.log("[HexMapRenderer] setZoneHighlights - enabling zone for", key);
         this.toggleZoneOutline(key, true);
       }
     }
 
     this.activeZoneKeys.forEach((key) => {
       if (!nextKeys.has(key)) {
-        console.log("[HexMapRenderer] setZoneHighlights - disabling zone for", key);
         this.toggleZoneOutline(key, false);
       }
     });
 
     this.activeZoneKeys.clear();
     nextKeys.forEach((key) => this.activeZoneKeys.add(key));
-    console.log("[HexMapRenderer] setZoneHighlights - done, activeZoneKeys now", Array.from(this.activeZoneKeys));
   }
 
   /**
@@ -1350,14 +1339,6 @@ export class HexMapRenderer implements IMapRenderer {
   private toggleZoneOutline(hexKey: string, enabled: boolean): void {
     const group = this.hexElementMap.get(hexKey);
     const polygon = this.hexPolygonMap.get(hexKey);
-    console.log("[HexMapRenderer] toggleZoneOutline", {
-      hexKey,
-      enabled,
-      hasGroup: !!group,
-      hasPolygon: !!polygon,
-      groupClasses: group?.classList.toString(),
-      polygonClasses: polygon?.classList.toString()
-    });
     if (enabled) {
       group?.classList.add(ACTIVE_ZONE_CLASS);
       polygon?.classList.add(ACTIVE_ZONE_CLASS);
@@ -1365,12 +1346,6 @@ export class HexMapRenderer implements IMapRenderer {
       group?.classList.remove(ACTIVE_ZONE_CLASS);
       polygon?.classList.remove(ACTIVE_ZONE_CLASS);
     }
-    console.log("[HexMapRenderer] toggleZoneOutline - after", {
-      hexKey,
-      enabled,
-      groupClasses: group?.classList.toString(),
-      polygonClasses: polygon?.classList.toString()
-    });
   }
 
   /**

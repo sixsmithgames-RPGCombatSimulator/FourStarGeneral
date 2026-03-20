@@ -2011,7 +2011,6 @@ export class BattleScreen {
    * @see MapViewport.centerOn() for transform calculation details
    */
   private focusCameraOnHex(hexKey: string): void {
-    console.log("[BattleScreen] ═══ focusCameraOnHex CALLED ═══", { hexKey });
 
     if (!this.mapViewport || !this.hexMapRenderer) {
       console.warn("[BattleScreen] focusCameraOnHex: mapViewport or hexMapRenderer is null");
@@ -2198,16 +2197,8 @@ export class BattleScreen {
     this.battleUpdateUnsubscribe = this.battleState.subscribeToBattleUpdates((reason) => {
       switch (reason) {
         case "deploymentUpdated": {
-          console.log("[BattleScreen] deploymentUpdated received", {
-            committedEntries: ensureDeploymentState().getCommittedEntryKeys(),
-            deploymentPrimed: this.deploymentPrimed
-          });
           const summary = this.battleState.ensureGameEngine().getTurnSummary();
           if (summary.phase !== "deployment") {
-            console.warn("[BattleScreen] deploymentUpdated ignored: engine not in deployment phase", {
-              phase: summary.phase,
-              activeFaction: summary.activeFaction
-            });
             break;
           }
           // Force mirrors to refresh from the latest committed state so UI components stay accurate.
@@ -2934,11 +2925,6 @@ export class BattleScreen {
    * Closes the idle reminder, restores focus to the previously active element, and clears pending state.
    */
   private dismissIdleWarning(): void {
-    console.log("[BattleScreen] dismissIdleWarning invoked", {
-      lastFocusedHexKey: this.lastFocusedHexKey,
-      lastViewportTransform: this.lastViewportTransform,
-      currentTransform: this.mapViewport?.getTransform?.()
-    });
     if (!this.idleWarningLayer) {
       return;
     }
@@ -2951,12 +2937,6 @@ export class BattleScreen {
     const focusTarget = this.idleWarningPreviousFocus;
     this.idleWarningPreviousFocus = null;
     this.pendingIdleTurnAdvance = null;
-    console.log("[BattleScreen] dismissIdleWarning: focus restored", {
-      focusTarget: focusTarget?.id ?? focusTarget?.className ?? focusTarget?.tagName,
-      lastFocusedHexKey: this.lastFocusedHexKey,
-      lastViewportTransform: this.lastViewportTransform,
-      currentTransform: this.mapViewport?.getTransform?.()
-    });
     focusTarget?.focus();
   }
 
@@ -3796,7 +3776,6 @@ export class BattleScreen {
    * direct invocation of the selection synchronization routine.
    */
   private applySelectedHex(key: string): void {
-    console.log("[BattleScreen] applySelectedHex", { hexKey: key, hasRenderer: !!this.hexMapRenderer });
     if (this.hexMapRenderer) {
       this.hexMapRenderer.applyHexSelection(key);
       return;
@@ -3821,28 +3800,19 @@ export class BattleScreen {
    * avoiding redundant work when the key is unchanged.
    */
   private handleRendererSelection(key: string | null): void {
-    console.log("[BattleScreen] handleRendererSelection", {
-      hexKey: key,
-      currentSelection: this.selectedHexKey,
-      isSame: this.selectedHexKey === key
-    });
     if (this.selectedHexKey === key) {
-      console.log("[BattleScreen] handleRendererSelection - skipping, same key already selected");
       return;
     }
 
     // Only enforce zone lock during deployment phase, not during battle
     const engine = this.battleState.ensureGameEngine();
     const phase = engine.getTurnSummary().phase;
-    console.log("[BattleScreen] handleRendererSelection - phase check", { phase });
     if (phase === "deployment" && key && this.deploymentPanel?.isZoneLocked() && !this.deploymentPanel.isHexWithinLockedZone(key)) {
       const lockedLabel = this.deploymentPanel.getLockedZoneLabel() ?? "locked deployment zone";
       this.announceBattleUpdate(`Base camp assigned to ${lockedLabel}. Select a hex within that zone.`);
-      console.log("[BattleScreen] handleRendererSelection - blocked by zone lock");
       return;
     }
 
-    console.log("[BattleScreen] handleRendererSelection - updating selection", { from: this.selectedHexKey, to: key });
     this.selectedHexKey = key;
     this.updateSelectionFeedback(key);
   }
@@ -3918,50 +3888,27 @@ export class BattleScreen {
 
     // Gameplay selection: compute move/attack overlays for player units.
     const parsed = CoordinateSystem.parseHexKey(key);
-    console.log("[BattleScreen] updateSelectionFeedback - battle phase", { hexKey: key, parsed });
     if (!parsed) {
       console.warn("[BattleScreen] updateSelectionFeedback - failed to parse hex key");
       return;
     }
     const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
     const holdsPlayer = engine.playerUnits.some((u) => u.hex.q === axial.q && u.hex.r === axial.r);
-    console.log("[BattleScreen] updateSelectionFeedback - unit check", {
-      hexKey: key,
-      axial,
-      holdsPlayer,
-      playerUnitCount: engine.playerUnits.length,
-      playerUnits: engine.playerUnits.map(u => ({ hex: u.hex, type: u.type }))
-    });
     if (holdsPlayer) {
       const moves = engine.getReachableHexes(axial);
       const targets = engine.getAttackableTargets(axial);
       const movementBudget = engine.getMovementBudget(axial);
-      console.log("[BattleScreen] updateSelectionFeedback - raw moves/targets", {
-        movesCount: moves.length,
-        movesAxial: moves,
-        targetsCount: targets.length,
-        targetsAxial: targets
-      });
       this.playerMoveHexes = new Set(moves.map(({ q, r }) => {
         const { col, row } = CoordinateSystem.axialToOffset(q, r);
         const key = CoordinateSystem.makeHexKey(col, row);
-        console.log("[BattleScreen] Converting move hex", { axial: { q, r }, offset: { col, row }, key });
         return key;
       }));
       this.playerAttackHexes = new Set(targets.map(({ q, r }) => {
         const { col, row } = CoordinateSystem.axialToOffset(q, r);
         const key = CoordinateSystem.makeHexKey(col, row);
-        console.log("[BattleScreen] Converting attack hex", { axial: { q, r }, offset: { col, row }, key });
         return key;
       }));
-      console.log("[BattleScreen] updateSelectionFeedback - populated sets", {
-        playerMoveHexes: Array.from(this.playerMoveHexes),
-        playerAttackHexes: Array.from(this.playerAttackHexes)
-      });
       const overlay = new Set<string>([...this.playerMoveHexes, ...this.playerAttackHexes]);
-      console.log("[BattleScreen] updateSelectionFeedback - calling setZoneHighlights", {
-        overlayKeys: Array.from(overlay)
-      });
       this.hexMapRenderer?.setZoneHighlights(overlay);
 
       // Provide clear feedback about unit's action state. Resolve labels strictly so bad data surfaces immediately.
@@ -4098,15 +4045,6 @@ export class BattleScreen {
   private onPlayerTurnMapClick(key: string): void {
     const _engine = this.battleState.ensureGameEngine();
     const parsed = CoordinateSystem.parseHexKey(key);
-    console.log("[BattleScreen] onPlayerTurnMapClick", {
-      hexKey: key,
-      parsed,
-      selectedHexKey: this.selectedHexKey,
-      playerMoveHexes: this.playerMoveHexes.size,
-      playerMoveHexesKeys: Array.from(this.playerMoveHexes),
-      playerAttackHexes: this.playerAttackHexes.size,
-      playerAttackHexesKeys: Array.from(this.playerAttackHexes)
-    });
     if (!parsed) {
       console.warn("[BattleScreen] onPlayerTurnMapClick - failed to parse hex key", key);
       return;
@@ -4115,15 +4053,7 @@ export class BattleScreen {
 
     // If there is an active selection and the user clicked a move/attack destination, execute the action.
     if (this.selectedHexKey) {
-      console.log("[BattleScreen] onPlayerTurnMapClick - checking move/attack", {
-        clickedKey: key,
-        hasInMoveSet: this.playerMoveHexes.has(key),
-        hasInAttackSet: this.playerAttackHexes.has(key),
-        moveSetKeys: Array.from(this.playerMoveHexes),
-        attackSetKeys: Array.from(this.playerAttackHexes)
-      });
       if (this.playerMoveHexes.has(key)) {
-        console.log("[BattleScreen] onPlayerTurnMapClick - executing move", { from: this.selectedHexKey, to: key });
         const selParsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
         if (!selParsed) return;
         const selAxial = CoordinateSystem.offsetToAxial(selParsed.col, selParsed.row);
@@ -4134,7 +4064,6 @@ export class BattleScreen {
         return;
       }
       if (this.playerAttackHexes.has(key)) {
-        console.log("[BattleScreen] onPlayerTurnMapClick - prompting attack", { from: this.selectedHexKey, to: key });
         const selParsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
         if (!selParsed) return;
         const selAxial = CoordinateSystem.offsetToAxial(selParsed.col, selParsed.row);
@@ -4145,11 +4074,9 @@ export class BattleScreen {
 
     // Otherwise treat as a selection change.
     if (this.selectedHexKey === key) {
-      console.log("[BattleScreen] onPlayerTurnMapClick - clearing selection (same hex clicked)");
       this.clearSelectedHex();
       return;
     }
-    console.log("[BattleScreen] onPlayerTurnMapClick - applying selection", { hexKey: key });
     this.applySelectedHex(key);
   }
 
