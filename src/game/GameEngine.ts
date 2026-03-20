@@ -5301,7 +5301,11 @@ export class GameEngine implements GameEngineAPI {
 
   private plannerMovementAllowance(snapshot: PlannerUnitSnapshot): number {
     const def = snapshot.definition;
-    return Math.max(1, def.movement ?? 1);
+    const baseMovement = def.movement ?? 1;
+    // Give bots sufficient movement allowance for multi-hex planning
+    // This allows pathfinding to explore far enough to find river crossings and strategic positions
+    // Infantry (movement=1) get 5 hexes, faster units get proportionally more
+    return Math.max(5, baseMovement * 5);
   }
 
   private plannerLOSAllows(attackerHex: Axial, targetHex: Axial, isAir: boolean): boolean {
