@@ -5454,6 +5454,12 @@ export class GameEngine implements GameEngineAPI {
         console.log(`[Bot AI] Executing move for ${unit.type} from ${fromKey} to ${toKey}`);
         this.botPlacements.delete(fromKey);
         const moved = structuredClone(unit);
+
+        // Get unit's actual movement points for this turn
+        const unitDef = this.getUnitDefinition(unit.type);
+        const maxMovement = unitDef.movement ?? 1;
+        let movementSpent = 0;
+
         for (let i = 1; i < plan.path.length; i += 1) {
           const step = plan.path[i];
           const stepKey = axialKey(step);
@@ -5461,9 +5467,21 @@ export class GameEngine implements GameEngineAPI {
             console.log(`[Bot AI] Path blocked at ${stepKey}, stopping movement`);
             break;
           }
+
+          // Calculate movement cost for this step
+          const terrain = this.terrainAt(step);
+          const stepCost = this.resolveMoveCost(unitDef.moveType, terrain, step);
+
+          // Check if we have enough movement points remaining
+          if (movementSpent + stepCost > maxMovement) {
+            console.log(`[Bot AI] Movement exhausted at step ${i}: spent ${movementSpent}, step cost ${stepCost}, max ${maxMovement}`);
+            break;
+          }
+
           moved.hex = structuredClone(step);
           current = structuredClone(step);
           visited.push(structuredClone(step));
+          movementSpent += stepCost;
         }
         const finalKey = axialKey(current);
         console.log(`[Bot AI] ${unit.type} moved from ${fromKey} to ${finalKey} (${visited.length - 1} steps)`);
