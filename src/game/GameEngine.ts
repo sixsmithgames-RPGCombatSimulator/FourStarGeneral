@@ -3636,7 +3636,7 @@ export class GameEngine implements GameEngineAPI {
         } else if (moveType === "track") {
           return 2;
         } else if (moveType === "wheel") {
-          return 3;
+          return 2; // Wheeled vehicles can use prepared fords
         }
       }
       if (features.includes("shallow")) {
@@ -3645,7 +3645,7 @@ export class GameEngine implements GameEngineAPI {
         } else if (moveType === "track") {
           return 2;
         } else if (moveType === "wheel") {
-          return 999; // Wheeled vehicles still can't cross shallow water
+          return 999; // Wheeled vehicles can't ford unprepared shallow crossings
         }
       }
     }

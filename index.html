@@ -3738,6 +3738,169 @@
         display: none;
       }
     }
+
+    /* Mission End Modal - Professional, spacious design for victory/defeat announcements */
+    .mission-end-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    .mission-end-modal__backdrop {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+    }
+
+    .mission-end-modal__content {
+      position: relative;
+      background: linear-gradient(145deg, rgba(20, 25, 38, 0.98), rgba(12, 15, 22, 0.98));
+      border: 2px solid rgba(245, 196, 109, 0.4);
+      border-radius: 16px;
+      padding: 48px 56px;
+      max-width: 600px;
+      width: 90vw;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6),
+                  0 0 80px rgba(245, 196, 109, 0.15),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      text-align: center;
+    }
+
+    .mission-end-modal__title {
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin: 0 0 24px 0;
+      background: linear-gradient(135deg, #f5c46d, #d4a054);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow: 0 2px 20px rgba(245, 196, 109, 0.3);
+      line-height: 1.2;
+    }
+
+    .mission-end-modal__reason {
+      font-size: 1.25rem;
+      line-height: 1.6;
+      color: rgba(255, 255, 255, 0.9);
+      margin: 0 0 32px 0;
+      padding: 0 24px;
+      font-weight: 400;
+    }
+
+    .mission-end-modal__prompt {
+      font-size: 1.05rem;
+      color: rgba(255, 255, 255, 0.7);
+      margin: 0 0 32px 0;
+      font-weight: 500;
+    }
+
+    .mission-end-modal__actions {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .mission-end-modal__button {
+      font-size: 1.125rem;
+      padding: 14px 32px;
+      border-radius: 8px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      transition: all 0.2s ease;
+      min-width: 160px;
+    }
+
+    .mission-end-modal__button--primary {
+      background: linear-gradient(135deg, #b45309, #f5c46d);
+      color: #080a11;
+      border: none;
+      box-shadow: 0 4px 16px rgba(245, 196, 109, 0.3);
+    }
+
+    .mission-end-modal__button--primary:hover {
+      background: linear-gradient(135deg, #d97706, #fcd34d);
+      box-shadow: 0 6px 24px rgba(245, 196, 109, 0.5);
+      transform: translateY(-2px);
+    }
+
+    .mission-end-modal__button--primary:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 8px rgba(245, 196, 109, 0.3);
+    }
+
+    .mission-end-modal__button:not(.mission-end-modal__button--primary) {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .mission-end-modal__button:not(.mission-end-modal__button--primary):hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: translateY(-2px);
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-40px) scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    /* Responsive adjustments for smaller screens */
+    @media (max-width: 640px) {
+      .mission-end-modal__content {
+        padding: 36px 28px;
+        width: calc(100vw - 32px);
+      }
+
+      .mission-end-modal__title {
+        font-size: 2rem;
+      }
+
+      .mission-end-modal__reason {
+        font-size: 1.1rem;
+        padding: 0 12px;
+      }
+
+      .mission-end-modal__actions {
+        flex-direction: column;
+        width: 100%;
+      }
+
+      .mission-end-modal__button {
+        width: 100%;
+        min-width: unset;
+      }
+    }
   </style>
 </head>
 <body>

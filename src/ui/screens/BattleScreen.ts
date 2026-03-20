@@ -244,6 +244,7 @@ export class BattleScreen {
   private playerAttackHexes: Set<string> = new Set();
   private pendingAttack: PendingAttackContext | null = null;
   private idleUnitHighlightKeys: Set<string> = new Set();
+  private objectiveHexKeys: Set<string> = new Set();
   // Tracks focus management for the attack confirmation dialog so keyboard users remain within the modal context.
   private attackDialogPreviouslyFocused: HTMLElement | null = null;
   private attackDialogKeydownHandler: (event: KeyboardEvent) => void;
@@ -474,7 +475,10 @@ export class BattleScreen {
     if (!this.hexMapRenderer) return;
     if (this.airPreviewKeys.size > 0) {
       this.airPreviewKeys.clear();
-      this.hexMapRenderer.setZoneHighlights([]);
+      // Restore objective hex highlights after clearing air preview
+      const engine = this.battleState.hasEngine() ? this.battleState.ensureGameEngine() : null;
+      const phase = engine?.getTurnSummary().phase;
+      this.hexMapRenderer.setZoneHighlights(phase === "deployment" ? [] : this.objectiveHexKeys);
     }
   }
 
@@ -1276,8 +1280,8 @@ export class BattleScreen {
           })();
           this.hexMapRenderer.setZoneHighlights(activeZoneKeys);
         } else {
-          // During gameplay, zone outlines are not shown; movement/attack overlays are handled by selection feedback.
-          this.hexMapRenderer.setZoneHighlights([]);
+          // During gameplay, highlight objective hexes so players know which hexes they must defend
+          this.hexMapRenderer.setZoneHighlights(this.objectiveHexKeys);
         }
       }
 
@@ -1373,7 +1377,78 @@ export class BattleScreen {
     }
 
     this.renderMissionStatus();
+    this.updateObjectiveMarkers();
     this.battleState.emitBattleUpdate("missionUpdated");
+  }
+
+  private updateObjectiveMarkers(): void {
+    if (!this.hexMapRenderer || !this.missionRulesController || !this.scenario.objectives) {
+      return;
+    }
+
+    const engine = this.battleState.hasEngine() ? this.battleState.ensureGameEngine() : null;
+    if (!engine) {
+      return;
+    }
+
+    // Build occupancy map
+    const occupancy = new Map<string, "Player" | "Bot" | "Ally">();
+    engine.playerUnits.forEach((unit) => {
+      occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Player");
+    });
+    engine.botUnits.forEach((unit) => {
+      occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Bot");
+    });
+    engine.allyUnits?.forEach((unit) => {
+      occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Ally");
+    });
+
+    // Get ford tracker counters from mission status
+    const fordCounters = new Map<string, number>();
+    if (this.missionStatus?.objectives) {
+      const primaryObjective = this.missionStatus.objectives.find(obj => obj.id === "primary_deny_fords");
+      if (primaryObjective?.detail) {
+        // Parse detail string like "Ford 1: Bot hold 2/8 turns; Ford 2: Bot hold 0/8 turns"
+        const fordMatches = primaryObjective.detail.matchAll(/Ford (\d+): Bot hold (\d+)\/(\d+) turns/g);
+        let fordIndex = 0;
+        for (const match of fordMatches) {
+          const count = parseInt(match[2], 10);
+          if (this.scenario.objectives && fordIndex < this.scenario.objectives.length) {
+            const objective = this.scenario.objectives[fordIndex];
+            const key = `${objective.hex.q},${objective.hex.r}`;
+            fordCounters.set(key, count);
+          }
+          fordIndex++;
+        }
+      }
+    }
+
+    // Update markers for each objective hex
+    for (const objective of this.scenario.objectives) {
+      const key = `${objective.hex.q},${objective.hex.r}`;
+      const occupant = occupancy.get(key);
+      const counter = fordCounters.get(key) ?? 0;
+
+      let color: string;
+      let label: string;
+
+      if (occupant === "Bot") {
+        color = "#ff4444"; // Red for enemy
+        label = `${counter}/8`;
+      } else if (occupant === "Player" || occupant === "Ally") {
+        color = "#44ff44"; // Green for player
+        label = "HELD";
+      } else {
+        color = "#888888"; // Gray for unoccupied
+        label = "OBJ";
+      }
+
+      this.hexMapRenderer.renderDebugMarker(key, {
+        label,
+        color,
+        opacity: 0.6
+      });
+    }
   }
 
   private renderMissionStatus(): void {
@@ -1444,6 +1519,25 @@ export class BattleScreen {
   private showMissionEndModal(outcome: "playerVictory" | "playerDefeat", reason: string): void {
     this.disposeMissionEndModal();
 
+    // Build objectives summary
+    let objectivesSummary = "";
+    if (this.missionStatus?.objectives && this.missionStatus.objectives.length > 0) {
+      const completedCount = this.missionStatus.objectives.filter(obj => obj.state === "completed").length;
+      const failedCount = this.missionStatus.objectives.filter(obj => obj.state === "failed").length;
+      const totalCount = this.missionStatus.objectives.length;
+
+      objectivesSummary = `
+        <div style="margin: 24px 0; padding: 20px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+          <div style="font-size: 0.9rem; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px;">Mission Objectives</div>
+          <div style="font-size: 1.1rem; color: rgba(255,255,255,0.9);">
+            <span style="color: #4ade80; font-weight: 700;">${completedCount}</span> Completed ·
+            <span style="color: #f87171; font-weight: 700;">${failedCount}</span> Failed ·
+            <span style="color: rgba(255,255,255,0.7);">${totalCount - completedCount - failedCount}</span> Incomplete
+          </div>
+        </div>
+      `;
+    }
+
     const container = document.createElement("div");
     container.className = "mission-end-modal";
     container.setAttribute("role", "dialog");
@@ -1453,6 +1547,7 @@ export class BattleScreen {
       <div class="mission-end-modal__content">
         <h2 class="mission-end-modal__title">${outcome === "playerVictory" ? "Mission Complete" : "Mission Failed"}</h2>
         <p class="mission-end-modal__reason">${this.escapeHtml(reason)}</p>
+        ${objectivesSummary}
         <p class="mission-end-modal__prompt">Return to headquarters now?</p>
         <div class="mission-end-modal__actions">
           <button type="button" class="battle-button mission-end-modal__button mission-end-modal__button--primary" data-mission-end="confirm">End Mission</button>
@@ -3833,7 +3928,8 @@ export class BattleScreen {
       if (this.baseCampStatus) {
         this.baseCampStatus.textContent = phase === "deployment" ? "No hex selected." : "Select a unit to move or attack.";
       }
-      this.hexMapRenderer?.setZoneHighlights([]);
+      // During gameplay, keep objective hexes visible; during deployment, clear all highlights
+      this.hexMapRenderer?.setZoneHighlights(phase === "deployment" ? [] : this.objectiveHexKeys);
       this.deploymentPanel?.setSelectedHex(null);
       this.playerMoveHexes.clear();
       this.playerAttackHexes.clear();
@@ -3908,7 +4004,7 @@ export class BattleScreen {
         const key = CoordinateSystem.makeHexKey(col, row);
         return key;
       }));
-      const overlay = new Set<string>([...this.playerMoveHexes, ...this.playerAttackHexes]);
+      const overlay = new Set<string>([...this.playerMoveHexes, ...this.playerAttackHexes, ...this.objectiveHexKeys]);
       this.hexMapRenderer?.setZoneHighlights(overlay);
 
       // Provide clear feedback about unit's action state. Resolve labels strictly so bad data surfaces immediately.
@@ -3955,7 +4051,7 @@ export class BattleScreen {
       console.log("[BattleScreen] updateSelectionFeedback - hex does not hold player unit");
       this.playerMoveHexes.clear();
       this.playerAttackHexes.clear();
-      this.hexMapRenderer?.setZoneHighlights([]);
+      this.hexMapRenderer?.setZoneHighlights(this.objectiveHexKeys);
       if (this.baseCampStatus) {
         this.baseCampStatus.textContent = `Selected hex: ${key}`;
       }
@@ -4773,6 +4869,15 @@ export class BattleScreen {
       }
     }
     this.scenario = this.buildScenarioData();
+
+    // Initialize objective hex keys for visual highlighting
+    this.objectiveHexKeys.clear();
+    if (this.scenario.objectives) {
+      for (const objective of this.scenario.objectives) {
+        this.objectiveHexKeys.add(`${objective.hex.q},${objective.hex.r}`);
+      }
+    }
+
     this.missionRulesController = createMissionRulesController(missionKey, this.scenario, this.uiState?.selectedDifficulty ?? "Normal");
     this.missionStatus = this.missionRulesController.getStatus();
     this.lastMissionPhaseId = this.missionStatus.phase?.id ?? null;

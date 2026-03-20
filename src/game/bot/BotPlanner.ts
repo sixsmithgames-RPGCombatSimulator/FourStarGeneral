@@ -1079,7 +1079,16 @@ function pickBestCandidate(
     }
   }
 
-  // Fallback to holding position when nothing else scored positively.
+  // Final fallback: move toward nearest enemy even if we can't reach/attack them this turn
+  // This prevents units from getting stuck when they can't find valid attack positions
+  if (!top || top.score <= 0) {
+    const fallbackPressure = scoreEnemyPressure(snapshot.unit.hex, reachable, input.playerUnits);
+    if (fallbackPressure && (!top || fallbackPressure.score > top.score)) {
+      top = fallbackPressure;
+    }
+  }
+
+  // Only hold position if literally no movement is possible
   if (!top) {
     top = {
       destination: snapshot.unit.hex,
