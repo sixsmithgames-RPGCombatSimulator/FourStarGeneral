@@ -245,6 +245,7 @@ export class BattleScreen {
   private pendingAttack: PendingAttackContext | null = null;
   private idleUnitHighlightKeys: Set<string> = new Set();
   private objectiveHexKeys: Set<string> = new Set();
+  private currentObjectiveIndex = 0;
   // Tracks focus management for the attack confirmation dialog so keyboard users remain within the modal context.
   private attackDialogPreviouslyFocused: HTMLElement | null = null;
   private attackDialogKeydownHandler: (event: KeyboardEvent) => void;
@@ -1378,6 +1379,36 @@ export class BattleScreen {
     this.battleState.emitBattleUpdate("missionUpdated");
   }
 
+  /**
+   * Sets up the objective cycling handler for the CYCLE OBJECTIVE button
+   */
+  private setupObjectiveCycling(): void {
+    if (!this.zoomPanControls || !this.scenario.objectives || this.scenario.objectives.length === 0) {
+      return;
+    }
+
+    this.currentObjectiveIndex = 0;
+    this.zoomPanControls.onCycleObjective(() => {
+      if (!this.scenario.objectives || this.scenario.objectives.length === 0) {
+        return;
+      }
+
+      // Cycle to next objective
+      this.currentObjectiveIndex = (this.currentObjectiveIndex + 1) % this.scenario.objectives.length;
+      const objective = this.scenario.objectives[this.currentObjectiveIndex];
+
+      // Convert to offset key and focus on it
+      const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
+      const offsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+
+      // Focus camera on objective
+      this.hexMapRenderer?.focusOnHex(offsetKey, { behavior: "smooth", padding: 100 });
+
+      // Announce which objective we're viewing
+      this.announceBattleUpdate(`Viewing Ford ${this.currentObjectiveIndex + 1} of ${this.scenario.objectives.length}`);
+    });
+  }
+
   private updateObjectiveMarkers(): void {
     if (!this.hexMapRenderer || !this.missionRulesController || !this.scenario.objectives) {
       return;
@@ -1421,7 +1452,8 @@ export class BattleScreen {
     }
 
     // Update professional objective markers for each hex
-    for (const objective of this.scenario.objectives) {
+    for (let i = 0; i < this.scenario.objectives.length; i++) {
+      const objective = this.scenario.objectives[i];
       // Convert axial to offset coordinates for hex key
       const axialKey = `${objective.hex.q},${objective.hex.r}`;
       const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
@@ -1432,19 +1464,24 @@ export class BattleScreen {
 
       let status: "unoccupied" | "player" | "enemy";
       let counterText: string | undefined;
+      let tooltipText: string;
 
       if (occupant === "Bot") {
         status = "enemy";
         counterText = `${counter}/8`;
+        tooltipText = `Ford ${i + 1} - ENEMY CONTROLLED\nEnemy has held for ${counter} of 8 turns\n${8 - counter} turns remaining to secure`;
       } else if (occupant === "Player" || occupant === "Ally") {
         status = "player";
+        tooltipText = `Ford ${i + 1} - SECURED\nYou control this objective\nDeny enemy access for ${8 - counter} more turns to win`;
       } else {
         status = "unoccupied";
+        tooltipText = `Ford ${i + 1} - CONTESTED\nNo forces currently holding\nSecure and hold for 8 turns to win`;
       }
 
       this.hexMapRenderer.renderObjectiveMarker(offsetKey, {
         status,
-        counter: counterText
+        counter: counterText,
+        tooltip: tooltipText
       });
     }
   }
@@ -4881,6 +4918,9 @@ export class BattleScreen {
     this.lastMissionPhaseId = this.missionStatus.phase?.id ?? null;
     this.missionEndPrompted = false;
     this.disposeMissionEndModal();
+
+    // Setup objective cycling handler
+    this.setupObjectiveCycling();
   }
 
   private resetMissionDerivedUiState(): void {

@@ -33,8 +33,10 @@ export const missionBriefings: Record<MissionKey, string> = {
     "Maintain defensive posture and report any suspicious activity. Light resistance anticipated.",
 
   patrol_river_watch:
-    "Recon reports enemy infiltrators massing along the river. Multiple shallow fords cut through the bend—if they slip across, they’ll have a lodgment before dawn. " +
-    "Scramble your patrols, lock down each crossing, and deny them a foothold.",
+    "Recon reports enemy infiltrators massing along the river. Multiple shallow fords cut through the bend—if they slip across, they'll have a lodgment before dawn. " +
+    "Scramble your patrols, lock down each crossing, and deny them a foothold.\n\n" +
+    "VICTORY: Hold all three fords - prevent the enemy from holding any single ford for 8 consecutive turns.\n" +
+    "DEFEAT: Mission fails if the enemy secures and holds any ford for 8 consecutive turns.",
 
   assault:
     "Execute a tactical assault on enemy positions to secure strategic objectives. " +
@@ -83,9 +85,9 @@ export interface MissionProfile {
 }
 
 const RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
-  Easy: 14,
-  Normal: 12,
-  Hard: 11
+  Easy: 999,
+  Normal: 999,
+  Hard: 999
 };
 
 export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> = {
@@ -117,16 +119,16 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
   },
   patrol_river_watch: {
     objectives: [
-      "Primary: Deny enemy control of any crossing for 4 consecutive turns until extraction.",
-      "Optional: Destroy the enemy comms team before it reaches the central ford.",
-      "Optional: Keep at least one recon unit alive."
+      "Primary: Deny enemy control of any ford for 8 consecutive turns.",
+      "Secondary: Destroy the enemy comms team before it reaches the central ford.",
+      "Tertiary: Keep at least one recon unit alive."
     ],
-    turnLimit: 12,
-    doctrine: "Screen all three crossings at night, shift between hedgerow lanes before the enemy can mass, and hold the two off-map 81mm mortar fire missions for the ford that starts to buckle.",
+    turnLimit: 999, // No time limit - mission ends when objectives are met
+    doctrine: "Screen all three crossings, shift between hedgerow lanes before the enemy can mass, and hold the two off-map 81mm mortar fire missions for the ford that starts to buckle.",
     supplies: [
       { label: "Predeployed Patrol", amount: "2 rifle squads, engineers, recon bike patrol" },
       { label: "Off-map 81mm Mortar", amount: "2 fire missions" },
-      { label: "Extraction Window", amount: "Hold until dawn on turn 12" }
+      { label: "Duration", amount: "Until objectives achieved" }
     ]
   },
   assault: {
@@ -331,12 +333,7 @@ export function getMissionSummaryPackage(mission: MissionKey, difficulty: BotDif
 
   return {
     ...summary,
-    turnLimit,
-    supplies: summary.supplies.map((item) =>
-      item.label === "Extraction Window"
-        ? { ...item, amount: `Hold until dawn on turn ${turnLimit}` }
-        : item
-    )
+    turnLimit
   };
 }
 

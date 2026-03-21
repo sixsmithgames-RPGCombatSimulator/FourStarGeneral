@@ -1,4 +1,5 @@
 {
+  "_comment": "DIFFICULTY: Hard - Player must defend 3 ford crossings against superior enemy forces for 8 consecutive turns. Requires strategic positioning and decisive engagement timing.",
   "name": "River Crossing Watch",
   "size": { "cols": 14, "rows": 12 },
   "tilePalette": {

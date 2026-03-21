@@ -1423,7 +1423,7 @@ export class HexMapRenderer implements IMapRenderer {
    * Renders a professional objective marker on the given hex.
    * Uses distinct visual styling with gradients, glows, and animations
    */
-  renderObjectiveMarker(hexKey: string, options?: { status?: "unoccupied" | "player" | "enemy"; counter?: string }): void {
+  renderObjectiveMarker(hexKey: string, options?: { status?: "unoccupied" | "player" | "enemy"; counter?: string; tooltip?: string }): void {
     const cell = this.hexElementMap.get(hexKey);
     if (!cell) {
       return;
@@ -1475,9 +1475,9 @@ export class HexMapRenderer implements IMapRenderer {
 
     group.classList.add(animationClass);
 
-    // Add SVG native tooltip
+    // Add SVG native tooltip with detailed information
     const title = document.createElementNS(SVG_NS, "title");
-    title.textContent = `Objective: ${labelText}`;
+    title.textContent = options?.tooltip ?? `Objective: ${labelText}`;
     group.appendChild(title);
 
     // Subtle marker: just a small circle with thin border

@@ -6,6 +6,7 @@ import type { IMapViewport } from "../../contracts/IMapViewport";
  */
 export class ZoomPanControls {
   private readonly viewport: IMapViewport;
+  private cycleObjectiveHandler: (() => void) | null = null;
 
   // Control configuration
   private readonly ZOOM_INCREMENT = 0.2;
@@ -26,6 +27,13 @@ export class ZoomPanControls {
     this.panButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-pan]"));
 
     this.bindEvents();
+  }
+
+  /**
+   * Registers a handler for cycling through objectives
+   */
+  onCycleObjective(handler: () => void): void {
+    this.cycleObjectiveHandler = handler;
   }
 
   /**
@@ -77,11 +85,16 @@ export class ZoomPanControls {
   }
 
   /**
-   * Binds the reset view button.
+   * Binds the cycle objective button.
    */
   bindCycleObjectiveButton(): void {
     this.cycleObjectiveButton?.addEventListener("click", () => {
-      this.viewport.reset();
+      if (this.cycleObjectiveHandler) {
+        this.cycleObjectiveHandler();
+      } else {
+        // Fallback to reset view if no handler registered
+        this.viewport.reset();
+      }
     });
   }
 }
