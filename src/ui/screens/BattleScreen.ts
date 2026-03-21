@@ -908,6 +908,20 @@ export class BattleScreen {
         }
       }
 
+      // Play retaliation animation if the defender returned fire
+      if (attack.retaliation && attack.retaliation.damage > 0 && this.hexMapRenderer) {
+        try {
+          const attackerDefinition = this.unitTypes?.[attack.attackerType as keyof UnitTypeDictionary];
+          const attackerClass = attackerDefinition?.class;
+          const retaliationTargetIsHardTarget = attackerClass === "vehicle" || attackerClass === "tank" || attackerClass === "air";
+
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+          await this.hexMapRenderer.playAttackSequence(targetKey, attackerKey, retaliationTargetIsHardTarget);
+        } catch (animationError) {
+          console.warn("[BattleScreen] Retaliation animation failed; continuing without playback.", animationError);
+        }
+      }
+
       if (this.hexMapRenderer) {
         if (attack.defenderDestroyed) {
           const defenderDefinition = this.unitTypes?.[attack.defenderType as keyof UnitTypeDictionary];
