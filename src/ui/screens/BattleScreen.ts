@@ -1422,9 +1422,13 @@ export class BattleScreen {
 
     // Update professional objective markers for each hex
     for (const objective of this.scenario.objectives) {
-      const key = `${objective.hex.q},${objective.hex.r}`;
-      const occupant = occupancy.get(key);
-      const counter = fordCounters.get(key) ?? 0;
+      // Convert axial to offset coordinates for hex key
+      const axialKey = `${objective.hex.q},${objective.hex.r}`;
+      const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
+      const offsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+
+      const occupant = occupancy.get(axialKey);
+      const counter = fordCounters.get(axialKey) ?? 0;
 
       let status: "unoccupied" | "player" | "enemy";
       let counterText: string | undefined;
@@ -1438,7 +1442,7 @@ export class BattleScreen {
         status = "unoccupied";
       }
 
-      this.hexMapRenderer.renderObjectiveMarker(key, {
+      this.hexMapRenderer.renderObjectiveMarker(offsetKey, {
         status,
         counter: counterText
       });

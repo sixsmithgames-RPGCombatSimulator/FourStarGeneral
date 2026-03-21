@@ -1513,93 +1513,73 @@ export class HexMapRenderer implements IMapRenderer {
 
     group.appendChild(defs);
 
-    // Outer glow circle (pulsing effect)
+    // Subtle outer glow (much lighter)
     const outerGlow = document.createElementNS(SVG_NS, "circle");
     outerGlow.setAttribute("cx", String(cx));
-    outerGlow.setAttribute("cy", String(cy));
-    outerGlow.setAttribute("r", String(HEX_RADIUS * 0.85));
+    outerGlow.setAttribute("cy", String(cy - 8)); // Float above hex
+    outerGlow.setAttribute("r", String(HEX_RADIUS * 0.4));
     outerGlow.setAttribute("fill", `url(#${defsId}-glow)`);
-    outerGlow.setAttribute("opacity", "0.6");
+    outerGlow.setAttribute("opacity", "0.3");
     outerGlow.classList.add("objective-glow");
     group.appendChild(outerGlow);
 
-    // Backdrop circle with drop shadow
+    // Small backdrop circle
     const backdrop = document.createElementNS(SVG_NS, "circle");
     backdrop.setAttribute("cx", String(cx));
-    backdrop.setAttribute("cy", String(cy));
-    backdrop.setAttribute("r", String(HEX_RADIUS * 0.45));
-    backdrop.setAttribute("fill", "rgba(0, 0, 0, 0.7)");
-    backdrop.setAttribute("filter", "drop-shadow(0px 4px 8px rgba(0, 0, 0, 0.5))");
+    backdrop.setAttribute("cy", String(cy - 8)); // Float above hex
+    backdrop.setAttribute("r", String(HEX_RADIUS * 0.25));
+    backdrop.setAttribute("fill", "rgba(0, 0, 0, 0.6)");
+    backdrop.setAttribute("filter", "drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.4))");
     group.appendChild(backdrop);
 
-    // Inner circle with border
-    const innerCircle = document.createElementNS(SVG_NS, "circle");
-    innerCircle.setAttribute("cx", String(cx));
-    innerCircle.setAttribute("cy", String(cy));
-    innerCircle.setAttribute("r", String(HEX_RADIUS * 0.42));
-    innerCircle.setAttribute("fill", "rgba(0, 0, 0, 0.5)");
-    innerCircle.setAttribute("stroke", primaryColor);
-    innerCircle.setAttribute("stroke-width", "3");
-    innerCircle.setAttribute("filter", "drop-shadow(0px 0px 6px " + glowColor + ")");
-    group.appendChild(innerCircle);
-
-    // Rotating ring decoration
-    const ringRadius = HEX_RADIUS * 0.5;
+    // Thin ring border
     const ring = document.createElementNS(SVG_NS, "circle");
     ring.setAttribute("cx", String(cx));
-    ring.setAttribute("cy", String(cy));
-    ring.setAttribute("r", String(ringRadius));
+    ring.setAttribute("cy", String(cy - 8)); // Float above hex
+    ring.setAttribute("r", String(HEX_RADIUS * 0.24));
     ring.setAttribute("fill", "none");
     ring.setAttribute("stroke", primaryColor);
     ring.setAttribute("stroke-width", "1.5");
-    ring.setAttribute("stroke-dasharray", "8 12");
-    ring.setAttribute("opacity", "0.5");
-    ring.classList.add("objective-ring");
+    ring.setAttribute("opacity", "0.8");
     group.appendChild(ring);
 
-    // Star icon at center
-    const starSize = 22;
-    const starPath = this.createStarPath(cx, cy - 3, starSize);
-    const starShadow = document.createElementNS(SVG_NS, "path");
-    starShadow.setAttribute("d", starPath);
-    starShadow.setAttribute("fill", "#000");
-    starShadow.setAttribute("opacity", "0.4");
-    starShadow.setAttribute("transform", `translate(2, 2)`);
-    group.appendChild(starShadow);
+    // Small star icon
+    const starSize = 14;
+    const starPath = this.createStarPath(cx, cy - 8, starSize);
 
     const star = document.createElementNS(SVG_NS, "path");
     star.setAttribute("d", starPath);
-    star.setAttribute("fill", `url(#${defsId}-star)`);
-    star.setAttribute("stroke", primaryColor);
-    star.setAttribute("stroke-width", "1.5");
-    star.setAttribute("filter", `drop-shadow(0px 0px 4px ${glowColor})`);
+    star.setAttribute("fill", primaryColor);
+    star.setAttribute("opacity", "0.9");
+    star.setAttribute("filter", `drop-shadow(0px 0px 3px ${glowColor})`);
     group.appendChild(star);
 
-    // Status label below with background
-    const textY = cy + HEX_RADIUS * 0.58;
+    // Compact status label
+    const textY = cy + HEX_RADIUS * 0.35;
 
-    // Label background pill
+    // Minimal label background
     const labelBg = document.createElementNS(SVG_NS, "rect");
-    const labelWidth = labelText.length * 7.5;
+    const labelWidth = Math.max(labelText.length * 5.5, 32);
     labelBg.setAttribute("x", String(cx - labelWidth / 2));
-    labelBg.setAttribute("y", String(textY - 11));
+    labelBg.setAttribute("y", String(textY - 8));
     labelBg.setAttribute("width", String(labelWidth));
-    labelBg.setAttribute("height", "16");
-    labelBg.setAttribute("rx", "8");
-    labelBg.setAttribute("fill", "rgba(0, 0, 0, 0.85)");
+    labelBg.setAttribute("height", "12");
+    labelBg.setAttribute("rx", "6");
+    labelBg.setAttribute("fill", "rgba(0, 0, 0, 0.75)");
     labelBg.setAttribute("stroke", primaryColor);
-    labelBg.setAttribute("stroke-width", "1.5");
+    labelBg.setAttribute("stroke-width", "1");
+    labelBg.setAttribute("opacity", "0.9");
     group.appendChild(labelBg);
 
-    // Status label text
+    // Compact status text
     const text = document.createElementNS(SVG_NS, "text");
     text.setAttribute("x", String(cx));
     text.setAttribute("y", String(textY));
     text.setAttribute("text-anchor", "middle");
     text.setAttribute("fill", primaryColor);
-    text.setAttribute("font-size", "10");
-    text.setAttribute("font-weight", "800");
-    text.setAttribute("letter-spacing", "0.8");
+    text.setAttribute("font-size", "8");
+    text.setAttribute("font-weight", "700");
+    text.setAttribute("letter-spacing", "0.5");
     text.setAttribute("font-family", "sans-serif");
     text.textContent = labelText;
     group.appendChild(text);
