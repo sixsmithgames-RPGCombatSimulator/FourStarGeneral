@@ -166,6 +166,16 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
     tracker.blockedFordsStreak = allFordsBlocked ? tracker.blockedFordsStreak + 1 : 0;
     tracker.phase = createRiverWatchPhase(turnSummary.turnNumber, tracker.blockedFordsStreak, difficulty);
 
+    // Check for unit elimination victory/defeat conditions
+    if (outcome.state === "inProgress") {
+      if (botUnits.length === 0) {
+        outcome = { state: "playerVictory", reason: "All enemy forces eliminated." };
+      } else if (playerUnits.length === 0) {
+        outcome = { state: "playerDefeat", reason: "All friendly forces eliminated." };
+      }
+    }
+
+    // Check ford control for defeat (enemy holds any ford for 8 turns)
     fordKeys.forEach(({ key }) => {
       const occupant = occupancy.get(key);
       const heldByBot = occupant === "Bot";
@@ -177,7 +187,13 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
       }
     });
 
-    if (turnLimit !== null && turnSummary.turnNumber >= turnLimit && outcome.state === "inProgress") {
+    // Check for victory by denying all fords for 8 consecutive turns
+    if (tracker.blockedFordsStreak >= 8 && outcome.state === "inProgress") {
+      outcome = { state: "playerVictory", reason: "Denied enemy control of all fords for 8 turns." };
+    }
+
+    // Turn limit fallback (should never be reached with turnLimit = 999)
+    if (turnLimit !== null && turnLimit < 999 && turnSummary.turnNumber >= turnLimit && outcome.state === "inProgress") {
       outcome = { state: "playerVictory", reason: "Held river line through the final turn." };
     }
 
