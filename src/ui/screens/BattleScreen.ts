@@ -1448,7 +1448,9 @@ export class BattleScreen {
           const count = parseInt(match[2], 10);
           if (this.scenario.objectives && fordIndex < this.scenario.objectives.length) {
             const objective = this.scenario.objectives[fordIndex];
-            const key = `${objective.hex.q},${objective.hex.r}`;
+            // Handle hex as array [q, r]
+            const hexArray = objective.hex as unknown as [number, number];
+            const key = `${hexArray[0]},${hexArray[1]}`;
             fordCounters.set(key, count);
           }
           fordIndex++;
