@@ -10,7 +10,10 @@ import type {
   TileInstance,
   AirMissionKind,
   AirMissionTemplate,
-  AirSupportProfile
+  AirSupportProfile,
+  CombatStance,
+  HexModification,
+  HexModificationType
 } from "../core/types";
 import type {
   CampaignDecision,
@@ -53,7 +56,10 @@ import {
 import { AIR_MISSION_TEMPLATES } from "../data/airMissions";
 import {
   getReconIntelSnapshot as buildInitialReconIntelSnapshot,
-  type ReconIntelSnapshot
+  type ReconIntelBrief,
+  type ReconIntelCounterIntelOperation,
+  type ReconIntelSnapshot,
+  type ReconIntelVerificationStatus
 } from "../data/reconIntelSnapshot";
 import { combat as combatBalance, FUEL_COST, supply as supplyBalance } from "../core/balance";
 import {
@@ -456,10 +462,16 @@ export interface LogisticsStockpileEntry {
   trend: "rising" | "stable" | "falling";
 }
 
+export type SupplyPriority = "critical" | "high" | "normal" | "low";
+
 export interface LogisticsConvoyStatusEntry {
+  unitId: string;
+  convoyLabel: string;
   route: string;
-  status: "onSchedule" | "delayed" | "blocked";
+  status: "loading" | "delivering" | "returning" | "idle" | "blocked";
   etaHours: number;
+  cargoAmmo: number;
+  cargoFuel: number;
   incident: string | null;
 }
 
@@ -475,6 +487,17 @@ export interface LogisticsMaintenanceEntry {
   pendingTurns: number;
 }
 
+export interface LogisticsPriorityEntry {
+  unitId: string;
+  unitLabel: string;
+  hex: string;
+  priority: SupplyPriority;
+  ammoNeed: number;
+  fuelNeed: number;
+  assignedConvoys: number;
+  status: "direct" | "queued" | "delivering" | "resupplied" | "isolated";
+}
+
 export interface LogisticsAlertEntry {
   level: "info" | "warning" | "critical";
   message: string;
@@ -485,6 +508,12 @@ export interface LogisticsSnapshot {
   deployedUnits: number;
   connectedUnits: number;
   isolatedUnits: number;
+  convoyUnits: number;
+  loadedConvoys: number;
+  convoyCargo: {
+    ammo: number;
+    fuel: number;
+  };
   depotStock: {
     ammo: number;
     fuel: number;
@@ -493,6 +522,7 @@ export interface LogisticsSnapshot {
   supplySources: LogisticsSupplySource[];
   stockpiles: LogisticsStockpileEntry[];
   convoyStatuses: LogisticsConvoyStatusEntry[];
+  priorityTargets: LogisticsPriorityEntry[];
   delayNodes: LogisticsDelayNode[];
   maintenanceBacklog: LogisticsMaintenanceEntry[];
   alerts: LogisticsAlertEntry[];
@@ -504,6 +534,30 @@ interface MovementPathSummary {
   steps: number;
   roadSteps: number;
   offroadSteps: number;
+}
+
+interface MovementPathPlan {
+  path: Axial[];
+  summary: MovementPathSummary;
+}
+
+interface SupplyTruckState {
+  unitId: string;
+  ammoCargo: number;
+  fuelCargo: number;
+  status: "loading" | "delivering" | "returning" | "idle" | "blocked";
+  assignedUnitId: string | null;
+}
+
+interface SupplyDemandEntry {
+  unit: ScenarioUnit;
+  definition: UnitTypeDefinition;
+  priority: SupplyPriority;
+  ammoNeed: number;
+  fuelNeed: number;
+  directEligible: boolean;
+  assignmentCount: number;
+  status: LogisticsPriorityEntry["status"];
 }
 
 /**
@@ -822,6 +876,110 @@ export interface SerializedBattleState {
   airMissions?: SerializedAirMission[];
   airMissionRefits?: SerializedAirMissionRefit[];
   airMissionReports?: AirMissionReportEntry[];
+  reconIntelSnapshot?: ReconIntelSnapshot;
+  counterIntelOperations?: SerializedCounterIntelOperation[];
+  intelBriefStates?: SerializedReconIntelBriefState[];
+  counterIntelResources?: SerializedCounterIntelResources;
+  counterIntelIdCounter?: number;
+  enemyContactStates?: SerializedEnemyContactState[];
+  hexModifications?: HexModification[];
+}
+
+export type EnemyContactState = "spotted" | "identified" | "visible";
+
+export interface EnemyContactSnapshot {
+  unitId: string;
+  hex: Axial;
+  state: EnemyContactState;
+  lastSeenTurn: number;
+  source: string;
+  unitType?: ScenarioUnit["type"];
+  strengthEstimate?: number;
+}
+
+export type UnitSuppressionState = "clear" | "suppressed" | "pinned";
+
+export interface UnitCommandState {
+  readonly unitId: string;
+  readonly unitType: ScenarioUnit["type"];
+  readonly isAutomated: boolean;
+  readonly isEngineer: boolean;
+  readonly entrenchment: number;
+  readonly maxEntrenchment: number;
+  readonly suppressionState: UnitSuppressionState;
+  readonly suppressorCount: number;
+  readonly existingHexModification: HexModification | null;
+  readonly canDigIn: boolean;
+  readonly digInReason: string | null;
+  readonly canBuildModification: boolean;
+  readonly buildReason: string | null;
+}
+
+interface InternalEnemyContactState {
+  unitId: string;
+  state: EnemyContactState;
+  lastSeenTurn: number;
+  lastKnownHex: Axial;
+  lastKnownStrength: number | null;
+  knownUnitType: ScenarioUnit["type"] | null;
+  source: string;
+}
+
+interface SerializedEnemyContactState {
+  unitId: string;
+  state: EnemyContactState;
+  lastSeenTurn: number;
+  lastKnownHex: Axial;
+  lastKnownStrength: number | null;
+  knownUnitType: ScenarioUnit["type"] | null;
+  source: string;
+}
+
+interface InternalCounterIntelOperation {
+  id: string;
+  faction: TurnFaction;
+  targetHex: Axial;
+  radius: number;
+  remainingTurns: number;
+  strength: number;
+}
+
+interface InternalReconIntelBriefState {
+  briefId: string;
+  isFalse: boolean;
+  verificationStatus: ReconIntelVerificationStatus;
+}
+
+interface SerializedCounterIntelOperation {
+  id: string;
+  faction: TurnFaction;
+  targetHex: Axial;
+  radius: number;
+  remainingTurns: number;
+  strength: number;
+}
+
+interface SerializedReconIntelBriefState {
+  briefId: string;
+  isFalse: boolean;
+  verificationStatus: ReconIntelVerificationStatus;
+}
+
+interface SerializedCounterIntelResources {
+  deceptionCharges: number;
+  verificationCharges: number;
+}
+
+interface CounterIntelResources {
+  deceptionCharges: number;
+  verificationCharges: number;
+}
+
+interface BotPerceivedTarget {
+  hex: Axial;
+  bias: number;
+  isDeception: boolean;
+  id: string;
 }
 
 /**
@@ -863,7 +1021,10 @@ export interface GameEngineAPI {
   transferAllyControl(hex: Axial): boolean;
   getSupplySnapshot(faction?: TurnFaction): SupplySnapshot;
   getSupplyHistory(faction?: TurnFaction): SupplySnapshot[];
+  getEnemyContactSnapshot(): EnemyContactSnapshot[];
   getReconIntelSnapshot(): ReconIntelSnapshot;
+  deployCounterIntel(targetHex: Axial): { ok: true; operationId: string } | { ok: false; reason: string };
+  verifyIntelBrief(briefId: string): { ok: true; status: ReconIntelVerificationStatus } | { ok: false; reason: string };
   getSupportSnapshot(): SupportSnapshot;
   beginDeployment(): void;
   setQueuedAllocations(entries: readonly PendingReserveRequest[]): void;
@@ -879,9 +1040,9 @@ export interface GameEngineAPI {
   callUpReserveByKey(unitKey: string, hex: Axial): void;
   callUpReserve(reserveIndex: number, hex: Axial): void;
   endTurn(): SupplyTickReport | null;
-  previewAttack(attackerHex: Axial, defenderHex: Axial): CombatPreview | null;
+  previewAttack(attackerHex: Axial, defenderHex: Axial, stance?: CombatStance): CombatPreview | null;
   moveUnit(from: Axial, to: Axial): MoveResolution;
-  attackUnit(attackerHex: Axial, defenderHex: Axial): AttackResolution | null;
+  attackUnit(attackerHex: Axial, defenderHex: Axial, stance?: CombatStance): AttackResolution | null;
   toggleRushMode(hex: Axial): boolean;
   getReachableHexes(origin: Axial): Axial[];
   getMovementBudget(origin: Axial): MovementBudget | null;
@@ -908,11 +1069,17 @@ export interface GameEngineAPI {
   getReserveSnapshot(): ReserveUnit[];
   getTurnSummary(): TurnSummary;
   getLogisticsSnapshot(): LogisticsSnapshot;
+  setSupplyPriority(unitId: string, priority: SupplyPriority): boolean;
   getCombatReports(): readonly CombatReportEntry[];
   queueSupportAction(assetId: string, targetHex: Axial): void;
   cancelQueuedSupport(assetId: string): void;
   consumeBotTurnSummary(): BotTurnSummary | null;
   transferAllyControl(hex: Axial): boolean;
+  digInUnit(hex: Axial): boolean;
+  buildHexModification(hex: Axial, type: HexModificationType): boolean;
+  getHexModification(hex: Axial): HexModification | null;
+  getHexModificationSnapshots(): HexModification[];
+  getUnitCommandState(hex: Axial): UnitCommandState | null;
 }
 
 /**
@@ -945,6 +1112,15 @@ export class GameEngine implements GameEngineAPI {
   /** Conversion factor mapping a single hex (250m) into kilometers for range validation. */
   private static readonly KILOMETERS_PER_HEX = 0.25;
   private static readonly AIR_COVER_PATROL_RADIUS_HEX = 12;
+  private static readonly ENEMY_CONTACT_MEMORY_TURNS = 2;
+  private static readonly RECON_SPOTTING_RANGE_BONUS = 2;
+  private static readonly AIR_SPOTTING_RANGE_BONUS = 2;
+  private static readonly COUNTER_INTEL_MAX_DECEPTION_CHARGES = 2;
+  private static readonly COUNTER_INTEL_MAX_VERIFICATION_CHARGES = 2;
+  private static readonly COUNTER_INTEL_OPERATION_DURATION_TURNS = 3;
+  private static readonly COUNTER_INTEL_OPERATION_RADIUS = 2;
+  private static readonly COUNTER_INTEL_OPERATION_STRENGTH = 3;
+  private static readonly DEFAULT_FALSE_INTEL_BRIEF_IDS = new Set<string>(["brief-phantom"]);
   /** Maximum number of historical entries retained per faction for trend math. */
   private static readonly SUPPLY_HISTORY_LIMIT = 12;
   /** Optional per-hex capacity caps for airbase launch queues provided by config. */
@@ -969,6 +1145,9 @@ export class GameEngine implements GameEngineAPI {
   private readonly playerPlacements: UnitPlacementMap = new Map();
   private readonly botPlacements: UnitPlacementMap = new Map();
   private readonly allyPlacements: UnitPlacementMap = new Map();
+
+  /** Hex modifications built by engineers (tank traps, fortifications, cleared paths). */
+  private readonly hexModifications: Map<string, HexModification> = new Map();
 
   /** Units not deployed at battle start; accessible via reserve UI. */
   private readonly reserves: ReserveUnit[] = [];
@@ -1012,6 +1191,13 @@ export class GameEngine implements GameEngineAPI {
 
   /** Latest recon & intelligence fusion snapshot surfaced to battle UI panels. */
   private reconIntelSnapshot: ReconIntelSnapshot | null = null;
+  private readonly counterIntelOperations: Map<string, InternalCounterIntelOperation> = new Map();
+  private readonly intelBriefStates: Map<string, InternalReconIntelBriefState> = new Map();
+  private playerCounterIntelResources: CounterIntelResources = {
+    deceptionCharges: GameEngine.COUNTER_INTEL_MAX_DECEPTION_CHARGES,
+    verificationCharges: GameEngine.COUNTER_INTEL_MAX_VERIFICATION_CHARGES
+  };
+  private counterIntelIdCounter = 0;
 
   /** Rolling supply ledger grouped by faction so consumption trends can be derived quickly. */
   private readonly supplyHistoryByFaction: Record<TurnFaction, SupplySnapshot[]> = {
@@ -1028,6 +1214,17 @@ export class GameEngine implements GameEngineAPI {
     (Object.keys(this.supplyHistoryByFaction) as TurnFaction[]).forEach((faction) => {
       this.supplyHistoryByFaction[faction].length = 0;
     });
+  }
+
+  private resetCounterIntelState(): void {
+    this.counterIntelOperations.clear();
+    this.intelBriefStates.clear();
+    this.playerCounterIntelResources = {
+      deceptionCharges: GameEngine.COUNTER_INTEL_MAX_DECEPTION_CHARGES,
+      verificationCharges: GameEngine.COUNTER_INTEL_MAX_VERIFICATION_CHARGES
+    };
+    this.counterIntelIdCounter = 0;
+    this.reconIntelSnapshot = null;
   }
 
   /**
@@ -2210,11 +2407,163 @@ export class GameEngine implements GameEngineAPI {
     }
   }
 
-  /**
-   * Transfers a limited top-up from depot stock into a connected unit's carried loadout. Convoys are
-   * abstracted in the tactical layer, so this models battalion trains shuttling ammo and fuel forward.
-   */
-  private resupplyConnectedUnit(
+  private isSupplyTruckType(unitType: ScenarioUnit["type"] | string): boolean {
+    return unitType === "Supply_Truck";
+  }
+
+  private isAutomatedPlayerUnit(unit: ScenarioUnit): boolean {
+    return this.isSupplyTruckType(unit.type) || unit.controlledBy === "AI";
+  }
+
+  private getPlacementMapForFaction(faction: TurnFaction): UnitPlacementMap {
+    if (faction === "Player") {
+      return this.playerPlacements;
+    }
+    if (faction === "Bot") {
+      return this.botPlacements;
+    }
+    return this.allyPlacements;
+  }
+
+  private getSupplyMirrorForFaction(faction: TurnFaction): SupplyUnitState[] {
+    if (faction === "Player") {
+      return this.playerSupply;
+    }
+    if (faction === "Bot") {
+      return this.botSupply;
+    }
+    return this.allySupply;
+  }
+
+  private getSupplyTruckStateMap(faction: TurnFaction): Map<string, SupplyTruckState> {
+    return this.supplyTruckStateByFaction[faction];
+  }
+
+  private getSupplySourceHexes(faction: TurnFaction): Axial[] {
+    const sources: Axial[] = [];
+    if (faction === "Player" && this._baseCamp) {
+      sources.push(structuredClone(this._baseCamp.hex));
+    }
+    const side = faction === "Player" ? this.playerSide : faction === "Bot" ? this.botSide : this.allySide;
+    if (side?.hq) {
+      sources.push(structuredClone(side.hq));
+    }
+    return sources;
+  }
+
+  private isHexWithinSupplySourceRadius(hex: Axial, faction: TurnFaction): boolean {
+    return this.getSupplySourceHexes(faction)
+      .some((source) => hexDistance(source, hex) <= supplyBalance.convoy.sourceRadius);
+  }
+
+  private getSupplyStateForHex(faction: TurnFaction, hex: Axial): SupplyUnitState | null {
+    const key = axialKey(hex);
+    return this.getSupplyMirrorForFaction(faction).find((entry) => axialKey(entry.hex) === key) ?? null;
+  }
+
+  private getDisplayUnitLabel(unit: ScenarioUnit): string {
+    if (this.isSupplyTruckType(unit.type)) {
+      return "Supply Convoy";
+    }
+    return String(unit.type).replace(/_/g, " ");
+  }
+
+  private getDefaultSupplyPriority(definition: UnitTypeDefinition): SupplyPriority {
+    if (definition.class === "tank" || definition.class === "artillery") {
+      return "high";
+    }
+    if (definition.class === "recon") {
+      return "low";
+    }
+    return "normal";
+  }
+
+  private getSupplyPriorityForUnit(unit: ScenarioUnit, definition?: UnitTypeDefinition): SupplyPriority {
+    if (unit.unitId && this.supplyPriorityByUnitId.has(unit.unitId)) {
+      return this.supplyPriorityByUnitId.get(unit.unitId)!;
+    }
+    return this.getDefaultSupplyPriority(definition ?? this.getUnitDefinition(unit.type));
+  }
+
+  private getSupplyPriorityWeight(priority: SupplyPriority): number {
+    switch (priority) {
+      case "critical":
+        return 400;
+      case "high":
+        return 240;
+      case "normal":
+        return 120;
+      case "low":
+      default:
+        return 0;
+    }
+  }
+
+  private ensureSupplyTruckStatesForFaction(faction: TurnFaction): void {
+    const placements = this.getPlacementMapForFaction(faction);
+    const stateMap = this.getSupplyTruckStateMap(faction);
+    const liveIds = new Set<string>();
+
+    placements.forEach((unit) => {
+      if (!this.isSupplyTruckType(unit.type)) {
+        return;
+      }
+      const unitId = this.ensureUnitId(unit);
+      liveIds.add(unitId);
+      if (!stateMap.has(unitId)) {
+        stateMap.set(unitId, {
+          unitId,
+          ammoCargo: 0,
+          fuelCargo: 0,
+          status: "idle",
+          assignedUnitId: null
+        });
+      }
+    });
+
+    Array.from(stateMap.keys()).forEach((unitId) => {
+      if (!liveIds.has(unitId)) {
+        stateMap.delete(unitId);
+      }
+    });
+  }
+
+  private loadSupplyTruckFromDepot(
+    faction: TurnFaction,
+    supplyState: SupplyState,
+    truck: ScenarioUnit,
+    truckSupplyState: SupplyUnitState,
+    truckState: SupplyTruckState
+  ): void {
+    const ammoNeed = Math.max(0, supplyBalance.convoy.ammoCapacity - truckState.ammoCargo);
+    const ammoLoad = Math.min(ammoNeed, Math.max(0, supplyState.inventory.ammo.current));
+    if (ammoLoad > 0) {
+      this.trackSupplyConsumption(faction, "ammo", ammoLoad, "Supply convoy loadout");
+      truckState.ammoCargo = Number((truckState.ammoCargo + ammoLoad).toFixed(2));
+    }
+
+    const fuelNeed = Math.max(0, supplyBalance.convoy.fuelCapacity - truckState.fuelCargo);
+    const fuelLoad = Math.min(fuelNeed, Math.max(0, supplyState.inventory.fuel.current));
+    if (fuelLoad > 0) {
+      this.trackSupplyConsumption(faction, "fuel", fuelLoad, "Supply convoy loadout");
+      truckState.fuelCargo = Number((truckState.fuelCargo + fuelLoad).toFixed(2));
+    }
+
+    const truckDefinition = this.getUnitDefinition(truck.type);
+    const drivetrainFuelNeed = Math.max(0, (truckDefinition.fuel ?? 0) - truckSupplyState.fuel);
+    const drivetrainFuelLoad = Math.min(drivetrainFuelNeed, Math.max(0, supplyState.inventory.fuel.current));
+    if (drivetrainFuelLoad > 0) {
+      this.trackSupplyConsumption(faction, "fuel", drivetrainFuelLoad, "Supply convoy refuel");
+      truckSupplyState.fuel = Number((truckSupplyState.fuel + drivetrainFuelLoad).toFixed(2));
+      truck.fuel = truckSupplyState.fuel;
+    }
+
+    if (ammoLoad > 0 || fuelLoad > 0) {
+      truckState.status = "loading";
+    }
+  }
+
+  private applyDirectDepotResupply(
     faction: TurnFaction,
     supplyState: SupplyState,
     unit: ScenarioUnit,
@@ -2222,13 +2571,9 @@ export class GameEngine implements GameEngineAPI {
     definition: UnitTypeDefinition
   ): void {
     const ammoCapacity = Math.max(0, (definition.ammo ?? 0) - state.ammo);
-    const ammoTransfer = Math.min(
-      supplyBalance.resupply.ammo,
-      ammoCapacity,
-      Math.max(0, supplyState.inventory.ammo.current)
-    );
+    const ammoTransfer = Math.min(ammoCapacity, Math.max(0, supplyState.inventory.ammo.current));
     if (ammoTransfer > 0) {
-      this.trackSupplyConsumption(faction, "ammo", ammoTransfer, `${unit.type} frontline resupply`);
+      this.trackSupplyConsumption(faction, "ammo", ammoTransfer, `${unit.type} depot issue`);
       state.ammo = Number((state.ammo + ammoTransfer).toFixed(2));
       unit.ammo = state.ammo;
     }
@@ -2238,16 +2583,346 @@ export class GameEngine implements GameEngineAPI {
     }
 
     const fuelCapacity = Math.max(0, (definition.fuel ?? 0) - state.fuel);
-    const fuelTransfer = Math.min(
-      supplyBalance.resupply.fuel,
-      fuelCapacity,
-      Math.max(0, supplyState.inventory.fuel.current)
-    );
+    const fuelTransfer = Math.min(fuelCapacity, Math.max(0, supplyState.inventory.fuel.current));
     if (fuelTransfer > 0) {
-      this.trackSupplyConsumption(faction, "fuel", fuelTransfer, `${unit.type} frontline resupply`);
+      this.trackSupplyConsumption(faction, "fuel", fuelTransfer, `${unit.type} depot issue`);
       state.fuel = Number((state.fuel + fuelTransfer).toFixed(2));
       unit.fuel = state.fuel;
     }
+  }
+
+  private deliverConvoyCargoToUnit(
+    _faction: TurnFaction,
+    truckState: SupplyTruckState,
+    unit: ScenarioUnit,
+    state: SupplyUnitState,
+    definition: UnitTypeDefinition
+  ): boolean {
+    let transferred = false;
+
+    const ammoCapacity = Math.max(0, (definition.ammo ?? 0) - state.ammo);
+    const ammoTransfer = Math.min(
+      ammoCapacity,
+      supplyBalance.convoy.unloadAmmoPerTurn,
+      Math.max(0, truckState.ammoCargo)
+    );
+    if (ammoTransfer > 0) {
+      truckState.ammoCargo = Number((truckState.ammoCargo - ammoTransfer).toFixed(2));
+      state.ammo = Number((state.ammo + ammoTransfer).toFixed(2));
+      unit.ammo = state.ammo;
+      transferred = true;
+    }
+
+    if (this.unitConsumesFuel(definition)) {
+      const fuelCapacity = Math.max(0, (definition.fuel ?? 0) - state.fuel);
+      const fuelTransfer = Math.min(
+        fuelCapacity,
+        supplyBalance.convoy.unloadFuelPerTurn,
+        Math.max(0, truckState.fuelCargo)
+      );
+      if (fuelTransfer > 0) {
+        truckState.fuelCargo = Number((truckState.fuelCargo - fuelTransfer).toFixed(2));
+        state.fuel = Number((state.fuel + fuelTransfer).toFixed(2));
+        unit.fuel = state.fuel;
+        transferred = true;
+      }
+    }
+
+    if (transferred) {
+      truckState.status = "delivering";
+    }
+    return transferred;
+  }
+
+  private resolveSupplyDemandEntries(faction: TurnFaction): SupplyDemandEntry[] {
+    const placements = Array.from(this.getPlacementMapForFaction(faction).values());
+    const entries: SupplyDemandEntry[] = [];
+
+    placements
+      .filter((unit) => !this.isSupplyTruckType(unit.type))
+      .forEach((unit) => {
+        const definition = this.getUnitDefinition(unit.type);
+        const state = this.getSupplyStateForHex(faction, unit.hex);
+        if (!state || definition.moveType === "air") {
+          return;
+        }
+        const ammoNeed = Math.max(0, (definition.ammo ?? 0) - state.ammo);
+        const fuelNeed = this.unitConsumesFuel(definition) ? Math.max(0, (definition.fuel ?? 0) - state.fuel) : 0;
+        if (ammoNeed <= 0 && fuelNeed <= 0) {
+          return;
+        }
+        entries.push({
+          unit,
+          definition,
+          priority: this.getSupplyPriorityForUnit(unit, definition),
+          ammoNeed,
+          fuelNeed,
+          directEligible: this.isHexWithinSupplySourceRadius(unit.hex, faction),
+          assignmentCount: 0,
+          status: "queued"
+        });
+      });
+
+    return entries;
+  }
+
+  private applyDirectDepotIssues(
+    faction: TurnFaction,
+    supplyState: SupplyState,
+    demands: SupplyDemandEntry[]
+  ): void {
+    demands.forEach((entry) => {
+      if (!entry.directEligible) {
+        return;
+      }
+      const state = this.getSupplyStateForHex(faction, entry.unit.hex);
+      if (!state) {
+        return;
+      }
+      this.applyDirectDepotResupply(faction, supplyState, entry.unit, state, entry.definition);
+      entry.ammoNeed = Math.max(0, (entry.definition.ammo ?? 0) - state.ammo);
+      entry.fuelNeed = this.unitConsumesFuel(entry.definition) ? Math.max(0, (entry.definition.fuel ?? 0) - state.fuel) : 0;
+      entry.status = entry.ammoNeed <= 0 && entry.fuelNeed <= 0 ? "direct" : "queued";
+    });
+  }
+
+  private scoreSupplyDemand(entry: SupplyDemandEntry): number {
+    const urgency = (entry.ammoNeed * 12) + (entry.fuelNeed * 8);
+    const emptyPenalty = (entry.unit.ammo <= 0 ? 60 : 0) + (entry.unit.fuel <= 0 && this.unitConsumesFuel(entry.definition) ? 60 : 0);
+    return this.getSupplyPriorityWeight(entry.priority) + urgency + emptyPenalty - (entry.assignmentCount * 30);
+  }
+
+  private chooseBestSupplyTarget(
+    faction: TurnFaction,
+    truck: ScenarioUnit,
+    truckState: SupplyTruckState,
+    demands: SupplyDemandEntry[]
+  ): SupplyDemandEntry | null {
+    const availableDemand = demands
+      .filter((entry) => entry.status !== "direct" && entry.status !== "resupplied")
+      .filter((entry) => entry.ammoNeed > 0 || entry.fuelNeed > 0);
+    if (availableDemand.length === 0) {
+      return null;
+    }
+
+    const occupied = this.buildUnifiedOccupancySet();
+    occupied.delete(axialKey(truck.hex));
+
+    let best: { entry: SupplyDemandEntry; score: number } | null = null;
+    for (const entry of availableDemand) {
+      const serviceHexes = this.collectServiceHexes(entry.unit.hex, truck.hex);
+      const plan = this.findCheapestPathToAny(truck.hex, serviceHexes, this.getUnitDefinition(truck.type).moveType, occupied);
+      const travelPenalty = plan ? plan.summary.cost * 4 : 80;
+      const cargoMismatchPenalty = (entry.ammoNeed > 0 && truckState.ammoCargo <= 0 ? 45 : 0)
+        + (entry.fuelNeed > 0 && truckState.fuelCargo <= 0 ? 45 : 0);
+      const score = this.scoreSupplyDemand(entry) - travelPenalty - cargoMismatchPenalty;
+      if (!best || score > best.score) {
+        best = { entry, score };
+      }
+    }
+
+    if (!best || best.score < -20) {
+      return null;
+    }
+    return best.entry;
+  }
+
+  private collectServiceHexes(targetHex: Axial, origin: Axial): Axial[] {
+    const candidates: Axial[] = [];
+    if (!this.isOccupied(targetHex) || (targetHex.q === origin.q && targetHex.r === origin.r)) {
+      candidates.push(structuredClone(targetHex));
+    }
+    neighbors(targetHex).forEach((neighbor) => {
+      if (!this.inBounds(neighbor)) {
+        return;
+      }
+      const key = axialKey(neighbor);
+      if (this.isOccupied(neighbor) && key !== axialKey(origin)) {
+        return;
+      }
+      candidates.push(structuredClone(neighbor));
+    });
+    return candidates;
+  }
+
+  private collectSourceApproachHexes(faction: TurnFaction, origin: Axial): Axial[] {
+    const candidates: Axial[] = [];
+    this.getSupplySourceHexes(faction).forEach((source) => {
+      if (!this.isOccupied(source) || axialKey(source) === axialKey(origin)) {
+        candidates.push(structuredClone(source));
+      }
+      neighbors(source).forEach((neighbor) => {
+        if (!this.inBounds(neighbor)) {
+          return;
+        }
+        const key = axialKey(neighbor);
+        if (this.isOccupied(neighbor) && key !== axialKey(origin)) {
+          return;
+        }
+        candidates.push(structuredClone(neighbor));
+      });
+    });
+    return candidates;
+  }
+
+  private automateSupplyConvoys(
+    faction: TurnFaction,
+    supplyState: SupplyState,
+    demands: SupplyDemandEntry[]
+  ): void {
+    this.ensureSupplyTruckStatesForFaction(faction);
+    const placements = this.getPlacementMapForFaction(faction);
+    const mirror = this.getSupplyMirrorForFaction(faction);
+    const stateMap = this.getSupplyTruckStateMap(faction);
+
+    Array.from(placements.values())
+      .filter((unit) => this.isSupplyTruckType(unit.type))
+      .forEach((truck) => {
+        const truckId = this.ensureUnitId(truck);
+        const truckState = stateMap.get(truckId)!;
+        const truckDefinition = this.getUnitDefinition(truck.type);
+        const truckSupplyState = mirror.find((entry) => axialKey(entry.hex) === axialKey(truck.hex)) ?? null;
+        if (!truckSupplyState) {
+          return;
+        }
+
+        const atSource = this.isHexWithinSupplySourceRadius(truck.hex, faction);
+        if (atSource) {
+          this.loadSupplyTruckFromDepot(faction, supplyState, truck, truckSupplyState, truckState);
+        }
+
+        let assignedEntry = demands.find((entry) => entry.unit.unitId === truckState.assignedUnitId) ?? null;
+        if (assignedEntry && assignedEntry.status === "direct") {
+          assignedEntry = null;
+        }
+
+        if (assignedEntry) {
+          const assignedState = this.getSupplyStateForHex(faction, assignedEntry.unit.hex);
+          if (!assignedState || ((assignedEntry.ammoNeed <= 0 && assignedEntry.fuelNeed <= 0))) {
+            assignedEntry = null;
+          }
+        }
+
+        if (!assignedEntry && (truckState.ammoCargo > 0 || truckState.fuelCargo > 0)) {
+          assignedEntry = this.chooseBestSupplyTarget(faction, truck, truckState, demands);
+          truckState.assignedUnitId = assignedEntry?.unit.unitId ?? null;
+        }
+
+        if (assignedEntry) {
+          assignedEntry.assignmentCount += 1;
+        }
+
+        const adjacentToAssigned = assignedEntry
+          ? hexDistance(truck.hex, assignedEntry.unit.hex) <= supplyBalance.convoy.serviceRadius
+          : false;
+
+        if (assignedEntry && adjacentToAssigned) {
+          const assignedState = this.getSupplyStateForHex(faction, assignedEntry.unit.hex);
+          if (assignedState) {
+            const delivered = this.deliverConvoyCargoToUnit(faction, truckState, assignedEntry.unit, assignedState, assignedEntry.definition);
+            assignedEntry.ammoNeed = Math.max(0, (assignedEntry.definition.ammo ?? 0) - assignedState.ammo);
+            assignedEntry.fuelNeed = this.unitConsumesFuel(assignedEntry.definition)
+              ? Math.max(0, (assignedEntry.definition.fuel ?? 0) - assignedState.fuel)
+              : 0;
+            assignedEntry.status = delivered
+              ? (assignedEntry.ammoNeed <= 0 && assignedEntry.fuelNeed <= 0 ? "resupplied" : "delivering")
+              : assignedEntry.status;
+            if (assignedEntry.ammoNeed <= 0 && assignedEntry.fuelNeed <= 0) {
+              truckState.assignedUnitId = null;
+            }
+          }
+          return;
+        }
+
+        const occupied = this.buildUnifiedOccupancySet();
+        occupied.delete(axialKey(truck.hex));
+
+        let destinationOptions: Axial[] = [];
+        if (assignedEntry && (truckState.ammoCargo > 0 || truckState.fuelCargo > 0)) {
+          destinationOptions = this.collectServiceHexes(assignedEntry.unit.hex, truck.hex);
+          truckState.status = "delivering";
+        } else {
+          destinationOptions = this.collectSourceApproachHexes(faction, truck.hex);
+          truckState.assignedUnitId = null;
+          truckState.status = atSource ? "idle" : "returning";
+        }
+
+        const availableFuel = this.resolveFuelBudget(truck, truckDefinition);
+        const plan = this.findCheapestPathToAny(
+          truck.hex,
+          destinationOptions,
+          truckDefinition.moveType,
+          occupied,
+          Number.isFinite(availableFuel) ? availableFuel : undefined
+        );
+
+        if (!plan || plan.path.length <= 1) {
+          if (!atSource && destinationOptions.length > 0) {
+            truckState.status = "blocked";
+          }
+          return;
+        }
+
+        let remainingMove = Math.max(1, truckDefinition.movement ?? 1);
+        let fuelSpent = 0;
+        let current = structuredClone(truck.hex);
+        const traveled: Axial[] = [structuredClone(truck.hex)];
+
+        for (let index = 1; index < plan.path.length; index += 1) {
+          const step = plan.path[index];
+          const stepCost = this.resolveMoveCost(truckDefinition.moveType, this.terrainAt(step), step);
+          const stepFuel = this.resolveMovementFuelStep(truckDefinition.moveType, step);
+          if (stepCost > remainingMove) {
+            break;
+          }
+          if (Number.isFinite(availableFuel) && fuelSpent + stepFuel > availableFuel + 1e-6) {
+            break;
+          }
+          if (this.isOccupied(step) && axialKey(step) !== axialKey(truck.hex)) {
+            break;
+          }
+          current = structuredClone(step);
+          remainingMove -= stepCost;
+          fuelSpent += stepFuel;
+          traveled.push(structuredClone(step));
+        }
+
+        if (traveled.length <= 1) {
+          return;
+        }
+
+        const fromKey = axialKey(truck.hex);
+        const toKey = axialKey(current);
+        this.getPlacementMapForFaction(faction).delete(fromKey);
+        truck.hex = structuredClone(current);
+        if (Number.isFinite(availableFuel) && fuelSpent > 0) {
+          truck.fuel = Math.max(0, Number((truck.fuel - fuelSpent).toFixed(2)));
+        }
+        this.getPlacementMapForFaction(faction).set(toKey, structuredClone(truck));
+        this.updateSupplyPositionForFaction(faction, traveled[0], current);
+        this.syncFuelForFaction(faction, current, truck.fuel);
+
+        if (this.isHexWithinSupplySourceRadius(truck.hex, faction)) {
+          this.loadSupplyTruckFromDepot(faction, supplyState, truck, truckSupplyState, truckState);
+        }
+
+        if (assignedEntry && hexDistance(truck.hex, assignedEntry.unit.hex) <= supplyBalance.convoy.serviceRadius) {
+          const assignedState = this.getSupplyStateForHex(faction, assignedEntry.unit.hex);
+          if (assignedState) {
+            const delivered = this.deliverConvoyCargoToUnit(faction, truckState, assignedEntry.unit, assignedState, assignedEntry.definition);
+            assignedEntry.ammoNeed = Math.max(0, (assignedEntry.definition.ammo ?? 0) - assignedState.ammo);
+            assignedEntry.fuelNeed = this.unitConsumesFuel(assignedEntry.definition)
+              ? Math.max(0, (assignedEntry.definition.fuel ?? 0) - assignedState.fuel)
+              : 0;
+            assignedEntry.status = delivered
+              ? (assignedEntry.ammoNeed <= 0 && assignedEntry.fuelNeed <= 0 ? "resupplied" : "delivering")
+              : assignedEntry.status;
+            if (assignedEntry.ammoNeed <= 0 && assignedEntry.fuelNeed <= 0) {
+              truckState.assignedUnitId = null;
+            }
+          }
+        }
+      });
   }
 
   /**
@@ -2271,6 +2946,16 @@ export class GameEngine implements GameEngineAPI {
     Bot: createSupplyState({ baseline: { ammo: 0, fuel: 0, rations: 0, parts: 0 } }),
     Ally: createSupplyState({ baseline: { ammo: 0, fuel: 0, rations: 0, parts: 0 } })
   };
+  /** Convoy cargo and assignment state tracked independently from the truck unit's onboard fuel. */
+  private readonly supplyTruckStateByFaction: Record<TurnFaction, Map<string, SupplyTruckState>> = {
+    Player: new Map(),
+    Bot: new Map(),
+    Ally: new Map()
+  };
+  /** Optional player-configured resupply priorities keyed by the stable unit id. */
+  private readonly supplyPriorityByUnitId = new Map<string, SupplyPriority>();
+  /** Player-facing contact picture for enemy formations. Contacts persist briefly after LOS is lost. */
+  private readonly playerEnemyContactStates = new Map<string, InternalEnemyContactState>();
 
   /** Per-turn action flags keyed by hex for basic gating. */
   private readonly playerActionFlags = new Map<string, { movementPointsUsed: number; attacksUsed: number; retaliationsUsed: number; isRushing: boolean }>();
@@ -2327,8 +3012,17 @@ export class GameEngine implements GameEngineAPI {
     return { movementPointsUsed: 0, attacksUsed: 0, retaliationsUsed: 0, isRushing: false };
   }
 
+  private shouldTrackAsPlayerIdle(unit: ScenarioUnit): boolean {
+    return !this.isAutomatedPlayerUnit(unit);
+  }
+
   private updateIdleRegistryFor(hexKey: string): void {
-    if (!this.playerPlacements.has(hexKey)) {
+    const unit = this.playerPlacements.get(hexKey);
+    if (!unit) {
+      this.playerIdleUnitKeys.delete(hexKey);
+      return;
+    }
+    if (!this.shouldTrackAsPlayerIdle(unit)) {
       this.playerIdleUnitKeys.delete(hexKey);
       return;
     }
@@ -2342,10 +3036,24 @@ export class GameEngine implements GameEngineAPI {
 
   private rebuildPlayerIdleUnitSet(): void {
     this.playerIdleUnitKeys.clear();
-    this.playerPlacements.forEach((_unit, key) => {
+    this.playerPlacements.forEach((unit, key) => {
+      if (!this.shouldTrackAsPlayerIdle(unit)) {
+        return;
+      }
       const flags = this.playerActionFlags.get(key) ?? this.createDefaultActionFlags();
       if (flags.movementPointsUsed === 0 && flags.attacksUsed === 0) {
         this.playerIdleUnitKeys.add(key);
+      }
+    });
+  }
+
+  /** Clear suppression status for units of the given faction at the start of their turn. */
+  private clearSuppressionFor(faction: TurnFaction): void {
+    const placements = faction === "Player" ? this.playerPlacements : faction === "Bot" ? this.botPlacements : this.allyPlacements;
+
+    placements.forEach(unit => {
+      if (unit.suppressedBy && unit.suppressedBy.length > 0) {
+        unit.suppressedBy = [];
       }
     });
   }
@@ -2715,12 +3423,284 @@ export class GameEngine implements GameEngineAPI {
     return structuredClone(snapshot);
   }
 
+  getEnemyContactSnapshot(): EnemyContactSnapshot[] {
+    this.refreshPlayerEnemyContactStates();
+    return Array.from(this.playerEnemyContactStates.values())
+      .map((entry) => this.mapEnemyContactSnapshot(entry))
+      .filter((entry): entry is EnemyContactSnapshot => entry !== null)
+      .sort((left, right) => {
+        const stateRank = this.rankEnemyContactState(right.state) - this.rankEnemyContactState(left.state);
+        if (stateRank !== 0) {
+          return stateRank;
+        }
+        return right.lastSeenTurn - left.lastSeenTurn;
+      });
+  }
+
+  deployCounterIntel(targetHex: Axial): { ok: true; operationId: string } | { ok: false; reason: string } {
+    if (this._phase !== "playerTurn" || this._activeFaction !== "Player") {
+      return { ok: false, reason: "Counter-intelligence can only be deployed during your turn." };
+    }
+    if (!this.inBounds(targetHex)) {
+      return { ok: false, reason: "Choose an in-bounds map hex for the deception screen." };
+    }
+    if (this.playerCounterIntelResources.deceptionCharges <= 0) {
+      return { ok: false, reason: "No deception teams are available this turn." };
+    }
+
+    const duplicate = Array.from(this.counterIntelOperations.values()).find((entry) => {
+      return entry.faction === "Player" && axialKey(entry.targetHex) === axialKey(targetHex);
+    });
+    if (duplicate) {
+      return { ok: false, reason: "A deception screen is already active on that axis." };
+    }
+
+    this.counterIntelIdCounter += 1;
+    const operationId = `counter-intel-${this.counterIntelIdCounter}`;
+    this.counterIntelOperations.set(operationId, {
+      id: operationId,
+      faction: "Player",
+      targetHex: structuredClone(targetHex),
+      radius: GameEngine.COUNTER_INTEL_OPERATION_RADIUS,
+      remainingTurns: GameEngine.COUNTER_INTEL_OPERATION_DURATION_TURNS,
+      strength: GameEngine.COUNTER_INTEL_OPERATION_STRENGTH
+    });
+    this.playerCounterIntelResources.deceptionCharges = Math.max(0, this.playerCounterIntelResources.deceptionCharges - 1);
+    this.ensureReconIntelSnapshot();
+    return { ok: true, operationId };
+  }
+
+  verifyIntelBrief(briefId: string): { ok: true; status: ReconIntelVerificationStatus } | { ok: false; reason: string } {
+    if (!briefId) {
+      return { ok: false, reason: "Select an intelligence brief to verify." };
+    }
+    if (this._phase !== "playerTurn" || this._activeFaction !== "Player") {
+      return { ok: false, reason: "Intel verification can only be ordered during your turn." };
+    }
+
+    const snapshot = this.ensureReconIntelSnapshot();
+    const brief = snapshot.intelBriefs.find((entry) => entry.id === briefId);
+    if (!brief) {
+      return { ok: false, reason: "The selected intelligence brief is no longer available." };
+    }
+
+    const state = this.intelBriefStates.get(briefId);
+    if (!state) {
+      return { ok: false, reason: "The selected intelligence brief is not tracked by the current scenario." };
+    }
+    if (state.verificationStatus === "verified" || state.verificationStatus === "confirmed-false") {
+      return { ok: false, reason: "That brief has already been resolved." };
+    }
+    if (this.playerCounterIntelResources.verificationCharges <= 0) {
+      return { ok: false, reason: "No verification cells are available this turn." };
+    }
+
+    this.playerCounterIntelResources.verificationCharges = Math.max(0, this.playerCounterIntelResources.verificationCharges - 1);
+    state.verificationStatus = state.isFalse ? "confirmed-false" : "verified";
+    this.intelBriefStates.set(briefId, state);
+    this.ensureReconIntelSnapshot();
+    return { ok: true, status: state.verificationStatus };
+  }
+
   /**
    * Allows upstream systems (e.g., recon pipeline) to push updated intel snapshots into the engine cache.
    * Downstream UI consumers will receive the refreshed data the next time they request it.
    */
   updateReconIntelSnapshot(nextSnapshot: ReconIntelSnapshot): void {
     this.reconIntelSnapshot = structuredClone(nextSnapshot);
+    this.ensureIntelBriefStatesForSnapshot(this.reconIntelSnapshot);
+  }
+
+  private rankEnemyContactState(state: EnemyContactState): number {
+    switch (state) {
+      case "visible":
+        return 3;
+      case "identified":
+        return 2;
+      case "spotted":
+      default:
+        return 1;
+    }
+  }
+
+  private mapEnemyContactSnapshot(entry: InternalEnemyContactState): EnemyContactSnapshot | null {
+    const liveLookup = this.lookupUnitBySquadronId(entry.unitId, "Bot");
+    const currentlyObserved = Boolean(liveLookup && entry.lastSeenTurn === this._turnNumber);
+    const turnsSinceSeen = this._turnNumber - entry.lastSeenTurn;
+    if (!currentlyObserved && turnsSinceSeen >= GameEngine.ENEMY_CONTACT_MEMORY_TURNS) {
+      return null;
+    }
+
+    const state: EnemyContactState = currentlyObserved ? entry.state : "spotted";
+    const strengthSource = currentlyObserved ? liveLookup?.unit.strength ?? entry.lastKnownStrength : entry.lastKnownStrength;
+    const strengthEstimate = this.resolveEnemyContactStrengthEstimate(state, strengthSource);
+
+    return {
+      unitId: entry.unitId,
+      hex: structuredClone(currentlyObserved && liveLookup ? liveLookup.unit.hex : entry.lastKnownHex),
+      state,
+      lastSeenTurn: entry.lastSeenTurn,
+      source: entry.source,
+      unitType: state === "spotted" ? undefined : liveLookup?.unit.type ?? entry.knownUnitType ?? undefined,
+      strengthEstimate: strengthEstimate ?? undefined
+    };
+  }
+
+  private resolveEnemyContactStrengthEstimate(state: EnemyContactState, strength: number | null): number | null {
+    if (!Number.isFinite(strength)) {
+      return null;
+    }
+    if (state === "visible") {
+      return Math.max(0, Math.round(strength!));
+    }
+    if (state === "identified") {
+      return Math.min(100, Math.max(25, Math.round(strength! / 25) * 25));
+    }
+    return null;
+  }
+
+  private refreshPlayerEnemyContactStates(): void {
+    const observers = this.listPlayerReconObservers();
+    const liveBotIds = new Set<string>();
+
+    this.botPlacements.forEach((target) => {
+      const targetDefinition = this.getUnitDefinition(target.type);
+      if (targetDefinition.moveType === "air") {
+        return;
+      }
+
+      const unitId = this.ensureUnitId(target);
+      liveBotIds.add(unitId);
+      const observation = this.evaluateEnemyObservationForPlayer(target, observers);
+      const existing = this.playerEnemyContactStates.get(unitId);
+
+      if (observation) {
+        this.playerEnemyContactStates.set(unitId, {
+          unitId,
+          state: observation.state,
+          lastSeenTurn: this._turnNumber,
+          lastKnownHex: structuredClone(target.hex),
+          lastKnownStrength: target.strength,
+          knownUnitType: target.type,
+          source: observation.source
+        });
+        return;
+      }
+
+      if (!existing) {
+        return;
+      }
+
+      if (this._turnNumber - existing.lastSeenTurn >= GameEngine.ENEMY_CONTACT_MEMORY_TURNS) {
+        this.playerEnemyContactStates.delete(unitId);
+        return;
+      }
+
+      if (existing.state !== "spotted") {
+        this.playerEnemyContactStates.set(unitId, {
+          ...existing,
+          state: "spotted",
+          lastKnownHex: structuredClone(existing.lastKnownHex)
+        });
+      }
+    });
+
+    Array.from(this.playerEnemyContactStates.entries()).forEach(([unitId, entry]) => {
+      if (!liveBotIds.has(unitId) || this._turnNumber - entry.lastSeenTurn >= GameEngine.ENEMY_CONTACT_MEMORY_TURNS) {
+        this.playerEnemyContactStates.delete(unitId);
+      }
+    });
+  }
+
+  private listPlayerReconObservers(): ScenarioUnit[] {
+    return [...Array.from(this.playerPlacements.values()), ...Array.from(this.allyPlacements.values())].filter((unit) => {
+      const definition = this.getUnitDefinition(unit.type);
+      return definition.moveType !== "air" || definition.class === "recon";
+    });
+  }
+
+  private evaluateEnemyObservationForPlayer(
+    target: ScenarioUnit,
+    observers: readonly ScenarioUnit[]
+  ): { state: EnemyContactState; source: string } | null {
+    interface CandidateContact {
+      rank: number;
+      state: EnemyContactState;
+      source: string;
+    }
+
+    const lister = this.createLosLister();
+    let bestContact: CandidateContact | null = null;
+
+    for (const observer of observers) {
+      const observerDef = this.getUnitDefinition(observer.type);
+      const distance = hexDistance(observer.hex, target.hex);
+      if (distance > this.resolveSpottingRange(observerDef)) {
+        continue;
+      }
+
+      const hasLOS = losClearAdvanced({
+        attackerClass: observerDef.class,
+        attackerHex: observer.hex,
+        targetHex: target.hex,
+        isAttackerAir: observerDef.moveType === "air",
+        lister
+      });
+      if (!hasLOS) {
+        continue;
+      }
+
+      const state: EnemyContactState = observerDef.class === "recon" || observerDef.moveType === "air" ? "identified" : "visible";
+      const rank = this.rankEnemyContactState(state);
+      if (!bestContact || rank > bestContact.rank) {
+        bestContact = {
+          rank,
+          state,
+          source: this.describeEnemyObservationSource(observerDef, observer)
+        };
+      }
+    }
+
+    if (!bestContact) {
+      return null;
+    }
+    return { state: bestContact.state, source: bestContact.source };
+  }
+
+  private describeEnemyObservationSource(definition: UnitTypeDefinition, observer: ScenarioUnit): string {
+    if (definition.moveType === "air") {
+      return "Aerial Reconnaissance";
+    }
+    if (definition.class === "recon") {
+      return "Recon Patrol";
+    }
+    if (observer.controlledBy === "AI") {
+      return "Allied Forward Observer";
+    }
+    return "Frontline Observation";
+  }
+
+  private resolveSpottingRange(definition: UnitTypeDefinition): number {
+    const baseRange = Math.max(1, definition.vision ?? 0);
+    if (definition.moveType === "air") {
+      return baseRange + GameEngine.AIR_SPOTTING_RANGE_BONUS;
+    }
+    if (definition.class === "recon") {
+      return baseRange + GameEngine.RECON_SPOTTING_RANGE_BONUS;
+    }
+    return baseRange;
+  }
+
+  private getPlayerEnemyContactStateAtHex(targetHex: Axial): EnemyContactState | null {
+    this.refreshPlayerEnemyContactStates();
+    const targetKey = axialKey(targetHex);
+    for (const entry of this.playerEnemyContactStates.values()) {
+      const snapshot = this.mapEnemyContactSnapshot(entry);
+      if (snapshot && axialKey(snapshot.hex) === targetKey) {
+        return snapshot.state;
+      }
+    }
+    return null;
   }
 
   private mapSupportAsset(asset: InternalSupportAsset): SupportAssetSnapshot {
@@ -3108,18 +4088,392 @@ export class GameEngine implements GameEngineAPI {
     this.invalidateRosterCache();
   }
 
+  private ensureIntelBriefStatesForSnapshot(snapshot: ReconIntelSnapshot): void {
+    snapshot.intelBriefs.forEach((brief) => {
+      if (this.intelBriefStates.has(brief.id)) {
+        return;
+      }
+      const isFalse = this.resolveFalseIntelFlag(brief);
+      const verificationStatus: ReconIntelVerificationStatus =
+        brief.id.startsWith("brief-recon-")
+          ? "verified"
+          : isFalse && brief.confidence === "low"
+            ? "suspected-false"
+            : "unverified";
+      this.intelBriefStates.set(brief.id, {
+        briefId: brief.id,
+        isFalse,
+        verificationStatus
+      });
+    });
+  }
+
+  private resolveFalseIntelFlag(brief: ReconIntelBrief): boolean {
+    if (GameEngine.DEFAULT_FALSE_INTEL_BRIEF_IDS.has(brief.id)) {
+      return true;
+    }
+    const text = `${brief.title} ${brief.assessment} ${brief.projectedImpact}`.toLowerCase();
+    return brief.confidence === "low" && (text.includes("spoof") || text.includes("diversion") || text.includes("conflict"));
+  }
+
+  private countActiveReconObservers(): number {
+    return this.listPlayerReconObservers().filter((unit) => {
+      const definition = this.getUnitDefinition(unit.type);
+      return definition.class === "recon" || definition.moveType === "air";
+    }).length;
+  }
+
+  private summarizeEnemyContactAnchors(contacts: readonly EnemyContactSnapshot[]): string {
+    const anchors = Array.from(new Set(contacts.slice(0, 3).map((contact) => axialKey(contact.hex))));
+    return anchors.length > 0 ? anchors.join(" / ") : "Unknown axis";
+  }
+
+  private countKnownEnemyArmorContacts(contacts: readonly EnemyContactSnapshot[]): number {
+    return contacts.reduce((count, contact) => {
+      if (!contact.unitType) {
+        return count;
+      }
+      const definition = this.getUnitDefinition(contact.unitType);
+      return definition.class === "tank" || definition.class === "vehicle" ? count + 1 : count;
+    }, 0);
+  }
+
+  private buildBattlefieldReconSectors(contacts: readonly EnemyContactSnapshot[]): ReconIntelSnapshot["sectors"] {
+    const currentContacts = contacts.filter((entry) => entry.lastSeenTurn === this._turnNumber);
+    const staleContacts = contacts.filter((entry) => entry.lastSeenTurn < this._turnNumber);
+    const sectors: ReconIntelSnapshot["sectors"] = [];
+
+    if (currentContacts.length > 0) {
+      const visibleCount = currentContacts.filter((entry) => entry.state === "visible").length;
+      const identifiedCount = currentContacts.filter((entry) => entry.state === "identified").length;
+      const staleInPicture = currentContacts.filter((entry) => entry.state === "spotted").length;
+      const confidence: ReconIntelSnapshot["sectors"][number]["confidence"] =
+        visibleCount > 0 ? "high" : identifiedCount > 0 ? "medium" : "low";
+      const coordinates = this.summarizeEnemyContactAnchors(currentContacts);
+      const armorContacts = this.countKnownEnemyArmorContacts(currentContacts);
+      sectors.push({
+        id: "sector-recon-current",
+        name: "Live Contact Picture",
+        summary:
+          armorContacts > 0
+            ? `${currentContacts.length} hostile contact${currentContacts.length === 1 ? "" : "s"} plotted near ${coordinates}, including ${armorContacts} armored formation${armorContacts === 1 ? "" : "s"}.`
+            : `${currentContacts.length} hostile contact${currentContacts.length === 1 ? "" : "s"} plotted near ${coordinates}.`,
+        timeframe: "current",
+        confidence,
+        linkedBriefs: ["brief-recon-current"],
+        coordinates,
+        activity:
+          visibleCount > 0
+            ? `${visibleCount} formation${visibleCount === 1 ? "" : "s"} under direct observation, ${identifiedCount} held by recon sensors, ${staleInPicture} carried as stale contact memory.`
+            : `${identifiedCount} formation${identifiedCount === 1 ? "" : "s"} held by recon sensors; fires can be cued without exposing line battalions.`
+      });
+    } else {
+      const reconAssets = this.countActiveReconObservers();
+      sectors.push({
+        id: "sector-recon-gap",
+        name: "Recon Coverage Gap",
+        summary:
+          reconAssets > 0
+            ? "Recon screen has not confirmed enemy positions this turn."
+            : "No dedicated recon elements are feeding the operational picture.",
+        timeframe: "current",
+        confidence: reconAssets > 0 ? "medium" : "low",
+        linkedBriefs: ["brief-recon-gap"],
+        coordinates: "Front-wide",
+        activity:
+          reconAssets > 0
+            ? "Last known contacts have faded. Push scouts forward or re-task aircraft before committing reserves."
+            : "Deploy recon battalions or launch scout aircraft to rebuild the enemy picture."
+      });
+    }
+
+    if (staleContacts.length > 0) {
+      const coordinates = this.summarizeEnemyContactAnchors(staleContacts);
+      sectors.push({
+        id: "sector-recon-last",
+        name: "Last Reliable Contact",
+        summary: `${staleContacts.length} enemy contact${staleContacts.length === 1 ? "" : "s"} remain on the board as last-known positions near ${coordinates}.`,
+        timeframe: "last",
+        confidence: staleContacts.some((entry) => entry.unitType) ? "medium" : "low",
+        linkedBriefs: ["brief-recon-last"],
+        coordinates,
+        activity: "These plots are aging. Reconfirm them before committing reserves or planning interdiction fires."
+      });
+    }
+
+    return sectors;
+  }
+
+  private buildBattlefieldIntelBriefs(
+    contacts: readonly EnemyContactSnapshot[],
+    sectors: readonly ReconIntelSnapshot["sectors"][number][]
+  ): ReconIntelSnapshot["intelBriefs"] {
+    const currentContacts = contacts.filter((entry) => entry.lastSeenTurn === this._turnNumber);
+    const staleContacts = contacts.filter((entry) => entry.lastSeenTurn < this._turnNumber);
+    const briefs: ReconIntelSnapshot["intelBriefs"] = [];
+
+    if (currentContacts.length > 0) {
+      const armorContacts = this.countKnownEnemyArmorContacts(currentContacts);
+      const visibleCount = currentContacts.filter((entry) => entry.state === "visible").length;
+      briefs.push({
+        id: "brief-recon-current",
+        title: armorContacts > 0 ? "Enemy armored elements fixed" : "Enemy contact picture refreshed",
+        assessment:
+          armorContacts > 0
+            ? `${armorContacts} armored formation${armorContacts === 1 ? "" : "s"} are now plotted inside the live contact picture. Direct observation and recon hand-offs can cue counter-fire before the enemy closes.`
+            : `${currentContacts.length} enemy contact${currentContacts.length === 1 ? "" : "s"} are tracked by the recon network. The contact picture is now good enough to shape fires and reserve posture.`,
+        timeframe: "current",
+        confidence: visibleCount > 0 ? "high" : "medium",
+        linkedSectors: sectors.filter((sector) => sector.id === "sector-recon-current").map((sector) => sector.id),
+        source: visibleCount > 0 ? "Frontline Observation" : "Recon Network",
+        recommendedAction:
+          armorContacts > 0
+            ? "Shift anti-armor fires and hold reserves on the tracked axis while recon keeps the enemy fixed."
+            : "Use the live contact picture to align fires, screen flanks, and protect convoy routes.",
+        projectedImpact:
+          armorContacts > 0
+            ? "Shift anti-armor assets and artillery onto the tracked axis while recon keeps the column fixed."
+            : "Exploit the refreshed picture to screen flanks and align supporting fires."
+      });
+    } else {
+      const reconAssets = this.countActiveReconObservers();
+      briefs.push({
+        id: "brief-recon-gap",
+        title: reconAssets > 0 ? "Enemy maneuver picture degraded" : "Recon net not established",
+        assessment:
+          reconAssets > 0
+            ? "Your recon elements are deployed, but they are not feeding any confirmed enemy contacts right now. The operational picture is degraded rather than empty."
+            : "No dedicated recon battalion or scout aircraft is currently building the contact picture, so enemy movement can develop without warning.",
+        timeframe: "current",
+        confidence: reconAssets > 0 ? "medium" : "low",
+        linkedSectors: sectors.filter((sector) => sector.id === "sector-recon-gap").map((sector) => sector.id),
+        source: "Recon Network",
+        recommendedAction:
+          reconAssets > 0
+            ? "Push scouts onto likely avenues and re-establish contact before moving reserves."
+            : "Commit recon assets before you trust the frontage to remain quiet.",
+        projectedImpact:
+          reconAssets > 0
+            ? "Push scouts onto likely avenues and re-establish line-of-sight before reallocating reserves."
+            : "Commit recon assets before you trust the enemy frontage to stay quiet."
+      });
+    }
+
+    if (staleContacts.length > 0) {
+      briefs.push({
+        id: "brief-recon-last",
+        title: "Last-known enemy plots are aging",
+        assessment:
+          "Some enemy markers now represent last-known positions rather than live observation. They still show likely approach lanes, but they must be revalidated before you commit a major response.",
+        timeframe: "last",
+        confidence: staleContacts.some((entry) => entry.unitType) ? "medium" : "low",
+        linkedSectors: sectors.filter((sector) => sector.id === "sector-recon-last").map((sector) => sector.id),
+        source: "Recon Network",
+        recommendedAction: "Re-run reconnaissance over the aging plots before you swing reserves or logistics away from the sector.",
+        projectedImpact: "Re-run reconnaissance over the aging plots before shifting logistics or reserve battalions off the main line."
+      });
+    }
+
+    return briefs;
+  }
+
+  private buildBattlefieldIntelAlerts(contacts: readonly EnemyContactSnapshot[]): ReconIntelSnapshot["alerts"] {
+    const currentContacts = contacts.filter((entry) => entry.lastSeenTurn === this._turnNumber);
+    const staleContacts = contacts.filter((entry) => entry.lastSeenTurn < this._turnNumber);
+    const alerts: ReconIntelSnapshot["alerts"] = [];
+
+    if (currentContacts.length > 0) {
+      const directSightContacts = currentContacts.filter((entry) => entry.state === "visible").length;
+      const identifiedContacts = currentContacts.filter((entry) => entry.state === "identified").length;
+      alerts.push({
+        id: "alert-recon-current",
+        severity: directSightContacts > 0 ? "critical" : "warning",
+        timeframe: "current",
+        message:
+          directSightContacts > 0
+            ? `${directSightContacts} enemy formation${directSightContacts === 1 ? "" : "s"} are under direct observation. The contact picture is firing-grade.`
+            : `${identifiedContacts} enemy formation${identifiedContacts === 1 ? "" : "s"} are identified by recon but not yet held by direct LOS.`,
+        action:
+          directSightContacts > 0
+            ? "Exploit the live picture with artillery, anti-armor fires, and reserve positioning."
+            : "Keep recon sensors on station so the contact does not fall back to last-known only."
+      });
+    } else if (this.countActiveReconObservers() === 0) {
+      alerts.push({
+        id: "alert-recon-gap",
+        severity: "warning",
+        timeframe: "current",
+        message: "No dedicated recon elements are feeding the enemy picture. Surprise movement risk is elevated.",
+        action: "Deploy recon battalions or launch scout aircraft before the next turn cycle."
+      });
+    }
+
+    if (staleContacts.length > 0) {
+      alerts.push({
+        id: "alert-recon-stale",
+        severity: "info",
+        timeframe: "last",
+        message: `${staleContacts.length} contact${staleContacts.length === 1 ? "" : "s"} now sit on last-known plots rather than live observation.`,
+        action: "Verify the stale plots before you pivot reserves or convoy routes."
+      });
+    }
+
+    return alerts;
+  }
+
+  private buildVisibleReconIntelSnapshot(baseSnapshot: ReconIntelSnapshot): ReconIntelSnapshot {
+    const contacts = this.getEnemyContactSnapshot();
+    const activeOperations = this.getActiveCounterIntelOperations("Player");
+    const battlefieldSectors = this.buildBattlefieldReconSectors(contacts);
+    const battlefieldBriefs = this.buildBattlefieldIntelBriefs(contacts, battlefieldSectors);
+    this.ensureIntelBriefStatesForSnapshot({
+      ...baseSnapshot,
+      intelBriefs: [...battlefieldBriefs, ...baseSnapshot.intelBriefs.filter((brief) => !brief.id.startsWith("brief-recon-"))]
+    });
+    const baseAlerts = baseSnapshot.alerts.filter((alert) => {
+      return !alert.id.startsWith("alert-counter-intel-") && !alert.id.startsWith("alert-suspected-false-") && !alert.id.startsWith("alert-recon-");
+    });
+    const baseSectors = baseSnapshot.sectors.filter((sector) => !sector.id.startsWith("sector-recon-"));
+    const combinedBriefs = [...battlefieldBriefs, ...baseSnapshot.intelBriefs.filter((brief) => !brief.id.startsWith("brief-recon-"))];
+    const visibleBriefs = combinedBriefs.map((brief) => {
+      const state = this.intelBriefStates.get(brief.id);
+      const verificationStatus = state?.verificationStatus ?? "unverified";
+      return {
+        ...brief,
+        verificationStatus,
+        source: brief.source ?? this.describeIntelBriefSource(brief),
+        recommendedAction:
+          verificationStatus === "confirmed-false"
+            ? "Disregard the false report and keep reserves committed to the confirmed axis."
+            : brief.recommendedAction ?? brief.projectedImpact
+      } satisfies ReconIntelBrief;
+    });
+
+    const suspectedFalseBriefs = visibleBriefs.filter((brief) => brief.verificationStatus === "suspected-false").length;
+    const confirmedFalseBriefs = visibleBriefs.filter((brief) => brief.verificationStatus === "confirmed-false").length;
+    const verifiedBriefs = visibleBriefs.filter((brief) => brief.verificationStatus === "verified").length;
+
+    return {
+      ...baseSnapshot,
+      generatedAt: new Date().toISOString(),
+      sectors: [...battlefieldSectors.map((sector) => ({ ...sector })), ...baseSectors.map((sector) => ({ ...sector }))],
+      intelBriefs: visibleBriefs,
+      alerts: [
+        ...this.buildBattlefieldIntelAlerts(contacts).map((alert) => ({ ...alert })),
+        ...baseAlerts.map((alert) => ({ ...alert })),
+        ...this.buildDynamicReconIntelAlerts(activeOperations, suspectedFalseBriefs)
+      ],
+      counterIntel: {
+        deceptionCharges: this.playerCounterIntelResources.deceptionCharges,
+        deceptionMaxCharges: GameEngine.COUNTER_INTEL_MAX_DECEPTION_CHARGES,
+        verificationCharges: this.playerCounterIntelResources.verificationCharges,
+        verificationMaxCharges: GameEngine.COUNTER_INTEL_MAX_VERIFICATION_CHARGES,
+        suspectedFalseBriefs,
+        confirmedFalseBriefs,
+        verifiedBriefs,
+        doctrineSummary:
+          "Deception screens create a false operational axis for three turns. Verification confirms whether a brief is true or enemy-fed noise before you redeploy reserves.",
+        activeOperations: activeOperations.map((operation) => this.mapCounterIntelOperation(operation))
+      }
+    };
+  }
+
+  private buildDynamicReconIntelAlerts(
+    operations: readonly InternalCounterIntelOperation[],
+    suspectedFalseBriefs: number
+  ): ReconIntelSnapshot["alerts"] {
+    const alerts: ReconIntelSnapshot["alerts"] = [];
+    if (operations.length > 0) {
+      const focus = operations[0];
+      alerts.push({
+        id: `alert-counter-intel-${focus.id}`,
+        severity: "info",
+        timeframe: "current",
+        message: `Counter-intelligence screen active near ${axialKey(focus.targetHex)}. Enemy maneuver estimates are being pulled off-axis.`,
+        action: "Mask the real main effort while the decoy axis burns enemy time."
+      });
+    }
+    if (suspectedFalseBriefs > 0) {
+      alerts.push({
+        id: `alert-suspected-false-${suspectedFalseBriefs}`,
+        severity: "warning",
+        timeframe: "current",
+        message: `${suspectedFalseBriefs} brief${suspectedFalseBriefs === 1 ? "" : "s"} carry deception risk and should be verified before you shift reserves.`,
+        action: "Commit verification cells before reacting to low-confidence intercepts."
+      });
+    }
+    return alerts;
+  }
+
+  private describeIntelBriefSource(brief: ReconIntelBrief): string {
+    if (brief.linkedSectors.length > 0 && brief.confidence === "high") {
+      return "Field Recon + Analyst Fusion";
+    }
+    if (brief.assessment.toLowerCase().includes("signals") || brief.assessment.toLowerCase().includes("intercept")) {
+      return "Signals Intercept";
+    }
+    return "Analyst Estimate";
+  }
+
+  private mapCounterIntelOperation(operation: InternalCounterIntelOperation): ReconIntelCounterIntelOperation {
+    return {
+      id: operation.id,
+      label: `Deception Screen ${axialKey(operation.targetHex)}`,
+      targetHex: axialKey(operation.targetHex),
+      radius: operation.radius,
+      remainingTurns: operation.remainingTurns,
+      effect: "Enemy planning is biased toward this false approach."
+    };
+  }
+
+  private getActiveCounterIntelOperations(faction: TurnFaction): InternalCounterIntelOperation[] {
+    return Array.from(this.counterIntelOperations.values())
+      .filter((entry) => entry.faction === faction && entry.remainingTurns > 0)
+      .map((entry) => ({
+        ...entry,
+        targetHex: structuredClone(entry.targetHex)
+      }));
+  }
+
+  private replenishPlayerCounterIntelResources(): void {
+    this.playerCounterIntelResources = {
+      deceptionCharges: Math.min(
+        GameEngine.COUNTER_INTEL_MAX_DECEPTION_CHARGES,
+        this.playerCounterIntelResources.deceptionCharges + 1
+      ),
+      verificationCharges: Math.min(
+        GameEngine.COUNTER_INTEL_MAX_VERIFICATION_CHARGES,
+        this.playerCounterIntelResources.verificationCharges + 1
+      )
+    };
+  }
+
+  private advanceCounterIntelTurn(): void {
+    const expiredIds: string[] = [];
+    this.counterIntelOperations.forEach((operation, key) => {
+      if (operation.remainingTurns <= 0) {
+        expiredIds.push(key);
+        return;
+      }
+      operation.remainingTurns = Math.max(0, operation.remainingTurns - 1);
+      if (operation.remainingTurns <= 0) {
+        expiredIds.push(key);
+      }
+    });
+    expiredIds.forEach((key) => this.counterIntelOperations.delete(key));
+    this.replenishPlayerCounterIntelResources();
+    this.ensureReconIntelSnapshot();
+  }
+
   /**
-   * Lazily hydrates the recon/intel snapshot cache, stamping a fresh generation time on each request.
-   * This helper ensures downstream callers always work with the latest known picture without mutating engine internals.
+   * Lazily hydrates the recon/intel snapshot cache, layering verification state and active counter-intel.
    */
   private ensureReconIntelSnapshot(): ReconIntelSnapshot {
     if (!this.reconIntelSnapshot) {
       this.reconIntelSnapshot = buildInitialReconIntelSnapshot();
     }
-    this.reconIntelSnapshot = {
-      ...this.reconIntelSnapshot,
-      generatedAt: new Date().toISOString()
-    };
+    this.ensureIntelBriefStatesForSnapshot(this.reconIntelSnapshot);
+    this.reconIntelSnapshot = this.buildVisibleReconIntelSnapshot(this.reconIntelSnapshot);
     return this.reconIntelSnapshot;
   }
 
@@ -3139,6 +4493,8 @@ export class GameEngine implements GameEngineAPI {
     this.airMissionAssignmentsByUnit.clear();
     this.airMissionIdCounter = 0;
     this.airMissionRefitTimers.clear();
+    this.resetCounterIntelState();
+    this.playerEnemyContactStates.clear();
     const deploymentState = ensureDeploymentState();
     const reserveBlueprints = deploymentState.toReserveBlueprints();
     // Capture scenario-authored units (including any preDeployed flags) before allocations overwrite the roster.
@@ -3362,12 +4718,16 @@ export class GameEngine implements GameEngineAPI {
   hydrateFromSerialized(state: SerializedBattleState): void {
     this.playerPlacements.clear();
     this.botPlacements.clear();
+    this.hexModifications.clear();
     this.reserves.length = 0;
     this.airborneReserves.length = 0;
     this.scheduledAirMissions.clear();
     this.airMissionAssignmentsByUnit.clear();
     this.airMissionRefitTimers.clear();
     this.airMissionReports.length = 0;
+    this.counterIntelOperations.clear();
+    this.intelBriefStates.clear();
+    this.playerEnemyContactStates.clear();
 
     state.playerPlacements.forEach((unit) => {
       const clone = structuredClone(unit);
@@ -3395,6 +4755,25 @@ export class GameEngine implements GameEngineAPI {
         this.airborneReserves.push({ unit: clone, definition: this.getUnitDefinition(clone.type) });
       });
     }
+    if (Array.isArray(state.enemyContactStates)) {
+      state.enemyContactStates.forEach((entry) => {
+        this.playerEnemyContactStates.set(entry.unitId, {
+          unitId: entry.unitId,
+          state: entry.state,
+          lastSeenTurn: entry.lastSeenTurn,
+          lastKnownHex: structuredClone(entry.lastKnownHex),
+          lastKnownStrength: entry.lastKnownStrength,
+          knownUnitType: entry.knownUnitType,
+          source: entry.source
+        });
+      });
+    }
+    if (Array.isArray(state.hexModifications)) {
+      state.hexModifications.forEach((entry) => {
+        const clone = structuredClone(entry);
+        this.hexModifications.set(axialKey(clone.hex), clone);
+      });
+    }
 
     this._phase = state.phase;
     this._activeFaction = state.activeFaction;
@@ -3419,6 +4798,49 @@ export class GameEngine implements GameEngineAPI {
     if (Array.isArray(state.airMissionReports)) {
       state.airMissionReports.forEach((entry) => this.airMissionReports.push(structuredClone(entry)));
     }
+
+    this.reconIntelSnapshot = state.reconIntelSnapshot ? structuredClone(state.reconIntelSnapshot) : null;
+    if (Array.isArray(state.counterIntelOperations)) {
+      state.counterIntelOperations.forEach((entry) => {
+        this.counterIntelOperations.set(entry.id, {
+          id: entry.id,
+          faction: entry.faction,
+          targetHex: structuredClone(entry.targetHex),
+          radius: entry.radius,
+          remainingTurns: entry.remainingTurns,
+          strength: entry.strength
+        });
+      });
+    }
+    if (Array.isArray(state.intelBriefStates)) {
+      state.intelBriefStates.forEach((entry) => {
+        this.intelBriefStates.set(entry.briefId, {
+          briefId: entry.briefId,
+          isFalse: entry.isFalse,
+          verificationStatus: entry.verificationStatus
+        });
+      });
+    }
+    this.playerCounterIntelResources = {
+      deceptionCharges: Math.max(
+        0,
+        Math.min(
+          GameEngine.COUNTER_INTEL_MAX_DECEPTION_CHARGES,
+          Math.round(state.counterIntelResources?.deceptionCharges ?? GameEngine.COUNTER_INTEL_MAX_DECEPTION_CHARGES)
+        )
+      ),
+      verificationCharges: Math.max(
+        0,
+        Math.min(
+          GameEngine.COUNTER_INTEL_MAX_VERIFICATION_CHARGES,
+          Math.round(state.counterIntelResources?.verificationCharges ?? GameEngine.COUNTER_INTEL_MAX_VERIFICATION_CHARGES)
+        )
+      )
+    };
+    this.counterIntelIdCounter = Math.max(
+      0,
+      Math.round(state.counterIntelIdCounter ?? state.counterIntelOperations?.length ?? 0)
+    );
   }
 
   /** Move the unit occupying the given hex into the reserve pool without deleting its stats. */
@@ -3579,6 +5001,7 @@ export class GameEngine implements GameEngineAPI {
       if (this.allySide && this.allyPlacements.size > 0) {
         this._phase = "allyTurn";
         this._activeFaction = "Ally";
+        this.clearSuppressionFor("Ally");
         this.stepAirMissionsForFaction("Ally");
         this.advanceAirMissionRefits("Ally");
         this.applySupplyTickFor("Ally");
@@ -3589,6 +5012,7 @@ export class GameEngine implements GameEngineAPI {
       this._phase = "botTurn";
       this._activeFaction = "Bot";
       this.botActionFlags.clear();
+      this.clearSuppressionFor("Bot");
       const botSummary = this.executeBotTurn();
       this.pendingBotTurnSummary = botSummary;
       this.stepAirMissionsForFaction("Bot");
@@ -3598,7 +5022,9 @@ export class GameEngine implements GameEngineAPI {
       this._phase = "playerTurn";
       this._activeFaction = "Player";
       this._turnNumber += 1;
+      this.advanceCounterIntelTurn();
       this.playerActionFlags.clear();
+      this.clearSuppressionFor("Player");
       this.rebuildPlayerIdleUnitSet();
       this.refreshAircraftAmmoForFaction("Player");
       return playerSupplyReport;
@@ -3609,6 +5035,7 @@ export class GameEngine implements GameEngineAPI {
       this._phase = "playerTurn";
       this._activeFaction = "Player";
       this._turnNumber += 1;
+      this.advanceCounterIntelTurn();
       this.playerActionFlags.clear();
       this.rebuildPlayerIdleUnitSet();
       this.refreshAircraftAmmoForFaction("Player");
@@ -3619,13 +5046,13 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /** Prepare combat preview by building the standardized request object and invoking `resolveAttack()`. */
-  previewAttack(attackerHex: Axial, defenderHex: Axial): CombatPreview | null {
+  previewAttack(attackerHex: Axial, defenderHex: Axial, stance: CombatStance = "suppressive"): CombatPreview | null {
     const attacker = this.lookupUnit(attackerHex, "Player");
     const defender = this.lookupUnit(defenderHex, "Bot");
-    if (!attacker || !defender) {
+    if (!attacker || !defender || !this.getPlayerEnemyContactStateAtHex(defenderHex)) {
       return null;
     }
-    const request = this.buildAttackRequest(attacker, defender, "Player", "Bot");
+    const request = this.buildAttackRequest(attacker, defender, "Player", "Bot", { stance });
     if (!request) {
       return null;
     }
@@ -3668,6 +5095,7 @@ export class GameEngine implements GameEngineAPI {
    * Normalizes terrain move costs so the rest of the engine can treat air movement as a flat cost per hex.
    * Airframes ignore ground terrain entirely, while ground units fall back to terrain-specific tables.
    * Ford features override river impassability for ground units.
+   * Hex modifications (tank traps, cleared paths) further adjust movement costs.
    */
   private resolveMoveCost(moveType: string, terrain: TerrainDefinition | null, hex?: Axial): number {
     if (moveType === "air") {
@@ -3702,6 +5130,22 @@ export class GameEngine implements GameEngineAPI {
           return 2;
         } else if (moveType === "wheel") {
           return 999; // Wheeled vehicles can't ford unprepared shallow crossings
+        }
+      }
+    }
+
+    // Apply hex modification effects
+    if (hex) {
+      const modification = this.getHexModification(hex);
+      if (modification) {
+        if (modification.type === "tankTraps") {
+          // Tank traps triple movement cost for vehicles
+          if (moveType === "track" || moveType === "wheel") {
+            cost = cost * 3;
+          }
+        } else if (modification.type === "clearedPath") {
+          // Cleared paths reduce movement cost by 50% (min 1)
+          cost = Math.max(1, Math.round(cost * 0.5));
         }
       }
     }
@@ -3743,6 +5187,9 @@ export class GameEngine implements GameEngineAPI {
 
     const unit = this.lookupUnit(origin, "Player");
     if (!unit) {
+      return null;
+    }
+    if (this.isAutomatedPlayerUnit(unit)) {
       return null;
     }
     const definition = this.getUnitDefinition(unit.type);
@@ -3876,6 +5323,101 @@ export class GameEngine implements GameEngineAPI {
     return this.calculateMovementPathSummary(from, to, moveType)?.cost ?? 999;
   }
 
+  private findCheapestPathToAny(
+    from: Axial,
+    destinations: readonly Axial[],
+    moveType: string,
+    occupied: ReadonlySet<string>,
+    maxFuel?: number
+  ): MovementPathPlan | null {
+    if (destinations.length === 0) {
+      return null;
+    }
+
+    const destinationKeys = new Set(destinations.map((hex) => axialKey(hex)));
+    const originKey = axialKey(from);
+    const queue: Array<{ hex: Axial; cost: number; fuelCost: number; steps: number; roadSteps: number; offroadSteps: number }> = [
+      { hex: from, cost: 0, fuelCost: 0, steps: 0, roadSteps: 0, offroadSteps: 0 }
+    ];
+    const visited = new Map<string, { cost: number; fuelCost: number }>();
+    const previous = new Map<string, string | null>();
+    const nodeSummaries = new Map<string, MovementPathSummary>();
+    previous.set(originKey, null);
+    nodeSummaries.set(originKey, { cost: 0, fuelCost: 0, steps: 0, roadSteps: 0, offroadSteps: 0 });
+
+    while (queue.length > 0) {
+      queue.sort((left, right) => left.cost - right.cost || left.fuelCost - right.fuelCost);
+      const current = queue.shift()!;
+      const key = axialKey(current.hex);
+      const seen = visited.get(key);
+      if (seen && seen.cost <= current.cost && seen.fuelCost <= current.fuelCost) {
+        continue;
+      }
+      visited.set(key, { cost: current.cost, fuelCost: current.fuelCost });
+      nodeSummaries.set(key, {
+        cost: current.cost,
+        fuelCost: Number(current.fuelCost.toFixed(2)),
+        steps: current.steps,
+        roadSteps: current.roadSteps,
+        offroadSteps: current.offroadSteps
+      });
+
+      if (destinationKeys.has(key)) {
+        const path: Axial[] = [];
+        let cursor: string | null = key;
+        while (cursor) {
+          const parsed = this.parseAxialKey(cursor);
+          if (!parsed) {
+            break;
+          }
+          path.push(parsed);
+          cursor = previous.get(cursor) ?? null;
+        }
+        path.reverse();
+        return {
+          path,
+          summary: nodeSummaries.get(key)!
+        };
+      }
+
+      for (const neighbor of neighbors(current.hex)) {
+        if (!this.inBounds(neighbor)) {
+          continue;
+        }
+        const neighborKey = axialKey(neighbor);
+        if (occupied.has(neighborKey) && !destinationKeys.has(neighborKey)) {
+          continue;
+        }
+        const terrain = this.terrainAt(neighbor);
+        const moveCost = this.resolveMoveCost(moveType, terrain, neighbor);
+        if (moveCost >= 999) {
+          continue;
+        }
+        const fuelCost = current.fuelCost + this.resolveMovementFuelStep(moveType, neighbor);
+        if (typeof maxFuel === "number" && fuelCost > maxFuel + 1e-6) {
+          continue;
+        }
+        const onRoad = moveType !== "air" && this.isRoad(neighbor);
+        const nextCost = current.cost + moveCost;
+        const existing = visited.get(neighborKey);
+        if (existing && existing.cost <= nextCost && existing.fuelCost <= fuelCost) {
+          continue;
+        }
+        previous.set(neighborKey, key);
+        queue.push({
+          hex: neighbor,
+          cost: nextCost,
+          fuelCost,
+          steps: current.steps + 1,
+          roadSteps: current.roadSteps + (onRoad ? 1 : 0),
+          offroadSteps: current.offroadSteps + (onRoad ? 0 : 1)
+        });
+      }
+    }
+
+    return null;
+  }
+
   /** Calculate reachable hexes using unit movement points and terrain costs. */
   getReachableHexes(origin: Axial): Axial[] {
     const context = this.resolveMovementContext(origin);
@@ -3945,6 +5487,9 @@ export class GameEngine implements GameEngineAPI {
     if (!unit) {
       return [];
     }
+    if (this.isAutomatedPlayerUnit(unit)) {
+      return [];
+    }
     const flags = this.playerActionFlags.get(axialKey(attackerHex)) ?? { movementPointsUsed: 0, attacksUsed: 0, retaliationsUsed: 0, isRushing: false };
 
     const def = this.getUnitDefinition(unit.type);
@@ -3987,7 +5532,7 @@ export class GameEngine implements GameEngineAPI {
 
       if (distance >= rangeMin && distance <= rangeMax && distance !== 0) {
         const defender = this.lookupUnit(hex, "Bot");
-        if (defender) {
+        if (defender && this.getPlayerEnemyContactStateAtHex(hex)) {
           const req = this.buildAttackRequest(unit, defender, "Player", "Bot");
           if (req) {
             out.push(structuredClone(hex));
@@ -4079,6 +5624,10 @@ export class GameEngine implements GameEngineAPI {
     }
     const fromKey = axialKey(from);
     const toKey = axialKey(to);
+    const originUnit = this.lookupUnit(from, "Player");
+    if (originUnit && this.isAutomatedPlayerUnit(originUnit)) {
+      throw new Error("This logistics convoy is AI-controlled and will move automatically during the supply phase.");
+    }
     const context = this.resolveMovementContext(from);
     if (!context) {
       throw new Error("No player unit at the origin hex.");
@@ -4153,14 +5702,17 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /** Resolve a basic attack and update units in place. */
-  attackUnit(attackerHex: Axial, defenderHex: Axial): AttackResolution | null {
+  attackUnit(attackerHex: Axial, defenderHex: Axial, stance: CombatStance = "suppressive"): AttackResolution | null {
     if (this._phase !== "playerTurn") {
       throw new Error("Attacks are allowed only during the player turn.");
     }
     const attacker = this.lookupUnit(attackerHex, "Player");
     const defender = this.lookupUnit(defenderHex, "Bot");
-    if (!attacker || !defender) {
+    if (!attacker || !defender || !this.getPlayerEnemyContactStateAtHex(defenderHex)) {
       return null;
+    }
+    if (this.isAutomatedPlayerUnit(attacker)) {
+      throw new Error("This logistics convoy is AI-controlled. Set resupply priorities from the Logistics panel instead of issuing manual orders.");
     }
     const atkKey = axialKey(attackerHex);
     const flags = this.playerActionFlags.get(atkKey) ?? { movementPointsUsed: 0, attacksUsed: 0, retaliationsUsed: 0, isRushing: false };
@@ -4327,7 +5879,7 @@ export class GameEngine implements GameEngineAPI {
       }
     }
 
-    const req = this.buildAttackRequest(attacker, defender, "Player", "Bot");
+    const req = this.buildAttackRequest(attacker, defender, "Player", "Bot", { stance });
     if (!req) {
       return null;
     }
@@ -4378,6 +5930,18 @@ export class GameEngine implements GameEngineAPI {
     } else {
       this.botPlacements.set(defKey, updatedDef);
       this.syncBotStrength(defenderHex, updatedDef.strength);
+
+      // Apply suppression status if using suppressive fire
+      if (stance === "suppressive") {
+        const attackerUnitId = attacker.unitId ?? atkKey;
+        if (!updatedDef.suppressedBy) {
+          updatedDef.suppressedBy = [];
+        }
+        if (!updatedDef.suppressedBy.includes(attackerUnitId)) {
+          updatedDef.suppressedBy.push(attackerUnitId);
+          this.botPlacements.set(defKey, updatedDef);
+        }
+      }
     }
 
     // Ammo consumption (minimal)
@@ -4482,7 +6046,8 @@ export class GameEngine implements GameEngineAPI {
       }
 
       // Only attempt retaliation if all checks passed (range, LOS, limit)
-      const retaliationReq = retaliationAllowed ? this.buildAttackRequest(updatedDef, updatedAtk, "Bot", "Player", { allowBomberAirAttack: true }) : null;
+      // If attacker used assault stance, retaliation also happens at close range
+      const retaliationReq = retaliationAllowed ? this.buildAttackRequest(updatedDef, updatedAtk, "Bot", "Player", { allowBomberAirAttack: true, stance }) : null;
       if (retaliationReq) {
         // Retaliation uses full combat damage now that LOS, range, and per-turn limits are enforced
         const baseRetaliation = resolveAttack(retaliationReq);
@@ -4623,7 +6188,36 @@ export class GameEngine implements GameEngineAPI {
         faction: timer.faction,
         remaining: timer.remaining
       })),
-      airMissionReports: this.airMissionReports.map((entry) => structuredClone(entry))
+      airMissionReports: this.airMissionReports.map((entry) => structuredClone(entry)),
+      reconIntelSnapshot: structuredClone(this.ensureReconIntelSnapshot()),
+      counterIntelOperations: Array.from(this.counterIntelOperations.values()).map((entry) => ({
+        id: entry.id,
+        faction: entry.faction,
+        targetHex: structuredClone(entry.targetHex),
+        radius: entry.radius,
+        remainingTurns: entry.remainingTurns,
+        strength: entry.strength
+      })),
+      intelBriefStates: Array.from(this.intelBriefStates.values()).map((entry) => ({
+        briefId: entry.briefId,
+        isFalse: entry.isFalse,
+        verificationStatus: entry.verificationStatus
+      })),
+      counterIntelResources: {
+        deceptionCharges: this.playerCounterIntelResources.deceptionCharges,
+        verificationCharges: this.playerCounterIntelResources.verificationCharges
+      },
+      counterIntelIdCounter: this.counterIntelIdCounter,
+      enemyContactStates: Array.from(this.playerEnemyContactStates.values()).map((entry) => ({
+        unitId: entry.unitId,
+        state: entry.state,
+        lastSeenTurn: entry.lastSeenTurn,
+        lastKnownHex: structuredClone(entry.lastKnownHex),
+        lastKnownStrength: entry.lastKnownStrength,
+        knownUnitType: entry.knownUnitType,
+        source: entry.source
+      })),
+      hexModifications: Array.from(this.hexModifications.values()).map((entry) => structuredClone(entry))
     };
   }
 
@@ -4715,8 +6309,31 @@ export class GameEngine implements GameEngineAPI {
     // Supply upkeep and air mission progression are still applied in endTurn sequencing.
   }
 
+  setSupplyPriority(unitId: string, priority: SupplyPriority): boolean {
+    if (!unitId) {
+      return false;
+    }
+
+    const validPriorities: SupplyPriority[] = ["critical", "high", "normal", "low"];
+    if (!validPriorities.includes(priority)) {
+      return false;
+    }
+
+    const unit = Array.from(this.playerPlacements.values()).find((candidate) => candidate.unitId === unitId) ?? null;
+    if (!unit || this.isSupplyTruckType(unit.type)) {
+      return false;
+    }
+
+    this.supplyPriorityByUnitId.set(unitId, priority);
+    this.recordSupplySnapshot("Player");
+    return true;
+  }
+
   getLogisticsSnapshot(): LogisticsSnapshot {
-    const placements = Array.from(this.playerPlacements.values());
+    this.ensureSupplyTruckStatesForFaction("Player");
+    const allPlacements = Array.from(this.playerPlacements.values());
+    const convoyUnits = allPlacements.filter((unit) => this.isSupplyTruckType(unit.type));
+    const placements = allPlacements.filter((unit) => !this.isSupplyTruckType(unit.type));
     const totalUnits = placements.length;
     const network = this.buildSupplyNetwork("Player");
     const catalog: SupplyTerrainCatalog = { terrain: this.terrain, unitTypes: this.unitTypes };
@@ -4731,6 +6348,12 @@ export class GameEngine implements GameEngineAPI {
     const carriedAmmoTotal = this.playerSupply.reduce<number>((sum, entry) => sum + (entry.ammo ?? 0), 0);
     const carriedFuelTotal = this.playerSupply.reduce<number>((sum, entry) => sum + (entry.fuel ?? 0), 0);
     const maintenanceDemand = placements.reduce<number>((sum, unit) => sum + Math.max(0, 10 - unit.strength), 0);
+    const convoyStateMap = this.getSupplyTruckStateMap("Player");
+    const convoyCargo = Array.from(convoyStateMap.values()).reduce<{ ammo: number; fuel: number }>((totals, convoy) => {
+      totals.ammo += convoy.ammoCargo;
+      totals.fuel += convoy.fuelCargo;
+      return totals;
+    }, { ammo: 0, fuel: 0 });
 
     const routesBySource = sources.map((source) => ({
       source,
@@ -4767,17 +6390,40 @@ export class GameEngine implements GameEngineAPI {
     const connectedUnits = Array.from(sourceAssignments.values()).reduce((sum, entries) => sum + entries.length, 0);
     const isolatedUnits = Math.max(0, totalUnits - connectedUnits);
 
+    const nearestSourceForHex = (hex: Axial): string | null => {
+      if (sources.length === 0) {
+        return null;
+      }
+      let best: { key: string; distance: number } | null = null;
+      for (const source of sources) {
+        const distance = hexDistance(source.hex, hex);
+        if (!best || distance < best.distance) {
+          best = { key: source.key, distance };
+        }
+      }
+      return best?.key ?? null;
+    };
+
     const supplySources: LogisticsSupplySource[] = sources.map((source) => {
       const assignedRoutes = sourceAssignments.get(source.key) ?? [];
       const routeValues = assignedRoutes.map((entry) => entry.summary);
       const sourceConnectedUnits = assignedRoutes.length;
-      const throughput = routeValues.reduce<number>((sum, summary) => sum + Math.max(0, 20 - summary.totalCost), 0);
+      const sourceConvoys = convoyUnits.filter((unit) => nearestSourceForHex(unit.hex) === source.key);
+      const operationalConvoys = sourceConvoys.filter((unit) => {
+        const convoyState = unit.unitId ? convoyStateMap.get(unit.unitId) : null;
+        return convoyState?.status !== "blocked";
+      });
+      const throughput = operationalConvoys.length * (supplyBalance.convoy.unloadAmmoPerTurn + supplyBalance.convoy.unloadFuelPerTurn);
       const averageTravelHours = routeValues.length === 0
         ? 0
         : Number((routeValues.reduce<number>((sum, summary) => sum + summary.estimatedHours, 0) / routeValues.length).toFixed(2));
-      const utilization = totalUnits === 0 ? 0 : Number((sourceConnectedUnits / totalUnits).toFixed(2));
+      const utilization = convoyUnits.length === 0 ? 0 : Number((sourceConvoys.length / convoyUnits.length).toFixed(2));
       const bottleneckSummary = this.selectHighestCostRoute(routeValues);
-      const bottleneck = bottleneckSummary ? this.describeRouteBottleneck(bottleneckSummary) : null;
+      const bottleneck = sourceConnectedUnits > 0 && sourceConvoys.length === 0
+        ? "No convoy coverage"
+        : bottleneckSummary
+          ? this.describeRouteBottleneck(bottleneckSummary)
+          : null;
       return {
         key: source.key,
         label: source.label,
@@ -4810,33 +6456,94 @@ export class GameEngine implements GameEngineAPI {
       }
     ];
 
-    const routeCollection = Array.from(sourceAssignments.values())
-      .flatMap((entries) => entries)
-      .map((entry) => ({
-        source: entry.sourceLabel,
-        key: entry.targetKey,
-        unitLabel: entry.unit.type as string,
-        summary: entry.summary
-      }));
-
-    const convoyStatuses: LogisticsConvoyStatusEntry[] = routeCollection
-      .sort((a, b) => b.summary.totalCost - a.summary.totalCost)
-      .slice(0, 6)
-      .map((entry) => ({
-        route: `${entry.source} → ${entry.unitLabel} @ ${entry.key}`,
-        status: this.resolveConvoyStatus(entry.summary),
-        etaHours: Number(entry.summary.estimatedHours.toFixed(2)),
-        incident: null
-      }));
-
     const delayNodesMap = new Map<string, number>();
-    routeCollection.forEach((entry) => {
-      entry.summary.nodes.forEach((node) => {
-        const nodeKey = this.formatAxial(node.hex);
-        const seen = delayNodesMap.get(nodeKey) ?? 0;
-        delayNodesMap.set(nodeKey, Math.max(seen, node.cost));
-      });
+    const priorityTargets = this.resolveSupplyDemandEntries("Player")
+      .map((entry) => {
+        const assignedConvoys = convoyUnits.reduce((count, convoy) => {
+          const convoyId = convoy.unitId ?? "";
+          const convoyState = convoyStateMap.get(convoyId);
+          return convoyState?.assignedUnitId === entry.unit.unitId ? count + 1 : count;
+        }, 0);
+        const reachableFromNetwork = hasSupplyPath(entry.unit.hex, network);
+        return {
+          unitId: entry.unit.unitId ?? `${entry.unit.type}@${axialKey(entry.unit.hex)}`,
+          unitLabel: this.getDisplayUnitLabel(entry.unit),
+          hex: this.formatAxial(entry.unit.hex),
+          priority: entry.priority,
+          ammoNeed: Number(entry.ammoNeed.toFixed(2)),
+          fuelNeed: Number(entry.fuelNeed.toFixed(2)),
+          assignedConvoys,
+          status: entry.directEligible
+            ? "direct"
+            : assignedConvoys > 0
+              ? "delivering"
+              : reachableFromNetwork
+                ? "queued"
+                : "isolated"
+        } satisfies LogisticsPriorityEntry;
+      })
+      .sort((left, right) =>
+        this.getSupplyPriorityWeight(right.priority) - this.getSupplyPriorityWeight(left.priority)
+        || (right.ammoNeed + right.fuelNeed) - (left.ammoNeed + left.fuelNeed)
+      );
+
+    const convoyStatuses: LogisticsConvoyStatusEntry[] = convoyUnits.map((unit) => {
+      const convoyId = unit.unitId ?? this.ensureUnitId(unit);
+      const convoyState = convoyStateMap.get(convoyId)!;
+      const assignedUnit = placements.find((candidate) => candidate.unitId === convoyState.assignedUnitId) ?? null;
+      const occupancy = this.buildUnifiedOccupancySet();
+      occupancy.delete(axialKey(unit.hex));
+      const routePlan = assignedUnit
+        ? this.findCheapestPathToAny(
+          unit.hex,
+          this.collectServiceHexes(assignedUnit.hex, unit.hex),
+          this.getUnitDefinition(unit.type).moveType,
+          occupancy
+        )
+        : this.isHexWithinSupplySourceRadius(unit.hex, "Player")
+          ? null
+          : this.findCheapestPathToAny(
+            unit.hex,
+            this.collectSourceApproachHexes("Player", unit.hex),
+            this.getUnitDefinition(unit.type).moveType,
+            occupancy
+          );
+
+      if (routePlan) {
+        let cumulativeCost = 0;
+        routePlan.path.slice(1).forEach((hex) => {
+          cumulativeCost += this.resolveMoveCost("wheel", this.terrainAt(hex), hex);
+          const nodeKey = this.formatAxial(hex);
+          const seen = delayNodesMap.get(nodeKey) ?? 0;
+          delayNodesMap.set(nodeKey, Math.max(seen, cumulativeCost));
+        });
+      }
+
+      const etaHours = routePlan
+        ? Number((((routePlan.path.length - 1) * 5) / 60).toFixed(2))
+        : 0;
+      const incident = unit.fuel <= 0
+        ? "Out of fuel"
+        : convoyState.status === "blocked" || (assignedUnit !== null && !routePlan)
+          ? "Route blocked"
+          : null;
+      const routeLabel = assignedUnit
+        ? `${this.getDisplayUnitLabel(unit)} → ${this.getDisplayUnitLabel(assignedUnit)} @ ${this.formatAxial(assignedUnit.hex)}`
+        : this.isHexWithinSupplySourceRadius(unit.hex, "Player")
+          ? `${this.getDisplayUnitLabel(unit)} rearming at depot`
+          : `${this.getDisplayUnitLabel(unit)} → Depot`;
+      return {
+        unitId: convoyId,
+        convoyLabel: `${this.getDisplayUnitLabel(unit)} @ ${this.formatAxial(unit.hex)}`,
+        route: routeLabel,
+        status: incident ? "blocked" : convoyState.status,
+        etaHours,
+        cargoAmmo: Number(convoyState.ammoCargo.toFixed(2)),
+        cargoFuel: Number(convoyState.fuelCargo.toFixed(2)),
+        incident
+      } satisfies LogisticsConvoyStatusEntry;
     });
+
     const delayNodes: LogisticsDelayNode[] = Array.from(delayNodesMap.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
@@ -4849,7 +6556,7 @@ export class GameEngine implements GameEngineAPI {
     const maintenanceBacklog: LogisticsMaintenanceEntry[] = placements
       .filter((unit) => unit.strength < 6 || unit.fuel < 2 || unit.ammo < 2)
       .map((unit) => ({
-        unitKey: unit.type,
+        unitKey: this.getDisplayUnitLabel(unit),
         issue: this.resolveMaintenanceIssue(unit),
         pendingTurns: this.estimateMaintenanceTurns(unit)
       }));
@@ -4871,6 +6578,12 @@ export class GameEngine implements GameEngineAPI {
     } else if (stockpiles[1]?.averagePerUnit < 3) {
       alerts.push({ level: "warning", message: "Fuel availability is below desired levels." });
     }
+    const forwardUnitsNeedingConvoys = priorityTargets.filter((entry) => entry.status !== "direct");
+    if (forwardUnitsNeedingConvoys.length > 0 && convoyUnits.length === 0) {
+      alerts.push({ level: "critical", message: "Forward units need resupply but no supply convoys are deployed." });
+    } else if (forwardUnitsNeedingConvoys.length > convoyUnits.length && convoyUnits.length > 0) {
+      alerts.push({ level: "warning", message: "Convoy coverage is thinner than the current resupply queue." });
+    }
     if (maintenanceBacklog.length > totalUnits / 2 && totalUnits > 0) {
       alerts.push({ level: "critical", message: "Maintenance backlog exceeds half of deployed units." });
     }
@@ -4883,6 +6596,12 @@ export class GameEngine implements GameEngineAPI {
       deployedUnits: totalUnits,
       connectedUnits,
       isolatedUnits,
+      convoyUnits: convoyUnits.length,
+      loadedConvoys: convoyStatuses.filter((entry) => entry.cargoAmmo > 0 || entry.cargoFuel > 0).length,
+      convoyCargo: {
+        ammo: Number(convoyCargo.ammo.toFixed(2)),
+        fuel: Number(convoyCargo.fuel.toFixed(2))
+      },
       depotStock: {
         ammo: depotTotals.ammo ?? 0,
         fuel: depotTotals.fuel ?? 0,
@@ -4891,6 +6610,7 @@ export class GameEngine implements GameEngineAPI {
       supplySources,
       stockpiles,
       convoyStatuses,
+      priorityTargets,
       delayNodes,
       maintenanceBacklog,
       alerts
@@ -5167,14 +6887,14 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /** Backward-compatible overload (legacy call sites assume Player attacks Bot). */
-  private buildAttackRequest(attacker: ScenarioUnit, defender: ScenarioUnit, options?: { allowBomberAirAttack?: boolean }): AttackRequest | null;
+  private buildAttackRequest(attacker: ScenarioUnit, defender: ScenarioUnit, options?: { allowBomberAirAttack?: boolean; stance?: CombatStance }): AttackRequest | null;
   /** Faction-aware overload. */
   private buildAttackRequest(
     attacker: ScenarioUnit,
     defender: ScenarioUnit,
     attackerFaction: TurnFaction,
     defenderFaction: TurnFaction,
-    options?: { allowBomberAirAttack?: boolean }
+    options?: { allowBomberAirAttack?: boolean; stance?: CombatStance }
   ): AttackRequest | null;
   private buildAttackRequest(
     attacker: ScenarioUnit,
@@ -5185,7 +6905,7 @@ export class GameEngine implements GameEngineAPI {
   ): AttackRequest | null {
     let attackerFaction: TurnFaction = "Player";
     let defenderFaction: TurnFaction = "Bot";
-    let options: { allowBomberAirAttack?: boolean } | undefined;
+    let options: { allowBomberAirAttack?: boolean; stance?: CombatStance } | undefined;
 
     if (a3 === "Player" || a3 === "Bot" || a3 === "Ally") {
       attackerFaction = a3 as TurnFaction;
@@ -5250,7 +6970,14 @@ export class GameEngine implements GameEngineAPI {
       experience: defender.experience,
       general: defenderGeneral
     };
-    const attackerCtx: AttackerContext = { hex: attacker.hex };
+    // Combat stance logic (infantry-type units only)
+    const stance = options?.stance ?? "suppressive";
+    const isAssault = stance === "assault";
+
+    const attackerCtx: AttackerContext = {
+      hex: attacker.hex,
+      stance: stance
+    };
 
     // Check if defender is rushing (loses terrain cover). We inspect both flag collections because previews may look across factions.
     const defKey = axialKey(defender.hex);
@@ -5258,13 +6985,19 @@ export class GameEngine implements GameEngineAPI {
     const playerFlags = this.playerActionFlags.get(defKey);
     const isDefenderRushing = !!(botFlags?.isRushing || playerFlags?.isRushing);
 
+    // Check for fortifications on defender's hex
+    const defenderMod = this.getHexModification(defender.hex);
+    const defenderFortified = defenderMod?.type === "fortifications";
+
     const defenderCtx: DefenderContext = {
       terrain: this.terrainAt(defender.hex) ?? this.defaultTerrain(),
       class: defenderType.class,
       facing: defender.facing,
       hex: defender.hex,
-      isRushing: isDefenderRushing,
-      isSpottedOnly
+      isRushing: isDefenderRushing || isAssault, // Attacker loses cover when assaulting
+      isSpottedOnly,
+      stance: isAssault ? "assault" : undefined, // Defender also at close range if assaulted
+      fortified: defenderFortified
     };
     return {
       attacker: attackerState,
@@ -5285,11 +7018,8 @@ export class GameEngine implements GameEngineAPI {
     for (const [_, unit] of placements) {
       const unitDef = this.getUnitDefinition(unit.type);
       const distanceToTarget = hexDistance(unit.hex, targetHex);
-
-      const withinVision = distanceToTarget <= (unitDef.vision ?? 0);
-      const isAirOrRecon = unitDef.moveType === "air" || unitDef.class === "recon";
-
-      if (!isAirOrRecon && !withinVision) {
+      const spottingRange = this.resolveSpottingRange(unitDef);
+      if (distanceToTarget > spottingRange) {
         continue;
       }
 
@@ -5346,7 +7076,6 @@ export class GameEngine implements GameEngineAPI {
           fuel: this.scaleSupplyAmount(upkeep.fuel, supplyScalar)
         };
         this.applyUpkeepForUnit(faction, supplyState, unit, state, scaledUpkeep);
-        this.resupplyConnectedUnit(faction, supplyState, unit, state, definition);
       } else {
         const previous = { ammo: state.ammo, fuel: state.fuel, entrench: state.entrench, strength: state.strength };
         applyOutOfSupply(state, attritionProfile);
@@ -5370,6 +7099,11 @@ export class GameEngine implements GameEngineAPI {
       unit.entrench = state.entrench;
       unit.strength = state.strength;
     });
+
+    const demandEntries = this.resolveSupplyDemandEntries(faction);
+    this.applyDirectDepotIssues(faction, supplyState, demandEntries);
+    this.automateSupplyConvoys(faction, supplyState, demandEntries);
+
     enforceLedgerLimit(supplyState, supplyBalance.ledgerLimit);
     const snapshot = this.computeSupplySnapshot(faction);
     this.storeSupplySnapshot(faction, snapshot);
@@ -5482,6 +7216,38 @@ export class GameEngine implements GameEngineAPI {
     }
   }
 
+  private updateSupplyPositionForFaction(faction: TurnFaction, from: Axial, to: Axial): void {
+    if (faction === "Player") {
+      this.updatePlayerSupplyPosition(from, to);
+      return;
+    }
+    if (faction === "Bot") {
+      this.updateBotSupplyPosition(from, to);
+      return;
+    }
+    const fromKey = axialKey(from);
+    const idx = this.allySupply.findIndex((entry) => axialKey(entry.hex) === fromKey);
+    if (idx >= 0) {
+      this.allySupply[idx].hex = structuredClone(to);
+    }
+  }
+
+  private syncFuelForFaction(faction: TurnFaction, hex: Axial, fuel: number): void {
+    if (faction === "Player") {
+      this.syncPlayerFuel(hex, fuel);
+      return;
+    }
+    if (faction === "Bot") {
+      this.syncBotFuel(hex, fuel);
+      return;
+    }
+    const key = axialKey(hex);
+    const idx = this.allySupply.findIndex((entry) => axialKey(entry.hex) === key);
+    if (idx >= 0) {
+      this.allySupply[idx].fuel = fuel;
+    }
+  }
+
   /** Build occupancy map for planner: key -> owner */
   private buildOccupancyMap(): ReadonlyMap<string, "bot" | "player"> {
     const map = new Map<string, "bot" | "player">();
@@ -5570,17 +7336,89 @@ export class GameEngine implements GameEngineAPI {
     return { expectedDamage, expectedRetaliation };
   }
 
+  private buildPlannerCounterIntelDecoys(faction: TurnFaction): PlannerUnitSnapshot[] {
+    const operations = this.getActiveCounterIntelOperations(faction);
+    if (operations.length === 0) {
+      return [];
+    }
+
+    const sourcePlacements = faction === "Player"
+      ? Array.from(this.playerPlacements.values())
+      : Array.from(this.botPlacements.values());
+    const decoyTemplates = sourcePlacements.filter((unit) => {
+      const definition = this.getUnitDefinition(unit.type);
+      return definition.moveType !== "air" && !this.isSupplyTruckType(unit.type);
+    });
+    if (decoyTemplates.length === 0) {
+      return [];
+    }
+
+    return operations.map((operation, index) => {
+      const template = structuredClone(decoyTemplates[index % decoyTemplates.length]);
+      const definition = this.getUnitDefinition(template.type);
+      template.hex = structuredClone(operation.targetHex);
+      template.strength = Math.max(4, Math.min(template.strength, 6 + operation.strength));
+      template.entrench = 0;
+      return { unit: template, definition };
+    });
+  }
+
+  private buildBotPerceivedTargets(): BotPerceivedTarget[] {
+    const targets: BotPerceivedTarget[] = Array.from(this.playerPlacements.values()).map((unit) => ({
+      hex: structuredClone(unit.hex),
+      bias: 0,
+      isDeception: false,
+      id: unit.unitId ?? axialKey(unit.hex)
+    }));
+
+    this.getActiveCounterIntelOperations("Player").forEach((operation) => {
+      targets.push({
+        hex: structuredClone(operation.targetHex),
+        bias: operation.strength,
+        isDeception: true,
+        id: operation.id
+      });
+    });
+
+    return targets;
+  }
+
+  private selectBotPerceivedTarget(origin: Axial, targets: readonly BotPerceivedTarget[]): BotPerceivedTarget | null {
+    let best: BotPerceivedTarget | null = null;
+    let bestAdjustedDistance = Number.POSITIVE_INFINITY;
+    let bestRawDistance = Number.POSITIVE_INFINITY;
+
+    targets.forEach((candidate) => {
+      const rawDistance = hexDistance(origin, candidate.hex);
+      const adjustedDistance = Math.max(0, rawDistance - candidate.bias);
+      if (
+        adjustedDistance < bestAdjustedDistance ||
+        (adjustedDistance === bestAdjustedDistance && rawDistance < bestRawDistance)
+      ) {
+        bestAdjustedDistance = adjustedDistance;
+        bestRawDistance = rawDistance;
+        best = {
+          ...candidate,
+          hex: structuredClone(candidate.hex)
+        };
+      }
+    });
+
+    return best;
+  }
+
   private buildPlannerInputFor(
     acting: UnitPlacementMap,
     opposing: UnitPlacementMap,
     difficulty: BotDifficulty,
-    opposingExtras: UnitPlacementMap[] = []
+    opposingExtras: UnitPlacementMap[] = [],
+    syntheticOpposingUnits: readonly PlannerUnitSnapshot[] = []
   ): BotPlannerInput {
     const actingUnits: PlannerUnitSnapshot[] = [];
     const opposingUnits: PlannerUnitSnapshot[] = [];
     acting.forEach((unit) => {
       const def = this.getUnitDefinition(unit.type);
-      if (def.moveType === "air") {
+      if (def.moveType === "air" || this.isSupplyTruckType(unit.type)) {
         return;
       }
       actingUnits.push({ unit: structuredClone(unit), definition: def });
@@ -5590,6 +7428,12 @@ export class GameEngine implements GameEngineAPI {
       map.forEach((unit) => {
         const def = this.getUnitDefinition(unit.type);
         opposingUnits.push({ unit: structuredClone(unit), definition: def });
+      });
+    });
+    syntheticOpposingUnits.forEach((entry) => {
+      opposingUnits.push({
+        unit: structuredClone(entry.unit),
+        definition: entry.definition
       });
     });
 
@@ -5629,7 +7473,8 @@ export class GameEngine implements GameEngineAPI {
       this.botPlacements,
       this.playerPlacements,
       this.botDifficulty,
-      this.allyPlacements.size > 0 ? [this.allyPlacements] : []
+      this.allyPlacements.size > 0 ? [this.allyPlacements] : [],
+      this.buildPlannerCounterIntelDecoys("Player")
     );
     const plans = planHeuristicBotTurn(input);
     console.log(`[Bot AI] Planner generated ${plans.length} plans`);
@@ -5713,7 +7558,9 @@ export class GameEngine implements GameEngineAPI {
       }
 
       if (plan.attackTarget) {
-        const attack = this.resolveBotAttack(this.botPlacements.get(axialKey(current))!, current, plan.attackTarget);
+        const botUnit = this.botPlacements.get(axialKey(current))!;
+        const stance = this.chooseBotStance(botUnit, plan.attackTarget);
+        const attack = this.resolveBotAttack(botUnit, current, plan.attackTarget, stance);
         if (attack) {
           attacks.push(attack);
           if (attack.defenderDestroyed) {
@@ -5802,53 +7649,65 @@ export class GameEngine implements GameEngineAPI {
     const attacks: BotAttackSummary[] = [];
 
     const playerUnits = Array.from(this.playerPlacements.values());
-    if (playerUnits.length === 0) {
+    const perceivedTargets = this.buildBotPerceivedTargets();
+    if (playerUnits.length === 0 || perceivedTargets.length === 0) {
       // With no player opposition the bot cannot act; still advance the supply tick.
       const supplyReport = this.applySupplyTickFor("Bot");
       return { moves, attacks, supplyReport };
     }
 
-    // Track live player positions so successive bots react to any casualties they inflict this turn.
-    const playerPositions = playerUnits.map((unit) => structuredClone(unit.hex));
+    // Track live player targets so successive bots react to casualties and deception decay.
+    const liveTargets = perceivedTargets.map((target) => ({
+      ...target,
+      hex: structuredClone(target.hex)
+    }));
 
     const botUnits = Array.from(this.botPlacements.entries());
     botUnits.forEach(([_key, unit]) => {
       const def = this.getUnitDefinition(unit.type);
       // Skip aircraft in the generic ground bot loop; they are handled via air mission heuristics.
-      if (def.moveType === "air") {
+      if (def.moveType === "air" || this.isSupplyTruckType(unit.type)) {
         return;
       }
       const origin = structuredClone(unit.hex);
       console.log(`[Bot AI] ${unit.type} at (${origin.q},${origin.r}) evaluating movement`);
 
-      const nearest = this.findNearestPlayerHex(origin, playerPositions);
-      if (!nearest) {
+      const nearestTarget = this.selectBotPerceivedTarget(origin, liveTargets);
+      if (!nearestTarget) {
         console.log(`[Bot AI] ${unit.type}: No player targets found`);
         return;
       }
+      const nearest = nearestTarget.hex;
 
       const distance = hexDistance(origin, nearest);
       console.log(`[Bot AI] ${unit.type}: Nearest player at (${nearest.q},${nearest.r}), distance: ${distance}`);
 
       const attemptAttack = (attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial): void => {
-        const attack = this.resolveBotAttack(attackingUnit, attackerHex, targetHex);
+        const stance = this.chooseBotStance(attackingUnit, targetHex);
+        const attack = this.resolveBotAttack(attackingUnit, attackerHex, targetHex, stance);
         if (!attack) {
           return;
         }
         attacks.push(attack);
         if (attack.defenderDestroyed) {
           const destroyedKey = axialKey(targetHex);
-          const index = playerPositions.findIndex((hex) => axialKey(hex) === destroyedKey);
+          const index = liveTargets.findIndex((target) => !target.isDeception && axialKey(target.hex) === destroyedKey);
           if (index >= 0) {
-            playerPositions.splice(index, 1);
+            liveTargets.splice(index, 1);
           }
         }
       };
 
-      // Attack first when already adjacent; otherwise move one step closer before checking again.
-      if (hexDistance(origin, nearest) <= 1) {
-        console.log(`[Bot AI] ${unit.type}: Already adjacent, attempting attack`);
-        attemptAttack(unit, origin, nearest);
+      const engagementDistance = nearestTarget.isDeception ? 0 : 1;
+
+      // Real contacts can be attacked adjacent; deception screens instead pull the bot onto the false axis.
+      if (hexDistance(origin, nearest) <= engagementDistance) {
+        console.log(
+          `[Bot AI] ${unit.type}: ${nearestTarget.isDeception ? "Reached deception focus" : "Already adjacent, attempting attack"}`
+        );
+        if (!nearestTarget.isDeception) {
+          attemptAttack(unit, origin, nearest);
+        }
         return;
       }
 
@@ -5893,8 +7752,10 @@ export class GameEngine implements GameEngineAPI {
         lastMovedUnit = moved;
 
         // If the unit becomes adjacent to its target after this step, resolve the attack and stop moving.
-        if (hexDistance(step, nearest) <= 1) {
-          attemptAttack(moved, step, nearest);
+        if (hexDistance(step, nearest) <= engagementDistance) {
+          if (!nearestTarget.isDeception) {
+            attemptAttack(moved, step, nearest);
+          }
           break;
         }
         // Limit to one full path per unit per turn to avoid infinite loops in degenerate cases.
@@ -6231,7 +8092,43 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /** Resolves a bot attack against the nearest player unit when adjacency allows it. */
-  private resolveBotAttack(attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial): BotAttackSummary | null {
+  /**
+   * Chooses the appropriate combat stance for a bot unit based on tactical situation.
+   * - Assault: When attacking objectives (aggressive push)
+   * - Suppress: When on objective (hold position)
+   * - Default: Suppressive fire (safe standard behavior)
+   */
+  private chooseBotStance(botUnit: ScenarioUnit, targetHex: Axial): CombatStance {
+    // Only infantry-type units can use tactical stances
+    const botDef = this.getUnitDefinition(botUnit.type);
+    const canUseStances = ["infantry", "recon", "specialist"].includes(botDef.class);
+    if (!canUseStances) {
+      return "suppressive";
+    }
+
+    // Check if bot is on an objective
+    const botKey = axialKey(botUnit.hex);
+    const isOnObjective = this.scenario.objectives?.some(obj => axialKey(obj.hex) === botKey);
+
+    if (isOnObjective) {
+      // When on objective, use suppressive fire to hold position
+      return "suppressive";
+    }
+
+    // Check if target is an objective
+    const targetKey = axialKey(targetHex);
+    const targetIsObjective = this.scenario.objectives?.some(obj => axialKey(obj.hex) === targetKey);
+
+    if (targetIsObjective) {
+      // Assault to take objectives aggressively
+      return "assault";
+    }
+
+    // Default to suppressive fire
+    return "suppressive";
+  }
+
+  private resolveBotAttack(attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial, stance: CombatStance = "suppressive"): BotAttackSummary | null {
     // Bot should target either Player or Ally units depending on occupancy.
     const defenderFaction: TurnFaction = this.playerPlacements.has(axialKey(targetHex)) ? "Player" : "Ally";
     const defender = this.lookupUnit(targetHex, defenderFaction);
@@ -6244,6 +8141,7 @@ export class GameEngine implements GameEngineAPI {
     const attackerIsBomber = this.isBomber(attackerDef);
     const defenderIsAircraft = defenderDef.moveType === "air";
     const groundAttackAmmoCost = attackerIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(attackerDef);
+    const isAssault = stance === "assault";
 
     // Aircraft combat restrictions: Only aircraft and Flak 88 can attack aircraft
     const attackerIsFlak = attackingUnit.type.toLowerCase().includes("flak");
@@ -6401,6 +8299,10 @@ export class GameEngine implements GameEngineAPI {
       }
     }
 
+    // Check for fortifications on defender's hex
+    const defenderMod = this.getHexModification(defender.hex);
+    const defenderFortified = defenderMod?.type === "fortifications";
+
     const req: AttackRequest = {
       attacker: {
         unit: attackerDef,
@@ -6414,12 +8316,18 @@ export class GameEngine implements GameEngineAPI {
         experience: defender.experience,
         general: this.playerSide.general
       },
-      attackerCtx: { hex: attackingUnit.hex },
+      attackerCtx: {
+        hex: attackingUnit.hex,
+        stance: stance
+      },
       defenderCtx: {
         terrain: this.terrainAt(defender.hex) ?? this.defaultTerrain(),
         class: defenderDef.class,
         facing: defender.facing,
-        hex: defender.hex
+        hex: defender.hex,
+        isRushing: isAssault, // Attacker loses cover when assaulting
+        stance: isAssault ? "assault" : undefined, // Defender also at close range if assaulted
+        fortified: defenderFortified
       },
       targetFacing: defender.facing,
       isSoftTarget: defenderDef.class === "infantry" || defenderDef.class === "specialist"
@@ -6469,11 +8377,44 @@ export class GameEngine implements GameEngineAPI {
     const updatedPlayer = structuredClone(defender);
     updatedPlayer.strength = Math.max(0, updatedPlayer.strength - damage);
     if (updatedPlayer.strength <= 0) {
-      this.playerPlacements.delete(playerKey);
-      this.removeSupplyEntryFor(targetHex);
+      if (defenderFaction === "Player") {
+        this.playerPlacements.delete(playerKey);
+        this.removeSupplyEntryFor(targetHex);
+      } else {
+        this.allyPlacements.delete(playerKey);
+        // Note: Ally supply tracking may need a separate method if implemented
+      }
     } else {
-      this.playerPlacements.set(playerKey, updatedPlayer);
-      this.syncPlayerStrength(targetHex, updatedPlayer.strength);
+      if (defenderFaction === "Player") {
+        this.playerPlacements.set(playerKey, updatedPlayer);
+        this.syncPlayerStrength(targetHex, updatedPlayer.strength);
+
+        // Apply suppression status if using suppressive fire
+        if (stance === "suppressive") {
+          const attackerUnitId = attackingUnit.unitId ?? axialKey(attackerHex);
+          if (!updatedPlayer.suppressedBy) {
+            updatedPlayer.suppressedBy = [];
+          }
+          if (!updatedPlayer.suppressedBy.includes(attackerUnitId)) {
+            updatedPlayer.suppressedBy.push(attackerUnitId);
+            this.playerPlacements.set(playerKey, updatedPlayer);
+          }
+        }
+      } else {
+        this.allyPlacements.set(playerKey, updatedPlayer);
+
+        // Apply suppression to ally units as well
+        if (stance === "suppressive") {
+          const attackerUnitId = attackingUnit.unitId ?? axialKey(attackerHex);
+          if (!updatedPlayer.suppressedBy) {
+            updatedPlayer.suppressedBy = [];
+          }
+          if (!updatedPlayer.suppressedBy.includes(attackerUnitId)) {
+            updatedPlayer.suppressedBy.push(attackerUnitId);
+            this.allyPlacements.set(playerKey, updatedPlayer);
+          }
+        }
+      }
     }
 
     // Bot ground units burn the same salvo costs as player-controlled formations.
@@ -6864,9 +8805,9 @@ export class GameEngine implements GameEngineAPI {
       return "blocked";
     }
     if (summary.estimatedHours > 12 || summary.totalCost > 25) {
-      return "delayed";
+      return "returning";
     }
-    return "onSchedule";
+    return "delivering";
   }
 
   /** Formats an axial coordinate for quick display inside the logistics overlays. */
@@ -7265,5 +9206,216 @@ export class GameEngine implements GameEngineAPI {
     if (this.airMissionReports.length > 50) {
       this.airMissionReports.shift();
     }
+  }
+
+  /**
+   * Classifies the unit's current suppression state for UI and rule queries.
+   */
+  private resolveUnitSuppressionState(unit: ScenarioUnit): { state: UnitSuppressionState; count: number } {
+    const count = unit.suppressedBy?.length ?? 0;
+    if (count >= 2) {
+      return { state: "pinned", count };
+    }
+    if (count === 1) {
+      return { state: "suppressed", count };
+    }
+    return { state: "clear", count: 0 };
+  }
+
+  private isEngineerUnit(unit: ScenarioUnit, definition?: UnitTypeDefinition): boolean {
+    const def = definition ?? this.getUnitDefinition(unit.type);
+    const traits = (def.traits ?? []) as readonly string[];
+    return unit.type.toLowerCase().includes("engineer") || traits.includes("engineer");
+  }
+
+  private describeHexModification(type: HexModificationType): string {
+    switch (type) {
+      case "tankTraps":
+        return "tank traps";
+      case "fortifications":
+        return "fortifications";
+      case "clearedPath":
+        return "a cleared path";
+      default:
+        return "fieldworks";
+    }
+  }
+
+  private resolveActionCommitmentReason(flags: ReturnType<GameEngine["createDefaultActionFlags"]>): string | null {
+    if (flags.attacksUsed > 0 || flags.movementPointsUsed > 0) {
+      return "Hold position and stay uncommitted this turn to use infantry field actions.";
+    }
+    return null;
+  }
+
+  private resolveDigInAvailability(
+    hex: Axial,
+    unit: ScenarioUnit,
+    definition: UnitTypeDefinition,
+    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+  ): { available: boolean; reason: string | null } {
+    if (this._phase !== "playerTurn") {
+      return { available: false, reason: "Dig in commands are available only during the player turn." };
+    }
+    if (this.isAutomatedPlayerUnit(unit)) {
+      return { available: false, reason: "Automated logistics convoys do not accept infantry action orders." };
+    }
+    if (!this.playerPlacements.has(axialKey(hex))) {
+      return { available: false, reason: "No player formation occupies this hex." };
+    }
+    if (!["infantry", "recon", "specialist"].includes(definition.class)) {
+      return { available: false, reason: "Only infantry, recon, and specialist formations can dig in." };
+    }
+    if (unit.entrench >= 2) {
+      return { available: false, reason: "Entrenchment is already at maximum depth." };
+    }
+    return {
+      available: this.resolveActionCommitmentReason(flags) === null,
+      reason: this.resolveActionCommitmentReason(flags)
+    };
+  }
+
+  private resolveBuildModificationAvailability(
+    hex: Axial,
+    unit: ScenarioUnit,
+    definition: UnitTypeDefinition,
+    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+  ): { available: boolean; reason: string | null } {
+    if (this._phase !== "playerTurn") {
+      return { available: false, reason: "Engineer fieldworks can be ordered only during the player turn." };
+    }
+    if (this.isAutomatedPlayerUnit(unit)) {
+      return { available: false, reason: "Automated logistics convoys do not accept engineering orders." };
+    }
+    if (!this.playerPlacements.has(axialKey(hex))) {
+      return { available: false, reason: "No player engineer occupies this hex." };
+    }
+    if (!this.isEngineerUnit(unit, definition)) {
+      return { available: false, reason: "Only engineer battalions can build battlefield modifications." };
+    }
+    const commitmentReason = this.resolveActionCommitmentReason(flags);
+    if (commitmentReason) {
+      return { available: false, reason: commitmentReason };
+    }
+    const existingMod = this.hexModifications.get(axialKey(hex));
+    if (existingMod) {
+      return {
+        available: false,
+        reason: `This hex already contains ${this.describeHexModification(existingMod.type)}.`
+      };
+    }
+    return { available: true, reason: null };
+  }
+
+  /**
+   * Supplies a read-only action state for the selected unit so the command UI can stay in sync with engine rules.
+   */
+  getUnitCommandState(hex: Axial): UnitCommandState | null {
+    const key = axialKey(hex);
+    const unit = this.playerPlacements.get(key);
+    if (!unit) {
+      return null;
+    }
+    const definition = this.getUnitDefinition(unit.type);
+    const flags = this.playerActionFlags.get(key) ?? this.createDefaultActionFlags();
+    const suppression = this.resolveUnitSuppressionState(unit);
+    const digIn = this.resolveDigInAvailability(hex, unit, definition, flags);
+    const build = this.resolveBuildModificationAvailability(hex, unit, definition, flags);
+    const existingHexModification = this.getHexModification(hex);
+
+    return {
+      unitId: unit.unitId ?? key,
+      unitType: unit.type,
+      isAutomated: this.isAutomatedPlayerUnit(unit),
+      isEngineer: this.isEngineerUnit(unit, definition),
+      entrenchment: unit.entrench,
+      maxEntrenchment: 2,
+      suppressionState: suppression.state,
+      suppressorCount: suppression.count,
+      existingHexModification: existingHexModification ? structuredClone(existingHexModification) : null,
+      canDigIn: digIn.available,
+      digInReason: digIn.reason,
+      canBuildModification: build.available,
+      buildReason: build.reason
+    };
+  }
+
+  /**
+   * Dig in action for infantry units. Increases entrenchment level (max 2).
+   * Unit cannot attack this turn after digging in.
+   */
+  digInUnit(hex: Axial): boolean {
+    const key = axialKey(hex);
+    const unit = this.playerPlacements.get(key);
+    if (!unit) {
+      return false;
+    }
+    const def = this.getUnitDefinition(unit.type);
+    const flags = this.playerActionFlags.get(key) ?? this.createDefaultActionFlags();
+    const digIn = this.resolveDigInAvailability(hex, unit, def, flags);
+    if (!digIn.available) {
+      return false;
+    }
+
+    // Increase entrenchment (max 2)
+    unit.entrench = Math.min(2, unit.entrench + 1);
+    this.playerPlacements.set(key, unit);
+
+    // Mark unit as having acted
+    this.playerActionFlags.set(key, {
+      ...flags,
+      attacksUsed: 1 // Prevent further attacks this turn
+    });
+    this.updateIdleRegistryFor(key);
+
+    return true;
+  }
+
+  /**
+   * Build a hex modification (tank traps, fortifications, cleared path).
+   * Only engineers can build modifications.
+   */
+  buildHexModification(hex: Axial, type: HexModificationType): boolean {
+    const key = axialKey(hex);
+    const unit = this.playerPlacements.get(key);
+    if (!unit) {
+      return false;
+    }
+    const def = this.getUnitDefinition(unit.type);
+    const flags = this.playerActionFlags.get(key) ?? this.createDefaultActionFlags();
+    const build = this.resolveBuildModificationAvailability(hex, unit, def, flags);
+    if (!build.available) {
+      return false;
+    }
+
+    // Build the modification
+    const modification: HexModification = {
+      type,
+      hex: structuredClone(hex),
+      faction: "Player",
+      builtOnTurn: this._turnNumber
+    };
+    this.hexModifications.set(key, modification);
+
+    // Mark unit as having acted
+    this.playerActionFlags.set(key, {
+      ...flags,
+      attacksUsed: 1 // Prevent further attacks this turn
+    });
+    this.updateIdleRegistryFor(key);
+
+    return true;
+  }
+
+  /**
+   * Get hex modification at a specific hex, if any.
+   */
+  getHexModification(hex: Axial): HexModification | null {
+    const key = axialKey(hex);
+    return this.hexModifications.get(key) ?? null;
+  }
+
+  getHexModificationSnapshots(): HexModification[] {
+    return Array.from(this.hexModifications.values()).map((entry) => structuredClone(entry));
   }
 }

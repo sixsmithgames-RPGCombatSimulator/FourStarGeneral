@@ -18,19 +18,23 @@ import type {
   LogisticsSupplySource,
   LogisticsStockpileEntry,
   LogisticsConvoyStatusEntry,
+  LogisticsPriorityEntry,
   LogisticsDelayNode,
   LogisticsMaintenanceEntry,
   LogisticsAlertEntry,
-  CommanderBenefits
+  CommanderBenefits,
+  SupplyPriority
 } from "../../game/GameEngine";
 import {
   getReconIntelSnapshot as buildFallbackReconIntelSnapshot,
   type ReconIntelSnapshot,
   type ReconIntelAlert,
   type ReconIntelBrief,
+  type ReconIntelCounterIntelOperation,
   type ReconIntelSectorReport,
   type ReconIntelConfidence,
-  type ReconIntelTimeframe
+  type ReconIntelTimeframe,
+  type ReconIntelVerificationStatus
 } from "../../data/reconIntelSnapshot";
 import { getAllGenerals, type GeneralRosterEntry } from "../../utils/rosterStorage";
 import type { WarRoomOverlay } from "./WarRoomOverlay";
@@ -71,6 +75,7 @@ export class PopupManager implements IPopupManager {
   private activeSupplyFaction: TurnFaction = "Player";
   /** Air Support: captures which field should be filled by the next map click. */
   private airPickMode: "target" | "escort" | null = null;
+  private intelPickMode: "deception" | null = null;
   private readonly airPickListener: (event: Event) => void;
 
   /** Cached recon/intel payload hydrated when the commander opens either panel. */
@@ -79,6 +84,7 @@ export class PopupManager implements IPopupManager {
   private reconIntelTimeframe: ReconIntelTimeframe | "all" = "all";
   /** Active confidence filter controlling how uncertain intel is presented. */
   private reconIntelConfidence: ReconIntelConfidence | "all" = "all";
+  private intelFeedbackMessage = "";
 
   constructor(warRoomOverlay: WarRoomOverlay | null = null) {
     this.warRoomOverlay = warRoomOverlay;
@@ -168,6 +174,39 @@ export class PopupManager implements IPopupManager {
   }
 
   /**
+   * Wires logistics priority buttons so the commander can steer automated convoy service without manual truck orders.
+   */
+  private bindLogisticsPriorityControls(container: HTMLElement): void {
+    if (container.getAttribute("data-logistics-controls-initialized") === "true") {
+      return;
+    }
+
+    container.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-logistics-priority-button]");
+      if (!button) {
+        return;
+      }
+
+      const unitId = button.dataset.logisticsPriorityUnitId ?? "";
+      const priority = (button.dataset.logisticsPriority ?? "normal") as SupplyPriority;
+      if (!unitId) {
+        return;
+      }
+
+      try {
+        const engine = this.battleState.ensureGameEngine();
+        if (engine.setSupplyPriority(unitId, priority)) {
+          this.renderLogisticsPanel();
+        }
+      } catch (error) {
+        console.warn("PopupManager: Failed to update logistics priority.", error);
+      }
+    }, { passive: true });
+
+    container.setAttribute("data-logistics-controls-initialized", "true");
+  }
+
+  /**
    * Updates faction toggle button styling and accessibility state to mirror the currently selected ledger.
    */
   private syncSupplyFactionControls(container: HTMLElement, availability: Record<TurnFaction, boolean>): void {
@@ -200,7 +239,7 @@ export class PopupManager implements IPopupManager {
         return;
       }
 
-      if (this.airPickMode) {
+      if (this.airPickMode || this.intelPickMode) {
         const mouseEvent = event as MouseEvent;
         const hits = document.elementsFromPoint(mouseEvent.clientX, mouseEvent.clientY);
         let offsetKey: string | null = null;
@@ -216,9 +255,13 @@ export class PopupManager implements IPopupManager {
         if (offsetKey) {
           this.onBattleHexClicked(new CustomEvent("battle:hexClicked", { detail: { offsetKey } }));
         } else {
-          const panel = this.popupBody.querySelector<HTMLElement>("[data-air-panel]");
-          const fb = panel?.querySelector<HTMLElement>("[data-air-feedback]");
-          fb && (fb.textContent = "Click a hex on the map to select a target.");
+          if (this.airPickMode) {
+            const panel = this.popupBody.querySelector<HTMLElement>("[data-air-panel]");
+            const fb = panel?.querySelector<HTMLElement>("[data-air-feedback]");
+            fb && (fb.textContent = "Click a hex on the map to select a target.");
+          } else if (this.intelPickMode) {
+            this.setIntelFeedback("Click an in-bounds hex on the map to project the deception screen.");
+          }
         }
         return;
       }
@@ -271,13 +314,62 @@ export class PopupManager implements IPopupManager {
       });
     });
 
+    this.bindIntelActionControls(panel);
     this.renderIntelPanel();
+  }
+
+  private bindIntelActionControls(panel: HTMLElement): void {
+    if (panel.getAttribute("data-intel-controls-initialized") === "true") {
+      return;
+    }
+
+    panel.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      const deployButton = target.closest<HTMLButtonElement>("[data-intel-action='deception']");
+      if (deployButton) {
+        this.intelPickMode = "deception";
+        this.setIntelFeedback("Click a map hex to place a deception screen. Enemy battalions will bias toward that false axis.");
+        return;
+      }
+
+      const verifyButton = target.closest<HTMLButtonElement>("[data-intel-verify]");
+      if (verifyButton) {
+        const briefId = verifyButton.dataset.intelVerify ?? "";
+        if (!briefId) {
+          return;
+        }
+        this.handleIntelVerification(briefId);
+      }
+    });
+
+    panel.setAttribute("data-intel-controls-initialized", "true");
+  }
+
+  private handleIntelVerification(briefId: string): void {
+    try {
+      const engine = this.battleState.ensureGameEngine();
+      const result = engine.verifyIntelBrief(briefId);
+      if (!result.ok) {
+        this.setIntelFeedback(result.reason);
+        return;
+      }
+      this.setIntelFeedback(
+        result.status === "confirmed-false"
+          ? "Verification complete: the brief was false. Keep reserves on the confirmed axis."
+          : "Verification complete: the brief is confirmed and can be used for planning."
+      );
+      this.refreshReconIntelSnapshot();
+    } catch (error) {
+      console.warn("PopupManager: Failed to verify intelligence brief.", error);
+      this.setIntelFeedback("Verification failed. Try again once the battle engine is available.");
+    }
   }
 
   /**
    * Renders the Intelligence panel: alert banner + filtered intelligence briefs with confidence labels.
    */
   private renderIntelPanel(): void {
+    this.reconIntelSnapshot = this.requestReconIntelSnapshot();
     if (!this.reconIntelSnapshot) {
       return;
     }
@@ -295,6 +387,24 @@ export class PopupManager implements IPopupManager {
       }
     }
 
+    const summary = this.popupBody.querySelector<HTMLElement>("[data-intel-counterintel-summary]");
+    if (summary) {
+      summary.innerHTML = this.composeIntelCounterIntelSummary(this.reconIntelSnapshot.counterIntel);
+    }
+
+    const operations = this.popupBody.querySelector<HTMLElement>("[data-intel-counterintel-ops]");
+    if (operations) {
+      const activeOperations = this.reconIntelSnapshot.counterIntel?.activeOperations ?? [];
+      operations.innerHTML = activeOperations.length === 0
+        ? '<div class="intel-empty">No deception screens are active. Use counter-intelligence to pull the enemy toward a false axis.</div>'
+        : activeOperations.map((entry) => this.composeCounterIntelOperationMarkup(entry)).join("");
+    }
+
+    const feedback = this.popupBody.querySelector<HTMLElement>("[data-intel-feedback]");
+    if (feedback) {
+      feedback.textContent = this.intelFeedbackMessage || "Low-confidence briefs may be deceptive. Verify them before shifting reserves.";
+    }
+
     const list = this.popupBody.querySelector<HTMLElement>("[data-intel-brief-list]");
     if (!list) {
       return;
@@ -302,14 +412,14 @@ export class PopupManager implements IPopupManager {
     const briefs = this.reconIntelSnapshot.intelBriefs.filter((b) => this.matchesReconIntelFilters(b.timeframe, b.confidence));
     list.innerHTML = briefs.length === 0
       ? '<div class="intel-empty">No intelligence briefs match the selected filters.</div>'
-      : briefs.map((b) => this.composeReconIntelBriefMarkup(b)).join("");
+      : briefs.map((b) => this.composeIntelBriefMarkup(b)).join("");
   }
 
   /**
-   * Renders the Recon panel: last-turn reports from reconnaissance units only.
-   * We scope to timeframe "last" per design until live sensor sources can refine this further.
+   * Renders the Recon panel with live and recent reports so commanders can see the current contact picture.
    */
   private renderReconPanel(): void {
+    this.reconIntelSnapshot = this.requestReconIntelSnapshot();
     if (!this.reconIntelSnapshot) {
       return;
     }
@@ -317,10 +427,132 @@ export class PopupManager implements IPopupManager {
     if (!list) {
       return;
     }
-    const lastTurnSectors = this.reconIntelSnapshot.sectors.filter((s) => s.timeframe === "last");
-    list.innerHTML = lastTurnSectors.length === 0
-      ? '<div class="recon-report-empty">No last-turn reconnaissance reports available.</div>'
-      : lastTurnSectors.map((s) => this.composeReconReportCard(s)).join("");
+    const reconReports = this.reconIntelSnapshot.sectors
+      .filter((sector) => sector.timeframe === "current" || sector.timeframe === "last")
+      .sort((left, right) => {
+        const timeframeRank = (left.timeframe === "current" ? 0 : 1) - (right.timeframe === "current" ? 0 : 1);
+        if (timeframeRank !== 0) {
+          return timeframeRank;
+        }
+        const confidenceRank = { high: 0, medium: 1, low: 2 } as const;
+        return confidenceRank[left.confidence] - confidenceRank[right.confidence];
+      });
+    list.innerHTML = reconReports.length === 0
+      ? '<div class="recon-report-empty">No reconnaissance reports are available yet.</div>'
+      : reconReports.map((sector) => this.composeReconReportCard(sector)).join("");
+  }
+
+  private refreshReconIntelSnapshot(): void {
+    const snapshot = this.requestReconIntelSnapshot();
+    this.reconIntelSnapshot = snapshot;
+    document.dispatchEvent(new CustomEvent("battle:reconIntelUpdated", { detail: snapshot }));
+  }
+
+  private setIntelFeedback(message: string): void {
+    this.intelFeedbackMessage = message;
+    const feedback = this.popupBody.querySelector<HTMLElement>("[data-intel-feedback]");
+    if (feedback) {
+      feedback.textContent = message;
+    }
+  }
+
+  private composeIntelCounterIntelSummary(summary: ReconIntelSnapshot["counterIntel"] | undefined): string {
+    if (!summary) {
+      return `
+        <article class="intel-command-card">
+          <strong>Counter-Intelligence Offline</strong>
+          <p>Live deception and verification actions become available once the battle engine is active.</p>
+        </article>
+      `;
+    }
+
+    return `
+      <article class="intel-command-card">
+        <span>Deception Teams</span>
+        <strong>${summary.deceptionCharges}/${summary.deceptionMaxCharges}</strong>
+        <p>Project a false axis that can pull enemy battalions away from the real main effort.</p>
+      </article>
+      <article class="intel-command-card">
+        <span>Verification Cells</span>
+        <strong>${summary.verificationCharges}/${summary.verificationMaxCharges}</strong>
+        <p>Resolve suspicious briefs before you redeploy reserves, artillery, or logistics convoys.</p>
+      </article>
+      <article class="intel-command-card">
+        <span>False Intel Risk</span>
+        <strong>${summary.suspectedFalseBriefs} suspect / ${summary.confirmedFalseBriefs} confirmed</strong>
+        <p>${this.escapeHtml(summary.doctrineSummary)}</p>
+      </article>
+    `;
+  }
+
+  private composeCounterIntelOperationMarkup(operation: ReconIntelCounterIntelOperation): string {
+    return `
+      <article class="intel-operation-card">
+        <header>
+          <strong>${this.escapeHtml(operation.label)}</strong>
+          <span class="meta-pill">Turns ${operation.remainingTurns}</span>
+        </header>
+        <div class="meta-line">
+          <span>${this.escapeHtml(operation.targetHex)}</span>
+          <span>Radius ${operation.radius}</span>
+        </div>
+        <p class="body">${this.escapeHtml(operation.effect)}</p>
+      </article>
+    `;
+  }
+
+  private composeIntelBriefMarkup(brief: ReconIntelBrief): string {
+    const verificationStatus = brief.verificationStatus ?? "unverified";
+    const locked = verificationStatus === "verified" || verificationStatus === "confirmed-false";
+    const linkedSectorCount = brief.linkedSectors.length;
+    const linkedSectorText =
+      linkedSectorCount === 0
+        ? "No recon sectors linked."
+        : `${linkedSectorCount} recon sector${linkedSectorCount === 1 ? "" : "s"} linked.`;
+    const sourceMarkup = brief.source
+      ? `<span class="meta-pill">${this.escapeHtml(brief.source)}</span>`
+      : "";
+
+    return `
+      <article class="intel-card intel-card--${verificationStatus}" data-brief-id="${this.escapeHtml(brief.id)}" tabindex="0">
+        <div class="intel-card__header">
+          <div class="intel-card__title-group">
+            <strong>${this.escapeHtml(brief.title)}</strong>
+            <div class="meta-line">
+              <span class="meta-pill">${this.describeReconIntelTimeframe(brief.timeframe)}</span>
+              <span class="meta-pill">${this.describeReconIntelConfidence(brief.confidence)}</span>
+              <span class="meta-pill meta-pill--status">${this.describeReconIntelVerificationStatus(verificationStatus)}</span>
+              ${sourceMarkup}
+            </div>
+          </div>
+          <button
+            type="button"
+            class="intel-verify-button${locked ? " is-disabled" : ""}"
+            data-intel-verify="${this.escapeHtml(brief.id)}"
+            ${locked ? "disabled" : ""}
+          >
+            ${locked ? "Resolved" : "Verify"}
+          </button>
+        </div>
+        <p class="body" data-confidence="${brief.confidence}">${this.escapeHtml(brief.assessment)}</p>
+        <p class="body">${this.escapeHtml(brief.recommendedAction ?? brief.projectedImpact)}</p>
+        <div class="meta-line"><span>${this.escapeHtml(linkedSectorText)}</span></div>
+      </article>
+    `;
+  }
+
+  private describeReconIntelVerificationStatus(status: ReconIntelVerificationStatus): string {
+    switch (status) {
+      case "suspected-false":
+        return "Suspected False";
+      case "verified":
+        return "Verified";
+      case "confirmed-false":
+        return "Confirmed False";
+      case "unverified":
+      default:
+        return "Unverified";
+    }
   }
 
   /**
@@ -426,6 +658,9 @@ export class PopupManager implements IPopupManager {
     this.syncSidebarButtons(null);
 
     const trigger = this.lastTriggerButton;
+    this.airPickMode = null;
+    this.intelPickMode = null;
+    this.intelFeedbackMessage = "";
     this.activePopup = null;
     this.lastTriggerButton = null;
 
@@ -900,6 +1135,41 @@ export class PopupManager implements IPopupManager {
 
   /** Handles map clicks when Air Support panel is in pick mode (target/escort). */
   private onBattleHexClicked(event: CustomEvent<{ offsetKey: string }>): void {
+    const key = event.detail?.offsetKey ?? "";
+    const parts = key.split(",");
+    if (parts.length !== 2) {
+      this.airPickMode = null;
+      this.intelPickMode = null;
+      return;
+    }
+    const col = Number(parts[0]);
+    const row = Number(parts[1]);
+    if (!Number.isFinite(col) || !Number.isFinite(row)) {
+      this.airPickMode = null;
+      this.intelPickMode = null;
+      return;
+    }
+    const axial = CoordinateSystem.offsetToAxial(col, row);
+    const value = `${axial.q},${axial.r}`;
+
+    if (this.activePopup === "intelligence" && this.intelPickMode === "deception") {
+      try {
+        const engine = this.battleState.ensureGameEngine();
+        const result = engine.deployCounterIntel(axial);
+        if (!result.ok) {
+          this.setIntelFeedback(result.reason);
+          return;
+        }
+        this.intelPickMode = null;
+        this.setIntelFeedback(`Deception screen projected at ${value}. Enemy planning will now bias toward that false axis.`);
+        this.refreshReconIntelSnapshot();
+      } catch (error) {
+        console.warn("PopupManager: Failed to deploy counter-intelligence.", error);
+        this.setIntelFeedback("Counter-intelligence is unavailable until the battle engine is active.");
+      }
+      return;
+    }
+
     if (this.activePopup !== "airSupport" || !this.airPickMode) {
       return;
     }
@@ -908,20 +1178,7 @@ export class PopupManager implements IPopupManager {
       this.airPickMode = null;
       return;
     }
-    const key = event.detail?.offsetKey ?? "";
-    const parts = key.split(",");
-    if (parts.length !== 2) {
-      this.airPickMode = null;
-      return;
-    }
-    const col = Number(parts[0]);
-    const row = Number(parts[1]);
-    if (!Number.isFinite(col) || !Number.isFinite(row)) {
-      this.airPickMode = null;
-      return;
-    }
-    const axial = CoordinateSystem.offsetToAxial(col, row);
-    const value = `${axial.q},${axial.r}`;
+
     if (this.airPickMode === "target") {
       const select = panel.querySelector<HTMLSelectElement>("[data-air-target-select]");
       if (select) {
@@ -999,6 +1256,8 @@ export class PopupManager implements IPopupManager {
 
     this.reconIntelTimeframe = "all";
     this.reconIntelConfidence = "all";
+    this.intelPickMode = null;
+    this.intelFeedbackMessage = "";
     this.reconIntelSnapshot = this.requestReconIntelSnapshot();
 
     this.initializeIntelPanel();
@@ -1911,12 +2170,13 @@ export class PopupManager implements IPopupManager {
     const snapshot = this.pullLogisticsSnapshot();
     if (!snapshot) {
       const emptyMessage = `<div class="logistics-panel__empty">Logistics data becomes available once the battle engine initializes and units are deployed.</div>`;
-      panel.querySelectorAll("[data-logistics-overview], [data-logistics-sources], [data-logistics-stockpiles], [data-logistics-convoys], [data-logistics-delays], [data-logistics-maintenance], [data-logistics-alerts]")
+      panel.querySelectorAll("[data-logistics-overview], [data-logistics-priorities], [data-logistics-sources], [data-logistics-stockpiles], [data-logistics-convoys], [data-logistics-delays], [data-logistics-maintenance], [data-logistics-alerts]")
         .forEach((container) => { container.innerHTML = emptyMessage; });
       return;
     }
 
     const overviewContainer = panel.querySelector<HTMLElement>("[data-logistics-overview]");
+    const prioritiesContainer = panel.querySelector<HTMLElement>("[data-logistics-priorities]");
     const sourcesContainer = panel.querySelector<HTMLElement>("[data-logistics-sources]");
     const stockpilesContainer = panel.querySelector<HTMLElement>("[data-logistics-stockpiles]");
     const convoysContainer = panel.querySelector<HTMLElement>("[data-logistics-convoys]");
@@ -1926,6 +2186,12 @@ export class PopupManager implements IPopupManager {
 
     if (overviewContainer) {
       overviewContainer.innerHTML = this.composeLogisticsOverview(snapshot);
+    }
+
+    if (prioritiesContainer) {
+      prioritiesContainer.innerHTML = snapshot.priorityTargets.length === 0
+        ? '<div class="logistics-panel__empty">No frontline unit is currently requesting ammo or fuel.</div>'
+        : snapshot.priorityTargets.map((entry) => this.composePriorityItem(entry)).join("");
     }
 
     if (sourcesContainer) {
@@ -1963,6 +2229,8 @@ export class PopupManager implements IPopupManager {
         ? '<li class="logistics-panel__empty">No logistics alerts.</li>'
         : snapshot.alerts.map((alert) => this.composeLogisticsAlert(alert)).join("");
     }
+
+    this.bindLogisticsPriorityControls(panel);
   }
 
   /**
@@ -1993,33 +2261,73 @@ export class PopupManager implements IPopupManager {
           <article class="logistics-overview__metric">
             <span>Connected</span>
             <strong>${snapshot.connectedUnits}</strong>
-            <small>drawing supply this turn</small>
+            <small>inside the network</small>
           </article>
           <article class="logistics-overview__metric">
-            <span>Isolated</span>
-            <strong>${snapshot.isolatedUnits}</strong>
-            <small>receiving no resupply</small>
+            <span>Convoys</span>
+            <strong>${snapshot.convoyUnits}</strong>
+            <small>${snapshot.loadedConvoys} loaded for delivery</small>
           </article>
           <article class="logistics-overview__metric">
-            <span>Action Costs</span>
-            <strong>${combatBalance.ammoFuel.attackAmmoCost}/${combatBalance.ammoFuel.fuelPerGroundHex}</strong>
-            <small>attack ammo / ground fuel</small>
+            <span>Convoy Cargo</span>
+            <strong>${this.formatQuantity(snapshot.convoyCargo.ammo + snapshot.convoyCargo.fuel)}</strong>
+            <small>${this.formatQuantity(snapshot.convoyCargo.ammo)} ammo · ${this.formatQuantity(snapshot.convoyCargo.fuel)} fuel</small>
           </article>
         </div>
         <div class="logistics-overview__stock">
           <span class="logistics-overview__stock-item"><strong>Depot Ammo</strong> ${this.formatQuantity(snapshot.depotStock.ammo)}</span>
           <span class="logistics-overview__stock-item"><strong>Depot Fuel</strong> ${this.formatQuantity(snapshot.depotStock.fuel)}</span>
           <span class="logistics-overview__stock-item"><strong>Depot Parts</strong> ${this.formatQuantity(snapshot.depotStock.parts)}</span>
+          <span class="logistics-overview__stock-item"><strong>Direct Issue</strong> Base/HQ +${supplyBalance.convoy.sourceRadius} hex</span>
         </div>
         <div class="logistics-overview__brief">
-          <p class="logistics-overview__headline">Convoys are abstracted in this beta build. The engine assigns each unit to its best source and measures the route burden from Base Camp or HQ.</p>
+          <p class="logistics-overview__headline">Supply convoys are live map units in this build. Battalions only draw directly from depot when they are on or adjacent to Base Camp or HQ; forward formations wait for convoy delivery.</p>
           <ul class="logistics-overview__rules">
             <li>Supply range currently extends ${supplyBalance.roadRange} road hexes or ${supplyBalance.offroadRange} rough hexes from Base Camp or HQ.</li>
-            <li>Connected units can receive up to ${supplyBalance.resupply.ammo} ammo and ${supplyBalance.resupply.fuel} fuel from depot stock each turn.</li>
-            <li>Ground attacks spend onboard ammo. Motorized movement spends onboard fuel. When those carried stocks hit zero, actions stop.</li>
+            <li>Each convoy carries up to ${supplyBalance.convoy.ammoCapacity} ammo and ${supplyBalance.convoy.fuelCapacity} fuel, unloading up to ${supplyBalance.convoy.unloadAmmoPerTurn}/${supplyBalance.convoy.unloadFuelPerTurn} per turn.</li>
+            <li>Ground attacks spend onboard ammo. Motorized movement spends onboard fuel. When carried stock hits zero, the battalion stops acting.</li>
+            <li>Use the resupply queue below to raise or lower delivery priority. Ammo is still modeled as one pooled class in this beta.</li>
           </ul>
         </div>
       </div>
+    `;
+  }
+
+  /**
+   * Renders a resupply-priority card so the commander can steer which battalion gets the next convoy slot.
+   */
+  private composePriorityItem(entry: LogisticsPriorityEntry): string {
+    const statusLabel = this.formatPriorityStatusLabel(entry.status);
+    const priorityOptions: SupplyPriority[] = ["critical", "high", "normal", "low"];
+
+    return `
+      <article class="logistics-priority-card">
+        <header class="logistics-priority-card__header">
+          <div>
+            <h4>${this.escapeHtml(entry.unitLabel)}</h4>
+            <p>${this.escapeHtml(entry.hex)} · Needs ${this.formatQuantity(entry.ammoNeed)} ammo · ${this.formatQuantity(entry.fuelNeed)} fuel</p>
+          </div>
+          <span class="logistics-priority-card__status logistics-priority-card__status--${entry.status}">${this.escapeHtml(statusLabel)}</span>
+        </header>
+        <div class="logistics-priority-card__meta">
+          <span>Assigned convoys: ${entry.assignedConvoys}</span>
+          <span>Current priority: ${this.escapeHtml(this.formatSupplyPriorityLabel(entry.priority))}</span>
+        </div>
+        <div class="logistics-priority-card__buttons" role="group" aria-label="Set ${this.escapeHtml(entry.unitLabel)} logistics priority">
+          ${priorityOptions.map((priority) => `
+            <button
+              type="button"
+              class="logistics-priority-button${entry.priority === priority ? " is-active" : ""}"
+              data-logistics-priority-button
+              data-logistics-priority-unit-id="${this.escapeHtml(entry.unitId)}"
+              data-logistics-priority="${priority}"
+              aria-pressed="${entry.priority === priority ? "true" : "false"}"
+            >
+              ${this.escapeHtml(this.formatSupplyPriorityLabel(priority))}
+            </button>
+          `).join("")}
+        </div>
+      </article>
     `;
   }
 
@@ -2082,13 +2390,22 @@ export class PopupManager implements IPopupManager {
    * Renders a convoy status item.
    */
   private composeConvoyItem(convoy: LogisticsConvoyStatusEntry): string {
-    const statusLabel = convoy.status === "onSchedule" ? "On Schedule" : convoy.status === "delayed" ? "Delayed" : "Blocked";
+    const statusLabel = this.formatConvoyStatusLabel(convoy.status);
+    const etaLabel = convoy.etaHours > 0 ? `${convoy.etaHours}h` : "Now";
+    const incidentMarkup = convoy.incident
+      ? `<div class="logistics-convoy-item__incident">${this.escapeHtml(convoy.incident)}</div>`
+      : "";
 
     return `
       <li class="logistics-convoy-item">
-        <div class="logistics-convoy-item__route">${this.escapeHtml(convoy.route)}</div>
+        <div class="logistics-convoy-item__main">
+          <div class="logistics-convoy-item__heading">${this.escapeHtml(convoy.convoyLabel)}</div>
+          <div class="logistics-convoy-item__route">${this.escapeHtml(convoy.route)}</div>
+          <div class="logistics-convoy-item__cargo">Cargo ${this.formatQuantity(convoy.cargoAmmo)} ammo · ${this.formatQuantity(convoy.cargoFuel)} fuel</div>
+          ${incidentMarkup}
+        </div>
         <span class="logistics-convoy-item__status logistics-convoy-item__status--${convoy.status}">${statusLabel}</span>
-        <span class="logistics-convoy-item__eta">ETA: ${convoy.etaHours}h</span>
+        <span class="logistics-convoy-item__eta">ETA ${etaLabel}</span>
       </li>
     `;
   }
@@ -2132,6 +2449,52 @@ export class PopupManager implements IPopupManager {
         ${this.escapeHtml(alert.message)}
       </li>
     `;
+  }
+
+  private formatSupplyPriorityLabel(priority: SupplyPriority): string {
+    switch (priority) {
+      case "critical":
+        return "Critical";
+      case "high":
+        return "High";
+      case "normal":
+        return "Normal";
+      case "low":
+      default:
+        return "Low";
+    }
+  }
+
+  private formatPriorityStatusLabel(status: LogisticsPriorityEntry["status"]): string {
+    switch (status) {
+      case "direct":
+        return "At Depot";
+      case "delivering":
+        return "Convoy Assigned";
+      case "resupplied":
+        return "Resupplied";
+      case "isolated":
+        return "Isolated";
+      case "queued":
+      default:
+        return "Queued";
+    }
+  }
+
+  private formatConvoyStatusLabel(status: LogisticsConvoyStatusEntry["status"]): string {
+    switch (status) {
+      case "loading":
+        return "Loading";
+      case "delivering":
+        return "Delivering";
+      case "returning":
+        return "Returning";
+      case "idle":
+        return "Idle";
+      case "blocked":
+      default:
+        return "Blocked";
+    }
   }
 
   /**

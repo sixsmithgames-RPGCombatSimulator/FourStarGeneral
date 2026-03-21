@@ -48,6 +48,7 @@ export interface DefenderContext {
   isRushing?: boolean; // Infantry rushing loses terrain cover
   isSpottedOnly?: boolean; // Target visible only via aircraft/recon spotting (no direct LOS)
   stance?: "assault" | "suppressive" | "digIn"; // Combat stance (infantry only)
+  fortified?: boolean; // Hex has fortifications built by engineers (improves cover for infantry)
 }
 
 /**
@@ -172,11 +173,20 @@ function getBaseAccuracyByRange(unitClass: UnitClass, distance: number): number 
 /**
  * Table look-up for terrain accuracy modifiers. Centralizing it allows future logic (e.g. weather)
  * to hook in without rewriting callers. Rushing infantry lose terrain cover (no bonus).
+ * Fortifications built by engineers improve cover for infantry-type units.
  */
-export function terrainAccMod(terrain: TerrainDefinition | null | undefined, isRushing?: boolean): number {
+export function terrainAccMod(terrain: TerrainDefinition | null | undefined, isRushing?: boolean, fortified?: boolean, defenderClass?: UnitClass): number {
   // Rushing units lose terrain cover
   if (isRushing) return 0;
-  return terrain?.accMod ?? 0;
+
+  let baseMod = terrain?.accMod ?? 0;
+
+  // Fortifications provide +15% cover bonus for infantry-type units
+  if (fortified && defenderClass && ["infantry", "recon", "specialist"].includes(defenderClass)) {
+    baseMod += 15;
+  }
+
+  return baseMod;
 }
 
 /**
@@ -244,7 +254,7 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const combinedAfterCommander = baseWithCommander + experienceWithCommander;
 
   // Step 3: Apply terrain modifier multiplicatively.
-  const terrainMod = terrainAccMod(defenderCtx.terrain, defenderCtx.isRushing);
+  const terrainMod = terrainAccMod(defenderCtx.terrain, defenderCtx.isRushing, defenderCtx.fortified, defenderCtx.class);
   const terrainMultiplier = 1 + terrainMod / 100;
   const afterTerrain = combinedAfterCommander * terrainMultiplier;
 

@@ -117,10 +117,10 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .recon-report-card p { margin: 0; color: rgba(245, 250, 255, 0.82); line-height: 1.5; font-size: 0.95rem; }
         .recon-report-empty { font-size: 0.95rem; color: rgba(229, 236, 255, 0.72); text-align: center; padding: 1.25rem; border: 1px dashed rgba(229, 236, 255, 0.2); border-radius: 12px; background: rgba(12, 16, 25, 0.6); }
       </style>
-      <div class="recon-panel" data-recon-panel>
+        <div class="recon-panel" data-recon-panel>
         <header class="recon-panel__header">
-          <h3>Last Turn Recon Reports</h3>
-          <p>Summaries from reconnaissance aircraft and vehicles observing the battlefield.</p>
+          <h3>Recon Reports</h3>
+          <p>Live and recent contact reports from reconnaissance aircraft, patrols, and forward observers.</p>
         </header>
         <div class="recon-panel__list" data-recon-report-list></div>
       </div>
@@ -131,11 +131,27 @@ export const popupContentRegistry: PopupContentDefinition[] = [
     title: "Intelligence",
     body: `
       <style>
-        .intel-panel { display: grid; gap: 1.5rem; }
+        .intel-panel { display: grid; gap: 1.1rem; padding: 0.35rem 0 0.75rem; }
         .intel-alert { border-radius: 12px; padding: 1rem 1.25rem; font-weight: 600; display: grid; gap: 0.35rem; }
         .intel-alert[data-severity="critical"] { background: rgba(255, 104, 104, 0.15); border: 1px solid rgba(255, 104, 104, 0.4); color: #ffebeb; }
         .intel-alert[data-severity="warning"] { background: rgba(255, 196, 109, 0.15); border: 1px solid rgba(255, 196, 109, 0.35); color: #ffe9c7; }
         .intel-alert[data-severity="info"] { background: rgba(149, 190, 255, 0.12); border: 1px solid rgba(149, 190, 255, 0.32); color: #e2ecff; }
+        .intel-command { display: grid; gap: 0.9rem; border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.12); background: linear-gradient(135deg, rgba(18, 25, 38, 0.94), rgba(12, 17, 26, 0.9)); padding: 1rem 1.05rem; }
+        .intel-command__header { display: grid; gap: 0.3rem; }
+        .intel-command__header h4 { margin: 0; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.95rem; }
+        .intel-command__header p { margin: 0; color: rgba(229, 236, 255, 0.72); font-size: 0.84rem; line-height: 1.45; }
+        .intel-command__grid { display: grid; gap: 0.8rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+        .intel-command-card { display: grid; gap: 0.3rem; border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.12); background: rgba(10, 15, 24, 0.76); padding: 0.85rem 0.9rem; }
+        .intel-command-card span { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(229, 236, 255, 0.62); }
+        .intel-command-card strong { font-size: 1.1rem; color: rgba(245, 247, 255, 0.96); }
+        .intel-command-card p { margin: 0; color: rgba(229, 236, 255, 0.76); font-size: 0.82rem; line-height: 1.45; }
+        .intel-command__actions { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: center; }
+        .intel-action-button { border: 1px solid rgba(245, 196, 109, 0.42); background: rgba(245, 196, 109, 0.16); color: #fff4db; border-radius: 999px; padding: 0.55rem 0.95rem; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease; }
+        .intel-action-button:hover { background: rgba(245, 196, 109, 0.24); border-color: rgba(245, 196, 109, 0.6); transform: translateY(-1px); }
+        .intel-feedback { flex: 1 1 260px; min-height: 1.2rem; color: rgba(229, 236, 255, 0.78); font-size: 0.82rem; line-height: 1.45; }
+        .intel-ops { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+        .intel-operation-card { border-radius: 14px; border: 1px solid rgba(149, 190, 255, 0.22); background: rgba(12, 18, 29, 0.72); padding: 0.85rem 0.95rem; display: grid; gap: 0.45rem; }
+        .intel-operation-card header { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; }
         .intel-controls { display: flex; flex-wrap: wrap; gap: 0.75rem 1rem; }
         .intel-filter-group { display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; }
         .intel-filter-group label { font-size: 0.85rem; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(229, 236, 255, 0.75); }
@@ -145,17 +161,38 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .intel-briefs header { display: grid; gap: 0.25rem; }
         .intel-briefs header h4 { margin: 0; letter-spacing: 0.08em; text-transform: uppercase; font-size: 1rem; }
         .intel-briefs header p { margin: 0; color: rgba(229, 236, 255, 0.68); font-size: 0.9rem; line-height: 1.4; }
-        .intel-card { border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.15); background: rgba(14, 18, 28, 0.85); padding: 1rem 1.25rem; display: grid; gap: 0.55rem; transition: border-color 0.2s ease, box-shadow 0.2s ease; }
+        .intel-briefs__list { display: grid; gap: 0.9rem; }
+        .intel-card { border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.15); background: rgba(14, 18, 28, 0.85); padding: 0.95rem 1rem; display: grid; gap: 0.55rem; transition: border-color 0.2s ease, box-shadow 0.2s ease; }
         .intel-card:hover, .intel-card:focus-within { border-color: rgba(245, 196, 109, 0.6); box-shadow: 0 12px 30px rgba(245, 196, 109, 0.16); }
         .intel-card strong { letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.95rem; }
+        .intel-card__header { display: flex; justify-content: space-between; gap: 0.85rem; align-items: flex-start; }
+        .intel-card__title-group { display: grid; gap: 0.4rem; }
         .intel-card .meta-line { font-size: 0.8rem; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(229, 236, 255, 0.65); display: flex; gap: 0.5rem; flex-wrap: wrap; }
         .intel-card .meta-pill { border: 1px solid rgba(229, 236, 255, 0.24); border-radius: 999px; padding: 0.2rem 0.55rem; font-size: 0.78rem; }
+        .intel-card .meta-pill--status { border-color: rgba(245, 196, 109, 0.32); color: rgba(255, 236, 194, 0.9); }
         .intel-card .body { color: rgba(245, 250, 255, 0.82); line-height: 1.5; font-size: 0.95rem; }
         .intel-card .body[data-confidence="low"] { filter: blur(1px); opacity: 0.72; }
+        .intel-card--suspected-false { border-color: rgba(255, 196, 109, 0.32); }
+        .intel-card--confirmed-false { border-color: rgba(255, 104, 104, 0.36); background: rgba(36, 16, 18, 0.82); }
+        .intel-card--verified { border-color: rgba(122, 214, 170, 0.32); }
+        .intel-verify-button { border: 1px solid rgba(149, 190, 255, 0.28); background: rgba(149, 190, 255, 0.14); color: #edf3ff; border-radius: 999px; padding: 0.45rem 0.85rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+        .intel-verify-button.is-disabled, .intel-verify-button:disabled { opacity: 0.55; cursor: default; }
         .intel-empty { font-size: 0.95rem; color: rgba(229, 236, 255, 0.72); text-align: center; padding: 1.25rem; border: 1px dashed rgba(229, 236, 255, 0.2); border-radius: 12px; background: rgba(12, 16, 25, 0.6); }
       </style>
       <div class="intel-panel" data-intel-panel>
         <div class="intel-alert" data-intel-alert hidden></div>
+        <section class="intel-command">
+          <header class="intel-command__header">
+            <h4>Counter-Intelligence</h4>
+            <p>Use deception to drag enemy formations toward the wrong approach, then verify suspicious briefs before you commit reserves, artillery, or convoy routes.</p>
+          </header>
+          <div class="intel-command__grid" data-intel-counterintel-summary></div>
+          <div class="intel-command__actions">
+            <button type="button" class="intel-action-button" data-intel-action="deception">Deploy Deception On Map</button>
+            <div class="intel-feedback" data-intel-feedback></div>
+          </div>
+          <div class="intel-ops" data-intel-counterintel-ops></div>
+        </section>
         <div class="intel-controls">
           <div class="intel-filter-group" data-intel-filter-group="timeframe">
             <label>Timeframe</label>
@@ -175,7 +212,7 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         <section class="intel-briefs" data-intel-briefs>
           <header>
             <h4>Intel Briefs</h4>
-            <p>Reports from field agents, informants, and analysts. Confidence indicates reliability.</p>
+            <p>Confidence now affects decision risk: suspicious briefs can be verified, and confirmed false reports should not pull your force off the real axis.</p>
           </header>
           <div class="intel-briefs__list" data-intel-brief-list></div>
         </section>
@@ -205,6 +242,23 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .logistics-overview__headline { margin: 0; font-size: 0.95rem; line-height: 1.45; color: rgba(245, 247, 255, 0.94); }
         .logistics-overview__rules { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.35rem; font-size: 0.82rem; line-height: 1.45; color: rgba(229, 236, 255, 0.76); }
 
+        .logistics-priority-grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
+        .logistics-priority-card { border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.16); background: rgba(17, 24, 36, 0.88); padding: 0.95rem 1rem; display: grid; gap: 0.75rem; }
+        .logistics-priority-card__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.8rem; }
+        .logistics-priority-card__header h4 { margin: 0; font-size: 0.98rem; letter-spacing: 0.05em; text-transform: uppercase; }
+        .logistics-priority-card__header p { margin: 0.25rem 0 0; font-size: 0.82rem; color: rgba(229, 236, 255, 0.68); }
+        .logistics-priority-card__meta { display: flex; flex-wrap: wrap; gap: 0.55rem 0.9rem; font-size: 0.8rem; color: rgba(229, 236, 255, 0.7); }
+        .logistics-priority-card__status { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 0.25rem 0.65rem; border-radius: 999px; white-space: nowrap; }
+        .logistics-priority-card__status--direct,
+        .logistics-priority-card__status--resupplied { background: rgba(110, 231, 169, 0.18); color: #d7ffe6; border: 1px solid rgba(110, 231, 169, 0.35); }
+        .logistics-priority-card__status--delivering { background: rgba(149, 190, 255, 0.18); color: #dfeaff; border: 1px solid rgba(149, 190, 255, 0.35); }
+        .logistics-priority-card__status--queued { background: rgba(245, 196, 109, 0.2); color: #ffe3ba; border: 1px solid rgba(245, 196, 109, 0.35); }
+        .logistics-priority-card__status--isolated { background: rgba(255, 104, 104, 0.2); color: #ffd6d6; border: 1px solid rgba(255, 104, 104, 0.35); }
+        .logistics-priority-card__buttons { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+        .logistics-priority-button { border: 1px solid rgba(229, 236, 255, 0.18); background: rgba(14, 20, 31, 0.78); color: #f5f7ff; border-radius: 999px; padding: 0.38rem 0.82rem; font-size: 0.77rem; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease; }
+        .logistics-priority-button:is(:hover, :focus-visible) { border-color: rgba(245, 196, 109, 0.55); color: #ffe9c7; }
+        .logistics-priority-button.is-active { background: rgba(245, 196, 109, 0.2); border-color: rgba(245, 196, 109, 0.5); color: #ffe9c7; }
+
         /* Supply source cards show throughput and bottlenecks */
         .logistics-sources-grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
         .logistics-source-card { border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.18); background: rgba(17, 24, 36, 0.85); padding: 0.95rem 1rem; display: grid; gap: 0.7rem; }
@@ -231,11 +285,17 @@ export const popupContentRegistry: PopupContentDefinition[] = [
 
         /* Convoy status list */
         .logistics-convoy-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.65rem; }
-        .logistics-convoy-item { border-radius: 10px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(13, 18, 28, 0.8); padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; font-size: 0.88rem; }
-        .logistics-convoy-item__route { flex: 1; color: rgba(245, 250, 255, 0.88); }
+        .logistics-convoy-item { border-radius: 10px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(13, 18, 28, 0.8); padding: 0.75rem 1rem; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0.8rem; font-size: 0.88rem; }
+        .logistics-convoy-item__main { display: grid; gap: 0.25rem; min-width: 0; }
+        .logistics-convoy-item__heading { font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(229, 236, 255, 0.68); }
+        .logistics-convoy-item__route { color: rgba(245, 250, 255, 0.92); }
+        .logistics-convoy-item__cargo { font-size: 0.8rem; color: rgba(229, 236, 255, 0.72); }
+        .logistics-convoy-item__incident { font-size: 0.78rem; color: #ffd6d6; }
         .logistics-convoy-item__status { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 0.25rem 0.65rem; border-radius: 999px; }
-        .logistics-convoy-item__status--onSchedule { background: rgba(149, 190, 255, 0.18); color: #dfeaff; border: 1px solid rgba(149, 190, 255, 0.35); }
-        .logistics-convoy-item__status--delayed { background: rgba(255, 196, 109, 0.2); color: #ffe3ba; border: 1px solid rgba(255, 196, 109, 0.35); }
+        .logistics-convoy-item__status--loading,
+        .logistics-convoy-item__status--idle { background: rgba(149, 190, 255, 0.18); color: #dfeaff; border: 1px solid rgba(149, 190, 255, 0.35); }
+        .logistics-convoy-item__status--delivering { background: rgba(110, 231, 169, 0.18); color: #d7ffe6; border: 1px solid rgba(110, 231, 169, 0.35); }
+        .logistics-convoy-item__status--returning { background: rgba(245, 196, 109, 0.2); color: #ffe3ba; border: 1px solid rgba(245, 196, 109, 0.35); }
         .logistics-convoy-item__status--blocked { background: rgba(255, 104, 104, 0.2); color: #ffd6d6; border: 1px solid rgba(255, 104, 104, 0.35); }
         .logistics-convoy-item__eta { color: rgba(229, 236, 255, 0.75); font-size: 0.85rem; }
 
@@ -264,19 +324,43 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .logistics-alert-item--info { background: rgba(149, 190, 255, 0.15); border: 1px solid rgba(149, 190, 255, 0.3); color: #dfeaff; }
 
         .logistics-panel__empty { font-size: 0.9rem; color: rgba(229, 236, 255, 0.72); text-align: center; padding: 1rem; border-radius: 12px; border: 1px dashed rgba(229, 236, 255, 0.25); background: rgba(13, 20, 31, 0.6); }
+
+        @media (max-width: 720px) {
+          .logistics-priority-card__header,
+          .logistics-source-card__header,
+          .logistics-convoy-item,
+          .logistics-delay-item,
+          .logistics-maintenance-item {
+            grid-template-columns: 1fr;
+            flex-direction: column;
+            align-items: flex-start;
+          }
+          .logistics-convoy-item__eta,
+          .logistics-priority-card__status,
+          .logistics-convoy-item__status {
+            margin-top: 0.2rem;
+          }
+        }
       </style>
       <div id="logisticsPanel" class="logistics-panel" aria-live="polite">
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
             <h3>Network Overview</h3>
-            <p>What is in depot, who is connected, and how the current logistics rules are applied.</p>
+            <p>What is in depot, how many convoys are loaded, and the live rules governing delivery to frontline battalions.</p>
           </header>
           <div data-logistics-overview></div>
         </section>
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
+            <h3>Resupply Queue</h3>
+            <p>Automated convoys obey these priorities. Raise a battalion when it must keep moving or firing.</p>
+          </header>
+          <div class="logistics-priority-grid" data-logistics-priorities></div>
+        </section>
+        <section class="logistics-panel__section">
+          <header class="logistics-panel__header">
             <h3>Primary Supply Sources</h3>
-            <p>Each unit is assigned to its best current source rather than being double-counted against every source.</p>
+            <p>Each battalion is assigned to its best current source rather than being double-counted against every source.</p>
           </header>
           <div class="logistics-sources-grid" data-logistics-sources></div>
         </section>
@@ -290,7 +374,7 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
             <h3>Convoy Status</h3>
-            <p>Active supply routes and estimated delivery times.</p>
+            <p>Live on-map convoy jobs, cargo loads, and delivery estimates.</p>
           </header>
           <ul class="logistics-convoy-list" data-logistics-convoys></ul>
         </section>

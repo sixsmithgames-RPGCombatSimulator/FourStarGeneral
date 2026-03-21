@@ -75,6 +75,25 @@ export interface TileInstance {
  */
 export type CombatStance = "assault" | "suppressive" | "digIn";
 
+/**
+ * Types of hex modifications that can be built by engineer units.
+ */
+export type HexModificationType = "tankTraps" | "fortifications" | "clearedPath";
+
+/**
+ * Hex modification built by engineers to alter terrain properties.
+ */
+export interface HexModification {
+  /** Type of modification */
+  type: HexModificationType;
+  /** Hex location */
+  hex: Axial;
+  /** Faction that built this modification */
+  faction: "Player" | "Bot" | "Ally";
+  /** Turn when modification was built (for persistence/serialization) */
+  builtOnTurn?: number;
+}
+
 export interface ScenarioUnit {
   type: keyof typeof unitTypesData;
   hex: Axial;

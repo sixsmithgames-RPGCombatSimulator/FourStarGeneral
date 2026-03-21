@@ -38,6 +38,25 @@ const vehicleDef: UnitTypeDefinition = {
   cost: 100
 };
 
+const supplyTruckDef: UnitTypeDefinition = {
+  class: "vehicle",
+  movement: 2,
+  moveType: "wheel",
+  vision: 2,
+  ammo: 0,
+  fuel: 12,
+  rangeMin: 0,
+  rangeMax: 0,
+  initiative: 1,
+  armor: { front: 1, side: 1, top: 1 },
+  hardAttack: 0,
+  softAttack: 0,
+  ap: 0,
+  accuracyBase: 0,
+  traits: [],
+  cost: 80
+};
+
 const infantryDef: UnitTypeDefinition = {
   class: "infantry",
   movement: 2,
@@ -58,6 +77,7 @@ const infantryDef: UnitTypeDefinition = {
 };
 
 const unitTypes: UnitTypeDictionary = {
+  Supply_Truck: supplyTruckDef,
   TestVehicle: vehicleDef,
   EnemyInfantry: infantryDef
 } as unknown as UnitTypeDictionary;
@@ -115,6 +135,27 @@ function createEngine(playerUnits: ScenarioUnit[], botUnits: ScenarioUnit[] = []
   engine.finalizeDeployment();
   engine.startPlayerTurnPhase();
   return engine;
+}
+
+function findPlayerUnit(engine: GameEngine, hex: { q: number; r: number }): ScenarioUnit {
+  const unit = engine.getPlayerPlacementsSnapshot().find((candidate) => candidate.hex.q === hex.q && candidate.hex.r === hex.r);
+  if (!unit) {
+    throw new Error(`Expected player unit at ${hex.q},${hex.r}.`);
+  }
+  return unit;
+}
+
+function createDepotSeeder(hex = { q: 3, r: 0 }): ScenarioUnit {
+  return {
+    type: "TestVehicle" as ScenarioUnit["type"],
+    hex,
+    strength: 10,
+    experience: 0,
+    ammo: 10,
+    fuel: 10,
+    entrench: 0,
+    facing: "N"
+  };
 }
 
 registerTest("GROUND_UNITS_STOP_ATTACKING_OR_MOVING_WITHOUT_CARRIED_STOCK", async ({ Given, Then }) => {
@@ -177,15 +218,14 @@ registerTest("GROUND_UNITS_STOP_ATTACKING_OR_MOVING_WITHOUT_CARRIED_STOCK", asyn
   });
 });
 
-registerTest("CONNECTED_UNITS_PULL_DEPOT_RESUPPLY_AND_LOGISTICS_ASSIGN_PRIMARY_SOURCES", async ({ Given, When, Then }) => {
+registerTest("ONLY_BASE_ADJACENT_UNITS_RECEIVE_DIRECT_DEPOT_ISSUES", async ({ Given, When, Then }) => {
   let engine: GameEngine;
-  let supplySnapshot: ReturnType<GameEngine["getSupplySnapshot"]> | null = null;
   let logisticsSnapshot: ReturnType<GameEngine["getLogisticsSnapshot"]> | null = null;
 
-  await Given("a connected logistics network with depot reserves available", async () => {
-    const depletedVehicle: ScenarioUnit = {
+  await Given("one battalion near base and one forward battalion with no convoy support", async () => {
+    const nearBaseVehicle: ScenarioUnit = {
       type: "TestVehicle" as ScenarioUnit["type"],
-      hex: { q: 0, r: 0 },
+      hex: { q: 0, r: 1 },
       strength: 10,
       experience: 0,
       ammo: 0,
@@ -193,46 +233,181 @@ registerTest("CONNECTED_UNITS_PULL_DEPOT_RESUPPLY_AND_LOGISTICS_ASSIGN_PRIMARY_S
       entrench: 0,
       facing: "N"
     };
-    const loadedVehicle: ScenarioUnit = {
+    const forwardVehicle: ScenarioUnit = {
       type: "TestVehicle" as ScenarioUnit["type"],
-      hex: { q: 0, r: 1 },
+      hex: { q: 2, r: 0 },
       strength: 10,
       experience: 0,
-      ammo: 10,
-      fuel: 10,
+      ammo: 0,
+      fuel: 0,
       entrench: 0,
       facing: "N"
     };
-    engine = createEngine([depletedVehicle, loadedVehicle]);
+    engine = createEngine([nearBaseVehicle, forwardVehicle, createDepotSeeder()]);
   });
 
   await When("the turn advances and logistics refresh", async () => {
     engine.endTurn();
-    supplySnapshot = engine.getSupplySnapshot("Player");
     logisticsSnapshot = engine.getLogisticsSnapshot();
   });
 
-  await Then("the connected unit is topped up from depot stock without double-counting sources", async () => {
-    if (!supplySnapshot || !logisticsSnapshot) {
-      throw new Error("Expected supply and logistics snapshots after ending the turn.");
+  await Then("only the battalion adjacent to base is refilled directly from depot stock", async () => {
+    if (!logisticsSnapshot) {
+      throw new Error("Expected a logistics snapshot after ending the turn.");
     }
 
-    const refreshedUnit = engine.getPlayerPlacementsSnapshot().find((unit) => unit.hex.q === 0 && unit.hex.r === 0);
-    if (!refreshedUnit) {
-      throw new Error("Expected the depleted vehicle to remain on the map.");
-    }
-    if (refreshedUnit.ammo < 2 || refreshedUnit.fuel < 2) {
-      throw new Error(`Expected connected resupply to top the unit back up, saw ammo=${refreshedUnit.ammo}, fuel=${refreshedUnit.fuel}.`);
+    const nearBaseRefreshed = findPlayerUnit(engine, { q: 0, r: 1 });
+    if (nearBaseRefreshed.ammo <= 0 || nearBaseRefreshed.fuel <= 0) {
+      throw new Error(`Expected the base-adjacent battalion to be reissued stock, saw ammo=${nearBaseRefreshed.ammo}, fuel=${nearBaseRefreshed.fuel}.`);
     }
 
-    const resupplyEntry = supplySnapshot.ledger.find((entry) => entry.reason.includes("frontline resupply"));
-    if (!resupplyEntry) {
-      throw new Error("Expected the supply ledger to record a frontline resupply transfer.");
+    const forwardRefreshed = findPlayerUnit(engine, { q: 2, r: 0 });
+    if (forwardRefreshed.ammo !== 0 || forwardRefreshed.fuel !== 0) {
+      throw new Error(`Expected the forward battalion to remain dry without a convoy, saw ammo=${forwardRefreshed.ammo}, fuel=${forwardRefreshed.fuel}.`);
     }
 
-    const summedSourceAssignments = logisticsSnapshot.supplySources.reduce((sum, source) => sum + source.connectedUnits, 0);
-    if (summedSourceAssignments !== logisticsSnapshot.connectedUnits) {
-      throw new Error(`Expected logistics sources to assign primary routes once each, saw sources=${summedSourceAssignments} vs connected=${logisticsSnapshot.connectedUnits}.`);
+    const queueEntry = logisticsSnapshot.priorityTargets.find((entry) => entry.hex === "2,0");
+    if (!queueEntry) {
+      throw new Error("Expected the forward battalion to remain in the logistics queue.");
+    }
+    if (queueEntry.status !== "queued") {
+      throw new Error(`Expected the forward battalion to be queued for convoy service, saw '${queueEntry.status}'.`);
+    }
+  });
+});
+
+registerTest("SUPPLY_CONVOYS_DELIVER_TO_FORWARD_BATTALIONS", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let logisticsSnapshot: ReturnType<GameEngine["getLogisticsSnapshot"]> | null = null;
+
+  await Given("a forward battalion with a convoy staged between it and the depot", async () => {
+    const convoy: ScenarioUnit = {
+      type: "Supply_Truck" as ScenarioUnit["type"],
+      hex: { q: 1, r: 0 },
+      strength: 10,
+      experience: 0,
+      ammo: 0,
+      fuel: 12,
+      entrench: 0,
+      facing: "N"
+    };
+    const forwardVehicle: ScenarioUnit = {
+      type: "TestVehicle" as ScenarioUnit["type"],
+      hex: { q: 2, r: 0 },
+      strength: 10,
+      experience: 0,
+      ammo: 0,
+      fuel: 0,
+      entrench: 0,
+      facing: "N"
+    };
+    engine = createEngine([convoy, forwardVehicle, createDepotSeeder()]);
+  });
+
+  await When("the turn advances", async () => {
+    engine.endTurn();
+    logisticsSnapshot = engine.getLogisticsSnapshot();
+  });
+
+  await Then("the convoy loads from depot and transfers stock to the forward battalion", async () => {
+    if (!logisticsSnapshot) {
+      throw new Error("Expected a logistics snapshot after convoy automation.");
+    }
+
+    const forwardVehicle = findPlayerUnit(engine, { q: 2, r: 0 });
+    if (forwardVehicle.ammo <= 0 || forwardVehicle.fuel <= 0) {
+      throw new Error(`Expected convoy delivery to refill the forward battalion, saw ammo=${forwardVehicle.ammo}, fuel=${forwardVehicle.fuel}.`);
+    }
+
+    if (logisticsSnapshot.convoyStatuses.length !== 1) {
+      throw new Error(`Expected one convoy status entry, saw ${logisticsSnapshot.convoyStatuses.length}.`);
+    }
+
+    const convoyStatus = logisticsSnapshot.convoyStatuses[0];
+    if (convoyStatus.status !== "delivering" && convoyStatus.status !== "loading") {
+      throw new Error(`Expected the convoy to be in an active service state, saw '${convoyStatus.status}'.`);
+    }
+  });
+});
+
+registerTest("SUPPLY_PRIORITIES_DECIDE_WHICH_BATTALION_GETS_THE_NEXT_CONVOY", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let logisticsSnapshot: ReturnType<GameEngine["getLogisticsSnapshot"]> | null = null;
+
+  await Given("one convoy and two forward battalions competing for service", async () => {
+    const convoy: ScenarioUnit = {
+      type: "Supply_Truck" as ScenarioUnit["type"],
+      hex: { q: 1, r: 0 },
+      strength: 10,
+      experience: 0,
+      ammo: 0,
+      fuel: 12,
+      entrench: 0,
+      facing: "N"
+    };
+    const closerVehicle: ScenarioUnit = {
+      type: "TestVehicle" as ScenarioUnit["type"],
+      hex: { q: 2, r: 0 },
+      strength: 10,
+      experience: 0,
+      ammo: 0,
+      fuel: 0,
+      entrench: 0,
+      facing: "N"
+    };
+    const fartherVehicle: ScenarioUnit = {
+      type: "TestVehicle" as ScenarioUnit["type"],
+      hex: { q: 0, r: 2 },
+      strength: 10,
+      experience: 0,
+      ammo: 0,
+      fuel: 0,
+      entrench: 0,
+      facing: "N"
+    };
+    engine = createEngine([convoy, closerVehicle, fartherVehicle, createDepotSeeder()]);
+  });
+
+  await When("the commander raises the farther battalion to critical priority before ending the turn", async () => {
+    const closerUnit = findPlayerUnit(engine, { q: 2, r: 0 });
+    const fartherUnit = findPlayerUnit(engine, { q: 0, r: 2 });
+
+    if (!closerUnit.unitId || !fartherUnit.unitId) {
+      throw new Error("Expected stable unit ids for logistics priority assignment.");
+    }
+
+    if (!engine.setSupplyPriority(closerUnit.unitId, "low")) {
+      throw new Error("Expected the closer battalion priority update to succeed.");
+    }
+    if (!engine.setSupplyPriority(fartherUnit.unitId, "critical")) {
+      throw new Error("Expected the farther battalion priority update to succeed.");
+    }
+
+    engine.endTurn();
+    logisticsSnapshot = engine.getLogisticsSnapshot();
+  });
+
+  await Then("the single convoy is assigned to the higher-priority battalion first", async () => {
+    if (!logisticsSnapshot) {
+      throw new Error("Expected a logistics snapshot after applying convoy priorities.");
+    }
+
+    const closerEntry = logisticsSnapshot.priorityTargets.find((entry) => entry.hex === "2,0");
+    const fartherEntry = logisticsSnapshot.priorityTargets.find((entry) => entry.hex === "0,2");
+    if (!closerEntry || !fartherEntry) {
+      throw new Error("Expected both battalions to remain visible in the logistics queue.");
+    }
+
+    if (fartherEntry.assignedConvoys !== 1) {
+      throw new Error(`Expected the critical battalion to receive the convoy assignment, saw ${fartherEntry.assignedConvoys}.`);
+    }
+    if (closerEntry.assignedConvoys !== 0) {
+      throw new Error(`Expected the low-priority battalion to wait, saw ${closerEntry.assignedConvoys} assigned convoys.`);
+    }
+
+    const assignedTotal = logisticsSnapshot.priorityTargets.reduce((sum, entry) => sum + entry.assignedConvoys, 0);
+    if (assignedTotal !== 1) {
+      throw new Error(`Expected one convoy to service one battalion at a time, saw ${assignedTotal} assignments.`);
     }
   });
 });

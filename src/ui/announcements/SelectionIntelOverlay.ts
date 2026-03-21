@@ -1,4 +1,6 @@
 import type {
+  BattleIntelAction,
+  BattleIntelChip,
   BattleSelectionIntel,
   DeploymentSelectionIntel,
   SelectionIntel,
@@ -134,19 +136,29 @@ export class SelectionIntelOverlay {
     const title = this.resolveTitle(intel);
     const summary = this.composeSummary(intel);
 
+    if (this.root) {
+      this.root.dataset.intelKind = intel.kind;
+    }
     if (this.titleElement) {
       this.titleElement.textContent = title;
     }
     if (this.metaElement) {
-      // Present a tight, single-line status string per CODEX request so the overlay stays unobtrusive.
       this.metaElement.textContent = summary;
     }
     if (this.bodyElement) {
-      this.bodyElement.textContent = "";
+      this.bodyElement.innerHTML = this.renderBodyMarkup(intel);
     }
     if (this.notesElement) {
-      this.notesElement.classList.add("hidden");
-      this.notesElement.textContent = "";
+      const notes = this.resolveNotes(intel);
+      if (notes.length > 0) {
+        this.notesElement.classList.remove("hidden");
+        this.notesElement.innerHTML = notes
+          .map((note) => `<p class="battle-intel-overlay__note">${this.escapeHtml(note)}</p>`)
+          .join("");
+      } else {
+        this.notesElement.classList.add("hidden");
+        this.notesElement.textContent = "";
+      }
     }
   }
 
@@ -243,5 +255,116 @@ export class SelectionIntelOverlay {
     }
 
     return segments.join(" • ");
+  }
+
+  private renderBodyMarkup(intel: Exclude<SelectionIntel, null>): string {
+    switch (intel.kind) {
+      case "battle":
+        return this.renderBattleMarkup(intel);
+      case "deployment":
+        return this.renderDeploymentMarkup(intel);
+      case "terrain":
+      default:
+        return this.renderTerrainMarkup(intel);
+    }
+  }
+
+  private renderBattleMarkup(intel: BattleSelectionIntel): string {
+    const statCards = [
+      { label: "Strength", value: intel.unitStrength !== null ? `${Math.round(intel.unitStrength)}%` : "—" },
+      { label: "Ammo", value: intel.unitAmmo !== null ? `${Math.max(0, Math.round(intel.unitAmmo))}` : "—" },
+      { label: "Fuel", value: intel.unitFuel !== null ? `${Math.max(0, Math.round(intel.unitFuel))}` : "—" },
+      { label: "Entrench", value: intel.unitEntrenchment !== null ? `${Math.max(0, Math.round(intel.unitEntrenchment))}/2` : "—" },
+      {
+        label: "Move",
+        value: intel.movementRemaining !== null
+          ? `${Math.max(0, Math.round(intel.movementRemaining))}${typeof intel.movementMax === "number" ? `/${Math.max(0, Math.round(intel.movementMax))}` : ""}`
+          : "—"
+      },
+      { label: "Targets", value: `${Math.max(0, Math.round(intel.attackOptions))}` }
+    ];
+
+    const chipMarkup = intel.statusChips.length > 0
+      ? `<div class="battle-intel-overlay__chip-row">${intel.statusChips.map((chip) => this.renderChipMarkup(chip)).join("")}</div>`
+      : "";
+    const actionMarkup = intel.actionCards.length > 0
+      ? `<div class="battle-intel-overlay__actions">${intel.actionCards.map((action) => this.renderActionMarkup(action)).join("")}</div>`
+      : `<div class="battle-intel-overlay__empty">No infantry field actions are available for this formation.</div>`;
+
+    return `
+      <div class="battle-intel-overlay__stats">
+        ${statCards.map((stat) => `
+          <article class="battle-intel-overlay__stat">
+            <span class="battle-intel-overlay__stat-label">${this.escapeHtml(stat.label)}</span>
+            <strong class="battle-intel-overlay__stat-value">${this.escapeHtml(stat.value)}</strong>
+          </article>
+        `).join("")}
+      </div>
+      ${chipMarkup}
+      ${actionMarkup}
+    `;
+  }
+
+  private renderDeploymentMarkup(intel: DeploymentSelectionIntel): string {
+    const capacity = intel.remainingCapacity !== null && intel.totalCapacity !== null
+      ? `${intel.remainingCapacity} / ${intel.totalCapacity} slots ready`
+      : "Awaiting deployment-zone confirmation";
+    return `
+      <div class="battle-intel-overlay__empty">
+        <strong>${this.escapeHtml(intel.zoneLabel ?? "Deployment Zone")}</strong>
+        <span>${this.escapeHtml(capacity)}</span>
+      </div>
+    `;
+  }
+
+  private renderTerrainMarkup(intel: TerrainSelectionIntel): string {
+    const note = intel.notes[0] ?? "No unit occupies this hex.";
+    return `
+      <div class="battle-intel-overlay__empty">
+        <strong>${this.escapeHtml(intel.terrainName ?? "Terrain Intel")}</strong>
+        <span>${this.escapeHtml(note)}</span>
+      </div>
+    `;
+  }
+
+  private renderChipMarkup(chip: BattleIntelChip): string {
+    return `<span class="battle-intel-overlay__chip battle-intel-overlay__chip--${chip.tone}">${this.escapeHtml(chip.label)}</span>`;
+  }
+
+  private renderActionMarkup(action: BattleIntelAction): string {
+    const detail = action.available ? action.detail : (action.reason ?? action.detail);
+    const disabled = action.available ? "" : " disabled aria-disabled=\"true\"";
+    const title = this.escapeHtml(action.available ? action.detail : (action.reason ?? action.detail));
+    return `
+      <button
+        type="button"
+        class="battle-intel-overlay__action battle-intel-overlay__action--${action.tone}"
+        data-selection-action="${this.escapeHtml(action.id)}"
+        title="${title}"${disabled}
+      >
+        <span class="battle-intel-overlay__action-label">${this.escapeHtml(action.label)}</span>
+        <span class="battle-intel-overlay__action-detail">${this.escapeHtml(detail)}</span>
+      </button>
+    `;
+  }
+
+  private resolveNotes(intel: Exclude<SelectionIntel, null>): readonly string[] {
+    switch (intel.kind) {
+      case "battle":
+        return intel.notes;
+      case "deployment":
+      case "terrain":
+      default:
+        return intel.notes;
+    }
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 }

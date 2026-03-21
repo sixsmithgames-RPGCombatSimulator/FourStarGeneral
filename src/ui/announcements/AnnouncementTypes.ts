@@ -12,6 +12,23 @@ export interface DeploymentSelectionIntel {
   readonly notes: readonly string[];
 }
 
+export type IntelChipTone = "neutral" | "good" | "warning" | "danger";
+export type BattleIntelActionTone = "defense" | "mobility" | "denial";
+
+export interface BattleIntelChip {
+  readonly label: string;
+  readonly tone: IntelChipTone;
+}
+
+export interface BattleIntelAction {
+  readonly id: string;
+  readonly label: string;
+  readonly detail: string;
+  readonly tone: BattleIntelActionTone;
+  readonly available: boolean;
+  readonly reason?: string | null;
+}
+
 /**
  * Describes player-controlled unit details when the commander selects a friendly formation during battle.
  */
@@ -22,11 +39,16 @@ export interface BattleSelectionIntel {
   readonly unitLabel: string | null;
   readonly unitStrength: number | null;
   readonly unitAmmo: number | null;
+  readonly unitFuel: number | null;
+  readonly unitEntrenchment: number | null;
   readonly movementRemaining: number | null;
   readonly movementMax: number | null;
   readonly moveOptions: number;
   readonly attackOptions: number;
   readonly statusMessage: string;
+  readonly statusChips: readonly BattleIntelChip[];
+  readonly actionCards: readonly BattleIntelAction[];
+  readonly notes: readonly string[];
 }
 
 export interface ActivityDetailEntry {

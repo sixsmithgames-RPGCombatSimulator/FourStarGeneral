@@ -1,11 +1,11 @@
 import type { IMapRenderer } from "../contracts/IMapRenderer";
-import type { ScenarioData, ScenarioUnit, TerrainDictionary, UnitClass, UnitTypeDefinition } from "../core/types";
+import type { HexModification, ScenarioData, ScenarioUnit, TerrainDictionary, UnitClass, UnitTypeDefinition } from "../core/types";
 import { getSpriteForScenarioType } from "../data/unitSpriteCatalog";
 import { HEX_RADIUS, HEX_HEIGHT, HEX_WIDTH } from "../core/balance";
 import { CoordinateSystem, type TileDetails } from "./CoordinateSystem";
 import { TerrainRenderer } from "./TerrainRenderer";
 import { RoadOverlayRenderer } from "./RoadOverlayRenderer";
-import { SpriteSheetAnimator, COMBAT_ANIMATIONS } from "./SpriteSheetAnimator";
+import { SpriteSheetAnimator } from "./SpriteSheetAnimator";
 import terrainData from "../data/terrain.json";
 import unitTypesData from "../data/unitTypes.json";
 import { hexLine, type Axial } from "../core/Hex";
@@ -31,6 +31,15 @@ const BASE_CAMP_MARKER_SPRITE = new URL("../assets/units/Base_camp.png", import.
 const BASE_CAMP_MARKER_CLASS = "base-camp-marker";
 const BASE_CAMP_MARKER_SIZE = HEX_RADIUS * 1.8;
 const TRANSPORT_SHIP_SPRITE = new URL("../assets/units/Transport_Ship.png", import.meta.url).href;
+const UNKNOWN_CONTACT_SPRITE = `data:image/svg+xml;utf8,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+    <polygon points="32,4 60,32 32,60 4,32" fill="#451313" stroke="#f3b36b" stroke-width="4"/>
+    <circle cx="32" cy="32" r="12" fill="#0d1017" opacity="0.9"/>
+    <text x="32" y="39" text-anchor="middle" font-size="28" font-family="Arial, sans-serif" font-weight="700" fill="#f9d49a">?</text>
+  </svg>`
+)}`;
+
+type CombatAnimationKey = keyof typeof import("./SpriteSheetAnimator").COMBAT_ANIMATIONS;
 
 /**
  * Handle returned when staging a unit move so callers can delay playback until the camera settles.
@@ -94,6 +103,8 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly debugMarkerMap: Map<string, SVGGElement> = new Map();
   /** Professional objective markers showing hold status with distinct styling */
   private readonly objectiveMarkerMap: Map<string, SVGGElement> = new Map();
+  /** Engineer-built terrain overlays such as fortifications and tank traps. */
+  private readonly hexModificationOverlayMap: Map<string, SVGGElement> = new Map();
   private selectionGlow: SVGCircleElement | null = null;
 
   private svgElement: SVGSVGElement | null = null;
@@ -941,6 +952,7 @@ export class HexMapRenderer implements IMapRenderer {
     this.hexLabelMap.clear();
     this.hexUnitImageMap.clear();
     this.hexBoatOverlayMap.clear();
+    this.hexModificationOverlayMap.clear();
 
     this.aftermathByHexKey.forEach((entry) => {
       entry.group = null;
@@ -1085,6 +1097,105 @@ export class HexMapRenderer implements IMapRenderer {
     images.forEach((img) => facingGroup.appendChild(img));
     group.appendChild(facingGroup);
     return facingGroup;
+  }
+
+  private ensureDecorationGroup(group: SVGGElement): SVGGElement {
+    const existing = group.querySelector<SVGGElement>("g.unit-stack-decorations");
+    if (existing) {
+      return existing;
+    }
+
+    const decorationGroup = document.createElementNS(SVG_NS, "g");
+    decorationGroup.classList.add("unit-stack-decorations");
+    group.appendChild(decorationGroup);
+    return decorationGroup;
+  }
+
+  private renderUnitDecorations(group: SVGGElement, cx: number, cy: number, unit: ScenarioUnit): void {
+    const decorations = this.ensureDecorationGroup(group);
+    decorations.replaceChildren();
+
+    const entrenchment = Math.max(0, Math.min(2, Math.round(unit.entrench ?? 0)));
+    if (entrenchment > 0) {
+      decorations.appendChild(this.renderEntrenchmentPips(cx, cy, entrenchment));
+    }
+
+    const suppressorCount = unit.suppressedBy?.length ?? 0;
+    const suppressionState = suppressorCount >= 2 ? "pinned" : suppressorCount === 1 ? "suppressed" : "clear";
+    group.classList.remove("unit-stack--suppressed", "unit-stack--pinned");
+    group.dataset.suppressionState = suppressionState;
+    group.dataset.entrenchLevel = String(entrenchment);
+
+    if (suppressionState === "suppressed" || suppressionState === "pinned") {
+      group.classList.add(suppressionState === "pinned" ? "unit-stack--pinned" : "unit-stack--suppressed");
+      decorations.appendChild(this.renderSuppressionBadge(cx, cy, suppressionState, suppressorCount));
+    }
+  }
+
+  private renderEntrenchmentPips(cx: number, cy: number, entrenchment: number): SVGGElement {
+    const group = document.createElementNS(SVG_NS, "g");
+    group.classList.add("unit-entrenchment-pips");
+    group.setAttribute("data-entrenchment", String(entrenchment));
+
+    const spacing = 10;
+    const startX = cx - ((entrenchment - 1) * spacing) / 2;
+    const y = cy + 20;
+    for (let index = 0; index < entrenchment; index += 1) {
+      const x = startX + index * spacing;
+      const pip = document.createElementNS(SVG_NS, "path");
+      pip.setAttribute("d", `M ${x - 4} ${y + 3} L ${x} ${y - 3} L ${x + 4} ${y + 3}`);
+      pip.setAttribute("fill", "none");
+      pip.setAttribute("stroke", "#f3d49a");
+      pip.setAttribute("stroke-width", "1.9");
+      pip.setAttribute("stroke-linecap", "round");
+      pip.setAttribute("stroke-linejoin", "round");
+      pip.setAttribute("opacity", "0.96");
+      group.appendChild(pip);
+    }
+    return group;
+  }
+
+  private renderSuppressionBadge(
+    cx: number,
+    cy: number,
+    suppressionState: "suppressed" | "pinned",
+    suppressorCount: number
+  ): SVGGElement {
+    const group = document.createElementNS(SVG_NS, "g");
+    group.classList.add("unit-status-badge");
+    group.setAttribute("data-status", suppressionState);
+
+    const badgeWidth = suppressionState === "pinned" ? 28 : 22;
+    const badgeHeight = 14;
+    const x = cx + 10;
+    const y = cy - 25;
+    const fill = suppressionState === "pinned" ? "rgba(134, 29, 29, 0.92)" : "rgba(133, 95, 26, 0.92)";
+    const stroke = suppressionState === "pinned" ? "#ff928f" : "#ffd37a";
+    const textValue = suppressionState === "pinned" ? "PIN" : `SUP${suppressorCount > 1 ? suppressorCount : ""}`;
+
+    const rect = document.createElementNS(SVG_NS, "rect");
+    rect.setAttribute("x", String(x));
+    rect.setAttribute("y", String(y));
+    rect.setAttribute("width", String(badgeWidth));
+    rect.setAttribute("height", String(badgeHeight));
+    rect.setAttribute("rx", "7");
+    rect.setAttribute("fill", fill);
+    rect.setAttribute("stroke", stroke);
+    rect.setAttribute("stroke-width", "1");
+    group.appendChild(rect);
+
+    const text = document.createElementNS(SVG_NS, "text");
+    text.setAttribute("x", String(x + badgeWidth / 2));
+    text.setAttribute("y", String(y + 10));
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("font-size", suppressionState === "pinned" ? "6.4" : "6");
+    text.setAttribute("font-weight", "700");
+    text.setAttribute("letter-spacing", "0.35");
+    text.setAttribute("fill", "#fff5ed");
+    text.textContent = textValue;
+    group.appendChild(text);
+
+    return group;
   }
 
   private applyFacingAngleToGroup(group: SVGGElement, cx: number, cy: number, angleDeg: number): void {
@@ -1567,7 +1678,12 @@ export class HexMapRenderer implements IMapRenderer {
    * @param faction - The faction (Player, Bot, or Ally)
    * @param isSpottedOnly - If true, renders unit with reduced opacity (spotted via recon, no direct LOS)
    */
-  renderUnit(hexKey: string, unit: ScenarioUnit, faction: "Player" | "Bot" | "Ally", isSpottedOnly = false): void {
+  renderUnit(
+    hexKey: string,
+    unit: ScenarioUnit,
+    faction: "Player" | "Bot" | "Ally",
+    reconStatus: ReconStatusKey | boolean = "visible"
+  ): void {
     const cell = this.hexElementMap.get(hexKey);
     if (!cell) {
       return;
@@ -1582,8 +1698,9 @@ export class HexMapRenderer implements IMapRenderer {
     const cx = Number(cell.dataset.cx ?? 0);
     const cy = Number(cell.dataset.cy ?? 0);
     const iconSize = 40;
-
-    const spriteHref = getSpriteForScenarioType(unit.type as string);
+    const resolvedReconStatus: ReconStatusKey =
+      typeof reconStatus === "boolean" ? (reconStatus ? "spotted" : "visible") : reconStatus;
+    const spriteHref = resolvedReconStatus === "spotted" ? UNKNOWN_CONTACT_SPRITE : getSpriteForScenarioType(unit.type as string);
     // Cache the unit class for this hex so combat effects can style by weapon/armor type.
     try {
       const def = (unitTypesData as Record<string, UnitTypeDefinition>)[unit.type as string];
@@ -1615,15 +1732,20 @@ export class HexMapRenderer implements IMapRenderer {
       image.dataset.ox = String(spec.ox);
       image.dataset.oy = String(spec.oy);
       image.classList.add("unit-icon");
-      image.classList.remove("faction-player", "faction-bot", "faction-ally");
+      image.classList.remove("faction-player", "faction-bot", "faction-ally", "spotted-only", "recon-identified", "recon-visible");
       image.classList.add(`faction-${faction.toLowerCase()}`);
+      image.style.removeProperty("filter");
 
-      if (isSpottedOnly) {
-        image.style.opacity = "0.5";
+      if (resolvedReconStatus === "spotted") {
+        image.style.opacity = "0.94";
         image.classList.add("spotted-only");
+      } else if (resolvedReconStatus === "identified") {
+        image.style.opacity = "0.78";
+        image.style.filter = "saturate(0.55) brightness(0.95)";
+        image.classList.add("recon-identified");
       } else {
         image.style.removeProperty("opacity");
-        image.classList.remove("spotted-only");
+        image.classList.add("recon-visible");
       }
     };
 
@@ -1646,6 +1768,7 @@ export class HexMapRenderer implements IMapRenderer {
         const storedAngle = this.hexUnitFacingAngleMap.get(hexKey);
         const angleDeg = storedAngle ?? this.resolveFacingAngleDeg(this.normalizeFacing(unit.facing));
         this.applyFacingAngleToGroup(existing, cx, cy, angleDeg);
+        this.renderUnitDecorations(existing, cx, cy, unit);
         if (storedAngle === undefined) {
           this.hexUnitFacingAngleMap.set(hexKey, angleDeg);
         }
@@ -1671,6 +1794,7 @@ export class HexMapRenderer implements IMapRenderer {
     const storedAngle = this.hexUnitFacingAngleMap.get(hexKey);
     const angleDeg = storedAngle ?? this.resolveFacingAngleDeg(this.normalizeFacing(unit.facing));
     this.applyFacingAngleToGroup(group, cx, cy, angleDeg);
+    this.renderUnitDecorations(group, cx, cy, unit);
     if (storedAngle === undefined) {
       this.hexUnitFacingAngleMap.set(hexKey, angleDeg);
     }
@@ -1693,6 +1817,144 @@ export class HexMapRenderer implements IMapRenderer {
     this.hexUnitClassMap.delete(hexKey);
     this.hexUnitScenarioTypeMap.delete(hexKey);
     this.hexUnitFacingAngleMap.delete(hexKey);
+  }
+
+  clearHexModification(hexKey: string): void {
+    const overlay = this.hexModificationOverlayMap.get(hexKey);
+    if (!overlay) {
+      return;
+    }
+    overlay.remove();
+    this.hexModificationOverlayMap.delete(hexKey);
+  }
+
+  clearAllHexModifications(): void {
+    this.hexModificationOverlayMap.forEach((overlay) => overlay.remove());
+    this.hexModificationOverlayMap.clear();
+  }
+
+  renderHexModification(hexKey: string, modification: HexModification): void {
+    const cell = this.hexElementMap.get(hexKey);
+    if (!cell) {
+      return;
+    }
+
+    let overlay = this.hexModificationOverlayMap.get(hexKey) ?? null;
+    if (!overlay) {
+      overlay = document.createElementNS(SVG_NS, "g");
+      overlay.classList.add("hex-modification-overlay");
+      overlay.style.pointerEvents = "none";
+      this.hexModificationOverlayMap.set(hexKey, overlay);
+    }
+
+    overlay.setAttribute("data-modification-type", modification.type);
+    overlay.setAttribute("data-faction", modification.faction);
+    overlay.replaceChildren(this.buildHexModificationOverlay(cell, modification));
+
+    const existingUnitGroup = this.hexUnitImageMap.get(hexKey);
+    if (existingUnitGroup && existingUnitGroup.parentNode === cell) {
+      cell.insertBefore(overlay, existingUnitGroup);
+    } else if (overlay.parentNode !== cell) {
+      cell.appendChild(overlay);
+    }
+  }
+
+  private buildHexModificationOverlay(cell: SVGGElement, modification: HexModification): SVGElement {
+    const center = this.extractHexCenter(cell);
+    const cx = center?.cx ?? Number(cell.dataset.cx ?? 0);
+    const cy = center?.cy ?? Number(cell.dataset.cy ?? 0);
+    const { stroke, fill } = this.resolveFactionAccent(modification.faction);
+
+    const group = document.createElementNS(SVG_NS, "g");
+    group.classList.add("hex-modification-overlay__icon");
+    group.setAttribute("data-modification-type", modification.type);
+
+    switch (modification.type) {
+      case "fortifications": {
+        const wall = document.createElementNS(SVG_NS, "path");
+        wall.setAttribute("d", `M ${cx - 20} ${cy + 18} Q ${cx - 10} ${cy + 8} ${cx} ${cy + 14} Q ${cx + 10} ${cy + 8} ${cx + 20} ${cy + 18}`);
+        wall.setAttribute("fill", "none");
+        wall.setAttribute("stroke", stroke);
+        wall.setAttribute("stroke-width", "2.4");
+        wall.setAttribute("stroke-linecap", "round");
+        group.appendChild(wall);
+
+        [-12, 0, 12].forEach((offset) => {
+          const bastion = document.createElementNS(SVG_NS, "rect");
+          bastion.setAttribute("x", String(cx + offset - 4));
+          bastion.setAttribute("y", String(cy + 9));
+          bastion.setAttribute("width", "8");
+          bastion.setAttribute("height", "6");
+          bastion.setAttribute("rx", "1.6");
+          bastion.setAttribute("fill", fill);
+          bastion.setAttribute("stroke", stroke);
+          bastion.setAttribute("stroke-width", "1");
+          group.appendChild(bastion);
+        });
+        break;
+      }
+      case "tankTraps": {
+        [-12, 0, 12].forEach((offset) => {
+          const first = document.createElementNS(SVG_NS, "line");
+          first.setAttribute("x1", String(cx + offset - 4));
+          first.setAttribute("y1", String(cy + 8));
+          first.setAttribute("x2", String(cx + offset + 4));
+          first.setAttribute("y2", String(cy + 18));
+          first.setAttribute("stroke", stroke);
+          first.setAttribute("stroke-width", "2");
+          first.setAttribute("stroke-linecap", "round");
+          group.appendChild(first);
+
+          const second = document.createElementNS(SVG_NS, "line");
+          second.setAttribute("x1", String(cx + offset + 4));
+          second.setAttribute("y1", String(cy + 8));
+          second.setAttribute("x2", String(cx + offset - 4));
+          second.setAttribute("y2", String(cy + 18));
+          second.setAttribute("stroke", stroke);
+          second.setAttribute("stroke-width", "2");
+          second.setAttribute("stroke-linecap", "round");
+          group.appendChild(second);
+        });
+        break;
+      }
+      case "clearedPath":
+      default: {
+        const lane = document.createElementNS(SVG_NS, "path");
+        lane.setAttribute("d", `M ${cx - 20} ${cy + 18} C ${cx - 8} ${cy + 10}, ${cx + 4} ${cy + 22}, ${cx + 20} ${cy + 14}`);
+        lane.setAttribute("fill", "none");
+        lane.setAttribute("stroke", stroke);
+        lane.setAttribute("stroke-width", "2.2");
+        lane.setAttribute("stroke-linecap", "round");
+        lane.setAttribute("stroke-dasharray", "5 3");
+        group.appendChild(lane);
+
+        [0, 10].forEach((offset) => {
+          const chevron = document.createElementNS(SVG_NS, "path");
+          chevron.setAttribute("d", `M ${cx - 4 + offset} ${cy + 10} L ${cx + 1 + offset} ${cy + 15} L ${cx - 4 + offset} ${cy + 20}`);
+          chevron.setAttribute("fill", "none");
+          chevron.setAttribute("stroke", stroke);
+          chevron.setAttribute("stroke-width", "1.8");
+          chevron.setAttribute("stroke-linecap", "round");
+          chevron.setAttribute("stroke-linejoin", "round");
+          group.appendChild(chevron);
+        });
+        break;
+      }
+    }
+
+    return group;
+  }
+
+  private resolveFactionAccent(faction: HexModification["faction"]): { stroke: string; fill: string } {
+    switch (faction) {
+      case "Bot":
+        return { stroke: "#ff8d82", fill: "rgba(110, 35, 35, 0.6)" };
+      case "Ally":
+        return { stroke: "#8ee0a8", fill: "rgba(28, 74, 46, 0.6)" };
+      case "Player":
+      default:
+        return { stroke: "#f3d49a", fill: "rgba(113, 79, 22, 0.56)" };
+    }
   }
 
   /**
@@ -2390,7 +2652,7 @@ export class HexMapRenderer implements IMapRenderer {
    * Returns a promise that resolves when the animation completes.
    */
   async playCombatAnimation(
-    animationType: keyof typeof COMBAT_ANIMATIONS,
+    animationType: CombatAnimationKey,
     hexKey: string,
     offsetX: number = 0,
     offsetY: number = 0,
@@ -2421,14 +2683,9 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const spec = COMBAT_ANIMATIONS[animationType];
-    const halfWidth = (spec.frameWidth * scale) / 2;
-    const halfHeight = (spec.frameHeight * scale) / 2;
-
-    const x = center.cx - halfWidth + offsetX;
-    const y = center.cy - halfHeight + offsetY;
-
-    await this.combatAnimator.playAnimation(animationType, x, y, scale);
+    // Animation specs carry their own anchor point so tall blast plumes can sit on the target hex
+    // without requiring the renderer to know each sheet's pixel geometry.
+    await this.combatAnimator.playAnimation(animationType, center.cx + offsetX, center.cy + offsetY, scale);
   }
 
   /**
@@ -2444,7 +2701,7 @@ export class HexMapRenderer implements IMapRenderer {
    */
   async playExplosion(defenderHexKey: string, isLargeExplosion: boolean = false): Promise<void> {
     const animType = isLargeExplosion ? "explosionLarge" : "explosionSmall";
-    const scale = isLargeExplosion ? 1.6 : 1.35;
+    const scale = isLargeExplosion ? 1.6 : 1.2;
     await this.playCombatAnimation(animType, defenderHexKey, 0, 0, scale);
   }
 

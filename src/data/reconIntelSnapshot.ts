@@ -1,5 +1,6 @@
 export type ReconIntelConfidence = "low" | "medium" | "high";
 export type ReconIntelTimeframe = "last" | "current" | "forecast";
+export type ReconIntelVerificationStatus = "unverified" | "suspected-false" | "verified" | "confirmed-false";
 
 export interface ReconIntelSectorReport {
   id: string;
@@ -20,6 +21,9 @@ export interface ReconIntelBrief {
   confidence: ReconIntelConfidence;
   linkedSectors: string[];
   projectedImpact: string;
+  verificationStatus?: ReconIntelVerificationStatus;
+  source?: string;
+  recommendedAction?: string;
 }
 
 export type ReconIntelAlertSeverity = "info" | "warning" | "critical";
@@ -32,11 +36,33 @@ export interface ReconIntelAlert {
   action: string;
 }
 
+export interface ReconIntelCounterIntelOperation {
+  id: string;
+  label: string;
+  targetHex: string;
+  radius: number;
+  remainingTurns: number;
+  effect: string;
+}
+
+export interface ReconIntelCounterIntelSummary {
+  deceptionCharges: number;
+  deceptionMaxCharges: number;
+  verificationCharges: number;
+  verificationMaxCharges: number;
+  suspectedFalseBriefs: number;
+  confirmedFalseBriefs: number;
+  verifiedBriefs: number;
+  doctrineSummary: string;
+  activeOperations: ReconIntelCounterIntelOperation[];
+}
+
 export interface ReconIntelSnapshot {
   generatedAt: string;
   sectors: ReconIntelSectorReport[];
   intelBriefs: ReconIntelBrief[];
   alerts: ReconIntelAlert[];
+  counterIntel?: ReconIntelCounterIntelSummary;
 }
 
 const reconIntelSnapshot: ReconIntelSnapshot = {
@@ -124,7 +150,19 @@ const reconIntelSnapshot: ReconIntelSnapshot = {
       timeframe: "forecast",
       action: "Escalate electronic warfare sweeps before redeploying batteries."
     }
-  ]
+  ],
+  counterIntel: {
+    deceptionCharges: 0,
+    deceptionMaxCharges: 2,
+    verificationCharges: 0,
+    verificationMaxCharges: 2,
+    suspectedFalseBriefs: 1,
+    confirmedFalseBriefs: 0,
+    verifiedBriefs: 0,
+    doctrineSummary:
+      "Low-confidence briefs may be enemy deception. Spend verification to confirm reports, or project deception to pull enemy battalions toward a false axis.",
+    activeOperations: []
+  }
 };
 
 export function getReconIntelSnapshot(): ReconIntelSnapshot {
@@ -140,6 +178,14 @@ export function getReconIntelSnapshot(): ReconIntelSnapshot {
     })),
     alerts: reconIntelSnapshot.alerts.map((alert) => ({
       ...alert
-    }))
+    })),
+    counterIntel: reconIntelSnapshot.counterIntel
+      ? {
+          ...reconIntelSnapshot.counterIntel,
+          activeOperations: reconIntelSnapshot.counterIntel.activeOperations.map((operation) => ({
+            ...operation
+          }))
+        }
+      : undefined
   };
 }

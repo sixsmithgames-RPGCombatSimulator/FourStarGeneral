@@ -247,6 +247,14 @@ export const supply = {
   roadRange: 15,
   offroadRange: 8,
   offroadCostMultiplier: 2,
+  convoy: {
+    ammoCapacity: 12,
+    fuelCapacity: 18,
+    unloadAmmoPerTurn: 4,
+    unloadFuelPerTurn: 6,
+    sourceRadius: 1,
+    serviceRadius: 1
+  } as const,
   tick: {
     ammoLoss: 1,
     fuelLoss: 1,

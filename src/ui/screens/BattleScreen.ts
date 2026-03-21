@@ -8,6 +8,8 @@ import {
   SupplyTickReport,
   TurnSummary,
   BotTurnSummary,
+  type UnitCommandState,
+  type EnemyContactSnapshot,
   type TurnFaction,
   type AirMissionArrival,
   type AirEngagementEvent
@@ -20,7 +22,6 @@ import type {
   ScenarioSide,
   ScenarioUnit,
   ScenarioDeploymentZone,
-  TerrainDefinition,
   TerrainDensity,
   TerrainDictionary,
   TerrainFeature,
@@ -30,11 +31,12 @@ import type {
   TileInstance,
   TilePalette,
   UnitClass,
-  UnitTypeDictionary
+  UnitTypeDictionary,
+  CombatStance,
+  HexModificationType
 } from "../../core/types";
 import { HexMapRenderer } from "../../rendering/HexMapRenderer";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
-import { losClearAdvanced } from "../../core/LOS";
 import { MapViewport } from "../controls/MapViewport";
 import { ZoomPanControls } from "../controls/ZoomPanControls";
 import { DeploymentPanel, type DeploymentPanelCriticalError, type SelectedHexContext } from "../components/DeploymentPanel";
@@ -43,7 +45,15 @@ import { ReserveListPresenter } from "../components/BattleReserves";
 import { hexDistance } from "../../core/Hex";
 import { SelectionIntelOverlay } from "../announcements/SelectionIntelOverlay";
 import { BattleActivityLog } from "../announcements/BattleActivityLog";
-import type { ActivityDetailSection } from "../announcements/AnnouncementTypes";
+import type {
+  ActivityDetailSection,
+  BattleIntelAction,
+  BattleIntelChip,
+  BattleSelectionIntel,
+  DeploymentSelectionIntel,
+  SelectionIntel,
+  TerrainSelectionIntel
+} from "../announcements/AnnouncementTypes";
 import { ensureCampaignState } from "../../state/CampaignState";
 import { ensureTutorialState, type TutorialPhase } from "../../state/TutorialState";
 import { getNextPhase } from "../../data/tutorialSteps";
@@ -60,49 +70,6 @@ import terrainSource from "../../data/terrain.json";
 import unitTypesSource from "../../data/unitTypes.json";
 import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
-
-/**
- * Provides structured data for the centered intel overlay describing the currently highlighted hex.
- * Phase 1 stores the payload so forthcoming UI overlays can render persistent intel without re-querying engine state.
- */
-interface DeploymentSelectionIntel {
-  readonly kind: "deployment";
-  readonly hexKey: string;
-  readonly terrainName: string | null;
-  readonly zoneLabel: string | null;
-  readonly remainingCapacity: number | null;
-  readonly totalCapacity: number | null;
-  readonly notes: readonly string[];
-}
-
-/**
- * Describes player-controlled unit details when the commander selects a friendly formation during battle.
- */
-interface BattleSelectionIntel {
-  readonly kind: "battle";
-  readonly hexKey: string;
-  readonly terrainName: string | null;
-  readonly unitLabel: string | null;
-  readonly unitStrength: number | null;
-  readonly unitAmmo: number | null;
-  readonly movementRemaining: number | null;
-  readonly movementMax: number | null;
-  readonly moveOptions: number;
-  readonly attackOptions: number;
-  readonly statusMessage: string;
-}
-
-/**
- * Captures intel when the commander inspects an empty hex or non-player unit during the battle phase.
- */
-interface TerrainSelectionIntel {
-  readonly kind: "terrain";
-  readonly hexKey: string;
-  readonly terrainName: string | null;
-  readonly notes: readonly string[];
-}
-
-type SelectionIntel = DeploymentSelectionIntel | BattleSelectionIntel | TerrainSelectionIntel;
 
 type ActivityCategory = "player" | "enemy" | "system";
 type ActivityType = "attack" | "move" | "deployment" | "supply" | "turn" | "log";
@@ -194,9 +161,13 @@ export class BattleScreen {
   private selectionIntelOverlay: SelectionIntelOverlay | null = null;
   private readonly battleActivityLog: BattleActivityLog | null;
   private activeMissionSessionKey: string | null = null;
+  private battleIntelOverlayRoot: HTMLElement | null = null;
 
   /** Temporary debug overlay to visualize bot/player placements regardless of recon/LOS. Disable when done. */
   private readonly debugPlacementOverlayEnabled = false;
+
+  // Combat stance selection
+  private currentAttackStance: CombatStance = "suppressive";
 
   // Air Support: temporary range overlay keys while picking mission targets
   private airPreviewKeys: Set<string> = new Set();
@@ -275,7 +246,7 @@ export class BattleScreen {
 
     // Get combat preview to show detailed attack odds
     const engine = this.battleState.ensureGameEngine();
-    const preview = engine.previewAttack(attacker, defender);
+    const preview = engine.previewAttack(attacker, defender, this.currentAttackStance);
 
     this.pendingAttack = {
       attacker: attackerHex,
@@ -645,7 +616,7 @@ export class BattleScreen {
 
       if (this.hexMapRenderer) {
         try {
-          preview = engine.previewAttack(attacker, defender);
+          preview = engine.previewAttack(attacker, defender, this.currentAttackStance);
           if (preview) {
             const defenderDefinition = this.unitTypes?.[preview.defender.type as keyof UnitTypeDictionary];
             const targetClass = defenderDefinition?.class;
@@ -659,7 +630,7 @@ export class BattleScreen {
         }
       }
 
-      const resolution = engine.attackUnit(attacker, defender);
+      const resolution = engine.attackUnit(attacker, defender, this.currentAttackStance);
 
       if (resolution && this.hexMapRenderer) {
         const defenderInflicted = preview
@@ -980,6 +951,11 @@ export class BattleScreen {
     if (!this.attackConfirmDialog || !this.attackConfirmAccept) {
       return;
     }
+    // Reset stance to default when opening dialog
+    this.currentAttackStance = "suppressive";
+    this.updateStanceButtonStates();
+    this.bindStanceButtons();
+
     const activeElement = document.activeElement;
     this.attackDialogPreviouslyFocused = activeElement instanceof HTMLElement ? activeElement : null;
     this.attackConfirmDialog.classList.remove("hidden");
@@ -987,6 +963,70 @@ export class BattleScreen {
     this.attackConfirmDialog.addEventListener("keydown", this.attackDialogKeydownHandler);
     this.attackConfirmationLocked = false;
     this.attackConfirmAccept.focus();
+  }
+
+  /**
+   * Binds click handlers to stance selection buttons in the attack confirmation dialog.
+   */
+  private bindStanceButtons(): void {
+    const assaultBtn = document.getElementById("stanceAssault");
+    const suppressiveBtn = document.getElementById("stanceSuppressive");
+
+    if (!assaultBtn || !suppressiveBtn) {
+      return;
+    }
+
+    // Remove any existing listeners by cloning and replacing nodes
+    const assaultClone = assaultBtn.cloneNode(true) as HTMLElement;
+    const suppressiveClone = suppressiveBtn.cloneNode(true) as HTMLElement;
+    assaultBtn.parentNode?.replaceChild(assaultClone, assaultBtn);
+    suppressiveBtn.parentNode?.replaceChild(suppressiveClone, suppressiveBtn);
+
+    assaultClone.addEventListener("click", () => {
+      this.currentAttackStance = "assault";
+      this.updateStanceButtonStates();
+      this.refreshAttackPreview();
+    });
+
+    suppressiveClone.addEventListener("click", () => {
+      this.currentAttackStance = "suppressive";
+      this.updateStanceButtonStates();
+      this.refreshAttackPreview();
+    });
+  }
+
+  /**
+   * Updates the visual state of stance buttons to reflect the current selection.
+   */
+  private updateStanceButtonStates(): void {
+    const assaultBtn = document.getElementById("stanceAssault");
+    const suppressiveBtn = document.getElementById("stanceSuppressive");
+
+    assaultBtn?.classList.toggle("stance-active", this.currentAttackStance === "assault");
+    suppressiveBtn?.classList.toggle("stance-active", this.currentAttackStance === "suppressive");
+  }
+
+  /**
+   * Refreshes the attack preview with the current stance selection.
+   */
+  private refreshAttackPreview(): void {
+    if (!this.pendingAttack) {
+      return;
+    }
+
+    const { attacker: attackerHexKey, target: defenderHexKey } = this.pendingAttack;
+    const attackerOffset = CoordinateSystem.parseHexKey(attackerHexKey);
+    const defenderOffset = CoordinateSystem.parseHexKey(defenderHexKey);
+
+    if (!attackerOffset || !defenderOffset) {
+      return;
+    }
+
+    const attacker = CoordinateSystem.offsetToAxial(attackerOffset.col, attackerOffset.row);
+    const defender = CoordinateSystem.offsetToAxial(defenderOffset.col, defenderOffset.row);
+
+    // Re-run the attack preview logic from promptAttackConfirmation
+    this.promptAttackConfirmation(attacker, defender);
   }
 
   /**
@@ -2536,6 +2576,7 @@ export class BattleScreen {
     this.missionTurnLimitElement = this.element.querySelector("#battleMissionTurnLimit");
     this.missionSuppliesList = this.element.querySelector("#battleMissionSupplies");
     this.battleAnnouncements = this.element.querySelector("#battleAnnouncements");
+    this.battleIntelOverlayRoot = this.element.querySelector("#battleIntelOverlay");
     this.battleActivityLogToggleButton = this.element.querySelector("#battleActivityLogToggle");
     this.turnIndicatorElement = this.element.querySelector("#battleTurnIndicator");
     this.factionIndicatorElement = this.element.querySelector("#battleFactionIndicator");
@@ -2603,8 +2644,17 @@ export class BattleScreen {
     this.deploymentPanelToggleButton?.addEventListener("click", () => this.handleToggleDeploymentPanel());
     this.autoDeployEvenlyButton?.addEventListener("click", () => this.handleAutoDeploy("even"));
     this.autoDeployGroupedButton?.addEventListener("click", () => this.handleAutoDeploy("grouped"));
+    this.bindSelectionIntelOverlayActions();
     // Wire the idle-unit reminder once so end-turn checks can surface the dialog when units still have orders.
     this.bindIdleWarningDialog();
+  }
+
+  private bindSelectionIntelOverlayActions(): void {
+    if (!this.battleIntelOverlayRoot || this.battleIntelOverlayRoot.dataset.bound === "true") {
+      return;
+    }
+    this.battleIntelOverlayRoot.addEventListener("click", (event) => this.handleSelectionIntelOverlayClick(event));
+    this.battleIntelOverlayRoot.dataset.bound = "true";
   }
 
   /**
@@ -4054,11 +4104,12 @@ export class BattleScreen {
       return;
     }
     const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
-    const holdsPlayer = engine.playerUnits.some((u) => u.hex.q === axial.q && u.hex.r === axial.r);
-    if (holdsPlayer) {
+    const selectedPlayerUnit = engine.playerUnits.find((u) => u.hex.q === axial.q && u.hex.r === axial.r) ?? null;
+    if (selectedPlayerUnit) {
       const moves = engine.getReachableHexes(axial);
       const targets = engine.getAttackableTargets(axial);
       const movementBudget = engine.getMovementBudget(axial);
+      const isAutomatedLogisticsUnit = selectedPlayerUnit.type === "Supply_Truck" || selectedPlayerUnit.controlledBy === "AI";
       this.playerMoveHexes = new Set(moves.map(({ q, r }) => {
         const { col, row } = CoordinateSystem.axialToOffset(q, r);
         const key = CoordinateSystem.makeHexKey(col, row);
@@ -4080,8 +4131,14 @@ export class BattleScreen {
         return;
       }
       let statusMessage = `${unitLabel} selected at ${key}.`;
+      const commandState = engine.getUnitCommandState(axial);
 
-      if (this.playerMoveHexes.size === 0 && this.playerAttackHexes.size === 0) {
+      if (isAutomatedLogisticsUnit) {
+        this.playerMoveHexes.clear();
+        this.playerAttackHexes.clear();
+        this.hexMapRenderer?.setZoneHighlights([]);
+        statusMessage += " This convoy is automated. Set battalion resupply priority in Logistics instead of issuing manual orders.";
+      } else if (this.playerMoveHexes.size === 0 && this.playerAttackHexes.size === 0) {
         statusMessage += " This unit has already moved and attacked this turn.";
       } else if (this.playerMoveHexes.size === 0) {
         statusMessage += ` Unit has moved. ${this.playerAttackHexes.size} attack targets available.`;
@@ -4090,28 +4147,27 @@ export class BattleScreen {
       } else {
         statusMessage += ` ${this.playerMoveHexes.size} moves, ${this.playerAttackHexes.size} targets.`;
       }
+      if (commandState?.suppressionState === "pinned") {
+        statusMessage += ` Pinned by ${commandState.suppressorCount} suppressing units.`;
+      } else if (commandState?.suppressionState === "suppressed") {
+        statusMessage += " Under suppressive fire.";
+      }
+      if (commandState?.existingHexModification) {
+        statusMessage += ` ${this.toTitleCase(this.describeHexModification(commandState.existingHexModification.type))} already cover this hex.`;
+      }
 
       if (this.baseCampStatus) {
-        this.baseCampStatus.textContent = `${unitLabel} @ ${key} — Move:${this.playerMoveHexes.size} Attack:${this.playerAttackHexes.size}`;
+        this.baseCampStatus.textContent = isAutomatedLogisticsUnit
+          ? `${unitLabel} @ ${key} - Automated convoy`
+          : `${unitLabel} @ ${key} - Move:${this.playerMoveHexes.size} Attack:${this.playerAttackHexes.size}`;
       }
       this.announceBattleUpdate(statusMessage);
 
       this.completeTutorialPhase("movement_intro");
 
-      const selectionIntel: BattleSelectionIntel = {
-        kind: "battle",
-        hexKey: key,
-        terrainName: this.lookupTerrainName(key),
-        unitLabel,
-        unitStrength: this.lookupPlayerUnitStrength(key),
-        unitAmmo: this.lookupPlayerUnitAmmo(key),
-        movementRemaining: movementBudget ? movementBudget.remaining : null,
-        movementMax: movementBudget ? movementBudget.max : null,
-        moveOptions: this.playerMoveHexes.size,
-        attackOptions: this.playerAttackHexes.size,
-        statusMessage
-      };
-      this.publishSelectionIntel(selectionIntel);
+      this.publishSelectionIntel(
+        this.buildBattleSelectionIntel(key, selectedPlayerUnit, unitLabel, movementBudget, statusMessage, commandState)
+      );
     } else {
       console.log("[BattleScreen] updateSelectionFeedback - hex does not hold player unit");
       this.playerMoveHexes.clear();
@@ -4120,11 +4176,14 @@ export class BattleScreen {
       if (this.baseCampStatus) {
         this.baseCampStatus.textContent = `Selected hex: ${key}`;
       }
+      const hexModification = engine.getHexModification(axial);
       const terrainIntel: TerrainSelectionIntel = {
         kind: "terrain",
         hexKey: key,
         terrainName: this.lookupTerrainName(key),
-        notes: ["Hex unoccupied."]
+        notes: hexModification
+          ? [`Hex unoccupied. ${this.toTitleCase(this.describeHexModification(hexModification.type))} remain in place here.`]
+          : ["Hex unoccupied."]
       };
       this.publishSelectionIntel(terrainIntel);
     }
@@ -4239,6 +4298,63 @@ export class BattleScreen {
       return;
     }
     this.applySelectedHex(key);
+  }
+
+  private handleSelectionIntelOverlayClick(event: Event): void {
+    const target = event.target as HTMLElement | null;
+    const actionButton = target?.closest<HTMLButtonElement>("[data-selection-action]");
+    if (!actionButton || actionButton.disabled) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    void this.executeSelectionIntelAction(actionButton.dataset.selectionAction ?? "");
+  }
+
+  private async executeSelectionIntelAction(actionId: string): Promise<void> {
+    if (!this.selectedHexKey) {
+      return;
+    }
+    const parsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
+    if (!parsed) {
+      return;
+    }
+    const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+    const engine = this.battleState.ensureGameEngine();
+    const unitLabel = this.resolveUnitLabelForHex(this.selectedHexKey) ?? "Selected unit";
+    const commandState = engine.getUnitCommandState(axial);
+
+    let succeeded = false;
+    let summary = "";
+    if (actionId === "digIn") {
+      succeeded = engine.digInUnit(axial);
+      summary = `${unitLabel} dug in at ${this.selectedHexKey}.`;
+      if (!succeeded) {
+        this.announceBattleUpdate(commandState?.digInReason ?? "This formation cannot dig in right now.");
+        return;
+      }
+    } else {
+      const modificationType = this.parseHexModificationAction(actionId);
+      if (!modificationType) {
+        return;
+      }
+      succeeded = engine.buildHexModification(axial, modificationType);
+      summary = `${unitLabel} established ${this.describeHexModification(modificationType)} at ${this.selectedHexKey}.`;
+      if (!succeeded) {
+        this.announceBattleUpdate(commandState?.buildReason ?? "Engineer fieldworks are not available on this hex right now.");
+        return;
+      }
+    }
+
+    this.renderEngineUnits();
+    this.applySelectedHex(this.selectedHexKey);
+    this.announceBattleUpdate(summary);
+    this.publishActivityEvent({
+      category: "player",
+      type: "log",
+      summary
+    });
+    this.battleState.emitBattleUpdate("manual");
   }
 
   /**
@@ -4631,6 +4747,187 @@ export class BattleScreen {
     return typeof unit?.ammo === "number" ? unit.ammo : null;
   }
 
+  private lookupPlayerUnitFuel(hexKey: string): number | null {
+    const unit = this.resolvePlayerUnitSnapshot(hexKey);
+    if (!unit) {
+      return null;
+    }
+    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
+    if (!definition || definition.moveType === "leg") {
+      return null;
+    }
+    return typeof unit.fuel === "number" ? unit.fuel : null;
+  }
+
+  private buildBattleSelectionIntel(
+    hexKey: string,
+    unit: ScenarioUnit,
+    unitLabel: string,
+    movementBudget: { max: number; remaining: number } | null,
+    statusMessage: string,
+    commandState: UnitCommandState | null
+  ): BattleSelectionIntel {
+    return {
+      kind: "battle",
+      hexKey,
+      terrainName: this.lookupTerrainName(hexKey),
+      unitLabel,
+      unitStrength: typeof unit.strength === "number" ? unit.strength : null,
+      unitAmmo: typeof unit.ammo === "number" ? unit.ammo : null,
+      unitFuel: this.lookupPlayerUnitFuel(hexKey),
+      unitEntrenchment: typeof unit.entrench === "number" ? unit.entrench : null,
+      movementRemaining: movementBudget ? movementBudget.remaining : null,
+      movementMax: movementBudget ? movementBudget.max : null,
+      moveOptions: this.playerMoveHexes.size,
+      attackOptions: this.playerAttackHexes.size,
+      statusMessage,
+      statusChips: this.buildBattleIntelStatusChips(unit, commandState),
+      actionCards: this.buildBattleIntelActions(unit, commandState),
+      notes: this.buildBattleIntelNotes(unit, commandState)
+    };
+  }
+
+  private buildBattleIntelStatusChips(unit: ScenarioUnit, commandState: UnitCommandState | null): BattleIntelChip[] {
+    const chips: BattleIntelChip[] = [];
+    if (commandState) {
+      if (commandState.isAutomated) {
+        chips.push({ label: "Automated Convoy", tone: "warning" });
+      }
+      if (commandState.suppressionState === "pinned") {
+        chips.push({ label: `Pinned x${commandState.suppressorCount}`, tone: "danger" });
+      } else if (commandState.suppressionState === "suppressed") {
+        chips.push({ label: "Suppressed", tone: "warning" });
+      }
+      if (commandState.existingHexModification) {
+        chips.push({
+          label: this.toTitleCase(this.describeHexModification(commandState.existingHexModification.type)),
+          tone: commandState.existingHexModification.type === "tankTraps" ? "warning" : "good"
+        });
+      }
+    }
+    if (unit.entrench > 0) {
+      chips.push({ label: `Entrench ${unit.entrench}/2`, tone: unit.entrench >= 2 ? "good" : "neutral" });
+    }
+    if (this.isEngineerBattleUnit(unit)) {
+      chips.push({ label: "Engineer", tone: "neutral" });
+    }
+    return chips;
+  }
+
+  private buildBattleIntelActions(unit: ScenarioUnit, commandState: UnitCommandState | null): BattleIntelAction[] {
+    if (!commandState || commandState.isAutomated) {
+      return [];
+    }
+
+    const actions: BattleIntelAction[] = [];
+    if (this.canUnitDigIn(unit)) {
+      actions.push({
+        id: "digIn",
+        label: "Dig In",
+        detail: "Gain +1 entrenchment, up to level 2, and end offensive action for this turn.",
+        tone: "defense",
+        available: commandState.canDigIn,
+        reason: commandState.digInReason
+      });
+    }
+    if (commandState.isEngineer) {
+      const buildReason = commandState.buildReason;
+      actions.push(
+        {
+          id: "fortifications",
+          label: "Fortify Hex",
+          detail: "Build defensive works that improve cover for infantry and specialist defenders here.",
+          tone: "defense",
+          available: commandState.canBuildModification,
+          reason: buildReason
+        },
+        {
+          id: "tankTraps",
+          label: "Lay Tank Traps",
+          detail: "Create an anti-vehicle obstacle that sharply slows wheeled and tracked movement.",
+          tone: "denial",
+          available: commandState.canBuildModification,
+          reason: buildReason
+        },
+        {
+          id: "clearedPath",
+          label: "Clear Path",
+          detail: "Open a faster lane through the hex so follow-on battalions can move more quickly.",
+          tone: "mobility",
+          available: commandState.canBuildModification,
+          reason: buildReason
+        }
+      );
+    }
+    return actions;
+  }
+
+  private buildBattleIntelNotes(unit: ScenarioUnit, commandState: UnitCommandState | null): string[] {
+    const notes: string[] = [];
+    if (!commandState) {
+      return notes;
+    }
+    if (commandState.suppressionState === "pinned") {
+      notes.push(`Pinned by ${commandState.suppressorCount} enemy suppressors. Relieve pressure or break contact before committing this battalion forward.`);
+    } else if (commandState.suppressionState === "suppressed") {
+      notes.push("Under suppressive fire this turn. Expect this battalion's posture to stay compromised until the next friendly turn begins.");
+    }
+    if (commandState.existingHexModification) {
+      notes.push(`This hex already contains ${this.describeHexModification(commandState.existingHexModification.type)}. Only one engineer-built modification may occupy a hex at a time.`);
+    }
+    if (this.canUnitDigIn(unit) && !commandState.canDigIn && commandState.digInReason) {
+      notes.push(commandState.digInReason);
+    }
+    if (commandState.isEngineer && !commandState.canBuildModification && commandState.buildReason) {
+      notes.push(commandState.buildReason);
+    }
+    if (notes.length === 0) {
+      if (commandState.isEngineer) {
+        notes.push("Engineer companies can fortify, emplace obstacles, or clear lanes without leaving the map view.");
+      } else if (this.canUnitDigIn(unit)) {
+        notes.push("Dig in before moving or firing to thicken cover and prepare this formation for defensive contact.");
+      } else {
+        notes.push("Use the movement and attack overlays on the map to issue this unit's next order.");
+      }
+    }
+    return notes;
+  }
+
+  private canUnitDigIn(unit: ScenarioUnit): boolean {
+    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
+    return ["infantry", "recon", "specialist"].includes(definition?.class ?? "");
+  }
+
+  private isEngineerBattleUnit(unit: ScenarioUnit): boolean {
+    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
+    const traits = (definition?.traits ?? []) as readonly string[];
+    return unit.type.toLowerCase().includes("engineer") || traits.includes("engineer");
+  }
+
+  private describeHexModification(type: HexModificationType): string {
+    switch (type) {
+      case "fortifications":
+        return "fortifications";
+      case "tankTraps":
+        return "tank traps";
+      case "clearedPath":
+        return "a cleared path";
+      default:
+        return "fieldworks";
+    }
+  }
+
+  private parseHexModificationAction(actionId: string): HexModificationType | null {
+    switch (actionId) {
+      case "fortifications":
+      case "tankTraps":
+      case "clearedPath":
+        return actionId;
+      default:
+        return null;
+    }
+  }
+
   private resolveUnitLabel(unitKey: string): string {
     const deploymentState = ensureDeploymentState();
     const entry = this.findPoolEntry(unitKey, deploymentState.pool);
@@ -4775,11 +5072,19 @@ export class BattleScreen {
     if (renderer.clearDebugMarkers) {
       renderer.clearDebugMarkers();
     }
+    if (typeof renderer.clearAllHexModifications === "function") {
+      renderer.clearAllHexModifications();
+    }
 
     const engine = this.battleState.ensureGameEngine();
-    const factions: Array<{ units: ScenarioUnit[]; label: "Player" | "Bot" | "Ally" }> = [
+    if (typeof renderer.renderHexModification === "function") {
+      engine.getHexModificationSnapshots().forEach((modification) => {
+        const { col, row } = CoordinateSystem.axialToOffset(modification.hex.q, modification.hex.r);
+        renderer.renderHexModification(CoordinateSystem.makeHexKey(col, row), modification);
+      });
+    }
+    const factions: Array<{ units: ScenarioUnit[]; label: "Player" | "Ally" }> = [
       { units: engine.playerUnits ?? [], label: "Player" },
-      { units: engine.botUnits ?? [], label: "Bot" },
       { units: engine.allyUnits ?? [], label: "Ally" }
     ];
 
@@ -4802,24 +5107,48 @@ export class BattleScreen {
         }
         const { col, row } = CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r);
         const hexKey = CoordinateSystem.makeHexKey(col, row);
-
-        // For bot units, check if player has direct LOS or only spotted visibility
-        let isSpottedOnly = false;
-        if (label === "Bot") {
-          isSpottedOnly = this.checkIfSpottedOnly(unit.hex);
-        }
-
-        renderer.renderUnit(hexKey, unit, label, isSpottedOnly);
+        renderer.renderUnit(hexKey, unit, label);
 
         // Temporary debug overlay: mark placements regardless of recon/LOS
         if (this.debugPlacementOverlayEnabled && typeof renderer.renderDebugMarker === "function") {
           renderer.renderDebugMarker(hexKey, {
-            label: label === "Player" ? "P" : label === "Bot" ? "B" : "A",
-            color: label === "Player" ? "#1890ff" : label === "Bot" ? "#fa541c" : "#52c41a",
+            label: label === "Player" ? "P" : "A",
+            color: label === "Player" ? "#1890ff" : "#52c41a",
             opacity: label === "Player" ? 0.55 : 0.5
           });
         }
       });
+    });
+
+    const enemyContacts =
+      typeof (engine as { getEnemyContactSnapshot?: () => EnemyContactSnapshot[] }).getEnemyContactSnapshot === "function"
+        ? engine.getEnemyContactSnapshot()
+        : (engine.botUnits ?? []).map((unit) => ({
+            unitId: unit.unitId ?? `${unit.type}@${unit.hex.q},${unit.hex.r}`,
+            hex: { ...unit.hex },
+            state: "visible" as const,
+            lastSeenTurn: engine.turnNumber ?? 0,
+            source: "Legacy Visibility",
+            unitType: unit.type,
+            strengthEstimate: unit.strength
+          }));
+
+    enemyContacts.forEach((contact) => {
+      const renderUnit = this.buildEnemyContactRenderUnit(contact, engine.botUnits ?? []);
+      if (!renderUnit) {
+        return;
+      }
+      const { col, row } = CoordinateSystem.axialToOffset(contact.hex.q, contact.hex.r);
+      const hexKey = CoordinateSystem.makeHexKey(col, row);
+      renderer.renderUnit(hexKey, renderUnit, "Bot", contact.state);
+
+      if (this.debugPlacementOverlayEnabled && typeof renderer.renderDebugMarker === "function") {
+        renderer.renderDebugMarker(hexKey, {
+          label: "B",
+          color: "#fa541c",
+          opacity: contact.state === "visible" ? 0.5 : 0.35
+        });
+      }
     });
 
     // Fallback debug markers if the engine reports no units (diagnostic only).
@@ -4844,63 +5173,34 @@ export class BattleScreen {
     this.refreshIdleUnitHighlights();
   }
 
-  /**
-   * Checks if a bot unit is visible only via spotting (no direct LOS from any player unit).
-   * Returns true if spotted only, false if any player unit has direct LOS.
-   */
-  private checkIfSpottedOnly(targetHex: Axial): boolean {
-    if (!this.battleState.hasEngine()) {
-      return false;
+  private buildEnemyContactRenderUnit(contact: EnemyContactSnapshot, liveUnits: readonly ScenarioUnit[]): ScenarioUnit | null {
+    const liveUnit = liveUnits.find((candidate) => candidate.unitId === contact.unitId) ?? null;
+    const scenarioType = (contact.unitType ?? liveUnit?.type ?? ("Recon_Bike" as ScenarioUnit["type"])) as ScenarioUnit["type"];
+    const definition = this.unitTypes[scenarioType as keyof UnitTypeDictionary];
+    if (definition?.moveType === "air") {
+      return null;
     }
 
-    const engine = this.battleState.ensureGameEngine();
+    return {
+      type: scenarioType,
+      hex: { ...contact.hex },
+      strength: this.normalizeContactStrengthEstimate(contact, liveUnit),
+      experience: liveUnit?.experience ?? 0,
+      ammo: liveUnit?.ammo ?? 0,
+      fuel: liveUnit?.fuel ?? 0,
+      entrench: liveUnit?.entrench ?? 0,
+      facing: liveUnit?.facing ?? "S",
+      unitId: contact.unitId,
+      suppressedBy: liveUnit?.suppressedBy ? [...liveUnit.suppressedBy] : undefined
+    };
+  }
 
-    // Check if any player unit has direct LOS to the target
-    for (const playerUnit of engine.playerUnits) {
-      // Get unit definition from unit types dictionary
-      const playerDef = this.unitTypes[playerUnit.type as keyof UnitTypeDictionary];
-      if (!playerDef) continue;
-
-      const hasDirectLOS = losClearAdvanced({
-        attackerClass: playerDef.class as any,
-        attackerHex: playerUnit.hex,
-        targetHex: targetHex,
-        isAttackerAir: playerDef.moveType === "air",
-        lister: {
-          terrainAt: (hex: Axial) => {
-            const { col, row } = CoordinateSystem.axialToOffset(hex.q, hex.r);
-            const hexKey = CoordinateSystem.makeHexKey(col, row);
-            const cell = this.hexMapRenderer?.getHexElement(hexKey);
-            if (!cell) return null;
-
-            const terrain = cell.dataset.terrain;
-            const terrainType = cell.dataset.terrainType;
-            const defense = Number(cell.dataset.defense ?? 0);
-            const accMod = Number(cell.dataset.accMod ?? 0);
-            const blocksLOS = cell.dataset.blocksLos === "true";
-
-            if (!terrain) return null;
-
-            // Construct minimal TerrainDefinition for LOS checking
-            return {
-              terrain,
-              terrainType,
-              defense,
-              accMod,
-              blocksLOS,
-              moveCost: { track: 1, leg: 1, wheel: 1, air: 1 } // Default values for LOS checks
-            } as unknown as TerrainDefinition;
-          }
-        }
-      });
-
-      if (hasDirectLOS) {
-        return false; // Has direct LOS, not spotted-only
-      }
+  private normalizeContactStrengthEstimate(contact: EnemyContactSnapshot, liveUnit: ScenarioUnit | null): number {
+    if (contact.state === "spotted") {
+      return 25;
     }
-
-    // No direct LOS from any player unit, so it must be spotted-only
-    return true;
+    const estimate = contact.strengthEstimate ?? liveUnit?.strength ?? 75;
+    return Math.min(100, Math.max(25, Math.round(estimate / 25) * 25));
   }
 
   /**
