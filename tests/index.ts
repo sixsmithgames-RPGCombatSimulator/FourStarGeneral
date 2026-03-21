@@ -23,6 +23,7 @@ import "./AirInterception.radius.test.js";
 import "./AirStrike.damageRounding.test.js";
 import "./AirSupport.summary.test.js";
 import "./GroundLogistics.enforcement.test.js";
+import "./InfantryActions.commandState.test.js";
 
 // Execute the registered tests sequentially.
 (async () => {

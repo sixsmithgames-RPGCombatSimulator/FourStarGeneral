@@ -5046,19 +5046,20 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /** Prepare combat preview by building the standardized request object and invoking `resolveAttack()`. */
-  previewAttack(attackerHex: Axial, defenderHex: Axial, stance: CombatStance = "suppressive"): CombatPreview | null {
+  previewAttack(attackerHex: Axial, defenderHex: Axial, stance?: CombatStance): CombatPreview | null {
     const attacker = this.lookupUnit(attackerHex, "Player");
     const defender = this.lookupUnit(defenderHex, "Bot");
     if (!attacker || !defender || !this.getPlayerEnemyContactStateAtHex(defenderHex)) {
       return null;
     }
-    const request = this.buildAttackRequest(attacker, defender, "Player", "Bot", { stance });
+    const attackerDef = this.getUnitDefinition(attacker.type);
+    const effectiveStance = this.resolveCombatStanceForAttacker(attacker, attackerDef, stance);
+    const request = this.buildAttackRequest(attacker, defender, "Player", "Bot", { stance: effectiveStance });
     if (!request) {
       return null;
     }
     const attackResult = resolveAttack(request);
 
-    const attackerDef = this.getUnitDefinition(attacker.type);
     const defenderDef = this.getUnitDefinition(defender.type);
     const attackerIsAircraft = this.isAircraft(attackerDef);
     const attackerIsBomber = this.isBomber(attackerDef);
@@ -5425,6 +5426,9 @@ export class GameEngine implements GameEngineAPI {
       return [];
     }
     const { unit, definition, moveType, remaining } = context;
+    if (this.resolveUnitSuppressionState(unit).state === "pinned") {
+      return [];
+    }
     if (remaining <= 0) {
       return [];
     }
@@ -5634,6 +5638,9 @@ export class GameEngine implements GameEngineAPI {
     }
     const { unit, definition, flags, moveType, max, remaining } = context;
     const availableFuel = this.resolveFuelBudget(unit, definition);
+    if (this.resolveUnitSuppressionState(unit).state === "pinned") {
+      throw new Error("Pinned formations cannot move until the pin is broken.");
+    }
 
     if (definition.class === "artillery" && flags.attacksUsed > 0) {
       throw new Error("Artillery cannot move after attacking.");
@@ -5702,7 +5709,7 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /** Resolve a basic attack and update units in place. */
-  attackUnit(attackerHex: Axial, defenderHex: Axial, stance: CombatStance = "suppressive"): AttackResolution | null {
+  attackUnit(attackerHex: Axial, defenderHex: Axial, stance?: CombatStance): AttackResolution | null {
     if (this._phase !== "playerTurn") {
       throw new Error("Attacks are allowed only during the player turn.");
     }
@@ -5719,6 +5726,10 @@ export class GameEngine implements GameEngineAPI {
 
     const unitDef = this.getUnitDefinition(attacker.type);
     const defenderDef = this.getUnitDefinition(defender.type);
+    const effectiveStance = this.resolveCombatStanceForAttacker(attacker, unitDef, stance);
+    if (stance === "assault" && effectiveStance !== "assault") {
+      throw new Error(this.buildAssaultUnavailableMessage(attacker, unitDef));
+    }
     const attackerIsAircraft = this.isAircraft(unitDef);
     const attackerIsBomber = this.isBomber(unitDef);
     const defenderIsAircraft = this.isAircraft(defenderDef);
@@ -5879,7 +5890,7 @@ export class GameEngine implements GameEngineAPI {
       }
     }
 
-    const req = this.buildAttackRequest(attacker, defender, "Player", "Bot", { stance });
+    const req = this.buildAttackRequest(attacker, defender, "Player", "Bot", { stance: effectiveStance });
     if (!req) {
       return null;
     }
@@ -5932,7 +5943,7 @@ export class GameEngine implements GameEngineAPI {
       this.syncBotStrength(defenderHex, updatedDef.strength);
 
       // Apply suppression status if using suppressive fire
-      if (stance === "suppressive") {
+      if (effectiveStance === "suppressive") {
         const attackerUnitId = attacker.unitId ?? atkKey;
         if (!updatedDef.suppressedBy) {
           updatedDef.suppressedBy = [];
@@ -5970,9 +5981,12 @@ export class GameEngine implements GameEngineAPI {
     // No retaliation if aircraft attacked ground unit
     let retaliationAllowed = !(attackerIsAircraft && !defenderIsAircraft);
 
-    if (updatedDef.strength > 0 && retaliationAllowed) {
-      // Check defender's range - can they reach the attacker?
-      const distance = hexDistance(defenderHex, attackerHex);
+      if (updatedDef.strength > 0 && retaliationAllowed) {
+        if (this.resolveUnitSuppressionState(updatedDef).state === "pinned") {
+          retaliationAllowed = false;
+        }
+        // Check defender's range - can they reach the attacker?
+        const distance = hexDistance(defenderHex, attackerHex);
       const defenderRangeMin = defenderDef.rangeMin ?? 1;
       let defenderRangeMax = defenderDef.rangeMax ?? 1;
       if (defenderIsBomber && attackerIsAircraft) {
@@ -6047,7 +6061,12 @@ export class GameEngine implements GameEngineAPI {
 
       // Only attempt retaliation if all checks passed (range, LOS, limit)
       // If attacker used assault stance, retaliation also happens at close range
-      const retaliationReq = retaliationAllowed ? this.buildAttackRequest(updatedDef, updatedAtk, "Bot", "Player", { allowBomberAirAttack: true, stance }) : null;
+      const retaliationReq = retaliationAllowed
+        ? this.buildAttackRequest(updatedDef, updatedAtk, "Bot", "Player", {
+            allowBomberAirAttack: true,
+            stance: effectiveStance === "assault" ? "assault" : undefined
+          })
+        : null;
       if (retaliationReq) {
         // Retaliation uses full combat damage now that LOS, range, and per-turn limits are enforced
         const baseRetaliation = resolveAttack(retaliationReq);
@@ -6971,7 +6990,7 @@ export class GameEngine implements GameEngineAPI {
       general: defenderGeneral
     };
     // Combat stance logic (infantry-type units only)
-    const stance = options?.stance ?? "suppressive";
+    const stance = options?.stance;
     const isAssault = stance === "assault";
 
     const attackerCtx: AttackerContext = {
@@ -7195,6 +7214,15 @@ export class GameEngine implements GameEngineAPI {
     const idx = this.playerSupply.findIndex((entry) => axialKey(entry.hex) === key);
     if (idx >= 0) {
       this.playerSupply[idx].strength = strength;
+    }
+  }
+
+  /** Mirror entrenchment changes so the next supply tick does not overwrite freshly dug positions. */
+  private syncPlayerEntrench(unitHex: Axial, entrench: number): void {
+    const key = axialKey(unitHex);
+    const idx = this.playerSupply.findIndex((entry) => axialKey(entry.hex) === key);
+    if (idx >= 0) {
+      this.playerSupply[idx].entrench = entrench;
     }
   }
 
@@ -8101,7 +8129,7 @@ export class GameEngine implements GameEngineAPI {
   private chooseBotStance(botUnit: ScenarioUnit, targetHex: Axial): CombatStance {
     // Only infantry-type units can use tactical stances
     const botDef = this.getUnitDefinition(botUnit.type);
-    const canUseStances = ["infantry", "recon", "specialist"].includes(botDef.class);
+    const canUseStances = this.canUseCombatStances(botDef);
     if (!canUseStances) {
       return "suppressive";
     }
@@ -8129,25 +8157,24 @@ export class GameEngine implements GameEngineAPI {
   }
 
   private resolveBotAttack(attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial, stance: CombatStance = "suppressive"): BotAttackSummary | null {
-    // Bot should target either Player or Ally units depending on occupancy.
     const defenderFaction: TurnFaction = this.playerPlacements.has(axialKey(targetHex)) ? "Player" : "Ally";
     const defender = this.lookupUnit(targetHex, defenderFaction);
     if (!defender) {
       return null;
     }
+
     const attackerDef = this.getUnitDefinition(attackingUnit.type);
     const defenderDef = this.getUnitDefinition(defender.type);
+    const effectiveStance = this.resolveCombatStanceForAttacker(attackingUnit, attackerDef, stance);
     const attackerIsAircraft = attackerDef.moveType === "air";
     const attackerIsBomber = this.isBomber(attackerDef);
     const defenderIsAircraft = defenderDef.moveType === "air";
     const groundAttackAmmoCost = attackerIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(attackerDef);
-    const isAssault = stance === "assault";
+    const isAssault = effectiveStance === "assault";
 
-    // Aircraft combat restrictions: Only aircraft and Flak 88 can attack aircraft
     const attackerIsFlak = attackingUnit.type.toLowerCase().includes("flak");
-
     if (defenderIsAircraft && !attackerIsAircraft && !attackerIsFlak) {
-      return null; // Ground units (except Flak) cannot target aircraft
+      return null;
     }
     if (!attackerIsAircraft && attackingUnit.ammo < groundAttackAmmoCost) {
       return null;
@@ -8172,7 +8199,6 @@ export class GameEngine implements GameEngineAPI {
         attacksUsed: botFlags.attacksUsed + 1
       });
 
-      // Sortie ammo gating for bot aircraft mirrors player rules
       const botKey = axialKey(attackerHex);
       const ammoState = this.getAircraftAmmoState("Bot", botKey, attackerDef);
       if (this.aircraftNeedsRearm("Bot", botKey)) {
@@ -8182,10 +8208,8 @@ export class GameEngine implements GameEngineAPI {
         if (ammoState.air <= 0) {
           return null;
         }
-      } else {
-        if (ammoState.ground <= 0) {
-          return null;
-        }
+      } else if (ammoState.ground <= 0) {
+        return null;
       }
     }
 
@@ -8193,35 +8217,33 @@ export class GameEngine implements GameEngineAPI {
       return null;
     }
 
-    // Check weapon range
     const distance = hexDistance(attackerHex, targetHex);
     const minRange = attackerDef.rangeMin ?? 1;
     const maxRange = attackerDef.rangeMax ?? 1;
     if (distance < minRange || distance > maxRange) {
-      return null; // Target out of weapon range
+      return null;
     }
 
-    // Pre-attack interception: layered Player CAP vs bot escort resolution before bot strike.
     if (attackerIsAircraft && !defenderIsAircraft) {
       const defHexKey = axialKey(targetHex);
       const capMissions = this.findAllActiveAirCoverForHex("Player", defHexKey).filter((m) => m.interceptions < 1);
-      // Use the stable squadronId to find escorts protecting this bot attacker.
       const botAttackerSquadronId = this.getSquadronId(attackingUnit);
       const escortMissions = this.findAllActiveEscortsForUnit("Bot", botAttackerSquadronId).filter((m) => m.interceptions < 1);
       const atkKey = axialKey(attackerHex);
       if (capMissions.length > 0) {
-        // UI event
         const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string }> = [];
         const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string }> = [];
         for (const cap of capMissions) {
-          // Look up CAP unit by squadronId since mission.unitKey is now the stable unitId.
           const capLookup = this.lookupUnitBySquadronId(cap.unitKey, "Player");
-          if (capLookup) interceptorsForEvent.push({ faction: "Player", unitKey: cap.unitKey, unitType: capLookup.unit.type as string });
+          if (capLookup) {
+            interceptorsForEvent.push({ faction: "Player", unitKey: cap.unitKey, unitType: capLookup.unit.type as string });
+          }
         }
         for (const em of escortMissions) {
-          // Look up escort unit by squadronId since mission.unitKey is now the stable unitId.
           const escortLookup = this.lookupUnitBySquadronId(em.unitKey, "Bot");
-          if (escortLookup) escortsForEvent.push({ faction: "Bot", unitKey: em.unitKey, unitType: escortLookup.unit.type as string });
+          if (escortLookup) {
+            escortsForEvent.push({ faction: "Bot", unitKey: em.unitKey, unitType: escortLookup.unit.type as string });
+          }
         }
         this.pendingAirEngagements.push({
           type: "airToAir",
@@ -8231,15 +8253,12 @@ export class GameEngine implements GameEngineAPI {
           escorts: escortsForEvent
         });
 
-        // Escorts attrit CAP
         for (const cap of capMissions) {
-          // Look up CAP unit by squadronId.
           const capLookup = this.lookupUnitBySquadronId(cap.unitKey, "Player");
           if (!capLookup) continue;
           const { unit: capUnit, hexKey: capHexKey } = capLookup;
-          const escort = escortMissions.find((e) => e.interceptions < 1);
+          const escort = escortMissions.find((entry) => entry.interceptions < 1);
           if (!escort) continue;
-          // Look up escort unit by squadronId.
           const escortLookup = this.lookupUnitBySquadronId(escort.unitKey, "Bot");
           if (!escortLookup) continue;
           const { unit: escortUnit } = escortLookup;
@@ -8249,14 +8268,18 @@ export class GameEngine implements GameEngineAPI {
           const escortDef = this.getUnitDefinition(escortUnit.type);
           const capDef = this.getUnitDefinition(capUnit.type);
           if (this.isAircraft(escortDef) && !this.isBomber(escortDef) && this.isAircraft(capDef)) {
-            escortRes = { ...escortRes, damagePerHit: escortRes.damagePerHit * 4, expectedDamage: escortRes.expectedDamage * 4, expectedSuppression: escortRes.expectedSuppression * 4 };
+            escortRes = {
+              ...escortRes,
+              damagePerHit: escortRes.damagePerHit * 4,
+              expectedDamage: escortRes.expectedDamage * 4,
+              expectedSuppression: escortRes.expectedSuppression * 4
+            };
           }
           const inflicted = Math.max(0, Math.round(escortRes.expectedDamage));
           const updatedCap = structuredClone(capUnit);
           updatedCap.strength = Math.max(0, updatedCap.strength - inflicted);
           this.spendAircraftAmmo("Bot", escort.unitKey, true);
           escort.interceptions += 1;
-          // Use capHexKey for placement operations since mission.unitKey is now the squadronId.
           this.playerPlacements.set(capHexKey, updatedCap);
           this.syncPlayerStrength(updatedCap.hex, updatedCap.strength);
           if (updatedCap.strength <= 0) {
@@ -8266,11 +8289,9 @@ export class GameEngine implements GameEngineAPI {
           }
         }
 
-        // Surviving CAP engages bomber
         let currentAtk = this.botPlacements.get(atkKey) as ScenarioUnit;
         for (const cap of capMissions) {
           if (cap.interceptions >= 1) continue;
-          // Look up the surviving CAP unit by squadronId.
           const liveCapLookup = this.lookupUnitBySquadronId(cap.unitKey, "Player");
           if (!liveCapLookup || currentAtk.strength <= 0) continue;
           const { unit: liveCap } = liveCapLookup;
@@ -8279,7 +8300,12 @@ export class GameEngine implements GameEngineAPI {
           let capRes = resolveAttack(capReq);
           const capDef = this.getUnitDefinition(liveCap.type);
           if (this.isAircraft(capDef) && !this.isBomber(capDef) && this.isAircraft(attackerDef)) {
-            capRes = { ...capRes, damagePerHit: capRes.damagePerHit * 4, expectedDamage: capRes.expectedDamage * 4, expectedSuppression: capRes.expectedSuppression * 4 };
+            capRes = {
+              ...capRes,
+              damagePerHit: capRes.damagePerHit * 4,
+              expectedDamage: capRes.expectedDamage * 4,
+              expectedSuppression: capRes.expectedSuppression * 4
+            };
           }
           const suffered = Math.max(0, Math.round(capRes.expectedDamage));
           const updatedAtkBefore = structuredClone(currentAtk);
@@ -8299,10 +8325,8 @@ export class GameEngine implements GameEngineAPI {
       }
     }
 
-    // Check for fortifications on defender's hex
     const defenderMod = this.getHexModification(defender.hex);
     const defenderFortified = defenderMod?.type === "fortifications";
-
     const req: AttackRequest = {
       attacker: {
         unit: attackerDef,
@@ -8318,15 +8342,15 @@ export class GameEngine implements GameEngineAPI {
       },
       attackerCtx: {
         hex: attackingUnit.hex,
-        stance: stance
+        stance: effectiveStance
       },
       defenderCtx: {
         terrain: this.terrainAt(defender.hex) ?? this.defaultTerrain(),
         class: defenderDef.class,
         facing: defender.facing,
         hex: defender.hex,
-        isRushing: isAssault, // Attacker loses cover when assaulting
-        stance: isAssault ? "assault" : undefined, // Defender also at close range if assaulted
+        isRushing: isAssault,
+        stance: isAssault ? "assault" : undefined,
         fortified: defenderFortified
       },
       targetFacing: defender.facing,
@@ -8334,8 +8358,6 @@ export class GameEngine implements GameEngineAPI {
     } satisfies AttackRequest;
 
     let attackResult = resolveAttack(req);
-
-    // Apply difficulty modifiers to bot attack damage
     const diffMods = getDifficultyModifiers(this.botDifficulty);
     const damageModifier = 1 + (diffMods.damageMod / 100);
     attackResult = {
@@ -8348,7 +8370,6 @@ export class GameEngine implements GameEngineAPI {
       const boostedDamage = attackResult.expectedDamage * 10;
       attackResult = {
         ...attackResult,
-        // AI bombers mirror the player damage model: 40 heavy bombs across the formation means tenfold damage vs ground targets.
         damagePerHit: attackResult.damagePerHit * 10,
         expectedDamage: boostedDamage,
         expectedSuppression: attackResult.expectedSuppression * 10
@@ -8359,7 +8380,6 @@ export class GameEngine implements GameEngineAPI {
       const acceleratedAirDamage = attackResult.expectedDamage * 4;
       attackResult = {
         ...attackResult,
-        // Bot-controlled fighters use the same faster air-combat tempo as player squadrons.
         damagePerHit: attackResult.damagePerHit * 4,
         expectedDamage: acceleratedAirDamage,
         expectedSuppression: attackResult.expectedSuppression * 4
@@ -8382,15 +8402,12 @@ export class GameEngine implements GameEngineAPI {
         this.removeSupplyEntryFor(targetHex);
       } else {
         this.allyPlacements.delete(playerKey);
-        // Note: Ally supply tracking may need a separate method if implemented
       }
     } else {
       if (defenderFaction === "Player") {
         this.playerPlacements.set(playerKey, updatedPlayer);
         this.syncPlayerStrength(targetHex, updatedPlayer.strength);
-
-        // Apply suppression status if using suppressive fire
-        if (stance === "suppressive") {
+        if (effectiveStance === "suppressive") {
           const attackerUnitId = attackingUnit.unitId ?? axialKey(attackerHex);
           if (!updatedPlayer.suppressedBy) {
             updatedPlayer.suppressedBy = [];
@@ -8402,9 +8419,7 @@ export class GameEngine implements GameEngineAPI {
         }
       } else {
         this.allyPlacements.set(playerKey, updatedPlayer);
-
-        // Apply suppression to ally units as well
-        if (stance === "suppressive") {
+        if (effectiveStance === "suppressive") {
           const attackerUnitId = attackingUnit.unitId ?? axialKey(attackerHex);
           if (!updatedPlayer.suppressedBy) {
             updatedPlayer.suppressedBy = [];
@@ -8417,7 +8432,6 @@ export class GameEngine implements GameEngineAPI {
       }
     }
 
-    // Bot ground units burn the same salvo costs as player-controlled formations.
     const botKey = axialKey(attackerHex);
     const updatedBot = structuredClone(attackingUnit);
     if (attackerIsAircraft) {
@@ -8426,8 +8440,118 @@ export class GameEngine implements GameEngineAPI {
     } else {
       updatedBot.ammo = Math.max(0, updatedBot.ammo - groundAttackAmmoCost);
     }
-    this.botPlacements.set(botKey, updatedBot);
-    this.syncBotAmmo(attackerHex, updatedBot.ammo);
+
+    let retaliationResult: AttackResult | undefined;
+    let attackerStrengthAfter = updatedBot.strength;
+    if (defenderFaction === "Player" && updatedPlayer.strength > 0 && !(attackerIsAircraft && !defenderIsAircraft)) {
+      let retaliationAllowed = true;
+      if (this.resolveUnitSuppressionState(updatedPlayer).state === "pinned") {
+        retaliationAllowed = false;
+      }
+
+      if (retaliationAllowed) {
+        const retaliationDistance = hexDistance(targetHex, attackerHex);
+        const defenderRangeMin = defenderDef.rangeMin ?? 1;
+        let defenderRangeMax = defenderDef.rangeMax ?? 1;
+        if (this.isBomber(defenderDef) && attackerIsAircraft) {
+          defenderRangeMax = Math.max(defenderRangeMax, 2);
+        }
+        if (retaliationDistance < defenderRangeMin || retaliationDistance > defenderRangeMax) {
+          retaliationAllowed = false;
+        }
+      }
+
+      if (retaliationAllowed) {
+        const defenderFlags = this.playerActionFlags.get(playerKey) ?? this.createDefaultActionFlags();
+        if (defenderFlags.retaliationsUsed >= 1) {
+          retaliationAllowed = false;
+        }
+      }
+
+      const defenderGroundAmmoCost = defenderIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(defenderDef);
+      if (retaliationAllowed) {
+        if (defenderIsAircraft) {
+          const defenderAmmoState = this.getAircraftAmmoState("Player", playerKey, defenderDef);
+          if (this.aircraftNeedsRearm("Player", playerKey) || defenderAmmoState.air <= 0) {
+            retaliationAllowed = false;
+          }
+        } else {
+          const defenderAmmo = typeof updatedPlayer.ammo === "number" ? updatedPlayer.ammo : null;
+          if (defenderAmmo !== null && defenderAmmo < defenderGroundAmmoCost) {
+            retaliationAllowed = false;
+          }
+        }
+      }
+
+      const retaliationReq = retaliationAllowed
+        ? this.buildAttackRequest(updatedPlayer, updatedBot, "Player", "Bot", {
+            allowBomberAirAttack: true,
+            stance: effectiveStance === "assault" ? "assault" : undefined
+          })
+        : null;
+      if (retaliationReq) {
+        const defenderIsBomber = this.isBomber(defenderDef);
+        const baseRetaliation = resolveAttack(retaliationReq);
+        let appliedRetaliation: AttackResult;
+        let retaliationDamage: number;
+
+        if (defenderIsBomber && attackerIsAircraft) {
+          const doubledDamage = baseRetaliation.expectedDamage * 2;
+          appliedRetaliation = {
+            ...baseRetaliation,
+            expectedDamage: doubledDamage,
+            damagePerHit: baseRetaliation.damagePerHit * 2,
+            expectedSuppression: baseRetaliation.expectedSuppression * 2
+          };
+          retaliationDamage = Math.max(0, Math.round(doubledDamage));
+        } else if (defenderIsAircraft && !defenderIsBomber && attackerIsAircraft) {
+          const acceleratedAirDamage = baseRetaliation.expectedDamage * 4;
+          appliedRetaliation = {
+            ...baseRetaliation,
+            expectedDamage: acceleratedAirDamage,
+            damagePerHit: baseRetaliation.damagePerHit * 4,
+            expectedSuppression: baseRetaliation.expectedSuppression * 4
+          };
+          retaliationDamage = Math.max(0, Math.round(acceleratedAirDamage));
+        } else {
+          appliedRetaliation = baseRetaliation;
+          retaliationDamage = Math.max(0, Math.round(baseRetaliation.expectedDamage));
+        }
+
+        retaliationResult = appliedRetaliation;
+        updatedBot.strength = Math.max(0, updatedBot.strength - retaliationDamage);
+        attackerStrengthAfter = updatedBot.strength;
+
+        if (defenderIsAircraft) {
+          this.spendAircraftAmmo("Player", playerKey, attackerIsAircraft);
+          if (typeof updatedPlayer.ammo === "number") {
+            updatedPlayer.ammo = Math.max(0, updatedPlayer.ammo - 1);
+            this.playerPlacements.set(playerKey, updatedPlayer);
+            this.syncPlayerAmmo(targetHex, updatedPlayer.ammo);
+          }
+        } else if (typeof updatedPlayer.ammo === "number") {
+          updatedPlayer.ammo = Math.max(0, updatedPlayer.ammo - defenderGroundAmmoCost);
+          this.playerPlacements.set(playerKey, updatedPlayer);
+          this.syncPlayerAmmo(targetHex, updatedPlayer.ammo);
+        }
+
+        const defenderFlags = this.playerActionFlags.get(playerKey) ?? this.createDefaultActionFlags();
+        this.playerActionFlags.set(playerKey, {
+          ...defenderFlags,
+          retaliationsUsed: defenderFlags.retaliationsUsed + 1
+        });
+      }
+    }
+
+    if (updatedBot.strength <= 0) {
+      this.botPlacements.delete(botKey);
+      this.botAttackAmmo.delete(botKey);
+      this.removeBotSupplyEntryFor(attackerHex);
+    } else {
+      this.botPlacements.set(botKey, updatedBot);
+      this.syncBotAmmo(attackerHex, updatedBot.ammo);
+      this.syncBotStrength(attackerHex, updatedBot.strength);
+    }
 
     this.invalidateRosterCache();
 
@@ -8437,7 +8561,15 @@ export class GameEngine implements GameEngineAPI {
       from: structuredClone(attackerHex),
       target: structuredClone(targetHex),
       inflictedDamage: damage,
-      defenderDestroyed: updatedPlayer.strength <= 0
+      defenderDestroyed: updatedPlayer.strength <= 0,
+      retaliation: retaliationResult
+        ? {
+            damage: Math.max(0, Math.round(retaliationResult.expectedDamage)),
+            terrainDefense: 0,
+            accuracyMod: Math.round(retaliationResult.accuracy * 100),
+            attackerStrengthAfter
+          }
+        : undefined
     };
   }
 
@@ -9222,6 +9354,41 @@ export class GameEngine implements GameEngineAPI {
     return { state: "clear", count: 0 };
   }
 
+  private canUseCombatStances(definition: UnitTypeDefinition): boolean {
+    return definition.moveType === "leg" && ["infantry", "recon", "specialist"].includes(definition.class);
+  }
+
+  private resolveCombatStanceForAttacker(
+    unit: ScenarioUnit,
+    definition: UnitTypeDefinition,
+    requested?: CombatStance
+  ): CombatStance | undefined {
+    if (!requested || requested === "digIn") {
+      return undefined;
+    }
+    if (!this.canUseCombatStances(definition)) {
+      return undefined;
+    }
+    if (requested === "assault") {
+      return this.resolveUnitSuppressionState(unit).state === "clear" ? "assault" : undefined;
+    }
+    return "suppressive";
+  }
+
+  private buildAssaultUnavailableMessage(unit: ScenarioUnit, definition: UnitTypeDefinition): string {
+    if (!this.canUseCombatStances(definition)) {
+      return "Only foot infantry-style formations can initiate assault fire.";
+    }
+    const suppression = this.resolveUnitSuppressionState(unit).state;
+    if (suppression === "pinned") {
+      return "Pinned formations cannot move, retaliate, or initiate assault fire until the pin is broken.";
+    }
+    if (suppression === "suppressed") {
+      return "Suppressed formations may still move and fire, but they cannot initiate assault fire this turn.";
+    }
+    return "This formation cannot initiate assault fire from its current posture.";
+  }
+
   private isEngineerUnit(unit: ScenarioUnit, definition?: UnitTypeDefinition): boolean {
     const def = definition ?? this.getUnitDefinition(unit.type);
     const traits = (def.traits ?? []) as readonly string[];
@@ -9263,8 +9430,8 @@ export class GameEngine implements GameEngineAPI {
     if (!this.playerPlacements.has(axialKey(hex))) {
       return { available: false, reason: "No player formation occupies this hex." };
     }
-    if (!["infantry", "recon", "specialist"].includes(definition.class)) {
-      return { available: false, reason: "Only infantry, recon, and specialist formations can dig in." };
+    if (definition.moveType !== "leg" || !["infantry", "recon", "specialist"].includes(definition.class)) {
+      return { available: false, reason: "Only foot infantry-style formations can dig in." };
     }
     if (unit.entrench >= 2) {
       return { available: false, reason: "Entrenchment is already at maximum depth." };
@@ -9360,6 +9527,7 @@ export class GameEngine implements GameEngineAPI {
     // Increase entrenchment (max 2)
     unit.entrench = Math.min(2, unit.entrench + 1);
     this.playerPlacements.set(key, unit);
+    this.syncPlayerEntrench(hex, unit.entrench);
 
     // Mark unit as having acted
     this.playerActionFlags.set(key, {
@@ -9367,6 +9535,7 @@ export class GameEngine implements GameEngineAPI {
       attacksUsed: 1 // Prevent further attacks this turn
     });
     this.updateIdleRegistryFor(key);
+    this.invalidateRosterCache();
 
     return true;
   }
@@ -9403,6 +9572,7 @@ export class GameEngine implements GameEngineAPI {
       attacksUsed: 1 // Prevent further attacks this turn
     });
     this.updateIdleRegistryFor(key);
+    this.invalidateRosterCache();
 
     return true;
   }

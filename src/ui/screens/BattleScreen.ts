@@ -167,7 +167,7 @@ export class BattleScreen {
   private readonly debugPlacementOverlayEnabled = false;
 
   // Combat stance selection
-  private currentAttackStance: CombatStance = "suppressive";
+  private currentAttackStance: CombatStance | null = null;
 
   // Air Support: temporary range overlay keys while picking mission targets
   private airPreviewKeys: Set<string> = new Set();
@@ -227,7 +227,7 @@ export class BattleScreen {
    * Prepares and displays the attack confirmation dialog so the commander can approve or cancel combat resolution.
    * Stores the pending attacker/target hexes to be replayed once the user confirms.
    */
-  private promptAttackConfirmation(attacker: Axial, defender: Axial): void {
+  private promptAttackConfirmation(attacker: Axial, defender: Axial, options: { preserveStance?: boolean } = {}): void {
     if (!this.attackConfirmDialog || !this.attackConfirmBody) {
       console.warn("Attack confirmation dialog not available in DOM; executing attack immediately.");
       void this.executePendingAttack(attacker, defender);
@@ -246,7 +246,24 @@ export class BattleScreen {
 
     // Get combat preview to show detailed attack odds
     const engine = this.battleState.ensureGameEngine();
-    const preview = engine.previewAttack(attacker, defender, this.currentAttackStance);
+    const attackerUnit = engine
+      .getPlayerPlacementsSnapshot()
+      .find((unit) => unit.hex.q === attacker.q && unit.hex.r === attacker.r) ?? null;
+    const commandState = attackerUnit ? engine.getUnitCommandState(attacker) : null;
+    const supportsStances = attackerUnit ? this.canUnitUseCombatStances(attackerUnit) : false;
+    const assaultAvailable = attackerUnit ? this.canUnitAssault(attackerUnit, commandState) : false;
+
+    if (!supportsStances) {
+      this.currentAttackStance = null;
+    } else if (
+      !options.preserveStance ||
+      this.currentAttackStance === null ||
+      (this.currentAttackStance === "assault" && !assaultAvailable)
+    ) {
+      this.currentAttackStance = "suppressive";
+    }
+
+    const preview = engine.previewAttack(attacker, defender, this.currentAttackStance ?? undefined);
 
     this.pendingAttack = {
       attacker: attackerHex,
@@ -257,8 +274,13 @@ export class BattleScreen {
     if (!preview) {
       // No valid preview (LOS blocked or out of range)
       this.attackConfirmBody.innerHTML = `
-        <p>Cannot attack target. Line of sight may be blocked or target out of range.</p>
+        <div class="attack-preview-profile">
+          <span class="attack-preview-profile__label">Fire Profile</span>
+          <strong>${supportsStances ? "Combat order unavailable" : "Direct fire"}</strong>
+          <span>Cannot attack this target. Line of sight may be blocked or the target may be out of range.</span>
+        </div>
       `;
+      this.configureAttackStanceControls(attackerUnit, commandState);
       this.showAttackDialog();
       return;
     }
@@ -347,10 +369,12 @@ export class BattleScreen {
       ? `${(realWorldDistanceMeters / 1000).toFixed(1)}km`
       : `${realWorldDistanceMeters}m`;
 
+    const profile = this.describeAttackProfile(attackerUnit ?? preview.attacker, commandState);
+
     // Determine penetration status
     const penetrationStatus = effectiveAP >= facingArmor
-      ? `<span style="color: #66bb6a;">✓ Penetration</span>`
-      : `<span style="color: #ef5350;">⚠ Underpenetrated</span>`;
+      ? `<span class="attack-preview-status attack-preview-status--good">Penetration Advantage</span>`
+      : `<span class="attack-preview-status attack-preview-status--danger">Armor Holds</span>`;
 
     // Determine hit chance quality
     const roundedAccuracy = Math.round(finalAccuracyPercent);
@@ -361,18 +385,24 @@ export class BattleScreen {
         : `<span style="color: #ef5350;">${roundedAccuracy}%</span>`;
 
     this.attackConfirmBody.innerHTML = `
-      <div style="margin-bottom: 1rem;">
-        <p><strong style="color: #66bb6a;">Your ${this.escapeHtml(attackerLabel)}</strong> at <strong>${this.escapeHtml(attackerHex)}</strong></p>
-        <p style="margin-left: 1rem; font-size: 0.9rem; color: var(--text-muted);">Strength: ${attackerStrength}% • Effective Range: ${attackerRangeMin * 250}m-${attackerRangeMax >= 10 ? (attackerRangeMax * 0.25).toFixed(1) + 'km' : (attackerRangeMax * 250) + 'm'}</p>
+      <div class="attack-preview-intro">
+        <div class="attack-preview-formation">
+          <p><strong style="color: #66bb6a;">Your ${this.escapeHtml(attackerLabel)}</strong> at <strong>${this.escapeHtml(attackerHex)}</strong></p>
+          <p class="attack-preview-formation__meta">Strength: ${attackerStrength}% • Effective Range: ${attackerRangeMin * 250}m-${attackerRangeMax >= 10 ? (attackerRangeMax * 0.25).toFixed(1) + "km" : (attackerRangeMax * 250) + "m"}</p>
+        </div>
+        <div class="attack-preview-range">Engagement Range: ${realWorldDistanceKm}</div>
+        <div class="attack-preview-formation attack-preview-formation--enemy">
+          <p><strong style="color: #ef5350;">Enemy ${this.escapeHtml(defenderLabel)}</strong> at <strong>${this.escapeHtml(defenderHex)}</strong></p>
+          <p class="attack-preview-formation__meta">Strength: ${defenderStrength}% • Armor: ${facingArmor}</p>
+        </div>
+        <div class="attack-preview-profile">
+          <span class="attack-preview-profile__label">Fire Profile</span>
+          <strong>${this.escapeHtml(profile.title)}</strong>
+          <span>${this.escapeHtml(profile.description)}</span>
+          <span class="attack-preview-profile__note">${this.escapeHtml(profile.note)}</span>
+        </div>
       </div>
-      <div style="text-align: center; margin: 1rem 0; font-size: 1.2rem;">
-        ⚔️ <span style="font-size: 0.85rem; color: var(--accent-strong);">Engaging at ${realWorldDistanceKm}</span>
-      </div>
-      <div style="margin-bottom: 1.5rem;">
-        <p><strong style="color: #ef5350;">Enemy ${this.escapeHtml(defenderLabel)}</strong> at <strong>${this.escapeHtml(defenderHex)}</strong></p>
-        <p style="margin-left: 1rem; font-size: 0.9rem; color: var(--text-muted);">Strength: ${defenderStrength}% • Armor: ${facingArmor}</p>
-      </div>
-      <div style="background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem;">
+      <div class="attack-preview-panel">
         <h4 style="margin: 0 0 0.5rem 0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent-strong);">ATTACK PREVIEW</h4>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; font-size: 0.85rem;">
           <div style="display: flex; justify-content: space-between;">
@@ -410,6 +440,7 @@ export class BattleScreen {
           <div style="display: flex; flex-direction: column; grid-column: 1 / -1; font-size: 0.75rem; color: var(--text-muted); padding-top: 0.4rem; border-top: 1px solid rgba(255,255,255,0.08);">
             <span><strong>Accuracy Breakdown:</strong> ${this.escapeHtml(accuracyBreakdownLine)}</span>
             <span><strong>Damage Breakdown:</strong> ${this.escapeHtml(damageBreakdownLine)}</span>
+            <span><strong>Engagement Math:</strong> ${this.escapeHtml(profile.mathLine)}</span>
             <span><strong>Payload:</strong> ×${damageMultiplier} (${damageMultiplierDescription}) &bull; Suppression ×${suppressionMultiplier} (${suppressionMultiplierDescription})</span>
             <span><strong>Commander Bonuses:</strong> Accuracy +${commanderAccuracyBonus}% • Damage +${commanderDamageBonus}%</span>
             <span><strong>Accuracy Summary:</strong> ${baseAccuracyPercent.toFixed(1)}% → ${accuracyDetails.final.toFixed(1)}%</span>
@@ -420,7 +451,92 @@ export class BattleScreen {
         </div>
       </div>
     `;
+    this.configureAttackStanceControls(attackerUnit ?? preview.attacker, commandState);
     this.showAttackDialog();
+  }
+
+  private canUnitUseCombatStances(unit: ScenarioUnit): boolean {
+    const definition = this.unitTypes?.[unit.type as keyof UnitTypeDictionary];
+    return definition?.moveType === "leg" && ["infantry", "recon", "specialist"].includes(definition.class);
+  }
+
+  private canUnitAssault(unit: ScenarioUnit, commandState: UnitCommandState | null): boolean {
+    return this.canUnitUseCombatStances(unit) && commandState?.suppressionState === "clear";
+  }
+
+  private configureAttackStanceControls(attackerUnit: ScenarioUnit | null, commandState: UnitCommandState | null): void {
+    const selector = this.attackConfirmDialog?.querySelector<HTMLElement>(".attack-stance-selector");
+    const assaultBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceAssault");
+    const suppressiveBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceSuppressive");
+    if (!selector || !assaultBtn || !suppressiveBtn) {
+      return;
+    }
+
+    const supportsStances = attackerUnit ? this.canUnitUseCombatStances(attackerUnit) : false;
+    selector.classList.toggle("attack-stance-selector--hidden", !supportsStances);
+    if (!supportsStances) {
+      this.currentAttackStance = null;
+      assaultBtn.disabled = true;
+      suppressiveBtn.disabled = true;
+      this.updateStanceButtonStates();
+      return;
+    }
+
+    const assaultAvailable = attackerUnit ? this.canUnitAssault(attackerUnit, commandState) : false;
+    assaultBtn.disabled = !assaultAvailable;
+    assaultBtn.classList.toggle("stance-disabled", !assaultAvailable);
+    suppressiveBtn.disabled = false;
+    suppressiveBtn.classList.remove("stance-disabled");
+
+    const assaultNote = assaultBtn.querySelector<HTMLElement>(".stance-note");
+    if (assaultNote) {
+      assaultNote.textContent = assaultAvailable
+        ? "Point-blank attack. Uses 1.5x the computed hit chance."
+        : commandState?.suppressionState === "pinned"
+          ? "Blocked while pinned."
+          : "Blocked while suppressed.";
+    }
+
+    this.bindStanceButtons();
+    this.updateStanceButtonStates();
+  }
+
+  private describeAttackProfile(unit: ScenarioUnit, commandState: UnitCommandState | null): {
+    title: string;
+    description: string;
+    note: string;
+    mathLine: string;
+  } {
+    if (!this.canUnitUseCombatStances(unit)) {
+      return {
+        title: "Direct Fire",
+        description: "This formation uses its standard direct-fire profile. Vehicles do not switch between assault and suppressive stances.",
+        note: "Accuracy reflects the normal range, terrain, and spotting calculation for this weapon system.",
+        mathLine: "Standard direct-fire calculation. No assault multiplier is in effect."
+      };
+    }
+
+    if (this.currentAttackStance === "assault") {
+      return {
+        title: "Assault",
+        description: "The battalion closes to point-blank range and trades protection for a much better chance to hit.",
+        note: "+50% means 1.5x the computed hit chance after the normal range, terrain, and spotting math. It is not +50 percentage points.",
+        mathLine: "Point-blank range uses the 25m midpoint, then applies an assault multiplier of x1.50."
+      };
+    }
+
+    const suppressionNote = commandState?.suppressionState === "pinned"
+      ? "Pinned formations cannot move, retaliate, or initiate assault fire until the pin is broken."
+      : commandState?.suppressionState === "suppressed"
+        ? "Suppressed formations may still move and fire, but assault is unavailable this turn."
+        : "Suppressive fire keeps the battalion in ranged posture and can stack suppression on the target.";
+
+    return {
+      title: "Suppressive",
+      description: "The battalion stays in ranged posture and trades lethality for disruption and battlefield control.",
+      note: suppressionNote,
+      mathLine: "Standard range calculation. No assault multiplier is in effect."
+    };
   }
 
   /** Handles air:previewRange and paints a temporary overlay of hexes within the aircraft's radius. */
@@ -616,7 +732,7 @@ export class BattleScreen {
 
       if (this.hexMapRenderer) {
         try {
-          preview = engine.previewAttack(attacker, defender, this.currentAttackStance);
+          preview = engine.previewAttack(attacker, defender, this.currentAttackStance ?? undefined);
           if (preview) {
             const defenderDefinition = this.unitTypes?.[preview.defender.type as keyof UnitTypeDictionary];
             const targetClass = defenderDefinition?.class;
@@ -630,7 +746,7 @@ export class BattleScreen {
         }
       }
 
-      const resolution = engine.attackUnit(attacker, defender, this.currentAttackStance);
+      const resolution = engine.attackUnit(attacker, defender, this.currentAttackStance ?? undefined);
 
       if (resolution && this.hexMapRenderer) {
         const defenderInflicted = preview
@@ -951,59 +1067,74 @@ export class BattleScreen {
     if (!this.attackConfirmDialog || !this.attackConfirmAccept) {
       return;
     }
-    // Reset stance to default when opening dialog
-    this.currentAttackStance = "suppressive";
-    this.updateStanceButtonStates();
-    this.bindStanceButtons();
+    const wasHidden = this.attackConfirmDialog.classList.contains("hidden");
 
-    const activeElement = document.activeElement;
-    this.attackDialogPreviouslyFocused = activeElement instanceof HTMLElement ? activeElement : null;
     this.attackConfirmDialog.classList.remove("hidden");
     this.attackConfirmDialog.setAttribute("aria-hidden", "false");
-    this.attackConfirmDialog.addEventListener("keydown", this.attackDialogKeydownHandler);
-    this.attackConfirmationLocked = false;
-    this.attackConfirmAccept.focus();
+    if (wasHidden) {
+      const activeElement = document.activeElement;
+      this.attackDialogPreviouslyFocused = activeElement instanceof HTMLElement ? activeElement : null;
+      this.attackConfirmDialog.addEventListener("keydown", this.attackDialogKeydownHandler);
+      this.attackConfirmationLocked = false;
+      this.attackConfirmAccept.focus();
+    }
   }
 
   /**
    * Binds click handlers to stance selection buttons in the attack confirmation dialog.
    */
   private bindStanceButtons(): void {
-    const assaultBtn = document.getElementById("stanceAssault");
-    const suppressiveBtn = document.getElementById("stanceSuppressive");
+    const assaultBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceAssault");
+    const suppressiveBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceSuppressive");
 
     if (!assaultBtn || !suppressiveBtn) {
       return;
     }
 
-    // Remove any existing listeners by cloning and replacing nodes
-    const assaultClone = assaultBtn.cloneNode(true) as HTMLElement;
-    const suppressiveClone = suppressiveBtn.cloneNode(true) as HTMLElement;
-    assaultBtn.parentNode?.replaceChild(assaultClone, assaultBtn);
-    suppressiveBtn.parentNode?.replaceChild(suppressiveClone, suppressiveBtn);
-
-    assaultClone.addEventListener("click", () => {
+    assaultBtn.onclick = () => {
+      if (assaultBtn.disabled) {
+        return;
+      }
       this.currentAttackStance = "assault";
       this.updateStanceButtonStates();
       this.refreshAttackPreview();
-    });
+    };
 
-    suppressiveClone.addEventListener("click", () => {
+    suppressiveBtn.onclick = () => {
+      if (suppressiveBtn.disabled) {
+        return;
+      }
       this.currentAttackStance = "suppressive";
       this.updateStanceButtonStates();
       this.refreshAttackPreview();
-    });
+    };
   }
 
   /**
    * Updates the visual state of stance buttons to reflect the current selection.
    */
   private updateStanceButtonStates(): void {
-    const assaultBtn = document.getElementById("stanceAssault");
-    const suppressiveBtn = document.getElementById("stanceSuppressive");
+    const assaultBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceAssault");
+    const suppressiveBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceSuppressive");
 
-    assaultBtn?.classList.toggle("stance-active", this.currentAttackStance === "assault");
-    suppressiveBtn?.classList.toggle("stance-active", this.currentAttackStance === "suppressive");
+    const assaultSelected = this.currentAttackStance === "assault";
+    const suppressiveSelected = this.currentAttackStance === "suppressive";
+
+    assaultBtn?.classList.toggle("stance-active", assaultSelected);
+    assaultBtn?.setAttribute("aria-pressed", String(assaultSelected));
+    assaultBtn?.setAttribute("data-selected", String(assaultSelected));
+    const assaultState = assaultBtn?.querySelector<HTMLElement>(".stance-state");
+    if (assaultState) {
+      assaultState.textContent = assaultSelected ? "Selected" : "";
+    }
+
+    suppressiveBtn?.classList.toggle("stance-active", suppressiveSelected);
+    suppressiveBtn?.setAttribute("aria-pressed", String(suppressiveSelected));
+    suppressiveBtn?.setAttribute("data-selected", String(suppressiveSelected));
+    const suppressiveState = suppressiveBtn?.querySelector<HTMLElement>(".stance-state");
+    if (suppressiveState) {
+      suppressiveState.textContent = suppressiveSelected ? "Selected" : "";
+    }
   }
 
   /**
@@ -1025,8 +1156,7 @@ export class BattleScreen {
     const attacker = CoordinateSystem.offsetToAxial(attackerOffset.col, attackerOffset.row);
     const defender = CoordinateSystem.offsetToAxial(defenderOffset.col, defenderOffset.row);
 
-    // Re-run the attack preview logic from promptAttackConfirmation
-    this.promptAttackConfirmation(attacker, defender);
+    this.promptAttackConfirmation(attacker, defender, { preserveStance: true });
   }
 
   /**
@@ -1075,6 +1205,7 @@ export class BattleScreen {
     this.attackDialogPreviouslyFocused = null;
     focusTarget?.focus?.();
     this.attackConfirmationLocked = false;
+    this.currentAttackStance = null;
   }
 
   /** Escapes HTML-sensitive characters when composing dialog copy. */
@@ -4148,9 +4279,9 @@ export class BattleScreen {
         statusMessage += ` ${this.playerMoveHexes.size} moves, ${this.playerAttackHexes.size} targets.`;
       }
       if (commandState?.suppressionState === "pinned") {
-        statusMessage += ` Pinned by ${commandState.suppressorCount} suppressing units.`;
+        statusMessage += ` Pinned by ${commandState.suppressorCount} suppressing units. This battalion cannot move or retaliate.`;
       } else if (commandState?.suppressionState === "suppressed") {
-        statusMessage += " Under suppressive fire.";
+        statusMessage += " Under suppressive fire. It may still move and fire, but it cannot assault.";
       }
       if (commandState?.existingHexModification) {
         statusMessage += ` ${this.toTitleCase(this.describeHexModification(commandState.existingHexModification.type))} already cover this hex.`;
@@ -4868,9 +4999,9 @@ export class BattleScreen {
       return notes;
     }
     if (commandState.suppressionState === "pinned") {
-      notes.push(`Pinned by ${commandState.suppressorCount} enemy suppressors. Relieve pressure or break contact before committing this battalion forward.`);
+      notes.push(`Pinned by ${commandState.suppressorCount} enemy suppressors. This battalion cannot move or retaliate until the pin is broken, and assault fire is unavailable.`);
     } else if (commandState.suppressionState === "suppressed") {
-      notes.push("Under suppressive fire this turn. Expect this battalion's posture to stay compromised until the next friendly turn begins.");
+      notes.push("Under suppressive fire this turn. The battalion may still move and fire, but it cannot initiate assault fire until the next friendly turn begins.");
     }
     if (commandState.existingHexModification) {
       notes.push(`This hex already contains ${this.describeHexModification(commandState.existingHexModification.type)}. Only one engineer-built modification may occupy a hex at a time.`);
@@ -4885,7 +5016,7 @@ export class BattleScreen {
       if (commandState.isEngineer) {
         notes.push("Engineer companies can fortify, emplace obstacles, or clear lanes without leaving the map view.");
       } else if (this.canUnitDigIn(unit)) {
-        notes.push("Dig in before moving or firing to thicken cover and prepare this formation for defensive contact.");
+        notes.push("Dig in before moving or firing to thicken cover and prepare this foot formation for defensive contact.");
       } else {
         notes.push("Use the movement and attack overlays on the map to issue this unit's next order.");
       }
@@ -4895,7 +5026,7 @@ export class BattleScreen {
 
   private canUnitDigIn(unit: ScenarioUnit): boolean {
     const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
-    return ["infantry", "recon", "specialist"].includes(definition?.class ?? "");
+    return definition?.moveType === "leg" && ["infantry", "recon", "specialist"].includes(definition?.class ?? "");
   }
 
   private isEngineerBattleUnit(unit: ScenarioUnit): boolean {

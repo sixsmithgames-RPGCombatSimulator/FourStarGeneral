@@ -57,9 +57,29 @@ const engineerDef: UnitTypeDefinition = {
   cost: 120
 };
 
+const wheeledReconDef: UnitTypeDefinition = {
+  class: "recon",
+  movement: 5,
+  moveType: "wheel",
+  vision: 3,
+  ammo: 4,
+  fuel: 40,
+  rangeMin: 1,
+  rangeMax: 1,
+  initiative: 4,
+  armor: { front: 1, side: 1, top: 1 },
+  hardAttack: 2,
+  softAttack: 6,
+  ap: 1,
+  accuracyBase: 56,
+  traits: [],
+  cost: 100
+};
+
 const unitTypes: UnitTypeDictionary = {
   TestInfantry: infantryDef,
-  TestEngineer: engineerDef
+  TestEngineer: engineerDef,
+  TestReconTruck: wheeledReconDef
 } as unknown as UnitTypeDictionary;
 
 function side(hq = { q: 0, r: 0 }, units: ScenarioUnit[] = []): ScenarioSide {
@@ -95,7 +115,7 @@ function scenario(): ScenarioData {
   } as unknown as ScenarioData;
 }
 
-function createEngine(playerUnits: ScenarioUnit[]): { engine: GameEngine; config: GameEngineConfig } {
+function createEngine(playerUnits: ScenarioUnit[], botUnits: ScenarioUnit[] = []): { engine: GameEngine; config: GameEngineConfig } {
   const config: GameEngineConfig = {
     scenario: scenario(),
     unitTypes,
@@ -104,7 +124,10 @@ function createEngine(playerUnits: ScenarioUnit[]): { engine: GameEngine; config
       { q: 0, r: 0 },
       playerUnits.map((unit) => ({ ...unit, preDeployed: true }))
     ),
-    botSide: side({ q: 4, r: 2 }, []),
+    botSide: side(
+      { q: 4, r: 2 },
+      botUnits.map((unit) => ({ ...unit, preDeployed: true }))
+    ),
     botStrategyMode: "Simple"
   };
 
@@ -175,4 +198,218 @@ registerTest("INFANTRY_COMMAND_STATE_TRACKS_DIG_IN_AND_ENGINEER_FIELDWORKS", asy
   }
 
   await Then("infantry command state and engineer fieldworks stay aligned with engine rules", () => {});
+});
+
+registerTest("WHEELED_RECON_UNITS_CANNOT_DIG_IN", async ({ Then }) => {
+  const reconTruck: ScenarioUnit = {
+    type: "TestReconTruck" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 4,
+    fuel: 40,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([reconTruck]);
+  const commandState = engine.getUnitCommandState(reconTruck.hex);
+  if (!commandState) {
+    throw new Error("Expected recon truck command state to be available.");
+  }
+  if (commandState.canDigIn) {
+    throw new Error(`Expected wheeled recon to be blocked from digging in, received ${JSON.stringify(commandState)}`);
+  }
+  if (engine.digInUnit(reconTruck.hex)) {
+    throw new Error("Expected dig-in command to fail for wheeled recon.");
+  }
+
+  await Then("vehicle recon formations are excluded from dig-in commands", () => {});
+});
+
+registerTest("DIG_IN_ENTRENCHMENT_PERSISTS_THROUGH_TURN_CYCLE", async ({ Then }) => {
+  const infantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+
+  const { engine, config } = createEngine([infantry]);
+  if (!engine.digInUnit(infantry.hex)) {
+    throw new Error("Expected dig-in command to succeed before turn rollover.");
+  }
+
+  engine.endTurn();
+
+  const liveUnit = engine.getPlayerPlacementsSnapshot().find((unit) => unit.hex.q === 0 && unit.hex.r === 0);
+  if (!liveUnit || liveUnit.entrench !== 1) {
+    throw new Error(`Expected entrenchment to survive the turn cycle, received ${JSON.stringify(liveUnit)}`);
+  }
+
+  const restored = GameEngine.fromSerialized(config, engine.serialize());
+  const restoredUnit = restored.getPlayerPlacementsSnapshot().find((unit) => unit.hex.q === 0 && unit.hex.r === 0);
+  if (!restoredUnit || restoredUnit.entrench !== 1) {
+    throw new Error(`Expected entrenchment to survive serialization, received ${JSON.stringify(restoredUnit)}`);
+  }
+
+  await Then("dig-in entrenchment persists through upkeep and save-load", () => {});
+});
+
+registerTest("SUPPRESSED_AND_PINNED_INFANTRY_RESPECT_MOVEMENT_AND_ASSAULT_RULES", async ({ Then }) => {
+  const movingInfantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+
+  const { engine: suppressedMoveEngine } = createEngine([movingInfantry]);
+  const suppressedMoveState = suppressedMoveEngine.serialize();
+  suppressedMoveState.playerPlacements[0] = {
+    ...suppressedMoveState.playerPlacements[0],
+    suppressedBy: ["enemy_1"]
+  };
+  suppressedMoveEngine.hydrateFromSerialized(suppressedMoveState);
+  const moved = suppressedMoveEngine.moveUnit({ q: 0, r: 0 }, { q: 1, r: 0 });
+  if (moved.unit.hex.q !== 1 || moved.unit.hex.r !== 0) {
+    throw new Error(`Expected suppressed infantry to move successfully, received ${JSON.stringify(moved)}`);
+  }
+
+  const attackingInfantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const targetInfantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "SW" as ScenarioUnit["facing"]
+  };
+
+  const { engine: suppressedAttackEngine } = createEngine([attackingInfantry], [targetInfantry]);
+  const suppressedAttackState = suppressedAttackEngine.serialize();
+  suppressedAttackState.playerPlacements[0] = {
+    ...suppressedAttackState.playerPlacements[0],
+    suppressedBy: ["enemy_1"]
+  };
+  suppressedAttackEngine.hydrateFromSerialized(suppressedAttackState);
+  let assaultBlocked = false;
+  try {
+    suppressedAttackEngine.attackUnit({ q: 0, r: 0 }, { q: 0, r: 1 }, "assault");
+  } catch (error) {
+    assaultBlocked = String(error).includes("cannot initiate assault fire");
+  }
+  if (!assaultBlocked) {
+    throw new Error("Expected suppressed infantry to be blocked from assault fire.");
+  }
+
+  const { engine: pinnedMoveEngine } = createEngine([movingInfantry]);
+  const pinnedMoveState = pinnedMoveEngine.serialize();
+  pinnedMoveState.playerPlacements[0] = {
+    ...pinnedMoveState.playerPlacements[0],
+    suppressedBy: ["enemy_1", "enemy_2"]
+  };
+  pinnedMoveEngine.hydrateFromSerialized(pinnedMoveState);
+  let pinnedMoveBlocked = false;
+  try {
+    pinnedMoveEngine.moveUnit({ q: 0, r: 0 }, { q: 1, r: 0 });
+  } catch (error) {
+    pinnedMoveBlocked = String(error).includes("cannot move");
+  }
+  if (!pinnedMoveBlocked) {
+    throw new Error("Expected pinned infantry to be blocked from movement.");
+  }
+
+  await Then("suppression still allows movement while pinning halts movement and assault", () => {});
+});
+
+registerTest("PINNED_DEFENDERS_LOSE_RETALIATION_OPPORTUNITY", async ({ Then }) => {
+  const attacker: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const defender: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "SW" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([attacker], [defender]);
+  const state = engine.serialize();
+  state.botPlacements[0] = {
+    ...state.botPlacements[0],
+    suppressedBy: ["existing_suppressor"]
+  };
+  engine.hydrateFromSerialized(state);
+
+  const resolution = engine.attackUnit({ q: 0, r: 0 }, { q: 0, r: 1 }, "suppressive");
+  if (!resolution) {
+    throw new Error("Expected suppressive attack resolution to be available.");
+  }
+  if (resolution.retaliationOccurred) {
+    throw new Error(`Expected pinned defender to lose retaliation opportunity, received ${JSON.stringify(resolution)}`);
+  }
+
+  await Then("a defender pinned by suppressive fire cannot retaliate", () => {});
+});
+
+registerTest("BOT_ATTACK_SUMMARY_INCLUDES_PLAYER_RETALIATION", async ({ Then }) => {
+  const defender: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const attacker: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "SW" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([defender], [attacker]);
+  const botAttack = (engine as any).resolveBotAttack(attacker, { q: 0, r: 1 }, { q: 0, r: 0 }, "suppressive");
+  if (!botAttack?.retaliation || botAttack.retaliation.damage <= 0) {
+    throw new Error(`Expected bot attack summary to include player retaliation, received ${JSON.stringify(botAttack)}`);
+  }
+
+  await Then("bot summaries surface player counter-fire for animation playback", () => {});
 });

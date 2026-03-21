@@ -83,3 +83,40 @@ registerTest("SPRITESHEET_ANIMATOR_RESOLVES_MULTI_ROW_EXPLOSION_LAYOUT_AND_STAGE
     }
   });
 });
+
+registerTest("SPRITESHEET_ANIMATOR_RESOLVES_MULTI_ROW_VEHICLE_HIT_LAYOUT", async ({ Given, When, Then }) => {
+  let resolved: ReturnType<typeof resolveSpriteSheetSpec> | null = null;
+  let firstDuration = 0;
+  let finalDuration = 0;
+
+  await Given("the new FSG sparks-and-hits sheet and its loaded image dimensions", async () => {
+  });
+
+  await When("the renderer derives the impact-hit sprite geometry", async () => {
+    const metrics = resolveSpriteSheetSpec(COMBAT_ANIMATIONS.impactHits, {
+      width: 1536,
+      height: 1024
+    });
+    resolved = metrics;
+    firstDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.impactHits, 1, metrics.frameCount);
+    finalDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.impactHits, 23, metrics.frameCount);
+  });
+
+  await Then("vehicle hit sprites resolve as a compact 6x4 sheet with fast playback", async () => {
+    if (!resolved) {
+      throw new Error("Expected impact-hit metadata to resolve.");
+    }
+    if (resolved.columns !== 6 || resolved.rows !== 4) {
+      throw new Error(`Expected impact-hit sheet to resolve as 6x4, received ${resolved.columns}x${resolved.rows}.`);
+    }
+    if (resolved.frameWidth !== 256 || resolved.frameHeight !== 256) {
+      throw new Error(`Expected 256x256 impact-hit frames, received ${resolved.frameWidth}x${resolved.frameHeight}.`);
+    }
+    if (resolved.renderScale >= COMBAT_ANIMATIONS.explosionSmall.renderScale!) {
+      throw new Error("Expected vehicle-hit sprites to render smaller than explosion sprites.");
+    }
+    if (!(firstDuration < finalDuration)) {
+      throw new Error(`Expected vehicle-hit playback to slow slightly into the tail, received first=${firstDuration}, final=${finalDuration}.`);
+    }
+  });
+});

@@ -2633,7 +2633,7 @@ export class HexMapRenderer implements IMapRenderer {
     }
   }
 
-  /** Maps defender class to spark ray count for hard-target impacts. */
+  /** Maps defender class to fallback spark-ray count when a sprite impact sheet is not appropriate. */
   private chooseSparkCount(defenderClass?: UnitClass): number {
     switch (defenderClass) {
       case "tank":
@@ -2645,6 +2645,53 @@ export class HexMapRenderer implements IMapRenderer {
       default:
         return 8;
     }
+  }
+
+  private getUnitTypeDefinition(unitType?: string): UnitTypeDefinition | undefined {
+    if (!unitType) {
+      return undefined;
+    }
+    return (unitTypesData as Record<string, UnitTypeDefinition>)[unitType];
+  }
+
+  private getImpactWeaponRating(attackerType?: string, attackerClass?: UnitClass): number {
+    const definition = this.getUnitTypeDefinition(attackerType);
+    const directFireRating = Math.max(definition?.ap ?? 0, definition?.hardAttack ?? 0);
+
+    if (attackerType === "Bomber") {
+      return Math.max(directFireRating, 75);
+    }
+    if (attackerType === "Ground_Attack") {
+      return Math.max(directFireRating, 48);
+    }
+    if (attackerClass === "artillery") {
+      return Math.max(directFireRating, 40);
+    }
+
+    return directFireRating;
+  }
+
+  private chooseImpactSparkScale(attackerType?: string, attackerClass?: UnitClass): number {
+    const impactRating = this.getImpactWeaponRating(attackerType, attackerClass);
+
+    if (impactRating >= 70) return 1.28;
+    if (impactRating >= 50) return 1.12;
+    if (impactRating >= 32) return 0.98;
+    if (impactRating >= 18) return 0.86;
+    if (impactRating >= 8) return 0.76;
+    return attackerClass === "recon" ? 0.68 : 0.72;
+  }
+
+  private chooseImpactSparkBurstCount(attackerType?: string, attackerClass?: UnitClass): number {
+    const impactRating = this.getImpactWeaponRating(attackerType, attackerClass);
+
+    if (attackerType === "Bomber") {
+      return 3;
+    }
+    if (attackerType === "Ground_Attack" || attackerClass === "artillery") {
+      return 2;
+    }
+    return impactRating >= 40 ? 2 : 1;
   }
 
   /**
@@ -2869,8 +2916,8 @@ export class HexMapRenderer implements IMapRenderer {
     });
   }
 
-  /** Emits a short burst of metal sparks at the defender for hard-target impacts. */
-  private async playSparkBurst(defenderHexKey: string, rayCount = 8, durationMs = 160): Promise<void> {
+  /** Emits a short burst of procedural spark rays for air hits and lightweight fallback impacts. */
+  private async playLegacySparkBurst(defenderHexKey: string, rayCount = 8, durationMs = 160): Promise<void> {
     const layer = this.ensureCombatEffectsLayer();
     if (!this.svgElement || !layer) {
       return;
@@ -2922,6 +2969,55 @@ export class HexMapRenderer implements IMapRenderer {
         }, durationMs);
       });
     });
+  }
+
+  /**
+   * Plays a hit/spark impact effect. Vehicle targets use the FSG sprite sheet, while air and fallback
+   * impacts continue to use lightweight procedural spark rays.
+   */
+  private async playSparkBurst(
+    defenderHexKey: string,
+    options: {
+      attackerType?: string;
+      attackerClass?: UnitClass;
+      defenderClass?: UnitClass;
+      durationMs?: number;
+      rayCount?: number;
+      scaleMultiplier?: number;
+      burstCount?: number;
+    } = {}
+  ): Promise<void> {
+    const defenderClass = options.defenderClass;
+    if (defenderClass !== "tank" && defenderClass !== "vehicle") {
+      return this.playLegacySparkBurst(
+        defenderHexKey,
+        options.rayCount ?? this.chooseSparkCount(defenderClass),
+        options.durationMs ?? 160
+      );
+    }
+
+    const burstCount = this.clamp(
+      Math.round(options.burstCount ?? this.chooseImpactSparkBurstCount(options.attackerType, options.attackerClass)),
+      1,
+      3
+    );
+    const scaleMultiplier = Math.max(0.65, options.scaleMultiplier ?? 1);
+    const baseScale = this.chooseImpactSparkScale(options.attackerType, options.attackerClass) * scaleMultiplier;
+    const staggerMs = Math.max(28, Math.min(72, Math.round((options.durationMs ?? 160) * 0.32)));
+    const jitterPx = 7 + (burstCount - 1) * 2;
+
+    const burstPromises = Array.from({ length: burstCount }).map((_, index) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          const offsetX = (Math.random() - 0.5) * jitterPx * 2;
+          const offsetY = (Math.random() - 0.5) * jitterPx * 1.6;
+          const scale = index === 0 ? baseScale : baseScale * 0.88;
+          void this.playCombatAnimation("impactHits", defenderHexKey, offsetX, offsetY, scale).then(() => resolve());
+        }, index * staggerMs);
+      })
+    );
+
+    await Promise.all(burstPromises);
   }
 
   /**
@@ -2993,7 +3089,14 @@ export class HexMapRenderer implements IMapRenderer {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const hitShakePromise = this.playHitShake(defenderHexKey, defenderIsAir ? 7 : targetIsHardTarget ? 5 : 4);
-      const sparksPromise = this.playSparkBurst(defenderHexKey, defenderIsAir ? 10 : targetIsHardTarget ? 9 : 7, 130);
+      const sparksPromise = this.playSparkBurst(defenderHexKey, {
+        attackerType,
+        attackerClass,
+        defenderClass,
+        durationMs: 130,
+        rayCount: defenderIsAir ? 10 : targetIsHardTarget ? 9 : 7,
+        scaleMultiplier: targetIsHardTarget ? 0.95 : 1
+      });
       const airBurstPromise = defenderIsAir
         ? this.playCombatAnimation("explosionSmall", defenderHexKey, 0, 0, 1.45)
         : Promise.resolve();
@@ -3044,7 +3147,16 @@ export class HexMapRenderer implements IMapRenderer {
         })
       );
 
-      const sparksPromise = !defenderIsAir && targetIsHardTarget ? this.playSparkBurst(defenderHexKey, 14, 160) : Promise.resolve();
+      const sparksPromise = !defenderIsAir && targetIsHardTarget
+        ? this.playSparkBurst(defenderHexKey, {
+            attackerType,
+            attackerClass,
+            defenderClass,
+            durationMs: 160,
+            burstCount: 3,
+            scaleMultiplier: 1.18
+          })
+        : Promise.resolve();
       const dustPromise = !defenderIsAir
         ? new Promise<void>((resolve) => {
             window.setTimeout(() => {
@@ -3090,11 +3202,22 @@ export class HexMapRenderer implements IMapRenderer {
         })
       );
 
-      const sparksCount = this.chooseSparkCount(defenderClass);
       const sparksPromise = defenderIsAir
-        ? this.playSparkBurst(defenderHexKey, 10, 170)
+        ? this.playSparkBurst(defenderHexKey, {
+            attackerType,
+            attackerClass,
+            defenderClass,
+            durationMs: 170,
+            rayCount: 10
+          })
         : targetIsHardTarget
-          ? this.playSparkBurst(defenderHexKey, sparksCount)
+          ? this.playSparkBurst(defenderHexKey, {
+              attackerType,
+              attackerClass,
+              defenderClass,
+              durationMs: 160,
+              scaleMultiplier: 1.08
+            })
           : Promise.resolve();
       const dustPromise = new Promise<void>((resolve) => {
         window.setTimeout(() => {
@@ -3142,7 +3265,13 @@ export class HexMapRenderer implements IMapRenderer {
     const hitShakePromise = this.playHitShake(defenderHexKey, targetIsHardTarget ? 5 : 4);
 
     if (useSmallArmsVisuals) {
-      const sparksPromise = this.playSparkBurst(defenderHexKey, targetIsHardTarget ? 8 : 6, 140);
+      const sparksPromise = this.playSparkBurst(defenderHexKey, {
+        attackerType,
+        attackerClass,
+        defenderClass,
+        durationMs: 140,
+        rayCount: targetIsHardTarget ? 8 : 6
+      });
       const airBurstPromise = defenderIsAir ? this.playCombatAnimation("explosionSmall", defenderHexKey, 0, 0, 1.35) : Promise.resolve();
       const dustPromise = new Promise<void>((resolve) => {
         window.setTimeout(() => {
@@ -3184,11 +3313,20 @@ export class HexMapRenderer implements IMapRenderer {
       })
     );
 
-    const sparksCount = this.chooseSparkCount(defenderClass);
     const sparksPromise = defenderIsAir
-      ? this.playSparkBurst(defenderHexKey, 9, 170)
+      ? this.playSparkBurst(defenderHexKey, {
+          attackerType,
+          attackerClass,
+          defenderClass,
+          durationMs: 170,
+          rayCount: 9
+        })
       : targetIsHardTarget
-        ? this.playSparkBurst(defenderHexKey, sparksCount)
+        ? this.playSparkBurst(defenderHexKey, {
+            attackerType,
+            attackerClass,
+            defenderClass
+          })
         : Promise.resolve();
     const dustPromise = !defenderIsAir && !targetIsHardTarget
       ? new Promise<void>((resolve) => {

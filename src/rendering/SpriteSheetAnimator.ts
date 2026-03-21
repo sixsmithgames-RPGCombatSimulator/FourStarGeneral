@@ -45,6 +45,7 @@ const XLINK_NS = "http://www.w3.org/1999/xlink";
 const muzzleFlashUrl = new URL("../assets/combat animations/muzzle_flash.png", import.meta.url).href;
 const explosionSmallUrl = new URL("../assets/combat animations/FSG_Explosion_Small.png", import.meta.url).href;
 const explosionLargeUrl = new URL("../assets/combat animations/FSG_Explosion_Large.png", import.meta.url).href;
+const impactHitsUrl = new URL("../assets/combat animations/FSG_Sparks_and_Hits.png", import.meta.url).href;
 const dustCloudUrl = new URL("../assets/combat animations/dust_cloud.png", import.meta.url).href;
 const tracerUrl = new URL("../assets/combat animations/tracer.png", import.meta.url).href;
 
@@ -60,6 +61,13 @@ function smallExplosionFrameDuration(frameIndex: number): number {
   if (frameIndex < 10) return 46;
   if (frameIndex < 16) return 60;
   return 80;
+}
+
+function impactHitsFrameDuration(frameIndex: number): number {
+  if (frameIndex < 4) return 18;
+  if (frameIndex < 10) return 24;
+  if (frameIndex < 16) return 30;
+  return 36;
 }
 
 /**
@@ -97,6 +105,18 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
     anchorY: 0.8,
     fadeOutStartFrame: 15,
     getFrameDuration: (frameIndex) => largeExplosionFrameDuration(frameIndex)
+  },
+  impactHits: {
+    imagePath: impactHitsUrl,
+    columns: 6,
+    rows: 4,
+    frameCount: 24,
+    loop: false,
+    renderScale: 0.24,
+    anchorX: 0.5,
+    anchorY: 0.5,
+    fadeOutStartFrame: 16,
+    getFrameDuration: (frameIndex) => impactHitsFrameDuration(frameIndex)
   },
   dustCloud: {
     imagePath: dustCloudUrl,

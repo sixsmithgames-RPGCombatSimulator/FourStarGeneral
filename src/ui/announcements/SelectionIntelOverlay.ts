@@ -19,11 +19,14 @@ export class SelectionIntelOverlay {
   private readonly bodyElement: HTMLElement | null;
   private readonly notesElement: HTMLElement | null;
   private readonly dismissButton: HTMLButtonElement | null;
+  private readonly toggleButton: HTMLButtonElement | null;
   private readonly handleDismissBound = (event: Event) => this.handleDismiss(event);
   private readonly handleKeydownBound = (event: KeyboardEvent) => this.handleKeydown(event);
+  private readonly handleToggleBound = (event: Event) => this.handleToggle(event);
 
   private lastSignature: string | null = null;
   private suppressedSignature: string | null = null;
+  private collapsed = true;
 
   constructor(selectors: {
     rootSelector?: string;
@@ -32,6 +35,7 @@ export class SelectionIntelOverlay {
     bodySelector?: string;
     notesSelector?: string;
     dismissSelector?: string;
+    toggleSelector?: string;
   } = {}) {
     const {
       rootSelector = "#battleIntelOverlay",
@@ -39,7 +43,8 @@ export class SelectionIntelOverlay {
       metaSelector = "#battleIntelOverlayMeta",
       bodySelector = "#battleIntelOverlayBody",
       notesSelector = "#battleIntelOverlayNotes",
-      dismissSelector = "#battleIntelOverlayDismiss"
+      dismissSelector = "#battleIntelOverlayDismiss",
+      toggleSelector = "#battleIntelOverlayToggle"
     } = selectors;
 
     this.root = document.querySelector<HTMLElement>(rootSelector);
@@ -48,18 +53,22 @@ export class SelectionIntelOverlay {
     this.bodyElement = document.querySelector<HTMLElement>(bodySelector);
     this.notesElement = document.querySelector<HTMLElement>(notesSelector);
     this.dismissButton = document.querySelector<HTMLButtonElement>(dismissSelector);
+    this.toggleButton = document.querySelector<HTMLButtonElement>(toggleSelector);
 
     if (this.root) {
       this.root.setAttribute("aria-hidden", "true");
       this.root.classList.add("hidden");
       this.root.addEventListener("keydown", this.handleKeydownBound);
+      this.root.dataset.collapsed = "true";
     }
     this.dismissButton?.addEventListener("click", this.handleDismissBound);
+    this.toggleButton?.addEventListener("click", this.handleToggleBound);
   }
 
   /** Releases DOM listeners so the overlay can be safely garbage collected. */
   dispose(): void {
     this.dismissButton?.removeEventListener("click", this.handleDismissBound);
+    this.toggleButton?.removeEventListener("click", this.handleToggleBound);
     this.root?.removeEventListener("keydown", this.handleKeydownBound);
   }
 
@@ -87,6 +96,7 @@ export class SelectionIntelOverlay {
 
     if (isNewIntel) {
       this.suppressedSignature = null;
+      this.collapsed = intel.kind === "battle";
     }
 
     if (this.suppressedSignature === signature) {
@@ -118,6 +128,12 @@ export class SelectionIntelOverlay {
     this.root.setAttribute("aria-hidden", "true");
   }
 
+  private handleToggle(event: Event): void {
+    event.preventDefault();
+    this.collapsed = !this.collapsed;
+    this.syncCollapsedState();
+  }
+
   private handleDismiss(event: Event): void {
     event.preventDefault();
     this.suppressedSignature = this.lastSignature;
@@ -139,6 +155,15 @@ export class SelectionIntelOverlay {
     if (this.root) {
       this.root.dataset.intelKind = intel.kind;
     }
+    if (this.toggleButton) {
+      const canCollapse = intel.kind === "battle";
+      this.toggleButton.hidden = !canCollapse;
+      this.toggleButton.setAttribute("aria-hidden", canCollapse ? "false" : "true");
+      if (canCollapse) {
+        this.toggleButton.textContent = this.collapsed ? "Expand" : "Compact";
+      }
+    }
+    this.syncCollapsedState();
     if (this.titleElement) {
       this.titleElement.textContent = title;
     }
@@ -159,6 +184,17 @@ export class SelectionIntelOverlay {
         this.notesElement.classList.add("hidden");
         this.notesElement.textContent = "";
       }
+    }
+  }
+
+  private syncCollapsedState(): void {
+    if (!this.root) {
+      return;
+    }
+    this.root.dataset.collapsed = this.collapsed ? "true" : "false";
+    if (this.toggleButton && !this.toggleButton.hidden) {
+      this.toggleButton.setAttribute("aria-expanded", this.collapsed ? "false" : "true");
+      this.toggleButton.textContent = this.collapsed ? "Expand" : "Compact";
     }
   }
 

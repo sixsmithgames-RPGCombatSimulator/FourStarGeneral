@@ -35,7 +35,7 @@
 
       function showGate(message, url, btnText) {
         document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#080a11;color:#fff;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;text-align:center;padding:2rem;">'
-          + '<div style="font-size:3rem;margin-bottom:1rem;">🎖️</div>'
+          + '<div style="font-size:1rem;margin-bottom:1rem;letter-spacing:0.3em;text-transform:uppercase;color:#f5c46d;">FSG</div>'
           + '<h1 style="font-size:2rem;font-weight:800;margin-bottom:0.5rem;letter-spacing:0.08em;text-transform:uppercase;">Four Star General</h1>'
           + '<p style="color:#f5c46d;margin-bottom:2rem;max-width:400px;">' + message + '</p>'
           + '<a href="' + url + '" style="background:linear-gradient(135deg,#b45309,#f5c46d);color:#080a11;padding:0.875rem 2rem;border-radius:50px;text-decoration:none;font-weight:700;font-size:1rem;">' + btnText + '</a>'
@@ -2028,47 +2028,70 @@
       top: 1rem;
       left: 1rem;
       transform: none;
-      width: min(560px, calc(100% - 2rem));
+      width: min(400px, calc(100% - 2rem));
       display: grid;
-      gap: 0.8rem;
-      padding: 1rem 1rem 1rem 1rem;
+      gap: 0.55rem;
+      padding: 0.8rem 0.85rem 0.85rem 0.85rem;
       background:
         linear-gradient(160deg, rgba(17, 24, 36, 0.96), rgba(9, 13, 22, 0.92)),
         radial-gradient(circle at top right, rgba(245, 196, 109, 0.12), transparent 42%);
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 22px;
+      border-radius: 18px;
       color: var(--text-primary);
-      font-size: 0.85rem;
-      line-height: 1.35;
+      font-size: 0.82rem;
+      line-height: 1.3;
       max-height: calc(100% - 2rem);
-      overflow-y: auto;
+      overflow: hidden;
       z-index: 30;
       box-shadow:
         0 26px 52px rgba(4, 6, 12, 0.42),
         inset 0 1px 0 rgba(255, 255, 255, 0.06);
       backdrop-filter: blur(16px);
     }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] {
+      width: min(520px, calc(100% - 2rem));
+    }
     .battle-intel-overlay[data-intel-kind="deployment"],
     .battle-intel-overlay[data-intel-kind="terrain"] {
-      width: min(380px, calc(100% - 2rem));
+      width: min(320px, calc(100% - 2rem));
     }
     .battle-intel-overlay.hidden {
       display: none;
     }
     .battle-intel-overlay__dismiss {
       position: absolute;
-      top: 0.75rem;
-      right: 0.75rem;
+      top: 0.6rem;
+      right: 0.6rem;
       appearance: none;
       border: 1px solid rgba(255, 255, 255, 0.12);
       background: rgba(12, 16, 24, 0.88);
       color: inherit;
       cursor: pointer;
-      font-size: 1rem;
-      width: 1.85rem;
-      height: 1.85rem;
+      font-size: 0.95rem;
+      width: 1.65rem;
+      height: 1.65rem;
       border-radius: 999px;
       line-height: 1;
+    }
+    .battle-intel-overlay__toggle {
+      position: absolute;
+      top: 0.6rem;
+      right: 2.45rem;
+      min-height: 1.65rem;
+      padding: 0.1rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(20, 28, 40, 0.86);
+      color: rgba(248, 249, 251, 0.78);
+      font-size: 0.66rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .battle-intel-overlay__toggle:focus-visible {
+      outline: 2px solid var(--accent-strong);
+      outline-offset: 2px;
     }
     .battle-intel-overlay__dismiss:focus-visible {
       outline: 2px solid var(--accent-strong);
@@ -2076,30 +2099,59 @@
     }
     .battle-intel-overlay__header {
       display: grid;
-      gap: 0.25rem;
+      gap: 0.2rem;
       margin: 0;
-      padding-right: 2.25rem;
+      padding-right: 5.3rem;
     }
     .battle-intel-overlay__title {
       display: block;
       margin: 0;
-      font-size: 1rem;
+      font-size: 0.94rem;
       letter-spacing: 0.06em;
       text-transform: uppercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .battle-intel-overlay__meta {
       margin: 0;
+      font-size: 0.74rem;
       color: rgba(248, 249, 251, 0.72);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     #battleIntelOverlayBody {
       display: grid;
-      gap: 0.75rem;
+      gap: 0.55rem;
+      overflow-y: auto;
+      padding-right: 0.15rem;
     }
     #battleIntelOverlayNotes {
       display: grid;
       gap: 0.35rem;
       padding-top: 0.15rem;
       border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .battle-intel-overlay[data-collapsed="true"] #battleIntelOverlayNotes,
+    .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__actions {
+      display: none;
+    }
+    .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__stats {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 0.35rem;
+    }
+    .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__stat {
+      padding: 0.42rem 0.48rem;
+      border-radius: 10px;
+    }
+    .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__chip-row {
+      gap: 0.32rem;
+    }
+    .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__chip {
+      min-height: 1.45rem;
+      padding: 0.2rem 0.5rem;
+      font-size: 0.64rem;
     }
     .battle-intel-overlay__stats {
       display: grid;
@@ -2577,6 +2629,9 @@
       background: rgba(0, 0, 0, 0.3);
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
+    .attack-stance-selector.attack-stance-selector--hidden {
+      display: none;
+    }
 
     .attack-stance-selector .stance-label {
       display: block;
@@ -2589,61 +2644,156 @@
     }
 
     .stance-buttons {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 0.75rem;
     }
 
     .stance-button {
+      position: relative;
       flex: 1;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      padding: 0.875rem;
-      background: rgba(40, 40, 40, 0.8);
-      border: 2px solid rgba(100, 100, 100, 0.5);
-      border-radius: 4px;
+      align-items: flex-start;
+      gap: 0.45rem;
+      min-height: 124px;
+      padding: 0.95rem 1rem;
+      background: linear-gradient(180deg, rgba(24, 29, 43, 0.96), rgba(16, 20, 31, 0.96));
+      border: 1px solid rgba(112, 125, 150, 0.35);
+      border-radius: 14px;
       cursor: pointer;
-      transition: all 0.2s ease;
-      color: #e0e0e0;
+      transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+      color: #e8edf7;
+      text-align: left;
     }
 
-    .stance-button:hover {
-      background: rgba(60, 60, 60, 0.8);
-      border-color: rgba(150, 150, 150, 0.8);
+    .stance-button:hover:not(:disabled) {
+      background: linear-gradient(180deg, rgba(30, 38, 56, 0.98), rgba(18, 23, 35, 0.98));
+      border-color: rgba(173, 186, 210, 0.5);
       transform: translateY(-1px);
     }
 
     .stance-button.stance-active {
-      background: rgba(100, 120, 140, 0.5);
-      border-color: rgba(245, 196, 109, 0.8);
-      box-shadow: 0 0 8px rgba(245, 196, 109, 0.3);
+      background: linear-gradient(180deg, rgba(58, 72, 96, 0.98), rgba(33, 41, 58, 0.98));
+      border-color: rgba(245, 196, 109, 0.95);
+      box-shadow: 0 0 0 1px rgba(245, 196, 109, 0.35), 0 18px 40px rgba(0, 0, 0, 0.35);
     }
 
-    .stance-icon {
-      font-size: 1.75rem;
-      margin-bottom: 0.375rem;
-      line-height: 1;
+    .stance-heading {
+      display: flex;
+      width: 100%;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
     }
 
     .stance-name {
       font-weight: bold;
-      font-size: 0.875rem;
+      font-size: 0.95rem;
       color: #fff;
-      margin-bottom: 0.375rem;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .stance-state {
+      min-height: 1.5rem;
+      padding: 0.18rem 0.55rem;
+      border-radius: 999px;
+      background: rgba(245, 196, 109, 0.16);
+      border: 1px solid rgba(245, 196, 109, 0.38);
+      color: rgba(255, 230, 178, 0.96);
+      font-size: 0.66rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+
+    .stance-button.stance-active .stance-state {
+      opacity: 1;
     }
 
     .stance-desc {
+      font-size: 0.78rem;
+      color: #d6dde8;
+      line-height: 1.45;
+    }
+
+    .stance-note {
+      margin-top: auto;
       font-size: 0.7rem;
-      color: #b0b0b0;
-      text-align: center;
-      line-height: 1.3;
+      color: rgba(170, 183, 205, 0.9);
+      line-height: 1.35;
     }
 
     .stance-button.stance-disabled {
-      opacity: 0.4;
+      opacity: 0.52;
       cursor: not-allowed;
-      pointer-events: none;
+      transform: none;
+      box-shadow: none;
+    }
+    .attack-preview-intro {
+      display: grid;
+      gap: 0.85rem;
+      margin-bottom: 1rem;
+    }
+    .attack-preview-formation {
+      padding: 0.85rem 0.95rem;
+      background: rgba(8, 12, 20, 0.52);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+    }
+    .attack-preview-formation__meta {
+      margin: 0;
+      font-size: 0.88rem;
+      color: var(--text-muted);
+    }
+    .attack-preview-range {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.5rem 0.8rem;
+      border-radius: 999px;
+      background: rgba(245, 196, 109, 0.08);
+      border: 1px solid rgba(245, 196, 109, 0.22);
+      color: var(--accent-strong);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .attack-preview-profile,
+    .attack-preview-panel {
+      padding: 0.9rem 1rem;
+      background: rgba(0, 0, 0, 0.24);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+    }
+    .attack-preview-profile {
+      display: grid;
+      gap: 0.2rem;
+    }
+    .attack-preview-profile__label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent-strong);
+    }
+    .attack-preview-profile__note {
+      color: var(--text-muted);
+      font-size: 0.76rem;
+      line-height: 1.4;
+    }
+    .attack-preview-status {
+      font-weight: 700;
+    }
+    .attack-preview-status--good {
+      color: #66bb6a;
+    }
+    .attack-preview-status--danger {
+      color: #ef5350;
     }
     /* Idle warning uses the same overlay treatment as other battle dialogs so it floats above the UI. */
     .idle-warning-layer {
@@ -3160,7 +3310,7 @@
       .battle-intel-overlay {
         top: 0.75rem;
         left: 0.75rem;
-        width: min(480px, calc(100% - 1.5rem));
+        width: min(360px, calc(100% - 1.5rem));
       }
     }
     @media (max-width: 600px) {
@@ -3190,7 +3340,10 @@
         top: 0.5rem;
         left: 0.5rem;
         width: calc(100% - 1rem);
-        padding: 0.85rem 0.85rem 0.9rem;
+        padding: 0.72rem 0.72rem 0.78rem;
+      }
+      .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__stats {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
       .battle-intel-overlay__actions {
         grid-template-columns: 1fr;
@@ -4198,31 +4351,31 @@
       <nav class="control-sidebar">
         <button type="button" class="sidebar-button" data-popup="baseOperations" title="Headquarters overview">
           <span class="label">HQ</span>
-          <span class="icon" aria-hidden="true">🏛️</span>
+          <span class="icon" aria-hidden="true">OPS</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="generalProfile" title="Commander Profile">
           <span class="label">General</span>
-          <span class="icon">🎖️</span>
+          <span class="icon">CMD</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="recon">
           <span class="label">Recon</span>
-          <span class="icon">🔍</span>
+          <span class="icon">REC</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="intelligence">
           <span class="label">Intel</span>
-          <span class="icon">🕵️</span>
+          <span class="icon">INT</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="logistics">
           <span class="label">Logistics</span>
-          <span class="icon">🚛</span>
+          <span class="icon">LOG</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="supplies">
           <span class="label">Supplies</span>
-          <span class="icon">📦</span>
+          <span class="icon">SUP</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="armyRoster">
           <span class="label">Roster</span>
-          <span class="icon">👥</span>
+          <span class="icon">ORD</span>
         </button>
       </nav>
 
@@ -4252,7 +4405,7 @@
                 <button id="endMissionButton" type="button">End Mission</button>
                 <!-- Air Support compact HUD: shows quick counts and opens the Air Support panel -->
                 <div id="airHudWidget" class="air-hud compact-hud" aria-label="Air Support status">
-                  <button type="button" class="compact-button" data-airhud-open aria-label="Open Air Support panel">✈ Air</button>
+                <button type="button" class="compact-button" data-airhud-open aria-label="Open Air Support panel">Air</button>
                   <div class="air-hud__counts" aria-live="polite">
                     <span class="air-hud__chip" title="Queued">Q <span data-airhud-queued>0</span></span>
                     <span class="air-hud__chip" title="In flight">IF <span data-airhud-inflight>0</span></span>
@@ -4282,6 +4435,7 @@
                 aria-modal="false"
                 tabindex="-1"
               >
+                <button id="battleIntelOverlayToggle" type="button" class="battle-intel-overlay__toggle" aria-expanded="false">Expand</button>
                 <button id="battleIntelOverlayDismiss" type="button" class="battle-intel-overlay__dismiss" aria-label="Dismiss intel card">×</button>
                 <header class="battle-intel-overlay__header">
                   <h3 id="battleIntelOverlayTitle" class="battle-intel-overlay__title">Intel</h3>
@@ -4418,14 +4572,20 @@
             <label class="stance-label">Combat Stance:</label>
             <div class="stance-buttons">
               <button type="button" id="stanceAssault" class="stance-button" data-stance="assault">
-                <span class="stance-icon">⚔️</span>
-                <span class="stance-name">ASSAULT</span>
-                <span class="stance-desc">Close to 0-50m • +50% accuracy for both • Lose cover</span>
+                <span class="stance-heading">
+                  <span class="stance-name">Assault</span>
+                  <span class="stance-state"></span>
+                </span>
+                <span class="stance-desc">Close to point-blank range. Higher hit probability, but the battalion gives up cover.</span>
+                <span class="stance-note">Point-blank attack. Uses 1.5x the computed hit chance.</span>
               </button>
               <button type="button" id="stanceSuppressive" class="stance-button stance-active" data-stance="suppressive">
-                <span class="stance-icon">🎯</span>
-                <span class="stance-name">SUPPRESSIVE</span>
-                <span class="stance-desc">Fire from range • Apply suppression • Safe</span>
+                <span class="stance-heading">
+                  <span class="stance-name">Suppressive</span>
+                  <span class="stance-state">Selected</span>
+                </span>
+                <span class="stance-desc">Stay in ranged posture, disrupt the target, and preserve the battalion's formation.</span>
+                <span class="stance-note">Default fire profile for foot formations.</span>
               </button>
             </div>
           </div>
@@ -4750,7 +4910,7 @@
             <!-- ECONOMY SECTION -->
             <section class="sidebar-section economy-section">
               <h3 class="sidebar-heading">
-                <span class="heading-icon">💰</span>
+                <span class="heading-icon">RES</span>
                 <span>Resources</span>
               </h3>
               <div id="campaignEconomySummary"></div>
@@ -4759,7 +4919,7 @@
             <!-- MAP CONTROLS SECTION -->
             <section class="sidebar-section map-controls-section">
               <h3 class="sidebar-heading">
-                <span class="heading-icon">🗺️</span>
+                <span class="heading-icon">MAP</span>
                 <span>Map Controls</span>
               </h3>
               <div class="control-grid">
@@ -4786,28 +4946,28 @@
             <!-- SESSION SECTION -->
             <section class="sidebar-section session-section">
               <h3 class="sidebar-heading">
-                <span class="heading-icon">💾</span>
+                <span class="heading-icon">SYS</span>
                 <span>Session</span>
               </h3>
               <div class="session-controls">
                 <button id="campaignSave" type="button" class="session-btn" title="Save campaign progress">
-                  <span class="btn-icon">💾</span>
+                  <span class="btn-icon">SAV</span>
                   <span>Save</span>
                 </button>
                 <button id="campaignLoad" type="button" class="session-btn" title="Load last saved campaign">
-                  <span class="btn-icon">📂</span>
+                  <span class="btn-icon">LOD</span>
                   <span>Load</span>
                 </button>
                 <button id="campaignEditMode" type="button" class="session-btn" title="Toggle map editor">
-                  <span class="btn-icon">✏️</span>
+                  <span class="btn-icon">EDT</span>
                   <span>Edit</span>
                 </button>
                 <button id="campaignExit" type="button" class="session-btn session-btn-exit" title="Exit to main menu">
-                  <span class="btn-icon">🚪</span>
+                  <span class="btn-icon">EXT</span>
                   <span>Exit</span>
                 </button>
                 <button id="campaignExportJSON" type="button" class="session-btn hidden" title="Export campaign JSON">
-                  <span class="btn-icon">📤</span>
+                  <span class="btn-icon">EXP</span>
                   <span>Export</span>
                 </button>
               </div>
@@ -4896,23 +5056,23 @@
                   </div>
                   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5em; margin-bottom: 0.5em;">
                     <div>
-                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">👥 Manpower:</label>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">Manpower:</label>
                       <input id="editorManpower" type="number" min="0" step="100" style="width: 100%;" />
                     </div>
                     <div>
-                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">📦 Supplies:</label>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">Supplies:</label>
                       <input id="editorSupplies" type="number" min="0" step="100" style="width: 100%;" />
                     </div>
                     <div>
-                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">⛽ Fuel:</label>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">Fuel:</label>
                       <input id="editorFuel" type="number" min="0" step="100" style="width: 100%;" />
                     </div>
                     <div>
-                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">💣 Ammo:</label>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">Ammo:</label>
                       <input id="editorAmmo" type="number" min="0" step="100" style="width: 100%;" />
                     </div>
                     <div>
-                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">✈️ Air Power:</label>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">Air Power:</label>
                       <input id="editorAirPower" type="number" min="0" step="1" style="width: 100%;" />
                     </div>
                     <div>
@@ -4920,7 +5080,7 @@
                       <input id="editorNavalPower" type="number" min="0" step="1" style="width: 100%;" />
                     </div>
                     <div>
-                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">🔍 Intel:</label>
+                      <label style="display: block; font-size: 0.85em; margin-bottom: 0.25em;">Intel:</label>
                       <input id="editorIntelCoverage" type="number" min="0" step="1" style="width: 100%;" />
                     </div>
                   </div>
@@ -4932,7 +5092,7 @@
             <!-- SELECTION SECTION -->
             <section class="sidebar-section selection-section">
               <h3 class="sidebar-heading">
-                <span class="heading-icon">🎯</span>
+                <span class="heading-icon">SEL</span>
                 <span>Selection</span>
               </h3>
               <div id="campaignSelectionInfo" class="selection-info"></div>
@@ -4941,7 +5101,7 @@
             <!-- ENGAGEMENT ACTION -->
             <div class="action-section">
               <button id="campaignQueueEngagement" type="button" class="engagement-btn" disabled>
-                <span class="btn-icon">⚔️</span>
+                <span class="btn-icon">ENG</span>
                 <span>Queue Engagement</span>
               </button>
             </div>
