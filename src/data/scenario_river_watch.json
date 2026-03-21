@@ -28,7 +28,7 @@
     ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","RIVER_DEEP","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS"]
   ],
   "objectives": [
-    { "hex": [6, 2], "owner": "Bot", "vp": 50 },
+    { "hex": [7, 2], "owner": "Bot", "vp": 50 },
     { "hex": [6, 6], "owner": "Bot", "vp": 50 },
     { "hex": [6, 9], "owner": "Bot", "vp": 50 }
   ],
