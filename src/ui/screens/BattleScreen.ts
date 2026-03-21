@@ -285,14 +285,14 @@ export class BattleScreen {
       return;
     }
 
-    // Get unit labels from the unit type definitions
+    const detailsExpanded = this.attackConfirmBody.querySelector<HTMLDetailsElement>(".attack-preview-details")?.open ?? false;
+
     const attackerType = preview.attacker.type;
     const defenderType = preview.defender.type;
     const attackerDef = this.unitTypes?.[attackerType];
     const attackerLabel = this.toTitleCase(attackerType);
     const defenderLabel = this.toTitleCase(defenderType);
 
-    // Build detailed combat preview with explicit commander/payload breakdowns.
     const accuracyDetails = preview.result.accuracyBreakdown;
     const damageDetails = preview.result.damageBreakdown;
     const commanderStats = preview.commander;
@@ -323,14 +323,14 @@ export class BattleScreen {
     const commanderDamageScalar = damageDetails.commanderScalar;
     const prePayloadDamagePerHit = damageDetails.final;
     const postPayloadDamagePerHit = preview.finalDamagePerHit;
-    const damagePerHitSummary = `${prePayloadDamagePerHit.toFixed(3)}% → ${postPayloadDamagePerHit.toFixed(3)}%`;
+    const damagePerHitSummary = `${prePayloadDamagePerHit.toFixed(3)}% -> ${postPayloadDamagePerHit.toFixed(3)}%`;
 
     const baseExpectedDamage = preview.result.expectedDamage;
     const postPayloadExpectedDamage = preview.finalExpectedDamage;
     const baseExpectedSuppression = preview.result.expectedSuppression;
     const postPayloadExpectedSuppression = preview.finalExpectedSuppression;
-    const expectedDamageSummary = `${baseExpectedDamage.toFixed(1)}% → ${postPayloadExpectedDamage.toFixed(1)}%`;
-    const suppressionSummary = `${baseExpectedSuppression.toFixed(1)} → ${postPayloadExpectedSuppression.toFixed(1)}`;
+    const expectedDamageSummary = `${baseExpectedDamage.toFixed(1)}% -> ${postPayloadExpectedDamage.toFixed(1)}%`;
+    const suppressionSummary = `${baseExpectedSuppression.toFixed(1)} -> ${postPayloadExpectedSuppression.toFixed(1)}`;
 
     const damageMultiplier = preview.damageMultiplier;
     const suppressionMultiplier = preview.suppressionMultiplier;
@@ -352,103 +352,172 @@ export class BattleScreen {
 
     const terrainDeltaText = `${terrainModifier >= 0 ? "+" : ""}${terrainModifier.toFixed(1)}%`;
     const accuracyBreakdownLine =
-      `Base ${baseAccuracyPercent.toFixed(1)}% × Cmd x${commanderAccuracyScalar.toFixed(2)} = ${baseWithCommander.toFixed(1)}%, ` +
-      `Exp ${experienceAccuracyDelta.toFixed(1)}% × Cmd x${commanderAccuracyScalar.toFixed(2)} = ${experienceWithCommander.toFixed(1)}%, ` +
-      `Sum ${combinedAfterCommander.toFixed(1)}% × Terrain ${terrainMultiplier.toFixed(2)} (${terrainDeltaText}) = ${afterTerrain.toFixed(1)}% × Spot ${spottedMultiplier.toFixed(2)} = ${finalPreClamp.toFixed(1)}% → Final ${accuracyDetails.final.toFixed(1)}%`;
+      `Base ${baseAccuracyPercent.toFixed(1)}% x Cmd x${commanderAccuracyScalar.toFixed(2)} = ${baseWithCommander.toFixed(1)}%, ` +
+      `Exp ${experienceAccuracyDelta.toFixed(1)}% x Cmd x${commanderAccuracyScalar.toFixed(2)} = ${experienceWithCommander.toFixed(1)}%, ` +
+      `Sum ${combinedAfterCommander.toFixed(1)}% x Terrain ${terrainMultiplier.toFixed(2)} (${terrainDeltaText}) = ${afterTerrain.toFixed(1)}% x Spot ${spottedMultiplier.toFixed(2)} = ${finalPreClamp.toFixed(1)}% -> Final ${accuracyDetails.final.toFixed(1)}%`;
 
     const damageBreakdownLine =
-      `Table ${baseDamagePerHit.toFixed(3)}% × Exp x${experienceScalar.toFixed(2)} = ${preCommanderDamagePerHit.toFixed(3)}% × Cmd x${commanderDamageScalar.toFixed(2)} = ${prePayloadDamagePerHit.toFixed(3)}%`;
+      `Table ${baseDamagePerHit.toFixed(3)}% x Exp x${experienceScalar.toFixed(2)} = ${preCommanderDamagePerHit.toFixed(3)}% x Cmd x${commanderDamageScalar.toFixed(2)} = ${prePayloadDamagePerHit.toFixed(3)}%`;
 
-    // Calculate attack range and real-world distance
     const distance = Math.abs(attacker.q - defender.q) + Math.abs(attacker.r - defender.r) + Math.abs((-attacker.q - attacker.r) - (-defender.q - defender.r));
     const range = Math.floor(distance / 2);
     const attackerRangeMin = attackerDef?.rangeMin ?? 1;
     const attackerRangeMax = attackerDef?.rangeMax ?? 1;
-    const realWorldDistanceMeters = range * 250;  // 1 hex = 250 meters (NEW SCALE)
+    const realWorldDistanceMeters = range * 250;
     const realWorldDistanceKm = realWorldDistanceMeters >= 1000
       ? `${(realWorldDistanceMeters / 1000).toFixed(1)}km`
       : `${realWorldDistanceMeters}m`;
+    const attackerRangeText = `${attackerRangeMin * 250}m-${attackerRangeMax >= 10 ? `${(attackerRangeMax * 0.25).toFixed(1)}km` : `${attackerRangeMax * 250}m`}`;
 
     const profile = this.describeAttackProfile(attackerUnit ?? preview.attacker, commandState);
-
-    // Determine penetration status
-    const penetrationStatus = effectiveAP >= facingArmor
-      ? `<span class="attack-preview-status attack-preview-status--good">Penetration Advantage</span>`
-      : `<span class="attack-preview-status attack-preview-status--danger">Armor Holds</span>`;
-
-    // Determine hit chance quality
     const roundedAccuracy = Math.round(finalAccuracyPercent);
-    const accuracyQuality = roundedAccuracy >= 75
-      ? `<span style="color: #66bb6a;">${roundedAccuracy}%</span>`
+    const penetrationSummary = effectiveAP >= facingArmor ? "Penetration Advantage" : "Armor Holds";
+    const projectedDefenderStrength = Math.max(0, defenderStrength - postPayloadExpectedDamage);
+    const projectedAttackerStrength = Math.max(0, attackerStrength - preview.expectedRetaliation);
+
+    const accuracyToneClass = roundedAccuracy >= 75
+      ? "attack-preview-outcome__value--good"
       : roundedAccuracy >= 50
-        ? `<span style="color: #ffa726;">${roundedAccuracy}%</span>`
-        : `<span style="color: #ef5350;">${roundedAccuracy}%</span>`;
+        ? "attack-preview-outcome__value--warning"
+        : "attack-preview-outcome__value--danger";
+    const defenderDamageToneClass = postPayloadExpectedDamage >= 20
+      ? "attack-preview-outcome__value--good"
+      : postPayloadExpectedDamage >= 8
+        ? "attack-preview-outcome__value--warning"
+        : "attack-preview-outcome__value--neutral";
+    const retaliationToneClass = !preview.retaliationPossible
+      ? "attack-preview-outcome__value--muted"
+      : preview.expectedRetaliation >= 15
+        ? "attack-preview-outcome__value--danger"
+        : preview.expectedRetaliation >= 6
+          ? "attack-preview-outcome__value--warning"
+          : "attack-preview-outcome__value--neutral";
+    const retaliationValue = preview.retaliationPossible ? `${preview.expectedRetaliation.toFixed(1)}%` : "0.0%";
+    const retaliationSummary = preview.retaliationPossible
+      ? `Projected attacker strength: ${projectedAttackerStrength.toFixed(1)}%`
+      : preview.retaliationNote ?? "No return fire expected.";
+    const accuracySummary = supportsStances
+      ? `${profile.title} stance selected.`
+      : "Direct-fire calculation.";
+    const summaryFootnote = supportsStances
+      ? `Current stance: ${profile.title}. ${profile.note}`
+      : "Direct fire profile. Non-foot formations use a single firing mode.";
 
     this.attackConfirmBody.innerHTML = `
-      <div class="attack-preview-intro">
-        <div class="attack-preview-formation">
-          <p><strong style="color: #66bb6a;">Your ${this.escapeHtml(attackerLabel)}</strong> at <strong>${this.escapeHtml(attackerHex)}</strong></p>
-          <p class="attack-preview-formation__meta">Strength: ${attackerStrength}% • Effective Range: ${attackerRangeMin * 250}m-${attackerRangeMax >= 10 ? (attackerRangeMax * 0.25).toFixed(1) + "km" : (attackerRangeMax * 250) + "m"}</p>
+      <div class="attack-preview-shell">
+        <div class="attack-preview-rangebar">
+          <span class="attack-preview-rangebar__label">Engagement Range</span>
+          <strong class="attack-preview-rangebar__value">${realWorldDistanceKm}</strong>
         </div>
-        <div class="attack-preview-range">Engagement Range: ${realWorldDistanceKm}</div>
-        <div class="attack-preview-formation attack-preview-formation--enemy">
-          <p><strong style="color: #ef5350;">Enemy ${this.escapeHtml(defenderLabel)}</strong> at <strong>${this.escapeHtml(defenderHex)}</strong></p>
-          <p class="attack-preview-formation__meta">Strength: ${defenderStrength}% • Armor: ${facingArmor}</p>
+
+        <div class="attack-preview-matchup">
+          <section class="attack-preview-card attack-preview-card--attacker">
+            <span class="attack-preview-card__eyebrow">Attacker</span>
+            <h3 class="attack-preview-card__title">Your ${this.escapeHtml(attackerLabel)}</h3>
+            <p class="attack-preview-card__location">${this.escapeHtml(attackerHex)}</p>
+            <div class="attack-preview-card__stats">
+              <div class="attack-preview-stat">
+                <span>Current strength</span>
+                <strong>${attackerStrength}%</strong>
+              </div>
+              <div class="attack-preview-stat">
+                <span>Effective range</span>
+                <strong>${attackerRangeText}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="attack-preview-card attack-preview-card--defender">
+            <span class="attack-preview-card__eyebrow">Defender</span>
+            <h3 class="attack-preview-card__title">Enemy ${this.escapeHtml(defenderLabel)}</h3>
+            <p class="attack-preview-card__location">${this.escapeHtml(defenderHex)}</p>
+            <div class="attack-preview-card__stats">
+              <div class="attack-preview-stat">
+                <span>Current strength</span>
+                <strong>${defenderStrength}%</strong>
+              </div>
+              <div class="attack-preview-stat">
+                <span>Armor</span>
+                <strong>${facingArmor}</strong>
+              </div>
+            </div>
+          </section>
         </div>
-        <div class="attack-preview-profile">
-          <span class="attack-preview-profile__label">Fire Profile</span>
-          <strong>${this.escapeHtml(profile.title)}</strong>
-          <span>${this.escapeHtml(profile.description)}</span>
-          <span class="attack-preview-profile__note">${this.escapeHtml(profile.note)}</span>
-        </div>
-      </div>
-      <div class="attack-preview-panel">
-        <h4 style="margin: 0 0 0.5rem 0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent-strong);">ATTACK PREVIEW</h4>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; font-size: 0.85rem;">
-          <div style="display: flex; justify-content: space-between;">
-            <span>Accuracy:</span>
-            <strong>${accuracyQuality}</strong>
+
+        <section class="attack-preview-outcome">
+          <div class="attack-preview-outcome__header">
+            <span class="attack-preview-outcome__eyebrow">Expected Outcome</span>
+            <p class="attack-preview-outcome__summary">The core decision is how much damage you expect to deal and how much fire may come back.</p>
           </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span>Shots:</span>
-            <strong>${shots}</strong>
+          <div class="attack-preview-outcome__grid">
+            <article class="attack-preview-outcome__metric">
+              <span class="attack-preview-outcome__label">Damage to target</span>
+              <strong class="attack-preview-outcome__value ${defenderDamageToneClass}">${postPayloadExpectedDamage.toFixed(1)}%</strong>
+              <span class="attack-preview-outcome__subtext">Projected defender strength: ${projectedDefenderStrength.toFixed(1)}%</span>
+            </article>
+
+            <article class="attack-preview-outcome__metric">
+              <span class="attack-preview-outcome__label">Return fire</span>
+              <strong class="attack-preview-outcome__value ${retaliationToneClass}">${retaliationValue}</strong>
+              <span class="attack-preview-outcome__subtext">${this.escapeHtml(retaliationSummary)}</span>
+            </article>
+
+            <article class="attack-preview-outcome__metric">
+              <span class="attack-preview-outcome__label">Accuracy</span>
+              <strong class="attack-preview-outcome__value ${accuracyToneClass}">${roundedAccuracy}%</strong>
+              <span class="attack-preview-outcome__subtext">${this.escapeHtml(accuracySummary)}</span>
+            </article>
           </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span>Expected Hits:</span>
-            <strong>${expectedHits}</strong>
+        </section>
+
+        <p class="attack-preview-footnote">${this.escapeHtml(summaryFootnote)}</p>
+
+        <details class="attack-preview-details"${detailsExpanded ? " open" : ""}>
+          <summary>Detailed Breakdown</summary>
+          <div class="attack-preview-details__content">
+            <div class="attack-preview-detail-grid">
+              <div class="attack-preview-detail-row">
+                <span>Shots</span>
+                <strong>${shots}</strong>
+              </div>
+              <div class="attack-preview-detail-row">
+                <span>Expected Hits</span>
+                <strong>${expectedHits}</strong>
+              </div>
+              <div class="attack-preview-detail-row">
+                <span>Damage / Hit</span>
+                <strong>${postPayloadDamagePerHit.toFixed(3)}%</strong>
+              </div>
+              <div class="attack-preview-detail-row">
+                <span>Expected Suppression</span>
+                <strong>${postPayloadExpectedSuppression.toFixed(1)}</strong>
+              </div>
+              <div class="attack-preview-detail-row">
+                <span>Penetration</span>
+                <strong>${effectiveAP} vs ${facingArmor}</strong>
+              </div>
+              <div class="attack-preview-detail-row">
+                <span>Armor Outlook</span>
+                <strong>${penetrationSummary}</strong>
+              </div>
+            </div>
+
+            <div class="attack-preview-breakdown">
+              <p><strong>Profile:</strong> ${this.escapeHtml(profile.description)}</p>
+              <p><strong>Engagement Math:</strong> ${this.escapeHtml(profile.mathLine)}</p>
+              <p><strong>Accuracy Math:</strong> ${this.escapeHtml(accuracyBreakdownLine)}</p>
+              <p><strong>Damage Math:</strong> ${this.escapeHtml(damageBreakdownLine)}</p>
+              <p><strong>Commander Bonuses:</strong> Accuracy +${commanderAccuracyBonus}% • Damage +${commanderDamageBonus}%</p>
+              <p><strong>Payload:</strong> x${damageMultiplier} (${this.escapeHtml(damageMultiplierDescription)}) • Suppression x${suppressionMultiplier} (${this.escapeHtml(suppressionMultiplierDescription)})</p>
+              <p><strong>Damage / Hit:</strong> ${damagePerHitSummary}</p>
+              <p><strong>Expected Damage:</strong> ${expectedDamageSummary}</p>
+              <p><strong>Expected Suppression:</strong> ${suppressionSummary}</p>
+              ${!preview.retaliationPossible && preview.retaliationNote
+                ? `<p><strong>Return Fire Note:</strong> ${this.escapeHtml(preview.retaliationNote)}</p>`
+                : ""}
+            </div>
           </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span>Damage/Hit:</span>
-            <strong>${postPayloadDamagePerHit.toFixed(3)}%</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; grid-column: 1 / -1; padding-top: 0.4rem; border-top: 1px solid rgba(255,255,255,0.1);">
-            <span>Expected Damage (pre-payload):</span>
-            <strong>${baseExpectedDamage.toFixed(1)}%</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; grid-column: 1 / -1;">
-            <span>Expected Damage (with payload):</span>
-            <strong style="color: var(--accent-strong);">${postPayloadExpectedDamage.toFixed(1)}%</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; grid-column: 1 / -1;">
-            <span>Expected Suppression:</span>
-            <strong>${baseExpectedSuppression.toFixed(1)} → ${postPayloadExpectedSuppression.toFixed(1)}</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; grid-column: 1 / -1; font-size: 0.8rem;">
-            <span>Penetration:</span>
-            <strong>${effectiveAP} vs ${facingArmor} ${penetrationStatus}</strong>
-          </div>
-          <div style="display: flex; flex-direction: column; grid-column: 1 / -1; font-size: 0.75rem; color: var(--text-muted); padding-top: 0.4rem; border-top: 1px solid rgba(255,255,255,0.08);">
-            <span><strong>Accuracy Breakdown:</strong> ${this.escapeHtml(accuracyBreakdownLine)}</span>
-            <span><strong>Damage Breakdown:</strong> ${this.escapeHtml(damageBreakdownLine)}</span>
-            <span><strong>Engagement Math:</strong> ${this.escapeHtml(profile.mathLine)}</span>
-            <span><strong>Payload:</strong> ×${damageMultiplier} (${damageMultiplierDescription}) &bull; Suppression ×${suppressionMultiplier} (${suppressionMultiplierDescription})</span>
-            <span><strong>Commander Bonuses:</strong> Accuracy +${commanderAccuracyBonus}% • Damage +${commanderDamageBonus}%</span>
-            <span><strong>Accuracy Summary:</strong> ${baseAccuracyPercent.toFixed(1)}% → ${accuracyDetails.final.toFixed(1)}%</span>
-            <span><strong>Damage / Hit:</strong> ${damagePerHitSummary}</span>
-            <span><strong>Expected Damage:</strong> ${expectedDamageSummary}</span>
-            <span><strong>Expected Suppression:</strong> ${suppressionSummary}</span>
-          </div>
-        </div>
+        </details>
       </div>
     `;
     this.configureAttackStanceControls(attackerUnit ?? preview.attacker, commandState);

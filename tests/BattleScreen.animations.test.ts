@@ -84,7 +84,16 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
           entrench: 0,
           facing: "S"
         } satisfies ScenarioUnit,
-        result
+        result,
+        commander: { accBonus: 0, dmgBonus: 0 },
+        damageMultiplier: 1,
+        suppressionMultiplier: 1,
+        finalDamagePerHit: 5,
+        finalExpectedDamage: 10,
+        finalExpectedSuppression: 0,
+        expectedRetaliation: 0,
+        retaliationPossible: false,
+        retaliationNote: "No return fire expected."
       };
     },
     attackUnit(_a: Axial, _d: Axial) {
@@ -414,7 +423,9 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
         suppressionMultiplier: 1,
         finalDamagePerHit: 5,
         finalExpectedDamage: 10,
-        finalExpectedSuppression: 2
+        finalExpectedSuppression: 2,
+        expectedRetaliation: 4,
+        retaliationPossible: true
       };
     }
   } as const;

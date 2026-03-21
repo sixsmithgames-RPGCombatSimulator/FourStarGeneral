@@ -227,6 +227,7 @@ export class PrecombatScreen {
     this.registerScenarioDeploymentZones();
     this.renderMissionSummary(missionKey, selectedDifficulty);
     this.seedPredeployedAllocations();
+    this.seedRecommendedLogisticsAllocations();
     this.renderPredeployedOverview();
     // Persist the command assignment so battle overlays reference the same general profile as precombat.
     this.battleState.setAssignedCommanderId(selectedGeneralId);
@@ -344,7 +345,7 @@ export class PrecombatScreen {
 
     const entries = this.toDeploymentEntries();
     console.log("[PrecombatScreen] toDeploymentEntries built", entries.map((e) => ({ key: e.key, remaining: e.remaining })));
-    if (entries.length === 0 && !force) {
+    if (!this.hasOperationalCombatForces() && !force) {
       this.showAllocationWarning();
       return;
     }
@@ -419,6 +420,7 @@ export class PrecombatScreen {
 
     this.allocationDirty = false;
     this.seedPredeployedAllocations();
+    this.seedRecommendedLogisticsAllocations();
     this.updateBudgetDisplay();
   }
 
@@ -796,6 +798,7 @@ export class PrecombatScreen {
       const baseline = this.predeployedCounts.get(key) ?? 0;
       this.allocationCounts.set(key, baseline);
     }
+    this.seedRecommendedLogisticsAllocations();
     this.allocationDirty = false;
     this.rerenderAllocations();
     this.updateBudgetDisplay();
@@ -813,9 +816,7 @@ export class PrecombatScreen {
     this.budgetRemainingElement.textContent = `Remaining: $${Math.max(remaining, 0).toLocaleString()}`;
     this.budgetPanel.dataset.state = remaining < 0 ? "over-budget" : "within-budget";
 
-    // Calculate total forces including predeployed units so missions with scenario-provided units can proceed.
-    const totalPredeployedUnits = Array.from(this.predeployedCounts.values()).reduce((sum, count) => sum + count, 0);
-    const hasAnyForces = spent > 0 || totalPredeployedUnits > 0;
+    const hasAnyForces = this.hasOperationalCombatForces();
 
     this.proceedToBattleButton.disabled = remaining < 0 || !hasAnyForces;
     // Normalize feedback styling before we decide which state to present so repeated calls cannot accumulate stale classes.
@@ -868,6 +869,55 @@ export class PrecombatScreen {
         this.allocationFeedbackElement.classList.add("feedback--ready");
       }
     }
+  }
+
+  /**
+   * Preloads a small convoy package so logistics is part of the opening plan instead of a hidden
+   * purchase the player only discovers after running dry in battle.
+   */
+  private seedRecommendedLogisticsAllocations(): void {
+    const convoyOption = getAllocationOption("supplyConvoy");
+    if (!convoyOption || !this.isUnitAllowedByScenario(convoyOption.key)) {
+      return;
+    }
+
+    const current = this.allocationCounts.get(convoyOption.key) ?? 0;
+    const baseline = this.predeployedCounts.get(convoyOption.key) ?? 0;
+    const recommended = Math.max(baseline, this.getRecommendedSupplyConvoyCount(convoyOption.maxQuantity));
+    if (current < recommended) {
+      this.allocationCounts.set(convoyOption.key, recommended);
+    }
+  }
+
+  /**
+   * Uses the planned frontage to size the default convoy package while keeping the opening cost light.
+   */
+  private getRecommendedSupplyConvoyCount(maxQuantity: number): number {
+    let plannedFrontlineUnits = 0;
+    (ALLOCATION_BY_CATEGORY.get("units") ?? []).forEach((option) => {
+      if (option.key === "supplyConvoy" || !this.isUnitAllowedByScenario(option.key)) {
+        return;
+      }
+      plannedFrontlineUnits += this.predeployedCounts.get(option.key) ?? 0;
+    });
+
+    const recommended = plannedFrontlineUnits > 0
+      ? Math.max(2, Math.ceil(plannedFrontlineUnits / 4))
+      : 2;
+    return Math.min(maxQuantity, recommended);
+  }
+
+  /**
+   * Supply convoys support the force, but they should not count as the only formation required to
+   * begin a tactical battle.
+   */
+  private hasOperationalCombatForces(): boolean {
+    return (ALLOCATION_BY_CATEGORY.get("units") ?? []).some((option) => {
+      if (option.key === "supplyConvoy" || !this.isUnitAllowedByScenario(option.key)) {
+        return false;
+      }
+      return (this.allocationCounts.get(option.key) ?? 0) > 0;
+    });
   }
 
   /**

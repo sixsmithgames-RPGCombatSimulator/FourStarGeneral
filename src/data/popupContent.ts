@@ -309,13 +309,6 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .logistics-delay-item__risk--high { background: rgba(255, 104, 104, 0.18); color: #ffd6d6; border: 1px solid rgba(255, 104, 104, 0.35); }
         .logistics-delay-item__reason { flex: 1; color: rgba(229, 236, 255, 0.72); font-size: 0.85rem; }
 
-        /* Maintenance backlog */
-        .logistics-maintenance-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.65rem; }
-        .logistics-maintenance-item { border-radius: 10px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(13, 18, 28, 0.8); padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; font-size: 0.9rem; }
-        .logistics-maintenance-item__unit { font-weight: 600; color: rgba(245, 250, 255, 0.88); }
-        .logistics-maintenance-item__issue { flex: 1; color: rgba(229, 236, 255, 0.75); font-size: 0.85rem; }
-        .logistics-maintenance-item__eta { color: rgba(245, 196, 109, 0.9); font-size: 0.85rem; font-weight: 600; }
-
         /* Alert banners */
         .logistics-alerts-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
         .logistics-alert-item { border-radius: 12px; padding: 0.75rem 1rem; font-size: 0.9rem; line-height: 1.4; font-weight: 600; }
@@ -323,14 +316,59 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .logistics-alert-item--warning { background: rgba(255, 196, 109, 0.18); border: 1px solid rgba(255, 196, 109, 0.35); color: #ffe3ba; }
         .logistics-alert-item--info { background: rgba(149, 190, 255, 0.15); border: 1px solid rgba(149, 190, 255, 0.3); color: #dfeaff; }
 
+        .logistics-detail-group { border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.12); background: rgba(12, 18, 29, 0.7); overflow: hidden; }
+        .logistics-detail-group summary { list-style: none; cursor: pointer; padding: 0.9rem 1rem; font-size: 0.9rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(245, 247, 255, 0.94); }
+        .logistics-detail-group summary::-webkit-details-marker { display: none; }
+        .logistics-detail-group__body { display: grid; gap: 1rem; padding: 0 1rem 1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+
+        .supplies-category-grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+        .supplies-card { border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.18); background: rgba(17, 24, 36, 0.88); padding: 0.95rem 1rem; display: grid; gap: 0.7rem; }
+        .supplies-card__header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+        .supplies-card__header h4 { margin: 0; font-size: 1rem; letter-spacing: 0.06em; text-transform: uppercase; }
+        .supplies-card__subhead { margin: 0.2rem 0 0; font-size: 0.8rem; color: rgba(229, 236, 255, 0.68); }
+        .supplies-card__status { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 999px; padding: 0.25rem 0.65rem; }
+        .supplies-card__status--critical { background: rgba(255, 104, 104, 0.2); color: #ffd6d6; border: 1px solid rgba(255, 104, 104, 0.4); }
+        .supplies-card__status--warning { background: rgba(255, 196, 109, 0.2); color: #ffe5c4; border: 1px solid rgba(255, 196, 109, 0.4); }
+        .supplies-card__status--stable { background: rgba(149, 190, 255, 0.18); color: #dfeaff; border: 1px solid rgba(149, 190, 255, 0.35); }
+        .supplies-card__status--unknown { background: rgba(160, 160, 160, 0.18); color: #f5f5f5; border: 1px solid rgba(160, 160, 160, 0.35); }
+        .supplies-card__total-row { display: flex; align-items: baseline; gap: 0.6rem; }
+        .supplies-card__overall { font-size: 1.6rem; line-height: 1; color: rgba(245, 247, 255, 0.96); }
+        .supplies-card__overall-label { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(229, 236, 255, 0.62); }
+        .supplies-card__gauge { position: relative; display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: rgba(229, 236, 255, 0.15); }
+        .supplies-card__gauge-bar { display: block; height: 100%; }
+        .supplies-card__gauge-bar--frontline { background: linear-gradient(90deg, rgba(245, 196, 109, 0.9), rgba(255, 177, 80, 0.9)); }
+        .supplies-card__gauge-bar--reserve { background: linear-gradient(90deg, rgba(149, 190, 255, 0.9), rgba(116, 166, 255, 0.9)); }
+        .supplies-card__gauge-bar--depot { background: linear-gradient(90deg, rgba(110, 231, 169, 0.8), rgba(69, 199, 144, 0.8)); }
+        .supplies-card__gauge-bar--buffer { background: rgba(229, 236, 255, 0.25); }
+        .supplies-card__gauge-bar--empty { background: rgba(229, 236, 255, 0.2); }
+        .supplies-card__gauge-legend { margin: 0; font-size: 0.8rem; color: rgba(229, 236, 255, 0.72); }
+        .supplies-card__metrics { display: grid; gap: 0.45rem 0.9rem; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); font-size: 0.83rem; }
+        .supplies-card__metrics dt { margin: 0; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(229, 236, 255, 0.72); }
+        .supplies-card__metrics dd { margin: 0; font-size: 1rem; color: rgba(245, 247, 255, 0.92); }
+        .supplies-card__footer { margin: 0; font-size: 0.8rem; line-height: 1.4; color: rgba(229, 236, 255, 0.68); }
+
+        .supplies-trend { display: grid; gap: 0.9rem; }
+        .supplies-trend__series { border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(14, 20, 31, 0.8); padding: 0.85rem 0.95rem; display: grid; gap: 0.5rem; }
+        .supplies-trend__series h5 { margin: 0; font-size: 0.9rem; letter-spacing: 0.06em; text-transform: uppercase; }
+        .supplies-trend__points { display: flex; gap: 0.45rem; flex-wrap: wrap; font-size: 0.84rem; color: rgba(229, 236, 255, 0.82); }
+
+        .supplies-ledger { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.65rem; }
+        .supplies-ledger__entry { display: grid; gap: 0.35rem; border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(14, 20, 31, 0.8); padding: 0.85rem 0.95rem; font-size: 0.84rem; }
+        .supplies-ledger__delta { font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+        .supplies-ledger__delta--positive { color: #6ee7a9; }
+        .supplies-ledger__delta--negative { color: #ff9696; }
+        .supplies-ledger__resource { color: rgba(229, 236, 255, 0.78); }
+        .supplies-ledger__reason { color: rgba(229, 236, 255, 0.65); }
+        .supplies-ledger__timestamp { font-size: 0.75rem; color: rgba(229, 236, 255, 0.55); }
+        .supplies-ledger__empty { text-align: center; font-size: 0.85rem; color: rgba(229, 236, 255, 0.6); border-radius: 12px; border: 1px dashed rgba(229, 236, 255, 0.18); padding: 0.75rem; background: rgba(14, 20, 31, 0.5); }
+
         .logistics-panel__empty { font-size: 0.9rem; color: rgba(229, 236, 255, 0.72); text-align: center; padding: 1rem; border-radius: 12px; border: 1px dashed rgba(229, 236, 255, 0.25); background: rgba(13, 20, 31, 0.6); }
 
         @media (max-width: 720px) {
           .logistics-priority-card__header,
           .logistics-source-card__header,
           .logistics-convoy-item,
-          .logistics-delay-item,
-          .logistics-maintenance-item {
+          .logistics-delay-item {
             grid-template-columns: 1fr;
             flex-direction: column;
             align-items: flex-start;
@@ -340,15 +378,25 @@ export const popupContentRegistry: PopupContentDefinition[] = [
           .logistics-convoy-item__status {
             margin-top: 0.2rem;
           }
+          .logistics-detail-group__body {
+            grid-template-columns: 1fr;
+          }
         }
       </style>
       <div id="logisticsPanel" class="logistics-panel" aria-live="polite">
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
-            <h3>Network Overview</h3>
-            <p>What is in depot, how many convoys are loaded, and the live rules governing delivery to frontline battalions.</p>
+            <h3>Overview</h3>
+            <p>What is in depot, how many convoys are active, and the rules governing forward delivery.</p>
           </header>
           <div data-logistics-overview></div>
+        </section>
+        <section class="logistics-panel__section">
+          <header class="logistics-panel__header">
+            <h3>Supply Status</h3>
+            <p>Current carried stock, depot reserves, and depletion outlook by resource.</p>
+          </header>
+          <div class="supplies-category-grid" data-logistics-supply-categories></div>
         </section>
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
@@ -359,38 +407,10 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         </section>
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
-            <h3>Primary Supply Sources</h3>
-            <p>Each battalion is assigned to its best current source rather than being double-counted against every source.</p>
-          </header>
-          <div class="logistics-sources-grid" data-logistics-sources></div>
-        </section>
-        <section class="logistics-panel__section">
-          <header class="logistics-panel__header">
-            <h3>Stockpile Summary</h3>
-            <p>Depot inventory with carried load per unit shown underneath.</p>
-          </header>
-          <div class="logistics-stockpiles-grid" data-logistics-stockpiles></div>
-        </section>
-        <section class="logistics-panel__section">
-          <header class="logistics-panel__header">
             <h3>Convoy Status</h3>
             <p>Live on-map convoy jobs, cargo loads, and delivery estimates.</p>
           </header>
           <ul class="logistics-convoy-list" data-logistics-convoys></ul>
-        </section>
-        <section class="logistics-panel__section">
-          <header class="logistics-panel__header">
-            <h3>Delay Nodes</h3>
-            <p>Chokepoints causing supply delivery slowdowns.</p>
-          </header>
-          <ul class="logistics-delays-list" data-logistics-delays></ul>
-        </section>
-        <section class="logistics-panel__section">
-          <header class="logistics-panel__header">
-            <h3>Maintenance Backlog</h3>
-            <p>Units requiring repair, refuel, or resupply.</p>
-          </header>
-          <ul class="logistics-maintenance-list" data-logistics-maintenance></ul>
         </section>
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
@@ -399,6 +419,51 @@ export const popupContentRegistry: PopupContentDefinition[] = [
           </header>
           <ul class="logistics-alerts-list" data-logistics-alerts></ul>
         </section>
+        <details class="logistics-detail-group">
+          <summary>Operational Detail</summary>
+          <div class="logistics-detail-group__body">
+            <section class="logistics-panel__section">
+              <header class="logistics-panel__header">
+                <h3>Primary Supply Sources</h3>
+                <p>Each battalion is assigned to its best current source instead of being counted against every source.</p>
+              </header>
+              <div class="logistics-sources-grid" data-logistics-sources></div>
+            </section>
+            <section class="logistics-panel__section">
+              <header class="logistics-panel__header">
+                <h3>Depot Stock</h3>
+                <p>Condensed depot inventory and carried-load averages.</p>
+              </header>
+              <div class="logistics-stockpiles-grid" data-logistics-stockpiles></div>
+            </section>
+            <section class="logistics-panel__section">
+              <header class="logistics-panel__header">
+                <h3>Delay Nodes</h3>
+                <p>Chokepoints currently slowing convoy movement.</p>
+              </header>
+              <ul class="logistics-delays-list" data-logistics-delays></ul>
+            </section>
+          </div>
+        </details>
+        <details class="logistics-detail-group">
+          <summary>Supply History</summary>
+          <div class="logistics-detail-group__body">
+            <section class="logistics-panel__section">
+              <header class="logistics-panel__header">
+                <h3>Recent Trend</h3>
+                <p>Last turns by resource.</p>
+              </header>
+              <div class="supplies-trend" data-logistics-trend></div>
+            </section>
+            <section class="logistics-panel__section">
+              <header class="logistics-panel__header">
+                <h3>Ledger</h3>
+                <p>Production, shipments, and upkeep history.</p>
+              </header>
+              <ul class="supplies-ledger" data-logistics-ledger></ul>
+            </section>
+          </div>
+        </details>
       </div>
     `
   },

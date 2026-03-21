@@ -101,6 +101,8 @@ registerTest("PRECOMBAT_RENDER_IDEMPOTENCE", async ({ Given, When, Then }) => {
       <button id="resetAllocations"></button>
       <div id="allocationWarningOverlay" class="hidden"></div>
       <div id="allocationWarningModal"></div>
+      <div id="predeployedSummary"></div>
+      <div id="predeployedUnitList"></div>
       <aside id="precombatBudgetPanel" data-state="ready">
         <span id="budgetSpent"></span>
         <span id="budgetRemaining"></span>
@@ -185,6 +187,100 @@ registerTest("PRECOMBAT_RENDER_IDEMPOTENCE", async ({ Given, When, Then }) => {
       throw new Error(`Budget remaining should stay positive, received '${internals.budgetRemainingElement.textContent}'.`);
     }
 
+    document.body.innerHTML = "";
+  });
+});
+
+registerTest("PRECOMBAT_SEEDS_LOW_COST_SUPPLY_CONVOYS_BUT_STILL_REQUIRES_COMBAT_FORCES", async ({ Given, When, Then }) => {
+  document.body.innerHTML = `
+    <section id="precombatScreen">
+      <h1 id="precombatMissionTitle"></h1>
+      <p id="precombatMissionBriefing"></p>
+      <ul id="objectiveList"></ul>
+      <span id="missionTurnLimit"></span>
+      <ul id="baselineSupplyList"></ul>
+      <p id="missionDoctrineNotes"></p>
+      <button id="returnToLanding"></button>
+      <button id="proceedToBattle"></button>
+      <button id="allocationWarningReturn"></button>
+      <button id="allocationWarningProceed"></button>
+      <div id="allocationUnitList"></div>
+      <div id="allocationSupplyList"></div>
+      <div id="allocationSupportList"></div>
+      <div id="allocationLogisticsList"></div>
+      <button id="resetAllocations"></button>
+      <div id="allocationWarningOverlay" class="hidden"></div>
+      <div id="allocationWarningModal"></div>
+      <div id="predeployedSummary"></div>
+      <div id="predeployedUnitList"></div>
+      <aside id="precombatBudgetPanel" data-state="ready">
+        <span id="budgetSpent"></span>
+        <span id="budgetRemaining"></span>
+        <div id="allocationFeedback"></div>
+      </aside>
+      <article id="commanderSummaryCard">
+        <h2 id="commanderName"></h2>
+        <p id="commanderSummary"></p>
+        <span id="commanderMissions"></span>
+        <span id="commanderVictories"></span>
+        <span id="commanderUnits"></span>
+        <span id="commanderCasualties"></span>
+      </article>
+      <div id="precombatMapCanvas"></div>
+      <svg id="precombatHexMap"></svg>
+      <footer class="precombat-footer"></footer>
+    </section>
+  `;
+
+  let convoyCost = 0;
+  let convoyCount = 0;
+  let proceedDisabled = false;
+
+  await Given("a fresh precombat screen", async () => {
+    const fakeScreenManager: IScreenManager = {
+      showScreen: () => {},
+      showScreenById: () => {},
+      getCurrentScreen: () => null
+    };
+
+    const battleState = new BattleState();
+    const screen = new PrecombatScreen(fakeScreenManager, battleState);
+    // @ts-expect-error - overriding private helper purely for testing efficiency.
+    screen.renderMiniMap = () => {};
+    screen.initialize();
+    screen.setup("training", null, "Normal");
+
+    const internals = screen as unknown as {
+      allocationCounts: Map<string, number>;
+      updateBudgetDisplay: () => void;
+      proceedToBattleButton: HTMLButtonElement;
+    };
+
+    convoyCost = getAllocationOption("supplyConvoy")?.costPerUnit ?? 0;
+    convoyCount = internals.allocationCounts.get("supplyConvoy") ?? 0;
+
+    internals.allocationCounts.forEach((_value, key) => {
+      internals.allocationCounts.set(key, key === "supplyConvoy" ? convoyCount : 0);
+    });
+    internals.updateBudgetDisplay();
+    proceedDisabled = internals.proceedToBattleButton.disabled;
+  });
+
+  await When("reading the default convoy package and battle gating state", async () => {
+    // All assertions happen in Then for clearer failure messages.
+  });
+
+  await Then("convoys stay cheap, are pre-seeded, and do not count as the only combat force", async () => {
+    const infantryCost = getAllocationOption("infantry")?.costPerUnit ?? Number.POSITIVE_INFINITY;
+    if (!(convoyCost > 0 && convoyCost < infantryCost)) {
+      throw new Error(`Expected supply convoys to stay a low-cost requisition, saw cost ${convoyCost}.`);
+    }
+    if (convoyCount < 2) {
+      throw new Error(`Expected precombat to seed at least two supply convoys by default, saw ${convoyCount}.`);
+    }
+    if (!proceedDisabled) {
+      throw new Error("Expected convoy-only rosters to remain blocked until the commander adds an actual combat formation.");
+    }
     document.body.innerHTML = "";
   });
 });

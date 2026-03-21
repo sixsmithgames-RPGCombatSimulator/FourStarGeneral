@@ -210,3 +210,71 @@ registerTest("HEXMAP_RENDERUNIT_REJECTS_MALFORMED_FACING_WITHOUT_CRASHING", asyn
     viewport.remove();
   });
 });
+
+registerTest("HEXMAP_RENDERUNIT_DOES_NOT_ADD_WATER_TRANSPORT_OVERLAY", async ({ Given, When, Then }) => {
+  const viewport = document.createElement("div");
+  viewport.style.width = "300px";
+  viewport.style.height = "200px";
+  Object.defineProperty(viewport, "clientWidth", { value: 300, configurable: true });
+  Object.defineProperty(viewport, "clientHeight", { value: 200, configurable: true });
+
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  viewport.appendChild(canvas);
+  document.body.appendChild(viewport);
+
+  const scenario: ScenarioData = {
+    name: "Water Tile Harness",
+    size: { cols: 1, rows: 1 },
+    tilePalette: {
+      OPEN_WATER: {
+        terrain: "sea",
+        terrainType: "water",
+        density: "average",
+        features: [],
+        recon: "intel"
+      }
+    },
+    tiles: [[{ tile: "OPEN_WATER" }]],
+    objectives: [],
+    turnLimit: 1,
+    sides: {
+      Player: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] },
+      Bot: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] }
+    }
+  };
+
+  const renderer = new HexMapRenderer();
+
+  await Given("a rendered water hex", async () => {
+    renderer.render(svg as SVGSVGElement, canvas as HTMLDivElement, scenario);
+  });
+
+  await When("a unit is rendered on the water tile", async () => {
+    renderer.renderUnit("0,0", {
+      type: "Infantry" as never,
+      hex: { q: 0, r: 0 },
+      strength: 10,
+      experience: 0,
+      ammo: 6,
+      fuel: 0,
+      entrench: 0,
+      facing: "N"
+    }, "Player");
+  });
+
+  await Then("the renderer keeps only the unit sprite and does not add a transport ship overlay", async () => {
+    const overlay = svg.querySelector(".unit-boat-overlay");
+    if (overlay) {
+      throw new Error("Expected no transport ship overlay to render on water tiles.");
+    }
+
+    const unitIcons = svg.querySelectorAll("image.unit-icon");
+    if (unitIcons.length !== 1) {
+      throw new Error(`Expected only one unit icon image on the water tile, found ${unitIcons.length}.`);
+    }
+
+    viewport.remove();
+  });
+});

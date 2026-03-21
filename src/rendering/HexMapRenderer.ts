@@ -30,7 +30,6 @@ const IDLE_UNIT_HIGHLIGHT_CLASS = "idle-unit-highlight";
 const BASE_CAMP_MARKER_SPRITE = new URL("../assets/units/Base_camp.png", import.meta.url).href;
 const BASE_CAMP_MARKER_CLASS = "base-camp-marker";
 const BASE_CAMP_MARKER_SIZE = HEX_RADIUS * 1.8;
-const TRANSPORT_SHIP_SPRITE = new URL("../assets/units/Transport_Ship.png", import.meta.url).href;
 const UNKNOWN_CONTACT_SPRITE = `data:image/svg+xml;utf8,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
     <polygon points="32,4 60,32 32,60 4,32" fill="#451313" stroke="#f3b36b" stroke-width="4"/>
@@ -75,10 +74,6 @@ export class HexMapRenderer implements IMapRenderer {
   private hexLabelMap = new Map<string, SVGTextElement>();
   private hexUnitImageMap = new Map<string, SVGGElement>();
   private readonly hexUnitFacingAngleMap = new Map<string, number>();
-  /**
-   * Tracks temporary boat overlays so maritime transport visuals can be updated or removed alongside unit icons.
-   */
-  private hexBoatOverlayMap = new Map<string, SVGImageElement>();
   private baseCampMarker: SVGImageElement | null = null;
   private baseCampHexKey: string | null = null;
   private initialized = false;
@@ -951,7 +946,6 @@ export class HexMapRenderer implements IMapRenderer {
     this.hexPolygonMap.clear();
     this.hexLabelMap.clear();
     this.hexUnitImageMap.clear();
-    this.hexBoatOverlayMap.clear();
     this.hexModificationOverlayMap.clear();
 
     this.aftermathByHexKey.forEach((entry) => {
@@ -1102,11 +1096,16 @@ export class HexMapRenderer implements IMapRenderer {
   private ensureDecorationGroup(group: SVGGElement): SVGGElement {
     const existing = group.querySelector<SVGGElement>("g.unit-stack-decorations");
     if (existing) {
+      // Keep status overlays as the last child so pinned/suppressed badges always render above the unit art.
+      if (existing.parentNode === group && group.lastElementChild !== existing) {
+        group.appendChild(existing);
+      }
       return existing;
     }
 
     const decorationGroup = document.createElementNS(SVG_NS, "g");
     decorationGroup.classList.add("unit-stack-decorations");
+    decorationGroup.style.pointerEvents = "none";
     group.appendChild(decorationGroup);
     return decorationGroup;
   }
@@ -1709,14 +1708,6 @@ export class HexMapRenderer implements IMapRenderer {
       }
     } catch {}
     this.hexUnitScenarioTypeMap.set(hexKey, String(unit.type));
-    const terrain = (cell.dataset.terrain ?? "").toLowerCase();
-    const terrainType = (cell.dataset.terrainType ?? "").toLowerCase();
-    if (this.isMaritimeTerrain(terrain, terrainType)) {
-      this.ensureBoatOverlay(hexKey, cell, cx, cy, iconSize);
-    } else {
-      this.removeBoatOverlay(hexKey);
-    }
-
     const stackCount = this.resolveUnitStackCount(unit.strength);
     const layout = this.resolveUnitStackLayout(stackCount);
 
@@ -1808,12 +1799,10 @@ export class HexMapRenderer implements IMapRenderer {
   clearUnit(hexKey: string): void {
     const group = this.hexUnitImageMap.get(hexKey);
     if (!group) {
-      this.removeBoatOverlay(hexKey);
       return;
     }
     group.remove();
     this.hexUnitImageMap.delete(hexKey);
-    this.removeBoatOverlay(hexKey);
     this.hexUnitClassMap.delete(hexKey);
     this.hexUnitScenarioTypeMap.delete(hexKey);
     this.hexUnitFacingAngleMap.delete(hexKey);
@@ -2108,55 +2097,6 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     return "unknown";
-  }
-
-  /**
-   * Determines whether a terrain descriptor represents an open-water tile that should spawn a transport overlay.
-   */
-  private isMaritimeTerrain(terrain: string, terrainType: string): boolean {
-    return terrain === "sea" || terrain === "ocean" || terrainType === "water" || terrainType === "sea" || terrainType === "ocean";
-  }
-
-  /**
-   * Ensures a reusable boat shape is positioned beneath the unit icon so amphibious deployments visibly ride a transport.
-   */
-  private ensureBoatOverlay(hexKey: string, cell: SVGGElement, cx: number, cy: number, iconSize: number): void {
-    const shipWidth = (iconSize + 16) * 1.5;
-    const shipHeight = Math.max(iconSize * 0.55, 28) * 1.5;
-    let overlay = this.hexBoatOverlayMap.get(hexKey);
-    if (!overlay) {
-      overlay = document.createElementNS(SVG_NS, "image");
-      overlay.classList.add("unit-boat-overlay");
-      overlay.setAttribute("href", TRANSPORT_SHIP_SPRITE);
-      overlay.setAttribute("preserveAspectRatio", "xMidYMid meet");
-
-      const unitGroup = this.hexUnitImageMap.get(hexKey);
-      if (unitGroup) {
-        cell.insertBefore(overlay, unitGroup);
-      } else {
-        cell.appendChild(overlay);
-      }
-      this.hexBoatOverlayMap.set(hexKey, overlay);
-    }
-
-    overlay.setAttribute("width", String(shipWidth));
-    overlay.setAttribute("height", String(shipHeight));
-    const shipX = cx - shipWidth / 2;
-    const shipY = cy + iconSize / 2 - shipHeight + 4;
-    overlay.setAttribute("x", String(shipX));
-    overlay.setAttribute("y", String(shipY));
-  }
-
-  /**
-   * Removes any existing boat overlay so land movement clears maritime visuals immediately.
-   */
-  private removeBoatOverlay(hexKey: string): void {
-    const overlay = this.hexBoatOverlayMap.get(hexKey);
-    if (!overlay) {
-      return;
-    }
-    overlay.remove();
-    this.hexBoatOverlayMap.delete(hexKey);
   }
 
   private rehydrateAftermathOverlays(): void {

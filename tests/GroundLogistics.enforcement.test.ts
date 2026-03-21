@@ -411,3 +411,51 @@ registerTest("SUPPLY_PRIORITIES_DECIDE_WHICH_BATTALION_GETS_THE_NEXT_CONVOY", as
     }
   });
 });
+
+registerTest("BOT_FACTIONS_AUTO_STAGE_CONVOYS_AND_RESTORE_STRANDED_MOBILITY_WHEN_SCENARIOS_OMIT_THEM", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+
+  await Given("a bot vehicle that needs supply but no authored convoy units", async () => {
+    const playerScreen: ScenarioUnit = {
+      type: "EnemyInfantry" as ScenarioUnit["type"],
+      hex: { q: 0, r: 0 },
+      strength: 10,
+      experience: 0,
+      ammo: 4,
+      fuel: 0,
+      entrench: 0,
+      facing: "N"
+    };
+    const botVehicle: ScenarioUnit = {
+      type: "TestVehicle" as ScenarioUnit["type"],
+      hex: { q: 1, r: 3 },
+      strength: 10,
+      experience: 0,
+      ammo: 0,
+      fuel: 0,
+      entrench: 0,
+      facing: "N"
+    };
+    engine = createEngine([playerScreen], [botVehicle]);
+  });
+
+  await When("the turn advances through the bot supply phase", async () => {
+    engine.endTurn();
+  });
+
+  await Then("the engine provisions a live bot convoy and uses it to restore the stranded vehicle's supply state", async () => {
+    const botUnits = engine.botUnits;
+    if (!botUnits.some((unit) => unit.type === "Supply_Truck")) {
+      throw new Error("Expected the bot to receive an auto-provisioned supply convoy.");
+    }
+
+    const resuppliedVehicle = botUnits.find((unit) => unit.hex.q === 1 && unit.hex.r === 3);
+    if (!resuppliedVehicle) {
+      throw new Error("Expected the original bot vehicle to remain on the map.");
+    }
+
+    if (resuppliedVehicle.fuel <= 0) {
+      throw new Error(`Expected the bot vehicle to receive convoy-delivered fuel, saw ammo=${resuppliedVehicle.ammo}, fuel=${resuppliedVehicle.fuel}.`);
+    }
+  });
+});

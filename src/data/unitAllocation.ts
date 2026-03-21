@@ -224,7 +224,7 @@ export const allocationOptions = [
     key: "supplyConvoy",
     label: "Supply Convoy",
     category: "units",
-    costPerUnit: 120_000,
+    costPerUnit: 40_000,
     description: "Supply truck echelon sustaining forward formations.",
     maxQuantity: 6,
     spriteUrl: new URL("../assets/units/Supply_Truck.png", import.meta.url).href

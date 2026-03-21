@@ -606,35 +606,37 @@ export class PopupManager implements IPopupManager {
    * Opens a popup by its key identifier.
    */
   openPopup(key: PopupKey, trigger?: HTMLButtonElement): void {
+    const resolvedKey: PopupKey = key === "supplies" ? "logistics" : key;
+
     // Handle special popup types
-    if (key === "baseOperations") {
-      this.openBaseOperationsPopup(key, trigger);
+    if (resolvedKey === "baseOperations") {
+      this.openBaseOperationsPopup(resolvedKey, trigger);
       return;
     }
 
-    if (key === "recon") {
-      this.openReconPopup(key, trigger);
+    if (resolvedKey === "recon") {
+      this.openReconPopup(resolvedKey, trigger);
       return;
     }
 
-    if (key === "intelligence") {
-      this.openIntelPopup(key, trigger);
+    if (resolvedKey === "intelligence") {
+      this.openIntelPopup(resolvedKey, trigger);
       return;
     }
 
-    if (key === "airSupport") {
-      this.openAirSupportPopup(key, trigger);
+    if (resolvedKey === "airSupport") {
+      this.openAirSupportPopup(resolvedKey, trigger);
       return;
     }
 
     // Standard popup handling
-    const content = getPopupContent(key);
+    const content = getPopupContent(resolvedKey);
     if (!content) {
-      console.warn(`No content defined for popup key: ${key}`);
+      console.warn(`No content defined for popup key: ${resolvedKey}`);
       return;
     }
 
-    this.showPopup(key, content, trigger);
+    this.showPopup(resolvedKey, content, trigger);
   }
 
   /**
@@ -2159,7 +2161,7 @@ export class PopupManager implements IPopupManager {
   }
 
   /**
-   * Renders the Logistics panel showing supply routes, stockpiles, convoy status, and maintenance backlog.
+   * Renders the combined Logistics panel: depot stock, supply status, convoy routing, and delivery priorities.
    */
   private renderLogisticsPanel(): void {
     const panel = this.popupBody.querySelector<HTMLElement>("#logisticsPanel");
@@ -2168,24 +2170,33 @@ export class PopupManager implements IPopupManager {
     }
 
     const snapshot = this.pullLogisticsSnapshot();
+    const supplySnapshot = this.pullSupplySnapshot("Player");
     if (!snapshot) {
       const emptyMessage = `<div class="logistics-panel__empty">Logistics data becomes available once the battle engine initializes and units are deployed.</div>`;
-      panel.querySelectorAll("[data-logistics-overview], [data-logistics-priorities], [data-logistics-sources], [data-logistics-stockpiles], [data-logistics-convoys], [data-logistics-delays], [data-logistics-maintenance], [data-logistics-alerts]")
+      panel.querySelectorAll("[data-logistics-overview], [data-logistics-supply-categories], [data-logistics-priorities], [data-logistics-sources], [data-logistics-stockpiles], [data-logistics-convoys], [data-logistics-delays], [data-logistics-alerts], [data-logistics-trend], [data-logistics-ledger]")
         .forEach((container) => { container.innerHTML = emptyMessage; });
       return;
     }
 
     const overviewContainer = panel.querySelector<HTMLElement>("[data-logistics-overview]");
+    const supplyCategoriesContainer = panel.querySelector<HTMLElement>("[data-logistics-supply-categories]");
     const prioritiesContainer = panel.querySelector<HTMLElement>("[data-logistics-priorities]");
     const sourcesContainer = panel.querySelector<HTMLElement>("[data-logistics-sources]");
     const stockpilesContainer = panel.querySelector<HTMLElement>("[data-logistics-stockpiles]");
     const convoysContainer = panel.querySelector<HTMLElement>("[data-logistics-convoys]");
     const delaysContainer = panel.querySelector<HTMLElement>("[data-logistics-delays]");
-    const maintenanceContainer = panel.querySelector<HTMLElement>("[data-logistics-maintenance]");
     const alertsContainer = panel.querySelector<HTMLElement>("[data-logistics-alerts]");
+    const trendContainer = panel.querySelector<HTMLElement>("[data-logistics-trend]");
+    const ledgerContainer = panel.querySelector<HTMLElement>("[data-logistics-ledger]");
 
     if (overviewContainer) {
-      overviewContainer.innerHTML = this.composeLogisticsOverview(snapshot);
+      overviewContainer.innerHTML = this.composeLogisticsOverview(snapshot, supplySnapshot);
+    }
+
+    if (supplyCategoriesContainer) {
+      supplyCategoriesContainer.innerHTML = supplySnapshot
+        ? supplySnapshot.categories.map((category: SupplyCategorySnapshot) => this.composeSupplyCategoryCard(category)).join("")
+        : '<div class="logistics-panel__empty">Supply breakdown will populate once the live ledger is available.</div>';
     }
 
     if (prioritiesContainer) {
@@ -2218,16 +2229,20 @@ export class PopupManager implements IPopupManager {
         : snapshot.delayNodes.map((delay) => this.composeDelayItem(delay)).join("");
     }
 
-    if (maintenanceContainer) {
-      maintenanceContainer.innerHTML = snapshot.maintenanceBacklog.length === 0
-        ? '<li class="logistics-panel__empty">No units in maintenance backlog.</li>'
-        : snapshot.maintenanceBacklog.map((item) => this.composeMaintenanceItem(item)).join("");
+    if (alertsContainer) {
+      alertsContainer.innerHTML = this.composeCombinedLogisticsAlerts(snapshot.alerts, supplySnapshot?.alerts ?? []);
     }
 
-    if (alertsContainer) {
-      alertsContainer.innerHTML = snapshot.alerts.length === 0
-        ? '<li class="logistics-panel__empty">No logistics alerts.</li>'
-        : snapshot.alerts.map((alert) => this.composeLogisticsAlert(alert)).join("");
+    if (trendContainer) {
+      trendContainer.innerHTML = supplySnapshot
+        ? this.composeSupplyTrendMarkup(supplySnapshot.categories)
+        : '<div class="logistics-panel__empty">Trend history is not available yet.</div>';
+    }
+
+    if (ledgerContainer) {
+      ledgerContainer.innerHTML = supplySnapshot
+        ? this.composeSupplyLedgerMarkup(supplySnapshot.ledger)
+        : '<li class="supplies-ledger__empty">Ledger data is unavailable.</li>';
     }
 
     this.bindLogisticsPriorityControls(panel);
@@ -2249,19 +2264,26 @@ export class PopupManager implements IPopupManager {
   }
 
   /** Summarizes the current logistics model so the panel explains what the numbers mean and what the player can do. */
-  private composeLogisticsOverview(snapshot: LogisticsSnapshot): string {
+  private composeLogisticsOverview(snapshot: LogisticsSnapshot, supplySnapshot: SupplySnapshot | null): string {
+    const directIssueLabel = supplyBalance.convoy.sourceRadius <= 1
+      ? "On source or adjacent"
+      : `Base/HQ +${supplyBalance.convoy.sourceRadius} hex`;
+    const phaseLabel = this.formatBattlePhaseLabel(supplySnapshot?.phase ?? "playerTurn");
+    const depotRations = supplySnapshot?.stockpile.rations ?? 0;
+    const depotParts = supplySnapshot?.stockpile.parts ?? snapshot.depotStock.parts;
+
     return `
       <div class="logistics-overview">
         <div class="logistics-overview__hero">
           <article class="logistics-overview__metric">
-            <span>Deployed</span>
-            <strong>${snapshot.deployedUnits}</strong>
-            <small>frontline formations</small>
+            <span>Turn</span>
+            <strong>${snapshot.turn}</strong>
+            <small>${this.escapeHtml(phaseLabel)}</small>
           </article>
           <article class="logistics-overview__metric">
-            <span>Connected</span>
-            <strong>${snapshot.connectedUnits}</strong>
-            <small>inside the network</small>
+            <span>Deployed</span>
+            <strong>${snapshot.deployedUnits}</strong>
+            <small>${snapshot.isolatedUnits} isolated</small>
           </article>
           <article class="logistics-overview__metric">
             <span>Convoys</span>
@@ -2269,24 +2291,26 @@ export class PopupManager implements IPopupManager {
             <small>${snapshot.loadedConvoys} loaded for delivery</small>
           </article>
           <article class="logistics-overview__metric">
-            <span>Convoy Cargo</span>
-            <strong>${this.formatQuantity(snapshot.convoyCargo.ammo + snapshot.convoyCargo.fuel)}</strong>
-            <small>${this.formatQuantity(snapshot.convoyCargo.ammo)} ammo · ${this.formatQuantity(snapshot.convoyCargo.fuel)} fuel</small>
+            <span>Queue</span>
+            <strong>${snapshot.priorityTargets.length}</strong>
+            <small>${snapshot.connectedUnits} in network</small>
           </article>
         </div>
         <div class="logistics-overview__stock">
           <span class="logistics-overview__stock-item"><strong>Depot Ammo</strong> ${this.formatQuantity(snapshot.depotStock.ammo)}</span>
           <span class="logistics-overview__stock-item"><strong>Depot Fuel</strong> ${this.formatQuantity(snapshot.depotStock.fuel)}</span>
-          <span class="logistics-overview__stock-item"><strong>Depot Parts</strong> ${this.formatQuantity(snapshot.depotStock.parts)}</span>
-          <span class="logistics-overview__stock-item"><strong>Direct Issue</strong> Base/HQ +${supplyBalance.convoy.sourceRadius} hex</span>
+          <span class="logistics-overview__stock-item"><strong>Rations</strong> ${this.formatQuantity(depotRations)}</span>
+          <span class="logistics-overview__stock-item"><strong>Parts</strong> ${this.formatQuantity(depotParts)}</span>
+          <span class="logistics-overview__stock-item"><strong>Convoy Cargo</strong> ${this.formatQuantity(snapshot.convoyCargo.ammo)} ammo · ${this.formatQuantity(snapshot.convoyCargo.fuel)} fuel</span>
+          <span class="logistics-overview__stock-item"><strong>Direct Issue</strong> ${directIssueLabel}</span>
         </div>
         <div class="logistics-overview__brief">
-          <p class="logistics-overview__headline">Supply convoys are live map units in this build. Battalions only draw directly from depot when they are on or adjacent to Base Camp or HQ; forward formations wait for convoy delivery.</p>
+          <p class="logistics-overview__headline">Base Camp and HQ only issue supplies on their own hex and adjacent hexes. Everything farther forward must be sustained by automated on-map supply convoys.</p>
           <ul class="logistics-overview__rules">
-            <li>Supply range currently extends ${supplyBalance.roadRange} road hexes or ${supplyBalance.offroadRange} rough hexes from Base Camp or HQ.</li>
+            <li>Convoys are live map units for both sides. They return to Base Camp or HQ to reload before running the next delivery.</li>
             <li>Each convoy carries up to ${supplyBalance.convoy.ammoCapacity} ammo and ${supplyBalance.convoy.fuelCapacity} fuel, unloading up to ${supplyBalance.convoy.unloadAmmoPerTurn}/${supplyBalance.convoy.unloadFuelPerTurn} per turn.</li>
-            <li>Ground attacks spend onboard ammo. Motorized movement spends onboard fuel. When carried stock hits zero, the battalion stops acting.</li>
-            <li>Use the resupply queue below to raise or lower delivery priority. Ammo is still modeled as one pooled class in this beta.</li>
+            <li>Ground attacks spend onboard ammo. Motorized movement spends onboard fuel. Infantry do not burn fuel to move.</li>
+            <li>Use the resupply queue below to raise or lower delivery priority. Forward battalions wait on convoy service instead of abstract depot teleportation.</li>
           </ul>
         </div>
       </div>
@@ -2337,7 +2361,7 @@ export class PopupManager implements IPopupManager {
   private composeSupplySourceCard(source: LogisticsSupplySource): string {
     const utilizationPercent = Math.round(source.utilization * 100);
     const bottleneckMarkup = source.bottleneck
-      ? `<div class="logistics-source-card__bottleneck">⚠ ${this.escapeHtml(source.bottleneck)}</div>`
+      ? `<div class="logistics-source-card__bottleneck"><strong>Bottleneck:</strong> ${this.escapeHtml(source.bottleneck)}</div>`
       : "";
 
     return `
@@ -2451,6 +2475,35 @@ export class PopupManager implements IPopupManager {
     `;
   }
 
+  private composeCombinedLogisticsAlerts(logisticsAlerts: LogisticsAlertEntry[], supplyAlerts: SupplyAlert[]): string {
+    const merged = new Map<string, LogisticsAlertEntry["level"]>();
+    const severityRank: Record<LogisticsAlertEntry["level"], number> = {
+      info: 0,
+      warning: 1,
+      critical: 2
+    };
+
+    logisticsAlerts.forEach((alert) => {
+      merged.set(alert.message, alert.level);
+    });
+
+    supplyAlerts.forEach((alert) => {
+      const message = `${this.resolveResourceLabel(alert.resource)}: ${alert.message}`;
+      const current = merged.get(message);
+      if (!current || severityRank[alert.level] > severityRank[current]) {
+        merged.set(message, alert.level);
+      }
+    });
+
+    if (merged.size === 0) {
+      return '<li class="logistics-panel__empty">No logistics alerts.</li>';
+    }
+
+    return Array.from(merged.entries())
+      .map(([message, level]) => this.composeLogisticsAlert({ message, level }))
+      .join("");
+  }
+
   private formatSupplyPriorityLabel(priority: SupplyPriority): string {
     switch (priority) {
       case "critical":
@@ -2510,6 +2563,23 @@ export class PopupManager implements IPopupManager {
         return "Spare Parts";
       default:
         return resource.charAt(0).toUpperCase() + resource.slice(1);
+    }
+  }
+
+  private formatBattlePhaseLabel(phase: string): string {
+    switch (phase) {
+      case "playerTurn":
+        return "Player Turn";
+      case "botTurn":
+        return "Enemy Turn";
+      case "allyTurn":
+        return "Ally Turn";
+      case "deployment":
+        return "Deployment";
+      case "completed":
+        return "Completed";
+      default:
+        return phase;
     }
   }
 

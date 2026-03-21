@@ -293,6 +293,9 @@ export interface CombatPreview {
   finalDamagePerHit: number;
   finalExpectedDamage: number;
   finalExpectedSuppression: number;
+  expectedRetaliation: number;
+  retaliationPossible: boolean;
+  retaliationNote?: string;
 }
 
 /**
@@ -3132,6 +3135,10 @@ export class GameEngine implements GameEngineAPI {
     this.playerSide = structuredClone(config.playerSide);
     this.botSide = structuredClone(config.botSide);
     this.allySide = config.allySide ? structuredClone(config.allySide) : null;
+    this.ensureBaselineSupplyConvoysForSide(this.botSide);
+    if (this.allySide) {
+      this.ensureBaselineSupplyConvoysForSide(this.allySide);
+    }
     // Default to legacy Simple bot to avoid behavior changes unless explicitly enabled.
     this.botStrategyMode = config.botStrategyMode ?? "Simple";
     // Default to Normal difficulty if not specified.
@@ -3665,6 +3672,88 @@ export class GameEngine implements GameEngineAPI {
       return null;
     }
     return { state: bestContact.state, source: bestContact.source };
+  }
+
+  /**
+   * Auto-provisions a small convoy pool for AI-controlled factions when scenarios omit dedicated
+   * logistics units. This keeps enemy supply lines targetable without requiring every mission author
+   * to hand-place truck counters.
+   */
+  private ensureBaselineSupplyConvoysForSide(side: ScenarioSide): void {
+    const units = side.units ?? [];
+    if (!side.units) {
+      side.units = units;
+    }
+    if (units.some((unit) => this.isSupplyTruckType(unit.type))) {
+      return;
+    }
+
+    const frontlineUnits = units.filter((unit) => {
+      if (this.isSupplyTruckType(unit.type)) {
+        return false;
+      }
+      const definition = this.getUnitDefinition(unit.type);
+      return definition.moveType !== "air";
+    });
+    if (frontlineUnits.length === 0) {
+      return;
+    }
+
+    const origin = side.hq ?? frontlineUnits[0]?.hex;
+    if (!origin) {
+      return;
+    }
+
+    const convoyTemplate = this.getUnitDefinition("Supply_Truck" as ScenarioUnit["type"]);
+    const desiredConvoys = Math.max(1, Math.min(3, Math.ceil(frontlineUnits.length / 4)));
+    const occupied = new Set<string>();
+    [this.playerSide.units ?? [], this.botSide.units ?? [], this.allySide?.units ?? []].forEach((group) => {
+      group.forEach((unit) => occupied.add(axialKey(unit.hex)));
+    });
+
+    const stagingHexes = this.collectConvoyStagingHexes(origin, desiredConvoys, occupied);
+    stagingHexes.forEach((hex) => {
+      units.push({
+        type: "Supply_Truck" as ScenarioUnit["type"],
+        hex: structuredClone(hex),
+        strength: 100,
+        experience: 0,
+        ammo: 0,
+        fuel: convoyTemplate.fuel ?? 70,
+        entrench: 0,
+        facing: "N"
+      });
+      occupied.add(axialKey(hex));
+    });
+  }
+
+  /**
+   * Finds a handful of open tiles around an HQ/source hex so auto-provisioned convoys spawn on-map
+   * and remain immediately targetable.
+   */
+  private collectConvoyStagingHexes(origin: Axial, limit: number, occupied: Set<string>): Axial[] {
+    const results: Axial[] = [];
+    const queue: Axial[] = [structuredClone(origin)];
+    const visited = new Set<string>([axialKey(origin)]);
+
+    while (queue.length > 0 && results.length < limit) {
+      const hex = queue.shift()!;
+      const key = axialKey(hex);
+      if (this.inBounds(hex) && !occupied.has(key)) {
+        results.push(structuredClone(hex));
+      }
+
+      neighbors(hex).forEach((neighbor) => {
+        const neighborKey = axialKey(neighbor);
+        if (visited.has(neighborKey) || !this.inBounds(neighbor)) {
+          return;
+        }
+        visited.add(neighborKey);
+        queue.push(structuredClone(neighbor));
+      });
+    }
+
+    return results;
   }
 
   private describeEnemyObservationSource(definition: UnitTypeDefinition, observer: ScenarioUnit): string {
@@ -5078,6 +5167,23 @@ export class GameEngine implements GameEngineAPI {
     const finalDamagePerHit = attackResult.damagePerHit * damageMultiplier;
     const finalExpectedDamage = attackResult.expectedDamage * damageMultiplier;
     const finalExpectedSuppression = attackResult.expectedSuppression * suppressionMultiplier;
+    const projectedDefenderLoss = Math.max(
+      0,
+      attackerIsBomber && !defenderIsAircraft
+        ? Math.ceil(finalExpectedDamage)
+        : Math.round(finalExpectedDamage)
+    );
+    const projectedDefender = structuredClone(defender);
+    projectedDefender.strength = Math.max(0, projectedDefender.strength - projectedDefenderLoss);
+    const retaliationPreview = this.previewRetaliationForPlayerAttack(
+      attacker,
+      attackerHex,
+      attackerDef,
+      projectedDefender,
+      defenderHex,
+      defenderDef,
+      effectiveStance
+    );
 
     return {
       attacker: structuredClone(attacker),
@@ -5088,7 +5194,140 @@ export class GameEngine implements GameEngineAPI {
       suppressionMultiplier,
       finalDamagePerHit,
       finalExpectedDamage,
-      finalExpectedSuppression
+      finalExpectedSuppression,
+      expectedRetaliation: retaliationPreview.expectedDamage,
+      retaliationPossible: retaliationPreview.possible,
+      retaliationNote: retaliationPreview.note
+    };
+  }
+
+  /**
+   * Mirrors the retaliation checks used by player-initiated combat so the confirmation modal can surface
+   * expected return fire without reimplementing engine rules in the UI layer.
+   */
+  private previewRetaliationForPlayerAttack(
+    attacker: ScenarioUnit,
+    attackerHex: Axial,
+    attackerDef: UnitTypeDefinition,
+    defender: ScenarioUnit,
+    defenderHex: Axial,
+    defenderDef: UnitTypeDefinition,
+    effectiveStance: CombatStance | undefined
+  ): { expectedDamage: number; possible: boolean; note?: string } {
+    const attackerIsAircraft = this.isAircraft(attackerDef);
+    const defenderIsAircraft = this.isAircraft(defenderDef);
+    const defenderIsBomber = this.isBomber(defenderDef);
+    const defenderKey = axialKey(defenderHex);
+    const defenderGroundAmmoCost = defenderIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(defenderDef);
+
+    if (defender.strength <= 0) {
+      return {
+        expectedDamage: 0,
+        possible: false,
+        note: "Target is expected to be destroyed before it can return fire."
+      };
+    }
+
+    if (attackerIsAircraft && !defenderIsAircraft) {
+      return {
+        expectedDamage: 0,
+        possible: false,
+        note: "Ground units cannot retaliate against fast-moving aircraft."
+      };
+    }
+
+    if (this.resolveUnitSuppressionState(defender).state === "pinned") {
+      return {
+        expectedDamage: 0,
+        possible: false,
+        note: "Target is pinned and cannot return fire."
+      };
+    }
+
+    const distance = hexDistance(defenderHex, attackerHex);
+    const defenderRangeMin = defenderDef.rangeMin ?? 1;
+    let defenderRangeMax = defenderDef.rangeMax ?? 1;
+    if (defenderIsBomber && attackerIsAircraft) {
+      defenderRangeMax = Math.max(defenderRangeMax, 2);
+    }
+    if (distance < defenderRangeMin || distance > defenderRangeMax) {
+      return {
+        expectedDamage: 0,
+        possible: false,
+        note: "Target is out of return-fire range."
+      };
+    }
+
+    const defenderFlags = this.botActionFlags.get(defenderKey) ?? this.createDefaultActionFlags();
+    if (defenderFlags.retaliationsUsed >= 1) {
+      return {
+        expectedDamage: 0,
+        possible: false,
+        note: "Target has already used its retaliation this turn."
+      };
+    }
+
+    if (defenderIsAircraft) {
+      const defenderAmmoState = this.getAircraftAmmoState("Bot", defenderKey, defenderDef);
+      if (this.aircraftNeedsRearm("Bot", defenderKey)) {
+        return {
+          expectedDamage: 0,
+          possible: false,
+          note: "Enemy aircraft must rearm before it can retaliate."
+        };
+      }
+      if (defenderAmmoState.air <= 0) {
+        return {
+          expectedDamage: 0,
+          possible: false,
+          note: "Enemy aircraft has no interception ammo remaining."
+        };
+      }
+    } else {
+      const defenderAmmo = typeof defender.ammo === "number" ? defender.ammo : null;
+      if (defenderAmmo !== null && defenderAmmo < defenderGroundAmmoCost) {
+        return {
+          expectedDamage: 0,
+          possible: false,
+          note: defenderGroundAmmoCost > 1
+            ? `Enemy unit lacks the ${defenderGroundAmmoCost.toFixed(0)} ammo needed to return indirect fire.`
+            : "Enemy unit has no ammunition remaining to retaliate."
+        };
+      }
+    }
+
+    const retaliationReq = this.buildAttackRequest(defender, attacker, "Bot", "Player", {
+      allowBomberAirAttack: true,
+      stance: effectiveStance === "assault" ? "assault" : undefined
+    });
+    if (!retaliationReq) {
+      return {
+        expectedDamage: 0,
+        possible: false,
+        note: "Target lacks line of fire for retaliation."
+      };
+    }
+
+    let retaliation = resolveAttack(retaliationReq);
+    if (defenderIsBomber && attackerIsAircraft) {
+      retaliation = {
+        ...retaliation,
+        expectedDamage: retaliation.expectedDamage * 2,
+        damagePerHit: retaliation.damagePerHit * 2,
+        expectedSuppression: retaliation.expectedSuppression * 2
+      };
+    } else if (defenderIsAircraft && !defenderIsBomber && attackerIsAircraft) {
+      retaliation = {
+        ...retaliation,
+        expectedDamage: retaliation.expectedDamage * 4,
+        damagePerHit: retaliation.damagePerHit * 4,
+        expectedSuppression: retaliation.expectedSuppression * 4
+      };
+    }
+
+    return {
+      expectedDamage: Math.max(0, retaliation.expectedDamage),
+      possible: true
     };
   }
 
@@ -6572,13 +6811,7 @@ export class GameEngine implements GameEngineAPI {
         reason: cost > 25 ? "Extended travel time" : "Moderate congestion"
       }));
 
-    const maintenanceBacklog: LogisticsMaintenanceEntry[] = placements
-      .filter((unit) => unit.strength < 6 || unit.fuel < 2 || unit.ammo < 2)
-      .map((unit) => ({
-        unitKey: this.getDisplayUnitLabel(unit),
-        issue: this.resolveMaintenanceIssue(unit),
-        pendingTurns: this.estimateMaintenanceTurns(unit)
-      }));
+    const maintenanceBacklog: LogisticsMaintenanceEntry[] = [];
 
     const alerts: LogisticsAlertEntry[] = [];
     if (isolatedUnits > 0) {
@@ -6602,9 +6835,6 @@ export class GameEngine implements GameEngineAPI {
       alerts.push({ level: "critical", message: "Forward units need resupply but no supply convoys are deployed." });
     } else if (forwardUnitsNeedingConvoys.length > convoyUnits.length && convoyUnits.length > 0) {
       alerts.push({ level: "warning", message: "Convoy coverage is thinner than the current resupply queue." });
-    }
-    if (maintenanceBacklog.length > totalUnits / 2 && totalUnits > 0) {
-      alerts.push({ level: "critical", message: "Maintenance backlog exceeds half of deployed units." });
     }
     if (sources.length === 0 && totalUnits > 0) {
       alerts.push({ level: "critical", message: "No active base camp or headquarters is feeding the logistics network." });
@@ -8964,10 +9194,11 @@ export class GameEngine implements GameEngineAPI {
    * Summarizes the most pressing maintenance issue for a unit so the backlog list stays easy to parse.
    */
   private resolveMaintenanceIssue(unit: ScenarioUnit): string {
+    const definition = this.getUnitDefinition(unit.type);
     if (unit.strength < 6) {
       return "Combat damage";
     }
-    if (unit.fuel < 2) {
+    if (this.unitConsumesFuel(definition) && unit.fuel < 2) {
       return "Refuel required";
     }
     return "Rearm required";

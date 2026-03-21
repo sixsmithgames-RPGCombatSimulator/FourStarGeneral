@@ -2578,8 +2578,8 @@
     }
     .battle-dialog__surface {
       position: relative;
-      width: min(580px, 90%);
-      max-height: 85vh;
+      width: min(920px, 94vw);
+      max-height: 86vh;
       background: linear-gradient(135deg, rgba(18, 22, 32, 0.98) 0%, rgba(12, 16, 24, 0.98) 100%);
       border: 1px solid rgba(245, 196, 109, 0.3);
       border-radius: 12px;
@@ -2601,7 +2601,7 @@
       letter-spacing: 0.02em;
     }
     .battle-dialog__body {
-      padding: 2rem;
+      padding: 1.4rem 2rem 1.6rem;
       overflow-y: auto;
       flex: 1;
       font-size: 1rem;
@@ -2625,7 +2625,7 @@
 
     /* Combat Stance Selector */
     .attack-stance-selector {
-      padding: 1rem 2rem;
+      padding: 0.9rem 2rem 1rem;
       background: rgba(0, 0, 0, 0.3);
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
@@ -2656,7 +2656,7 @@
       flex-direction: column;
       align-items: flex-start;
       gap: 0.45rem;
-      min-height: 124px;
+      min-height: 108px;
       padding: 0.95rem 1rem;
       background: linear-gradient(180deg, rgba(24, 29, 43, 0.96), rgba(16, 20, 31, 0.96));
       border: 1px solid rgba(112, 125, 150, 0.35);
@@ -2794,6 +2794,268 @@
     }
     .attack-preview-status--danger {
       color: #ef5350;
+    }
+    .attack-preview-shell {
+      display: grid;
+      gap: 1rem;
+    }
+    .attack-preview-rangebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.8rem 1rem;
+      border-radius: 14px;
+      background: linear-gradient(90deg, rgba(245, 196, 109, 0.12), rgba(245, 196, 109, 0.04));
+      border: 1px solid rgba(245, 196, 109, 0.2);
+    }
+    .attack-preview-rangebar__label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(245, 196, 109, 0.85);
+    }
+    .attack-preview-rangebar__value {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .attack-preview-matchup {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+    }
+    .attack-preview-card {
+      padding: 1rem 1.05rem;
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(12, 17, 27, 0.94), rgba(8, 12, 20, 0.9));
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+    .attack-preview-card--attacker {
+      border-color: rgba(102, 187, 106, 0.32);
+    }
+    .attack-preview-card--defender {
+      border-color: rgba(239, 83, 80, 0.28);
+    }
+    .attack-preview-card__eyebrow {
+      display: block;
+      margin-bottom: 0.45rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .attack-preview-card__title {
+      margin: 0;
+      font-size: 1.18rem;
+      line-height: 1.2;
+      color: #f5f8ff;
+    }
+    .attack-preview-card--attacker .attack-preview-card__title {
+      color: #79d887;
+    }
+    .attack-preview-card--defender .attack-preview-card__title {
+      color: #ff7070;
+    }
+    .attack-preview-card__location {
+      margin: 0.35rem 0 0;
+      font-size: 0.84rem;
+      color: var(--text-muted);
+    }
+    .attack-preview-card__stats {
+      display: grid;
+      gap: 0.6rem;
+      margin-top: 0.95rem;
+    }
+    .attack-preview-stat {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.8rem;
+      padding-top: 0.55rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 0.88rem;
+    }
+    .attack-preview-stat span {
+      color: var(--text-muted);
+    }
+    .attack-preview-stat strong {
+      color: #fff;
+    }
+    .attack-preview-outcome {
+      padding: 1rem 1.05rem;
+      border-radius: 16px;
+      background: rgba(7, 11, 19, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .attack-preview-outcome__header {
+      display: grid;
+      gap: 0.2rem;
+      margin-bottom: 0.9rem;
+    }
+    .attack-preview-outcome__eyebrow {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(245, 196, 109, 0.9);
+    }
+    .attack-preview-outcome__summary {
+      margin: 0;
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+    .attack-preview-outcome__grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.85rem;
+    }
+    .attack-preview-outcome__metric {
+      display: grid;
+      gap: 0.35rem;
+      padding: 0.9rem 0.95rem;
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(18, 25, 38, 0.95), rgba(11, 16, 26, 0.9));
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .attack-preview-outcome__label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .attack-preview-outcome__value {
+      font-size: 1.55rem;
+      font-weight: 700;
+      line-height: 1;
+      color: #f5f8ff;
+    }
+    .attack-preview-outcome__value--good {
+      color: #79d887;
+    }
+    .attack-preview-outcome__value--warning {
+      color: #f1c36f;
+    }
+    .attack-preview-outcome__value--danger {
+      color: #ff7b79;
+    }
+    .attack-preview-outcome__value--neutral {
+      color: #dbe4f3;
+    }
+    .attack-preview-outcome__value--muted {
+      color: #8b97ab;
+    }
+    .attack-preview-outcome__subtext {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+    .attack-preview-footnote {
+      margin: 0;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+    .attack-preview-details {
+      border-radius: 14px;
+      background: rgba(5, 8, 14, 0.66);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+    }
+    .attack-preview-details summary {
+      position: relative;
+      padding: 0.9rem 1rem;
+      cursor: pointer;
+      list-style: none;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(245, 196, 109, 0.9);
+      user-select: none;
+    }
+    .attack-preview-details summary::-webkit-details-marker {
+      display: none;
+    }
+    .attack-preview-details summary::after {
+      content: "+";
+      position: absolute;
+      right: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 1rem;
+      color: rgba(245, 196, 109, 0.9);
+    }
+    .attack-preview-details[open] summary::after {
+      content: "-";
+    }
+    .attack-preview-details__content {
+      display: grid;
+      gap: 1rem;
+      padding: 0 1rem 1rem;
+    }
+    .attack-preview-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.7rem 1rem;
+    }
+    .attack-preview-detail-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.7rem 0.85rem;
+      border-radius: 12px;
+      background: rgba(15, 21, 33, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 0.84rem;
+    }
+    .attack-preview-detail-row span {
+      color: var(--text-muted);
+    }
+    .attack-preview-detail-row strong {
+      color: #fff;
+      text-align: right;
+    }
+    .attack-preview-breakdown {
+      display: grid;
+      gap: 0.35rem;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+    .attack-preview-breakdown p {
+      margin: 0;
+    }
+    .attack-preview-breakdown strong {
+      color: rgba(245, 196, 109, 0.94);
+    }
+    @media (max-width: 760px) {
+      .battle-dialog__surface {
+        width: min(94vw, 680px);
+      }
+      .battle-dialog__body,
+      .attack-stance-selector,
+      .battle-dialog__header,
+      .battle-dialog__footer {
+        padding-left: 1.2rem;
+        padding-right: 1.2rem;
+      }
+      .attack-preview-matchup,
+      .attack-preview-outcome__grid,
+      .attack-preview-detail-grid,
+      .stance-buttons {
+        grid-template-columns: 1fr;
+      }
+      .attack-preview-rangebar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
     }
     /* Idle warning uses the same overlay treatment as other battle dialogs so it floats above the UI. */
     .idle-warning-layer {
@@ -3066,7 +3328,6 @@
       grid-template-rows: auto 1fr;
       overflow: hidden;
     }
-    .battle-popup[data-popup-key="supplies"],
     .battle-popup[data-popup-key="logistics"] {
       width: min(1080px, calc(100vw - 2rem));
       max-height: 90vh;
@@ -4368,10 +4629,6 @@
         <button type="button" class="sidebar-button" data-popup="logistics">
           <span class="label">Logistics</span>
           <span class="icon">LOG</span>
-        </button>
-        <button type="button" class="sidebar-button" data-popup="supplies">
-          <span class="label">Supplies</span>
-          <span class="icon">SUP</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="armyRoster">
           <span class="label">Roster</span>
