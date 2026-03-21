@@ -1397,13 +1397,8 @@ export class BattleScreen {
       this.currentObjectiveIndex = (this.currentObjectiveIndex + 1) % this.scenario.objectives.length;
       const objective = this.scenario.objectives[this.currentObjectiveIndex];
 
-      // Handle hex as array [q, r]
-      const hexArray = objective.hex as unknown as [number, number];
-      const q = hexArray[0];
-      const r = hexArray[1];
-
       // Convert to offset key and focus on it
-      const offset = CoordinateSystem.axialToOffset(q, r);
+      const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
       const offsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
 
       // Focus camera on objective
@@ -1415,23 +1410,14 @@ export class BattleScreen {
   }
 
   private updateObjectiveMarkers(): void {
-    console.log("[DEBUG] updateObjectiveMarkers called");
-    console.log("[DEBUG] hexMapRenderer exists:", !!this.hexMapRenderer);
-    console.log("[DEBUG] missionRulesController exists:", !!this.missionRulesController);
-    console.log("[DEBUG] scenario.objectives:", this.scenario.objectives);
-
     if (!this.hexMapRenderer || !this.missionRulesController || !this.scenario.objectives) {
-      console.log("[DEBUG] Early return - missing required dependencies");
       return;
     }
 
     const engine = this.battleState.hasEngine() ? this.battleState.ensureGameEngine() : null;
     if (!engine) {
-      console.log("[DEBUG] Early return - no engine");
       return;
     }
-
-    console.log("[DEBUG] Proceeding to render", this.scenario.objectives.length, "objectives");
 
     // Build occupancy map
     const occupancy = new Map<string, "Player" | "Bot" | "Ally">();
@@ -1457,9 +1443,7 @@ export class BattleScreen {
           const count = parseInt(match[2], 10);
           if (this.scenario.objectives && fordIndex < this.scenario.objectives.length) {
             const objective = this.scenario.objectives[fordIndex];
-            // Handle hex as array [q, r]
-            const hexArray = objective.hex as unknown as [number, number];
-            const key = `${hexArray[0]},${hexArray[1]}`;
+            const key = `${objective.hex.q},${objective.hex.r}`;
             fordCounters.set(key, count);
           }
           fordIndex++;
@@ -1470,14 +1454,9 @@ export class BattleScreen {
     // Update professional objective markers for each hex
     for (let i = 0; i < this.scenario.objectives.length; i++) {
       const objective = this.scenario.objectives[i];
-      // Handle hex as array [q, r]
-      const hexArray = objective.hex as unknown as [number, number];
-      const q = hexArray[0];
-      const r = hexArray[1];
-
       // Convert axial to offset coordinates for hex key
-      const axialKey = `${q},${r}`;
-      const offset = CoordinateSystem.axialToOffset(q, r);
+      const axialKey = `${objective.hex.q},${objective.hex.r}`;
+      const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
       const offsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
 
       const occupant = occupancy.get(axialKey);
