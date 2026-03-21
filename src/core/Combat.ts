@@ -47,6 +47,7 @@ export interface DefenderContext {
   hex: Axial;
   isRushing?: boolean; // Infantry rushing loses terrain cover
   isSpottedOnly?: boolean; // Target visible only via aircraft/recon spotting (no direct LOS)
+  stance?: "assault" | "suppressive" | "digIn"; // Combat stance (infantry only)
 }
 
 /**
@@ -54,6 +55,7 @@ export interface DefenderContext {
  */
 export interface AttackerContext {
   hex: Axial;
+  stance?: "assault" | "suppressive" | "digIn"; // Combat stance (infantry only)
 }
 
 /**
@@ -212,12 +214,21 @@ export function pickFacingArmor(
  * 2. Add experience bonus (+3% per star)
  * 3. Add terrain modifier (defender in cover is harder to hit)
  * 4. Apply commander bonus as percentage multiplier
- * 5. Clamp to min/max bounds
+ * 5. Apply assault stance bonus if applicable (+50% for close range physics)
+ * 6. Clamp to min/max bounds
  */
 export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const attacker = request.attacker;
   const defenderCtx = request.defenderCtx;
-  const distance = hexDistance(request.attackerCtx.hex, defenderCtx.hex);
+  const attackerCtx = request.attackerCtx;
+  let distance = hexDistance(attackerCtx.hex, defenderCtx.hex);
+
+  // If attacker is using assault stance, engagement happens at close range (0-50m, use 25m midpoint)
+  const isAssault = attackerCtx.stance === "assault";
+  const ASSAULT_CLOSE_RANGE_METERS = 25;
+  if (isAssault) {
+    distance = ASSAULT_CLOSE_RANGE_METERS;
+  }
 
   // Step 1: Get realistic base accuracy from range table
   const baseAccuracy = getBaseAccuracyByRange(attacker.unit.class, distance);
@@ -239,9 +250,13 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
 
   // Step 4: Apply spotted target penalty as multiplier
   const spottedMultiplier = defenderCtx.isSpottedOnly ? 0.5 : 1.0;
-  const finalPreClamp = afterTerrain * spottedMultiplier;
+  let afterSpotted = afterTerrain * spottedMultiplier;
 
-  // Step 5: Clamp to bounds
+  // Step 5: Apply assault stance accuracy boost (+50% for close range physics)
+  const assaultMultiplier = isAssault ? 1.5 : 1.0;
+  const finalPreClamp = afterSpotted * assaultMultiplier;
+
+  // Step 6: Clamp to bounds
   const finalAccuracy = clamp(finalPreClamp, combatBalance.accuracy.min, combatBalance.accuracy.max);
 
   return {

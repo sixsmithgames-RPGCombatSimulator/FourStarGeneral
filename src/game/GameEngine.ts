@@ -55,7 +55,7 @@ import {
   getReconIntelSnapshot as buildInitialReconIntelSnapshot,
   type ReconIntelSnapshot
 } from "../data/reconIntelSnapshot";
-import { supply as supplyBalance } from "../core/balance";
+import { combat as combatBalance, FUEL_COST, supply as supplyBalance } from "../core/balance";
 import {
   accumulateProduction,
   advanceShipments,
@@ -482,12 +482,28 @@ export interface LogisticsAlertEntry {
 
 export interface LogisticsSnapshot {
   turn: number;
+  deployedUnits: number;
+  connectedUnits: number;
+  isolatedUnits: number;
+  depotStock: {
+    ammo: number;
+    fuel: number;
+    parts: number;
+  };
   supplySources: LogisticsSupplySource[];
   stockpiles: LogisticsStockpileEntry[];
   convoyStatuses: LogisticsConvoyStatusEntry[];
   delayNodes: LogisticsDelayNode[];
   maintenanceBacklog: LogisticsMaintenanceEntry[];
   alerts: LogisticsAlertEntry[];
+}
+
+interface MovementPathSummary {
+  cost: number;
+  fuelCost: number;
+  steps: number;
+  roadSteps: number;
+  offroadSteps: number;
 }
 
 /**
@@ -2195,6 +2211,46 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /**
+   * Transfers a limited top-up from depot stock into a connected unit's carried loadout. Convoys are
+   * abstracted in the tactical layer, so this models battalion trains shuttling ammo and fuel forward.
+   */
+  private resupplyConnectedUnit(
+    faction: TurnFaction,
+    supplyState: SupplyState,
+    unit: ScenarioUnit,
+    state: SupplyUnitState,
+    definition: UnitTypeDefinition
+  ): void {
+    const ammoCapacity = Math.max(0, (definition.ammo ?? 0) - state.ammo);
+    const ammoTransfer = Math.min(
+      supplyBalance.resupply.ammo,
+      ammoCapacity,
+      Math.max(0, supplyState.inventory.ammo.current)
+    );
+    if (ammoTransfer > 0) {
+      this.trackSupplyConsumption(faction, "ammo", ammoTransfer, `${unit.type} frontline resupply`);
+      state.ammo = Number((state.ammo + ammoTransfer).toFixed(2));
+      unit.ammo = state.ammo;
+    }
+
+    if (!this.unitConsumesFuel(definition)) {
+      return;
+    }
+
+    const fuelCapacity = Math.max(0, (definition.fuel ?? 0) - state.fuel);
+    const fuelTransfer = Math.min(
+      supplyBalance.resupply.fuel,
+      fuelCapacity,
+      Math.max(0, supplyState.inventory.fuel.current)
+    );
+    if (fuelTransfer > 0) {
+      this.trackSupplyConsumption(faction, "fuel", fuelTransfer, `${unit.type} frontline resupply`);
+      state.fuel = Number((state.fuel + fuelTransfer).toFixed(2));
+      unit.fuel = state.fuel;
+    }
+  }
+
+  /**
    * Appends a ledger entry for stockpile usage and reduces the corresponding inventory bucket.
    */
   private trackSupplyConsumption(faction: TurnFaction, key: SupplyKey, amount: number, reason: string): void {
@@ -3731,46 +3787,93 @@ export class GameEngine implements GameEngineAPI {
     return { max: context.max, remaining: context.remaining };
   }
 
-  /** Calculate movement cost from origin to destination using BFS to find cheapest path */
-  private calculateMovementCost(from: Axial, to: Axial, moveType: string): number {
-    if (from.q === to.q && from.r === to.r) return 0;
+  /** Returns true when the unit's movement profile burns fuel while traversing the map. */
+  private unitConsumesFuel(definition: UnitTypeDefinition): boolean {
+    const moveType = definition.moveType as keyof typeof FUEL_COST;
+    return (FUEL_COST[moveType] ?? 0) > 0;
+  }
 
-    const visited = new Map<string, number>();
-    const queue: Array<{ hex: Axial; cost: number }> = [{ hex: from, cost: 0 }];
+  /** Resolve the fuel burned for a single step, discounting ground movement when the hex is on a road. */
+  private resolveMovementFuelStep(moveType: string, hex: Axial): number {
+    if (moveType === "leg") {
+      return 0;
+    }
+    if (moveType === "air") {
+      return combatBalance.ammoFuel.fuelPerAirHex;
+    }
+    const baseFuel = combatBalance.ammoFuel.fuelPerGroundHex;
+    return this.isRoad(hex) ? baseFuel * combatBalance.ammoFuel.fuelRoadMultiplier : baseFuel;
+  }
+
+  /** Pull the available fuel budget for a unit, using infinity for formations that do not consume fuel. */
+  private resolveFuelBudget(unit: ScenarioUnit, definition: UnitTypeDefinition): number {
+    if (!this.unitConsumesFuel(definition)) {
+      return Number.POSITIVE_INFINITY;
+    }
+    return Math.max(0, Number(unit.fuel ?? 0));
+  }
+
+  /**
+   * Calculates the cheapest reachable path summary between two hexes, tracking both movement cost and
+   * fuel expenditure so movement validation and UI overlays share the same logistics math.
+   */
+  private calculateMovementPathSummary(from: Axial, to: Axial, moveType: string): MovementPathSummary | null {
+    if (from.q === to.q && from.r === to.r) {
+      return { cost: 0, fuelCost: 0, steps: 0, roadSteps: 0, offroadSteps: 0 };
+    }
+
+    const visited = new Map<string, { cost: number; fuelCost: number }>();
+    const queue: Array<{ hex: Axial; cost: number; fuelCost: number; steps: number; roadSteps: number; offroadSteps: number }> = [
+      { hex: from, cost: 0, fuelCost: 0, steps: 0, roadSteps: 0, offroadSteps: 0 }
+    ];
 
     while (queue.length > 0) {
+      queue.sort((left, right) => left.cost - right.cost || left.fuelCost - right.fuelCost);
       const current = queue.shift()!;
       const key = axialKey(current.hex);
-
-      const existingCost = visited.get(key);
-      if (existingCost !== undefined && existingCost <= current.cost) {
+      const existing = visited.get(key);
+      if (existing && existing.cost <= current.cost && existing.fuelCost <= current.fuelCost) {
         continue;
       }
-      visited.set(key, current.cost);
+      visited.set(key, { cost: current.cost, fuelCost: current.fuelCost });
 
       if (current.hex.q === to.q && current.hex.r === to.r) {
-        return current.cost;
+        return {
+          cost: current.cost,
+          fuelCost: Number(current.fuelCost.toFixed(2)),
+          steps: current.steps,
+          roadSteps: current.roadSteps,
+          offroadSteps: current.offroadSteps
+        };
       }
 
       for (const neighbor of neighbors(current.hex)) {
-        if (!this.inBounds(neighbor)) continue;
-        const nKey = axialKey(neighbor);
-
+        if (!this.inBounds(neighbor)) {
+          continue;
+        }
         const terrain = this.terrainAt(neighbor);
         const moveCost = this.resolveMoveCost(moveType, terrain, neighbor);
         if (moveCost >= 999) {
           continue;
         }
-        const newCost = current.cost + moveCost;
-
-        const existingNCost = visited.get(nKey);
-        if (existingNCost === undefined || newCost < existingNCost) {
-          queue.push({ hex: neighbor, cost: newCost });
-        }
+        const onRoad = moveType !== "air" && this.isRoad(neighbor);
+        queue.push({
+          hex: neighbor,
+          cost: current.cost + moveCost,
+          fuelCost: current.fuelCost + this.resolveMovementFuelStep(moveType, neighbor),
+          steps: current.steps + 1,
+          roadSteps: current.roadSteps + (onRoad ? 1 : 0),
+          offroadSteps: current.offroadSteps + (onRoad ? 0 : 1)
+        });
       }
     }
 
-    return 999; // Unreachable
+    return null;
+  }
+
+  /** Retained as a small wrapper for any legacy call sites that only need movement points. */
+  private calculateMovementCost(from: Axial, to: Axial, moveType: string): number {
+    return this.calculateMovementPathSummary(from, to, moveType)?.cost ?? 999;
   }
 
   /** Calculate reachable hexes using unit movement points and terrain costs. */
@@ -3779,30 +3882,35 @@ export class GameEngine implements GameEngineAPI {
     if (!context) {
       return [];
     }
-    const { moveType, remaining } = context;
+    const { unit, definition, moveType, remaining } = context;
     if (remaining <= 0) {
       return [];
     }
+    const availableFuel = this.resolveFuelBudget(unit, definition);
+    if (Number.isFinite(availableFuel) && availableFuel <= 0) {
+      return [];
+    }
 
-    // BFS to find all hexes reachable within remaining movement budget
-    const visited = new Map<string, number>(); // hex key -> movement cost to reach
-    const queue: Array<{ hex: Axial; cost: number }> = [{ hex: origin, cost: 0 }];
+    // BFS to find all hexes reachable within both movement and fuel budgets.
+    const visited = new Map<string, { cost: number; fuelCost: number }>();
+    const queue: Array<{ hex: Axial; cost: number; fuelCost: number }> = [{ hex: origin, cost: 0, fuelCost: 0 }];
     const reachable: Axial[] = [];
+    const reachableKeys = new Set<string>();
     const originKey = axialKey(origin);
 
     while (queue.length > 0) {
       const current = queue.shift()!;
       const key = axialKey(current.hex);
 
-      if (visited.has(key)) {
+      const seen = visited.get(key);
+      if (seen && seen.cost <= current.cost && seen.fuelCost <= current.fuelCost) {
         continue;
       }
-      visited.set(key, current.cost);
+      visited.set(key, { cost: current.cost, fuelCost: current.fuelCost });
 
       for (const neighbor of neighbors(current.hex)) {
         if (!this.inBounds(neighbor)) continue;
         const nKey = axialKey(neighbor);
-        if (visited.has(nKey)) continue;
 
         const occupied = this.isOccupied(neighbor);
         if (occupied && moveType !== "air") {
@@ -3815,11 +3923,13 @@ export class GameEngine implements GameEngineAPI {
           continue;
         }
         const newCost = current.cost + moveCost;
+        const newFuelCost = current.fuelCost + this.resolveMovementFuelStep(moveType, neighbor);
 
-        if (newCost <= remaining) {
-          queue.push({ hex: neighbor, cost: newCost });
-          if (!occupied && nKey !== originKey) {
+        if (newCost <= remaining && (!Number.isFinite(availableFuel) || newFuelCost <= availableFuel + 1e-6)) {
+          queue.push({ hex: neighbor, cost: newCost, fuelCost: newFuelCost });
+          if (!occupied && nKey !== originKey && !reachableKeys.has(nKey)) {
             // Airframes may pass over other units but cannot land on them, so exclude occupied tiles from the reachable set.
+            reachableKeys.add(nKey);
             reachable.push(structuredClone(neighbor));
           }
         }
@@ -3905,6 +4015,24 @@ export class GameEngine implements GameEngineAPI {
     return out;
   }
 
+  /** Ground attacks expend one salvo, with indirect fire formations burning an additional ammo point. */
+  private resolveGroundAttackAmmoCost(definition: UnitTypeDefinition): number {
+    let cost = combatBalance.ammoFuel.attackAmmoCost;
+    if (definition.class === "artillery" || definition.traits.includes("indirect")) {
+      cost += combatBalance.ammoFuel.indirectExtraAmmo;
+    }
+    return Math.max(1, cost);
+  }
+
+  /** Clear player-facing copy explaining why a formation cannot fire. */
+  private buildGroundAmmoShortageMessage(definition: UnitTypeDefinition, currentAmmo: number, requiredAmmo: number): string {
+    const roundedCurrent = Number(currentAmmo.toFixed(2));
+    if (definition.class === "artillery" || definition.traits.includes("indirect")) {
+      return `This battery needs ${requiredAmmo.toFixed(0)} ammo to fire a mission but only has ${roundedCurrent.toFixed(2)} remaining.`;
+    }
+    return `This unit is out of ammunition and must be resupplied before it can attack.`;
+  }
+
   /** Toggle rush mode for infantry units (gives +1 movement but loses terrain cover) */
   toggleRushMode(hex: Axial): boolean {
     if (this._phase !== "playerTurn") {
@@ -3956,18 +4084,23 @@ export class GameEngine implements GameEngineAPI {
       throw new Error("No player unit at the origin hex.");
     }
     const { unit, definition, flags, moveType, max, remaining } = context;
+    const availableFuel = this.resolveFuelBudget(unit, definition);
 
     if (definition.class === "artillery" && flags.attacksUsed > 0) {
       throw new Error("Artillery cannot move after attacking.");
     }
 
-    const moveCost = this.calculateMovementCost(from, to, moveType);
-    if (moveCost >= 999) {
+    const moveSummary = this.calculateMovementPathSummary(from, to, moveType);
+    if (!moveSummary || moveSummary.cost >= 999) {
       throw new Error("Destination is not reachable with available movement points.");
     }
+    const moveCost = moveSummary.cost;
 
     if (moveCost > remaining) {
       throw new Error(`Not enough movement points. Cost: ${moveCost}, Remaining: ${Math.max(0, remaining).toFixed(1)}`);
+    }
+    if (Number.isFinite(availableFuel) && moveSummary.fuelCost > availableFuel + 1e-6) {
+      throw new Error(`Not enough fuel. Required: ${moveSummary.fuelCost.toFixed(2)}, Available: ${availableFuel.toFixed(2)}`);
     }
 
     const newTotalMovement = flags.movementPointsUsed + moveCost;
@@ -3994,9 +4127,13 @@ export class GameEngine implements GameEngineAPI {
     this.playerIdleUnitKeys.delete(fromKey);
     const moved = structuredClone(unit);
     moved.hex = structuredClone(to);
+    if (Number.isFinite(availableFuel) && moveSummary.fuelCost > 0) {
+      moved.fuel = Math.max(0, Number((moved.fuel - moveSummary.fuelCost).toFixed(2)));
+    }
     this.playerPlacements.set(toKey, moved);
     this.transferAircraftAmmoState(this.playerAttackAmmo, fromKey, toKey);
     this.updatePlayerSupplyPosition(from, to);
+    this.syncPlayerFuel(to, moved.fuel);
 
     // Update action flags
     this.playerActionFlags.delete(fromKey);
@@ -4034,6 +4171,8 @@ export class GameEngine implements GameEngineAPI {
     const attackerIsBomber = this.isBomber(unitDef);
     const defenderIsAircraft = this.isAircraft(defenderDef);
     const defenderIsBomber = this.isBomber(defenderDef);
+    const groundAttackAmmoCost = attackerIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(unitDef);
+    const defenderGroundAmmoCost = defenderIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(defenderDef);
     let attackManeuverCost = 0;
     const moveScalar = this.commanderMoveScalar();
     const boostedMovement = Math.max(1, Math.ceil((unitDef.movement ?? 1) * moveScalar));
@@ -4060,6 +4199,10 @@ export class GameEngine implements GameEngineAPI {
 
     if (flags.attacksUsed >= maxAttacks) {
       throw new Error(`This unit can only attack ${maxAttacks} time(s) this turn.`);
+    }
+
+    if (!attackerIsAircraft && attacker.ammo < groundAttackAmmoCost) {
+      throw new Error(this.buildGroundAmmoShortageMessage(unitDef, attacker.ammo, groundAttackAmmoCost));
     }
 
     if (attackerIsAircraft) {
@@ -4239,7 +4382,9 @@ export class GameEngine implements GameEngineAPI {
 
     // Ammo consumption (minimal)
     const updatedAtk = structuredClone(attacker);
-    updatedAtk.ammo = Math.max(0, updatedAtk.ammo - 1);
+    updatedAtk.ammo = attackerIsAircraft
+      ? Math.max(0, updatedAtk.ammo - 1)
+      : Math.max(0, updatedAtk.ammo - groundAttackAmmoCost);
     this.playerPlacements.set(atkKey, updatedAtk);
     this.syncPlayerAmmo(attackerHex, updatedAtk.ammo);
 
@@ -4317,7 +4462,7 @@ export class GameEngine implements GameEngineAPI {
         }
       } else {
         const defenderAmmo = typeof updatedDef.ammo === "number" ? updatedDef.ammo : null;
-        if (defenderAmmo !== null && defenderAmmo <= 0) {
+        if (defenderAmmo !== null && defenderAmmo < defenderGroundAmmoCost) {
           retaliationOccurred = false;
           this.playerPlacements.set(atkKey, updatedAtk);
           this.syncPlayerStrength(attackerHex, updatedAtk.strength);
@@ -4329,7 +4474,9 @@ export class GameEngine implements GameEngineAPI {
             retaliationResult: undefined,
             attackerRemainingStrength,
             retaliationOccurred: false,
-            retaliationNote: "Enemy unit has no ammunition remaining to retaliate."
+            retaliationNote: defenderGroundAmmoCost > 1
+              ? `Enemy unit lacks the ${defenderGroundAmmoCost.toFixed(0)} ammo needed to return indirect fire.`
+              : "Enemy unit has no ammunition remaining to retaliate."
           };
         }
       }
@@ -4397,7 +4544,7 @@ export class GameEngine implements GameEngineAPI {
 
         if (!defenderIsAircraft && typeof updatedDef.ammo === "number") {
           // Ground-based retaliations spend one ammo just like primary attacks so supply mirrors stay accurate.
-          updatedDef.ammo = Math.max(0, updatedDef.ammo - 1);
+          updatedDef.ammo = Math.max(0, updatedDef.ammo - defenderGroundAmmoCost);
           this.botPlacements.set(defKey, updatedDef);
           this.syncBotAmmo(defenderHex, updatedDef.ammo);
         }
@@ -4580,29 +4727,61 @@ export class GameEngine implements GameEngineAPI {
     if (this.playerSide.hq) {
       sources.push({ key: "hq", label: "Headquarters", hex: this.playerSide.hq });
     }
+    const depotTotals = getInventoryTotals(this.supplyStateByFaction.Player, ["ammo", "fuel", "parts"]);
+    const carriedAmmoTotal = this.playerSupply.reduce<number>((sum, entry) => sum + (entry.ammo ?? 0), 0);
+    const carriedFuelTotal = this.playerSupply.reduce<number>((sum, entry) => sum + (entry.fuel ?? 0), 0);
+    const maintenanceDemand = placements.reduce<number>((sum, unit) => sum + Math.max(0, 10 - unit.strength), 0);
+
+    const routesBySource = sources.map((source) => ({
+      source,
+      routes: this.computePlayerLogisticsRoutes(source.hex, catalog, network, placements)
+    }));
+    const sourceAssignments = new Map<string, Array<{ sourceLabel: string; targetKey: string; unit: ScenarioUnit; summary: SupplyRouteSummary }>>();
+    sources.forEach((source) => sourceAssignments.set(source.key, []));
+
+    type AssignedSourceRoute = { sourceKey: string; sourceLabel: string; summary: SupplyRouteSummary };
+
+    placements.forEach((unit) => {
+      const targetKey = axialKey(unit.hex);
+      let bestRoute: AssignedSourceRoute | null = null;
+      for (const { source, routes } of routesBySource) {
+        const summary = routes.get(targetKey);
+        if (!summary) {
+          continue;
+        }
+        if (!bestRoute || summary.totalCost < bestRoute.summary.totalCost) {
+          bestRoute = { sourceKey: source.key, sourceLabel: source.label, summary };
+        }
+      }
+      if (!bestRoute) {
+        return;
+      }
+      sourceAssignments.get(bestRoute.sourceKey)?.push({
+        sourceLabel: bestRoute.sourceLabel,
+        targetKey,
+        unit,
+        summary: bestRoute.summary
+      });
+    });
+
+    const connectedUnits = Array.from(sourceAssignments.values()).reduce((sum, entries) => sum + entries.length, 0);
+    const isolatedUnits = Math.max(0, totalUnits - connectedUnits);
 
     const supplySources: LogisticsSupplySource[] = sources.map((source) => {
-      const routes = this.computePlayerLogisticsRoutes(source.hex, catalog, network, placements);
-      const routeValues = Array.from(routes.values());
-      const connectedUnits = routeValues.length;
-      const throughput = routeValues.reduce<number>(
-        (sum, summary) => sum + Math.max(0, 20 - summary.totalCost),
-        0
-      );
+      const assignedRoutes = sourceAssignments.get(source.key) ?? [];
+      const routeValues = assignedRoutes.map((entry) => entry.summary);
+      const sourceConnectedUnits = assignedRoutes.length;
+      const throughput = routeValues.reduce<number>((sum, summary) => sum + Math.max(0, 20 - summary.totalCost), 0);
       const averageTravelHours = routeValues.length === 0
         ? 0
-        : Number(
-            (
-              routeValues.reduce<number>((sum, summary) => sum + summary.estimatedHours, 0) / routeValues.length
-            ).toFixed(2)
-          );
-      const utilization = totalUnits === 0 ? 0 : Number((connectedUnits / totalUnits).toFixed(2));
+        : Number((routeValues.reduce<number>((sum, summary) => sum + summary.estimatedHours, 0) / routeValues.length).toFixed(2));
+      const utilization = totalUnits === 0 ? 0 : Number((sourceConnectedUnits / totalUnits).toFixed(2));
       const bottleneckSummary = this.selectHighestCostRoute(routeValues);
       const bottleneck = bottleneckSummary ? this.describeRouteBottleneck(bottleneckSummary) : null;
       return {
         key: source.key,
         label: source.label,
-        connectedUnits,
+        connectedUnits: sourceConnectedUnits,
         throughput: Number(throughput.toFixed(2)),
         utilization,
         averageTravelHours,
@@ -4610,46 +4789,41 @@ export class GameEngine implements GameEngineAPI {
       } satisfies LogisticsSupplySource;
     });
 
-    const ammoTotal = this.playerSupply.reduce<number>((sum, entry) => sum + (entry.ammo ?? 0), 0);
-    const fuelTotal = this.playerSupply.reduce<number>((sum, entry) => sum + (entry.fuel ?? 0), 0);
-    const partsTotal = placements.reduce<number>((sum, unit) => sum + Math.max(0, 10 - unit.strength), 0);
     const stockpiles: LogisticsStockpileEntry[] = [
       {
         resource: "ammo",
-        total: ammoTotal,
-        averagePerUnit: totalUnits === 0 ? 0 : Number((ammoTotal / totalUnits).toFixed(2)),
-        trend: ammoTotal >= totalUnits * 5 ? "stable" : "falling"
+        total: depotTotals.ammo ?? 0,
+        averagePerUnit: totalUnits === 0 ? 0 : Number((carriedAmmoTotal / totalUnits).toFixed(2)),
+        trend: (depotTotals.ammo ?? 0) >= totalUnits * supplyBalance.resupply.ammo ? "stable" : "falling"
       },
       {
         resource: "fuel",
-        total: fuelTotal,
-        averagePerUnit: totalUnits === 0 ? 0 : Number((fuelTotal / totalUnits).toFixed(2)),
-        trend: fuelTotal >= totalUnits * 5 ? "stable" : "falling"
+        total: depotTotals.fuel ?? 0,
+        averagePerUnit: totalUnits === 0 ? 0 : Number((carriedFuelTotal / totalUnits).toFixed(2)),
+        trend: (depotTotals.fuel ?? 0) >= totalUnits * supplyBalance.resupply.fuel ? "stable" : "falling"
       },
       {
         resource: "parts",
-        total: partsTotal,
-        averagePerUnit: totalUnits === 0 ? 0 : Number((partsTotal / Math.max(totalUnits, 1)).toFixed(2)),
-        trend: partsTotal > totalUnits ? "rising" : "stable"
+        total: depotTotals.parts ?? 0,
+        averagePerUnit: totalUnits === 0 ? 0 : Number((maintenanceDemand / Math.max(totalUnits, 1)).toFixed(2)),
+        trend: (depotTotals.parts ?? 0) > maintenanceDemand ? "rising" : "stable"
       }
     ];
 
-    const routeCollection: Array<{ source: string; key: string; summary: SupplyRouteSummary }> = sources.flatMap(
-      (source) => {
-        const routes = this.computePlayerLogisticsRoutes(source.hex, catalog, network, placements);
-        return Array.from(routes.entries()).map(([targetKey, summary]) => ({
-          source: source.label,
-          key: targetKey,
-          summary
-        }));
-      }
-    );
+    const routeCollection = Array.from(sourceAssignments.values())
+      .flatMap((entries) => entries)
+      .map((entry) => ({
+        source: entry.sourceLabel,
+        key: entry.targetKey,
+        unitLabel: entry.unit.type as string,
+        summary: entry.summary
+      }));
 
     const convoyStatuses: LogisticsConvoyStatusEntry[] = routeCollection
       .sort((a, b) => b.summary.totalCost - a.summary.totalCost)
       .slice(0, 6)
       .map((entry) => ({
-        route: `${entry.source} → ${entry.key}`,
+        route: `${entry.source} → ${entry.unitLabel} @ ${entry.key}`,
         status: this.resolveConvoyStatus(entry.summary),
         etaHours: Number(entry.summary.estimatedHours.toFixed(2)),
         incident: null
@@ -4681,18 +4855,39 @@ export class GameEngine implements GameEngineAPI {
       }));
 
     const alerts: LogisticsAlertEntry[] = [];
-    if (stockpiles[0]?.averagePerUnit < 3) {
+    if (isolatedUnits > 0) {
+      alerts.push({
+        level: isolatedUnits === totalUnits ? "critical" : "warning",
+        message: `${isolatedUnits} deployed unit${isolatedUnits === 1 ? "" : "s"} ${isolatedUnits === totalUnits ? "are" : "is"} outside the current supply network.`
+      });
+    }
+    if ((depotTotals.ammo ?? 0) <= 0) {
+      alerts.push({ level: "critical", message: "Depot ammunition has been exhausted." });
+    } else if (stockpiles[0]?.averagePerUnit < 3) {
       alerts.push({ level: "warning", message: "Ammunition reserves are trending low." });
     }
-    if (stockpiles[1]?.averagePerUnit < 3) {
+    if ((depotTotals.fuel ?? 0) <= 0) {
+      alerts.push({ level: "critical", message: "Depot fuel stock has been exhausted." });
+    } else if (stockpiles[1]?.averagePerUnit < 3) {
       alerts.push({ level: "warning", message: "Fuel availability is below desired levels." });
     }
     if (maintenanceBacklog.length > totalUnits / 2 && totalUnits > 0) {
       alerts.push({ level: "critical", message: "Maintenance backlog exceeds half of deployed units." });
     }
+    if (sources.length === 0 && totalUnits > 0) {
+      alerts.push({ level: "critical", message: "No active base camp or headquarters is feeding the logistics network." });
+    }
 
     return {
       turn: this._turnNumber,
+      deployedUnits: totalUnits,
+      connectedUnits,
+      isolatedUnits,
+      depotStock: {
+        ammo: depotTotals.ammo ?? 0,
+        fuel: depotTotals.fuel ?? 0,
+        parts: depotTotals.parts ?? 0
+      },
       supplySources,
       stockpiles,
       convoyStatuses,
@@ -4992,7 +5187,7 @@ export class GameEngine implements GameEngineAPI {
     let defenderFaction: TurnFaction = "Bot";
     let options: { allowBomberAirAttack?: boolean } | undefined;
 
-    if (a3 === "Player" || a3 === "Bot") {
+    if (a3 === "Player" || a3 === "Bot" || a3 === "Ally") {
       attackerFaction = a3 as TurnFaction;
       defenderFaction = (a4 as TurnFaction) ?? (attackerFaction === "Player" ? "Bot" : "Player");
       options = a5 as typeof options;
@@ -5009,6 +5204,9 @@ export class GameEngine implements GameEngineAPI {
     const attackerIsAircraft = attackerType.moveType === "air";
     const attackerIsFlak = attacker.type.toLowerCase().includes("flak");
     const attackerIsBomber = this.isBomber(attackerType);
+    if (!attackerIsAircraft && attacker.ammo < this.resolveGroundAttackAmmoCost(attackerType)) {
+      return null;
+    }
 
     if (defenderIsAircraft && !attackerIsAircraft && !attackerIsFlak) {
       return null; // Ground units (except Flak) cannot target aircraft
@@ -5148,6 +5346,7 @@ export class GameEngine implements GameEngineAPI {
           fuel: this.scaleSupplyAmount(upkeep.fuel, supplyScalar)
         };
         this.applyUpkeepForUnit(faction, supplyState, unit, state, scaledUpkeep);
+        this.resupplyConnectedUnit(faction, supplyState, unit, state, definition);
       } else {
         const previous = { ammo: state.ammo, fuel: state.fuel, entrench: state.entrench, strength: state.strength };
         applyOutOfSupply(state, attritionProfile);
@@ -5247,6 +5446,15 @@ export class GameEngine implements GameEngineAPI {
     }
   }
 
+  /** Sync movement fuel to the player-side supply mirror. */
+  private syncPlayerFuel(unitHex: Axial, fuel: number): void {
+    const key = axialKey(unitHex);
+    const idx = this.playerSupply.findIndex((entry) => axialKey(entry.hex) === key);
+    if (idx >= 0) {
+      this.playerSupply[idx].fuel = fuel;
+    }
+  }
+
   /** Mirror player strength after bot attacks to keep supply snapshots honest. */
   private syncPlayerStrength(targetHex: Axial, strength: number): void {
     const key = axialKey(targetHex);
@@ -5262,6 +5470,15 @@ export class GameEngine implements GameEngineAPI {
     const idx = this.botSupply.findIndex((entry) => axialKey(entry.hex) === key);
     if (idx >= 0) {
       this.botSupply[idx].ammo = ammo;
+    }
+  }
+
+  /** Sync movement fuel to the bot-side supply mirror. */
+  private syncBotFuel(unitHex: Axial, fuel: number): void {
+    const key = axialKey(unitHex);
+    const idx = this.botSupply.findIndex((entry) => axialKey(entry.hex) === key);
+    if (idx >= 0) {
+      this.botSupply[idx].fuel = fuel;
     }
   }
 
@@ -5443,7 +5660,9 @@ export class GameEngine implements GameEngineAPI {
         // Get unit's actual movement points for this turn
         const unitDef = this.getUnitDefinition(unit.type);
         const maxMovement = unitDef.movement ?? 1;
+        const availableFuel = this.resolveFuelBudget(unit, unitDef);
         let movementSpent = 0;
+        let fuelSpent = 0;
         let hexesMoved = 0;
 
         for (let i = 1; i < plan.path.length; i += 1) {
@@ -5457,6 +5676,7 @@ export class GameEngine implements GameEngineAPI {
           // Calculate movement cost for this step
           const terrain = this.terrainAt(step);
           const stepCost = this.resolveMoveCost(unitDef.moveType, terrain, step);
+          const stepFuel = this.resolveMovementFuelStep(unitDef.moveType, step);
 
           // Units can always move at least 1 hex per turn, even through difficult terrain
           // After the first hex, check if we have movement points remaining
@@ -5464,16 +5684,25 @@ export class GameEngine implements GameEngineAPI {
             console.log(`[Bot AI] Movement exhausted after ${hexesMoved} hex(es): spent ${movementSpent}, next step cost ${stepCost}, max ${maxMovement}`);
             break;
           }
+          if (Number.isFinite(availableFuel) && fuelSpent + stepFuel > availableFuel + 1e-6) {
+            console.log(`[Bot AI] Fuel exhausted after ${hexesMoved} hex(es): spent ${fuelSpent.toFixed(2)}, next step costs ${stepFuel.toFixed(2)}, available ${availableFuel.toFixed(2)}`);
+            break;
+          }
 
           moved.hex = structuredClone(step);
           current = structuredClone(step);
           visited.push(structuredClone(step));
           movementSpent += stepCost;
+          fuelSpent += stepFuel;
           hexesMoved += 1;
+        }
+        if (Number.isFinite(availableFuel) && fuelSpent > 0) {
+          moved.fuel = Math.max(0, Number((moved.fuel - fuelSpent).toFixed(2)));
         }
         const finalKey = axialKey(current);
         console.log(`[Bot AI] ${unit.type} moved from ${fromKey} to ${finalKey} (${visited.length - 1} steps)`);
         this.botPlacements.set(finalKey, moved);
+        this.syncBotFuel(current, moved.fuel);
         occupancy.delete(fromKey);
         occupancy.add(finalKey);
         this.updateBotSupplyPosition(plan.origin, current);
@@ -5639,18 +5868,27 @@ export class GameEngine implements GameEngineAPI {
       const visited: Axial[] = [structuredClone(origin)];
       const moveBudget = plannedPath.length - 1;
       let lastMovedUnit: ScenarioUnit | null = null;
+      const unitDefinition = this.getUnitDefinition(unit.type);
+      const availableFuel = this.resolveFuelBudget(unit, unitDefinition);
+      let fuelSpent = 0;
 
       for (let index = 1; index < plannedPath.length; index += 1) {
         const step = plannedPath[index];
         if (this.isOccupied(step)) {
           break;
         }
+        const stepFuel = this.resolveMovementFuelStep(unitDefinition.moveType, step);
+        if (Number.isFinite(availableFuel) && fuelSpent + stepFuel > availableFuel + 1e-6) {
+          break;
+        }
 
         this.botPlacements.delete(axialKey(current));
         const moved = structuredClone(unit);
         moved.hex = structuredClone(step);
+        current = structuredClone(step);
+        fuelSpent += stepFuel;
         this.botPlacements.set(axialKey(step), moved);
-        this.updateBotSupplyPosition(current, step);
+        this.updateBotSupplyPosition(visited[visited.length - 1], step);
         visited.push(structuredClone(step));
         lastMovedUnit = moved;
 
@@ -5659,8 +5897,6 @@ export class GameEngine implements GameEngineAPI {
           attemptAttack(moved, step, nearest);
           break;
         }
-
-        current = step;
         // Limit to one full path per unit per turn to avoid infinite loops in degenerate cases.
         if (index >= moveBudget) {
           break;
@@ -5668,11 +5904,16 @@ export class GameEngine implements GameEngineAPI {
       }
 
       if (visited.length > 1 && lastMovedUnit) {
+        if (Number.isFinite(availableFuel) && fuelSpent > 0) {
+          lastMovedUnit.fuel = Math.max(0, Number((lastMovedUnit.fuel - fuelSpent).toFixed(2)));
+          this.botPlacements.set(axialKey(lastMovedUnit.hex), structuredClone(lastMovedUnit));
+        }
+        this.syncBotFuel(lastMovedUnit.hex, lastMovedUnit.fuel);
         const distance = visited.length - 1;
         moves.push({
           unitType: lastMovedUnit.type,
           from: structuredClone(origin),
-          to: structuredClone(current),
+          to: structuredClone(lastMovedUnit.hex),
           path: visited,
           distance,
           duration: Math.max(distance, 1)
@@ -5690,6 +5931,10 @@ export class GameEngine implements GameEngineAPI {
   private calculateBotMovementAllowance(unit: ScenarioUnit): number {
     const definition = this.getUnitDefinition(unit.type);
     const movePoints = definition.movement ?? 1;
+    const availableFuel = this.resolveFuelBudget(unit, definition);
+    if (Number.isFinite(availableFuel) && availableFuel <= 0) {
+      return 0;
+    }
     return Math.max(1, movePoints);
   }
 
@@ -5998,12 +6243,16 @@ export class GameEngine implements GameEngineAPI {
     const attackerIsAircraft = attackerDef.moveType === "air";
     const attackerIsBomber = this.isBomber(attackerDef);
     const defenderIsAircraft = defenderDef.moveType === "air";
+    const groundAttackAmmoCost = attackerIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(attackerDef);
 
     // Aircraft combat restrictions: Only aircraft and Flak 88 can attack aircraft
     const attackerIsFlak = attackingUnit.type.toLowerCase().includes("flak");
 
     if (defenderIsAircraft && !attackerIsAircraft && !attackerIsFlak) {
       return null; // Ground units (except Flak) cannot target aircraft
+    }
+    if (!attackerIsAircraft && attackingUnit.ammo < groundAttackAmmoCost) {
+      return null;
     }
 
     if (attackerIsAircraft) {
@@ -6227,13 +6476,15 @@ export class GameEngine implements GameEngineAPI {
       this.syncPlayerStrength(targetHex, updatedPlayer.strength);
     }
 
-    // Bot consumes some ammo when attacking.
+    // Bot ground units burn the same salvo costs as player-controlled formations.
     const botKey = axialKey(attackerHex);
     const updatedBot = structuredClone(attackingUnit);
     if (attackerIsAircraft) {
       this.spendAircraftAmmo("Bot", botKey, defenderIsAircraft);
+      updatedBot.ammo = Math.max(0, updatedBot.ammo - 1);
+    } else {
+      updatedBot.ammo = Math.max(0, updatedBot.ammo - groundAttackAmmoCost);
     }
-    updatedBot.ammo = Math.max(0, updatedBot.ammo - 1);
     this.botPlacements.set(botKey, updatedBot);
     this.syncBotAmmo(attackerHex, updatedBot.ammo);
 

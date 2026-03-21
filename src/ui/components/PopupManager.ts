@@ -36,6 +36,7 @@ import { getAllGenerals, type GeneralRosterEntry } from "../../utils/rosterStora
 import type { WarRoomOverlay } from "./WarRoomOverlay";
 import type { GameEngineAPI } from "../../game/GameEngine";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
+import { combat as combatBalance, supply as supplyBalance } from "../../core/balance";
 import { axialKey } from "../../core/Hex";
 import unitTypesSource from "../../data/unitTypes.json";
 
@@ -447,6 +448,7 @@ export class PopupManager implements IPopupManager {
   private showPopup(key: PopupKey, content: PopupContent, trigger?: HTMLButtonElement): void {
     this.popupTitle.textContent = content.title;
     this.popupBody.innerHTML = content.body;
+    this.popupDialog.dataset.popupKey = key;
 
     this.popupLayer.classList.remove("hidden");
     this.popupLayer.setAttribute("aria-hidden", "false");
@@ -1008,6 +1010,7 @@ export class PopupManager implements IPopupManager {
   private hidePopupLayer(): void {
     this.popupLayer.classList.add("hidden");
     this.popupLayer.setAttribute("aria-hidden", "true");
+    delete this.popupDialog.dataset.popupKey;
   }
 
   /**
@@ -1705,24 +1708,44 @@ export class PopupManager implements IPopupManager {
   }
 
   private composeSuppliesOverview(snapshot: SupplySnapshot): string {
-    // Present depot totals up top so commanders grasp overall stockpile health before diving into category cards.
-    const depotAmmo = this.formatQuantity(snapshot.stockpile?.ammo ?? 0);
-    const depotFuel = this.formatQuantity(snapshot.stockpile?.fuel ?? 0);
-    const depotRations = this.formatQuantity(snapshot.stockpile?.rations ?? 0);
-    const depotParts = this.formatQuantity(snapshot.stockpile?.parts ?? 0);
-    const depotCopy = [
-      `${depotAmmo} ammo`,
-      `${depotFuel} fuel`,
-      `${depotRations} rations`,
-      `${depotParts} parts`
-    ].join(" · ");
-
     return `
       <div class="supplies-overview">
-        <p><strong>Turn:</strong> ${snapshot.turn}</p>
-        <p><strong>Phase:</strong> ${snapshot.phase}</p>
-        <p><strong>Last Updated:</strong> ${this.formatDate(snapshot.updatedAt)}</p>
-        <p><strong>Depot Stock:</strong> ${depotCopy}</p>
+        <div class="supplies-overview__hero">
+          <article class="supplies-overview__metric">
+            <span>Turn</span>
+            <strong>${snapshot.turn}</strong>
+            <small>${this.escapeHtml(snapshot.phase)}</small>
+          </article>
+          <article class="supplies-overview__metric">
+            <span>Resupply Tick</span>
+            <strong>${supplyBalance.resupply.ammo}/${supplyBalance.resupply.fuel}</strong>
+            <small>ammo / fuel to connected units</small>
+          </article>
+          <article class="supplies-overview__metric">
+            <span>Supply Reach</span>
+            <strong>${supplyBalance.roadRange}/${supplyBalance.offroadRange}</strong>
+            <small>road / rough hexes</small>
+          </article>
+          <article class="supplies-overview__metric">
+            <span>Last Updated</span>
+            <strong>${this.formatDate(snapshot.updatedAt)}</strong>
+            <small>live ledger snapshot</small>
+          </article>
+        </div>
+        <div class="supplies-overview__stock">
+          <span class="supplies-overview__stock-item"><strong>Depot Ammo</strong> ${this.formatQuantity(snapshot.stockpile?.ammo ?? 0)}</span>
+          <span class="supplies-overview__stock-item"><strong>Depot Fuel</strong> ${this.formatQuantity(snapshot.stockpile?.fuel ?? 0)}</span>
+          <span class="supplies-overview__stock-item"><strong>Rations</strong> ${this.formatQuantity(snapshot.stockpile?.rations ?? 0)}</span>
+          <span class="supplies-overview__stock-item"><strong>Parts</strong> ${this.formatQuantity(snapshot.stockpile?.parts ?? 0)}</span>
+        </div>
+        <div class="supplies-overview__brief">
+          <p class="supplies-overview__headline">Units fight from carried stocks. Connected formations draw abstract convoy resupply from the depot each turn.</p>
+          <ul class="supplies-overview__rules">
+            <li>Base Camp and HQ project the supply network out to the current road and rough range limits.</li>
+            <li>Ground attacks spend onboard ammo. Motorized movement spends onboard fuel; infantry leg movement does not.</li>
+            <li>Cut-off units stop receiving resupply and begin losing ammo, fuel, entrenchment, and eventually strength.</li>
+          </ul>
+        </div>
       </div>
     `;
   }
@@ -1732,26 +1755,37 @@ export class PopupManager implements IPopupManager {
     const statusLabel = status === "unknown" ? "Data Pending" : status.toUpperCase();
     const depletionCopy = estimatedDepletionTurns !== null ? `${estimatedDepletionTurns} turn${estimatedDepletionTurns === 1 ? "" : "s"}` : "N/A";
     const formattedDelta = this.formatDelta(consumptionPerTurn);
+    const overallTotal = total + stockpileTotal;
     // Highlight how stock is distributed so commanders can quickly spot imbalances between frontline and reserve pools.
     const gaugeMarkup = this.composeSupplyGauge(frontlineTotal, reserveTotal, stockpileTotal, total);
-    const stockpileMarkup = this.composeStockpileSection(stockpileTotal, resource);
 
     return `
       <article class="supplies-card" data-supplies-resource="${resource}">
         <header class="supplies-card__header">
-          <h4>${label}</h4>
+          <div>
+            <h4>${label}</h4>
+            <p class="supplies-card__subhead">Carried ${this.formatQuantity(total)} · Depot ${this.formatQuantity(stockpileTotal)}</p>
+          </div>
           <span class="supplies-card__status supplies-card__status--${status}">${statusLabel}</span>
         </header>
+        <div class="supplies-card__total-row">
+          <strong class="supplies-card__overall">${this.formatQuantity(overallTotal)}</strong>
+          <span class="supplies-card__overall-label">overall stock</span>
+        </div>
         ${gaugeMarkup}
-        ${stockpileMarkup}
         <dl class="supplies-card__metrics">
-          <div><dt>Total</dt><dd>${this.formatQuantity(total)}</dd></div>
           <div><dt>Frontline</dt><dd>${this.formatQuantity(frontlineTotal)}</dd></div>
           <div><dt>Reserves</dt><dd>${this.formatQuantity(reserveTotal)}</dd></div>
-          <div><dt>Avg / Unit</dt><dd>${this.formatQuantity(averagePerUnit)}</dd></div>
-          <div><dt>Delta / Turn</dt><dd>${formattedDelta}</dd></div>
-          <div><dt>Depletion</dt><dd>${depletionCopy}</dd></div>
+          <div><dt>Depot</dt><dd>${this.formatQuantity(stockpileTotal)}</dd></div>
+          <div><dt>Issued / Unit</dt><dd>${this.formatQuantity(averagePerUnit)}</dd></div>
+          <div><dt>Burn / Turn</dt><dd>${formattedDelta}</dd></div>
+          <div><dt>Outlook</dt><dd>${depletionCopy}</dd></div>
         </dl>
+        <p class="supplies-card__footer">${resource === "ammo"
+          ? "Ammo must be on the unit to fire."
+          : resource === "fuel"
+            ? "Fuel must be on the unit to move."
+            : "Tracking pending implementation."}</p>
       </article>
     `;
   }
@@ -1877,17 +1911,22 @@ export class PopupManager implements IPopupManager {
     const snapshot = this.pullLogisticsSnapshot();
     if (!snapshot) {
       const emptyMessage = `<div class="logistics-panel__empty">Logistics data becomes available once the battle engine initializes and units are deployed.</div>`;
-      panel.querySelectorAll("[data-logistics-sources], [data-logistics-stockpiles], [data-logistics-convoys], [data-logistics-delays], [data-logistics-maintenance], [data-logistics-alerts]")
+      panel.querySelectorAll("[data-logistics-overview], [data-logistics-sources], [data-logistics-stockpiles], [data-logistics-convoys], [data-logistics-delays], [data-logistics-maintenance], [data-logistics-alerts]")
         .forEach((container) => { container.innerHTML = emptyMessage; });
       return;
     }
 
+    const overviewContainer = panel.querySelector<HTMLElement>("[data-logistics-overview]");
     const sourcesContainer = panel.querySelector<HTMLElement>("[data-logistics-sources]");
     const stockpilesContainer = panel.querySelector<HTMLElement>("[data-logistics-stockpiles]");
     const convoysContainer = panel.querySelector<HTMLElement>("[data-logistics-convoys]");
     const delaysContainer = panel.querySelector<HTMLElement>("[data-logistics-delays]");
     const maintenanceContainer = panel.querySelector<HTMLElement>("[data-logistics-maintenance]");
     const alertsContainer = panel.querySelector<HTMLElement>("[data-logistics-alerts]");
+
+    if (overviewContainer) {
+      overviewContainer.innerHTML = this.composeLogisticsOverview(snapshot);
+    }
 
     if (sourcesContainer) {
       sourcesContainer.innerHTML = snapshot.supplySources.length === 0
@@ -1941,6 +1980,49 @@ export class PopupManager implements IPopupManager {
     return null;
   }
 
+  /** Summarizes the current logistics model so the panel explains what the numbers mean and what the player can do. */
+  private composeLogisticsOverview(snapshot: LogisticsSnapshot): string {
+    return `
+      <div class="logistics-overview">
+        <div class="logistics-overview__hero">
+          <article class="logistics-overview__metric">
+            <span>Deployed</span>
+            <strong>${snapshot.deployedUnits}</strong>
+            <small>frontline formations</small>
+          </article>
+          <article class="logistics-overview__metric">
+            <span>Connected</span>
+            <strong>${snapshot.connectedUnits}</strong>
+            <small>drawing supply this turn</small>
+          </article>
+          <article class="logistics-overview__metric">
+            <span>Isolated</span>
+            <strong>${snapshot.isolatedUnits}</strong>
+            <small>receiving no resupply</small>
+          </article>
+          <article class="logistics-overview__metric">
+            <span>Action Costs</span>
+            <strong>${combatBalance.ammoFuel.attackAmmoCost}/${combatBalance.ammoFuel.fuelPerGroundHex}</strong>
+            <small>attack ammo / ground fuel</small>
+          </article>
+        </div>
+        <div class="logistics-overview__stock">
+          <span class="logistics-overview__stock-item"><strong>Depot Ammo</strong> ${this.formatQuantity(snapshot.depotStock.ammo)}</span>
+          <span class="logistics-overview__stock-item"><strong>Depot Fuel</strong> ${this.formatQuantity(snapshot.depotStock.fuel)}</span>
+          <span class="logistics-overview__stock-item"><strong>Depot Parts</strong> ${this.formatQuantity(snapshot.depotStock.parts)}</span>
+        </div>
+        <div class="logistics-overview__brief">
+          <p class="logistics-overview__headline">Convoys are abstracted in this beta build. The engine assigns each unit to its best source and measures the route burden from Base Camp or HQ.</p>
+          <ul class="logistics-overview__rules">
+            <li>Supply range currently extends ${supplyBalance.roadRange} road hexes or ${supplyBalance.offroadRange} rough hexes from Base Camp or HQ.</li>
+            <li>Connected units can receive up to ${supplyBalance.resupply.ammo} ammo and ${supplyBalance.resupply.fuel} fuel from depot stock each turn.</li>
+            <li>Ground attacks spend onboard ammo. Motorized movement spends onboard fuel. When those carried stocks hit zero, actions stop.</li>
+          </ul>
+        </div>
+      </div>
+    `;
+  }
+
   /**
    * Renders a supply source card showing throughput and bottlenecks.
    */
@@ -1981,12 +2063,16 @@ export class PopupManager implements IPopupManager {
   private composeStockpileCard(stockpile: LogisticsStockpileEntry): string {
     const resourceLabel = this.formatResourceLabel(stockpile.resource);
     const trendLabel = stockpile.trend.charAt(0).toUpperCase() + stockpile.trend.slice(1);
+    const detailLabel = stockpile.resource === "parts"
+      ? `${this.formatQuantity(stockpile.averagePerUnit)} repair need / unit`
+      : `${this.formatQuantity(stockpile.averagePerUnit)} carried / unit`;
 
     return `
       <article class="logistics-stockpile-card">
         <div class="logistics-stockpile-card__label">${resourceLabel}</div>
-        <div class="logistics-stockpile-card__total">${stockpile.total}</div>
-        <div class="logistics-stockpile-card__avg">${stockpile.averagePerUnit} per unit</div>
+        <div class="logistics-stockpile-card__caption">Depot stock</div>
+        <div class="logistics-stockpile-card__total">${this.formatQuantity(stockpile.total)}</div>
+        <div class="logistics-stockpile-card__avg">${detailLabel}</div>
         <span class="logistics-stockpile-card__trend logistics-stockpile-card__trend--${stockpile.trend}">${trendLabel}</span>
       </article>
     `;

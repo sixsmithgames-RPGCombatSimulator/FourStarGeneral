@@ -69,6 +69,12 @@ export interface TileInstance {
   features?: TerrainFeature[];
 }
 
+/**
+ * Combat stance for infantry-type units (infantry, AT infantry, engineers, recon bikes).
+ * Determines engagement behavior and tactical tradeoffs.
+ */
+export type CombatStance = "assault" | "suppressive" | "digIn";
+
 export interface ScenarioUnit {
   type: keyof typeof unitTypesData;
   hex: Axial;
@@ -85,6 +91,8 @@ export interface ScenarioUnit {
   unitId?: string;
   /** Indicates which controller manages this unit. Defaults to the owning faction's AI. Player control enables direct command. */
   controlledBy?: "AI" | "Player";
+  /** Array of unit IDs that are currently suppressing this unit. Multiple suppressors result in pinned status. */
+  suppressedBy?: string[];
 }
 
 export interface ScenarioSide {

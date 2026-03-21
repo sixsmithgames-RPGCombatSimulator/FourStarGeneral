@@ -2694,6 +2694,11 @@
       grid-template-rows: auto 1fr;
       overflow: hidden;
     }
+    .battle-popup[data-popup-key="supplies"],
+    .battle-popup[data-popup-key="logistics"] {
+      width: min(1080px, calc(100vw - 2rem));
+      max-height: 90vh;
+    }
     [data-popup-body] {
       overflow-y: auto;
       overflow-x: hidden;

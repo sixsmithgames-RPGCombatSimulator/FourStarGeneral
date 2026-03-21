@@ -187,14 +187,27 @@ export const popupContentRegistry: PopupContentDefinition[] = [
     title: "Logistics",
     body: `
       <style>
-        .logistics-panel { display: grid; gap: 1.5rem; padding: 0.75rem 0; }
+        .logistics-panel { display: grid; gap: 1.1rem; padding: 0.4rem 0 0.75rem; }
         .logistics-panel__section { display: grid; gap: 0.75rem; }
         .logistics-panel__header h3 { margin: 0; font-size: 1rem; letter-spacing: 0.08em; text-transform: uppercase; }
         .logistics-panel__header p { margin: 0; font-size: 0.85rem; color: rgba(229, 236, 255, 0.72); line-height: 1.4; }
 
+        .logistics-overview { display: grid; gap: 0.9rem; }
+        .logistics-overview__hero { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+        .logistics-overview__metric { display: grid; gap: 0.25rem; border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(14, 20, 31, 0.82); padding: 0.8rem 0.9rem; }
+        .logistics-overview__metric span { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(229, 236, 255, 0.62); }
+        .logistics-overview__metric strong { font-size: 1.2rem; color: rgba(245, 247, 255, 0.96); }
+        .logistics-overview__metric small { font-size: 0.8rem; color: rgba(229, 236, 255, 0.7); }
+        .logistics-overview__stock { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+        .logistics-overview__stock-item { display: inline-flex; gap: 0.45rem; align-items: center; border-radius: 999px; padding: 0.45rem 0.8rem; background: rgba(17, 24, 36, 0.78); border: 1px solid rgba(229, 236, 255, 0.14); font-size: 0.82rem; color: rgba(245, 247, 255, 0.9); }
+        .logistics-overview__stock-item strong { letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.72rem; color: rgba(229, 236, 255, 0.68); }
+        .logistics-overview__brief { display: grid; gap: 0.6rem; padding: 0.9rem 1rem; border-radius: 16px; background: linear-gradient(135deg, rgba(245, 196, 109, 0.13), rgba(149, 190, 255, 0.08)); border: 1px solid rgba(245, 196, 109, 0.18); }
+        .logistics-overview__headline { margin: 0; font-size: 0.95rem; line-height: 1.45; color: rgba(245, 247, 255, 0.94); }
+        .logistics-overview__rules { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.35rem; font-size: 0.82rem; line-height: 1.45; color: rgba(229, 236, 255, 0.76); }
+
         /* Supply source cards show throughput and bottlenecks */
-        .logistics-sources-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-        .logistics-source-card { border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.18); background: rgba(17, 24, 36, 0.85); padding: 1rem 1.25rem; display: grid; gap: 0.75rem; }
+        .logistics-sources-grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+        .logistics-source-card { border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.18); background: rgba(17, 24, 36, 0.85); padding: 0.95rem 1rem; display: grid; gap: 0.7rem; }
         .logistics-source-card__header { display: flex; align-items: center; justify-content: space-between; }
         .logistics-source-card__header h4 { margin: 0; font-size: 1rem; letter-spacing: 0.06em; text-transform: uppercase; }
         .logistics-source-card__utilization { font-size: 1.25rem; font-weight: 700; color: rgba(245, 196, 109, 0.95); }
@@ -205,9 +218,10 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .logistics-source-card__bottleneck { margin-top: 0.5rem; padding: 0.65rem 0.9rem; border-radius: 8px; background: rgba(255, 196, 109, 0.15); border: 1px solid rgba(255, 196, 109, 0.3); font-size: 0.85rem; color: #ffe5c4; }
 
         /* Stockpile summary with trend indicators */
-        .logistics-stockpiles-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+        .logistics-stockpiles-grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
         .logistics-stockpile-card { border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.16); background: rgba(14, 18, 28, 0.85); padding: 0.9rem 1.1rem; display: grid; gap: 0.5rem; text-align: center; }
         .logistics-stockpile-card__label { font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(229, 236, 255, 0.75); }
+        .logistics-stockpile-card__caption { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(229, 236, 255, 0.55); }
         .logistics-stockpile-card__total { font-size: 1.75rem; font-weight: 700; color: rgba(245, 247, 255, 0.95); }
         .logistics-stockpile-card__avg { font-size: 0.85rem; color: rgba(229, 236, 255, 0.72); }
         .logistics-stockpile-card__trend { font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; padding: 0.25rem 0.6rem; border-radius: 999px; display: inline-block; }
@@ -217,7 +231,7 @@ export const popupContentRegistry: PopupContentDefinition[] = [
 
         /* Convoy status list */
         .logistics-convoy-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.65rem; }
-        .logistics-convoy-item { border-radius: 10px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(13, 18, 28, 0.8); padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; font-size: 0.9rem; }
+        .logistics-convoy-item { border-radius: 10px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(13, 18, 28, 0.8); padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; font-size: 0.88rem; }
         .logistics-convoy-item__route { flex: 1; color: rgba(245, 250, 255, 0.88); }
         .logistics-convoy-item__status { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 0.25rem 0.65rem; border-radius: 999px; }
         .logistics-convoy-item__status--onSchedule { background: rgba(149, 190, 255, 0.18); color: #dfeaff; border: 1px solid rgba(149, 190, 255, 0.35); }
@@ -254,15 +268,22 @@ export const popupContentRegistry: PopupContentDefinition[] = [
       <div id="logisticsPanel" class="logistics-panel" aria-live="polite">
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
-            <h3>Supply Sources</h3>
-            <p>Base camps and headquarters supplying frontline units.</p>
+            <h3>Network Overview</h3>
+            <p>What is in depot, who is connected, and how the current logistics rules are applied.</p>
+          </header>
+          <div data-logistics-overview></div>
+        </section>
+        <section class="logistics-panel__section">
+          <header class="logistics-panel__header">
+            <h3>Primary Supply Sources</h3>
+            <p>Each unit is assigned to its best current source rather than being double-counted against every source.</p>
           </header>
           <div class="logistics-sources-grid" data-logistics-sources></div>
         </section>
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
             <h3>Stockpile Summary</h3>
-            <p>Current resource levels and consumption trends.</p>
+            <p>Depot inventory with carried load per unit shown underneath.</p>
           </header>
           <div class="logistics-stockpiles-grid" data-logistics-stockpiles></div>
         </section>
@@ -302,8 +323,8 @@ export const popupContentRegistry: PopupContentDefinition[] = [
     title: "Supplies",
     body: `
       <style>
-        /* Layout the supplies panel as a responsive grid so commanders get a clear at-a-glance summary. */
-        .supplies-panel { display: grid; gap: 1.5rem; padding: 0.75rem 0; }
+        /* Layout the supplies panel as a denser responsive grid so more operational context fits above the fold. */
+        .supplies-panel { display: grid; gap: 1.1rem; padding: 0.4rem 0 0.75rem; }
         .supplies-panel__section { display: grid; gap: 0.75rem; }
         .supplies-panel__header h3 { margin: 0; font-size: 1rem; letter-spacing: 0.08em; text-transform: uppercase; }
         .supplies-panel__header p { margin: 0; font-size: 0.85rem; color: rgba(229, 236, 255, 0.72); }
@@ -315,33 +336,49 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .supplies-faction-button.is-active { background: rgba(245, 196, 109, 0.22); border-color: rgba(245, 196, 109, 0.55); color: #ffe9c7; }
         .supplies-faction-button:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        /* Overview figures use a compact inline layout to surface turn/phase context quickly. */
-        .supplies-overview { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; font-size: 0.95rem; }
-        .supplies-overview strong { letter-spacing: 0.05em; text-transform: uppercase; }
+        /* Overview leads with commander's cheat sheet explaining how carried stock and depot reserves interact. */
+        .supplies-overview { display: grid; gap: 0.9rem; }
+        .supplies-overview__hero { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+        .supplies-overview__metric { display: grid; gap: 0.25rem; border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(14, 20, 31, 0.82); padding: 0.8rem 0.9rem; }
+        .supplies-overview__metric span { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(229, 236, 255, 0.62); }
+        .supplies-overview__metric strong { font-size: 1.2rem; color: rgba(245, 247, 255, 0.96); }
+        .supplies-overview__metric small { font-size: 0.8rem; color: rgba(229, 236, 255, 0.7); }
+        .supplies-overview__stock { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+        .supplies-overview__stock-item { display: inline-flex; gap: 0.45rem; align-items: center; border-radius: 999px; padding: 0.45rem 0.8rem; background: rgba(17, 24, 36, 0.78); border: 1px solid rgba(229, 236, 255, 0.14); font-size: 0.82rem; color: rgba(245, 247, 255, 0.9); }
+        .supplies-overview__stock-item strong { letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.72rem; color: rgba(229, 236, 255, 0.68); }
+        .supplies-overview__brief { display: grid; gap: 0.6rem; padding: 0.9rem 1rem; border-radius: 16px; background: linear-gradient(135deg, rgba(245, 196, 109, 0.13), rgba(149, 190, 255, 0.08)); border: 1px solid rgba(245, 196, 109, 0.18); }
+        .supplies-overview__headline { margin: 0; font-size: 0.95rem; line-height: 1.45; color: rgba(245, 247, 255, 0.94); }
+        .supplies-overview__rules { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.35rem; font-size: 0.82rem; line-height: 1.45; color: rgba(229, 236, 255, 0.76); }
 
         /* Category cards rely on a responsive grid that collapses gracefully on narrow viewports. */
-        .supplies-category-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-        .supplies-card { border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.18); background: rgba(17, 24, 36, 0.85); padding: 1rem 1.25rem; display: grid; gap: 0.75rem; }
+        .supplies-category-grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+        .supplies-card { border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.18); background: rgba(17, 24, 36, 0.88); padding: 0.95rem 1rem; display: grid; gap: 0.7rem; }
         .supplies-card__header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
         .supplies-card__header h4 { margin: 0; font-size: 1rem; letter-spacing: 0.06em; text-transform: uppercase; }
+        .supplies-card__subhead { margin: 0.2rem 0 0; font-size: 0.8rem; color: rgba(229, 236, 255, 0.68); }
         .supplies-card__status { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 999px; padding: 0.25rem 0.65rem; }
         .supplies-card__status--critical { background: rgba(255, 104, 104, 0.2); color: #ffd6d6; border: 1px solid rgba(255, 104, 104, 0.4); }
         .supplies-card__status--warning { background: rgba(255, 196, 109, 0.2); color: #ffe5c4; border: 1px solid rgba(255, 196, 109, 0.4); }
         .supplies-card__status--stable { background: rgba(149, 190, 255, 0.18); color: #dfeaff; border: 1px solid rgba(149, 190, 255, 0.35); }
         .supplies-card__status--unknown { background: rgba(160, 160, 160, 0.18); color: #f5f5f5; border: 1px solid rgba(160, 160, 160, 0.35); }
+        .supplies-card__total-row { display: flex; align-items: baseline; gap: 0.6rem; }
+        .supplies-card__overall { font-size: 1.6rem; line-height: 1; color: rgba(245, 247, 255, 0.96); }
+        .supplies-card__overall-label { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(229, 236, 255, 0.62); }
 
         /* Gauge bars visualize frontline/reserve distribution with color-coded segments. */
         .supplies-card__gauge { position: relative; display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: rgba(229, 236, 255, 0.15); }
         .supplies-card__gauge-bar { display: block; height: 100%; }
         .supplies-card__gauge-bar--frontline { background: linear-gradient(90deg, rgba(245, 196, 109, 0.9), rgba(255, 177, 80, 0.9)); }
         .supplies-card__gauge-bar--reserve { background: linear-gradient(90deg, rgba(149, 190, 255, 0.9), rgba(116, 166, 255, 0.9)); }
+        .supplies-card__gauge-bar--depot { background: linear-gradient(90deg, rgba(110, 231, 169, 0.8), rgba(69, 199, 144, 0.8)); }
         .supplies-card__gauge-bar--buffer { background: rgba(229, 236, 255, 0.25); }
         .supplies-card__gauge-bar--empty { background: rgba(229, 236, 255, 0.2); }
         .supplies-card__gauge-legend { margin: 0; font-size: 0.8rem; color: rgba(229, 236, 255, 0.72); }
 
-        .supplies-card__metrics { display: grid; gap: 0.5rem 1.25rem; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); font-size: 0.85rem; }
+        .supplies-card__metrics { display: grid; gap: 0.45rem 0.9rem; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); font-size: 0.83rem; }
         .supplies-card__metrics dt { margin: 0; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(229, 236, 255, 0.72); }
         .supplies-card__metrics dd { margin: 0; font-size: 1rem; color: rgba(245, 247, 255, 0.92); }
+        .supplies-card__footer { margin: 0; font-size: 0.8rem; line-height: 1.4; color: rgba(229, 236, 255, 0.68); }
 
         /* Alert list surfaces critical notifications prominently with severity colors. */
         .supplies-alerts { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
@@ -353,9 +390,9 @@ export const popupContentRegistry: PopupContentDefinition[] = [
 
         /* Trend rows show per-resource history so planners can trace consumption over time. */
         .supplies-trend { display: grid; gap: 1rem; }
-        .supplies-trend__series { border-radius: 12px; border: 1px solid rgba(229, 236, 255, 0.12); background: rgba(14, 20, 31, 0.8); padding: 0.9rem 1.1rem; display: grid; gap: 0.6rem; }
+        .supplies-trend__series { border-radius: 12px; border: 1px solid rgba(229, 236, 255, 0.12); background: rgba(14, 20, 31, 0.8); padding: 0.8rem 0.95rem; display: grid; gap: 0.55rem; }
         .supplies-trend__series h5 { margin: 0; font-size: 0.9rem; letter-spacing: 0.06em; text-transform: uppercase; }
-        .supplies-trend__points { display: flex; gap: 0.5rem; font-size: 0.9rem; color: rgba(229, 236, 255, 0.82); }
+        .supplies-trend__points { display: flex; gap: 0.45rem; flex-wrap: wrap; font-size: 0.84rem; color: rgba(229, 236, 255, 0.82); }
 
         /* Ledger entries surface supply inflow/outflow history for quick auditing. */
         .supplies-ledger { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.65rem; font-size: 0.85rem; }
