@@ -1480,41 +1480,39 @@ export class HexMapRenderer implements IMapRenderer {
     title.textContent = `Objective: ${labelText}`;
     group.appendChild(title);
 
-    // Add data attributes for CSS styling
-    group.setAttribute("data-objective-status", labelText);
-    group.setAttribute("data-objective-type", status);
+    // Subtle marker: just a small circle with thin border
+    const markerRadius = 8;
+    const markerY = cy - 6;
 
-    // Contained glow under star (tight radius)
+    // Subtle glow
     const glow = document.createElementNS(SVG_NS, "circle");
     glow.setAttribute("cx", String(cx));
-    glow.setAttribute("cy", String(cy - 5)); // Float slightly above hex
-    glow.setAttribute("r", "12"); // Fixed small radius
+    glow.setAttribute("cy", String(markerY));
+    glow.setAttribute("r", String(markerRadius + 4));
     glow.setAttribute("fill", primaryColor);
-    glow.setAttribute("opacity", "0.2");
+    glow.setAttribute("opacity", "0.15");
     glow.classList.add("objective-glow");
     group.appendChild(glow);
 
-    // Simple star icon
-    const starSize = 16;
-    const starPath = this.createStarPath(cx, cy - 5, starSize);
+    // Main marker circle - transparent with colored border
+    const marker = document.createElementNS(SVG_NS, "circle");
+    marker.setAttribute("cx", String(cx));
+    marker.setAttribute("cy", String(markerY));
+    marker.setAttribute("r", String(markerRadius));
+    marker.setAttribute("fill", "rgba(0, 0, 0, 0.3)");
+    marker.setAttribute("stroke", primaryColor);
+    marker.setAttribute("stroke-width", "2");
+    marker.setAttribute("opacity", "0.7");
+    group.appendChild(marker);
 
-    // Star shadow for depth
-    const starShadow = document.createElementNS(SVG_NS, "path");
-    starShadow.setAttribute("d", starPath);
-    starShadow.setAttribute("fill", "#000");
-    starShadow.setAttribute("opacity", "0.5");
-    starShadow.setAttribute("transform", `translate(1, 2)`);
-    group.appendChild(starShadow);
-
-    // Star with solid color
-    const star = document.createElementNS(SVG_NS, "path");
-    star.setAttribute("d", starPath);
-    star.setAttribute("fill", primaryColor);
-    star.setAttribute("stroke", "#000");
-    star.setAttribute("stroke-width", "1");
-    star.setAttribute("opacity", "0.95");
-    star.setAttribute("filter", `drop-shadow(0px 0px 4px ${primaryColor})`);
-    group.appendChild(star);
+    // Small center dot
+    const centerDot = document.createElementNS(SVG_NS, "circle");
+    centerDot.setAttribute("cx", String(cx));
+    centerDot.setAttribute("cy", String(markerY));
+    centerDot.setAttribute("r", "2");
+    centerDot.setAttribute("fill", primaryColor);
+    centerDot.setAttribute("opacity", "0.8");
+    group.appendChild(centerDot);
 
     // Append to SVG
     if (this.svgElement) {
