@@ -97,6 +97,22 @@ const RECON_SPOTTING_BONUS = 10;
 const RECON_SPOTTING_RANGE = 6;
 
 /**
+ * Bonus applied for occupying an objective hex.
+ * This should be significant enough to make bots prioritize objectives over pure combat.
+ */
+const OBJECTIVE_CONTROL_BONUS = 25;
+
+/**
+ * Bonus per turn already held (encourages holding objectives).
+ */
+const OBJECTIVE_HOLD_BONUS = 3;
+
+/**
+ * Bonus for moving toward an objective (distance reduction).
+ */
+const OBJECTIVE_APPROACH_BONUS = 4;
+
+/**
  * Difficulty levels control how aggressively and intelligently the bot plays.
  * - Easy: Bot makes conservative decisions, accepts higher risk, less aggressive
  * - Normal: Balanced tactical decision-making
@@ -224,7 +240,9 @@ function steeringBias(origin: Axial, firstStep: Axial, target: Axial): number {
 function scoreObjectiveApproach(
   origin: Axial,
   reachable: Map<string, ReachableHex>,
-  objectives: readonly { hex: Axial; owner: "Player" | "Bot"; vp: number }[]
+  objectives: readonly { hex: Axial; owner: "Player" | "Bot"; vp: number }[],
+  occupancy: ReadonlyMap<string, "bot" | "player">,
+  modifiers: DifficultyModifiers
 ): ActionCandidate | null {
   if (objectives.length === 0) {
     return null;
@@ -252,10 +270,24 @@ function scoreObjectiveApproach(
       if (reduction <= 0) {
         continue;
       }
-      const score = 2 + reduction * 4 + objective.vp;
+      let score = 2 + reduction * OBJECTIVE_APPROACH_BONUS + objective.vp * 0.3;
+
+      // Big bonus if we're landing on the objective itself
+      const destKey = axialKey(option.hex);
+      if (destKey === key) {
+        score += OBJECTIVE_CONTROL_BONUS * modifiers.objectiveWeight;
+
+        const currentOccupant = occupancy.get(key);
+        if (!currentOccupant || currentOccupant === "player") {
+          score += 10 * modifiers.objectiveWeight;
+        }
+      }
+
       if (score > bestReductionScore) {
         bestReductionScore = score;
-        rationale = `Advance toward objective at ${key}`;
+        rationale = destKey === key
+          ? `Occupy objective at ${key}`
+          : `Advance toward objective at ${key}`;
         bestTargetHex = objective.hex;
       }
     }
@@ -774,6 +806,50 @@ function calculateReconSpottingBonus(
 }
 
 /**
+ * Calculates bonus for moving to or holding objective hexes.
+ * Returns a high score for occupying objectives, scaled by difficulty and VP value.
+ */
+function scoreObjectiveControl(
+  destination: Axial,
+  objectives: readonly { hex: Axial; owner: "Player" | "Bot"; vp: number }[],
+  occupancy: ReadonlyMap<string, "bot" | "player">,
+  modifiers: DifficultyModifiers
+): number {
+  if (objectives.length === 0) {
+    return 0;
+  }
+
+  const destKey = axialKey(destination);
+
+  // Check if destination is an objective hex
+  for (const objective of objectives) {
+    const objKey = axialKey(objective.hex);
+    if (objKey !== destKey) {
+      continue;
+    }
+
+    // Found an objective at this destination
+    const currentOccupant = occupancy.get(objKey);
+    let bonus = OBJECTIVE_CONTROL_BONUS;
+
+    // Scale by VP value
+    bonus += objective.vp * 0.2;
+
+    // Extra bonus if currently unoccupied or player-controlled (needs contesting)
+    if (!currentOccupant || currentOccupant === "player") {
+      bonus += 10;
+    }
+
+    // Apply difficulty scaling
+    bonus *= modifiers.objectiveWeight;
+
+    return bonus;
+  }
+
+  return 0;
+}
+
+/**
  * Converts candidate metrics into a comparable scalar. Higher scores win.
  * The optional modifiers parameter allows difficulty-based tuning of scoring weights.
  */
@@ -909,16 +985,27 @@ export function scoreCandidateAdvanced(
     input.losAllows
   );
 
+  // Objective control bonus - prioritize holding objectives
+  score += scoreObjectiveControl(
+    candidate.destination,
+    input.objectives,
+    input.occupancy,
+    modifiers
+  );
+
   return score;
 }
 
 /**
  * Adds non-attack movement options so units can advance toward objectives when no shot is available.
+ * Prioritizes actually reaching and occupying objective hexes.
  */
 function scoreObjectiveAdvance(
   origin: Axial,
   reachable: Map<string, ReachableHex>,
-  objectives: readonly { hex: Axial; owner: "Player" | "Bot"; vp: number }[]
+  objectives: readonly { hex: Axial; owner: "Player" | "Bot"; vp: number }[],
+  occupancy: ReadonlyMap<string, "bot" | "player">,
+  modifiers: DifficultyModifiers
 ): ActionCandidate | null {
   if (objectives.length === 0) {
     return null;
@@ -930,8 +1017,22 @@ function scoreObjectiveAdvance(
     if (!option) {
       return;
     }
+
     const distanceReduction = hexDistance(origin, objective.hex) - hexDistance(option.hex, objective.hex);
-    const score = 4 + objective.vp + distanceReduction * 2;
+    let score = OBJECTIVE_APPROACH_BONUS + objective.vp * 0.5 + distanceReduction * 2;
+
+    // Large bonus if we're actually reaching the objective hex
+    const destKey = axialKey(option.hex);
+    if (destKey === key) {
+      score += OBJECTIVE_CONTROL_BONUS * modifiers.objectiveWeight;
+
+      const currentOccupant = occupancy.get(key);
+      // Extra bonus for contesting unoccupied or player-controlled objectives
+      if (!currentOccupant || currentOccupant === "player") {
+        score += 10 * modifiers.objectiveWeight;
+      }
+    }
+
     if (!best || score > best.score) {
       best = {
         destination: option.hex,
@@ -940,7 +1041,9 @@ function scoreObjectiveAdvance(
         expectedDamage: 0,
         expectedRetaliation: 0,
         score,
-        rationale: `Advance to objective worth ${objective.vp} VP`
+        rationale: destKey === key
+          ? `Occupy objective worth ${objective.vp} VP`
+          : `Advance to objective worth ${objective.vp} VP`
       };
     }
   });
@@ -1040,12 +1143,12 @@ function pickBestCandidate(
 
   // Consider movement toward objectives if no attack was valuable.
   if (!top || top.score < 0) {
-    const advanceCandidate = scoreObjectiveAdvance(snapshot.unit.hex, reachable, activeObjectives);
+    const advanceCandidate = scoreObjectiveAdvance(snapshot.unit.hex, reachable, activeObjectives, input.occupancy, difficultyMods);
     if (advanceCandidate && (!top || advanceCandidate.score > top.score)) {
       top = advanceCandidate;
     }
     if (!top || top.score < 0) {
-      const approachCandidate = scoreObjectiveApproach(snapshot.unit.hex, reachable, activeObjectives);
+      const approachCandidate = scoreObjectiveApproach(snapshot.unit.hex, reachable, activeObjectives, input.occupancy, difficultyMods);
       if (approachCandidate && (!top || approachCandidate.score > top.score)) {
         top = approachCandidate;
       }

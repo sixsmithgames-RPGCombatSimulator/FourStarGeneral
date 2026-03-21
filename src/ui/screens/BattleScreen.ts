@@ -1397,8 +1397,13 @@ export class BattleScreen {
       this.currentObjectiveIndex = (this.currentObjectiveIndex + 1) % this.scenario.objectives.length;
       const objective = this.scenario.objectives[this.currentObjectiveIndex];
 
+      // Handle hex as array [q, r]
+      const hexArray = objective.hex as unknown as [number, number];
+      const q = hexArray[0];
+      const r = hexArray[1];
+
       // Convert to offset key and focus on it
-      const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
+      const offset = CoordinateSystem.axialToOffset(q, r);
       const offsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
 
       // Focus camera on objective
@@ -1454,9 +1459,14 @@ export class BattleScreen {
     // Update professional objective markers for each hex
     for (let i = 0; i < this.scenario.objectives.length; i++) {
       const objective = this.scenario.objectives[i];
+      // Handle hex as array [q, r]
+      const hexArray = objective.hex as unknown as [number, number];
+      const q = hexArray[0];
+      const r = hexArray[1];
+
       // Convert axial to offset coordinates for hex key
-      const axialKey = `${objective.hex.q},${objective.hex.r}`;
-      const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
+      const axialKey = `${q},${r}`;
+      const offset = CoordinateSystem.axialToOffset(q, r);
       const offsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
 
       const occupant = occupancy.get(axialKey);
@@ -4909,7 +4919,9 @@ export class BattleScreen {
     this.objectiveHexKeys.clear();
     if (this.scenario.objectives) {
       for (const objective of this.scenario.objectives) {
-        this.objectiveHexKeys.add(`${objective.hex.q},${objective.hex.r}`);
+        // Handle hex as array [q, r]
+        const hexArray = objective.hex as unknown as [number, number];
+        this.objectiveHexKeys.add(`${hexArray[0]},${hexArray[1]}`);
       }
     }
 
