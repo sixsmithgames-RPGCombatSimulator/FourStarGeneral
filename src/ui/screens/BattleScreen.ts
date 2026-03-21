@@ -1415,14 +1415,23 @@ export class BattleScreen {
   }
 
   private updateObjectiveMarkers(): void {
+    console.log("[DEBUG] updateObjectiveMarkers called");
+    console.log("[DEBUG] hexMapRenderer exists:", !!this.hexMapRenderer);
+    console.log("[DEBUG] missionRulesController exists:", !!this.missionRulesController);
+    console.log("[DEBUG] scenario.objectives:", this.scenario.objectives);
+
     if (!this.hexMapRenderer || !this.missionRulesController || !this.scenario.objectives) {
+      console.log("[DEBUG] Early return - missing required dependencies");
       return;
     }
 
     const engine = this.battleState.hasEngine() ? this.battleState.ensureGameEngine() : null;
     if (!engine) {
+      console.log("[DEBUG] Early return - no engine");
       return;
     }
+
+    console.log("[DEBUG] Proceeding to render", this.scenario.objectives.length, "objectives");
 
     // Build occupancy map
     const occupancy = new Map<string, "Player" | "Bot" | "Ally">();
