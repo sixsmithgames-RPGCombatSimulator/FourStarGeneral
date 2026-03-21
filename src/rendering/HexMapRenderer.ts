@@ -1475,114 +1475,46 @@ export class HexMapRenderer implements IMapRenderer {
 
     group.classList.add(animationClass);
 
-    // Create gradient definitions
-    const defsId = `obj-grad-${hexKey}`;
-    const defs = document.createElementNS(SVG_NS, "defs");
+    // Add SVG native tooltip
+    const title = document.createElementNS(SVG_NS, "title");
+    title.textContent = `Objective: ${labelText}`;
+    group.appendChild(title);
 
-    // Radial gradient for glow effect
-    const glowGradient = document.createElementNS(SVG_NS, "radialGradient");
-    glowGradient.setAttribute("id", `${defsId}-glow`);
-    const glowStop1 = document.createElementNS(SVG_NS, "stop");
-    glowStop1.setAttribute("offset", "0%");
-    glowStop1.setAttribute("stop-color", glowColor);
-    glowStop1.setAttribute("stop-opacity", "0.8");
-    const glowStop2 = document.createElementNS(SVG_NS, "stop");
-    glowStop2.setAttribute("offset", "100%");
-    glowStop2.setAttribute("stop-color", glowColor);
-    glowStop2.setAttribute("stop-opacity", "0");
-    glowGradient.appendChild(glowStop1);
-    glowGradient.appendChild(glowStop2);
-    defs.appendChild(glowGradient);
+    // Add data attributes for CSS styling
+    group.setAttribute("data-objective-status", labelText);
+    group.setAttribute("data-objective-type", status);
 
-    // Linear gradient for star
-    const starGradient = document.createElementNS(SVG_NS, "linearGradient");
-    starGradient.setAttribute("id", `${defsId}-star`);
-    starGradient.setAttribute("x1", "0%");
-    starGradient.setAttribute("y1", "0%");
-    starGradient.setAttribute("x2", "0%");
-    starGradient.setAttribute("y2", "100%");
-    const starStop1 = document.createElementNS(SVG_NS, "stop");
-    starStop1.setAttribute("offset", "0%");
-    starStop1.setAttribute("stop-color", primaryColor);
-    const starStop2 = document.createElementNS(SVG_NS, "stop");
-    starStop2.setAttribute("offset", "100%");
-    starStop2.setAttribute("stop-color", secondaryColor);
-    starGradient.appendChild(starStop1);
-    starGradient.appendChild(starStop2);
-    defs.appendChild(starGradient);
+    // Contained glow under star (tight radius)
+    const glow = document.createElementNS(SVG_NS, "circle");
+    glow.setAttribute("cx", String(cx));
+    glow.setAttribute("cy", String(cy - 5)); // Float slightly above hex
+    glow.setAttribute("r", "12"); // Fixed small radius
+    glow.setAttribute("fill", primaryColor);
+    glow.setAttribute("opacity", "0.2");
+    glow.classList.add("objective-glow");
+    group.appendChild(glow);
 
-    group.appendChild(defs);
+    // Simple star icon
+    const starSize = 16;
+    const starPath = this.createStarPath(cx, cy - 5, starSize);
 
-    // Subtle outer glow (much lighter)
-    const outerGlow = document.createElementNS(SVG_NS, "circle");
-    outerGlow.setAttribute("cx", String(cx));
-    outerGlow.setAttribute("cy", String(cy - 8)); // Float above hex
-    outerGlow.setAttribute("r", String(HEX_RADIUS * 0.4));
-    outerGlow.setAttribute("fill", `url(#${defsId}-glow)`);
-    outerGlow.setAttribute("opacity", "0.3");
-    outerGlow.classList.add("objective-glow");
-    group.appendChild(outerGlow);
+    // Star shadow for depth
+    const starShadow = document.createElementNS(SVG_NS, "path");
+    starShadow.setAttribute("d", starPath);
+    starShadow.setAttribute("fill", "#000");
+    starShadow.setAttribute("opacity", "0.5");
+    starShadow.setAttribute("transform", `translate(1, 2)`);
+    group.appendChild(starShadow);
 
-    // Small backdrop circle
-    const backdrop = document.createElementNS(SVG_NS, "circle");
-    backdrop.setAttribute("cx", String(cx));
-    backdrop.setAttribute("cy", String(cy - 8)); // Float above hex
-    backdrop.setAttribute("r", String(HEX_RADIUS * 0.25));
-    backdrop.setAttribute("fill", "rgba(0, 0, 0, 0.6)");
-    backdrop.setAttribute("filter", "drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.4))");
-    group.appendChild(backdrop);
-
-    // Thin ring border
-    const ring = document.createElementNS(SVG_NS, "circle");
-    ring.setAttribute("cx", String(cx));
-    ring.setAttribute("cy", String(cy - 8)); // Float above hex
-    ring.setAttribute("r", String(HEX_RADIUS * 0.24));
-    ring.setAttribute("fill", "none");
-    ring.setAttribute("stroke", primaryColor);
-    ring.setAttribute("stroke-width", "1.5");
-    ring.setAttribute("opacity", "0.8");
-    group.appendChild(ring);
-
-    // Small star icon
-    const starSize = 14;
-    const starPath = this.createStarPath(cx, cy - 8, starSize);
-
+    // Star with solid color
     const star = document.createElementNS(SVG_NS, "path");
     star.setAttribute("d", starPath);
     star.setAttribute("fill", primaryColor);
-    star.setAttribute("opacity", "0.9");
-    star.setAttribute("filter", `drop-shadow(0px 0px 3px ${glowColor})`);
+    star.setAttribute("stroke", "#000");
+    star.setAttribute("stroke-width", "1");
+    star.setAttribute("opacity", "0.95");
+    star.setAttribute("filter", `drop-shadow(0px 0px 4px ${primaryColor})`);
     group.appendChild(star);
-
-    // Compact status label
-    const textY = cy + HEX_RADIUS * 0.35;
-
-    // Minimal label background
-    const labelBg = document.createElementNS(SVG_NS, "rect");
-    const labelWidth = Math.max(labelText.length * 5.5, 32);
-    labelBg.setAttribute("x", String(cx - labelWidth / 2));
-    labelBg.setAttribute("y", String(textY - 8));
-    labelBg.setAttribute("width", String(labelWidth));
-    labelBg.setAttribute("height", "12");
-    labelBg.setAttribute("rx", "6");
-    labelBg.setAttribute("fill", "rgba(0, 0, 0, 0.75)");
-    labelBg.setAttribute("stroke", primaryColor);
-    labelBg.setAttribute("stroke-width", "1");
-    labelBg.setAttribute("opacity", "0.9");
-    group.appendChild(labelBg);
-
-    // Compact status text
-    const text = document.createElementNS(SVG_NS, "text");
-    text.setAttribute("x", String(cx));
-    text.setAttribute("y", String(textY));
-    text.setAttribute("text-anchor", "middle");
-    text.setAttribute("fill", primaryColor);
-    text.setAttribute("font-size", "8");
-    text.setAttribute("font-weight", "700");
-    text.setAttribute("letter-spacing", "0.5");
-    text.setAttribute("font-family", "sans-serif");
-    text.textContent = labelText;
-    group.appendChild(text);
 
     // Append to SVG
     if (this.svgElement) {
