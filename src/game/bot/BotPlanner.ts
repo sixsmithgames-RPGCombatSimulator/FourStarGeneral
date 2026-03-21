@@ -8,7 +8,7 @@ const STEERING_TIE_BIAS = 0.6;
  * closing or attacking even when strategic objectives exist. This models the "game on" behavior
  * once forces make contact.
  */
-const PROXIMITY_ENGAGE_RADIUS = 12;
+const PROXIMITY_ENGAGE_RADIUS = 6;
 /**
  * Bonus applied to enemy-pressure moves when contact is established (nearby or visible). Ensures that
  * pressure beats a distant objective approach so the AI pivots into combat once engaged.
@@ -100,17 +100,17 @@ const RECON_SPOTTING_RANGE = 6;
  * Bonus applied for occupying an objective hex.
  * This should be significant enough to make bots prioritize objectives over pure combat.
  */
-const OBJECTIVE_CONTROL_BONUS = 25;
+const OBJECTIVE_CONTROL_BONUS = 45;
 
 /**
  * Bonus per turn already held (encourages holding objectives).
  */
-const OBJECTIVE_HOLD_BONUS = 3;
+const OBJECTIVE_HOLD_BONUS = 5;
 
 /**
  * Bonus for moving toward an objective (distance reduction).
  */
-const OBJECTIVE_APPROACH_BONUS = 4;
+const OBJECTIVE_APPROACH_BONUS = 8;
 
 /**
  * Difficulty levels control how aggressively and intelligently the bot plays.
