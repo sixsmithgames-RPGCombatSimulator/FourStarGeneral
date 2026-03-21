@@ -34,8 +34,8 @@ export const missionBriefings: Record<MissionKey, string> = {
 
   patrol_river_watch:
     "Recon reports enemy infiltrators massing along the river. Multiple shallow fords cut through the bend—if they slip across, they'll have a lodgment before dawn. " +
-    "Scramble your patrols, lock down each crossing, and deny them a foothold.\n\n" +
-    "VICTORY: Hold all three fords - prevent the enemy from holding any single ford for 8 consecutive turns.\n" +
+    "Deploy your patrols to occupy and hold each crossing with your units.\n\n" +
+    "VICTORY: Hold ALL THREE fords simultaneously with your forces for 8 consecutive turns.\n" +
     "DEFEAT: Mission fails if the enemy secures and holds any ford for 8 consecutive turns.",
 
   assault:
@@ -119,12 +119,12 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
   },
   patrol_river_watch: {
     objectives: [
-      "Primary: Deny enemy control of any ford for 8 consecutive turns.",
+      "Primary: Hold all three fords simultaneously for 8 consecutive turns.",
       "Secondary: Destroy the enemy comms team before it reaches the central ford.",
       "Tertiary: Keep at least one recon unit alive."
     ],
     turnLimit: 999, // No time limit - mission ends when objectives are met
-    doctrine: "Screen all three crossings, shift between hedgerow lanes before the enemy can mass, and hold the two off-map 81mm mortar fire missions for the ford that starts to buckle.",
+    doctrine: "Occupy all three crossings with your units. Shift forces between hedgerow lanes before the enemy can mass. Hold the two off-map 81mm mortar fire missions for the ford that starts to buckle.",
     supplies: [
       { label: "Predeployed Patrol", amount: "2 rifle squads, engineers, recon bike patrol" },
       { label: "Off-map 81mm Mortar", amount: "2 fire missions" },

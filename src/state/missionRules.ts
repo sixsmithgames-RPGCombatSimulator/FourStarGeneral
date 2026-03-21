@@ -105,15 +105,15 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
   ): readonly ObjectiveProgress[] => {
     const primary: ObjectiveProgress = {
       id: "primary_deny_fords",
-      label: "Deny enemy control of any ford for 8 consecutive turns",
+      label: "Hold all fords for 8 consecutive turns",
       tier: "primary",
       state: outcome.state === "playerDefeat" ? "failed" : outcome.state === "playerVictory" ? "completed" : "inProgress",
-      detail: fordKeys
+      detail: `Player hold all: ${tracker.blockedFordsStreak}/8 turns; ${fordKeys
         .map(({ key, label }) => {
           const count = tracker.counters.get(key) ?? 0;
           return `${label}: Bot hold ${count}/8 turns`;
         })
-        .join("; ")
+        .join("; ")}`
     };
 
     const commsDestroyed = botUnits.every((unit) => unit.type !== "Recon_Bike");

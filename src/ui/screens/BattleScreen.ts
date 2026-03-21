@@ -1447,10 +1447,17 @@ export class BattleScreen {
 
     // Get ford tracker counters from mission status
     const fordCounters = new Map<string, number>();
+    let playerHoldStreak = 0;
     if (this.missionStatus?.objectives) {
       const primaryObjective = this.missionStatus.objectives.find(obj => obj.id === "primary_deny_fords");
       if (primaryObjective?.detail) {
-        // Parse detail string like "Ford 1: Bot hold 2/8 turns; Ford 2: Bot hold 0/8 turns"
+        // Parse player hold streak: "Player hold all: 3/8 turns; Ford 1: Bot hold 2/8 turns..."
+        const playerStreakMatch = primaryObjective.detail.match(/Player hold all: (\d+)\/(\d+) turns/);
+        if (playerStreakMatch) {
+          playerHoldStreak = parseInt(playerStreakMatch[1], 10);
+        }
+
+        // Parse bot hold counters
         const fordMatches = primaryObjective.detail.matchAll(/Ford (\d+): Bot hold (\d+)\/(\d+) turns/g);
         let fordIndex = 0;
         for (const match of fordMatches) {
@@ -1486,10 +1493,19 @@ export class BattleScreen {
         tooltipText = `Ford ${i + 1} - ENEMY CONTROLLED\nEnemy has held for ${counter} of 8 turns\n${8 - counter} turns remaining to secure`;
       } else if (occupant === "Player" || occupant === "Ally") {
         status = "player";
-        tooltipText = `Ford ${i + 1} - SECURED\nYou control this objective\nDeny enemy access for ${8 - counter} more turns to win`;
+        const allFordsHeld = this.scenario.objectives.every(obj => {
+          const objKey = `${obj.hex.q},${obj.hex.r}`;
+          const objOccupant = occupancy.get(objKey);
+          return objOccupant === "Player" || objOccupant === "Ally";
+        });
+        if (allFordsHeld) {
+          tooltipText = `Ford ${i + 1} - SECURED\nAll fords held for ${playerHoldStreak} of 8 turns\nHold for ${8 - playerHoldStreak} more turns to win`;
+        } else {
+          tooltipText = `Ford ${i + 1} - SECURED\nYou control this ford, but not all fords\nMust hold ALL fords simultaneously for 8 turns to win`;
+        }
       } else {
         status = "unoccupied";
-        tooltipText = `Ford ${i + 1} - CONTESTED\nNo forces currently holding\nSecure and hold for 8 turns to win`;
+        tooltipText = `Ford ${i + 1} - CONTESTED\nNo forces currently holding\nMove units onto this ford and hold ALL fords for 8 turns to win`;
       }
 
       this.hexMapRenderer.renderObjectiveMarker(offsetKey, {
