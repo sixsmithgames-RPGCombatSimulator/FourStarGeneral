@@ -371,7 +371,7 @@ export function calculateDamagePerHit(
   const combatProfile = resolveCombatProfile(attacker.unit);
   const experienceScalar = 1 + attacker.experience * 0.1;
   const commanderDamageBonus = attacker.general.dmgBonus ?? 0;
-  const damageScalar = 1 + (commanderDamageBonus);
+  const damageScalar = 1 + (commanderDamageBonus / 100);
   const softAttackScalar = resolveAttackScalar(attacker.unit, combatProfile, true);
   const hardAttackScalar = resolveAttackScalar(attacker.unit, combatProfile, false);
 
