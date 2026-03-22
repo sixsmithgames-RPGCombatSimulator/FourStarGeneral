@@ -17,7 +17,15 @@ const plains: TerrainDefinition = {
   blocksLOS: false
 };
 
+const road: TerrainDefinition = {
+  moveCost: { leg: 1, wheel: 0.5, track: 0.5, air: 1 },
+  defense: 0,
+  accMod: 0,
+  blocksLOS: false
+};
+
 const terrain: TerrainDictionary = { plains } as unknown as TerrainDictionary;
+const routingTerrain: TerrainDictionary = { plains, road } as unknown as TerrainDictionary;
 
 const vehicleDef: UnitTypeDefinition = {
   class: "vehicle",
@@ -128,6 +136,56 @@ function createEngine(playerUnits: ScenarioUnit[], botUnits: ScenarioUnit[] = []
     terrain,
     playerSide: { ...side({ q: 0, r: 0 }), units: preDeployedPlayers },
     botSide: { ...side({ q: 3, r: 3 }), units: botUnits }
+  };
+  const engine = new GameEngine(cfg);
+  engine.beginDeployment();
+  engine.setBaseCamp({ q: 0, r: 0 });
+  engine.finalizeDeployment();
+  engine.startPlayerTurnPhase();
+  return engine;
+}
+
+function routingScenario(): ScenarioData {
+  return {
+    name: "Convoy Routing Regression",
+    size: { cols: 3, rows: 3 },
+    tilePalette: {
+      P: {
+        terrain: "plains",
+        terrainType: "grass",
+        density: "average",
+        features: [],
+        recon: "intel"
+      },
+      R: {
+        terrain: "road",
+        terrainType: "rural",
+        density: "sparse",
+        features: [],
+        recon: "intel"
+      }
+    },
+    tiles: [
+      [{ tile: "P" }, { tile: "R" }, { tile: "P" }],
+      [{ tile: "R" }, { tile: "R" }, { tile: "P" }],
+      [{ tile: "P" }, { tile: "P" }, { tile: "P" }]
+    ],
+    objectives: [],
+    turnLimit: 3,
+    sides: {
+      Player: side({ q: 0, r: 0 }),
+      Bot: side({ q: 2, r: 2 })
+    }
+  } as unknown as ScenarioData;
+}
+
+function createRoutingEngine(): GameEngine {
+  const cfg: GameEngineConfig = {
+    scenario: routingScenario(),
+    unitTypes,
+    terrain: routingTerrain,
+    playerSide: side({ q: 0, r: 0 }),
+    botSide: side({ q: 2, r: 2 })
   };
   const engine = new GameEngine(cfg);
   engine.beginDeployment();
@@ -410,6 +468,40 @@ registerTest("SUPPLY_PRIORITIES_DECIDE_WHICH_BATTALION_GETS_THE_NEXT_CONVOY", as
       throw new Error(`Expected one convoy to service one battalion at a time, saw ${assignedTotal} assignments.`);
     }
   });
+});
+
+registerTest("CONVOY_PATHFINDER_RETAINS_THE_CHEAPEST_ROUTE_BREADCRUMBS", async ({ Then }) => {
+  const engine = createRoutingEngine();
+  const planner = engine as unknown as {
+    findCheapestPathToAny: (
+      from: { q: number; r: number },
+      destinations: readonly { q: number; r: number }[],
+      moveType: string,
+      occupied: ReadonlySet<string>
+    ) => { path: Array<{ q: number; r: number }>; summary: { cost: number; steps: number } } | null;
+  };
+
+  const plan = planner.findCheapestPathToAny(
+    { q: 0, r: 0 },
+    [{ q: 2, r: 0 }],
+    "wheel",
+    new Set<string>()
+  );
+
+  if (!plan) {
+    throw new Error("Expected a wheel route to the destination.");
+  }
+
+  const pathKeys = plan.path.map((hex) => `${hex.q},${hex.r}`).join(" -> ");
+  if (pathKeys !== "0,0 -> 1,0 -> 2,0") {
+    throw new Error(`Expected the planner to keep the cheapest direct road branch, received '${pathKeys}'.`);
+  }
+
+  if (Math.abs(plan.summary.cost - 1.5) > 1e-6 || plan.summary.steps !== 2) {
+    throw new Error(`Expected the cheapest route summary to stay aligned with the chosen path, received ${JSON.stringify(plan.summary)}.`);
+  }
+
+  await Then("convoy routing keeps the best breadcrumb chain instead of drifting onto a worse branch", () => {});
 });
 
 registerTest("BOT_FACTIONS_AUTO_STAGE_CONVOYS_AND_RESTORE_STRANDED_MOBILITY_WHEN_SCENARIOS_OMIT_THEM", async ({ Given, When, Then }) => {

@@ -197,6 +197,10 @@ registerTest("INFANTRY_COMMAND_STATE_TRACKS_DIG_IN_AND_ENGINEER_FIELDWORKS", asy
   if (!dugInState || dugInState.entrenchment !== 1 || dugInState.canDigIn) {
     throw new Error(`Expected infantry to gain one entrenchment and consume the action, received ${JSON.stringify(dugInState)}`);
   }
+  const dugInMovement = engine.getMovementBudget(infantry.hex);
+  if (!dugInMovement || dugInMovement.remaining !== 0) {
+    throw new Error(`Expected dig-in to consume remaining movement, received ${JSON.stringify(dugInMovement)}`);
+  }
 
   const engineerCommand = engine.getUnitCommandState(engineer.hex);
   if (!engineerCommand?.isEngineer || !engineerCommand.canBuildModification) {
@@ -210,6 +214,10 @@ registerTest("INFANTRY_COMMAND_STATE_TRACKS_DIG_IN_AND_ENGINEER_FIELDWORKS", asy
   const modifications = engine.getHexModificationSnapshots();
   if (modifications.length !== 1 || modifications[0]?.type !== "fortifications") {
     throw new Error(`Expected a fortification snapshot after building fieldworks, received ${JSON.stringify(modifications)}`);
+  }
+  const engineerMovement = engine.getMovementBudget(engineer.hex);
+  if (!engineerMovement || engineerMovement.remaining !== 0) {
+    throw new Error(`Expected engineer fieldworks to consume remaining movement, received ${JSON.stringify(engineerMovement)}`);
   }
 
   const restored = GameEngine.fromSerialized(config, engine.serialize());

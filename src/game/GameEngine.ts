@@ -5580,21 +5580,39 @@ export class GameEngine implements GameEngineAPI {
     const queue: Array<{ hex: Axial; cost: number; fuelCost: number; steps: number; roadSteps: number; offroadSteps: number }> = [
       { hex: from, cost: 0, fuelCost: 0, steps: 0, roadSteps: 0, offroadSteps: 0 }
     ];
-    const visited = new Map<string, { cost: number; fuelCost: number }>();
+    const visited = new Map<string, { cost: number; fuelCost: number; steps: number }>();
+    const bestKnown = new Map<string, { cost: number; fuelCost: number; steps: number }>();
     const previous = new Map<string, string | null>();
     const nodeSummaries = new Map<string, MovementPathSummary>();
     previous.set(originKey, null);
+    bestKnown.set(originKey, { cost: 0, fuelCost: 0, steps: 0 });
     nodeSummaries.set(originKey, { cost: 0, fuelCost: 0, steps: 0, roadSteps: 0, offroadSteps: 0 });
 
     while (queue.length > 0) {
-      queue.sort((left, right) => left.cost - right.cost || left.fuelCost - right.fuelCost);
+      queue.sort((left, right) => left.cost - right.cost || left.fuelCost - right.fuelCost || left.steps - right.steps);
       const current = queue.shift()!;
       const key = axialKey(current.hex);
-      const seen = visited.get(key);
-      if (seen && seen.cost <= current.cost && seen.fuelCost <= current.fuelCost) {
+      const frontierBest = bestKnown.get(key);
+      if (
+        frontierBest &&
+        (current.cost > frontierBest.cost ||
+          (current.cost === frontierBest.cost &&
+            (current.fuelCost > frontierBest.fuelCost ||
+              (current.fuelCost === frontierBest.fuelCost && current.steps > frontierBest.steps))))
+      ) {
         continue;
       }
-      visited.set(key, { cost: current.cost, fuelCost: current.fuelCost });
+      const seen = visited.get(key);
+      if (
+        seen &&
+        (seen.cost < current.cost ||
+          (seen.cost === current.cost &&
+            (seen.fuelCost < current.fuelCost ||
+              (seen.fuelCost === current.fuelCost && seen.steps <= current.steps))))
+      ) {
+        continue;
+      }
+      visited.set(key, { cost: current.cost, fuelCost: current.fuelCost, steps: current.steps });
       nodeSummaries.set(key, {
         cost: current.cost,
         fuelCost: Number(current.fuelCost.toFixed(2)),
@@ -5640,16 +5658,24 @@ export class GameEngine implements GameEngineAPI {
         }
         const onRoad = moveType !== "air" && this.isRoad(neighbor);
         const nextCost = current.cost + moveCost;
-        const existing = visited.get(neighborKey);
-        if (existing && existing.cost <= nextCost && existing.fuelCost <= fuelCost) {
+        const nextSteps = current.steps + 1;
+        const existing = bestKnown.get(neighborKey);
+        if (
+          existing &&
+          (existing.cost < nextCost ||
+            (existing.cost === nextCost &&
+              (existing.fuelCost < fuelCost ||
+                (existing.fuelCost === fuelCost && existing.steps <= nextSteps))))
+        ) {
           continue;
         }
+        bestKnown.set(neighborKey, { cost: nextCost, fuelCost, steps: nextSteps });
         previous.set(neighborKey, key);
         queue.push({
           hex: neighbor,
           cost: nextCost,
           fuelCost,
-          steps: current.steps + 1,
+          steps: nextSteps,
           roadSteps: current.roadSteps + (onRoad ? 1 : 0),
           offroadSteps: current.offroadSteps + (onRoad ? 0 : 1)
         });
@@ -9817,8 +9843,25 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /**
+   * Field actions consume the unit's operational tempo for the turn, so spend the
+   * current movement allowance as well as the attack action.
+   */
+  private resolveCommittedFieldActionFlags(
+    hex: Axial,
+    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+  ): ReturnType<GameEngine["createDefaultActionFlags"]> {
+    const movementContext = this.resolveMovementContext(hex);
+    const committedMovement = movementContext ? movementContext.max : flags.movementPointsUsed;
+    return {
+      ...flags,
+      movementPointsUsed: Math.max(flags.movementPointsUsed, committedMovement),
+      attacksUsed: Math.max(flags.attacksUsed, 1)
+    };
+  }
+
+  /**
    * Dig in action for infantry units. Increases entrenchment level (max 2).
-   * Unit cannot attack this turn after digging in.
+   * Unit cannot move or attack again this turn after digging in.
    */
   digInUnit(hex: Axial): boolean {
     const key = axialKey(hex);
@@ -9838,11 +9881,8 @@ export class GameEngine implements GameEngineAPI {
     this.playerPlacements.set(key, unit);
     this.syncPlayerEntrench(hex, unit.entrench);
 
-    // Mark unit as having acted
-    this.playerActionFlags.set(key, {
-      ...flags,
-      attacksUsed: 1 // Prevent further attacks this turn
-    });
+    // Digging in consumes the battalion's remaining operational time for the turn.
+    this.playerActionFlags.set(key, this.resolveCommittedFieldActionFlags(hex, flags));
     this.updateIdleRegistryFor(key);
     this.invalidateRosterCache();
 
@@ -9875,11 +9915,8 @@ export class GameEngine implements GameEngineAPI {
     };
     this.hexModifications.set(key, modification);
 
-    // Mark unit as having acted
-    this.playerActionFlags.set(key, {
-      ...flags,
-      attacksUsed: 1 // Prevent further attacks this turn
-    });
+    // Engineering work also commits the unit for the rest of the turn.
+    this.playerActionFlags.set(key, this.resolveCommittedFieldActionFlags(hex, flags));
     this.updateIdleRegistryFor(key);
     this.invalidateRosterCache();
 

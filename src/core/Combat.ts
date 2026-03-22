@@ -264,8 +264,7 @@ export function pickFacingArmor(
  * 2. Add experience bonus (+3% per star)
  * 3. Add terrain modifier (defender in cover is harder to hit)
  * 4. Apply commander bonus as percentage multiplier
- * 5. Apply assault stance bonus if applicable (+50% for close range physics)
- * 6. Clamp to min/max bounds
+ * 5. Clamp to min/max bounds after range, terrain, and spotting adjustments
  */
 export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const attacker = request.attacker;
@@ -304,11 +303,12 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const spottedMultiplier = defenderCtx.isSpottedOnly ? 0.5 : 1.0;
   let afterSpotted = afterTerrain * spottedMultiplier;
 
-  // Step 5: Apply assault stance accuracy boost (+50% for close range physics)
-  const assaultMultiplier = isAssault ? 1.5 : 1.0;
-  const finalPreClamp = afterSpotted * assaultMultiplier;
+  // Assault already benefits from the forced 25m engagement range above; applying
+  // a second multiplier here overstates close-assault lethality and breaks parity
+  // between preview and expected battlefield outcomes.
+  const finalPreClamp = afterSpotted;
 
-  // Step 6: Clamp to bounds
+  // Step 5: Clamp to bounds
   const finalAccuracy = clamp(finalPreClamp, combatBalance.accuracy.min, combatBalance.accuracy.max);
 
   return {
