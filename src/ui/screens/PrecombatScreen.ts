@@ -228,6 +228,7 @@ export class PrecombatScreen {
     this.primeAllocationState();
     this.seedDeploymentCaches();
     this.registerScenarioDeploymentZones();
+    this.renderMiniMap();
     this.renderMissionSummary(missionKey, selectedDifficulty);
     this.seedPredeployedAllocations();
     this.seedRecommendedLogisticsAllocations();

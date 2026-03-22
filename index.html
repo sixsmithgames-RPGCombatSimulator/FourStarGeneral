@@ -407,11 +407,58 @@
       box-shadow: 0 16px 38px rgba(245, 196, 109, 0.28);
       background: linear-gradient(135deg, rgba(245, 196, 109, 0.35), rgba(12, 12, 14, 0.1));
     }
+    .allocation-panel {
+      display: grid;
+      gap: 1.25rem;
+      min-width: 0;
+    }
+    .allocation-panel > h2 {
+      margin: 0;
+      font-size: 1.35rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .allocation-items {
+      list-style: none;
+      margin: 0;
+      padding: 0 0.2rem 0 0;
+      display: grid;
+      gap: 0.9rem;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+      flex: 1;
+      align-content: start;
+    }
+    .allocation-items::-webkit-scrollbar {
+      width: 8px;
+    }
+    .allocation-items::-webkit-scrollbar-thumb {
+      background: rgba(140, 160, 200, 0.24);
+      border-radius: 999px;
+    }
+    .allocation-items::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .allocation-item {
+      display: grid;
+      gap: 0.85rem;
+      padding: 1rem;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background:
+        linear-gradient(180deg, rgba(15, 21, 33, 0.9) 0%, rgba(9, 13, 22, 0.84) 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        0 12px 24px rgba(0, 0, 0, 0.18);
+      min-width: 0;
+    }
     .allocation-item header,
     .deployment-item {
       display: flex;
       align-items: center;
       gap: 1rem;
+      min-width: 0;
     }
     .allocation-visual,
     .deployment-visual {
@@ -440,6 +487,7 @@
     .allocation-copy {
       display: grid;
       gap: 0.35rem;
+      min-width: 0;
     }
     .allocation-copy__description {
       margin: 0;
@@ -468,15 +516,17 @@
     .allocation-title-row {
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
       gap: 0.75rem;
     }
     .allocation-title-row h4 {
       margin: 0;
-      font-size: 1.05rem;
+      font-size: 0.98rem;
       letter-spacing: 0.05em;
       text-transform: uppercase;
       flex: 1;
+      min-width: 0;
+      line-height: 1.2;
     }
     .allocation-meta {
       display: flex;
@@ -484,10 +534,14 @@
       justify-content: space-between;
       gap: 0.75rem;
       text-align: left;
+      flex-wrap: wrap;
+      margin-top: auto;
     }
     .allocation-cost {
       font-weight: 600;
       color: var(--accent);
+      flex-shrink: 0;
+      white-space: nowrap;
     }
     .allocation-quantity {
       display: inline-flex;
@@ -502,6 +556,34 @@
       min-width: 1.5rem;
       text-align: center;
       font-weight: 600;
+    }
+    .allocation-btn {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-primary);
+      font-size: 1.2rem;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    }
+    .allocation-btn:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(245, 196, 109, 0.45);
+      transform: translateY(-1px);
+    }
+    .allocation-btn:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .allocation-total {
+      font-weight: 700;
+      color: var(--text-primary);
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }
     .deployment-item-title,
     .deployment-item-meta {
@@ -1651,6 +1733,25 @@
       border: 1px solid var(--allocation-border);
       padding: 1rem;
       height: 360px;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .allocation-section > header {
+      display: grid;
+      gap: 0.25rem;
+      flex-shrink: 0;
+    }
+    .allocation-section > header h3 {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .allocation-section > header p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.92rem;
+      line-height: 1.35;
     }
     .allocation-section--units {
       grid-area: units;
