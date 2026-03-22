@@ -2722,10 +2722,27 @@ export class HexMapRenderer implements IMapRenderer {
     const finalX = center.cx + offsetX;
     const finalY = center.cy + offsetY;
     
-    // Log transform information for debugging camera drift
-    const svgElement = this.svgElement;
-    const currentTransform = svgElement ? svgElement.getAttribute('transform') || 'none' : 'no-svg';
-    console.log(`[HexMapRenderer] TRANSFORM DEBUG - intended centered transform: (${finalX}, ${finalY}), actual current SVG transform: ${currentTransform}`);
+    // Screen coordinate validation to detect coordinate system mismatches
+    const pt = this.svgElement?.createSVGPoint();
+    if (pt && this.svgElement) {
+      pt.x = finalX;
+      pt.y = finalY;
+      const ctm = this.svgElement.getScreenCTM();
+      const screen = ctm ? pt.matrixTransform(ctm) : null;
+      
+      // Get viewport transform from global scope since HexMapRenderer doesn't have direct access
+      const viewportTransform = (window as any).battleScreenMapViewport?.getTransform?.() || null;
+      const svgStyleTransform = this.svgElement.style.transform;
+      
+      console.log("[EffectScreenCheck]", {
+        hexKey,
+        svgPos: { x: finalX, y: finalY },
+        screenPos: screen ? { x: screen.x, y: screen.y } : null,
+        viewport: viewportTransform,
+        svgStyleTransform,
+        ctm: ctm ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f } : null
+      });
+    }
     
     console.log(`[HexMapRenderer] Calling combatAnimator.playAnimation at (${finalX}, ${finalY})`);
     await this.combatAnimator.playAnimation(animationType, finalX, finalY, scale);

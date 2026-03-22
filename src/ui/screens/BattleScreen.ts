@@ -2918,6 +2918,10 @@ export class BattleScreen {
     this.mapViewport = mapViewport;
     this.zoomPanControls = zoomPanControls;
     this.battleActivityLog = battleActivityLog;
+    
+    // Expose MapViewport to global scope for diagnostics
+    (window as any).battleScreenMapViewport = this.mapViewport;
+    
     this.refreshScenario();
     console.info("[BattleScreen] scenario loaded", {
       missionKey: this.uiState?.selectedMission ?? "training",
