@@ -920,6 +920,11 @@ export class HexMapRenderer implements IMapRenderer {
     if (this.baseCampHexKey) {
       this.renderBaseCampMarker(this.baseCampHexKey);
     }
+
+    // Ensure combat effects layer renders on top of all markers by re-appending it as the last child.
+    if (effectsLayer && effectsLayer.parentNode === svg) {
+      svg.appendChild(effectsLayer);
+    }
   }
 
   /**
@@ -2394,6 +2399,8 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     if (this.combatEffectsLayer && this.combatEffectsLayer.isConnected) {
+      // Re-append to ensure effects render above all markers (objective markers, debug markers, etc.)
+      this.svgElement.appendChild(this.combatEffectsLayer);
       return this.combatEffectsLayer;
     }
 
