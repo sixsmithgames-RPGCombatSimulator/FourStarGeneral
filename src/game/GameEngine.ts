@@ -2835,6 +2835,22 @@ private automateSupplyConvoys(
         return;
       }
 
+      const atSource = this.isHexWithinSupplySourceRadius(truck.hex, faction);
+      if (atSource) {
+        this.loadSupplyTruckFromDepot(
+          faction,
+          supplyState,
+          truck,
+          truckSupplyState,
+          truckState
+        );
+      }
+
+      const occupied = this.buildUnifiedOccupancySet();
+      occupied.delete(axialKey(truck.hex));
+
+      const availableFuel = this.resolveFuelBudget(truck, truckDefinition);
+
       const hasCargo = (): boolean =>
         truckState.ammoCargo > 0 || truckState.fuelCargo > 0;
 
@@ -2858,140 +2874,49 @@ private automateSupplyConvoys(
           ? Math.max(0, (entry.definition.fuel ?? 0) - unitState.fuel)
           : 0;
 
-        if (entry.ammoNeed <= 0 && entry.fuelNeed <= 0) {
-          entry.status = "resupplied";
-          return null;
+        return entry.ammoNeed > 0 || entry.fuelNeed > 0 ? entry : null;
+      };
+
+      const getDemandPriority = (entry: SupplyDemandEntry): number => {
+        const raw =
+          (entry as unknown as { priority?: unknown; supplyPriority?: unknown })
+            .priority ??
+          (entry as unknown as { priority?: unknown; supplyPriority?: unknown })
+            .supplyPriority ??
+          (
+            entry.unit as unknown as {
+              priority?: unknown;
+              supplyPriority?: unknown;
+            }
+          ).priority ??
+          (
+            entry.unit as unknown as {
+              priority?: unknown;
+              supplyPriority?: unknown;
+            }
+          ).supplyPriority ??
+          "normal";
+
+        if (typeof raw === "number" && Number.isFinite(raw)) {
+          return raw;
         }
 
-        return entry;
-      };
-
-      const demandWeight = (entry: SupplyDemandEntry): number =>
-        entry.ammoNeed + entry.fuelNeed - entry.assignmentCount * 0.25;
-
-      const nearbyDemandEntries = (
-        center: Axial,
-        preferredUnitId: string | null
-      ): SupplyDemandEntry[] => {
-        return demands
-          .map((entry) => refreshDemand(entry))
-          .filter(
-            (entry): entry is SupplyDemandEntry =>
-              !!entry &&
-              hexDistance(center, entry.unit.hex) <=
-                supplyBalance.convoy.serviceRadius
-          )
-          .sort((a, b) => {
-            const aPreferred = a.unit.unitId === preferredUnitId ? 1 : 0;
-            const bPreferred = b.unit.unitId === preferredUnitId ? 1 : 0;
-            if (aPreferred !== bPreferred) {
-              return bPreferred - aPreferred;
-            }
-
-            const weightDelta = demandWeight(b) - demandWeight(a);
-            if (weightDelta !== 0) {
-              return weightDelta;
-            }
-
-            const distanceDelta =
-              hexDistance(center, a.unit.hex) - hexDistance(center, b.unit.hex);
-            if (distanceDelta !== 0) {
-              return distanceDelta;
-            }
-
-            return a.assignmentCount - b.assignmentCount;
-          });
-      };
-
-      const deliverNearbyDemands = (
-        center: Axial,
-        preferredUnitId: string | null
-      ): void => {
-        for (const entry of nearbyDemandEntries(center, preferredUnitId)) {
-          if (!hasCargo()) {
-            break;
-          }
-
-          const unitState = this.getSupplyStateForHex(faction, entry.unit.hex);
-          if (!unitState) {
-            continue;
-          }
-
-          const delivered = this.deliverConvoyCargoToUnit(
-            faction,
-            truckState,
-            entry.unit,
-            unitState,
-            entry.definition
-          );
-
-          const updated = refreshDemand(entry);
-          if (!updated) {
-            if (truckState.assignedUnitId === entry.unit.unitId) {
-              truckState.assignedUnitId = null;
-            }
-            continue;
-          }
-
-          if (delivered) {
-            updated.status = "delivering";
-          }
+        switch (String(raw).trim().toLowerCase()) {
+          case "critical":
+            return 4;
+          case "high":
+            return 3;
+          case "normal":
+          case "medium":
+            return 2;
+          case "low":
+            return 1;
+          default:
+            return 2;
         }
       };
 
-      const atSource = this.isHexWithinSupplySourceRadius(truck.hex, faction);
-      if (atSource) {
-        this.loadSupplyTruckFromDepot(
-          faction,
-          supplyState,
-          truck,
-          truckSupplyState,
-          truckState
-        );
-      }
-
-      let assignedEntry = refreshDemand(
-        demands.find((entry) => entry.unit.unitId === truckState.assignedUnitId) ??
-          null
-      );
-      if (!assignedEntry) {
-        truckState.assignedUnitId = null;
-      }
-
-      if (hasCargo()) {
-        const nearbyNow = nearbyDemandEntries(
-          truck.hex,
-          assignedEntry?.unit.unitId ?? null
-        );
-
-        if (nearbyNow.length > 0) {
-          if (!assignedEntry) {
-            assignedEntry = nearbyNow[0];
-            truckState.assignedUnitId = assignedEntry.unit.unitId ?? null;
-          }
-
-          deliverNearbyDemands(
-            truck.hex,
-            assignedEntry?.unit.unitId ?? null
-          );
-
-          assignedEntry = refreshDemand(assignedEntry);
-          if (!hasCargo()) {
-            truckState.status = atSource ? "idle" : "returning";
-            return;
-          }
-        }
-      }
-
-      const occupied = this.buildUnifiedOccupancySet();
-      occupied.delete(axialKey(truck.hex));
-
-      const availableFuel = this.resolveFuelBudget(truck, truckDefinition);
-      const fuelBudget = Number.isFinite(availableFuel)
-        ? availableFuel
-        : undefined;
-
-      const planForEntry = (entry: SupplyDemandEntry | null) => {
+      const buildPlanForEntry = (entry: SupplyDemandEntry | null) => {
         if (!entry || !hasCargo()) {
           return null;
         }
@@ -3004,111 +2929,135 @@ private automateSupplyConvoys(
           return null;
         }
 
-        return this.findCheapestPathToAny(
+        const plan = this.findCheapestPathToAny(
           truck.hex,
           destinationOptions,
           truckDefinition.moveType,
           occupied,
-          fuelBudget
+          Number.isFinite(availableFuel) ? availableFuel : undefined
         );
+
+        if (!plan || plan.path.length <= 1) {
+          return null;
+        }
+
+        return plan;
       };
 
-      const chooseReachableTarget = (
+      const selectReachableTarget = (
         excludedUnitIds: Set<string> = new Set()
-      ): { entry: SupplyDemandEntry | null; plan: ReturnType<typeof GameEngine.prototype.findCheapestPathToAny> | null } => {
-        const candidates = demands.filter((entry) => {
-          const refreshed = refreshDemand(entry);
-          if (!refreshed) {
-            return false;
-          }
-          if (excludedUnitIds.has(refreshed.unit.unitId ?? '')) {
-            return false;
-          }
+      ) => {
+        const reachable: Array<{
+          entry: SupplyDemandEntry;
+          plan: NonNullable<ReturnType<typeof this.findCheapestPathToAny>>;
+        }> = [];
 
-          const destinationOptions = this.collectServiceHexes(
-            refreshed.unit.hex,
-            truck.hex
-          );
-          if (destinationOptions.length === 0) {
-            return false;
+        for (const demand of demands) {
+          const entry = refreshDemand(demand);
+          if (!entry || excludedUnitIds.has(entry.unit.unitId)) {
+            continue;
           }
 
-          const candidatePlan = this.findCheapestPathToAny(
-            truck.hex,
-            destinationOptions,
-            truckDefinition.moveType,
-            occupied,
-            fuelBudget
-          );
+          const plan = buildPlanForEntry(entry);
+          if (!plan) {
+            continue;
+          }
 
-          return !!candidatePlan && candidatePlan.path.length > 1;
-        });
+          reachable.push({ entry, plan });
+        }
+
+        if (reachable.length === 0) {
+          return {
+            entry: null as SupplyDemandEntry | null,
+            plan: null as ReturnType<typeof this.findCheapestPathToAny> | null
+          };
+        }
+
+        const highestPriority = Math.max(
+          ...reachable.map(({ entry }) => getDemandPriority(entry))
+        );
+
+        const topPriority = reachable.filter(
+          ({ entry }) => getDemandPriority(entry) === highestPriority
+        );
+
+        const chosenEntry =
+          this.chooseBestSupplyTarget(
+            faction,
+            truck,
+            truckState,
+            topPriority.map(({ entry }) => entry)
+          ) ?? topPriority[0].entry;
 
         const chosen =
-          this.chooseBestSupplyTarget(faction, truck, truckState, candidates) ??
-          null;
+          topPriority.find(
+            ({ entry }) => entry.unit.unitId === chosenEntry.unit.unitId
+          ) ?? topPriority[0];
 
         return {
-          entry: chosen,
-          plan: chosen ? planForEntry(chosen) : null
+          entry: chosen.entry,
+          plan: chosen.plan
         };
       };
 
-      let assignedPlan = hasCargo() ? planForEntry(assignedEntry) : null;
-      if (assignedEntry && (!assignedPlan || assignedPlan.path.length <= 1)) {
-        assignedEntry = null;
-        assignedPlan = null;
-        truckState.assignedUnitId = null;
-      }
-
-      if (!assignedEntry && hasCargo()) {
-        const selected = chooseReachableTarget();
-        assignedEntry = selected.entry;
-        assignedPlan = selected.plan;
-        truckState.assignedUnitId = assignedEntry?.unit.unitId ?? null;
-      }
-
-      if (assignedEntry) {
-        assignedEntry.assignmentCount += 1;
-      }
-
-      let activePlan: ReturnType<typeof this.findCheapestPathToAny> | null = null;
-
-      if (assignedEntry && assignedPlan && hasCargo()) {
-        truckState.status = "delivering";
-        activePlan = assignedPlan;
-      } else {
-        const destinationOptions = this.collectSourceApproachHexes(
-          faction,
-          truck.hex
-        );
-        truckState.assignedUnitId = null;
-        truckState.status = atSource ? "idle" : "returning";
-
-        activePlan = this.findCheapestPathToAny(
-          truck.hex,
-          destinationOptions,
-          truckDefinition.moveType,
-          occupied,
-          fuelBudget
-        );
-      }
-
-      if (!activePlan || activePlan.path.length <= 1) {
-        if (!atSource) {
-          truckState.status = "blocked";
+      const deliverToAssignedIfInRange = (
+        entry: SupplyDemandEntry | null
+      ): boolean => {
+        if (!entry) {
+          return false;
         }
-        return;
-      }
 
-      const advanceAlongPath = (path: Axial[]) => {
+        if (
+          hexDistance(truck.hex, entry.unit.hex) >
+          supplyBalance.convoy.serviceRadius
+        ) {
+          return false;
+        }
+
+        const assignedState = this.getSupplyStateForHex(faction, entry.unit.hex);
+        if (!assignedState) {
+          return false;
+        }
+
+        const delivered = this.deliverConvoyCargoToUnit(
+          faction,
+          truckState,
+          entry.unit,
+          assignedState,
+          entry.definition
+        );
+
+        entry.ammoNeed = Math.max(
+          0,
+          (entry.definition.ammo ?? 0) - assignedState.ammo
+        );
+        entry.fuelNeed = this.unitConsumesFuel(entry.definition)
+          ? Math.max(0, (entry.definition.fuel ?? 0) - assignedState.fuel)
+          : 0;
+
+        entry.status = delivered
+          ? entry.ammoNeed <= 0 && entry.fuelNeed <= 0
+            ? "resupplied"
+            : "delivering"
+          : entry.status;
+
+        if (entry.ammoNeed <= 0 && entry.fuelNeed <= 0) {
+          truckState.assignedUnitId = null;
+        }
+
+        return delivered;
+      };
+
+      const advanceAlongPlan = (
+        plan: NonNullable<ReturnType<typeof this.findCheapestPathToAny>>
+      ) => {
         let remainingMove = Math.max(1, truckDefinition.movement ?? 1);
         let fuelSpent = 0;
         let current = structuredClone(truck.hex);
         const traveled: Axial[] = [structuredClone(truck.hex)];
 
-        for (let index = 1; index < path.length; index += 1) {
-          const step = path[index];
+        for (let index = 1; index < plan.path.length; index += 1) {
+          const step = plan.path[index];
           const stepCost = this.resolveMoveCost(
             truckDefinition.moveType,
             this.terrainAt(step),
@@ -3123,8 +3072,8 @@ private automateSupplyConvoys(
             break;
           }
           if (
-            fuelBudget !== undefined &&
-            fuelSpent + stepFuel > fuelBudget + 1e-6
+            Number.isFinite(availableFuel) &&
+            fuelSpent + stepFuel > availableFuel + 1e-6
           ) {
             break;
           }
@@ -3136,37 +3085,120 @@ private automateSupplyConvoys(
           remainingMove -= stepCost;
           fuelSpent += stepFuel;
           traveled.push(structuredClone(step));
-
-          if (
-            hasCargo() &&
-            nearbyDemandEntries(
-              current,
-              assignedEntry?.unit.unitId ?? null
-            ).length > 0
-          ) {
-            break;
-          }
         }
 
         return { current, traveled, fuelSpent };
       };
 
-      let movement = advanceAlongPath(activePlan.path);
+      let assignedEntry = refreshDemand(
+        demands.find((entry) => entry.unit.unitId === truckState.assignedUnitId) ??
+          null
+      );
 
-      if (movement.traveled.length <= 1 && assignedEntry && hasCargo()) {
-        const fallback = chooseReachableTarget(
-          assignedEntry.unit.unitId ? new Set([assignedEntry.unit.unitId]) : new Set()
+      if (!assignedEntry) {
+        truckState.assignedUnitId = null;
+      }
+
+      let assignedPlan = buildPlanForEntry(assignedEntry);
+
+      // Blocked first: if the current assignment is not reachable, drop it now.
+      if (assignedEntry && !assignedPlan) {
+        assignedEntry = null;
+        truckState.assignedUnitId = null;
+      }
+
+      // Then priority: among reachable targets, prefer the highest priority.
+      if (hasCargo()) {
+        const bestReachable = selectReachableTarget();
+
+        if (!assignedEntry) {
+          assignedEntry = bestReachable.entry;
+          assignedPlan = bestReachable.plan;
+          truckState.assignedUnitId = assignedEntry?.unit.unitId ?? null;
+        } else if (
+          bestReachable.entry &&
+          getDemandPriority(bestReachable.entry) >
+            getDemandPriority(assignedEntry)
+        ) {
+          assignedEntry = bestReachable.entry;
+          assignedPlan = bestReachable.plan;
+          truckState.assignedUnitId = assignedEntry.unit.unitId;
+        }
+      }
+
+      if (assignedEntry) {
+        assignedEntry.assignmentCount += 1;
+      }
+
+      if (assignedEntry && deliverToAssignedIfInRange(assignedEntry)) {
+        return;
+      }
+
+      let destinationOptions: Axial[] = [];
+      let plan: ReturnType<typeof this.findCheapestPathToAny> | null = null;
+
+      if (assignedEntry && hasCargo()) {
+        destinationOptions = this.collectServiceHexes(
+          assignedEntry.unit.hex,
+          truck.hex
+        );
+        truckState.status = "delivering";
+        plan = assignedPlan;
+      } else {
+        destinationOptions = this.collectSourceApproachHexes(faction, truck.hex);
+        truckState.assignedUnitId = null;
+        truckState.status = atSource ? "idle" : "returning";
+        plan = this.findCheapestPathToAny(
+          truck.hex,
+          destinationOptions,
+          truckDefinition.moveType,
+          occupied,
+          Number.isFinite(availableFuel) ? availableFuel : undefined
+        );
+      }
+
+      if ((!plan || plan.path.length <= 1) && assignedEntry && hasCargo()) {
+        const fallback = selectReachableTarget(
+          new Set([assignedEntry.unit.unitId])
         );
 
         if (fallback.entry && fallback.plan) {
           assignedEntry = fallback.entry;
-          truckState.assignedUnitId = assignedEntry.unit.unitId ?? null;
+          plan = fallback.plan;
+          truckState.assignedUnitId = assignedEntry.unit.unitId;
           truckState.status = "delivering";
-          movement = advanceAlongPath(fallback.plan.path);
+        }
+      }
+
+      if (!plan || plan.path.length <= 1) {
+        if (!atSource && destinationOptions.length > 0) {
+          truckState.status = "blocked";
+        }
+        return;
+      }
+
+      let movement = advanceAlongPlan(
+        plan as NonNullable<ReturnType<typeof this.findCheapestPathToAny>>
+      );
+
+      // If the live board state blocks execution, immediately try another target.
+      if (movement.traveled.length <= 1 && assignedEntry && hasCargo()) {
+        const fallback = selectReachableTarget(
+          new Set([assignedEntry.unit.unitId])
+        );
+
+        if (fallback.entry && fallback.plan) {
+          assignedEntry = fallback.entry;
+          truckState.assignedUnitId = assignedEntry.unit.unitId;
+          truckState.status = "delivering";
+          movement = advanceAlongPlan(fallback.plan);
         }
       }
 
       if (movement.traveled.length <= 1) {
+        if (assignedEntry) {
+          truckState.assignedUnitId = null;
+        }
         if (!atSource) {
           truckState.status = "blocked";
         }
@@ -3184,7 +3216,7 @@ private automateSupplyConvoys(
       );
       truck.hex = structuredClone(movement.current);
 
-      if (fuelBudget !== undefined && movement.fuelSpent > 0) {
+      if (Number.isFinite(availableFuel) && movement.fuelSpent > 0) {
         truck.fuel = Math.max(
           0,
           Number((truck.fuel - movement.fuelSpent).toFixed(2))
@@ -3211,20 +3243,8 @@ private automateSupplyConvoys(
         );
       }
 
-      deliverNearbyDemands(
-        truck.hex,
-        assignedEntry?.unit.unitId ?? null
-      );
-
-      assignedEntry = refreshDemand(assignedEntry);
-      if (!assignedEntry) {
-        truckState.assignedUnitId = null;
-      }
-
-      if (!hasCargo()) {
-        truckState.status = this.isHexWithinSupplySourceRadius(truck.hex, faction)
-          ? "idle"
-          : "returning";
+      if (assignedEntry) {
+        deliverToAssignedIfInRange(assignedEntry);
       }
     });
 }
