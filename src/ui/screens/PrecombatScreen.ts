@@ -650,12 +650,7 @@ export class PrecombatScreen {
     const composition = Object.prototype.hasOwnProperty.call(unitComposition, option.key)
       ? unitComposition[option.key as keyof typeof unitComposition]
       : null;
-    const compositionSummary = composition
-      ? [
-          `${composition.personnel.toLocaleString()} personnel`,
-          composition.vehicles > 0 ? `${composition.vehicles} vehicles` : null
-        ].filter((value): value is string => value !== null)
-      : [];
+    const compositionSummary: string[] = [];
     const equipmentSummary = composition?.equipmentSummary.slice(0, 2) ?? [];
     const baselineBadge = lockedBaseline > 0
       ? `<span class="allocation-lock" aria-label="Scenario provides ${lockedBaseline} ${option.label} unit${lockedBaseline === 1 ? "" : "s"}.">Scenario asset ×${lockedBaseline}</span>`
