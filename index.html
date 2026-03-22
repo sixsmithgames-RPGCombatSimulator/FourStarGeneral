@@ -104,7 +104,7 @@
       --accent-strong: #f5c46d;
       --link-blue: #8ab4ff;
       --panel-glass: rgba(10, 14, 22, 0.92);
-      --sidebar-width: 84px;
+      --sidebar-width: 96px;
       --activity-log-width: 280px;
       --deployment-panel-width: 248px;
       --toggle-radius: 1.25rem;
@@ -1916,20 +1916,18 @@
       width: 100%;
       aspect-ratio: 1 / 1;
       border: 1px solid transparent;
-      border-radius: 18px;
+      border-radius: 22px;
       background: var(--surface-muted);
       color: var(--text-primary);
       display: grid;
-      align-content: center;
-      justify-items: center;
-      gap: 0.35rem;
-      padding: 0.4rem;
+      place-items: center;
+      padding: 0.55rem;
       cursor: pointer;
       transition: transform 0.18s ease, border 0.18s ease, box-shadow 0.18s ease;
     }
     .sidebar-button__icon {
-      width: 1.5rem;
-      height: 1.5rem;
+      width: 3rem;
+      height: 3rem;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -1939,14 +1937,9 @@
       height: 100%;
       display: block;
       object-fit: contain;
+      object-position: center;
       filter: drop-shadow(0 2px 8px rgba(10, 14, 22, 0.28));
       transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
-    }
-    .sidebar-button .label {
-      font-size: 0.65rem;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      line-height: 1;
     }
     .sidebar-button:hover,
     .sidebar-button:focus-visible {
@@ -3639,7 +3632,7 @@
         padding: 2rem 1.75rem;
       }
       .control-sidebar {
-        width: 64px;
+        width: 72px;
       }
       .map-toolbar {
         flex-direction: column;
@@ -3669,7 +3662,7 @@
       .control-sidebar {
         flex-direction: row;
         width: 100%;
-        height: 80px;
+        height: 88px;
         border-right: none;
         border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         justify-content: center;
@@ -4696,41 +4689,71 @@
     <div id="battleScreen" class="screen battle-ui hidden" aria-labelledby="battleScreenHeading">
       <!-- Control Sidebar -->
       <nav class="control-sidebar">
-        <button type="button" class="sidebar-button" data-popup="baseOperations" title="Headquarters overview">
+        <button
+          type="button"
+          class="sidebar-button"
+          data-popup="baseOperations"
+          title="Headquarters overview"
+          aria-label="Headquarters overview"
+        >
           <span class="sidebar-button__icon" aria-hidden="true">
             <img src="/src/assets/Interface/Ops_Icon.png" alt="" draggable="false">
           </span>
-          <span class="label">HQ</span>
         </button>
-        <button type="button" class="sidebar-button" data-popup="generalProfile" title="Commander Profile">
+        <button
+          type="button"
+          class="sidebar-button"
+          data-popup="generalProfile"
+          title="Commander profile"
+          aria-label="Commander profile"
+        >
           <span class="sidebar-button__icon" aria-hidden="true">
             <img src="/src/assets/Interface/General_Icon.png" alt="" draggable="false">
           </span>
-          <span class="label">General</span>
         </button>
-        <button type="button" class="sidebar-button" data-popup="recon">
+        <button
+          type="button"
+          class="sidebar-button"
+          data-popup="recon"
+          title="Reconnaissance"
+          aria-label="Reconnaissance"
+        >
           <span class="sidebar-button__icon" aria-hidden="true">
             <img src="/src/assets/Interface/Recon_Icon.png" alt="" draggable="false">
           </span>
-          <span class="label">Recon</span>
         </button>
-        <button type="button" class="sidebar-button" data-popup="intelligence">
+        <button
+          type="button"
+          class="sidebar-button"
+          data-popup="intelligence"
+          title="Intelligence"
+          aria-label="Intelligence"
+        >
           <span class="sidebar-button__icon" aria-hidden="true">
             <img src="/src/assets/Interface/Intel_Icon.png" alt="" draggable="false">
           </span>
-          <span class="label">Intel</span>
         </button>
-        <button type="button" class="sidebar-button" data-popup="logistics">
+        <button
+          type="button"
+          class="sidebar-button"
+          data-popup="logistics"
+          title="Logistics"
+          aria-label="Logistics"
+        >
           <span class="sidebar-button__icon" aria-hidden="true">
             <img src="/src/assets/Interface/Logistics_Icon.png" alt="" draggable="false">
           </span>
-          <span class="label">Logistics</span>
         </button>
-        <button type="button" class="sidebar-button" data-popup="armyRoster">
+        <button
+          type="button"
+          class="sidebar-button"
+          data-popup="armyRoster"
+          title="Army roster"
+          aria-label="Army roster"
+        >
           <span class="sidebar-button__icon" aria-hidden="true">
             <img src="/src/assets/Interface/Roster_Icon.png" alt="" draggable="false">
           </span>
-          <span class="label">Roster</span>
         </button>
       </nav>
 
