@@ -159,14 +159,36 @@ export interface ScenarioData {
   allowedUnits?: string[];
 }
 
-export type UnitClass =
-  | "infantry"
-  | "specialist"
-  | "vehicle"
-  | "tank"
-  | "artillery"
-  | "air"
-  | "recon";
+/**
+ * Broad unit class used by non-combat systems such as supply priority, rendering, and scenario validation.
+ * This remains intentionally coarse so the rest of the game can keep using stable top-level categories.
+ */
+export const UNIT_CLASS_VALUES = ["infantry", "specialist", "vehicle", "tank", "artillery", "air", "recon"] as const;
+export type UnitClass = typeof UNIT_CLASS_VALUES[number];
+
+/**
+ * Combat classification splits battlefield tuning away from the broad unit class above.
+ * The combat system can now distinguish, for example, light recon bikes from medium armored-car scouts
+ * without forcing every other subsystem to understand that extra detail.
+ */
+export type CombatCategory = UnitClass;
+export const COMBAT_WEIGHT_VALUES = ["light", "medium", "heavy"] as const;
+export type CombatWeightClass = typeof COMBAT_WEIGHT_VALUES[number];
+export const COMBAT_ROLE_VALUES = ["normal", "antiTank", "antiVehicle", "antiInfantry", "support"] as const;
+export type CombatRole = typeof COMBAT_ROLE_VALUES[number];
+export const COMBAT_SIGNATURE_VALUES = ["tiny", "small", "medium", "large"] as const;
+export type CombatSignature = typeof COMBAT_SIGNATURE_VALUES[number];
+
+/**
+ * Fine-grained combat metadata consumed only by combat tuning and previews.
+ * Keeping these values together avoids spreading loosely-related tuning fields across the unit definition.
+ */
+export interface CombatClassification {
+  category: CombatCategory;
+  weight: CombatWeightClass;
+  role: CombatRole;
+  signature: CombatSignature;
+}
 
 // Roles describe the high-level responsibilities an airframe can perform in the sortie planner.
 export type AirSupportRole = "strike" | "escort" | "cap" | "transport" | "recon";
@@ -201,6 +223,11 @@ export interface ArmorProfile {
 
 export interface UnitTypeDefinition {
   class: UnitClass;
+  /**
+   * Combat-only tuning identity. This is more specific than `class` so balance tables can distinguish
+   * light/medium/heavy and role-specialized formations without destabilizing non-combat systems.
+   */
+  combat: CombatClassification;
   movement: number;
   moveType: MoveType;
   vision: number;

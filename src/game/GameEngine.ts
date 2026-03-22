@@ -3975,13 +3975,16 @@ export class GameEngine implements GameEngineAPI {
   }
 
   consumeSupportImpactEvents(): SupportImpactEvent[] {
+    console.log("[GameEngine] consumeSupportImpactEvents called, pending events:", this.pendingSupportImpactEvents.length);
     if (this.pendingSupportImpactEvents.length === 0) {
+      console.log("[GameEngine] No pending support impact events to consume");
       return [];
     }
     const copy = this.pendingSupportImpactEvents.map((event) => ({
       ...event,
       targetHex: structuredClone(event.targetHex)
     }));
+    console.log("[GameEngine] Returning", copy.length, "support impact events:", copy);
     this.pendingSupportImpactEvents.length = 0;
     return copy;
   }
@@ -4240,6 +4243,11 @@ export class GameEngine implements GameEngineAPI {
   }
 
   private resolveQueuedSupportActions(): void {
+    console.log("[GameEngine] resolveQueuedSupportActions called");
+    const queuedAssets = Array.from(this.privateSupportAssets.values()).filter(
+      (a) => a.status === "queued" && a.queuedHex
+    );
+    console.log("[GameEngine] Found", queuedAssets.length, "queued support assets:", queuedAssets);
     let mutated = false;
     this.privateSupportAssets.forEach((asset) => {
       if (asset.status !== "queued" || !asset.queuedHex) {
@@ -4248,6 +4256,7 @@ export class GameEngine implements GameEngineAPI {
       const targetKey = asset.queuedHex;
       const targetHex = GameEngine.parseAxialKey(targetKey);
       const defender = this.botPlacements.get(targetKey) ?? null;
+      console.log("[GameEngine] Resolving queued asset", asset.id, asset.label, "targeting", targetKey, "defender:", defender);
       let damage = 0;
       let destroyed = false;
       let targetUnitType: ScenarioUnit["type"] | undefined;
@@ -4267,6 +4276,7 @@ export class GameEngine implements GameEngineAPI {
         }
         mutated = true;
       }
+      console.log("[GameEngine] Creating support impact event - hit:", defender !== null, "damage:", damage, "destroyed:", destroyed);
       this.pendingSupportImpactEvents.push({
         assetId: asset.id,
         label: asset.label,

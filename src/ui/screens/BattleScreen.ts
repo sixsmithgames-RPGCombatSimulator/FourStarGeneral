@@ -807,8 +807,11 @@ export class BattleScreen {
   }
 
   private async triggerSupportImpacts(): Promise<void> {
+    console.log("[BattleScreen] triggerSupportImpacts called");
     const impacts = this.battleState.ensureGameEngine().consumeSupportImpactEvents();
+    console.log("[BattleScreen] consumeSupportImpactEvents returned", impacts.length, "impact(s):", impacts);
     if (impacts.length === 0) {
+      console.log("[BattleScreen] No support impacts to trigger, returning early");
       return;
     }
     await this.playSupportImpacts(impacts);

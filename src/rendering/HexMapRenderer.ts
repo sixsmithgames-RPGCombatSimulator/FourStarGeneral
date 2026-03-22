@@ -1131,13 +1131,24 @@ export class HexMapRenderer implements IMapRenderer {
 
     const suppressorCount = unit.suppressedBy?.length ?? 0;
     const suppressionState = suppressorCount >= 2 ? "pinned" : suppressorCount === 1 ? "suppressed" : "clear";
+
+    if (suppressorCount > 0 || entrenchment > 0) {
+      console.log("[HexMapRenderer] renderUnitDecorations - unit type:", unit.type,
+        "suppressedBy:", unit.suppressedBy, "suppressorCount:", suppressorCount,
+        "suppressionState:", suppressionState, "entrenchment:", entrenchment);
+    }
+
     group.classList.remove("unit-stack--suppressed", "unit-stack--pinned");
     group.dataset.suppressionState = suppressionState;
     group.dataset.entrenchLevel = String(entrenchment);
 
     if (suppressionState === "suppressed" || suppressionState === "pinned") {
+      console.log("[HexMapRenderer] Creating suppression badge for", unit.type, "state:", suppressionState);
       group.classList.add(suppressionState === "pinned" ? "unit-stack--pinned" : "unit-stack--suppressed");
-      decorations.appendChild(this.renderSuppressionBadge(cx, cy, suppressionState, suppressorCount));
+      const badge = this.renderSuppressionBadge(cx, cy, suppressionState, suppressorCount);
+      decorations.appendChild(badge);
+      console.log("[HexMapRenderer] Suppression badge appended, decorations children:", decorations.children.length,
+        "badge isConnected:", badge.isConnected);
     }
   }
 
