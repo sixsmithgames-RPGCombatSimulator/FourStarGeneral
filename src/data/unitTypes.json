@@ -1,7 +1,7 @@
 {
   "Infantry_42": {
     "class": "infantry",
-    "movement": 1,
+    "movement": 1.5,
     "moveType": "leg",
     "vision": 2,
     "ammo": 6,
@@ -10,7 +10,7 @@
     "rangeMax": 1,
     "initiative": 2,
     "armor": { "front": 1, "side": 1, "top": 1 },
-    "hardAttack": 0,
+    "hardAttack": 1,
     "softAttack": 25,
     "ap": 0,
     "accuracyBase": 60,
@@ -37,7 +37,7 @@
   },
   "Paratrooper": {
     "class": "infantry",
-    "movement": 1,
+    "movement": 1.5,
     "moveType": "leg",
     "vision": 3,
     "ammo": 6,
@@ -55,7 +55,7 @@
   },
   "Engineer": {
     "class": "specialist",
-    "movement": 1,
+    "movement": 2,
     "moveType": "leg",
     "vision": 2,
     "ammo": 5,
@@ -73,9 +73,9 @@
   },
   "Combat_Engineer": {
     "class": "specialist",
-    "movement": 1,
+    "movement": 2,
     "moveType": "leg",
-    "vision": 2,
+    "vision": 3,
     "ammo": 6,
     "fuel": 0,
     "rangeMin": 1,
@@ -92,7 +92,7 @@
   },
   "AT_Gun_50mm": {
     "class": "specialist",
-    "movement": 1,
+    "movement": 2,
     "moveType": "wheel",
     "vision": 2,
     "ammo": 5,
@@ -111,7 +111,7 @@
   },
   "Flak_88": {
     "class": "specialist",
-    "movement": 1,
+    "movement": 2,
     "moveType": "wheel",
     "vision": 3,
     "ammo": 6,
@@ -129,7 +129,7 @@
   },
   "Recon_Bike": {
     "class": "recon",
-    "movement": 3,
+    "movement": 4,
     "moveType": "wheel",
     "vision": 4,
     "ammo": 5,
@@ -147,7 +147,7 @@
   },
   "Recon_ArmoredCar": {
     "class": "recon",
-    "movement": 1,
+    "movement": 3,
     "moveType": "wheel",
     "vision": 5,
     "ammo": 6,
@@ -165,7 +165,7 @@
   },
   "Scout_Plane": {
     "class": "recon",
-    "movement": 3,
+    "movement": 12,
     "moveType": "air",
     "vision": 6,
     "ammo": 2,
@@ -189,7 +189,7 @@
   },
   "APC_Truck": {
     "class": "vehicle",
-    "movement": 1,
+    "movement": 2,
     "moveType": "wheel",
     "vision": 2,
     "ammo": 0,
@@ -227,7 +227,7 @@
   },
   "Supply_Truck": {
     "class": "vehicle",
-    "movement": 1,
+    "movement": 2,
     "moveType": "wheel",
     "vision": 2,
     "ammo": 0,
@@ -263,7 +263,7 @@
   },
   "Heavy_Tank": {
     "class": "tank",
-    "movement": 1,
+    "movement": 3,
     "moveType": "track",
     "vision": 3,
     "ammo": 6,
@@ -281,7 +281,7 @@
   },
   "Light_Tank": {
     "class": "tank",
-    "movement": 3,
+    "movement": 4,
     "moveType": "track",
     "vision": 4,
     "ammo": 6,
@@ -299,7 +299,7 @@
   },
   "Assault_Gun": {
     "class": "tank",
-    "movement": 1,
+    "movement": 4,
     "moveType": "track",
     "vision": 3,
     "ammo": 6,
@@ -336,7 +336,7 @@
   },
   "Howitzer_105": {
     "class": "artillery",
-    "movement": 1,
+    "movement": 2,
     "moveType": "wheel",
     "vision": 2,
     "ammo": 6,
@@ -354,7 +354,7 @@
   },
   "Rocket_Artillery": {
     "class": "artillery",
-    "movement": 1,
+    "movement": 3,
     "moveType": "track",
     "vision": 2,
     "ammo": 5,
@@ -372,7 +372,7 @@
   },
   "SP_Artillery": {
     "class": "artillery",
-    "movement": 1,
+    "movement": 3,
     "moveType": "track",
     "vision": 3,
     "ammo": 6,
@@ -390,7 +390,7 @@
   },
   "Fighter": {
     "class": "air",
-    "movement": 5,
+    "movement": 10,
     "moveType": "air",
     "vision": 4,
     "ammo": 6,
@@ -414,7 +414,7 @@
   },
   "Interceptor": {
     "class": "air",
-    "movement": 5,
+    "movement": 12,
     "moveType": "air",
     "vision": 5,
     "ammo": 7,
@@ -438,7 +438,7 @@
   },
   "Ground_Attack": {
     "class": "air",
-    "movement": 1,
+    "movement": 8,
     "moveType": "air",
     "vision": 4,
     "ammo": 5,
@@ -462,7 +462,7 @@
   },
   "Bomber": {
     "class": "air",
-    "movement": 1,
+    "movement": 6,
     "moveType": "air",
     "vision": 4,
     "ammo": 4,
@@ -487,7 +487,7 @@
   },
   "Transport_Plane": {
     "class": "air",
-    "movement": 1,
+    "movement": 8,
     "moveType": "air",
     "vision": 3,
     "ammo": 0,

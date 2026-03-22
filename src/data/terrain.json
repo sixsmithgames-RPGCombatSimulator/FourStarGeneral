@@ -24,7 +24,7 @@
     "blocksLOS": true
   },
   "city": {
-    "moveCost": { "leg": 1, "wheel": 1, "track": 2, "air": 1 },
+    "moveCost": { "leg": 1, "wheel": 0.5, "track": 1, "air": 1 },
     "defense": 5,
     "accMod": -40,
     "blocksLOS": true
