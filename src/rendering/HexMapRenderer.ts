@@ -2721,6 +2721,12 @@ export class HexMapRenderer implements IMapRenderer {
     // without requiring the renderer to know each sheet's pixel geometry.
     const finalX = center.cx + offsetX;
     const finalY = center.cy + offsetY;
+    
+    // Log transform information for debugging camera drift
+    const svgElement = this.svgElement;
+    const currentTransform = svgElement ? svgElement.getAttribute('transform') || 'none' : 'no-svg';
+    console.log(`[HexMapRenderer] TRANSFORM DEBUG - intended centered transform: (${finalX}, ${finalY}), actual current SVG transform: ${currentTransform}`);
+    
     console.log(`[HexMapRenderer] Calling combatAnimator.playAnimation at (${finalX}, ${finalY})`);
     await this.combatAnimator.playAnimation(animationType, finalX, finalY, scale);
     console.log(`[HexMapRenderer] playCombatAnimation COMPLETE - type: ${animationType}, hex: ${hexKey}`);

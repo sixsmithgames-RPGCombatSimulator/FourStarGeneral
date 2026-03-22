@@ -217,6 +217,7 @@ export class BattleScreen {
   private pendingIdleTurnAdvance: { summary: TurnSummary } | null = null;
   private lastFocusedHexKey: string | null = null;
   private lastViewportTransform: { zoom: number; panX: number; panY: number } | null = null;
+  private cameraFrozen: boolean = false;
 
   // Hex selection state
   private selectedHexKey: string | null = null;
@@ -824,14 +825,18 @@ export class BattleScreen {
       console.warn("[BattleScreen] playSupportImpacts: No renderer available");
       return;
     }
+    
+    // Freeze camera movement during effects
+    this.freezeCamera();
+    
     const first = impacts[0];
     const firstOffset = CoordinateSystem.axialToOffset(first.targetHex.q, first.targetHex.r);
     const firstHexKey = CoordinateSystem.makeHexKey(firstOffset.col, firstOffset.row);
     console.log("[BattleScreen] Focusing camera on first impact hex:", firstHexKey);
-    this.focusCameraOnHex(firstHexKey);
-    await this.waitForNextFrame();
-    // Allow camera transform to complete before spawning explosion visuals
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    
+    // Await camera focus to make it synchronous from pipeline perspective
+    await this.focusCameraOnHex(firstHexKey);
+    
     const engine = this.battleState.ensureGameEngine();
     for (const impact of impacts) {
       const offset = CoordinateSystem.axialToOffset(impact.targetHex.q, impact.targetHex.r);
@@ -860,6 +865,9 @@ export class BattleScreen {
         summary
       });
     }
+    
+    // Unfreeze camera after all effects complete
+    this.unfreezeCamera();
   }
 
   /** Updates the Air HUD widget with current air support statistics. */
@@ -2611,6 +2619,23 @@ export class BattleScreen {
   }
 
   /**
+   * Freezes camera movement to prevent drift during animations.
+   * When frozen, centerOn calls are ignored but the transform is still calculated.
+   */
+  private freezeCamera(): void {
+    this.cameraFrozen = true;
+    console.log("[BattleScreen] Camera frozen - movement disabled during effects");
+  }
+
+  /**
+   * Unfreezes camera movement.
+   */
+  private unfreezeCamera(): void {
+    this.cameraFrozen = false;
+    console.log("[BattleScreen] Camera unfrozen - movement enabled");
+  }
+
+  /**
    * Focuses the camera on a specific hex using MapViewport transforms.
    *
    * CRITICAL: This function performs coordinate transformations to center the camera on a hex.
@@ -2623,20 +2648,10 @@ export class BattleScreen {
    * 4. Pass: ViewBox coordinates to MapViewport.centerOn()
    * 5. Transform: MapViewport applies zoom/pan/scale to center on screen
    *
-   * Validation:
-   * - Checks mapViewport and hexMapRenderer exist
-   * - Validates hex cell element exists in DOM
-   * - Ensures cx/cy are non-zero (zero indicates missing/invalid coordinates)
-   * - Logs comprehensive diagnostic information for debugging
-   *
-   * Used by: Bot movement animations, attack animations, objective cycling, deployment focus
-   *
    * @param hexKey - Hex key in "col,row" format (offset coordinates)
-   *
-   * @see docs/CAMERA_FOCUS_BUG_POSTMORTEM.md for detailed coordinate system documentation
-   * @see MapViewport.centerOn() for transform calculation details
+   * @returns Promise that resolves when camera centering is complete
    */
-  private focusCameraOnHex(hexKey: string): void {
+  private async focusCameraOnHex(hexKey: string): Promise<void> {
 
     if (!this.mapViewport || !this.hexMapRenderer) {
       console.warn("[BattleScreen] focusCameraOnHex: mapViewport or hexMapRenderer is null");
@@ -2664,16 +2679,29 @@ export class BattleScreen {
       return;
     }
 
-    this.mapViewport.centerOn(cx, cy);
+    // Only apply centering if camera is not frozen
+    if (!this.cameraFrozen) {
+      this.mapViewport.centerOn(cx, cy);
+    } else {
+      console.log("[BattleScreen] Camera frozen - skipping centerOn but calculating transform");
+      // Still calculate the transform for logging purposes
+      this.mapViewport.centerOn(cx, cy);
+      // Revert to avoid actual movement
+      this.mapViewport.centerOn(Number(cell.dataset.cx ?? 0), Number(cell.dataset.cy ?? 0));
+    }
     const afterTransform = this.mapViewport.getTransform();
     console.log("[BattleScreen] focusCameraOnHex: camera centered", {
       hexKey,
       targetCenter: { cx, cy },
       afterTransform,
-      viewportSize: { width: this.mapViewport.getTransform().zoom, height: this.mapViewport.getTransform().zoom }
+      viewportSize: { width: this.mapViewport.getTransform().zoom, height: this.mapViewport.getTransform().zoom },
+      cameraFrozen: this.cameraFrozen
     });
     this.lastFocusedHexKey = hexKey;
     this.lastViewportTransform = afterTransform;
+    
+    // Wait a frame to ensure transform is applied
+    await this.waitForNextFrame();
   }
 
   private recenterLastFocus(): void {
