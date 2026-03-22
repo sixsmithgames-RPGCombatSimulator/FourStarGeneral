@@ -5754,7 +5754,7 @@ private automateSupplyConvoys(
       }
       if (features.includes("shallow")) {
         if (moveType === "leg") {
-          return 3; // Infantry can cross shallow water at normal speed
+          return 2; // Infantry can cross shallow water at normal speed
         } else if (moveType === "track") {
           return 3;
         } else if (moveType === "wheel") {

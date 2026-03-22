@@ -830,6 +830,8 @@ export class BattleScreen {
     console.log("[BattleScreen] Focusing camera on first impact hex:", firstHexKey);
     this.focusCameraOnHex(firstHexKey);
     await this.waitForNextFrame();
+    // Allow camera transform to complete before spawning explosion visuals
+    await new Promise((resolve) => setTimeout(resolve, 300));
     const engine = this.battleState.ensureGameEngine();
     for (const impact of impacts) {
       const offset = CoordinateSystem.axialToOffset(impact.targetHex.q, impact.targetHex.r);
@@ -2643,12 +2645,19 @@ export class BattleScreen {
 
     const cell = this.hexMapRenderer.getHexElement(hexKey);
     if (!cell) {
-      console.warn("[BattleScreen] focusCameraOnHex: cell not found for hexKey:", hexKey);
+      console.error("[BattleScreen] focusCameraOnHex: HEX ELEMENT NOT FOUND for key:", hexKey);
+      console.error("[BattleScreen] This hex doesn't exist in the rendered map. Check if the target is within map bounds.");
       return;
     }
 
     const cx = Number(cell.dataset.cx ?? 0);
     const cy = Number(cell.dataset.cy ?? 0);
+
+    console.log("[BattleScreen] focusCameraOnHex:", {
+      hexKey,
+      hexCenter: { cx, cy },
+      beforeTransform: this.mapViewport.getTransform()
+    });
 
     if (cx === 0 && cy === 0) {
       console.warn("[BattleScreen] focusCameraOnHex: invalid coordinates for hex", hexKey);
@@ -2656,8 +2665,15 @@ export class BattleScreen {
     }
 
     this.mapViewport.centerOn(cx, cy);
+    const afterTransform = this.mapViewport.getTransform();
+    console.log("[BattleScreen] focusCameraOnHex: camera centered", {
+      hexKey,
+      targetCenter: { cx, cy },
+      afterTransform,
+      viewportSize: { width: this.mapViewport.getWidth?.(), height: this.mapViewport.getHeight?.() }
+    });
     this.lastFocusedHexKey = hexKey;
-    this.lastViewportTransform = this.mapViewport.getTransform();
+    this.lastViewportTransform = afterTransform;
   }
 
   private recenterLastFocus(): void {
