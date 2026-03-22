@@ -5133,9 +5133,9 @@ export class BattleScreen {
       });
 
       const accuracy = Math.round(preview.result.accuracy);
-      const expectedDamage = preview.result.expectedDamage.toFixed(1);
+      const expectedDamage = preview.finalExpectedDamage.toFixed(1);
       const expectedHits = preview.result.expectedHits.toFixed(1);
-      const damagePerHit = preview.result.damagePerHit.toFixed(2);
+      const damagePerHit = preview.finalDamagePerHit.toFixed(2);
       const shots = preview.result.shots;
       const effectiveAP = Math.round(preview.result.effectiveAP);
       const facingArmor = Math.round(preview.result.facingArmor);
