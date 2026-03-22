@@ -2670,7 +2670,7 @@ export class BattleScreen {
       hexKey,
       targetCenter: { cx, cy },
       afterTransform,
-      viewportSize: { width: this.mapViewport.getWidth?.(), height: this.mapViewport.getHeight?.() }
+      viewportSize: { width: this.mapViewport.getTransform().zoom, height: this.mapViewport.getTransform().zoom }
     });
     this.lastFocusedHexKey = hexKey;
     this.lastViewportTransform = afterTransform;

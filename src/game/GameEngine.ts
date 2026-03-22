@@ -2949,12 +2949,12 @@ private automateSupplyConvoys(
       ) => {
         const reachable: Array<{
           entry: SupplyDemandEntry;
-          plan: NonNullable<ReturnType<typeof this.findCheapestPathToAny>>;
+          plan: NonNullable<ReturnType<typeof GameEngine.prototype.findCheapestPathToAny>>;
         }> = [];
 
         for (const demand of demands) {
           const entry = refreshDemand(demand);
-          if (!entry || excludedUnitIds.has(entry.unit.unitId)) {
+          if (!entry || excludedUnitIds.has(entry.unit.unitId ?? '')) {
             continue;
           }
 
@@ -3122,7 +3122,7 @@ private automateSupplyConvoys(
         ) {
           assignedEntry = bestReachable.entry;
           assignedPlan = bestReachable.plan;
-          truckState.assignedUnitId = assignedEntry.unit.unitId;
+          truckState.assignedUnitId = assignedEntry.unit.unitId ?? null;
         }
       }
 
@@ -3159,13 +3159,13 @@ private automateSupplyConvoys(
 
       if ((!plan || plan.path.length <= 1) && assignedEntry && hasCargo()) {
         const fallback = selectReachableTarget(
-          new Set([assignedEntry.unit.unitId])
+          assignedEntry.unit.unitId ? new Set([assignedEntry.unit.unitId]) : new Set()
         );
 
         if (fallback.entry && fallback.plan) {
           assignedEntry = fallback.entry;
           plan = fallback.plan;
-          truckState.assignedUnitId = assignedEntry.unit.unitId;
+          truckState.assignedUnitId = assignedEntry.unit.unitId ?? null;
           truckState.status = "delivering";
         }
       }
@@ -3184,12 +3184,12 @@ private automateSupplyConvoys(
       // If the live board state blocks execution, immediately try another target.
       if (movement.traveled.length <= 1 && assignedEntry && hasCargo()) {
         const fallback = selectReachableTarget(
-          new Set([assignedEntry.unit.unitId])
+          assignedEntry.unit.unitId ? new Set([assignedEntry.unit.unitId]) : new Set()
         );
 
         if (fallback.entry && fallback.plan) {
           assignedEntry = fallback.entry;
-          truckState.assignedUnitId = assignedEntry.unit.unitId;
+          truckState.assignedUnitId = assignedEntry.unit.unitId ?? null;
           truckState.status = "delivering";
           movement = advanceAlongPlan(fallback.plan);
         }
