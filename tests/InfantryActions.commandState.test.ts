@@ -298,6 +298,53 @@ registerTest("RECON_BIKES_CAN_ASSAULT_BUT_CANNOT_DIG_IN", async ({ Then }) => {
   await Then("recon bikes can launch assault fire without regaining dig-in rights", () => {});
 });
 
+registerTest("UNIT_FACING_UPDATES_AFTER_MOVEMENT_AND_ATTACK", async ({ Then }) => {
+  const infantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "N" as ScenarioUnit["facing"]
+  };
+  const enemyInfantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 2, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "N" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([infantry], [enemyInfantry]);
+
+  engine.moveUnit({ q: 0, r: 0 }, { q: 1, r: 0 });
+  const movedUnit = engine.getPlayerPlacementsSnapshot().find((unit) => unit.hex.q === 1 && unit.hex.r === 0);
+  if (!movedUnit || movedUnit.facing !== "SE") {
+    throw new Error(`Expected moved infantry to face its movement direction, received ${JSON.stringify(movedUnit)}`);
+  }
+
+  const result = engine.attackUnit({ q: 1, r: 0 }, { q: 2, r: 0 }, "suppressive");
+  if (!result) {
+    throw new Error("Expected follow-on attack to resolve after movement.");
+  }
+
+  const attackerAfter = engine.getPlayerPlacementsSnapshot().find((unit) => unit.hex.q === 1 && unit.hex.r === 0);
+  const defenderAfter = engine.botUnits.find((unit) => unit.hex.q === 2 && unit.hex.r === 0);
+  if (!attackerAfter || attackerAfter.facing !== "SE") {
+    throw new Error(`Expected attacker to face the unit it attacked, received ${JSON.stringify(attackerAfter)}`);
+  }
+  if (defenderAfter && defenderAfter.facing !== "NW") {
+    throw new Error(`Expected defender to turn toward the attacker, received ${JSON.stringify(defenderAfter)}`);
+  }
+
+  await Then("movement and combat both persist facing updates onto the units", () => {});
+});
+
 registerTest("DIG_IN_ENTRENCHMENT_PERSISTS_THROUGH_TURN_CYCLE", async ({ Then }) => {
   const infantry: ScenarioUnit = {
     type: "TestInfantry" as unknown as ScenarioUnit["type"],

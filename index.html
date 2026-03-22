@@ -441,6 +441,30 @@
       display: grid;
       gap: 0.35rem;
     }
+    .allocation-copy__description {
+      margin: 0;
+      color: var(--text-muted);
+      line-height: 1.45;
+      font-size: 0.9rem;
+    }
+    .allocation-copy__details,
+    .allocation-copy__equipment {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .allocation-copy__details span,
+    .allocation-copy__equipment span {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.18rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+      color: rgba(248, 249, 251, 0.78);
+      font-size: 0.74rem;
+      line-height: 1.35;
+    }
     .allocation-title-row {
       display: flex;
       justify-content: space-between;
@@ -456,10 +480,10 @@
     }
     .allocation-meta {
       display: flex;
-      flex-direction: column;
       align-items: center;
-      gap: 0.35rem;
-      text-align: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      text-align: left;
     }
     .allocation-cost {
       font-weight: 600;
@@ -1077,8 +1101,8 @@
     }
     .precombat-layout {
       display: grid;
-      grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-      gap: 1.75rem;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(320px, 0.92fr);
+      gap: 1.25rem;
       align-items: start;
     }
     .predeployed-panel {
@@ -1171,10 +1195,16 @@
       gap: 1.5rem;
       align-content: start;
     }
+    .map-card {
+      grid-column: 3;
+      display: grid;
+      gap: 1rem;
+      align-content: start;
+    }
     .map-card .map-preview {
       width: 100%;
-      aspect-ratio: 4 / 3;
-      min-height: clamp(280px, 34vh, 420px);
+      aspect-ratio: 1 / 1;
+      min-height: clamp(220px, 28vh, 340px);
       max-height: none;
       border-radius: 16px;
       overflow: hidden;
@@ -1601,27 +1631,26 @@
       line-height: 1.6;
     }
     .allocation-panel {
-      grid-column: 1 / -1;
+      grid-column: 1 / span 2;
     }
     .allocation-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: var(--allocation-gap);
       grid-template-areas:
-        "units supplies"
-        "units support"
-        "units logistics";
+        "units logistics"
+        "supplies support";
       align-items: start;
     }
     .allocation-section {
       display: flex;
       flex-direction: column;
-      gap: 1.25rem;
+      gap: 0.85rem;
       background: var(--allocation-bg);
       border-radius: 20px;
       border: 1px solid var(--allocation-border);
-      padding: 1.5rem;
-      height: 420px;
+      padding: 1rem;
+      height: 360px;
     }
     .allocation-section--units {
       grid-area: units;
@@ -1635,130 +1664,17 @@
     .allocation-section--logistics {
       grid-area: logistics;
     }
-    .allocation-section header h3 {
-      margin: 0;
-      font-size: 1.1rem;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-    .allocation-section header p {
-      margin: 0.4rem 0 0;
-      color: var(--text-muted);
-      line-height: 1.6;
-    }
-    .allocation-section header {
-      flex-shrink: 0;
-    }
-    .allocation-items {
+    .map-card__info-grid {
       display: grid;
-      gap: 1rem;
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      flex: 1 1 auto;
-      overflow-y: auto;
-      scrollbar-width: thin;
-    }
-    .allocation-items::-webkit-scrollbar {
-      width: 6px;
-    }
-    .allocation-items::-webkit-scrollbar-track {
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 999px;
-    }
-    .allocation-items::-webkit-scrollbar-thumb {
-      background: rgba(245, 196, 109, 0.35);
-      border-radius: 999px;
-    }
-    .allocation-item {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
-      align-items: center;
-      gap: 1rem;
-      padding: 0.85rem 1rem;
-      background: var(--allocation-item-bg);
-      border: 1px solid var(--allocation-item-border);
-      border-radius: 16px;
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
-      transition: border 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-    }
-    .allocation-item:hover {
-      border-color: var(--accent);
-      box-shadow: 0 16px 36px rgba(5, 8, 16, 0.35);
-      transform: translateY(-1px);
-    }
-    .allocation-info {
-      display: grid;
-      gap: 0.35rem;
-    }
-    .allocation-info strong {
-      font-size: 1.02rem;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-    .allocation-cost {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-    .allocation-controls {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.6rem;
-    }
-    .allocation-btn {
-      width: 38px;
-      height: 38px;
-      display: grid;
-      place-items: center;
-      border-radius: 12px;
-      border: 1px solid var(--border-soft);
-      background: rgba(255, 255, 255, 0.05);
-      color: var(--text-primary);
-      font-size: 1.35rem;
-      font-weight: 600;
-      transition: background 0.16s ease, border 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
-    }
-    .allocation-btn:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.12);
-      border-color: var(--accent);
-      transform: translateY(-1px);
-    }
-    .allocation-btn:focus-visible {
-      outline: 2px solid var(--accent-strong);
-      outline-offset: 2px;
-      border-color: var(--accent-strong);
-      transform: translateY(-1px);
-    }
-    .allocation-btn:disabled {
-      opacity: 0.35;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: none;
-    }
-    .allocation-quantity {
-      min-width: 3ch;
-      text-align: center;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-    }
-    .allocation-total {
-      font-weight: 600;
-      color: var(--accent);
-      text-align: right;
-      letter-spacing: 0.04em;
-    }
-    @media (max-width: 1440px) {
-      .allocation-grid {
-        gap: 1.25rem;
-        grid-template-areas:
-          "units units"
-          "supplies support"
-          "logistics logistics";
-      }
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.85rem;
     }
     @media (max-width: 1180px) {
       .allocation-grid {
         gap: 1.25rem;
+      }
+      .map-card__info-grid {
+        grid-template-columns: 1fr;
       }
     }
     @media (max-width: 1024px) {
@@ -1916,13 +1832,14 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: rgba(245, 247, 255, 0.94);
     }
-    .sidebar-button__icon svg {
+    .sidebar-button__icon img {
       width: 100%;
       height: 100%;
       display: block;
-      overflow: visible;
+      object-fit: contain;
+      filter: drop-shadow(0 2px 8px rgba(10, 14, 22, 0.28));
+      transition: transform 140ms ease, filter 140ms ease, opacity 140ms ease;
     }
     .sidebar-button .label {
       font-size: 0.65rem;
@@ -1945,7 +1862,12 @@
     .sidebar-button:hover .sidebar-button__icon,
     .sidebar-button:focus-visible .sidebar-button__icon,
     .sidebar-button.is-active .sidebar-button__icon {
-      color: #ffe7b7;
+      transform: translateY(-1px);
+    }
+    .sidebar-button:hover .sidebar-button__icon img,
+    .sidebar-button:focus-visible .sidebar-button__icon img,
+    .sidebar-button.is-active .sidebar-button__icon img {
+      filter: drop-shadow(0 3px 10px rgba(255, 214, 138, 0.28)) brightness(1.05);
     }
     .map-shell {
       flex: 1;
@@ -2050,23 +1972,23 @@
       transform: none;
       width: min(400px, calc(100% - 2rem));
       display: grid;
-      gap: 0.55rem;
-      padding: 0.8rem 0.85rem 0.85rem 0.85rem;
+      gap: 0.48rem;
+      padding: 0.72rem 0.78rem 0.78rem 0.78rem;
       background:
-        linear-gradient(160deg, rgba(17, 24, 36, 0.96), rgba(9, 13, 22, 0.92)),
-        radial-gradient(circle at top right, rgba(245, 196, 109, 0.12), transparent 42%);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+        linear-gradient(160deg, rgba(17, 24, 36, 0.82), rgba(9, 13, 22, 0.68)),
+        radial-gradient(circle at top right, rgba(245, 196, 109, 0.08), transparent 42%);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 18px;
       color: var(--text-primary);
-      font-size: 0.82rem;
-      line-height: 1.3;
+      font-size: 0.78rem;
+      line-height: 1.28;
       max-height: calc(100% - 2rem);
       overflow: hidden;
       z-index: 30;
       box-shadow:
-        0 26px 52px rgba(4, 6, 12, 0.42),
-        inset 0 1px 0 rgba(255, 255, 255, 0.06);
-      backdrop-filter: blur(16px);
+        0 18px 38px rgba(4, 6, 12, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(18px);
     }
     .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] {
       width: min(520px, calc(100% - 2rem));
@@ -2080,30 +2002,30 @@
     }
     .battle-intel-overlay__dismiss {
       position: absolute;
-      top: 0.6rem;
-      right: 0.6rem;
+      top: 0.58rem;
+      right: 0.58rem;
       appearance: none;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(12, 16, 24, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(12, 16, 24, 0.58);
       color: inherit;
       cursor: pointer;
-      font-size: 0.95rem;
-      width: 1.65rem;
-      height: 1.65rem;
+      font-size: 0.82rem;
+      width: 1.5rem;
+      height: 1.5rem;
       border-radius: 999px;
       line-height: 1;
     }
     .battle-intel-overlay__toggle {
       position: absolute;
-      top: 0.6rem;
-      right: 2.45rem;
-      min-height: 1.65rem;
-      padding: 0.1rem 0.55rem;
+      top: 0.58rem;
+      right: 2.28rem;
+      min-height: 1.5rem;
+      padding: 0.08rem 0.5rem;
       border-radius: 999px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      background: rgba(20, 28, 40, 0.86);
-      color: rgba(248, 249, 251, 0.78);
-      font-size: 0.66rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(20, 28, 40, 0.6);
+      color: rgba(248, 249, 251, 0.74);
+      font-size: 0.62rem;
       font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -2126,8 +2048,8 @@
     .battle-intel-overlay__title {
       display: block;
       margin: 0;
-      font-size: 0.94rem;
-      letter-spacing: 0.06em;
+      font-size: 0.88rem;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
       white-space: nowrap;
       overflow: hidden;
@@ -2135,11 +2057,16 @@
     }
     .battle-intel-overlay__meta {
       margin: 0;
-      font-size: 0.74rem;
-      color: rgba(248, 249, 251, 0.72);
-      white-space: nowrap;
+      font-size: 0.66rem;
+      line-height: 1.35;
+      color: rgba(248, 249, 251, 0.68);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      white-space: normal;
       overflow: hidden;
       text-overflow: ellipsis;
+      max-width: 100%;
     }
     #battleIntelOverlayBody {
       display: grid;
@@ -2162,7 +2089,7 @@
       gap: 0.35rem;
     }
     .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__stat {
-      padding: 0.42rem 0.48rem;
+      padding: 0.38rem 0.42rem;
       border-radius: 10px;
     }
     .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__chip-row {
@@ -2175,26 +2102,28 @@
     }
     .battle-intel-overlay__stats {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
-      gap: 0.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+      gap: 0.42rem;
     }
     .battle-intel-overlay__stat {
       display: grid;
-      gap: 0.15rem;
-      padding: 0.6rem 0.7rem;
+      gap: 0.1rem;
+      min-width: 0;
+      padding: 0.5rem 0.58rem;
       border-radius: 14px;
-      background: rgba(10, 15, 24, 0.72);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(10, 15, 24, 0.52);
+      border: 1px solid rgba(255, 255, 255, 0.05);
     }
     .battle-intel-overlay__stat-label {
-      font-size: 0.68rem;
-      letter-spacing: 0.08em;
+      font-size: 0.58rem;
+      letter-spacing: 0.07em;
       text-transform: uppercase;
-      color: rgba(248, 249, 251, 0.6);
+      color: rgba(248, 249, 251, 0.58);
     }
     .battle-intel-overlay__stat-value {
-      font-size: 1rem;
+      font-size: 0.88rem;
       font-weight: 700;
+      line-height: 1.1;
       color: var(--text-primary);
     }
     .battle-intel-overlay__chip-row {
@@ -2205,12 +2134,12 @@
     .battle-intel-overlay__chip {
       display: inline-flex;
       align-items: center;
-      min-height: 1.8rem;
-      padding: 0.3rem 0.65rem;
+      min-height: 1.6rem;
+      padding: 0.24rem 0.55rem;
       border-radius: 999px;
       border: 1px solid rgba(255, 255, 255, 0.1);
       background: rgba(255, 255, 255, 0.04);
-      font-size: 0.72rem;
+      font-size: 0.66rem;
       letter-spacing: 0.05em;
       text-transform: uppercase;
       color: rgba(248, 249, 251, 0.86);
@@ -2237,13 +2166,13 @@
     }
     .battle-intel-overlay__action {
       display: grid;
-      gap: 0.3rem;
-      min-height: 88px;
-      padding: 0.8rem 0.9rem;
+      gap: 0.26rem;
+      min-height: 80px;
+      padding: 0.72rem 0.8rem;
       text-align: left;
       border-radius: 16px;
       border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(9, 14, 22, 0.82);
+      background: rgba(9, 14, 22, 0.72);
       color: var(--text-primary);
       cursor: pointer;
       transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background 140ms ease;
@@ -2273,29 +2202,68 @@
       background: linear-gradient(180deg, rgba(58, 38, 18, 0.52), rgba(9, 14, 22, 0.82));
     }
     .battle-intel-overlay__action-label {
-      font-size: 0.76rem;
+      font-size: 0.72rem;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
     .battle-intel-overlay__action-detail {
-      font-size: 0.76rem;
-      line-height: 1.45;
-      color: rgba(248, 249, 251, 0.72);
+      font-size: 0.72rem;
+      line-height: 1.4;
+      color: rgba(248, 249, 251, 0.7);
     }
     .battle-intel-overlay__note {
       margin: 0;
-      font-size: 0.78rem;
-      line-height: 1.5;
-      color: rgba(248, 249, 251, 0.72);
+      font-size: 0.72rem;
+      line-height: 1.45;
+      color: rgba(248, 249, 251, 0.7);
     }
     .battle-intel-overlay__empty {
       display: grid;
       gap: 0.25rem;
-      padding: 0.75rem 0.85rem;
+      padding: 0.68rem 0.76rem;
       border-radius: 14px;
-      background: rgba(10, 15, 24, 0.64);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(10, 15, 24, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.74rem;
+    }
+    .battle-intel-overlay__summary-card {
+      display: grid;
+      gap: 0.16rem;
+      padding: 0.68rem 0.76rem;
+      border-radius: 14px;
+      background: rgba(10, 15, 24, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .battle-intel-overlay__summary-label {
+      font-size: 0.6rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(248, 249, 251, 0.56);
+    }
+    .battle-intel-overlay__summary-value {
+      font-size: 0.92rem;
+      font-weight: 700;
+      line-height: 1.1;
+      color: var(--text-primary);
+    }
+    .battle-intel-overlay__summary-caption {
+      font-size: 0.7rem;
+      line-height: 1.35;
+      color: rgba(248, 249, 251, 0.68);
+    }
+    .battle-intel-overlay__status-line {
+      padding: 0.48rem 0.58rem;
+      border-radius: 12px;
+      background: rgba(10, 15, 24, 0.42);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.7rem;
+      line-height: 1.4;
+      color: rgba(248, 249, 251, 0.72);
+    }
+    .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__status-line {
+      padding: 0.42rem 0.52rem;
+      font-size: 0.68rem;
     }
     .map-toolbar {
       display: flex;
@@ -2600,9 +2568,13 @@
       position: relative;
       width: min(920px, 94vw);
       max-height: 86vh;
-      background: linear-gradient(135deg, rgba(18, 22, 32, 0.98) 0%, rgba(12, 16, 24, 0.98) 100%);
-      border: 1px solid rgba(245, 196, 109, 0.3);
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      padding: 2rem 2.5rem;
       border-radius: 12px;
+      background: linear-gradient(135deg, rgba(18, 22, 32, 0.98), rgba(12, 16, 24, 0.98));
+      border: 1px solid rgba(245, 196, 109, 0.3);
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
       overflow: hidden;
       display: flex;
@@ -2683,22 +2655,17 @@
       border-radius: 14px;
       cursor: pointer;
       transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-      color: #e8edf7;
-      text-align: left;
     }
-
     .stance-button:hover:not(:disabled) {
       background: linear-gradient(180deg, rgba(30, 38, 56, 0.98), rgba(18, 23, 35, 0.98));
       border-color: rgba(173, 186, 210, 0.5);
       transform: translateY(-1px);
     }
-
     .stance-button.stance-active {
       background: linear-gradient(180deg, rgba(58, 72, 96, 0.98), rgba(33, 41, 58, 0.98));
       border-color: rgba(245, 196, 109, 0.95);
       box-shadow: 0 0 0 1px rgba(245, 196, 109, 0.35), 0 18px 40px rgba(0, 0, 0, 0.35);
     }
-
     .stance-heading {
       display: flex;
       width: 100%;
@@ -4088,7 +4055,6 @@
       border-radius: 3px;
       cursor: pointer;
       font-size: 1.2em;
-      line-height: 1;
     }
 
     .editor-delete-unit:hover {
@@ -4176,8 +4142,7 @@
       border-radius: 20px;
       padding: 0;
       box-shadow:
-        0 25px 80px rgba(0, 0, 0, 0.5),
-        0 0 40px rgba(245, 196, 109, 0.15),
+        0 26px 52px rgba(0, 0, 0, 0.42),
         inset 0 1px 0 rgba(255, 255, 255, 0.08);
       z-index: 10002;
       pointer-events: auto;
@@ -4214,7 +4179,6 @@
       color: var(--accent-strong);
       padding: 0.35rem 0.75rem;
       background: rgba(245, 196, 109, 0.12);
-      border-radius: 999px;
       border: 1px solid rgba(245, 196, 109, 0.25);
     }
 
@@ -4452,9 +4416,10 @@
       padding: 48px 56px;
       max-width: 600px;
       width: 90vw;
-      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6),
-                  0 0 80px rgba(245, 196, 109, 0.15),
-                  inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      box-shadow:
+        0 24px 64px rgba(0, 0, 0, 0.6),
+        0 0 80px rgba(245, 196, 109, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
       animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
       text-align: center;
     }
@@ -4479,7 +4444,6 @@
       color: rgba(255, 255, 255, 0.9);
       margin: 0 0 32px 0;
       padding: 0 24px;
-      font-weight: 400;
     }
 
     .mission-end-modal__prompt {
@@ -4517,6 +4481,7 @@
       background: linear-gradient(135deg, #d97706, #fcd34d);
       box-shadow: 0 6px 24px rgba(245, 196, 109, 0.5);
       transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(245, 196, 109, 0.5);
     }
 
     .mission-end-modal__button--primary:active {
@@ -4632,74 +4597,37 @@
       <nav class="control-sidebar">
         <button type="button" class="sidebar-button" data-popup="baseOperations" title="Headquarters overview">
           <span class="sidebar-button__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 20h16"/>
-              <path d="M6 20V9l6-4 6 4v11"/>
-              <path d="M9 20v-5h6v5"/>
-              <path d="M10 10h4"/>
-              <path d="M12 8v4"/>
-            </svg>
+            <img src="/src/assets/Interface/Ops_Icon.png" alt="" draggable="false">
           </span>
           <span class="label">HQ</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="generalProfile" title="Commander Profile">
           <span class="sidebar-button__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="m12 3 2.4 4.86 5.36.78-3.88 3.78.92 5.34L12 15.2 7.2 17.76l.92-5.34L4.24 8.64l5.36-.78L12 3Z"/>
-              <path d="M12 15.5V21"/>
-              <path d="M9 21h6"/>
-            </svg>
+            <img src="/src/assets/Interface/General_Icon.png" alt="" draggable="false">
           </span>
           <span class="label">General</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="recon">
           <span class="sidebar-button__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="7" cy="15" r="4"/>
-              <circle cx="17" cy="15" r="4"/>
-              <path d="M10.5 12h3"/>
-              <path d="M5.8 11 7.2 8"/>
-              <path d="M18.2 11 16.8 8"/>
-            </svg>
+            <img src="/src/assets/Interface/Recon_Icon.png" alt="" draggable="false">
           </span>
           <span class="label">Recon</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="intelligence">
           <span class="sidebar-button__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 18v-5"/>
-              <path d="M9.5 18h5"/>
-              <path d="M12 9h.01"/>
-              <path d="M8.6 12.6a5 5 0 0 1 6.8 0"/>
-              <path d="M6 10a8.5 8.5 0 0 1 12 0"/>
-              <path d="M3.6 7.4a12 12 0 0 1 16.8 0"/>
-            </svg>
+            <img src="/src/assets/Interface/Intel_Icon.png" alt="" draggable="false">
           </span>
           <span class="label">Intel</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="logistics">
           <span class="sidebar-button__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 8h11v7H3z"/>
-              <path d="M14 11h4l3 3v1h-7z"/>
-              <circle cx="7.5" cy="18" r="1.8"/>
-              <circle cx="17.5" cy="18" r="1.8"/>
-              <path d="M7 11h3"/>
-              <path d="M8.5 9.5v3"/>
-            </svg>
+            <img src="/src/assets/Interface/Logistics_Icon.png" alt="" draggable="false">
           </span>
           <span class="label">Logistics</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="armyRoster">
           <span class="sidebar-button__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="5" cy="7" r="1.2"/>
-              <circle cx="5" cy="12" r="1.2"/>
-              <circle cx="5" cy="17" r="1.2"/>
-              <path d="M8 7h11"/>
-              <path d="M8 12h11"/>
-              <path d="M8 17h11"/>
-            </svg>
+            <img src="/src/assets/Interface/Roster_Icon.png" alt="" draggable="false">
           </span>
           <span class="label">Roster</span>
         </button>
@@ -4748,8 +4676,6 @@
               <h3>Mission Briefing</h3>
               <p>Mission details will be loaded here.</p>
             </div>
-
-            <div id="battleAnnouncements" class="sr-only" aria-live="polite"></div>
 
             <!-- Map Viewport -->
             <div class="map-viewport">
@@ -5003,21 +4929,23 @@
                 <svg id="precombatHexMap" xmlns="http://www.w3.org/2000/svg"></svg>
               </div>
             </div>
-            <div class="info-block">
-              <strong>Objectives:</strong>
-              <ul id="objectiveList" class="objective-list"></ul>
-            </div>
-            <div class="info-block">
-              <strong>Turn Limit:</strong>
-              <p id="missionTurnLimit">Pending</p>
-            </div>
-            <div class="info-block">
-              <strong>Baseline Supplies:</strong>
-              <ul id="baselineSupplyList" class="baseline-supply-list"></ul>
-            </div>
-            <div class="info-block">
-              <strong>Doctrine Notes:</strong>
-              <p id="missionDoctrineNotes">Doctrine brief will appear here.</p>
+            <div class="map-card__info-grid">
+              <div class="info-block">
+                <strong>Objectives:</strong>
+                <ul id="objectiveList" class="objective-list"></ul>
+              </div>
+              <div class="info-block">
+                <strong>Turn Limit:</strong>
+                <p id="missionTurnLimit">Pending</p>
+              </div>
+              <div class="info-block">
+                <strong>Baseline Supplies:</strong>
+                <ul id="baselineSupplyList" class="baseline-supply-list"></ul>
+              </div>
+              <div class="info-block">
+                <strong>Doctrine Notes:</strong>
+                <p id="missionDoctrineNotes">Doctrine brief will appear here.</p>
+              </div>
             </div>
             <div id="commanderSummaryCard" class="info-block">
               <strong>Commander Overview</strong>
@@ -5475,3 +5403,4 @@
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
+

@@ -2897,6 +2897,7 @@ export class GameEngine implements GameEngineAPI {
         const fromKey = axialKey(truck.hex);
         const toKey = axialKey(current);
         this.getPlacementMapForFaction(faction).delete(fromKey);
+        truck.facing = this.resolveFacingToward(truck.hex, current, truck.facing);
         truck.hex = structuredClone(current);
         if (Number.isFinite(availableFuel) && fuelSpent > 0) {
           truck.fuel = Math.max(0, Number((truck.fuel - fuelSpent).toFixed(2)));
@@ -5921,6 +5922,7 @@ export class GameEngine implements GameEngineAPI {
     this.playerPlacements.delete(fromKey);
     this.playerIdleUnitKeys.delete(fromKey);
     const moved = structuredClone(unit);
+    moved.facing = this.resolveFacingToward(from, to, unit.facing);
     moved.hex = structuredClone(to);
     if (Number.isFinite(availableFuel) && moveSummary.fuelCost > 0) {
       moved.fuel = Math.max(0, Number((moved.fuel - moveSummary.fuelCost).toFixed(2)));
@@ -6172,6 +6174,7 @@ export class GameEngine implements GameEngineAPI {
     // Apply to defender
     const defKey = axialKey(defenderHex);
     const updatedDef = structuredClone(defender);
+    updatedDef.facing = this.resolveFacingToward(defenderHex, attackerHex, defender.facing);
     updatedDef.strength = Math.max(0, updatedDef.strength - inflicted);
     if (updatedDef.strength <= 0) {
       this.botPlacements.delete(defKey);
@@ -6196,6 +6199,7 @@ export class GameEngine implements GameEngineAPI {
 
     // Ammo consumption (minimal)
     const updatedAtk = structuredClone(attacker);
+    updatedAtk.facing = this.resolveFacingToward(attackerHex, defenderHex, attacker.facing);
     updatedAtk.ammo = attackerIsAircraft
       ? Math.max(0, updatedAtk.ammo - 1)
       : Math.max(0, updatedAtk.ammo - groundAttackAmmoCost);
@@ -7806,6 +7810,7 @@ export class GameEngine implements GameEngineAPI {
             break;
           }
 
+          moved.facing = this.resolveFacingToward(current, step, moved.facing);
           moved.hex = structuredClone(step);
           current = structuredClone(step);
           visited.push(structuredClone(step));
@@ -7879,6 +7884,7 @@ export class GameEngine implements GameEngineAPI {
           if (occupancy.has(stepKey)) {
             break;
           }
+          moved.facing = this.resolveFacingToward(current, step, moved.facing);
           moved.hex = structuredClone(step);
           current = structuredClone(step);
           visited.push(structuredClone(step));
@@ -7892,11 +7898,14 @@ export class GameEngine implements GameEngineAPI {
         const attacker = this.allyPlacements.get(axialKey(current));
         const defender = this.botPlacements.get(axialKey(plan.attackTarget));
         if (attacker && defender) {
+          attacker.facing = this.resolveFacingToward(current, plan.attackTarget, attacker.facing);
           const request = this.buildAttackRequest(attacker, defender, "Ally", "Bot");
           if (request) {
             const result = resolveAttack(request);
             const updatedDefender = structuredClone(defender);
+            updatedDefender.facing = this.resolveFacingToward(plan.attackTarget, current, defender.facing);
             updatedDefender.strength = Math.max(0, defender.strength - Math.round(result.expectedDamage));
+            this.allyPlacements.set(axialKey(current), structuredClone(attacker));
             if (updatedDefender.strength <= 0) {
               this.botPlacements.delete(axialKey(plan.attackTarget));
               occupancy.delete(axialKey(plan.attackTarget));
@@ -8015,6 +8024,7 @@ export class GameEngine implements GameEngineAPI {
 
         this.botPlacements.delete(axialKey(current));
         const moved = structuredClone(unit);
+        moved.facing = this.resolveFacingToward(current, step, moved.facing);
         moved.hex = structuredClone(step);
         current = structuredClone(step);
         fuelSpent += stepFuel;
@@ -8363,6 +8373,48 @@ export class GameEngine implements GameEngineAPI {
     return { q, r };
   }
 
+  /**
+   * Chooses the nearest hex-facing label for movement and combat presentation.
+   */
+  private resolveFacingToward(
+    from: Axial,
+    to: Axial,
+    fallback: ScenarioUnit["facing"] = "N"
+  ): ScenarioUnit["facing"] {
+    const dq = to.q - from.q;
+    const dr = to.r - from.r;
+    if (dq === 0 && dr === 0) {
+      return fallback;
+    }
+
+    const pixelVector = (q: number, r: number): { x: number; y: number } => ({
+      x: Math.sqrt(3) * (q + r / 2),
+      y: 1.5 * r
+    });
+
+    const moveVector = pixelVector(dq, dr);
+    const facingVectors: Record<ScenarioUnit["facing"], { x: number; y: number }> = {
+      N: pixelVector(0, -1),
+      NE: pixelVector(1, -1),
+      SE: pixelVector(1, 0),
+      S: pixelVector(0, 1),
+      SW: pixelVector(-1, 1),
+      NW: pixelVector(-1, 0)
+    };
+
+    let bestFacing = fallback;
+    let bestScore = -Infinity;
+    (Object.entries(facingVectors) as Array<[ScenarioUnit["facing"], { x: number; y: number }]>).forEach(([facing, vector]) => {
+      const score = moveVector.x * vector.x + moveVector.y * vector.y;
+      if (score > bestScore) {
+        bestScore = score;
+        bestFacing = facing;
+      }
+    });
+
+    return bestFacing;
+  }
+
   /** Resolves a bot attack against the nearest player unit when adjacency allows it. */
   /**
    * Chooses the appropriate combat stance for a bot unit based on tactical situation.
@@ -8646,6 +8698,7 @@ export class GameEngine implements GameEngineAPI {
 
     const playerKey = axialKey(targetHex);
     const updatedPlayer = structuredClone(defender);
+    updatedPlayer.facing = this.resolveFacingToward(targetHex, attackerHex, defender.facing);
     updatedPlayer.strength = Math.max(0, updatedPlayer.strength - damage);
     if (updatedPlayer.strength <= 0) {
       if (defenderFaction === "Player") {
@@ -8685,6 +8738,7 @@ export class GameEngine implements GameEngineAPI {
 
     const botKey = axialKey(attackerHex);
     const updatedBot = structuredClone(attackingUnit);
+    updatedBot.facing = this.resolveFacingToward(attackerHex, targetHex, attackingUnit.facing);
     if (attackerIsAircraft) {
       this.spendAircraftAmmo("Bot", botKey, defenderIsAircraft);
       updatedBot.ammo = Math.max(0, updatedBot.ammo - 1);

@@ -232,17 +232,13 @@ export class SelectionIntelOverlay {
    */
   private composeDeploymentSummary(intel: DeploymentSelectionIntel): string {
     const segments: string[] = [];
-    const zoneLabel = intel.zoneLabel ?? "Deployment Zone";
-    segments.push(zoneLabel.trim());
-
-    const terrainSegment = this.resolveMeta(intel);
-    segments.push(terrainSegment);
+    segments.push(this.resolveMeta(intel));
 
     if (intel.remainingCapacity !== null && intel.totalCapacity !== null) {
-      segments.push(`${intel.remainingCapacity} / ${intel.totalCapacity} slots`);
+      segments.push(`${intel.remainingCapacity} / ${intel.totalCapacity} ready`);
     }
 
-    if (intel.notes.length > 0) {
+    if (!intel.zoneLabel && intel.notes.length > 0) {
       segments.push(intel.notes.join(", "));
     }
 
@@ -250,13 +246,11 @@ export class SelectionIntelOverlay {
   }
 
   /**
-   * Summarizes unit intel on a single line, covering strength, ammo, actionable options, and current status.
+   * Summarizes unit intel on a single line, covering strength, ammo, and immediate action state.
    */
   private composeBattleSummary(intel: BattleSelectionIntel): string {
     const segments: string[] = [];
-    const terrainSegment = this.resolveMeta(intel);
-    const unitLabel = intel.unitLabel ?? "Unit";
-    segments.push(`${unitLabel} @ ${terrainSegment}`.trim());
+    segments.push(this.resolveMeta(intel));
 
     if (intel.unitStrength !== null) {
       const percent = Math.round(Math.max(0, Math.min(100, intel.unitStrength)));
@@ -270,10 +264,8 @@ export class SelectionIntelOverlay {
     if (intel.movementRemaining !== null) {
       const maxLabel = typeof intel.movementMax === "number" ? `/${Math.max(0, Math.round(intel.movementMax))}` : "";
       const remaining = Math.max(0, Math.round(intel.movementRemaining));
-      segments.push(`Moves ${remaining}${maxLabel}`);
+      segments.push(`Move ${remaining}${maxLabel}`);
     }
-
-    segments.push(`${intel.attackOptions} targets`);
 
     return segments.filter((segment) => segment.length > 0).join(" • ");
   }
@@ -325,7 +317,7 @@ export class SelectionIntelOverlay {
       : "";
     const actionMarkup = intel.actionCards.length > 0
       ? `<div class="battle-intel-overlay__actions">${intel.actionCards.map((action) => this.renderActionMarkup(action)).join("")}</div>`
-      : `<div class="battle-intel-overlay__empty">No infantry field actions are available for this formation.</div>`;
+      : `<div class="battle-intel-overlay__status-line">No infantry field actions are available for this formation.</div>`;
 
     return `
       <div class="battle-intel-overlay__stats">
@@ -342,13 +334,17 @@ export class SelectionIntelOverlay {
   }
 
   private renderDeploymentMarkup(intel: DeploymentSelectionIntel): string {
-    const capacity = intel.remainingCapacity !== null && intel.totalCapacity !== null
-      ? `${intel.remainingCapacity} / ${intel.totalCapacity} slots ready`
+    const capacityValue = intel.remainingCapacity !== null && intel.totalCapacity !== null
+      ? `${intel.remainingCapacity} / ${intel.totalCapacity}`
+      : "Pending";
+    const capacityCaption = intel.remainingCapacity !== null && intel.totalCapacity !== null
+      ? "slots ready"
       : "Awaiting deployment-zone confirmation";
     return `
-      <div class="battle-intel-overlay__empty">
-        <strong>${this.escapeHtml(intel.zoneLabel ?? "Deployment Zone")}</strong>
-        <span>${this.escapeHtml(capacity)}</span>
+      <div class="battle-intel-overlay__summary-card">
+        <span class="battle-intel-overlay__summary-label">Deployment Capacity</span>
+        <strong class="battle-intel-overlay__summary-value">${this.escapeHtml(capacityValue)}</strong>
+        <span class="battle-intel-overlay__summary-caption">${this.escapeHtml(capacityCaption)}</span>
       </div>
     `;
   }
@@ -356,9 +352,10 @@ export class SelectionIntelOverlay {
   private renderTerrainMarkup(intel: TerrainSelectionIntel): string {
     const note = intel.notes[0] ?? "No unit occupies this hex.";
     return `
-      <div class="battle-intel-overlay__empty">
-        <strong>${this.escapeHtml(intel.terrainName ?? "Terrain Intel")}</strong>
-        <span>${this.escapeHtml(note)}</span>
+      <div class="battle-intel-overlay__summary-card">
+        <span class="battle-intel-overlay__summary-label">Terrain Note</span>
+        <strong class="battle-intel-overlay__summary-value">${this.escapeHtml(intel.terrainName ?? "Terrain Intel")}</strong>
+        <span class="battle-intel-overlay__summary-caption">${this.escapeHtml(note)}</span>
       </div>
     `;
   }
@@ -404,3 +401,4 @@ export class SelectionIntelOverlay {
       .replace(/'/g, "&#39;");
   }
 }
+

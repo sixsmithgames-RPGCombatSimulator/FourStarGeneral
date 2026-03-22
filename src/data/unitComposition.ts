@@ -163,10 +163,10 @@ export const unitComposition: Record<UnitAllocationKey, UnitCompositionProfile> 
   },
   reconBike: {
     combatReference: { unitType: "Recon_Bike" },
-    personnel: 96,
-    vehicles: 32,
-    equipmentSummary: ["32 reconnaissance motorbikes", "Light MG teams"],
-    notes: "Focuses on rapid scouting and flank security with minimal footprint."
+    personnel: 54,
+    vehicles: 18,
+    equipmentSummary: ["18 reconnaissance motorbikes", "6 two-bike scout pairs"],
+    notes: "Smaller liaison-heavy patrol focused on fast screening, courier work, and flank checks."
   },
   scoutPlaneWing: {
     combatReference: { unitType: "Scout_Plane" },

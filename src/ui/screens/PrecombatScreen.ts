@@ -7,6 +7,7 @@ import {
   getAllocationOption,
   type UnitAllocationOption
 } from "../../data/unitAllocation";
+import { unitComposition } from "../../data/unitComposition";
 import { getMissionBriefing, getMissionSummaryPackage, getMissionTitle } from "../../data/missions";
 import {
   ensureDeploymentState,
@@ -23,7 +24,9 @@ import type { ScenarioData, ScenarioDeploymentZone, ScenarioUnit } from "../../c
 import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 
-type AllocationListElement = HTMLElement & { __allocationListenersAttached?: boolean };
+type AllocationListElement = HTMLElement & {
+  __allocationListenersAttached?: boolean;
+};
 
 export class PrecombatScreen {
   private readonly screenManager: IScreenManager;
@@ -489,8 +492,7 @@ export class PrecombatScreen {
         continue;
       }
 
-      // Only include units category - supplies/support/logistics are not deployable entities.
-      if (option.category !== "units") {
+      if (!this.isDeployableAllocation(option)) {
         continue;
       }
 
@@ -584,6 +586,14 @@ export class PrecombatScreen {
     return 0;
   }
 
+  private isDeployableAllocation(option: UnitAllocationOption): boolean {
+    return option.category === "units" || option.key === "supplyConvoy";
+  }
+
+  private shouldApplyScenarioRestrictions(option: UnitAllocationOption): boolean {
+    return option.category === "units" || option.key === "supplyConvoy";
+  }
+
   private rerenderAllocations(): void {
     const categoryTargets: Array<["units" | "supplies" | "support" | "logistics", HTMLElement | null]> = [
       ["units", this.allocationUnitList],
@@ -601,10 +611,12 @@ export class PrecombatScreen {
         container.innerHTML = "";
         return;
       }
-      // Filter allocations based on scenario restrictions
-      const filteredAllocations = category === "units"
-        ? allocations.filter((option) => this.isUnitAllowedByScenario(option.key))
-        : allocations;
+      const filteredAllocations = allocations.filter((option) => {
+        if (!this.shouldApplyScenarioRestrictions(option)) {
+          return true;
+        }
+        return this.isUnitAllowedByScenario(option.key);
+      });
       container.innerHTML = filteredAllocations
         .map((option) => this.renderAllocationItem(option, this.allocationCounts.get(option.key) ?? 0))
         .join("");
@@ -626,13 +638,24 @@ export class PrecombatScreen {
    * Produces markup for a single allocation row including controls with accessibility metadata.
    */
   private renderAllocationItem(option: UnitAllocationOption, quantity: number): string {
-    const totalCost = option.costPerUnit * quantity;
     const lockedBaseline = this.predeployedCounts.get(option.key) ?? 0;
     const missionMinimum = this.getMissionMinimumAllocationCount(option.key);
     const quantityFloor = Math.max(lockedBaseline, missionMinimum);
     const locked = this.unlockState.isUnitLocked(option.key);
     const decrementDisabled = locked || quantity <= quantityFloor;
     const incrementDisabled = locked || quantity >= option.maxQuantity;
+    const requisitionQuantity = Math.max(0, quantity - lockedBaseline);
+    const totalCost = option.costPerUnit * requisitionQuantity;
+    const composition = Object.prototype.hasOwnProperty.call(unitComposition, option.key)
+      ? unitComposition[option.key as keyof typeof unitComposition]
+      : null;
+    const compositionSummary = composition
+      ? [
+          `${composition.personnel.toLocaleString()} personnel`,
+          composition.vehicles > 0 ? `${composition.vehicles} vehicles` : null
+        ].filter((value): value is string => value !== null)
+      : [];
+    const equipmentSummary = composition?.equipmentSummary.slice(0, 2) ?? [];
     const baselineBadge = lockedBaseline > 0
       ? `<span class="allocation-lock" aria-label="Scenario provides ${lockedBaseline} ${option.label} unit${lockedBaseline === 1 ? "" : "s"}.">Scenario asset ×${lockedBaseline}</span>`
       : "";
@@ -676,7 +699,13 @@ export class PrecombatScreen {
               <h4>${option.label}</h4>
               <span class="allocation-cost">$${option.costPerUnit.toLocaleString()} ea.</span>
             </div>
-            <p>${option.description}</p>
+            <p class="allocation-copy__description">${option.description}</p>
+            ${compositionSummary.length > 0
+              ? `<div class="allocation-copy__details">${compositionSummary.map((detail) => `<span>${detail}</span>`).join("")}</div>`
+              : ""}
+            ${equipmentSummary.length > 0
+              ? `<div class="allocation-copy__equipment">${equipmentSummary.map((detail) => `<span>${detail}</span>`).join("")}</div>`
+              : ""}
             ${baselineBadge}
             ${missionMinimumBadge}
             ${unlockBadge}
@@ -1099,13 +1128,17 @@ export class PrecombatScreen {
     const title = getMissionTitle(missionKey);
     const briefing = getMissionBriefing(missionKey);
     const summary = getMissionSummaryPackage(missionKey, selectedDifficulty);
+    const scenarioTurnLimit = typeof this.miniMapScenario.turnLimit === "number" && this.miniMapScenario.turnLimit > 0
+      ? this.miniMapScenario.turnLimit
+      : null;
+    const effectiveTurnLimit = summary.turnLimit > 0 ? summary.turnLimit : scenarioTurnLimit;
 
     this.missionTitleElement.textContent = title;
     this.missionBriefingElement.textContent = briefing;
     this.objectiveListElement.innerHTML = summary.objectives
       .map((objective) => `<li>${objective}</li>`)
       .join("");
-    this.missionTurnLimitElement.textContent = summary.turnLimit > 0 ? `${summary.turnLimit} turns` : "Pending";
+    this.missionTurnLimitElement.textContent = effectiveTurnLimit !== null ? `${effectiveTurnLimit} turns` : "Pending";
     this.baselineSupplyListElement.innerHTML = summary.supplies
       .map((item) => `<li><strong>${item.label}:</strong> ${item.amount}</li>`)
       .join("");
@@ -1117,7 +1150,7 @@ export class PrecombatScreen {
       briefing,
       objectives: summary.objectives,
       doctrine: summary.doctrine,
-      turnLimit: summary.turnLimit > 0 ? summary.turnLimit : null,
+      turnLimit: effectiveTurnLimit,
       baselineSupplies: summary.supplies
     };
     this.battleState.setPrecombatMissionInfo(missionInfo);
@@ -1125,6 +1158,10 @@ export class PrecombatScreen {
 
   private renderMiniMap(): void {
     this.miniMapRenderer.render(this.miniMapSvg, this.miniMapCanvas, this.miniMapScenario);
+    const mapPreview = this.miniMapCanvas.closest<HTMLElement>(".map-preview");
+    if (mapPreview) {
+      mapPreview.style.aspectRatio = `${this.miniMapScenario.size.cols} / ${this.miniMapScenario.size.rows}`;
+    }
     this.miniMapCanvas.style.width = "100%";
     this.miniMapCanvas.style.height = "100%";
     this.miniMapSvg.removeAttribute("width");

@@ -27,7 +27,7 @@ export const allocationOptions = [
     label: "Infantry Battalion",
     category: "units",
     costPerUnit: 50_000,
-    description: "Line infantry regiment with balanced rifle, MG, and mortar sections.",
+    description: "Balanced line infantry with rifle companies, integral machine guns, and battalion mortars for holding ground.",
     maxQuantity: 20,
     spriteUrl: new URL("../assets/units/Infantry.png", import.meta.url).href
   },
@@ -36,7 +36,7 @@ export const allocationOptions = [
     label: "Airborne Detachment",
     category: "units",
     costPerUnit: 100_000,
-    description: "Paratrooper task force trained for deep strike insertions.",
+    description: "Elite parachute force suited for raids, rapid blocking actions, and hard-fought light-infantry work.",
     maxQuantity: 4,
     spriteUrl: new URL("../assets/units/Paratrooper.png", import.meta.url).href
   },
@@ -45,7 +45,7 @@ export const allocationOptions = [
     label: "Engineering Corps",
     category: "units",
     costPerUnit: 80_000,
-    description: "Construction and breaching specialists equipped for fortification work.",
+    description: "Combat engineers able to dig in, fortify key hexes, breach obstacles, and improve crossing positions.",
     maxQuantity: 10,
     spriteUrl: new URL("../assets/units/Engineer.png", import.meta.url).href
   },
@@ -54,7 +54,7 @@ export const allocationOptions = [
     label: "Tank Company",
     category: "units",
     costPerUnit: 200_000,
-    description: "Medium tank platoon suited for breakthrough actions.",
+    description: "Medium armor for breakthrough attacks, mobile reserve work, and direct fire against fortified positions.",
     maxQuantity: 10,
     spriteUrl: new URL("../assets/units/Medium_Tank.png", import.meta.url).href
   },
@@ -63,7 +63,7 @@ export const allocationOptions = [
     label: "Heavy Tank Company",
     category: "units",
     costPerUnit: 280_000,
-    description: "Legacy heavy armor formation referenced by authored scenarios.",
+    description: "Slow but punishing heavy armor built to break defended lines and absorb enemy anti-tank fire.",
     maxQuantity: 4,
     spriteUrl: new URL("../assets/units/Heavy_Tank.png", import.meta.url).href
   },
@@ -72,7 +72,7 @@ export const allocationOptions = [
     label: "Tank Destroyer Company",
     category: "units",
     costPerUnit: 255_000,
-    description: "Dedicated anti-armor hunters fielding high-velocity guns.",
+    description: "High-velocity anti-armor company for countering tanks from standoff positions and covered lanes.",
     maxQuantity: 5,
     spriteUrl: new URL("../assets/units/Anti_Tank_Tank.png", import.meta.url).href
   },
@@ -81,7 +81,7 @@ export const allocationOptions = [
     label: "Assault Gun Battalion",
     category: "units",
     costPerUnit: 240_000,
-    description: "Casemate assault guns providing mobile fire support.",
+    description: "Armored assault guns providing close fire support where towed artillery would lag behind.",
     maxQuantity: 5,
     spriteUrl: new URL("../assets/units/Assault_Gun.png", import.meta.url).href
   },
@@ -90,7 +90,7 @@ export const allocationOptions = [
     label: "Howitzer Battery",
     category: "units",
     costPerUnit: 180_000,
-    description: "Towed 105mm artillery battery for indirect fires.",
+    description: "Towed 105mm battery for indirect bombardment, counter-mobility fire, and sustained support of infantry attacks.",
     maxQuantity: 6,
     spriteUrl: new URL("../assets/units/Howitzer_105.png", import.meta.url).href
   },
@@ -99,7 +99,7 @@ export const allocationOptions = [
     label: "Rocket Artillery Battalion",
     category: "units",
     costPerUnit: 260_000,
-    description: "Rocket artillery launchers delivering saturation bombardments.",
+    description: "Rocket launch battalion for short, violent saturation strikes against concentrations and ford approaches.",
     maxQuantity: 4,
     spriteUrl: new URL("../assets/units/Rocket_Artillery.png", import.meta.url).href
   },
@@ -108,7 +108,7 @@ export const allocationOptions = [
     label: "Self-Propelled Artillery Group",
     category: "units",
     costPerUnit: 275_000,
-    description: "Armored self-propelled guns able to displace after firing.",
+    description: "Armored self-propelled guns that can fire, displace, and keep pace with mechanized formations.",
     maxQuantity: 4,
     spriteUrl: new URL("../assets/units/SP_Artillery.png", import.meta.url).href
   },
@@ -117,7 +117,7 @@ export const allocationOptions = [
     label: "Anti-Tank Gun Battery",
     category: "units",
     costPerUnit: 165_000,
-    description: "50mm anti-tank guns covering avenues of approach.",
+    description: "Crew-served anti-tank guns ideal for covering roads, crossings, and likely armored approach lanes.",
     maxQuantity: 6,
     spriteUrl: new URL("../assets/units/AT_Gun_50mm.png", import.meta.url).href
   },
@@ -126,7 +126,7 @@ export const allocationOptions = [
     label: "Flak Battery",
     category: "units",
     costPerUnit: 210_000,
-    description: "Legacy anti-aircraft detachment wired for scenario compatibility.",
+    description: "Heavy anti-air battery that also threatens light vehicles and exposed ground targets with direct fire.",
     maxQuantity: 6,
     spriteUrl: new URL("../assets/units/Flak_88.png", import.meta.url).href
   },
@@ -135,7 +135,7 @@ export const allocationOptions = [
     label: "Recon Squad",
     category: "units",
     costPerUnit: 75_000,
-    description: "Armored car troop coordinating battlefield intelligence.",
+    description: "Armored reconnaissance troop for screening, spotting enemy movement, and cueing fires from safer range.",
     maxQuantity: 12,
     spriteUrl: new URL("../assets/units/Recon_ArmoredCar.png", import.meta.url).href
   },
@@ -143,8 +143,8 @@ export const allocationOptions = [
     key: "reconBike",
     label: "Recon Bike Patrol",
     category: "units",
-    costPerUnit: 65_000,
-    description: "Motorbike recon element referenced by legacy scenarios.",
+    costPerUnit: 45_000,
+    description: "Light two-wheel scout patrol with a smaller rider package for fast screening, flank checks, and urgent liaison work.",
     maxQuantity: 8,
     spriteUrl: new URL("../assets/units/Recon_Bike.png", import.meta.url).href
   },
@@ -153,7 +153,7 @@ export const allocationOptions = [
     label: "Scout Plane Wing",
     category: "units",
     costPerUnit: 185_000,
-    description: "Observation aircraft wing providing spotting and reconnaissance.",
+    description: "Observation aircraft for battlefield scouting, route checks, and extended contact reporting.",
     maxQuantity: 3,
     spriteUrl: new URL("../assets/units/Scout_Plane.png", import.meta.url).href
   },
@@ -162,7 +162,7 @@ export const allocationOptions = [
     label: "Fighter Squadron",
     category: "units",
     costPerUnit: 240_000,
-    description: "Legacy fighter wing used by authored scenarios.",
+    description: "Air-superiority squadron for escort cover, interception, and protection of friendly air operations.",
     maxQuantity: 4,
     spriteUrl: new URL("../assets/units/Fighter.png", import.meta.url).href
   },
@@ -171,7 +171,7 @@ export const allocationOptions = [
     label: "Interceptor Wing",
     category: "units",
     costPerUnit: 255_000,
-    description: "High-speed interceptors dedicated to air superiority.",
+    description: "High-speed interceptors optimized for stopping hostile aircraft before they reach the frontline.",
     maxQuantity: 3,
     spriteUrl: new URL("../assets/units/Interceptor.png", import.meta.url).href
   },
@@ -180,7 +180,7 @@ export const allocationOptions = [
     label: "Ground Attack Wing",
     category: "units",
     costPerUnit: 265_000,
-    description: "Close air support group armed with cannons and rockets.",
+    description: "Close-support strike aircraft armed for anti-vehicle attacks and rapid battlefield interdiction.",
     maxQuantity: 3,
     spriteUrl: new URL("../assets/units/Ground_Attack.png", import.meta.url).href
   },
@@ -189,7 +189,7 @@ export const allocationOptions = [
     label: "Tactical Bomber Wing",
     category: "units",
     costPerUnit: 260_000,
-    description: "Legacy air wing carried over from scenario data while precombat catalog expands.",
+    description: "Tactical bomber package for heavier area strikes against concentrations, depots, and strongpoints.",
     maxQuantity: 4,
     spriteUrl: new URL("../assets/units/Bomber.png", import.meta.url).href
   },
@@ -198,7 +198,7 @@ export const allocationOptions = [
     label: "Transport Air Wing",
     category: "units",
     costPerUnit: 190_000,
-    description: "Air transport wing capable of ferrying airborne troops and supplies.",
+    description: "Transport aircraft package for airborne drops, emergency lift, and rapid supply relocation.",
     maxQuantity: 2,
     spriteUrl: new URL("../assets/units/Transport_Plane.png", import.meta.url).href
   },
@@ -207,7 +207,7 @@ export const allocationOptions = [
     label: "APC Truck Column",
     category: "units",
     costPerUnit: 140_000,
-    description: "Motor transport column with lightly armored carriers.",
+    description: "Motor transport column for shifting infantry and support teams between threatened sectors.",
     maxQuantity: 6,
     spriteUrl: new URL("../assets/units/APC_Truck.png", import.meta.url).href
   },
@@ -216,16 +216,16 @@ export const allocationOptions = [
     label: "APC Halftrack Company",
     category: "units",
     costPerUnit: 175_000,
-    description: "Halftrack carriers combining mobility with light armor.",
+    description: "Protected halftracks that keep mechanized infantry moving under light fire and rough conditions.",
     maxQuantity: 5,
     spriteUrl: new URL("../assets/units/APC_Halftrack.png", import.meta.url).href
   },
   {
     key: "supplyConvoy",
     label: "Supply Convoy",
-    category: "units",
+    category: "logistics",
     costPerUnit: 40_000,
-    description: "Supply truck echelon sustaining forward formations.",
+    description: "Dedicated sustainment convoy carrying fuel and ammunition forward so battalions can keep fighting.",
     maxQuantity: 6,
     spriteUrl: new URL("../assets/units/Supply_Truck.png", import.meta.url).href
   },
@@ -234,7 +234,7 @@ export const allocationOptions = [
     label: "Ammunition Cache",
     category: "supplies",
     costPerUnit: 30_000,
-    description: "Field ammunition resupply",
+    description: "Forward ammunition stock for artillery, anti-tank guns, and prolonged frontline engagements.",
     maxQuantity: 50,
     spriteUrl: undefined
   },
@@ -243,7 +243,7 @@ export const allocationOptions = [
     label: "Fuel Depot",
     category: "supplies",
     costPerUnit: 25_000,
-    description: "Vehicle fuel reserves",
+    description: "Fuel reserve package to keep armored, motorized, and logistics formations operating.",
     maxQuantity: 50,
     spriteUrl: undefined
   },
@@ -252,7 +252,7 @@ export const allocationOptions = [
     label: "Medical Team",
     category: "support",
     costPerUnit: 60_000,
-    description: "Field hospital unit",
+    description: "Forward aid and evacuation team for stabilizing casualties near the fighting.",
     maxQuantity: 15,
     spriteUrl: undefined
   },
@@ -261,7 +261,7 @@ export const allocationOptions = [
     label: "Transport Column",
     category: "logistics",
     costPerUnit: 70_000,
-    description: "Supply line transport",
+    description: "General-purpose truck lift for moving men, stores, and reserve supplies behind the line.",
     maxQuantity: 15,
     spriteUrl: undefined
   },
@@ -270,7 +270,7 @@ export const allocationOptions = [
     label: "Maintenance Crew",
     category: "logistics",
     costPerUnit: 55_000,
-    description: "Equipment repair",
+    description: "Mobile repair and recovery detachment for keeping armored and motorized equipment serviceable.",
     maxQuantity: 12,
     spriteUrl: undefined
   }

@@ -85,9 +85,9 @@ export interface MissionProfile {
 }
 
 const RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
-  Easy: 999,
-  Normal: 999,
-  Hard: 999
+  Easy: 14,
+  Normal: 12,
+  Hard: 11
 };
 
 export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> = {
@@ -123,12 +123,12 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       "Secondary: Destroy the enemy comms team before it reaches the central ford.",
       "Tertiary: Keep at least one recon unit alive."
     ],
-    turnLimit: 999, // No time limit - mission ends when objectives are met
+    turnLimit: 12,
     doctrine: "Occupy all three crossings with your units. Shift forces between hedgerow lanes before the enemy can mass. Hold the two off-map 81mm mortar fire missions for the ford that starts to buckle.",
     supplies: [
       { label: "Predeployed Patrol", amount: "2 rifle squads, engineers, recon bike patrol" },
       { label: "Off-map 81mm Mortar", amount: "2 fire missions" },
-      { label: "Duration", amount: "Until objectives achieved" }
+      { label: "Duration", amount: "11-14 turns depending on difficulty" }
     ]
   },
   assault: {
