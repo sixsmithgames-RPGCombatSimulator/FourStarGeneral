@@ -73,7 +73,7 @@ export const combat = {
    */
   cover: {
     defenseLevelToAccuracyPct: -2,
-    fortificationBonusPct: -12,
+    fortificationBonusPct: -20,
     entrenchmentPerLevelPct: -15
   },
   /**
