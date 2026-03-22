@@ -2967,7 +2967,7 @@ private automateSupplyConvoys(
         if (nearbyNow.length > 0) {
           if (!assignedEntry) {
             assignedEntry = nearbyNow[0];
-            truckState.assignedUnitId = assignedEntry.unit.unitId;
+            truckState.assignedUnitId = assignedEntry.unit.unitId ?? null;
           }
 
           deliverNearbyDemands(
@@ -3015,13 +3015,13 @@ private automateSupplyConvoys(
 
       const chooseReachableTarget = (
         excludedUnitIds: Set<string> = new Set()
-      ): { entry: SupplyDemandEntry | null; plan: ReturnType<typeof this.findCheapestPathToAny> | null } => {
+      ): { entry: SupplyDemandEntry | null; plan: ReturnType<typeof GameEngine.prototype.findCheapestPathToAny> | null } => {
         const candidates = demands.filter((entry) => {
           const refreshed = refreshDemand(entry);
           if (!refreshed) {
             return false;
           }
-          if (excludedUnitIds.has(refreshed.unit.unitId)) {
+          if (excludedUnitIds.has(refreshed.unit.unitId ?? '')) {
             return false;
           }
 
@@ -3155,12 +3155,12 @@ private automateSupplyConvoys(
 
       if (movement.traveled.length <= 1 && assignedEntry && hasCargo()) {
         const fallback = chooseReachableTarget(
-          new Set([assignedEntry.unit.unitId])
+          assignedEntry.unit.unitId ? new Set([assignedEntry.unit.unitId]) : new Set()
         );
 
         if (fallback.entry && fallback.plan) {
           assignedEntry = fallback.entry;
-          truckState.assignedUnitId = assignedEntry.unit.unitId;
+          truckState.assignedUnitId = assignedEntry.unit.unitId ?? null;
           truckState.status = "delivering";
           movement = advanceAlongPath(fallback.plan.path);
         }
