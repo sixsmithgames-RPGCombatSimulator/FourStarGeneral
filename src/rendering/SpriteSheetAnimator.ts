@@ -460,13 +460,13 @@ export class SpriteSheetAnimation {
       return;
     }
 
-    let remainingElapsed = currentTime - this.lastFrameTimestamp;
-    let frameDuration = getSpriteSheetFrameDuration(this.spec, this.currentFrame, this.spec.frameCount);
+    const elapsed = currentTime - this.lastFrameTimestamp;
+    const frameDuration = getSpriteSheetFrameDuration(this.spec, this.currentFrame, this.spec.frameCount);
 
-    let advancedFrames = 0;
-    while (remainingElapsed >= frameDuration && this.isPlaying) {
-      remainingElapsed -= frameDuration;
-      this.lastFrameTimestamp += frameDuration;
+    // Only advance ONE frame per tick to ensure each frame is visible
+    // Otherwise large delays can cause the animation to skip frames invisibly
+    if (elapsed >= frameDuration) {
+      this.lastFrameTimestamp = currentTime;
 
       const nextFrame = this.currentFrame + 1;
       if (nextFrame >= this.spec.frameCount) {
@@ -482,14 +482,8 @@ export class SpriteSheetAnimation {
       } else {
         this.currentFrame = nextFrame;
         this.updateFrame(this.currentFrame);
-        advancedFrames++;
+        console.log(`[SpriteSheetAnimation] tick advanced to frame ${this.currentFrame}/${this.spec.frameCount}`);
       }
-
-      frameDuration = getSpriteSheetFrameDuration(this.spec, this.currentFrame, this.spec.frameCount);
-    }
-
-    if (advancedFrames > 0) {
-      console.log(`[SpriteSheetAnimation] tick advanced ${advancedFrames} frame(s), now at frame ${this.currentFrame}/${this.spec.frameCount}`);
     }
 
     requestAnimationFrame(this.tick);
