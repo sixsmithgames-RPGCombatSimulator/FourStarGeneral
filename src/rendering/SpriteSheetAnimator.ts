@@ -253,13 +253,17 @@ export function getSpriteSheetFrameOpacity(spec: SpriteSheetSpec, frameIndex: nu
 const spriteSheetImageCache = new Map<string, Promise<SpriteSheetImageAsset>>();
 
 function loadSpriteSheetImage(imagePath: string): Promise<SpriteSheetImageAsset> {
+  console.log(`[SpriteSheet] loadSpriteSheetImage called for: ${imagePath}`);
   const cached = spriteSheetImageCache.get(imagePath);
   if (cached) {
+    console.log(`[SpriteSheet] Image found in cache: ${imagePath}`);
     return cached;
   }
 
+  console.log(`[SpriteSheet] Loading new image: ${imagePath}`);
   const pending = new Promise<SpriteSheetImageAsset>((resolve, reject) => {
     if (typeof Image !== "function") {
+      console.error(`[SpriteSheet] Image constructor unavailable for: ${imagePath}`);
       reject(new Error(`Image loading is unavailable while resolving sprite sheet ${imagePath}.`));
       return;
     }
@@ -267,6 +271,7 @@ function loadSpriteSheetImage(imagePath: string): Promise<SpriteSheetImageAsset>
     const image = new Image();
     image.decoding = "async";
     image.onload = () => {
+      console.log(`[SpriteSheet] Image loaded successfully: ${imagePath}, dimensions: ${image.naturalWidth}x${image.naturalHeight}`);
       resolve({
         image,
         width: image.naturalWidth,
@@ -274,12 +279,15 @@ function loadSpriteSheetImage(imagePath: string): Promise<SpriteSheetImageAsset>
       });
     };
     image.onerror = () => {
+      console.error(`[SpriteSheet] Image load error: ${imagePath}`);
       spriteSheetImageCache.delete(imagePath);
       reject(new Error(`Failed to load sprite sheet image: ${imagePath}`));
     };
     image.src = imagePath;
+    console.log(`[SpriteSheet] Image src set, loading: ${imagePath}`);
 
     if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+      console.log(`[SpriteSheet] Image already complete: ${imagePath}`);
       resolve({
         image,
         width: image.naturalWidth,
@@ -297,17 +305,23 @@ function requiresLoadedImage(spec: SpriteSheetSpec): boolean {
 }
 
 async function resolveSpriteSheetSpecAsync(spec: SpriteSheetSpec): Promise<ResolvedSpriteSheetSpec> {
+  console.log(`[SpriteSheet] resolveSpriteSheetSpecAsync called for: ${spec.imagePath}, requiresLoadedImage: ${requiresLoadedImage(spec)}`);
   if (!requiresLoadedImage(spec)) {
-    return resolveSpriteSheetSpec(spec);
+    const resolved = resolveSpriteSheetSpec(spec);
+    console.log(`[SpriteSheet] Spec resolved without loading image:`, resolved);
+    return resolved;
   }
 
+  console.log(`[SpriteSheet] Waiting for image to load: ${spec.imagePath}`);
   const asset = await loadSpriteSheetImage(spec.imagePath);
   void asset.image;
 
-  return resolveSpriteSheetSpec(spec, {
+  const resolved = resolveSpriteSheetSpec(spec, {
     width: asset.width,
     height: asset.height
   });
+  console.log(`[SpriteSheet] Spec resolved with loaded image:`, resolved);
+  return resolved;
 }
 
 /**
@@ -393,6 +407,7 @@ export class SpriteSheetAnimation {
 
   private updateFrame(frameIndex: number): void {
     if (!this.spec) {
+      console.warn(`[SpriteSheetAnimation] updateFrame called but no spec exists`);
       return;
     }
 
@@ -404,9 +419,11 @@ export class SpriteSheetAnimation {
     const top = this.positionY - frameHeight * this.spec.anchorY;
     const xOffset = left - column * frameWidth;
     const yOffset = top - row * frameHeight;
+    const opacity = getSpriteSheetFrameOpacity(this.spec, frameIndex, this.spec.frameCount);
 
+    console.log(`[SpriteSheetAnimation] updateFrame ${frameIndex}/${this.spec.frameCount} - col: ${column}, row: ${row}, opacity: ${opacity}, transform: (${xOffset}, ${yOffset})`);
     this.element.setAttribute("transform", `translate(${xOffset}, ${yOffset})`);
-    this.container.style.opacity = String(getSpriteSheetFrameOpacity(this.spec, frameIndex, this.spec.frameCount));
+    this.container.style.opacity = String(opacity);
   }
 
   play(onComplete?: () => void): void {
@@ -428,12 +445,19 @@ export class SpriteSheetAnimation {
 
   private readonly tick = (currentTime: number): void => {
     if (!this.isPlaying || !this.spec) {
+      if (!this.isPlaying) {
+        console.log(`[SpriteSheetAnimation] tick aborted - not playing`);
+      }
+      if (!this.spec) {
+        console.log(`[SpriteSheetAnimation] tick aborted - no spec`);
+      }
       return;
     }
 
     let remainingElapsed = currentTime - this.lastFrameTimestamp;
     let frameDuration = getSpriteSheetFrameDuration(this.spec, this.currentFrame, this.spec.frameCount);
 
+    let advancedFrames = 0;
     while (remainingElapsed >= frameDuration && this.isPlaying) {
       remainingElapsed -= frameDuration;
       this.lastFrameTimestamp += frameDuration;
@@ -441,40 +465,54 @@ export class SpriteSheetAnimation {
       const nextFrame = this.currentFrame + 1;
       if (nextFrame >= this.spec.frameCount) {
         if (this.spec.loop) {
+          console.log(`[SpriteSheetAnimation] tick - looping animation`);
           this.currentFrame = 0;
           this.updateFrame(0);
         } else {
+          console.log(`[SpriteSheetAnimation] tick - animation complete, finishing`);
           this.finish();
           return;
         }
       } else {
         this.currentFrame = nextFrame;
         this.updateFrame(this.currentFrame);
+        advancedFrames++;
       }
 
       frameDuration = getSpriteSheetFrameDuration(this.spec, this.currentFrame, this.spec.frameCount);
+    }
+
+    if (advancedFrames > 0) {
+      console.log(`[SpriteSheetAnimation] tick advanced ${advancedFrames} frame(s), now at frame ${this.currentFrame}/${this.spec.frameCount}`);
     }
 
     requestAnimationFrame(this.tick);
   };
 
   private finish(): void {
+    console.log(`[SpriteSheetAnimation] finish called`);
     this.stop();
     const completion = this.onComplete;
     this.onComplete = undefined;
+    console.log(`[SpriteSheetAnimation] calling completion callback: ${!!completion}`);
     completion?.();
   }
 
   stop(): void {
+    console.log(`[SpriteSheetAnimation] stop called, was playing: ${this.isPlaying}`);
     this.isPlaying = false;
   }
 
   release(): void {
+    console.log(`[SpriteSheetAnimation] release called, container connected: ${this.container.isConnected}`);
     this.stop();
     this.onComplete = undefined;
     this.container.style.opacity = "0";
     if (this.container.parentNode) {
+      console.log(`[SpriteSheetAnimation] Removing container from parent: ${this.container.parentNode.nodeName}`);
       this.container.parentNode.removeChild(this.container);
+    } else {
+      console.log(`[SpriteSheetAnimation] Container has no parent, nothing to remove`);
     }
   }
 }
@@ -508,13 +546,18 @@ export class SpriteSheetAnimator {
 
   private async getResolvedSpec(animationType: keyof typeof COMBAT_ANIMATIONS): Promise<ResolvedSpriteSheetSpec> {
     const cacheKey = this.getSpecCacheKey(animationType);
+    console.log(`[SpriteSheetAnimator] getResolvedSpec for: ${animationType}, cache key: ${cacheKey}`);
     const cached = this.resolvedSpecCache.get(cacheKey);
     if (cached) {
+      console.log(`[SpriteSheetAnimator] Found cached resolved spec for: ${animationType}`);
       return cached;
     }
 
+    console.log(`[SpriteSheetAnimator] No cached spec, resolving: ${animationType}`);
     const spec = COMBAT_ANIMATIONS[animationType];
+    console.log(`[SpriteSheetAnimator] Base spec for ${animationType}:`, spec);
     const pending = resolveSpriteSheetSpecAsync(spec).catch((error) => {
+      console.error(`[SpriteSheetAnimator] Failed to resolve spec for ${animationType}:`, error);
       this.resolvedSpecCache.delete(cacheKey);
       throw error;
     });
