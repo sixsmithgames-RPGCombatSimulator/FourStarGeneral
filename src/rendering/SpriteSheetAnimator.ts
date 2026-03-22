@@ -379,9 +379,13 @@ export class SpriteSheetAnimation {
     this.scale = scale * spec.renderScale;
     this.container.style.opacity = "1";
 
+    console.log(`[SpriteSheetAnimation] Setting image href: ${spec.imagePath}`);
     this.element.setAttributeNS(XLINK_NS, "href", spec.imagePath);
-    this.element.setAttribute("width", String(spec.sheetWidth * this.scale));
-    this.element.setAttribute("height", String(spec.sheetHeight * this.scale));
+    const imageWidth = spec.sheetWidth * this.scale;
+    const imageHeight = spec.sheetHeight * this.scale;
+    this.element.setAttribute("width", String(imageWidth));
+    this.element.setAttribute("height", String(imageHeight));
+    console.log(`[SpriteSheetAnimation] Image element dimensions: ${imageWidth}x${imageHeight}`);
 
     const frameWidth = spec.frameWidth * this.scale;
     const frameHeight = spec.frameHeight * this.scale;
@@ -392,6 +396,7 @@ export class SpriteSheetAnimation {
     this.clipRect.setAttribute("y", String(top));
     this.clipRect.setAttribute("width", String(frameWidth));
     this.clipRect.setAttribute("height", String(frameHeight));
+    console.log(`[SpriteSheetAnimation] Clip rect: x=${left}, y=${top}, w=${frameWidth}, h=${frameHeight}`);
 
     console.log(`[SpriteSheetAnimation] Container parent before: ${this.container.parentNode?.nodeName}, target parent: ${svgParent.nodeName}`);
     if (this.container.parentNode !== svgParent) {
@@ -403,6 +408,7 @@ export class SpriteSheetAnimation {
 
     this.updateFrame(0);
     console.log(`[SpriteSheetAnimation] configure complete - container opacity: ${this.container.style.opacity}, isConnected: ${this.container.isConnected}`);
+    console.log(`[SpriteSheetAnimation] Image element in DOM:`, this.element, `href: ${this.element.getAttributeNS(XLINK_NS, "href")}`);
   }
 
   private updateFrame(frameIndex: number): void {
