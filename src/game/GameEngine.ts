@@ -3543,15 +3543,6 @@ private automateSupplyConvoys(
   private findReserveIndexByUnitKey(unitKey: string): number {
     const deploymentState = ensureDeploymentState();
     const scenarioType = deploymentState.getScenarioTypeForUnitKey(unitKey);
-    console.log("[GameEngine] Resolving reserve index", {
-      unitKey,
-      scenarioType,
-      reserveSnapshot: this.reserves.map((reserve, reserveIndex) => ({
-        reserveIndex,
-        allocationKey: reserve.allocationKey ?? null,
-        scenarioType: reserve.unit.type
-      }))
-    });
     return this.reserves.findIndex((reserve) => {
       if (reserve.allocationKey === unitKey) {
         return true;
@@ -4260,16 +4251,13 @@ private automateSupplyConvoys(
   }
 
   consumeSupportImpactEvents(): SupportImpactEvent[] {
-    console.log("[GameEngine] consumeSupportImpactEvents called, pending events:", this.pendingSupportImpactEvents.length);
     if (this.pendingSupportImpactEvents.length === 0) {
-      console.log("[GameEngine] No pending support impact events to consume");
       return [];
     }
     const copy = this.pendingSupportImpactEvents.map((event) => ({
       ...event,
       targetHex: structuredClone(event.targetHex)
     }));
-    console.log("[GameEngine] Returning", copy.length, "support impact events:", copy);
     this.pendingSupportImpactEvents.length = 0;
     return copy;
   }
@@ -4528,11 +4516,9 @@ private automateSupplyConvoys(
   }
 
   private resolveQueuedSupportActions(): void {
-    console.log("[GameEngine] resolveQueuedSupportActions called");
     const queuedAssets = Array.from(this.privateSupportAssets.values()).filter(
       (a) => a.status === "queued" && a.queuedHex
     );
-    console.log("[GameEngine] Found", queuedAssets.length, "queued support assets:", queuedAssets);
     let mutated = false;
     this.privateSupportAssets.forEach((asset) => {
       if (asset.status !== "queued" || !asset.queuedHex) {
@@ -4541,7 +4527,6 @@ private automateSupplyConvoys(
       const targetKey = asset.queuedHex;
       const targetHex = GameEngine.parseAxialKey(targetKey);
       const defender = this.botPlacements.get(targetKey) ?? null;
-      console.log("[GameEngine] Resolving queued asset", asset.id, asset.label, "targeting", targetKey, "defender:", defender);
       let damage = 0;
       let destroyed = false;
       let targetUnitType: ScenarioUnit["type"] | undefined;
@@ -4561,7 +4546,6 @@ private automateSupplyConvoys(
         }
         mutated = true;
       }
-      console.log("[GameEngine] Creating support impact event - hit:", defender !== null, "damage:", damage, "destroyed:", destroyed);
       this.pendingSupportImpactEvents.push({
         assetId: asset.id,
         label: asset.label,
@@ -5134,7 +5118,6 @@ private automateSupplyConvoys(
    */
   deployUnitByKey(hex: Axial, unitKey: string): void {
     this.assertPhase("deployment", "Units can only be deployed during the deployment phase.");
-    console.log("[GameEngine] deployUnitByKey invoked", { hex: axialKey(hex), unitKey });
     const index = this.findReserveIndexByUnitKey(unitKey);
     if (index < 0) {
       console.error("[GameEngine] deployUnitByKey failed to locate reserve", {
@@ -5200,10 +5183,6 @@ private automateSupplyConvoys(
     // Append preserved predeployed units so beginDeployment can detect and place them.
     if (scenarioPredeployed.length > 0) {
       this.playerSide.units.push(...scenarioPredeployed);
-      console.log("[GameEngine] initializeFromAllocations preserved predeployed scenario units", {
-        count: scenarioPredeployed.length,
-        types: scenarioPredeployed.map((u) => u.type)
-      });
     }
 
     this.beginDeployment();
