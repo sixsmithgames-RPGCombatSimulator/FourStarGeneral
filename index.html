@@ -2371,24 +2371,38 @@
     /* Battlefield header condenses to a single row so the map retains vertical space. */
     .battle-map-header {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
-      gap: 1rem;
-      flex-wrap: wrap;
-      padding: 0.45rem 0.65rem;
-      min-height: 0;
+      gap: 0.75rem;
+      flex-wrap: nowrap;
+      padding: 0.22rem 0.65rem;
+      min-height: auto;
     }
+
     .battle-map-header__primary {
       display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      flex-wrap: wrap;
+      align-items: flex-start;
       min-width: 0;
-      flex: 1 1 520px;
+      flex: 1 1 auto;
     }
+
+    .battle-map-title-block {
+      display: grid;
+      gap: 0.18rem;
+      min-width: 0;
+    }
+
+    .battle-map-title-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+
     .battle-map-title {
       margin: 0;
-      font-size: clamp(1.05rem, 1.1vw + 0.9rem, 1.35rem);
+      font-size: clamp(1rem, 1vw + 0.88rem, 1.25rem);
       letter-spacing: 0.08em;
       text-transform: uppercase;
       white-space: nowrap;
@@ -2396,33 +2410,66 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+
     .turn-status {
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.35rem;
       color: var(--text-muted);
-      font-size: 0.9rem;
+      font-size: 0.82rem;
       white-space: nowrap;
+      padding-left: 0.05rem;
     }
-    .battle-map-header__actions {
-      display: flex;
-      align-items: center;
-      gap: 0.9rem;
-      flex-shrink: 0;
-      flex: 1 1 360px;
-      justify-content: flex-end;
-      flex-wrap: wrap;
-    }
-    .battle-map-header__command-group,
-    .battle-map-header__risk-group {
+
+    .battle-map-header__mission-actions {
       display: inline-flex;
       align-items: center;
-      gap: 0.6rem;
+      gap: 0.5rem;
+      flex-shrink: 0;
       flex-wrap: wrap;
     }
+
+    .battle-map-header__actions {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      flex: 0 0 auto;
+      justify-content: flex-end;
+      flex-wrap: nowrap;
+    }
+
+    .battle-map-header__command-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: nowrap;
+    }
+
     .battle-map-header__risk-group {
-      padding-left: 0.9rem;
-      border-left: 1px solid rgba(255, 255, 255, 0.08);
+      padding-left: 0;
+      border-left: none;
+    }
+
+    .battle-map-header .compact-button,
+    .battle-map-header .primary-button,
+    .battle-map-header .secondary-button,
+    .battle-map-header .danger-button {
+      padding: 0.5rem 0.85rem;
+      font-size: 0.76rem;
+      line-height: 1;
+      border-radius: 12px;
+    }
+    @media (max-width: 980px) {
+      .battle-map-header {
+        flex-wrap: wrap;
+      }
+
+      .battle-map-title-row,
+      .battle-map-header__mission-actions,
+      .battle-map-header__actions,
+      .battle-map-header__command-group {
+        flex-wrap: wrap;
+      }
     }
     .map-pan-grid {
       display: grid;
@@ -4787,25 +4834,28 @@
           <section class="pane battle-map-pane">
             <div class="battle-map-header">
               <div class="battle-map-header__primary">
-                <h2 id="battleScreenHeading" class="battle-map-title">
-                  <span id="battleMissionTitle">Operation Pending</span>
-                </h2>
-                <div class="turn-status" role="status" aria-live="polite">
-                  <span id="battleTurnIndicator" class="turn-indicator">Deployment</span>
-                  <span class="turn-separator" aria-hidden="true">•</span>
-                  <span id="battlePhaseIndicator" class="phase-indicator">Phase pending</span>
-                  <span class="turn-separator" aria-hidden="true">•</span>
-                  <span id="battleFactionIndicator" class="faction-indicator">—</span>
+                <div class="battle-map-title-block">
+                  <div class="battle-map-title-row">
+                    <h2 id="battleScreenHeading" class="battle-map-title">
+                      <span id="battleMissionTitle">Operation Pending</span>
+                    </h2>
+                    <div class="battle-map-header__mission-actions">
+                      <button id="beginBattle" type="button" class="primary-button">Begin Mission</button>
+                      <button id="endMissionButton" type="button" class="danger-button hidden">End Mission</button>
+                    </div>
+                  </div>
+                  <div class="turn-status" role="status" aria-live="polite">
+                    <span id="battleTurnIndicator" class="turn-indicator">Turn 1</span>
+                    <span class="turn-separator" aria-hidden="true">•</span>
+                    <span id="battlePhaseIndicator" class="phase-indicator">Player's Turn</span>
+                    <span id="battleFactionIndicator" class="faction-indicator hidden">Player</span>
+                  </div>
                 </div>
               </div>
               <div class="battle-map-header__actions">
                 <div class="battle-map-header__command-group">
                   <button id="battleCycleObjective" type="button" class="compact-button" aria-label="Cycle objective focus">Cycle Objective</button>
-                  <button id="beginBattle" type="button" class="primary-button">Begin Mission</button>
                   <button id="endTurn" type="button" class="secondary-button" disabled>End Turn</button>
-                </div>
-                <div class="battle-map-header__risk-group">
-                  <button id="endMissionButton" type="button" class="danger-button">End Mission</button>
                 </div>
               </div>
             </div>

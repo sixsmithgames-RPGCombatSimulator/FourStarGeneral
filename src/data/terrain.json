@@ -7,8 +7,8 @@
   },
   "forest": {
     "moveCost": { "leg": 2, "wheel": 3, "track": 2, "air": 1 },
-    "defense": 3,
-    "accMod": -30,
+    "defense": 4,
+    "accMod": -32,
     "blocksLOS": true
   },
   "hill": {
@@ -25,8 +25,8 @@
   },
   "city": {
     "moveCost": { "leg": 1, "wheel": 1, "track": 2, "air": 1 },
-    "defense": 4,
-    "accMod": -20,
+    "defense": 5,
+    "accMod": -40,
     "blocksLOS": true
   },
   "marsh": {

@@ -76,10 +76,10 @@ export const combat = {
      */
     baseByRange: {
       // Infantry: bolt-action/semi-auto rifles vs man-sized targets
-      // Data: 100m=10%, 250m=5%, 500m=1%, 1000m=0.1%
+      // Data: 100m=20%, 250m=10%, 500m=1%, 1000m=0.1%
       infantry: [
-        { range: 0, accuracy: 30 },  // Adjacent (<125m): close combat
-        { range: 1, accuracy: 5 },   // 250m
+        { range: 0, accuracy: 25 },  // Adjacent (<125m): close combat
+        { range: 1, accuracy: 10 },   // 250m
         { range: 2, accuracy: 1 },   // 500m
         { range: 4, accuracy: 0.1 }  // 1000m+
       ],
@@ -209,7 +209,7 @@ export const combat = {
     damagePercent: {
       infantry: {
         soft: { full: 0.00952, partial: 0.00952 },  // Rifle vs infantry
-        hard: { full: 0.0001, partial: 0.0001 }      // Rifle vs tank (negligible)
+        hard: { full: 0.001, partial: 0.0005 }      // Rifle vs tank (negligible)
       },
       specialist: {
         soft: { full: 0.05, partial: 0.05 },         // AT round vs infantry
@@ -251,9 +251,9 @@ export const combat = {
    * Entrenchment scaling. Controls defensive bonuses and accuracy penalties per entrenchment pip.
    */
   entrench: {
-    max: 5,
-    accPenaltyPerLevel: 5,
-    defensePerLevel: 1
+    max: 2,
+    accPenaltyPerLevel: 15,
+    defensePerLevel: 0
   },
   /**
    * Ammo and fuel consumption rules shared by movement, attacks, and UI previews.
@@ -293,7 +293,7 @@ export const supply = {
   tick: {
     ammoLoss: 1,
     fuelLoss: 1,
-    entrenchLoss: 1,
+    entrenchLoss: 0,
     stepLossWhenEmpty: 1
   },
   resupply: { ammo: 2, fuel: 2 } as const,

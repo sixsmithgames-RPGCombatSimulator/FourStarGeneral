@@ -2915,9 +2915,11 @@ export class GameEngine implements GameEngineAPI {
         if (Number.isFinite(availableFuel) && fuelSpent > 0) {
           truck.fuel = Math.max(0, Number((truck.fuel - fuelSpent).toFixed(2)));
         }
+        truck.entrench = 0;
         this.getPlacementMapForFaction(faction).set(toKey, structuredClone(truck));
         this.updateSupplyPositionForFaction(faction, traveled[0], current);
         this.syncFuelForFaction(faction, current, truck.fuel);
+        this.syncEntrenchForFaction(faction, current, truck.entrench);
 
         if (this.isHexWithinSupplySourceRadius(truck.hex, faction)) {
           this.loadSupplyTruckFromDepot(faction, supplyState, truck, truckSupplyState, truckState);
@@ -6065,10 +6067,12 @@ export class GameEngine implements GameEngineAPI {
     if (Number.isFinite(availableFuel) && moveSummary.fuelCost > 0) {
       moved.fuel = Math.max(0, Number((moved.fuel - moveSummary.fuelCost).toFixed(2)));
     }
+    moved.entrench = 0;
     this.playerPlacements.set(toKey, moved);
     this.transferAircraftAmmoState(this.playerAttackAmmo, fromKey, toKey);
     this.updatePlayerSupplyPosition(from, to);
     this.syncPlayerFuel(to, moved.fuel);
+    this.syncPlayerEntrench(to, moved.entrench);
 
     // Update action flags
     this.playerActionFlags.delete(fromKey);
@@ -7598,6 +7602,30 @@ export class GameEngine implements GameEngineAPI {
     }
   }
 
+  private syncBotEntrench(unitHex: Axial, entrench: number): void {
+    const key = axialKey(unitHex);
+    const idx = this.botSupply.findIndex((entry) => axialKey(entry.hex) === key);
+    if (idx >= 0) {
+      this.botSupply[idx].entrench = entrench;
+    }
+  }
+
+  private syncEntrenchForFaction(faction: TurnFaction, hex: Axial, entrench: number): void {
+    if (faction === "Player") {
+      this.syncPlayerEntrench(hex, entrench);
+      return;
+    }
+    if (faction === "Bot") {
+      this.syncBotEntrench(hex, entrench);
+      return;
+    }
+    const key = axialKey(hex);
+    const idx = this.allySupply.findIndex((entry) => axialKey(entry.hex) === key);
+    if (idx >= 0) {
+      this.allySupply[idx].entrench = entrench;
+    }
+  }
+
   /** Sync bot ammo usage back into the supply mirror. */
   private syncBotAmmo(attackerHex: Axial, ammo: number): void {
     const key = axialKey(attackerHex);
@@ -7959,17 +7987,22 @@ export class GameEngine implements GameEngineAPI {
         if (Number.isFinite(availableFuel) && fuelSpent > 0) {
           moved.fuel = Math.max(0, Number((moved.fuel - fuelSpent).toFixed(2)));
         }
+        moved.entrench = 0;
         const finalKey = axialKey(current);
         console.log(`[Bot AI] ${unit.type} moved from ${fromKey} to ${finalKey} (${visited.length - 1} steps)`);
         this.botPlacements.set(finalKey, moved);
         this.syncBotFuel(current, moved.fuel);
+        this.syncBotEntrench(current, moved.entrench);
         occupancy.delete(fromKey);
         occupancy.add(finalKey);
-        this.updateBotSupplyPosition(plan.origin, current);
-        const distance = visited.length - 1;
-        moves.push({ unitType: moved.type, from: structuredClone(plan.origin), to: structuredClone(current), path: visited, distance, duration: Math.max(1, distance) });
-      } else {
-        console.log(`[Bot AI] ${unit.type} holding position at ${fromKey}`);
+        moves.push({
+          unitType: moved.type,
+          from: structuredClone(unit.hex),
+          to: structuredClone(current),
+          path: visited,
+          distance: visited.length - 1,
+          duration: Math.max(visited.length - 1, 1)
+        });
       }
 
       if (plan.attackTarget) {
@@ -8027,7 +8060,9 @@ export class GameEngine implements GameEngineAPI {
           current = structuredClone(step);
           visited.push(structuredClone(step));
         }
+        moved.entrench = 0;
         this.allyPlacements.set(axialKey(current), moved);
+        this.syncEntrenchForFaction("Ally", current, moved.entrench);
         occupancy.delete(fromKey);
         occupancy.add(axialKey(current));
       }
@@ -8164,10 +8199,12 @@ export class GameEngine implements GameEngineAPI {
         const moved = structuredClone(unit);
         moved.facing = this.resolveFacingToward(current, step, moved.facing);
         moved.hex = structuredClone(step);
+        moved.entrench = 0;
         current = structuredClone(step);
         fuelSpent += stepFuel;
         this.botPlacements.set(axialKey(step), moved);
         this.updateBotSupplyPosition(visited[visited.length - 1], step);
+        this.syncBotEntrench(step, moved.entrench);
         visited.push(structuredClone(step));
         lastMovedUnit = moved;
 

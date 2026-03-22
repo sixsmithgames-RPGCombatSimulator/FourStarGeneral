@@ -71,6 +71,7 @@ import terrainSource from "../../data/terrain.json";
 import unitTypesSource from "../../data/unitTypes.json";
 import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
+import { setMissionStartedUI } from "../../main";
 
 type ActivityCategory = "player" | "enemy" | "system";
 type ActivityType = "attack" | "move" | "deployment" | "supply" | "turn" | "log";
@@ -2955,6 +2956,9 @@ export class BattleScreen {
     this.selectionIntelOverlay?.dispose();
     this.selectionIntelOverlay = null;
     this.battleActivityLog?.dispose();
+    
+    // Reset UI state when screen is disposed
+    setMissionStartedUI(false);
   }
 
   /**
@@ -3358,6 +3362,9 @@ export class BattleScreen {
       this.collapseDeploymentPanelForBattlePhase();
       this.renderEngineUnits();
 
+      // Update UI to show mission has started
+      setMissionStartedUI(true);
+
       const reserveCount = engine.getReserveSnapshot().length;
       this.announceBattleUpdate(
         `Battle phase started. ${reserveCount} reserves standing by. Active faction: ${turnSummary.activeFaction}. Phase: ${turnSummary.phase}.`
@@ -3723,6 +3730,9 @@ export class BattleScreen {
     if (this.baseCampStatus) {
       this.baseCampStatus.removeAttribute("aria-live");
     }
+
+    // Update UI to show mission has ended
+    setMissionStartedUI(false);
 
     // Return to the campaign screen so the commander sees the updated fronts and resources immediately.
     this.screenManager.showScreenById("campaign");
@@ -5748,6 +5758,9 @@ export class BattleScreen {
     this.endMissionButton?.classList.remove("battle-button--highlight");
     this.deploymentPanel?.resetScenarioState();
     this.disposeMissionEndModal();
+    
+    // Update UI to show mission has reset
+    setMissionStartedUI(false);
   }
 
   private buildScenarioData(): ScenarioData {

@@ -386,6 +386,37 @@ registerTest("DIG_IN_ENTRENCHMENT_PERSISTS_THROUGH_TURN_CYCLE", async ({ Then })
   await Then("dig-in entrenchment persists through upkeep and save-load", () => {});
 });
 
+registerTest("MOVING_OFF_AN_ENTRENCHED_HEX_CLEARS_ENTRENCHMENT_IMMEDIATELY", async ({ Then }) => {
+  const infantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([infantry]);
+  if (!engine.digInUnit(infantry.hex)) {
+    throw new Error("Expected dig-in command to succeed before movement.");
+  }
+
+  engine.endTurn();
+  const moved = engine.moveUnit({ q: 0, r: 0 }, { q: 1, r: 0 });
+  if (moved.unit.entrench !== 0) {
+    throw new Error(`Expected movement to clear entrenchment immediately, received ${JSON.stringify(moved.unit)}`);
+  }
+
+  const movedUnit = engine.getPlayerPlacementsSnapshot().find((unit) => unit.hex.q === 1 && unit.hex.r === 0);
+  if (!movedUnit || movedUnit.entrench !== 0) {
+    throw new Error(`Expected moved unit to have no entrenchment after leaving the hex, received ${JSON.stringify(movedUnit)}`);
+  }
+
+  await Then("moving to a different hex strips the previous entrenchment completely", () => {});
+});
+
 registerTest("SUPPRESSED_AND_PINNED_INFANTRY_RESPECT_MOVEMENT_AND_ASSAULT_RULES", async ({ Then }) => {
   const movingInfantry: ScenarioUnit = {
     type: "TestInfantry" as unknown as ScenarioUnit["type"],
