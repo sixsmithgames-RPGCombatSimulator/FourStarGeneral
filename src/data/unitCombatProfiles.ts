@@ -1,7 +1,6 @@
-// Read the core combat tuning so we can expose the same shot-per-turn heuristics in documentation.
-import { combat } from "../core/balance";
 // Pull in the canonical unit stat definitions so we can annotate each allocation entry with combat metrics.
 import unitTypes from "./unitTypes.json";
+import { getCombatProfile } from "./combatProfiles";
 import type { UnitAllocationKey } from "./unitComposition";
 
 type UnitTypeKey = keyof typeof unitTypes;
@@ -50,8 +49,8 @@ const COMBAT_MAPPING: readonly [UnitAllocationKey, UnitTypeKey | null][] = [
 export interface UnitCombatProfile {
   readonly key: UnitAllocationKey;
   readonly unitType: UnitTypeKey | null;
-  /** Mirrors the combat classification used by the balance tables. */
-  readonly unitClass: keyof typeof combat.damage.shotsPerTurn | null;
+  /** Combat classification label for documentation purposes. */
+  readonly combatProfileLabel: string | null;
   readonly softAttack: number;
   readonly hardAttack: number;
   readonly armor: { readonly front: number; readonly side: number; readonly top: number };
@@ -62,7 +61,7 @@ export interface UnitCombatProfile {
   readonly fuelConsumptionPerTurn: number;
   /** Estimated ammunition expenditure per major engagement. */
   readonly ammoConsumptionPerEngagement: number;
-  /** Baseline volleys fired during a five-minute tactical turn, sourced from `core/balance.ts`. */
+  /** Baseline volleys fired during a five-minute tactical turn, sourced from combat profiles. */
   readonly shotsPerTurn: number;
 }
 
@@ -84,7 +83,7 @@ export const unitCombatProfiles: readonly UnitCombatProfile[] = COMBAT_MAPPING.m
     return {
       key,
       unitType: null,
-      unitClass: null,
+      combatProfileLabel: null,
       softAttack: 0,
       hardAttack: 0,
       armor: EMPTY_ARMOR,
@@ -98,14 +97,14 @@ export const unitCombatProfiles: readonly UnitCombatProfile[] = COMBAT_MAPPING.m
   }
 
   const stats = unitTypes[unitType];
-  const unitClass = stats.class as keyof typeof combat.damage.shotsPerTurn;
-  const shotsPerTurn = combat.damage.shotsPerTurn[unitClass] ?? 0;
+  const combatProfile = getCombatProfile(stats.combat as any); // JSON import loses literal types
+  const shotsPerTurn = combatProfile.shotsPerTurn;
   const { fuelPerTurn, ammoPerEngagement } = estimateConsumption(stats);
 
   return {
     key,
     unitType,
-    unitClass,
+    combatProfileLabel: combatProfile.label,
     softAttack: stats.softAttack,
     hardAttack: stats.hardAttack,
     armor: stats.armor,

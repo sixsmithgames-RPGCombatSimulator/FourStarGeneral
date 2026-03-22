@@ -391,8 +391,12 @@ export type CombatProfileKey = keyof typeof COMBAT_PROFILES;
 /**
  * Build the stable lookup key shared between `unitTypes.json` combat metadata and the authored profile table.
  */
-export function createCombatProfileKey(classification: CombatClassification): string {
-  return `${classification.category}.${classification.weight}.${classification.role}`;
+export function createCombatProfileKey(classification: CombatClassification): CombatProfileKey {
+  const key = `${classification.category}.${classification.weight}.${classification.role}`;
+  if (Object.prototype.hasOwnProperty.call(COMBAT_PROFILES, key)) {
+    return key as CombatProfileKey;
+  }
+  throw new Error(`Combat profile '${key}' is not defined. Add it to src/data/combatProfiles.ts or fix the unit's combat classification.`);
 }
 
 /**
@@ -403,9 +407,5 @@ export function createCombatProfileKey(classification: CombatClassification): st
  */
 export function getCombatProfile(classification: CombatClassification): CombatProfileDefinition {
   const key = createCombatProfileKey(classification);
-  const profile = COMBAT_PROFILES[key];
-  if (!profile) {
-    throw new Error(`Combat profile '${key}' is not defined. Add it to src/data/combatProfiles.ts or fix the unit's combat classification.`);
-  }
-  return profile;
+  return COMBAT_PROFILES[key];
 }

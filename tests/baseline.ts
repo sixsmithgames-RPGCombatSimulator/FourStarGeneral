@@ -78,6 +78,7 @@ const forest: TerrainDefinition = {
 
 const infantry: UnitTypeDefinition = {
   class: "infantry",
+  combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
   movement: 3,
   moveType: "leg",
   vision: 2,

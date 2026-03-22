@@ -8,6 +8,7 @@ import type { Axial } from "./Hex";
 import { axialDirections, hexDistance, subtract } from "./Hex";
 import type { TerrainDefinition, UnitClass, UnitTypeDefinition } from "./types";
 import type { ScenarioUnit } from "./types";
+import { getCombatProfile, type CombatProfileDefinition } from "../data/combatProfiles";
 
 /** Facing strings reused from `ScenarioUnit`. */
 export type Facing = ScenarioUnit["facing"];
@@ -17,22 +18,16 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-type CombatProfileKey = keyof typeof combatBalance.damage.shotsPerTurn;
-
 /**
  * Resolves the combat profile a unit should use for range, volume-of-fire, and damage tables.
- * This lets formations like recon bikes keep their scouting role without inheriting the hotter
- * armored-car combat curve.
+ * Uses the new hierarchical combat classification system for more precise tuning.
  */
-function resolveCombatProfile(unit: UnitTypeDefinition): CombatProfileKey {
-  if (unit.class === "recon" && unit.moveType === "wheel" && (unit.rangeMax ?? 1) <= 1 && unit.hardAttack <= 0) {
-    return "infantry";
-  }
-  return unit.class as CombatProfileKey;
+function resolveCombatProfile(unit: UnitTypeDefinition): CombatProfileDefinition {
+  return getCombatProfile(unit.combat);
 }
 
-function resolveAccuracyScalar(unit: UnitTypeDefinition, profile: CombatProfileKey): number {
-  const reference = combatBalance.profileReference.accuracyBase[profile] ?? unit.accuracyBase;
+function resolveAccuracyScalar(unit: UnitTypeDefinition, profile: CombatProfileDefinition): number {
+  const reference = profile.accuracyReference;
   if (!Number.isFinite(reference) || reference <= 0) {
     return 1;
   }
@@ -41,7 +36,7 @@ function resolveAccuracyScalar(unit: UnitTypeDefinition, profile: CombatProfileK
 
 function resolveAttackScalar(
   unit: UnitTypeDefinition,
-  profile: CombatProfileKey,
+  profile: CombatProfileDefinition,
   isSoftTarget: boolean
 ): number {
   const attackValue = isSoftTarget ? unit.softAttack : unit.hardAttack;
@@ -49,8 +44,8 @@ function resolveAttackScalar(
     return 0;
   }
   const reference = isSoftTarget
-    ? combatBalance.profileReference.softAttack[profile]
-    : combatBalance.profileReference.hardAttack[profile];
+    ? profile.softAttackReference
+    : profile.hardAttackReference;
   if (!Number.isFinite(reference) || reference <= 0) {
     return 1;
   }
@@ -184,11 +179,12 @@ function directionIndex(from: Axial, to: Axial): number {
  * Interpolates accuracy from range-based table for a given unit class.
  * Uses linear interpolation between defined range points.
  */
-function getBaseAccuracyByRange(unitClass: UnitClass, distance: number): number {
-  const table = combatBalance.accuracy.baseByRange[unitClass];
-  if (!table) {
-    // Fallback to infantry table if class not found
-    return combatBalance.accuracy.baseByRange.infantry[0].accuracy;
+function getBaseAccuracyByRange(profile: CombatProfileDefinition, distance: number): number {
+  const table = profile.rangeAccuracy;
+
+  // If no range table or empty, return a safe default
+  if (!table || table.length === 0) {
+    return 50; // Default 50% base accuracy
   }
 
   // Find the range bracket
@@ -262,12 +258,14 @@ export function pickFacingArmor(
  * New system (realistic):
  * 1. Look up base accuracy from range/class table (interpolated)
  * 2. Add experience bonus (+3% per star)
- * 3. Add terrain modifier (defender in cover is harder to hit)
- * 4. Apply commander bonus as percentage multiplier
- * 5. Clamp to min/max bounds after range, terrain, and spotting adjustments
+ * 3. Apply target signature modifier (tiny/small/medium/large affects exposed area)
+ * 4. Add terrain modifier (defender in cover is harder to hit)
+ * 5. Apply commander bonus as percentage multiplier
+ * 6. Clamp to min/max bounds after range, terrain, and spotting adjustments
  */
 export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const attacker = request.attacker;
+  const defender = request.defender;
   const defenderCtx = request.defenderCtx;
   const attackerCtx = request.attackerCtx;
   const combatProfile = resolveCombatProfile(attacker.unit);
@@ -294,12 +292,24 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const experienceWithCommander = experienceBonus * commanderScalar;
   const combinedAfterCommander = baseWithCommander + experienceWithCommander;
 
-  // Step 3: Apply terrain modifier multiplicatively.
+  // Step 3: Apply target signature modifier
+  // Smaller signatures are harder to hit, larger signatures are easier to hit
+  const defenderSignature = defender.unit.combat.signature;
+  const signatureMultipliers = {
+    tiny: 0.7,    // -30% hit chance (very hard to hit)
+    small: 0.85,  // -15% hit chance
+    medium: 1.0,  // baseline
+    large: 1.15   // +15% hit chance
+  };
+  const signatureMultiplier = signatureMultipliers[defenderSignature] ?? 1.0;
+  const afterSignature = combinedAfterCommander * signatureMultiplier;
+
+  // Step 4: Apply terrain modifier multiplicatively.
   const terrainMod = terrainAccMod(defenderCtx.terrain, defenderCtx.isRushing, defenderCtx.fortified, defenderCtx.class);
   const terrainMultiplier = 1 + terrainMod / 100;
-  const afterTerrain = combinedAfterCommander * terrainMultiplier;
+  const afterTerrain = afterSignature * terrainMultiplier;
 
-  // Step 4: Apply spotted target penalty as multiplier
+  // Step 5: Apply spotted target penalty as multiplier
   const spottedMultiplier = defenderCtx.isSpottedOnly ? 0.5 : 1.0;
   let afterSpotted = afterTerrain * spottedMultiplier;
 
@@ -308,7 +318,7 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   // between preview and expected battlefield outcomes.
   const finalPreClamp = afterSpotted;
 
-  // Step 5: Clamp to bounds
+  // Step 6: Clamp to bounds
   const finalAccuracy = clamp(finalPreClamp, combatBalance.accuracy.min, combatBalance.accuracy.max);
 
   return {
@@ -333,32 +343,24 @@ export function calculateEffectiveAP(attacker: UnitCombatState): number {
 }
 
 /**
- * Light and medium armor should sharply dampen small-arms fire, but not render it completely
- * meaningless. This scalar models chip damage bleeding through from soft attack values when a
- * target is armored but the attacker lacks a dedicated hard-attack punch.
+ * Calculate shots fired based on unit's combat profile and current strength percentage.
+ * Uses realistic shot counts from hierarchical combat profiles.
  */
-function resolveArmorChipScalar(effectiveAP: number, facingArmor: number): number {
-  const armor = Math.max(0, facingArmor);
-  if (armor <= 0) {
-    return 1;
-  }
-  const armorGap = Math.max(0, armor - Math.max(0, effectiveAP));
-  return combatBalance.penetration.underPenetrationScale / (1 + armor * 3 + armorGap * 2);
-}
-
-/**
- * Calculate shots fired based on unit class and current strength percentage.
- * Uses realistic shot counts from balance table.
- */
-export function calculateShots(attacker: UnitTypeDefinition | UnitClass, strengthPercent: number): number {
-  const combatProfile = typeof attacker === "string" ? attacker : resolveCombatProfile(attacker);
-  const fullStrengthShots = combatBalance.damage.shotsPerTurn[combatProfile] ?? 1000;
+export function calculateShots(attacker: UnitTypeDefinition, strengthPercent: number): number {
+  const combatProfile = resolveCombatProfile(attacker);
+  const fullStrengthShots = combatProfile.shotsPerTurn;
   return Math.round(fullStrengthShots * (strengthPercent / 100));
 }
 
 /**
  * Calculate damage per hit as percentage of target strength (0-100%).
- * Uses realistic damage values from historical data.
+ * Uses combat profile base damage with AP margin modifiers for armored targets.
+ * New system:
+ * - Base damage from combat profile
+ * - Soft targets: use soft attack scalar directly
+ * - Armored targets: apply AP margin modifier
+ *   - margin >= 0: +5% per point of overpenetration
+ *   - margin < 0: -15% per point of underpenetration
  */
 export function calculateDamagePerHit(
   request: AttackRequest,
@@ -373,54 +375,29 @@ export function calculateDamagePerHit(
   const softAttackScalar = resolveAttackScalar(attacker.unit, combatProfile, true);
   const hardAttackScalar = resolveAttackScalar(attacker.unit, combatProfile, false);
 
-  // Get base damage from table
-  const targetType = isSoftTarget ? 'soft' : 'hard';
-  const damageTable = combatBalance.damage.damagePercent[combatProfile];
+  // Get base damage from profile
+  const baseDamage = combatProfile.baseDamagePerHit;
+  let afterExperience = baseDamage * experienceScalar;
 
-  // Provide a safe fallback so the UI can still report numbers for unexpected unit classes.
-  let baseDamage: number;
-  let afterExperience: number;
-  let finalDamage: number;
+  // Apply attack type scalar (soft or hard)
+  const attackScalar = isSoftTarget ? softAttackScalar : hardAttackScalar;
+  let afterAttackType = afterExperience * attackScalar;
 
-  if (!damageTable) {
-    baseDamage = isSoftTarget ? 0.01 : 0.001;
-    afterExperience = baseDamage * experienceScalar;
-    const attackScalar = isSoftTarget ? softAttackScalar : hardAttackScalar;
-    finalDamage = attackScalar <= 0 ? 0 : Math.max(0, afterExperience * damageScalar * attackScalar);
-  } else if (isSoftTarget) {
-    baseDamage = damageTable[targetType].full;
-    afterExperience = baseDamage * experienceScalar;
-    finalDamage = softAttackScalar <= 0 ? 0 : Math.max(0, afterExperience * damageScalar * softAttackScalar);
-  } else {
-    // Determine penetration result for hard targets
-    let penetrationResult: 'full' | 'partial' = 'full';
+  // For armored targets, apply AP margin modifier
+  let penetrationMarginScalar = 1;
+  if (!isSoftTarget && facingArmor > 0) {
     const margin = effectiveAP - facingArmor;
-    if (margin < 0) {
-      penetrationResult = 'partial'; // Under-penetration/glancing hit
-    }
-
-    const penetratingBaseDamage = damageTable.hard[penetrationResult];
-    const penetratingAfterExperience = penetratingBaseDamage * experienceScalar;
-    const penetratingDamage = hardAttackScalar <= 0
-      ? 0
-      : Math.max(0, penetratingAfterExperience * damageScalar * hardAttackScalar);
-
-    const chipBaseDamage = damageTable.soft.full * resolveArmorChipScalar(effectiveAP, facingArmor);
-    const chipAfterExperience = chipBaseDamage * experienceScalar;
-    const chipDamage = softAttackScalar <= 0
-      ? 0
-      : Math.max(0, chipAfterExperience * damageScalar * softAttackScalar);
-
-    if (chipDamage > penetratingDamage) {
-      baseDamage = chipBaseDamage;
-      afterExperience = chipAfterExperience;
-      finalDamage = chipDamage;
+    if (margin >= 0) {
+      // Overpenetration: +5% damage per point
+      penetrationMarginScalar = 1 + (margin * 0.05);
     } else {
-      baseDamage = penetratingBaseDamage;
-      afterExperience = penetratingAfterExperience;
-      finalDamage = penetratingDamage;
+      // Underpenetration: -15% damage per point
+      penetrationMarginScalar = Math.max(0.1, 1 + (margin * 0.15)); // Floor at 10% to avoid complete negation
     }
   }
+
+  const afterPenetration = afterAttackType * penetrationMarginScalar;
+  const finalDamage = Math.max(0, afterPenetration * damageScalar);
 
   return {
     baseTableValue: baseDamage,
@@ -446,7 +423,10 @@ export function resolveAttack(request: AttackRequest): AttackResult {
   const damageBreakdown = calculateDamagePerHit(request, effectiveAP, facingArmor);
   const expectedHits = (accuracyBreakdown.final / 100) * shots;
   const expectedDamage = expectedHits * damageBreakdown.final;
-  const expectedSuppression = expectedHits * combatBalance.damage.suppressionPerHit;
+
+  // Use suppression from combat profile instead of global balance value
+  const combatProfile = resolveCombatProfile(request.attacker.unit);
+  const expectedSuppression = expectedHits * combatProfile.suppressionPerHit;
 
   return {
     accuracy: accuracyBreakdown.final,

@@ -12,6 +12,7 @@ const terrain: TerrainDictionary = { plains } as unknown as TerrainDictionary;
 
 const bomberDef: UnitTypeDefinition = {
   class: "air",
+  combat: { category: "air", weight: "light", role: "normal", signature: "large" },
   movement: 1,
   moveType: "air",
   vision: 4,
@@ -37,6 +38,7 @@ const bomberDef: UnitTypeDefinition = {
 
 const infantryDef: UnitTypeDefinition = {
   class: "infantry",
+  combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
   movement: 1,
   moveType: "leg",
   vision: 2,

@@ -46,214 +46,77 @@ export const TURN_TIME_MINUTES = 5;
  */
 export const combat = {
   /**
-   * Accuracy modifiers broken into target-size adjustments plus distance falloff metadata. The
-   * `sizeVs` table tracks how target silhouettes affect the chance to hit. Positive values make
-   * the target easier to hit (larger/more visible), negative values make it harder (smaller/evasive).
-   *
-   * At 500m/hex scale:
-   * - Infantry (0): Man-sized, takes cover, baseline difficulty
-   * - Specialist (0): AT guns, engineers - small crews, dug-in positions
-   * - Vehicles (+8): Trucks, halftracks - large (4m), unarmored, no camouflage, easy to spot
-   * - Tanks (-2): Low profile (2.5m), camouflaged, trained crew positioning
-   * - Artillery (-5): Dug-in emplacements, heavy camouflage, minimal movement
-   * - Recon (-3): Fast-moving, evasive tactics, concealment priority
-   * - Air (+5): Large silhouette vs AA, but varies by altitude/speed (future: split air-to-air vs AA)
+   * Accuracy is responsible only for determining whether a shot has a plausible chance to land.
+   * Range curves now live in `src/data/combatProfiles.ts`; the values below are the global layers
+   * applied on top of those authored weapon-family curves.
    */
   accuracy: {
     min: 0.1,
     max: 95,
     expPerStar: 3,
-    terrainCoverMod: 5,     // Bonus per terrain defense level
-    commanderScalar: 0.01,  // Commander bonus applied as percentage multiplier
+    commanderScalar: 0.01,
     /**
-     * Realistic base accuracy by range (hexes at 250m scale) for each unit class.
-     * Based on historical WWII hit probability data. Values represent single-shot
-     * hit probability against standard targets (infantry vs infantry, tank vs tank).
-     * Experience, terrain, and commander bonuses are applied as additive modifiers.
-     *
-     * Range interpolation: values between defined ranges use linear interpolation.
-     * Ranges beyond the max use the final value.
+     * Signature scales the final hit probability before cover and spotting are applied.
+     * Small targets force more precise fire; large targets expose more surface area.
      */
-    baseByRange: {
-      // Infantry: bolt-action/semi-auto rifles vs man-sized targets
-      // Data: 100m=20%, 250m=10%, 500m=1%, 1000m=0.1%
-      infantry: [
-        { range: 0, accuracy: 25 },  // Adjacent (<125m): close combat
-        { range: 1, accuracy: 10 },   // 250m
-        { range: 2, accuracy: 1 },   // 500m
-        { range: 4, accuracy: 0.1 }  // 1000m+
-      ],
-      // Specialist: AT guns, engineers - crew-served weapons, better training
-      specialist: [
-        { range: 0, accuracy: 40 },
-        { range: 1, accuracy: 15 },
-        { range: 2, accuracy: 8 },
-        { range: 4, accuracy: 3 },
-        { range: 8, accuracy: 1 }
-      ],
-      // Tank: 75mm class gun vs tank-sized targets
-      // Data: 100m=80%, 500m=60%, 1000m=25%, 2000m=8%, 3000m=2%
-      tank: [
-        { range: 0, accuracy: 85 },  // <125m
-        { range: 1, accuracy: 75 },  // 250m
-        { range: 2, accuracy: 60 },  // 500m
-        { range: 4, accuracy: 25 },  // 1000m
-        { range: 8, accuracy: 8 },   // 2000m
-        { range: 12, accuracy: 2 }   // 3000m
-      ],
-      // Artillery: indirect fire, heavily dependent on spotting
-      artillery: [
-        { range: 4, accuracy: 15 },   // 1000m (minimum range ~3)
-        { range: 8, accuracy: 10 },   // 2000m
-        { range: 12, accuracy: 8 },   // 3000m
-        { range: 20, accuracy: 5 },   // 5000m
-        { range: 32, accuracy: 3 }    // 8000m
-      ],
-      // Recon: light weapons, autocannons
-      recon: [
-        { range: 0, accuracy: 50 },
-        { range: 1, accuracy: 25 },
-        { range: 2, accuracy: 10 },
-        { range: 4, accuracy: 3 }
-      ],
-      // Air: strafing/bombing runs
-      air: [
-        { range: 0, accuracy: 60 },
-        { range: 1, accuracy: 40 },
-        { range: 2, accuracy: 20 },
-        { range: 3, accuracy: 5 }
-      ],
-      // Vehicle: mostly non-combat, some have defensive MGs
-      vehicle: [
-        { range: 0, accuracy: 20 },
-        { range: 1, accuracy: 5 },
-        { range: 2, accuracy: 1 }
-      ]
+    signatureMultiplier: {
+      tiny: 0.72,
+      small: 0.86,
+      medium: 1,
+      large: 1.15
     } as const
   },
   /**
-   * Reference values that let per-unit stats meaningfully scale the class combat tables.
-   * The class tables define the broad weapon-family behavior by range, while these anchors
-   * let specific formations sit above or below that baseline without inventing a new class
-   * for every platform.
+   * Cover reduces exposed target area and therefore belongs entirely in the hit-chance phase.
+   * Terrain `accMod` remains the authored hand-tuned modifier, while terrain `defense` is now a
+   * secondary authored cover level that is converted into additional hit reduction here.
    */
-  profileReference: {
-    accuracyBase: {
-      infantry: 60,
-      specialist: 60,
-      tank: 64,
-      artillery: 52,
-      air: 60,
-      recon: 60,
-      vehicle: 55
-    } as const,
-    softAttack: {
-      infantry: 25,
-      specialist: 20,
-      tank: 40,
-      artillery: 50,
-      air: 35,
-      recon: 20,
-      vehicle: 18
-    } as const,
-    hardAttack: {
-      infantry: 1,
-      specialist: 22,
-      tank: 28,
-      artillery: 16,
-      air: 20,
-      recon: 12,
-      vehicle: 1
-    } as const
+  cover: {
+    defenseLevelToAccuracyPct: -2,
+    fortificationBonusPct: -12,
+    entrenchmentPerLevelPct: -15
   },
   /**
-   * Armor penetration heuristics. These values dictate when side/top armor applies and how much
-   * hard-damage bleeds through on under-penetration results.
+   * Armor matters only after a hit. The AP-versus-armor margin scales damage using separate positive
+   * and negative per-point modifiers so overmatch and under-penetration are both readable to tune.
    */
   penetration: {
-    sideHeuristicAngle: 60,
     topAttackClasses: new Set(["artillery", "air"]),
-    underPenetrationScale: 0.25,
-    starApBonus: 1
+    starApBonus: 1,
+    positiveDamageBonusPerPoint: 0.05,
+    negativeDamagePenaltyPerPoint: 0.15,
+    minimumDamageScalar: 0.1
   },
   /**
-   * Damage resolution using realistic shot counts and percentage-based damage.
-   *
-   * Shot counts represent actual rounds/volleys fired by a full-strength (100%) unit in 5 minutes.
-   * At partial strength, multiply by (currentStrength / 100).
-   *
-   * Damage values are percentage of target strength lost per successful hit.
+   * Damage uses the defender's current armor as a continuous blending signal between the unit's
+   * authored `softAttack` and `hardAttack` values. This removes the old explicit soft-target branch
+   * while still letting armor progressively shift engagements toward dedicated anti-armor weapons.
    */
   damage: {
-    /**
-     * Full-strength shot counts per 5-minute turn.
-     * Based on realistic WWII rates of fire and unit composition.
-     */
-    shotsPerTurn: {
-      infantry: 21000,    // 700 men × 6 rpm × 5 min
-      specialist: 40,     // AT teams with bazooka/panzerfaust
-      tank: 200,          // 25 tanks × 8 rounds per 5 min
-      artillery: 40,      // 4 guns × 10 rounds per 5 min
-      air: 4,             // 4-fighter squadron × 1 bomb each
-      recon: 5000,        // Light autocannons/MGs
-      vehicle: 1000       // Defensive MGs on trucks/halftracks
+    attackBlendArmorScale: 10,
+    roleBias: {
+      normal: { soft: 1, hard: 1 },
+      antiTank: { soft: 0.35, hard: 1.25 },
+      antiVehicle: { soft: 0.75, hard: 1.1 },
+      antiInfantry: { soft: 1.2, hard: 0.8 },
+      support: { soft: 0.7, hard: 0.7 }
     } as const,
-
-    /**
-     * Damage per hit as percentage of target strength (0-100%).
-     *
-     * Format: damagePercent[attackerClass][isSoftTarget][penetrationResult]
-     * - isSoftTarget: true = infantry/soft, false = tanks/hard
-     * - penetrationResult: "full" = penetrated, "partial" = glanced/under-penetrated
-     */
-    damagePercent: {
-      infantry: {
-        soft: { full: 0.00952, partial: 0.00952 },  // Rifle vs infantry
-        hard: { full: 0.001, partial: 0.0005 }      // Rifle vs tank (negligible)
-      },
-      specialist: {
-        soft: { full: 0.05, partial: 0.05 },         // AT round vs infantry
-        hard: { full: 2.5, partial: 0.6 }            // AT round vs tank
-      },
-      tank: {
-        soft: { full: 0.071, partial: 0.071 },       // Tank HE vs infantry
-        hard: { full: 0.133, partial: 0.033 }        // Tank AP vs tank
-      },
-      artillery: {
-        soft: { full: 0.643, partial: 0.643 },       // 105mm HE vs infantry
-        hard: { full: 1.0, partial: 1.0 }            // 105mm HE vs tank
-      },
-      air: {
-        soft: { full: 4.64, partial: 4.64 },         // 500lb bomb vs infantry
-        hard: { full: 5.0, partial: 5.0 }            // 500lb bomb vs tank
-      },
-      recon: {
-        soft: { full: 0.015, partial: 0.015 },       // Autocannon vs infantry
-        hard: { full: 0.01, partial: 0.005 }         // Autocannon vs tank
-      },
-      vehicle: {
-        soft: { full: 0.012, partial: 0.012 },       // MG vs infantry
-        hard: { full: 0.0001, partial: 0.0001 }      // MG vs tank (negligible)
-      }
-    } as const,
-
-    suppressionPerHit: 0.1  // Suppression as percentage (0-100%)
+    experienceScalarPerStar: 0.1
   },
   /**
    * Counter-fire policy toggles. Adjust retaliation availability and its accuracy impact here.
    */
   counterfire: {
     adjacentOnly: true,
-    accuracyPenalty: 10,
+    accuracyPenalty: 20,
     artyCloseCounterfire: false
   },
   /**
-   * Entrenchment scaling. Controls defensive bonuses and accuracy penalties per entrenchment pip.
+   * Entrenchment itself is still capped here; the actual hit-chance effect is authored in `cover`
+   * because entrenchment now behaves purely as exposed-area reduction rather than post-hit defense.
    */
   entrench: {
-    max: 2,
-    accPenaltyPerLevel: 15,
-    defensePerLevel: 0
+    max: 2
   },
   /**
    * Ammo and fuel consumption rules shared by movement, attacks, and UI previews.

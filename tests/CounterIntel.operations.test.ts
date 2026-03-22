@@ -21,6 +21,7 @@ const terrain: TerrainDictionary = { plains } as unknown as TerrainDictionary;
 
 const vehicleDef: UnitTypeDefinition = {
   class: "vehicle",
+  combat: { category: "vehicle", weight: "medium", role: "support", signature: "medium" },
   movement: 3,
   moveType: "wheel",
   vision: 3,
@@ -40,6 +41,7 @@ const vehicleDef: UnitTypeDefinition = {
 
 const infantryDef: UnitTypeDefinition = {
   class: "infantry",
+  combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
   movement: 2,
   moveType: "leg",
   vision: 2,

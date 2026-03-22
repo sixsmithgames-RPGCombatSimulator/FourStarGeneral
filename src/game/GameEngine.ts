@@ -1,3 +1,9 @@
+import {
+  COMBAT_ROLE_VALUES,
+  COMBAT_SIGNATURE_VALUES,
+  COMBAT_WEIGHT_VALUES,
+  UNIT_CLASS_VALUES
+} from "../core/types";
 import type {
   ScenarioData,
   ScenarioSide,
@@ -11,6 +17,7 @@ import type {
   AirMissionKind,
   AirMissionTemplate,
   AirSupportProfile,
+  CombatClassification,
   CombatStance,
   HexModification,
   HexModificationType
@@ -1108,8 +1115,6 @@ export interface PendingReserveRequest {
   readonly sprite?: string;
 }
 
-const UNIT_CLASS_VALUES: readonly UnitClass[] = ["infantry", "specialist", "vehicle", "tank", "artillery", "air", "recon"] as const;
-
 function normalizeUnitClass(value: string | undefined, key: string): UnitClass {
   if (!value) {
     throw new Error(`Unit '${key}' is missing a class designation.`);
@@ -1118,6 +1123,32 @@ function normalizeUnitClass(value: string | undefined, key: string): UnitClass {
     return value as UnitClass;
   }
   throw new Error(`Unit '${key}' declares unsupported class '${value}'.`);
+}
+
+function normalizeCombatClassification(value: CombatClassification | undefined, key: string): CombatClassification {
+  if (!value) {
+    throw new Error(`Unit '${key}' is missing combat classification metadata.`);
+  }
+
+  if (!UNIT_CLASS_VALUES.includes(value.category)) {
+    throw new Error(`Unit '${key}' declares unsupported combat.category '${String(value.category)}'.`);
+  }
+  if (!COMBAT_WEIGHT_VALUES.includes(value.weight)) {
+    throw new Error(`Unit '${key}' declares unsupported combat.weight '${String(value.weight)}'.`);
+  }
+  if (!COMBAT_ROLE_VALUES.includes(value.role)) {
+    throw new Error(`Unit '${key}' declares unsupported combat.role '${String(value.role)}'.`);
+  }
+  if (!COMBAT_SIGNATURE_VALUES.includes(value.signature)) {
+    throw new Error(`Unit '${key}' declares unsupported combat.signature '${String(value.signature)}'.`);
+  }
+
+  return {
+    category: value.category,
+    weight: value.weight,
+    role: value.role,
+    signature: value.signature
+  };
 }
 
 /**
@@ -9088,9 +9119,11 @@ export class GameEngine implements GameEngineAPI {
       throw new Error(`Unit definition missing for key: ${key}`);
     }
     const unitClass = normalizeUnitClass((definition as { class?: string }).class, key);
+    const combat = normalizeCombatClassification((definition as { combat?: CombatClassification }).combat, key);
     return {
       ...(definition as UnitTypeDefinition),
-      class: unitClass
+      class: unitClass,
+      combat
     };
   }
 

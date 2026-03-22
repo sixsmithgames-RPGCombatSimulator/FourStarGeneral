@@ -21,6 +21,7 @@ const terrain: TerrainDictionary = { plains } as unknown as TerrainDictionary;
 
 const artilleryDef: UnitTypeDefinition = {
   class: "artillery",
+  combat: { category: "artillery", weight: "medium", role: "antiInfantry", signature: "medium" },
   movement: 1,
   moveType: "wheel",
   vision: 2,
@@ -40,6 +41,7 @@ const artilleryDef: UnitTypeDefinition = {
 
 const reconDef: UnitTypeDefinition = {
   class: "recon",
+  combat: { category: "recon", weight: "light", role: "normal", signature: "small" },
   movement: 5,
   moveType: "wheel",
   vision: 2,
@@ -59,6 +61,7 @@ const reconDef: UnitTypeDefinition = {
 
 const infantryDef: UnitTypeDefinition = {
   class: "infantry",
+  combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
   movement: 2,
   moveType: "leg",
   vision: 2,

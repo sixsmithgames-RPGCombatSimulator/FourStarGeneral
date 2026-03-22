@@ -29,6 +29,7 @@ const routingTerrain: TerrainDictionary = { plains, road } as unknown as Terrain
 
 const vehicleDef: UnitTypeDefinition = {
   class: "vehicle",
+  combat: { category: "vehicle", weight: "medium", role: "support", signature: "medium" },
   movement: 3,
   moveType: "wheel",
   vision: 3,
@@ -48,6 +49,7 @@ const vehicleDef: UnitTypeDefinition = {
 
 const supplyTruckDef: UnitTypeDefinition = {
   class: "vehicle",
+  combat: { category: "vehicle", weight: "medium", role: "support", signature: "medium" },
   movement: 2,
   moveType: "wheel",
   vision: 2,
@@ -67,6 +69,7 @@ const supplyTruckDef: UnitTypeDefinition = {
 
 const infantryDef: UnitTypeDefinition = {
   class: "infantry",
+  combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
   movement: 2,
   moveType: "leg",
   vision: 2,

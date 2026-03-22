@@ -21,6 +21,7 @@ const terrain: TerrainDictionary = { plains } as unknown as TerrainDictionary;
 
 const infantryDef: UnitTypeDefinition = {
   class: "infantry",
+  combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
   movement: 2,
   moveType: "leg",
   vision: 2,
@@ -40,6 +41,7 @@ const infantryDef: UnitTypeDefinition = {
 
 const engineerDef: UnitTypeDefinition = {
   class: "specialist",
+  combat: { category: "specialist", weight: "light", role: "antiInfantry", signature: "small" },
   movement: 2,
   moveType: "leg",
   vision: 2,
@@ -59,6 +61,7 @@ const engineerDef: UnitTypeDefinition = {
 
 const wheeledReconDef: UnitTypeDefinition = {
   class: "recon",
+  combat: { category: "recon", weight: "light", role: "normal", signature: "small" },
   movement: 5,
   moveType: "wheel",
   vision: 3,
@@ -78,6 +81,7 @@ const wheeledReconDef: UnitTypeDefinition = {
 
 const supplyTruckDef: UnitTypeDefinition = {
   class: "vehicle",
+  combat: { category: "vehicle", weight: "medium", role: "support", signature: "medium" },
   movement: 3,
   moveType: "wheel",
   vision: 2,
