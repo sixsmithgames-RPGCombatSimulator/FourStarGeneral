@@ -5745,18 +5745,18 @@ private automateSupplyConvoys(
 
       if (features.includes("ford")) {
         if (moveType === "leg") {
-          return 1; // Infantry can cross fords at normal speed
+          return 2; // Infantry can cross fords at normal speed
         } else if (moveType === "track") {
-          return 2;
+          return 3;
         } else if (moveType === "wheel") {
-          return 2; // Wheeled vehicles can use prepared fords
+          return 3; // Wheeled vehicles can use prepared fords
         }
       }
       if (features.includes("shallow")) {
         if (moveType === "leg") {
-          return 1; // Infantry can cross shallow water at normal speed
+          return 3; // Infantry can cross shallow water at normal speed
         } else if (moveType === "track") {
-          return 2;
+          return 3;
         } else if (moveType === "wheel") {
           return 999; // Wheeled vehicles can't ford unprepared shallow crossings
         }
