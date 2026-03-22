@@ -333,6 +333,20 @@ export function calculateEffectiveAP(attacker: UnitCombatState): number {
 }
 
 /**
+ * Light and medium armor should sharply dampen small-arms fire, but not render it completely
+ * meaningless. This scalar models chip damage bleeding through from soft attack values when a
+ * target is armored but the attacker lacks a dedicated hard-attack punch.
+ */
+function resolveArmorChipScalar(effectiveAP: number, facingArmor: number): number {
+  const armor = Math.max(0, facingArmor);
+  if (armor <= 0) {
+    return 1;
+  }
+  const armorGap = Math.max(0, armor - Math.max(0, effectiveAP));
+  return combatBalance.penetration.underPenetrationScale / (1 + armor * 3 + armorGap * 2);
+}
+
+/**
  * Calculate shots fired based on unit class and current strength percentage.
  * Uses realistic shot counts from balance table.
  */
@@ -353,6 +367,11 @@ export function calculateDamagePerHit(
 ): DamageBreakdown {
   const { attacker, isSoftTarget } = request;
   const combatProfile = resolveCombatProfile(attacker.unit);
+  const experienceScalar = 1 + attacker.experience * 0.1;
+  const commanderDamageBonus = attacker.general.dmgBonus ?? 0;
+  const damageScalar = 1 + (commanderDamageBonus / 100);
+  const softAttackScalar = resolveAttackScalar(attacker.unit, combatProfile, true);
+  const hardAttackScalar = resolveAttackScalar(attacker.unit, combatProfile, false);
 
   // Get base damage from table
   const targetType = isSoftTarget ? 'soft' : 'hard';
@@ -360,30 +379,48 @@ export function calculateDamagePerHit(
 
   // Provide a safe fallback so the UI can still report numbers for unexpected unit classes.
   let baseDamage: number;
+  let afterExperience: number;
+  let finalDamage: number;
+
   if (!damageTable) {
     baseDamage = isSoftTarget ? 0.01 : 0.001;
+    afterExperience = baseDamage * experienceScalar;
+    const attackScalar = isSoftTarget ? softAttackScalar : hardAttackScalar;
+    finalDamage = attackScalar <= 0 ? 0 : Math.max(0, afterExperience * damageScalar * attackScalar);
+  } else if (isSoftTarget) {
+    baseDamage = damageTable[targetType].full;
+    afterExperience = baseDamage * experienceScalar;
+    finalDamage = softAttackScalar <= 0 ? 0 : Math.max(0, afterExperience * damageScalar * softAttackScalar);
   } else {
     // Determine penetration result for hard targets
     let penetrationResult: 'full' | 'partial' = 'full';
-    if (!isSoftTarget) {
-      const margin = effectiveAP - facingArmor;
-      if (margin < 0) {
-        penetrationResult = 'partial'; // Under-penetration/glancing hit
-      }
+    const margin = effectiveAP - facingArmor;
+    if (margin < 0) {
+      penetrationResult = 'partial'; // Under-penetration/glancing hit
     }
 
-    baseDamage = damageTable[targetType][penetrationResult];
+    const penetratingBaseDamage = damageTable.hard[penetrationResult];
+    const penetratingAfterExperience = penetratingBaseDamage * experienceScalar;
+    const penetratingDamage = hardAttackScalar <= 0
+      ? 0
+      : Math.max(0, penetratingAfterExperience * damageScalar * hardAttackScalar);
+
+    const chipBaseDamage = damageTable.soft.full * resolveArmorChipScalar(effectiveAP, facingArmor);
+    const chipAfterExperience = chipBaseDamage * experienceScalar;
+    const chipDamage = softAttackScalar <= 0
+      ? 0
+      : Math.max(0, chipAfterExperience * damageScalar * softAttackScalar);
+
+    if (chipDamage > penetratingDamage) {
+      baseDamage = chipBaseDamage;
+      afterExperience = chipAfterExperience;
+      finalDamage = chipDamage;
+    } else {
+      baseDamage = penetratingBaseDamage;
+      afterExperience = penetratingAfterExperience;
+      finalDamage = penetratingDamage;
+    }
   }
-
-  // Apply commander damage bonus as percentage multiplier
-  const commanderDamageBonus = attacker.general.dmgBonus ?? 0;
-  const damageScalar = 1 + (commanderDamageBonus / 100);
-
-  // Apply experience bonus multiplicatively (each star adds +10%)
-  const experienceScalar = 1 + attacker.experience * 0.1;
-  const afterExperience = baseDamage * experienceScalar;
-  const attackScalar = resolveAttackScalar(attacker.unit, combatProfile, isSoftTarget);
-  const finalDamage = attackScalar <= 0 ? 0 : Math.max(0, afterExperience * damageScalar * attackScalar);
 
   return {
     baseTableValue: baseDamage,

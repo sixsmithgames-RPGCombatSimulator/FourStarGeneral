@@ -371,7 +371,13 @@ export class BattleScreen {
 
     const profile = this.describeAttackProfile(attackerUnit ?? preview.attacker, commandState);
     const roundedAccuracy = Math.round(finalAccuracyPercent);
-    const penetrationSummary = effectiveAP >= facingArmor ? "Penetration Advantage" : "Armor Holds";
+    const penetrationSummary = facingArmor <= 0
+      ? "Unarmored Target"
+      : effectiveAP > facingArmor
+        ? "Penetration Advantage"
+        : effectiveAP === facingArmor
+          ? "Armor Dampens Fire"
+          : "Armor Holds";
     const projectedDefenderStrength = Math.max(0, defenderStrength - postPayloadExpectedDamage);
     const projectedAttackerStrength = Math.max(0, attackerStrength - preview.expectedRetaliation);
 
@@ -566,7 +572,7 @@ export class BattleScreen {
     const assaultNote = assaultBtn.querySelector<HTMLElement>(".stance-note");
     if (assaultNote) {
       assaultNote.textContent = assaultAvailable
-        ? "Point-blank attack. Uses 1.5x the computed hit chance."
+        ? "Point-blank attack. Closes to knife-fight range for the strongest hit chance."
         : commandState?.suppressionState === "pinned"
           ? "Blocked while pinned."
           : "Blocked while suppressed.";
@@ -595,8 +601,8 @@ export class BattleScreen {
       return {
         title: "Assault",
         description: "The battalion closes to point-blank range and trades protection for a much better chance to hit.",
-        note: "+50% means 1.5x the computed hit chance after the normal range, terrain, and spotting math. It is not +50 percentage points.",
-        mathLine: "Point-blank range uses the 25m midpoint, then applies an assault multiplier of x1.50."
+        note: "Assault resolves at point-blank range, so the battalion benefits from the short-range accuracy curve instead of a separate hit multiplier.",
+        mathLine: "Point-blank range uses the 25m midpoint, then runs the standard range, terrain, and spotting math."
       };
     }
 

@@ -2653,45 +2653,43 @@
       background: rgba(8, 10, 16, 0.85);
       backdrop-filter: blur(2px);
       z-index: 40;
-      padding: 2rem;
+      padding: 1.25rem;
     }
     .battle-dialog.hidden {
       display: none;
     }
     .battle-dialog__surface {
       position: relative;
-      width: min(920px, 94vw);
-      max-height: 86vh;
+      width: min(1000px, 96vw);
+      max-height: 88vh;
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
-      padding: 2rem 2.5rem;
-      border-radius: 12px;
+      gap: 0;
+      padding: 0;
+      border-radius: 10px;
       background: linear-gradient(135deg, rgba(18, 22, 32, 0.98), rgba(12, 16, 24, 0.98));
-      border: 1px solid rgba(245, 196, 109, 0.3);
+      border: 1px solid rgba(245, 196, 109, 0.22);
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
       overflow: hidden;
-      display: flex;
-      flex-direction: column;
     }
     .battle-dialog__header {
-      padding: 1.5rem 2rem;
+      padding: 1rem 1.2rem;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
       background: rgba(245, 196, 109, 0.05);
     }
     .battle-dialog__header h2 {
       margin: 0;
-      font-size: 1.5rem;
+      font-size: 1.3rem;
       font-weight: 600;
       color: var(--accent-strong);
       letter-spacing: 0.02em;
     }
     .battle-dialog__body {
-      padding: 1.4rem 2rem 1.6rem;
+      padding: 0.9rem 1.2rem 1rem;
       overflow-y: auto;
       flex: 1;
-      font-size: 1rem;
-      line-height: 1.6;
+      font-size: 0.94rem;
+      line-height: 1.5;
     }
     .battle-dialog__body p {
       margin: 0 0 1rem 0;
@@ -2701,7 +2699,7 @@
       font-weight: 600;
     }
     .battle-dialog__footer {
-      padding: 1.5rem 2rem;
+      padding: 0.85rem 1.2rem;
       border-top: 1px solid rgba(255, 255, 255, 0.1);
       display: flex;
       gap: 1rem;
@@ -2711,7 +2709,7 @@
 
     /* Combat Stance Selector */
     .attack-stance-selector {
-      padding: 0.9rem 2rem 1rem;
+      padding: 0.75rem 1.2rem 0.85rem;
       background: rgba(0, 0, 0, 0.3);
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
@@ -2722,9 +2720,9 @@
     .attack-stance-selector .stance-label {
       display: block;
       font-weight: bold;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0.55rem;
       color: rgba(245, 196, 109, 0.9);
-      font-size: 0.9rem;
+      font-size: 0.8rem;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
@@ -2732,7 +2730,7 @@
     .stance-buttons {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.75rem;
+      gap: 0.6rem;
     }
 
     .stance-button {
@@ -2741,12 +2739,12 @@
       display: flex;
       flex-direction: column;
       align-items: flex-start;
-      gap: 0.45rem;
-      min-height: 108px;
-      padding: 0.95rem 1rem;
+      gap: 0.35rem;
+      min-height: 86px;
+      padding: 0.75rem 0.85rem;
       background: linear-gradient(180deg, rgba(24, 29, 43, 0.96), rgba(16, 20, 31, 0.96));
       border: 1px solid rgba(112, 125, 150, 0.35);
-      border-radius: 14px;
+      border-radius: 12px;
       cursor: pointer;
       transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
     }
@@ -2770,7 +2768,7 @@
 
     .stance-name {
       font-weight: bold;
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       color: #fff;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -2796,16 +2794,16 @@
     }
 
     .stance-desc {
-      font-size: 0.78rem;
+      font-size: 0.74rem;
       color: #d6dde8;
-      line-height: 1.45;
+      line-height: 1.35;
     }
 
     .stance-note {
       margin-top: auto;
-      font-size: 0.7rem;
+      font-size: 0.66rem;
       color: rgba(170, 183, 205, 0.9);
-      line-height: 1.35;
+      line-height: 1.3;
     }
 
     .stance-button.stance-disabled {
@@ -2878,38 +2876,38 @@
     }
     .attack-preview-shell {
       display: grid;
-      gap: 1rem;
+      gap: 0.75rem;
     }
     .attack-preview-rangebar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 1rem;
-      padding: 0.8rem 1rem;
-      border-radius: 14px;
+      gap: 0.75rem;
+      padding: 0.55rem 0.75rem;
+      border-radius: 12px;
       background: linear-gradient(90deg, rgba(245, 196, 109, 0.12), rgba(245, 196, 109, 0.04));
       border: 1px solid rgba(245, 196, 109, 0.2);
     }
     .attack-preview-rangebar__label {
-      font-size: 0.75rem;
+      font-size: 0.7rem;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: rgba(245, 196, 109, 0.85);
     }
     .attack-preview-rangebar__value {
-      font-size: 1rem;
+      font-size: 0.95rem;
       font-weight: 700;
       color: #fff;
     }
     .attack-preview-matchup {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 1rem;
+      gap: 0.75rem;
     }
     .attack-preview-card {
-      padding: 1rem 1.05rem;
-      border-radius: 16px;
+      padding: 0.8rem 0.85rem;
+      border-radius: 12px;
       background: linear-gradient(180deg, rgba(12, 17, 27, 0.94), rgba(8, 12, 20, 0.9));
       border: 1px solid rgba(255, 255, 255, 0.08);
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
@@ -2922,8 +2920,8 @@
     }
     .attack-preview-card__eyebrow {
       display: block;
-      margin-bottom: 0.45rem;
-      font-size: 0.72rem;
+      margin-bottom: 0.3rem;
+      font-size: 0.68rem;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -2931,7 +2929,7 @@
     }
     .attack-preview-card__title {
       margin: 0;
-      font-size: 1.18rem;
+      font-size: 1.02rem;
       line-height: 1.2;
       color: #f5f8ff;
     }
@@ -2942,23 +2940,23 @@
       color: #ff7070;
     }
     .attack-preview-card__location {
-      margin: 0.35rem 0 0;
-      font-size: 0.84rem;
+      margin: 0.22rem 0 0;
+      font-size: 0.78rem;
       color: var(--text-muted);
     }
     .attack-preview-card__stats {
       display: grid;
-      gap: 0.6rem;
-      margin-top: 0.95rem;
+      gap: 0.45rem;
+      margin-top: 0.7rem;
     }
     .attack-preview-stat {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 0.8rem;
-      padding-top: 0.55rem;
+      padding-top: 0.42rem;
       border-top: 1px solid rgba(255, 255, 255, 0.08);
-      font-size: 0.88rem;
+      font-size: 0.82rem;
     }
     .attack-preview-stat span {
       color: var(--text-muted);
@@ -2967,15 +2965,15 @@
       color: #fff;
     }
     .attack-preview-outcome {
-      padding: 1rem 1.05rem;
-      border-radius: 16px;
+      padding: 0.8rem 0.85rem;
+      border-radius: 12px;
       background: rgba(7, 11, 19, 0.72);
       border: 1px solid rgba(255, 255, 255, 0.08);
     }
     .attack-preview-outcome__header {
       display: grid;
       gap: 0.2rem;
-      margin-bottom: 0.9rem;
+      margin-bottom: 0.65rem;
     }
     .attack-preview-outcome__eyebrow {
       font-size: 0.72rem;
@@ -2986,32 +2984,32 @@
     }
     .attack-preview-outcome__summary {
       margin: 0;
-      font-size: 0.88rem;
+      font-size: 0.82rem;
       color: var(--text-muted);
-      line-height: 1.45;
+      line-height: 1.4;
     }
     .attack-preview-outcome__grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.85rem;
+      gap: 0.65rem;
     }
     .attack-preview-outcome__metric {
       display: grid;
-      gap: 0.35rem;
-      padding: 0.9rem 0.95rem;
-      border-radius: 14px;
+      gap: 0.28rem;
+      padding: 0.72rem 0.78rem;
+      border-radius: 12px;
       background: linear-gradient(180deg, rgba(18, 25, 38, 0.95), rgba(11, 16, 26, 0.9));
       border: 1px solid rgba(255, 255, 255, 0.08);
     }
     .attack-preview-outcome__label {
-      font-size: 0.72rem;
+      font-size: 0.68rem;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--text-muted);
     }
     .attack-preview-outcome__value {
-      font-size: 1.55rem;
+      font-size: 1.28rem;
       font-weight: 700;
       line-height: 1;
       color: #f5f8ff;
@@ -3032,28 +3030,28 @@
       color: #8b97ab;
     }
     .attack-preview-outcome__subtext {
-      font-size: 0.8rem;
+      font-size: 0.74rem;
       color: var(--text-muted);
       line-height: 1.4;
     }
     .attack-preview-footnote {
       margin: 0;
-      font-size: 0.82rem;
+      font-size: 0.76rem;
       color: var(--text-muted);
       line-height: 1.45;
     }
     .attack-preview-details {
-      border-radius: 14px;
+      border-radius: 12px;
       background: rgba(5, 8, 14, 0.66);
       border: 1px solid rgba(255, 255, 255, 0.08);
       overflow: hidden;
     }
     .attack-preview-details summary {
       position: relative;
-      padding: 0.9rem 1rem;
+      padding: 0.72rem 0.85rem;
       cursor: pointer;
       list-style: none;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -3077,24 +3075,24 @@
     }
     .attack-preview-details__content {
       display: grid;
-      gap: 1rem;
-      padding: 0 1rem 1rem;
+      gap: 0.75rem;
+      padding: 0 0.85rem 0.85rem;
     }
     .attack-preview-detail-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.7rem 1rem;
+      gap: 0.55rem 0.75rem;
     }
     .attack-preview-detail-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 0.75rem;
-      padding: 0.7rem 0.85rem;
-      border-radius: 12px;
+      padding: 0.55rem 0.7rem;
+      border-radius: 10px;
       background: rgba(15, 21, 33, 0.88);
       border: 1px solid rgba(255, 255, 255, 0.06);
-      font-size: 0.84rem;
+      font-size: 0.8rem;
     }
     .attack-preview-detail-row span {
       color: var(--text-muted);
@@ -3105,10 +3103,10 @@
     }
     .attack-preview-breakdown {
       display: grid;
-      gap: 0.35rem;
-      font-size: 0.78rem;
+      gap: 0.3rem;
+      font-size: 0.74rem;
       color: var(--text-muted);
-      line-height: 1.45;
+      line-height: 1.38;
     }
     .attack-preview-breakdown p {
       margin: 0;
@@ -3118,14 +3116,14 @@
     }
     @media (max-width: 760px) {
       .battle-dialog__surface {
-        width: min(94vw, 680px);
+        width: min(96vw, 680px);
       }
       .battle-dialog__body,
       .attack-stance-selector,
       .battle-dialog__header,
       .battle-dialog__footer {
-        padding-left: 1.2rem;
-        padding-right: 1.2rem;
+        padding-left: 0.9rem;
+        padding-right: 0.9rem;
       }
       .attack-preview-matchup,
       .attack-preview-outcome__grid,
