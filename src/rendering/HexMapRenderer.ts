@@ -1199,6 +1199,10 @@ export class HexMapRenderer implements IMapRenderer {
 
   private applyFacingAngleToGroup(group: SVGGElement, cx: number, cy: number, angleDeg: number): void {
     const facingGroup = this.ensureFacingGroup(group);
+    if (group.dataset.reconStatus === "spotted") {
+      facingGroup.setAttribute("transform", `translate(${cx} ${cy}) scale(1 1) translate(${-cx} ${-cy})`);
+      return;
+    }
     // All unit types use horizontal flip only. Rotating 2D sprites makes them appear
     // tilted/laying down which looks unprofessional. The facing angle determines
     // whether the sprite faces left or right.
@@ -1742,6 +1746,7 @@ export class HexMapRenderer implements IMapRenderer {
 
     if (existing) {
       this.ensureFacingGroup(existing);
+      existing.dataset.reconStatus = resolvedReconStatus;
       const cachedClass = this.hexUnitClassMap.get(hexKey);
       if (cachedClass) {
         existing.dataset.unitClass = String(cachedClass);
@@ -1769,6 +1774,7 @@ export class HexMapRenderer implements IMapRenderer {
 
     const group = document.createElementNS(SVG_NS, "g");
     group.classList.add("unit-stack");
+    group.dataset.reconStatus = resolvedReconStatus;
     const cachedClass = this.hexUnitClassMap.get(hexKey);
     if (cachedClass) {
       group.dataset.unitClass = String(cachedClass);

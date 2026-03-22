@@ -153,9 +153,9 @@ export interface ScenarioData {
   deploymentZones?: ScenarioDeploymentZone[];
   /** Mission-specific budget override. If not specified, uses default 10,000,000. */
   playerBudget?: number;
-  /** Unit types restricted from purchase. Mutually exclusive with allowedUnits. */
+  /** Unit types explicitly blocked from purchase, including default logistics entitlements like supply convoys. */
   restrictedUnits?: string[];
-  /** Exclusive list of allowed unit types. If specified, only these units can be purchased. */
+  /** Curated list of allowed combat units. Supply convoys remain available unless explicitly restricted. */
   allowedUnits?: string[];
 }
 

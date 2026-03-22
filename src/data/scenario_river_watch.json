@@ -68,7 +68,7 @@
   ],
   "turnLimit": 12,
   "playerBudget": 200000,
-  "allowedUnits": ["infantry", "engineer", "reconBike", "recon"],
+  "allowedUnits": ["infantry", "engineer", "reconBike", "recon", "supplyConvoy"],
   "sides": {
     "Player": {
       "hq": [1, 2],

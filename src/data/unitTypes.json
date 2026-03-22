@@ -137,11 +137,11 @@
     "rangeMin": 1,
     "rangeMax": 1,
     "initiative": 4,
-    "armor": { "front": 4, "side": 3, "top": 2 },
+    "armor": { "front": 2, "side": 1, "top": 1 },
     "hardAttack": 0,
     "softAttack": 16,
     "ap": 2,
-    "accuracyBase": 58,
+    "accuracyBase": 55,
     "traits": ["zoc"],
     "cost": 180
   },

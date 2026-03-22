@@ -76,10 +76,31 @@ const wheeledReconDef: UnitTypeDefinition = {
   cost: 100
 };
 
+const supplyTruckDef: UnitTypeDefinition = {
+  class: "vehicle",
+  movement: 3,
+  moveType: "wheel",
+  vision: 2,
+  ammo: 0,
+  fuel: 60,
+  rangeMin: 0,
+  rangeMax: 0,
+  initiative: 1,
+  armor: { front: 1, side: 1, top: 1 },
+  hardAttack: 0,
+  softAttack: 0,
+  ap: 0,
+  accuracyBase: 0,
+  traits: [],
+  cost: 80
+};
+
 const unitTypes: UnitTypeDictionary = {
   TestInfantry: infantryDef,
   TestEngineer: engineerDef,
-  TestReconTruck: wheeledReconDef
+  TestReconTruck: wheeledReconDef,
+  Recon_Bike: wheeledReconDef,
+  Supply_Truck: supplyTruckDef
 } as unknown as UnitTypeDictionary;
 
 function side(hq = { q: 0, r: 0 }, units: ScenarioUnit[] = []): ScenarioSide {
@@ -225,6 +246,56 @@ registerTest("WHEELED_RECON_UNITS_CANNOT_DIG_IN", async ({ Then }) => {
   }
 
   await Then("vehicle recon formations are excluded from dig-in commands", () => {});
+});
+
+registerTest("RECON_BIKES_CAN_ASSAULT_BUT_CANNOT_DIG_IN", async ({ Then }) => {
+  const reconBike: ScenarioUnit = {
+    type: "Recon_Bike" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 4,
+    fuel: 40,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const enemyInfantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "SW" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([reconBike], [enemyInfantry]);
+  const commandState = engine.getUnitCommandState(reconBike.hex);
+  if (!commandState) {
+    throw new Error("Expected recon bike command state to be available.");
+  }
+  if (commandState.canDigIn) {
+    throw new Error("Expected recon bikes to remain excluded from dig-in.");
+  }
+
+  const suppressive = engine.previewAttack(reconBike.hex, enemyInfantry.hex, "suppressive");
+  const assault = engine.previewAttack(reconBike.hex, enemyInfantry.hex, "assault");
+  if (!suppressive || !assault) {
+    throw new Error("Expected both suppressive and assault previews to be available for recon bikes.");
+  }
+  if (assault.finalExpectedDamage <= suppressive.finalExpectedDamage) {
+    throw new Error(
+      `Expected assault to materially improve recon bike damage. Saw suppressive=${suppressive.finalExpectedDamage}, assault=${assault.finalExpectedDamage}.`
+    );
+  }
+
+  const resolution = engine.attackUnit(reconBike.hex, enemyInfantry.hex, "assault");
+  if (!resolution) {
+    throw new Error("Expected recon bike assault attack to resolve.");
+  }
+
+  await Then("recon bikes can launch assault fire without regaining dig-in rights", () => {});
 });
 
 registerTest("DIG_IN_ENTRENCHMENT_PERSISTS_THROUGH_TURN_CYCLE", async ({ Then }) => {

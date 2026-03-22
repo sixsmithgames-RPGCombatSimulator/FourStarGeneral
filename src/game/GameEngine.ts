@@ -7549,7 +7549,18 @@ export class GameEngine implements GameEngineAPI {
     const defUnit = structuredClone(defender.unit);
     defUnit.hex = structuredClone(defenderHex);
 
-    const req = this.buildAttackRequest(atkUnit, defUnit, "Bot", "Player");
+    const attackDistance = hexDistance(attackerHex, defenderHex);
+    const preferredStance = attackDistance <= 1
+      && this.resolveCombatStanceForAttacker(atkUnit, attacker.definition, "assault") === "assault"
+        ? "assault"
+        : undefined;
+    const req = this.buildAttackRequest(
+      atkUnit,
+      defUnit,
+      "Bot",
+      "Player",
+      preferredStance ? { stance: preferredStance } : undefined
+    );
     if (!req) {
       return null;
     }
@@ -7575,7 +7586,10 @@ export class GameEngine implements GameEngineAPI {
       const rMin = defDef.rangeMin ?? 1;
       const rMax = defDef.rangeMax ?? 1;
       if (distance >= rMin && distance <= rMax) {
-        const revReq = this.buildAttackRequest(defUnit, atkUnit, "Player", "Bot", { allowBomberAirAttack: true });
+        const revReq = this.buildAttackRequest(defUnit, atkUnit, "Player", "Bot", {
+          allowBomberAirAttack: true,
+          stance: preferredStance === "assault" ? "assault" : undefined
+        });
         if (revReq) {
           let rev = resolveAttack(revReq);
           const defIsBomber = this.isBomber(defDef);
@@ -8359,7 +8373,7 @@ export class GameEngine implements GameEngineAPI {
   private chooseBotStance(botUnit: ScenarioUnit, targetHex: Axial): CombatStance {
     // Only infantry-type units can use tactical stances
     const botDef = this.getUnitDefinition(botUnit.type);
-    const canUseStances = this.canUseCombatStances(botDef);
+    const canUseStances = this.canUseCombatStances(botUnit, botDef);
     if (!canUseStances) {
       return "suppressive";
     }
@@ -8379,6 +8393,13 @@ export class GameEngine implements GameEngineAPI {
 
     if (targetIsObjective) {
       // Assault to take objectives aggressively
+      return "assault";
+    }
+
+    if (
+      hexDistance(botUnit.hex, targetHex) <= 1
+      && this.resolveCombatStanceForAttacker(botUnit, botDef, "assault") === "assault"
+    ) {
       return "assault";
     }
 
@@ -9585,8 +9606,11 @@ export class GameEngine implements GameEngineAPI {
     return { state: "clear", count: 0 };
   }
 
-  private canUseCombatStances(definition: UnitTypeDefinition): boolean {
-    return definition.moveType === "leg" && ["infantry", "recon", "specialist"].includes(definition.class);
+  private canUseCombatStances(unit: ScenarioUnit, definition: UnitTypeDefinition): boolean {
+    if (definition.moveType === "leg" && ["infantry", "recon", "specialist"].includes(definition.class)) {
+      return true;
+    }
+    return unit.type === "Recon_Bike";
   }
 
   private resolveCombatStanceForAttacker(
@@ -9597,7 +9621,7 @@ export class GameEngine implements GameEngineAPI {
     if (!requested || requested === "digIn") {
       return undefined;
     }
-    if (!this.canUseCombatStances(definition)) {
+    if (!this.canUseCombatStances(unit, definition)) {
       return undefined;
     }
     if (requested === "assault") {
@@ -9607,8 +9631,8 @@ export class GameEngine implements GameEngineAPI {
   }
 
   private buildAssaultUnavailableMessage(unit: ScenarioUnit, definition: UnitTypeDefinition): string {
-    if (!this.canUseCombatStances(definition)) {
-      return "Only foot infantry-style formations can initiate assault fire.";
+    if (!this.canUseCombatStances(unit, definition)) {
+      return "Only assault-capable infantry formations and recon bikes can initiate assault fire.";
     }
     const suppression = this.resolveUnitSuppressionState(unit).state;
     if (suppression === "pinned") {

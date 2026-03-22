@@ -526,7 +526,13 @@ export class BattleScreen {
 
   private canUnitUseCombatStances(unit: ScenarioUnit): boolean {
     const definition = this.unitTypes?.[unit.type as keyof UnitTypeDictionary];
-    return definition?.moveType === "leg" && ["infantry", "recon", "specialist"].includes(definition.class);
+    if (!definition) {
+      return false;
+    }
+    if (definition.moveType === "leg" && ["infantry", "recon", "specialist"].includes(definition.class)) {
+      return true;
+    }
+    return unit.type === "Recon_Bike";
   }
 
   private canUnitAssault(unit: ScenarioUnit, commandState: UnitCommandState | null): boolean {

@@ -1903,17 +1903,32 @@
       background: var(--surface-muted);
       color: var(--text-primary);
       display: grid;
-      place-items: center;
-      gap: 0.25rem;
+      align-content: center;
+      justify-items: center;
+      gap: 0.35rem;
       padding: 0.4rem;
-      font-size: 1.35rem;
       cursor: pointer;
       transition: transform 0.18s ease, border 0.18s ease, box-shadow 0.18s ease;
+    }
+    .sidebar-button__icon {
+      width: 1.5rem;
+      height: 1.5rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(245, 247, 255, 0.94);
+    }
+    .sidebar-button__icon svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      overflow: visible;
     }
     .sidebar-button .label {
       font-size: 0.65rem;
       letter-spacing: 0.06em;
       text-transform: uppercase;
+      line-height: 1;
     }
     .sidebar-button:hover,
     .sidebar-button:focus-visible {
@@ -1926,6 +1941,11 @@
       border-color: var(--accent-strong);
       box-shadow: 0 12px 28px rgba(245, 196, 109, 0.32);
       background: rgba(245, 196, 109, 0.15);
+    }
+    .sidebar-button:hover .sidebar-button__icon,
+    .sidebar-button:focus-visible .sidebar-button__icon,
+    .sidebar-button.is-active .sidebar-button__icon {
+      color: #ffe7b7;
     }
     .map-shell {
       flex: 1;
@@ -4611,28 +4631,77 @@
       <!-- Control Sidebar -->
       <nav class="control-sidebar">
         <button type="button" class="sidebar-button" data-popup="baseOperations" title="Headquarters overview">
+          <span class="sidebar-button__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 20h16"/>
+              <path d="M6 20V9l6-4 6 4v11"/>
+              <path d="M9 20v-5h6v5"/>
+              <path d="M10 10h4"/>
+              <path d="M12 8v4"/>
+            </svg>
+          </span>
           <span class="label">HQ</span>
-          <span class="icon" aria-hidden="true">OPS</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="generalProfile" title="Commander Profile">
+          <span class="sidebar-button__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m12 3 2.4 4.86 5.36.78-3.88 3.78.92 5.34L12 15.2 7.2 17.76l.92-5.34L4.24 8.64l5.36-.78L12 3Z"/>
+              <path d="M12 15.5V21"/>
+              <path d="M9 21h6"/>
+            </svg>
+          </span>
           <span class="label">General</span>
-          <span class="icon">CMD</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="recon">
+          <span class="sidebar-button__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="7" cy="15" r="4"/>
+              <circle cx="17" cy="15" r="4"/>
+              <path d="M10.5 12h3"/>
+              <path d="M5.8 11 7.2 8"/>
+              <path d="M18.2 11 16.8 8"/>
+            </svg>
+          </span>
           <span class="label">Recon</span>
-          <span class="icon">REC</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="intelligence">
+          <span class="sidebar-button__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 18v-5"/>
+              <path d="M9.5 18h5"/>
+              <path d="M12 9h.01"/>
+              <path d="M8.6 12.6a5 5 0 0 1 6.8 0"/>
+              <path d="M6 10a8.5 8.5 0 0 1 12 0"/>
+              <path d="M3.6 7.4a12 12 0 0 1 16.8 0"/>
+            </svg>
+          </span>
           <span class="label">Intel</span>
-          <span class="icon">INT</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="logistics">
+          <span class="sidebar-button__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 8h11v7H3z"/>
+              <path d="M14 11h4l3 3v1h-7z"/>
+              <circle cx="7.5" cy="18" r="1.8"/>
+              <circle cx="17.5" cy="18" r="1.8"/>
+              <path d="M7 11h3"/>
+              <path d="M8.5 9.5v3"/>
+            </svg>
+          </span>
           <span class="label">Logistics</span>
-          <span class="icon">LOG</span>
         </button>
         <button type="button" class="sidebar-button" data-popup="armyRoster">
+          <span class="sidebar-button__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="5" cy="7" r="1.2"/>
+              <circle cx="5" cy="12" r="1.2"/>
+              <circle cx="5" cy="17" r="1.2"/>
+              <path d="M8 7h11"/>
+              <path d="M8 12h11"/>
+              <path d="M8 17h11"/>
+            </svg>
+          </span>
           <span class="label">Roster</span>
-          <span class="icon">ORD</span>
         </button>
       </nav>
 

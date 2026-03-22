@@ -3,7 +3,7 @@
  * Keeping these routines here ensures every caller (preview UI, AI sims, persistence) references
  * identical logic that is parameterized by the values in `balance.ts`.
  */
-import { combat as combatBalance } from "./balance";
+import { combat as combatBalance, HEX_SCALE_METERS } from "./balance";
 import type { Axial } from "./Hex";
 import { axialDirections, hexDistance, subtract } from "./Hex";
 import type { TerrainDefinition, UnitClass, UnitTypeDefinition } from "./types";
@@ -15,6 +15,46 @@ export type Facing = ScenarioUnit["facing"];
 /** Simple helper because the combat math calls for repeated clamping. */
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+type CombatProfileKey = keyof typeof combatBalance.damage.shotsPerTurn;
+
+/**
+ * Resolves the combat profile a unit should use for range, volume-of-fire, and damage tables.
+ * This lets formations like recon bikes keep their scouting role without inheriting the hotter
+ * armored-car combat curve.
+ */
+function resolveCombatProfile(unit: UnitTypeDefinition): CombatProfileKey {
+  if (unit.class === "recon" && unit.moveType === "wheel" && (unit.rangeMax ?? 1) <= 1 && unit.hardAttack <= 0) {
+    return "infantry";
+  }
+  return unit.class as CombatProfileKey;
+}
+
+function resolveAccuracyScalar(unit: UnitTypeDefinition, profile: CombatProfileKey): number {
+  const reference = combatBalance.profileReference.accuracyBase[profile] ?? unit.accuracyBase;
+  if (!Number.isFinite(reference) || reference <= 0) {
+    return 1;
+  }
+  return Math.max(0.25, unit.accuracyBase / reference);
+}
+
+function resolveAttackScalar(
+  unit: UnitTypeDefinition,
+  profile: CombatProfileKey,
+  isSoftTarget: boolean
+): number {
+  const attackValue = isSoftTarget ? unit.softAttack : unit.hardAttack;
+  if (!Number.isFinite(attackValue) || attackValue <= 0) {
+    return 0;
+  }
+  const reference = isSoftTarget
+    ? combatBalance.profileReference.softAttack[profile]
+    : combatBalance.profileReference.hardAttack[profile];
+  if (!Number.isFinite(reference) || reference <= 0) {
+    return 1;
+  }
+  return Math.max(0, attackValue / reference);
 }
 
 /**
@@ -231,17 +271,19 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const attacker = request.attacker;
   const defenderCtx = request.defenderCtx;
   const attackerCtx = request.attackerCtx;
+  const combatProfile = resolveCombatProfile(attacker.unit);
   let distance = hexDistance(attackerCtx.hex, defenderCtx.hex);
 
   // If attacker is using assault stance, engagement happens at close range (0-50m, use 25m midpoint)
   const isAssault = attackerCtx.stance === "assault";
   const ASSAULT_CLOSE_RANGE_METERS = 25;
   if (isAssault) {
-    distance = ASSAULT_CLOSE_RANGE_METERS;
+    distance = ASSAULT_CLOSE_RANGE_METERS / HEX_SCALE_METERS;
   }
 
   // Step 1: Get realistic base accuracy from range table
-  const baseAccuracy = getBaseAccuracyByRange(attacker.unit.class, distance);
+  const rangeAccuracy = getBaseAccuracyByRange(combatProfile, distance);
+  const baseAccuracy = rangeAccuracy * resolveAccuracyScalar(attacker.unit, combatProfile);
 
   // Step 2: Add experience bonus
   const experienceBonus = attacker.experience * combatBalance.accuracy.expPerStar;
@@ -294,8 +336,9 @@ export function calculateEffectiveAP(attacker: UnitCombatState): number {
  * Calculate shots fired based on unit class and current strength percentage.
  * Uses realistic shot counts from balance table.
  */
-export function calculateShots(attackerClass: UnitClass, strengthPercent: number): number {
-  const fullStrengthShots = combatBalance.damage.shotsPerTurn[attackerClass] ?? 1000;
+export function calculateShots(attacker: UnitTypeDefinition | UnitClass, strengthPercent: number): number {
+  const combatProfile = typeof attacker === "string" ? attacker : resolveCombatProfile(attacker);
+  const fullStrengthShots = combatBalance.damage.shotsPerTurn[combatProfile] ?? 1000;
   return Math.round(fullStrengthShots * (strengthPercent / 100));
 }
 
@@ -309,11 +352,11 @@ export function calculateDamagePerHit(
   facingArmor: number
 ): DamageBreakdown {
   const { attacker, isSoftTarget } = request;
-  const attackerClass = attacker.unit.class;
+  const combatProfile = resolveCombatProfile(attacker.unit);
 
   // Get base damage from table
   const targetType = isSoftTarget ? 'soft' : 'hard';
-  const damageTable = combatBalance.damage.damagePercent[attackerClass];
+  const damageTable = combatBalance.damage.damagePercent[combatProfile];
 
   // Provide a safe fallback so the UI can still report numbers for unexpected unit classes.
   let baseDamage: number;
@@ -339,7 +382,8 @@ export function calculateDamagePerHit(
   // Apply experience bonus multiplicatively (each star adds +10%)
   const experienceScalar = 1 + attacker.experience * 0.1;
   const afterExperience = baseDamage * experienceScalar;
-  const finalDamage = Math.max(0.0001, afterExperience * damageScalar); // Minimum 0.0001% damage
+  const attackScalar = resolveAttackScalar(attacker.unit, combatProfile, isSoftTarget);
+  const finalDamage = attackScalar <= 0 ? 0 : Math.max(0, afterExperience * damageScalar * attackScalar);
 
   return {
     baseTableValue: baseDamage,
@@ -361,7 +405,7 @@ export function resolveAttack(request: AttackRequest): AttackResult {
     request.defender.unit,
     request.attacker.unit.class
   );
-  const shots = calculateShots(request.attacker.unit.class, request.attacker.strength);
+  const shots = calculateShots(request.attacker.unit, request.attacker.strength);
   const damageBreakdown = calculateDamagePerHit(request, effectiveAP, facingArmor);
   const expectedHits = (accuracyBreakdown.final / 100) * shots;
   const expectedDamage = expectedHits * damageBreakdown.final;

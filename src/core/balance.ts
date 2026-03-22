@@ -132,6 +132,41 @@ export const combat = {
     } as const
   },
   /**
+   * Reference values that let per-unit stats meaningfully scale the class combat tables.
+   * The class tables define the broad weapon-family behavior by range, while these anchors
+   * let specific formations sit above or below that baseline without inventing a new class
+   * for every platform.
+   */
+  profileReference: {
+    accuracyBase: {
+      infantry: 60,
+      specialist: 60,
+      tank: 64,
+      artillery: 52,
+      air: 60,
+      recon: 60,
+      vehicle: 55
+    } as const,
+    softAttack: {
+      infantry: 25,
+      specialist: 20,
+      tank: 40,
+      artillery: 50,
+      air: 35,
+      recon: 20,
+      vehicle: 18
+    } as const,
+    hardAttack: {
+      infantry: 1,
+      specialist: 22,
+      tank: 28,
+      artillery: 16,
+      air: 20,
+      recon: 12,
+      vehicle: 1
+    } as const
+  },
+  /**
    * Armor penetration heuristics. These values dictate when side/top armor applies and how much
    * hard-damage bleeds through on under-penetration results.
    */

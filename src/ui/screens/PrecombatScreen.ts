@@ -544,26 +544,44 @@ export class PrecombatScreen {
    * Check if a unit type is allowed for purchase based on scenario restrictions.
    */
   private isUnitAllowedByScenario(unitKey: string): boolean {
-    const scenario = this.scenarioSource as {
-      allowedUnits?: unknown[];
-      restrictedUnits?: unknown[];
-    };
-    const allowedUnits = Array.isArray(scenario.allowedUnits)
-      ? scenario.allowedUnits.map((entry: unknown) => String(entry))
-      : [];
-    const restrictedUnits = Array.isArray(scenario.restrictedUnits)
-      ? scenario.restrictedUnits.map((entry: unknown) => String(entry))
-      : [];
+    const { allowedUnits, restrictedUnits } = this.getScenarioUnitRestrictions();
+    if (restrictedUnits.includes(unitKey)) {
+      return false;
+    }
+
+    // Convoys are part of the core logistics loop, so missions keep at least one available
+    // unless the scenario author explicitly blocks them.
+    if (unitKey === "supplyConvoy") {
+      return true;
+    }
 
     if (allowedUnits.length > 0) {
       return allowedUnits.includes(unitKey);
     }
 
-    if (restrictedUnits.length > 0) {
-      return !restrictedUnits.includes(unitKey);
-    }
-
     return true;
+  }
+
+  private getScenarioUnitRestrictions(): { allowedUnits: string[]; restrictedUnits: string[] } {
+    const scenario = this.scenarioSource as {
+      allowedUnits?: unknown[];
+      restrictedUnits?: unknown[];
+    };
+    return {
+      allowedUnits: Array.isArray(scenario.allowedUnits)
+        ? scenario.allowedUnits.map((entry: unknown) => String(entry))
+        : [],
+      restrictedUnits: Array.isArray(scenario.restrictedUnits)
+        ? scenario.restrictedUnits.map((entry: unknown) => String(entry))
+        : []
+    };
+  }
+
+  private getMissionMinimumAllocationCount(optionKey: string): number {
+    if (optionKey === "supplyConvoy" && this.isUnitAllowedByScenario(optionKey)) {
+      return 1;
+    }
+    return 0;
   }
 
   private rerenderAllocations(): void {
@@ -610,11 +628,16 @@ export class PrecombatScreen {
   private renderAllocationItem(option: UnitAllocationOption, quantity: number): string {
     const totalCost = option.costPerUnit * quantity;
     const lockedBaseline = this.predeployedCounts.get(option.key) ?? 0;
+    const missionMinimum = this.getMissionMinimumAllocationCount(option.key);
+    const quantityFloor = Math.max(lockedBaseline, missionMinimum);
     const locked = this.unlockState.isUnitLocked(option.key);
-    const decrementDisabled = locked || quantity <= lockedBaseline;
+    const decrementDisabled = locked || quantity <= quantityFloor;
     const incrementDisabled = locked || quantity >= option.maxQuantity;
     const baselineBadge = lockedBaseline > 0
       ? `<span class="allocation-lock" aria-label="Scenario provides ${lockedBaseline} ${option.label} unit${lockedBaseline === 1 ? "" : "s"}.">Scenario asset ×${lockedBaseline}</span>`
+      : "";
+    const missionMinimumBadge = missionMinimum > lockedBaseline
+      ? `<span class="allocation-lock" aria-label="${option.label} has a mission minimum of ${missionMinimum}.">Mission minimum ×${missionMinimum}</span>`
       : "";
     const unlockBadge = locked
       ? `<span class="allocation-lock" aria-label="${option.label} requires a roster unlock before you can requisition it.">Unlock required</span>`
@@ -655,6 +678,7 @@ export class PrecombatScreen {
             </div>
             <p>${option.description}</p>
             ${baselineBadge}
+            ${missionMinimumBadge}
             ${unlockBadge}
           </div>
         </header>
@@ -763,7 +787,8 @@ export class PrecombatScreen {
 
     const current = this.allocationCounts.get(optionKey) ?? 0;
     const baseline = this.predeployedCounts.get(optionKey) ?? 0;
-    const next = Math.max(baseline, Math.min(option.maxQuantity, current + delta));
+    const quantityFloor = Math.max(baseline, this.getMissionMinimumAllocationCount(optionKey));
+    const next = Math.max(quantityFloor, Math.min(option.maxQuantity, current + delta));
     if (next === current) {
       return;
     }
@@ -902,8 +927,8 @@ export class PrecombatScreen {
     });
 
     const recommended = plannedFrontlineUnits > 0
-      ? Math.max(2, Math.ceil(plannedFrontlineUnits / 4))
-      : 2;
+      ? Math.max(1, Math.ceil(plannedFrontlineUnits / 4))
+      : 1;
     return Math.min(maxQuantity, recommended);
   }
 

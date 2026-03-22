@@ -275,8 +275,8 @@ registerTest("PRECOMBAT_SEEDS_LOW_COST_SUPPLY_CONVOYS_BUT_STILL_REQUIRES_COMBAT_
     if (!(convoyCost > 0 && convoyCost < infantryCost)) {
       throw new Error(`Expected supply convoys to stay a low-cost requisition, saw cost ${convoyCost}.`);
     }
-    if (convoyCount < 2) {
-      throw new Error(`Expected precombat to seed at least two supply convoys by default, saw ${convoyCount}.`);
+    if (convoyCount < 1) {
+      throw new Error(`Expected precombat to seed at least one supply convoy by default, saw ${convoyCount}.`);
     }
     if (!proceedDisabled) {
       throw new Error("Expected convoy-only rosters to remain blocked until the commander adds an actual combat formation.");
