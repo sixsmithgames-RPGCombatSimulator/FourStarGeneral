@@ -922,8 +922,13 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     // Ensure combat effects layer renders on top of all markers by re-appending it as the last child.
+    console.log("[HexMapRenderer] render() finalizing - checking effects layer z-index");
     if (effectsLayer && effectsLayer.parentNode === svg) {
+      console.log("[HexMapRenderer] Re-appending effects layer to ensure it's on top");
       svg.appendChild(effectsLayer);
+      console.log("[HexMapRenderer] Effects layer is now child", Array.from(svg.children).indexOf(effectsLayer), "of", svg.children.length);
+    } else {
+      console.warn("[HexMapRenderer] Effects layer not re-appended:", { exists: !!effectsLayer, parentCorrect: effectsLayer?.parentNode === svg });
     }
   }
 
@@ -2394,21 +2399,30 @@ export class HexMapRenderer implements IMapRenderer {
 
   /** Ensures the top-layer SVG group used for combat effects exists and remains attached. */
   private ensureCombatEffectsLayer(): SVGGElement | null {
+    console.log("[HexMapRenderer] ensureCombatEffectsLayer called");
     if (!this.svgElement) {
+      console.error("[HexMapRenderer] ensureCombatEffectsLayer - No SVG element available");
       return null;
     }
+    console.log("[HexMapRenderer] SVG element exists:", this.svgElement, "children count:", this.svgElement.children.length);
 
     if (this.combatEffectsLayer && this.combatEffectsLayer.isConnected) {
+      console.log("[HexMapRenderer] Combat effects layer exists and is connected, re-appending to ensure z-index");
+      console.log("[HexMapRenderer] Layer before re-append - parent:", this.combatEffectsLayer.parentNode?.nodeName, "children:", this.combatEffectsLayer.children.length);
       // Re-append to ensure effects render above all markers (objective markers, debug markers, etc.)
       this.svgElement.appendChild(this.combatEffectsLayer);
+      console.log("[HexMapRenderer] Layer re-appended, now at index:", Array.from(this.svgElement.children).indexOf(this.combatEffectsLayer), "of", this.svgElement.children.length);
       return this.combatEffectsLayer;
     }
 
+    console.log("[HexMapRenderer] Creating new combat effects layer");
     const layer = document.createElementNS(SVG_NS, "g");
     layer.classList.add("combat-effects-layer");
+    layer.setAttribute("data-debug", "combat-effects-layer");
     this.svgElement.appendChild(layer);
     this.combatEffectsLayer = layer;
     this.flashOverlay = null;
+    console.log("[HexMapRenderer] New layer created and appended, isConnected:", layer.isConnected, "parent:", layer.parentNode?.nodeName);
     return layer;
   }
 
@@ -2658,34 +2672,47 @@ export class HexMapRenderer implements IMapRenderer {
     offsetY: number = 0,
     scale: number = 1
   ): Promise<void> {
+    console.log(`[HexMapRenderer] playCombatAnimation START - type: ${animationType}, hex: ${hexKey}, offset: (${offsetX}, ${offsetY}), scale: ${scale}`);
+
     const effectsLayer = this.ensureCombatEffectsLayer();
     if (!effectsLayer) {
+      console.error("[HexMapRenderer] playCombatAnimation FAILED - No effects layer available");
       return;
     }
+    console.log("[HexMapRenderer] Effects layer obtained:", effectsLayer, "isConnected:", effectsLayer.isConnected, "parentNode:", effectsLayer.parentNode?.nodeName);
 
     if (!this.combatAnimator) {
+      console.log("[HexMapRenderer] Creating new SpriteSheetAnimator");
       this.combatAnimator = new SpriteSheetAnimator(effectsLayer);
     }
     if (!this.combatAnimator) {
       console.warn("[HexMapRenderer] Combat animator not initialized");
       return;
     }
+    console.log("[HexMapRenderer] Combat animator ready:", this.combatAnimator);
 
     const hexElement = this.hexElementMap.get(hexKey);
     if (!hexElement) {
       console.warn(`[HexMapRenderer] Hex element not found for key: ${hexKey}`);
       return;
     }
+    console.log(`[HexMapRenderer] Hex element found for ${hexKey}:`, hexElement);
 
     // Derive the hex centre from cached metadata instead of relying on SVG transforms (hex cells are absolute).
     const center = this.extractHexCenter(hexElement);
     if (!center) {
+      console.error(`[HexMapRenderer] Could not extract hex center for ${hexKey}`);
       return;
     }
+    console.log(`[HexMapRenderer] Hex center for ${hexKey}: (${center.cx}, ${center.cy})`);
 
     // Animation specs carry their own anchor point so tall blast plumes can sit on the target hex
     // without requiring the renderer to know each sheet's pixel geometry.
-    await this.combatAnimator.playAnimation(animationType, center.cx + offsetX, center.cy + offsetY, scale);
+    const finalX = center.cx + offsetX;
+    const finalY = center.cy + offsetY;
+    console.log(`[HexMapRenderer] Calling combatAnimator.playAnimation at (${finalX}, ${finalY})`);
+    await this.combatAnimator.playAnimation(animationType, finalX, finalY, scale);
+    console.log(`[HexMapRenderer] playCombatAnimation COMPLETE - type: ${animationType}, hex: ${hexKey}`);
   }
 
   /**
@@ -2702,14 +2729,18 @@ export class HexMapRenderer implements IMapRenderer {
   async playExplosion(defenderHexKey: string, isLargeExplosion: boolean = false): Promise<void> {
     const animType = isLargeExplosion ? "explosionLarge" : "explosionSmall";
     const scale = isLargeExplosion ? 1.6 : 1.2;
+    console.log(`[HexMapRenderer] playExplosion called - hex: ${defenderHexKey}, type: ${animType}, scale: ${scale}`);
     await this.playCombatAnimation(animType, defenderHexKey, 0, 0, scale);
+    console.log(`[HexMapRenderer] playExplosion completed for hex: ${defenderHexKey}`);
   }
 
   /**
    * Plays a dust cloud animation (for movement or near misses).
    */
   async playDustCloud(hexKey: string): Promise<void> {
+    console.log(`[HexMapRenderer] playDustCloud called for hex: ${hexKey}`);
     await this.playCombatAnimation("dustCloud", hexKey, 0, 0, 1.2);
+    console.log(`[HexMapRenderer] playDustCloud completed for hex: ${hexKey}`);
   }
 
   /**

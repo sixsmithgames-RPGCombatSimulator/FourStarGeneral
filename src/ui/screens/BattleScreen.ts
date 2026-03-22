@@ -815,19 +815,25 @@ export class BattleScreen {
   }
 
   private async playSupportImpacts(impacts: readonly SupportImpactEvent[]): Promise<void> {
+    console.log("[BattleScreen] playSupportImpacts called with", impacts.length, "impact(s):", impacts);
     const renderer = this.hexMapRenderer;
     if (!renderer) {
+      console.warn("[BattleScreen] playSupportImpacts: No renderer available");
       return;
     }
     const first = impacts[0];
     const firstOffset = CoordinateSystem.axialToOffset(first.targetHex.q, first.targetHex.r);
-    this.focusCameraOnHex(CoordinateSystem.makeHexKey(firstOffset.col, firstOffset.row));
+    const firstHexKey = CoordinateSystem.makeHexKey(firstOffset.col, firstOffset.row);
+    console.log("[BattleScreen] Focusing camera on first impact hex:", firstHexKey);
+    this.focusCameraOnHex(firstHexKey);
     await this.waitForNextFrame();
     const engine = this.battleState.ensureGameEngine();
     for (const impact of impacts) {
       const offset = CoordinateSystem.axialToOffset(impact.targetHex.q, impact.targetHex.r);
       const targetHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+      console.log("[BattleScreen] Playing explosion for impact at hex:", targetHexKey, impact);
       await renderer.playExplosion(targetHexKey, false);
+      console.log("[BattleScreen] Playing dust cloud for impact at hex:", targetHexKey);
       await renderer.playDustCloud(targetHexKey);
       const targetClass = impact.targetUnitType
         ? this.unitTypes[impact.targetUnitType as keyof UnitTypeDictionary]?.class as UnitClass | undefined

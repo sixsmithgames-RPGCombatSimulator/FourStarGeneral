@@ -352,6 +352,7 @@ export class SpriteSheetAnimation {
     y: number,
     scale: number = 1
   ): void {
+    console.log(`[SpriteSheetAnimation] configure - pos: (${x}, ${y}), scale: ${scale}, renderScale: ${spec.renderScale}`);
     this.stop();
     this.spec = spec;
     this.currentFrame = 0;
@@ -374,11 +375,16 @@ export class SpriteSheetAnimation {
     this.clipRect.setAttribute("width", String(frameWidth));
     this.clipRect.setAttribute("height", String(frameHeight));
 
+    console.log(`[SpriteSheetAnimation] Container parent before: ${this.container.parentNode?.nodeName}, target parent: ${svgParent.nodeName}`);
     if (this.container.parentNode !== svgParent) {
       svgParent.appendChild(this.container);
+      console.log(`[SpriteSheetAnimation] Container appended to ${svgParent.nodeName}, isConnected: ${this.container.isConnected}`);
+    } else {
+      console.log(`[SpriteSheetAnimation] Container already attached to correct parent`);
     }
 
     this.updateFrame(0);
+    console.log(`[SpriteSheetAnimation] configure complete - container opacity: ${this.container.style.opacity}, isConnected: ${this.container.isConnected}`);
   }
 
   private updateFrame(frameIndex: number): void {
@@ -400,7 +406,9 @@ export class SpriteSheetAnimation {
   }
 
   play(onComplete?: () => void): void {
+    console.log(`[SpriteSheetAnimation] play called - spec exists: ${!!this.spec}, container connected: ${this.container.isConnected}`);
     if (!this.spec) {
+      console.warn("[SpriteSheetAnimation] play aborted - no spec");
       onComplete?.();
       return;
     }
@@ -410,6 +418,7 @@ export class SpriteSheetAnimation {
     this.lastFrameTimestamp = performance.now();
     this.onComplete = onComplete;
     this.updateFrame(0);
+    console.log(`[SpriteSheetAnimation] Starting animation - frameCount: ${this.spec.frameCount}, isPlaying: ${this.isPlaying}`);
     requestAnimationFrame(this.tick);
   }
 
@@ -520,15 +529,23 @@ export class SpriteSheetAnimator {
     y: number,
     scale: number = 1
   ): Promise<void> {
+    console.log(`[SpriteSheetAnimator] playAnimation START - type: ${animationType}, pos: (${x}, ${y}), scale: ${scale}`);
+    console.log("[SpriteSheetAnimator] SVG element:", this.svgElement, "isConnected:", this.svgElement?.isConnected);
+
     const resolvedSpec = await this.getResolvedSpec(animationType);
+    console.log(`[SpriteSheetAnimator] Resolved spec for ${animationType}:`, resolvedSpec);
 
     return new Promise((resolve) => {
       const pool = this.getAnimationPool(animationType);
       const animation = pool.pop() ?? new SpriteSheetAnimation();
+      console.log(`[SpriteSheetAnimator] Animation instance obtained (from pool: ${pool.length > 0})`);
 
       this.activeAnimations.add(animation);
+      console.log(`[SpriteSheetAnimator] Configuring animation...`);
       animation.configure(resolvedSpec, this.svgElement, x, y, scale);
+      console.log(`[SpriteSheetAnimator] Starting animation playback...`);
       animation.play(() => {
+        console.log(`[SpriteSheetAnimator] Animation ${animationType} completed, cleaning up`);
         animation.release();
         this.activeAnimations.delete(animation);
         pool.push(animation);
