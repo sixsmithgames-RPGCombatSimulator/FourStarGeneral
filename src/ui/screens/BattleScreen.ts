@@ -12,7 +12,8 @@ import {
   type EnemyContactSnapshot,
   type TurnFaction,
   type AirMissionArrival,
-  type AirEngagementEvent
+  type AirEngagementEvent,
+  type SupportImpactEvent
 } from "../../game/GameEngine";
 import type { CombatPreview, AttackResolution } from "../../game/GameEngine";
 import type {
@@ -174,6 +175,13 @@ export class BattleScreen {
   private airPreviewListener: ((e: Event) => void) | null = null;
   private airClearPreviewListener: ((e: Event) => void) | null = null;
   private seenAirReportIds: Set<string> = new Set();
+  private artilleryPreviewKeys: Set<string> = new Set();
+  private artilleryTargetingState: {
+    callerHexKey: string;
+    callerLabel: string;
+    assetId: string;
+    targetHexKeys: Set<string>;
+  } | null = null;
 
   private beginBattleButton: HTMLButtonElement | null = null;
   private endTurnButton: HTMLButtonElement | null = null;
@@ -645,6 +653,200 @@ export class BattleScreen {
     if (this.airPreviewKeys.size > 0) {
       this.airPreviewKeys.clear();
       this.hexMapRenderer.setZoneHighlights([]);
+    }
+  }
+
+  private clearArtilleryPreviewOverlay(): void {
+    if (!this.hexMapRenderer) {
+      return;
+    }
+    if (this.artilleryPreviewKeys.size > 0) {
+      this.artilleryPreviewKeys.clear();
+      this.hexMapRenderer.setZoneHighlights([]);
+    }
+  }
+
+  private canUnitObserveArtillery(unit: ScenarioUnit): boolean {
+    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
+    if (!definition) {
+      return false;
+    }
+    return definition.class === "infantry"
+      || definition.class === "recon"
+      || (definition.class === "specialist" && definition.moveType === "leg");
+  }
+
+  private resolveArtilleryTargetHexKeys(unit: ScenarioUnit, hexKey: string): string[] {
+    const parsed = CoordinateSystem.parseHexKey(hexKey);
+    if (!parsed) {
+      return [];
+    }
+    const callerAxial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
+    if (!definition) {
+      return [];
+    }
+    const engine = this.battleState.ensureGameEngine();
+    const currentTurn = engine.getTurnSummary().turnNumber;
+    const observationRange = Math.max(2, (definition.vision ?? 0) + (definition.class === "recon" ? 1 : 0));
+    const targetHexKeys = new Set<string>();
+    engine.getEnemyContactSnapshot().forEach((contact) => {
+      if (contact.lastSeenTurn !== currentTurn || contact.state === "spotted") {
+        return;
+      }
+      if (hexDistance(callerAxial, contact.hex) > observationRange) {
+        return;
+      }
+      const offset = CoordinateSystem.axialToOffset(contact.hex.q, contact.hex.r);
+      targetHexKeys.add(CoordinateSystem.makeHexKey(offset.col, offset.row));
+    });
+    return Array.from(targetHexKeys);
+  }
+
+  private resolveArtilleryActionState(
+    unit: ScenarioUnit,
+    commandState: UnitCommandState | null,
+    hexKey: string
+  ): { available: boolean; reason: string | null; assetId: string | null; targetHexKeys: string[] } {
+    if (!commandState || commandState.isAutomated || !this.canUnitObserveArtillery(unit)) {
+      return { available: false, reason: null, assetId: null, targetHexKeys: [] };
+    }
+    if (commandState.suppressionState === "pinned") {
+      return {
+        available: false,
+        reason: "Pinned battalions cannot adjust heavy artillery fire until the pin is broken.",
+        assetId: null,
+        targetHexKeys: []
+      };
+    }
+    const engine = this.battleState.ensureGameEngine();
+    const supportSnapshot = engine.getSupportSnapshot();
+    const readyAsset = supportSnapshot.ready.find((asset) => asset.type === "artillery" && asset.charges > 0) ?? null;
+    if (!readyAsset) {
+      const queuedAsset = supportSnapshot.queued.find((asset) => asset.type === "artillery") ?? null;
+      return {
+        available: false,
+        reason: queuedAsset
+          ? `${queuedAsset.label} is already tasked.`
+          : "No heavy artillery battery is available for this mission.",
+        assetId: null,
+        targetHexKeys: []
+      };
+    }
+    const targetHexKeys = this.resolveArtilleryTargetHexKeys(unit, hexKey);
+    if (targetHexKeys.length === 0) {
+      return {
+        available: false,
+        reason: "No observed enemy hex is close enough to adjust heavy artillery fire.",
+        assetId: readyAsset.id,
+        targetHexKeys
+      };
+    }
+    return {
+      available: true,
+      reason: null,
+      assetId: readyAsset.id,
+      targetHexKeys
+    };
+  }
+
+  private beginArtilleryTargeting(callerHexKey: string, callerLabel: string, assetId: string, targetHexKeys: readonly string[]): void {
+    this.artilleryTargetingState = {
+      callerHexKey,
+      callerLabel,
+      assetId,
+      targetHexKeys: new Set(targetHexKeys)
+    };
+    this.artilleryPreviewKeys = new Set(targetHexKeys);
+    this.hexMapRenderer?.setZoneHighlights(this.artilleryPreviewKeys);
+    this.announceBattleUpdate(`${callerLabel} is spotting for heavy artillery. Select an observed enemy hex.`);
+  }
+
+  private cancelArtilleryTargeting(restoreSelection = true): void {
+    if (!this.artilleryTargetingState) {
+      return;
+    }
+    this.artilleryTargetingState = null;
+    this.clearArtilleryPreviewOverlay();
+    if (restoreSelection && this.selectedHexKey) {
+      this.applySelectedHex(this.selectedHexKey);
+    }
+  }
+
+  private async executeQueuedArtilleryStrike(targetHexKey: string): Promise<void> {
+    const targetingState = this.artilleryTargetingState;
+    if (!targetingState) {
+      return;
+    }
+    const callerParsed = CoordinateSystem.parseHexKey(targetingState.callerHexKey);
+    const targetParsed = CoordinateSystem.parseHexKey(targetHexKey);
+    if (!callerParsed || !targetParsed) {
+      this.cancelArtilleryTargeting(true);
+      return;
+    }
+    const callerAxial = CoordinateSystem.offsetToAxial(callerParsed.col, callerParsed.row);
+    const targetAxial = CoordinateSystem.offsetToAxial(targetParsed.col, targetParsed.row);
+    const engine = this.battleState.ensureGameEngine();
+    const queued = engine.queueSupportActionFromUnit(callerAxial, targetingState.assetId, targetAxial);
+    this.cancelArtilleryTargeting(false);
+    if (!queued) {
+      this.applySelectedHex(targetingState.callerHexKey);
+      this.announceBattleUpdate("Heavy artillery could not be queued. Keep the caller uncommitted and select an observed enemy hex.");
+      return;
+    }
+    this.applySelectedHex(targetingState.callerHexKey);
+    const summary = `${targetingState.callerLabel} requested heavy artillery on ${targetHexKey}. Impact scheduled for turn transition.`;
+    this.announceBattleUpdate(summary);
+    this.publishActivityEvent({
+      category: "player",
+      type: "log",
+      summary
+    });
+    this.battleState.emitBattleUpdate("manual");
+  }
+
+  private async triggerSupportImpacts(): Promise<void> {
+    const impacts = this.battleState.ensureGameEngine().consumeSupportImpactEvents();
+    if (impacts.length === 0) {
+      return;
+    }
+    await this.playSupportImpacts(impacts);
+  }
+
+  private async playSupportImpacts(impacts: readonly SupportImpactEvent[]): Promise<void> {
+    const renderer = this.hexMapRenderer;
+    if (!renderer) {
+      return;
+    }
+    const first = impacts[0];
+    const firstOffset = CoordinateSystem.axialToOffset(first.targetHex.q, first.targetHex.r);
+    this.focusCameraOnHex(CoordinateSystem.makeHexKey(firstOffset.col, firstOffset.row));
+    await this.waitForNextFrame();
+    const engine = this.battleState.ensureGameEngine();
+    for (const impact of impacts) {
+      const offset = CoordinateSystem.axialToOffset(impact.targetHex.q, impact.targetHex.r);
+      const targetHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+      await renderer.playExplosion(targetHexKey, false);
+      await renderer.playDustCloud(targetHexKey);
+      const targetClass = impact.targetUnitType
+        ? this.unitTypes[impact.targetUnitType as keyof UnitTypeDictionary]?.class as UnitClass | undefined
+        : undefined;
+      if (impact.hit && impact.destroyed) {
+        renderer.markHexWrecked(targetHexKey, targetClass, 1);
+      } else if (impact.hit) {
+        const defenderNow = engine.botUnits.find((unit) => unit.hex.q === impact.targetHex.q && unit.hex.r === impact.targetHex.r) ?? null;
+        renderer.markHexDamaged(targetHexKey, targetClass, defenderNow?.strength, 2);
+      }
+      this.renderEngineUnits();
+      const summary = impact.hit
+        ? `${impact.label} struck ${targetHexKey}, dealing ${impact.damage} damage${impact.destroyed ? " and destroying the target" : ""}.`
+        : `${impact.label} landed on ${targetHexKey}, but the target had already moved.`;
+      this.announceBattleUpdate(summary);
+      this.publishActivityEvent({
+        category: "player",
+        type: "log",
+        summary
+      });
     }
   }
 
@@ -3380,6 +3582,7 @@ export class BattleScreen {
     const report = this.battleState.endPlayerTurn();
     const summary = this.battleState.getCurrentTurnSummary();
 
+    await this.triggerSupportImpacts();
     await this.triggerAirMissionArrivals(summary);
     await this.triggerAirEngagements(summary);
 
@@ -4235,6 +4438,10 @@ export class BattleScreen {
       return;
     }
 
+    if (this.artilleryTargetingState && key !== this.artilleryTargetingState.callerHexKey) {
+      this.cancelArtilleryTargeting(false);
+    }
+
     this.selectedHexKey = key;
     this.updateSelectionFeedback(key);
   }
@@ -4483,6 +4690,18 @@ export class BattleScreen {
     }
     const clickedAxial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
 
+    if (this.artilleryTargetingState) {
+      if (this.artilleryTargetingState.targetHexKeys.has(key)) {
+        void this.executeQueuedArtilleryStrike(key);
+        return;
+      }
+      if (key === this.artilleryTargetingState.callerHexKey) {
+        this.cancelArtilleryTargeting(true);
+        return;
+      }
+      this.cancelArtilleryTargeting(false);
+    }
+
     // If there is an active selection and the user clicked a move/attack destination, execute the action.
     if (this.selectedHexKey) {
       if (this.playerMoveHexes.has(key)) {
@@ -4535,9 +4754,22 @@ export class BattleScreen {
     const engine = this.battleState.ensureGameEngine();
     const unitLabel = this.resolveUnitLabelForHex(this.selectedHexKey) ?? "Selected unit";
     const commandState = engine.getUnitCommandState(axial);
+    const unit = this.resolvePlayerUnitSnapshot(this.selectedHexKey);
+    if (!unit) {
+      return;
+    }
 
     let succeeded = false;
     let summary = "";
+    if (actionId === "callArtillery") {
+      const artilleryState = this.resolveArtilleryActionState(unit, commandState, this.selectedHexKey);
+      if (!artilleryState.available || !artilleryState.assetId) {
+        this.announceBattleUpdate(artilleryState.reason ?? "Heavy artillery is not available right now.");
+        return;
+      }
+      this.beginArtilleryTargeting(this.selectedHexKey, unitLabel, artilleryState.assetId, artilleryState.targetHexKeys);
+      return;
+    }
     if (actionId === "digIn") {
       succeeded = engine.digInUnit(axial);
       summary = `${unitLabel} dug in at ${this.selectedHexKey}.`;
@@ -4994,7 +5226,7 @@ export class BattleScreen {
       attackOptions: this.playerAttackHexes.size,
       statusMessage,
       statusChips: this.buildBattleIntelStatusChips(unit, commandState),
-      actionCards: this.buildBattleIntelActions(unit, commandState),
+      actionCards: this.buildBattleIntelActions(hexKey, unit, commandState),
       notes: this.buildBattleIntelNotes(unit, commandState)
     };
   }
@@ -5026,12 +5258,23 @@ export class BattleScreen {
     return chips;
   }
 
-  private buildBattleIntelActions(unit: ScenarioUnit, commandState: UnitCommandState | null): BattleIntelAction[] {
+  private buildBattleIntelActions(hexKey: string, unit: ScenarioUnit, commandState: UnitCommandState | null): BattleIntelAction[] {
     if (!commandState || commandState.isAutomated) {
       return [];
     }
 
     const actions: BattleIntelAction[] = [];
+    if (this.canUnitObserveArtillery(unit)) {
+      const artilleryState = this.resolveArtilleryActionState(unit, commandState, hexKey);
+      actions.push({
+        id: "callArtillery",
+        label: "Call Artillery",
+        detail: "Queue an off-map heavy artillery strike on an observed enemy hex. Impact lands during turn transition.",
+        tone: "denial",
+        available: artilleryState.available,
+        reason: artilleryState.reason
+      });
+    }
     if (this.canUnitDigIn(unit)) {
       actions.push({
         id: "digIn",

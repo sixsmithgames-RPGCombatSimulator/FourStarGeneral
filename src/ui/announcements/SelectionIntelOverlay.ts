@@ -18,15 +18,23 @@ export class SelectionIntelOverlay {
   private readonly metaElement: HTMLElement | null;
   private readonly bodyElement: HTMLElement | null;
   private readonly notesElement: HTMLElement | null;
+  private readonly headerElement: HTMLElement | null;
   private readonly dismissButton: HTMLButtonElement | null;
   private readonly toggleButton: HTMLButtonElement | null;
   private readonly handleDismissBound = (event: Event) => this.handleDismiss(event);
   private readonly handleKeydownBound = (event: KeyboardEvent) => this.handleKeydown(event);
   private readonly handleToggleBound = (event: Event) => this.handleToggle(event);
+  private readonly handlePointerDownBound = (event: PointerEvent) => this.handlePointerDown(event);
+  private readonly handlePointerMoveBound = (event: PointerEvent) => this.handlePointerMove(event);
+  private readonly handlePointerUpBound = (event: PointerEvent) => this.handlePointerUp(event);
 
   private lastSignature: string | null = null;
   private suppressedSignature: string | null = null;
   private collapsed = true;
+  private activePointerId: number | null = null;
+  private pointerOffsetX = 0;
+  private pointerOffsetY = 0;
+  private hasManualPosition = false;
 
   constructor(selectors: {
     rootSelector?: string;
@@ -52,6 +60,7 @@ export class SelectionIntelOverlay {
     this.metaElement = document.querySelector<HTMLElement>(metaSelector);
     this.bodyElement = document.querySelector<HTMLElement>(bodySelector);
     this.notesElement = document.querySelector<HTMLElement>(notesSelector);
+    this.headerElement = this.root?.querySelector<HTMLElement>(".battle-intel-overlay__header") ?? null;
     this.dismissButton = document.querySelector<HTMLButtonElement>(dismissSelector);
     this.toggleButton = document.querySelector<HTMLButtonElement>(toggleSelector);
 
@@ -61,15 +70,19 @@ export class SelectionIntelOverlay {
       this.root.addEventListener("keydown", this.handleKeydownBound);
       this.root.dataset.collapsed = "true";
     }
+    this.headerElement?.addEventListener("pointerdown", this.handlePointerDownBound);
     this.dismissButton?.addEventListener("click", this.handleDismissBound);
     this.toggleButton?.addEventListener("click", this.handleToggleBound);
   }
 
   /** Releases DOM listeners so the overlay can be safely garbage collected. */
   dispose(): void {
+    this.headerElement?.removeEventListener("pointerdown", this.handlePointerDownBound);
     this.dismissButton?.removeEventListener("click", this.handleDismissBound);
     this.toggleButton?.removeEventListener("click", this.handleToggleBound);
     this.root?.removeEventListener("keydown", this.handleKeydownBound);
+    window.removeEventListener("pointermove", this.handlePointerMoveBound);
+    window.removeEventListener("pointerup", this.handlePointerUpBound);
   }
 
   /**
@@ -114,8 +127,8 @@ export class SelectionIntelOverlay {
     }
     this.root.classList.remove("hidden");
     this.root.setAttribute("aria-hidden", "false");
-    // Focus the overlay so keyboard users can immediately interact or dismiss.
     window.requestAnimationFrame(() => {
+      this.clampWithinViewport();
       this.root?.focus({ preventScroll: true });
     });
   }
@@ -185,6 +198,7 @@ export class SelectionIntelOverlay {
         this.notesElement.textContent = "";
       }
     }
+    window.requestAnimationFrame(() => this.clampWithinViewport());
   }
 
   private syncCollapsedState(): void {
@@ -196,6 +210,82 @@ export class SelectionIntelOverlay {
       this.toggleButton.setAttribute("aria-expanded", this.collapsed ? "false" : "true");
       this.toggleButton.textContent = this.collapsed ? "Expand" : "Compact";
     }
+    window.requestAnimationFrame(() => this.clampWithinViewport());
+  }
+
+  private handlePointerDown(event: PointerEvent): void {
+    if (!this.root || !this.headerElement || (event.target as HTMLElement | null)?.closest("button")) {
+      return;
+    }
+    const parent = this.root.parentElement;
+    if (!parent) {
+      return;
+    }
+    const rootRect = this.root.getBoundingClientRect();
+    const parentRect = parent.getBoundingClientRect();
+    this.root.style.left = `${rootRect.left - parentRect.left}px`;
+    this.root.style.top = `${rootRect.top - parentRect.top}px`;
+    this.activePointerId = event.pointerId;
+    this.pointerOffsetX = event.clientX - rootRect.left;
+    this.pointerOffsetY = event.clientY - rootRect.top;
+    this.hasManualPosition = true;
+    this.headerElement.setPointerCapture(event.pointerId);
+    window.addEventListener("pointermove", this.handlePointerMoveBound);
+    window.addEventListener("pointerup", this.handlePointerUpBound);
+  }
+
+  private handlePointerMove(event: PointerEvent): void {
+    if (!this.root || this.activePointerId !== event.pointerId) {
+      return;
+    }
+    const parent = this.root.parentElement;
+    if (!parent) {
+      return;
+    }
+    const parentRect = parent.getBoundingClientRect();
+    const rootWidth = this.root.offsetWidth;
+    const rootHeight = this.root.offsetHeight;
+    const left = event.clientX - parentRect.left - this.pointerOffsetX;
+    const top = event.clientY - parentRect.top - this.pointerOffsetY;
+    const clampedLeft = Math.min(Math.max(16, left), Math.max(16, parent.clientWidth - rootWidth - 16));
+    const clampedTop = Math.min(Math.max(16, top), Math.max(16, parent.clientHeight - rootHeight - 16));
+    this.root.style.left = `${clampedLeft}px`;
+    this.root.style.top = `${clampedTop}px`;
+  }
+
+  private handlePointerUp(event: PointerEvent): void {
+    if (!this.headerElement || this.activePointerId !== event.pointerId) {
+      return;
+    }
+    this.headerElement.releasePointerCapture(event.pointerId);
+    this.activePointerId = null;
+    window.removeEventListener("pointermove", this.handlePointerMoveBound);
+    window.removeEventListener("pointerup", this.handlePointerUpBound);
+    this.clampWithinViewport();
+  }
+
+  private clampWithinViewport(): void {
+    if (!this.root || this.root.classList.contains("hidden")) {
+      return;
+    }
+    const parent = this.root.parentElement;
+    if (!parent) {
+      return;
+    }
+    const rootWidth = this.root.offsetWidth;
+    const rootHeight = this.root.offsetHeight;
+    if (!this.hasManualPosition) {
+      const currentLeft = Number.parseFloat(this.root.style.left || "16");
+      const currentTop = Number.parseFloat(this.root.style.top || "16");
+      this.root.style.left = `${currentLeft}px`;
+      this.root.style.top = `${currentTop}px`;
+    }
+    const left = Number.parseFloat(this.root.style.left || "16");
+    const top = Number.parseFloat(this.root.style.top || "16");
+    const clampedLeft = Math.min(Math.max(16, left), Math.max(16, parent.clientWidth - rootWidth - 16));
+    const clampedTop = Math.min(Math.max(16, top), Math.max(16, parent.clientHeight - rootHeight - 16));
+    this.root.style.left = `${clampedLeft}px`;
+    this.root.style.top = `${clampedTop}px`;
   }
 
   private resolveTitle(intel: Exclude<SelectionIntel, null>): string {

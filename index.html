@@ -2138,6 +2138,8 @@
       gap: 0.2rem;
       margin: 0;
       padding-right: 5.3rem;
+      cursor: grab;
+      touch-action: none;
     }
     .battle-intel-overlay__title {
       display: block;
@@ -2405,11 +2407,22 @@
     .battle-map-header__actions {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.9rem;
       flex-shrink: 0;
       flex: 1 1 360px;
       justify-content: flex-end;
       flex-wrap: wrap;
+    }
+    .battle-map-header__command-group,
+    .battle-map-header__risk-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+    .battle-map-header__risk-group {
+      padding-left: 0.9rem;
+      border-left: 1px solid rgba(255, 255, 255, 0.08);
     }
     .map-pan-grid {
       display: grid;
@@ -4734,6 +4747,17 @@
         <button
           type="button"
           class="sidebar-button"
+          data-popup="airSupport"
+          title="Air support"
+          aria-label="Air support"
+        >
+          <span class="sidebar-button__icon" aria-hidden="true">
+            <img src="/src/assets/Interface/Air_Icon.png" alt="" draggable="false">
+          </span>
+        </button>
+        <button
+          type="button"
+          class="sidebar-button"
           data-popup="logistics"
           title="Logistics"
           aria-label="Logistics"
@@ -4775,20 +4799,13 @@
                 </div>
               </div>
               <div class="battle-map-header__actions">
-                <button id="battleCycleObjective" type="button" class="compact-button" aria-label="Cycle objective focus">Cycle Objective</button>
-                <button id="beginBattle" type="button">Begin Battle</button>
-                <button id="endTurn" type="button" disabled>End Turn</button>
-                <button id="endMissionButton" type="button">End Mission</button>
-                <!-- Air Support compact HUD: shows quick counts and opens the Air Support panel -->
-                <div id="airHudWidget" class="air-hud compact-hud" aria-label="Air Support status">
-                <button type="button" class="compact-button" data-airhud-open aria-label="Open Air Support panel">Air</button>
-                  <div class="air-hud__counts" aria-live="polite">
-                    <span class="air-hud__chip" title="Queued">Q <span data-airhud-queued>0</span></span>
-                    <span class="air-hud__chip" title="In flight">IF <span data-airhud-inflight>0</span></span>
-                    <span class="air-hud__chip" title="Resolving">R <span data-airhud-resolving>0</span></span>
-                    <span class="air-hud__chip" title="Completed">Done <span data-airhud-completed>0</span></span>
-                    <span class="air-hud__chip" title="Refit">Refit <span data-airhud-refit>0</span></span>
-                  </div>
+                <div class="battle-map-header__command-group">
+                  <button id="battleCycleObjective" type="button" class="compact-button" aria-label="Cycle objective focus">Cycle Objective</button>
+                  <button id="beginBattle" type="button" class="primary-button">Begin Mission</button>
+                  <button id="endTurn" type="button" class="secondary-button" disabled>End Turn</button>
+                </div>
+                <div class="battle-map-header__risk-group">
+                  <button id="endMissionButton" type="button" class="danger-button">End Mission</button>
                 </div>
               </div>
             </div>

@@ -350,6 +350,17 @@ export interface SupportSnapshotMetrics {
   readonly averageCooldown: number | null;
 }
 
+export interface SupportImpactEvent {
+  readonly assetId: string;
+  readonly label: string;
+  readonly targetHex: Axial;
+  readonly targetFaction: TurnFaction;
+  readonly hit: boolean;
+  readonly damage: number;
+  readonly destroyed: boolean;
+  readonly targetUnitType?: ScenarioUnit["type"];
+}
+
 /**
  * Internal mutable representation of a support asset. The engine retains write access to these records
  * so status, charge counts, and queued targets can be updated in place without exposing mutation to the UI.
@@ -1065,6 +1076,7 @@ export interface GameEngineAPI {
   getAircraftRefitTurns(origin: Axial): number | null;
   /** Cancels a queued air mission for the active faction. Returns true if a mission was canceled. */
   cancelQueuedAirMission(missionId: string): boolean;
+  consumeSupportImpactEvents(): SupportImpactEvent[];
   serialize(): SerializedBattleState;
   initializeFromAllocations(units: ScenarioUnit[]): void;
   hydrateFromSerialized(state: SerializedBattleState): void;
@@ -1075,6 +1087,7 @@ export interface GameEngineAPI {
   setSupplyPriority(unitId: string, priority: SupplyPriority): boolean;
   getCombatReports(): readonly CombatReportEntry[];
   queueSupportAction(assetId: string, targetHex: Axial): void;
+  queueSupportActionFromUnit(callerHex: Axial, assetId: string, targetHex: Axial): boolean;
   cancelQueuedSupport(assetId: string): void;
   consumeBotTurnSummary(): BotTurnSummary | null;
   transferAllyControl(hex: Axial): boolean;
@@ -2979,6 +2992,7 @@ export class GameEngine implements GameEngineAPI {
   private readonly pendingAirMissionArrivals: AirMissionArrival[] = [];
   /** One-shot queue of air-to-air engagements so UI can animate fighter interceptions. */
   private readonly pendingAirEngagements: AirEngagementEvent[] = [];
+  private readonly pendingSupportImpactEvents: SupportImpactEvent[] = [];
   private airMissionIdCounter = 0;
   /** Refitting squadrons keyed by squadron id so planners know when they return to Ready status. */
   private readonly airMissionRefitTimers = new Map<string, { missionId: string; faction: TurnFaction; remaining: number }>();
@@ -3195,15 +3209,15 @@ export class GameEngine implements GameEngineAPI {
     this.privateSupportAssets.push(
       {
         id: "support-artillery-alpha",
-        label: "Artillery Battery Alpha",
+        label: "Heavy Artillery Battery",
         type: "artillery",
         status: "ready",
         charges: 2,
-        maxCharges: 3,
+        maxCharges: 2,
         cooldown: 0,
         maxCooldown: 3,
         assignedHex: null,
-        notes: "155mm battery with counter-battery radar support",
+        notes: "Off-map heavy artillery battery available for observer-directed fire missions.",
         queuedHex: null
       },
       {
@@ -3828,6 +3842,39 @@ export class GameEngine implements GameEngineAPI {
     this.invalidateRosterCache();
   }
 
+  queueSupportActionFromUnit(callerHex: Axial, assetId: string, targetHex: Axial): boolean {
+    if (this._phase !== "playerTurn") {
+      return false;
+    }
+    const caller = this.lookupUnit(callerHex, "Player");
+    if (!caller || this.isAutomatedPlayerUnit(caller) || !this.getPlayerEnemyContactStateAtHex(targetHex)) {
+      return false;
+    }
+    const callerDefinition = this.getUnitDefinition(caller.type);
+    const canObserveSupport = callerDefinition.class === "infantry"
+      || callerDefinition.class === "recon"
+      || (callerDefinition.class === "specialist" && callerDefinition.moveType === "leg");
+    if (!canObserveSupport) {
+      return false;
+    }
+    const callerKey = axialKey(callerHex);
+    const flags = this.playerActionFlags.get(callerKey) ?? this.createDefaultActionFlags();
+    if (flags.attacksUsed > 0 || flags.movementPointsUsed > 0) {
+      return false;
+    }
+    const asset = this.getInternalSupportAsset(assetId);
+    if (asset.status !== "ready" || asset.charges <= 0) {
+      return false;
+    }
+    asset.queuedHex = axialKey(targetHex);
+    asset.status = "queued";
+    this.playerActionFlags.set(callerKey, this.resolveCommittedFieldActionFlags(callerHex, flags));
+    this.updateIdleRegistryFor(callerKey);
+    this.invalidateSupportSnapshot();
+    this.invalidateRosterCache();
+    return true;
+  }
+
   /**
    * Exposes mission templates so UI layers can present identical copy without duplicating data lookups.
    * The catalog is read-only and sourced from `src/data/airMissions.ts`.
@@ -3922,6 +3969,18 @@ export class GameEngine implements GameEngineAPI {
       escorts: e.escorts.map((x) => ({ ...x }))
     }));
     this.pendingAirEngagements.length = 0;
+    return copy;
+  }
+
+  consumeSupportImpactEvents(): SupportImpactEvent[] {
+    if (this.pendingSupportImpactEvents.length === 0) {
+      return [];
+    }
+    const copy = this.pendingSupportImpactEvents.map((event) => ({
+      ...event,
+      targetHex: structuredClone(event.targetHex)
+    }));
+    this.pendingSupportImpactEvents.length = 0;
     return copy;
   }
 
@@ -4173,6 +4232,58 @@ export class GameEngine implements GameEngineAPI {
       asset.status = "ready";
     } else {
       asset.status = "maintenance";
+    }
+    this.invalidateSupportSnapshot();
+    this.invalidateRosterCache();
+  }
+
+  private resolveQueuedSupportActions(): void {
+    let mutated = false;
+    this.privateSupportAssets.forEach((asset) => {
+      if (asset.status !== "queued" || !asset.queuedHex) {
+        return;
+      }
+      const targetKey = asset.queuedHex;
+      const targetHex = GameEngine.parseAxialKey(targetKey);
+      const defender = this.botPlacements.get(targetKey) ?? null;
+      let damage = 0;
+      let destroyed = false;
+      let targetUnitType: ScenarioUnit["type"] | undefined;
+      if (defender) {
+        targetUnitType = defender.type;
+        damage = Math.min(Math.max(0, Math.round(defender.strength)), 22);
+        const updatedDefender = structuredClone(defender);
+        updatedDefender.strength = Math.max(0, defender.strength - damage);
+        if (updatedDefender.strength <= 0) {
+          destroyed = true;
+          this.botPlacements.delete(targetKey);
+          this.removeBotSupplyEntryFor(targetHex);
+          this.botAttackAmmo.delete(targetKey);
+        } else {
+          this.botPlacements.set(targetKey, updatedDefender);
+          this.syncBotStrength(targetHex, updatedDefender.strength);
+        }
+        mutated = true;
+      }
+      this.pendingSupportImpactEvents.push({
+        assetId: asset.id,
+        label: asset.label,
+        targetHex: structuredClone(targetHex),
+        targetFaction: "Bot",
+        hit: defender !== null,
+        damage,
+        destroyed,
+        targetUnitType
+      });
+      asset.assignedHex = targetKey;
+      asset.queuedHex = null;
+      asset.cooldown = 0;
+      asset.charges = Math.max(0, asset.charges - 1);
+      asset.status = asset.charges > 0 ? "ready" : "maintenance";
+      mutated = true;
+    });
+    if (!mutated) {
+      return;
     }
     this.invalidateSupportSnapshot();
     this.invalidateRosterCache();
@@ -5086,6 +5197,7 @@ export class GameEngine implements GameEngineAPI {
     if (this._phase === "playerTurn") {
       // Player upkeep resolves before the ally/bot acts so ledgers and alerts update immediately.
       const playerSupplyReport = this.applySupplyTickFor("Player");
+      this.resolveQueuedSupportActions();
 
       // If allies are present, run their turn next.
       if (this.allySide && this.allyPlacements.size > 0) {
