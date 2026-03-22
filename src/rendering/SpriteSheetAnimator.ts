@@ -415,6 +415,7 @@ export class SpriteSheetAnimation {
     const yOffset = top - row * frameHeight;
     const opacity = getSpriteSheetFrameOpacity(this.spec, frameIndex, this.spec.frameCount);
 
+    console.log(`[Animation] updateFrame ${frameIndex} - col:${column} row:${row} transform:(${xOffset.toFixed(1)}, ${yOffset.toFixed(1)}) opacity:${opacity.toFixed(2)}`);
     this.element.setAttribute("transform", `translate(${xOffset}, ${yOffset})`);
     this.container.style.opacity = String(opacity);
   }
