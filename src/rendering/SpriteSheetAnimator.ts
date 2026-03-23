@@ -42,31 +42,27 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
 
 /**
- * Image preload cache ensures sprite sheet images are fully decoded before animation starts.
- * A 24-frame animation with 34-96ms frame durations can complete before a PNG loads,
- * so we must guarantee the image data is ready before playback begins.
+ * Sprite URL cache converts raw asset URLs to blob URLs for SVG-safe rendering.
+ * SVG <image> elements can have issues with external HTTPS URLs depending on browser
+ * and CSP settings. Blob URLs eliminate this class of rendering failures.
  */
-const imagePreloadCache = new Map<string, Promise<string>>();
+const spriteUrlCache = new Map<string, Promise<string>>();
 
-function preloadImage(src: string): Promise<string> {
-  if (!imagePreloadCache.has(src)) {
-    imagePreloadCache.set(src, new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.decoding = "async";
-      img.onload = () => {
-        console.log(`[SpriteSheet] Image preloaded and decoded: ${src}`);
-        resolve(src);
-      };
-      img.onerror = (error) => {
-        console.error(`[SpriteSheet] Failed to preload image: ${src}`, error);
-        imagePreloadCache.delete(src);
-        reject(new Error(`Failed to preload image: ${src}`));
-      };
-      img.src = src;
-    }));
+function getSvgSafeSpriteUrl(src: string): Promise<string> {
+  if (!spriteUrlCache.has(src)) {
+    spriteUrlCache.set(src, (async () => {
+      console.log(`[SpriteSheet] Fetching sprite as blob: ${src}`);
+      const res = await fetch(src, { credentials: "same-origin" });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch sprite: ${src} (status ${res.status})`);
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      console.log(`[SpriteSheet] Blob URL created: ${src} -> ${blobUrl}`);
+      return blobUrl;
+    })());
   }
-  return imagePreloadCache.get(src)!;
+  return spriteUrlCache.get(src)!;
 }
 
 // Import animation assets using Vite's new URL() syntax for proper bundling
@@ -415,19 +411,19 @@ export class SpriteSheetAnimation {
       console.log(`[Animation] ClipPath appended to shared battleDefs`);
     }
 
-    // CRITICAL: Preload and decode the image before setting href to ensure it's ready to paint
-    console.log(`[Animation] Preloading image: ${spec.imagePath}`);
-    await preloadImage(spec.imagePath);
-    console.log(`[Animation] Image preloaded, setting href attributes`);
+    // CRITICAL: Convert to blob URL for SVG-safe rendering
+    console.log(`[Animation] Converting sprite to blob URL: ${spec.imagePath}`);
+    const blobUrl = await getSvgSafeSpriteUrl(spec.imagePath);
+    console.log(`[Animation] Blob URL ready: ${blobUrl}`);
 
     // Set both href and xlink:href for maximum browser compatibility
-    this.element.setAttribute("href", spec.imagePath);
-    this.element.setAttributeNS(XLINK_NS, "href", spec.imagePath);
+    this.element.setAttribute("href", blobUrl);
+    this.element.setAttributeNS(XLINK_NS, "href", blobUrl);
     const imageWidth = spec.sheetWidth * this.scale;
     const imageHeight = spec.sheetHeight * this.scale;
     this.element.setAttribute("width", String(imageWidth));
     this.element.setAttribute("height", String(imageHeight));
-    console.log(`[Animation] Image element: ${imageWidth}x${imageHeight}, href: ${spec.imagePath}`);
+    console.log(`[Animation] Image element: ${imageWidth}x${imageHeight}, blobUrl: ${blobUrl}`);
 
     const frameWidth = spec.frameWidth * this.scale;
     const frameHeight = spec.frameHeight * this.scale;
@@ -456,6 +452,23 @@ export class SpriteSheetAnimation {
     if (this.container.parentNode !== svgParent) {
       throw new Error(`[Animation] CRITICAL: Animation container was not appended to effects layer! Parent: ${this.container.parentNode?.nodeName}`);
     }
+
+    // DIAGNOSTIC: Add static test image to verify SVG <image> rendering works at this position
+    const testImage = document.createElementNS(SVG_NS, "image");
+    testImage.setAttribute("href", blobUrl);
+    testImage.setAttributeNS(XLINK_NS, "href", blobUrl);
+    testImage.setAttribute("x", String(this.positionX - 32)); // Center a 64px frame
+    testImage.setAttribute("y", String(this.positionY - 32));
+    testImage.setAttribute("width", "64");
+    testImage.setAttribute("height", "64");
+    testImage.setAttribute("opacity", "0.7");
+    testImage.style.pointerEvents = "none";
+    svgParent.appendChild(testImage);
+    console.log(`[Animation] DIAGNOSTIC: Static test image appended at (${this.positionX}, ${this.positionY})`);
+    setTimeout(() => {
+      testImage.remove();
+      console.log(`[Animation] DIAGNOSTIC: Static test image removed`);
+    }, 3000);
 
     this.updateFrame(0);
     console.log(`[Animation] configure complete`);
