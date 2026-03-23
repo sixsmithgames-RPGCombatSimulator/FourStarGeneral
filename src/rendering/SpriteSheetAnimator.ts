@@ -42,13 +42,70 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
 
 /**
- * Resolves sprite href for SVG <image> elements.
- * Vite-bundled assets and data URLs work directly - no conversion needed.
+ * Holds pre-sliced per-frame data URLs for a single animation type.
+ * Produced once by `sliceSpriteSheet` and cached for the lifetime of the session.
  */
-function resolveSpriteHref(src: string): string {
-  if (src.startsWith("data:")) return src;
-  if (src.startsWith("blob:")) return src;
-  return src; // https: or relative asset URL - use directly
+interface CachedFrameSet {
+  readonly frameWidth: number;
+  readonly frameHeight: number;
+  readonly frameDataUrls: readonly string[];
+}
+
+/**
+ * Module-level cache so each animation type is sliced only once.
+ * Keyed by `SpriteSheetSpec.imagePath` to deduplicate across animator instances.
+ */
+const slicedFrameCache = new Map<string, Promise<CachedFrameSet>>();
+
+/**
+ * Slices a loaded sprite sheet into individual per-frame PNG data URLs using an
+ * offscreen canvas.  Each frame is cropped with a 1 source-pixel inset on every
+ * side to eliminate neighbor-frame bleed that SVG image scaling can introduce.
+ */
+async function sliceSpriteSheet(
+  image: HTMLImageElement,
+  columns: number,
+  rows: number,
+  frameWidth: number,
+  frameHeight: number,
+  frameCount: number
+): Promise<CachedFrameSet> {
+  const frameDataUrls: string[] = [];
+  const inset = 1; // source-pixel border trimmed from each side
+
+  for (let i = 0; i < frameCount; i++) {
+    const col = i % columns;
+    const row = Math.floor(i / columns);
+
+    // Source rectangle inside the sheet (inset by 1px to avoid sampling neighbors)
+    const sx = col * frameWidth + inset;
+    const sy = row * frameHeight + inset;
+    const sw = frameWidth - inset * 2;
+    const sh = frameHeight - inset * 2;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = frameWidth;
+    canvas.height = frameHeight;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error(`[SpriteSheet] Could not obtain 2D context for frame ${i} slicing.`);
+    }
+    ctx.clearRect(0, 0, frameWidth, frameHeight);
+
+    // Draw the inset source rectangle back into the full frame, preserving
+    // the 1px transparent border that guards against sampling artifacts.
+    ctx.drawImage(
+      image,
+      sx, sy, sw, sh,
+      inset, inset, frameWidth - inset * 2, frameHeight - inset * 2
+    );
+
+    frameDataUrls.push(canvas.toDataURL("image/png"));
+  }
+
+  console.log(`[SpriteSheet] Sliced ${frameCount} frames (${frameWidth}x${frameHeight}) from ${columns}x${rows} sheet`);
+  return { frameWidth, frameHeight, frameDataUrls };
 }
 
 // Import animation assets using Vite's new URL() syntax for proper bundling
@@ -328,10 +385,13 @@ async function resolveSpriteSheetSpecAsync(spec: SpriteSheetSpec): Promise<Resol
 
 /**
  * Manages playback of a single sprite sheet animation instance.
+ * Uses pre-sliced per-frame data URLs — each tick swaps the `<image>` href to
+ * the next frame.  No live sheet cropping, no clip-path, no nested SVG viewport.
  * Instances are reusable so the animator can pool them for repeated explosions.
  */
 export class SpriteSheetAnimation {
   private spec: ResolvedSpriteSheetSpec | null = null;
+  private cachedFrames: CachedFrameSet | null = null;
   private currentFrame = 0;
   private lastFrameTimestamp = 0;
   private positionX = 0;
@@ -341,48 +401,25 @@ export class SpriteSheetAnimation {
   private onComplete?: () => void;
 
   private readonly container: SVGGElement;
-  /** Nested SVG element that acts as a viewport window, cropping the sheet via viewBox. */
-  private readonly frameSvg: SVGSVGElement;
-  /** Full sprite sheet image rendered inside the nested SVG viewport. */
+  /** Single image element whose href is swapped to the current pre-sliced frame. */
   private readonly imageElement: SVGImageElement;
-  /** Local clip path to prevent frame bleed from scaling/sampling */
-  private readonly clipPath: SVGClipPathElement;
-  private readonly clipRect: SVGRectElement;
-  private readonly clipId: string;
 
   constructor() {
     this.container = document.createElementNS(SVG_NS, "g");
     this.container.style.pointerEvents = "none";
 
-    // The nested <svg> acts as a fixed viewport window with overflow:hidden
-    // We shift the image inside it to show different frames
-    this.frameSvg = document.createElementNS(SVG_NS, "svg");
-    this.frameSvg.setAttribute("overflow", "hidden");
-    this.frameSvg.style.overflow = "hidden"; // Set both for browser compatibility
-
-    // Create local clip path inside the frame SVG to prevent neighbor-frame bleed
-    this.clipId = `frame-clip-${Math.random().toString(36).slice(2)}`;
-    const defs = document.createElementNS(SVG_NS, "defs");
-    this.clipPath = document.createElementNS(SVG_NS, "clipPath");
-    this.clipPath.setAttribute("id", this.clipId);
-    this.clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
-
-    this.clipRect = document.createElementNS(SVG_NS, "rect");
-    // Inset will be set in configure() based on frame dimensions
-    this.clipPath.appendChild(this.clipRect);
-    defs.appendChild(this.clipPath);
-    this.frameSvg.appendChild(defs);
-
     this.imageElement = document.createElementNS(SVG_NS, "image");
-    this.imageElement.setAttribute("preserveAspectRatio", "none"); // Don't scale/fit the image
-    this.imageElement.setAttribute("clip-path", `url(#${this.clipId})`);
-    this.imageElement.style.imageRendering = "auto"; // Use smooth sampling
-    this.frameSvg.appendChild(this.imageElement);
-    this.container.appendChild(this.frameSvg);
+    this.imageElement.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    this.container.appendChild(this.imageElement);
   }
 
+  /**
+   * Prepares the animation for playback using pre-sliced frame data URLs.
+   * Positions a single `<image>` at the destination rectangle on the map.
+   */
   configure(
     spec: ResolvedSpriteSheetSpec,
+    frames: CachedFrameSet,
     svgParent: SVGElement,
     x: number,
     y: number,
@@ -391,54 +428,29 @@ export class SpriteSheetAnimation {
     console.log(`[Animation] configure - pos: (${x}, ${y}), scale: ${scale}, renderScale: ${spec.renderScale}`);
     this.stop();
     this.spec = spec;
+    this.cachedFrames = frames;
     this.currentFrame = 0;
     this.positionX = x;
     this.positionY = y;
     this.scale = scale * spec.renderScale;
     this.container.style.opacity = "1";
 
-    // Use the original sprite URL directly (Vite handles bundled assets correctly)
-    const href = resolveSpriteHref(spec.imagePath);
-    console.log(`[Animation] Setting sprite href: ${href}`);
-
-    // Set both href and xlink:href for maximum browser compatibility
-    this.imageElement.setAttribute("href", href);
-    this.imageElement.setAttributeNS(XLINK_NS, "href", href);
-    // The image shows the full sprite sheet at its natural size
-    this.imageElement.setAttribute("width", String(spec.sheetWidth));
-    this.imageElement.setAttribute("height", String(spec.sheetHeight));
-
-    // Position the nested SVG at the destination rectangle on the map
+    // Position the image at the destination rectangle on the map
     const destW = spec.frameWidth * this.scale;
     const destH = spec.frameHeight * this.scale;
     const destX = this.positionX - destW * spec.anchorX;
     const destY = this.positionY - destH * spec.anchorY;
 
-    this.frameSvg.setAttribute("x", String(destX));
-    this.frameSvg.setAttribute("y", String(destY));
-    this.frameSvg.setAttribute("width", String(destW));
-    this.frameSvg.setAttribute("height", String(destH));
-    // FIXED viewBox - never changes, always shows a frameWidth x frameHeight window
-    this.frameSvg.setAttribute("viewBox", `0 0 ${spec.frameWidth} ${spec.frameHeight}`);
-
-    // Set clip rect with 0.5px inset to prevent neighbor-frame bleed from scaling/sampling
-    this.clipRect.setAttribute("x", "0.5");
-    this.clipRect.setAttribute("y", "0.5");
-    this.clipRect.setAttribute("width", String(spec.frameWidth - 1));
-    this.clipRect.setAttribute("height", String(spec.frameHeight - 1));
-
-    console.log(`[Animation] Frame SVG: dest=(${destX.toFixed(1)}, ${destY.toFixed(1)}) size=${destW.toFixed(1)}x${destH.toFixed(1)} viewBox=0 0 ${spec.frameWidth} ${spec.frameHeight} clipInset=0.5px`);
+    this.imageElement.setAttribute("x", String(destX));
+    this.imageElement.setAttribute("y", String(destY));
+    this.imageElement.setAttribute("width", String(destW));
+    this.imageElement.setAttribute("height", String(destH));
+    console.log(`[Animation] Image rect: dest=(${destX.toFixed(1)}, ${destY.toFixed(1)}) size=${destW.toFixed(1)}x${destH.toFixed(1)}, frames=${frames.frameDataUrls.length}`);
 
     // Append animation container to effects layer (svgParent)
     if (this.container.parentNode !== svgParent) {
       svgParent.appendChild(this.container);
-      console.log(`[Animation] Container appended to effects layer:`, {
-        parentNodeName: svgParent.nodeName,
-        parentClass: svgParent.getAttribute("class"),
-        isConnected: this.container.isConnected
-      });
-    } else {
-      console.log(`[Animation] Container already attached to effects layer`);
+      console.log(`[Animation] Container appended to effects layer`);
     }
 
     // CRITICAL ASSERTION: Verify container is actually in the effects layer
@@ -451,32 +463,32 @@ export class SpriteSheetAnimation {
   }
 
   /**
-   * Advances the animation to the given frame by shifting the full sprite sheet image
-   * to negative offsets, letting the fixed viewport window show the desired frame.
+   * Swaps the image href to the pre-sliced data URL for the given frame index.
+   * No sheet translation, no clip-path — just a direct URL swap.
    */
   private updateFrame(frameIndex: number): void {
-    if (!this.spec) {
+    if (!this.spec || !this.cachedFrames) {
       return;
     }
 
-    const column = frameIndex % this.spec.columns;
-    const row = Math.floor(frameIndex / this.spec.columns);
-    // Shift the full sprite sheet image to show the desired frame in the fixed viewport
-    const srcX = column * this.spec.frameWidth;
-    const srcY = row * this.spec.frameHeight;
+    const dataUrl = this.cachedFrames.frameDataUrls[frameIndex];
+    if (!dataUrl) {
+      console.error(`[Animation] Missing pre-sliced frame ${frameIndex}/${this.cachedFrames.frameDataUrls.length}`);
+      return;
+    }
+
     const opacity = getSpriteSheetFrameOpacity(this.spec, frameIndex, this.spec.frameCount);
 
-    console.log(`[Animation] updateFrame ${frameIndex} - col:${column} row:${row} imageOffset:(-${srcX}, -${srcY}) opacity:${opacity.toFixed(2)}`);
-    // Move the image by negative offsets to show the current frame in the fixed viewport
-    this.imageElement.setAttribute("x", String(-srcX));
-    this.imageElement.setAttribute("y", String(-srcY));
+    // Swap to pre-sliced frame — both href and xlink:href for browser compatibility
+    this.imageElement.setAttribute("href", dataUrl);
+    this.imageElement.setAttributeNS(XLINK_NS, "href", dataUrl);
     this.container.style.opacity = String(opacity);
   }
 
   play(onComplete?: () => void): void {
     console.log(`[Animation] play called - has spec: ${!!this.spec}, container connected: ${this.container.isConnected}`);
-    if (!this.spec) {
-      console.log(`[Animation] play aborted - no spec`);
+    if (!this.spec || !this.cachedFrames) {
+      console.log(`[Animation] play aborted - no spec or no cached frames`);
       onComplete?.();
       return;
     }
@@ -492,7 +504,6 @@ export class SpriteSheetAnimation {
 
   private readonly tick = (currentTime: number): void => {
     if (!this.isPlaying || !this.spec) {
-      console.log(`[Animation] tick aborted - isPlaying: ${this.isPlaying}, hasSpec: ${!!this.spec}`);
       return;
     }
 
@@ -507,18 +518,15 @@ export class SpriteSheetAnimation {
       const nextFrame = this.currentFrame + 1;
       if (nextFrame >= this.spec.frameCount) {
         if (this.spec.loop) {
-          console.log(`[Animation] Looping back to frame 0`);
           this.currentFrame = 0;
           this.updateFrame(0);
         } else {
-          console.log(`[Animation] Animation complete at frame ${this.currentFrame}`);
           this.finish();
           return;
         }
       } else {
         this.currentFrame = nextFrame;
         this.updateFrame(this.currentFrame);
-        console.log(`[Animation] Advanced to frame ${this.currentFrame}/${this.spec.frameCount}`);
       }
     }
 
@@ -541,7 +549,7 @@ export class SpriteSheetAnimation {
     this.onComplete = undefined;
     this.container.style.opacity = "0";
 
-    // Remove container (and its nested SVG) from effects layer
+    // Remove container from effects layer
     if (this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
     }
@@ -550,6 +558,8 @@ export class SpriteSheetAnimation {
 
 /**
  * Factory for creating and managing combat animations.
+ * Pre-slices sprite sheets into individual frame data URLs on first use per
+ * animation type, then swaps a single `<image>` href per tick during playback.
  */
 export class SpriteSheetAnimator {
   private readonly svgElement: SVGElement;
@@ -559,10 +569,6 @@ export class SpriteSheetAnimator {
 
   constructor(svgElement: SVGElement) {
     this.svgElement = svgElement;
-  }
-
-  private getSpecCacheKey(animationType: keyof typeof COMBAT_ANIMATIONS): string {
-    return String(animationType);
   }
 
   private getAnimationPool(animationType: keyof typeof COMBAT_ANIMATIONS): SpriteSheetAnimation[] {
@@ -576,7 +582,7 @@ export class SpriteSheetAnimator {
   }
 
   private async getResolvedSpec(animationType: keyof typeof COMBAT_ANIMATIONS): Promise<ResolvedSpriteSheetSpec> {
-    const cacheKey = this.getSpecCacheKey(animationType);
+    const cacheKey = String(animationType);
     const cached = this.resolvedSpecCache.get(cacheKey);
     if (cached) {
       return cached;
@@ -594,8 +600,39 @@ export class SpriteSheetAnimator {
   }
 
   /**
+   * Ensures the sprite sheet for the given spec is sliced into per-frame data URLs.
+   * Returns the cached frame set, slicing on first call per image path.
+   */
+  private async ensureSlicedFrames(spec: ResolvedSpriteSheetSpec): Promise<CachedFrameSet> {
+    const cacheKey = spec.imagePath;
+    const cached = slicedFrameCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const pending = loadSpriteSheetImage(spec.imagePath).then((asset) =>
+      sliceSpriteSheet(
+        asset.image,
+        spec.columns,
+        spec.rows,
+        spec.frameWidth,
+        spec.frameHeight,
+        spec.frameCount
+      )
+    ).catch((error) => {
+      console.error(`[SpriteSheetAnimator] Failed to slice frames for ${cacheKey}:`, error);
+      slicedFrameCache.delete(cacheKey);
+      throw error;
+    });
+
+    slicedFrameCache.set(cacheKey, pending);
+    return pending;
+  }
+
+  /**
    * Plays a combat animation anchored at the supplied coordinates.
-   * Anchor defaults are carried by the animation spec so tall explosions can rise above the impact hex.
+   * On first call per animation type, the sprite sheet is loaded and pre-sliced
+   * into individual frame data URLs.  Subsequent calls reuse the cached frames.
    */
   async playAnimation(
     animationType: keyof typeof COMBAT_ANIMATIONS,
@@ -605,18 +642,16 @@ export class SpriteSheetAnimator {
   ): Promise<void> {
     console.log(`[SpriteSheetAnimator] playAnimation called - type: ${animationType}, pos: (${x}, ${y}), scale: ${scale}`);
     const resolvedSpec = await this.getResolvedSpec(animationType);
-    console.log(`[SpriteSheetAnimator] Spec resolved:`, resolvedSpec);
+    const frames = await this.ensureSlicedFrames(resolvedSpec);
+    console.log(`[SpriteSheetAnimator] Spec resolved, frames cached: ${frames.frameDataUrls.length}`);
 
     return new Promise((resolve) => {
       const pool = this.getAnimationPool(animationType);
       const animation = pool.pop() ?? new SpriteSheetAnimation();
 
       this.activeAnimations.add(animation);
-      console.log(`[SpriteSheetAnimator] Calling configure on animation`);
-      animation.configure(resolvedSpec, this.svgElement, x, y, scale);
-      console.log(`[SpriteSheetAnimator] Configuration complete, calling play on animation`);
+      animation.configure(resolvedSpec, frames, this.svgElement, x, y, scale);
       animation.play(() => {
-        console.log(`[SpriteSheetAnimator] Animation completed`);
         animation.release();
         this.activeAnimations.delete(animation);
         pool.push(animation);
