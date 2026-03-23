@@ -2732,7 +2732,10 @@ export class HexMapRenderer implements IMapRenderer {
       
       // Get viewport transform from global scope since HexMapRenderer doesn't have direct access
       const viewportTransform = (window as any).battleScreenMapViewport?.getTransform?.() || null;
+      
+      // Use the actual CSS transform applied to the SVG for visibility computation
       const svgStyleTransform = this.svgElement.style.transform;
+      const computedTransform = window.getComputedStyle(this.svgElement).transform;
       
       console.log("[EffectScreenCheck]", {
         hexKey,
@@ -2740,6 +2743,7 @@ export class HexMapRenderer implements IMapRenderer {
         screenPos: screen ? { x: screen.x, y: screen.y } : null,
         viewport: viewportTransform,
         svgStyleTransform,
+        computedTransform, // This is what actually determines screen position
         ctm: ctm ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f } : null
       });
     }

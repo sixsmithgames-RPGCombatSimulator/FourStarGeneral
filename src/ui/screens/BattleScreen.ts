@@ -2620,11 +2620,16 @@ export class BattleScreen {
 
   /**
    * Freezes camera movement to prevent drift during animations.
-   * When frozen, centerOn calls are ignored but the transform is still calculated.
+   * Disables user input while still allowing programmatic camera movement.
    */
   private freezeCamera(): void {
     this.cameraFrozen = true;
-    console.log("[BattleScreen] Camera frozen - movement disabled during effects");
+    // Disable pointer events on the map to prevent user input during effects
+    const mapElement = document.querySelector("#battleHexMap") as HTMLElement;
+    if (mapElement) {
+      mapElement.style.pointerEvents = 'none';
+    }
+    console.log("[BattleScreen] Camera frozen - user input disabled during effects");
   }
 
   /**
@@ -2632,7 +2637,12 @@ export class BattleScreen {
    */
   private unfreezeCamera(): void {
     this.cameraFrozen = false;
-    console.log("[BattleScreen] Camera unfrozen - movement enabled");
+    // Re-enable pointer events on the map
+    const mapElement = document.querySelector("#battleHexMap") as HTMLElement;
+    if (mapElement) {
+      mapElement.style.pointerEvents = '';
+    }
+    console.log("[BattleScreen] Camera unfrozen - user input enabled");
   }
 
   /**
@@ -2679,15 +2689,13 @@ export class BattleScreen {
       return;
     }
 
-    // Only apply centering if camera is not frozen
+    // Only apply centering if camera is not frozen from user input
     if (!this.cameraFrozen) {
       this.mapViewport.centerOn(cx, cy);
     } else {
-      console.log("[BattleScreen] Camera frozen - skipping centerOn but calculating transform");
-      // Still calculate the transform for logging purposes
+      console.log("[BattleScreen] Camera frozen - still applying centerOn for effects, user input disabled");
+      // Still apply centering for effects but user input is disabled
       this.mapViewport.centerOn(cx, cy);
-      // Revert to avoid actual movement
-      this.mapViewport.centerOn(Number(cell.dataset.cx ?? 0), Number(cell.dataset.cy ?? 0));
     }
     const afterTransform = this.mapViewport.getTransform();
     console.log("[BattleScreen] focusCameraOnHex: camera centered", {
