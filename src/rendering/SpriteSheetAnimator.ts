@@ -59,53 +59,66 @@ const slicedFrameCache = new Map<string, Promise<CachedFrameSet>>();
 
 /**
  * Slices a loaded sprite sheet into individual per-frame PNG data URLs using an
- * offscreen canvas.  Each frame is cropped with a 1 source-pixel inset on every
- * side to eliminate neighbor-frame bleed that SVG image scaling can introduce.
+ * offscreen canvas. Derives the source cell size from the actual loaded image
+ * dimensions divided by the grid layout, ensuring we capture the full frame
+ * regardless of what the spec claims.
  */
 async function sliceSpriteSheet(
   image: HTMLImageElement,
   columns: number,
   rows: number,
-  frameWidth: number,
-  frameHeight: number,
   frameCount: number
 ): Promise<CachedFrameSet> {
+  // Derive actual source cell dimensions from loaded image - this is the source of truth
+  const sourceCellWidth = image.naturalWidth / columns;
+  const sourceCellHeight = image.naturalHeight / rows;
+
+  // Validate the image divides evenly into cells
+  if (!Number.isInteger(sourceCellWidth) || !Number.isInteger(sourceCellHeight)) {
+    throw new Error(
+      `[SpriteSheet] Image dimensions ${image.naturalWidth}x${image.naturalHeight} do not divide evenly into ${columns}x${rows} grid. ` +
+      `Cell size would be ${sourceCellWidth}x${sourceCellHeight} (non-integer).`
+    );
+  }
+
+  console.log(`[SpriteSheet] Slicing ${image.naturalWidth}x${image.naturalHeight} sheet into ${columns}x${rows} cells of ${sourceCellWidth}x${sourceCellHeight}px`);
+
   const frameDataUrls: string[] = [];
-  const inset = 1; // source-pixel border trimmed from each side
+  const inset = 1; // source-pixel border trimmed from each side to prevent neighbor bleed
 
   for (let i = 0; i < frameCount; i++) {
     const col = i % columns;
     const row = Math.floor(i / columns);
 
-    // Source rectangle inside the sheet (inset by 1px to avoid sampling neighbors)
-    const sx = col * frameWidth + inset;
-    const sy = row * frameHeight + inset;
-    const sw = frameWidth - inset * 2;
-    const sh = frameHeight - inset * 2;
+    // Source rectangle in the loaded sheet - use derived cell size, not spec frameWidth/Height
+    const sx = col * sourceCellWidth + inset;
+    const sy = row * sourceCellHeight + inset;
+    const sw = sourceCellWidth - inset * 2;
+    const sh = sourceCellHeight - inset * 2;
 
+    // Output canvas at full source cell size (preserve original resolution)
     const canvas = document.createElement("canvas");
-    canvas.width = frameWidth;
-    canvas.height = frameHeight;
+    canvas.width = sourceCellWidth;
+    canvas.height = sourceCellHeight;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       throw new Error(`[SpriteSheet] Could not obtain 2D context for frame ${i} slicing.`);
     }
-    ctx.clearRect(0, 0, frameWidth, frameHeight);
+    ctx.clearRect(0, 0, sourceCellWidth, sourceCellHeight);
 
-    // Draw the inset source rectangle back into the full frame, preserving
-    // the 1px transparent border that guards against sampling artifacts.
+    // Draw the inset source rectangle to the output canvas with 1px transparent border
     ctx.drawImage(
       image,
       sx, sy, sw, sh,
-      inset, inset, frameWidth - inset * 2, frameHeight - inset * 2
+      inset, inset, sourceCellWidth - inset * 2, sourceCellHeight - inset * 2
     );
 
     frameDataUrls.push(canvas.toDataURL("image/png"));
   }
 
-  console.log(`[SpriteSheet] Sliced ${frameCount} frames (${frameWidth}x${frameHeight}) from ${columns}x${rows} sheet`);
-  return { frameWidth, frameHeight, frameDataUrls };
+  console.log(`[SpriteSheet] Sliced ${frameCount} frames at ${sourceCellWidth}x${sourceCellHeight}px each`);
+  return { frameWidth: sourceCellWidth, frameHeight: sourceCellHeight, frameDataUrls };
 }
 
 // Import animation assets using Vite's new URL() syntax for proper bundling
@@ -143,8 +156,8 @@ function impactHitsFrameDuration(frameIndex: number): number {
 export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
   muzzleFlash: {
     imagePath: muzzleFlashUrl,
-    frameWidth: 64,
-    frameHeight: 64,
+    columns: 4,
+    rows: 1,
     frameCount: 4,
     frameDuration: 50,
     loop: false
@@ -155,8 +168,6 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
     rows: 4,
     frameCount: 24,
     loop: false,
-    frameWidth: 64,
-    frameHeight: 64,
     renderScale: 1.5,
     anchorX: 0.5,
     anchorY: 0.78,
@@ -169,8 +180,6 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
     rows: 4,
     frameCount: 24,
     loop: false,
-    frameWidth: 64,
-    frameHeight: 64,
     renderScale: 2.0,
     anchorX: 0.5,
     anchorY: 0.8,
@@ -191,16 +200,16 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
   },
   dustCloud: {
     imagePath: dustCloudUrl,
-    frameWidth: 64,
-    frameHeight: 64,
+    columns: 4,
+    rows: 1,
     frameCount: 5,
     frameDuration: 100,
     loop: false
   },
   tracer: {
     imagePath: tracerUrl,
-    frameWidth: 64,
-    frameHeight: 64,
+    columns: 1,
+    rows: 1,
     frameCount: 1,
     frameDuration: 100,
     loop: false
@@ -615,8 +624,6 @@ export class SpriteSheetAnimator {
         asset.image,
         spec.columns,
         spec.rows,
-        spec.frameWidth,
-        spec.frameHeight,
         spec.frameCount
       )
     ).catch((error) => {
