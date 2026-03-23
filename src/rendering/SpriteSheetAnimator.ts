@@ -422,22 +422,6 @@ export class SpriteSheetAnimation {
       throw new Error(`[Animation] CRITICAL: Animation container was not appended to effects layer! Parent: ${this.container.parentNode?.nodeName}`);
     }
 
-    // Add visual debugging marker (magenta dot) to verify position
-    const debugDot = document.createElementNS(SVG_NS, "circle");
-    debugDot.setAttribute("cx", String(x));
-    debugDot.setAttribute("cy", String(y));
-    debugDot.setAttribute("r", "18");
-    debugDot.setAttribute("fill", "magenta");
-    debugDot.setAttribute("stroke", "white");
-    debugDot.setAttribute("stroke-width", "2");
-    debugDot.style.pointerEvents = "none";
-    svgParent.appendChild(debugDot);
-    console.log(`[Animation] DEBUG: Magenta dot placed at (${x}, ${y})`);
-    setTimeout(() => {
-      debugDot.remove();
-      console.log(`[Animation] DEBUG: Magenta dot removed`);
-    }, 2000);
-
     this.updateFrame(0);
     console.log(`[Animation] configure complete`);
   }
