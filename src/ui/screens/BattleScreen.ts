@@ -2678,10 +2678,16 @@ export class BattleScreen {
     const cx = Number(cell.dataset.cx ?? 0);
     const cy = Number(cell.dataset.cy ?? 0);
 
+    // Get SVG element to verify DOM transform
+    const svgElement = document.getElementById("battleHexMap") as SVGSVGElement | null;
+    const beforeTransform = this.mapViewport.getTransform();
+    const beforeDOMTransform = svgElement?.style.transform ?? "none";
+
     console.log("[BattleScreen] focusCameraOnHex:", {
       hexKey,
       hexCenter: { cx, cy },
-      beforeTransform: this.mapViewport.getTransform()
+      beforeTransform,
+      beforeDOMTransform
     });
 
     if (cx === 0 && cy === 0) {
@@ -2698,18 +2704,35 @@ export class BattleScreen {
       this.mapViewport.centerOn(cx, cy);
     }
     const afterTransform = this.mapViewport.getTransform();
+    const afterDOMTransform = svgElement?.style.transform ?? "none";
+    const computedTransform = svgElement ? getComputedStyle(svgElement).transform : "none";
+
+    // Get real viewport pixel dimensions
+    const viewportRect = svgElement?.getBoundingClientRect();
+    const viewportSize = viewportRect
+      ? { width: Math.round(viewportRect.width), height: Math.round(viewportRect.height) }
+      : { width: 0, height: 0 };
+
     console.log("[BattleScreen] focusCameraOnHex: camera centered", {
       hexKey,
       targetCenter: { cx, cy },
       afterTransform,
-      viewportSize: { width: this.mapViewport.getTransform().zoom, height: this.mapViewport.getTransform().zoom },
-      cameraFrozen: this.cameraFrozen
+      afterDOMTransform,
+      computedTransform,
+      viewportSize,
+      cameraFrozen: this.cameraFrozen,
+      transformMatch: afterDOMTransform.includes(afterTransform.panX.toFixed(1))
     });
     this.lastFocusedHexKey = hexKey;
     this.lastViewportTransform = afterTransform;
-    
-    // Wait a frame to ensure transform is applied
+
+    // Wait TWO frames to ensure transform fully propagates to DOM
     await this.waitForNextFrame();
+    await this.waitForNextFrame();
+
+    // Verify final transform after waiting
+    const finalDOMTransform = svgElement?.style.transform ?? "none";
+    console.log("[BattleScreen] focusCameraOnHex: after frame wait, DOM transform is:", finalDOMTransform);
   }
 
   private recenterLastFocus(): void {
