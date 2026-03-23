@@ -2734,33 +2734,7 @@ export class HexMapRenderer implements IMapRenderer {
     // without requiring the renderer to know each sheet's pixel geometry.
     const finalX = center.cx + offsetX;
     const finalY = center.cy + offsetY;
-    
-    // Screen coordinate validation to detect coordinate system mismatches
-    const pt = this.svgElement?.createSVGPoint();
-    if (pt && this.svgElement) {
-      pt.x = finalX;
-      pt.y = finalY;
-      const ctm = this.svgElement.getScreenCTM();
-      const screen = ctm ? pt.matrixTransform(ctm) : null;
-      
-      // Get viewport transform from global scope since HexMapRenderer doesn't have direct access
-      const viewportTransform = (window as any).battleScreenMapViewport?.getTransform?.() || null;
-      
-      // Use the actual CSS transform applied to the SVG for visibility computation
-      const svgStyleTransform = this.svgElement.style.transform;
-      const computedTransform = window.getComputedStyle(this.svgElement).transform;
-      
-      console.log("[EffectScreenCheck]", {
-        hexKey,
-        svgPos: { x: finalX, y: finalY },
-        screenPos: screen ? { x: screen.x, y: screen.y } : null,
-        viewport: viewportTransform,
-        svgStyleTransform,
-        computedTransform, // This is what actually determines screen position
-        ctm: ctm ? { a: ctm.a, b: ctm.b, c: ctm.c, d: ctm.d, e: ctm.e, f: ctm.f } : null
-      });
-    }
-    
+
     console.log(`[HexMapRenderer] Calling combatAnimator.playAnimation at (${finalX}, ${finalY})`);
     await this.combatAnimator.playAnimation(animationType, finalX, finalY, scale);
     console.log(`[HexMapRenderer] playCombatAnimation COMPLETE - type: ${animationType}, hex: ${hexKey}`);

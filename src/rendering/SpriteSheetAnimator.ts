@@ -341,28 +341,25 @@ export class SpriteSheetAnimation {
   private onComplete?: () => void;
 
   private readonly container: SVGGElement;
-  private readonly clipPath: SVGClipPathElement;
-  private readonly clipRect: SVGRectElement;
-  private readonly element: SVGImageElement;
-  private readonly clipId: string;
+  /** Nested SVG element that acts as a viewport window, cropping the sheet via viewBox. */
+  private readonly frameSvg: SVGSVGElement;
+  /** Full sprite sheet image rendered inside the nested SVG viewport. */
+  private readonly imageElement: SVGImageElement;
 
   constructor() {
     this.container = document.createElementNS(SVG_NS, "g");
     this.container.style.pointerEvents = "none";
 
-    // Create unique clip ID but don't create defs - we'll append to shared <defs id="battleDefs">
-    this.clipId = `sprite-clip-${Math.random().toString(36).slice(2)}`;
-    this.clipPath = document.createElementNS(SVG_NS, "clipPath");
-    this.clipPath.setAttribute("id", this.clipId);
-    this.clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
+    // The nested <svg> acts as a viewport: its position/size define the on-screen rectangle,
+    // and its viewBox selects the source frame from the sprite sheet.
+    this.frameSvg = document.createElementNS(SVG_NS, "svg");
+    this.frameSvg.setAttribute("overflow", "hidden");
 
-    this.clipRect = document.createElementNS(SVG_NS, "rect");
-    this.clipPath.appendChild(this.clipRect);
-    // Don't append clipPath yet - will append to shared defs in configure()
-
-    this.element = document.createElementNS(SVG_NS, "image");
-    this.element.setAttribute("clip-path", `url(#${this.clipId})`);
-    this.container.appendChild(this.element);
+    this.imageElement = document.createElementNS(SVG_NS, "image");
+    this.imageElement.setAttribute("x", "0");
+    this.imageElement.setAttribute("y", "0");
+    this.frameSvg.appendChild(this.imageElement);
+    this.container.appendChild(this.frameSvg);
   }
 
   configure(
@@ -381,45 +378,30 @@ export class SpriteSheetAnimation {
     this.scale = scale * spec.renderScale;
     this.container.style.opacity = "1";
 
-    // Append clipPath to shared <defs id="battleDefs">, not to the animation container
-    const rootSvg = svgParent.ownerSVGElement;
-    if (!rootSvg) {
-      throw new Error("[Animation] svgParent has no ownerSVGElement - cannot find shared defs");
-    }
-    const sharedDefs = rootSvg.querySelector("#battleDefs");
-    if (!sharedDefs) {
-      throw new Error("[Animation] Could not find <defs id=\"battleDefs\"> in SVG root");
-    }
-
-    // Append clipPath to shared defs if not already there
-    if (this.clipPath.parentNode !== sharedDefs) {
-      sharedDefs.appendChild(this.clipPath);
-      console.log(`[Animation] ClipPath appended to shared battleDefs`);
-    }
-
     // Use the original sprite URL directly (Vite handles bundled assets correctly)
     const href = resolveSpriteHref(spec.imagePath);
     console.log(`[Animation] Setting sprite href: ${href}`);
 
     // Set both href and xlink:href for maximum browser compatibility
-    this.element.setAttribute("href", href);
-    this.element.setAttributeNS(XLINK_NS, "href", href);
-    const imageWidth = spec.sheetWidth * this.scale;
-    const imageHeight = spec.sheetHeight * this.scale;
-    this.element.setAttribute("width", String(imageWidth));
-    this.element.setAttribute("height", String(imageHeight));
-    console.log(`[Animation] Image element: ${imageWidth}x${imageHeight}, href: ${href}`);
+    this.imageElement.setAttribute("href", href);
+    this.imageElement.setAttributeNS(XLINK_NS, "href", href);
+    // The image covers the full sprite sheet; the nested SVG's viewBox crops to one frame.
+    this.imageElement.setAttribute("width", String(spec.sheetWidth));
+    this.imageElement.setAttribute("height", String(spec.sheetHeight));
 
-    const frameWidth = spec.frameWidth * this.scale;
-    const frameHeight = spec.frameHeight * this.scale;
-    const left = this.positionX - frameWidth * spec.anchorX;
-    const top = this.positionY - frameHeight * spec.anchorY;
+    // Position the nested SVG at the destination rectangle on the map
+    const destW = spec.frameWidth * this.scale;
+    const destH = spec.frameHeight * this.scale;
+    const destX = this.positionX - destW * spec.anchorX;
+    const destY = this.positionY - destH * spec.anchorY;
 
-    this.clipRect.setAttribute("x", String(left));
-    this.clipRect.setAttribute("y", String(top));
-    this.clipRect.setAttribute("width", String(frameWidth));
-    this.clipRect.setAttribute("height", String(frameHeight));
-    console.log(`[Animation] Clip rect: x=${left}, y=${top}, w=${frameWidth}, h=${frameHeight}`);
+    this.frameSvg.setAttribute("x", String(destX));
+    this.frameSvg.setAttribute("y", String(destY));
+    this.frameSvg.setAttribute("width", String(destW));
+    this.frameSvg.setAttribute("height", String(destH));
+    // viewBox selects the first frame; updateFrame() will advance it
+    this.frameSvg.setAttribute("viewBox", `0 0 ${spec.frameWidth} ${spec.frameHeight}`);
+    console.log(`[Animation] Frame SVG: dest=(${destX.toFixed(1)}, ${destY.toFixed(1)}) size=${destW.toFixed(1)}x${destH.toFixed(1)}`);
 
     // Append animation container to effects layer (svgParent)
     if (this.container.parentNode !== svgParent) {
@@ -438,29 +420,14 @@ export class SpriteSheetAnimation {
       throw new Error(`[Animation] CRITICAL: Animation container was not appended to effects layer! Parent: ${this.container.parentNode?.nodeName}`);
     }
 
-    // DIAGNOSTIC: Add static test image using real explosion sprite (no clip path, no animation)
-    // If this paints, the asset path works and the problem is clip/frame logic
-    // If this doesn't paint, the issue is SVG image rendering itself
-    const testImage = document.createElementNS(SVG_NS, "image");
-    testImage.setAttribute("href", href);
-    testImage.setAttributeNS(XLINK_NS, "href", href);
-    testImage.setAttribute("x", String(this.positionX - 80)); // 160px wide test image
-    testImage.setAttribute("y", String(this.positionY - 80));
-    testImage.setAttribute("width", "160");
-    testImage.setAttribute("height", "160");
-    testImage.setAttribute("opacity", "0.7");
-    testImage.style.pointerEvents = "none";
-    svgParent.appendChild(testImage);
-    console.log(`[Animation] DIAGNOSTIC: Static explosion sprite (no clip) at (${this.positionX}, ${this.positionY}), href: ${href}`);
-    setTimeout(() => {
-      testImage.remove();
-      console.log(`[Animation] DIAGNOSTIC: Static test image removed`);
-    }, 3000);
-
     this.updateFrame(0);
     console.log(`[Animation] configure complete`);
   }
 
+  /**
+   * Advances the animation to the given frame by updating the nested SVG's viewBox
+   * to select the corresponding source rectangle from the sprite sheet.
+   */
   private updateFrame(frameIndex: number): void {
     if (!this.spec) {
       return;
@@ -468,16 +435,14 @@ export class SpriteSheetAnimation {
 
     const column = frameIndex % this.spec.columns;
     const row = Math.floor(frameIndex / this.spec.columns);
-    const frameWidth = this.spec.frameWidth * this.scale;
-    const frameHeight = this.spec.frameHeight * this.scale;
-    const left = this.positionX - frameWidth * this.spec.anchorX;
-    const top = this.positionY - frameHeight * this.spec.anchorY;
-    const xOffset = left - column * frameWidth;
-    const yOffset = top - row * frameHeight;
+    // Source coordinates in the unscaled sprite sheet — the viewBox maps these to the
+    // destination rectangle that was sized with renderScale during configure().
+    const srcX = column * this.spec.frameWidth;
+    const srcY = row * this.spec.frameHeight;
     const opacity = getSpriteSheetFrameOpacity(this.spec, frameIndex, this.spec.frameCount);
 
-    console.log(`[Animation] updateFrame ${frameIndex} - col:${column} row:${row} transform:(${xOffset.toFixed(1)}, ${yOffset.toFixed(1)}) opacity:${opacity.toFixed(2)}`);
-    this.element.setAttribute("transform", `translate(${xOffset}, ${yOffset})`);
+    console.log(`[Animation] updateFrame ${frameIndex} - col:${column} row:${row} viewBox:(${srcX}, ${srcY}) opacity:${opacity.toFixed(2)}`);
+    this.frameSvg.setAttribute("viewBox", `${srcX} ${srcY} ${this.spec.frameWidth} ${this.spec.frameHeight}`);
     this.container.style.opacity = String(opacity);
   }
 
@@ -549,14 +514,9 @@ export class SpriteSheetAnimation {
     this.onComplete = undefined;
     this.container.style.opacity = "0";
 
-    // Remove container from effects layer
+    // Remove container (and its nested SVG) from effects layer
     if (this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
-    }
-
-    // Remove clipPath from shared defs to avoid clutter
-    if (this.clipPath.parentNode) {
-      this.clipPath.parentNode.removeChild(this.clipPath);
     }
   }
 }
