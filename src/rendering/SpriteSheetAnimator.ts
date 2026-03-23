@@ -350,14 +350,14 @@ export class SpriteSheetAnimation {
     this.container = document.createElementNS(SVG_NS, "g");
     this.container.style.pointerEvents = "none";
 
-    // The nested <svg> acts as a viewport: its position/size define the on-screen rectangle,
-    // and its viewBox selects the source frame from the sprite sheet.
+    // The nested <svg> acts as a fixed viewport window with overflow:hidden
+    // We shift the image inside it to show different frames
     this.frameSvg = document.createElementNS(SVG_NS, "svg");
     this.frameSvg.setAttribute("overflow", "hidden");
+    this.frameSvg.style.overflow = "hidden"; // Set both for browser compatibility
 
     this.imageElement = document.createElementNS(SVG_NS, "image");
-    this.imageElement.setAttribute("x", "0");
-    this.imageElement.setAttribute("y", "0");
+    this.imageElement.setAttribute("preserveAspectRatio", "none"); // Don't scale/fit the image
     this.frameSvg.appendChild(this.imageElement);
     this.container.appendChild(this.frameSvg);
   }
@@ -385,7 +385,7 @@ export class SpriteSheetAnimation {
     // Set both href and xlink:href for maximum browser compatibility
     this.imageElement.setAttribute("href", href);
     this.imageElement.setAttributeNS(XLINK_NS, "href", href);
-    // The image covers the full sprite sheet; the nested SVG's viewBox crops to one frame.
+    // The image shows the full sprite sheet at its natural size
     this.imageElement.setAttribute("width", String(spec.sheetWidth));
     this.imageElement.setAttribute("height", String(spec.sheetHeight));
 
@@ -399,9 +399,9 @@ export class SpriteSheetAnimation {
     this.frameSvg.setAttribute("y", String(destY));
     this.frameSvg.setAttribute("width", String(destW));
     this.frameSvg.setAttribute("height", String(destH));
-    // viewBox selects the first frame; updateFrame() will advance it
+    // FIXED viewBox - never changes, always shows a frameWidth x frameHeight window
     this.frameSvg.setAttribute("viewBox", `0 0 ${spec.frameWidth} ${spec.frameHeight}`);
-    console.log(`[Animation] Frame SVG: dest=(${destX.toFixed(1)}, ${destY.toFixed(1)}) size=${destW.toFixed(1)}x${destH.toFixed(1)}`);
+    console.log(`[Animation] Frame SVG: dest=(${destX.toFixed(1)}, ${destY.toFixed(1)}) size=${destW.toFixed(1)}x${destH.toFixed(1)} viewBox=0 0 ${spec.frameWidth} ${spec.frameHeight}`);
 
     // Append animation container to effects layer (svgParent)
     if (this.container.parentNode !== svgParent) {
@@ -425,8 +425,8 @@ export class SpriteSheetAnimation {
   }
 
   /**
-   * Advances the animation to the given frame by updating the nested SVG's viewBox
-   * to select the corresponding source rectangle from the sprite sheet.
+   * Advances the animation to the given frame by shifting the full sprite sheet image
+   * to negative offsets, letting the fixed viewport window show the desired frame.
    */
   private updateFrame(frameIndex: number): void {
     if (!this.spec) {
@@ -435,14 +435,15 @@ export class SpriteSheetAnimation {
 
     const column = frameIndex % this.spec.columns;
     const row = Math.floor(frameIndex / this.spec.columns);
-    // Source coordinates in the unscaled sprite sheet — the viewBox maps these to the
-    // destination rectangle that was sized with renderScale during configure().
+    // Shift the full sprite sheet image to show the desired frame in the fixed viewport
     const srcX = column * this.spec.frameWidth;
     const srcY = row * this.spec.frameHeight;
     const opacity = getSpriteSheetFrameOpacity(this.spec, frameIndex, this.spec.frameCount);
 
-    console.log(`[Animation] updateFrame ${frameIndex} - col:${column} row:${row} viewBox:(${srcX}, ${srcY}) opacity:${opacity.toFixed(2)}`);
-    this.frameSvg.setAttribute("viewBox", `${srcX} ${srcY} ${this.spec.frameWidth} ${this.spec.frameHeight}`);
+    console.log(`[Animation] updateFrame ${frameIndex} - col:${column} row:${row} imageOffset:(-${srcX}, -${srcY}) opacity:${opacity.toFixed(2)}`);
+    // Move the image by negative offsets to show the current frame in the fixed viewport
+    this.imageElement.setAttribute("x", String(-srcX));
+    this.imageElement.setAttribute("y", String(-srcY));
     this.container.style.opacity = String(opacity);
   }
 
