@@ -17,6 +17,8 @@ export interface SpriteSheetSpec {
   anchorX?: number;
   anchorY?: number;
   fadeOutStartFrame?: number;
+  logicalFrameWidth?: number;  // Display size for in-game rendering (independent of source cell size)
+  logicalFrameHeight?: number; // Display size for in-game rendering (independent of source cell size)
 }
 
 export interface ResolvedSpriteSheetSpec extends SpriteSheetSpec {
@@ -30,6 +32,8 @@ export interface ResolvedSpriteSheetSpec extends SpriteSheetSpec {
   anchorY: number;
   sheetWidth: number;
   sheetHeight: number;
+  logicalFrameWidth: number;   // Display size for in-game rendering
+  logicalFrameHeight: number;  // Display size for in-game rendering
 }
 
 interface SpriteSheetImageAsset {
@@ -172,6 +176,8 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
     anchorX: 0.5,
     anchorY: 0.78,
     fadeOutStartFrame: 16,
+    logicalFrameWidth: 96,   // Display size (source cells are 256x256)
+    logicalFrameHeight: 96,
     getFrameDuration: (frameIndex) => smallExplosionFrameDuration(frameIndex)
   },
   explosionLarge: {
@@ -184,6 +190,8 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
     anchorX: 0.5,
     anchorY: 0.8,
     fadeOutStartFrame: 15,
+    logicalFrameWidth: 128,  // Display size (source cells are 256x256)
+    logicalFrameHeight: 128,
     getFrameDuration: (frameIndex) => largeExplosionFrameDuration(frameIndex)
   },
   impactHits: {
@@ -287,6 +295,10 @@ export function resolveSpriteSheetSpec(
   const sheetWidth = imageWidth ?? frameWidth * columns;
   const sheetHeight = imageHeight ?? frameHeight * rows;
 
+  // Logical display size defaults to frameWidth/frameHeight if not specified
+  const logicalFrameWidth = normalizePositiveNumber(spec.logicalFrameWidth) ?? frameWidth;
+  const logicalFrameHeight = normalizePositiveNumber(spec.logicalFrameHeight) ?? frameHeight;
+
   return {
     ...spec,
     columns,
@@ -298,7 +310,9 @@ export function resolveSpriteSheetSpec(
     anchorX: spec.anchorX ?? 0.5,
     anchorY: spec.anchorY ?? 0.5,
     sheetWidth,
-    sheetHeight
+    sheetHeight,
+    logicalFrameWidth,
+    logicalFrameHeight
   };
 }
 
@@ -434,7 +448,7 @@ export class SpriteSheetAnimation {
     y: number,
     scale: number = 1
   ): void {
-    console.log(`[Animation] configure - pos: (${x}, ${y}), scale: ${scale}, renderScale: ${spec.renderScale}`);
+    console.log(`[Animation] configure - pos: (${x}, ${y}), scale: ${scale}, renderScale: ${spec.renderScale}, logical: ${spec.logicalFrameWidth}x${spec.logicalFrameHeight}`);
     this.stop();
     this.spec = spec;
     this.cachedFrames = frames;
@@ -444,9 +458,9 @@ export class SpriteSheetAnimation {
     this.scale = scale * spec.renderScale;
     this.container.style.opacity = "1";
 
-    // Position the image at the destination rectangle on the map
-    const destW = spec.frameWidth * this.scale;
-    const destH = spec.frameHeight * this.scale;
+    // Position the image using LOGICAL size (not source cell size) for display
+    const destW = spec.logicalFrameWidth * this.scale;
+    const destH = spec.logicalFrameHeight * this.scale;
     const destX = this.positionX - destW * spec.anchorX;
     const destY = this.positionY - destH * spec.anchorY;
 
@@ -454,7 +468,7 @@ export class SpriteSheetAnimation {
     this.imageElement.setAttribute("y", String(destY));
     this.imageElement.setAttribute("width", String(destW));
     this.imageElement.setAttribute("height", String(destH));
-    console.log(`[Animation] Image rect: dest=(${destX.toFixed(1)}, ${destY.toFixed(1)}) size=${destW.toFixed(1)}x${destH.toFixed(1)}, frames=${frames.frameDataUrls.length}`);
+    console.log(`[Animation] Image rect: dest=(${destX.toFixed(1)}, ${destY.toFixed(1)}) size=${destW.toFixed(1)}x${destH.toFixed(1)} (logical ${spec.logicalFrameWidth}x${spec.logicalFrameHeight} * scale ${this.scale.toFixed(2)}), frames=${frames.frameDataUrls.length}`);
 
     // Append animation container to effects layer (svgParent)
     if (this.container.parentNode !== svgParent) {

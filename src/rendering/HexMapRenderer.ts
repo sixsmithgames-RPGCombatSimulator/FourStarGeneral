@@ -82,6 +82,7 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly roadRenderer = new RoadOverlayRenderer();
   private readonly reconOverlayState = new Map<string, ReconStatusKey>();
   private combatAnimator: SpriteSheetAnimator | null = null;
+  private readonly recentEffects = new Map<string, number>(); // Dedupe guard: effectKey -> timestamp
 
   private hexClickHandler: ((key: string) => void) | null = null;
   private boundDelegatedClickHandler: ((event: MouseEvent) => void) | null = null;
@@ -2740,6 +2741,26 @@ export class HexMapRenderer implements IMapRenderer {
   ): Promise<void> {
     console.log(`[HexMapRenderer] playCombatAnimation START - type: ${animationType}, hex: ${hexKey}, offset: (${offsetX}, ${offsetY}), scale: ${scale}`);
 
+    // Dedupe guard: prevent same effect from firing twice within 100ms window
+    const effectKey = `${animationType}:${hexKey}:${Math.round(offsetX)}:${Math.round(offsetY)}`;
+    const now = performance.now();
+    const lastCall = this.recentEffects.get(effectKey);
+    if (lastCall && now - lastCall < 100) {
+      console.log(`[HexMapRenderer] playCombatAnimation SKIPPED - duplicate within 100ms: ${effectKey}`);
+      return;
+    }
+    this.recentEffects.set(effectKey, now);
+
+    // Clean up old entries (keep map from growing unbounded)
+    if (this.recentEffects.size > 100) {
+      const cutoff = now - 1000;
+      for (const [key, timestamp] of this.recentEffects.entries()) {
+        if (timestamp < cutoff) {
+          this.recentEffects.delete(key);
+        }
+      }
+    }
+
     const effectsLayer = this.ensureCombatEffectsLayer();
     if (!effectsLayer) {
       console.error("[HexMapRenderer] playCombatAnimation FAILED - No effects layer available");
@@ -3353,12 +3374,13 @@ export class HexMapRenderer implements IMapRenderer {
     const impactOffsets: Array<[number, number]> = impactCount >= 3
       ? [[0, 0], [10, -6], [-8, 6]]
       : [[0, 0], [8, 4]];
-    const impactAnim = defenderIsAir ? "explosionSmall" : targetIsHardTarget ? "explosionLarge" : "explosionSmall";
-    const impactScale = defenderIsAir ? 1.45 : targetIsHardTarget ? 1.6 : 1.35;
+    // Direct-fire uses impactHits effect, not artillery explosions
+    const impactAnim = "impactHits";
+    const impactScale = defenderIsAir ? 1.55 : targetIsHardTarget ? 1.45 : 1.35;
     const impactPromises = impactOffsets.map(([ox, oy], index) =>
       new Promise<void>((resolve) => {
         window.setTimeout(() => {
-          const scale = index === 0 ? impactScale : impactScale * 0.85;
+          const scale = index === 0 ? impactScale : impactScale * 0.88;
           void this.playCombatAnimation(impactAnim, defenderHexKey, ox, oy, scale).then(() => resolve());
         }, index * 80);
       })
