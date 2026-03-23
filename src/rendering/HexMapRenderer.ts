@@ -902,34 +902,51 @@ export class HexMapRenderer implements IMapRenderer {
     // Generate SVG markup for all hexes
     const hexMarkup = hexes.map((hex) => this.renderHex(hex, minX, minY, margin, data)).join("");
 
-    // CRITICAL: Wrap all content in a single viewportRoot group that will be the transform target
-    // This ensures camera pan/zoom, hex rendering, and combat effects share the same coordinate space
-    const markup = `
-      <defs id="battleDefs"></defs>
-      <g id="viewportRoot">
-        ${hexMarkup}
-        <g class="combat-effects-layer" data-debug="combat-effects-layer"></g>
-      </g>
-    `;
+    // CRITICAL: Preserve viewportRoot across renders to maintain camera transform state
+    // Query or create viewportRoot - NEVER replace it once it exists
+    let viewportRoot = svg.querySelector("#viewportRoot") as SVGGElement | null;
+    let needsInitialization = false;
 
-    svg.innerHTML = markup;
-
-    // Cache reference to viewportRoot - this is the ONLY element that should be transformed
-    this.viewportRoot = svg.querySelector("#viewportRoot") as SVGGElement;
-    if (!this.viewportRoot) {
-      console.error("[HexMapRenderer] CRITICAL: viewportRoot not found after render");
-    } else {
-      console.log("[HexMapRenderer] viewportRoot created with children:", {
-        childCount: this.viewportRoot.children.length,
-        hexCount: this.viewportRoot.querySelectorAll('.battle-hex').length,
-        svgChildCount: svg.children.length,
-        svgStructure: Array.from(svg.children).map(c => ({
-          tag: c.tagName,
-          id: c.id || 'no-id',
-          class: (c as SVGElement).className?.baseVal || c.getAttribute('class') || 'no-class'
-        }))
-      });
+    if (!viewportRoot) {
+      // First render: create the persistent viewportRoot structure
+      const markup = `
+        <defs id="battleDefs"></defs>
+        <g id="viewportRoot">
+          <g class="combat-effects-layer" data-debug="combat-effects-layer"></g>
+        </g>
+      `;
+      svg.innerHTML = markup;
+      viewportRoot = svg.querySelector("#viewportRoot") as SVGGElement;
+      needsInitialization = true;
+      console.log("[HexMapRenderer] viewportRoot created for first time");
     }
+
+    if (!viewportRoot) {
+      console.error("[HexMapRenderer] CRITICAL: viewportRoot creation failed");
+      return;
+    }
+
+    // Update hex content while preserving viewportRoot element itself
+    // Find or create effects layer, then update hex markup before it
+    let effectsLayer = viewportRoot.querySelector(".combat-effects-layer") as SVGGElement | null;
+    if (!effectsLayer) {
+      effectsLayer = document.createElementNS(SVG_NS, "g");
+      effectsLayer.classList.add("combat-effects-layer");
+      effectsLayer.setAttribute("data-debug", "combat-effects-layer");
+      viewportRoot.appendChild(effectsLayer);
+    }
+
+    // Clear old hex content but preserve effects layer
+    effectsLayer.remove();
+    viewportRoot.innerHTML = hexMarkup;
+    viewportRoot.appendChild(effectsLayer);
+
+    this.viewportRoot = viewportRoot;
+    console.log("[HexMapRenderer] viewportRoot updated with children:", {
+      childCount: this.viewportRoot.children.length,
+      hexCount: this.viewportRoot.querySelectorAll('.battle-hex').length,
+      preserved: !needsInitialization
+    });
 
     this.ensureSelectionGlow(svg);
     this.cacheHexReferences();

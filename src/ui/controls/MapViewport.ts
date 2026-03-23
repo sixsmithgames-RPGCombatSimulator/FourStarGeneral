@@ -16,6 +16,8 @@ export class MapViewport implements IMapViewport {
   private viewportRoot: SVGGElement | null = null;
   private readonly wheelZoomStep = 0.18;
   private readonly wheelEventTarget: HTMLElement | SVGSVGElement;
+  /** Timestamp of last user camera input (wheel/drag) to suppress auto-focus */
+  private lastUserCameraInputAt = 0;
   /** Tracks middle-mouse drag state so panning only occurs while the wheel button stays depressed. */
   private readonly dragState: {
     active: boolean;
@@ -55,6 +57,7 @@ export class MapViewport implements IMapViewport {
 
     // Scroll direction > 0 means the commander rolled the wheel away (zoom out), < 0 zooms in.
     const zoomDirection = scaledDeltaY > 0 ? -1 : 1;
+    this.lastUserCameraInputAt = performance.now(); // Track user input for auto-focus suppression
     this.adjustZoomAt(zoomDirection * this.wheelZoomStep, wheelEvent.clientX, wheelEvent.clientY);
   };
   private readonly bindWheelInteractions = (): void => {
@@ -100,6 +103,7 @@ export class MapViewport implements IMapViewport {
     const deltaY = event.clientY - this.dragState.lastY;
     if (deltaX !== 0 || deltaY !== 0) {
       // Pan by the movement delta so the map tracks the pointer one-to-one.
+      this.lastUserCameraInputAt = performance.now(); // Track user input for auto-focus suppression
       this.pan(deltaX, deltaY);
       this.dragState.lastX = event.clientX;
       this.dragState.lastY = event.clientY;
@@ -163,6 +167,26 @@ export class MapViewport implements IMapViewport {
     this.transform.panX = 0;
     this.transform.panY = 0;
     this.updateTransform();
+  }
+
+  /**
+   * Sets the viewportRoot element that should receive transforms.
+   * Called by HexMapRenderer after rendering to ensure we have the live reference.
+   */
+  setViewportRoot(root: SVGGElement | null): void {
+    this.viewportRoot = root;
+    if (root) {
+      console.log("[MapViewport] viewportRoot set from external source");
+    }
+  }
+
+  /**
+   * Checks if auto-focus should be suppressed due to recent user camera input.
+   * Returns true if sufficient time (1.5s) has passed since last user input.
+   */
+  shouldAllowAutoFocus(): boolean {
+    const timeSinceUserInput = performance.now() - this.lastUserCameraInputAt;
+    return timeSinceUserInput > 1500; // 1.5 second cooldown
   }
 
   /**

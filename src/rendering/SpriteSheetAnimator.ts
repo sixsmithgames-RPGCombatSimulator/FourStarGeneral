@@ -345,6 +345,10 @@ export class SpriteSheetAnimation {
   private readonly frameSvg: SVGSVGElement;
   /** Full sprite sheet image rendered inside the nested SVG viewport. */
   private readonly imageElement: SVGImageElement;
+  /** Local clip path to prevent frame bleed from scaling/sampling */
+  private readonly clipPath: SVGClipPathElement;
+  private readonly clipRect: SVGRectElement;
+  private readonly clipId: string;
 
   constructor() {
     this.container = document.createElementNS(SVG_NS, "g");
@@ -356,8 +360,23 @@ export class SpriteSheetAnimation {
     this.frameSvg.setAttribute("overflow", "hidden");
     this.frameSvg.style.overflow = "hidden"; // Set both for browser compatibility
 
+    // Create local clip path inside the frame SVG to prevent neighbor-frame bleed
+    this.clipId = `frame-clip-${Math.random().toString(36).slice(2)}`;
+    const defs = document.createElementNS(SVG_NS, "defs");
+    this.clipPath = document.createElementNS(SVG_NS, "clipPath");
+    this.clipPath.setAttribute("id", this.clipId);
+    this.clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
+
+    this.clipRect = document.createElementNS(SVG_NS, "rect");
+    // Inset will be set in configure() based on frame dimensions
+    this.clipPath.appendChild(this.clipRect);
+    defs.appendChild(this.clipPath);
+    this.frameSvg.appendChild(defs);
+
     this.imageElement = document.createElementNS(SVG_NS, "image");
     this.imageElement.setAttribute("preserveAspectRatio", "none"); // Don't scale/fit the image
+    this.imageElement.setAttribute("clip-path", `url(#${this.clipId})`);
+    this.imageElement.style.imageRendering = "auto"; // Use smooth sampling
     this.frameSvg.appendChild(this.imageElement);
     this.container.appendChild(this.frameSvg);
   }
@@ -401,7 +420,14 @@ export class SpriteSheetAnimation {
     this.frameSvg.setAttribute("height", String(destH));
     // FIXED viewBox - never changes, always shows a frameWidth x frameHeight window
     this.frameSvg.setAttribute("viewBox", `0 0 ${spec.frameWidth} ${spec.frameHeight}`);
-    console.log(`[Animation] Frame SVG: dest=(${destX.toFixed(1)}, ${destY.toFixed(1)}) size=${destW.toFixed(1)}x${destH.toFixed(1)} viewBox=0 0 ${spec.frameWidth} ${spec.frameHeight}`);
+
+    // Set clip rect with 0.5px inset to prevent neighbor-frame bleed from scaling/sampling
+    this.clipRect.setAttribute("x", "0.5");
+    this.clipRect.setAttribute("y", "0.5");
+    this.clipRect.setAttribute("width", String(spec.frameWidth - 1));
+    this.clipRect.setAttribute("height", String(spec.frameHeight - 1));
+
+    console.log(`[Animation] Frame SVG: dest=(${destX.toFixed(1)}, ${destY.toFixed(1)}) size=${destW.toFixed(1)}x${destH.toFixed(1)} viewBox=0 0 ${spec.frameWidth} ${spec.frameHeight} clipInset=0.5px`);
 
     // Append animation container to effects layer (svgParent)
     if (this.container.parentNode !== svgParent) {
