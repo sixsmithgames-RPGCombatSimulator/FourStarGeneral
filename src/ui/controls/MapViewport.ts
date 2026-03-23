@@ -379,7 +379,7 @@ export class MapViewport implements IMapViewport {
     if (!this.viewportRoot) {
       this.viewportRoot = this.mapElement.querySelector<SVGGElement>("#viewportRoot");
       if (!this.viewportRoot) {
-        console.warn("[MapViewport] updateTransform: viewportRoot still not found");
+        console.warn("[MapViewport] updateTransform: viewportRoot not found - map may not be rendered yet");
         return;
       }
       console.log("[MapViewport] viewportRoot found after re-query");
@@ -388,14 +388,15 @@ export class MapViewport implements IMapViewport {
     // CRITICAL: Use SVG transform attribute, NOT CSS transform
     // This ensures the transform is part of the SVG coordinate system and doesn't cause
     // mismatches between viewport state and actual rendered transform
-    this.viewportRoot.setAttribute("transform", `translate(${panX}, ${panY}) scale(${zoom})`);
+    const transformValue = `translate(${panX}, ${panY}) scale(${zoom})`;
+    this.viewportRoot.setAttribute("transform", transformValue);
 
     console.log("[MapViewport] updateTransform applied:", {
       zoom,
       panX: panX.toFixed(2),
       panY: panY.toFixed(2),
-      svgTransform: this.viewportRoot.getAttribute("transform"),
-      viewportRootExists: !!this.viewportRoot
+      transformValue,
+      actualTransform: this.viewportRoot.getAttribute("transform")
     });
   }
 
