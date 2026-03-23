@@ -947,15 +947,8 @@ export class HexMapRenderer implements IMapRenderer {
       this.renderBaseCampMarker(this.baseCampHexKey);
     }
 
-    // Ensure combat effects layer renders on top of all markers by re-appending it as the last child.
-    console.log("[HexMapRenderer] render() finalizing - checking effects layer z-index");
-    if (effectsLayer && effectsLayer.parentNode === svg) {
-      console.log("[HexMapRenderer] Re-appending effects layer to ensure it's on top");
-      svg.appendChild(effectsLayer);
-      console.log("[HexMapRenderer] Effects layer is now child", Array.from(svg.children).indexOf(effectsLayer), "of", svg.children.length);
-    } else {
-      console.warn("[HexMapRenderer] Effects layer not re-appended:", { exists: !!effectsLayer, parentCorrect: effectsLayer?.parentNode === svg });
-    }
+    // Effects layer is created once as the last child of viewportRoot, so it's always on top.
+    // No need to re-append it.
   }
 
   /**
