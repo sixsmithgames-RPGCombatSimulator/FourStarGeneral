@@ -440,9 +440,15 @@ export class HexMapRenderer implements IMapRenderer {
    * Ensures the persistent base camp marker element exists so it can be reused across renders.
    */
   private ensureBaseCampMarker(svg: SVGSVGElement): void {
+    const viewportRoot = this.viewportRoot || svg.querySelector("#viewportRoot");
+    if (!viewportRoot) {
+      console.warn("[HexMapRenderer] Cannot add base camp marker - viewportRoot not found");
+      return;
+    }
+
     if (this.baseCampMarker) {
       if (!this.baseCampMarker.isConnected) {
-        svg.appendChild(this.baseCampMarker);
+        viewportRoot.appendChild(this.baseCampMarker);
       }
       return;
     }
@@ -454,7 +460,7 @@ export class HexMapRenderer implements IMapRenderer {
     marker.setAttribute("preserveAspectRatio", "xMidYMid slice");
     marker.style.display = "none";
     marker.style.pointerEvents = "none";
-    svg.appendChild(marker);
+    viewportRoot.appendChild(marker);
     this.baseCampMarker = marker;
   }
 
@@ -912,6 +918,17 @@ export class HexMapRenderer implements IMapRenderer {
     this.viewportRoot = svg.querySelector("#viewportRoot") as SVGGElement;
     if (!this.viewportRoot) {
       console.error("[HexMapRenderer] CRITICAL: viewportRoot not found after render");
+    } else {
+      console.log("[HexMapRenderer] viewportRoot created with children:", {
+        childCount: this.viewportRoot.children.length,
+        hexCount: this.viewportRoot.querySelectorAll('.battle-hex').length,
+        svgChildCount: svg.children.length,
+        svgStructure: Array.from(svg.children).map(c => ({
+          tag: c.tagName,
+          id: c.id || 'no-id',
+          class: (c as SVGElement).className?.baseVal || c.getAttribute('class') || 'no-class'
+        }))
+      });
     }
 
     this.ensureSelectionGlow(svg);
@@ -1384,7 +1401,15 @@ export class HexMapRenderer implements IMapRenderer {
     glow.setAttribute("cx", "0");
     glow.setAttribute("cy", "0");
     glow.style.display = "none";
-    svg.insertBefore(glow, svg.firstChild);
+
+    // Append to viewportRoot so it moves with pan/zoom
+    const viewportRoot = this.viewportRoot || svg.querySelector("#viewportRoot");
+    if (viewportRoot) {
+      viewportRoot.insertBefore(glow, viewportRoot.firstChild);
+    } else {
+      console.warn("[HexMapRenderer] Cannot add selection glow - viewportRoot not found");
+      svg.insertBefore(glow, svg.firstChild);
+    }
     this.selectionGlow = glow;
   }
 
