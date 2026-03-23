@@ -12,6 +12,8 @@ export class MapViewport implements IMapViewport {
   };
 
   private readonly mapElement: SVGSVGElement;
+  /** The single transform owner - all pan/zoom transforms ONLY this group */
+  private viewportRoot: SVGGElement | null = null;
   private readonly wheelZoomStep = 0.18;
   private readonly wheelEventTarget: HTMLElement | SVGSVGElement;
   /** Tracks middle-mouse drag state so panning only occurs while the wheel button stays depressed. */
@@ -142,6 +144,12 @@ export class MapViewport implements IMapViewport {
     }
     this.mapElement = element;
     this.wheelEventTarget = this.mapElement.parentElement instanceof HTMLElement ? this.mapElement.parentElement : this.mapElement;
+
+    // Find viewportRoot - this is the ONLY element we transform
+    this.viewportRoot = element.querySelector<SVGGElement>("#viewportRoot");
+    if (!this.viewportRoot) {
+      console.warn("[MapViewport] viewportRoot not found in SVG - transforms will not work until next render");
+    }
 
     this.bindWheelInteractions();
     this.bindPointerInteractions();
@@ -366,14 +374,27 @@ export class MapViewport implements IMapViewport {
    */
   private updateTransform(): void {
     const { zoom, panX, panY } = this.transform;
-    // Ensure transforms are anchored to the top-left to keep pan and zoom math linear.
-    this.mapElement.style.transformOrigin = "0 0";
-    // Crucial for SVG: make transform origin and scaling relative to the viewBox (0,0) instead of the content bbox.
-    // Without this, the origin drifts by the content's bounding-box offset (e.g., ~51px horizontally),
-    // which manifests as the target hex appearing pinned to the right edge.
-    this.mapElement.style.setProperty("transform-box", "view-box");
-    // Use a CSS matrix to avoid ambiguity in transform order.
-    this.mapElement.style.transform = `matrix(${zoom}, 0, 0, ${zoom}, ${panX}, ${panY})`;
+
+    // Re-query viewportRoot if missing (happens on first render before map is built)
+    if (!this.viewportRoot) {
+      this.viewportRoot = this.mapElement.querySelector<SVGGElement>("#viewportRoot");
+      if (!this.viewportRoot) {
+        console.warn("[MapViewport] updateTransform: viewportRoot still not found");
+        return;
+      }
+    }
+
+    // CRITICAL: Use SVG transform attribute, NOT CSS transform
+    // This ensures the transform is part of the SVG coordinate system and doesn't cause
+    // mismatches between viewport state and actual rendered transform
+    this.viewportRoot.setAttribute("transform", `translate(${panX} ${panY}) scale(${zoom})`);
+
+    console.log("[MapViewport] updateTransform applied:", {
+      zoom,
+      panX: panX.toFixed(2),
+      panY: panY.toFixed(2),
+      svgTransform: this.viewportRoot.getAttribute("transform")
+    });
   }
 
   /**

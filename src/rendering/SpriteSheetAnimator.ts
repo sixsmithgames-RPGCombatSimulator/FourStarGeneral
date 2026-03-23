@@ -331,27 +331,27 @@ export class SpriteSheetAnimation {
   private onComplete?: () => void;
 
   private readonly container: SVGGElement;
-  private readonly defs: SVGDefsElement;
   private readonly clipPath: SVGClipPathElement;
   private readonly clipRect: SVGRectElement;
   private readonly element: SVGImageElement;
+  private readonly clipId: string;
 
   constructor() {
     this.container = document.createElementNS(SVG_NS, "g");
     this.container.style.pointerEvents = "none";
 
-    this.defs = document.createElementNS(SVG_NS, "defs");
+    // Create unique clip ID but don't create defs - we'll append to shared <defs id="battleDefs">
+    this.clipId = `sprite-clip-${Math.random().toString(36).slice(2)}`;
     this.clipPath = document.createElementNS(SVG_NS, "clipPath");
-    this.clipPath.setAttribute("id", `sprite-clip-${Math.random().toString(36).slice(2)}`);
+    this.clipPath.setAttribute("id", this.clipId);
     this.clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
 
     this.clipRect = document.createElementNS(SVG_NS, "rect");
     this.clipPath.appendChild(this.clipRect);
-    this.defs.appendChild(this.clipPath);
-    this.container.appendChild(this.defs);
+    // Don't append clipPath yet - will append to shared defs in configure()
 
     this.element = document.createElementNS(SVG_NS, "image");
-    this.element.setAttribute("clip-path", `url(#${this.clipPath.getAttribute("id")})`);
+    this.element.setAttribute("clip-path", `url(#${this.clipId})`);
     this.container.appendChild(this.element);
   }
 
@@ -371,6 +371,22 @@ export class SpriteSheetAnimation {
     this.scale = scale * spec.renderScale;
     this.container.style.opacity = "1";
 
+    // Append clipPath to shared <defs id="battleDefs">, not to the animation container
+    const rootSvg = svgParent.ownerSVGElement;
+    if (!rootSvg) {
+      throw new Error("[Animation] svgParent has no ownerSVGElement - cannot find shared defs");
+    }
+    const sharedDefs = rootSvg.querySelector("#battleDefs");
+    if (!sharedDefs) {
+      throw new Error("[Animation] Could not find <defs id=\"battleDefs\"> in SVG root");
+    }
+
+    // Append clipPath to shared defs if not already there
+    if (this.clipPath.parentNode !== sharedDefs) {
+      sharedDefs.appendChild(this.clipPath);
+      console.log(`[Animation] ClipPath appended to shared battleDefs`);
+    }
+
     this.element.setAttributeNS(XLINK_NS, "href", spec.imagePath);
     const imageWidth = spec.sheetWidth * this.scale;
     const imageHeight = spec.sheetHeight * this.scale;
@@ -389,12 +405,38 @@ export class SpriteSheetAnimation {
     this.clipRect.setAttribute("height", String(frameHeight));
     console.log(`[Animation] Clip rect: x=${left}, y=${top}, w=${frameWidth}, h=${frameHeight}`);
 
+    // Append animation container to effects layer (svgParent)
     if (this.container.parentNode !== svgParent) {
       svgParent.appendChild(this.container);
-      console.log(`[Animation] Container appended to SVG, isConnected: ${this.container.isConnected}`);
+      console.log(`[Animation] Container appended to effects layer:`, {
+        parentNodeName: svgParent.nodeName,
+        parentClass: svgParent.getAttribute("class"),
+        isConnected: this.container.isConnected
+      });
     } else {
-      console.log(`[Animation] Container already attached`);
+      console.log(`[Animation] Container already attached to effects layer`);
     }
+
+    // CRITICAL ASSERTION: Verify container is actually in the effects layer
+    if (this.container.parentNode !== svgParent) {
+      throw new Error(`[Animation] CRITICAL: Animation container was not appended to effects layer! Parent: ${this.container.parentNode?.nodeName}`);
+    }
+
+    // Add visual debugging marker (magenta dot) to verify position
+    const debugDot = document.createElementNS(SVG_NS, "circle");
+    debugDot.setAttribute("cx", String(x));
+    debugDot.setAttribute("cy", String(y));
+    debugDot.setAttribute("r", "18");
+    debugDot.setAttribute("fill", "magenta");
+    debugDot.setAttribute("stroke", "white");
+    debugDot.setAttribute("stroke-width", "2");
+    debugDot.style.pointerEvents = "none";
+    svgParent.appendChild(debugDot);
+    console.log(`[Animation] DEBUG: Magenta dot placed at (${x}, ${y})`);
+    setTimeout(() => {
+      debugDot.remove();
+      console.log(`[Animation] DEBUG: Magenta dot removed`);
+    }, 2000);
 
     this.updateFrame(0);
     console.log(`[Animation] configure complete`);
@@ -487,8 +529,15 @@ export class SpriteSheetAnimation {
     this.stop();
     this.onComplete = undefined;
     this.container.style.opacity = "0";
+
+    // Remove container from effects layer
     if (this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
+    }
+
+    // Remove clipPath from shared defs to avoid clutter
+    if (this.clipPath.parentNode) {
+      this.clipPath.parentNode.removeChild(this.clipPath);
     }
   }
 }

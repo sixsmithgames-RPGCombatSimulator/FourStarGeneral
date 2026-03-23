@@ -103,6 +103,8 @@ export class HexMapRenderer implements IMapRenderer {
   private selectionGlow: SVGCircleElement | null = null;
 
   private svgElement: SVGSVGElement | null = null;
+  /** Single transform owner - all pan/zoom should transform ONLY this group, not the SVG */
+  private viewportRoot: SVGGElement | null = null;
   private canvasElement: HTMLDivElement | null = null;
   private scenarioData: ScenarioData | null = null;
   private mapPixelWidth = 0;
@@ -892,18 +894,42 @@ export class HexMapRenderer implements IMapRenderer {
     svg.setAttribute("height", `${mapHeight}`);
 
     // Generate SVG markup for all hexes
-    const markup = hexes.map((hex) => this.renderHex(hex, minX, minY, margin, data)).join("");
+    const hexMarkup = hexes.map((hex) => this.renderHex(hex, minX, minY, margin, data)).join("");
+
+    // CRITICAL: Wrap all content in a single viewportRoot group that will be the transform target
+    // This ensures camera pan/zoom, hex rendering, and combat effects share the same coordinate space
+    const markup = `
+      <defs id="battleDefs"></defs>
+      <g id="viewportRoot">
+        ${hexMarkup}
+        <g class="combat-effects-layer" data-debug="combat-effects-layer"></g>
+      </g>
+    `;
+
     svg.innerHTML = markup;
+
+    // Cache reference to viewportRoot - this is the ONLY element that should be transformed
+    this.viewportRoot = svg.querySelector("#viewportRoot") as SVGGElement;
+    if (!this.viewportRoot) {
+      console.error("[HexMapRenderer] CRITICAL: viewportRoot not found after render");
+    }
+
     this.ensureSelectionGlow(svg);
     this.cacheHexReferences();
     this.applyReconOverlayClasses();
     this.rebindHexInteractions();
     this.rehydrateAftermathOverlays();
 
-    // Recreate the combat overlay after base geometry so effects render above units/terrain.
-    const effectsLayer = this.ensureCombatEffectsLayer();
-    if (!this.combatAnimator && effectsLayer) {
-      this.combatAnimator = new SpriteSheetAnimator(effectsLayer);
+    // Get reference to the combat effects layer (now inside viewportRoot)
+    this.combatEffectsLayer = this.viewportRoot?.querySelector(".combat-effects-layer") as SVGGElement | null;
+    if (!this.combatEffectsLayer) {
+      console.error("[HexMapRenderer] CRITICAL: combat-effects-layer not found after render");
+    }
+
+    // Initialize combat animator with the effects layer (no need to re-append it later)
+    if (this.combatEffectsLayer) {
+      this.combatAnimator = new SpriteSheetAnimator(this.combatEffectsLayer);
+      console.log("[HexMapRenderer] Combat animator initialized with effects layer");
     }
 
     if (previousSelection) {
@@ -1290,6 +1316,14 @@ export class HexMapRenderer implements IMapRenderer {
    */
   getHexElement(key: string): SVGGElement | undefined {
     return this.hexElementMap.get(key);
+  }
+
+  /**
+   * Returns the viewport root group - the ONLY element that should be transformed for camera pan/zoom.
+   * All map content (hexes, units, effects) are children of this group and share its coordinate space.
+   */
+  getViewportRoot(): SVGGElement | null {
+    return this.viewportRoot;
   }
 
   /**
@@ -2409,32 +2443,18 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   /** Ensures the top-layer SVG group used for combat effects exists and remains attached. */
+  /**
+   * Returns the combat effects layer without moving it.
+   * The layer is created once during render() and stays as the last child of viewportRoot.
+   */
   private ensureCombatEffectsLayer(): SVGGElement | null {
-    console.log("[HexMapRenderer] ensureCombatEffectsLayer called");
-    if (!this.svgElement) {
-      console.error("[HexMapRenderer] ensureCombatEffectsLayer - No SVG element available");
-      return null;
-    }
-    console.log("[HexMapRenderer] SVG element exists:", this.svgElement, "children count:", this.svgElement.children.length);
-
     if (this.combatEffectsLayer && this.combatEffectsLayer.isConnected) {
-      console.log("[HexMapRenderer] Combat effects layer exists and is connected, re-appending to ensure z-index");
-      console.log("[HexMapRenderer] Layer before re-append - parent:", this.combatEffectsLayer.parentNode?.nodeName, "children:", this.combatEffectsLayer.children.length);
-      // Re-append to ensure effects render above all markers (objective markers, debug markers, etc.)
-      this.svgElement.appendChild(this.combatEffectsLayer);
-      console.log("[HexMapRenderer] Layer re-appended, now at index:", Array.from(this.svgElement.children).indexOf(this.combatEffectsLayer), "of", this.svgElement.children.length);
       return this.combatEffectsLayer;
     }
 
-    console.log("[HexMapRenderer] Creating new combat effects layer");
-    const layer = document.createElementNS(SVG_NS, "g");
-    layer.classList.add("combat-effects-layer");
-    layer.setAttribute("data-debug", "combat-effects-layer");
-    this.svgElement.appendChild(layer);
-    this.combatEffectsLayer = layer;
-    this.flashOverlay = null;
-    console.log("[HexMapRenderer] New layer created and appended, isConnected:", layer.isConnected, "parent:", layer.parentNode?.nodeName);
-    return layer;
+    // Layer should have been created during render() - if it's missing, something is wrong
+    console.error("[HexMapRenderer] Combat effects layer missing - should have been created in render()");
+    return null;
   }
 
   /**
