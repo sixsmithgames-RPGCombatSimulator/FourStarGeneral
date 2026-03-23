@@ -42,27 +42,13 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
 
 /**
- * Sprite URL cache converts raw asset URLs to blob URLs for SVG-safe rendering.
- * SVG <image> elements can have issues with external HTTPS URLs depending on browser
- * and CSP settings. Blob URLs eliminate this class of rendering failures.
+ * Resolves sprite href for SVG <image> elements.
+ * Vite-bundled assets and data URLs work directly - no conversion needed.
  */
-const spriteUrlCache = new Map<string, Promise<string>>();
-
-function getSvgSafeSpriteUrl(src: string): Promise<string> {
-  if (!spriteUrlCache.has(src)) {
-    spriteUrlCache.set(src, (async () => {
-      console.log(`[SpriteSheet] Fetching sprite as blob: ${src}`);
-      const res = await fetch(src, { credentials: "same-origin" });
-      if (!res.ok) {
-        throw new Error(`Failed to fetch sprite: ${src} (status ${res.status})`);
-      }
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      console.log(`[SpriteSheet] Blob URL created: ${src} -> ${blobUrl}`);
-      return blobUrl;
-    })());
-  }
-  return spriteUrlCache.get(src)!;
+function resolveSpriteHref(src: string): string {
+  if (src.startsWith("data:")) return src;
+  if (src.startsWith("blob:")) return src;
+  return src; // https: or relative asset URL - use directly
 }
 
 // Import animation assets using Vite's new URL() syntax for proper bundling
@@ -379,13 +365,13 @@ export class SpriteSheetAnimation {
     this.container.appendChild(this.element);
   }
 
-  async configure(
+  configure(
     spec: ResolvedSpriteSheetSpec,
     svgParent: SVGElement,
     x: number,
     y: number,
     scale: number = 1
-  ): Promise<void> {
+  ): void {
     console.log(`[Animation] configure - pos: (${x}, ${y}), scale: ${scale}, renderScale: ${spec.renderScale}`);
     this.stop();
     this.spec = spec;
@@ -411,19 +397,18 @@ export class SpriteSheetAnimation {
       console.log(`[Animation] ClipPath appended to shared battleDefs`);
     }
 
-    // CRITICAL: Convert to blob URL for SVG-safe rendering
-    console.log(`[Animation] Converting sprite to blob URL: ${spec.imagePath}`);
-    const blobUrl = await getSvgSafeSpriteUrl(spec.imagePath);
-    console.log(`[Animation] Blob URL ready: ${blobUrl}`);
+    // Use the original sprite URL directly (Vite handles bundled assets correctly)
+    const href = resolveSpriteHref(spec.imagePath);
+    console.log(`[Animation] Setting sprite href: ${href}`);
 
     // Set both href and xlink:href for maximum browser compatibility
-    this.element.setAttribute("href", blobUrl);
-    this.element.setAttributeNS(XLINK_NS, "href", blobUrl);
+    this.element.setAttribute("href", href);
+    this.element.setAttributeNS(XLINK_NS, "href", href);
     const imageWidth = spec.sheetWidth * this.scale;
     const imageHeight = spec.sheetHeight * this.scale;
     this.element.setAttribute("width", String(imageWidth));
     this.element.setAttribute("height", String(imageHeight));
-    console.log(`[Animation] Image element: ${imageWidth}x${imageHeight}, blobUrl: ${blobUrl}`);
+    console.log(`[Animation] Image element: ${imageWidth}x${imageHeight}, href: ${href}`);
 
     const frameWidth = spec.frameWidth * this.scale;
     const frameHeight = spec.frameHeight * this.scale;
@@ -453,18 +438,20 @@ export class SpriteSheetAnimation {
       throw new Error(`[Animation] CRITICAL: Animation container was not appended to effects layer! Parent: ${this.container.parentNode?.nodeName}`);
     }
 
-    // DIAGNOSTIC: Add static test image to verify SVG <image> rendering works at this position
+    // DIAGNOSTIC: Add static test image using real explosion sprite (no clip path, no animation)
+    // If this paints, the asset path works and the problem is clip/frame logic
+    // If this doesn't paint, the issue is SVG image rendering itself
     const testImage = document.createElementNS(SVG_NS, "image");
-    testImage.setAttribute("href", blobUrl);
-    testImage.setAttributeNS(XLINK_NS, "href", blobUrl);
-    testImage.setAttribute("x", String(this.positionX - 32)); // Center a 64px frame
-    testImage.setAttribute("y", String(this.positionY - 32));
-    testImage.setAttribute("width", "64");
-    testImage.setAttribute("height", "64");
+    testImage.setAttribute("href", href);
+    testImage.setAttributeNS(XLINK_NS, "href", href);
+    testImage.setAttribute("x", String(this.positionX - 80)); // 160px wide test image
+    testImage.setAttribute("y", String(this.positionY - 80));
+    testImage.setAttribute("width", "160");
+    testImage.setAttribute("height", "160");
     testImage.setAttribute("opacity", "0.7");
     testImage.style.pointerEvents = "none";
     svgParent.appendChild(testImage);
-    console.log(`[Animation] DIAGNOSTIC: Static test image appended at (${this.positionX}, ${this.positionY})`);
+    console.log(`[Animation] DIAGNOSTIC: Static explosion sprite (no clip) at (${this.positionX}, ${this.positionY}), href: ${href}`);
     setTimeout(() => {
       testImage.remove();
       console.log(`[Animation] DIAGNOSTIC: Static test image removed`);
@@ -633,13 +620,13 @@ export class SpriteSheetAnimator {
     const resolvedSpec = await this.getResolvedSpec(animationType);
     console.log(`[SpriteSheetAnimator] Spec resolved:`, resolvedSpec);
 
-    return new Promise(async (resolve) => {
+    return new Promise((resolve) => {
       const pool = this.getAnimationPool(animationType);
       const animation = pool.pop() ?? new SpriteSheetAnimation();
 
       this.activeAnimations.add(animation);
       console.log(`[SpriteSheetAnimator] Calling configure on animation`);
-      await animation.configure(resolvedSpec, this.svgElement, x, y, scale);
+      animation.configure(resolvedSpec, this.svgElement, x, y, scale);
       console.log(`[SpriteSheetAnimator] Configuration complete, calling play on animation`);
       animation.play(() => {
         console.log(`[SpriteSheetAnimator] Animation completed`);
