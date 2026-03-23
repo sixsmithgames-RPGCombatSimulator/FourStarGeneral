@@ -41,6 +41,34 @@ interface SpriteSheetImageAsset {
 const SVG_NS = "http://www.w3.org/2000/svg";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
 
+/**
+ * Image preload cache ensures sprite sheet images are fully decoded before animation starts.
+ * A 24-frame animation with 34-96ms frame durations can complete before a PNG loads,
+ * so we must guarantee the image data is ready before playback begins.
+ */
+const imagePreloadCache = new Map<string, Promise<string>>();
+
+function preloadImage(src: string): Promise<string> {
+  if (!imagePreloadCache.has(src)) {
+    imagePreloadCache.set(src, new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.decoding = "async";
+      img.onload = () => {
+        console.log(`[SpriteSheet] Image preloaded and decoded: ${src}`);
+        resolve(src);
+      };
+      img.onerror = (error) => {
+        console.error(`[SpriteSheet] Failed to preload image: ${src}`, error);
+        imagePreloadCache.delete(src);
+        reject(new Error(`Failed to preload image: ${src}`));
+      };
+      img.src = src;
+    }));
+  }
+  return imagePreloadCache.get(src)!;
+}
+
 // Import animation assets using Vite's new URL() syntax for proper bundling
 const muzzleFlashUrl = new URL("../assets/combat animations/muzzle_flash.png", import.meta.url).href;
 const explosionSmallUrl = new URL("../assets/combat animations/FSG_Explosion_Small.png", import.meta.url).href;
@@ -355,13 +383,13 @@ export class SpriteSheetAnimation {
     this.container.appendChild(this.element);
   }
 
-  configure(
+  async configure(
     spec: ResolvedSpriteSheetSpec,
     svgParent: SVGElement,
     x: number,
     y: number,
     scale: number = 1
-  ): void {
+  ): Promise<void> {
     console.log(`[Animation] configure - pos: (${x}, ${y}), scale: ${scale}, renderScale: ${spec.renderScale}`);
     this.stop();
     this.spec = spec;
@@ -387,6 +415,13 @@ export class SpriteSheetAnimation {
       console.log(`[Animation] ClipPath appended to shared battleDefs`);
     }
 
+    // CRITICAL: Preload and decode the image before setting href to ensure it's ready to paint
+    console.log(`[Animation] Preloading image: ${spec.imagePath}`);
+    await preloadImage(spec.imagePath);
+    console.log(`[Animation] Image preloaded, setting href attributes`);
+
+    // Set both href and xlink:href for maximum browser compatibility
+    this.element.setAttribute("href", spec.imagePath);
     this.element.setAttributeNS(XLINK_NS, "href", spec.imagePath);
     const imageWidth = spec.sheetWidth * this.scale;
     const imageHeight = spec.sheetHeight * this.scale;
@@ -585,14 +620,14 @@ export class SpriteSheetAnimator {
     const resolvedSpec = await this.getResolvedSpec(animationType);
     console.log(`[SpriteSheetAnimator] Spec resolved:`, resolvedSpec);
 
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
       const pool = this.getAnimationPool(animationType);
       const animation = pool.pop() ?? new SpriteSheetAnimation();
 
       this.activeAnimations.add(animation);
       console.log(`[SpriteSheetAnimator] Calling configure on animation`);
-      animation.configure(resolvedSpec, this.svgElement, x, y, scale);
-      console.log(`[SpriteSheetAnimator] Calling play on animation`);
+      await animation.configure(resolvedSpec, this.svgElement, x, y, scale);
+      console.log(`[SpriteSheetAnimator] Configuration complete, calling play on animation`);
       animation.play(() => {
         console.log(`[SpriteSheetAnimator] Animation completed`);
         animation.release();
