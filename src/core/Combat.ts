@@ -383,9 +383,9 @@ export function calculateDamagePerHit(
   const attackScalar = isSoftTarget ? softAttackScalar : hardAttackScalar;
   let afterAttackType = afterExperience * attackScalar;
 
-  // For armored targets, apply AP margin modifier
+  // Apply armor penetration margin modifier to all targets
   let penetrationMarginScalar = 1;
-  if (!isSoftTarget && facingArmor > 0) {
+  if (facingArmor > 0) {
     const margin = effectiveAP - facingArmor;
     if (margin >= 0) {
       // Overpenetration: +5% damage per point
