@@ -16,8 +16,9 @@ function createFrameCanvases(frameSources: readonly string[], frameWidth: number
 }
 
 registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP", async ({ Given, When, Then }) => {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  document.body.appendChild(svg);
+  const overlay = document.createElement("div");
+  overlay.style.position = "relative";
+  document.body.appendChild(overlay);
 
   const frameSources = ["frame-0", "frame-1", "frame-2", "frame-3"] as const;
   const resolvedSpec = resolveSpriteSheetSpec(COMBAT_ANIMATIONS.dustCloud, {
@@ -31,7 +32,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
     frameDataUrls: frameSources
   } as const;
 
-  const animator = new FrameSequenceAnimator(svg, {
+  const animator = new FrameSequenceAnimator(overlay, {
     resolveSpec: async () => resolvedSpec,
     resolveFrames: async () => frames
   });
@@ -67,16 +68,16 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
     await Promise.resolve();
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    const initialSurface = svg.querySelector<SVGForeignObjectElement>("foreignObject");
-    const initialCanvas = svg.querySelector<HTMLCanvasElement>("canvas");
+    const initialSurface = overlay.querySelector<HTMLDivElement>("div[data-frame-sequence-surface='true']");
+    const initialCanvas = overlay.querySelector<HTMLCanvasElement>("canvas");
     if (!initialSurface || !initialCanvas) {
       throw new Error("Expected one active frame canvas immediately after playback starts.");
     }
 
-    initialX = initialSurface.getAttribute("x") ?? "";
-    initialY = initialSurface.getAttribute("y") ?? "";
-    initialWidth = initialSurface.getAttribute("width") ?? "";
-    initialHeight = initialSurface.getAttribute("height") ?? "";
+    initialX = initialSurface.style.left;
+    initialY = initialSurface.style.top;
+    initialWidth = initialSurface.style.width;
+    initialHeight = initialSurface.style.height;
     if ((initialCanvas.dataset.frameSource ?? "") !== "frame-0") {
       throw new Error(`Expected initial canvas frame source frame-0, received ${initialCanvas.dataset.frameSource ?? "<missing>"}.`);
     }
@@ -97,7 +98,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
       }
       cb(timestamps[index]!);
 
-      const activeCanvases = svg.querySelectorAll("canvas");
+      const activeCanvases = overlay.querySelectorAll("canvas");
       if (activeCanvases.length !== 1) {
         throw new Error(`Expected exactly one visible canvas node during playback, found ${activeCanvases.length}.`);
       }
@@ -106,14 +107,14 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
       if ((canvas.dataset.frameSource ?? "") !== expectedFrames[index]) {
         throw new Error(`Expected frame source ${expectedFrames[index]}, received ${canvas.dataset.frameSource ?? "<missing>"}.`);
       }
-      const surface = svg.querySelector<SVGForeignObjectElement>("foreignObject");
+      const surface = overlay.querySelector<HTMLDivElement>("div[data-frame-sequence-surface='true']");
       if (!surface) {
-        throw new Error("Expected active foreignObject surface during playback.");
+        throw new Error("Expected active HTML frame surface during playback.");
       }
-      if ((surface.getAttribute("x") ?? "") !== initialX || (surface.getAttribute("y") ?? "") !== initialY) {
+      if (surface.style.left !== initialX || surface.style.top !== initialY) {
         throw new Error("Frame-sequence playback mutated surface position after configure().");
       }
-      if ((surface.getAttribute("width") ?? "") !== initialWidth || (surface.getAttribute("height") ?? "") !== initialHeight) {
+      if (surface.style.width !== initialWidth || surface.style.height !== initialHeight) {
         throw new Error("Frame-sequence playback mutated surface size after configure().");
       }
       if (resolved) {
@@ -138,15 +139,16 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
     if (!resolved) {
       throw new Error("Expected frame-sequence animation promise to resolve after final cleanup.");
     }
-    if (svg.querySelectorAll("canvas").length !== 0) {
+    if (overlay.querySelectorAll("canvas").length !== 0) {
       throw new Error("Expected no active frame canvas nodes after animation cleanup.");
     }
   });
 });
 
 registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVANCE", async ({ Given, When, Then }) => {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  document.body.appendChild(svg);
+  const overlay = document.createElement("div");
+  overlay.style.position = "relative";
+  document.body.appendChild(overlay);
 
   const frameSources = ["frame-0", "frame-1", "frame-2", "frame-3"] as const;
   const resolvedSpec = resolveSpriteSheetSpec(COMBAT_ANIMATIONS.dustCloud, {
@@ -160,7 +162,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
     frameDataUrls: frameSources
   } as const;
 
-  const animator = new FrameSequenceAnimator(svg, {
+  const animator = new FrameSequenceAnimator(overlay, {
     resolveSpec: async () => resolvedSpec,
     resolveFrames: async () => frames
   });
@@ -191,11 +193,11 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
   });
 
   await When("the image layout is mutated before the next frame tick", async () => {
-    const surface = svg.querySelector<SVGForeignObjectElement>("foreignObject");
+    const surface = overlay.querySelector<HTMLDivElement>("div[data-frame-sequence-surface='true']");
     if (!surface) {
       throw new Error("Expected active frame surface before mutating layout.");
     }
-    surface.setAttribute("x", "999");
+    surface.style.left = "999px";
 
     const callback = rafCallbacks.shift();
     if (!callback) {
@@ -223,15 +225,16 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
     if (!(caughtError instanceof Error)) {
       throw new Error("Expected frame-sequence guard to throw an Error when layout changes during playback.");
     }
-    if (!caughtError.message.includes("mutated layout field surfaceX")) {
-      throw new Error(`Expected invariant error to identify surfaceX mutation, received: ${caughtError.message}`);
+    if (!caughtError.message.includes("mutated layout field containerLeft")) {
+      throw new Error(`Expected invariant error to identify containerLeft mutation, received: ${caughtError.message}`);
     }
   });
 });
 
 registerTest("FRAME_SEQUENCE_ANIMATOR_REJECTS_FULL_SHEET_URL_FRAME_SOURCES", async ({ Given, When, Then }) => {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  document.body.appendChild(svg);
+  const overlay = document.createElement("div");
+  overlay.style.position = "relative";
+  document.body.appendChild(overlay);
 
   const resolvedSpec = resolveSpriteSheetSpec(COMBAT_ANIMATIONS.dustCloud, {
     width: 256,
@@ -245,7 +248,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REJECTS_FULL_SHEET_URL_FRAME_SOURCES", asy
     frameDataUrls: frameSources
   } as const;
 
-  const animator = new FrameSequenceAnimator(svg, {
+  const animator = new FrameSequenceAnimator(overlay, {
     resolveSpec: async () => resolvedSpec,
     resolveFrames: async () => frames
   });
@@ -270,7 +273,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REJECTS_FULL_SHEET_URL_FRAME_SOURCES", asy
     if (!caughtError.message.includes("full sprite sheet URL")) {
       throw new Error(`Expected full-sheet source guard to fire, received: ${caughtError.message}`);
     }
-    if (svg.querySelectorAll("canvas").length !== 0) {
+    if (overlay.querySelectorAll("canvas").length !== 0) {
       throw new Error("Expected no visible frame nodes after full-sheet cached playback is rejected.");
     }
   });

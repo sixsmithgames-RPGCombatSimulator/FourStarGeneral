@@ -112,6 +112,11 @@ export class HexMapRenderer implements IMapRenderer {
   private mapPixelHeight = 0;
   /** Dedicated overlay for combat effects so muzzle flashes/explosions render above unit sprites. */
   private combatEffectsLayer: SVGGElement | null = null;
+  private combatAnimationOverlayHost: HTMLDivElement | null = null;
+  /** HTML overlay that hosts frame-sequence sprite playback outside the SVG compositor. */
+  private combatAnimationOverlay: HTMLDivElement | null = null;
+  /** Keeps the HTML effect overlay aligned with the live viewportRoot pan/zoom transform. */
+  private combatAnimationOverlayObserver: MutationObserver | null = null;
   /** Reusable radial flash element so ordnance impacts pop without washing out the whole battlefield. */
   private flashOverlay: SVGCircleElement | null = null;
 
@@ -831,6 +836,7 @@ export class HexMapRenderer implements IMapRenderer {
     this.canvasElement = canvas;
     this.scenarioData = data;
     const previousCombatEffectsLayer = this.combatEffectsLayer;
+    const previousCombatAnimationOverlay = this.combatAnimationOverlay;
 
     // Reset combat overlay each render because assigning innerHTML clears prior nodes.
     this.combatEffectsLayer = null;
@@ -961,19 +967,22 @@ export class HexMapRenderer implements IMapRenderer {
       console.error("[HexMapRenderer] CRITICAL: combat-effects-layer not found after render");
     }
 
+    this.combatAnimationOverlay = this.ensureCombatAnimationOverlay();
+    this.bindCombatAnimationOverlayTransformObserver();
+    this.syncCombatAnimationOverlayLayout();
+
     if (
       this.combatAnimator &&
-      previousCombatEffectsLayer &&
-      this.combatEffectsLayer &&
-      previousCombatEffectsLayer !== this.combatEffectsLayer
+      ((previousCombatEffectsLayer && this.combatEffectsLayer && previousCombatEffectsLayer !== this.combatEffectsLayer) ||
+        (previousCombatAnimationOverlay && this.combatAnimationOverlay && previousCombatAnimationOverlay !== this.combatAnimationOverlay))
     ) {
       this.combatAnimator.stopAll();
       this.combatAnimator = null;
     }
 
-    // Initialize combat animator with the effects layer (no need to re-append it later)
-    if (this.combatEffectsLayer && !this.combatAnimator) {
-      this.combatAnimator = new FrameSequenceAnimator(this.combatEffectsLayer);
+    // Initialize combat animator with the HTML animation overlay so frame-sequence playback stays out of SVG foreignObject compositing.
+    if (this.combatAnimationOverlay && !this.combatAnimator) {
+      this.combatAnimator = new FrameSequenceAnimator(this.combatAnimationOverlay);
       console.log("[HexMapRenderer] Combat animator initialized with effects layer");
     }
 
@@ -994,6 +1003,83 @@ export class HexMapRenderer implements IMapRenderer {
 
     // Effects layer is created once as the last child of viewportRoot, so it's always on top.
     // No need to re-append it.
+  }
+
+  private ensureCombatAnimationOverlay(): HTMLDivElement | null {
+    if (!this.canvasElement) {
+      return null;
+    }
+
+    let host = this.canvasElement.querySelector<HTMLDivElement>(".combat-animation-overlay-host");
+    if (!host) {
+      host = document.createElement("div");
+      host.classList.add("combat-animation-overlay-host");
+      host.style.position = "absolute";
+      host.style.pointerEvents = "none";
+      host.style.overflow = "hidden";
+      host.style.zIndex = "4";
+      this.canvasElement.appendChild(host);
+    }
+
+    let overlay = host.querySelector<HTMLDivElement>(".combat-animation-overlay");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.classList.add("combat-animation-overlay");
+      overlay.style.position = "absolute";
+      overlay.style.left = "0";
+      overlay.style.top = "0";
+      overlay.style.pointerEvents = "none";
+      overlay.style.transformOrigin = "0 0";
+      host.appendChild(overlay);
+    }
+
+    this.combatAnimationOverlayHost = host;
+    overlay.style.width = `${this.mapPixelWidth}px`;
+    overlay.style.height = `${this.mapPixelHeight}px`;
+    return overlay;
+  }
+
+  private syncCombatAnimationOverlayLayout(): void {
+    if (!this.combatAnimationOverlayHost || !this.combatAnimationOverlay || !this.viewportRoot || !this.svgElement || !this.canvasElement) {
+      return;
+    }
+
+    const svgRect = this.svgElement.getBoundingClientRect();
+    const canvasRect = this.canvasElement.getBoundingClientRect();
+    const renderScaleX = this.mapPixelWidth > 0 ? svgRect.width / this.mapPixelWidth : 1;
+    const renderScaleY = this.mapPixelHeight > 0 ? svgRect.height / this.mapPixelHeight : 1;
+    const renderScale = Number.isFinite(renderScaleX) && renderScaleX > 0 ? renderScaleX : Number.isFinite(renderScaleY) && renderScaleY > 0 ? renderScaleY : 1;
+    const computedTransform = getComputedStyle(this.viewportRoot).transform;
+
+    this.combatAnimationOverlayHost.style.left = `${svgRect.left - canvasRect.left}px`;
+    this.combatAnimationOverlayHost.style.top = `${svgRect.top - canvasRect.top}px`;
+    this.combatAnimationOverlayHost.style.width = `${svgRect.width}px`;
+    this.combatAnimationOverlayHost.style.height = `${svgRect.height}px`;
+    this.combatAnimationOverlay.style.transform = computedTransform && computedTransform !== "none"
+      ? `scale(${renderScale}) ${computedTransform}`
+      : `scale(${renderScale})`;
+  }
+
+  private bindCombatAnimationOverlayTransformObserver(): void {
+    this.combatAnimationOverlayObserver?.disconnect();
+    this.combatAnimationOverlayObserver = null;
+
+    if (!this.viewportRoot) {
+      return;
+    }
+
+    if (typeof MutationObserver !== "function") {
+      this.syncCombatAnimationOverlayLayout();
+      return;
+    }
+
+    this.combatAnimationOverlayObserver = new MutationObserver(() => {
+      this.syncCombatAnimationOverlayLayout();
+    });
+    this.combatAnimationOverlayObserver.observe(this.viewportRoot, {
+      attributes: true,
+      attributeFilter: ["transform"]
+    });
   }
 
   /**
@@ -2773,9 +2859,16 @@ export class HexMapRenderer implements IMapRenderer {
     }
     console.log("[HexMapRenderer] Effects layer obtained:", effectsLayer, "isConnected:", effectsLayer.isConnected, "parentNode:", effectsLayer.parentNode?.nodeName);
 
+    const animationOverlay = this.ensureCombatAnimationOverlay();
+    this.syncCombatAnimationOverlayLayout();
+    if (!animationOverlay) {
+      console.error("[HexMapRenderer] playCombatAnimation FAILED - No animation overlay available");
+      return;
+    }
+
     if (!this.combatAnimator) {
       console.log("[HexMapRenderer] Creating new FrameSequenceAnimator");
-      this.combatAnimator = new FrameSequenceAnimator(effectsLayer);
+      this.combatAnimator = new FrameSequenceAnimator(animationOverlay);
     }
     if (!this.combatAnimator) {
       console.warn("[HexMapRenderer] Combat animator not initialized");

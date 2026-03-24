@@ -9,7 +9,6 @@ import {
   type ResolvedSpriteSheetSpec
 } from "./SpriteSheetAnimator";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
 let nextFrameSequencePlaybackId = 1;
 
 function readCanvasFrameSource(canvasElement: HTMLCanvasElement): string {
@@ -32,17 +31,13 @@ function summarizeFrameSource(frameSource: string): string {
 }
 
 interface FrameSequenceLayoutSnapshot {
+  readonly containerLeft: string;
+  readonly containerTop: string;
+  readonly containerWidth: string;
+  readonly containerHeight: string;
+  readonly containerPosition: string;
   readonly containerTransform: string;
-  readonly containerStyleTransform: string;
-  readonly containerViewBox: string;
-  readonly containerClipPath: string;
-  readonly surfaceX: string;
-  readonly surfaceY: string;
-  readonly surfaceWidth: string;
-  readonly surfaceHeight: string;
-  readonly surfaceTransform: string;
-  readonly surfaceStyleTransform: string;
-  readonly surfaceClipPath: string;
+  readonly containerPointerEvents: string;
   readonly canvasWidth: number;
   readonly canvasHeight: number;
   readonly canvasStyleWidth: string;
@@ -76,16 +71,14 @@ class FrameSequenceAnimation {
   private lastRenderedFrameIndex = -1;
   private lastRenderedFrameSource = "";
 
-  private readonly container: SVGGElement;
-  private readonly surfaceElement: SVGForeignObjectElement;
+  private readonly container: HTMLDivElement;
   private readonly canvasElement: HTMLCanvasElement;
 
   constructor() {
-    this.container = document.createElementNS(SVG_NS, "g");
+    this.container = document.createElement("div");
+    this.container.style.position = "absolute";
     this.container.style.pointerEvents = "none";
-
-    this.surfaceElement = document.createElementNS(SVG_NS, "foreignObject");
-    this.surfaceElement.style.pointerEvents = "none";
+    this.container.dataset.frameSequenceSurface = "true";
 
     this.canvasElement = document.createElement("canvas");
     this.canvasElement.style.display = "block";
@@ -93,15 +86,14 @@ class FrameSequenceAnimation {
     this.canvasElement.style.height = "100%";
     this.canvasElement.style.pointerEvents = "none";
 
-    this.surfaceElement.appendChild(this.canvasElement);
-    this.container.appendChild(this.surfaceElement);
+    this.container.appendChild(this.canvasElement);
   }
 
   configure(
     animationType: keyof typeof COMBAT_ANIMATIONS,
     spec: ResolvedSpriteSheetSpec,
     frames: CachedFrameSet,
-    svgParent: SVGElement,
+    svgParent: HTMLElement,
     x: number,
     y: number,
     scale: number = 1
@@ -134,18 +126,11 @@ class FrameSequenceAnimation {
     const destX = x - destW * spec.anchorX;
     const destY = y - destH * spec.anchorY;
 
-    this.container.removeAttribute("transform");
     this.container.style.transform = "";
-    this.container.removeAttribute("viewBox");
-    this.container.removeAttribute("clip-path");
-
-    this.surfaceElement.setAttribute("x", String(destX));
-    this.surfaceElement.setAttribute("y", String(destY));
-    this.surfaceElement.setAttribute("width", String(destW));
-    this.surfaceElement.setAttribute("height", String(destH));
-    this.surfaceElement.removeAttribute("transform");
-    this.surfaceElement.style.transform = "";
-    this.surfaceElement.removeAttribute("clip-path");
+    this.container.style.left = `${destX}px`;
+    this.container.style.top = `${destY}px`;
+    this.container.style.width = `${destW}px`;
+    this.container.style.height = `${destH}px`;
 
     this.canvasElement.width = Math.max(1, Math.round(frames.frameWidth));
     this.canvasElement.height = Math.max(1, Math.round(frames.frameHeight));
@@ -163,7 +148,7 @@ class FrameSequenceAnimation {
       svgParent.appendChild(this.container);
     }
     if (this.container.parentNode !== svgParent) {
-      throw new Error(`[FrameSequenceAnimator] Failed to attach ${animationType} container to the effects layer.`);
+      throw new Error(`[FrameSequenceAnimator] Failed to attach ${animationType} container to the effects overlay.`);
     }
 
     this.layoutSnapshot = this.captureLayoutSnapshot();
@@ -402,17 +387,13 @@ class FrameSequenceAnimation {
 
   private captureLayoutSnapshot(): FrameSequenceLayoutSnapshot {
     return {
-      containerTransform: this.container.getAttribute("transform") ?? "",
-      containerStyleTransform: this.container.style.transform,
-      containerViewBox: this.container.getAttribute("viewBox") ?? "",
-      containerClipPath: this.container.getAttribute("clip-path") ?? "",
-      surfaceX: this.surfaceElement.getAttribute("x") ?? "",
-      surfaceY: this.surfaceElement.getAttribute("y") ?? "",
-      surfaceWidth: this.surfaceElement.getAttribute("width") ?? "",
-      surfaceHeight: this.surfaceElement.getAttribute("height") ?? "",
-      surfaceTransform: this.surfaceElement.getAttribute("transform") ?? "",
-      surfaceStyleTransform: this.surfaceElement.style.transform,
-      surfaceClipPath: this.surfaceElement.getAttribute("clip-path") ?? "",
+      containerLeft: this.container.style.left,
+      containerTop: this.container.style.top,
+      containerWidth: this.container.style.width,
+      containerHeight: this.container.style.height,
+      containerPosition: this.container.style.position,
+      containerTransform: this.container.style.transform,
+      containerPointerEvents: this.container.style.pointerEvents,
       canvasWidth: this.canvasElement.width,
       canvasHeight: this.canvasElement.height,
       canvasStyleWidth: this.canvasElement.style.width,
@@ -423,14 +404,14 @@ class FrameSequenceAnimation {
 }
 
 export class FrameSequenceAnimator {
-  private readonly svgElement: SVGElement;
+  private readonly svgElement: HTMLElement;
   private readonly activeAnimations = new Set<FrameSequenceAnimation>();
   private readonly animationPool = new Map<string, FrameSequenceAnimation[]>();
   private readonly resolvedSpecCache = new Map<string, Promise<ResolvedSpriteSheetSpec>>();
   private readonly resolveSpecImpl: FrameSequenceSpecResolver;
   private readonly resolveFramesImpl: FrameSequenceFrameResolver;
 
-  constructor(svgElement: SVGElement, dependencies: FrameSequenceAnimatorDependencies = {}) {
+  constructor(svgElement: HTMLElement, dependencies: FrameSequenceAnimatorDependencies = {}) {
     this.svgElement = svgElement;
     this.resolveSpecImpl = dependencies.resolveSpec ?? this.resolveSpecInternal;
     this.resolveFramesImpl = dependencies.resolveFrames ?? this.resolveFramesInternal;
