@@ -112,8 +112,14 @@ export async function sliceSpriteSheet(
   const frameCanvases: HTMLCanvasElement[] = [];
   const frameDataUrls: string[] = [];
   const inset = 1; // source-pixel border trimmed from each side to prevent neighbor bleed
-  const desiredAnchorX = sourceCellWidth * anchorX;
-  const desiredAnchorY = sourceCellHeight * anchorY;
+
+  // Actual output frame dimensions after inset trimming (no scaling)
+  const actualFrameWidth = sourceCellWidth - inset * 2;
+  const actualFrameHeight = sourceCellHeight - inset * 2;
+
+  // Anchor is calculated based on the ACTUAL output frame dimensions
+  const desiredAnchorX = actualFrameWidth * anchorX;
+  const desiredAnchorY = actualFrameHeight * anchorY;
 
   for (let i = 0; i < frameCount; i++) {
     const col = i % columns;
@@ -125,12 +131,22 @@ export async function sliceSpriteSheet(
     const sw = sourceCellWidth - inset * 2;
     const sh = sourceCellHeight - inset * 2;
 
-    // Create FRESH canvas for this frame only - no reuse
-    const canvas = document.createElement("canvas");
-    const outputWidth = sourceCellWidth;
-    const outputHeight = sourceCellHeight;
+    // Output canvas MUST match source rectangle exactly - no scaling, no interpolation artifacts
+    const outputWidth = sw;
+    const outputHeight = sh;
 
-    // Hard reset canvas dimensions (ensures clean slate)
+    // Create FRESH canvas for this frame only - NEVER reuse
+    const canvas = document.createElement("canvas");
+
+    // Hard assertion: verify this is a brand new canvas with no prior state
+    if (canvas.width !== 300 || canvas.height !== 150) {
+      throw new Error(
+        `[SpriteSheet] Frame ${i} canvas is not pristine. ` +
+        `Expected default 300x150, got ${canvas.width}x${canvas.height}. Canvas reuse detected.`
+      );
+    }
+
+    // Hard reset canvas dimensions (ensures clean slate and triggers buffer reallocation)
     canvas.width = outputWidth;
     canvas.height = outputHeight;
     canvas.dataset.frameSource = `${sourceLabel}#frame-${i}`;
@@ -146,7 +162,7 @@ export async function sliceSpriteSheet(
     ctx.globalCompositeOperation = "source-over";
     ctx.clearRect(0, 0, outputWidth, outputHeight);
 
-    // Draw source cell directly at (0,0) - no offsets, no leftover sheet math
+    // Draw source cell at (0,0) with 1:1 pixel mapping - NO SCALING
     ctx.drawImage(
       image,
       sx, sy, sw, sh,
@@ -157,17 +173,36 @@ export async function sliceSpriteSheet(
     const dataUrl = canvas.toDataURL("image/png");
     frameDataUrls.push(dataUrl);
 
+    // Debug proof: export first 4 explosion frames as standalone debug images
+    if (i < 4 && sourceLabel.includes("Explosion")) {
+      console.log(`[SpriteSheet] ⚠️ DEBUG PROOF - Frame ${i} exported for manual inspection:`);
+      console.log(`[SpriteSheet]   Source rect: (${sx},${sy},${sw},${sh})`);
+      console.log(`[SpriteSheet]   Output size: ${outputWidth}x${outputHeight}`);
+      console.log(`[SpriteSheet]   Data URL length: ${dataUrl.length} bytes`);
+      console.log(`[SpriteSheet]   First 80 chars: ${dataUrl.substring(0, 80)}...`);
+
+      // Create downloadable link for manual inspection
+      const debugLink = document.createElement("a");
+      debugLink.href = dataUrl;
+      debugLink.download = `explosion_frame_${i}_debug.png`;
+      debugLink.textContent = `Download Explosion Frame ${i}`;
+      debugLink.style.cssText = "display:block; color: yellow; background: black; padding: 4px; margin: 2px;";
+      document.body.appendChild(debugLink);
+      console.log(`[SpriteSheet]   Download link added to page for frame ${i}`);
+    }
+
     // Debug validation for first few frames
     if (i < 3) {
-      console.log(`[SpriteSheet] Frame ${i} sliced: source=(${sx},${sy},${sw},${sh}) dest=(0,0,${outputWidth},${outputHeight}) dataUrl length=${dataUrl.length}`);
+      console.log(`[SpriteSheet] Frame ${i} sliced: source=(${sx},${sy},${sw}x${sh}) output=(${outputWidth}x${outputHeight}) 1:1 mapping, dataUrl=${dataUrl.length} bytes`);
     }
   }
 
   validateLeadingFrameUniqueness(sourceLabel, frameDataUrls);
 
   console.log(
-    `[SpriteSheet] Sliced ${frameCount} frames at ${sourceCellWidth}x${sourceCellHeight}px each; ` +
-    `frame stage ${sourceCellWidth}x${sourceCellHeight} anchor=(${desiredAnchorX.toFixed(1)}, ${desiredAnchorY.toFixed(1)})`
+    `[SpriteSheet] Sliced ${frameCount} frames at ${actualFrameWidth}x${actualFrameHeight}px each (1:1 from source, no scaling); ` +
+    `source cells were ${sourceCellWidth}x${sourceCellHeight}px, inset=${inset}px trimmed per side; ` +
+    `anchor=(${desiredAnchorX.toFixed(1)}, ${desiredAnchorY.toFixed(1)})`
   );
 
   // Debug: verify first 3 frames are unique by checking their data URL lengths
@@ -175,9 +210,10 @@ export async function sliceSpriteSheet(
     const lengths = frameDataUrls.slice(0, 3).map(url => url.length);
     console.log(`[SpriteSheet] First 3 frame data URL lengths: ${lengths.join(", ")} (should differ if frames are unique)`);
   }
+
   return {
-    frameWidth: sourceCellWidth,
-    frameHeight: sourceCellHeight,
+    frameWidth: actualFrameWidth,
+    frameHeight: actualFrameHeight,
     sourceFrameWidth: sourceCellWidth,
     sourceFrameHeight: sourceCellHeight,
     anchorPixelX: desiredAnchorX,
