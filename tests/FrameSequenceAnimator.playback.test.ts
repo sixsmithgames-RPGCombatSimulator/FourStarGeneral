@@ -51,7 +51,9 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
     void animationPromise.then(() => {
       resolved = true;
     });
+    // Wait for the animation to configure and add the image element
     await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     const initialImage = svg.querySelector<SVGImageElement>("image");
     if (!initialImage) {
@@ -161,7 +163,9 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
     void animationPromise.catch((error) => {
       caughtError = error;
     });
+    // Wait for the animation to configure and add the image element
     await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
   });
 
   await When("the image layout is mutated before the next frame tick", async () => {
@@ -199,6 +203,51 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
     }
     if (!caughtError.message.includes("mutated layout field imageX")) {
       throw new Error(`Expected invariant error to identify imageX mutation, received: ${caughtError.message}`);
+    }
+  });
+});
+
+registerTest("FRAME_SEQUENCE_ANIMATOR_REJECTS_FULL_SHEET_URL_FRAME_SOURCES", async ({ Given, When, Then }) => {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  document.body.appendChild(svg);
+
+  const resolvedSpec = resolveSpriteSheetSpec(COMBAT_ANIMATIONS.dustCloud, {
+    width: 256,
+    height: 64
+  });
+  const frames = {
+    frameWidth: 64,
+    frameHeight: 64,
+    frameDataUrls: [resolvedSpec.imagePath, "frame-1", "frame-2", "frame-3"]
+  } as const;
+
+  const animator = new FrameSequenceAnimator(svg, {
+    resolveSpec: async () => resolvedSpec,
+    resolveFrames: async () => frames
+  });
+
+  let caughtError: unknown = null;
+
+  await Given("a cached frame sequence whose first frame incorrectly points at the full sprite sheet", async () => {
+  });
+
+  await When("playback begins", async () => {
+    try {
+      await animator.playAnimation("dustCloud", 40, 50, 1);
+    } catch (error) {
+      caughtError = error;
+    }
+  });
+
+  await Then("the renderer rejects the full-sheet frame source before visible playback continues", async () => {
+    if (!(caughtError instanceof Error)) {
+      throw new Error("Expected cached playback to reject a full-sheet frame source.");
+    }
+    if (!caughtError.message.includes("full sprite sheet URL")) {
+      throw new Error(`Expected full-sheet source guard to fire, received: ${caughtError.message}`);
+    }
+    if (svg.querySelectorAll("image").length !== 0) {
+      throw new Error("Expected no visible frame nodes after full-sheet cached playback is rejected.");
     }
   });
 });

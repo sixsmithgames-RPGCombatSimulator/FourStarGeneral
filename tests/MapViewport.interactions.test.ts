@@ -41,27 +41,73 @@ function createPointerEvent(type: string, props: PointerEventProps): MutablePoin
   return event;
 }
 
-function setupMapDom(): { host: HTMLElement; svg: SVGSVGElement } {
+function defineLayoutMetrics(element: Element, width: number, height: number, left = 0, top = 0): void {
+  Object.defineProperty(element, "clientWidth", { value: width, configurable: true });
+  Object.defineProperty(element, "clientHeight", { value: height, configurable: true });
+  Object.defineProperty(element, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({
+      x: left,
+      y: top,
+      left,
+      top,
+      width,
+      height,
+      right: left + width,
+      bottom: top + height,
+      toJSON: () => ""
+    })
+  });
+}
+
+function setupMapDom(options?: {
+  readonly viewportWidth?: number;
+  readonly viewportHeight?: number;
+  readonly canvasWidth?: number;
+  readonly canvasHeight?: number;
+  readonly svgWidth?: number;
+  readonly svgHeight?: number;
+  readonly viewBoxWidth?: number;
+  readonly viewBoxHeight?: number;
+}): { host: HTMLElement; svg: SVGSVGElement; viewportRoot: SVGGElement } {
+  const viewportWidth = options?.viewportWidth ?? 400;
+  const viewportHeight = options?.viewportHeight ?? 300;
+  const canvasWidth = options?.canvasWidth ?? 600;
+  const canvasHeight = options?.canvasHeight ?? 600;
+  const svgWidth = options?.svgWidth ?? canvasWidth;
+  const svgHeight = options?.svgHeight ?? canvasHeight;
+  const viewBoxWidth = options?.viewBoxWidth ?? svgWidth;
+  const viewBoxHeight = options?.viewBoxHeight ?? svgHeight;
+
   const viewport = document.createElement("div");
-  viewport.style.width = "400px";
-  viewport.style.height = "300px";
+  viewport.style.width = `${viewportWidth}px`;
+  viewport.style.height = `${viewportHeight}px`;
   viewport.style.overflow = "hidden";
 
   const canvas = document.createElement("div");
   canvas.id = "battleMapCanvas";
-  canvas.style.width = "600px";
-  canvas.style.height = "600px";
+  canvas.style.width = `${canvasWidth}px`;
+  canvas.style.height = `${canvasHeight}px`;
 
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.id = "battleHexMap";
-  svg.setAttribute("width", "600");
-  svg.setAttribute("height", "600");
+  svg.setAttribute("width", String(viewBoxWidth));
+  svg.setAttribute("height", String(viewBoxHeight));
+  svg.setAttribute("viewBox", `0 0 ${viewBoxWidth} ${viewBoxHeight}`);
+
+  const viewportRoot = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  viewportRoot.setAttribute("id", "viewportRoot");
+  svg.appendChild(viewportRoot);
 
   canvas.appendChild(svg);
   viewport.appendChild(canvas);
   document.body.appendChild(viewport);
 
-  return { host: canvas, svg };
+  defineLayoutMetrics(viewport, viewportWidth, viewportHeight);
+  defineLayoutMetrics(canvas, canvasWidth, canvasHeight);
+  defineLayoutMetrics(svg, svgWidth, svgHeight);
+
+  return { host: canvas, svg, viewportRoot };
 }
 
 registerTest("MAP_VIEWPORT_WHEEL_ZOOM", async ({ Given, When, Then }) => {
@@ -128,24 +174,24 @@ registerTest("MAP_VIEWPORT_MIDDLE_DRAG_PAN", async ({ Given, When, Then }) => {
     moveEvent = createPointerEvent("pointermove", {
       pointerId: 17,
       pointerType: "mouse",
-      clientX: 220,
-      clientY: 240
+      clientX: 180,
+      clientY: 160
     });
     host.dispatchEvent(moveEvent);
 
     upEvent = createPointerEvent("pointerup", {
       pointerId: 17,
       pointerType: "mouse",
-      clientX: 220,
-      clientY: 240
+      clientX: 180,
+      clientY: 160
     });
     host.dispatchEvent(upEvent);
 
     strayMoveEvent = createPointerEvent("pointermove", {
       pointerId: 17,
       pointerType: "mouse",
-      clientX: 260,
-      clientY: 260
+      clientX: 140,
+      clientY: 120
     });
     host.dispatchEvent(strayMoveEvent);
   });
@@ -165,14 +211,56 @@ registerTest("MAP_VIEWPORT_MIDDLE_DRAG_PAN", async ({ Given, When, Then }) => {
     }
 
     const transform = mapViewport.getTransform();
-    if (transform.panX !== 20 || transform.panY !== 40) {
-      throw new Error(`Expected pan deltas (20, 40); received (${transform.panX}, ${transform.panY})`);
+    if (transform.panX !== -20 || transform.panY !== -40) {
+      throw new Error(`Expected pan deltas (-20, -40); received (${transform.panX}, ${transform.panY})`);
     }
 
     const postReleaseTransform = mapViewport.getTransform();
     host.remove();
-    if (postReleaseTransform.panX !== 20 || postReleaseTransform.panY !== 40) {
+    if (postReleaseTransform.panX !== -20 || postReleaseTransform.panY !== -40) {
       throw new Error("Viewport pan changed unexpectedly after releasing the drag");
     }
+  });
+});
+
+registerTest("MAP_VIEWPORT_CENTER_ON_USES_VIEWBOX_UNITS_WHEN_LAYOUT_IS_SCALED", async ({ Given, When, Then }) => {
+  let mapViewport: MapViewport;
+  let host: HTMLElement;
+  let viewportRoot: SVGGElement;
+  let transform: { zoom: number; panX: number; panY: number } = { zoom: 1, panX: 0, panY: 0 };
+
+  await Given("a viewport whose rendered SVG is scaled down relative to its viewBox", async () => {
+    const dom = setupMapDom({
+      viewportWidth: 400,
+      viewportHeight: 300,
+      canvasWidth: 500,
+      canvasHeight: 500,
+      svgWidth: 500,
+      svgHeight: 500,
+      viewBoxWidth: 1000,
+      viewBoxHeight: 1000
+    });
+    host = dom.host;
+    viewportRoot = dom.viewportRoot;
+    mapViewport = new MapViewport();
+  });
+
+  await When("the camera centers on a distant hex in viewBox space", async () => {
+    mapViewport.centerOn(600, 600);
+    transform = mapViewport.getTransform();
+  });
+
+  await Then("the pan values move in viewBox units instead of half-strength pixel units", async () => {
+    const tolerance = 1e-6;
+    if (Math.abs(transform.panX - -200) > tolerance || Math.abs(transform.panY - -300) > tolerance) {
+      throw new Error(`Expected pan (-200, -300) in viewBox units, received (${transform.panX}, ${transform.panY}).`);
+    }
+
+    const appliedTransform = viewportRoot.getAttribute("transform") ?? "";
+    if (appliedTransform !== "translate(-200, -300) scale(1)") {
+      throw new Error(`Expected viewportRoot transform to match centered viewBox pan, received ${appliedTransform}.`);
+    }
+
+    host.remove();
   });
 });

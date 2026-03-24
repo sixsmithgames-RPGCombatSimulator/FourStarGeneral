@@ -211,6 +211,79 @@ registerTest("HEXMAP_RENDERUNIT_REJECTS_MALFORMED_FACING_WITHOUT_CRASHING", asyn
   });
 });
 
+registerTest("HEXMAP_DIRECT_FIRE_ATTACK_SPAWNS_ONE_CENTERED_IMPACT_HIT", async ({ Given, When, Then }) => {
+  const renderer = new HexMapRenderer() as unknown as {
+    playAttackSequence(attackerHexKey: string, defenderHexKey: string, targetIsHardTarget: boolean): Promise<void>;
+    hexElementMap: Map<string, unknown>;
+    extractHexCenter: (element: unknown) => { cx: number; cy: number } | null;
+    setHexFacingAngle: (hexKey: string, cx: number, cy: number, angle: number) => void;
+    getUnitClassAt: (hexKey: string) => string | undefined;
+    getUnitScenarioTypeAt: (hexKey: string) => string | undefined;
+    isSmallArmsAttack: (hexKey: string) => boolean;
+    isArcingArtilleryAttack: (hexKey: string) => boolean;
+    isAirStrafingAttack: (hexKey: string) => boolean;
+    isAirBombingAttack: (hexKey: string) => boolean;
+    playFlashOverlay: () => Promise<void>;
+    playMuzzleFlash: () => Promise<void>;
+    playTargetMarker: () => Promise<void>;
+    playRecoilNudge: () => Promise<void>;
+    playHitShake: () => Promise<void>;
+    playSparkBurst: () => Promise<void>;
+    playDustCloudLinger: () => Promise<void>;
+    playProjectileTracer: () => Promise<void>;
+  } & {
+    playCombatAnimation: (animationType: string, hexKey: string, offsetX?: number, offsetY?: number, scale?: number) => Promise<void>;
+  };
+
+  const combatCalls: Array<{ animationType: string; hexKey: string; offsetX: number; offsetY: number; scale: number }> = [];
+
+  await Given("a direct-fire renderer path with all non-impact visuals stubbed", async () => {
+    renderer.hexElementMap.set("0,0", {});
+    renderer.hexElementMap.set("1,0", {});
+    renderer.extractHexCenter = () => ({ cx: 100, cy: 100 });
+    renderer.setHexFacingAngle = () => {};
+    renderer.getUnitClassAt = (hexKey) => (hexKey === "0,0" ? "vehicle" : "infantry");
+    renderer.getUnitScenarioTypeAt = () => "Recon_ArmoredCar";
+    renderer.isSmallArmsAttack = () => false;
+    renderer.isArcingArtilleryAttack = () => false;
+    renderer.isAirStrafingAttack = () => false;
+    renderer.isAirBombingAttack = () => false;
+    renderer.playFlashOverlay = async () => {};
+    renderer.playMuzzleFlash = async () => {};
+    renderer.playTargetMarker = async () => {};
+    renderer.playRecoilNudge = async () => {};
+    renderer.playHitShake = async () => {};
+    renderer.playSparkBurst = async () => {};
+    renderer.playDustCloudLinger = async () => {};
+    renderer.playProjectileTracer = async () => {};
+    renderer.playCombatAnimation = async (animationType, hexKey, offsetX = 0, offsetY = 0, scale = 1) => {
+      combatCalls.push({ animationType, hexKey, offsetX, offsetY, scale });
+    };
+  });
+
+  await When("the attack sequence reaches its direct-fire impact branch", async () => {
+    await renderer.playAttackSequence("0,0", "1,0", false);
+  });
+
+  await Then("it schedules exactly one centered impactHits animation", async () => {
+    const impactCalls = combatCalls.filter((call) => call.animationType === "impactHits");
+    if (impactCalls.length !== 1) {
+      throw new Error(`Expected exactly one direct-fire impactHits animation, found ${impactCalls.length}.`);
+    }
+
+    const [impactCall] = impactCalls;
+    if (!impactCall) {
+      throw new Error("Expected one direct-fire impactHits animation call.");
+    }
+    if (impactCall.hexKey !== "1,0") {
+      throw new Error(`Expected impactHits to target defender hex 1,0, received ${impactCall.hexKey}.`);
+    }
+    if (impactCall.offsetX !== 0 || impactCall.offsetY !== 0) {
+      throw new Error(`Expected centered impactHits offsets (0,0), received (${impactCall.offsetX}, ${impactCall.offsetY}).`);
+    }
+  });
+});
+
 registerTest("HEXMAP_RENDERUNIT_DOES_NOT_ADD_WATER_TRANSPORT_OVERLAY", async ({ Given, When, Then }) => {
   const viewport = document.createElement("div");
   viewport.style.width = "300px";

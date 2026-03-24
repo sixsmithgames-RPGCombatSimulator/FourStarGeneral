@@ -11,6 +11,24 @@ import {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const XLINK_NS = "http://www.w3.org/1999/xlink";
+let nextFrameSequencePlaybackId = 1;
+
+function readSvgImageSource(imageElement: SVGImageElement): string {
+  const href = imageElement.getAttribute("href");
+  if (href) {
+    return href;
+  }
+
+  const xlinkHref = imageElement.getAttributeNS(XLINK_NS, "href");
+  return xlinkHref ?? "";
+}
+
+function summarizeFrameSource(frameSource: string): string {
+  if (frameSource.startsWith("data:")) {
+    return `${frameSource.slice(0, 48)}… (${frameSource.length} chars)`;
+  }
+  return frameSource;
+}
 
 interface FrameSequenceLayoutSnapshot {
   readonly containerTransform: string;
@@ -48,6 +66,9 @@ class FrameSequenceAnimation {
   private completionResolver: (() => void) | undefined;
   private completionRejector: ((error: Error) => void) | undefined;
   private layoutSnapshot: FrameSequenceLayoutSnapshot | null = null;
+  private playbackId = "";
+  private lastRenderedFrameIndex = -1;
+  private lastRenderedFrameSource = "";
 
   private readonly container: SVGGElement;
   private readonly imageElement: SVGImageElement;
@@ -81,6 +102,9 @@ class FrameSequenceAnimation {
     this.spec = spec;
     this.resolvedFrames = frames.frameDataUrls;
     this.currentFrame = 0;
+    this.playbackId = `${animationType}#${nextFrameSequencePlaybackId++}`;
+    this.lastRenderedFrameIndex = -1;
+    this.lastRenderedFrameSource = "";
     this.container.style.opacity = "1";
 
     const effectiveScale = scale * spec.renderScale;
@@ -102,6 +126,8 @@ class FrameSequenceAnimation {
     this.imageElement.style.transform = "";
     this.imageElement.removeAttribute("viewBox");
     this.imageElement.removeAttribute("clip-path");
+    this.imageElement.removeAttribute("href");
+    this.imageElement.removeAttributeNS(XLINK_NS, "href");
 
     if (this.container.parentNode && this.container.parentNode !== svgParent) {
       this.container.parentNode.removeChild(this.container);
@@ -146,11 +172,18 @@ class FrameSequenceAnimation {
 
   release(): void {
     this.stop();
+    this.cleanupVisualState();
     this.settleCompletion();
+  }
+
+  private cleanupVisualState(): void {
     this.animationType = null;
     this.spec = null;
     this.resolvedFrames = [];
     this.layoutSnapshot = null;
+    this.playbackId = "";
+    this.lastRenderedFrameIndex = -1;
+    this.lastRenderedFrameSource = "";
     this.container.style.opacity = "0";
     this.imageElement.removeAttribute("href");
     this.imageElement.removeAttributeNS(XLINK_NS, "href");
@@ -192,8 +225,7 @@ class FrameSequenceAnimation {
   };
 
   private finish(): void {
-    this.stop();
-    this.settleCompletion();
+    this.release();
   }
 
   private fail(error: unknown): void {
@@ -201,6 +233,7 @@ class FrameSequenceAnimation {
     const failure = error instanceof Error
       ? error
       : new Error(`[FrameSequenceAnimator] Playback failed with non-Error value: ${String(error)}`);
+    this.cleanupVisualState();
     this.settleFailure(failure);
   }
 
@@ -229,12 +262,76 @@ class FrameSequenceAnimation {
         `[FrameSequenceAnimator] ${this.animationType} is missing cached frame ${frameIndex} of ${this.resolvedFrames.length}.`
       );
     }
+    if (frameSource === this.spec.imagePath) {
+      throw new Error(
+        `[FrameSequenceAnimator] ${this.playbackId} resolved frame ${frameIndex} back to the full sprite sheet URL. ` +
+        "Pre-sliced playback must use single-frame assets only."
+      );
+    }
 
     this.assertLayoutInvariant();
+    this.assertVisibleSourceNeverUsesSheetUrl();
     this.imageElement.setAttribute("href", frameSource);
     this.imageElement.setAttributeNS(XLINK_NS, "href", frameSource);
     this.container.style.opacity = String(getSpriteSheetFrameOpacity(this.spec, frameIndex, this.spec.frameCount));
+    this.assertVisibleFrameState(frameIndex, frameSource);
     this.assertLayoutInvariant();
+  }
+
+  private assertVisibleSourceNeverUsesSheetUrl(): void {
+    if (!this.spec || this.resolvedFrames.length === 0) {
+      return;
+    }
+
+    const visibleSource = readSvgImageSource(this.imageElement);
+    if (visibleSource === this.spec.imagePath) {
+      throw new Error(
+        `[FrameSequenceAnimator] ${this.playbackId} attempted to render cached playback using the full sprite sheet URL ${this.spec.imagePath}.`
+      );
+    }
+  }
+
+  private assertVisibleFrameState(frameIndex: number, frameSource: string): void {
+    if (!this.spec) {
+      return;
+    }
+
+    const visibleNodeCount = this.container.querySelectorAll("image").length;
+    if (visibleNodeCount !== 1) {
+      throw new Error(
+        `[FrameSequenceAnimator] ${this.playbackId} expected exactly one visible image node, found ${visibleNodeCount}.`
+      );
+    }
+
+    const visibleSource = readSvgImageSource(this.imageElement);
+    if (visibleSource !== frameSource) {
+      throw new Error(
+        `[FrameSequenceAnimator] ${this.playbackId} expected visible frame source ${summarizeFrameSource(frameSource)}, ` +
+        `received ${summarizeFrameSource(visibleSource)}.`
+      );
+    }
+    if (visibleSource === this.spec.imagePath) {
+      throw new Error(
+        `[FrameSequenceAnimator] ${this.playbackId} reverted to full sprite sheet source ${this.spec.imagePath} during cached playback.`
+      );
+    }
+    if (
+      this.spec.frameCount > 1 &&
+      this.lastRenderedFrameIndex >= 0 &&
+      frameIndex !== this.lastRenderedFrameIndex &&
+      frameSource === this.lastRenderedFrameSource
+    ) {
+      throw new Error(
+        `[FrameSequenceAnimator] ${this.playbackId} advanced from frame ${this.lastRenderedFrameIndex} to ${frameIndex} without changing the visible frame source.`
+      );
+    }
+
+    console.log(
+      `[FrameSequenceAnimator] Frame swap - animation: ${this.playbackId}, frame: ${frameIndex}, ` +
+      `source: ${summarizeFrameSource(visibleSource)}, nodes: ${visibleNodeCount}`
+    );
+    this.lastRenderedFrameIndex = frameIndex;
+    this.lastRenderedFrameSource = frameSource;
   }
 
   private assertLayoutInvariant(): void {
@@ -302,7 +399,6 @@ export class FrameSequenceAnimator {
     try {
       animation.configure(animationType, resolvedSpec, frames, this.svgElement, x, y, scale);
       await animation.play();
-      animation.release();
     } catch (error) {
       animation.release();
       throw error;

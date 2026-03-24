@@ -2678,10 +2678,9 @@ export class BattleScreen {
     const cx = Number(cell.dataset.cx ?? 0);
     const cy = Number(cell.dataset.cy ?? 0);
 
-    // Get SVG element to verify DOM transform
-    const svgElement = document.getElementById("battleHexMap") as SVGSVGElement | null;
+    const viewportRoot = this.hexMapRenderer.getViewportRoot();
     const beforeTransform = this.mapViewport.getTransform();
-    const beforeDOMTransform = svgElement?.style.transform ?? "none";
+    const beforeDOMTransform = viewportRoot?.getAttribute("transform") ?? "none";
 
     console.log("[BattleScreen] focusCameraOnHex:", {
       hexKey,
@@ -2704,10 +2703,11 @@ export class BattleScreen {
       this.mapViewport.centerOn(cx, cy);
     }
     const afterTransform = this.mapViewport.getTransform();
-    const afterDOMTransform = svgElement?.style.transform ?? "none";
-    const computedTransform = svgElement ? getComputedStyle(svgElement).transform : "none";
+    const afterDOMTransform = viewportRoot?.getAttribute("transform") ?? "none";
+    const computedTransform = viewportRoot ? getComputedStyle(viewportRoot).transform : "none";
 
     // Get real viewport pixel dimensions
+    const svgElement = document.getElementById("battleHexMap") as SVGSVGElement | null;
     const viewportRect = svgElement?.getBoundingClientRect();
     const viewportSize = viewportRect
       ? { width: Math.round(viewportRect.width), height: Math.round(viewportRect.height) }
@@ -2731,7 +2731,7 @@ export class BattleScreen {
     await this.waitForNextFrame();
 
     // Verify final transform after waiting
-    const finalDOMTransform = svgElement?.style.transform ?? "none";
+    const finalDOMTransform = viewportRoot?.getAttribute("transform") ?? "none";
     console.log("[BattleScreen] focusCameraOnHex: after frame wait, DOM transform is:", finalDOMTransform);
   }
 
@@ -2761,9 +2761,7 @@ export class BattleScreen {
     // Reapply the previous zoom/pan to avoid unexpected resets.
     if (this.lastViewportTransform) {
       const { zoom, panX, panY } = this.lastViewportTransform;
-      this.mapViewport.adjustZoom(zoom - this.mapViewport.getTransform().zoom);
-      const current = this.mapViewport.getTransform();
-      this.mapViewport.pan(panX - current.panX, panY - current.panY);
+      this.mapViewport.setTransform(zoom, panX, panY);
       console.log("[BattleScreen] restoreViewportAfterIdleDismiss applied", {
         targetTransform: this.lastViewportTransform,
         finalTransform: this.mapViewport.getTransform()

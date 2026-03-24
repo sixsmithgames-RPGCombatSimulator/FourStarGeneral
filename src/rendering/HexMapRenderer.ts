@@ -3365,10 +3365,7 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const impactCount = this.chooseImpactCount(attackerClass);
-    const impactOffsets: Array<[number, number]> = impactCount >= 3
-      ? [[0, 0], [10, -6], [-8, 6]]
-      : [[0, 0], [8, 4]];
+    const impactOffsets: Array<[number, number]> = [[0, 0]];
     // Direct-fire uses impactHits effect, not artillery explosions
     const impactAnim = "impactHits";
     const impactScale = defenderIsAir ? 1.55 : targetIsHardTarget ? 1.45 : 1.35;

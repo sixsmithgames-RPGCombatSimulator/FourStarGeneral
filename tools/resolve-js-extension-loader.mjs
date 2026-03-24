@@ -23,6 +23,17 @@ export async function resolve(specifier, context, defaultResolve) {
 }
 
 export async function load(url, context, defaultLoad) {
+  // Handle asset files (PNG, SVG, etc.) by exporting the URL as default
+  if (url.endsWith('.png') || url.endsWith('.jpg') || url.endsWith('.jpeg') || 
+      url.endsWith('.svg') || url.endsWith('.gif') || url.endsWith('.webp')) {
+    return {
+      format: 'module',
+      source: `export default ${JSON.stringify(url)};`,
+      shortCircuit: true
+    };
+  }
+  
+  // Handle JSON files
   if (url.endsWith(".json")) {
     const sourceText = await readFile(fileURLToPath(url), "utf8");
     return {

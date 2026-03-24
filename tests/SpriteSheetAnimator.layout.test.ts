@@ -4,17 +4,17 @@ import {
   COMBAT_ANIMATIONS,
   getSpriteSheetFrameDuration,
   getSpriteSheetFrameOpacity,
-  resolveSpriteSheetSpec
+  resolveSpriteSheetSpecAsync
 } from "../src/rendering/SpriteSheetAnimator";
 
 registerTest("SPRITESHEET_ANIMATOR_KEEPS_SINGLE_ROW_STRIPS_COMPATIBLE", async ({ Given, When, Then }) => {
-  let resolved: ReturnType<typeof resolveSpriteSheetSpec> | null = null;
+  let resolved: Awaited<ReturnType<typeof resolveSpriteSheetSpecAsync>> | null = null;
 
   await Given("the legacy muzzle-flash strip metadata", async () => {
   });
 
   await When("sprite-sheet geometry is resolved without image probing", async () => {
-    resolved = resolveSpriteSheetSpec(COMBAT_ANIMATIONS.muzzleFlash);
+    resolved = await resolveSpriteSheetSpecAsync(COMBAT_ANIMATIONS.muzzleFlash);
   });
 
   await Then("the animation stays a one-row strip with derived sheet dimensions", async () => {
@@ -34,7 +34,7 @@ registerTest("SPRITESHEET_ANIMATOR_KEEPS_SINGLE_ROW_STRIPS_COMPATIBLE", async ({
 });
 
 registerTest("SPRITESHEET_ANIMATOR_RESOLVES_MULTI_ROW_EXPLOSION_LAYOUT_AND_STAGED_TIMING", async ({ Given, When, Then }) => {
-  let resolved: ReturnType<typeof resolveSpriteSheetSpec> | null = null;
+  let resolved: Awaited<ReturnType<typeof resolveSpriteSheetSpecAsync>> | null = null;
   let earlyDuration = 0;
   let midDuration = 0;
   let lateDuration = 0;
@@ -46,17 +46,13 @@ registerTest("SPRITESHEET_ANIMATOR_RESOLVES_MULTI_ROW_EXPLOSION_LAYOUT_AND_STAGE
   });
 
   await When("the renderer derives frame geometry and playback characteristics", async () => {
-    const metrics = resolveSpriteSheetSpec(COMBAT_ANIMATIONS.explosionLarge, {
-      width: 1536,
-      height: 1024
-    });
-    resolved = metrics;
-    earlyDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.explosionLarge, 1, metrics.frameCount);
-    midDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.explosionLarge, 10, metrics.frameCount);
-    lateDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.explosionLarge, 22, metrics.frameCount);
-    preFadeOpacity = getSpriteSheetFrameOpacity(COMBAT_ANIMATIONS.explosionLarge, 14, metrics.frameCount);
-    fadeStartOpacity = getSpriteSheetFrameOpacity(COMBAT_ANIMATIONS.explosionLarge, 15, metrics.frameCount);
-    finalOpacity = getSpriteSheetFrameOpacity(COMBAT_ANIMATIONS.explosionLarge, 23, metrics.frameCount);
+    resolved = await resolveSpriteSheetSpecAsync(COMBAT_ANIMATIONS.explosionLarge);
+    earlyDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.explosionLarge, 1, resolved.frameCount);
+    midDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.explosionLarge, 10, resolved.frameCount);
+    lateDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.explosionLarge, 22, resolved.frameCount);
+    preFadeOpacity = getSpriteSheetFrameOpacity(COMBAT_ANIMATIONS.explosionLarge, 14, resolved.frameCount);
+    fadeStartOpacity = getSpriteSheetFrameOpacity(COMBAT_ANIMATIONS.explosionLarge, 15, resolved.frameCount);
+    finalOpacity = getSpriteSheetFrameOpacity(COMBAT_ANIMATIONS.explosionLarge, 23, resolved.frameCount);
   });
 
   await Then("the explosion uses a 6x4 grid with a faster blast front and a faded smoke tail", async () => {
@@ -85,7 +81,7 @@ registerTest("SPRITESHEET_ANIMATOR_RESOLVES_MULTI_ROW_EXPLOSION_LAYOUT_AND_STAGE
 });
 
 registerTest("SPRITESHEET_ANIMATOR_RESOLVES_MULTI_ROW_VEHICLE_HIT_LAYOUT", async ({ Given, When, Then }) => {
-  let resolved: ReturnType<typeof resolveSpriteSheetSpec> | null = null;
+  let resolved: Awaited<ReturnType<typeof resolveSpriteSheetSpecAsync>> | null = null;
   let firstDuration = 0;
   let finalDuration = 0;
 
@@ -93,13 +89,9 @@ registerTest("SPRITESHEET_ANIMATOR_RESOLVES_MULTI_ROW_VEHICLE_HIT_LAYOUT", async
   });
 
   await When("the renderer derives the impact-hit sprite geometry", async () => {
-    const metrics = resolveSpriteSheetSpec(COMBAT_ANIMATIONS.impactHits, {
-      width: 1536,
-      height: 1024
-    });
-    resolved = metrics;
-    firstDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.impactHits, 1, metrics.frameCount);
-    finalDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.impactHits, 23, metrics.frameCount);
+    resolved = await resolveSpriteSheetSpecAsync(COMBAT_ANIMATIONS.impactHits);
+    firstDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.impactHits, 1, resolved.frameCount);
+    finalDuration = getSpriteSheetFrameDuration(COMBAT_ANIMATIONS.impactHits, 23, resolved.frameCount);
   });
 
   await Then("vehicle hit sprites resolve as a compact 6x4 sheet with fast playback", async () => {

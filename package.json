@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "tsc --outDir dist-tsc && node --loader ./tools/resolve-js-extension-loader.mjs dist-tsc/tests/index.js",
+    "test": "node -e \"require('node:fs').rmSync('dist-tsc', { recursive: true, force: true })\" && tsc --outDir dist-tsc && xcopy /E /I /Y \"src\\assets\" \"dist-tsc\\src\\assets\" && node --loader ./tools/resolve-js-extension-loader.mjs dist-tsc/tests/index.js",
     "lint": "eslint . --ext .ts"
   },
   "dependencies": {

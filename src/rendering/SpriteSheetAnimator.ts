@@ -61,6 +61,20 @@ export interface CachedFrameSet {
  */
 const slicedFrameCache = new Map<string, Promise<CachedFrameSet>>();
 
+function validateLeadingFrameUniqueness(sourceLabel: string, frameDataUrls: readonly string[]): void {
+  if (frameDataUrls.length < 3) {
+    return;
+  }
+
+  const leadingFrames = frameDataUrls.slice(0, 3);
+  if (new Set(leadingFrames).size === 1) {
+    throw new Error(
+      `[SpriteSheet] Leading cached frames for ${sourceLabel} resolved to identical encoded outputs. ` +
+      "Expected unique single-frame assets for frame 0, 1, and 2."
+    );
+  }
+}
+
 /**
  * Slices a loaded sprite sheet into individual per-frame PNG data URLs using an
  * offscreen canvas. Derives the source cell size from the actual loaded image
@@ -73,6 +87,7 @@ export async function sliceSpriteSheet(
   rows: number,
   frameCount: number
 ): Promise<CachedFrameSet> {
+  const sourceLabel = image.currentSrc || image.src || "<unknown sprite sheet>";
   // Derive actual source cell dimensions from loaded image - this is the source of truth
   const sourceCellWidth = image.naturalWidth / columns;
   const sourceCellHeight = image.naturalHeight / rows;
@@ -120,6 +135,8 @@ export async function sliceSpriteSheet(
 
     frameDataUrls.push(canvas.toDataURL("image/png"));
   }
+
+  validateLeadingFrameUniqueness(sourceLabel, frameDataUrls);
 
   console.log(`[SpriteSheet] Sliced ${frameCount} frames at ${sourceCellWidth}x${sourceCellHeight}px each`);
   return { frameWidth: sourceCellWidth, frameHeight: sourceCellHeight, frameDataUrls };

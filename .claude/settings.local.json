@@ -27,7 +27,8 @@
       "Bash(timeout:*)",
       "Bash(ping:*)",
       "Bash(taskkill:*)",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "Bash(powershell -Command:*)"
     ],
     "deny": [],
     "ask": []
