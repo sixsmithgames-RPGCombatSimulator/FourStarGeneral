@@ -339,13 +339,10 @@ function largeExplosionFrameDuration(frameIndex: number): number {
 }
 
 function smallExplosionFrameDuration(frameIndex: number): number {
-  // Extended for 35 frames (7×5 grid) instead of original 24 frames
   if (frameIndex < 4) return 34;
   if (frameIndex < 10) return 46;
   if (frameIndex < 16) return 60;
-  if (frameIndex < 24) return 80;
-  // Trailing frames (24-34) fade out longer
-  return 100;
+  return 80;
 }
 
 function impactHitsFrameDuration(frameIndex: number): number {
@@ -369,15 +366,15 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
   },
   explosionSmall: {
     imagePath: explosionSmallUrl,
-    columns: 7,  // CORRECTED: actual sheet is 7×5, not 6×4
-    rows: 5,     // CORRECTED: actual sheet is 2048×1365
-    frameCount: 35,  // CORRECTED: 7×5 = 35 frames total
+    columns: 6,  // Actual loaded sheet is 1536×1024 = 6×4 grid
+    rows: 4,
+    frameCount: 24,  // 6×4 = 24 frames
     loop: false,
     renderScale: 1.5,
     anchorX: 0.5,
     anchorY: 0.78,
     fadeOutStartFrame: 16,
-    logicalFrameWidth: 96,   // Display size (actual source cells are ~292×273 after inset)
+    logicalFrameWidth: 96,   // Display size (source cells are 256×256, output 254×254 after inset)
     logicalFrameHeight: 96,
     getFrameDuration: (frameIndex) => smallExplosionFrameDuration(frameIndex)
   },
