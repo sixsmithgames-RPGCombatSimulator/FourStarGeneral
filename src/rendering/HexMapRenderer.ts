@@ -1711,8 +1711,11 @@ export class HexMapRenderer implements IMapRenderer {
     centerDot.setAttribute("opacity", "0.8");
     group.appendChild(centerDot);
 
-    // Append to SVG
-    if (this.svgElement) {
+    // Append to viewportRoot so markers pan/zoom with the map
+    const viewportRoot = this.viewportRoot || this.svgElement?.querySelector("#viewportRoot");
+    if (viewportRoot) {
+      viewportRoot.appendChild(group);
+    } else if (this.svgElement) {
       this.svgElement.appendChild(group);
     } else {
       this.canvasElement?.appendChild(group);
