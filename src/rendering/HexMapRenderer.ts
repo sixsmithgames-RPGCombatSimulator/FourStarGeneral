@@ -1039,6 +1039,42 @@ export class HexMapRenderer implements IMapRenderer {
     return overlay;
   }
 
+  private resolveViewportRootMatrix(): { a: number; b: number; c: number; d: number; e: number; f: number } {
+    if (!this.viewportRoot) {
+      return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+    }
+
+    const transformList = (this.viewportRoot as SVGGElement & {
+      transform?: { baseVal?: { consolidate?: () => { matrix?: DOMMatrix | SVGMatrix } | null } };
+    }).transform;
+    const consolidated = transformList?.baseVal?.consolidate?.();
+    if (consolidated?.matrix) {
+      const { a, b, c, d, e, f } = consolidated.matrix;
+      return { a, b, c, d, e, f };
+    }
+
+    const transformValue = this.viewportRoot.getAttribute("transform")?.trim() ?? "";
+    if (transformValue.length === 0) {
+      return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+    }
+
+    const translateMatch = transformValue.match(/translate\(\s*(-?\d*\.?\d+)(?:[\s,]+(-?\d*\.?\d+))?\s*\)/i);
+    const scaleMatch = transformValue.match(/scale\(\s*(-?\d*\.?\d+)(?:[\s,]+(-?\d*\.?\d+))?\s*\)/i);
+    if (!translateMatch || !scaleMatch) {
+      throw new Error(`[HexMapRenderer] Unsupported viewportRoot transform for combat animation overlay: ${transformValue}`);
+    }
+
+    const translateX = Number(translateMatch[1]);
+    const translateY = Number(translateMatch[2] ?? "0");
+    const scaleX = Number(scaleMatch[1]);
+    const scaleY = Number(scaleMatch[2] ?? scaleMatch[1]);
+    if (![translateX, translateY, scaleX, scaleY].every(Number.isFinite)) {
+      throw new Error(`[HexMapRenderer] Non-finite viewportRoot transform for combat animation overlay: ${transformValue}`);
+    }
+
+    return { a: scaleX, b: 0, c: 0, d: scaleY, e: translateX, f: translateY };
+  }
+
   private syncCombatAnimationOverlayLayout(): void {
     if (!this.combatAnimationOverlayHost || !this.combatAnimationOverlay || !this.viewportRoot || !this.svgElement || !this.canvasElement) {
       return;
@@ -1049,15 +1085,13 @@ export class HexMapRenderer implements IMapRenderer {
     const renderScaleX = this.mapPixelWidth > 0 ? svgRect.width / this.mapPixelWidth : 1;
     const renderScaleY = this.mapPixelHeight > 0 ? svgRect.height / this.mapPixelHeight : 1;
     const renderScale = Number.isFinite(renderScaleX) && renderScaleX > 0 ? renderScaleX : Number.isFinite(renderScaleY) && renderScaleY > 0 ? renderScaleY : 1;
-    const computedTransform = getComputedStyle(this.viewportRoot).transform;
+    const matrix = this.resolveViewportRootMatrix();
 
     this.combatAnimationOverlayHost.style.left = `${svgRect.left - canvasRect.left}px`;
     this.combatAnimationOverlayHost.style.top = `${svgRect.top - canvasRect.top}px`;
     this.combatAnimationOverlayHost.style.width = `${svgRect.width}px`;
     this.combatAnimationOverlayHost.style.height = `${svgRect.height}px`;
-    this.combatAnimationOverlay.style.transform = computedTransform && computedTransform !== "none"
-      ? `scale(${renderScale}) ${computedTransform}`
-      : `scale(${renderScale})`;
+    this.combatAnimationOverlay.style.transform = `matrix(${matrix.a * renderScale}, ${matrix.b * renderScale}, ${matrix.c * renderScale}, ${matrix.d * renderScale}, ${matrix.e * renderScale}, ${matrix.f * renderScale})`;
   }
 
   private bindCombatAnimationOverlayTransformObserver(): void {

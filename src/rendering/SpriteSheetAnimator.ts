@@ -52,8 +52,26 @@ const XLINK_NS = "http://www.w3.org/1999/xlink";
 export interface CachedFrameSet {
   readonly frameWidth: number;
   readonly frameHeight: number;
+  readonly sourceFrameWidth: number;
+  readonly sourceFrameHeight: number;
+  readonly anchorPixelX: number;
+  readonly anchorPixelY: number;
   readonly frameCanvases: readonly HTMLCanvasElement[];
   readonly frameDataUrls: readonly string[];
+}
+
+interface FrameOpaqueBounds {
+  readonly minX: number;
+  readonly minY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+}
+
+interface FrameSliceSample {
+  readonly canvas: HTMLCanvasElement;
+  readonly bounds: FrameOpaqueBounds | null;
+  readonly shiftX: number;
+  readonly shiftY: number;
 }
 
 /**
@@ -76,6 +94,64 @@ function validateLeadingFrameUniqueness(sourceLabel: string, frameDataUrls: read
   }
 }
 
+function getCanvasImageData(context: CanvasRenderingContext2D, width: number, height: number): ImageData {
+  if (typeof context.getImageData !== "function") {
+    throw new Error("[SpriteSheet] Canvas 2D context does not support getImageData(), so frame normalization cannot inspect alpha bounds.");
+  }
+  return context.getImageData(0, 0, width, height);
+}
+
+function findOpaqueBounds(imageData: ImageData): FrameOpaqueBounds | null {
+  const { data, width, height } = imageData;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alphaIndex = (y * width + x) * 4 + 3;
+      if (data[alphaIndex] === 0) {
+        continue;
+      }
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  if (maxX < 0 || maxY < 0) {
+    return null;
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
+function resolveVisibleAnchorX(imageData: ImageData, bounds: FrameOpaqueBounds): number {
+  const bandHeight = Math.max(1, Math.min(12, Math.round((bounds.maxY - bounds.minY + 1) * 0.12)));
+  const startY = Math.max(bounds.minY, bounds.maxY - bandHeight + 1);
+  let totalX = 0;
+  let sampleCount = 0;
+
+  for (let y = startY; y <= bounds.maxY; y += 1) {
+    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
+      const alphaIndex = (y * imageData.width + x) * 4 + 3;
+      if (imageData.data[alphaIndex] === 0) {
+        continue;
+      }
+      totalX += x;
+      sampleCount += 1;
+    }
+  }
+
+  if (sampleCount === 0) {
+    return (bounds.minX + bounds.maxX) / 2;
+  }
+
+  return totalX / sampleCount;
+}
+
 /**
  * Slices a loaded sprite sheet into individual per-frame PNG data URLs using an
  * offscreen canvas. Derives the source cell size from the actual loaded image
@@ -86,7 +162,9 @@ export async function sliceSpriteSheet(
   image: HTMLImageElement,
   columns: number,
   rows: number,
-  frameCount: number
+  frameCount: number,
+  anchorX: number = 0.5,
+  anchorY: number = 0.5
 ): Promise<CachedFrameSet> {
   const sourceLabel = image.currentSrc || image.src || "<unknown sprite sheet>";
   // Derive actual source cell dimensions from loaded image - this is the source of truth
@@ -103,9 +181,10 @@ export async function sliceSpriteSheet(
 
   console.log(`[SpriteSheet] Slicing ${image.naturalWidth}x${image.naturalHeight} sheet into ${columns}x${rows} cells of ${sourceCellWidth}x${sourceCellHeight}px`);
 
-  const frameCanvases: HTMLCanvasElement[] = [];
-  const frameDataUrls: string[] = [];
+  const frameSamples: FrameSliceSample[] = [];
   const inset = 1; // source-pixel border trimmed from each side to prevent neighbor bleed
+  const desiredAnchorX = sourceCellWidth * anchorX;
+  const desiredAnchorY = sourceCellHeight * anchorY;
 
   for (let i = 0; i < frameCount; i++) {
     const col = i % columns;
@@ -121,6 +200,7 @@ export async function sliceSpriteSheet(
     const canvas = document.createElement("canvas");
     canvas.width = sourceCellWidth;
     canvas.height = sourceCellHeight;
+    canvas.dataset.frameSource = `${sourceLabel}#frame-${i}`;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) {
@@ -135,14 +215,75 @@ export async function sliceSpriteSheet(
       inset, inset, sourceCellWidth - inset * 2, sourceCellHeight - inset * 2
     );
 
+    const imageData = getCanvasImageData(ctx, sourceCellWidth, sourceCellHeight);
+    const bounds = findOpaqueBounds(imageData);
+    const visibleAnchorX = bounds ? resolveVisibleAnchorX(imageData, bounds) : desiredAnchorX;
+    const visibleAnchorY = bounds ? bounds.maxY : desiredAnchorY;
+
+    frameSamples.push({
+      canvas,
+      bounds,
+      shiftX: Math.round(desiredAnchorX - visibleAnchorX),
+      shiftY: Math.round(desiredAnchorY - visibleAnchorY)
+    });
+  }
+
+  let leftPad = 0;
+  let topPad = 0;
+  let rightPad = 0;
+  let bottomPad = 0;
+
+  for (const sample of frameSamples) {
+    if (!sample.bounds) {
+      continue;
+    }
+
+    leftPad = Math.max(leftPad, Math.max(0, -(sample.bounds.minX + sample.shiftX)));
+    topPad = Math.max(topPad, Math.max(0, -(sample.bounds.minY + sample.shiftY)));
+    rightPad = Math.max(rightPad, Math.max(0, sample.bounds.maxX + sample.shiftX - (sourceCellWidth - 1)));
+    bottomPad = Math.max(bottomPad, Math.max(0, sample.bounds.maxY + sample.shiftY - (sourceCellHeight - 1)));
+  }
+
+  const normalizedFrameWidth = sourceCellWidth + leftPad + rightPad;
+  const normalizedFrameHeight = sourceCellHeight + topPad + bottomPad;
+  const anchorPixelX = leftPad + desiredAnchorX;
+  const anchorPixelY = topPad + desiredAnchorY;
+  const frameCanvases: HTMLCanvasElement[] = [];
+  const frameDataUrls: string[] = [];
+
+  for (const sample of frameSamples) {
+    const canvas = document.createElement("canvas");
+    canvas.width = normalizedFrameWidth;
+    canvas.height = normalizedFrameHeight;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("[SpriteSheet] Could not obtain 2D context for normalized frame slicing.");
+    }
+
+    ctx.clearRect(0, 0, normalizedFrameWidth, normalizedFrameHeight);
+    ctx.drawImage(sample.canvas, leftPad + sample.shiftX, topPad + sample.shiftY);
+
     frameCanvases.push(canvas);
     frameDataUrls.push(canvas.toDataURL("image/png"));
   }
 
   validateLeadingFrameUniqueness(sourceLabel, frameDataUrls);
 
-  console.log(`[SpriteSheet] Sliced ${frameCount} frames at ${sourceCellWidth}x${sourceCellHeight}px each`);
-  return { frameWidth: sourceCellWidth, frameHeight: sourceCellHeight, frameCanvases, frameDataUrls };
+  console.log(
+    `[SpriteSheet] Sliced ${frameCount} frames at ${sourceCellWidth}x${sourceCellHeight}px each; ` +
+    `normalized stage ${normalizedFrameWidth}x${normalizedFrameHeight} anchor=(${anchorPixelX.toFixed(1)}, ${anchorPixelY.toFixed(1)})`
+  );
+  return {
+    frameWidth: normalizedFrameWidth,
+    frameHeight: normalizedFrameHeight,
+    sourceFrameWidth: sourceCellWidth,
+    sourceFrameHeight: sourceCellHeight,
+    anchorPixelX,
+    anchorPixelY,
+    frameCanvases,
+    frameDataUrls
+  };
 }
 
 // Import animation assets using Vite's new URL() syntax for proper bundling
@@ -478,11 +619,12 @@ export class SpriteSheetAnimation {
     this.scale = scale * spec.renderScale;
     this.container.style.opacity = "1";
 
-    // Position the image using LOGICAL size (not source cell size) for display
-    const destW = spec.logicalFrameWidth * this.scale;
-    const destH = spec.logicalFrameHeight * this.scale;
-    const destX = this.positionX - destW * spec.anchorX;
-    const destY = this.positionY - destH * spec.anchorY;
+    const displayScaleX = (spec.logicalFrameWidth * this.scale) / frames.sourceFrameWidth;
+    const displayScaleY = (spec.logicalFrameHeight * this.scale) / frames.sourceFrameHeight;
+    const destW = frames.frameWidth * displayScaleX;
+    const destH = frames.frameHeight * displayScaleY;
+    const destX = this.positionX - frames.anchorPixelX * displayScaleX;
+    const destY = this.positionY - frames.anchorPixelY * displayScaleY;
 
     this.imageElement.setAttribute("x", String(destX));
     this.imageElement.setAttribute("y", String(destY));
@@ -658,7 +800,9 @@ export class SpriteSheetAnimator {
         asset.image,
         spec.columns,
         spec.rows,
-        spec.frameCount
+        spec.frameCount,
+        spec.anchorX,
+        spec.anchorY
       )
     ).catch((error) => {
       console.error(`[SpriteSheetAnimator] Failed to slice frames for ${cacheKey}:`, error);

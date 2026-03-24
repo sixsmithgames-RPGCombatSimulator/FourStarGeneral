@@ -121,10 +121,12 @@ class FrameSequenceAnimation {
     this.container.style.opacity = "1";
 
     const effectiveScale = scale * spec.renderScale;
-    const destW = spec.logicalFrameWidth * effectiveScale;
-    const destH = spec.logicalFrameHeight * effectiveScale;
-    const destX = x - destW * spec.anchorX;
-    const destY = y - destH * spec.anchorY;
+    const displayScaleX = (spec.logicalFrameWidth * effectiveScale) / frames.sourceFrameWidth;
+    const displayScaleY = (spec.logicalFrameHeight * effectiveScale) / frames.sourceFrameHeight;
+    const destW = frames.frameWidth * displayScaleX;
+    const destH = frames.frameHeight * displayScaleY;
+    const destX = x - frames.anchorPixelX * displayScaleX;
+    const destY = y - frames.anchorPixelY * displayScaleY;
 
     this.container.style.transform = "";
     this.container.style.left = `${destX}px`;
@@ -495,7 +497,7 @@ export class FrameSequenceAnimator {
     }
 
     const pending = loadSpriteSheetImage(spec.imagePath)
-      .then((asset) => sliceSpriteSheet(asset.image, spec.columns, spec.rows, spec.frameCount))
+      .then((asset) => sliceSpriteSheet(asset.image, spec.columns, spec.rows, spec.frameCount, spec.anchorX, spec.anchorY))
       .catch((error) => {
         console.error(`[FrameSequenceAnimator] Failed to resolve cached frames for ${cacheKey}:`, error);
         frameSequenceCache.delete(cacheKey);

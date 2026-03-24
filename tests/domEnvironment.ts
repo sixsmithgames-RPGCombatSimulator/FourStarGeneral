@@ -71,6 +71,11 @@ export function ensureDomEnvironment(): void {
       clearRect: () => {
         state.lastDrawSignature = "";
       },
+      getImageData: (_x: number, _y: number, width: number, height: number) => ({
+        data: new Uint8ClampedArray(Math.max(0, width * height * 4)),
+        width,
+        height
+      } as ImageData),
       drawImage: (...args: unknown[]) => {
         state.lastDrawSignature = args.map((value, index) => index === 0 ? describeCanvasSource(value) : String(value)).join("|");
       }

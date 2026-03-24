@@ -15,6 +15,19 @@ function createFrameCanvases(frameSources: readonly string[], frameWidth: number
   });
 }
 
+function createCachedFrames(frameSources: readonly string[], frameWidth: number, frameHeight: number) {
+  return {
+    frameWidth,
+    frameHeight,
+    sourceFrameWidth: frameWidth,
+    sourceFrameHeight: frameHeight,
+    anchorPixelX: frameWidth / 2,
+    anchorPixelY: frameHeight / 2,
+    frameCanvases: createFrameCanvases(frameSources, frameWidth, frameHeight),
+    frameDataUrls: frameSources
+  } as const;
+}
+
 registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP", async ({ Given, When, Then }) => {
   const overlay = document.createElement("div");
   overlay.style.position = "relative";
@@ -25,12 +38,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
     width: 256,
     height: 64
   });
-  const frames = {
-    frameWidth: 64,
-    frameHeight: 64,
-    frameCanvases: createFrameCanvases(frameSources, 64, 64),
-    frameDataUrls: frameSources
-  } as const;
+  const frames = createCachedFrames(frameSources, 64, 64);
 
   const animator = new FrameSequenceAnimator(overlay, {
     resolveSpec: async () => resolvedSpec,
@@ -155,12 +163,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
     width: 256,
     height: 64
   });
-  const frames = {
-    frameWidth: 64,
-    frameHeight: 64,
-    frameCanvases: createFrameCanvases(frameSources, 64, 64),
-    frameDataUrls: frameSources
-  } as const;
+  const frames = createCachedFrames(frameSources, 64, 64);
 
   const animator = new FrameSequenceAnimator(overlay, {
     resolveSpec: async () => resolvedSpec,
@@ -241,12 +244,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REJECTS_FULL_SHEET_URL_FRAME_SOURCES", asy
     height: 64
   });
   const frameSources = [resolvedSpec.imagePath, "frame-1", "frame-2", "frame-3"] as const;
-  const frames = {
-    frameWidth: 64,
-    frameHeight: 64,
-    frameCanvases: createFrameCanvases(frameSources, 64, 64),
-    frameDataUrls: frameSources
-  } as const;
+  const frames = createCachedFrames(frameSources, 64, 64);
 
   const animator = new FrameSequenceAnimator(overlay, {
     resolveSpec: async () => resolvedSpec,
