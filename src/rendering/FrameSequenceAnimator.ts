@@ -31,18 +31,14 @@ function summarizeFrameSource(frameSource: string): string {
 }
 
 interface FrameSequenceLayoutSnapshot {
-  readonly containerLeft: string;
-  readonly containerTop: string;
-  readonly containerWidth: string;
-  readonly containerHeight: string;
-  readonly containerPosition: string;
-  readonly containerTransform: string;
-  readonly containerPointerEvents: string;
+  readonly foreignObjectX: string;
+  readonly foreignObjectY: string;
+  readonly foreignObjectWidth: string;
+  readonly foreignObjectHeight: string;
   readonly canvasWidth: number;
   readonly canvasHeight: number;
   readonly canvasStyleWidth: string;
   readonly canvasStyleHeight: string;
-  readonly canvasStyleTransform: string;
 }
 
 const frameSequenceCache = new Map<string, Promise<CachedFrameSet>>();
@@ -54,6 +50,9 @@ export interface FrameSequenceAnimatorDependencies {
   readonly resolveSpec?: FrameSequenceSpecResolver;
   readonly resolveFrames?: FrameSequenceFrameResolver;
 }
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const XHTML_NS = "http://www.w3.org/1999/xhtml";
 
 class FrameSequenceAnimation {
   private animationType: keyof typeof COMBAT_ANIMATIONS | null = null;
@@ -71,22 +70,32 @@ class FrameSequenceAnimation {
   private lastRenderedFrameIndex = -1;
   private lastRenderedFrameSource = "";
 
-  private readonly container: HTMLDivElement;
+  private readonly foreignObject: SVGForeignObjectElement;
+  private readonly xhtmlWrapper: HTMLDivElement;
   private readonly canvasElement: HTMLCanvasElement;
 
   constructor() {
-    this.container = document.createElement("div");
-    this.container.style.position = "absolute";
-    this.container.style.pointerEvents = "none";
-    this.container.dataset.frameSequenceSurface = "true";
+    // Create SVG foreignObject
+    this.foreignObject = document.createElementNS(SVG_NS, "foreignObject");
+    this.foreignObject.setAttribute("pointer-events", "none");
+    this.foreignObject.dataset.frameSequenceSurface = "true";
 
+    // Create XHTML wrapper div
+    this.xhtmlWrapper = document.createElementNS(XHTML_NS, "div") as HTMLDivElement;
+    this.xhtmlWrapper.style.width = "100%";
+    this.xhtmlWrapper.style.height = "100%";
+    this.xhtmlWrapper.style.pointerEvents = "none";
+
+    // Create canvas
     this.canvasElement = document.createElement("canvas");
     this.canvasElement.style.display = "block";
     this.canvasElement.style.width = "100%";
     this.canvasElement.style.height = "100%";
     this.canvasElement.style.pointerEvents = "none";
 
-    this.container.appendChild(this.canvasElement);
+    // Structure: foreignObject > XHTML div > canvas
+    this.xhtmlWrapper.appendChild(this.canvasElement);
+    this.foreignObject.appendChild(this.xhtmlWrapper);
   }
 
   configure(
@@ -118,7 +127,6 @@ class FrameSequenceAnimation {
     this.playbackId = `${animationType}#${nextFrameSequencePlaybackId++}`;
     this.lastRenderedFrameIndex = -1;
     this.lastRenderedFrameSource = "";
-    this.container.style.opacity = "1";
 
     const effectiveScale = scale * spec.renderScale;
     const displayScaleX = (spec.logicalFrameWidth * effectiveScale) / frames.sourceFrameWidth;
@@ -128,29 +136,36 @@ class FrameSequenceAnimation {
     const destX = x - frames.anchorPixelX * displayScaleX;
     const destY = y - frames.anchorPixelY * displayScaleY;
 
-    this.container.style.transform = "";
-    this.container.style.left = `${destX}px`;
-    this.container.style.top = `${destY}px`;
-    this.container.style.width = `${destW}px`;
-    this.container.style.height = `${destH}px`;
+    // Position using SVG attributes, not CSS
+    this.foreignObject.setAttribute("x", String(destX));
+    this.foreignObject.setAttribute("y", String(destY));
+    this.foreignObject.setAttribute("width", String(destW));
+    this.foreignObject.setAttribute("height", String(destH));
+    this.foreignObject.setAttribute("opacity", "1");
 
     this.canvasElement.width = Math.max(1, Math.round(frames.frameWidth));
     this.canvasElement.height = Math.max(1, Math.round(frames.frameHeight));
-    this.canvasElement.style.width = "100%";
-    this.canvasElement.style.height = "100%";
-    this.canvasElement.style.transform = "";
     this.canvasElement.removeAttribute("data-frame-source");
     this.canvasElement.removeAttribute("data-frame-index");
     getCanvasContext(this.canvasElement).clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
 
-    if (this.container.parentNode && this.container.parentNode !== svgParent) {
-      this.container.parentNode.removeChild(this.container);
+    // Runtime guard: verify svgParent is an SVG element
+    if (!(svgParent instanceof SVGElement)) {
+      throw new Error(
+        `[FrameSequenceAnimator] Combat effects must mount to an SVG element. ` +
+        `Received ${svgParent?.constructor?.name ?? typeof svgParent}. ` +
+        `Use a foreignObject parent or a dedicated HTML overlay outside the SVG.`
+      );
     }
-    if (this.container.parentNode !== svgParent) {
-      svgParent.appendChild(this.container);
+
+    if (this.foreignObject.parentNode && this.foreignObject.parentNode !== svgParent) {
+      this.foreignObject.parentNode.removeChild(this.foreignObject);
     }
-    if (this.container.parentNode !== svgParent) {
-      throw new Error(`[FrameSequenceAnimator] Failed to attach ${animationType} container to the effects overlay.`);
+    if (this.foreignObject.parentNode !== svgParent) {
+      svgParent.appendChild(this.foreignObject);
+    }
+    if (this.foreignObject.parentNode !== svgParent) {
+      throw new Error(`[FrameSequenceAnimator] Failed to attach ${animationType} foreignObject to SVG effects overlay.`);
     }
 
     this.layoutSnapshot = this.captureLayoutSnapshot();
@@ -199,15 +214,15 @@ class FrameSequenceAnimation {
     this.playbackId = "";
     this.lastRenderedFrameIndex = -1;
     this.lastRenderedFrameSource = "";
-    this.container.style.opacity = "0";
+    this.foreignObject.setAttribute("opacity", "0");
     const context = this.canvasElement.getContext("2d");
     if (context) {
       context.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
     }
     this.canvasElement.removeAttribute("data-frame-source");
     this.canvasElement.removeAttribute("data-frame-index");
-    if (this.container.parentNode) {
-      this.container.parentNode.removeChild(this.container);
+    if (this.foreignObject.parentNode) {
+      this.foreignObject.parentNode.removeChild(this.foreignObject);
     }
   }
 
@@ -297,15 +312,21 @@ class FrameSequenceAnimation {
     this.assertLayoutInvariant();
     this.assertVisibleSourceNeverUsesSheetUrl();
     this.drawFrame(frameSurface, frameSource, frameIndex);
-    this.container.style.opacity = String(getSpriteSheetFrameOpacity(this.spec, frameIndex, this.spec.frameCount));
+    this.foreignObject.setAttribute("opacity", String(getSpriteSheetFrameOpacity(this.spec, frameIndex, this.spec.frameCount)));
     this.assertVisibleFrameState(frameIndex, frameSource);
     this.assertLayoutInvariant();
   }
 
   private drawFrame(frameSurface: HTMLCanvasElement, frameSource: string, frameIndex: number): void {
-    const context = getCanvasContext(this.canvasElement);
-    context.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
-    context.drawImage(frameSurface, 0, 0, this.canvasElement.width, this.canvasElement.height);
+    const ctx = getCanvasContext(this.canvasElement);
+
+    // Hardened draw step - full reset before drawing
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "copy"; // Replace all pixels
+    ctx.drawImage(frameSurface, 0, 0, this.canvasElement.width, this.canvasElement.height);
+    ctx.globalCompositeOperation = "source-over"; // Restore default
+
     this.canvasElement.dataset.frameSource = frameSource;
     this.canvasElement.dataset.frameIndex = String(frameIndex);
   }
@@ -328,7 +349,7 @@ class FrameSequenceAnimation {
       return;
     }
 
-    const visibleNodeCount = this.container.querySelectorAll("canvas").length;
+    const visibleNodeCount = this.foreignObject.querySelectorAll("canvas").length;
     if (visibleNodeCount !== 1) {
       throw new Error(
         `[FrameSequenceAnimator] ${this.playbackId} expected exactly one visible canvas node, found ${visibleNodeCount}.`
@@ -389,18 +410,14 @@ class FrameSequenceAnimation {
 
   private captureLayoutSnapshot(): FrameSequenceLayoutSnapshot {
     return {
-      containerLeft: this.container.style.left,
-      containerTop: this.container.style.top,
-      containerWidth: this.container.style.width,
-      containerHeight: this.container.style.height,
-      containerPosition: this.container.style.position,
-      containerTransform: this.container.style.transform,
-      containerPointerEvents: this.container.style.pointerEvents,
+      foreignObjectX: this.foreignObject.getAttribute("x") ?? "",
+      foreignObjectY: this.foreignObject.getAttribute("y") ?? "",
+      foreignObjectWidth: this.foreignObject.getAttribute("width") ?? "",
+      foreignObjectHeight: this.foreignObject.getAttribute("height") ?? "",
       canvasWidth: this.canvasElement.width,
       canvasHeight: this.canvasElement.height,
       canvasStyleWidth: this.canvasElement.style.width,
-      canvasStyleHeight: this.canvasElement.style.height,
-      canvasStyleTransform: this.canvasElement.style.transform
+      canvasStyleHeight: this.canvasElement.style.height
     };
   }
 }
