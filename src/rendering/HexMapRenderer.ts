@@ -980,10 +980,10 @@ export class HexMapRenderer implements IMapRenderer {
       this.combatAnimator = null;
     }
 
-    // Initialize combat animator with the HTML animation overlay so frame-sequence playback stays out of SVG foreignObject compositing.
-    if (this.combatAnimationOverlay && !this.combatAnimator) {
-      this.combatAnimator = new FrameSequenceAnimator(this.combatAnimationOverlay);
-      console.log("[HexMapRenderer] Combat animator initialized with effects layer");
+    // Initialize combat animator with the SVG combat effects layer for foreignObject mounting.
+    if (this.combatEffectsLayer && !this.combatAnimator) {
+      this.combatAnimator = new FrameSequenceAnimator(this.combatEffectsLayer);
+      console.log("[HexMapRenderer] Combat animator initialized with SVG effects layer");
     }
 
     if (previousSelection) {
@@ -2895,16 +2895,9 @@ export class HexMapRenderer implements IMapRenderer {
     }
     console.log("[HexMapRenderer] Effects layer obtained:", effectsLayer, "isConnected:", effectsLayer.isConnected, "parentNode:", effectsLayer.parentNode?.nodeName);
 
-    const animationOverlay = this.ensureCombatAnimationOverlay();
-    this.syncCombatAnimationOverlayLayout();
-    if (!animationOverlay) {
-      console.error("[HexMapRenderer] playCombatAnimation FAILED - No animation overlay available");
-      return;
-    }
-
     if (!this.combatAnimator) {
-      console.log("[HexMapRenderer] Creating new FrameSequenceAnimator");
-      this.combatAnimator = new FrameSequenceAnimator(animationOverlay);
+      console.log("[HexMapRenderer] Creating new FrameSequenceAnimator with SVG effects layer");
+      this.combatAnimator = new FrameSequenceAnimator(effectsLayer);
     }
     if (!this.combatAnimator) {
       console.warn("[HexMapRenderer] Combat animator not initialized");

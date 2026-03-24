@@ -29,8 +29,7 @@ function createCachedFrames(frameSources: readonly string[], frameWidth: number,
 }
 
 registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP", async ({ Given, When, Then }) => {
-  const overlay = document.createElement("div");
-  overlay.style.position = "relative";
+  const overlay = document.createElementNS("http://www.w3.org/2000/svg", "g");
   document.body.appendChild(overlay);
 
   const frameSources = ["frame-0", "frame-1", "frame-2", "frame-3"] as const;
@@ -154,8 +153,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
 });
 
 registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVANCE", async ({ Given, When, Then }) => {
-  const overlay = document.createElement("div");
-  overlay.style.position = "relative";
+  const overlay = document.createElementNS("http://www.w3.org/2000/svg", "g");
   document.body.appendChild(overlay);
 
   const frameSources = ["frame-0", "frame-1", "frame-2", "frame-3"] as const;
@@ -235,8 +233,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
 });
 
 registerTest("FRAME_SEQUENCE_ANIMATOR_REJECTS_FULL_SHEET_URL_FRAME_SOURCES", async ({ Given, When, Then }) => {
-  const overlay = document.createElement("div");
-  overlay.style.position = "relative";
+  const overlay = document.createElementNS("http://www.w3.org/2000/svg", "g");
   document.body.appendChild(overlay);
 
   const resolvedSpec = resolveSpriteSheetSpec(COMBAT_ANIMATIONS.dustCloud, {

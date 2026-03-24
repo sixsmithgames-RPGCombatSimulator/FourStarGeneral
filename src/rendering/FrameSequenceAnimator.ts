@@ -102,7 +102,7 @@ class FrameSequenceAnimation {
     animationType: keyof typeof COMBAT_ANIMATIONS,
     spec: ResolvedSpriteSheetSpec,
     frames: CachedFrameSet,
-    svgParent: HTMLElement,
+    svgParent: SVGElement,
     x: number,
     y: number,
     scale: number = 1
@@ -151,9 +151,10 @@ class FrameSequenceAnimation {
 
     // Runtime guard: verify svgParent is an SVG element
     if (!(svgParent instanceof SVGElement)) {
+      const receivedType = (svgParent as any)?.constructor?.name ?? typeof svgParent;
       throw new Error(
         `[FrameSequenceAnimator] Combat effects must mount to an SVG element. ` +
-        `Received ${svgParent?.constructor?.name ?? typeof svgParent}. ` +
+        `Received ${receivedType}. ` +
         `Use a foreignObject parent or a dedicated HTML overlay outside the SVG.`
       );
     }
@@ -423,14 +424,14 @@ class FrameSequenceAnimation {
 }
 
 export class FrameSequenceAnimator {
-  private readonly svgElement: HTMLElement;
+  private readonly svgElement: SVGElement;
   private readonly activeAnimations = new Set<FrameSequenceAnimation>();
   private readonly animationPool = new Map<string, FrameSequenceAnimation[]>();
   private readonly resolvedSpecCache = new Map<string, Promise<ResolvedSpriteSheetSpec>>();
   private readonly resolveSpecImpl: FrameSequenceSpecResolver;
   private readonly resolveFramesImpl: FrameSequenceFrameResolver;
 
-  constructor(svgElement: HTMLElement, dependencies: FrameSequenceAnimatorDependencies = {}) {
+  constructor(svgElement: SVGElement, dependencies: FrameSequenceAnimatorDependencies = {}) {
     this.svgElement = svgElement;
     this.resolveSpecImpl = dependencies.resolveSpec ?? this.resolveSpecInternal;
     this.resolveFramesImpl = dependencies.resolveFrames ?? this.resolveFramesInternal;
