@@ -798,10 +798,13 @@ registerTest("BATTLESCREEN_RIVER_WATCH_SEEDS_INITIAL_MISSION_STATUS", async ({ G
       throw new Error("Expected mission turn limit element to exist");
     }
     const objectiveText = missionObjectives.textContent ?? "";
-    if (!objectiveText.includes("Deny enemy control of any ford for 4 consecutive turns")) {
+    if (!objectiveText.includes("Hold all fords for 8 consecutive turns")) {
       throw new Error(`Expected seeded primary objective text, received ${objectiveText}`);
     }
-    if (!objectiveText.includes("Ford 1: Bot hold 0/4 turns")) {
+    if (!objectiveText.includes("Player hold all: 0/8 turns")) {
+      throw new Error(`Expected seeded player hold detail, received ${objectiveText}`);
+    }
+    if (!objectiveText.includes("Ford 1: Bot hold 0/8 turns")) {
       throw new Error(`Expected seeded ford hold detail, received ${objectiveText}`);
     }
     if (!objectiveText.includes("Enemy comms team remains active.")) {
@@ -861,8 +864,8 @@ registerTest("BATTLESCREEN_RIVER_WATCH_PHASE_CHANGES_ANNOUNCE_AND_UPDATE_SUMMARY
   let phaseTwoAnnouncement = "";
   const engineState = {
     turnNumber: 1,
-    playerUnits: [] as Array<{ type: string; hex: { q: number; r: number } }>,
-    botUnits: [] as Array<{ type: string; hex: { q: number; r: number } }>,
+    playerUnits: [{ type: "Infantry_42", hex: { q: 4, r: 4 } }] as Array<{ type: string; hex: { q: number; r: number } }>,
+    botUnits: [{ type: "Infantry_42", hex: { q: 10, r: 4 } }] as Array<{ type: string; hex: { q: number; r: number } }>,
     allyUnits: [] as Array<{ type: string; hex: { q: number; r: number } }>
   };
 
@@ -942,9 +945,9 @@ registerTest("BATTLESCREEN_RIVER_WATCH_PHASE_CHANGES_ANNOUNCE_AND_UPDATE_SUMMARY
 
     engineState.turnNumber = 5;
     engineState.playerUnits = [
-      { type: "Infantry_42", hex: { q: 6, r: 1 } },
-      { type: "Infantry_42", hex: { q: 7, r: 3 } },
-      { type: "Infantry_42", hex: { q: 5, r: 5 } }
+      { type: "Infantry_42", hex: { q: 7, r: -1 } },
+      { type: "Infantry_42", hex: { q: 6, r: 3 } },
+      { type: "Infantry_42", hex: { q: 6, r: 6 } }
     ];
     (screen as any).evaluateMissionRules();
 

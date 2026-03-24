@@ -71,7 +71,7 @@ import terrainSource from "../../data/terrain.json";
 import unitTypesSource from "../../data/unitTypes.json";
 import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
-import { setMissionStartedUI } from "../../main";
+import { setMissionStartedUI } from "../utils/missionUi";
 
 type ActivityCategory = "player" | "enemy" | "system";
 type ActivityType = "attack" | "move" | "deployment" | "supply" | "turn" | "log";

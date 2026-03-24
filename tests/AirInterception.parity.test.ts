@@ -142,12 +142,14 @@ registerTest("INTERCEPTION_CAP_STOPS_BOMBER_BOTH_SIDES", async ({ Given, When, T
     botEngine = new GameEngine(config);
 
     const playerBomber = makeUnit("Bomber", { q: 0, r: 0 });
+    const playerSpotter = makeUnit("Flak_88", { q: 1, r: 1 });
     const playerAA = makeUnit("Flak_88", { q: 0, r: 1 });
     (playerBomber as any).preDeployed = true;
+    (playerSpotter as any).preDeployed = true;
 
-    // Initialize the player's side with the bomber unit
+    // Initialize the player's side with the bomber and a ground spotter so the seeded AA contact is attackable.
     playerEngine.beginDeployment();
-    playerEngine.initializeFromAllocations([playerBomber]);
+    playerEngine.initializeFromAllocations([playerBomber, playerSpotter]);
     playerEngine.setBaseCamp({ q: 0, r: 0 });
     playerEngine.finalizeDeployment();
     playerEngine.startPlayerTurnPhase();

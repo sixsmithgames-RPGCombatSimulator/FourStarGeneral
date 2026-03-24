@@ -3214,15 +3214,7 @@ export class HexMapRenderer implements IMapRenderer {
       const impactAnim = defenderIsAir ? "explosionSmall" : "explosionLarge";
       const baseImpactScale = attackerType === "Bomber" ? 2.6 : 2.25;
       const impactScale = defenderIsAir ? 1.75 : targetIsHardTarget ? baseImpactScale * 1.05 : baseImpactScale;
-      const impactOffsets: Array<[number, number]> = [[0, 0], [16, -10], [-14, 12]];
-      const impactPromises = impactOffsets.map(([ox, oy], index) =>
-        new Promise<void>((resolve) => {
-          window.setTimeout(() => {
-            const scale = index === 0 ? impactScale : impactScale * 0.85;
-            void this.playCombatAnimation(impactAnim, defenderHexKey, ox, oy, scale).then(() => resolve());
-          }, index * 120);
-        })
-      );
+      const impactPromise = this.playCombatAnimation(impactAnim, defenderHexKey, 0, 0, impactScale);
 
       const sparksPromise = !defenderIsAir && targetIsHardTarget
         ? this.playSparkBurst(defenderHexKey, {
@@ -3247,7 +3239,7 @@ export class HexMapRenderer implements IMapRenderer {
         recoilPromise,
         markerPromise,
         hitShakePromise,
-        ...impactPromises,
+        impactPromise,
         sparksPromise,
         dustPromise,
         flashOverlayPromise
@@ -3269,15 +3261,7 @@ export class HexMapRenderer implements IMapRenderer {
 
       const impactAnim = defenderIsAir ? "explosionSmall" : "explosionLarge";
       const impactScale = defenderIsAir ? 1.7 : targetIsHardTarget ? 2.05 : 1.9;
-      const impactOffsets: Array<[number, number]> = [[0, 0], [14, -8], [-12, 10]];
-      const impactPromises = impactOffsets.map(([ox, oy], index) =>
-        new Promise<void>((resolve) => {
-          window.setTimeout(() => {
-            const scale = index === 0 ? impactScale : impactScale * 0.85;
-            void this.playCombatAnimation(impactAnim, defenderHexKey, ox, oy, scale).then(() => resolve());
-          }, index * 110);
-        })
-      );
+      const impactPromise = this.playCombatAnimation(impactAnim, defenderHexKey, 0, 0, impactScale);
 
       const sparksPromise = defenderIsAir
         ? this.playSparkBurst(defenderHexKey, {
@@ -3312,7 +3296,7 @@ export class HexMapRenderer implements IMapRenderer {
         recoilPromise,
         markerPromise,
         hitShakePromise,
-        ...impactPromises,
+        impactPromise,
         sparksPromise,
         dustPromise,
         flashOverlayPromise

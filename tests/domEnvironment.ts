@@ -6,6 +6,8 @@
 import { JSDOM } from "jsdom";
 
 let domInitialized = false;
+const hostSetTimeout = globalThis.setTimeout.bind(globalThis);
+const hostClearTimeout = globalThis.clearTimeout.bind(globalThis);
 
 const MOCK_IMAGE_DIMENSIONS: ReadonlyArray<{ readonly match: RegExp; readonly width: number; readonly height: number }> = [
   { match: /muzzle_flash/i, width: 256, height: 64 },
@@ -133,7 +135,7 @@ export function ensureDomEnvironment(): void {
       this.naturalWidth = 0;
       this.naturalHeight = 0;
 
-      setTimeout(() => {
+      hostSetTimeout(() => {
         const matchedAsset = MOCK_IMAGE_DIMENSIONS.find(({ match }) => match.test(this.currentSrc));
         if (!matchedAsset) {
           const error = new Error(`[MockImage] No mocked dimensions are registered for asset: ${this.currentSrc}`);
@@ -163,11 +165,11 @@ export function ensureDomEnvironment(): void {
 
   const requestAnimationFrameImpl =
     jsdomWindow.requestAnimationFrame ??
-    ((callback: FrameRequestCallback) => globalThis.setTimeout(() => callback(Date.now()), 16));
+    ((callback: FrameRequestCallback) => hostSetTimeout(() => callback(Date.now()), 16));
   const cancelAnimationFrameImpl =
     jsdomWindow.cancelAnimationFrame ??
     ((handle: number) => {
-      globalThis.clearTimeout(handle);
+      hostClearTimeout(handle);
     });
 
   if (typeof jsdomWindow.requestAnimationFrame !== "function") {

@@ -37,31 +37,53 @@ function makeSnapshot(
   return { controller, status };
 }
 
-registerTest("missionRules: river watch defeat after 4 holds", async ({ Given, Then }) => {
+const livePlayerUnit: ScenarioUnit = {
+  type: "Infantry_42",
+  hex: { q: 0, r: 0 },
+  strength: 100,
+  experience: 0,
+  ammo: 6,
+  fuel: 0,
+  entrench: 0,
+  facing: "NE"
+};
+
+const liveBotUnit: ScenarioUnit = {
+  type: "Infantry_42",
+  hex: { q: 10, r: 10 },
+  strength: 100,
+  experience: 0,
+  ammo: 6,
+  fuel: 0,
+  entrench: 0,
+  facing: "SW"
+};
+
+registerTest("missionRules: river watch defeat after 8 holds", async ({ Given, Then }) => {
   const controller = createMissionRulesController("patrol_river_watch", riverWatchScenario);
   let status = controller.onTurnAdvanced({
     turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 },
     scenario: riverWatchScenario,
     occupancy: new Map<string, TurnFaction>([["6,2", "Bot"]]),
-    playerUnits: [],
-    botUnits: []
+    playerUnits: [livePlayerUnit],
+    botUnits: [liveBotUnit]
   });
 
-  await Given("Bot holds a ford for consecutive turns", async () => {
-    for (let turn = 2; turn <= 4; turn += 1) {
+  await Given("Bot holds a ford for eight consecutive turns", async () => {
+    for (let turn = 2; turn <= 8; turn += 1) {
       status = controller.onTurnAdvanced({
         turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: turn },
         scenario: riverWatchScenario,
         occupancy: new Map<string, TurnFaction>([["6,2", "Bot"]]),
-        playerUnits: [],
-        botUnits: []
+        playerUnits: [livePlayerUnit],
+        botUnits: [liveBotUnit]
       });
     }
   });
 
-  await Then("Outcome is defeat once hold reaches 4 turns", async () => {
+  await Then("Outcome is defeat once hold reaches 8 turns", async () => {
     if (status.outcome.state !== "playerDefeat") {
-      throw new Error(`Expected defeat after 4 holds, got ${status.outcome.state}`);
+      throw new Error(`Expected defeat after 8 holds, got ${status.outcome.state}`);
     }
     const primary = status.objectives.find((o) => o.id === "primary_deny_fords");
     if (!primary || primary.state !== "failed") {
@@ -76,8 +98,8 @@ registerTest("missionRules: river watch victory on time when fords denied", asyn
     turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 },
     scenario: riverWatchScenario,
     occupancy: new Map(),
-    playerUnits: [],
-    botUnits: []
+    playerUnits: [livePlayerUnit],
+    botUnits: [liveBotUnit]
   });
 
   await When("Player holds line through turn limit", async () => {
@@ -85,8 +107,8 @@ registerTest("missionRules: river watch victory on time when fords denied", asyn
       turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: riverWatchScenario.turnLimit ?? 12 },
       scenario: riverWatchScenario,
       occupancy: new Map(),
-      playerUnits: [],
-      botUnits: []
+      playerUnits: [livePlayerUnit],
+      botUnits: [liveBotUnit]
     });
   });
 

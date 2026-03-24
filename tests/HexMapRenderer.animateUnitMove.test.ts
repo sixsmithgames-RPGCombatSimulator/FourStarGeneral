@@ -359,6 +359,174 @@ registerTest("HEXMAP_DIRECT_FIRE_ATTACK_SPAWNS_ONE_CENTERED_IMPACT_HIT", async (
   });
 });
 
+registerTest("HEXMAP_ARCING_ARTILLERY_ATTACK_SPAWNS_ONE_CENTERED_EXPLOSION", async ({ Given, When, Then }) => {
+  const renderer = new HexMapRenderer() as unknown as {
+    playAttackSequence(attackerHexKey: string, defenderHexKey: string, targetIsHardTarget: boolean): Promise<void>;
+    hexElementMap: Map<string, unknown>;
+    extractHexCenter: (element: unknown) => { cx: number; cy: number } | null;
+    setHexFacingAngle: (hexKey: string, cx: number, cy: number, angle: number) => void;
+    getUnitClassAt: (hexKey: string) => string | undefined;
+    getUnitScenarioTypeAt: (hexKey: string) => string | undefined;
+    isSmallArmsAttack: (hexKey: string) => boolean;
+    isArcingArtilleryAttack: (hexKey: string) => boolean;
+    isAirStrafingAttack: (hexKey: string) => boolean;
+    isAirBombingAttack: (hexKey: string) => boolean;
+    playFlashOverlay: () => Promise<void>;
+    playMuzzleFlash: () => Promise<void>;
+    playTargetMarker: () => Promise<void>;
+    playRecoilNudge: () => Promise<void>;
+    playHitShake: () => Promise<void>;
+    playSparkBurst: () => Promise<void>;
+    playDustCloudLinger: () => Promise<void>;
+    playProjectileTracer: () => Promise<void>;
+    playArcedProjectile: () => Promise<void>;
+  } & {
+    playCombatAnimation: (animationType: string, hexKey: string, offsetX?: number, offsetY?: number, scale?: number) => Promise<void>;
+  };
+
+  const combatCalls: Array<{ animationType: string; hexKey: string; offsetX: number; offsetY: number; scale: number }> = [];
+  const originalSetTimeout = window.setTimeout;
+
+  await Given("an arcing-artillery renderer path with all non-impact visuals stubbed", async () => {
+    window.setTimeout = ((handler: TimerHandler, _timeout?: number, ...args: unknown[]) => {
+      if (typeof handler === "function") {
+        handler(...args);
+      }
+      return 0 as unknown as number;
+    }) as typeof window.setTimeout;
+    renderer.hexElementMap.set("0,0", {});
+    renderer.hexElementMap.set("1,0", {});
+    renderer.extractHexCenter = () => ({ cx: 100, cy: 100 });
+    renderer.setHexFacingAngle = () => {};
+    renderer.getUnitClassAt = (hexKey) => (hexKey === "0,0" ? "artillery" : "tank");
+    renderer.getUnitScenarioTypeAt = (hexKey) => (hexKey === "0,0" ? "Howitzer_105" : "Medium_Tank");
+    renderer.isSmallArmsAttack = () => false;
+    renderer.isArcingArtilleryAttack = () => true;
+    renderer.isAirStrafingAttack = () => false;
+    renderer.isAirBombingAttack = () => false;
+    renderer.playFlashOverlay = async () => {};
+    renderer.playMuzzleFlash = async () => {};
+    renderer.playTargetMarker = async () => {};
+    renderer.playRecoilNudge = async () => {};
+    renderer.playHitShake = async () => {};
+    renderer.playSparkBurst = async () => {};
+    renderer.playDustCloudLinger = async () => {};
+    renderer.playProjectileTracer = async () => {};
+    renderer.playArcedProjectile = async () => {};
+    renderer.playCombatAnimation = async (animationType, hexKey, offsetX = 0, offsetY = 0, scale = 1) => {
+      combatCalls.push({ animationType, hexKey, offsetX, offsetY, scale });
+    };
+  });
+
+  await When("the attack sequence reaches its arcing-artillery impact branch", async () => {
+    await renderer.playAttackSequence("0,0", "1,0", true);
+  });
+
+  window.setTimeout = originalSetTimeout;
+
+  await Then("it schedules exactly one centered explosion animation", async () => {
+    const impactCalls = combatCalls.filter((call) => call.animationType === "explosionLarge" || call.animationType === "explosionSmall");
+    if (impactCalls.length !== 1) {
+      throw new Error(`Expected exactly one artillery explosion animation, found ${impactCalls.length}.`);
+    }
+
+    const [impactCall] = impactCalls;
+    if (!impactCall) {
+      throw new Error("Expected one artillery explosion animation call.");
+    }
+    if (impactCall.hexKey !== "1,0") {
+      throw new Error(`Expected artillery explosion to target defender hex 1,0, received ${impactCall.hexKey}.`);
+    }
+    if (impactCall.offsetX !== 0 || impactCall.offsetY !== 0) {
+      throw new Error(`Expected centered artillery explosion offsets (0,0), received (${impactCall.offsetX}, ${impactCall.offsetY}).`);
+    }
+  });
+});
+
+registerTest("HEXMAP_AIR_BOMBING_ATTACK_SPAWNS_ONE_CENTERED_EXPLOSION", async ({ Given, When, Then }) => {
+  const renderer = new HexMapRenderer() as unknown as {
+    playAttackSequence(attackerHexKey: string, defenderHexKey: string, targetIsHardTarget: boolean): Promise<void>;
+    hexElementMap: Map<string, unknown>;
+    extractHexCenter: (element: unknown) => { cx: number; cy: number } | null;
+    setHexFacingAngle: (hexKey: string, cx: number, cy: number, angle: number) => void;
+    getUnitClassAt: (hexKey: string) => string | undefined;
+    getUnitScenarioTypeAt: (hexKey: string) => string | undefined;
+    isSmallArmsAttack: (hexKey: string) => boolean;
+    isArcingArtilleryAttack: (hexKey: string) => boolean;
+    isAirStrafingAttack: (hexKey: string) => boolean;
+    isAirBombingAttack: (hexKey: string) => boolean;
+    playFlashOverlay: () => Promise<void>;
+    playMuzzleFlash: () => Promise<void>;
+    playTargetMarker: () => Promise<void>;
+    playRecoilNudge: () => Promise<void>;
+    playHitShake: () => Promise<void>;
+    playSparkBurst: () => Promise<void>;
+    playDustCloudLinger: () => Promise<void>;
+    playProjectileTracer: () => Promise<void>;
+    playArcedProjectile: () => Promise<void>;
+  } & {
+    playCombatAnimation: (animationType: string, hexKey: string, offsetX?: number, offsetY?: number, scale?: number) => Promise<void>;
+  };
+
+  const combatCalls: Array<{ animationType: string; hexKey: string; offsetX: number; offsetY: number; scale: number }> = [];
+  const originalSetTimeout = window.setTimeout;
+
+  await Given("an air-bombing renderer path with all non-impact visuals stubbed", async () => {
+    window.setTimeout = ((handler: TimerHandler, _timeout?: number, ...args: unknown[]) => {
+      if (typeof handler === "function") {
+        handler(...args);
+      }
+      return 0 as unknown as number;
+    }) as typeof window.setTimeout;
+    renderer.hexElementMap.set("0,0", {});
+    renderer.hexElementMap.set("1,0", {});
+    renderer.extractHexCenter = () => ({ cx: 100, cy: 100 });
+    renderer.setHexFacingAngle = () => {};
+    renderer.getUnitClassAt = (hexKey) => (hexKey === "0,0" ? "air" : "tank");
+    renderer.getUnitScenarioTypeAt = (hexKey) => (hexKey === "0,0" ? "Bomber" : "Medium_Tank");
+    renderer.isSmallArmsAttack = () => false;
+    renderer.isArcingArtilleryAttack = () => false;
+    renderer.isAirStrafingAttack = () => false;
+    renderer.isAirBombingAttack = () => true;
+    renderer.playFlashOverlay = async () => {};
+    renderer.playMuzzleFlash = async () => {};
+    renderer.playTargetMarker = async () => {};
+    renderer.playRecoilNudge = async () => {};
+    renderer.playHitShake = async () => {};
+    renderer.playSparkBurst = async () => {};
+    renderer.playDustCloudLinger = async () => {};
+    renderer.playProjectileTracer = async () => {};
+    renderer.playArcedProjectile = async () => {};
+    renderer.playCombatAnimation = async (animationType, hexKey, offsetX = 0, offsetY = 0, scale = 1) => {
+      combatCalls.push({ animationType, hexKey, offsetX, offsetY, scale });
+    };
+  });
+
+  await When("the attack sequence reaches its air-bombing impact branch", async () => {
+    await renderer.playAttackSequence("0,0", "1,0", true);
+  });
+
+  window.setTimeout = originalSetTimeout;
+
+  await Then("it schedules exactly one centered bombing explosion animation", async () => {
+    const impactCalls = combatCalls.filter((call) => call.animationType === "explosionLarge" || call.animationType === "explosionSmall");
+    if (impactCalls.length !== 1) {
+      throw new Error(`Expected exactly one bombing explosion animation, found ${impactCalls.length}.`);
+    }
+
+    const [impactCall] = impactCalls;
+    if (!impactCall) {
+      throw new Error("Expected one bombing explosion animation call.");
+    }
+    if (impactCall.hexKey !== "1,0") {
+      throw new Error(`Expected bombing explosion to target defender hex 1,0, received ${impactCall.hexKey}.`);
+    }
+    if (impactCall.offsetX !== 0 || impactCall.offsetY !== 0) {
+      throw new Error(`Expected centered bombing explosion offsets (0,0), received (${impactCall.offsetX}, ${impactCall.offsetY}).`);
+    }
+  });
+});
+
 registerTest("HEXMAP_RENDERUNIT_DOES_NOT_ADD_WATER_TRANSPORT_OVERLAY", async ({ Given, When, Then }) => {
   const viewport = document.createElement("div");
   viewport.style.width = "300px";

@@ -134,9 +134,11 @@ registerTest("AIR_INTERCEPTION_CAP_PATROL_RADIUS_INTERCEPTS_NEARBY", async ({ Gi
 
     engine.beginDeployment();
     const bomber = make("Bomber", { q: 0, r: 9 });
+    const playerSpotter = make("Infantry_42", { q: 0, r: 8 });
     (bomber as any).unitId = "u_bomber";
     (bomber as any).preDeployed = true;
-    engine.initializeFromAllocations([bomber]);
+    (playerSpotter as any).preDeployed = true;
+    engine.initializeFromAllocations([bomber, playerSpotter]);
     engine.setBaseCamp({ q: 0, r: 0 });
     engine.finalizeDeployment();
     engine.startPlayerTurnPhase();
@@ -204,9 +206,11 @@ registerTest("AIR_INTERCEPTION_CAP_PATROL_RADIUS_IGNORES_DISTANT", async ({ Give
 
     engine.beginDeployment();
     const bomber = make("Bomber", { q: 0, r: 19 });
+    const playerSpotter = make("Infantry_42", { q: 0, r: 18 });
     (bomber as any).unitId = "u_bomber";
     (bomber as any).preDeployed = true;
-    engine.initializeFromAllocations([bomber]);
+    (playerSpotter as any).preDeployed = true;
+    engine.initializeFromAllocations([bomber, playerSpotter]);
     engine.setBaseCamp({ q: 0, r: 0 });
     engine.finalizeDeployment();
     engine.startPlayerTurnPhase();

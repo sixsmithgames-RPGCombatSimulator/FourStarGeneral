@@ -73,12 +73,12 @@ registerTest("PRECOMBAT_ENFORCES_A_CONVOY_MINIMUM_FOR_RIVER_WATCH", async ({ Giv
   await When("the commander reviews the unit roster and tries to remove the convoy", async () => {
     const internals = screen as unknown as {
       allocationCounts: Map<string, number>;
-      allocationUnitList: HTMLElement;
+      allocationLogisticsList: HTMLElement;
       handleAllocationAdjustment: (optionKey: string, delta: number) => void;
     };
 
     convoyCount = internals.allocationCounts.get("supplyConvoy") ?? 0;
-    convoyVisible = internals.allocationUnitList.innerHTML.includes('data-key="supplyConvoy"');
+    convoyVisible = internals.allocationLogisticsList.innerHTML.includes('data-key="supplyConvoy"');
     internals.handleAllocationAdjustment("supplyConvoy", -1);
     internals.handleAllocationAdjustment("supplyConvoy", -1);
     convoyCount = internals.allocationCounts.get("supplyConvoy") ?? 0;
@@ -111,7 +111,7 @@ registerTest("PRECOMBAT_HONORS_EXPLICIT_CONVOY_RESTRICTIONS", async ({ Given, Wh
       allocationCounts: Map<string, number>;
       rerenderAllocations: () => void;
       seedRecommendedLogisticsAllocations: () => void;
-      allocationUnitList: HTMLElement;
+      allocationLogisticsList: HTMLElement;
     };
 
     internals.scenarioSource.restrictedUnits = ["supplyConvoy"];
@@ -119,7 +119,7 @@ registerTest("PRECOMBAT_HONORS_EXPLICIT_CONVOY_RESTRICTIONS", async ({ Given, Wh
     internals.seedRecommendedLogisticsAllocations();
     internals.rerenderAllocations();
 
-    convoyVisible = internals.allocationUnitList.innerHTML.includes('data-key="supplyConvoy"');
+    convoyVisible = internals.allocationLogisticsList.innerHTML.includes('data-key="supplyConvoy"');
     convoyCount = internals.allocationCounts.get("supplyConvoy") ?? 0;
   });
 

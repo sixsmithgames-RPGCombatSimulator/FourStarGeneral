@@ -123,12 +123,14 @@ registerTest("AIR_INTERCEPTION_LAYERED_ESCORTS_ABSORB_CAP", async ({ Given, When
     };
     engine = new GameEngine(config);
 
-    // Deploy player bomber at 0,0 and ground defender at 0,1
+    // Deploy player bomber plus a ground spotter so the seeded defender becomes a legal contact.
     engine.beginDeployment();
     const bomber = make("Bomber", { q: 0, r: 0 });
+    const playerSpotter = make("Infantry_42", { q: 1, r: 1 });
     (bomber as any).unitId = "u_bomber";
     (bomber as any).preDeployed = true;
-    engine.initializeFromAllocations([bomber]);
+    (playerSpotter as any).preDeployed = true;
+    engine.initializeFromAllocations([bomber, playerSpotter]);
     engine.setBaseCamp({ q: 0, r: 0 });
     engine.finalizeDeployment();
     engine.startPlayerTurnPhase();

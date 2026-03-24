@@ -2958,7 +2958,8 @@ export class GameEngine implements GameEngineAPI {
       }
 
       const plan = buildPlanForEntry(demand);
-      if (!plan || plan.path.length <= 1) {
+      const alreadyWithinServiceRadius = hexDistance(truck.hex, demand.unit.hex) <= supplyBalance.convoy.serviceRadius;
+      if (!plan || (!alreadyWithinServiceRadius && plan.path.length <= 1)) {
         continue;
       }
 
@@ -3231,7 +3232,8 @@ private automateSupplyConvoys(
               )
             : null;
 
-          currentAssignmentValid = plan !== null && plan.path.length > 1;
+          const alreadyWithinServiceRadius = hexDistance(truck.hex, currentDemand.unit.hex) <= supplyBalance.convoy.serviceRadius;
+          currentAssignmentValid = plan !== null && (alreadyWithinServiceRadius || plan.path.length > 1);
         }
       }
 
@@ -3398,7 +3400,8 @@ private automateSupplyConvoys(
           Number.isFinite(availableFuel) ? availableFuel : undefined
         );
 
-        if (!plan || plan.path.length <= 1) {
+        const alreadyWithinServiceRadius = hexDistance(truck.hex, entry.unit.hex) <= supplyBalance.convoy.serviceRadius;
+        if (!plan || (!alreadyWithinServiceRadius && plan.path.length <= 1)) {
           return null;
         }
 

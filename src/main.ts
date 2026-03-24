@@ -35,6 +35,7 @@ import { ZoomPanControls } from "./ui/controls/ZoomPanControls";
 import { HexMapRenderer } from "./rendering/HexMapRenderer";
 import { BattleWarRoomDataProvider } from "./ui/components/BattleWarRoomDataProvider";
 import { ensureTutorialOverlay } from "./ui/components/TutorialOverlay";
+import { setMissionStartedUI } from "./ui/utils/missionUi";
 
 /**
  * Application initialization and bootstrapping.
@@ -173,23 +174,6 @@ if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", initializeApplication);
 } else {
   initializeApplication();
-}
-
-/**
- * Controls the visibility of mission start/end buttons based on mission state.
- * @param started - Whether the mission has started (true) or not (false)
- */
-function setMissionStartedUI(started: boolean): void {
-  const beginBattleButton = document.getElementById('beginBattle');
-  const endMissionButton = document.getElementById('endMissionButton');
-
-  if (beginBattleButton) {
-    beginBattleButton.classList.toggle('hidden', started);
-  }
-
-  if (endMissionButton) {
-    endMissionButton.classList.toggle('hidden', !started);
-  }
 }
 
 // Export for debugging and testing
