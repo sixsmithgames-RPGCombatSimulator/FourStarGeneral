@@ -28,7 +28,8 @@
       "Bash(ping:*)",
       "Bash(taskkill:*)",
       "Bash(npm test:*)",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

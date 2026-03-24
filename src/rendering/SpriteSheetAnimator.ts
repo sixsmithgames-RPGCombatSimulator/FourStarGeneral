@@ -366,15 +366,15 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
   },
   explosionSmall: {
     imagePath: explosionSmallUrl,
-    columns: 6,  // Actual loaded sheet is 1536×1024 = 6×4 grid
-    rows: 4,
-    frameCount: 24,  // 6×4 = 24 frames
+    columns: 7,  // Testing 7×5 layout as stated
+    rows: 5,
+    frameCount: 35,  // 7×5 = 35 frames
     loop: false,
     renderScale: 1.5,
     anchorX: 0.5,
     anchorY: 0.78,
     fadeOutStartFrame: 16,
-    logicalFrameWidth: 96,   // Display size (source cells are 256×256, output 254×254 after inset)
+    logicalFrameWidth: 96,
     logicalFrameHeight: 96,
     getFrameDuration: (frameIndex) => smallExplosionFrameDuration(frameIndex)
   },
