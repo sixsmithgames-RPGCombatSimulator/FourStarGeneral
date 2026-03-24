@@ -29,6 +29,85 @@ export function ensureDomEnvironment(): void {
     resources: "usable"
   });
   const jsdomWindow = dom.window as unknown as Window & typeof globalThis;
+  const canvasState = new WeakMap<HTMLCanvasElement, { lastDrawSignature: string }>();
+
+  const getCanvasState = (canvas: HTMLCanvasElement): { lastDrawSignature: string } => {
+    let state = canvasState.get(canvas);
+    if (!state) {
+      state = { lastDrawSignature: "" };
+      canvasState.set(canvas, state);
+    }
+    return state;
+  };
+
+  const describeCanvasSource = (value: unknown): string => {
+    if (value instanceof jsdomWindow.HTMLCanvasElement) {
+      return value.dataset.frameSource ?? `canvas:${value.width}x${value.height}`;
+    }
+    if (value && typeof value === "object") {
+      const maybeImage = value as { currentSrc?: unknown; src?: unknown; width?: unknown; height?: unknown };
+      if (typeof maybeImage.currentSrc === "string" && maybeImage.currentSrc.length > 0) {
+        return maybeImage.currentSrc;
+      }
+      if (typeof maybeImage.src === "string" && maybeImage.src.length > 0) {
+        return maybeImage.src;
+      }
+      if (typeof maybeImage.width === "number" && typeof maybeImage.height === "number") {
+        return `surface:${maybeImage.width}x${maybeImage.height}`;
+      }
+    }
+    return String(value);
+  };
+
+  const createMockCanvasContext = (canvas: HTMLCanvasElement): CanvasRenderingContext2D => {
+    const state = getCanvasState(canvas);
+    return {
+      canvas,
+      globalAlpha: 1,
+      globalCompositeOperation: "source-over",
+      imageSmoothingEnabled: true,
+      clearRect: () => {
+        state.lastDrawSignature = "";
+      },
+      drawImage: (...args: unknown[]) => {
+        state.lastDrawSignature = args.map((value, index) => index === 0 ? describeCanvasSource(value) : String(value)).join("|");
+      }
+    } as unknown as CanvasRenderingContext2D;
+  };
+
+  const canvasPrototype = jsdomWindow.HTMLCanvasElement?.prototype as {
+    getContext?: (contextId: string) => CanvasRenderingContext2D | null;
+    toDataURL?: (type?: string) => string;
+  } | undefined;
+
+  if (canvasPrototype) {
+    Object.defineProperty(canvasPrototype, "getContext", {
+      configurable: true,
+      value(this: HTMLCanvasElement, contextId: string): CanvasRenderingContext2D | null {
+        if (contextId !== "2d") {
+          return null;
+        }
+
+        const existing = (this as HTMLCanvasElement & { __mock2dContext?: CanvasRenderingContext2D }).__mock2dContext;
+        if (existing) {
+          return existing;
+        }
+
+        const context = createMockCanvasContext(this);
+        (this as HTMLCanvasElement & { __mock2dContext?: CanvasRenderingContext2D }).__mock2dContext = context;
+        return context;
+      }
+    });
+
+    Object.defineProperty(canvasPrototype, "toDataURL", {
+      configurable: true,
+      value(this: HTMLCanvasElement, type?: string): string {
+        const state = getCanvasState(this);
+        const signature = state.lastDrawSignature || `blank:${this.width}x${this.height}`;
+        return `data:${type ?? "image/png"};mock,${encodeURIComponent(`${this.width}x${this.height}:${signature}`)}`;
+      }
+    });
+  }
 
   // Mock Image constructor for sprite sheet loading
   class MockImage extends EventTarget {
@@ -135,6 +214,7 @@ export function ensureDomEnvironment(): void {
     MouseEvent: jsdomWindow.MouseEvent,
     WheelEvent: WheelEventImpl,
     HTMLElement: jsdomWindow.HTMLElement,
+    HTMLCanvasElement: jsdomWindow.HTMLCanvasElement,
     SVGElement: jsdomWindow.SVGElement,
     getComputedStyle: jsdomWindow.getComputedStyle.bind(jsdomWindow),
     requestAnimationFrame: requestAnimationFrameImpl,

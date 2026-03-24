@@ -5,10 +5,21 @@ import { COMBAT_ANIMATIONS, resolveSpriteSheetSpec } from "../src/rendering/Spri
 
 type RafCallback = (timestamp: number) => void;
 
+function createFrameCanvases(frameSources: readonly string[], frameWidth: number, frameHeight: number): HTMLCanvasElement[] {
+  return frameSources.map((frameSource) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = frameWidth;
+    canvas.height = frameHeight;
+    canvas.dataset.frameSource = frameSource;
+    return canvas;
+  });
+}
+
 registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP", async ({ Given, When, Then }) => {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   document.body.appendChild(svg);
 
+  const frameSources = ["frame-0", "frame-1", "frame-2", "frame-3"] as const;
   const resolvedSpec = resolveSpriteSheetSpec(COMBAT_ANIMATIONS.dustCloud, {
     width: 256,
     height: 64
@@ -16,7 +27,8 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
   const frames = {
     frameWidth: 64,
     frameHeight: 64,
-    frameDataUrls: ["frame-0", "frame-1", "frame-2", "frame-3"]
+    frameCanvases: createFrameCanvases(frameSources, 64, 64),
+    frameDataUrls: frameSources
   } as const;
 
   const animator = new FrameSequenceAnimator(svg, {
@@ -55,15 +67,19 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
     await Promise.resolve();
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    const initialImage = svg.querySelector<SVGImageElement>("image");
-    if (!initialImage) {
-      throw new Error("Expected one active frame image immediately after playback starts.");
+    const initialSurface = svg.querySelector<SVGForeignObjectElement>("foreignObject");
+    const initialCanvas = svg.querySelector<HTMLCanvasElement>("canvas");
+    if (!initialSurface || !initialCanvas) {
+      throw new Error("Expected one active frame canvas immediately after playback starts.");
     }
 
-    initialX = initialImage.getAttribute("x") ?? "";
-    initialY = initialImage.getAttribute("y") ?? "";
-    initialWidth = initialImage.getAttribute("width") ?? "";
-    initialHeight = initialImage.getAttribute("height") ?? "";
+    initialX = initialSurface.getAttribute("x") ?? "";
+    initialY = initialSurface.getAttribute("y") ?? "";
+    initialWidth = initialSurface.getAttribute("width") ?? "";
+    initialHeight = initialSurface.getAttribute("height") ?? "";
+    if ((initialCanvas.dataset.frameSource ?? "") !== "frame-0") {
+      throw new Error(`Expected initial canvas frame source frame-0, received ${initialCanvas.dataset.frameSource ?? "<missing>"}.`);
+    }
 
     const baseTimestamp = performance.now();
     const timestamps = [
@@ -81,20 +97,24 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
       }
       cb(timestamps[index]!);
 
-      const activeImages = svg.querySelectorAll("image");
-      if (activeImages.length !== 1) {
-        throw new Error(`Expected exactly one visible image node during playback, found ${activeImages.length}.`);
+      const activeCanvases = svg.querySelectorAll("canvas");
+      if (activeCanvases.length !== 1) {
+        throw new Error(`Expected exactly one visible canvas node during playback, found ${activeCanvases.length}.`);
       }
 
-      const image = activeImages[0] as SVGImageElement;
-      if ((image.getAttribute("href") ?? "") !== expectedFrames[index]) {
-        throw new Error(`Expected frame source ${expectedFrames[index]}, received ${image.getAttribute("href") ?? "<missing>"}.`);
+      const canvas = activeCanvases[0] as HTMLCanvasElement;
+      if ((canvas.dataset.frameSource ?? "") !== expectedFrames[index]) {
+        throw new Error(`Expected frame source ${expectedFrames[index]}, received ${canvas.dataset.frameSource ?? "<missing>"}.`);
       }
-      if ((image.getAttribute("x") ?? "") !== initialX || (image.getAttribute("y") ?? "") !== initialY) {
-        throw new Error("Frame-sequence playback mutated image position after configure().");
+      const surface = svg.querySelector<SVGForeignObjectElement>("foreignObject");
+      if (!surface) {
+        throw new Error("Expected active foreignObject surface during playback.");
       }
-      if ((image.getAttribute("width") ?? "") !== initialWidth || (image.getAttribute("height") ?? "") !== initialHeight) {
-        throw new Error("Frame-sequence playback mutated image size after configure().");
+      if ((surface.getAttribute("x") ?? "") !== initialX || (surface.getAttribute("y") ?? "") !== initialY) {
+        throw new Error("Frame-sequence playback mutated surface position after configure().");
+      }
+      if ((surface.getAttribute("width") ?? "") !== initialWidth || (surface.getAttribute("height") ?? "") !== initialHeight) {
+        throw new Error("Frame-sequence playback mutated surface size after configure().");
       }
       if (resolved) {
         throw new Error("Animation resolved before the visual sequence and cleanup completed.");
@@ -118,8 +138,8 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
     if (!resolved) {
       throw new Error("Expected frame-sequence animation promise to resolve after final cleanup.");
     }
-    if (svg.querySelectorAll("image").length !== 0) {
-      throw new Error("Expected no active frame image nodes after animation cleanup.");
+    if (svg.querySelectorAll("canvas").length !== 0) {
+      throw new Error("Expected no active frame canvas nodes after animation cleanup.");
     }
   });
 });
@@ -128,6 +148,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   document.body.appendChild(svg);
 
+  const frameSources = ["frame-0", "frame-1", "frame-2", "frame-3"] as const;
   const resolvedSpec = resolveSpriteSheetSpec(COMBAT_ANIMATIONS.dustCloud, {
     width: 256,
     height: 64
@@ -135,7 +156,8 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
   const frames = {
     frameWidth: 64,
     frameHeight: 64,
-    frameDataUrls: ["frame-0", "frame-1", "frame-2", "frame-3"]
+    frameCanvases: createFrameCanvases(frameSources, 64, 64),
+    frameDataUrls: frameSources
   } as const;
 
   const animator = new FrameSequenceAnimator(svg, {
@@ -169,11 +191,11 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
   });
 
   await When("the image layout is mutated before the next frame tick", async () => {
-    const image = svg.querySelector<SVGImageElement>("image");
-    if (!image) {
-      throw new Error("Expected active frame image before mutating layout.");
+    const surface = svg.querySelector<SVGForeignObjectElement>("foreignObject");
+    if (!surface) {
+      throw new Error("Expected active frame surface before mutating layout.");
     }
-    image.setAttribute("x", "999");
+    surface.setAttribute("x", "999");
 
     const callback = rafCallbacks.shift();
     if (!callback) {
@@ -201,8 +223,8 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
     if (!(caughtError instanceof Error)) {
       throw new Error("Expected frame-sequence guard to throw an Error when layout changes during playback.");
     }
-    if (!caughtError.message.includes("mutated layout field imageX")) {
-      throw new Error(`Expected invariant error to identify imageX mutation, received: ${caughtError.message}`);
+    if (!caughtError.message.includes("mutated layout field surfaceX")) {
+      throw new Error(`Expected invariant error to identify surfaceX mutation, received: ${caughtError.message}`);
     }
   });
 });
@@ -215,10 +237,12 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REJECTS_FULL_SHEET_URL_FRAME_SOURCES", asy
     width: 256,
     height: 64
   });
+  const frameSources = [resolvedSpec.imagePath, "frame-1", "frame-2", "frame-3"] as const;
   const frames = {
     frameWidth: 64,
     frameHeight: 64,
-    frameDataUrls: [resolvedSpec.imagePath, "frame-1", "frame-2", "frame-3"]
+    frameCanvases: createFrameCanvases(frameSources, 64, 64),
+    frameDataUrls: frameSources
   } as const;
 
   const animator = new FrameSequenceAnimator(svg, {
@@ -246,7 +270,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REJECTS_FULL_SHEET_URL_FRAME_SOURCES", asy
     if (!caughtError.message.includes("full sprite sheet URL")) {
       throw new Error(`Expected full-sheet source guard to fire, received: ${caughtError.message}`);
     }
-    if (svg.querySelectorAll("image").length !== 0) {
+    if (svg.querySelectorAll("canvas").length !== 0) {
       throw new Error("Expected no visible frame nodes after full-sheet cached playback is rejected.");
     }
   });

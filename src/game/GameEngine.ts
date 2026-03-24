@@ -8095,12 +8095,15 @@ private automateSupplyConvoys(
       lister
     });
 
-    // If no direct LOS, check if the attacker's faction has spotting coverage on the defender.
+    const canAttackWithoutDirectLOS = this.canAttackWithoutDirectLOS(attackerType);
     let isSpottedOnly = false;
     if (!hasDirectLOS) {
+      if (!canAttackWithoutDirectLOS) {
+        return null;
+      }
       const hasSpotting = this.checkTargetSpotted(defender.hex, attackerFaction);
       if (!hasSpotting) {
-        return null; // No LOS and no spotting = can't attack
+        return null;
       }
       isSpottedOnly = true;
     }
@@ -8265,6 +8268,10 @@ private automateSupplyConvoys(
     return {
       terrainAt: (hex: Axial) => this.terrainAt(hex)
     };
+  }
+
+  private canAttackWithoutDirectLOS(definition: UnitTypeDefinition): boolean {
+    return definition.moveType === "air" || definition.class === "artillery" || definition.traits.includes("indirect");
   }
 
   /** Construct the supply network for the specified faction using the base camp as the primary source. */
@@ -9446,8 +9453,20 @@ private automateSupplyConvoys(
       }
     }
 
-    if (!losClear(attackerHex, targetHex, attackerDef.moveType === "air", this.createLosLister())) {
-      return null;
+    const lister = this.createLosLister();
+    const hasDirectLOS = losClearAdvanced({
+      attackerClass: attackerDef.class,
+      attackerHex,
+      targetHex,
+      isAttackerAir: attackerDef.moveType === "air",
+      lister
+    });
+    let isSpottedOnly = false;
+    if (!hasDirectLOS) {
+      if (!this.canAttackWithoutDirectLOS(attackerDef) || !this.checkTargetSpotted(targetHex, "Bot")) {
+        return null;
+      }
+      isSpottedOnly = true;
     }
 
     const distance = hexDistance(attackerHex, targetHex);
@@ -9583,6 +9602,7 @@ private automateSupplyConvoys(
         facing: defender.facing,
         hex: defender.hex,
         isRushing: isAssault,
+        isSpottedOnly,
         stance: isAssault ? "assault" : undefined,
         fortified: defenderFortified
       },

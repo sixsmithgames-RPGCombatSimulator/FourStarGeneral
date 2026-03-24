@@ -10,17 +10,18 @@ import {
 } from "./SpriteSheetAnimator";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const XLINK_NS = "http://www.w3.org/1999/xlink";
 let nextFrameSequencePlaybackId = 1;
 
-function readSvgImageSource(imageElement: SVGImageElement): string {
-  const href = imageElement.getAttribute("href");
-  if (href) {
-    return href;
-  }
+function readCanvasFrameSource(canvasElement: HTMLCanvasElement): string {
+  return canvasElement.dataset.frameSource ?? "";
+}
 
-  const xlinkHref = imageElement.getAttributeNS(XLINK_NS, "href");
-  return xlinkHref ?? "";
+function getCanvasContext(canvasElement: HTMLCanvasElement): CanvasRenderingContext2D {
+  const context = canvasElement.getContext("2d");
+  if (!context) {
+    throw new Error("[FrameSequenceAnimator] Canvas 2D context is unavailable for combat effect playback.");
+  }
+  return context;
 }
 
 function summarizeFrameSource(frameSource: string): string {
@@ -35,14 +36,18 @@ interface FrameSequenceLayoutSnapshot {
   readonly containerStyleTransform: string;
   readonly containerViewBox: string;
   readonly containerClipPath: string;
-  readonly imageX: string;
-  readonly imageY: string;
-  readonly imageWidth: string;
-  readonly imageHeight: string;
-  readonly imageTransform: string;
-  readonly imageStyleTransform: string;
-  readonly imageViewBox: string;
-  readonly imageClipPath: string;
+  readonly surfaceX: string;
+  readonly surfaceY: string;
+  readonly surfaceWidth: string;
+  readonly surfaceHeight: string;
+  readonly surfaceTransform: string;
+  readonly surfaceStyleTransform: string;
+  readonly surfaceClipPath: string;
+  readonly canvasWidth: number;
+  readonly canvasHeight: number;
+  readonly canvasStyleWidth: string;
+  readonly canvasStyleHeight: string;
+  readonly canvasStyleTransform: string;
 }
 
 const frameSequenceCache = new Map<string, Promise<CachedFrameSet>>();
@@ -59,6 +64,7 @@ class FrameSequenceAnimation {
   private animationType: keyof typeof COMBAT_ANIMATIONS | null = null;
   private spec: ResolvedSpriteSheetSpec | null = null;
   private resolvedFrames: readonly string[] = [];
+  private resolvedFrameCanvases: readonly HTMLCanvasElement[] = [];
   private currentFrame = 0;
   private lastFrameTimestamp = 0;
   private isPlaying = false;
@@ -71,15 +77,24 @@ class FrameSequenceAnimation {
   private lastRenderedFrameSource = "";
 
   private readonly container: SVGGElement;
-  private readonly imageElement: SVGImageElement;
+  private readonly surfaceElement: SVGForeignObjectElement;
+  private readonly canvasElement: HTMLCanvasElement;
 
   constructor() {
     this.container = document.createElementNS(SVG_NS, "g");
     this.container.style.pointerEvents = "none";
 
-    this.imageElement = document.createElementNS(SVG_NS, "image");
-    this.imageElement.setAttribute("preserveAspectRatio", "xMidYMid meet");
-    this.container.appendChild(this.imageElement);
+    this.surfaceElement = document.createElementNS(SVG_NS, "foreignObject");
+    this.surfaceElement.style.pointerEvents = "none";
+
+    this.canvasElement = document.createElement("canvas");
+    this.canvasElement.style.display = "block";
+    this.canvasElement.style.width = "100%";
+    this.canvasElement.style.height = "100%";
+    this.canvasElement.style.pointerEvents = "none";
+
+    this.surfaceElement.appendChild(this.canvasElement);
+    this.container.appendChild(this.surfaceElement);
   }
 
   configure(
@@ -97,10 +112,16 @@ class FrameSequenceAnimation {
         `[FrameSequenceAnimator] ${animationType} resolved ${frames.frameDataUrls.length} cached frames, but playback requires ${spec.frameCount}.`
       );
     }
+    if (frames.frameCanvases.length < spec.frameCount) {
+      throw new Error(
+        `[FrameSequenceAnimator] ${animationType} resolved ${frames.frameCanvases.length} cached frame surfaces, but playback requires ${spec.frameCount}.`
+      );
+    }
 
     this.animationType = animationType;
     this.spec = spec;
     this.resolvedFrames = frames.frameDataUrls;
+    this.resolvedFrameCanvases = frames.frameCanvases;
     this.currentFrame = 0;
     this.playbackId = `${animationType}#${nextFrameSequencePlaybackId++}`;
     this.lastRenderedFrameIndex = -1;
@@ -118,16 +139,22 @@ class FrameSequenceAnimation {
     this.container.removeAttribute("viewBox");
     this.container.removeAttribute("clip-path");
 
-    this.imageElement.setAttribute("x", String(destX));
-    this.imageElement.setAttribute("y", String(destY));
-    this.imageElement.setAttribute("width", String(destW));
-    this.imageElement.setAttribute("height", String(destH));
-    this.imageElement.removeAttribute("transform");
-    this.imageElement.style.transform = "";
-    this.imageElement.removeAttribute("viewBox");
-    this.imageElement.removeAttribute("clip-path");
-    this.imageElement.removeAttribute("href");
-    this.imageElement.removeAttributeNS(XLINK_NS, "href");
+    this.surfaceElement.setAttribute("x", String(destX));
+    this.surfaceElement.setAttribute("y", String(destY));
+    this.surfaceElement.setAttribute("width", String(destW));
+    this.surfaceElement.setAttribute("height", String(destH));
+    this.surfaceElement.removeAttribute("transform");
+    this.surfaceElement.style.transform = "";
+    this.surfaceElement.removeAttribute("clip-path");
+
+    this.canvasElement.width = Math.max(1, Math.round(frames.frameWidth));
+    this.canvasElement.height = Math.max(1, Math.round(frames.frameHeight));
+    this.canvasElement.style.width = "100%";
+    this.canvasElement.style.height = "100%";
+    this.canvasElement.style.transform = "";
+    this.canvasElement.removeAttribute("data-frame-source");
+    this.canvasElement.removeAttribute("data-frame-index");
+    getCanvasContext(this.canvasElement).clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
 
     if (this.container.parentNode && this.container.parentNode !== svgParent) {
       this.container.parentNode.removeChild(this.container);
@@ -144,7 +171,7 @@ class FrameSequenceAnimation {
   }
 
   play(): Promise<void> {
-    if (!this.spec || this.resolvedFrames.length === 0 || !this.animationType) {
+    if (!this.spec || this.resolvedFrames.length === 0 || this.resolvedFrameCanvases.length === 0 || !this.animationType) {
       throw new Error("[FrameSequenceAnimator] play() was called before configure() established a valid frame sequence.");
     }
 
@@ -180,13 +207,18 @@ class FrameSequenceAnimation {
     this.animationType = null;
     this.spec = null;
     this.resolvedFrames = [];
+    this.resolvedFrameCanvases = [];
     this.layoutSnapshot = null;
     this.playbackId = "";
     this.lastRenderedFrameIndex = -1;
     this.lastRenderedFrameSource = "";
     this.container.style.opacity = "0";
-    this.imageElement.removeAttribute("href");
-    this.imageElement.removeAttributeNS(XLINK_NS, "href");
+    const context = this.canvasElement.getContext("2d");
+    if (context) {
+      context.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+    }
+    this.canvasElement.removeAttribute("data-frame-source");
+    this.canvasElement.removeAttribute("data-frame-index");
     if (this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
     }
@@ -252,14 +284,20 @@ class FrameSequenceAnimation {
   }
 
   private updateFrame(frameIndex: number): void {
-    if (!this.spec || this.resolvedFrames.length === 0 || !this.animationType) {
+    if (!this.spec || this.resolvedFrames.length === 0 || this.resolvedFrameCanvases.length === 0 || !this.animationType) {
       throw new Error("[FrameSequenceAnimator] updateFrame() was called without a configured frame sequence.");
     }
 
     const frameSource = this.resolvedFrames[frameIndex];
+    const frameSurface = this.resolvedFrameCanvases[frameIndex];
     if (!frameSource) {
       throw new Error(
         `[FrameSequenceAnimator] ${this.animationType} is missing cached frame ${frameIndex} of ${this.resolvedFrames.length}.`
+      );
+    }
+    if (!frameSurface) {
+      throw new Error(
+        `[FrameSequenceAnimator] ${this.animationType} is missing cached frame surface ${frameIndex} of ${this.resolvedFrameCanvases.length}.`
       );
     }
     if (frameSource === this.spec.imagePath) {
@@ -271,11 +309,18 @@ class FrameSequenceAnimation {
 
     this.assertLayoutInvariant();
     this.assertVisibleSourceNeverUsesSheetUrl();
-    this.imageElement.setAttribute("href", frameSource);
-    this.imageElement.setAttributeNS(XLINK_NS, "href", frameSource);
+    this.drawFrame(frameSurface, frameSource, frameIndex);
     this.container.style.opacity = String(getSpriteSheetFrameOpacity(this.spec, frameIndex, this.spec.frameCount));
     this.assertVisibleFrameState(frameIndex, frameSource);
     this.assertLayoutInvariant();
+  }
+
+  private drawFrame(frameSurface: HTMLCanvasElement, frameSource: string, frameIndex: number): void {
+    const context = getCanvasContext(this.canvasElement);
+    context.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+    context.drawImage(frameSurface, 0, 0, this.canvasElement.width, this.canvasElement.height);
+    this.canvasElement.dataset.frameSource = frameSource;
+    this.canvasElement.dataset.frameIndex = String(frameIndex);
   }
 
   private assertVisibleSourceNeverUsesSheetUrl(): void {
@@ -283,7 +328,7 @@ class FrameSequenceAnimation {
       return;
     }
 
-    const visibleSource = readSvgImageSource(this.imageElement);
+    const visibleSource = readCanvasFrameSource(this.canvasElement);
     if (visibleSource === this.spec.imagePath) {
       throw new Error(
         `[FrameSequenceAnimator] ${this.playbackId} attempted to render cached playback using the full sprite sheet URL ${this.spec.imagePath}.`
@@ -296,18 +341,24 @@ class FrameSequenceAnimation {
       return;
     }
 
-    const visibleNodeCount = this.container.querySelectorAll("image").length;
+    const visibleNodeCount = this.container.querySelectorAll("canvas").length;
     if (visibleNodeCount !== 1) {
       throw new Error(
-        `[FrameSequenceAnimator] ${this.playbackId} expected exactly one visible image node, found ${visibleNodeCount}.`
+        `[FrameSequenceAnimator] ${this.playbackId} expected exactly one visible canvas node, found ${visibleNodeCount}.`
       );
     }
 
-    const visibleSource = readSvgImageSource(this.imageElement);
+    const visibleSource = readCanvasFrameSource(this.canvasElement);
     if (visibleSource !== frameSource) {
       throw new Error(
         `[FrameSequenceAnimator] ${this.playbackId} expected visible frame source ${summarizeFrameSource(frameSource)}, ` +
         `received ${summarizeFrameSource(visibleSource)}.`
+      );
+    }
+    if ((this.canvasElement.dataset.frameIndex ?? "") !== String(frameIndex)) {
+      throw new Error(
+        `[FrameSequenceAnimator] ${this.playbackId} expected visible frame index ${frameIndex}, ` +
+        `received ${this.canvasElement.dataset.frameIndex ?? "<missing>"}.`
       );
     }
     if (visibleSource === this.spec.imagePath) {
@@ -344,7 +395,7 @@ class FrameSequenceAnimation {
     if (changedField) {
       throw new Error(
         `[FrameSequenceAnimator] ${this.animationType} mutated layout field ${changedField[0]} during frame-sequence playback. ` +
-        "Configured frame sequences may only update href and opacity."
+        "Configured frame sequences may only update drawn pixels and opacity."
       );
     }
   }
@@ -355,14 +406,18 @@ class FrameSequenceAnimation {
       containerStyleTransform: this.container.style.transform,
       containerViewBox: this.container.getAttribute("viewBox") ?? "",
       containerClipPath: this.container.getAttribute("clip-path") ?? "",
-      imageX: this.imageElement.getAttribute("x") ?? "",
-      imageY: this.imageElement.getAttribute("y") ?? "",
-      imageWidth: this.imageElement.getAttribute("width") ?? "",
-      imageHeight: this.imageElement.getAttribute("height") ?? "",
-      imageTransform: this.imageElement.getAttribute("transform") ?? "",
-      imageStyleTransform: this.imageElement.style.transform,
-      imageViewBox: this.imageElement.getAttribute("viewBox") ?? "",
-      imageClipPath: this.imageElement.getAttribute("clip-path") ?? ""
+      surfaceX: this.surfaceElement.getAttribute("x") ?? "",
+      surfaceY: this.surfaceElement.getAttribute("y") ?? "",
+      surfaceWidth: this.surfaceElement.getAttribute("width") ?? "",
+      surfaceHeight: this.surfaceElement.getAttribute("height") ?? "",
+      surfaceTransform: this.surfaceElement.getAttribute("transform") ?? "",
+      surfaceStyleTransform: this.surfaceElement.style.transform,
+      surfaceClipPath: this.surfaceElement.getAttribute("clip-path") ?? "",
+      canvasWidth: this.canvasElement.width,
+      canvasHeight: this.canvasElement.height,
+      canvasStyleWidth: this.canvasElement.style.width,
+      canvasStyleHeight: this.canvasElement.style.height,
+      canvasStyleTransform: this.canvasElement.style.transform
     };
   }
 }

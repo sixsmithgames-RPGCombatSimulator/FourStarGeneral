@@ -52,6 +52,7 @@ const XLINK_NS = "http://www.w3.org/1999/xlink";
 export interface CachedFrameSet {
   readonly frameWidth: number;
   readonly frameHeight: number;
+  readonly frameCanvases: readonly HTMLCanvasElement[];
   readonly frameDataUrls: readonly string[];
 }
 
@@ -102,6 +103,7 @@ export async function sliceSpriteSheet(
 
   console.log(`[SpriteSheet] Slicing ${image.naturalWidth}x${image.naturalHeight} sheet into ${columns}x${rows} cells of ${sourceCellWidth}x${sourceCellHeight}px`);
 
+  const frameCanvases: HTMLCanvasElement[] = [];
   const frameDataUrls: string[] = [];
   const inset = 1; // source-pixel border trimmed from each side to prevent neighbor bleed
 
@@ -133,13 +135,14 @@ export async function sliceSpriteSheet(
       inset, inset, sourceCellWidth - inset * 2, sourceCellHeight - inset * 2
     );
 
+    frameCanvases.push(canvas);
     frameDataUrls.push(canvas.toDataURL("image/png"));
   }
 
   validateLeadingFrameUniqueness(sourceLabel, frameDataUrls);
 
   console.log(`[SpriteSheet] Sliced ${frameCount} frames at ${sourceCellWidth}x${sourceCellHeight}px each`);
-  return { frameWidth: sourceCellWidth, frameHeight: sourceCellHeight, frameDataUrls };
+  return { frameWidth: sourceCellWidth, frameHeight: sourceCellHeight, frameCanvases, frameDataUrls };
 }
 
 // Import animation assets using Vite's new URL() syntax for proper bundling

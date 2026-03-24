@@ -1108,9 +1108,6 @@ function pickBestCandidate(
       if (distance < rangeMin || distance > rangeMax) {
         continue;
       }
-      if (!input.losAllows(option.hex, playerSnapshot.unit.hex, snapshot.definition.moveType === "air")) {
-        continue;
-      }
       const estimate = input.attackEstimator(snapshot, option.hex, playerSnapshot, playerSnapshot.unit.hex);
       if (!estimate) {
         continue;
