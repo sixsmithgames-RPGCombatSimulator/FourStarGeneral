@@ -125,35 +125,56 @@ export async function sliceSpriteSheet(
     const sw = sourceCellWidth - inset * 2;
     const sh = sourceCellHeight - inset * 2;
 
-    // Output canvas at full source cell size (preserve original resolution)
+    // Create FRESH canvas for this frame only - no reuse
     const canvas = document.createElement("canvas");
-    canvas.width = sourceCellWidth;
-    canvas.height = sourceCellHeight;
+    const outputWidth = sourceCellWidth;
+    const outputHeight = sourceCellHeight;
+
+    // Hard reset canvas dimensions (ensures clean slate)
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
     canvas.dataset.frameSource = `${sourceLabel}#frame-${i}`;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       throw new Error(`[SpriteSheet] Could not obtain 2D context for frame ${i} slicing.`);
     }
-    ctx.clearRect(0, 0, sourceCellWidth, sourceCellHeight);
 
-    // Draw the inset source rectangle to the output canvas with 1px transparent border
+    // FULL RESET of canvas context state before drawing
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.clearRect(0, 0, outputWidth, outputHeight);
+
+    // Draw source cell directly at (0,0) - no offsets, no leftover sheet math
     ctx.drawImage(
       image,
       sx, sy, sw, sh,
-      inset, inset, sourceCellWidth - inset * 2, sourceCellHeight - inset * 2
+      0, 0, outputWidth, outputHeight
     );
 
     frameCanvases.push(canvas);
-    frameDataUrls.push(canvas.toDataURL("image/png"));
+    const dataUrl = canvas.toDataURL("image/png");
+    frameDataUrls.push(dataUrl);
+
+    // Debug validation for first few frames
+    if (i < 3) {
+      console.log(`[SpriteSheet] Frame ${i} sliced: source=(${sx},${sy},${sw},${sh}) dest=(0,0,${outputWidth},${outputHeight}) dataUrl length=${dataUrl.length}`);
+    }
   }
 
   validateLeadingFrameUniqueness(sourceLabel, frameDataUrls);
 
   console.log(
     `[SpriteSheet] Sliced ${frameCount} frames at ${sourceCellWidth}x${sourceCellHeight}px each; ` +
-    `strict stage ${sourceCellWidth}x${sourceCellHeight} anchor=(${desiredAnchorX.toFixed(1)}, ${desiredAnchorY.toFixed(1)})`
+    `frame stage ${sourceCellWidth}x${sourceCellHeight} anchor=(${desiredAnchorX.toFixed(1)}, ${desiredAnchorY.toFixed(1)})`
   );
+
+  // Debug: verify first 3 frames are unique by checking their data URL lengths
+  if (frameDataUrls.length >= 3) {
+    const lengths = frameDataUrls.slice(0, 3).map(url => url.length);
+    console.log(`[SpriteSheet] First 3 frame data URL lengths: ${lengths.join(", ")} (should differ if frames are unique)`);
+  }
   return {
     frameWidth: sourceCellWidth,
     frameHeight: sourceCellHeight,
