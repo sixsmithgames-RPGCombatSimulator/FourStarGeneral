@@ -86,6 +86,73 @@ function validateLeadingFrameUniqueness(sourceLabel: string, frameDataUrls: read
  * dimensions divided by the grid layout, ensuring we capture the full frame
  * regardless of what the spec claims.
  */
+/**
+ * Creates a debug visualization of the sprite sheet with frame rectangles overlaid.
+ * Returns the canvas element with the overlay, or null if creation fails.
+ */
+function createDebugSheetOverlay(
+  image: HTMLImageElement,
+  columns: number,
+  rows: number,
+  frameCount: number,
+  cellWidth: number,
+  cellHeight: number,
+  inset: number,
+  sourceLabel: string
+): HTMLCanvasElement | null {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    // Draw the source image
+    ctx.drawImage(image, 0, 0);
+
+    // Draw frame rectangles
+    ctx.strokeStyle = "lime";
+    ctx.lineWidth = 3;
+    ctx.font = "20px monospace";
+    ctx.fillStyle = "lime";
+
+    for (let i = 0; i < frameCount; i++) {
+      const col = i % columns;
+      const row = Math.floor(i / columns);
+      const sx = col * cellWidth + inset;
+      const sy = row * cellHeight + inset;
+      const sw = cellWidth - inset * 2;
+      const sh = cellHeight - inset * 2;
+
+      // Draw rectangle
+      ctx.strokeRect(sx, sy, sw, sh);
+
+      // Draw frame number
+      ctx.fillText(String(i), sx + 5, sy + 25);
+    }
+
+    // Add metadata text
+    ctx.fillStyle = "yellow";
+    ctx.fillText(`${columns}×${rows} grid, ${frameCount} frames, cell ${cellWidth}×${cellHeight}px, inset ${inset}px`, 10, 30);
+
+    // Create download link
+    const dataUrl = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.href = dataUrl;
+    const filename = sourceLabel.includes("Explosion") ? "explosion_sheet_debug_overlay.png" : "sheet_debug_overlay.png";
+    link.download = filename;
+    link.textContent = `📊 Download Debug Sheet Overlay (${filename})`;
+    link.style.cssText = "display:block; color: lime; background: black; padding: 8px; margin: 4px; font-weight: bold; border: 2px solid lime;";
+    document.body.appendChild(link);
+
+    return canvas;
+  } catch (error) {
+    console.warn("[SpriteSheet] Failed to create debug overlay:", error);
+    return null;
+  }
+}
+
 export async function sliceSpriteSheet(
   image: HTMLImageElement,
   columns: number,
@@ -95,19 +162,41 @@ export async function sliceSpriteSheet(
   anchorY: number = 0.5
 ): Promise<CachedFrameSet> {
   const sourceLabel = image.currentSrc || image.src || "<unknown sprite sheet>";
+
+  // CRITICAL VALIDATION: Log actual sheet dimensions
+  console.log(`[SpriteSheet] ═══ SHEET LOAD ═══`);
+  console.log(`[SpriteSheet] Image URL: ${sourceLabel}`);
+  console.log(`[SpriteSheet] Natural dimensions: ${image.naturalWidth}×${image.naturalHeight}`);
+  console.log(`[SpriteSheet] Declared spec: ${columns} cols × ${rows} rows = ${columns * rows} cells (frameCount=${frameCount})`);
+
   // Derive actual source cell dimensions from loaded image - this is the source of truth
   const sourceCellWidth = image.naturalWidth / columns;
   const sourceCellHeight = image.naturalHeight / rows;
 
-  // Validate the image divides evenly into cells
+  // FAIL FAST: Validate the image divides evenly into cells
   if (!Number.isInteger(sourceCellWidth) || !Number.isInteger(sourceCellHeight)) {
-    throw new Error(
-      `[SpriteSheet] Image dimensions ${image.naturalWidth}x${image.naturalHeight} do not divide evenly into ${columns}x${rows} grid. ` +
-      `Cell size would be ${sourceCellWidth}x${sourceCellHeight} (non-integer).`
+    const error = new Error(
+      `[SpriteSheet] ❌ ASSET/SPEC MISMATCH - Image dimensions ${image.naturalWidth}×${image.naturalHeight} ` +
+      `do not divide evenly into ${columns}×${rows} grid. ` +
+      `Cell size would be ${sourceCellWidth.toFixed(3)}×${sourceCellHeight.toFixed(3)} (non-integer). ` +
+      `This indicates the spec columns/rows are WRONG for this asset.`
     );
+    console.error(error.message);
+    throw error;
   }
 
-  console.log(`[SpriteSheet] Slicing ${image.naturalWidth}x${image.naturalHeight} sheet into ${columns}x${rows} cells of ${sourceCellWidth}x${sourceCellHeight}px`);
+  // FAIL FAST: Validate frameCount doesn't exceed grid capacity
+  const maxFrames = columns * rows;
+  if (frameCount > maxFrames) {
+    const error = new Error(
+      `[SpriteSheet] ❌ ASSET/SPEC MISMATCH - frameCount=${frameCount} exceeds grid capacity of ${columns}×${rows}=${maxFrames} cells.`
+    );
+    console.error(error.message);
+    throw error;
+  }
+
+  console.log(`[SpriteSheet] ✓ Validation passed: ${sourceCellWidth}×${sourceCellHeight}px per cell`);
+  console.log(`[SpriteSheet] Computed source rectangles (1px inset per side):`);
 
   const frameCanvases: HTMLCanvasElement[] = [];
   const frameDataUrls: string[] = [];
@@ -121,6 +210,12 @@ export async function sliceSpriteSheet(
   const desiredAnchorX = actualFrameWidth * anchorX;
   const desiredAnchorY = actualFrameHeight * anchorY;
 
+  // Create debug visualization: draw all frame rectangles on the source sheet
+  const debugOverlay = createDebugSheetOverlay(image, columns, rows, frameCount, sourceCellWidth, sourceCellHeight, inset, sourceLabel);
+  if (debugOverlay) {
+    console.log(`[SpriteSheet] 🎨 Debug overlay created - see download link in page`);
+  }
+
   for (let i = 0; i < frameCount; i++) {
     const col = i % columns;
     const row = Math.floor(i / columns);
@@ -130,6 +225,11 @@ export async function sliceSpriteSheet(
     const sy = row * sourceCellHeight + inset;
     const sw = sourceCellWidth - inset * 2;
     const sh = sourceCellHeight - inset * 2;
+
+    // Log computed rectangles for first 4 frames
+    if (i < 4) {
+      console.log(`[SpriteSheet]   Frame ${i}: col=${col} row=${row} rect=(x:${sx}, y:${sy}, w:${sw}, h:${sh})`);
+    }
 
     // Output canvas MUST match source rectangle exactly - no scaling, no interpolation artifacts
     const outputWidth = sw;
@@ -239,10 +339,13 @@ function largeExplosionFrameDuration(frameIndex: number): number {
 }
 
 function smallExplosionFrameDuration(frameIndex: number): number {
+  // Extended for 35 frames (7×5 grid) instead of original 24 frames
   if (frameIndex < 4) return 34;
   if (frameIndex < 10) return 46;
   if (frameIndex < 16) return 60;
-  return 80;
+  if (frameIndex < 24) return 80;
+  // Trailing frames (24-34) fade out longer
+  return 100;
 }
 
 function impactHitsFrameDuration(frameIndex: number): number {
@@ -266,15 +369,15 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
   },
   explosionSmall: {
     imagePath: explosionSmallUrl,
-    columns: 6,
-    rows: 4,
-    frameCount: 24,
+    columns: 7,  // CORRECTED: actual sheet is 7×5, not 6×4
+    rows: 5,     // CORRECTED: actual sheet is 2048×1365
+    frameCount: 35,  // CORRECTED: 7×5 = 35 frames total
     loop: false,
     renderScale: 1.5,
     anchorX: 0.5,
     anchorY: 0.78,
     fadeOutStartFrame: 16,
-    logicalFrameWidth: 96,   // Display size (source cells are 256x256)
+    logicalFrameWidth: 96,   // Display size (actual source cells are ~292×273 after inset)
     logicalFrameHeight: 96,
     getFrameDuration: (frameIndex) => smallExplosionFrameDuration(frameIndex)
   },
