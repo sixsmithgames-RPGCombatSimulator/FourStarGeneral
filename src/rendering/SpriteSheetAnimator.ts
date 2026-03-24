@@ -49,7 +49,7 @@ const XLINK_NS = "http://www.w3.org/1999/xlink";
  * Holds pre-sliced per-frame data URLs for a single animation type.
  * Produced once by `sliceSpriteSheet` and cached for the lifetime of the session.
  */
-interface CachedFrameSet {
+export interface CachedFrameSet {
   readonly frameWidth: number;
   readonly frameHeight: number;
   readonly frameDataUrls: readonly string[];
@@ -67,7 +67,7 @@ const slicedFrameCache = new Map<string, Promise<CachedFrameSet>>();
  * dimensions divided by the grid layout, ensuring we capture the full frame
  * regardless of what the spec claims.
  */
-async function sliceSpriteSheet(
+export async function sliceSpriteSheet(
   image: HTMLImageElement,
   columns: number,
   rows: number,
@@ -210,7 +210,7 @@ export const COMBAT_ANIMATIONS: Record<string, SpriteSheetSpec> = {
     imagePath: dustCloudUrl,
     columns: 4,
     rows: 1,
-    frameCount: 5,
+    frameCount: 4,
     frameDuration: 100,
     loop: false
   },
@@ -342,7 +342,7 @@ export function getSpriteSheetFrameOpacity(spec: SpriteSheetSpec, frameIndex: nu
 
 const spriteSheetImageCache = new Map<string, Promise<SpriteSheetImageAsset>>();
 
-function loadSpriteSheetImage(imagePath: string): Promise<SpriteSheetImageAsset> {
+export function loadSpriteSheetImage(imagePath: string): Promise<SpriteSheetImageAsset> {
   console.log(`[SpriteSheet] loadSpriteSheetImage for: ${imagePath}`);
   const cached = spriteSheetImageCache.get(imagePath);
   if (cached) {
@@ -392,7 +392,7 @@ function requiresLoadedImage(spec: SpriteSheetSpec): boolean {
   return spec.frameWidth == null || spec.frameHeight == null;
 }
 
-async function resolveSpriteSheetSpecAsync(spec: SpriteSheetSpec): Promise<ResolvedSpriteSheetSpec> {
+export async function resolveSpriteSheetSpecAsync(spec: SpriteSheetSpec): Promise<ResolvedSpriteSheetSpec> {
   if (!requiresLoadedImage(spec)) {
     return resolveSpriteSheetSpec(spec);
   }

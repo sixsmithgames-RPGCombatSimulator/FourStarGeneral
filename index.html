@@ -840,6 +840,25 @@
       flex-wrap: wrap;
       align-items: center;
     }
+    .attenion-button {
+      padding: 0.85rem 1.1rem;
+      border-radius: 16px;
+      border: 1px solid rgba(34, 160, 78, 0.45);
+      background: rgba(94, 174, 148, 0.8);
+      color: #9affb5;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: transform 0.2s ease, border 0.2s ease, background 0.2s ease;
+    }
+    .attention-button:hover,
+    .attention-button:focus-visible {
+      transform: translateY(-2px);
+      border-color: rgba(34, 160 78, 0.45);
+      background: rgba(94, 174, 148, 0.8);
+      outline: none;
+    }
     .danger-button {
       padding: 0.85rem 1.1rem;
       border-radius: 16px;
@@ -4840,7 +4859,7 @@
                       <span id="battleMissionTitle">Operation Pending</span>
                     </h2>
                     <div class="battle-map-header__mission-actions">
-                      <button id="beginBattle" type="button" class="primary-button">Begin Mission</button>
+                      <button id="beginBattle" type="button" class="attention-button">Begin Mission</button>
                       <button id="endMissionButton" type="button" class="danger-button hidden">End Mission</button>
                     </div>
                   </div>

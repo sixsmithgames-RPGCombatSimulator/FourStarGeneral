@@ -5,7 +5,7 @@ import { HEX_RADIUS, HEX_HEIGHT, HEX_WIDTH } from "../core/balance";
 import { CoordinateSystem, type TileDetails } from "./CoordinateSystem";
 import { TerrainRenderer } from "./TerrainRenderer";
 import { RoadOverlayRenderer } from "./RoadOverlayRenderer";
-import { SpriteSheetAnimator } from "./SpriteSheetAnimator";
+import { FrameSequenceAnimator } from "./FrameSequenceAnimator";
 import terrainData from "../data/terrain.json";
 import unitTypesData from "../data/unitTypes.json";
 import { hexLine, type Axial } from "../core/Hex";
@@ -81,7 +81,7 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly terrainRenderer = new TerrainRenderer();
   private readonly roadRenderer = new RoadOverlayRenderer();
   private readonly reconOverlayState = new Map<string, ReconStatusKey>();
-  private combatAnimator: SpriteSheetAnimator | null = null;
+  private combatAnimator: FrameSequenceAnimator | null = null;
   private readonly recentEffects = new Map<string, number>(); // Dedupe guard: effectKey -> timestamp
 
   private hexClickHandler: ((key: string) => void) | null = null;
@@ -963,7 +963,7 @@ export class HexMapRenderer implements IMapRenderer {
 
     // Initialize combat animator with the effects layer (no need to re-append it later)
     if (this.combatEffectsLayer) {
-      this.combatAnimator = new SpriteSheetAnimator(this.combatEffectsLayer);
+      this.combatAnimator = new FrameSequenceAnimator(this.combatEffectsLayer);
       console.log("[HexMapRenderer] Combat animator initialized with effects layer");
     }
 
@@ -1650,30 +1650,22 @@ export class HexMapRenderer implements IMapRenderer {
 
     // Color scheme based on status with professional gradients
     let primaryColor: string;
-    let secondaryColor: string;
-    let glowColor: string;
     let labelText: string;
     let animationClass: string;
 
     switch (status) {
       case "player":
         primaryColor = "#22c55e";
-        secondaryColor = "#16a34a";
-        glowColor = "rgba(34, 197, 94, 0.6)";
         labelText = "SECURED";
         animationClass = "objective-marker--secured";
         break;
       case "enemy":
         primaryColor = "#ef4444";
-        secondaryColor = "#dc2626";
-        glowColor = "rgba(239, 68, 68, 0.6)";
         labelText = options?.counter ?? "ENEMY";
         animationClass = "objective-marker--enemy";
         break;
       default: // unoccupied
         primaryColor = "#f5c46d";
-        secondaryColor = "#d4a054";
-        glowColor = "rgba(245, 196, 109, 0.5)";
         labelText = "OBJECTIVE";
         animationClass = "objective-marker--neutral";
     }
@@ -2769,8 +2761,8 @@ export class HexMapRenderer implements IMapRenderer {
     console.log("[HexMapRenderer] Effects layer obtained:", effectsLayer, "isConnected:", effectsLayer.isConnected, "parentNode:", effectsLayer.parentNode?.nodeName);
 
     if (!this.combatAnimator) {
-      console.log("[HexMapRenderer] Creating new SpriteSheetAnimator");
-      this.combatAnimator = new SpriteSheetAnimator(effectsLayer);
+      console.log("[HexMapRenderer] Creating new FrameSequenceAnimator");
+      this.combatAnimator = new FrameSequenceAnimator(effectsLayer);
     }
     if (!this.combatAnimator) {
       console.warn("[HexMapRenderer] Combat animator not initialized");
