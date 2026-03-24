@@ -5732,6 +5732,11 @@ export class BattleScreen {
       return null;
     }
 
+    const suppressedBy = liveUnit?.suppressedBy ? [...liveUnit.suppressedBy] : undefined;
+    if (suppressedBy && suppressedBy.length > 0) {
+      console.log(`[BattleScreen] buildEnemyContactRenderUnit - Bot unit ${scenarioType} has suppressedBy:`, suppressedBy);
+    }
+
     return {
       type: scenarioType,
       hex: { ...contact.hex },
@@ -5742,7 +5747,7 @@ export class BattleScreen {
       entrench: liveUnit?.entrench ?? 0,
       facing: liveUnit?.facing ?? "S",
       unitId: contact.unitId,
-      suppressedBy: liveUnit?.suppressedBy ? [...liveUnit.suppressedBy] : undefined
+      suppressedBy
     };
   }
 

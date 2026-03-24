@@ -1,5 +1,5 @@
 {
-  "name": "River Bastion",
+  "name": "Two Bridges",
   "size": { "cols": 20, "rows": 16 },
   "tilePalette": {
     "SEA": { "terrain": "sea", "terrainType": "water", "density": "sparse", "features": [], "recon": "aerial" },

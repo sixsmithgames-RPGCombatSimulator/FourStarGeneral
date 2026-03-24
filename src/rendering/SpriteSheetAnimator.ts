@@ -60,20 +60,6 @@ export interface CachedFrameSet {
   readonly frameDataUrls: readonly string[];
 }
 
-interface FrameOpaqueBounds {
-  readonly minX: number;
-  readonly minY: number;
-  readonly maxX: number;
-  readonly maxY: number;
-}
-
-interface FrameSliceSample {
-  readonly canvas: HTMLCanvasElement;
-  readonly bounds: FrameOpaqueBounds | null;
-  readonly shiftX: number;
-  readonly shiftY: number;
-}
-
 /**
  * Module-level cache so each animation type is sliced only once.
  * Keyed by `SpriteSheetSpec.imagePath` to deduplicate across animator instances.
@@ -92,64 +78,6 @@ function validateLeadingFrameUniqueness(sourceLabel: string, frameDataUrls: read
       "Expected unique single-frame assets for frame 0, 1, and 2."
     );
   }
-}
-
-function getCanvasImageData(context: CanvasRenderingContext2D, width: number, height: number): ImageData {
-  if (typeof context.getImageData !== "function") {
-    throw new Error("[SpriteSheet] Canvas 2D context does not support getImageData(), so frame normalization cannot inspect alpha bounds.");
-  }
-  return context.getImageData(0, 0, width, height);
-}
-
-function findOpaqueBounds(imageData: ImageData): FrameOpaqueBounds | null {
-  const { data, width, height } = imageData;
-  let minX = width;
-  let minY = height;
-  let maxX = -1;
-  let maxY = -1;
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const alphaIndex = (y * width + x) * 4 + 3;
-      if (data[alphaIndex] === 0) {
-        continue;
-      }
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-    }
-  }
-
-  if (maxX < 0 || maxY < 0) {
-    return null;
-  }
-
-  return { minX, minY, maxX, maxY };
-}
-
-function resolveVisibleAnchorX(imageData: ImageData, bounds: FrameOpaqueBounds): number {
-  const bandHeight = Math.max(1, Math.min(12, Math.round((bounds.maxY - bounds.minY + 1) * 0.12)));
-  const startY = Math.max(bounds.minY, bounds.maxY - bandHeight + 1);
-  let totalX = 0;
-  let sampleCount = 0;
-
-  for (let y = startY; y <= bounds.maxY; y += 1) {
-    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
-      const alphaIndex = (y * imageData.width + x) * 4 + 3;
-      if (imageData.data[alphaIndex] === 0) {
-        continue;
-      }
-      totalX += x;
-      sampleCount += 1;
-    }
-  }
-
-  if (sampleCount === 0) {
-    return (bounds.minX + bounds.maxX) / 2;
-  }
-
-  return totalX / sampleCount;
 }
 
 /**
@@ -181,7 +109,8 @@ export async function sliceSpriteSheet(
 
   console.log(`[SpriteSheet] Slicing ${image.naturalWidth}x${image.naturalHeight} sheet into ${columns}x${rows} cells of ${sourceCellWidth}x${sourceCellHeight}px`);
 
-  const frameSamples: FrameSliceSample[] = [];
+  const frameCanvases: HTMLCanvasElement[] = [];
+  const frameDataUrls: string[] = [];
   const inset = 1; // source-pixel border trimmed from each side to prevent neighbor bleed
   const desiredAnchorX = sourceCellWidth * anchorX;
   const desiredAnchorY = sourceCellHeight * anchorY;
@@ -215,55 +144,6 @@ export async function sliceSpriteSheet(
       inset, inset, sourceCellWidth - inset * 2, sourceCellHeight - inset * 2
     );
 
-    const imageData = getCanvasImageData(ctx, sourceCellWidth, sourceCellHeight);
-    const bounds = findOpaqueBounds(imageData);
-    const visibleAnchorX = bounds ? resolveVisibleAnchorX(imageData, bounds) : desiredAnchorX;
-    const visibleAnchorY = bounds ? bounds.maxY : desiredAnchorY;
-
-    frameSamples.push({
-      canvas,
-      bounds,
-      shiftX: Math.round(desiredAnchorX - visibleAnchorX),
-      shiftY: Math.round(desiredAnchorY - visibleAnchorY)
-    });
-  }
-
-  let leftPad = 0;
-  let topPad = 0;
-  let rightPad = 0;
-  let bottomPad = 0;
-
-  for (const sample of frameSamples) {
-    if (!sample.bounds) {
-      continue;
-    }
-
-    leftPad = Math.max(leftPad, Math.max(0, -(sample.bounds.minX + sample.shiftX)));
-    topPad = Math.max(topPad, Math.max(0, -(sample.bounds.minY + sample.shiftY)));
-    rightPad = Math.max(rightPad, Math.max(0, sample.bounds.maxX + sample.shiftX - (sourceCellWidth - 1)));
-    bottomPad = Math.max(bottomPad, Math.max(0, sample.bounds.maxY + sample.shiftY - (sourceCellHeight - 1)));
-  }
-
-  const normalizedFrameWidth = sourceCellWidth + leftPad + rightPad;
-  const normalizedFrameHeight = sourceCellHeight + topPad + bottomPad;
-  const anchorPixelX = leftPad + desiredAnchorX;
-  const anchorPixelY = topPad + desiredAnchorY;
-  const frameCanvases: HTMLCanvasElement[] = [];
-  const frameDataUrls: string[] = [];
-
-  for (const sample of frameSamples) {
-    const canvas = document.createElement("canvas");
-    canvas.width = normalizedFrameWidth;
-    canvas.height = normalizedFrameHeight;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      throw new Error("[SpriteSheet] Could not obtain 2D context for normalized frame slicing.");
-    }
-
-    ctx.clearRect(0, 0, normalizedFrameWidth, normalizedFrameHeight);
-    ctx.drawImage(sample.canvas, leftPad + sample.shiftX, topPad + sample.shiftY);
-
     frameCanvases.push(canvas);
     frameDataUrls.push(canvas.toDataURL("image/png"));
   }
@@ -272,15 +152,15 @@ export async function sliceSpriteSheet(
 
   console.log(
     `[SpriteSheet] Sliced ${frameCount} frames at ${sourceCellWidth}x${sourceCellHeight}px each; ` +
-    `normalized stage ${normalizedFrameWidth}x${normalizedFrameHeight} anchor=(${anchorPixelX.toFixed(1)}, ${anchorPixelY.toFixed(1)})`
+    `strict stage ${sourceCellWidth}x${sourceCellHeight} anchor=(${desiredAnchorX.toFixed(1)}, ${desiredAnchorY.toFixed(1)})`
   );
   return {
-    frameWidth: normalizedFrameWidth,
-    frameHeight: normalizedFrameHeight,
+    frameWidth: sourceCellWidth,
+    frameHeight: sourceCellHeight,
     sourceFrameWidth: sourceCellWidth,
     sourceFrameHeight: sourceCellHeight,
-    anchorPixelX,
-    anchorPixelY,
+    anchorPixelX: desiredAnchorX,
+    anchorPixelY: desiredAnchorY,
     frameCanvases,
     frameDataUrls
   };

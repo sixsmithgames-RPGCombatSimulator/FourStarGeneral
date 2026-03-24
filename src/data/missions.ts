@@ -109,7 +109,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       "Reconnoiter border checkpoints and report hostile sightings.",
       "Maintain radio contact with HQ at each waypoint."
     ],
-    turnLimit: 10,
+    turnLimit: 30,
     doctrine: "Maintain flexible response posture; adhere to reconnaissance-in-force doctrine.",
     supplies: [
       { label: "Rations", amount: "Standard patrol pack" },
@@ -123,7 +123,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       "Secondary: Destroy the enemy comms team before it reaches the central ford.",
       "Tertiary: Keep at least one recon unit alive."
     ],
-    turnLimit: 12,
+    turnLimit: 99,
     doctrine: "Occupy all three crossings with your units. Shift forces between hedgerow lanes before the enemy can mass. Hold the two off-map 81mm mortar fire missions for the ford that starts to buckle.",
     supplies: [
       { label: "Predeployed Patrol", amount: "2 rifle squads, engineers, recon bike patrol" },
@@ -136,7 +136,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       "Seize primary defensive line within allotted turns.",
       "Neutralize hardened positions before reinforcements arrive."
     ],
-    turnLimit: 14,
+    turnLimit: 99,
     doctrine: "Coordinate armored thrust with artillery suppression per breakthrough doctrine.",
     supplies: [
       { label: "Rations", amount: "Forward stockpile" },
@@ -149,7 +149,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       "Capture sequential strategic nodes to cut enemy logistics.",
       "Sustain momentum across multi-phase offensive."
     ],
-    turnLimit: 20,
+    turnLimit: 999,
     doctrine: "Apply deep operations doctrine; safeguard supply corridors at all times.",
     supplies: [
       { label: "Rations", amount: "Bulk depot established" },
@@ -195,9 +195,9 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
     preferredZoneKey: "zone-alpha",
     focusLabel: "patrol line",
     validation: {
-      minimumPlayerZoneCapacityTotal: 20,
+      minimumPlayerZoneCapacityTotal: 16,
       minimumPlayerZoneFrontage: 5,
-      minimumPlayerZoneDepth: 4
+      minimumPlayerZoneDepth: 3
     },
     zoneDoctrine: [
       {
@@ -218,16 +218,16 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
     preferredZoneKey: "allied-start",
     focusLabel: "line of departure",
     validation: {
-      minimumPlayerZoneCapacityTotal: 20,
+      minimumPlayerZoneCapacityTotal: 16,
       minimumPlayerZoneFrontage: 5,
-      minimumPlayerZoneDepth: 4
+      minimumPlayerZoneDepth: 3
     },
     zoneDoctrine: [
       {
         zoneKey: "allied-start",
-        minimumCapacity: 20,
+        minimumCapacity: 16,
         minimumFrontage: 5,
-        minimumDepth: 4
+        minimumDepth: 3
       }
     ]
   },

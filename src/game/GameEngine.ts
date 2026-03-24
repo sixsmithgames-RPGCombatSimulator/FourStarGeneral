@@ -3839,12 +3839,19 @@ private automateSupplyConvoys(
   /** Clear suppression status for units of the given faction at the start of their turn. */
   private clearSuppressionFor(faction: TurnFaction): void {
     const placements = faction === "Player" ? this.playerPlacements : faction === "Bot" ? this.botPlacements : this.allyPlacements;
+    let clearedCount = 0;
 
-    placements.forEach(unit => {
+    placements.forEach((unit, key) => {
       if (unit.suppressedBy && unit.suppressedBy.length > 0) {
+        console.log(`[GameEngine] Clearing suppression for ${faction} unit ${unit.type} at ${key}, was suppressed by:`, unit.suppressedBy);
         unit.suppressedBy = [];
+        clearedCount++;
       }
     });
+
+    if (clearedCount > 0) {
+      console.log(`[GameEngine] *** CLEARED SUPPRESSION *** for ${clearedCount} ${faction} units`);
+    }
   }
 
   private reconcilePlayerIdleUnitSet(): void {
@@ -7093,6 +7100,7 @@ private automateSupplyConvoys(
         if (!updatedDef.suppressedBy.includes(attackerUnitId)) {
           updatedDef.suppressedBy.push(attackerUnitId);
           this.botPlacements.set(defKey, updatedDef);
+          console.log(`[GameEngine] *** SUPPRESSION APPLIED *** Bot unit ${updatedDef.type} at ${defKey} suppressed by ${attackerUnitId}, suppressedBy array:`, updatedDef.suppressedBy);
         }
       }
     }
@@ -9672,6 +9680,7 @@ private automateSupplyConvoys(
           if (!updatedPlayer.suppressedBy.includes(attackerUnitId)) {
             updatedPlayer.suppressedBy.push(attackerUnitId);
             this.playerPlacements.set(playerKey, updatedPlayer);
+            console.log(`[GameEngine] *** SUPPRESSION APPLIED *** Player unit ${updatedPlayer.type} at ${playerKey} suppressed by ${attackerUnitId}, suppressedBy array:`, updatedPlayer.suppressedBy);
           }
         }
       } else {

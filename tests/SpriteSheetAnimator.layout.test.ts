@@ -4,6 +4,8 @@ import {
   COMBAT_ANIMATIONS,
   getSpriteSheetFrameDuration,
   getSpriteSheetFrameOpacity,
+  loadSpriteSheetImage,
+  sliceSpriteSheet,
   resolveSpriteSheetSpecAsync
 } from "../src/rendering/SpriteSheetAnimator";
 
@@ -29,6 +31,43 @@ registerTest("SPRITESHEET_ANIMATOR_KEEPS_SINGLE_ROW_STRIPS_COMPATIBLE", async ({
     }
     if (resolved.sheetWidth !== 256 || resolved.sheetHeight !== 64) {
       throw new Error(`Expected derived legacy sheet size 256x64, received ${resolved.sheetWidth}x${resolved.sheetHeight}.`);
+    }
+  });
+});
+
+registerTest("SPRITESHEET_ANIMATOR_EXPLOSION_SMALL_SLICE_REMAINS_STRICT_PER_CELL", async ({ Given, When, Then }) => {
+  let frames: Awaited<ReturnType<typeof sliceSpriteSheet>> | null = null;
+
+  await Given("the small explosion sprite sheet asset", async () => {
+  });
+
+  await When("the renderer slices the sheet into cached frame assets", async () => {
+    const asset = await loadSpriteSheetImage(COMBAT_ANIMATIONS.explosionSmall.imagePath);
+    frames = await sliceSpriteSheet(
+      asset.image,
+      COMBAT_ANIMATIONS.explosionSmall.columns!,
+      COMBAT_ANIMATIONS.explosionSmall.rows!,
+      COMBAT_ANIMATIONS.explosionSmall.frameCount!,
+      COMBAT_ANIMATIONS.explosionSmall.anchorX,
+      COMBAT_ANIMATIONS.explosionSmall.anchorY
+    );
+  });
+
+  await Then("cached explosion frames keep the original cell dimensions and spec anchor", async () => {
+    if (!frames) {
+      throw new Error("Expected cached small-explosion frames to resolve.");
+    }
+    if (frames.frameWidth !== 256 || frames.frameHeight !== 256) {
+      throw new Error(`Expected strict 256x256 cached explosion frames, received ${frames.frameWidth}x${frames.frameHeight}.`);
+    }
+    if (frames.sourceFrameWidth !== 256 || frames.sourceFrameHeight !== 256) {
+      throw new Error(`Expected cached source explosion frames to remain 256x256, received ${frames.sourceFrameWidth}x${frames.sourceFrameHeight}.`);
+    }
+    if (frames.anchorPixelX !== 128) {
+      throw new Error(`Expected small explosion anchorPixelX to remain 128, received ${frames.anchorPixelX}.`);
+    }
+    if (Math.abs(frames.anchorPixelY - 199.68) > 0.001) {
+      throw new Error(`Expected small explosion anchorPixelY to remain 199.68, received ${frames.anchorPixelY}.`);
     }
   });
 });
