@@ -219,14 +219,14 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
     focusLabel: "line of departure",
     validation: {
       minimumPlayerZoneCapacityTotal: 16,
-      minimumPlayerZoneFrontage: 5,
+      minimumPlayerZoneFrontage: 4,
       minimumPlayerZoneDepth: 3
     },
     zoneDoctrine: [
       {
         zoneKey: "allied-start",
         minimumCapacity: 16,
-        minimumFrontage: 5,
+        minimumFrontage: 4,
         minimumDepth: 3
       }
     ]
