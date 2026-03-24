@@ -141,6 +141,81 @@ registerTest("HEXMAP_ANIMATE_UNIT_MOVE", async ({ Given, When, Then }) => {
   });
 });
 
+registerTest("HEXMAP_RENDER_REUSES_COMBAT_ANIMATOR_WHEN_EFFECTS_LAYER_IS_PRESERVED", async ({ Given, When, Then }) => {
+  const viewport = document.createElement("div");
+  viewport.style.width = "320px";
+  viewport.style.height = "220px";
+  viewport.style.overflow = "hidden";
+  Object.defineProperty(viewport, "clientWidth", { value: 320, configurable: true });
+  Object.defineProperty(viewport, "clientHeight", { value: 220, configurable: true });
+
+  const canvas = document.createElement("div");
+  canvas.id = "battleMapCanvas";
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.id = "battleHexMap";
+
+  canvas.appendChild(svg);
+  viewport.appendChild(canvas);
+  document.body.appendChild(viewport);
+
+  const scenario: ScenarioData = {
+    name: "Combat Animator Reuse Harness",
+    size: { cols: 1, rows: 1 },
+    tilePalette: {
+      PLAINS: {
+        terrain: "plains",
+        terrainType: "grass",
+        density: "average",
+        features: [],
+        recon: "intel"
+      }
+    },
+    tiles: [[{ tile: "PLAINS" }]],
+    objectives: [],
+    turnLimit: 1,
+    sides: {
+      Player: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] },
+      Bot: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] }
+    }
+  };
+
+  const renderer = new HexMapRenderer();
+  let initialAnimator: unknown = null;
+  let initialEffectsLayer: SVGGElement | null = null;
+  let rerenderedAnimator: unknown = null;
+  let rerenderedEffectsLayer: SVGGElement | null = null;
+
+  await Given("a rendered map with an initialized combat effects layer", async () => {
+    renderer.render(svg as SVGSVGElement, canvas as HTMLDivElement, scenario);
+    initialAnimator = (renderer as unknown as { combatAnimator: unknown }).combatAnimator;
+    initialEffectsLayer = (renderer as unknown as { combatEffectsLayer: SVGGElement | null }).combatEffectsLayer;
+  });
+
+  await When("the map re-renders while preserving the same effects layer node", async () => {
+    renderer.render(svg as SVGSVGElement, canvas as HTMLDivElement, scenario);
+    rerenderedAnimator = (renderer as unknown as { combatAnimator: unknown }).combatAnimator;
+    rerenderedEffectsLayer = (renderer as unknown as { combatEffectsLayer: SVGGElement | null }).combatEffectsLayer;
+  });
+
+  await Then("the renderer reuses the same combat animator instance instead of resetting it", async () => {
+    if (!initialEffectsLayer || !rerenderedEffectsLayer) {
+      throw new Error("Expected combat effects layer to exist before and after re-render.");
+    }
+    if (initialEffectsLayer !== rerenderedEffectsLayer) {
+      throw new Error("Expected HexMapRenderer to preserve the same combat effects layer DOM node across re-render.");
+    }
+    if (!initialAnimator || !rerenderedAnimator) {
+      throw new Error("Expected combat animator to exist before and after re-render.");
+    }
+    if (initialAnimator !== rerenderedAnimator) {
+      throw new Error("Expected HexMapRenderer to reuse the existing combat animator when the effects layer is preserved.");
+    }
+
+    viewport.remove();
+  });
+});
+
 registerTest("HEXMAP_RENDERUNIT_REJECTS_MALFORMED_FACING_WITHOUT_CRASHING", async ({ Given, When, Then }) => {
   const viewport = document.createElement("div");
   viewport.style.width = "300px";

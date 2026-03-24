@@ -830,10 +830,10 @@ export class HexMapRenderer implements IMapRenderer {
     this.svgElement = svg;
     this.canvasElement = canvas;
     this.scenarioData = data;
+    const previousCombatEffectsLayer = this.combatEffectsLayer;
 
     // Reset combat overlay each render because assigning innerHTML clears prior nodes.
     this.combatEffectsLayer = null;
-    this.combatAnimator = null;
 
     // Clear any cached unit occupancy metadata (unit icons are rebuilt by BattleScreen after re-render).
     // Keeping stale entries can cause attack effects to use the wrong style for an empty tile.
@@ -961,8 +961,18 @@ export class HexMapRenderer implements IMapRenderer {
       console.error("[HexMapRenderer] CRITICAL: combat-effects-layer not found after render");
     }
 
+    if (
+      this.combatAnimator &&
+      previousCombatEffectsLayer &&
+      this.combatEffectsLayer &&
+      previousCombatEffectsLayer !== this.combatEffectsLayer
+    ) {
+      this.combatAnimator.stopAll();
+      this.combatAnimator = null;
+    }
+
     // Initialize combat animator with the effects layer (no need to re-append it later)
-    if (this.combatEffectsLayer) {
+    if (this.combatEffectsLayer && !this.combatAnimator) {
       this.combatAnimator = new FrameSequenceAnimator(this.combatEffectsLayer);
       console.log("[HexMapRenderer] Combat animator initialized with effects layer");
     }
