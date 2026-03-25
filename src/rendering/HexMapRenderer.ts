@@ -995,8 +995,8 @@ export class HexMapRenderer implements IMapRenderer {
       if (!HexMapRenderer.effectSpecsLoaded) {
         HexMapRenderer.effectSpecsLoaded = true;
         Promise.all([
-          loadEffectSpecifications("src/data/effectSpecs.json"),
-          loadTerrainTints("src/data/terrainTints.json")
+          loadEffectSpecifications("data/effectSpecs.json"),
+          loadTerrainTints("data/terrainTints.json")
         ]).catch((error) => {
           console.error("[HexMapRenderer] Failed to load effect specifications or terrain tints:", error);
         });
@@ -1005,7 +1005,7 @@ export class HexMapRenderer implements IMapRenderer {
       // Load sound catalog asynchronously (only once)
       if (!HexMapRenderer.soundCatalogLoaded) {
         HexMapRenderer.soundCatalogLoaded = true;
-        this.soundManager.loadSoundCatalog("src/data/soundCatalog.json").catch((error) => {
+        this.soundManager.loadSoundCatalog("data/soundCatalog.json").catch((error) => {
           console.error("[HexMapRenderer] Failed to load sound catalog:", error);
         });
       }
@@ -1350,13 +1350,13 @@ export class HexMapRenderer implements IMapRenderer {
     const suppressorCount = unit.suppressedBy?.length ?? 0;
     const suppressionState = suppressorCount >= 2 ? "pinned" : suppressorCount === 1 ? "suppressed" : "clear";
 
-    // Always log suppression state for debugging
-    console.log("[HexMapRenderer] renderUnitDecorations - unit:", unit.type,
-      "unitId:", unit.unitId,
-      "suppressedBy:", unit.suppressedBy,
-      "suppressorCount:", suppressorCount,
-      "suppressionState:", suppressionState,
-      "entrenchment:", entrenchment);
+    // Log suppression state only when it changes (commented out to reduce console spam)
+    // console.log("[HexMapRenderer] renderUnitDecorations - unit:", unit.type,
+    //   "unitId:", unit.unitId,
+    //   "suppressedBy:", unit.suppressedBy,
+    //   "suppressorCount:", suppressorCount,
+    //   "suppressionState:", suppressionState,
+    //   "entrenchment:", entrenchment);
 
     group.classList.remove("unit-stack--suppressed", "unit-stack--pinned");
     group.dataset.suppressionState = suppressionState;

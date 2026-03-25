@@ -1,0 +1,74 @@
+[
+  {
+    "terrain": "grasslands",
+    "debrisColor": "#3a5c2e",
+    "dustColor": "#7a9b68",
+    "debrisColorAlt": "#4a6b3d"
+  },
+  {
+    "terrain": "plain",
+    "debrisColor": "#4a3c28",
+    "dustColor": "#b89968",
+    "debrisColorAlt": "#5c4d35"
+  },
+  {
+    "terrain": "forest",
+    "debrisColor": "#2d3f25",
+    "dustColor": "#5a6b4d",
+    "debrisColorAlt": "#3a4b2f"
+  },
+  {
+    "terrain": "woods",
+    "debrisColor": "#2d3f25",
+    "dustColor": "#5a6b4d",
+    "debrisColorAlt": "#3a4b2f"
+  },
+  {
+    "terrain": "hill",
+    "debrisColor": "#5c534a",
+    "dustColor": "#8b7d6b",
+    "debrisColorAlt": "#6d6459"
+  },
+  {
+    "terrain": "mountain",
+    "debrisColor": "#4a4842",
+    "dustColor": "#6b6860",
+    "debrisColorAlt": "#5a5651"
+  },
+  {
+    "terrain": "marsh",
+    "debrisColor": "#3c4531",
+    "dustColor": "#6b7558",
+    "debrisColorAlt": "#4d5642"
+  },
+  {
+    "terrain": "beach",
+    "debrisColor": "#c4b596",
+    "dustColor": "#e5d5b8",
+    "debrisColorAlt": "#d5c5a6"
+  },
+  {
+    "terrain": "village",
+    "debrisColor": "#5a524a",
+    "dustColor": "#8b8378",
+    "debrisColorAlt": "#6b635a"
+  },
+  {
+    "terrain": "urban",
+    "debrisColor": "#4a4a48",
+    "dustColor": "#7a7a78",
+    "debrisColorAlt": "#5a5a58"
+  },
+  {
+    "terrain": "river",
+    "debrisColor": "#4a5554",
+    "dustColor": "#7a8b88",
+    "debrisColorAlt": "#5a6564"
+  },
+  {
+    "terrain": "sea",
+    "debrisColor": "#3a4a58",
+    "dustColor": "#6a7a88",
+    "debrisColorAlt": "#4a5a68"
+  }
+]
