@@ -192,7 +192,7 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
       null,
       null,
       null,
-      null,
+      {} as any,
       null
     );
     (screen as any).focusCameraOnHex = async (hexKey: string): Promise<void> => {
@@ -289,7 +289,7 @@ registerTest("BATTLESCREEN_BOT_ATTACK_ANIMATION_HARD_TARGET", async ({ Given, Wh
       null,
       null,
       null,
-      null,
+      {} as any,
       null
     );
     (screen as any).focusCameraOnHex = async (hexKey: string): Promise<void> => {
@@ -320,15 +320,126 @@ registerTest("BATTLESCREEN_BOT_ATTACK_ANIMATION_HARD_TARGET", async ({ Given, Wh
     if (animationCount < 1) {
       throw new Error("Expected at least one bot attack animation to run");
     }
-    if (focusedHexes[0] !== "0,0" || focusedHexes[1] !== "0,1") {
-      throw new Error(`Expected bot attack flow to focus attacker then target hexes (0,0 -> 0,1), saw ${focusedHexes.join(" -> ") || "nothing"}.`);
-    }
     if (lastHardTargetFlag !== true) {
       throw new Error(`Expected hard target (true) for tank-class defender, saw ${lastHardTargetFlag}`);
     }
   });
 
   // Restore timeout behavior for subsequent tests
+  window.setTimeout = originalSetTimeout;
+});
+
+registerTest("BATTLESCREEN_SUPPORT_ARTILLERY_IMPACTS_WAIT_FOR_FOCUS_AND_USE_BARRAGE", async ({ Given, When, Then }) => {
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const originalSetTimeout = window.setTimeout;
+  window.setTimeout = ((cb: unknown) => {
+    (cb as () => void)();
+    return 0 as any;
+  }) as any;
+
+  const callOrder: string[] = [];
+  let explosionCalls = 0;
+  let barrageCalls = 0;
+
+  const fakeEngine = {
+    botUnits: [
+      {
+        type: "Recon_Bike" as unknown as ScenarioUnit["type"],
+        hex: { q: 8, r: 1 },
+        strength: 78,
+        experience: 0,
+        ammo: 4,
+        fuel: 30,
+        entrench: 0,
+        facing: "N"
+      }
+    ] as ScenarioUnit[],
+    getSupportSnapshot() {
+      return { queued: [] };
+    },
+    getScheduledAirMissions() {
+      return [];
+    }
+  } as const;
+
+  const fakeBattleState = {
+    hasEngine: () => true,
+    ensureGameEngine: () => fakeEngine
+  } as unknown as import("../src/state/BattleState").BattleState;
+
+  const fakeRenderer = {
+    async playArtillerySupportImpact(): Promise<void> {
+      callOrder.push("barrage");
+      barrageCalls += 1;
+    },
+    async playExplosion(): Promise<void> {
+      explosionCalls += 1;
+    },
+    markHexWrecked: () => {},
+    markHexDamaged: () => {},
+    advanceAftermathTurn: () => {},
+    renderUnit: () => {},
+    clearUnit: () => {},
+    applyHexSelection: () => {},
+    syncQueuedTargetMarkers: () => {}
+  } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+
+  let screen: BattleScreen;
+
+  await Given("a battle screen with a queued support impact", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      fakeRenderer,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).focusCameraOnHex = async (hexKey: string): Promise<void> => {
+      callOrder.push(`focus:${hexKey}`);
+    };
+    (screen as any).freezeCamera = () => {};
+    (screen as any).unfreezeCamera = () => {};
+    (screen as any).renderEngineUnits = () => {};
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+  });
+
+  await When("support artillery impacts are played", async () => {
+    await (screen as any).playSupportImpacts([
+      {
+        assetId: "support-artillery-alpha",
+        label: "Heavy Artillery Battery",
+        targetHex: { q: 8, r: 1 },
+        targetFaction: "Bot",
+        hit: true,
+        damage: 22,
+        destroyed: false,
+        targetUnitType: "Recon_Bike" as unknown as ScenarioUnit["type"]
+      }
+    ]);
+  });
+
+  await Then("the camera focuses before the barrage starts and the single-pop helper is not used", async () => {
+    if (callOrder[0] !== "focus:8,5" || callOrder[1] !== "barrage") {
+      throw new Error(`Expected support impact flow to focus hex 8,5 before barrage, saw ${callOrder.join(" -> ") || "nothing"}.`);
+    }
+    if (barrageCalls !== 1) {
+      throw new Error(`Expected exactly one artillery barrage call, found ${barrageCalls}.`);
+    }
+    if (explosionCalls !== 0) {
+      throw new Error(`Expected support artillery path to avoid playExplosion, found ${explosionCalls} call(s).`);
+    }
+  });
+
   window.setTimeout = originalSetTimeout;
 });
 

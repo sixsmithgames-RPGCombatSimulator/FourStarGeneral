@@ -28,6 +28,11 @@ type AllocationListElement = HTMLElement & {
   __allocationListenersAttached?: boolean;
 };
 
+type ScreenShownEventDetail = {
+  id?: string;
+  element?: Element | null;
+};
+
 export class PrecombatScreen {
   private readonly screenManager: IScreenManager;
   private readonly battleState: BattleState;
@@ -95,6 +100,18 @@ export class PrecombatScreen {
   private readonly predeployedCounts = new Map<string, number>();
   private readonly predeployedRoster = new Map<string, { label: string; scenarioType: string; count: number }>();
   private readonly unlockState = ensureUnlockState();
+  private miniMapRenderFrame: number | null = null;
+  private readonly screenShownListener = (event: Event): void => {
+    const shownEvent = event as CustomEvent<ScreenShownEventDetail>;
+    if (shownEvent.detail?.id === "precombat") {
+      this.requestMiniMapRender();
+    }
+  };
+  private readonly resizeListener = (): void => {
+    if (!this.element.classList.contains("hidden")) {
+      this.requestMiniMapRender();
+    }
+  };
 
   constructor(screenManager: IScreenManager, battleState: BattleState) {
     this.screenManager = screenManager;
@@ -125,7 +142,7 @@ export class PrecombatScreen {
       this.rerenderAllocations();
       this.updateBudgetDisplay();
     });
-    this.renderMiniMap();
+    this.requestMiniMapRender();
   }
 
   /**
@@ -200,6 +217,8 @@ export class PrecombatScreen {
     this.allocationWarningReturn.addEventListener("click", () => this.handleAllocationWarningReturn());
     this.allocationWarningProceed.addEventListener("click", () => this.handleAllocationWarningProceed());
     this.allocationResetButton.addEventListener("click", () => this.resetAllocations());
+    document.addEventListener("screen:shown", this.screenShownListener);
+    window.addEventListener("resize", this.resizeListener);
   }
 
   /**
@@ -228,7 +247,7 @@ export class PrecombatScreen {
     this.primeAllocationState();
     this.seedDeploymentCaches();
     this.registerScenarioDeploymentZones();
-    this.renderMiniMap();
+    this.requestMiniMapRender();
     this.renderMissionSummary(missionKey, selectedDifficulty);
     this.seedPredeployedAllocations();
     this.seedRecommendedLogisticsAllocations();
@@ -1153,6 +1172,10 @@ export class PrecombatScreen {
   }
 
   private renderMiniMap(): void {
+    if (!this.isMiniMapVisible()) {
+      return;
+    }
+
     this.miniMapRenderer.render(this.miniMapSvg, this.miniMapCanvas, this.miniMapScenario);
     const mapPreview = this.miniMapCanvas.closest<HTMLElement>(".map-preview");
     if (mapPreview) {
@@ -1165,12 +1188,87 @@ export class PrecombatScreen {
     this.miniMapSvg.setAttribute("preserveAspectRatio", "xMidYMid meet");
     this.miniMapSvg.style.width = "100%";
     this.miniMapSvg.style.height = "100%";
+    this.miniMapSvg.style.overflow = "visible";
     const terrainSprites = Array.from(this.miniMapSvg.querySelectorAll<SVGImageElement>(".terrain-sprite"));
     terrainSprites.forEach((sprite) => sprite.remove());
     const hexTiles = Array.from(this.miniMapSvg.querySelectorAll<SVGPolygonElement>(".hex-tile"));
     hexTiles.forEach((polygon) => {
-      polygon.setAttribute("stroke-width", "0.6");
+      const hexCell = polygon.closest<SVGGElement>(".hex-cell");
+      const terrainKey = hexCell?.dataset.terrain ?? hexCell?.dataset.terrainType ?? "";
+      const fill = this.getMiniMapTerrainFill(terrainKey, polygon.getAttribute("fill"));
+      polygon.setAttribute("fill", fill);
+      polygon.setAttribute("fill-opacity", "0.92");
+      polygon.setAttribute("stroke", "#272319");
+      polygon.setAttribute("stroke-width", "0.9");
+      polygon.setAttribute("vector-effect", "non-scaling-stroke");
+      polygon.style.paintOrder = "stroke fill";
     });
+    const terrainOverlays = Array.from(this.miniMapSvg.querySelectorAll<SVGElement>(".terrain-feature-overlay"));
+    terrainOverlays.forEach((overlay) => overlay.setAttribute("opacity", "0.9"));
+  }
+
+  private requestMiniMapRender(): void {
+    if (typeof window === "undefined") {
+      this.renderMiniMap();
+      return;
+    }
+
+    if (this.miniMapRenderFrame !== null) {
+      window.cancelAnimationFrame(this.miniMapRenderFrame);
+    }
+
+    this.miniMapRenderFrame = window.requestAnimationFrame(() => {
+      this.miniMapRenderFrame = window.requestAnimationFrame(() => {
+        this.miniMapRenderFrame = null;
+        this.renderMiniMap();
+      });
+    });
+  }
+
+  private isMiniMapVisible(): boolean {
+    if (this.element.classList.contains("hidden")) {
+      return false;
+    }
+
+    const bounds = this.miniMapCanvas.getBoundingClientRect();
+    return bounds.width > 0 && bounds.height > 0;
+  }
+
+  private getMiniMapTerrainFill(terrainKey: string, fallbackFill: string | null): string {
+    const normalized = terrainKey.trim().toLowerCase();
+    if (normalized.includes("water") || normalized.includes("river")) {
+      return "#5f7580";
+    }
+    if (normalized.includes("forest") || normalized.includes("woods")) {
+      return "#5a6648";
+    }
+    if (normalized.includes("hill") || normalized.includes("ridge") || normalized.includes("mount")) {
+      return "#7a6849";
+    }
+    if (
+      normalized.includes("urban") ||
+      normalized.includes("town") ||
+      normalized.includes("city") ||
+      normalized.includes("village")
+    ) {
+      return "#8a775d";
+    }
+    if (normalized.includes("road") || normalized.includes("bridge")) {
+      return "#8b7a58";
+    }
+    if (normalized.includes("swamp") || normalized.includes("marsh")) {
+      return "#66705d";
+    }
+    if (normalized.includes("sand") || normalized.includes("desert")) {
+      return "#a08c64";
+    }
+    if (normalized.includes("snow") || normalized.includes("ice")) {
+      return "#c2c3b6";
+    }
+    if (normalized.includes("field") || normalized.includes("plain") || normalized.includes("grass")) {
+      return "#867950";
+    }
+    return fallbackFill ?? "#7f7250";
   }
 
   /**

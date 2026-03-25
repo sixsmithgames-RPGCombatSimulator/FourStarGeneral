@@ -3258,6 +3258,29 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   /**
+   * Plays a support-artillery barrage at the defender hex using several smaller offsets
+   * instead of one centered detonation.
+   */
+  async playArtillerySupportImpact(defenderHexKey: string, targetClass?: UnitClass): Promise<void> {
+    const defenderIsAir = targetClass === "air";
+    const targetIsHardTarget = targetClass === "vehicle" || targetClass === "tank" || targetClass === "air";
+
+    const hitShakePromise = this.playHitShake(defenderHexKey, defenderIsAir ? 7 : targetIsHardTarget ? 6 : 5);
+    const impactPromise = defenderIsAir
+      ? this.playCombatAnimation("explosionSmall", defenderHexKey, 0, 0, 1.5)
+      : this.playArtilleryImpactBurst(defenderHexKey, targetIsHardTarget);
+    const dustPromise = defenderIsAir
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => {
+          window.setTimeout(() => {
+            void this.playDustCloudLinger(defenderHexKey, 0.68).then(() => resolve());
+          }, 180);
+        });
+
+    await Promise.all([hitShakePromise, impactPromise, dustPromise]);
+  }
+
+  /**
    * Plays a dust cloud animation (for movement or near misses).
    */
   async playDustCloud(hexKey: string): Promise<void> {

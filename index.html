@@ -96,12 +96,20 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg-gradient: radial-gradient(circle at top, rgba(55, 74, 112, 0.75), rgba(9, 11, 17, 0.95));
+      --bg-gradient: radial-gradient(circle at top, rgba(106, 102, 62, 0.38), rgba(10, 11, 9, 0.97));
       --surface: rgba(16, 20, 30, 0.88);
       --surface-muted: rgba(20, 26, 38, 0.86);
       --text-primary: #f9fbff;
       --text-muted: rgba(249, 251, 255, 0.58);
-      --accent-strong: #f5c46d;
+      --text-secondary: rgba(228, 220, 198, 0.72);
+      --accent: #b18b4d;
+      --accent-strong: #dec07b;
+      --accent-soft: rgba(222, 192, 123, 0.16);
+      --allocation-gap: 0.8rem;
+      --allocation-bg: linear-gradient(180deg, rgba(31, 36, 28, 0.94) 0%, rgba(16, 19, 14, 0.98) 100%);
+      --allocation-border: rgba(154, 129, 82, 0.34);
+      --font-heading: "Rockwell", "Bookman Old Style", "Georgia", serif;
+      --font-label: "Consolas", "Courier New", monospace;
       --link-blue: #8ab4ff;
       --panel-glass: rgba(10, 14, 22, 0.92);
       --sidebar-width: 96px;
@@ -158,8 +166,8 @@
       flex: 1;
       display: flex;
       flex-direction: column;
-      padding: clamp(1rem, 1.8vw, 1.75rem) clamp(1.1rem, 2vw, 2rem);
-      gap: clamp(1.25rem, 2vw, 2rem);
+      padding: clamp(0.8rem, 1.35vw, 1.2rem) clamp(0.9rem, 1.55vw, 1.4rem);
+      gap: clamp(0.85rem, 1.45vw, 1.3rem);
       background: rgba(12, 16, 25, 0.82);
       /* Ensure tall panels remain accessible by enabling internal scrolling when content exceeds the viewport. */
       overflow-y: auto;
@@ -181,61 +189,112 @@
     .hidden {
       display: none !important;
     }
+    .landing-screen,
+    .precombat-screen {
+      position: relative;
+      isolation: isolate;
+    }
     .landing-screen {
-      background: rgba(13, 18, 28, 0.86);
+      background: linear-gradient(180deg, rgba(29, 33, 25, 0.95) 0%, rgba(14, 16, 12, 0.98) 100%);
+    }
+    .landing-screen::before,
+    .precombat-screen::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(125deg, rgba(95, 86, 54, 0.18), transparent 34%),
+        radial-gradient(circle at 18% 12%, rgba(224, 208, 166, 0.08), transparent 28%),
+        repeating-linear-gradient(0deg, transparent 0, transparent 23px, rgba(228, 215, 178, 0.026) 24px),
+        repeating-linear-gradient(90deg, transparent 0, transparent 23px, rgba(228, 215, 178, 0.02) 24px);
+      opacity: 0.92;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .landing-screen > .screen-content,
+    .precombat-screen > .screen-content {
+      position: relative;
+      z-index: 1;
+    }
+    .landing-screen h1,
+    .landing-screen h2,
+    .landing-screen h3,
+    .landing-screen .mission-button strong,
+    .landing-screen .campaign-card strong,
+    .landing-screen .difficulty-selector label,
+    .precombat-screen h2,
+    .precombat-screen h3,
+    .precombat-screen h4,
+    .precombat-screen .budget-label,
+    .precombat-screen .info-block strong {
+      font-family: var(--font-heading);
     }
     .landing-header {
       display: grid;
-      gap: 0.75rem;
-      max-width: 720px;
+      gap: 0.45rem;
+      max-width: 640px;
     }
     .landing-header h1 {
       margin: 0;
-      font-size: clamp(2.2rem, 3.6vw, 3.1rem);
-      letter-spacing: 0.12em;
+      font-size: clamp(1.9rem, 2.9vw, 2.45rem);
+      letter-spacing: 0.17em;
       text-transform: uppercase;
+      line-height: 0.96;
+      color: #efe3bf;
+      text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+    }
+    .landing-header h1::before {
+      content: "General Staff Dispatch";
+      display: block;
+      margin-bottom: 0.35rem;
+      font-family: var(--font-label);
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.32em;
+      color: rgba(226, 205, 154, 0.74);
     }
     .landing-header p {
       margin: 0;
-      color: var(--text-muted);
-      line-height: 1.5;
-      font-size: 1rem;
+      color: var(--text-secondary);
+      line-height: 1.45;
+      font-size: 0.92rem;
+      max-width: 56ch;
     }
     .landing-layout {
       display: grid;
       grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr);
-      gap: 2rem;
+      gap: 1.1rem;
       align-items: start;
     }
     .landing-secondary {
       display: grid;
-      gap: 1.5rem;
+      gap: 0.95rem;
     }
     /* Right column that stacks the primary selection panes (Operations, Campaigns). Pin to column 2 so both tiles share the same vertical flow. */
     .landing-primary {
       grid-column: 2;
       display: grid;
-      gap: 1.5rem;
+      gap: 0.95rem;
     }
     .status-summary {
       display: grid;
-      gap: 1rem;
-      margin-top: 1.25rem;
+      gap: 0.7rem;
+      margin-top: 0.7rem;
     }
     .status-card {
-      background: rgba(7, 10, 16, 0.78);
-      border-radius: 16px;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      padding: 1.2rem 1.4rem;
+      background: linear-gradient(180deg, rgba(16, 18, 14, 0.88) 0%, rgba(9, 11, 9, 0.96) 100%);
+      border-radius: 12px;
+      border: 1px solid rgba(162, 138, 89, 0.16);
+      padding: 0.85rem 0.95rem;
       display: grid;
-      gap: 0.5rem;
+      gap: 0.35rem;
       color: var(--text-muted);
     }
     .status-card h3 {
       margin: 0;
-      color: var(--text-primary);
-      font-size: 1.05rem;
-      letter-spacing: 0.08em;
+      color: #ebddb7;
+      font-size: 0.82rem;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
     }
     .status-headline {
@@ -243,14 +302,15 @@
       font-weight: 600;
       color: var(--text-primary);
       letter-spacing: 0.04em;
+      font-size: 0.96rem;
     }
     .status-card p {
       margin: 0;
-      line-height: 1.6;
+      line-height: 1.45;
     }
     .status-subtext {
-      color: var(--text-muted);
-      font-size: 0.9rem;
+      color: var(--text-secondary);
+      font-size: 0.82rem;
       letter-spacing: 0.02em;
     }
     .general-detail-grid {
@@ -301,39 +361,54 @@
       color: var(--text-primary);
     }
     .pane {
-      background: rgba(10, 14, 22, 0.82);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 18px;
-      padding: 1.5rem;
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(180deg, rgba(26, 30, 23, 0.94) 0%, rgba(12, 14, 11, 0.98) 100%);
+      border: 1px solid rgba(161, 137, 88, 0.2);
+      border-radius: 14px;
+      padding: 0.95rem 1rem;
       display: flex;
       flex-direction: column;
-      gap: 1.25rem;
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+      gap: 0.8rem;
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+        0 10px 24px rgba(0, 0, 0, 0.22);
+    }
+    .pane::before {
+      content: "";
+      position: absolute;
+      top: 0.65rem;
+      left: 1rem;
+      right: 1rem;
+      height: 1px;
+      background: linear-gradient(90deg, rgba(222, 192, 123, 0.22), rgba(222, 192, 123, 0));
+      pointer-events: none;
     }
     .pane h2 {
       margin: 0;
-      font-size: 1.35rem;
-      letter-spacing: 0.08em;
+      font-size: 1.05rem;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
+      color: #efe3bf;
     }
     .mission-grid {
       display: grid;
-      gap: 0.9rem;
+      gap: 0.65rem;
     }
 
     /* Campaign selection tiles mirror mission buttons but live in their own grid for flexibility. */
     .campaign-grid {
       display: grid;
-      gap: 0.9rem;
+      gap: 0.65rem;
     }
 
     .campaign-card {
       display: grid;
-      gap: 0.35rem;
-      padding: 1rem 1.25rem;
-      background: rgba(12, 16, 24, 0.8);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 14px;
+      gap: 0.22rem;
+      padding: 0.8rem 0.95rem;
+      background: linear-gradient(180deg, rgba(16, 18, 14, 0.82) 0%, rgba(9, 11, 9, 0.92) 100%);
+      border: 1px solid rgba(159, 135, 85, 0.18);
+      border-radius: 12px;
       text-align: left;
       color: inherit;
       cursor: pointer;
@@ -341,13 +416,15 @@
     }
 
     .campaign-card strong {
-      font-size: 1.05rem;
-      letter-spacing: 0.02em;
+      font-size: 0.95rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
 
     .campaign-card span {
-      font-size: 0.85rem;
-      color: var(--text-muted);
+      font-size: 0.76rem;
+      color: var(--text-secondary);
+      line-height: 1.35;
     }
 
     .campaign-card:hover,
@@ -371,12 +448,12 @@
       transform: none;
     }
     .mission-button {
-      padding: 0.95rem 1.2rem;
-      border-radius: 14px;
-      border: 1px solid rgba(245, 196, 109, 0.35);
-      background: linear-gradient(135deg, rgba(245, 196, 109, 0.18), rgba(14, 16, 24, 0.25));
+      padding: 0.75rem 0.9rem;
+      border-radius: 12px;
+      border: 1px solid rgba(190, 160, 102, 0.28);
+      background: linear-gradient(135deg, rgba(108, 92, 53, 0.28), rgba(13, 15, 12, 0.86));
       color: var(--text-primary);
-      font-size: 1rem;
+      font-size: 0.92rem;
       font-weight: 600;
       text-align: left;
       transition: transform 0.2s ease, box-shadow 0.2s ease, border 0.2s ease;
@@ -390,22 +467,23 @@
     }
     .mission-button span {
       display: block;
-      margin-top: 0.35rem;
-      font-size: 0.82rem;
-      color: var(--text-muted);
+      margin-top: 0.24rem;
+      font-size: 0.74rem;
+      color: var(--text-secondary);
       font-weight: 400;
+      line-height: 1.35;
     }
     .mission-button:hover,
     .mission-button:focus-visible {
-      transform: translateY(-4px);
-      box-shadow: 0 18px 40px rgba(245, 196, 109, 0.22);
+      transform: translateY(-2px);
+      box-shadow: 0 12px 22px rgba(126, 101, 49, 0.24);
       border-color: var(--accent-strong);
       outline: none;
     }
     .mission-button.is-active {
       border-color: var(--accent-strong);
-      box-shadow: 0 16px 38px rgba(245, 196, 109, 0.28);
-      background: linear-gradient(135deg, rgba(245, 196, 109, 0.35), rgba(12, 12, 14, 0.1));
+      box-shadow: 0 10px 20px rgba(126, 101, 49, 0.24);
+      background: linear-gradient(135deg, rgba(136, 111, 58, 0.42), rgba(12, 12, 10, 0.82));
     }
     .allocation-panel {
       display: grid;
@@ -423,7 +501,7 @@
       margin: 0;
       padding: 0 0.2rem 0 0;
       display: grid;
-      gap: 0.9rem;
+      gap: 0.55rem;
       overflow-y: auto;
       overflow-x: hidden;
       min-height: 0;
@@ -442,29 +520,29 @@
     }
     .allocation-item {
       display: grid;
-      gap: 0.85rem;
-      padding: 1rem;
-      border-radius: 18px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      gap: 0.55rem;
+      padding: 0.75rem 0.8rem;
+      border-radius: 12px;
+      border: 1px solid rgba(159, 135, 85, 0.18);
       background:
-        linear-gradient(180deg, rgba(15, 21, 33, 0.9) 0%, rgba(9, 13, 22, 0.84) 100%);
+        linear-gradient(180deg, rgba(18, 20, 15, 0.94) 0%, rgba(12, 14, 11, 0.98) 100%);
       box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.03),
-        0 12px 24px rgba(0, 0, 0, 0.18);
+        0 8px 18px rgba(0, 0, 0, 0.14);
       min-width: 0;
     }
     .allocation-item header,
     .deployment-item {
       display: flex;
-      align-items: center;
-      gap: 1rem;
+      align-items: flex-start;
+      gap: 0.75rem;
       min-width: 0;
     }
     .allocation-visual,
     .deployment-visual {
-      width: 56px;
-      height: 56px;
-      border-radius: 14px;
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
       background: rgba(255, 255, 255, 0.04);
       display: grid;
       place-items: center;
@@ -486,14 +564,14 @@
     }
     .allocation-copy {
       display: grid;
-      gap: 0.35rem;
+      gap: 0.25rem;
       min-width: 0;
     }
     .allocation-copy__description {
       margin: 0;
-      color: var(--text-muted);
-      line-height: 1.45;
-      font-size: 0.9rem;
+      color: var(--text-secondary);
+      line-height: 1.38;
+      font-size: 0.82rem;
     }
     .allocation-copy__details,
     .allocation-copy__equipment {
@@ -505,12 +583,12 @@
     .allocation-copy__equipment span {
       display: inline-flex;
       align-items: center;
-      padding: 0.18rem 0.5rem;
+      padding: 0.14rem 0.42rem;
       border-radius: 999px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(255, 255, 255, 0.03);
-      color: rgba(248, 249, 251, 0.78);
-      font-size: 0.74rem;
+      border: 1px solid rgba(190, 171, 130, 0.12);
+      background: rgba(82, 74, 48, 0.18);
+      color: rgba(248, 243, 229, 0.78);
+      font-size: 0.67rem;
       line-height: 1.35;
     }
     .allocation-title-row {
@@ -521,8 +599,8 @@
     }
     .allocation-title-row h4 {
       margin: 0;
-      font-size: 0.98rem;
-      letter-spacing: 0.05em;
+      font-size: 0.85rem;
+      letter-spacing: 0.09em;
       text-transform: uppercase;
       flex: 1;
       min-width: 0;
@@ -542,29 +620,31 @@
       color: var(--accent);
       flex-shrink: 0;
       white-space: nowrap;
+      font-size: 0.79rem;
     }
     .allocation-quantity {
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      gap: 0.3rem;
+      border: 1px solid rgba(177, 152, 101, 0.22);
       border-radius: 999px;
-      padding: 0.2rem 0.5rem;
-      background: rgba(9, 12, 20, 0.7);
+      padding: 0.12rem 0.34rem;
+      background: rgba(9, 11, 9, 0.78);
     }
     .allocation-quantity .allocation-count {
-      min-width: 1.5rem;
+      min-width: 1.3rem;
       text-align: center;
       font-weight: 600;
+      font-size: 0.86rem;
     }
     .allocation-btn {
-      width: 2rem;
-      height: 2rem;
-      border-radius: 10px;
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      width: 1.7rem;
+      height: 1.7rem;
+      border-radius: 9px;
+      border: 1px solid rgba(177, 152, 101, 0.2);
       background: rgba(255, 255, 255, 0.06);
       color: var(--text-primary);
-      font-size: 1.2rem;
+      font-size: 1.05rem;
       line-height: 1;
       cursor: pointer;
       transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
@@ -581,9 +661,11 @@
     }
     .allocation-total {
       font-weight: 700;
-      color: var(--text-primary);
+      color: #efe5c6;
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
+      font-size: 0.86rem;
+      letter-spacing: 0.04em;
     }
     .deployment-item-title,
     .deployment-item-meta {
@@ -614,7 +696,7 @@
     }
     .general-selection-actions {
       display: grid;
-      gap: 0.5rem;
+      gap: 0.4rem;
     }
     .general-selection-actions.hidden {
       display: none;
@@ -626,9 +708,9 @@
     }
     .commissioning-benefits {
       display: grid;
-      gap: 0.75rem;
-      padding: 0.85rem 1rem;
-      border-radius: 14px;
+      gap: 0.6rem;
+      padding: 0.7rem 0.8rem;
+      border-radius: 12px;
       border: 1px solid rgba(255, 255, 255, 0.08);
       background: rgba(8, 11, 18, 0.7);
     }
@@ -638,7 +720,7 @@
     }
     .commissioning-benefits__placeholder {
       margin: 0;
-      font-size: 0.9rem;
+      font-size: 0.82rem;
       color: var(--text-muted);
     }
     .commissioning-benefit {
@@ -704,11 +786,11 @@
     }
     .general-roster-card {
       display: grid;
-      gap: 0.75rem;
-      padding: 1rem;
+      gap: 0.55rem;
+      padding: 0.8rem 0.85rem;
       border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 16px;
-      background: rgba(7, 10, 16, 0.8);
+      border-radius: 12px;
+      background: rgba(10, 12, 9, 0.84);
     }
     .general-roster-card.is-selected {
       border-color: var(--accent-strong);
@@ -814,15 +896,15 @@
     }
     .general-roster-details h3 {
       margin: 0;
-      font-size: 1.15rem;
-      letter-spacing: 0.06em;
+      font-size: 0.96rem;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
     }
     .general-roster-details p {
       margin: 0;
       color: var(--text-muted);
       line-height: 1.45;
-      font-size: 0.9rem;
+      font-size: 0.78rem;
     }
     .general-roster-summary-block {
       display: grid;
@@ -836,7 +918,7 @@
     }
     .general-roster-actions {
       display: flex;
-      gap: 0.75rem;
+      gap: 0.45rem;
       flex-wrap: wrap;
       align-items: center;
     }
@@ -902,48 +984,52 @@
       color: var(--text-muted);
     }
     input[type="text"],
+    input[type="date"],
     select {
-      padding: 0.95rem 1.1rem;
-      border-radius: 16px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(9, 12, 22, 0.88);
+      padding: 0.78rem 0.9rem;
+      border-radius: 12px;
+      border: 1px solid rgba(177, 152, 101, 0.18);
+      background: rgba(18, 22, 17, 0.9);
       color: var(--text-primary);
-      font-size: 1rem;
+      font-size: 0.92rem;
       transition: border 0.2s ease, box-shadow 0.2s ease;
     }
     input[type="text"]:focus,
+    input[type="date"]:focus,
     select:focus {
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(245, 196, 109, 0.22);
     }
     .primary-button {
-      padding: 0.85rem 1.2rem;
-      border-radius: 16px;
+      padding: 0.68rem 0.92rem;
+      border-radius: 12px;
       border: none;
-      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      background: linear-gradient(135deg, #7b6438, var(--accent));
       color: var(--text-primary);
       font-weight: 700;
-      font-size: 0.92rem;
+      font-size: 0.78rem;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.16em;
       cursor: pointer;
       transition: transform 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 10px 20px rgba(78, 61, 27, 0.26);
     }
     .primary-button:hover,
     .primary-button:focus-visible {
       transform: translateY(-2px);
-      box-shadow: 0 16px 35px rgba(245, 196, 109, 0.32);
+      box-shadow: 0 12px 22px rgba(78, 61, 27, 0.32);
       outline: none;
     }
     .secondary-button {
-      padding: 0.8rem 1.1rem;
-      border-radius: 14px;
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      background: transparent;
+      padding: 0.66rem 0.9rem;
+      border-radius: 12px;
+      border: 1px solid rgba(177, 152, 101, 0.24);
+      background: rgba(20, 23, 18, 0.74);
       color: var(--text-primary);
       font-weight: 600;
-      letter-spacing: 0.06em;
+      font-size: 0.76rem;
+      letter-spacing: 0.15em;
       text-transform: uppercase;
       cursor: pointer;
       transition: transform 0.2s ease, border 0.2s ease;
@@ -984,26 +1070,28 @@
       transform: none;
     }
     .feedback {
-      min-height: 40px;
+      min-height: 32px;
       color: var(--accent-strong);
-      font-size: 0.98rem;
+      font-size: 0.88rem;
       letter-spacing: 0.03em;
     }
     .landing-footer {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 1.25rem;
+      gap: 0.85rem;
       flex-wrap: wrap;
-      margin-top: 1.75rem;
+      margin-top: 0.5rem;
+      padding-top: 0.35rem;
+      border-top: 1px solid rgba(177, 152, 101, 0.12);
     }
     .landing-footer .primary-button {
-      min-width: 240px;
+      min-width: 0;
     }
     .difficulty-selector {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.5rem;
     }
     .difficulty-selector label {
       font-size: 0.85rem;
@@ -1043,23 +1131,26 @@
       flex: 1;
       min-height: 0;
       overflow-y: auto;
-      padding-bottom: 2rem;
+      padding-bottom: 1rem;
     }
     .precombat-screen {
-      background: rgba(11, 14, 23, 0.9);
+      background: linear-gradient(180deg, rgba(22, 25, 19, 0.96) 0%, rgba(10, 11, 9, 0.99) 100%);
     }
     .precombat-toolbar {
       display: grid;
-      grid-template-columns: auto auto auto;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
       align-items: center;
-      gap: 1.25rem;
+      gap: 0.8rem;
       width: 100%;
     }
     .precombat-toolbar-button-group {
       display: inline-flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.5rem;
       white-space: nowrap;
+    }
+    .precombat-toolbar-button-group:last-child {
+      justify-self: end;
     }
     .precombat-toolbar button {
       flex-shrink: 0;
@@ -1076,32 +1167,44 @@
     }
     .precombat-summary {
       display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin: 0.35rem 0 0.5rem;
+      align-items: flex-start;
+      gap: 0.8rem;
+      margin: 0;
       flex-wrap: nowrap;
       width: 100%;
       overflow: hidden;
     }
     .precombat-summary h2 {
       margin: 0;
-      font-size: 1.55rem;
-      letter-spacing: 0.08em;
+      font-size: 1.24rem;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
       flex: 0 0 auto;
-      max-width: 32%;
+      max-width: 34%;
       min-width: 0;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       display: block;
+      line-height: 1.05;
+      color: #efe3bf;
+    }
+    .precombat-summary h2::before {
+      content: "Operational Brief";
+      display: block;
+      margin-bottom: 0.28rem;
+      font-family: var(--font-label);
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.28em;
+      color: rgba(226, 205, 154, 0.74);
     }
     .precombat-summary p {
       margin: 0;
-      color: var(--text-muted);
-      line-height: 1.1;
+      color: var(--text-secondary);
+      line-height: 1.35;
       white-space: nowrap;
-      font-size: 0.85rem;
+      font-size: 0.78rem;
       letter-spacing: 0.03em;
       flex: 1;
       min-width: 0;
@@ -1116,9 +1219,9 @@
       display: flex;
       flex-direction: column;
       align-items: stretch;
-      gap: 0.75rem;
-      padding: 1.25rem 0;
-      background: linear-gradient(180deg, rgba(11, 14, 23, 0.95) 0%, rgba(11, 14, 23, 0.4) 100%);
+      gap: 0.55rem;
+      padding: 0.55rem 0 0.25rem;
+      background: linear-gradient(180deg, rgba(18, 20, 15, 0.97) 0%, rgba(18, 20, 15, 0.62) 100%);
       backdrop-filter: blur(6px);
     }
     .precombat-heading {
@@ -1145,11 +1248,11 @@
     .topbar-budget {
       display: grid;
       grid-template-columns: auto 1fr;
-      gap: 0.2rem 0.75rem;
-      padding: 0.75rem 1rem;
-      border-radius: 16px;
-      background: rgba(9, 12, 20, 0.8);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      gap: 0.1rem 0.6rem;
+      padding: 0.55rem 0.8rem;
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(14, 16, 12, 0.9) 0%, rgba(8, 10, 8, 0.96) 100%);
+      border: 1px solid rgba(168, 142, 91, 0.18);
       align-items: center;
     }
     #precombatBudgetPanel {
@@ -1176,15 +1279,15 @@
       font-weight: 600;
     }
     .topbar-budget .budget-label {
-      font-size: 0.75rem;
+      font-size: 0.62rem;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--text-muted);
+      letter-spacing: 0.18em;
+      color: rgba(226, 205, 154, 0.72);
       grid-row: 1 / span 2;
       align-self: start;
     }
     .topbar-budget .budget-value {
-      font-size: 1.15rem;
+      font-size: 0.98rem;
       font-weight: 700;
       letter-spacing: 0.04em;
       text-align: right;
@@ -1198,33 +1301,35 @@
     }
     .precombat-screen .screen-content {
       display: grid;
-      gap: 2.5rem;
+      gap: 1.2rem;
     }
     .precombat-layout {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(320px, 0.92fr);
-      gap: 1.25rem;
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.05fr) minmax(280px, 0.8fr);
+      gap: 0.85rem;
       align-items: start;
     }
     .predeployed-panel {
-      margin-top: 1.75rem;
-      background: rgba(8, 11, 19, 0.9);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 16px;
-      padding: 1.25rem;
+      margin-top: 0.85rem;
+      background: rgba(14, 17, 13, 0.92);
+      border: 1px solid rgba(168, 142, 91, 0.14);
+      border-radius: 14px;
+      padding: 0.8rem 0.9rem;
       display: grid;
-      gap: 0.75rem;
+      gap: 0.55rem;
     }
     .predeployed-panel h3 {
       margin: 0;
-      font-size: 1.1rem;
-      letter-spacing: 0.07em;
+      font-size: 0.88rem;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
+      color: #efe3bf;
     }
     .predeployed-summary {
       margin: 0;
-      color: var(--text-muted);
-      line-height: 1.4;
+      color: var(--text-secondary);
+      line-height: 1.42;
+      font-size: 0.8rem;
     }
     .predeployed-list {
       list-style: none;
@@ -1237,8 +1342,8 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0.45rem 0.65rem;
-      border-radius: 10px;
+      padding: 0.35rem 0.5rem;
+      border-radius: 8px;
       background: rgba(255, 255, 255, 0.03);
     }
     .predeployed-label {
@@ -1253,12 +1358,12 @@
       display: inline-flex;
       align-items: center;
       gap: 0.25rem;
-      padding: 0.15rem 0.55rem;
+      padding: 0.12rem 0.48rem;
       border-radius: 999px;
-      background: rgba(245, 196, 109, 0.12);
-      border: 1px solid rgba(245, 196, 109, 0.4);
-      font-size: 0.75rem;
-      letter-spacing: 0.05em;
+      background: rgba(112, 89, 45, 0.25);
+      border: 1px solid rgba(208, 175, 103, 0.34);
+      font-size: 0.64rem;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--accent-strong);
     }
@@ -1278,41 +1383,79 @@
       line-height: 1.6;
     }
     .info-block {
-      background: rgba(9, 12, 20, 0.88);
-      border-radius: 18px;
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      padding: 1.25rem 1.5rem;
+      background: rgba(13, 16, 12, 0.86);
+      border-radius: 12px;
+      border: 1px solid rgba(164, 140, 94, 0.16);
+      padding: 0.75rem 0.85rem;
       display: grid;
-      gap: 0.5rem;
+      gap: 0.35rem;
     }
     .info-block strong {
-      letter-spacing: 0.08em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
-      font-size: 0.85rem;
-      color: var(--text-muted);
+      font-size: 0.68rem;
+      color: rgba(229, 214, 179, 0.68);
     }
     .precombat-overview {
       display: grid;
-      gap: 1.5rem;
+      gap: 0.9rem;
       align-content: start;
     }
     .map-card {
       grid-column: 3;
       display: grid;
-      gap: 1rem;
+      gap: 0.8rem;
       align-content: start;
+      min-width: 0;
+    }
+    .map-card > h2 {
+      margin: 0;
+      font-size: 1.08rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      line-height: 1.05;
+      color: #efe3bf;
+    }
+    .map-card > h2::before {
+      content: "Theater Sketch";
+      display: block;
+      margin-bottom: 0.28rem;
+      font-family: var(--font-label);
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.28em;
+      color: rgba(226, 205, 154, 0.74);
     }
     .map-card .map-preview {
+      position: relative;
       width: 100%;
       aspect-ratio: 1 / 1;
       min-height: clamp(220px, 28vh, 340px);
       max-height: none;
-      border-radius: 16px;
+      border-radius: 14px;
       overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      background: rgba(4, 7, 14, 0.9);
+      border: 1px solid rgba(170, 146, 95, 0.22);
+      background:
+        radial-gradient(circle at 30% 24%, rgba(138, 124, 82, 0.22), transparent 32%),
+        linear-gradient(180deg, rgba(31, 34, 26, 0.96) 0%, rgba(13, 15, 11, 0.98) 100%);
       display: grid;
       place-items: center;
+      padding: 0.35rem;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+      isolation: isolate;
+    }
+    .map-card .map-preview::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background:
+        linear-gradient(180deg, rgba(239, 227, 191, 0.06), rgba(239, 227, 191, 0)),
+        repeating-linear-gradient(0deg, transparent 0, transparent 21px, rgba(230, 216, 178, 0.045) 22px),
+        repeating-linear-gradient(90deg, transparent 0, transparent 21px, rgba(230, 216, 178, 0.038) 22px);
+      opacity: 0.5;
+      pointer-events: none;
+      z-index: 1;
     }
     .mini-map-canvas {
       width: 100%;
@@ -1321,6 +1464,16 @@
       display: flex;
       align-items: stretch;
       justify-content: center;
+      z-index: 0;
+    }
+    .precombat-minimap {
+      width: 100%;
+      height: 100%;
+      display: block;
+      pointer-events: none;
+    }
+    .precombat-minimap .hex-tile {
+      vector-effect: non-scaling-stroke;
     }
 
     /* Campaign map viewport stays scrollable so the strategic illustration keeps its native scale
@@ -1733,6 +1886,24 @@
     }
     .allocation-panel {
       grid-column: 1 / span 2;
+      gap: 0.95rem;
+    }
+    .allocation-panel > h2 {
+      margin: 0;
+      font-size: 1.08rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #efe3bf;
+    }
+    .allocation-panel > h2::before {
+      content: "Order Of Battle";
+      display: block;
+      margin-bottom: 0.28rem;
+      font-family: var(--font-label);
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.26em;
+      color: rgba(226, 205, 154, 0.74);
     }
     .allocation-grid {
       display: grid;
@@ -1746,11 +1917,11 @@
     .allocation-section {
       display: flex;
       flex-direction: column;
-      gap: 0.85rem;
+      gap: 0.7rem;
       background: var(--allocation-bg);
-      border-radius: 20px;
+      border-radius: 14px;
       border: 1px solid var(--allocation-border);
-      padding: 1rem;
+      padding: 0.8rem 0.85rem;
       height: 360px;
       min-height: 0;
       overflow: hidden;
@@ -1762,15 +1933,16 @@
     }
     .allocation-section > header h3 {
       margin: 0;
-      font-size: 1rem;
-      letter-spacing: 0.04em;
+      font-size: 0.88rem;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
+      color: #ebddb7;
     }
     .allocation-section > header p {
       margin: 0;
       color: var(--text-secondary);
-      font-size: 0.92rem;
-      line-height: 1.35;
+      font-size: 0.78rem;
+      line-height: 1.32;
     }
     .allocation-section--units {
       grid-area: units;
@@ -1787,7 +1959,36 @@
     .map-card__info-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.85rem;
+      gap: 0.65rem;
+    }
+    .map-card .info-block p,
+    .map-card .info-block ul {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.8rem;
+      line-height: 1.45;
+    }
+    #commanderSummaryCard h3 {
+      margin: 0;
+      font-size: 0.94rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #f2e8c7;
+    }
+    #commanderSummaryCard p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.8rem;
+      line-height: 1.45;
+    }
+    #allocationFeedback {
+      background: linear-gradient(180deg, rgba(15, 18, 14, 0.94) 0%, rgba(10, 12, 9, 0.98) 100%);
+      border: 1px solid rgba(168, 142, 91, 0.16);
+      border-radius: 12px;
+      padding: 0.7rem 0.85rem;
+      font-size: 0.8rem;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
     }
     @media (max-width: 1180px) {
       .allocation-grid {
@@ -1822,12 +2023,15 @@
         gap: 1.25rem;
       }
     }
-    .objective-list {
+    .objective-list,
+    .baseline-supply-list {
       margin: 0;
-      padding-left: 1.1rem;
+      padding-left: 1rem;
       display: grid;
-      gap: 0.4rem;
-      color: var(--text-muted);
+      gap: 0.32rem;
+      color: var(--text-secondary);
+      font-size: 0.8rem;
+      line-height: 1.35;
     }
     .turn-limit {
       font-weight: 600;
@@ -1836,7 +2040,7 @@
     }
     #precombatHexMap {
       width: 100%;
-      height: auto;
+      height: 100%;
       display: block;
     }
     .precombat-warning-overlay {
@@ -5134,7 +5338,7 @@
             <h2>Theater Overview</h2>
             <div class="map-preview">
               <div id="precombatMapCanvas" class="mini-map-canvas">
-                <svg id="precombatHexMap" xmlns="http://www.w3.org/2000/svg"></svg>
+                <svg id="precombatHexMap" class="precombat-minimap" xmlns="http://www.w3.org/2000/svg"></svg>
               </div>
             </div>
             <div class="map-card__info-grid">
@@ -5324,7 +5528,7 @@
             </select>
           </div>
           <div class="feedback" id="feedback"></div>
-          <button id="enterPrecombat" type="button" disabled>Enter Operations</button>
+          <button id="enterPrecombat" type="button" class="primary-button" disabled>Enter Operations</button>
         </div>
       </div>
     </div>

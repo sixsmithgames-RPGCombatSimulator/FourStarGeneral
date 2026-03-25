@@ -1012,26 +1012,27 @@ export class BattleScreen {
     
     // Freeze camera movement during effects
     this.freezeCamera();
-    
-    const first = impacts[0];
-    const firstOffset = CoordinateSystem.axialToOffset(first.targetHex.q, first.targetHex.r);
-    const firstHexKey = CoordinateSystem.makeHexKey(firstOffset.col, firstOffset.row);
-    console.log("[BattleScreen] Focusing camera on first impact hex:", firstHexKey);
-    
-    // Await camera focus to make it synchronous from pipeline perspective
-    await this.focusCameraOnHex(firstHexKey);
-    
+
     const engine = this.battleState.ensureGameEngine();
-    for (const impact of impacts) {
+    let lastFocusedHexKey: string | null = null;
+    for (let index = 0; index < impacts.length; index += 1) {
+      const impact = impacts[index];
       const offset = CoordinateSystem.axialToOffset(impact.targetHex.q, impact.targetHex.r);
       const targetHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
-      console.log("[BattleScreen] Playing explosion for impact at hex:", targetHexKey, impact);
-      await renderer.playExplosion(targetHexKey, false);
-      console.log("[BattleScreen] Playing dust cloud for impact at hex:", targetHexKey);
-      await renderer.playDustCloud(targetHexKey);
       const targetClass = impact.targetUnitType
         ? this.unitTypes[impact.targetUnitType as keyof UnitTypeDictionary]?.class as UnitClass | undefined
         : undefined;
+
+      if (lastFocusedHexKey !== targetHexKey) {
+        console.log("[BattleScreen] Focusing camera on support impact hex:", targetHexKey);
+        await this.focusCameraOnHex(targetHexKey);
+        await new Promise<void>((resolve) => window.setTimeout(resolve, lastFocusedHexKey ? 220 : 320));
+        lastFocusedHexKey = targetHexKey;
+      }
+
+      console.log("[BattleScreen] Playing artillery barrage for impact at hex:", targetHexKey, impact);
+      await renderer.playArtillerySupportImpact(targetHexKey, targetClass);
+
       if (impact.hit && impact.destroyed) {
         renderer.markHexWrecked(targetHexKey, targetClass, 1);
       } else if (impact.hit) {
@@ -1048,6 +1049,10 @@ export class BattleScreen {
         type: "log",
         summary
       });
+
+      if (index < impacts.length - 1) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 180));
+      }
     }
     
     // Unfreeze camera after all effects complete
