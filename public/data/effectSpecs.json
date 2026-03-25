@@ -142,12 +142,12 @@
           {
             "type": "shock_ring",
             "startMs": 10,
-            "endMs": 250,
+            "endMs": 180,
             "params": {
-              "minRadius": 10,
-              "maxRadius": 50,
-              "strokeWidth": 3,
-              "ringCount": 2
+              "minRadius": 6,
+              "maxRadius": 24,
+              "strokeWidth": 1.6,
+              "ringCount": 1
             }
           },
           {

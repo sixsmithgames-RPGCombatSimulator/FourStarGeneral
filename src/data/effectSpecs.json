@@ -25,17 +25,6 @@
               "fadeProgress": 0.6
             }
           },
-          {
-            "type": "shock_ring",
-            "startMs": 0,
-            "endMs": 120,
-            "params": {
-              "minRadius": 8,
-              "maxRadius": 30,
-              "strokeWidth": 1.5,
-              "ringCount": 2
-            }
-          }
         ]
       },
       {
@@ -116,17 +105,6 @@
               "fadeProgress": 0.5
             }
           },
-          {
-            "type": "shock_ring",
-            "startMs": 0,
-            "endMs": 150,
-            "params": {
-              "minRadius": 10,
-              "maxRadius": 40,
-              "strokeWidth": 2,
-              "ringCount": 3
-            }
-          }
         ]
       },
       {
@@ -219,12 +197,12 @@
           {
             "type": "shock_ring",
             "startMs": 0,
-            "endMs": 180,
+            "endMs": 150,
             "params": {
-              "minRadius": 15,
-              "maxRadius": 60,
-              "strokeWidth": 3,
-              "ringCount": 4
+              "minRadius": 6,
+              "maxRadius": 24,
+              "strokeWidth": 1.6,
+              "ringCount": 1
             }
           }
         ]

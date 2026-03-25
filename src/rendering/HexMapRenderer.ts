@@ -3199,6 +3199,81 @@ export class HexMapRenderer implements IMapRenderer {
     return unitDef.weaponEffectType;
   }
 
+  private chooseDirectFireImpactProfile(
+    attackerHexKey: string,
+    targetIsHardTarget: boolean,
+    defenderIsAir: boolean
+  ): {
+    animationType: string;
+    baseScale: number;
+    impactOffsets: Array<[number, number]>;
+    staggerMs: number;
+  } {
+    if (defenderIsAir) {
+      return {
+        animationType: "explosionSmall",
+        baseScale: 1.2,
+        impactOffsets: [[-8, -4], [8, 3]],
+        staggerMs: 60
+      };
+    }
+
+    const weaponType = this.getWeaponEffectType(attackerHexKey);
+    switch (weaponType) {
+      case "mg":
+        return {
+          animationType: "mg",
+          baseScale: targetIsHardTarget ? 0.68 : 0.58,
+          impactOffsets: targetIsHardTarget
+            ? [
+                [-10, -4],
+                [8, -1],
+                [-2, 6],
+                [6, 5]
+              ]
+            : [
+                [-8, -3],
+                [7, 2],
+                [-1, 5]
+              ],
+          staggerMs: 44
+        };
+      case "cannon":
+        return {
+          animationType: "cannon",
+          baseScale: targetIsHardTarget ? 0.8 : 0.7,
+          impactOffsets: targetIsHardTarget
+            ? [
+                [-12, -4],
+                [9, 1],
+                [-4, 7]
+              ]
+            : [
+                [-9, -3],
+                [7, 2]
+              ],
+          staggerMs: 78
+        };
+      case "small_arms":
+      default:
+        return {
+          animationType: "small_arms",
+          baseScale: targetIsHardTarget ? 0.56 : 0.48,
+          impactOffsets: targetIsHardTarget
+            ? [
+                [-7, -2],
+                [6, 1],
+                [-2, 5]
+              ]
+            : [
+                [-6, -2],
+                [5, 2]
+              ],
+          staggerMs: 38
+        };
+    }
+  }
+
   /**
    * Get terrain type at the specified hex for terrain-responsive effects.
    */
@@ -3845,16 +3920,13 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const impactOffsets: Array<[number, number]> = [[0, 0]];
-    // Direct-fire uses impactHits effect, not artillery explosions
-    const impactAnim = "impactHits";
-    const impactScale = defenderIsAir ? 1.55 : targetIsHardTarget ? 1.45 : 1.35;
-    const impactPromises = impactOffsets.map(([ox, oy], index) =>
+    const impactProfile = this.chooseDirectFireImpactProfile(attackerHexKey, targetIsHardTarget, defenderIsAir);
+    const impactPromises = impactProfile.impactOffsets.map(([ox, oy], index) =>
       new Promise<void>((resolve) => {
         window.setTimeout(() => {
-          const scale = index === 0 ? impactScale : impactScale * 0.88;
-          void this.playCombatAnimation(impactAnim, defenderHexKey, ox, oy, scale).then(() => resolve());
-        }, index * 80);
+          const scale = index === 0 ? impactProfile.baseScale : impactProfile.baseScale * (0.94 - index * 0.03);
+          void this.playCombatAnimation(impactProfile.animationType, defenderHexKey, ox, oy, scale).then(() => resolve());
+        }, index * impactProfile.staggerMs);
       })
     );
 
