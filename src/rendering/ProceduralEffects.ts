@@ -167,8 +167,8 @@ class ProceduralEffectInstance {
         overallProgress,
         elapsedMs,
         seed: this.config.seed,
-        anchorX: 128,
-        anchorY: 220,
+        anchorX: 0,
+        anchorY: 0,
         zoomTier: this.config.zoomTier,
         terrainTint: this.config.terrainTint
       };
