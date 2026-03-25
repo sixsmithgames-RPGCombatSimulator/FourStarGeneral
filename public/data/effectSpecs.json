@@ -21,7 +21,8 @@
             "endMs": 150,
             "params": {
               "maxRadius": 18,
-              "color": "#fff6da"
+              "peakProgress": 0.3,
+              "fadeProgress": 0.5
             }
           },
           {
@@ -29,9 +30,10 @@
             "startMs": 20,
             "endMs": 250,
             "params": {
-              "count": 8,
-              "length": 15,
-              "color": "#ffd76a"
+              "sparkCount": 8,
+              "minLength": 10,
+              "maxLength": 15,
+              "strokeWidth": 1.5
             }
           }
         ]
@@ -46,8 +48,8 @@
             "startMs": 100,
             "endMs": 800,
             "params": {
-              "radius": 25,
-              "color": "#2b2424"
+              "maxRadius": 25,
+              "riseDistance": 15
             }
           }
         ]
@@ -76,7 +78,8 @@
             "endMs": 160,
             "params": {
               "maxRadius": 22,
-              "color": "#fff6da"
+              "peakProgress": 0.3,
+              "fadeProgress": 0.5
             }
           },
           {
@@ -84,9 +87,10 @@
             "startMs": 15,
             "endMs": 280,
             "params": {
-              "count": 12,
-              "length": 18,
-              "color": "#ffd76a"
+              "sparkCount": 12,
+              "minLength": 12,
+              "maxLength": 18,
+              "strokeWidth": 1.8
             }
           }
         ]
@@ -101,8 +105,8 @@
             "startMs": 120,
             "endMs": 900,
             "params": {
-              "radius": 30,
-              "color": "#2b2424"
+              "maxRadius": 30,
+              "riseDistance": 18
             }
           }
         ]
@@ -131,7 +135,8 @@
             "endMs": 180,
             "params": {
               "maxRadius": 35,
-              "color": "#fff6da"
+              "peakProgress": 0.25,
+              "fadeProgress": 0.4
             }
           },
           {
@@ -139,8 +144,10 @@
             "startMs": 10,
             "endMs": 250,
             "params": {
+              "minRadius": 10,
               "maxRadius": 50,
-              "color": "#ff8d2a"
+              "strokeWidth": 3,
+              "ringCount": 2
             }
           },
           {
@@ -148,9 +155,10 @@
             "startMs": 20,
             "endMs": 350,
             "params": {
-              "count": 18,
-              "length": 25,
-              "color": "#ffd76a"
+              "sparkCount": 18,
+              "minLength": 15,
+              "maxLength": 25,
+              "strokeWidth": 2
             }
           }
         ]
@@ -165,8 +173,8 @@
             "startMs": 150,
             "endMs": 1200,
             "params": {
-              "radius": 45,
-              "color": "#2b2424"
+              "maxRadius": 45,
+              "riseDistance": 25
             }
           }
         ]
@@ -195,7 +203,8 @@
             "endMs": 220,
             "params": {
               "maxRadius": 60,
-              "color": "#fff6da"
+              "peakProgress": 0.2,
+              "fadeProgress": 0.35
             }
           },
           {
@@ -203,8 +212,10 @@
             "startMs": 15,
             "endMs": 350,
             "params": {
+              "minRadius": 15,
               "maxRadius": 90,
-              "color": "#ff8d2a"
+              "strokeWidth": 4,
+              "ringCount": 3
             }
           },
           {
@@ -212,9 +223,10 @@
             "startMs": 30,
             "endMs": 500,
             "params": {
-              "count": 35,
-              "length": 40,
-              "color": "#ffd76a"
+              "sparkCount": 35,
+              "minLength": 25,
+              "maxLength": 40,
+              "strokeWidth": 2.5
             }
           }
         ]
@@ -229,9 +241,10 @@
             "startMs": 80,
             "endMs": 1200,
             "params": {
-              "count": 25,
-              "size": 4,
-              "color": "#4a3c28"
+              "particleCount": 25,
+              "minVelocity": 40,
+              "maxVelocity": 80,
+              "particleSize": 4
             }
           },
           {
@@ -239,8 +252,8 @@
             "startMs": 100,
             "endMs": 1500,
             "params": {
-              "radius": 70,
-              "color": "#b89968"
+              "maxRadiusX": 70,
+              "maxRadiusY": 50
             }
           }
         ]
@@ -255,8 +268,8 @@
             "startMs": 200,
             "endMs": 2000,
             "params": {
-              "radius": 80,
-              "color": "#2b2424"
+              "maxRadius": 80,
+              "riseDistance": 40
             }
           }
         ]
@@ -285,7 +298,8 @@
             "endMs": 180,
             "params": {
               "maxRadius": 40,
-              "color": "#fff6da"
+              "peakProgress": 0.25,
+              "fadeProgress": 0.4
             }
           },
           {
@@ -293,8 +307,10 @@
             "startMs": 10,
             "endMs": 280,
             "params": {
+              "minRadius": 12,
               "maxRadius": 60,
-              "color": "#ff8d2a"
+              "strokeWidth": 3.5,
+              "ringCount": 2
             }
           },
           {
@@ -302,9 +318,10 @@
             "startMs": 25,
             "endMs": 380,
             "params": {
-              "count": 20,
-              "length": 30,
-              "color": "#ffd76a"
+              "sparkCount": 20,
+              "minLength": 18,
+              "maxLength": 30,
+              "strokeWidth": 2
             }
           }
         ]
@@ -319,9 +336,10 @@
             "startMs": 60,
             "endMs": 800,
             "params": {
-              "count": 15,
-              "size": 3,
-              "color": "#4a3c28"
+              "particleCount": 15,
+              "minVelocity": 30,
+              "maxVelocity": 60,
+              "particleSize": 3
             }
           }
         ]
@@ -336,8 +354,8 @@
             "startMs": 150,
             "endMs": 1000,
             "params": {
-              "radius": 50,
-              "color": "#2b2424"
+              "maxRadius": 50,
+              "riseDistance": 28
             }
           }
         ]
@@ -365,8 +383,8 @@
             "startMs": 0,
             "endMs": 800,
             "params": {
-              "radius": 35,
-              "color": "#b89968"
+              "maxRadiusX": 35,
+              "maxRadiusY": 25
             }
           }
         ]
