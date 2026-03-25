@@ -1224,7 +1224,8 @@ export class BattleScreen {
             const defenderDefinition = this.unitTypes?.[preview.defender.type as keyof UnitTypeDictionary];
             const targetClass = defenderDefinition?.class;
             const targetIsHardTarget = targetClass === "vehicle" || targetClass === "tank" || targetClass === "air";
-            await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
+            await this.focusCameraOnHex(defenderHex);
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 320));
             // Await combat animation so the visual cue lands before we mutate engine state.
             await this.hexMapRenderer.playAttackSequence(attackerHex, defenderHex, targetIsHardTarget);
           }
@@ -1292,7 +1293,8 @@ export class BattleScreen {
           const attackerClass = attackerDefinition?.class;
           const retaliationTargetIsHardTarget = attackerClass === "vehicle" || attackerClass === "tank" || attackerClass === "air";
 
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+          await this.focusCameraOnHex(attackerHex);
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 220));
           await this.hexMapRenderer.playAttackSequence(defenderHex, attackerHex, retaliationTargetIsHardTarget);
         } catch (animationError) {
           console.warn("[BattleScreen] Retaliation animation failed; continuing without playback.", animationError);
@@ -1451,7 +1453,7 @@ export class BattleScreen {
 
       // Focus camera on the attacker
       if (canFocusCamera) {
-        this.focusCameraOnHex(attackerKey);
+        await this.focusCameraOnHex(attackerKey);
       }
 
       // Brief pause to show attacker
@@ -1460,7 +1462,7 @@ export class BattleScreen {
 
       // Focus camera on the target
       if (canFocusCamera) {
-        this.focusCameraOnHex(targetKey);
+        await this.focusCameraOnHex(targetKey);
       }
 
       // Pause to show the attack target
@@ -1489,7 +1491,10 @@ export class BattleScreen {
           const attackerClass = attackerDefinition?.class;
           const retaliationTargetIsHardTarget = attackerClass === "vehicle" || attackerClass === "tank" || attackerClass === "air";
 
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+          if (canFocusCamera) {
+            await this.focusCameraOnHex(attackerKey);
+          }
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 220));
           await this.hexMapRenderer.playAttackSequence(targetKey, attackerKey, retaliationTargetIsHardTarget);
         } catch (animationError) {
           console.warn("[BattleScreen] Retaliation animation failed; continuing without playback.", animationError);

@@ -107,6 +107,7 @@ registerTest("PROCEDURAL_EFFECTS_ANIMATOR_SUPPORTS_CONCURRENT_EFFECTS", async ({
   let effect1Promise: Promise<void>;
   let effect2Promise: Promise<void>;
   let concurrentChildCount: number;
+  let activeTransforms: string[] = [];
 
   await Given("a procedural effects animator", async () => {
     effectCatalog.load(mockEffectSpecs as any);
@@ -124,6 +125,9 @@ registerTest("PROCEDURAL_EFFECTS_ANIMATOR_SUPPORTS_CONCURRENT_EFFECTS", async ({
     // Wait for both to be rendering
     await new Promise(resolve => setTimeout(resolve, 50));
     concurrentChildCount = parentGroup.children.length;
+    activeTransforms = Array.from(parentGroup.children).map((child) =>
+      (child as SVGGElement).getAttribute("transform") ?? ""
+    );
 
     // Wait for both to complete
     await Promise.all([effect1Promise, effect2Promise]);
@@ -132,6 +136,9 @@ registerTest("PROCEDURAL_EFFECTS_ANIMATOR_SUPPORTS_CONCURRENT_EFFECTS", async ({
   await Then("both effects render concurrently without interference", async () => {
     if (concurrentChildCount < 2) {
       throw new Error(`Expected at least 2 concurrent effect groups, got ${concurrentChildCount}`);
+    }
+    if (!activeTransforms.includes("translate(50, 50) scale(1)") || !activeTransforms.includes("translate(150, 150) scale(1)")) {
+      throw new Error(`Expected concurrent effects to preserve distinct transforms, saw ${activeTransforms.join(", ") || "none"}.`);
     }
 
     if (parentGroup.children.length !== 0) {

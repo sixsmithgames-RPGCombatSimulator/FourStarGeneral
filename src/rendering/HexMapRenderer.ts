@@ -3531,29 +3531,29 @@ export class HexMapRenderer implements IMapRenderer {
     defenderHexKey: string,
     targetIsHardTarget: boolean
   ): Promise<void> {
-    const spreadPx = targetIsHardTarget ? HEX_RADIUS * 0.52 : HEX_RADIUS * 0.74;
-    const roundedSpread = Math.max(8, Math.round(spreadPx));
+    const spreadPx = targetIsHardTarget ? HEX_RADIUS * 0.92 : HEX_RADIUS * 1.08;
+    const roundedSpread = Math.max(18, Math.round(spreadPx));
     const impactOffsets = targetIsHardTarget
       ? [
-          [-roundedSpread, -Math.round(roundedSpread * 0.55)],
-          [Math.round(roundedSpread * 0.82), -Math.round(roundedSpread * 0.32)],
-          [-Math.round(roundedSpread * 0.28), Math.round(roundedSpread * 0.78)],
-          [Math.round(roundedSpread * 0.22), Math.round(roundedSpread * 0.18)]
+          [-roundedSpread, -Math.round(roundedSpread * 0.42)],
+          [Math.round(roundedSpread * 0.96), -Math.round(roundedSpread * 0.18)],
+          [-Math.round(roundedSpread * 0.44), Math.round(roundedSpread * 0.88)],
+          [Math.round(roundedSpread * 0.58), Math.round(roundedSpread * 0.68)]
         ]
       : [
-          [-roundedSpread, Math.round(roundedSpread * 0.3)],
-          [Math.round(roundedSpread * 0.88), -Math.round(roundedSpread * 0.48)],
-          [Math.round(roundedSpread * 0.18), Math.round(roundedSpread * 0.92)],
-          [-Math.round(roundedSpread * 0.46), -Math.round(roundedSpread * 0.74)]
+          [-roundedSpread, Math.round(roundedSpread * 0.24)],
+          [Math.round(roundedSpread * 0.94), -Math.round(roundedSpread * 0.56)],
+          [Math.round(roundedSpread * 0.2), Math.round(roundedSpread * 1.02)],
+          [-Math.round(roundedSpread * 0.64), -Math.round(roundedSpread * 0.82)]
         ];
-    const baseScale = targetIsHardTarget ? 1.12 : 1.02;
+    const baseScale = targetIsHardTarget ? 0.74 : 0.68;
 
     const burstPromises = impactOffsets.map(([offsetX, offsetY], index) =>
       new Promise<void>((resolve) => {
         window.setTimeout(() => {
-          const scale = baseScale * (0.92 + index * 0.06);
+          const scale = baseScale * (0.94 + index * 0.05);
           void this.playCombatAnimation("explosionSmall", defenderHexKey, offsetX, offsetY, scale).then(() => resolve());
-        }, index * 120);
+        }, index * 150);
       })
     );
 

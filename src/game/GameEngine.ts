@@ -4358,11 +4358,6 @@ private automateSupplyConvoys(
   private refreshPlayerEnemyContactStates(): void {
     const observers = this.listPlayerReconObservers();
     const liveBotIds = new Set<string>();
-    console.log("[GameEngine] refreshPlayerEnemyContactStates:", {
-      observerCount: observers.length,
-      botCount: this.botPlacements.size,
-      turnNumber: this._turnNumber
-    });
 
     this.botPlacements.forEach((target) => {
       const targetDefinition = this.getUnitDefinition(target.type);
@@ -4374,14 +4369,6 @@ private automateSupplyConvoys(
       liveBotIds.add(unitId);
       const observation = this.evaluateEnemyObservationForPlayer(target, observers);
       const existing = this.playerEnemyContactStates.get(unitId);
-
-      console.log("[GameEngine] Evaluating bot unit:", {
-        type: target.type,
-        hex: target.hex,
-        unitId,
-        hasObservation: !!observation,
-        observationState: observation?.state
-      });
 
       if (observation) {
         this.playerEnemyContactStates.set(unitId, {
@@ -4585,29 +4572,12 @@ private automateSupplyConvoys(
   private getPlayerEnemyContactStateAtHex(targetHex: Axial): EnemyContactState | null {
     this.refreshPlayerEnemyContactStates();
     const targetKey = axialKey(targetHex);
-    console.log("[GameEngine] getPlayerEnemyContactStateAtHex:", {
-      targetHex,
-      targetKey,
-      totalContacts: this.playerEnemyContactStates.size,
-      turnNumber: this._turnNumber
-    });
     for (const entry of this.playerEnemyContactStates.values()) {
       const snapshot = this.mapEnemyContactSnapshot(entry);
-      if (snapshot) {
-        console.log("[GameEngine] Contact snapshot:", {
-          hex: snapshot.hex,
-          hexKey: axialKey(snapshot.hex),
-          state: snapshot.state,
-          lastSeenTurn: snapshot.lastSeenTurn,
-          matches: axialKey(snapshot.hex) === targetKey
-        });
-      }
       if (snapshot && axialKey(snapshot.hex) === targetKey) {
-        console.log("[GameEngine] Found contact at target hex:", snapshot.state);
         return snapshot.state;
       }
     }
-    console.log("[GameEngine] No contact found at target hex");
     return null;
   }
 
@@ -4650,21 +4620,10 @@ private automateSupplyConvoys(
 
   queueSupportActionFromUnit(callerHex: Axial, assetId: string, targetHex: Axial): boolean {
     if (this._phase !== "playerTurn") {
-      console.log("[GameEngine] queueSupportActionFromUnit failed: not player turn");
       return false;
     }
     const caller = this.lookupUnit(callerHex, "Player");
-    const enemyContact = this.getPlayerEnemyContactStateAtHex(targetHex);
-    console.log("[GameEngine] queueSupportActionFromUnit validation:", {
-      callerHex,
-      targetHex,
-      hasCaller: !!caller,
-      isAutomated: caller ? this.isAutomatedPlayerUnit(caller) : false,
-      enemyContact,
-      turnNumber: this._turnNumber
-    });
-    if (!caller || this.isAutomatedPlayerUnit(caller) || !enemyContact) {
-      console.log("[GameEngine] queueSupportActionFromUnit failed validation");
+    if (!caller || this.isAutomatedPlayerUnit(caller) || !this.getPlayerEnemyContactStateAtHex(targetHex)) {
       return false;
     }
     const callerDefinition = this.getUnitDefinition(caller.type);
@@ -4676,7 +4635,8 @@ private automateSupplyConvoys(
     }
     const callerKey = axialKey(callerHex);
     const flags = this.playerActionFlags.get(callerKey) ?? this.createDefaultActionFlags();
-    if (flags.attacksUsed > 0 || flags.movementPointsUsed > 0) {
+    const halfMovement = Math.floor(callerDefinition.movement / 2);
+    if (flags.attacksUsed > 0 || flags.movementPointsUsed > halfMovement) {
       return false;
     }
     const asset = this.getInternalSupportAsset(assetId);

@@ -25,11 +25,18 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
   // Track the order of operations across stubs
   let animationCalled = false;
   let hardTargetFlag: boolean | null = null;
+  const focusedHexes: string[] = [];
 
   // Fake engine exposing only the methods/fields used by executePendingAttack() and renderEngineUnits()
   const fakeEngine = {
     playerUnits: [] as ScenarioUnit[],
     botUnits: [] as ScenarioUnit[],
+    getSupportSnapshot() {
+      return { queued: [] };
+    },
+    getScheduledAirMissions() {
+      return [];
+    },
     previewAttack(_a: Axial, _d: Axial) {
       const result: AttackResult = {
         accuracy: 60,
@@ -165,6 +172,7 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
       hardTargetFlag = isHardTarget;
       animationCalled = true;
     },
+    syncQueuedTargetMarkers: () => {},
     markHexWrecked: () => {},
     markHexDamaged: () => {},
     advanceAftermathTurn: () => {},
@@ -187,6 +195,9 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
       null,
       null
     );
+    (screen as any).focusCameraOnHex = async (hexKey: string): Promise<void> => {
+      focusedHexes.push(hexKey);
+    };
   });
 
   await When("executePendingAttack runs between two adjacent hexes", async () => {
@@ -198,6 +209,9 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
   await Then("the animation completes before damage is applied and defender is treated as soft target", async () => {
     if (!animationCalled) {
       throw new Error("Expected playAttackSequence to be invoked");
+    }
+    if (focusedHexes[0] !== "0,1") {
+      throw new Error(`Expected player attack flow to focus defender hex 0,1 before animation, saw ${focusedHexes[0] ?? "nothing"}.`);
     }
     if (hardTargetFlag !== false) {
       throw new Error(`Expected soft target (false), saw ${hardTargetFlag}`);
@@ -230,10 +244,17 @@ registerTest("BATTLESCREEN_BOT_ATTACK_ANIMATION_HARD_TARGET", async ({ Given, Wh
 
   let lastHardTargetFlag: boolean | null = null;
   let animationCount = 0;
+  const focusedHexes: string[] = [];
 
   const fakeEngine = {
     playerUnits: [] as ScenarioUnit[],
-    botUnits: [] as ScenarioUnit[]
+    botUnits: [] as ScenarioUnit[],
+    getSupportSnapshot() {
+      return { queued: [] };
+    },
+    getScheduledAirMissions() {
+      return [];
+    }
   } as const;
 
   const fakeBattleState = {
@@ -248,6 +269,7 @@ registerTest("BATTLESCREEN_BOT_ATTACK_ANIMATION_HARD_TARGET", async ({ Given, Wh
       lastHardTargetFlag = isHardTarget;
       animationCount += 1;
     },
+    syncQueuedTargetMarkers: () => {},
     markHexWrecked: () => {},
     markHexDamaged: () => {},
     advanceAftermathTurn: () => {},
@@ -270,6 +292,9 @@ registerTest("BATTLESCREEN_BOT_ATTACK_ANIMATION_HARD_TARGET", async ({ Given, Wh
       null,
       null
     );
+    (screen as any).focusCameraOnHex = async (hexKey: string): Promise<void> => {
+      focusedHexes.push(hexKey);
+    };
   });
 
   const summary: BotTurnSummary = {
@@ -294,6 +319,9 @@ registerTest("BATTLESCREEN_BOT_ATTACK_ANIMATION_HARD_TARGET", async ({ Given, Wh
   await Then("the renderer receives a hard-target flag and an animation call", async () => {
     if (animationCount < 1) {
       throw new Error("Expected at least one bot attack animation to run");
+    }
+    if (focusedHexes[0] !== "0,0" || focusedHexes[1] !== "0,1") {
+      throw new Error(`Expected bot attack flow to focus attacker then target hexes (0,0 -> 0,1), saw ${focusedHexes.join(" -> ") || "nothing"}.`);
     }
     if (lastHardTargetFlag !== true) {
       throw new Error(`Expected hard target (true) for tank-class defender, saw ${lastHardTargetFlag}`);
