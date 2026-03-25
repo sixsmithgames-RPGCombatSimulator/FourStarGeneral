@@ -426,8 +426,8 @@ registerTest("HEXMAP_ARCING_ARTILLERY_ATTACK_SPAWNS_STAGGERED_SMALL_BURSTS", asy
 
   await Then("it schedules several smaller explosion bursts on the defender hex", async () => {
     const impactCalls = combatCalls.filter((call) => call.animationType === "explosionLarge" || call.animationType === "explosionSmall");
-    if (impactCalls.length !== 3) {
-      throw new Error(`Expected exactly three artillery explosion animations, found ${impactCalls.length}.`);
+    if (impactCalls.length !== 4) {
+      throw new Error(`Expected exactly four artillery explosion animations, found ${impactCalls.length}.`);
     }
 
     for (const impactCall of impactCalls) {
@@ -439,14 +439,20 @@ registerTest("HEXMAP_ARCING_ARTILLERY_ATTACK_SPAWNS_STAGGERED_SMALL_BURSTS", asy
       }
     }
 
-    const centeredImpacts = impactCalls.filter((call) => call.offsetX === 0 && call.offsetY === 0);
-    if (centeredImpacts.length !== 1) {
-      throw new Error(`Expected one centered artillery burst, found ${centeredImpacts.length}.`);
+    const offsetImpacts = impactCalls.filter((call) => call.offsetX !== 0 || call.offsetY !== 0);
+    if (offsetImpacts.length !== 4) {
+      throw new Error(`Expected all artillery bursts to land off-center, found ${offsetImpacts.length} offset bursts.`);
     }
 
-    const offsetImpacts = impactCalls.filter((call) => call.offsetX !== 0 || call.offsetY !== 0);
-    if (offsetImpacts.length !== 2) {
-      throw new Error(`Expected two offset artillery bursts, found ${offsetImpacts.length}.`);
+    const uniqueOffsets = new Set(offsetImpacts.map((call) => `${call.offsetX},${call.offsetY}`));
+    if (uniqueOffsets.size !== 4) {
+      throw new Error(`Expected four distinct artillery burst offsets, found ${uniqueOffsets.size}.`);
+    }
+
+    const spreadXs = offsetImpacts.map((call) => Math.abs(call.offsetX));
+    const spreadYs = offsetImpacts.map((call) => Math.abs(call.offsetY));
+    if (Math.max(...spreadXs) < 8 || Math.max(...spreadYs) < 8) {
+      throw new Error("Expected artillery bursts to spread visibly away from the center of the hex.");
     }
   });
 });

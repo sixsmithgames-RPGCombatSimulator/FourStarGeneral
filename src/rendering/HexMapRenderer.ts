@@ -3531,27 +3531,29 @@ export class HexMapRenderer implements IMapRenderer {
     defenderHexKey: string,
     targetIsHardTarget: boolean
   ): Promise<void> {
-    const spreadPx = targetIsHardTarget ? HEX_RADIUS * 0.28 : HEX_RADIUS * 0.42;
-    const roundedSpread = Math.max(4, Math.round(spreadPx));
+    const spreadPx = targetIsHardTarget ? HEX_RADIUS * 0.52 : HEX_RADIUS * 0.74;
+    const roundedSpread = Math.max(8, Math.round(spreadPx));
     const impactOffsets = targetIsHardTarget
       ? [
-          [0, 0],
-          [-roundedSpread, -Math.round(roundedSpread * 0.45)],
-          [Math.round(roundedSpread * 0.8), Math.round(roundedSpread * 0.55)]
+          [-roundedSpread, -Math.round(roundedSpread * 0.55)],
+          [Math.round(roundedSpread * 0.82), -Math.round(roundedSpread * 0.32)],
+          [-Math.round(roundedSpread * 0.28), Math.round(roundedSpread * 0.78)],
+          [Math.round(roundedSpread * 0.22), Math.round(roundedSpread * 0.18)]
         ]
       : [
-          [-roundedSpread, Math.round(roundedSpread * 0.2)],
-          [Math.round(roundedSpread * 0.75), -Math.round(roundedSpread * 0.4)],
-          [0, Math.round(roundedSpread * 0.65)]
+          [-roundedSpread, Math.round(roundedSpread * 0.3)],
+          [Math.round(roundedSpread * 0.88), -Math.round(roundedSpread * 0.48)],
+          [Math.round(roundedSpread * 0.18), Math.round(roundedSpread * 0.92)],
+          [-Math.round(roundedSpread * 0.46), -Math.round(roundedSpread * 0.74)]
         ];
-    const baseScale = targetIsHardTarget ? 1.24 : 1.12;
+    const baseScale = targetIsHardTarget ? 1.12 : 1.02;
 
     const burstPromises = impactOffsets.map(([offsetX, offsetY], index) =>
       new Promise<void>((resolve) => {
         window.setTimeout(() => {
-          const scale = baseScale * (index === 0 ? 1.06 : 0.92 + index * 0.08);
+          const scale = baseScale * (0.92 + index * 0.06);
           void this.playCombatAnimation("explosionSmall", defenderHexKey, offsetX, offsetY, scale).then(() => resolve());
-        }, index * 85);
+        }, index * 120);
       })
     );
 
@@ -3716,7 +3718,7 @@ export class HexMapRenderer implements IMapRenderer {
         arcHeight: attackerType === "Flak_88" ? 42 : 56
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 260));
+      await new Promise((resolve) => setTimeout(resolve, 420));
 
       const hitShakePromise = this.playHitShake(defenderHexKey, targetIsHardTarget ? 6 : 5);
 
