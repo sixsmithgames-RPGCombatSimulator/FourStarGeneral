@@ -2,6 +2,7 @@
   "Infantry_42": {
     "class": "infantry",
     "combat": { "category": "infantry", "weight": "light", "role": "normal", "signature": "small" },
+    "weaponEffectType": "small_arms",
     "movement": 1.5,
     "moveType": "leg",
     "vision": 2,
@@ -21,6 +22,7 @@
   "AT_Infantry": {
     "class": "infantry",
     "combat": { "category": "infantry", "weight": "heavy", "role": "antiTank", "signature": "small" },
+    "weaponEffectType": "cannon",
     "movement": 1,
     "moveType": "leg",
     "vision": 2,
@@ -40,6 +42,7 @@
   "Paratrooper": {
     "class": "infantry",
     "combat": { "category": "infantry", "weight": "light", "role": "normal", "signature": "small" },
+    "weaponEffectType": "small_arms",
     "movement": 1.5,
     "moveType": "leg",
     "vision": 3,
@@ -59,6 +62,7 @@
   "Engineer": {
     "class": "specialist",
     "combat": { "category": "specialist", "weight": "light", "role": "antiInfantry", "signature": "small" },
+    "weaponEffectType": "small_arms",
     "movement": 2,
     "moveType": "leg",
     "vision": 2,
@@ -78,6 +82,7 @@
   "Combat_Engineer": {
     "class": "specialist",
     "combat": { "category": "specialist", "weight": "light", "role": "antiInfantry", "signature": "small" },
+    "weaponEffectType": "small_arms",
     "movement": 2,
     "moveType": "leg",
     "vision": 3,
@@ -98,6 +103,7 @@
   "AT_Gun_50mm": {
     "class": "specialist",
     "combat": { "category": "specialist", "weight": "medium", "role": "antiTank", "signature": "medium" },
+    "weaponEffectType": "cannon",
     "movement": 2,
     "moveType": "wheel",
     "vision": 2,
@@ -118,6 +124,7 @@
   "Flak_88": {
     "class": "specialist",
     "combat": { "category": "specialist", "weight": "heavy", "role": "antiTank", "signature": "large" },
+    "weaponEffectType": "cannon",
     "movement": 2,
     "moveType": "wheel",
     "vision": 3,
@@ -137,6 +144,7 @@
   "Recon_Bike": {
     "class": "recon",
     "combat": { "category": "recon", "weight": "light", "role": "normal", "signature": "tiny" },
+    "weaponEffectType": "mg",
     "movement": 4,
     "moveType": "wheel",
     "vision": 4,
@@ -156,6 +164,7 @@
   "Recon_ArmoredCar": {
     "class": "recon",
     "combat": { "category": "recon", "weight": "medium", "role": "normal", "signature": "medium" },
+    "weaponEffectType": "mg",
     "movement": 3,
     "moveType": "wheel",
     "vision": 5,
@@ -175,6 +184,7 @@
   "Scout_Plane": {
     "class": "recon",
     "combat": { "category": "air", "weight": "light", "role": "support", "signature": "medium" },
+    "weaponEffectType": "mg",
     "movement": 12,
     "moveType": "air",
     "vision": 6,
@@ -200,6 +210,7 @@
   "APC_Truck": {
     "class": "vehicle",
     "combat": { "category": "vehicle", "weight": "medium", "role": "support", "signature": "large" },
+    "weaponEffectType": "small_arms",
     "movement": 2,
     "moveType": "wheel",
     "vision": 2,
@@ -220,6 +231,7 @@
   "APC_Halftrack": {
     "class": "vehicle",
     "combat": { "category": "vehicle", "weight": "medium", "role": "normal", "signature": "medium" },
+    "weaponEffectType": "mg",
     "movement": 3,
     "moveType": "track",
     "vision": 3,
@@ -240,6 +252,7 @@
   "Supply_Truck": {
     "class": "vehicle",
     "combat": { "category": "vehicle", "weight": "medium", "role": "support", "signature": "large" },
+    "weaponEffectType": "small_arms",
     "movement": 2,
     "moveType": "wheel",
     "vision": 2,
@@ -259,6 +272,7 @@
   "Panzer_IV": {
     "class": "tank",
     "combat": { "category": "tank", "weight": "medium", "role": "normal", "signature": "medium" },
+    "weaponEffectType": "cannon",
     "movement": 3,
     "moveType": "track",
     "vision": 3,
@@ -278,6 +292,7 @@
   "Heavy_Tank": {
     "class": "tank",
     "combat": { "category": "tank", "weight": "heavy", "role": "normal", "signature": "large" },
+    "weaponEffectType": "cannon",
     "movement": 3,
     "moveType": "track",
     "vision": 3,
@@ -297,6 +312,7 @@
   "Light_Tank": {
     "class": "tank",
     "combat": { "category": "tank", "weight": "light", "role": "normal", "signature": "medium" },
+    "weaponEffectType": "cannon",
     "movement": 4,
     "moveType": "track",
     "vision": 4,
@@ -316,6 +332,7 @@
   "Assault_Gun": {
     "class": "tank",
     "combat": { "category": "tank", "weight": "medium", "role": "antiInfantry", "signature": "medium" },
+    "weaponEffectType": "cannon",
     "movement": 4,
     "moveType": "track",
     "vision": 3,
@@ -336,6 +353,7 @@
   "Tank_Destroyer": {
     "class": "tank",
     "combat": { "category": "tank", "weight": "medium", "role": "antiTank", "signature": "medium" },
+    "weaponEffectType": "cannon",
     "movement": 3,
     "moveType": "track",
     "vision": 3,
@@ -355,6 +373,7 @@
   "Howitzer_105": {
     "class": "artillery",
     "combat": { "category": "artillery", "weight": "medium", "role": "antiInfantry", "signature": "large" },
+    "weaponEffectType": "cannon",
     "movement": 2,
     "moveType": "wheel",
     "vision": 2,
@@ -374,6 +393,7 @@
   "Rocket_Artillery": {
     "class": "artillery",
     "combat": { "category": "artillery", "weight": "heavy", "role": "antiInfantry", "signature": "large" },
+    "weaponEffectType": "cannon",
     "movement": 3,
     "moveType": "track",
     "vision": 2,
@@ -393,6 +413,7 @@
   "SP_Artillery": {
     "class": "artillery",
     "combat": { "category": "artillery", "weight": "medium", "role": "normal", "signature": "medium" },
+    "weaponEffectType": "cannon",
     "movement": 3,
     "moveType": "track",
     "vision": 3,
@@ -412,6 +433,7 @@
   "Fighter": {
     "class": "air",
     "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "medium" },
+    "weaponEffectType": "mg",
     "movement": 10,
     "moveType": "air",
     "vision": 4,
@@ -437,6 +459,7 @@
   "Interceptor": {
     "class": "air",
     "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "small" },
+    "weaponEffectType": "mg",
     "movement": 12,
     "moveType": "air",
     "vision": 5,
@@ -462,6 +485,7 @@
   "Ground_Attack": {
     "class": "air",
     "combat": { "category": "air", "weight": "light", "role": "antiVehicle", "signature": "medium" },
+    "weaponEffectType": "cannon",
     "movement": 8,
     "moveType": "air",
     "vision": 4,
@@ -487,6 +511,7 @@
   "Bomber": {
     "class": "air",
     "combat": { "category": "air", "weight": "medium", "role": "antiInfantry", "signature": "large" },
+    "weaponEffectType": "cannon",
     "movement": 6,
     "moveType": "air",
     "vision": 4,
@@ -513,6 +538,7 @@
   "Transport_Plane": {
     "class": "air",
     "combat": { "category": "air", "weight": "light", "role": "support", "signature": "large" },
+    "weaponEffectType": "small_arms",
     "movement": 8,
     "moveType": "air",
     "vision": 3,

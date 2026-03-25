@@ -1,0 +1,448 @@
+{
+  "version": "1.0.0",
+  "assets": {
+    "small_arms_transient_01": {
+      "id": "small_arms_transient_01",
+      "family": "transient",
+      "weaponClass": "small_arms",
+      "variantIndex": 0,
+      "durationMs": 120,
+      "loudnessClass": "light",
+      "tags": ["rifle", "crack"],
+      "filePath": "public/sounds/combat/small_arms_transient_01.mp3"
+    },
+    "small_arms_transient_02": {
+      "id": "small_arms_transient_02",
+      "family": "transient",
+      "weaponClass": "small_arms",
+      "variantIndex": 1,
+      "durationMs": 115,
+      "loudnessClass": "light",
+      "tags": ["rifle", "crack"],
+      "filePath": "public/sounds/combat/small_arms_transient_02.mp3"
+    },
+    "small_arms_transient_03": {
+      "id": "small_arms_transient_03",
+      "family": "transient",
+      "weaponClass": "small_arms",
+      "variantIndex": 2,
+      "durationMs": 125,
+      "loudnessClass": "light",
+      "tags": ["rifle", "crack"],
+      "filePath": "public/sounds/combat/small_arms_transient_03.mp3"
+    },
+    "small_arms_mechanical_01": {
+      "id": "small_arms_mechanical_01",
+      "family": "mechanical",
+      "weaponClass": "small_arms",
+      "variantIndex": 0,
+      "durationMs": 180,
+      "loudnessClass": "light",
+      "tags": ["bolt", "mechanism"],
+      "filePath": "public/sounds/combat/small_arms_mechanical_01.mp3"
+    },
+    "small_arms_mechanical_02": {
+      "id": "small_arms_mechanical_02",
+      "family": "mechanical",
+      "weaponClass": "small_arms",
+      "variantIndex": 1,
+      "durationMs": 175,
+      "loudnessClass": "light",
+      "tags": ["bolt", "mechanism"],
+      "filePath": "public/sounds/combat/small_arms_mechanical_02.mp3"
+    },
+    "mg_transient_01": {
+      "id": "mg_transient_01",
+      "family": "transient",
+      "weaponClass": "mg",
+      "variantIndex": 0,
+      "durationMs": 140,
+      "loudnessClass": "medium",
+      "tags": ["machinegun", "burst"],
+      "filePath": "public/sounds/combat/mg_transient_01.mp3"
+    },
+    "mg_transient_02": {
+      "id": "mg_transient_02",
+      "family": "transient",
+      "weaponClass": "mg",
+      "variantIndex": 1,
+      "durationMs": 135,
+      "loudnessClass": "medium",
+      "tags": ["machinegun", "burst"],
+      "filePath": "public/sounds/combat/mg_transient_02.mp3"
+    },
+    "mg_body_01": {
+      "id": "mg_body_01",
+      "family": "body",
+      "weaponClass": "mg",
+      "variantIndex": 0,
+      "durationMs": 250,
+      "loudnessClass": "medium",
+      "tags": ["body", "sustain"],
+      "filePath": "public/sounds/combat/mg_body_01.mp3"
+    },
+    "mg_mechanical_01": {
+      "id": "mg_mechanical_01",
+      "family": "mechanical",
+      "weaponClass": "mg",
+      "variantIndex": 0,
+      "durationMs": 200,
+      "loudnessClass": "medium",
+      "tags": ["cyclic", "mechanism"],
+      "filePath": "public/sounds/combat/mg_mechanical_01.mp3"
+    },
+    "cannon_transient_01": {
+      "id": "cannon_transient_01",
+      "family": "transient",
+      "weaponClass": "cannon",
+      "variantIndex": 0,
+      "durationMs": 180,
+      "loudnessClass": "heavy",
+      "tags": ["cannon", "blast"],
+      "filePath": "public/sounds/combat/cannon_transient_01.mp3"
+    },
+    "cannon_transient_02": {
+      "id": "cannon_transient_02",
+      "family": "transient",
+      "weaponClass": "cannon",
+      "variantIndex": 1,
+      "durationMs": 185,
+      "loudnessClass": "heavy",
+      "tags": ["cannon", "blast"],
+      "filePath": "public/sounds/combat/cannon_transient_02.mp3"
+    },
+    "cannon_body_01": {
+      "id": "cannon_body_01",
+      "family": "body",
+      "weaponClass": "cannon",
+      "variantIndex": 0,
+      "durationMs": 400,
+      "loudnessClass": "heavy",
+      "tags": ["boom", "body"],
+      "filePath": "public/sounds/combat/cannon_body_01.mp3"
+    },
+    "cannon_mechanical_01": {
+      "id": "cannon_mechanical_01",
+      "family": "mechanical",
+      "weaponClass": "cannon",
+      "variantIndex": 0,
+      "durationMs": 300,
+      "loudnessClass": "heavy",
+      "tags": ["breach", "recoil"],
+      "filePath": "public/sounds/combat/cannon_mechanical_01.mp3"
+    },
+    "tank_75mm_transient_01": {
+      "id": "tank_75mm_transient_01",
+      "family": "transient",
+      "weaponClass": "tank_75mm",
+      "variantIndex": 0,
+      "durationMs": 200,
+      "loudnessClass": "heavy",
+      "tags": ["tank", "blast"],
+      "filePath": "public/sounds/combat/tank_75mm_transient_01.mp3"
+    },
+    "tank_75mm_body_01": {
+      "id": "tank_75mm_body_01",
+      "family": "body",
+      "weaponClass": "tank_75mm",
+      "variantIndex": 0,
+      "durationMs": 450,
+      "loudnessClass": "heavy",
+      "tags": ["tank", "boom"],
+      "filePath": "public/sounds/combat/tank_75mm_body_01.mp3"
+    },
+    "tank_75mm_mechanical_01": {
+      "id": "tank_75mm_mechanical_01",
+      "family": "mechanical",
+      "weaponClass": "tank_75mm",
+      "variantIndex": 0,
+      "durationMs": 350,
+      "loudnessClass": "heavy",
+      "tags": ["turret", "recoil"],
+      "filePath": "public/sounds/combat/tank_75mm_mechanical_01.mp3"
+    },
+    "mortar_transient_01": {
+      "id": "mortar_transient_01",
+      "family": "transient",
+      "weaponClass": "mortar",
+      "variantIndex": 0,
+      "durationMs": 150,
+      "loudnessClass": "medium",
+      "tags": ["mortar", "thump"],
+      "filePath": "public/sounds/combat/mortar_transient_01.mp3"
+    },
+    "mortar_body_01": {
+      "id": "mortar_body_01",
+      "family": "body",
+      "weaponClass": "mortar",
+      "variantIndex": 0,
+      "durationMs": 300,
+      "loudnessClass": "medium",
+      "tags": ["mortar", "launch"],
+      "filePath": "public/sounds/combat/mortar_body_01.mp3"
+    },
+    "mortar_flight_01": {
+      "id": "mortar_flight_01",
+      "family": "flight",
+      "weaponClass": "mortar",
+      "variantIndex": 0,
+      "durationMs": 800,
+      "loudnessClass": "light",
+      "tags": ["whistle", "travel"],
+      "filePath": "public/sounds/combat/mortar_flight_01.mp3"
+    },
+    "rocket_transient_01": {
+      "id": "rocket_transient_01",
+      "family": "transient",
+      "weaponClass": "rocket",
+      "variantIndex": 0,
+      "durationMs": 180,
+      "loudnessClass": "heavy",
+      "tags": ["rocket", "ignition"],
+      "filePath": "public/sounds/combat/rocket_transient_01.mp3"
+    },
+    "rocket_body_01": {
+      "id": "rocket_body_01",
+      "family": "body",
+      "weaponClass": "rocket",
+      "variantIndex": 0,
+      "durationMs": 500,
+      "loudnessClass": "heavy",
+      "tags": ["rocket", "thrust"],
+      "filePath": "public/sounds/combat/rocket_body_01.mp3"
+    },
+    "rocket_flight_01": {
+      "id": "rocket_flight_01",
+      "family": "flight",
+      "weaponClass": "rocket",
+      "variantIndex": 0,
+      "durationMs": 1200,
+      "loudnessClass": "medium",
+      "tags": ["whoosh", "travel"],
+      "filePath": "public/sounds/combat/rocket_flight_01.mp3"
+    },
+    "artillery_transient_01": {
+      "id": "artillery_transient_01",
+      "family": "transient",
+      "weaponClass": "artillery",
+      "variantIndex": 0,
+      "durationMs": 220,
+      "loudnessClass": "massive",
+      "tags": ["artillery", "blast"],
+      "filePath": "public/sounds/combat/artillery_transient_01.mp3"
+    },
+    "artillery_body_01": {
+      "id": "artillery_body_01",
+      "family": "body",
+      "weaponClass": "artillery",
+      "variantIndex": 0,
+      "durationMs": 600,
+      "loudnessClass": "massive",
+      "tags": ["artillery", "boom"],
+      "filePath": "public/sounds/combat/artillery_body_01.mp3"
+    },
+    "large_bomb_transient_01": {
+      "id": "large_bomb_transient_01",
+      "family": "transient",
+      "weaponClass": "large_bomb",
+      "variantIndex": 0,
+      "durationMs": 250,
+      "loudnessClass": "massive",
+      "tags": ["bomb", "detonation"],
+      "filePath": "public/sounds/combat/large_bomb_transient_01.mp3"
+    },
+    "large_bomb_body_01": {
+      "id": "large_bomb_body_01",
+      "family": "body",
+      "weaponClass": "large_bomb",
+      "variantIndex": 0,
+      "durationMs": 800,
+      "loudnessClass": "massive",
+      "tags": ["bomb", "explosion"],
+      "filePath": "public/sounds/combat/large_bomb_body_01.mp3"
+    },
+    "large_bomb_flight_01": {
+      "id": "large_bomb_flight_01",
+      "family": "flight",
+      "weaponClass": "large_bomb",
+      "variantIndex": 0,
+      "durationMs": 1500,
+      "loudnessClass": "medium",
+      "tags": ["falling", "whistle"],
+      "filePath": "public/sounds/combat/large_bomb_flight_01.mp3"
+    },
+    "impact_earth_01": {
+      "id": "impact_earth_01",
+      "family": "impact",
+      "weaponClass": "small_arms",
+      "material": "earth",
+      "variantIndex": 0,
+      "durationMs": 200,
+      "loudnessClass": "light",
+      "tags": ["impact", "dirt"],
+      "filePath": "public/sounds/combat/impact_earth_01.mp3"
+    },
+    "impact_earth_02": {
+      "id": "impact_earth_02",
+      "family": "impact",
+      "weaponClass": "small_arms",
+      "material": "earth",
+      "variantIndex": 1,
+      "durationMs": 195,
+      "loudnessClass": "light",
+      "tags": ["impact", "dirt"],
+      "filePath": "public/sounds/combat/impact_earth_02.mp3"
+    },
+    "impact_earth_03": {
+      "id": "impact_earth_03",
+      "family": "impact",
+      "weaponClass": "small_arms",
+      "material": "earth",
+      "variantIndex": 2,
+      "durationMs": 205,
+      "loudnessClass": "light",
+      "tags": ["impact", "dirt"],
+      "filePath": "public/sounds/combat/impact_earth_03.mp3"
+    },
+    "impact_armor_01": {
+      "id": "impact_armor_01",
+      "family": "impact",
+      "weaponClass": "cannon",
+      "material": "armor",
+      "variantIndex": 0,
+      "durationMs": 250,
+      "loudnessClass": "heavy",
+      "tags": ["impact", "metal", "ricochet"],
+      "filePath": "public/sounds/combat/impact_armor_01.mp3"
+    },
+    "impact_armor_02": {
+      "id": "impact_armor_02",
+      "family": "impact",
+      "weaponClass": "cannon",
+      "material": "armor",
+      "variantIndex": 1,
+      "durationMs": 245,
+      "loudnessClass": "heavy",
+      "tags": ["impact", "metal", "penetration"],
+      "filePath": "public/sounds/combat/impact_armor_02.mp3"
+    },
+    "impact_wood_01": {
+      "id": "impact_wood_01",
+      "family": "impact",
+      "weaponClass": "small_arms",
+      "material": "wood",
+      "variantIndex": 0,
+      "durationMs": 180,
+      "loudnessClass": "light",
+      "tags": ["impact", "splinter"],
+      "filePath": "public/sounds/combat/impact_wood_01.mp3"
+    },
+    "impact_masonry_01": {
+      "id": "impact_masonry_01",
+      "family": "impact",
+      "weaponClass": "artillery",
+      "material": "masonry",
+      "variantIndex": 0,
+      "durationMs": 400,
+      "loudnessClass": "heavy",
+      "tags": ["impact", "concrete", "rubble"],
+      "filePath": "public/sounds/combat/impact_masonry_01.mp3"
+    },
+    "impact_grass_01": {
+      "id": "impact_grass_01",
+      "family": "impact",
+      "weaponClass": "small_arms",
+      "material": "grass",
+      "variantIndex": 0,
+      "durationMs": 150,
+      "loudnessClass": "light",
+      "tags": ["impact", "soft"],
+      "filePath": "public/sounds/combat/impact_grass_01.mp3"
+    },
+    "impact_mud_01": {
+      "id": "impact_mud_01",
+      "family": "impact",
+      "weaponClass": "mortar",
+      "material": "mud",
+      "variantIndex": 0,
+      "durationMs": 220,
+      "loudnessClass": "medium",
+      "tags": ["impact", "wet", "splash"],
+      "filePath": "public/sounds/combat/impact_mud_01.mp3"
+    },
+    "impact_sand_01": {
+      "id": "impact_sand_01",
+      "family": "impact",
+      "weaponClass": "small_arms",
+      "material": "sand",
+      "variantIndex": 0,
+      "durationMs": 170,
+      "loudnessClass": "light",
+      "tags": ["impact", "beach"],
+      "filePath": "public/sounds/combat/impact_sand_01.mp3"
+    },
+    "debris_earth_01": {
+      "id": "debris_earth_01",
+      "family": "debris",
+      "weaponClass": "artillery",
+      "material": "earth",
+      "variantIndex": 0,
+      "durationMs": 600,
+      "loudnessClass": "medium",
+      "tags": ["debris", "falling", "dirt"],
+      "filePath": "public/sounds/combat/debris_earth_01.mp3"
+    },
+    "debris_masonry_01": {
+      "id": "debris_masonry_01",
+      "family": "debris",
+      "weaponClass": "large_bomb",
+      "material": "masonry",
+      "variantIndex": 0,
+      "durationMs": 800,
+      "loudnessClass": "heavy",
+      "tags": ["debris", "rubble", "concrete"],
+      "filePath": "public/sounds/combat/debris_masonry_01.mp3"
+    },
+    "debris_wood_01": {
+      "id": "debris_wood_01",
+      "family": "debris",
+      "weaponClass": "artillery",
+      "material": "wood",
+      "variantIndex": 0,
+      "durationMs": 500,
+      "loudnessClass": "medium",
+      "tags": ["debris", "splinters"],
+      "filePath": "public/sounds/combat/debris_wood_01.mp3"
+    },
+    "tail_small_01": {
+      "id": "tail_small_01",
+      "family": "tail",
+      "weaponClass": "small_arms",
+      "variantIndex": 0,
+      "durationMs": 800,
+      "loudnessClass": "light",
+      "tags": ["reverb", "echo"],
+      "filePath": "public/sounds/combat/tail_small_01.mp3"
+    },
+    "tail_medium_01": {
+      "id": "tail_medium_01",
+      "family": "tail",
+      "weaponClass": "cannon",
+      "variantIndex": 0,
+      "durationMs": 1200,
+      "loudnessClass": "medium",
+      "tags": ["reverb", "echo"],
+      "filePath": "public/sounds/combat/tail_medium_01.mp3"
+    },
+    "tail_large_01": {
+      "id": "tail_large_01",
+      "family": "tail",
+      "weaponClass": "artillery",
+      "variantIndex": 0,
+      "durationMs": 2000,
+      "loudnessClass": "heavy",
+      "tags": ["reverb", "rumble"],
+      "filePath": "public/sounds/combat/tail_large_01.mp3"
+    }
+  }
+}

@@ -228,6 +228,11 @@ export interface UnitTypeDefinition {
    * light/medium/heavy and role-specialized formations without destabilizing non-combat systems.
    */
   combat: CombatClassification;
+  /**
+   * Weapon effect type for procedural combat animations.
+   * Maps to effect specifications in effectSpecs.json.
+   */
+  weaponEffectType?: string;
   movement: number;
   moveType: MoveType;
   vision: number;

@@ -5,7 +5,10 @@ import { HEX_RADIUS, HEX_HEIGHT, HEX_WIDTH } from "../core/balance";
 import { CoordinateSystem, type TileDetails } from "./CoordinateSystem";
 import { TerrainRenderer } from "./TerrainRenderer";
 import { RoadOverlayRenderer } from "./RoadOverlayRenderer";
-import { FrameSequenceAnimator } from "./FrameSequenceAnimator";
+import { ProceduralEffectsAnimator, getZoomTier } from "./ProceduralEffects";
+import { loadEffectSpecifications } from "./EffectSpecifications";
+import { getTerrainTint, shouldUseTerrainResponse, loadTerrainTints } from "./TerrainResponseSystem";
+import { CombatSoundManager } from "../audio/CombatSoundManager";
 import terrainData from "../data/terrain.json";
 import unitTypesData from "../data/unitTypes.json";
 import { hexLine, type Axial } from "../core/Hex";
@@ -81,8 +84,11 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly terrainRenderer = new TerrainRenderer();
   private readonly roadRenderer = new RoadOverlayRenderer();
   private readonly reconOverlayState = new Map<string, ReconStatusKey>();
-  private combatAnimator: FrameSequenceAnimator | null = null;
+  private combatAnimator: ProceduralEffectsAnimator | null = null;
+  private readonly soundManager: CombatSoundManager = new CombatSoundManager();
   private readonly recentEffects = new Map<string, number>(); // Dedupe guard: effectKey -> timestamp
+  private static effectSpecsLoaded = false;
+  private static soundCatalogLoaded = false;
 
   private hexClickHandler: ((key: string) => void) | null = null;
   private boundDelegatedClickHandler: ((event: MouseEvent) => void) | null = null;
@@ -980,10 +986,29 @@ export class HexMapRenderer implements IMapRenderer {
       this.combatAnimator = null;
     }
 
-    // Initialize combat animator with the SVG combat effects layer for foreignObject mounting.
+    // Initialize combat animator with the SVG combat effects layer for procedural effects.
     if (this.combatEffectsLayer && !this.combatAnimator) {
-      this.combatAnimator = new FrameSequenceAnimator(this.combatEffectsLayer);
-      console.log("[HexMapRenderer] Combat animator initialized with SVG effects layer");
+      this.combatAnimator = new ProceduralEffectsAnimator(this.combatEffectsLayer, this.soundManager);
+      console.log("[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager");
+
+      // Load effect specifications, terrain tints, and sound catalog asynchronously (only once)
+      if (!HexMapRenderer.effectSpecsLoaded) {
+        HexMapRenderer.effectSpecsLoaded = true;
+        Promise.all([
+          loadEffectSpecifications("src/data/effectSpecs.json"),
+          loadTerrainTints("src/data/terrainTints.json")
+        ]).catch((error) => {
+          console.error("[HexMapRenderer] Failed to load effect specifications or terrain tints:", error);
+        });
+      }
+
+      // Load sound catalog asynchronously (only once)
+      if (!HexMapRenderer.soundCatalogLoaded) {
+        HexMapRenderer.soundCatalogLoaded = true;
+        this.soundManager.loadSoundCatalog("src/data/soundCatalog.json").catch((error) => {
+          console.error("[HexMapRenderer] Failed to load sound catalog:", error);
+        });
+      }
     }
 
     if (previousSelection) {
@@ -1073,6 +1098,15 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     return { a: scaleX, b: 0, c: 0, d: scaleY, e: translateX, f: translateY };
+  }
+
+  /**
+   * Get current viewport zoom level.
+   * Returns the scale component from the viewportRoot transform matrix.
+   */
+  private getCurrentZoom(): number {
+    const matrix = this.resolveViewportRootMatrix();
+    return matrix.a; // Scale X component represents zoom level
   }
 
   private syncCombatAnimationOverlayLayout(): void {
@@ -2896,8 +2930,8 @@ export class HexMapRenderer implements IMapRenderer {
     console.log("[HexMapRenderer] Effects layer obtained:", effectsLayer, "isConnected:", effectsLayer.isConnected, "parentNode:", effectsLayer.parentNode?.nodeName);
 
     if (!this.combatAnimator) {
-      console.log("[HexMapRenderer] Creating new FrameSequenceAnimator with SVG effects layer");
-      this.combatAnimator = new FrameSequenceAnimator(effectsLayer);
+      console.log("[HexMapRenderer] Creating new ProceduralEffectsAnimator with SVG effects layer and sound manager");
+      this.combatAnimator = new ProceduralEffectsAnimator(effectsLayer, this.soundManager);
     }
     if (!this.combatAnimator) {
       console.warn("[HexMapRenderer] Combat animator not initialized");
@@ -2925,16 +2959,85 @@ export class HexMapRenderer implements IMapRenderer {
     const finalX = center.cx + offsetX;
     const finalY = center.cy + offsetY;
 
-    console.log(`[HexMapRenderer] Calling combatAnimator.playAnimation at (${finalX}, ${finalY})`);
-    await this.combatAnimator.playAnimation(animationType, finalX, finalY, scale);
+    // Determine if this effect should use terrain-responsive tinting
+    let terrainTint: string | undefined;
+    if (shouldUseTerrainResponse(animationType)) {
+      const terrainType = this.getTerrainTypeAt(hexKey);
+      const tint = getTerrainTint(terrainType);
+      // Use dust color as the primary terrain tint for effects
+      terrainTint = tint.dust;
+    }
+
+    // Determine zoom tier for performance scaling
+    const currentZoom = this.getCurrentZoom();
+    const zoomTier = getZoomTier(currentZoom);
+
+    console.log(`[HexMapRenderer] Calling combatAnimator.playAnimation at (${finalX}, ${finalY}), zoom: ${currentZoom.toFixed(2)} (${zoomTier}), terrain: ${terrainTint ?? 'none'}`);
+    await this.combatAnimator.playAnimation(animationType, finalX, finalY, scale, zoomTier, terrainTint);
     console.log(`[HexMapRenderer] playCombatAnimation COMPLETE - type: ${animationType}, hex: ${hexKey}`);
   }
 
   /**
-   * Plays a muzzle flash animation at the attacker's hex.
+   * Get weapon effect type for a unit at the specified hex.
+   */
+  private getWeaponEffectType(hexKey: string): string {
+    const scenarioType = this.getUnitScenarioTypeAt(hexKey);
+    if (!scenarioType) {
+      return "small_arms"; // Fallback
+    }
+
+    const unitDef = unitTypesData[scenarioType as keyof typeof unitTypesData];
+    if (!unitDef || !unitDef.weaponEffectType) {
+      return "small_arms"; // Fallback
+    }
+
+    return unitDef.weaponEffectType;
+  }
+
+  /**
+   * Get terrain type at the specified hex for terrain-responsive effects.
+   */
+  private getTerrainTypeAt(hexKey: string): string {
+    if (!this.scenarioData) {
+      return "plain"; // Fallback
+    }
+
+    const parts = hexKey.split(",");
+    if (parts.length !== 2) {
+      return "plain"; // Fallback
+    }
+
+    const col = Number(parts[0]);
+    const row = Number(parts[1]);
+
+    if (!Number.isFinite(col) || !Number.isFinite(row)) {
+      return "plain"; // Fallback
+    }
+
+    const rowTiles = this.scenarioData.tiles[row];
+    if (!rowTiles) {
+      return "plain"; // Fallback
+    }
+
+    const tileInstance = rowTiles[col];
+    if (!tileInstance) {
+      return "plain"; // Fallback
+    }
+
+    const tileDef = this.scenarioData.tilePalette[tileInstance.tile];
+    if (!tileDef) {
+      return "plain"; // Fallback
+    }
+
+    return tileDef.terrain;
+  }
+
+  /**
+   * Plays a muzzle flash animation at the attacker's hex using the unit's weapon type.
    */
   async playMuzzleFlash(attackerHexKey: string): Promise<void> {
-    await this.playCombatAnimation("muzzleFlash", attackerHexKey, 0, 0, 1.25);
+    const weaponType = this.getWeaponEffectType(attackerHexKey);
+    await this.playCombatAnimation(weaponType, attackerHexKey, 0, 0, 1.25);
   }
 
   /**

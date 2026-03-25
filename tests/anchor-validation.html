@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Procedural Effects Anchor Validation</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 20px;
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+
+    h1 {
+      color: #ffd76a;
+    }
+
+    .info {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+      border-left: 4px solid #ffd76a;
+    }
+
+    .frame-container {
+      display: inline-block;
+      margin: 20px;
+      background: #2a2a2a;
+      padding: 10px;
+      border-radius: 5px;
+    }
+
+    .frame-label {
+      text-align: center;
+      margin-bottom: 10px;
+      color: #ffd76a;
+      font-weight: bold;
+    }
+
+    svg {
+      border: 2px solid #444;
+      background: #000;
+    }
+
+    .anchor-marker {
+      fill: #ff00ff;
+      opacity: 0.8;
+    }
+
+    .anchor-crosshair {
+      stroke: #ff00ff;
+      stroke-width: 1;
+      opacity: 0.8;
+    }
+
+    .frame-bounds {
+      fill: none;
+      stroke: #666;
+      stroke-width: 1;
+      stroke-dasharray: 5, 5;
+    }
+
+    .center-line {
+      stroke: #00ffff;
+      stroke-width: 1;
+      stroke-dasharray: 3, 3;
+      opacity: 0.5;
+    }
+
+    button {
+      background: #ffd76a;
+      color: #1a1a1a;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      cursor: pointer;
+      border-radius: 3px;
+      font-weight: bold;
+    }
+
+    button:hover {
+      background: #ff8d2a;
+    }
+  </style>
+</head>
+<body>
+  <h1>Procedural Effects Anchor Validation</h1>
+
+  <div class="info">
+    <strong>Anchor Point Specification:</strong> (128, 220) in 256×256 frame<br>
+    <strong>Position:</strong> Horizontally centered, bottom-anchored<br>
+    <strong>Visual Guide:</strong> <span style="color: #ff00ff;">Magenta</span> = Anchor point,
+    <span style="color: #00ffff;">Cyan dashed</span> = Center vertical line
+  </div>
+
+  <div>
+    <button onclick="testFlashCore()">Flash Core</button>
+    <button onclick="testShockRing()">Shock Ring</button>
+    <button onclick="testSparks()">Sparks</button>
+    <button onclick="testDebris()">Debris</button>
+    <button onclick="testDustPuff()">Dust Puff</button>
+    <button onclick="testSmokePuff()">Smoke Puff</button>
+    <button onclick="testEmbers()">Embers</button>
+    <button onclick="testScorch()">Scorch</button>
+    <button onclick="testAllPrimitives()">All Primitives</button>
+  </div>
+
+  <div id="canvas-container"></div>
+
+  <script type="module">
+    const ANCHOR_X = 128;
+    const ANCHOR_Y = 220;
+    const FRAME_WIDTH = 256;
+    const FRAME_HEIGHT = 256;
+
+    function createFrame(label) {
+      const container = document.createElement('div');
+      container.className = 'frame-container';
+
+      const labelDiv = document.createElement('div');
+      labelDiv.className = 'frame-label';
+      labelDiv.textContent = label;
+      container.appendChild(labelDiv);
+
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('width', FRAME_WIDTH);
+      svg.setAttribute('height', FRAME_HEIGHT);
+      svg.setAttribute('viewBox', `0 0 ${FRAME_WIDTH} ${FRAME_HEIGHT}`);
+
+      // Frame bounds
+      const bounds = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      bounds.setAttribute('class', 'frame-bounds');
+      bounds.setAttribute('x', '0');
+      bounds.setAttribute('y', '0');
+      bounds.setAttribute('width', FRAME_WIDTH);
+      bounds.setAttribute('height', FRAME_HEIGHT);
+      svg.appendChild(bounds);
+
+      // Center vertical line
+      const centerLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      centerLine.setAttribute('class', 'center-line');
+      centerLine.setAttribute('x1', ANCHOR_X);
+      centerLine.setAttribute('y1', '0');
+      centerLine.setAttribute('x2', ANCHOR_X);
+      centerLine.setAttribute('y2', FRAME_HEIGHT);
+      svg.appendChild(centerLine);
+
+      // Content group
+      const contentGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      svg.appendChild(contentGroup);
+
+      // Anchor marker (drawn last, on top)
+      const anchorCrossV = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      anchorCrossV.setAttribute('class', 'anchor-crosshair');
+      anchorCrossV.setAttribute('x1', ANCHOR_X);
+      anchorCrossV.setAttribute('y1', ANCHOR_Y - 10);
+      anchorCrossV.setAttribute('x2', ANCHOR_X);
+      anchorCrossV.setAttribute('y2', ANCHOR_Y + 10);
+      svg.appendChild(anchorCrossV);
+
+      const anchorCrossH = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      anchorCrossH.setAttribute('class', 'anchor-crosshair');
+      anchorCrossH.setAttribute('x1', ANCHOR_X - 10);
+      anchorCrossH.setAttribute('y1', ANCHOR_Y);
+      anchorCrossH.setAttribute('x2', ANCHOR_X + 10);
+      anchorCrossH.setAttribute('y2', ANCHOR_Y);
+      svg.appendChild(anchorCrossH);
+
+      const anchorDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      anchorDot.setAttribute('class', 'anchor-marker');
+      anchorDot.setAttribute('cx', ANCHOR_X);
+      anchorDot.setAttribute('cy', ANCHOR_Y);
+      anchorDot.setAttribute('r', '4');
+      svg.appendChild(anchorDot);
+
+      container.appendChild(svg);
+      return { container, contentGroup };
+    }
+
+    function clearCanvas() {
+      document.getElementById('canvas-container').innerHTML = '';
+    }
+
+    window.testFlashCore = function() {
+      clearCanvas();
+      const { container, contentGroup } = createFrame('Flash Core');
+
+      // Simulate flash core at anchor
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', ANCHOR_X);
+      circle.setAttribute('cy', ANCHOR_Y);
+      circle.setAttribute('r', '40');
+      circle.setAttribute('fill', '#ffd76a');
+      circle.setAttribute('opacity', '0.7');
+      contentGroup.appendChild(circle);
+
+      document.getElementById('canvas-container').appendChild(container);
+    };
+
+    window.testShockRing = function() {
+      clearCanvas();
+      const { container, contentGroup } = createFrame('Shock Ring');
+
+      // Multiple expanding circles from anchor
+      [20, 35, 50].forEach((r, i) => {
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', ANCHOR_X);
+        circle.setAttribute('cy', ANCHOR_Y);
+        circle.setAttribute('r', r);
+        circle.setAttribute('stroke', '#ff8d2a');
+        circle.setAttribute('stroke-width', '2');
+        circle.setAttribute('fill', 'none');
+        circle.setAttribute('opacity', 0.8 - i * 0.2);
+        contentGroup.appendChild(circle);
+      });
+
+      document.getElementById('canvas-container').appendChild(container);
+    };
+
+    window.testSparks = function() {
+      clearCanvas();
+      const { container, contentGroup } = createFrame('Sparks');
+
+      // Radial lines from anchor
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2;
+        const length = 20 + Math.random() * 20;
+        const x2 = ANCHOR_X + Math.cos(angle) * length;
+        const y2 = ANCHOR_Y + Math.sin(angle) * length;
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', ANCHOR_X);
+        line.setAttribute('y1', ANCHOR_Y);
+        line.setAttribute('x2', x2);
+        line.setAttribute('y2', y2);
+        line.setAttribute('stroke', '#ffd76a');
+        line.setAttribute('stroke-width', '1.5');
+        line.setAttribute('stroke-linecap', 'round');
+        contentGroup.appendChild(line);
+      }
+
+      document.getElementById('canvas-container').appendChild(container);
+    };
+
+    window.testDebris = function() {
+      clearCanvas();
+      const { container, contentGroup } = createFrame('Debris');
+
+      // Ballistic particles from anchor
+      for (let i = 0; i < 15; i++) {
+        const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 3;
+        const distance = 30 + Math.random() * 40;
+        const x = ANCHOR_X + Math.cos(angle) * distance;
+        const y = ANCHOR_Y + Math.sin(angle) * distance + Math.random() * 20;
+
+        const particle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        particle.setAttribute('cx', x);
+        particle.setAttribute('cy', y);
+        particle.setAttribute('r', '2');
+        particle.setAttribute('fill', '#4a3c28');
+        contentGroup.appendChild(particle);
+      }
+
+      document.getElementById('canvas-container').appendChild(container);
+    };
+
+    window.testDustPuff = function() {
+      clearCanvas();
+      const { container, contentGroup } = createFrame('Dust Puff');
+
+      const ellipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+      ellipse.setAttribute('cx', ANCHOR_X);
+      ellipse.setAttribute('cy', ANCHOR_Y);
+      ellipse.setAttribute('rx', '45');
+      ellipse.setAttribute('ry', '30');
+      ellipse.setAttribute('fill', '#b89968');
+      ellipse.setAttribute('opacity', '0.5');
+      contentGroup.appendChild(ellipse);
+
+      document.getElementById('canvas-container').appendChild(container);
+    };
+
+    window.testSmokePuff = function() {
+      clearCanvas();
+      const { container, contentGroup } = createFrame('Smoke Puff');
+
+      // Rising smoke
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', ANCHOR_X);
+      circle.setAttribute('cy', ANCHOR_Y - 20);
+      circle.setAttribute('r', '35');
+      circle.setAttribute('fill', '#2b2424');
+      circle.setAttribute('opacity', '0.6');
+      contentGroup.appendChild(circle);
+
+      document.getElementById('canvas-container').appendChild(container);
+    };
+
+    window.testEmbers = function() {
+      clearCanvas();
+      const { container, contentGroup } = createFrame('Embers');
+
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2;
+        const distance = Math.random() * 30;
+        const x = ANCHOR_X + Math.cos(angle) * distance;
+        const y = ANCHOR_Y + Math.sin(angle) * distance;
+
+        const ember = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        ember.setAttribute('cx', x);
+        ember.setAttribute('cy', y);
+        ember.setAttribute('r', 1.5 + Math.random());
+        ember.setAttribute('fill', Math.random() > 0.5 ? '#8b2a1e' : '#ff8d2a');
+        contentGroup.appendChild(ember);
+      }
+
+      document.getElementById('canvas-container').appendChild(container);
+    };
+
+    window.testScorch = function() {
+      clearCanvas();
+      const { container, contentGroup } = createFrame('Scorch');
+
+      const ellipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+      ellipse.setAttribute('cx', ANCHOR_X);
+      ellipse.setAttribute('cy', ANCHOR_Y);
+      ellipse.setAttribute('rx', '35');
+      ellipse.setAttribute('ry', '25');
+      ellipse.setAttribute('fill', '#1a1414');
+      ellipse.setAttribute('opacity', '0.4');
+      contentGroup.appendChild(ellipse);
+
+      document.getElementById('canvas-container').appendChild(container);
+    };
+
+    window.testAllPrimitives = function() {
+      clearCanvas();
+      const canvasContainer = document.getElementById('canvas-container');
+
+      ['Flash Core', 'Shock Ring', 'Sparks', 'Debris', 'Dust Puff', 'Smoke Puff', 'Embers', 'Scorch'].forEach(name => {
+        window['test' + name.replace(/\s+/g, '')]();
+      });
+    };
+
+    // Show all by default
+    window.testAllPrimitives();
+  </script>
+</body>
+</html>

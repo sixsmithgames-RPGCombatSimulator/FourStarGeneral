@@ -1,0 +1,325 @@
+[
+  {
+    "type": "small_arms",
+    "displayName": "Small Arms Fire",
+    "durationMs": 800,
+    "nodeCountBudget": {
+      "min": 6,
+      "typical": 9,
+      "max": 12
+    },
+    "useTerrainResponse": false,
+    "phases": [
+      {
+        "name": "ignition",
+        "startMs": 0,
+        "endMs": 80,
+        "primitives": [
+          {
+            "type": "flash_core",
+            "startMs": 0,
+            "endMs": 150,
+            "params": {
+              "maxRadius": 18,
+              "peakProgress": 0.2,
+              "fadeProgress": 0.6
+            }
+          },
+          {
+            "type": "shock_ring",
+            "startMs": 0,
+            "endMs": 120,
+            "params": {
+              "minRadius": 8,
+              "maxRadius": 30,
+              "strokeWidth": 1.5,
+              "ringCount": 2
+            }
+          }
+        ]
+      },
+      {
+        "name": "burst",
+        "startMs": 80,
+        "endMs": 220,
+        "primitives": [
+          {
+            "type": "sparks",
+            "startMs": 80,
+            "endMs": 200,
+            "params": {
+              "sparkCount": 8,
+              "minLength": 5,
+              "maxLength": 15,
+              "strokeWidth": 1
+            }
+          }
+        ]
+      },
+      {
+        "name": "bloom",
+        "startMs": 220,
+        "endMs": 500,
+        "primitives": [
+          {
+            "type": "smoke_puff",
+            "startMs": 220,
+            "endMs": 500,
+            "params": {
+              "maxRadius": 20,
+              "riseDistance": 15
+            }
+          }
+        ]
+      },
+      {
+        "name": "linger",
+        "startMs": 500,
+        "endMs": 800,
+        "primitives": [
+          {
+            "type": "smoke_puff",
+            "startMs": 500,
+            "endMs": 800,
+            "params": {
+              "maxRadius": 25,
+              "riseDistance": 25
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "mg",
+    "displayName": "Machine Gun",
+    "durationMs": 1000,
+    "nodeCountBudget": {
+      "min": 10,
+      "typical": 15,
+      "max": 20
+    },
+    "useTerrainResponse": false,
+    "phases": [
+      {
+        "name": "ignition",
+        "startMs": 0,
+        "endMs": 80,
+        "primitives": [
+          {
+            "type": "flash_core",
+            "startMs": 0,
+            "endMs": 180,
+            "params": {
+              "maxRadius": 24,
+              "peakProgress": 0.15,
+              "fadeProgress": 0.5
+            }
+          },
+          {
+            "type": "shock_ring",
+            "startMs": 0,
+            "endMs": 150,
+            "params": {
+              "minRadius": 10,
+              "maxRadius": 40,
+              "strokeWidth": 2,
+              "ringCount": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "burst",
+        "startMs": 80,
+        "endMs": 220,
+        "primitives": [
+          {
+            "type": "sparks",
+            "startMs": 80,
+            "endMs": 250,
+            "params": {
+              "sparkCount": 16,
+              "minLength": 8,
+              "maxLength": 22,
+              "strokeWidth": 1.2
+            }
+          },
+          {
+            "type": "dust_puff",
+            "startMs": 100,
+            "endMs": 350,
+            "params": {
+              "maxRadiusX": 30,
+              "maxRadiusY": 20
+            }
+          }
+        ]
+      },
+      {
+        "name": "bloom",
+        "startMs": 220,
+        "endMs": 600,
+        "primitives": [
+          {
+            "type": "smoke_puff",
+            "startMs": 220,
+            "endMs": 600,
+            "params": {
+              "maxRadius": 28,
+              "riseDistance": 20
+            }
+          }
+        ]
+      },
+      {
+        "name": "linger",
+        "startMs": 600,
+        "endMs": 1000,
+        "primitives": [
+          {
+            "type": "smoke_puff",
+            "startMs": 600,
+            "endMs": 1000,
+            "params": {
+              "maxRadius": 35,
+              "riseDistance": 35
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cannon",
+    "displayName": "Field Gun / AT Gun",
+    "durationMs": 1800,
+    "nodeCountBudget": {
+      "min": 18,
+      "typical": 26,
+      "max": 34
+    },
+    "useTerrainResponse": false,
+    "phases": [
+      {
+        "name": "ignition",
+        "startMs": 0,
+        "endMs": 80,
+        "primitives": [
+          {
+            "type": "flash_core",
+            "startMs": 0,
+            "endMs": 220,
+            "params": {
+              "maxRadius": 45,
+              "peakProgress": 0.12,
+              "fadeProgress": 0.45
+            }
+          },
+          {
+            "type": "shock_ring",
+            "startMs": 0,
+            "endMs": 180,
+            "params": {
+              "minRadius": 15,
+              "maxRadius": 60,
+              "strokeWidth": 3,
+              "ringCount": 4
+            }
+          }
+        ]
+      },
+      {
+        "name": "burst",
+        "startMs": 80,
+        "endMs": 220,
+        "primitives": [
+          {
+            "type": "sparks",
+            "startMs": 80,
+            "endMs": 300,
+            "params": {
+              "sparkCount": 24,
+              "minLength": 12,
+              "maxLength": 35,
+              "strokeWidth": 1.5
+            }
+          },
+          {
+            "type": "debris",
+            "startMs": 100,
+            "endMs": 500,
+            "params": {
+              "particleCount": 12,
+              "minVelocity": 40,
+              "maxVelocity": 80,
+              "particleSize": 2
+            }
+          },
+          {
+            "type": "dust_puff",
+            "startMs": 120,
+            "endMs": 450,
+            "params": {
+              "maxRadiusX": 50,
+              "maxRadiusY": 35
+            }
+          }
+        ]
+      },
+      {
+        "name": "bloom",
+        "startMs": 220,
+        "endMs": 600,
+        "primitives": [
+          {
+            "type": "smoke_puff",
+            "startMs": 220,
+            "endMs": 800,
+            "params": {
+              "maxRadius": 42,
+              "riseDistance": 30
+            }
+          },
+          {
+            "type": "embers",
+            "startMs": 250,
+            "endMs": 700,
+            "params": {
+              "emberCount": 10,
+              "minRadius": 1.5,
+              "maxRadius": 3,
+              "spreadDistance": 35
+            }
+          }
+        ]
+      },
+      {
+        "name": "linger",
+        "startMs": 600,
+        "endMs": 1800,
+        "primitives": [
+          {
+            "type": "smoke_puff",
+            "startMs": 600,
+            "endMs": 1800,
+            "params": {
+              "maxRadius": 55,
+              "riseDistance": 50
+            }
+          },
+          {
+            "type": "scorch",
+            "startMs": 600,
+            "endMs": 1800,
+            "params": {
+              "radiusX": 35,
+              "radiusY": 25,
+              "fadeInProgress": 0.15
+            }
+          }
+        ]
+      }
+    ]
+  }
+]
