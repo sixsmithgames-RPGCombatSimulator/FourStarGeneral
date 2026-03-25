@@ -2966,13 +2966,13 @@ export class HexMapRenderer implements IMapRenderer {
     switch (attackerClass) {
       case "infantry":
       case "specialist":
-        return { color: "#ffd37a", width: 1.6 }; // small arms – warm yellow, thin streak
+        return { color: "#ffd37a", width: 1.1 }; // small arms – warm yellow, thin streak
       case "vehicle":
-        return { color: "#ffe08a", width: 2.0 }; // autocannon – bright yellow
+        return { color: "#ffe08a", width: 1.5 }; // autocannon – bright yellow
       case "tank":
-        return { color: "#ffcf5a", width: 2.4 }; // main gun – still not a beam
+        return { color: "#ffcf5a", width: 2.0 }; // main gun – still not a beam
       case "artillery":
-        return { color: "#ff9e5a", width: 2.3 }; // shells – orange
+        return { color: "#ff9e5a", width: 2.5 }; // shells – orange
       case "air":
         return { color: "#aee1ff", width: 1.5 }; // MGs/cannons – cool cyan, very thin
       default:
