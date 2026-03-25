@@ -68,6 +68,13 @@ export function ensureDomEnvironment(): void {
       globalAlpha: 1,
       globalCompositeOperation: "source-over",
       imageSmoothingEnabled: true,
+      setTransform: () => {},
+      resetTransform: () => {},
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
+      scale: () => {},
       clearRect: () => {
         state.lastDrawSignature = "";
       },
@@ -184,6 +191,67 @@ export function ensureDomEnvironment(): void {
     jsdomWindow.cancelAnimationFrame = cancelAnimationFrameImpl;
   }
 
+  class MockGainNode {
+    gain = { value: 1 };
+
+    connect(): void {}
+
+    disconnect(): void {}
+  }
+
+  class MockBufferSourceNode extends EventTarget {
+    buffer: AudioBuffer | null = null;
+    playbackRate = { value: 1 };
+    onended: ((this: AudioBufferSourceNode, ev: Event) => any) | null = null;
+
+    connect(): void {}
+
+    disconnect(): void {}
+
+    start(): void {
+      hostSetTimeout(() => {
+        if (this.onended) {
+          this.onended.call(this as unknown as AudioBufferSourceNode, new Event("ended"));
+        }
+      }, 0);
+    }
+  }
+
+  class MockAudioContext {
+    readonly destination = {} as AudioDestinationNode;
+    currentTime = 0;
+
+    createGain(): GainNode {
+      return new MockGainNode() as unknown as GainNode;
+    }
+
+    createBufferSource(): AudioBufferSourceNode {
+      return new MockBufferSourceNode() as unknown as AudioBufferSourceNode;
+    }
+
+    async decodeAudioData(_arrayBuffer: ArrayBuffer): Promise<AudioBuffer> {
+      return {
+        duration: 0
+      } as AudioBuffer;
+    }
+
+    resume(): Promise<void> {
+      return Promise.resolve();
+    }
+
+    suspend(): Promise<void> {
+      return Promise.resolve();
+    }
+
+    close(): Promise<void> {
+      return Promise.resolve();
+    }
+  }
+
+  jsdomWindow.AudioContext = MockAudioContext as unknown as typeof AudioContext;
+  (jsdomWindow as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext =
+    MockAudioContext as unknown as typeof AudioContext;
+
   const WheelEventImpl: typeof WheelEvent = jsdomWindow.WheelEvent ?? ((function WheelEvent(
     this: unknown,
     type: string,
@@ -226,7 +294,9 @@ export function ensureDomEnvironment(): void {
     getComputedStyle: jsdomWindow.getComputedStyle.bind(jsdomWindow),
     requestAnimationFrame: requestAnimationFrameImpl,
     cancelAnimationFrame: cancelAnimationFrameImpl,
-    Image: MockImage
+    Image: MockImage,
+    AudioContext: MockAudioContext,
+    webkitAudioContext: MockAudioContext
   });
 
   domInitialized = true;

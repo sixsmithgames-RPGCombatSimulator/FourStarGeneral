@@ -253,7 +253,10 @@
             "endMs": 1500,
             "params": {
               "maxRadiusX": 70,
-              "maxRadiusY": 50
+              "maxRadiusY": 50,
+              "driftX": 24,
+              "lift": 18,
+              "detail": 1.2
             }
           }
         ]
@@ -269,7 +272,10 @@
             "endMs": 2000,
             "params": {
               "maxRadius": 80,
-              "riseDistance": 40
+              "riseDistance": 40,
+              "driftX": 14,
+              "plumeWidth": 1.15,
+              "detail": 1.15
             }
           }
         ]
@@ -341,6 +347,18 @@
               "maxVelocity": 60,
               "particleSize": 3
             }
+          },
+          {
+            "type": "dust_puff",
+            "startMs": 90,
+            "endMs": 880,
+            "params": {
+              "maxRadiusX": 42,
+              "maxRadiusY": 28,
+              "driftX": 16,
+              "lift": 11,
+              "detail": 0.95
+            }
           }
         ]
       },
@@ -355,7 +373,111 @@
             "endMs": 1000,
             "params": {
               "maxRadius": 50,
-              "riseDistance": 28
+              "riseDistance": 28,
+              "driftX": 10,
+              "plumeWidth": 0.95,
+              "detail": 0.9
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "explosionLarge",
+    "displayName": "Large Explosion",
+    "durationMs": 1400,
+    "nodeCountBudget": {
+      "min": 24,
+      "typical": 34,
+      "max": 44
+    },
+    "useTerrainResponse": true,
+    "phases": [
+      {
+        "name": "ignition",
+        "startMs": 0,
+        "endMs": 220,
+        "primitives": [
+          {
+            "type": "flash_core",
+            "startMs": 0,
+            "endMs": 220,
+            "params": {
+              "maxRadius": 58,
+              "peakProgress": 0.22,
+              "fadeProgress": 0.38
+            }
+          },
+          {
+            "type": "shock_ring",
+            "startMs": 10,
+            "endMs": 320,
+            "params": {
+              "minRadius": 16,
+              "maxRadius": 88,
+              "strokeWidth": 4,
+              "ringCount": 3
+            }
+          },
+          {
+            "type": "sparks",
+            "startMs": 22,
+            "endMs": 420,
+            "params": {
+              "sparkCount": 26,
+              "minLength": 24,
+              "maxLength": 38,
+              "strokeWidth": 2.2
+            }
+          }
+        ]
+      },
+      {
+        "name": "burst",
+        "startMs": 220,
+        "endMs": 1020,
+        "primitives": [
+          {
+            "type": "debris",
+            "startMs": 60,
+            "endMs": 950,
+            "params": {
+              "particleCount": 20,
+              "minVelocity": 36,
+              "maxVelocity": 72,
+              "particleSize": 3.5
+            }
+          },
+          {
+            "type": "dust_puff",
+            "startMs": 90,
+            "endMs": 1180,
+            "params": {
+              "maxRadiusX": 66,
+              "maxRadiusY": 46,
+              "driftX": 24,
+              "lift": 16,
+              "detail": 1.1
+            }
+          }
+        ]
+      },
+      {
+        "name": "linger",
+        "startMs": 1020,
+        "endMs": 1400,
+        "primitives": [
+          {
+            "type": "smoke_puff",
+            "startMs": 180,
+            "endMs": 1400,
+            "params": {
+              "maxRadius": 68,
+              "riseDistance": 34,
+              "driftX": 12,
+              "plumeWidth": 1.1,
+              "detail": 1.05
             }
           }
         ]
@@ -365,26 +487,41 @@
   {
     "type": "dustCloud",
     "displayName": "Dust Cloud",
-    "durationMs": 800,
+    "durationMs": 950,
     "nodeCountBudget": {
-      "min": 3,
-      "typical": 5,
-      "max": 7
+      "min": 6,
+      "typical": 9,
+      "max": 12
     },
     "useTerrainResponse": true,
     "phases": [
       {
         "name": "cloud",
         "startMs": 0,
-        "endMs": 800,
+        "endMs": 950,
         "primitives": [
           {
             "type": "dust_puff",
             "startMs": 0,
-            "endMs": 800,
+            "endMs": 700,
             "params": {
-              "maxRadiusX": 35,
-              "maxRadiusY": 25
+              "maxRadiusX": 28,
+              "maxRadiusY": 18,
+              "driftX": 8,
+              "lift": 7,
+              "detail": 0.82
+            }
+          },
+          {
+            "type": "dust_puff",
+            "startMs": 80,
+            "endMs": 950,
+            "params": {
+              "maxRadiusX": 38,
+              "maxRadiusY": 26,
+              "driftX": 14,
+              "lift": 12,
+              "detail": 1.02
             }
           }
         ]

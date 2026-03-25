@@ -861,7 +861,7 @@ export class PopupManager implements IPopupManager {
 
         const result = engine.tryScheduleAirMission(request);
         if (result.ok) {
-          feedback && (feedback.textContent = `Mission scheduled (#${result.missionId}).`);
+          feedback && (feedback.textContent = `Mission scheduled (#${result.missionId}). Click the map marker or use Cancel to reposition.`);
           this.renderAirSupportPanel();
           this.battleState.emitBattleUpdate("missionUpdated");
         } else {

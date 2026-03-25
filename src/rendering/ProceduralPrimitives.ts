@@ -93,6 +93,86 @@ function easeInOutQuad(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function zoomScaledCount(
+  baseCount: number,
+  zoomTier: PrimitiveRenderContext["zoomTier"],
+  farScale: number,
+  midScale: number
+): number {
+  if (zoomTier === "far") {
+    return Math.max(1, Math.round(baseCount * farScale));
+  }
+  if (zoomTier === "mid") {
+    return Math.max(1, Math.round(baseCount * midScale));
+  }
+  return Math.max(1, baseCount);
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const normalized = hex.trim().replace(/^#/, "");
+  if (!/^[0-9a-fA-F]{3}$/.test(normalized) && !/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    return null;
+  }
+
+  const expanded = normalized.length === 3
+    ? normalized.split("").map((char) => `${char}${char}`).join("")
+    : normalized;
+
+  return {
+    r: parseInt(expanded.slice(0, 2), 16),
+    g: parseInt(expanded.slice(2, 4), 16),
+    b: parseInt(expanded.slice(4, 6), 16)
+  };
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const toChannel = (value: number): string => clamp(Math.round(value), 0, 255).toString(16).padStart(2, "0");
+  return `#${toChannel(r)}${toChannel(g)}${toChannel(b)}`;
+}
+
+function mixHexColors(baseColor: string, targetColor: string, amount: number): string {
+  const base = hexToRgb(baseColor);
+  const target = hexToRgb(targetColor);
+  if (!base || !target) {
+    return baseColor;
+  }
+
+  const blend = clamp(amount, 0, 1);
+  return rgbToHex(
+    base.r + (target.r - base.r) * blend,
+    base.g + (target.g - base.g) * blend,
+    base.b + (target.b - base.b) * blend
+  );
+}
+
+function createEllipse(
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  fill: string,
+  opacity: number,
+  rotationDeg: number = 0
+): SVGEllipseElement {
+  const ellipse = document.createElementNS(SVG_NS, "ellipse");
+  ellipse.setAttribute("cx", cx.toString());
+  ellipse.setAttribute("cy", cy.toString());
+  ellipse.setAttribute("rx", rx.toString());
+  ellipse.setAttribute("ry", ry.toString());
+  ellipse.setAttribute("fill", fill);
+  ellipse.setAttribute("opacity", opacity.toString());
+
+  if (Math.abs(rotationDeg) > 0.01) {
+    ellipse.setAttribute("transform", `rotate(${rotationDeg} ${cx} ${cy})`);
+  }
+
+  return ellipse;
+}
+
 /**
  * PRIMITIVE 1: Flash Core
  * Radial gradient circle expanding from anchor, white-hot center to yellow edge.
@@ -162,7 +242,9 @@ export function renderShockRing(ctx: PrimitiveRenderContext, config: PrimitiveCo
   const elements: SVGElement[] = [];
   const rng = new SeededRandom(ctx.seed);
 
-  for (let i = 0; i < ringCount; i++) {
+  const zoomAdjustedRingCount = zoomScaledCount(ringCount, ctx.zoomTier, 0.5, 0.75);
+
+  for (let i = 0; i < zoomAdjustedRingCount; i++) {
     const ringProgress = Math.max(0, Math.min(1, progress - i * 0.15));
     if (ringProgress <= 0) continue;
 
@@ -281,59 +363,178 @@ export function renderDebris(ctx: PrimitiveRenderContext, config: PrimitiveConfi
 
 /**
  * PRIMITIVE 5: Dust Puff
- * Expanding ellipse cloud with terrain tint.
+ * Ground-hugging dust cloud built from layered asymmetric lobes.
  */
 export function renderDustPuff(ctx: PrimitiveRenderContext, config: PrimitiveConfig): SVGElement[] {
   const params = config.params as {
     maxRadiusX: number;
     maxRadiusY: number;
+    driftX?: number;
+    lift?: number;
+    detail?: number;
   };
 
   const progress = easeOutCubic(ctx.phaseProgress);
   const { maxRadiusX, maxRadiusY } = params;
-
-  const radiusX = progress * maxRadiusX;
-  const radiusY = progress * maxRadiusY;
-  const opacity = 0.6 * (1.0 - progress);
-
+  const detail = clamp(params.detail ?? 1, 0.7, 1.5);
+  const radiusX = Math.max(3, (0.18 + progress * 0.82) * maxRadiusX);
+  const radiusY = Math.max(2, (0.22 + progress * 0.78) * maxRadiusY);
+  const opacity = 0.44 * (1.0 - progress * 0.88) * clamp(0.85 + detail * 0.1, 0.8, 1.1);
   const baseColor = ctx.terrainTint ?? "#b89968";
+  const shadowColor = mixHexColors(baseColor, "#5b4a34", 0.35);
+  const highlightColor = mixHexColors(baseColor, "#efe0b8", 0.24);
+  const midColor = mixHexColors(baseColor, "#d6be92", 0.18);
+  const rng = new SeededRandom(ctx.seed + 101);
+  const elements: SVGElement[] = [];
 
-  const ellipse = document.createElementNS(SVG_NS, "ellipse");
-  ellipse.setAttribute("cx", ctx.anchorX.toString());
-  ellipse.setAttribute("cy", ctx.anchorY.toString());
-  ellipse.setAttribute("rx", radiusX.toString());
-  ellipse.setAttribute("ry", radiusY.toString());
-  ellipse.setAttribute("fill", baseColor);
-  ellipse.setAttribute("opacity", opacity.toString());
+  const driftDistance = (params.driftX ?? maxRadiusX * 0.18) * progress;
+  const verticalLift = (params.lift ?? maxRadiusY * 0.28) * (0.2 + progress * 0.8);
+  const centerX = ctx.anchorX + rng.range(-driftDistance, driftDistance) * 0.45;
+  const centerY = ctx.anchorY - verticalLift;
 
-  return [ellipse];
+  elements.push(
+    createEllipse(
+      centerX,
+      ctx.anchorY - radiusY * 0.08,
+      radiusX * 0.94,
+      radiusY * 0.42,
+      shadowColor,
+      opacity * 0.34,
+      rng.range(-4, 4)
+    )
+  );
+
+  const lobeCount = zoomScaledCount(Math.max(4, Math.round(6 * detail)), ctx.zoomTier, 0.55, 0.85);
+  for (let i = 0; i < lobeCount; i++) {
+    const lane = lobeCount === 1 ? 0 : (i / (lobeCount - 1)) - 0.5;
+    const x = centerX
+      + lane * radiusX * rng.range(0.55, 0.9)
+      + rng.range(-radiusX * 0.08, radiusX * 0.08);
+    const y = centerY
+      - radiusY * rng.range(0.08, 0.55)
+      + rng.range(-radiusY * 0.05, radiusY * 0.05);
+    const rx = Math.max(3, radiusX * rng.range(0.16, 0.3) * (0.92 + detail * 0.08));
+    const ry = Math.max(2, radiusY * rng.range(0.15, 0.28) * (0.88 + detail * 0.12));
+    const fill = i === Math.floor(lobeCount / 2)
+      ? baseColor
+      : lane < -0.08
+        ? mixHexColors(baseColor, shadowColor, 0.45)
+        : lane > 0.15
+          ? mixHexColors(baseColor, highlightColor, 0.45)
+          : midColor;
+    const lobeOpacity = opacity * rng.range(0.36, 0.62) * (1 - i / (lobeCount * 1.4));
+
+    elements.push(createEllipse(x, y, rx, ry, fill, lobeOpacity, rng.range(-10, 10)));
+  }
+
+  if (ctx.zoomTier !== "far") {
+    const wispCount = ctx.zoomTier === "near" ? 3 : 2;
+    for (let i = 0; i < wispCount; i++) {
+      const x = centerX + rng.range(-radiusX * 0.55, radiusX * 0.55);
+      const y = centerY - radiusY * rng.range(0.4, 0.9);
+      elements.push(
+        createEllipse(
+          x,
+          y,
+          radiusX * rng.range(0.08, 0.14),
+          radiusY * rng.range(0.08, 0.14),
+          highlightColor,
+          opacity * rng.range(0.12, 0.18),
+          rng.range(-18, 18)
+        )
+      );
+    }
+  }
+
+  elements.push(
+    createEllipse(
+      centerX + radiusX * 0.1,
+      centerY - radiusY * 0.18,
+      radiusX * 0.34,
+      radiusY * 0.18,
+      highlightColor,
+      opacity * 0.16,
+      rng.range(-12, 12)
+    )
+  );
+
+  return elements;
 }
 
 /**
  * PRIMITIVE 6: Smoke Puff
- * Rising turbulent cloud, dark gray.
+ * Rising smoke plume built from layered lobes and wisps.
  */
 export function renderSmokePuff(ctx: PrimitiveRenderContext, config: PrimitiveConfig): SVGElement[] {
   const params = config.params as {
     maxRadius: number;
     riseDistance: number;
+    driftX?: number;
+    plumeWidth?: number;
+    detail?: number;
   };
 
   const progress = easeInOutQuad(ctx.phaseProgress);
   const { maxRadius, riseDistance } = params;
-
-  const radius = progress * maxRadius;
+  const detail = clamp(params.detail ?? 1, 0.7, 1.5);
+  const plumeWidth = clamp(params.plumeWidth ?? 1, 0.75, 1.5);
+  const radius = Math.max(3, (0.22 + progress * 0.78) * maxRadius);
   const offsetY = -progress * riseDistance;
-  const opacity = 0.7 * (1.0 - progress * 0.5);
+  const opacity = 0.42 * (1.0 - progress * 0.55);
+  const baseColor = "#2b2424";
+  const shadowColor = mixHexColors(baseColor, "#181313", 0.45);
+  const midColor = mixHexColors(baseColor, "#5e5653", 0.35);
+  const highlightColor = mixHexColors(baseColor, "#90847e", 0.18);
+  const rng = new SeededRandom(ctx.seed + 211);
+  const elements: SVGElement[] = [];
+  const lateralDrift = (params.driftX ?? maxRadius * 0.2) * progress;
+  const centerX = ctx.anchorX + rng.range(-lateralDrift, lateralDrift) * 0.4;
+  const centerY = ctx.anchorY + offsetY;
 
-  const circle = document.createElementNS(SVG_NS, "circle");
-  circle.setAttribute("cx", ctx.anchorX.toString());
-  circle.setAttribute("cy", (ctx.anchorY + offsetY).toString());
-  circle.setAttribute("r", radius.toString());
-  circle.setAttribute("fill", "#2b2424");
-  circle.setAttribute("opacity", opacity.toString());
+  elements.push(
+    createEllipse(
+      centerX,
+      centerY + radius * 0.14,
+      radius * 0.58 * plumeWidth,
+      radius * 0.28,
+      shadowColor,
+      opacity * 0.26,
+      rng.range(-10, 10)
+    )
+  );
 
-  return [circle];
+  const lobeCount = zoomScaledCount(Math.max(4, Math.round(6 * detail)), ctx.zoomTier, 0.55, 0.82);
+  for (let i = 0; i < lobeCount; i++) {
+    const t = lobeCount === 1 ? 0.5 : i / (lobeCount - 1);
+    const sway = Math.sin(t * Math.PI * 1.4 + (ctx.seed % 17)) * radius * 0.22 * plumeWidth;
+    const x = centerX + sway + rng.range(-radius * 0.1, radius * 0.1);
+    const y = centerY - radius * (0.1 + t * 0.58) + rng.range(-radius * 0.06, radius * 0.05);
+    const rx = Math.max(3, radius * plumeWidth * rng.range(0.18, 0.3) * (0.9 + t * 0.25));
+    const ry = Math.max(3, radius * rng.range(0.16, 0.28) * (0.95 + t * 0.35));
+    const fill = t < 0.25 ? shadowColor : t > 0.7 ? highlightColor : midColor;
+    const lobeOpacity = opacity * (0.72 - t * 0.18) * rng.range(0.9, 1.05);
+
+    elements.push(createEllipse(x, y, rx, ry, fill, lobeOpacity, rng.range(-18, 18)));
+  }
+
+  const wispCount = ctx.zoomTier === "far" ? 1 : ctx.zoomTier === "mid" ? 2 : 3;
+  for (let i = 0; i < wispCount; i++) {
+    const x = centerX + rng.range(-radius * 0.4, radius * 0.4);
+    const y = centerY - radius * rng.range(0.55, 1.05);
+    elements.push(
+      createEllipse(
+        x,
+        y,
+        radius * plumeWidth * rng.range(0.09, 0.14),
+        radius * rng.range(0.08, 0.13),
+        highlightColor,
+        opacity * rng.range(0.12, 0.18),
+        rng.range(-25, 25)
+      )
+    );
+  }
+
+  return elements;
 }
 
 /**

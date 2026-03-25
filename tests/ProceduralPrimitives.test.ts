@@ -275,20 +275,20 @@ registerTest("DUST_PUFF_APPLIES_TERRAIN_TINT", async ({ Given, When, Then }) => 
     elements = renderDustPuff(ctx, config);
   });
 
-  await Then("the ellipse uses the terrain tint color", async () => {
-    if (elements.length !== 1) {
-      throw new Error(`Expected 1 element (ellipse), got ${elements.length}`);
+  await Then("the cloud uses multiple layered ellipses and keeps the terrain tint in the palette", async () => {
+    if (elements.length < 5) {
+      throw new Error(`Expected a layered dust cloud with at least 5 ellipses, got ${elements.length}`);
     }
 
-    const ellipse = elements[0];
-
-    if (ellipse?.tagName !== "ellipse") {
-      throw new Error(`Expected ellipse element, got ${ellipse?.tagName}`);
+    for (const element of elements) {
+      if (element.tagName !== "ellipse") {
+        throw new Error(`Expected only ellipse elements, got ${element.tagName}`);
+      }
     }
 
-    const fill = ellipse.getAttribute("fill");
-    if (fill !== "#3a8c2f") {
-      throw new Error(`Expected terrain tint color #3a8c2f, got ${fill}`);
+    const fills = elements.map((element) => element.getAttribute("fill"));
+    if (!fills.includes("#3a8c2f")) {
+      throw new Error(`Expected terrain tint color #3a8c2f to remain present in the cloud palette, got ${fills.join(", ")}`);
     }
   });
 });
@@ -318,13 +318,20 @@ registerTest("SMOKE_PUFF_RISES_FROM_ANCHOR", async ({ Given, When, Then }) => {
     lateElements = renderSmokePuff(lateCtx, config);
   });
 
-  await Then("late-stage smoke is positioned higher than early-stage", async () => {
-    if (earlyElements.length !== 1 || lateElements.length !== 1) {
-      throw new Error("Expected 1 smoke puff circle per render");
+  await Then("late-stage smoke is positioned higher than early-stage and renders as a layered plume", async () => {
+    if (earlyElements.length < 4 || lateElements.length < 4) {
+      throw new Error(`Expected layered smoke plume output, got ${earlyElements.length} and ${lateElements.length} elements`);
     }
 
-    const earlyY = parseFloat(earlyElements[0]!.getAttribute("cy") ?? "0");
-    const lateY = parseFloat(lateElements[0]!.getAttribute("cy") ?? "0");
+    const averageCy = (elementsToMeasure: SVGElement[]): number => {
+      const total = elementsToMeasure.reduce((sum, element) => {
+        return sum + parseFloat(element.getAttribute("cy") ?? "0");
+      }, 0);
+      return total / elementsToMeasure.length;
+    };
+
+    const earlyY = averageCy(earlyElements);
+    const lateY = averageCy(lateElements);
 
     if (lateY >= earlyY) {
       throw new Error(`Late smoke should rise (lower Y) compared to early: ${lateY} vs ${earlyY}`);

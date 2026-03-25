@@ -359,7 +359,7 @@ registerTest("HEXMAP_DIRECT_FIRE_ATTACK_SPAWNS_ONE_CENTERED_IMPACT_HIT", async (
   });
 });
 
-registerTest("HEXMAP_ARCING_ARTILLERY_ATTACK_SPAWNS_ONE_CENTERED_EXPLOSION", async ({ Given, When, Then }) => {
+registerTest("HEXMAP_ARCING_ARTILLERY_ATTACK_SPAWNS_STAGGERED_SMALL_BURSTS", async ({ Given, When, Then }) => {
   const renderer = new HexMapRenderer() as unknown as {
     playAttackSequence(attackerHexKey: string, defenderHexKey: string, targetIsHardTarget: boolean): Promise<void>;
     hexElementMap: Map<string, unknown>;
@@ -424,21 +424,29 @@ registerTest("HEXMAP_ARCING_ARTILLERY_ATTACK_SPAWNS_ONE_CENTERED_EXPLOSION", asy
 
   window.setTimeout = originalSetTimeout;
 
-  await Then("it schedules exactly one centered explosion animation", async () => {
+  await Then("it schedules several smaller explosion bursts on the defender hex", async () => {
     const impactCalls = combatCalls.filter((call) => call.animationType === "explosionLarge" || call.animationType === "explosionSmall");
-    if (impactCalls.length !== 1) {
-      throw new Error(`Expected exactly one artillery explosion animation, found ${impactCalls.length}.`);
+    if (impactCalls.length !== 3) {
+      throw new Error(`Expected exactly three artillery explosion animations, found ${impactCalls.length}.`);
     }
 
-    const [impactCall] = impactCalls;
-    if (!impactCall) {
-      throw new Error("Expected one artillery explosion animation call.");
+    for (const impactCall of impactCalls) {
+      if (impactCall.animationType !== "explosionSmall") {
+        throw new Error(`Expected artillery burst to use explosionSmall, received ${impactCall.animationType}.`);
+      }
+      if (impactCall.hexKey !== "1,0") {
+        throw new Error(`Expected artillery burst to target defender hex 1,0, received ${impactCall.hexKey}.`);
+      }
     }
-    if (impactCall.hexKey !== "1,0") {
-      throw new Error(`Expected artillery explosion to target defender hex 1,0, received ${impactCall.hexKey}.`);
+
+    const centeredImpacts = impactCalls.filter((call) => call.offsetX === 0 && call.offsetY === 0);
+    if (centeredImpacts.length !== 1) {
+      throw new Error(`Expected one centered artillery burst, found ${centeredImpacts.length}.`);
     }
-    if (impactCall.offsetX !== 0 || impactCall.offsetY !== 0) {
-      throw new Error(`Expected centered artillery explosion offsets (0,0), received (${impactCall.offsetX}, ${impactCall.offsetY}).`);
+
+    const offsetImpacts = impactCalls.filter((call) => call.offsetX !== 0 || call.offsetY !== 0);
+    if (offsetImpacts.length !== 2) {
+      throw new Error(`Expected two offset artillery bursts, found ${offsetImpacts.length}.`);
     }
   });
 });

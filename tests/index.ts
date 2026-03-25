@@ -5,6 +5,7 @@ import { runAllTests } from "./harness.js";
 import "./HexMapRenderer.animateUnitMove.test.js";
 import "./HexMapRenderer.focusOnHex.test.js";
 import "./HexMapRenderer.tacticalOverlays.test.js";
+import "./ProceduralPrimitives.test.js";
 import "./FrameSequenceAnimator.playback.test.js";
 import "./SpriteSheetAnimator.layout.test.js";
 import "./MapViewport.interactions.test.js";

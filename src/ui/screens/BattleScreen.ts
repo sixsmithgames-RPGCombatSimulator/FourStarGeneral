@@ -13,7 +13,8 @@ import {
   type TurnFaction,
   type AirMissionArrival,
   type AirEngagementEvent,
-  type SupportImpactEvent
+  type SupportImpactEvent,
+  type SupportAssetSnapshot
 } from "../../game/GameEngine";
 import type { CombatPreview, AttackResolution } from "../../game/GameEngine";
 import type {
@@ -36,7 +37,7 @@ import type {
   CombatStance,
   HexModificationType
 } from "../../core/types";
-import { HexMapRenderer } from "../../rendering/HexMapRenderer";
+import { HexMapRenderer, type BattleTargetMarker } from "../../rendering/HexMapRenderer";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { MapViewport } from "../controls/MapViewport";
 import { ZoomPanControls } from "../controls/ZoomPanControls";
@@ -115,6 +116,21 @@ type ActivityEventInput = {
   readonly detailSections?: readonly ActivityDetailSection[];
 };
 
+type QueuedTargetMarkerAction =
+  | {
+      readonly type: "artillery";
+      readonly assetId: string;
+      readonly callerHexKey: string;
+      readonly callerLabel: string;
+      readonly targetHexKey: string;
+    }
+  | {
+      readonly type: "airMission";
+      readonly missionId: string;
+      readonly missionKind: "strike" | "airTransport";
+      readonly targetHexKey: string;
+    };
+
 /**
  * Manages the battle screen where combat takes place.
  * Handles turn management, deployment finalization, and mission completion.
@@ -175,8 +191,10 @@ export class BattleScreen {
   private airPreviewKeys: Set<string> = new Set();
   private airPreviewListener: ((e: Event) => void) | null = null;
   private airClearPreviewListener: ((e: Event) => void) | null = null;
+  private targetMarkerClickListener: ((e: Event) => void) | null = null;
   private seenAirReportIds: Set<string> = new Set();
   private artilleryPreviewKeys: Set<string> = new Set();
+  private readonly queuedTargetMarkerActions = new Map<string, QueuedTargetMarkerAction>();
   private artilleryTargetingState: {
     callerHexKey: string;
     callerLabel: string;
@@ -668,6 +686,171 @@ export class BattleScreen {
     }
   }
 
+  private syncQueuedTargetMarkers(): void {
+    if (!this.hexMapRenderer || !this.battleState.hasEngine()) {
+      return;
+    }
+
+    const engine = this.battleState.ensureGameEngine();
+    const markers: BattleTargetMarker[] = [];
+    this.queuedTargetMarkerActions.clear();
+
+    engine.getSupportSnapshot().queued
+      .filter((asset) => asset.type === "artillery" && asset.queuedHex && asset.queuedByHex)
+      .forEach((asset) => {
+        const targetHexKey = this.parseAxialKeyToOffsetHexKey(asset.queuedHex);
+        const callerHexKey = asset.queuedByHex;
+        if (!targetHexKey || !callerHexKey) {
+          return;
+        }
+        const markerId = `support:${asset.id}`;
+        const callerLabel = this.resolveUnitLabelForHex(callerHexKey) ?? "Selected unit";
+        markers.push({
+          id: markerId,
+          hexKey: targetHexKey,
+          icon: "crosshair",
+          accentColor: "#d7263d",
+          tooltip: `Heavy artillery queued on ${targetHexKey}. Click to cancel and reposition.`,
+          interactive: true
+        });
+        this.queuedTargetMarkerActions.set(markerId, {
+          type: "artillery",
+          assetId: asset.id,
+          callerHexKey,
+          callerLabel,
+          targetHexKey
+        });
+      });
+
+    engine.getScheduledAirMissions("Player")
+      .filter((mission) => mission.status === "queued" && (mission.kind === "strike" || mission.kind === "airTransport") && mission.targetHex)
+      .forEach((mission) => {
+        if (!mission.targetHex) {
+          return;
+        }
+        const missionKind = mission.kind === "strike" ? "strike" : "airTransport";
+        const targetHexKey = this.axialToHexKey(mission.targetHex);
+        const markerId = `air:${mission.id}`;
+        const missionLabel = missionKind === "strike" ? "Bombing mission" : "Paratrooper drop";
+        markers.push({
+          id: markerId,
+          hexKey: targetHexKey,
+          icon: missionKind === "strike" ? "crosshair" : "parachute",
+          accentColor: missionKind === "strike" ? "#d7263d" : "#f4f1e8",
+          tooltip: `${missionLabel} queued on ${targetHexKey}. Click to cancel.`,
+          interactive: true
+        });
+        this.queuedTargetMarkerActions.set(markerId, {
+          type: "airMission",
+          missionId: mission.id,
+          missionKind,
+          targetHexKey
+        });
+      });
+
+    this.hexMapRenderer.syncQueuedTargetMarkers(markers);
+  }
+
+  private axialToHexKey(axial: Axial): string {
+    const { col, row } = CoordinateSystem.axialToOffset(axial.q, axial.r);
+    return CoordinateSystem.makeHexKey(col, row);
+  }
+
+  private parseAxialKeyToOffsetHexKey(hexKey: string | null): string | null {
+    if (!hexKey) {
+      return null;
+    }
+    const parts = hexKey.split(",").map((value) => Number(value.trim()));
+    if (parts.length !== 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1])) {
+      return null;
+    }
+    return this.axialToHexKey({ q: parts[0], r: parts[1] });
+  }
+
+  private getQueuedArtilleryForCallerHex(hexKey: string): SupportAssetSnapshot | null {
+    if (!this.battleState.hasEngine()) {
+      return null;
+    }
+    return this.battleState.ensureGameEngine().getSupportSnapshot().queued.find(
+      (asset) => asset.type === "artillery" && asset.queuedByHex === hexKey
+    ) ?? null;
+  }
+
+  private restartQueuedArtilleryTargeting(callerHexKey: string, callerLabel: string, assetId?: string): boolean {
+    const unit = this.resolvePlayerUnitSnapshot(callerHexKey);
+    if (!unit) {
+      this.applySelectedHex(callerHexKey);
+      return false;
+    }
+    const parsed = CoordinateSystem.parseHexKey(callerHexKey);
+    if (!parsed) {
+      return false;
+    }
+    const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+    const commandState = this.battleState.ensureGameEngine().getUnitCommandState(axial);
+    const artilleryState = this.resolveArtilleryActionState(unit, commandState, callerHexKey);
+    const readyAssetId = assetId ?? artilleryState.assetId;
+    this.applySelectedHex(callerHexKey);
+    if (!artilleryState.available || !readyAssetId) {
+      this.announceBattleUpdate(artilleryState.reason ?? `${callerLabel} cannot retask heavy artillery right now.`);
+      return false;
+    }
+    this.beginArtilleryTargeting(callerHexKey, callerLabel, readyAssetId, artilleryState.targetHexKeys);
+    return true;
+  }
+
+  private cancelQueuedArtilleryStrike(assetId: string, callerHexKey: string, callerLabel: string, targetHexKey: string): void {
+    const engine = this.battleState.ensureGameEngine();
+    const canceled = engine.cancelQueuedSupport(assetId);
+    this.syncQueuedTargetMarkers();
+    if (!canceled) {
+      this.announceBattleUpdate("Heavy artillery cancellation failed. The queued mission may have already resolved.");
+      return;
+    }
+    this.publishActivityEvent({
+      category: "player",
+      type: "log",
+      summary: `${callerLabel} canceled heavy artillery on ${targetHexKey}.`
+    });
+    this.battleState.emitBattleUpdate("manual");
+    this.restartQueuedArtilleryTargeting(callerHexKey, callerLabel, assetId);
+  }
+
+  private cancelQueuedAirMission(missionId: string, missionKind: "strike" | "airTransport", targetHexKey: string): void {
+    const engine = this.battleState.ensureGameEngine();
+    const canceled = engine.cancelQueuedAirMission(missionId);
+    this.syncQueuedTargetMarkers();
+    if (!canceled) {
+      this.announceBattleUpdate("That queued air mission is no longer available to cancel.");
+      return;
+    }
+    const missionLabel = missionKind === "strike" ? "Bombing mission" : "Paratrooper drop";
+    const summary = `${missionLabel} on ${targetHexKey} canceled. Queue another mission when ready.`;
+    this.announceBattleUpdate(summary);
+    this.publishActivityEvent({
+      category: "player",
+      type: "log",
+      summary
+    });
+    this.battleState.emitBattleUpdate("missionUpdated");
+  }
+
+  private handleQueuedTargetMarkerClick(event: CustomEvent<{ markerId: string }>): void {
+    const markerId = event.detail?.markerId ?? "";
+    if (!markerId) {
+      return;
+    }
+    const action = this.queuedTargetMarkerActions.get(markerId);
+    if (!action) {
+      return;
+    }
+    if (action.type === "artillery") {
+      this.cancelQueuedArtilleryStrike(action.assetId, action.callerHexKey, action.callerLabel, action.targetHexKey);
+      return;
+    }
+    this.cancelQueuedAirMission(action.missionId, action.missionKind, action.targetHexKey);
+  }
+
   private canUnitObserveArtillery(unit: ScenarioUnit): boolean {
     const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
     if (!definition) {
@@ -797,7 +980,8 @@ export class BattleScreen {
       return;
     }
     this.applySelectedHex(targetingState.callerHexKey);
-    const summary = `${targetingState.callerLabel} requested heavy artillery on ${targetHexKey}. Impact scheduled for turn transition.`;
+    this.syncQueuedTargetMarkers();
+    const summary = `${targetingState.callerLabel} requested heavy artillery on ${targetHexKey}. Impact scheduled for turn transition. Click the red crosshair to cancel and reposition.`;
     this.announceBattleUpdate(summary);
     this.publishActivityEvent({
       category: "player",
@@ -2920,6 +3104,7 @@ export class BattleScreen {
         default:
           break;
       }
+      this.syncQueuedTargetMarkers();
     });
   }
 
@@ -2973,8 +3158,10 @@ export class BattleScreen {
     // Wire Air Support preview events so the map can visualize combat radius while picking targets
     this.airPreviewListener = (ev: Event) => this.handleAirPreviewRange(ev as CustomEvent<{ origin: Axial; radius: number }>);
     this.airClearPreviewListener = () => this.clearAirPreviewOverlay();
+    this.targetMarkerClickListener = (ev: Event) => this.handleQueuedTargetMarkerClick(ev as CustomEvent<{ markerId: string }>);
     document.addEventListener("air:previewRange", this.airPreviewListener);
     document.addEventListener("air:clearPreview", this.airClearPreviewListener);
+    document.addEventListener("battle:targetMarkerClicked", this.targetMarkerClickListener);
 
     // Wire reserve deployment from the Army Roster popup
     document.addEventListener("battle:selectReserve", (event) => {
@@ -3037,6 +3224,17 @@ export class BattleScreen {
     }
     window.removeEventListener("keydown", this.keyboardNavigationHandler);
     document.removeEventListener("screen:shown", this.screenShownHandler);
+    if (this.airPreviewListener) {
+      document.removeEventListener("air:previewRange", this.airPreviewListener);
+    }
+    if (this.airClearPreviewListener) {
+      document.removeEventListener("air:clearPreview", this.airClearPreviewListener);
+    }
+    if (this.targetMarkerClickListener) {
+      document.removeEventListener("battle:targetMarkerClicked", this.targetMarkerClickListener);
+    }
+    this.queuedTargetMarkerActions.clear();
+    this.hexMapRenderer?.syncQueuedTargetMarkers([]);
 
     // Clear any lingering visual announcements and pending timers when the screen unloads.
     this.selectionIntelOverlay?.dispose();
@@ -4857,6 +5055,20 @@ export class BattleScreen {
 
     let succeeded = false;
     let summary = "";
+    if (actionId === "repositionArtillery") {
+      const queuedArtillery = this.getQueuedArtilleryForCallerHex(this.selectedHexKey);
+      if (!queuedArtillery) {
+        this.announceBattleUpdate("No queued heavy artillery mission is available to reposition.");
+        return;
+      }
+      this.cancelQueuedArtilleryStrike(
+        queuedArtillery.id,
+        this.selectedHexKey,
+        unitLabel,
+        this.parseAxialKeyToOffsetHexKey(queuedArtillery.queuedHex) ?? "the selected target"
+      );
+      return;
+    }
     if (actionId === "callArtillery") {
       const artilleryState = this.resolveArtilleryActionState(unit, commandState, this.selectedHexKey);
       if (!artilleryState.available || !artilleryState.assetId) {
@@ -5361,15 +5573,26 @@ export class BattleScreen {
 
     const actions: BattleIntelAction[] = [];
     if (this.canUnitObserveArtillery(unit)) {
-      const artilleryState = this.resolveArtilleryActionState(unit, commandState, hexKey);
-      actions.push({
-        id: "callArtillery",
-        label: "Call Artillery",
-        detail: "Queue an off-map heavy artillery strike on an observed enemy hex. Impact lands during turn transition.",
-        tone: "denial",
-        available: artilleryState.available,
-        reason: artilleryState.reason
-      });
+      const queuedArtillery = this.getQueuedArtilleryForCallerHex(hexKey);
+      if (queuedArtillery) {
+        actions.push({
+          id: "repositionArtillery",
+          label: "Reposition Artillery",
+          detail: "Cancel the queued fire mission and immediately pick a new observed enemy hex.",
+          tone: "denial",
+          available: true
+        });
+      } else {
+        const artilleryState = this.resolveArtilleryActionState(unit, commandState, hexKey);
+        actions.push({
+          id: "callArtillery",
+          label: "Call Artillery",
+          detail: "Queue an off-map heavy artillery strike on an observed enemy hex. Impact lands during turn transition.",
+          tone: "denial",
+          available: artilleryState.available,
+          reason: artilleryState.reason
+        });
+      }
     }
     if (this.canUnitDigIn(unit)) {
       actions.push({
@@ -5722,6 +5945,7 @@ export class BattleScreen {
 
     // Ensure idle formations retain their blue outline after sprite redraws.
     this.refreshIdleUnitHighlights();
+    this.syncQueuedTargetMarkers();
   }
 
   private buildEnemyContactRenderUnit(contact: EnemyContactSnapshot, liveUnits: readonly ScenarioUnit[]): ScenarioUnit | null {

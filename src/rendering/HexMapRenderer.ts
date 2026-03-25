@@ -18,6 +18,15 @@ import { hexLine, type Axial } from "../core/Hex";
  */
 export type ReconStatusKey = "unknown" | "spotted" | "identified" | "visible";
 
+export interface BattleTargetMarker {
+  readonly id: string;
+  readonly hexKey: string;
+  readonly icon: "crosshair" | "parachute";
+  readonly accentColor?: string;
+  readonly tooltip?: string;
+  readonly interactive?: boolean;
+}
+
 /**
  * Hex rendering configuration constants.
  */
@@ -107,6 +116,7 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly objectiveMarkerMap: Map<string, SVGGElement> = new Map();
   /** Engineer-built terrain overlays such as fortifications and tank traps. */
   private readonly hexModificationOverlayMap: Map<string, SVGGElement> = new Map();
+  private queuedTargetMarkerLayer: SVGGElement | null = null;
   private selectionGlow: SVGCircleElement | null = null;
 
   private svgElement: SVGSVGElement | null = null;
@@ -212,6 +222,40 @@ export class HexMapRenderer implements IMapRenderer {
     layer.appendChild(group);
     await new Promise<void>((resolve) => setTimeout(resolve, Math.max(100, durationMs)));
     group.remove();
+  }
+
+  syncQueuedTargetMarkers(markers: readonly BattleTargetMarker[]): void {
+    const layer = this.ensureQueuedTargetMarkerLayer();
+    if (!layer) {
+      return;
+    }
+
+    layer.replaceChildren();
+    if (markers.length === 0) {
+      return;
+    }
+
+    const markersByHex = new Map<string, BattleTargetMarker[]>();
+    markers.forEach((marker) => {
+      const entries = markersByHex.get(marker.hexKey) ?? [];
+      entries.push(marker);
+      markersByHex.set(marker.hexKey, entries);
+    });
+
+    markersByHex.forEach((entries, hexKey) => {
+      const cell = this.hexElementMap.get(hexKey);
+      if (!cell) {
+        return;
+      }
+      const center = this.extractHexCenter(cell);
+      if (!center) {
+        return;
+      }
+      entries.forEach((marker, index) => {
+        const group = this.buildQueuedTargetMarker(marker, center.cx, center.cy, index, entries.length);
+        layer.appendChild(group);
+      });
+    });
   }
 
   /**
@@ -846,6 +890,7 @@ export class HexMapRenderer implements IMapRenderer {
 
     // Reset combat overlay each render because assigning innerHTML clears prior nodes.
     this.combatEffectsLayer = null;
+    this.queuedTargetMarkerLayer = null;
 
     // Clear any cached unit occupancy metadata (unit icons are rebuilt by BattleScreen after re-render).
     // Keeping stale entries can cause attack effects to use the wrong style for an empty tile.
@@ -1062,6 +1107,166 @@ export class HexMapRenderer implements IMapRenderer {
     overlay.style.width = `${this.mapPixelWidth}px`;
     overlay.style.height = `${this.mapPixelHeight}px`;
     return overlay;
+  }
+
+  private ensureQueuedTargetMarkerLayer(): SVGGElement | null {
+    const viewportRoot = this.viewportRoot || this.svgElement?.querySelector("#viewportRoot");
+    if (!viewportRoot) {
+      return null;
+    }
+    let layer = this.queuedTargetMarkerLayer;
+    if (!layer || !layer.isConnected) {
+      layer = viewportRoot.querySelector<SVGGElement>(".queued-target-marker-layer");
+    }
+    if (!layer) {
+      layer = document.createElementNS(SVG_NS, "g");
+      layer.classList.add("queued-target-marker-layer");
+      layer.style.pointerEvents = "none";
+      viewportRoot.appendChild(layer);
+    } else if (layer.parentNode !== viewportRoot) {
+      viewportRoot.appendChild(layer);
+    }
+    this.queuedTargetMarkerLayer = layer;
+    return layer;
+  }
+
+  private buildQueuedTargetMarker(
+    marker: BattleTargetMarker,
+    cx: number,
+    cy: number,
+    index: number,
+    totalAtHex: number
+  ): SVGGElement {
+    const { dx, dy } = this.resolveQueuedTargetMarkerOffset(index, totalAtHex);
+    const group = document.createElementNS(SVG_NS, "g");
+    group.classList.add("queued-target-marker");
+    group.setAttribute("data-marker-id", marker.id);
+    group.setAttribute("transform", `translate(${cx + dx} ${cy + dy})`);
+    group.style.pointerEvents = marker.interactive ? "all" : "none";
+    if (marker.interactive) {
+      group.style.cursor = "pointer";
+      group.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        document.dispatchEvent(new CustomEvent("battle:targetMarkerClicked", { detail: { markerId: marker.id } }));
+      });
+    }
+
+    const hitArea = document.createElementNS(SVG_NS, "circle");
+    hitArea.setAttribute("cx", "0");
+    hitArea.setAttribute("cy", "0");
+    hitArea.setAttribute("r", "18");
+    hitArea.setAttribute("fill", "rgba(0, 0, 0, 0.001)");
+    group.appendChild(hitArea);
+
+    const badge = document.createElementNS(SVG_NS, "circle");
+    badge.setAttribute("cx", "0");
+    badge.setAttribute("cy", "0");
+    badge.setAttribute("r", "14");
+    badge.setAttribute("fill", "rgba(12, 16, 22, 0.72)");
+    badge.setAttribute("stroke", "rgba(255, 255, 255, 0.3)");
+    badge.setAttribute("stroke-width", "1");
+    group.appendChild(badge);
+
+    if (marker.icon === "parachute") {
+      group.appendChild(this.buildParachuteMarkerShape(marker.accentColor ?? "#f4f1e8"));
+    } else {
+      group.appendChild(this.buildCrosshairMarkerShape(marker.accentColor ?? "#d7263d"));
+    }
+
+    if (marker.tooltip) {
+      const title = document.createElementNS(SVG_NS, "title");
+      title.textContent = marker.tooltip;
+      group.appendChild(title);
+    }
+
+    return group;
+  }
+
+  private buildCrosshairMarkerShape(color: string): SVGGElement {
+    const group = document.createElementNS(SVG_NS, "g");
+    const ring = document.createElementNS(SVG_NS, "circle");
+    ring.setAttribute("cx", "0");
+    ring.setAttribute("cy", "0");
+    ring.setAttribute("r", "9");
+    ring.setAttribute("fill", "none");
+    ring.setAttribute("stroke", color);
+    ring.setAttribute("stroke-width", "2.4");
+    group.appendChild(ring);
+
+    const centerDot = document.createElementNS(SVG_NS, "circle");
+    centerDot.setAttribute("cx", "0");
+    centerDot.setAttribute("cy", "0");
+    centerDot.setAttribute("r", "1.8");
+    centerDot.setAttribute("fill", color);
+    group.appendChild(centerDot);
+
+    [
+      { x1: -13, y1: 0, x2: -5, y2: 0 },
+      { x1: 5, y1: 0, x2: 13, y2: 0 },
+      { x1: 0, y1: -13, x2: 0, y2: -5 },
+      { x1: 0, y1: 5, x2: 0, y2: 13 }
+    ].forEach((segment) => {
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", String(segment.x1));
+      line.setAttribute("y1", String(segment.y1));
+      line.setAttribute("x2", String(segment.x2));
+      line.setAttribute("y2", String(segment.y2));
+      line.setAttribute("stroke", color);
+      line.setAttribute("stroke-width", "2.4");
+      line.setAttribute("stroke-linecap", "round");
+      group.appendChild(line);
+    });
+
+    return group;
+  }
+
+  private buildParachuteMarkerShape(color: string): SVGGElement {
+    const group = document.createElementNS(SVG_NS, "g");
+    const canopy = document.createElementNS(SVG_NS, "path");
+    canopy.setAttribute("d", "M -10 0 Q 0 -12 10 0 L 8 0 Q 0 -7 -8 0 Z");
+    canopy.setAttribute("fill", color);
+    canopy.setAttribute("stroke", "#ab2b34");
+    canopy.setAttribute("stroke-width", "1.5");
+    group.appendChild(canopy);
+
+    [
+      { x1: -6, y1: 0, x2: -2, y2: 8 },
+      { x1: 0, y1: -2, x2: 0, y2: 8 },
+      { x1: 6, y1: 0, x2: 2, y2: 8 }
+    ].forEach((segment) => {
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", String(segment.x1));
+      line.setAttribute("y1", String(segment.y1));
+      line.setAttribute("x2", String(segment.x2));
+      line.setAttribute("y2", String(segment.y2));
+      line.setAttribute("stroke", "#ab2b34");
+      line.setAttribute("stroke-width", "1.4");
+      line.setAttribute("stroke-linecap", "round");
+      group.appendChild(line);
+    });
+
+    const payload = document.createElementNS(SVG_NS, "circle");
+    payload.setAttribute("cx", "0");
+    payload.setAttribute("cy", "10");
+    payload.setAttribute("r", "2.5");
+    payload.setAttribute("fill", "#ab2b34");
+    group.appendChild(payload);
+
+    return group;
+  }
+
+  private resolveQueuedTargetMarkerOffset(index: number, totalAtHex: number): { dx: number; dy: number } {
+    if (totalAtHex <= 1) {
+      return { dx: 0, dy: 0 };
+    }
+    const offsets = [
+      { dx: -14, dy: -10 },
+      { dx: 14, dy: -10 },
+      { dx: -10, dy: 12 },
+      { dx: 10, dy: 12 }
+    ];
+    return offsets[index % offsets.length] ?? { dx: 0, dy: 0 };
   }
 
   private resolveViewportRootMatrix(): { a: number; b: number; c: number; d: number; e: number; f: number } {
@@ -3322,6 +3527,37 @@ export class HexMapRenderer implements IMapRenderer {
     await Promise.all(burstPromises);
   }
 
+  private async playArtilleryImpactBurst(
+    defenderHexKey: string,
+    targetIsHardTarget: boolean
+  ): Promise<void> {
+    const spreadPx = targetIsHardTarget ? HEX_RADIUS * 0.28 : HEX_RADIUS * 0.42;
+    const roundedSpread = Math.max(4, Math.round(spreadPx));
+    const impactOffsets = targetIsHardTarget
+      ? [
+          [0, 0],
+          [-roundedSpread, -Math.round(roundedSpread * 0.45)],
+          [Math.round(roundedSpread * 0.8), Math.round(roundedSpread * 0.55)]
+        ]
+      : [
+          [-roundedSpread, Math.round(roundedSpread * 0.2)],
+          [Math.round(roundedSpread * 0.75), -Math.round(roundedSpread * 0.4)],
+          [0, Math.round(roundedSpread * 0.65)]
+        ];
+    const baseScale = targetIsHardTarget ? 1.24 : 1.12;
+
+    const burstPromises = impactOffsets.map(([offsetX, offsetY], index) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          const scale = baseScale * (index === 0 ? 1.06 : 0.92 + index * 0.08);
+          void this.playCombatAnimation("explosionSmall", defenderHexKey, offsetX, offsetY, scale).then(() => resolve());
+        }, index * 85);
+      })
+    );
+
+    await Promise.all(burstPromises);
+  }
+
   /**
    * Plays a full attack animation sequence: muzzle flash + explosion.
    */
@@ -3484,9 +3720,9 @@ export class HexMapRenderer implements IMapRenderer {
 
       const hitShakePromise = this.playHitShake(defenderHexKey, targetIsHardTarget ? 6 : 5);
 
-      const impactAnim = defenderIsAir ? "explosionSmall" : "explosionLarge";
-      const impactScale = defenderIsAir ? 1.7 : targetIsHardTarget ? 2.05 : 1.9;
-      const impactPromise = this.playCombatAnimation(impactAnim, defenderHexKey, 0, 0, impactScale);
+      const impactPromise = defenderIsAir
+        ? this.playCombatAnimation("explosionSmall", defenderHexKey, 0, 0, 1.7)
+        : this.playArtilleryImpactBurst(defenderHexKey, targetIsHardTarget);
 
       const sparksPromise = defenderIsAir
         ? this.playSparkBurst(defenderHexKey, {

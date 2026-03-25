@@ -328,6 +328,7 @@ export interface SupportAssetSnapshot {
   readonly assignedHex: string | null;
   readonly notes: string | null;
   readonly queuedHex: string | null;
+  readonly queuedByHex: string | null;
 }
 
 /**
@@ -384,6 +385,7 @@ interface InternalSupportAsset {
   assignedHex: string | null;
   notes: string | null;
   queuedHex: string | null;
+  queuedByHex: string | null;
 }
 
 /**
@@ -1112,7 +1114,7 @@ export interface GameEngineAPI {
   getCombatReports(): readonly CombatReportEntry[];
   queueSupportAction(assetId: string, targetHex: Axial): void;
   queueSupportActionFromUnit(callerHex: Axial, assetId: string, targetHex: Axial): boolean;
-  cancelQueuedSupport(assetId: string): void;
+  cancelQueuedSupport(assetId: string): boolean;
   consumeBotTurnSummary(): BotTurnSummary | null;
   transferAllyControl(hex: Axial): boolean;
   digInUnit(hex: Axial): boolean;
@@ -3996,7 +3998,8 @@ private automateSupplyConvoys(
         maxCooldown: 3,
         assignedHex: null,
         notes: "Off-map heavy artillery battery available for observer-directed fire missions.",
-        queuedHex: null
+        queuedHex: null,
+        queuedByHex: null
       },
       {
         id: "support-airstrike-bravo",
@@ -4009,7 +4012,8 @@ private automateSupplyConvoys(
         maxCooldown: 4,
         assignedHex: null,
         notes: "Fast attack squadron cycling through refuel/rearm",
-        queuedHex: null
+        queuedHex: null,
+        queuedByHex: null
       },
       {
         id: "support-engineer-charlie",
@@ -4022,7 +4026,8 @@ private automateSupplyConvoys(
         maxCooldown: 2,
         assignedHex: null,
         notes: "Bridging gear inspection scheduled",
-        queuedHex: null
+        queuedHex: null,
+        queuedByHex: null
       }
     );
     this.invalidateSupportSnapshot();
@@ -4353,6 +4358,11 @@ private automateSupplyConvoys(
   private refreshPlayerEnemyContactStates(): void {
     const observers = this.listPlayerReconObservers();
     const liveBotIds = new Set<string>();
+    console.log("[GameEngine] refreshPlayerEnemyContactStates:", {
+      observerCount: observers.length,
+      botCount: this.botPlacements.size,
+      turnNumber: this._turnNumber
+    });
 
     this.botPlacements.forEach((target) => {
       const targetDefinition = this.getUnitDefinition(target.type);
@@ -4364,6 +4374,14 @@ private automateSupplyConvoys(
       liveBotIds.add(unitId);
       const observation = this.evaluateEnemyObservationForPlayer(target, observers);
       const existing = this.playerEnemyContactStates.get(unitId);
+
+      console.log("[GameEngine] Evaluating bot unit:", {
+        type: target.type,
+        hex: target.hex,
+        unitId,
+        hasObservation: !!observation,
+        observationState: observation?.state
+      });
 
       if (observation) {
         this.playerEnemyContactStates.set(unitId, {
@@ -4567,12 +4585,29 @@ private automateSupplyConvoys(
   private getPlayerEnemyContactStateAtHex(targetHex: Axial): EnemyContactState | null {
     this.refreshPlayerEnemyContactStates();
     const targetKey = axialKey(targetHex);
+    console.log("[GameEngine] getPlayerEnemyContactStateAtHex:", {
+      targetHex,
+      targetKey,
+      totalContacts: this.playerEnemyContactStates.size,
+      turnNumber: this._turnNumber
+    });
     for (const entry of this.playerEnemyContactStates.values()) {
       const snapshot = this.mapEnemyContactSnapshot(entry);
+      if (snapshot) {
+        console.log("[GameEngine] Contact snapshot:", {
+          hex: snapshot.hex,
+          hexKey: axialKey(snapshot.hex),
+          state: snapshot.state,
+          lastSeenTurn: snapshot.lastSeenTurn,
+          matches: axialKey(snapshot.hex) === targetKey
+        });
+      }
       if (snapshot && axialKey(snapshot.hex) === targetKey) {
+        console.log("[GameEngine] Found contact at target hex:", snapshot.state);
         return snapshot.state;
       }
     }
+    console.log("[GameEngine] No contact found at target hex");
     return null;
   }
 
@@ -4588,7 +4623,8 @@ private automateSupplyConvoys(
       maxCooldown: asset.maxCooldown,
       assignedHex: asset.assignedHex,
       notes: asset.notes,
-      queuedHex: asset.queuedHex
+      queuedHex: asset.queuedHex,
+      queuedByHex: asset.queuedByHex
     } satisfies SupportAssetSnapshot;
   }
 
@@ -4606,6 +4642,7 @@ private automateSupplyConvoys(
   queueSupportAction(assetId: string, targetHex: Axial): void {
     const asset = this.getInternalSupportAsset(assetId);
     asset.queuedHex = axialKey(targetHex);
+    asset.queuedByHex = null;
     asset.status = "queued";
     this.invalidateSupportSnapshot();
     this.invalidateRosterCache();
@@ -4613,10 +4650,21 @@ private automateSupplyConvoys(
 
   queueSupportActionFromUnit(callerHex: Axial, assetId: string, targetHex: Axial): boolean {
     if (this._phase !== "playerTurn") {
+      console.log("[GameEngine] queueSupportActionFromUnit failed: not player turn");
       return false;
     }
     const caller = this.lookupUnit(callerHex, "Player");
-    if (!caller || this.isAutomatedPlayerUnit(caller) || !this.getPlayerEnemyContactStateAtHex(targetHex)) {
+    const enemyContact = this.getPlayerEnemyContactStateAtHex(targetHex);
+    console.log("[GameEngine] queueSupportActionFromUnit validation:", {
+      callerHex,
+      targetHex,
+      hasCaller: !!caller,
+      isAutomated: caller ? this.isAutomatedPlayerUnit(caller) : false,
+      enemyContact,
+      turnNumber: this._turnNumber
+    });
+    if (!caller || this.isAutomatedPlayerUnit(caller) || !enemyContact) {
+      console.log("[GameEngine] queueSupportActionFromUnit failed validation");
       return false;
     }
     const callerDefinition = this.getUnitDefinition(caller.type);
@@ -4636,6 +4684,7 @@ private automateSupplyConvoys(
       return false;
     }
     asset.queuedHex = axialKey(targetHex);
+    asset.queuedByHex = callerKey;
     asset.status = "queued";
     this.playerActionFlags.set(callerKey, this.resolveCommittedFieldActionFlags(callerHex, flags));
     this.updateIdleRegistryFor(callerKey);
@@ -4992,9 +5041,14 @@ private automateSupplyConvoys(
   /**
    * Cancel any queued support orders so the asset returns to its previous readiness cycle.
    */
-  cancelQueuedSupport(assetId: string): void {
+  cancelQueuedSupport(assetId: string): boolean {
     const asset = this.getInternalSupportAsset(assetId);
+    if (asset.status !== "queued") {
+      return false;
+    }
+    const callerKey = asset.queuedByHex;
     asset.queuedHex = null;
+    asset.queuedByHex = null;
     if (asset.cooldown > 0) {
       asset.status = "cooldown";
     } else if (asset.charges > 0) {
@@ -5002,8 +5056,13 @@ private automateSupplyConvoys(
     } else {
       asset.status = "maintenance";
     }
+    if (callerKey) {
+      this.playerActionFlags.set(callerKey, this.createDefaultActionFlags());
+      this.updateIdleRegistryFor(callerKey);
+    }
     this.invalidateSupportSnapshot();
     this.invalidateRosterCache();
+    return true;
   }
 
   private resolveQueuedSupportActions(): void {
@@ -5049,6 +5108,7 @@ private automateSupplyConvoys(
       });
       asset.assignedHex = targetKey;
       asset.queuedHex = null;
+      asset.queuedByHex = null;
       asset.cooldown = 0;
       asset.charges = Math.max(0, asset.charges - 1);
       asset.status = asset.charges > 0 ? "ready" : "maintenance";
@@ -10282,7 +10342,8 @@ private automateSupplyConvoys(
         maxCooldown: asset.maxCooldown,
         assignedHex: asset.assignedHex,
         notes: asset.notes,
-        queuedHex: asset.queuedHex
+        queuedHex: asset.queuedHex,
+        queuedByHex: asset.queuedByHex
       } satisfies SupportAssetSnapshot;
 
       switch (asset.status) {
