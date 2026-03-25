@@ -86,72 +86,72 @@ function validateLeadingFrameUniqueness(sourceLabel: string, frameDataUrls: read
  * dimensions divided by the grid layout, ensuring we capture the full frame
  * regardless of what the spec claims.
  */
-/**
- * Creates a debug visualization of the sprite sheet with frame rectangles overlaid.
- * Returns the canvas element with the overlay, or null if creation fails.
- */
-function createDebugSheetOverlay(
-  image: HTMLImageElement,
-  columns: number,
-  rows: number,
-  frameCount: number,
-  cellWidth: number,
-  cellHeight: number,
-  inset: number,
-  sourceLabel: string
-): HTMLCanvasElement | null {
-  try {
-    const canvas = document.createElement("canvas");
-    canvas.width = image.naturalWidth;
-    canvas.height = image.naturalHeight;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    // Draw the source image
-    ctx.drawImage(image, 0, 0);
-
-    // Draw frame rectangles
-    ctx.strokeStyle = "lime";
-    ctx.lineWidth = 3;
-    ctx.font = "20px monospace";
-    ctx.fillStyle = "lime";
-
-    for (let i = 0; i < frameCount; i++) {
-      const col = i % columns;
-      const row = Math.floor(i / columns);
-      const sx = col * cellWidth + inset;
-      const sy = row * cellHeight + inset;
-      const sw = cellWidth - inset * 2;
-      const sh = cellHeight - inset * 2;
-
-      // Draw rectangle
-      ctx.strokeRect(sx, sy, sw, sh);
-
-      // Draw frame number
-      ctx.fillText(String(i), sx + 5, sy + 25);
-    }
-
-    // Add metadata text
-    ctx.fillStyle = "yellow";
-    ctx.fillText(`${columns}×${rows} grid, ${frameCount} frames, cell ${cellWidth}×${cellHeight}px, inset ${inset}px`, 10, 30);
-
-    // Create download link
-    const dataUrl = canvas.toDataURL("image/png");
-    const link = document.createElement("a");
-    link.href = dataUrl;
-    const filename = sourceLabel.includes("Explosion") ? "explosion_sheet_debug_overlay.png" : "sheet_debug_overlay.png";
-    link.download = filename;
-    link.textContent = `📊 Download Debug Sheet Overlay (${filename})`;
-    link.style.cssText = "display:block; color: lime; background: black; padding: 8px; margin: 4px; font-weight: bold; border: 2px solid lime;";
-    document.body.appendChild(link);
-
-    return canvas;
-  } catch (error) {
-    console.warn("[SpriteSheet] Failed to create debug overlay:", error);
-    return null;
-  }
-}
+// /**
+//  * Creates a debug visualization of the sprite sheet with frame rectangles overlaid.
+//  * Returns the canvas element with the overlay, or null if creation fails.
+//  */
+// function createDebugSheetOverlay(
+//   image: HTMLImageElement,
+//   columns: number,
+//   rows: number,
+//   frameCount: number,
+//   cellWidth: number,
+//   cellHeight: number,
+//   inset: number,
+//   sourceLabel: string
+// ): HTMLCanvasElement | null {
+//   try {
+//     const canvas = document.createElement("canvas");
+//     canvas.width = image.naturalWidth;
+//     canvas.height = image.naturalHeight;
+//
+//     const ctx = canvas.getContext("2d");
+//     if (!ctx) return null;
+//
+//     // Draw the source image
+//     ctx.drawImage(image, 0, 0);
+//
+//     // Draw frame rectangles
+//     ctx.strokeStyle = "lime";
+//     ctx.lineWidth = 3;
+//     ctx.font = "20px monospace";
+//     ctx.fillStyle = "lime";
+//
+//     for (let i = 0; i < frameCount; i++) {
+//       const col = i % columns;
+//       const row = Math.floor(i / columns);
+//       const sx = col * cellWidth + inset;
+//       const sy = row * cellHeight + inset;
+//       const sw = cellWidth - inset * 2;
+//       const sh = cellHeight - inset * 2;
+//
+//       // Draw rectangle
+//       ctx.strokeRect(sx, sy, sw, sh);
+//
+//       // Draw frame number
+//       ctx.fillText(String(i), sx + 5, sy + 25);
+//     }
+//
+//     // Add metadata text
+//     ctx.fillStyle = "yellow";
+//     ctx.fillText(`${columns}×${rows} grid, ${frameCount} frames, cell ${cellWidth}×${cellHeight}px, inset ${inset}px`, 10, 30);
+//
+//     // Create download link
+//     const dataUrl = canvas.toDataURL("image/png");
+//     const link = document.createElement("a");
+//     link.href = dataUrl;
+//     const filename = sourceLabel.includes("Explosion") ? "explosion_sheet_debug_overlay.png" : "sheet_debug_overlay.png";
+//     link.download = filename;
+//     link.textContent = `📊 Download Debug Sheet Overlay (${filename})`;
+//     link.style.cssText = "display:block; color: lime; background: black; padding: 8px; margin: 4px; font-weight: bold; border: 2px solid lime;";
+//     document.body.appendChild(link);
+//
+//     return canvas;
+//   } catch (error) {
+//     console.warn("[SpriteSheet] Failed to create debug overlay:", error);
+//     return null;
+//   }
+// }
 
 export async function sliceSpriteSheet(
   image: HTMLImageElement,
@@ -196,7 +196,7 @@ export async function sliceSpriteSheet(
   }
 
   console.log(`[SpriteSheet] ✓ Validation passed: ${sourceCellWidth}×${sourceCellHeight}px per cell`);
-  console.log(`[SpriteSheet] Computed source rectangles (1px inset per side):`);
+  // console.log(`[SpriteSheet] Computed source rectangles (1px inset per side):`);
 
   const frameCanvases: HTMLCanvasElement[] = [];
   const frameDataUrls: string[] = [];
@@ -210,11 +210,11 @@ export async function sliceSpriteSheet(
   const desiredAnchorX = actualFrameWidth * anchorX;
   const desiredAnchorY = actualFrameHeight * anchorY;
 
-  // Create debug visualization: draw all frame rectangles on the source sheet
-  const debugOverlay = createDebugSheetOverlay(image, columns, rows, frameCount, sourceCellWidth, sourceCellHeight, inset, sourceLabel);
-  if (debugOverlay) {
-    console.log(`[SpriteSheet] 🎨 Debug overlay created - see download link in page`);
-  }
+  // // DEBUG: Create debug visualization: draw all frame rectangles on the source sheet
+  // const debugOverlay = createDebugSheetOverlay(image, columns, rows, frameCount, sourceCellWidth, sourceCellHeight, inset, sourceLabel);
+  // if (debugOverlay) {
+  //   console.log(`[SpriteSheet] 🎨 Debug overlay created - see download link in page`);
+  // }
 
   for (let i = 0; i < frameCount; i++) {
     const col = i % columns;
@@ -226,10 +226,10 @@ export async function sliceSpriteSheet(
     const sw = sourceCellWidth - inset * 2;
     const sh = sourceCellHeight - inset * 2;
 
-    // Log computed rectangles for first 4 frames
-    if (i < 4) {
-      console.log(`[SpriteSheet]   Frame ${i}: col=${col} row=${row} rect=(x:${sx}, y:${sy}, w:${sw}, h:${sh})`);
-    }
+    // // DEBUG: Log computed rectangles for first 4 frames
+    // if (i < 4) {
+    //   console.log(`[SpriteSheet]   Frame ${i}: col=${col} row=${row} rect=(x:${sx}, y:${sy}, w:${sw}, h:${sh})`);
+    // }
 
     // Output canvas MUST match source rectangle exactly - no scaling, no interpolation artifacts
     const outputWidth = sw;
@@ -273,28 +273,28 @@ export async function sliceSpriteSheet(
     const dataUrl = canvas.toDataURL("image/png");
     frameDataUrls.push(dataUrl);
 
-    // Debug proof: export first 4 explosion frames as standalone debug images
-    if (i < 4 && sourceLabel.includes("Explosion")) {
-      console.log(`[SpriteSheet] ⚠️ DEBUG PROOF - Frame ${i} exported for manual inspection:`);
-      console.log(`[SpriteSheet]   Source rect: (${sx},${sy},${sw},${sh})`);
-      console.log(`[SpriteSheet]   Output size: ${outputWidth}x${outputHeight}`);
-      console.log(`[SpriteSheet]   Data URL length: ${dataUrl.length} bytes`);
-      console.log(`[SpriteSheet]   First 80 chars: ${dataUrl.substring(0, 80)}...`);
+    // // DEBUG: Export first 4 explosion frames as standalone debug images
+    // if (i < 4 && sourceLabel.includes("Explosion")) {
+    //   console.log(`[SpriteSheet] ⚠️ DEBUG PROOF - Frame ${i} exported for manual inspection:`);
+    //   console.log(`[SpriteSheet]   Source rect: (${sx},${sy},${sw},${sh})`);
+    //   console.log(`[SpriteSheet]   Output size: ${outputWidth}x${outputHeight}`);
+    //   console.log(`[SpriteSheet]   Data URL length: ${dataUrl.length} bytes`);
+    //   console.log(`[SpriteSheet]   First 80 chars: ${dataUrl.substring(0, 80)}...`);
+    //
+    //   // Create downloadable link for manual inspection
+    //   const debugLink = document.createElement("a");
+    //   debugLink.href = dataUrl;
+    //   debugLink.download = `explosion_frame_${i}_debug.png`;
+    //   debugLink.textContent = `Download Explosion Frame ${i}`;
+    //   debugLink.style.cssText = "display:block; color: yellow; background: black; padding: 4px; margin: 2px;";
+    //   document.body.appendChild(debugLink);
+    //   console.log(`[SpriteSheet]   Download link added to page for frame ${i}`);
+    // }
 
-      // Create downloadable link for manual inspection
-      const debugLink = document.createElement("a");
-      debugLink.href = dataUrl;
-      debugLink.download = `explosion_frame_${i}_debug.png`;
-      debugLink.textContent = `Download Explosion Frame ${i}`;
-      debugLink.style.cssText = "display:block; color: yellow; background: black; padding: 4px; margin: 2px;";
-      document.body.appendChild(debugLink);
-      console.log(`[SpriteSheet]   Download link added to page for frame ${i}`);
-    }
-
-    // Debug validation for first few frames
-    if (i < 3) {
-      console.log(`[SpriteSheet] Frame ${i} sliced: source=(${sx},${sy},${sw}x${sh}) output=(${outputWidth}x${outputHeight}) 1:1 mapping, dataUrl=${dataUrl.length} bytes`);
-    }
+    // // DEBUG: Validation for first few frames
+    // if (i < 3) {
+    //   console.log(`[SpriteSheet] Frame ${i} sliced: source=(${sx},${sy},${sw}x${sh}) output=(${outputWidth}x${outputHeight}) 1:1 mapping, dataUrl=${dataUrl.length} bytes`);
+    // }
   }
 
   validateLeadingFrameUniqueness(sourceLabel, frameDataUrls);
@@ -305,11 +305,11 @@ export async function sliceSpriteSheet(
     `anchor=(${desiredAnchorX.toFixed(1)}, ${desiredAnchorY.toFixed(1)})`
   );
 
-  // Debug: verify first 3 frames are unique by checking their data URL lengths
-  if (frameDataUrls.length >= 3) {
-    const lengths = frameDataUrls.slice(0, 3).map(url => url.length);
-    console.log(`[SpriteSheet] First 3 frame data URL lengths: ${lengths.join(", ")} (should differ if frames are unique)`);
-  }
+  // // DEBUG: Verify first 3 frames are unique by checking their data URL lengths
+  // if (frameDataUrls.length >= 3) {
+  //   const lengths = frameDataUrls.slice(0, 3).map(url => url.length);
+  //   console.log(`[SpriteSheet] First 3 frame data URL lengths: ${lengths.join(", ")} (should differ if frames are unique)`);
+  // }
 
   return {
     frameWidth: actualFrameWidth,
