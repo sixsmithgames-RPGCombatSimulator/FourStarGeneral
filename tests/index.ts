@@ -28,6 +28,7 @@ import "./AirSupport.summary.test.js";
 import "./GroundLogistics.enforcement.test.js";
 import "./InfantryActions.commandState.test.js";
 import "./BotMovement.zeroFuelSupport.test.js";
+import "./ReconLOS.directFire.test.js";
 import "./ReconBike.balance.test.js";
 import "./precombatLogisticsMinimum.test.js";
 

@@ -4440,7 +4440,8 @@ private automateSupplyConvoys(
         attackerHex: observer.hex,
         targetHex: target.hex,
         isAttackerAir: observerDef.moveType === "air",
-        lister
+        lister,
+        purpose: "spotting"
       });
       if (!hasLOS) {
         continue;
@@ -8123,7 +8124,8 @@ private automateSupplyConvoys(
       attackerHex: attacker.hex,
       targetHex: defender.hex,
       isAttackerAir: attackerType.moveType === "air",
-      lister
+      lister,
+      purpose: "direct-fire"
     });
 
     const canAttackWithoutDirectLOS = this.canAttackWithoutDirectLOS(attackerType);
@@ -8213,7 +8215,8 @@ private automateSupplyConvoys(
         attackerHex: unit.hex,
         targetHex: targetHex,
         isAttackerAir: unitDef.moveType === "air",
-        lister
+        lister,
+        purpose: "spotting"
       });
 
       if (hasLOS) {
@@ -9490,7 +9493,8 @@ private automateSupplyConvoys(
       attackerHex,
       targetHex,
       isAttackerAir: attackerDef.moveType === "air",
-      lister
+      lister,
+      purpose: "direct-fire"
     });
     let isSpottedOnly = false;
     if (!hasDirectLOS) {

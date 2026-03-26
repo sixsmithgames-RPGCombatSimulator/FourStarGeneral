@@ -23,6 +23,7 @@ export interface LOSContext {
   targetHex: Axial;
   isAttackerAir: boolean;
   lister: Lister;
+  purpose?: "direct-fire" | "spotting";
 }
 
 /**
@@ -33,7 +34,8 @@ export interface LOSContext {
  * - Scout planes within 8 hexes: ignore forest/hills
  * - Beyond those ranges, air units have same LOS as ground
  * - Units on hills: adjacent hills don't block
- * - Recon ground units: first blocking hex is transparent, need 2 consecutive to block
+ * - Recon ground spotting: first blocking hex is transparent, need 2 consecutive to block
+ * - Ground direct fire: any blocking hex stops the shot
  * - Regular ground units: standard LOS blocking
  */
 export function losClear(attacker: Axial, target: Axial, isAir: boolean, lister: Lister): boolean {
@@ -51,7 +53,7 @@ export function losClear(attacker: Axial, target: Axial, isAir: boolean, lister:
  * Advanced LOS check with full unit type awareness.
  */
 export function losClearAdvanced(ctx: LOSContext): boolean {
-  const { attackerClass, attackerHex, targetHex, isAttackerAir, lister } = ctx;
+  const { attackerClass, attackerHex, targetHex, isAttackerAir, lister, purpose = "direct-fire" } = ctx;
 
   const distance = hexDistance(attackerHex, targetHex);
   const path = hexLine(attackerHex, targetHex);
@@ -81,10 +83,10 @@ export function losClearAdvanced(ctx: LOSContext): boolean {
     return checkGroundLOS(path, lister, false, false);
   }
 
-  // Ground recon units: can see through first blocking hex
-  const isRecon = attackerClass === "recon";
+  // Recon units get a slightly more permissive LOS model for spotting only.
+  const canPeekPastFirstBlocker = purpose === "spotting" && attackerClass === "recon";
 
-  return checkGroundLOS(path, lister, isRecon, isOnHill);
+  return checkGroundLOS(path, lister, canPeekPastFirstBlocker, isOnHill);
 }
 
 /**
@@ -114,7 +116,7 @@ function checkAirLOS(path: Axial[], lister: Lister, isScout: boolean): boolean {
 function checkGroundLOS(
   path: Axial[],
   lister: Lister,
-  isRecon: boolean,
+  canPeekPastFirstBlocker: boolean,
   isOnHill: boolean
 ): boolean {
   const middle = path.slice(1, -1);
@@ -139,8 +141,8 @@ function checkGroundLOS(
 
     blockingCount++;
 
-    // Recon needs 2 consecutive blocking hexes to be blocked
-    if (isRecon) {
+    // Spotting recon can tolerate the first blocker, but direct-fire paths cannot.
+    if (canPeekPastFirstBlocker) {
       if (blockingCount >= 2) {
         return false;
       }
