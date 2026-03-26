@@ -5560,14 +5560,30 @@
 
         <!-- Footer -->
         <div class="landing-footer">
-          <div class="difficulty-selector">
+          <!--
+            DIFFICULTY SELECTOR - HIDDEN
+
+            Traditional difficulty selector has been disabled in favor of a budget-based difficulty system.
+            Difficulty should be controlled by the requisition budget allocated to the player in the precombat
+            screen, not by a global difficulty switch. Higher budgets = easier missions, lower budgets = harder.
+
+            This approach:
+            - Gives players granular control over challenge level per mission
+            - Creates meaningful trade-offs in force composition
+            - Maintains immersion (generals request resources, not "difficulty settings")
+            - Allows for dynamic difficulty through budget constraints in campaigns
+
+            If difficulty selection is needed in the future, it should control budget allocation amounts,
+            turn limits, and enemy force composition - not be a separate UI control here.
+          -->
+          <!-- <div class="difficulty-selector">
             <label for="difficultySelect">Difficulty</label>
             <select id="difficultySelect">
               <option value="Easy">Easy</option>
               <option value="Normal" selected>Normal</option>
               <option value="Hard">Hard</option>
             </select>
-          </div>
+          </div> -->
           <div class="feedback" id="feedback"></div>
           <button id="enterPrecombat" type="button" class="primary-button" disabled>Enter Operations</button>
         </div>

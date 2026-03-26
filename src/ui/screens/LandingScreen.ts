@@ -1,6 +1,6 @@
 import type { IScreenManager } from "../../contracts/IScreenManager";
 import { UIState, type MissionKey } from "../../state/UIState";
-import { getMissionTitle, getMissionBriefing } from "../../data/missions";
+import { getMissionTitle, getMissionBriefing, getMissionUnlockRequirement, isMissionUnlocked } from "../../data/missions";
 import {
   ROSTER_FILE_NAME,
   generalRosterEntries,
@@ -846,7 +846,6 @@ export class LandingScreen {
     if (selectedGeneral && this.uiState.selectedMission) {
       const missionsCompleted = selectedGeneral.serviceRecord?.missionsCompleted ?? 0;
       const victories = selectedGeneral.serviceRecord?.victoriesAchieved ?? 0;
-      const { isMissionUnlocked } = require('../data/missions');
       if (!isMissionUnlocked(this.uiState.selectedMission, missionsCompleted, victories)) {
         this.uiState.selectedMission = null;
       }
@@ -861,7 +860,6 @@ export class LandingScreen {
       .map((missionKey) => {
         const title = getMissionTitle(missionKey);
         const briefing = getMissionBriefing(missionKey);
-        const { getMissionUnlockRequirement, isMissionUnlocked } = require('../data/missions');
         const unlockReq = getMissionUnlockRequirement(missionKey);
 
         let isLocked = false;
@@ -906,7 +904,6 @@ export class LandingScreen {
   private getMissionsForGeneral(general: GeneralRosterEntry): MissionKey[] {
     const missionsCompleted = general.serviceRecord?.missionsCompleted ?? 0;
     const victories = general.serviceRecord?.victoriesAchieved ?? 0;
-    const { isMissionUnlocked } = require('../data/missions');
 
     return UIState.getMissionKeys().filter((missionKey) => {
       return isMissionUnlocked(missionKey, missionsCompleted, victories);
