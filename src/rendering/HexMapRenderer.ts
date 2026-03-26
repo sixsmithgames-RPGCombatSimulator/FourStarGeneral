@@ -3272,7 +3272,7 @@ export class HexMapRenderer implements IMapRenderer {
       return "small_bomb";
     }
     if (attackerClass === "artillery") {
-      return "artillery";
+      return "cannon";
     }
 
     const weaponType = attackerHexKey ? this.getWeaponEffectType(attackerHexKey) : undefined;
@@ -3325,7 +3325,7 @@ export class HexMapRenderer implements IMapRenderer {
         window.setTimeout(() => {
           void this.soundManager.playWeaponSound({
             weaponClass: soundClass,
-            playbackMode: "weapon",
+            playbackMode: "transient_only",
             gainMultiplier,
             seed: Math.floor(performance.now() * 1000) + index
           }).then(() => resolve());
@@ -3812,7 +3812,7 @@ export class HexMapRenderer implements IMapRenderer {
         window.setTimeout(() => {
           const scale = baseScale * (0.96 + index * 0.04);
           void this.playCombatAnimation("explosionSmall", defenderHexKey, offsetX, offsetY, scale).then(() => resolve());
-        }, index * 140);
+        }, index * 180);
       })
     );
 

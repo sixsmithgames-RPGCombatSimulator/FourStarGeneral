@@ -17,7 +17,7 @@ import type {
 import { WEAPON_AUDIO_PROFILES, type WeaponAudioProfile } from "./WeaponAudioProfiles";
 import { SeededRandom } from "../rendering/ProceduralPrimitives";
 
-export type SoundPlaybackMode = "full" | "weapon" | "impact" | "impact_only";
+export type SoundPlaybackMode = "full" | "weapon" | "impact" | "impact_only" | "transient_only";
 
 export interface QueuedWeaponSoundRequest {
   /** Weapon class to play */
@@ -147,14 +147,16 @@ export class CombatSoundManager {
     const rng = new SeededRandom(request.seed);
     const selected: SelectedSoundLayer[] = [];
     const playbackMode = request.playbackMode ?? "full";
-    const includeWeaponLayers = playbackMode === "full" || playbackMode === "weapon" || playbackMode === "impact";
+    const includeTransientLayers =
+      playbackMode === "full" || playbackMode === "weapon" || playbackMode === "impact" || playbackMode === "transient_only";
+    const includeBodyLayers = playbackMode === "full" || playbackMode === "weapon";
     const includeMechanicalLayers = playbackMode === "full" || playbackMode === "weapon";
     const includeFlightLayers = playbackMode === "full" || playbackMode === "weapon";
     const includeImpactLayers = playbackMode === "full" || playbackMode === "impact" || playbackMode === "impact_only";
-    const includeTailLayers = playbackMode !== "impact_only";
+    const includeTailLayers = playbackMode === "full" || playbackMode === "weapon";
 
     // Always include transient (mandatory for most weapons)
-    if (includeWeaponLayers && profile.transientPool.length > 0) {
+    if (includeTransientLayers && profile.transientPool.length > 0) {
       const transient = this.selectVariantWithCooldown(
         profile.transientPool,
         profile.weaponClass,
@@ -169,7 +171,7 @@ export class CombatSoundManager {
     }
 
     // Optional body layer
-    if (includeWeaponLayers && profile.bodyPool && profile.bodyPool.length > 0 && rng.next() > 0.2) {
+    if (includeBodyLayers && profile.bodyPool && profile.bodyPool.length > 0 && rng.next() > 0.2) {
       const body = this.selectVariant(profile.bodyPool, rng);
       if (body) {
         selected.push(this.applyVariation(body, profile, rng));

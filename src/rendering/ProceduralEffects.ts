@@ -314,21 +314,21 @@ export class ProceduralEffectsAnimator {
       case "artillery":
         return {
           weaponClass: "artillery",
-          playbackMode: "impact",
+          playbackMode: "impact_only",
           targetMaterial: "earth",
           gainMultiplier: 0.94
         };
       case "explosionSmall":
         return {
           weaponClass: "small_bomb",
-          playbackMode: "impact",
+          playbackMode: "impact_only",
           targetMaterial: "earth",
           gainMultiplier: 0.88
         };
       case "explosionLarge":
         return {
           weaponClass: "large_bomb",
-          playbackMode: "impact",
+          playbackMode: "impact_only",
           targetMaterial: "earth",
           gainMultiplier: 1
         };
