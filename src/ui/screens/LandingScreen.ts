@@ -944,6 +944,9 @@ export class LandingScreen {
       return;
     }
 
+    // Mark this mission as NOT from campaign
+    this.uiState.isFromCampaign = false;
+
     if (this.precombatScreen) {
       this.precombatScreen.setup(missionKey, this.uiState.selectedGeneralId, this.uiState.selectedDifficulty);
     } else {

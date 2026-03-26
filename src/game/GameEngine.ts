@@ -7143,7 +7143,7 @@ private automateSupplyConvoys(
       this.botPlacements.set(defKey, updatedDef);
       this.syncBotStrength(defenderHex, updatedDef.strength);
 
-      // Apply suppression status if using suppressive fire
+      // Apply suppression status ONLY if using suppressive fire (not assault)
       if (effectiveStance === "suppressive") {
         const attackerUnitId = attacker.unitId ?? atkKey;
         if (!updatedDef.suppressedBy) {
@@ -7164,17 +7164,39 @@ private automateSupplyConvoys(
     updatedAtk.ammo = attackerIsAircraft
       ? Math.max(0, updatedAtk.ammo - 1)
       : Math.max(0, updatedAtk.ammo - groundAttackAmmoCost);
-    this.playerPlacements.set(atkKey, updatedAtk);
-    this.syncPlayerAmmo(attackerHex, updatedAtk.ammo);
 
-    // Update action flags
-    this.playerActionFlags.set(atkKey, {
+    // If assault attack destroyed the defender and attacker is ground unit, move attacker to defender's hex
+    const defenderDestroyed = updatedDef.strength <= 0;
+    const isAssaultKill = effectiveStance === "assault" && defenderDestroyed && !attackerIsAircraft && !defenderIsAircraft;
+    let attackerMovedToDefenderHex = false;
+
+    if (isAssaultKill) {
+      console.log(`[GameEngine] Assault kill: moving ${attacker.type} from ${atkKey} to ${defKey}`);
+      // Remove from old position
+      this.playerPlacements.delete(atkKey);
+      this.playerActionFlags.delete(atkKey);
+
+      // Update hex position
+      updatedAtk.hex = defenderHex;
+
+      // Place at new position
+      this.playerPlacements.set(defKey, updatedAtk);
+      this.syncPlayerAmmo(defenderHex, updatedAtk.ammo);
+      attackerMovedToDefenderHex = true;
+    } else {
+      this.playerPlacements.set(atkKey, updatedAtk);
+      this.syncPlayerAmmo(attackerHex, updatedAtk.ammo);
+    }
+
+    // Update action flags (use new key if attacker moved to defender's hex)
+    const finalAttackerKey = attackerMovedToDefenderHex ? defKey : atkKey;
+    this.playerActionFlags.set(finalAttackerKey, {
       movementPointsUsed: flags.movementPointsUsed + attackManeuverCost,
       attacksUsed: flags.attacksUsed + 1,
       retaliationsUsed: flags.retaliationsUsed,
       isRushing: flags.isRushing
     });
-    this.updateIdleRegistryFor(atkKey);
+    this.updateIdleRegistryFor(finalAttackerKey);
 
     // Retaliation: Defender fires back if still alive and can reach attacker
     // Exception: No counter-attack when aircraft attack ground units (aircraft are too fast/high)
@@ -9744,6 +9766,7 @@ private automateSupplyConvoys(
       if (defenderFaction === "Player") {
         this.playerPlacements.set(playerKey, updatedPlayer);
         this.syncPlayerStrength(targetHex, updatedPlayer.strength);
+        // Apply suppression ONLY if using suppressive fire (not assault)
         if (effectiveStance === "suppressive") {
           const attackerUnitId = attackingUnit.unitId ?? axialKey(attackerHex);
           if (!updatedPlayer.suppressedBy) {
@@ -9757,6 +9780,7 @@ private automateSupplyConvoys(
         }
       } else {
         this.allyPlacements.set(playerKey, updatedPlayer);
+        // Apply suppression ONLY if using suppressive fire (not assault)
         if (effectiveStance === "suppressive") {
           const attackerUnitId = attackingUnit.unitId ?? axialKey(attackerHex);
           if (!updatedPlayer.suppressedBy) {
@@ -9779,6 +9803,27 @@ private automateSupplyConvoys(
       updatedBot.ammo = Math.max(0, updatedBot.ammo - 1);
     } else {
       updatedBot.ammo = Math.max(0, updatedBot.ammo - groundAttackAmmoCost);
+    }
+
+    // If assault attack destroyed the defender and attacker is ground unit, move attacker to defender's hex
+    const defenderDestroyed = updatedPlayer.strength <= 0;
+    const isAssaultKill = effectiveStance === "assault" && defenderDestroyed && !attackerIsAircraft && !defenderIsAircraft;
+    let attackerMovedToDefenderHex = false;
+
+    if (isAssaultKill) {
+      console.log(`[GameEngine] Bot assault kill: moving ${attackingUnit.type} from ${botKey} to ${playerKey}`);
+      // Remove from old position
+      this.botPlacements.delete(botKey);
+      this.botActionFlags.delete(botKey);
+
+      // Update hex position
+      updatedBot.hex = targetHex;
+
+      // Place at new position
+      this.botPlacements.set(playerKey, updatedBot);
+      attackerMovedToDefenderHex = true;
+    } else {
+      this.botPlacements.set(botKey, updatedBot);
     }
 
     let retaliationResult: AttackResult | undefined;

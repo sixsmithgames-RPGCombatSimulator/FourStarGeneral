@@ -135,6 +135,8 @@ function initializeApplication(): void {
       pendingEngagements: campaignState.getPendingEngagements()
     } as const;
     battleState.setCampaignBridgeState(bridge);
+    // Mark this mission as started from campaign screen
+    uiState.isFromCampaign = true;
     precombatScreen.setup("campaign", generalId, uiState.selectedDifficulty);
     screenManager.showScreenById("precombat");
   });

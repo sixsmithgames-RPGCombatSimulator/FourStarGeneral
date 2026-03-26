@@ -28,6 +28,7 @@ export class UIState {
   private _selectedGeneralId: string | null = null;
   private _activePopup: PopupKey | null = null;
   private _selectedDifficulty: BotDifficulty = "Normal";
+  private _isFromCampaign: boolean = false;
 
   private static readonly SELECTED_GENERAL_STORAGE_KEY = "selectedGeneralId";
   private static readonly DIFFICULTY_STORAGE_KEY = "selectedDifficulty";
@@ -179,6 +180,21 @@ export class UIState {
       console.error("Failed to resolve mission briefing", error);
       return "";
     }
+  }
+
+  /**
+   * Gets whether the current mission was started from the campaign screen.
+   */
+  get isFromCampaign(): boolean {
+    return this._isFromCampaign;
+  }
+
+  /**
+   * Sets whether the mission was started from the campaign screen.
+   * This determines where to route after mission completion.
+   */
+  set isFromCampaign(value: boolean) {
+    this._isFromCampaign = value;
   }
 
   /**

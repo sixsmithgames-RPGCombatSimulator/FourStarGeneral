@@ -59,6 +59,7 @@ import type {
 import { ensureCampaignState } from "../../state/CampaignState";
 import { ensureTutorialState, type TutorialPhase } from "../../state/TutorialState";
 import { getNextPhase } from "../../data/tutorialSteps";
+import { findGeneralById, updateGeneral, saveRosterToLocalStorage } from "../../utils/rosterStorage";
 import {
   ensureDeploymentState,
   type DeploymentPoolEntry,
@@ -2275,21 +2276,40 @@ export class BattleScreen {
   private showMissionEndModal(outcome: "playerVictory" | "playerDefeat", reason: string): void {
     this.disposeMissionEndModal();
 
-    // Build objectives summary
+    // Build detailed objectives list
     let objectivesSummary = "";
     if (this.missionStatus?.objectives && this.missionStatus.objectives.length > 0) {
       const completedCount = this.missionStatus.objectives.filter(obj => obj.state === "completed").length;
       const failedCount = this.missionStatus.objectives.filter(obj => obj.state === "failed").length;
       const totalCount = this.missionStatus.objectives.length;
 
+      const objectivesList = this.missionStatus.objectives.map(obj => {
+        const stateIcon = obj.state === "completed" ? "✓" : obj.state === "failed" ? "✗" : "○";
+        const stateColor = obj.state === "completed" ? "#4ade80" : obj.state === "failed" ? "#f87171" : "rgba(255,255,255,0.5)";
+        const tierLabel = obj.tier === "primary" ? "PRIMARY" : obj.tier === "secondary" ? "SECONDARY" : "TERTIARY";
+        const tierColor = obj.tier === "primary" ? "#fbbf24" : obj.tier === "secondary" ? "#60a5fa" : "#a78bfa";
+
+        return `
+          <div style="margin-bottom: 12px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 4px; border-left: 3px solid ${tierColor};">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+              <span style="color: ${stateColor}; font-size: 1.2rem; font-weight: 700;">${stateIcon}</span>
+              <span style="color: ${tierColor}; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">${tierLabel}</span>
+              <span style="color: rgba(255,255,255,0.9); font-weight: 600; flex: 1;">${this.escapeHtml(obj.label)}</span>
+            </div>
+            ${obj.detail ? `<div style="color: rgba(255,255,255,0.6); font-size: 0.85rem; margin-left: 32px;">${this.escapeHtml(obj.detail)}</div>` : ""}
+          </div>
+        `;
+      }).join("");
+
       objectivesSummary = `
-        <div style="margin: 24px 0; padding: 20px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+        <div style="margin: 24px 0; padding: 20px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); max-height: 400px; overflow-y: auto;">
           <div style="font-size: 0.9rem; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px;">Mission Objectives</div>
-          <div style="font-size: 1.1rem; color: rgba(255,255,255,0.9);">
+          <div style="font-size: 1rem; color: rgba(255,255,255,0.9); margin-bottom: 16px;">
             <span style="color: #4ade80; font-weight: 700;">${completedCount}</span> Completed ·
             <span style="color: #f87171; font-weight: 700;">${failedCount}</span> Failed ·
             <span style="color: rgba(255,255,255,0.7);">${totalCount - completedCount - failedCount}</span> Incomplete
           </div>
+          ${objectivesList}
         </div>
       `;
     }
@@ -4079,8 +4099,44 @@ export class BattleScreen {
     // Update UI to show mission has ended
     setMissionStartedUI(false);
 
-    // Return to the campaign screen so the commander sees the updated fronts and resources immediately.
-    this.screenManager.showScreenById("campaign");
+    // Update general's service record
+    this.updateGeneralServiceRecord(resolution.success);
+
+    // Return to the appropriate screen based on where the mission was started
+    if (this.uiState?.isFromCampaign) {
+      this.screenManager.showScreenById("campaign");
+    } else {
+      this.screenManager.showScreenById("landing");
+    }
+  }
+
+  /**
+   * Updates the selected general's service record with mission completion data.
+   */
+  private updateGeneralServiceRecord(success: boolean): void {
+    if (!this.uiState?.selectedGeneralId) {
+      console.warn("[BattleScreen] Cannot update service record: no general selected");
+      return;
+    }
+
+    const general = findGeneralById(this.uiState.selectedGeneralId);
+    if (!general) {
+      console.warn("[BattleScreen] Cannot update service record: general not found");
+      return;
+    }
+
+    const currentRecord = general.serviceRecord || { missionsCompleted: 0, victoriesAchieved: 0, unitsDeployed: 0, casualtiesSustained: 0 };
+    const updatedRecord = {
+      missionsCompleted: currentRecord.missionsCompleted + 1,
+      victoriesAchieved: currentRecord.victoriesAchieved + (success ? 1 : 0),
+      unitsDeployed: currentRecord.unitsDeployed,
+      casualtiesSustained: currentRecord.casualtiesSustained
+    };
+
+    updateGeneral(this.uiState.selectedGeneralId, { serviceRecord: updatedRecord });
+    saveRosterToLocalStorage();
+
+    console.log(`[BattleScreen] Updated service record for ${general.identity.name}: ${updatedRecord.missionsCompleted} missions, ${updatedRecord.victoriesAchieved} victories`);
   }
 
   private resolveMissionEndResolution(): MissionEndResolution {
