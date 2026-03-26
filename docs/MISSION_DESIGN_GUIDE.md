@@ -1,288 +1,660 @@
 # Mission Design Guide
 
-## Overview
-This document provides a comprehensive guide for designing balanced, engaging tactical missions in Four Star General. Follow these principles to create missions that are challenging, fair, and showcase tactical gameplay.
+## Purpose
+This is the authoritative start-here guide for creating a real mission in Four Star General.
 
-## Mission Design Principles
+A mission is not complete when it only has flavor text. A mission is complete only when all of the following exist and agree with each other:
 
-### 1. Budget and Resource Constraints
-**Purpose**: Force meaningful choices and prevent overwhelming force advantage.
+- a full mission package
+- mission metadata
+- a scenario JSON file
+- a scenario registry entry
+- a scenario validation profile
+- mission rules for custom objectives and win/loss logic
+- landing, precombat, and battle integration
+- verification notes
 
-**Guidelines**:
-- **Training missions**: 400,000 - 600,000 (allows 6-8 basic units)
-- **Patrol missions**: 600,000 - 900,000 (defensive posture, limited armor)
-- **Assault missions**: 1,200,000 - 1,800,000 (full combined arms)
-- **Campaign missions**: 2,500,000+ (grand operations)
+Use this guide together with `docs/four_star_general_mission_creation_agent_spec.md`:
 
-**River Crossing Watch** (Patrol category):
-- Budget: **700,000**
-- Rationale: Defensive mission requiring smart positioning over brute force
+- `MISSION_DESIGN_GUIDE.md` is the implementation guide
+- `four_star_general_mission_creation_agent_spec.md` is the content/spec guide
 
-### 2. Unit Type Restrictions
-**Purpose**: Create asymmetric scenarios that reward tactical thinking.
+## One-Page Summary
+To add a new mission successfully, an AI dev must do the following in order:
 
-**Implementation**:
-```typescript
-restrictedUnits?: string[];  // Units NOT available for purchase
-allowedUnits?: string[];     // ONLY these units available (overrides default)
+1. Write a complete Mission Package before touching code.
+2. Decide whether the mission reuses an existing `missionKey` or adds a new one.
+3. Update mission metadata in `src/data/missions.ts`.
+4. Create a scenario file in `src/data/scenario_<slug>.json`.
+5. Register that scenario in `src/data/scenarioRegistry.ts`.
+6. Add an authoritative validation profile in `src/data/scenarioValidation.ts`.
+7. Add mission-specific rules in `src/state/missionRules.ts` if the mission uses anything beyond the default turn-limit and elimination flow.
+8. Update `src/ui/screens/LandingScreen.ts` if unlock gating, ordering, or route behavior changes.
+9. Verify the full path: Landing -> Precombat -> Battle.
+
+If any one of those steps is skipped, the mission is incomplete.
+
+## Current Source Of Truth
+The live mission architecture is split across these files:
+
+| Concern | Source of truth | What must be true |
+| --- | --- | --- |
+| Selectable mission keys | `src/state/UIState.ts` | The key must be valid here or selection will fail. |
+| Mission title, briefing, summary, category, deployment profile | `src/data/missions.ts` | Landing and precombat copy come from here. |
+| Scenario payload | `src/data/scenario_<slug>.json` | Map, units, objectives, deployment zones, budget, and restrictions live here. |
+| Mission -> scenario mapping | `src/data/scenarioRegistry.ts` | Every mission key must resolve to a scenario source. |
+| Scenario validation | `src/data/scenarioValidation.ts` | Every scenario name used by missions must have an authoritative validation profile. |
+| Custom mission objective logic | `src/state/missionRules.ts` | Hold, extract, escort, phased pressure, or custom defeat logic belong here. |
+| Mission unlock order and route | `src/ui/screens/LandingScreen.ts` | New missions may require ordering, gating, or route changes. |
+| Precombat scenario handoff | `src/ui/screens/PrecombatScreen.ts` | Reads budget, unit restrictions, predeployed units, and deployment zones from scenario JSON. |
+| Battle scenario activation | `src/ui/screens/BattleScreen.ts` | Refreshes the scenario on battle-screen activation and rebuilds mission state if the mission changes. |
+| Player-facing unit aliasing | `src/game/adapters.ts` and `src/state/DeploymentState.ts` | Player units referenced by scenario type must map cleanly into allocation/deployment aliases. |
+
+## Hard Rules
+
+### Rule 1: Always design the mission before implementing it
+Before editing code, produce a full Mission Package with:
+
+- mission identity
+- gameplay role
+- map design
+- objective logic
+- force composition
+- deployment
+- AI behavior
+- pacing and escalation
+- difficulty tuning
+- UI copy
+- technical notes
+- QA cases
+
+If the mission package is vague, implementation will be vague.
+
+### Rule 2: Mission JSON is not enough
+The scenario JSON only describes map data, deployment areas, unit rosters, budget, and unit restrictions. It does not fully express custom objective logic.
+
+Examples of logic that must live in `src/state/missionRules.ts` instead of only in JSON:
+
+- hold a hex for N consecutive turns
+- deny enemy control for N turns
+- destroy a specific unit to clear a secondary objective
+- survive until extraction
+- phased reinforcements or escalation messaging
+- mission-specific victory and defeat reasons
+
+### Rule 3: `scenario.name` must exactly match its validation profile
+`src/data/scenarioValidation.ts` validates by scenario name, not by filename. If the JSON `name` and the validation-profile key do not match exactly, validation fails.
+
+### Rule 4: Every playable mission must have deployment zones
+Precombat depends on `deploymentZones`. If the scenario has no zones, precombat cannot initialize deployment UI.
+
+### Rule 5: Scenario-provided player units should be true baseline units
+In practice, authored player units in scenario JSON should be reserved for locked baseline troops that begin with the mission.
+
+Use `preDeployed: true` for units that should start on the map and appear in precombat as locked assets.
+
+Do not use scenario JSON to silently grant extra player reserves that are supposed to be purchased through precombat. Requisitionable forces should come from the allocation flow instead.
+
+### Rule 6: Player-facing scenario unit types must resolve through deployment aliases
+If a mission uses player units with scenario types that are not already mapped through `src/game/adapters.ts` and `DeploymentState`, the battle UI can fail to resolve labels, sprites, or deployment aliases.
+
+Safe rule:
+
+- only use scenario unit `type` values that exist in `src/data/unitTypes.json`
+- for player-facing scenario units, prefer types already present in `src/game/adapters.ts`
+- if a new player-facing type is required, add the alias/template support in the deployment adapter layer as part of the same mission work
+
+## Required Mission Package
+Before implementation, the AI dev should fill out this exact structure. Do not leave sections blank.
+
+```yaml
+missionKey:
+title:
+shortLabel:
+missionType: training | patrol | assault | campaign | custom
+unlockTier: rookie | intermediate | veteran | custom
+routeType: precombat | campaign | custom
+tutorialMode: none | training | mission_specific | optional
+persistenceMode: single_battle | multi_stage | campaign_carryover
+
+playerFantasy:
+intendedExperience:
+historicalFraming:
+gameplayRole:
+
+uiCopy:
+  landingBriefing:
+  precombatSummary:
+  commanderIntent:
+  expectedResistance:
+  terrainSummary:
+  objectiveSummary:
+  victoryDebrief:
+  failureDebrief:
+
+map:
+  theater:
+  sizeClass: small | medium | large
+  footprintGuidance:
+  terrainPalette:
+  landmarks:
+  coverProfile:
+  losProfile:
+  chokepoints:
+  alternateRoutes:
+  elevationNotes:
+  roadMobilityLogic:
+  deploymentEdges:
+    allied:
+    enemy:
+  weather:
+  visibility:
+
+objectives:
+  primary:
+    - id:
+      type:
+      label:
+      purpose:
+      placementLogic:
+      successCondition:
+  secondary:
+    - id:
+      type:
+      label:
+      purpose:
+      successCondition:
+  hiddenHooks:
+  victoryConditions:
+  defeatConditions:
+  turnPressure:
+  controlLogic:
+
+forces:
+  allies:
+    concept:
+    quality:
+    roles:
+      - role:
+        countGuidance:
+        notes:
+    supportAssets:
+  enemies:
+    concept:
+    quality:
+    roles:
+      - role:
+        countGuidance:
+        notes:
+    reserves:
+    reinforcements:
+    supportAssets:
+
+deployment:
+  alliedStart:
+  enemyStart:
+  firstContactExpectation:
+  reserveStaging:
+  neutralZones:
+  spawnSafetyNotes:
+  openingShape: scripted | semi_scripted | open
+
+aiPlan:
+  doctrine:
+  aggressionProfile:
+  defenseProfile:
+  reserveTriggers:
+  fallbackRules:
+  counterattackRules:
+  objectivePriority:
+  supportBehavior:
+
+pacing:
+  openingPhase:
+  midpointShift:
+  climaxCondition:
+  reinforcementTiming:
+  failForwardOptions:
+  missionDurationTarget:
+
+difficulty:
+  easy:
+  normal:
+  hard:
+  veteran:
+  scalingAxes:
+
+technical:
+  scenarioFile:
+  requiresNewMissionKey:
+  metadataChanges:
+  routingChanges:
+  precombatChanges:
+  missionRulesChanges:
+  validationChanges:
+  deploymentAliasChanges:
+  saveLoadImplications:
+  testHooks:
+
+qa:
+  expectedObjectiveCount:
+  alliedUnitCountRange:
+  enemyUnitCountRange:
+  landmarkZones:
+  firstContactWindow:
+  victoryTests:
+  defeatTests:
+  edgeCases:
+  regressionRisks:
 ```
 
-**River Crossing Watch Restrictions**:
-```typescript
-allowedUnits: [
-  "infantry",           // Backbone defenders
-  "engineer",           // Ford/bridge specialists
-  "recon",             // Scouts for early warning
-  "atInfantry",        // Anti-vehicle defense
-  "machineGunTeam",    // Defensive fire support
-  "lightMortar"        // Indirect fire for close support
-]
-```
+## Required File Edits
+This is the concrete implementation checklist.
 
-**Rationale**:
-- No tanks (player must use terrain/positioning, not armor)
-- No heavy artillery (keeps engagement close-range)
-- No air support (night patrol scenario)
-- Infantry-focused defense emphasizes combined arms basics
+### 1. Mission key and selection state
+File:
 
-### 3. Enemy Force Balance
-**Purpose**: Create challenge without being unfair.
+- `src/state/UIState.ts`
 
-**Force Ratio Guidelines**:
-- **Easy**: Player 1.2:1 advantage
-- **Normal**: Player 1:1 (equal forces)
-- **Hard**: Enemy 1.2:1 advantage
+Do this when:
 
-**Quality vs Quantity**:
-- Give player slight quality edge (experience, positioning)
-- Give enemy slight numbers advantage
-- Use terrain to balance (player gets better defensive positions)
+- the mission uses a brand-new `missionKey`
 
-**River Crossing Watch Balance** (Normal difficulty):
-- **Player forces**: 700,000 budget (~10-12 units) + 4 predeployed units
-- **Enemy forces**:
-  - Initial: 6-7 probing units
-  - Reinforcement wave (turn 4): +4-5 units
-  - Total enemy: ~10-12 units
-  - Enemy resources: 400,000 (for reinforcements/replacements)
+Required change:
 
-### 4. Map Design
+- add the new mission key to the `MissionKey` union if it is intended to behave as a first-class selectable mission
 
-#### River Terrain Rules
-**Deep River** (`RIVER_DEEP`):
-- Impassable (moveCost: 999)
-- No ford feature
-- Use for flanks and boundaries
+Notes:
 
-**Shallow River** (`RIVER_SHALLOW`):
-- Has "ford" feature
-- Infantry: 2 MP, Tracked: 3 MP, Wheeled: 4 MP
-- Strategic crossing points
+- `UIState.selectedMission` rejects unknown keys
+- if the key is not valid here, landing selection breaks immediately
 
-**Rubble Bridge** (`RUBBLE_BRIDGE`):
-- Road terrain with "bridge" + "rubble" features
-- Easier crossing but vulnerable/contested
+### 2. Mission metadata
+File:
 
-#### Map Extents
-- Rivers should reach map edges (prevents flanking exploits)
-- Minimum 3 crossing points for tactical variety
-- Crossings should be 2-4 hexes apart (forces dispersion)
+- `src/data/missions.ts`
 
-**River Crossing Watch Map Layout**:
-```
-West bank (Allied):   Deployment zones
-River:                 3 ford crossings + 1 rubble bridge
-East bank (Enemy):     Approach zones
-```
+Always update this file for a new mission.
 
-### 5. Objective Design
+Required sections:
 
-**Types**:
-- **Control**: Hold/deny key terrain for X turns
-- **Destroy**: Eliminate specific enemy units
-- **Survive**: Keep units alive until extraction
+- `missionTitles`
+- `missionBriefings`
+- `missionSummaryPackages`
+- `missionCategories`
+- `missionDeploymentProfiles`
 
-**River Crossing Watch Objectives**:
-```typescript
-Primary: "Deny enemy control of any ford for 4 consecutive turns"
-  - Failure condition: Enemy holds ANY ford for 4 straight turns
-  - Success condition: Reach turn 12 with no ford held 4 turns
+Update these only if the mission needs them:
 
-Secondary: "Destroy enemy comms team before central ford"
-  - High-value target (represents calling reinforcements)
+- difficulty-specific turn limit helpers such as `RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY`
+- `getMissionTurnLimit()`
+- `getMissionSummaryPackage()`
 
-Tertiary: "Keep at least one recon unit alive"
-  - Encourages careful play
-```
+What this file controls:
 
-### 6. Victory Conditions
+- landing title and briefing
+- precombat objective list
+- precombat doctrine text
+- precombat baseline supplies text
+- deployment-zone doctrine checks used by scenario validation
 
-**Time Pressure**:
-- Turn limits force aggressive play
-- Shorter limits favor attacker
-- Longer limits favor defender
+### 3. Scenario JSON
+File:
 
-**River Crossing Watch**:
-- 12 turns (Normal difficulty)
-- 11 turns (Hard) - increased pressure
-- 14 turns (Easy) - more room for mistakes
+- `src/data/scenario_<slug>.json`
 
-**Escalation Mechanics**:
-- Turn 4: If all fords blocked, trigger enemy "reserve pressure" announcement
-- Turn 8: Mid-mission checkpoint
-- Turn 12: Extraction window
+Always create or update a scenario file for a new mission.
 
-### 7. Predeployed Units
+Minimum required shape:
 
-**Purpose**: Set initial tactical situation.
-
-**Guidelines**:
-- Use sparingly (max 20-30% of player force)
-- Position to suggest tactics (e.g., observation posts, roadblocks)
-- Balanced composition
-
-**River Crossing Watch Predeployment**:
-```typescript
-[
-  { type: "Infantry_42", hex: [1,2] },      // Central ford watch
-  { type: "Infantry_42", hex: [2,2] },      // Northern approach
-  { type: "Engineer", hex: [1,3] },         // Bridge specialist
-  { type: "Recon_Bike", hex: [2,3] }        // Mobile scout
-]
-```
-
-### 8. Visual Clarity
-
-**Terrain Indicators**:
-All special terrain features MUST have visual SVG overlays:
-
-- **Ford markers**: Blue ripple pattern overlay
-- **Rubble bridges**: Damaged bridge icon + debris
-- **Shallow crossings**: Lighter blue tint
-
-**Implementation**: Add to `HexMapRenderer.generateHexMarkup()`:
-```typescript
-if (tile.features.includes("ford")) {
-  // Add ford indicator SVG
+```json
+{
+  "name": "Mission Name",
+  "size": { "cols": 20, "rows": 16 },
+  "tilePalette": {},
+  "tiles": [],
+  "objectives": [],
+  "deploymentZones": [],
+  "turnLimit": 12,
+  "playerBudget": 250000,
+  "allowedUnits": [],
+  "restrictedUnits": [],
+  "sides": {
+    "Player": {
+      "hq": [0, 0],
+      "general": { "accBonus": 0, "dmgBonus": 0, "moveBonus": 0, "supplyBonus": 0 },
+      "units": []
+    },
+    "Bot": {
+      "hq": [0, 0],
+      "general": { "accBonus": 0, "dmgBonus": 0, "moveBonus": 0, "supplyBonus": 0 },
+      "units": []
+    }
+  }
 }
 ```
 
-## Mission Development Checklist
+### 4. Scenario registry
+File:
 
-### Phase 1: Concept
-- [ ] Define mission type and category
-- [ ] Write mission briefing and objectives
-- [ ] Determine win/loss conditions
-- [ ] Set difficulty parameters
+- `src/data/scenarioRegistry.ts`
 
-### Phase 2: Map Design
-- [ ] Create tile palette with terrain types
-- [ ] Design map layout (asymmetry, choke points)
-- [ ] Place objectives
-- [ ] Define deployment zones
-- [ ] Extend rivers/impassable terrain to map edges
+Always update this file for a new mission.
 
-### Phase 3: Force Balance
-- [ ] Set player budget
-- [ ] Define unit restrictions (allowedUnits/restrictedUnits)
-- [ ] Design enemy force composition
-- [ ] Set enemy resources
-- [ ] Configure predeployed units
+Required change:
 
-### Phase 4: Tuning
-- [ ] Playtest on all difficulties
-- [ ] Verify force balance (should require tactics to win)
-- [ ] Check turn limit (too tight/too loose?)
-- [ ] Validate objectives are achievable
-- [ ] Confirm visual clarity (can player see important features?)
+- import the new scenario JSON
+- add `missionKey -> scenario` mapping to `scenarioSourcesByMissionKey`
 
-### Phase 5: Documentation
-- [ ] Document design rationale
-- [ ] Note any special mechanics
-- [ ] Record playtesting feedback
-- [ ] Add to scenario registry with proper metadata
+Notes:
 
-## Common Pitfalls
+- `PrecombatScreen` and `BattleScreen` both resolve scenarios through this registry
+- if the mission key is missing here, the mission cannot load
 
-### ❌ Too Much Player Budget
-**Problem**: Player can overwhelm with numbers
-**Fix**: Reduce budget by 30-40% from initial estimate
+### 5. Scenario validation profile
+File:
 
-### ❌ Symmetric Forces
-**Problem**: Becomes coin flip or steamroll
-**Fix**: Create asymmetry (player: quality, enemy: quantity)
+- `src/data/scenarioValidation.ts`
 
-### ❌ Unclear Victory Conditions
-**Problem**: Player doesn't know what to do
-**Fix**: Primary objective should be instantly clear from briefing
+Always update this file for a new mission scenario.
 
-### ❌ Missing Visual Indicators
-**Problem**: Player can't identify special terrain
-**Fix**: Add SVG overlays for ALL special features
+Required change:
 
-### ❌ Exploitable Flanks
-**Problem**: Player bypasses entire challenge
-**Fix**: Extend impassable terrain to map edges
+- add a new profile under `scenarioProfilesByName`
 
-### ❌ Too Forgiving
-**Problem**: Player can win with poor tactics
-**Fix**: Increase enemy forces or reduce turn limit
+Minimum fields:
 
-### ❌ Too Punishing
-**Problem**: Perfect play still loses
-**Fix**: Add secondary objectives or increase turn limit
+- `scenarioName`
+- `allowedMissionKeys`
+- `minCols`
+- `minRows`
+- `minObjectiveCount`
+- `minObjectiveSpacing`
+- `minRangeBuffer`
 
-## Testing Protocol
+Notes:
 
-### Difficulty Testing
-For each difficulty level:
-1. **Easy**: Should win with basic tactics, some mistakes OK
-2. **Normal**: Requires good tactics, small margin for error
-3. **Hard**: Demands near-optimal play and positioning
+- validation runs during scenario resolution
+- the profile name must match the scenario JSON `name`
+- if you reuse an existing scenario for an existing mission key, the mission key must still be listed in `allowedMissionKeys`
 
-### Force Balance Test
-- Can player win with 50% casualties? ✅ Good
-- Does player lose despite good tactics? ❌ Too hard
-- Can player win by rushing mindlessly? ❌ Too easy
+### 6. Mission rules
+File:
 
-### Objective Clarity Test
-- Ask fresh player: "What do you need to do?"
-- Should answer correctly without reading full briefing
-- If confused: Revise briefing or objective text
+- `src/state/missionRules.ts`
 
-## Example: River Crossing Watch
+Update this file whenever the mission has custom objectives or fail states.
 
-### Design Intent
-**Theme**: Night defensive patrol preventing river crossing
-**Challenge**: Limited forces, must cover multiple fords
-**Key Decision**: Where to concentrate forces vs spread thin
+Examples that require explicit mission rules:
 
-### Constraints Applied
-- Budget: 700,000 (forces tough choices)
-- Infantry/AT/Recon only (no armor crutch)
-- Enemy 1:1 ratio with reinforcements
-- Time limit: 12 turns (pressure to act)
+- hold for N turns
+- escort or extraction
+- secondary objective tracking
+- phased announcements
+- difficulty-sensitive escalation
+- custom victory or defeat reasons
 
-### Expected Tactics
-- Scout enemy approach directions early
-- Position at central ford (can reinforce either flank)
-- Use engineers to strengthen crossing defenses
-- Fall back if overwhelmed, deny 4-turn hold
-- Use off-map mortars on ford that "starts to buckle"
+Notes:
 
-### Victory Scenario
-- Player identifies main enemy thrust (turns 1-3)
-- Shifts forces to block (turns 4-6)
-- Fights delaying action at other fords (turns 7-9)
-- Holds critical ford until turn 12
+- objective hexes in JSON are only spatial anchors
+- mission outcome logic belongs here
+- if the briefing promises special rules, they must exist here
 
-### Defeat Scenario
-- Spreads forces too thin across all three fords
-- Enemy concentrates on one, achieves 4-turn hold
-- Player unable to recover position
+### 7. Landing integration
+File:
 
-## Conclusion
+- `src/ui/screens/LandingScreen.ts`
 
-Great mission design creates interesting choices under pressure. Follow these guidelines, playtest thoroughly, and iterate based on feedback. Document your rationale so future missions build on these lessons.
+Update this file when the new mission changes player access or route behavior.
 
-**Remember**: If player can win by throwing money/units at the problem, the mission budget is too high.
+Possible required changes:
+
+- add the mission to the canonical mission order
+- update `getMissionsForGeneral()` unlock gating
+- update `handleMissionSelection()` if the mission needs a route other than normal precombat flow
+
+Notes:
+
+- standard missions should still route Landing -> Precombat
+- only campaign-style or custom flows should bypass standard precombat routing
+
+### 8. Deployment alias support
+Files:
+
+- `src/game/adapters.ts`
+- `src/state/DeploymentState.ts`
+
+Update these only when the mission introduces a new player-facing unit type that is not already covered by the deployment templates.
+
+Required change:
+
+- add or align the allocation key -> scenario unit type mapping
+
+Notes:
+
+- this is not usually needed for missions that only reuse existing scenario unit types
+- this is required if player units on the map or in reserve cannot be resolved back to a known allocation alias
+
+## Scenario JSON Contract
+The current runtime expects the following behavior from scenario files.
+
+### `name`
+- Required
+- Used by validation profiles
+- Used in logs and scenario assertions
+
+### `size`
+- Required
+- `tiles.length` must equal `rows`
+- every tile row must have exactly `cols` entries
+
+### `tilePalette`
+- Required
+- Every tile key used in `tiles` must resolve to a palette entry
+- Deployment validation uses `terrainType` to reject invalid deployment hexes
+
+### `tiles`
+- Required
+- May use string tile keys or richer tile objects
+- Must match the declared map dimensions exactly
+
+### `objectives`
+- Required
+- Current structure is spatial and simple: `{ "hex": [col, row], "owner": "Player" | "Bot", "vp": number }`
+- Custom objective meaning is derived in `missionRules.ts`
+
+### `deploymentZones`
+- Required for authored missions
+- Each zone needs:
+  - `key`
+  - `label`
+  - `description`
+  - `capacity`
+  - `faction`
+  - `hexes`
+
+Validation enforces:
+
+- unique zone keys
+- in-bounds hexes
+- no duplicate hexes inside a zone
+- no overlap across zones
+- enough usable hexes for declared capacity
+- enough player capacity, frontage, and depth for the mission's deployment doctrine
+
+### `turnLimit`
+- Optional at the schema level but should be present for authored missions
+- Precombat can override displayed turn limit from `missions.ts`
+- Mission rules can treat very large values as effectively open-ended
+
+### `playerBudget`
+- Optional
+- If absent, precombat falls back to the default budget
+- If present, this value drives the requisition budget shown in precombat
+
+### `allowedUnits` and `restrictedUnits`
+- Optional
+- Read by `PrecombatScreen`
+- `allowedUnits` acts as an allow-list
+- `restrictedUnits` blocks entries even if they are otherwise available
+- supply convoys remain available unless explicitly restricted
+
+### `sides.Player.units`
+- Use for baseline troops that belong to the scenario itself
+- Mark true starting troops with `preDeployed: true`
+- Do not use this list to silently grant extra requisition units that should come from precombat
+
+### `sides.Bot.units`
+- Enemy roster for the scenario
+- Must use valid unit types from `unitTypes.json`
+
+## Validation And Runtime Checks You Must Satisfy
+These are the most important real failure conditions in the current codebase.
+
+### Scenario validation failures
+These come from `src/data/scenarioValidation.ts`:
+
+- missing or unknown `scenario.name`
+- scenario name not registered in validation profiles
+- mission key not approved for the scenario profile
+- map too small for profile minimums
+- map too small for the longest non-air weapon range plus buffer
+- too few objectives
+- objectives too tightly clustered
+- missing deployment zones
+- overlapping or malformed deployment zones
+- player deployment area too small for the mission deployment doctrine
+- unknown unit types in `sides`
+
+### Precombat failures
+These come from `src/ui/screens/PrecombatScreen.ts`:
+
+- scenario does not declare deployment zones
+- scenario budget/restrictions are malformed
+- the resolved scenario is not the one the mission expects
+
+### Battle handoff failures
+These come from `src/ui/screens/BattleScreen.ts`:
+
+- mission key does not resolve to the correct scenario
+- battle activation does not preserve the selected mission
+- committed precombat allocations are missing when deployment should begin
+- custom scenario player units do not map back to a known deployment alias
+
+## Battle Activation Contract
+Any new mission must satisfy this contract:
+
+1. Landing sets `uiState.selectedMission` to the intended mission key.
+2. Precombat resolves the same mission key through `getScenarioByMissionKey()`.
+3. Precombat records committed deployment entries before showing battle.
+4. Battle refreshes the scenario on `screen:shown` and rebuilds mission state when the active mission session changes.
+5. The scenario shown in battle must match the scenario selected in landing/precombat.
+
+This matters because the battle screen does not assume the startup scenario is still valid. It refreshes on activation. Any new mission route must preserve that behavior.
+
+## Recommended Authoring Workflow
+
+### Step 1: Write the design doc
+Create `docs/missions/<mission-slug>.md` with the filled Mission Package.
+
+This file is not required by runtime code, but it should exist for any non-trivial mission so future AI devs and QA can see the design intent.
+
+### Step 2: Add mission metadata
+Implement the `missionKey`, title, briefing, summary package, category, and deployment doctrine in `src/data/missions.ts`.
+
+### Step 3: Build the scenario JSON
+Author the map, objectives, deployment zones, side rosters, budget, and unit restrictions.
+
+### Step 4: Register and validate the scenario
+Wire the new file into `scenarioRegistry.ts` and add a validation profile in `scenarioValidation.ts`.
+
+### Step 5: Implement mission rules
+If the mission has any rule more specific than "fight until turn limit or elimination", implement it in `missionRules.ts`.
+
+### Step 6: Wire landing availability and route
+Update `LandingScreen.ts` if the mission needs unlock, ordering, or route changes.
+
+### Step 7: Verify end to end
+Run through:
+
+- landing selection
+- precombat summary
+- budget and allowed-unit filtering
+- deployment zone registration
+- battle map activation
+- objective logic
+- mission completion
+
+## Definition Of Done
+A mission is done only when all of these are true:
+
+- the mission has a complete Mission Package
+- the mission is selectable from landing
+- the mission title and briefing render correctly
+- precombat shows correct objectives, turn limit, doctrine, and supplies
+- the correct scenario loads in both precombat and battle
+- deployment zones register without validation errors
+- allowed and restricted units behave correctly
+- custom mission objectives and fail states are implemented in `missionRules.ts`
+- battle end conditions match the briefing
+- the mission survives a manual Landing -> Precombat -> Battle verification pass
+
+## AI-Ready Prompt Template
+Use this prompt when asking an AI dev to create a mission with minimal follow-up:
+
+```text
+Implement one new Four Star General mission using:
+- docs/MISSION_DESIGN_GUIDE.md as the implementation guide
+- docs/four_star_general_mission_creation_agent_spec.md as the mission-package content spec
+
+Deliver all required work for a complete mission:
+1. Mission package documentation in docs/missions/<mission-slug>.md
+2. Mission key and metadata wiring
+3. Scenario JSON
+4. Scenario registry entry
+5. Scenario validation profile
+6. Mission rules implementation
+7. Landing/precombat/battle integration
+8. Verification notes
+
+Mission inputs:
+- missionKey:
+- title:
+- missionType:
+- unlockTier:
+- routeType:
+- theater:
+- player fantasy:
+- gameplay role:
+- primary objective:
+- secondary objectives:
+- defeat condition:
+- map concept:
+- allied force concept:
+- enemy force concept:
+- difficulty notes:
+
+Constraints:
+- Do not leave the mission as briefing-only placeholder content.
+- If custom objective logic is required, implement it in src/state/missionRules.ts.
+- If a new player-facing scenario unit type is introduced, update deployment alias/template support too.
+- Verify the mission through Landing -> Precombat -> Battle.
+```
+
+## Best Existing Reference
+Use River Crossing Watch as the current in-repo example of a mission that goes beyond the default placeholder flow:
+
+- `docs/missions/river-crossing-watch.md`
+- `src/data/scenario_river_watch.json`
+- `src/data/scenarioRegistry.ts`
+- `src/data/scenarioValidation.ts`
+- `src/state/missionRules.ts`
+- `src/data/missions.ts`
+
+It is the best current reference for:
+
+- a mission-specific scenario file
+- mission-specific validation
+- mission-specific objectives
+- difficulty-sensitive turn handling
+- custom patrol identity

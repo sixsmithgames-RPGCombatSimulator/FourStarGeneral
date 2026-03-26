@@ -1,75 +1,225 @@
 # Mission Development Process (AI Dev)
 
-This is the living process for creating and implementing missions using `docs/four_star_general_mission_creation_agent_spec.md` as the design authority. Tweak over time as tools and code evolve.
+This document is the execution checklist for implementing a mission after the design is clear.
 
-## Phase 1 — Design the Mission Package (per spec)
-1) **Classify the mission**: type (training/patrol/assault/campaign/custom), role, identity, player fantasy.
-2) **Clarify constraints upfront**: identity, limitations (time/terrain/resources), budget/resources, win/lose conditions, unit availability caps.
-3) **Map design package**: theater, size class/footprint, terrain palette, landmarks, cover/LOS, chokepoints/alternates, elevation, mobility/roads, deployment edges, weather/visibility.
-4) **Objective package**: primary/secondary, placement logic, victory/defeat conditions, turn pressure, hold/capture logic, hidden hooks if any.
-5) **Force composition**: allies/enemies by role tags, quality, reserves, reinforcement logic, support assets, difficulty scaling axes.
-6) **Deployment**: start zones, first-contact expectation, spawn safety, neutral/civilian zones, ambush/fog if used.
-7) **AI behavior**: doctrine, aggression/defense profile, reserve triggers, fallback/counterattack rules, objective priorities, support usage, difficulty variants.
-8) **Pacing/escalation**: opening, midpoint shift, climax, reinforcement/event timings, duration target, recovery opportunities.
-9) **Difficulty tuning**: easy/normal/hard/veteran adjustments using pressure/quality/timing/support, not just volume.
-10) **Narrative/UI copy**: landing briefing, precombat summary, commander’s intent, expected resistance, terrain summary, objective summary, victory/failure debrief.
-11) **Technical integration notes**: mission key, metadata additions, routing/precombat needs, loader/scenario hooks, tutorial needs, persistence, test hooks.
-12) **QA/validation**: objective counts, unit count ranges, landmark zones, first-contact window, victory/defeat tests, edge cases, regression risks.
+Use it with:
 
-## Phase 2 — Register Metadata & Registry
-1) **Mission key**: add to `MissionKey` union in `src/state/UIState.ts` if new.
-2) **Title/briefing**: add to `src/data/missions.ts` and ensure `getAllMissionKeys()` returns it.
-3) **Summary fallback**: add mission entry in precombat summary fallbacks (objectives, turn limit, doctrine, supplies) so UI renders meaningful copy when no dynamic data.
-4) **Scenario registry**: map missionKey → scenario source in `src/data/scenarioRegistry.ts`.
-5) **Availability**: update gating in `LandingScreen.getMissionsForGeneral` (or mission eligibility module) to place it in the right tier.
-6) **Routing**: branch in `LandingScreen.handleMissionSelection` if non-standard (e.g., campaign/custom). For patrol/assault/training use existing precombat flow.
+- `docs/MISSION_DESIGN_GUIDE.md` for the exact architecture and file responsibilities
+- `docs/four_star_general_mission_creation_agent_spec.md` for the required Mission Package contents
 
-## Phase 3 — Scenario Data and Map
-1) **Create scenario file** (JSON today):
-   - Tile palette and layout; allow string tile keys or `{ tile: ... }` entries.
-   - Objective zones/IDs (e.g., `ford_north`, `bridge_rubble`). Use [col,row] tuples.
-   - Deployment zones (allied/enemy) with [col,row] tuples and capacity/faction.
-   - Weather/visibility flags if used.
-   - Pre-deployed units set `preDeployed:true` for starting forces.
-2) **Tag objectives** with their types and control/hold logic per design (e.g., hold-for-N-turns clusters).
-3) **Document coordinates/zones** for QA (align with spec’s QA section).
+## Prerequisite
+Do not start coding until the mission has a complete Mission Package.
 
-## Phase 4 — Forces and Phasing
-1) **Define force packages** in scenario data or loader hooks using role tags mapped to actual units.
-2) **Set reinforcement/reserve timing** per pacing plan.
-3) **Implement difficulty scaling** knobs (quality, timing, support, strictness) per design.
+At minimum, the package must already define:
 
-## Phase 5 — Objective and Win/Loss Logic
-1) **Implement control rules** (e.g., hold for N turns) in scenario scripting or mission controller.
-2) **Wire secondary objectives** with clear flags for UI/QA (e.g., destroy comms team, keep recon alive).
-3) **Set turn limits and fail conditions** consistent with design.
+- mission key
+- mission type
+- routing mode
+- unlock tier
+- gameplay role
+- map concept
+- objective logic
+- allied and enemy force concepts
+- pacing and escalation
+- difficulty tuning
+- UI copy
+- QA expectations
 
-## Phase 6 — AI Behavior Hooks
-1) **Configure AI parameters** to match doctrine (probe/harass vs. entrench/counterattack).
-2) **Add triggers** for reserves, fallbacks, counterattacks, and objective reprioritization.
-3) **Support usage**: smoke/artillery behaviors aligned with mission role.
+## Deliverables
+Every new mission implementation should end with all of these:
 
-## Phase 7 — Precombat/Battle Integration
-1) **Precombat summary**: ensure mission copy appears; surface objectives/conditions if UI supports it; ensure fallback entry exists for the mission.
-2) **Tutorial toggles**: only enable if mission calls for it (training/mission-specific overlays).
-3) **Battle/precombat scenario selection**: refresh scenario via registry using missionKey before rendering/engine init.
-4) **Battle loader**: point to the scenario file; ensure allocation/deployment lists respect mission-specific caps.
+1. A mission design document in `docs/missions/<mission-slug>.md`
+2. Runtime metadata in `src/data/missions.ts`
+3. A scenario file in `src/data/scenario_<slug>.json`
+4. A registry entry in `src/data/scenarioRegistry.ts`
+5. A validation profile in `src/data/scenarioValidation.ts`
+6. Mission rules in `src/state/missionRules.ts` when custom logic exists
+7. Any required landing-route or unlock changes
+8. Verification notes
 
-## Phase 8 — Copy and Localization
-1) **Verify UI copy** matches design: landing briefing, precombat text, objective labels, debrief strings.
-2) **Keep copy truthful** to terrain/objectives/resistance.
+## Phase 1: Design Lock
+Before implementation, confirm these decisions are fixed:
 
-## Phase 9 — QA Hooks and Tests
-1) **Author test cases**: victory/defeat paths, objective timers (e.g., hold-for-N), reinforcement triggers, difficulty deltas.
-2) **Add automated checks** where possible (e.g., registry resolves missionKey → scenario; summary fallback exists; objective count/zone presence; spawn safety assertions).
-3) **Manual checklist**: first contact timing, spawn safety, LOS sanity, objective placement, copy accuracy.
+- `missionKey`
+- `routeType`
+- `unlockTier`
+- whether the mission reuses existing systems or requires custom rules
+- whether the mission introduces any new player-facing unit types
 
-## Phase 10 — Traceability and Review
-1) **Document changes**: mission key, scenario file, routing/gating edits, logic changes.
-2) **Risk callouts**: new logic paths (e.g., hold-for-N-turns), AI trigger complexity.
-3) **Verification log**: list tests run (unit/automated/manual scenarios) before PR.
+If any of those are still undecided, stop and finish the design first.
 
-## Maintenance Notes
-- Treat this file as living: update steps when mission format or engine hooks change.
-- Keep parity with `four_star_general_mission_creation_agent_spec.md`; that spec is the design authority.
-- When adding new mission-type standards or routing modes, append guidance here.
+## Phase 2: Mission Metadata
+File:
+
+- `src/data/missions.ts`
+
+Required work:
+
+- add title
+- add landing briefing
+- add precombat summary package
+- add mission category
+- add deployment doctrine profile
+
+Add difficulty-specific turn helpers only if the mission needs them.
+
+Gate to pass before moving on:
+
+- the mission key resolves title and briefing correctly
+- precombat summary content is truthful to the mission design
+
+## Phase 3: Scenario Authoring
+File:
+
+- `src/data/scenario_<slug>.json`
+
+Required work:
+
+- define `name`
+- define `size`
+- define `tilePalette`
+- define `tiles`
+- define `objectives`
+- define `deploymentZones`
+- define `turnLimit`
+- define `playerBudget` when needed
+- define `allowedUnits` and `restrictedUnits` when needed
+- define `sides.Player`
+- define `sides.Bot`
+
+Rules:
+
+- scenario map dimensions must be exact
+- deployment zones must be valid and non-overlapping
+- only baseline player troops should live in the scenario roster
+- use `preDeployed: true` for player units that start on the map
+
+Gate to pass before moving on:
+
+- the scenario file is structurally complete
+- all unit types are valid
+- objectives and deployment zones match the mission package
+
+## Phase 4: Registry And Validation
+Files:
+
+- `src/data/scenarioRegistry.ts`
+- `src/data/scenarioValidation.ts`
+
+Required work:
+
+- import and register the new scenario
+- add a validation profile for the scenario name
+- approve the intended mission key in `allowedMissionKeys`
+
+Gate to pass before moving on:
+
+- `getScenarioByMissionKey()` can resolve the mission
+- the scenario name exactly matches the validation profile name
+
+## Phase 5: Mission Rules
+File:
+
+- `src/state/missionRules.ts`
+
+Required only when the mission includes custom behavior such as:
+
+- hold-for-N-turn objectives
+- defend or deny logic
+- extraction logic
+- secondary objective tracking
+- phased announcements
+- mission-specific defeat reasons
+
+Rules:
+
+- do not rely on JSON alone for custom mission behavior
+- every promise in the mission briefing must be backed by rules here
+
+Gate to pass before moving on:
+
+- objective state changes are possible
+- victory and defeat reasons are explicit
+
+## Phase 6: Landing And Route Integration
+File:
+
+- `src/ui/screens/LandingScreen.ts`
+
+Update this file when needed for:
+
+- unlock gating
+- mission ordering
+- route changes
+
+Common tasks:
+
+- add the new mission to canonical order
+- update `getMissionsForGeneral()`
+- update `handleMissionSelection()` if the route is not standard precombat
+
+Gate to pass before moving on:
+
+- the mission appears for the correct commanders
+- the mission launches into the correct flow
+
+## Phase 7: Unit Alias Support
+Files:
+
+- `src/game/adapters.ts`
+- `src/state/DeploymentState.ts`
+
+Only do this when the mission introduces a new player-facing scenario unit type.
+
+Required work:
+
+- add or align allocation key to scenario type mapping
+- ensure the unit can resolve to labels and sprites during deployment and battle
+
+Gate to pass before moving on:
+
+- player-facing scenario units do not produce alias-resolution errors
+
+## Phase 8: Manual Verification
+Run the mission through the real flow:
+
+1. Select the mission from the landing screen.
+2. Confirm landing title and briefing.
+3. Enter precombat.
+4. Confirm objectives, doctrine, supplies, turn limit, budget, and allowed-unit filtering.
+5. Confirm deployment zones register correctly.
+6. Proceed to battle.
+7. Confirm the correct map loads.
+8. Confirm custom objective logic works.
+9. Confirm victory and defeat resolution matches the mission design.
+
+## Phase 9: Automated Verification
+When code changes are part of the mission work, run the repo checks:
+
+- `npm run build`
+- `npm run test`
+- `npm run lint`
+
+If any check is skipped, say so in the implementation notes.
+
+## Final Review Checklist
+Before closing the work, verify all of the following:
+
+- mission key is valid
+- mission metadata is complete
+- scenario file is registered
+- scenario validation profile exists
+- custom rules exist when the mission requires them
+- landing access and routing are correct
+- battle activation uses the intended scenario
+- documentation matches the final implementation
+
+## Failure Patterns To Avoid
+
+- adding a mission briefing without a scenario file
+- adding a scenario file without a validation profile
+- encoding custom objective behavior only in prose
+- forgetting deployment zones
+- putting requisition-only player forces directly into the scenario roster
+- introducing a new player-facing scenario unit type without alias support
+- assuming battle will keep the right scenario without mission-session refresh
