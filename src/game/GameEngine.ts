@@ -6377,7 +6377,7 @@ private automateSupplyConvoys(
   /** Returns true when the unit's movement profile burns fuel while traversing the map. */
   private unitConsumesFuel(definition: UnitTypeDefinition): boolean {
     const moveType = definition.moveType as keyof typeof FUEL_COST;
-    return (FUEL_COST[moveType] ?? 0) > 0;
+    return (FUEL_COST[moveType] ?? 0) > 0 && (definition.fuel ?? 0) > 0;
   }
 
   /** Resolve the fuel burned for a single step, discounting ground movement when the hex is on a road. */
