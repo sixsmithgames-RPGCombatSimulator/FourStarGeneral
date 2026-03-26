@@ -10909,8 +10909,8 @@ private automateSupplyConvoys(
   }
 
   /**
-   * Dig in action for infantry units. Increases entrenchment level (max 2).
-   * Unit cannot move or attack again this turn after digging in.
+   * Puts a unit on sentry duty. Unit will return simultaneous fire if attacked.
+   * Unit cannot move or attack again this turn after entering sentry.
    */
   enterSentry(hex: Axial): boolean {
     const key = axialKey(hex);
@@ -10927,6 +10927,28 @@ private automateSupplyConvoys(
     unit.onSentry = true;
     this.playerPlacements.set(key, unit);
     this.playerActionFlags.set(key, this.resolveCommittedFieldActionFlags(hex, flags));
+    this.updateIdleRegistryFor(key);
+    this.invalidateRosterCache();
+
+    return true;
+  }
+
+  /**
+   * Removes a unit from sentry mode, restoring it to idle status if it hasn't acted.
+   * Allows commanders to undo sentry before ending their turn.
+   */
+  exitSentry(hex: Axial): boolean {
+    const key = axialKey(hex);
+    const unit = this.playerPlacements.get(key);
+    if (!unit || !unit.onSentry) {
+      return false;
+    }
+
+    // Remove sentry flag
+    unit.onSentry = false;
+    this.playerPlacements.set(key, unit);
+
+    // Update idle registry - unit becomes idle again if it hasn't acted
     this.updateIdleRegistryFor(key);
     this.invalidateRosterCache();
 

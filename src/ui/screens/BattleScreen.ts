@@ -2071,12 +2071,15 @@ export class BattleScreen {
    */
   private setupObjectiveCycling(): void {
     if (!this.zoomPanControls || !this.scenario.objectives || this.scenario.objectives.length === 0) {
+      console.log("[BattleScreen] setupObjectiveCycling: No objectives to cycle through");
       return;
     }
 
+    console.log(`[BattleScreen] setupObjectiveCycling: ${this.scenario.objectives.length} objectives found`);
     this.currentObjectiveIndex = 0;
-    this.zoomPanControls.onCycleObjective(() => {
-      if (!this.scenario.objectives || this.scenario.objectives.length === 0) {
+    this.zoomPanControls.onCycleObjective(async () => {
+      if (!this.scenario.objectives || this.scenario.objectives.length === 0 || !this.mapViewport) {
+        console.log("[BattleScreen] Cycle objective: No objectives available or viewport missing");
         return;
       }
 
@@ -2084,15 +2087,30 @@ export class BattleScreen {
       this.currentObjectiveIndex = (this.currentObjectiveIndex + 1) % this.scenario.objectives.length;
       const objective = this.scenario.objectives[this.currentObjectiveIndex];
 
+      console.log(`[BattleScreen] Cycling to objective ${this.currentObjectiveIndex + 1}/${this.scenario.objectives.length}`, objective.hex);
+
       // Convert to offset key and focus on it
       const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
       const offsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
 
-      // Focus camera on objective
-      this.hexMapRenderer?.focusOnHex(offsetKey, { behavior: "smooth", padding: 100 });
+      console.log(`[BattleScreen] Converted axial ${objective.hex.q},${objective.hex.r} to offset key: ${offsetKey}`);
+
+      // Set zoom to a good viewing level for objectives (2.5x)
+      const currentTransform = this.mapViewport.getTransform();
+      this.mapViewport.setTransform(2.5, currentTransform.panX, currentTransform.panY);
+
+      // Wait a brief moment for zoom to apply
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Focus camera on objective using proper MapViewport system
+      await this.focusCameraOnHex(offsetKey);
 
       // Announce which objective we're viewing
-      this.announceBattleUpdate(`Viewing Ford ${this.currentObjectiveIndex + 1} of ${this.scenario.objectives.length}`);
+      const missionKey = this.uiState?.selectedMission ?? "training";
+      const objectiveLabel = missionKey === "patrol_river_watch"
+        ? `Ford ${this.currentObjectiveIndex + 1}`
+        : `Objective ${this.currentObjectiveIndex + 1}`;
+      this.announceBattleUpdate(`Viewing ${objectiveLabel} of ${this.scenario.objectives.length}`);
     });
   }
 
@@ -3177,6 +3195,7 @@ export class BattleScreen {
     document.addEventListener("air:previewRange", this.airPreviewListener);
     document.addEventListener("air:clearPreview", this.airClearPreviewListener);
     document.addEventListener("battle:targetMarkerClicked", this.targetMarkerClickListener);
+    document.addEventListener("battle:sentryPipClicked", this.handleSentryPipClick.bind(this));
 
     // Wire reserve deployment from the Army Roster popup
     document.addEventListener("battle:selectReserve", (event) => {
@@ -3876,6 +3895,7 @@ export class BattleScreen {
 
   /**
    * Commander confirmed they want to advance despite idle units; execute the stored turn summary now.
+   * Automatically puts all idle units on sentry before advancing the turn.
    */
   private finalizeTurnAfterIdleWarning(): void {
     const pending = this.pendingIdleTurnAdvance;
@@ -3883,6 +3903,28 @@ export class BattleScreen {
     if (!pending) {
       return;
     }
+
+    // Auto-sentry all idle units before ending turn
+    const engine = this.battleState.ensureGameEngine();
+    const idleAxialKeys = this.battleState.getIdlePlayerUnitKeys();
+    let autoSentryCount = 0;
+
+    idleAxialKeys.forEach((axialKey) => {
+      const parsed = axialKey.split(",").map((s) => Number(s));
+      if (parsed.length === 2) {
+        const axial = { q: parsed[0]!, r: parsed[1]! };
+        const succeeded = engine.enterSentry(axial);
+        if (succeeded) {
+          autoSentryCount++;
+        }
+      }
+    });
+
+    if (autoSentryCount > 0) {
+      console.log(`[BattleScreen] Auto-sentry applied to ${autoSentryCount} idle units`);
+      this.renderEngineUnits();
+    }
+
     void this.executeTurnAdvance(pending.summary);
     this.completeTutorialPhase("turn_end");
   }
@@ -4622,6 +4664,58 @@ export class BattleScreen {
   }
 
   /**
+   * Handles clicks on sentry pips to toggle sentry mode off.
+   * Allows commanders to undo sentry before ending their turn.
+   */
+  private handleSentryPipClick(event: Event): void {
+    const customEvent = event as CustomEvent<{ offsetKey: string }>;
+    const hexKey = customEvent.detail?.offsetKey;
+
+    if (!hexKey) {
+      console.warn("[BattleScreen] handleSentryPipClick: no hex key in event detail");
+      return;
+    }
+
+    const engine = this.battleState.ensureGameEngine();
+    const summary = engine.getTurnSummary();
+
+    if (summary.phase !== "playerTurn") {
+      console.log("[BattleScreen] Sentry pip clicked during non-player turn, ignoring");
+      return;
+    }
+
+    const parsed = CoordinateSystem.parseHexKey(hexKey);
+    if (!parsed) {
+      console.warn("[BattleScreen] handleSentryPipClick: invalid hex key format:", hexKey);
+      return;
+    }
+
+    const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+    const axialKey = `${axial.q},${axial.r}`;
+    const unit = engine.playerUnits.find((u) => `${u.hex.q},${u.hex.r}` === axialKey);
+
+    if (!unit) {
+      console.warn("[BattleScreen] handleSentryPipClick: no unit at hex:", hexKey);
+      return;
+    }
+
+    if (!unit.onSentry) {
+      console.warn("[BattleScreen] handleSentryPipClick: unit is not on sentry:", hexKey);
+      return;
+    }
+
+    const succeeded = engine.exitSentry(axial);
+
+    if (succeeded) {
+      const unitLabel = this.resolveUnitLabel(unit.type);
+      this.announceBattleUpdate(`${unitLabel} exited sentry mode at ${hexKey}.`);
+      this.renderEngineUnits();
+    } else {
+      this.announceBattleUpdate("Unable to exit sentry mode.");
+    }
+  }
+
+  /**
    * Handles reserve call-up requests emitted by the deployment panel so cooldown rules, selection validation,
    * and engine integration remain centralized. Expects the caller to provide a stable allocation key.
    */
@@ -4924,6 +5018,10 @@ export class BattleScreen {
       } else {
         statusMessage += ` ${this.playerMoveHexes.size} moves, ${this.playerAttackHexes.size} targets.`;
       }
+      const selectedUnitDefinition = this.unitTypes[selectedPlayerUnit.type as keyof UnitTypeDictionary];
+      if (selectedUnitDefinition?.moveType !== "air" && (selectedPlayerUnit.ammo ?? 0) <= 0) {
+        statusMessage += " Out of ammo. This formation can still spot and move, but it cannot attack until it is resupplied.";
+      }
       if (commandState?.suppressionState === "pinned") {
         statusMessage += ` Pinned by ${commandState.suppressorCount} suppressing units. This battalion cannot move or retaliate.`;
       } else if (commandState?.suppressionState === "suppressed") {
@@ -5149,6 +5247,13 @@ export class BattleScreen {
       summary = `${unitLabel} went on sentry at ${this.selectedHexKey}.`;
       if (!succeeded) {
         this.announceBattleUpdate(commandState?.sentryReason ?? "This formation cannot enter sentry right now.");
+        return;
+      }
+    } else if (actionId === "exitSentry") {
+      succeeded = engine.exitSentry(axial);
+      summary = `${unitLabel} exited sentry mode at ${this.selectedHexKey}.`;
+      if (!succeeded) {
+        this.announceBattleUpdate("Unable to exit sentry mode.");
         return;
       }
     } else if (actionId === "digIn") {

@@ -359,14 +359,14 @@ const missionUnlockRequirements: Record<MissionKey, MissionUnlockRequirement> = 
     description: "Requires 2 completed missions"
   },
   assault_citadel_ridge: {
-    missionsCompleted: 2,
-    victories: 3,
-    description: "Requires 2 missions completed and 3 victories"
+    missionsCompleted: 3,
+    victories: 2,
+    description: "Requires 3 completed missions and 2 victories"
   },
   campaign: {
-    missionsCompleted: 2,
-    victories: 3,
-    description: "Requires 2 missions completed and 3 victories"
+    missionsCompleted: 3,
+    victories: 2,
+    description: "Requires 3 completed missions and 2 victories"
   }
 };
 

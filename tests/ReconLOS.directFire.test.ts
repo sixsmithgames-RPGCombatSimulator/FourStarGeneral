@@ -282,3 +282,47 @@ registerTest("PLAYER_RECON_ATTACK_TARGETS_RESPECT_SELECTED_UNIT_DIRECT_FIRE_LOS"
     }
   });
 });
+
+registerTest("RECON_SPOTTING_AND_DIRECT_FIRE_WORK_AGAINST_AN_ADJACENT_HILL_OCCUPANT", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let contactState: string | null = null;
+  let attackableTargets: Axial[] = [];
+
+  await Given("a recon car next to an enemy standing on a hill", async () => {
+    const reconCar: ScenarioUnit = {
+      type: "TestReconCar" as ScenarioUnit["type"],
+      hex: { q: 0, r: 0 },
+      strength: 10,
+      experience: 0,
+      ammo: 6,
+      fuel: 40,
+      entrench: 0,
+      facing: "N"
+    };
+    const defender: ScenarioUnit = {
+      type: "TestEnemyInfantry" as ScenarioUnit["type"],
+      hex: { q: 0, r: 1 },
+      strength: 10,
+      experience: 0,
+      ammo: 6,
+      fuel: 0,
+      entrench: 0,
+      facing: "S"
+    };
+    engine = createEngine([reconCar], [defender]);
+  });
+
+  await When("the recon car refreshes contact state and legal attack targets", async () => {
+    contactState = (engine as any).getPlayerEnemyContactStateAtHex({ q: 0, r: 1 });
+    attackableTargets = engine.getAttackableTargets({ q: 0, r: 0 });
+  });
+
+  await Then("the adjacent hill occupant stays visible and directly attackable", async () => {
+    if (!contactState) {
+      throw new Error("Expected the adjacent hill occupant to remain visible to the recon car.");
+    }
+    if (!attackableTargets.some((hex) => hex.q === 0 && hex.r === 1)) {
+      throw new Error(`Expected adjacent hill occupant to remain a legal target, received ${JSON.stringify(attackableTargets)}`);
+    }
+  });
+});

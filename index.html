@@ -3503,6 +3503,16 @@
     .idle-warning-list li {
       margin-bottom: 0.5rem;
     }
+    .idle-warning-footnote {
+      font-size: 0.85rem;
+      color: rgba(220, 220, 220, 0.75);
+      padding: 0 1.5rem;
+      margin: 1rem 0 0.5rem;
+      line-height: 1.4;
+      font-style: italic;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      padding-top: 1rem;
+    }
     .idle-warning-actions {
       display: flex;
       gap: 1rem;
@@ -5258,6 +5268,7 @@
             <p id="idleWarningCopy">You still have units with unused movement or attacks. Commanders typically resolve these before ending the turn.</p>
           </header>
           <ul class="idle-warning-list" id="idleWarningList" aria-label="Idle unit overview"></ul>
+          <p class="idle-warning-footnote">Note: Ending the turn will automatically place all idle units on sentry. You can click a unit's sentry pip to undo sentry mode before ending your turn.</p>
           <footer class="idle-warning-actions">
             <button type="button" class="idle-warning-button idle-warning-button--primary" id="idleContinueButton">Continue Commanding</button>
             <button type="button" class="idle-warning-button idle-warning-button--secondary" id="idleEndTurnButton">End Turn Anyway</button>

@@ -1569,13 +1569,15 @@ export class HexMapRenderer implements IMapRenderer {
     const suppressorCount = unit.suppressedBy?.length ?? 0;
     const suppressionState = suppressorCount >= 2 ? "pinned" : suppressorCount === 1 ? "suppressed" : "clear";
 
-    // Log suppression state only when it changes (commented out to reduce console spam)
-    // console.log("[HexMapRenderer] renderUnitDecorations - unit:", unit.type,
-    //   "unitId:", unit.unitId,
-    //   "suppressedBy:", unit.suppressedBy,
-    //   "suppressorCount:", suppressorCount,
-    //   "suppressionState:", suppressionState,
-    //   "entrenchment:", entrenchment);
+    // Log suppression state to debug pip visibility
+    if (suppressionState !== "clear") {
+      console.log("[HexMapRenderer] renderUnitDecorations - unit:", unit.type,
+        "unitId:", unit.unitId,
+        "suppressedBy:", unit.suppressedBy,
+        "suppressorCount:", suppressorCount,
+        "suppressionState:", suppressionState,
+        "statusPips will include:", suppressionState);
+    }
 
     group.classList.remove("unit-stack--suppressed", "unit-stack--pinned");
     group.dataset.suppressionState = suppressionState;
@@ -1641,6 +1643,12 @@ export class HexMapRenderer implements IMapRenderer {
     const group = document.createElementNS(SVG_NS, "g");
     group.classList.add("unit-status-pip");
     group.setAttribute("data-status", status);
+
+    // Make sentry pip clickable with pointer cursor
+    if (status === "sentry") {
+      group.style.cursor = "pointer";
+      group.setAttribute("data-clickable", "true");
+    }
 
     const backdrop = document.createElementNS(SVG_NS, "circle");
     backdrop.setAttribute("cx", String(x));
@@ -1760,8 +1768,23 @@ export class HexMapRenderer implements IMapRenderer {
     this.boundDelegatedClickHandler = (event: MouseEvent) => {
       if (!this.hexClickHandler) return;
 
-      // Find the closest .hex-cell ancestor from the click target
+      // Check if the click was on a sentry pip - if so, dispatch a custom event and stop propagation
       const target = event.target as Element;
+      const sentryPip = target.closest(".unit-status-pip[data-status='sentry'][data-clickable='true']") as SVGGElement | null;
+
+      if (sentryPip) {
+        // Find the hex this sentry pip belongs to
+        const hexCell = sentryPip.closest(".hex-cell") as SVGGElement | null;
+        if (hexCell && hexCell.dataset.hex) {
+          console.log("[HexMapRenderer] Sentry pip clicked on hex:", hexCell.dataset.hex);
+          // Broadcast custom event for sentry pip clicks
+          document.dispatchEvent(new CustomEvent("battle:sentryPipClicked", { detail: { offsetKey: hexCell.dataset.hex } }));
+          event.stopPropagation();
+          return;
+        }
+      }
+
+      // Find the closest .hex-cell ancestor from the click target
       const hexCell = target.closest(".hex-cell") as SVGGElement | null;
 
       if (!hexCell) return;
