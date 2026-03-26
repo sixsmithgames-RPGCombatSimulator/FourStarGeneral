@@ -14,6 +14,7 @@ export type MissionKey =
   | "training"
   | "patrol"
   | "patrol_river_watch"
+  | "assault_citadel_ridge"
   | "assault"
   | "campaign"
   | string;

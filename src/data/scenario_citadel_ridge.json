@@ -1,0 +1,150 @@
+{
+  "name": "Citadel Ridge",
+  "size": { "cols": 24, "rows": 18 },
+  "tilePalette": {
+    "PLAINS": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["fields"], "recon": "intel" },
+    "HILL": { "terrain": "hill", "terrainType": "rural", "density": "average", "features": ["foothills"], "recon": "intel" },
+    "ROAD": { "terrain": "road", "terrainType": "rural", "density": "sparse", "features": [], "recon": "intel" },
+    "TRENCH": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["trenches", "foxholes"], "recon": "intel" },
+    "BASTION": { "terrain": "city", "terrainType": "urban", "density": "dense", "features": ["bunker", "fortifications", "assault cannon"], "recon": "intel" },
+    "RIDGE": { "terrain": "hill", "terrainType": "rural", "density": "dense", "features": ["ridge", "reverse slope"], "recon": "intel" }
+  },
+  "tiles": [
+    ["PLAINS","PLAINS","PLAINS","HILL","HILL","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","PLAINS","PLAINS","HILL","HILL","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","HILL","HILL","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE"],
+    ["PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","HILL","HILL","TRENCH","TRENCH","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE"],
+    ["PLAINS","HILL","HILL","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","HILL","HILL","TRENCH","BASTION","TRENCH","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","HILL","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","HILL","HILL","TRENCH","BASTION","TRENCH","RIDGE","RIDGE","TRENCH","TRENCH","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","HILL","HILL","TRENCH","TRENCH","TRENCH","TRENCH","RIDGE","TRENCH","TRENCH","RIDGE","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","PLAINS","PLAINS","PLAINS","HILL","HILL","TRENCH","TRENCH","HILL","TRENCH","RIDGE","TRENCH","TRENCH","TRENCH","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","TRENCH","TRENCH","TRENCH","TRENCH","RIDGE","TRENCH","TRENCH","TRENCH","RIDGE","RIDGE"],
+    ["ROAD","ROAD","ROAD","ROAD","ROAD","ROAD","ROAD","ROAD","ROAD","ROAD","ROAD","ROAD","ROAD","ROAD","ROAD","TRENCH","BASTION","TRENCH","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","TRENCH","TRENCH","TRENCH","TRENCH","RIDGE","TRENCH","TRENCH","TRENCH","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","PLAINS","PLAINS","PLAINS","HILL","HILL","TRENCH","TRENCH","HILL","TRENCH","RIDGE","TRENCH","TRENCH","TRENCH","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","HILL","HILL","TRENCH","TRENCH","TRENCH","TRENCH","RIDGE","TRENCH","TRENCH","RIDGE","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","HILL","HILL","TRENCH","TRENCH","BASTION","TRENCH","RIDGE","TRENCH","TRENCH","RIDGE","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","HILL","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","HILL","HILL","TRENCH","BASTION","TRENCH","RIDGE","RIDGE","TRENCH","TRENCH","RIDGE","RIDGE"],
+    ["PLAINS","HILL","HILL","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","HILL","HILL","TRENCH","BASTION","TRENCH","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE"],
+    ["PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","HILL","HILL","TRENCH","TRENCH","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","HILL","PLAINS","PLAINS","HILL","HILL","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE"],
+    ["PLAINS","PLAINS","PLAINS","HILL","HILL","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","PLAINS","HILL","HILL","PLAINS","PLAINS","HILL","HILL","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE","RIDGE"]
+  ],
+  "objectives": [
+    { "hex": [16, 4], "owner": "Bot", "vp": 120 },
+    { "hex": [16, 8], "owner": "Bot", "vp": 180 },
+    { "hex": [16, 12], "owner": "Bot", "vp": 120 },
+    { "hex": [20, 8], "owner": "Bot", "vp": 220 }
+  ],
+  "deploymentZones": [
+    {
+      "key": "west-assembly-north",
+      "label": "West Assembly North",
+      "description": "Northern forming-up sector on rolling ground west of the ridge and beyond the initial artillery envelope.",
+      "capacity": 20,
+      "faction": "Player",
+      "hexes": [[0,5],[1,5],[2,5],[3,5],[4,5],[0,6],[1,6],[2,6],[3,6],[4,6],[0,7],[1,7],[2,7],[3,7],[4,7],[0,8],[1,8],[2,8],[3,8],[4,8]]
+    },
+    {
+      "key": "west-assembly-south",
+      "label": "West Assembly South",
+      "description": "Southern assault assembly positioned to support the flank rise or feed the central road once the attack begins.",
+      "capacity": 20,
+      "faction": "Player",
+      "hexes": [[0,9],[1,9],[2,9],[3,9],[4,9],[0,10],[1,10],[2,10],[3,10],[4,10],[0,11],[1,11],[2,11],[3,11],[4,11],[0,12],[1,12],[2,12],[3,12],[4,12]]
+    },
+    {
+      "key": "north-redoubt",
+      "label": "North Redoubt",
+      "description": "Forward northern battery belt.",
+      "capacity": 12,
+      "faction": "Bot",
+      "hexes": [[18,2],[19,2],[20,2],[21,2],[18,3],[19,3],[20,3],[21,3],[18,4],[19,4],[20,4],[21,4]]
+    },
+    {
+      "key": "central-citadel",
+      "label": "Central Citadel",
+      "description": "Main road strongpoint and rear command slope.",
+      "capacity": 12,
+      "faction": "Bot",
+      "hexes": [[18,7],[19,7],[20,7],[21,7],[18,8],[19,8],[20,8],[21,8],[18,9],[19,9],[20,9],[21,9]]
+    },
+    {
+      "key": "south-redoubt",
+      "label": "South Redoubt",
+      "description": "Southern battery and trench pocket.",
+      "capacity": 12,
+      "faction": "Bot",
+      "hexes": [[18,11],[19,11],[20,11],[21,11],[18,12],[19,12],[20,12],[21,12],[18,13],[19,13],[20,13],[21,13]]
+    }
+  ],
+  "turnLimit": 17,
+  "playerBudget": 2600000,
+  "allowedUnits": [
+    "infantry",
+    "airborneDetachment",
+    "engineer",
+    "tank",
+    "heavyTankCompany",
+    "tankDestroyerCompany",
+    "assaultGunBattalion",
+    "howitzer",
+    "rocketArtilleryBattalion",
+    "spArtilleryGroup",
+    "antiTankBattery",
+    "flakBattery",
+    "recon",
+    "reconBike",
+    "fighter",
+    "interceptorWing",
+    "groundAttackWing",
+    "bomber",
+    "apcHalftrackCompany",
+    "supplyConvoy",
+    "ammo",
+    "fuel",
+    "medic",
+    "maintenance"
+  ],
+  "restrictedUnits": [],
+  "sides": {
+    "Player": {
+      "hq": [2, 8],
+      "general": { "accBonus": 0, "dmgBonus": 0, "moveBonus": 0, "supplyBonus": 0 },
+      "units": []
+    },
+    "Bot": {
+      "hq": [22, 8],
+      "general": { "accBonus": 10, "dmgBonus": 5, "moveBonus": 0, "supplyBonus": 10 },
+      "goal": "Hold Citadel Ridge and deny the road corridor.",
+      "strategy": "Anchor the outer batteries, range the road with artillery, then counterattack breaches with mobile anti-tank reserves.",
+      "resources": 900,
+      "units": [
+        { "type": "Assault_Gun", "hex": [16,4], "strength": 100, "experience": 2, "ammo": 6, "fuel": 30, "entrench": 4, "facing": "W" },
+        { "type": "Assault_Gun", "hex": [16,12], "strength": 100, "experience": 2, "ammo": 6, "fuel": 30, "entrench": 4, "facing": "W" },
+        { "type": "Flak_88", "hex": [20,6], "strength": 100, "experience": 2, "ammo": 6, "fuel": 0, "entrench": 3, "facing": "W" },
+        { "type": "Flak_88", "hex": [20,10], "strength": 100, "experience": 2, "ammo": 6, "fuel": 0, "entrench": 3, "facing": "W" },
+        { "type": "Howitzer_105", "hex": [22,5], "strength": 100, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "W" },
+        { "type": "Howitzer_105", "hex": [22,11], "strength": 100, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "W" },
+        { "type": "Light_Tank", "hex": [18,7], "strength": 100, "experience": 1, "ammo": 6, "fuel": 45, "entrench": 1, "facing": "W" },
+        { "type": "Light_Tank", "hex": [18,9], "strength": 100, "experience": 1, "ammo": 6, "fuel": 45, "entrench": 1, "facing": "W" },
+        { "type": "Light_Tank", "hex": [19,8], "strength": 100, "experience": 1, "ammo": 6, "fuel": 45, "entrench": 0, "facing": "W" },
+        { "type": "Tank_Destroyer", "hex": [18,8], "strength": 100, "experience": 2, "ammo": 6, "fuel": 35, "entrench": 1, "facing": "W" },
+        { "type": "AT_Gun_50mm", "hex": [15,6], "strength": 100, "experience": 1, "ammo": 5, "fuel": 0, "entrench": 2, "facing": "W" },
+        { "type": "AT_Gun_50mm", "hex": [16,8], "strength": 100, "experience": 2, "ammo": 5, "fuel": 0, "entrench": 3, "facing": "W" },
+        { "type": "AT_Gun_50mm", "hex": [15,10], "strength": 100, "experience": 1, "ammo": 5, "fuel": 0, "entrench": 2, "facing": "W" },
+        { "type": "AT_Infantry", "hex": [17,6], "strength": 100, "experience": 1, "ammo": 7, "fuel": 0, "entrench": 2, "facing": "W" },
+        { "type": "AT_Infantry", "hex": [17,10], "strength": 100, "experience": 1, "ammo": 7, "fuel": 0, "entrench": 2, "facing": "W" },
+        { "type": "Infantry_42", "hex": [15,4], "strength": 100, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 3, "facing": "W" },
+        { "type": "Infantry_42", "hex": [17,4], "strength": 100, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 3, "facing": "W" },
+        { "type": "Infantry_42", "hex": [15,8], "strength": 100, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 3, "facing": "W" },
+        { "type": "Infantry_42", "hex": [20,8], "strength": 100, "experience": 2, "ammo": 6, "fuel": 0, "entrench": 3, "facing": "W" },
+        { "type": "Infantry_42", "hex": [15,12], "strength": 100, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 3, "facing": "W" },
+        { "type": "Infantry_42", "hex": [17,12], "strength": 100, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 3, "facing": "W" },
+        { "type": "Engineer", "hex": [17,5], "strength": 100, "experience": 1, "ammo": 5, "fuel": 0, "entrench": 2, "facing": "W" },
+        { "type": "Engineer", "hex": [17,11], "strength": 100, "experience": 1, "ammo": 5, "fuel": 0, "entrench": 2, "facing": "W" },
+        { "type": "Interceptor", "hex": [23,6], "strength": 100, "experience": 2, "ammo": 7, "fuel": 55, "entrench": 0, "facing": "W" },
+        { "type": "Interceptor", "hex": [23,10], "strength": 100, "experience": 2, "ammo": 7, "fuel": 55, "entrench": 0, "facing": "W" }
+      ]
+    }
+  }
+}

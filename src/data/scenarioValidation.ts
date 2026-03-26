@@ -54,6 +54,15 @@ const scenarioProfilesByName: Record<string, RawScenarioProfile> = {
     minObjectiveCount: 3,
     minObjectiveSpacing: 2,
     minRangeBuffer: 6
+  },
+  "Citadel Ridge": {
+    scenarioName: "Citadel Ridge",
+    allowedMissionKeys: ["assault_citadel_ridge"],
+    minCols: 24,
+    minRows: 18,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 3,
+    minRangeBuffer: 6
   }
 };
 

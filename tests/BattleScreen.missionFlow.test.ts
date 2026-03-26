@@ -234,6 +234,70 @@ registerTest("BATTLESCREEN_INVALID_DEPLOYMENT_SELECTION_KEEPS_PLAYER_ZONE_HIGHLI
   });
 });
 
+registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let soundEnabled = true;
+  let toggleButton: HTMLButtonElement;
+
+  await Given("a battle screen with a sound toggle button and renderer audio controls", async () => {
+    document.body.innerHTML = `
+      <div id="battleScreen">
+        <button id="battleSoundToggle" type="button">Sound On</button>
+      </div>
+    `;
+    window.localStorage.removeItem("fsg-sound-enabled");
+
+    const fakeRenderer = {
+      setSoundEnabled(enabled: boolean) {
+        soundEnabled = enabled;
+      },
+      isSoundEnabled() {
+        return soundEnabled;
+      }
+    } as any;
+
+    screen = new BattleScreen(
+      {} as any,
+      {} as any,
+      {} as any,
+      fakeRenderer,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      { selectedMission: "patrol_river_watch" } as any
+    );
+
+    (screen as any).cacheElements();
+    (screen as any).bindEvents();
+    (screen as any).applySoundPreference(true);
+    toggleButton = document.getElementById("battleSoundToggle") as HTMLButtonElement;
+  });
+
+  await When("the commander disables and then re-enables sound", async () => {
+    toggleButton.click();
+    toggleButton.click();
+  });
+
+  await Then("the button state, persistence, and renderer audio state stay in sync", async () => {
+    if (window.localStorage.getItem("fsg-sound-enabled") !== "true") {
+      throw new Error(`Expected sound preference to end enabled, received ${window.localStorage.getItem("fsg-sound-enabled")}`);
+    }
+    if (soundEnabled !== true) {
+      throw new Error("Expected renderer sound state to be re-enabled after the second toggle.");
+    }
+    if (toggleButton.textContent !== "Sound On") {
+      throw new Error(`Expected button label to be Sound On, received ${toggleButton.textContent}`);
+    }
+    if (toggleButton.getAttribute("aria-pressed") !== "true") {
+      throw new Error(`Expected aria-pressed to be true, received ${toggleButton.getAttribute("aria-pressed")}`);
+    }
+    window.localStorage.removeItem("fsg-sound-enabled");
+  });
+});
+
 registerTest("BATTLESCREEN_ASSIGNS_BASE_CAMP_ON_VALID_PLAYER_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let assignedAxial: { q: number; r: number } | null = null;

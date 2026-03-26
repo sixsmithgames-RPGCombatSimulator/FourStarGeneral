@@ -42,6 +42,8 @@ export interface WeaponSoundRequest extends QueuedWeaponSoundRequest {
  * Combat sound manager using Web Audio API for layered playback.
  */
 export class CombatSoundManager {
+  static readonly DEFAULT_MASTER_VOLUME = 0.7;
+
   private readonly audioContext: AudioContext;
   private readonly masterGainNode: GainNode;
   private readonly bufferCache: Map<string, AudioBuffer> = new Map();
@@ -57,7 +59,7 @@ export class CombatSoundManager {
     this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     this.masterGainNode = this.audioContext.createGain();
     this.masterGainNode.connect(this.audioContext.destination);
-    this.masterGainNode.gain.value = 0.7; // Default master volume
+    this.masterGainNode.gain.value = CombatSoundManager.DEFAULT_MASTER_VOLUME;
 
     console.log("[CombatSoundManager] Initialized with Web Audio API");
   }

@@ -2682,6 +2682,18 @@
       line-height: 1;
       border-radius: 12px;
     }
+
+    .battle-audio-toggle[aria-pressed="false"] {
+      background: rgba(18, 23, 31, 0.78);
+      border-color: rgba(233, 199, 123, 0.2);
+      color: rgba(238, 228, 203, 0.82);
+    }
+
+    .battle-audio-toggle[aria-pressed="false"]:hover,
+    .battle-audio-toggle[aria-pressed="false"]:focus-visible {
+      border-color: rgba(241, 213, 149, 0.36);
+      color: #f1dfb2;
+    }
     @media (max-width: 980px) {
       .battle-map-header {
         flex-wrap: wrap;
@@ -5077,6 +5089,16 @@
               </div>
               <div class="battle-map-header__actions">
                 <div class="battle-map-header__command-group">
+                  <button
+                    id="battleSoundToggle"
+                    type="button"
+                    class="compact-button battle-audio-toggle"
+                    aria-pressed="true"
+                    aria-label="Turn sound off"
+                    title="Turn sound off"
+                  >
+                    Sound On
+                  </button>
                   <button id="battleCycleObjective" type="button" class="compact-button" aria-label="Cycle objective focus">Cycle Objective</button>
                   <button id="endTurn" type="button" class="secondary-button" disabled>End Turn</button>
                 </div>

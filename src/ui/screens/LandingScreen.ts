@@ -844,7 +844,7 @@ export class LandingScreen {
 
     const missionsLocked = !selectedGeneral;
 
-    const canonicalOrder: MissionKey[] = ["training", "patrol", "patrol_river_watch", "assault", "campaign"];
+    const canonicalOrder: MissionKey[] = ["training", "patrol", "patrol_river_watch", "assault", "assault_citadel_ridge", "campaign"];
     const orderedMissions = canonicalOrder.filter((key) => availableMissions.includes(key)).concat(
       availableMissions.filter((key) => !canonicalOrder.includes(key))
     );

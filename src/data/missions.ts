@@ -14,6 +14,7 @@ export const missionTitles: Record<MissionKey, string> = {
   training: "Training Exercise",
   patrol: "Border Patrol",
   patrol_river_watch: "River Crossing Watch",
+  assault_citadel_ridge: "Citadel Ridge",
   assault: "Tactical Assault",
   // Campaign is surfaced on the landing screen as "Western Europe" to anchor the first grand-operation offering.
   campaign: "Western Europe Campaign"
@@ -37,6 +38,12 @@ export const missionBriefings: Record<MissionKey, string> = {
     "Deploy your patrols to occupy and hold each crossing with your units.\n\n" +
     "VICTORY: Hold ALL THREE fords simultaneously with your forces for 8 consecutive turns.\n" +
     "DEFEAT: Mission fails if the enemy secures and holds any ford for 8 consecutive turns.",
+
+  assault_citadel_ridge:
+    "Recon has identified a fortified ridge complex controlling the only road into the sector. Enemy infantry are already dug in, bunker guns cover the slopes, and heavy anti-air batteries protect the rear. " +
+    "Assemble a full assault group, break the outer batteries, and seize the command ridge before the defenders can regroup.\n\n" +
+    "VICTORY: Capture the command ridge and at least two additional strongpoints before the turn limit expires.\n" +
+    "DEFEAT: Mission fails if the assault window closes before the command ridge is secured, or if all friendly combat units are destroyed.",
 
   assault:
     "Execute a tactical assault on enemy positions to secure strategic objectives. " +
@@ -90,6 +97,12 @@ const RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
   Hard: 11
 };
 
+const CITADEL_RIDGE_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
+  Easy: 20,
+  Normal: 17,
+  Hard: 15
+};
+
 export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> = {
   training: {
     objectives: [
@@ -131,6 +144,20 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       { label: "Duration", amount: "11-14 turns depending on difficulty" }
     ]
   },
+  assault_citadel_ridge: {
+    objectives: [
+      "Primary: Seize the command ridge and any two additional strongpoints.",
+      "Secondary: Destroy both flak 88 batteries covering the approach.",
+      "Tertiary: Silence the bunker guns anchoring the north and south bastions."
+    ],
+    turnLimit: 17,
+    doctrine: "Mass fires and armor on one shoulder of the ridge, suppress the bunker line, then commit infantry to hold the captured strongpoints before the defenders can counterattack.",
+    supplies: [
+      { label: "Requisition Budget", amount: "2,600,000 requisition points" },
+      { label: "Baseline Forces", amount: "No predeployed units" },
+      { label: "Operational Window", amount: "15-20 turns depending on difficulty" }
+    ]
+  },
   assault: {
     objectives: [
       "Seize primary defensive line within allotted turns.",
@@ -163,6 +190,7 @@ const missionCategories: Record<MissionKey, MissionCategory> = {
   training: "training",
   patrol: "patrol",
   patrol_river_watch: "patrol",
+  assault_citadel_ridge: "assault",
   assault: "assault",
   campaign: "campaign"
 };
@@ -228,6 +256,29 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
         minimumCapacity: 16,
         minimumFrontage: 4,
         minimumDepth: 3
+      }
+    ]
+  },
+  assault_citadel_ridge: {
+    preferredZoneKey: "west-assembly-north",
+    focusLabel: "assault assembly area",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 32,
+      minimumPlayerZoneFrontage: 5,
+      minimumPlayerZoneDepth: 4
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "west-assembly-north",
+        minimumCapacity: 20,
+        minimumFrontage: 5,
+        minimumDepth: 4
+      },
+      {
+        zoneKey: "west-assembly-south",
+        minimumCapacity: 20,
+        minimumFrontage: 5,
+        minimumDepth: 4
       }
     ]
   },
@@ -319,6 +370,9 @@ export function getMissionTurnLimit(mission: MissionKey, difficulty: BotDifficul
   if (mission === "patrol_river_watch") {
     return RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY[difficulty];
   }
+  if (mission === "assault_citadel_ridge") {
+    return CITADEL_RIDGE_TURN_LIMIT_BY_DIFFICULTY[difficulty];
+  }
 
   return missionSummaryPackages[mission].turnLimit;
 }
@@ -327,7 +381,7 @@ export function getMissionSummaryPackage(mission: MissionKey, difficulty: BotDif
   const summary = missionSummaryPackages[mission];
   const turnLimit = getMissionTurnLimit(mission, difficulty);
 
-  if (mission !== "patrol_river_watch") {
+  if (mission !== "patrol_river_watch" && mission !== "assault_citadel_ridge") {
     return summary;
   }
 

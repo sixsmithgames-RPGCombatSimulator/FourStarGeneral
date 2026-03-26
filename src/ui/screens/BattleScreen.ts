@@ -136,6 +136,7 @@ type QueuedTargetMarkerAction =
  * Handles turn management, deployment finalization, and mission completion.
  */
 export class BattleScreen {
+  private static readonly SOUND_ENABLED_STORAGE_KEY = "fsg-sound-enabled";
   private readonly screenManager: IScreenManager;
   private readonly battleState: BattleState;
   private readonly popupManager: IPopupManager;
@@ -203,6 +204,7 @@ export class BattleScreen {
   } | null = null;
 
   private beginBattleButton: HTMLButtonElement | null = null;
+  private soundToggleButton: HTMLButtonElement | null = null;
   private endTurnButton: HTMLButtonElement | null = null;
   private endMissionButton: HTMLButtonElement | null = null;
   private baseCampStatus: HTMLElement | null = null;
@@ -236,6 +238,7 @@ export class BattleScreen {
   private lastFocusedHexKey: string | null = null;
   private lastViewportTransform: { zoom: number; panX: number; panY: number } | null = null;
   private cameraFrozen: boolean = false;
+  private soundEnabled = true;
 
   // Hex selection state
   private selectedHexKey: string | null = null;
@@ -3193,6 +3196,8 @@ export class BattleScreen {
       hasCommittedEntries: ensureDeploymentState().hasCommittedEntries()
     });
     this.cacheElements();
+    this.soundEnabled = this.loadSoundEnabledPreference();
+    this.applySoundPreference(this.soundEnabled);
     this.hydrateMissionBriefing();
     this.bindEvents();
 
@@ -3269,6 +3274,7 @@ export class BattleScreen {
    */
   private cacheElements(): void {
     this.beginBattleButton = this.element.querySelector("#beginBattle");
+    this.soundToggleButton = this.element.querySelector("#battleSoundToggle");
     this.endTurnButton = this.element.querySelector("#endTurn");
     this.endMissionButton = this.element.querySelector("#endMissionButton");
     this.baseCampStatus = this.element.querySelector("#baseCampStatus");
@@ -3348,6 +3354,7 @@ export class BattleScreen {
    */
   private bindEvents(): void {
     this.beginBattleButton?.addEventListener("click", () => this.handleBeginBattle());
+    this.soundToggleButton?.addEventListener("click", () => this.handleToggleSound());
     this.endTurnButton?.addEventListener("click", () => {
       void this.handleEndTurn();
     });
@@ -4443,6 +4450,7 @@ export class BattleScreen {
     }
 
     this.hexMapRenderer.render(svg, canvas, scenarioClone);
+    this.hexMapRenderer.setSoundEnabled(this.soundEnabled);
     this.hexMapRenderer.onHexClick((key) => this.handleHexSelection(key));
     this.hexMapRenderer.onSelectionChanged((key) => this.handleRendererSelection(key));
     // Mirror zone metadata once the map is ready so deployment overlays and base camp validation share the same registry.
@@ -4456,6 +4464,48 @@ export class BattleScreen {
       this.hexMapRenderer.renderBaseCampMarker(baseCampKey);
     }
     this.updateAirHudWidget();
+  }
+
+  private handleToggleSound(): void {
+    const nextEnabled = !this.soundEnabled;
+    this.persistSoundEnabledPreference(nextEnabled);
+    this.applySoundPreference(nextEnabled);
+  }
+
+  private applySoundPreference(enabled: boolean): void {
+    this.soundEnabled = enabled;
+    this.hexMapRenderer?.setSoundEnabled(enabled);
+    this.updateSoundToggleButton(enabled);
+  }
+
+  private updateSoundToggleButton(enabled: boolean): void {
+    if (!this.soundToggleButton) {
+      return;
+    }
+
+    this.soundToggleButton.textContent = enabled ? "Sound On" : "Sound Off";
+    this.soundToggleButton.setAttribute("aria-pressed", enabled ? "true" : "false");
+    this.soundToggleButton.setAttribute("aria-label", enabled ? "Turn sound off" : "Turn sound on");
+    this.soundToggleButton.title = enabled ? "Turn sound off" : "Turn sound on";
+    this.soundToggleButton.dataset.soundEnabled = enabled ? "true" : "false";
+    this.soundToggleButton.disabled = !this.hexMapRenderer;
+  }
+
+  private loadSoundEnabledPreference(): boolean {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return true;
+    }
+
+    const stored = window.localStorage.getItem(BattleScreen.SOUND_ENABLED_STORAGE_KEY);
+    return stored !== "false";
+  }
+
+  private persistSoundEnabledPreference(enabled: boolean): void {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return;
+    }
+
+    window.localStorage.setItem(BattleScreen.SOUND_ENABLED_STORAGE_KEY, enabled ? "true" : "false");
   }
 
   /**

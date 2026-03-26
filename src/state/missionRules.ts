@@ -222,9 +222,144 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
   } satisfies MissionRulesController;
 }
 
+function createCitadelRidgeController(scenario: ScenarioData, difficulty: BotDifficulty): MissionRulesController {
+  const strongpointKeys = [
+    { key: makeKey({ q: 16, r: 4 - Math.floor(16 / 2) }), label: "North Battery", vp: 120 },
+    { key: makeKey({ q: 16, r: 8 - Math.floor(16 / 2) }), label: "Central Citadel", vp: 180 },
+    { key: makeKey({ q: 16, r: 12 - Math.floor(16 / 2) }), label: "South Battery", vp: 120 },
+    { key: makeKey({ q: 20, r: 8 - Math.floor(20 / 2) }), label: "Command Ridge", vp: 220, mandatory: true }
+  ];
+
+  let currentOutcome: MissionOutcome = { state: "inProgress" };
+
+  const buildObjectives = (
+    outcome: MissionOutcome,
+    playerUnits: readonly ScenarioUnit[],
+    botUnits: readonly ScenarioUnit[],
+    occupancy: ReadonlyMap<string, TurnFaction>
+  ): readonly ObjectiveProgress[] => {
+    const capturedStrongpoints = strongpointKeys.filter(({ key }) => {
+      const occupant = occupancy.get(key);
+      return occupant === "Player" || occupant === "Ally";
+    });
+    const commandRidgeCaptured = strongpointKeys
+      .find((sp) => sp.mandatory)
+      ?.key && (occupancy.get(strongpointKeys.find((sp) => sp.mandatory)!.key) === "Player"
+                || occupancy.get(strongpointKeys.find((sp) => sp.mandatory)!.key) === "Ally");
+
+    const primary: ObjectiveProgress = {
+      id: "primary_break_ridge",
+      label: "Seize the command ridge and at least three strongpoints",
+      tier: "primary",
+      state: outcome.state === "playerVictory" && commandRidgeCaptured && capturedStrongpoints.length >= 3
+        ? "completed"
+        : outcome.state === "playerDefeat"
+          ? "failed"
+          : "inProgress",
+      detail: `Captured: ${capturedStrongpoints.length}/4 strongpoints${commandRidgeCaptured ? " (Command Ridge secured)" : " (Command Ridge required)"}. ${strongpointKeys
+        .map(({ label, key }) => {
+          const occupant = occupancy.get(key);
+          const status = occupant === "Player" || occupant === "Ally" ? "✓" : "—";
+          return `${status} ${label}`;
+        })
+        .join(", ")}`
+    };
+
+    const flakDestroyed = botUnits.filter((unit) => unit.type === "Flak_88").length === 0;
+    const secondary: ObjectiveProgress = {
+      id: "secondary_destroy_flak",
+      label: "Destroy both flak batteries",
+      tier: "secondary",
+      state: flakDestroyed
+        ? "completed"
+        : outcome.state === "inProgress"
+          ? "inProgress"
+          : "failed",
+      detail: flakDestroyed
+        ? "Both flak batteries eliminated."
+        : `${botUnits.filter((unit) => unit.type === "Flak_88").length} flak batteries remain operational.`
+    };
+
+    const bunkersDestroyed = botUnits.filter((unit) => unit.type === "Assault_Gun").length === 0;
+    const tertiary: ObjectiveProgress = {
+      id: "tertiary_silence_bunkers",
+      label: "Silence the bunker guns",
+      tier: "tertiary",
+      state: bunkersDestroyed
+        ? "completed"
+        : outcome.state === "inProgress"
+          ? "inProgress"
+          : "failed",
+      detail: bunkersDestroyed
+        ? "All assault gun strongpoints silenced."
+        : `${botUnits.filter((unit) => unit.type === "Assault_Gun").length} bunker guns remain operational.`
+    };
+
+    return [primary, secondary, tertiary] satisfies readonly ObjectiveProgress[];
+  };
+
+  const deriveStatus = (snapshot: MissionSnapshot): MissionStatus => {
+    const { turnSummary, occupancy, playerUnits, botUnits, scenario: snapScenario } = snapshot;
+    const turnLimit = snapScenario.turnLimit ?? null;
+
+    let outcome: MissionOutcome = currentOutcome;
+
+    // Check for unit elimination conditions
+    if (outcome.state === "inProgress") {
+      if (botUnits.length === 0) {
+        outcome = { state: "playerVictory", reason: "All enemy forces eliminated." };
+      } else if (playerUnits.length === 0) {
+        outcome = { state: "playerDefeat", reason: "All friendly forces eliminated." };
+      }
+    }
+
+    // Check strongpoint capture victory
+    const capturedStrongpoints = strongpointKeys.filter(({ key }) => {
+      const occupant = occupancy.get(key);
+      return occupant === "Player" || occupant === "Ally";
+    });
+    const commandRidgeKey = strongpointKeys.find((sp) => sp.mandatory)?.key;
+    const commandRidgeCaptured = commandRidgeKey && (occupancy.get(commandRidgeKey) === "Player" || occupancy.get(commandRidgeKey) === "Ally");
+
+    if (outcome.state === "inProgress" && commandRidgeCaptured && capturedStrongpoints.length >= 3) {
+      outcome = { state: "playerVictory", reason: "Command ridge and sufficient strongpoints secured." };
+    }
+
+    // Check turn limit defeat
+    if (turnLimit !== null && turnSummary.turnNumber >= turnLimit && outcome.state === "inProgress") {
+      outcome = { state: "playerDefeat", reason: "Turn limit expired before securing objectives." };
+    }
+
+    currentOutcome = outcome;
+
+    return {
+      turn: turnSummary.turnNumber,
+      objectives: buildObjectives(outcome, playerUnits, botUnits, occupancy),
+      outcome
+    } satisfies MissionStatus;
+  };
+
+  return {
+    onTurnAdvanced(snapshot: MissionSnapshot): MissionStatus {
+      return deriveStatus(snapshot);
+    },
+    getStatus(): MissionStatus {
+      const emptyOccupancy = new Map<string, TurnFaction>();
+      return {
+        turn: 0,
+        objectives: buildObjectives(currentOutcome, scenario.sides.Player.units, scenario.sides.Bot.units, emptyOccupancy),
+        outcome: currentOutcome
+      };
+    }
+  } satisfies MissionRulesController;
+}
+
 export function createMissionRulesController(missionKey: string, scenario: ScenarioData, difficulty: BotDifficulty = "Normal"): MissionRulesController {
   if (missionKey === "patrol_river_watch") {
     return createRiverWatchController(scenario, difficulty);
+  }
+  if (missionKey === "assault_citadel_ridge") {
+    return createCitadelRidgeController(scenario, difficulty);
   }
 
   return {

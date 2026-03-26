@@ -1368,6 +1368,20 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   /**
+   * Enables or mutes combat audio without disturbing the rest of the renderer state.
+   */
+  setSoundEnabled(enabled: boolean): void {
+    this.soundManager.setMasterVolume(enabled ? CombatSoundManager.DEFAULT_MASTER_VOLUME : 0);
+  }
+
+  /**
+   * Reports whether combat audio is currently enabled.
+   */
+  isSoundEnabled(): boolean {
+    return this.soundManager.getMasterVolume() > 0.001;
+  }
+
+  /**
    * Caches DOM references to hex elements.
    */
   cacheHexReferences(): void {
