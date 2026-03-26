@@ -384,8 +384,15 @@ export class LandingScreen {
       return;
     }
 
-    if (!this.uiState.selectedGeneralId || button.dataset.disabled === "true") {
+    if (!this.uiState.selectedGeneralId) {
       this.showFeedback("Assign a commander before selecting an operation.");
+      return;
+    }
+
+    // Check if mission is locked
+    if (button.dataset.locked === "true") {
+      const lockReason = button.getAttribute("title") || "This mission is locked.";
+      this.showFeedback(lockReason);
       return;
     }
 
@@ -834,30 +841,53 @@ export class LandingScreen {
 
     const selectedGeneralId = this.uiState.selectedGeneralId;
     const selectedGeneral = selectedGeneralId ? findGeneralById(selectedGeneralId) : null;
-    const availableMissions = selectedGeneral
-      ? this.getMissionsForGeneral(selectedGeneral)
-      : UIState.getMissionKeys();
 
-    if (selectedGeneral && !availableMissions.includes(this.uiState.selectedMission ?? '')) {
-      this.uiState.selectedMission = null;
+    // Clear selection if selected mission is locked for this general
+    if (selectedGeneral && this.uiState.selectedMission) {
+      const missionsCompleted = selectedGeneral.serviceRecord?.missionsCompleted ?? 0;
+      const victories = selectedGeneral.serviceRecord?.victoriesAchieved ?? 0;
+      const { isMissionUnlocked } = require('../data/missions');
+      if (!isMissionUnlocked(this.uiState.selectedMission, missionsCompleted, victories)) {
+        this.uiState.selectedMission = null;
+      }
     }
 
-    const missionsLocked = !selectedGeneral;
+    const noGeneralSelected = !selectedGeneral;
 
+    // Show ALL missions in canonical order
     const canonicalOrder: MissionKey[] = ["training", "patrol", "patrol_river_watch", "assault", "assault_citadel_ridge", "campaign"];
-    const orderedMissions = canonicalOrder.filter((key) => availableMissions.includes(key)).concat(
-      availableMissions.filter((key) => !canonicalOrder.includes(key))
-    );
 
-    const missionMarkup = orderedMissions
+    const missionMarkup = canonicalOrder
       .map((missionKey) => {
         const title = getMissionTitle(missionKey);
         const briefing = getMissionBriefing(missionKey);
-        const disabledClass = missionsLocked ? " is-disabled" : "";
-        const disabledFlag = missionsLocked ? "true" : "false";
+        const { getMissionUnlockRequirement, isMissionUnlocked } = require('../data/missions');
+        const unlockReq = getMissionUnlockRequirement(missionKey);
+
+        let isLocked = false;
+        let lockReason = "";
+
+        if (noGeneralSelected) {
+          isLocked = true;
+          lockReason = "Select a commander to view mission details";
+        } else {
+          const missionsCompleted = selectedGeneral.serviceRecord?.missionsCompleted ?? 0;
+          const victories = selectedGeneral.serviceRecord?.victoriesAchieved ?? 0;
+          isLocked = !isMissionUnlocked(missionKey, missionsCompleted, victories);
+
+          if (isLocked) {
+            lockReason = `Locked: ${unlockReq.description}. Current progress: ${missionsCompleted} missions, ${victories} victories`;
+          }
+        }
+
+        const lockedClass = isLocked ? " is-locked" : "";
+        const lockedFlag = isLocked ? "true" : "false";
+        const titleAttr = isLocked ? ` title="${lockReason}"` : "";
+        const lockIcon = isLocked ? "🔒 " : "";
+
         return `
-          <button type="button" class="mission-button${disabledClass}" data-mission="${missionKey}" data-disabled="${disabledFlag}">
-            <strong>${title}</strong>
+          <button type="button" class="mission-button${lockedClass}" data-mission="${missionKey}" data-locked="${lockedFlag}"${titleAttr}>
+            <strong>${lockIcon}${title}</strong>
             <span>${briefing}</span>
           </button>
         `;
@@ -876,13 +906,11 @@ export class LandingScreen {
   private getMissionsForGeneral(general: GeneralRosterEntry): MissionKey[] {
     const missionsCompleted = general.serviceRecord?.missionsCompleted ?? 0;
     const victories = general.serviceRecord?.victoriesAchieved ?? 0;
-    if (missionsCompleted < 2) {
-      return ["training", "patrol", "patrol_river_watch"];
-    }
-    if (victories < 3) {
-      return ["training", "patrol", "patrol_river_watch", "assault"];
-    }
-    return UIState.getMissionKeys();
+    const { isMissionUnlocked } = require('../data/missions');
+
+    return UIState.getMissionKeys().filter((missionKey) => {
+      return isMissionUnlocked(missionKey, missionsCompleted, victories);
+    });
   }
 
   /**

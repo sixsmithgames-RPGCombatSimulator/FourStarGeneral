@@ -465,6 +465,25 @@
       transform: none;
       box-shadow: none;
     }
+    .mission-button.is-locked {
+      opacity: 0.5;
+      cursor: not-allowed;
+      filter: grayscale(0.8);
+      border-color: rgba(150, 130, 90, 0.2);
+      background: linear-gradient(135deg, rgba(80, 70, 50, 0.2), rgba(13, 15, 12, 0.8));
+    }
+    .mission-button.is-locked:hover,
+    .mission-button.is-locked:focus-visible {
+      transform: none;
+      box-shadow: none;
+      border-color: rgba(150, 130, 90, 0.25);
+    }
+    .mission-button.is-locked strong {
+      color: rgba(245, 196, 109, 0.5);
+    }
+    .mission-button.is-locked span {
+      color: rgba(150, 140, 120, 0.4);
+    }
     .mission-button span {
       display: block;
       margin-top: 0.24rem;

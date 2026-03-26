@@ -83,12 +83,19 @@ export interface MissionDeploymentProfile {
   readonly zoneDoctrine: readonly MissionDeploymentZoneDoctrine[];
 }
 
+export interface MissionUnlockRequirement {
+  readonly missionsCompleted: number;
+  readonly victories: number;
+  readonly description: string;
+}
+
 export interface MissionProfile {
   readonly title: string;
   readonly briefing: string;
   readonly category: MissionCategory;
   readonly summary: MissionSummaryPackage;
   readonly deployment: MissionDeploymentProfile;
+  readonly unlockRequirement: MissionUnlockRequirement;
 }
 
 const RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
@@ -330,14 +337,57 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
   }
 };
 
+const missionUnlockRequirements: Record<MissionKey, MissionUnlockRequirement> = {
+  training: {
+    missionsCompleted: 0,
+    victories: 0,
+    description: "Available to all commanders"
+  },
+  patrol: {
+    missionsCompleted: 0,
+    victories: 0,
+    description: "Available to all commanders"
+  },
+  patrol_river_watch: {
+    missionsCompleted: 0,
+    victories: 0,
+    description: "Available to all commanders"
+  },
+  assault: {
+    missionsCompleted: 2,
+    victories: 0,
+    description: "Requires 2 completed missions"
+  },
+  assault_citadel_ridge: {
+    missionsCompleted: 2,
+    victories: 3,
+    description: "Requires 2 missions completed and 3 victories"
+  },
+  campaign: {
+    missionsCompleted: 2,
+    victories: 3,
+    description: "Requires 2 missions completed and 3 victories"
+  }
+};
+
 export function getMissionProfile(mission: MissionKey, difficulty: BotDifficulty): MissionProfile {
   return {
     title: getMissionTitle(mission),
     briefing: getMissionBriefing(mission),
     category: missionCategories[mission],
     summary: getMissionSummaryPackage(mission, difficulty),
-    deployment: missionDeploymentProfiles[mission]
+    deployment: missionDeploymentProfiles[mission],
+    unlockRequirement: missionUnlockRequirements[mission]
   };
+}
+
+export function getMissionUnlockRequirement(mission: MissionKey): MissionUnlockRequirement {
+  return missionUnlockRequirements[mission];
+}
+
+export function isMissionUnlocked(mission: MissionKey, missionsCompleted: number, victories: number): boolean {
+  const requirement = missionUnlockRequirements[mission];
+  return missionsCompleted >= requirement.missionsCompleted && victories >= requirement.victories;
 }
 
 export function getMissionDeploymentProfile(mission: MissionKey): MissionDeploymentProfile {
