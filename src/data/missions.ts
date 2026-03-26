@@ -124,10 +124,10 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       "Tertiary: Keep at least one recon unit alive."
     ],
     turnLimit: 99,
-    doctrine: "Occupy all three crossings with your units. Shift forces between hedgerow lanes before the enemy can mass. Hold the two off-map 81mm mortar fire missions for the ford that starts to buckle.",
+    doctrine: "Occupy all three crossings with your units. Shift forces between hedgerow lanes before the enemy can mass. Hold the two off-map artillery fire missions for the ford that starts to buckle.",
     supplies: [
       { label: "Predeployed Patrol", amount: "2 rifle squads, engineers, recon bike patrol" },
-      { label: "Off-map 81mm Mortar", amount: "2 fire missions" },
+      { label: "Off-map Artillery", amount: "2 fire missions" },
       { label: "Duration", amount: "11-14 turns depending on difficulty" }
     ]
   },

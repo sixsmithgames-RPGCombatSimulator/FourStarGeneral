@@ -35,8 +35,8 @@ Patrol-tier mission that is more tactical than Training but below Assault in com
   - Turn limit (e.g., 12 turns) expires with an enemy-held crossing.
 
 ## Allied force composition (player)
-- Core: 2 rifle squads, 1 weapons squad (MG), 1 light mortar team, 1 recon jeep (MG), 1 engineer squad (demolitions/entrenchment), 1 HQ section.
-- Support (limited charges): 1 off-map 81mm mortar mission (2 fire missions) for area denial.
+- Core: 3 infantry battalions, 1 recon car unit (MG), 1 engineer team (demolitions/entrenchment), 1 HQ section.
+- Support (limited charges): 1 off-map Artillery (2 fire missions).
 - Rationale: Light patrol force with enough tools to block multiple fords, set hasty defenses, and probe.
 
 ## Enemy force composition
