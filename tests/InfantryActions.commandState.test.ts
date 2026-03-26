@@ -59,6 +59,26 @@ const engineerDef: UnitTypeDefinition = {
   cost: 120
 };
 
+const shockInfantryDef: UnitTypeDefinition = {
+  class: "infantry",
+  combat: { category: "infantry", weight: "medium", role: "antiInfantry", signature: "medium" },
+  movement: 2,
+  moveType: "leg",
+  vision: 2,
+  ammo: 6,
+  fuel: 0,
+  rangeMin: 1,
+  rangeMax: 1,
+  initiative: 4,
+  armor: { front: 0, side: 0, top: 0 },
+  hardAttack: 4,
+  softAttack: 18,
+  ap: 2,
+  accuracyBase: 85,
+  traits: ["zoc"],
+  cost: 140
+};
+
 const wheeledReconDef: UnitTypeDefinition = {
   class: "recon",
   combat: { category: "recon", weight: "light", role: "normal", signature: "small" },
@@ -102,6 +122,7 @@ const supplyTruckDef: UnitTypeDefinition = {
 const unitTypes: UnitTypeDictionary = {
   TestInfantry: infantryDef,
   TestEngineer: engineerDef,
+  TestShockInfantry: shockInfantryDef,
   TestReconTruck: wheeledReconDef,
   Recon_Bike: wheeledReconDef,
   Supply_Truck: supplyTruckDef
@@ -573,4 +594,84 @@ registerTest("BOT_ATTACK_SUMMARY_INCLUDES_PLAYER_RETALIATION", async ({ Then }) 
   }
 
   await Then("bot summaries surface player counter-fire for animation playback", () => {});
+});
+
+registerTest("SENTRY_COMMITS_A_UNIT_UNTIL_ITS_NEXT_ACTIVATION", async ({ Then }) => {
+  const infantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([infantry]);
+  const readyState = engine.getUnitCommandState(infantry.hex);
+  if (!readyState?.canEnterSentry) {
+    throw new Error(`Expected infantry to be able to enter sentry before acting, received ${JSON.stringify(readyState)}`);
+  }
+
+  if (!engine.enterSentry(infantry.hex)) {
+    throw new Error("Expected sentry command to succeed for a fresh infantry unit.");
+  }
+
+  const sentryState = engine.getUnitCommandState(infantry.hex);
+  if (!sentryState?.isOnSentry || sentryState.canEnterSentry) {
+    throw new Error(`Expected sentry state to be active and consumed, received ${JSON.stringify(sentryState)}`);
+  }
+
+  const sentryMovement = engine.getMovementBudget(infantry.hex);
+  if (!sentryMovement || sentryMovement.remaining !== 0) {
+    throw new Error(`Expected sentry to consume remaining movement, received ${JSON.stringify(sentryMovement)}`);
+  }
+
+  engine.endTurn();
+
+  const refreshedState = engine.getUnitCommandState(infantry.hex);
+  if (!refreshedState || refreshedState.isOnSentry || !refreshedState.canEnterSentry) {
+    throw new Error(`Expected sentry to clear at the unit's next activation, received ${JSON.stringify(refreshedState)}`);
+  }
+
+  await Then("sentry consumes the current turn and expires on the next activation", () => {});
+});
+
+registerTest("SENTRY_DEFENDERS_RETURN_FIRE_SIMULTANEOUSLY_DURING_BOT_ATTACKS", async ({ Then }) => {
+  const defender: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 10,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const attacker: ScenarioUnit = {
+    type: "TestShockInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "SW" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([defender], [attacker]);
+  if (!engine.enterSentry(defender.hex)) {
+    throw new Error("Expected defending infantry to enter sentry before the bot attack.");
+  }
+
+  const botAttack = (engine as any).resolveBotAttack(attacker, { q: 0, r: 1 }, { q: 0, r: 0 });
+  if (!botAttack?.defenderDestroyed) {
+    throw new Error(`Expected the sentry defender to be destroyed by the stronger bot attack, received ${JSON.stringify(botAttack)}`);
+  }
+  if (!botAttack?.retaliation || botAttack.retaliation.damage <= 0) {
+    throw new Error(`Expected sentry defender to return fire simultaneously even when destroyed, received ${JSON.stringify(botAttack)}`);
+  }
+
+  await Then("sentry preserves simultaneous return fire on lethal bot attacks", () => {});
 });

@@ -112,6 +112,8 @@ export interface ScenarioUnit {
   controlledBy?: "AI" | "Player";
   /** Array of unit IDs that are currently suppressing this unit. Multiple suppressors result in pinned status. */
   suppressedBy?: string[];
+  /** Holds the battalion on alert until its next activation or until incoming fire breaks the stance. */
+  onSentry?: boolean;
 }
 
 export interface ScenarioSide {

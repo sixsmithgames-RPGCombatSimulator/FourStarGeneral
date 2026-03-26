@@ -49,288 +49,217 @@ export interface WeaponAudioProfile {
   readonly impactCooldown?: number;
 }
 
+const ARMOR_IMPACT_POOL = ["impact_armor_01", "impact_armor_02"] as const;
+const SMALL_ARMS_POOL = ["small_arms_fire_01", "small_arms_fire_02"] as const;
+const MG_FIRE_POOL = ["mg_fire_01", "mg_fire_02", "mg_fire_03"] as const;
+const MG_CLUSTER_POOL = ["mg_cluster_01", "mg_cluster_02"] as const;
+const CANNON_POOL = ["cannon_fire_01", "cannon_fire_02", "cannon_fire_03"] as const;
+const EXPLOSION_POOL = ["explosion_01", "explosion_02", "explosion_03"] as const;
+
+const explosionImpactPools: Partial<Record<ImpactMaterial, readonly string[]>> = {
+  soft: EXPLOSION_POOL,
+  earth: EXPLOSION_POOL,
+  mud: EXPLOSION_POOL,
+  grass: EXPLOSION_POOL,
+  armor: ARMOR_IMPACT_POOL,
+  wood: EXPLOSION_POOL,
+  masonry: EXPLOSION_POOL,
+  road: EXPLOSION_POOL,
+  sand: EXPLOSION_POOL,
+  snow: EXPLOSION_POOL
+};
+
+const weaponOnlyArmorImpactPools: Partial<Record<ImpactMaterial, readonly string[]>> = {
+  armor: ARMOR_IMPACT_POOL
+};
+
 /**
  * Weapon audio profile catalog.
  */
 export const WEAPON_AUDIO_PROFILES: Record<WeaponSoundClass, WeaponAudioProfile> = {
   small_arms: {
     weaponClass: "small_arms",
-    transientPool: ["small_arms_transient_01", "small_arms_transient_02", "small_arms_transient_03"],
-    mechanicalPool: ["small_arms_mechanical_01", "small_arms_mechanical_02"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02", "impact_earth_03"],
-      grass: ["impact_grass_01"],
-      wood: ["impact_wood_01"],
-      sand: ["impact_sand_01"]
-    },
-    tailPools: ["tail_small_01"],
-    pitchJitterPct: 0.02, // ±2%
-    gainJitterDb: 1.0,
-    startOffsetJitterMs: 5,
-    minLayers: 2,
-    maxLayers: 3,
-    transientCooldown: 2,
-    impactCooldown: 3
+    transientPool: SMALL_ARMS_POOL,
+    impactPoolsByMaterial: weaponOnlyArmorImpactPools,
+    pitchJitterPct: 0.02,
+    gainJitterDb: 0.7,
+    startOffsetJitterMs: 6,
+    minLayers: 1,
+    maxLayers: 2,
+    transientCooldown: 1,
+    impactCooldown: 1
   },
 
   mg: {
     weaponClass: "mg",
-    transientPool: ["mg_transient_01", "mg_transient_02"],
-    bodyPool: ["mg_body_01"],
-    mechanicalPool: ["mg_mechanical_01"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02", "impact_earth_03"],
-      grass: ["impact_grass_01"],
-      wood: ["impact_wood_01"]
-    },
-    tailPools: ["tail_small_01"],
-    pitchJitterPct: 0.015, // ±1.5%
-    gainJitterDb: 0.8,
+    transientPool: MG_FIRE_POOL,
+    bodyPool: MG_CLUSTER_POOL,
+    impactPoolsByMaterial: weaponOnlyArmorImpactPools,
+    pitchJitterPct: 0.018,
+    gainJitterDb: 0.9,
     startOffsetJitterMs: 8,
-    minLayers: 3,
-    maxLayers: 5,
-    transientCooldown: 2,
-    impactCooldown: 2
+    minLayers: 1,
+    maxLayers: 3,
+    transientCooldown: 1,
+    impactCooldown: 1
   },
 
   mortar: {
     weaponClass: "mortar",
-    transientPool: ["mortar_transient_01"],
-    bodyPool: ["mortar_body_01"],
-    flightPool: ["mortar_flight_01"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02"],
-      mud: ["impact_mud_01"],
-      grass: ["impact_grass_01"]
-    },
-    debrisPoolsByMaterial: {
-      earth: ["debris_earth_01"]
-    },
-    tailPools: ["tail_medium_01"],
-    pitchJitterPct: 0.025, // ±2.5%
-    gainJitterDb: 1.5,
+    transientPool: ["explosion_01"],
+    bodyPool: ["explosion_02"],
+    impactPoolsByMaterial: explosionImpactPools,
+    pitchJitterPct: 0.025,
+    gainJitterDb: 1.1,
     startOffsetJitterMs: 10,
-    minLayers: 3,
-    maxLayers: 5,
+    minLayers: 1,
+    maxLayers: 2,
     transientCooldown: 1,
-    impactCooldown: 2
+    impactCooldown: 0
   },
 
   cannon: {
     weaponClass: "cannon",
-    transientPool: ["cannon_transient_01", "cannon_transient_02"],
-    bodyPool: ["cannon_body_01"],
-    mechanicalPool: ["cannon_mechanical_01"],
+    transientPool: CANNON_POOL,
     impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02"],
-      armor: ["impact_armor_01", "impact_armor_02"],
-      wood: ["impact_wood_01"]
+      armor: ARMOR_IMPACT_POOL,
+      earth: ["explosion_01"],
+      masonry: ["explosion_02"],
+      road: ["explosion_01"],
+      wood: ["explosion_01"]
     },
-    tailPools: ["tail_medium_01"],
     pitchJitterPct: 0.02,
-    gainJitterDb: 1.2,
+    gainJitterDb: 1.0,
     startOffsetJitterMs: 8,
-    minLayers: 3,
-    maxLayers: 5,
+    minLayers: 1,
+    maxLayers: 2,
     transientCooldown: 1,
-    impactCooldown: 2
+    impactCooldown: 1
   },
 
   tank_50mm: {
     weaponClass: "tank_50mm",
-    transientPool: ["cannon_transient_01", "cannon_transient_02"],
-    bodyPool: ["cannon_body_01"],
-    mechanicalPool: ["cannon_mechanical_01"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02"],
-      armor: ["impact_armor_01", "impact_armor_02"]
-    },
-    tailPools: ["tail_medium_01"],
+    transientPool: CANNON_POOL,
+    impactPoolsByMaterial: explosionImpactPools,
     pitchJitterPct: 0.018,
     gainJitterDb: 1.0,
-    startOffsetJitterMs: 10,
-    minLayers: 3,
-    maxLayers: 5,
+    startOffsetJitterMs: 8,
+    minLayers: 1,
+    maxLayers: 2,
     transientCooldown: 1,
-    impactCooldown: 2
+    impactCooldown: 1
   },
 
   tank_75mm: {
     weaponClass: "tank_75mm",
-    transientPool: ["tank_75mm_transient_01"],
-    bodyPool: ["tank_75mm_body_01"],
-    mechanicalPool: ["tank_75mm_mechanical_01"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02"],
-      armor: ["impact_armor_01", "impact_armor_02"]
-    },
-    tailPools: ["tail_medium_01"],
+    transientPool: CANNON_POOL,
+    bodyPool: ["explosion_01"],
+    impactPoolsByMaterial: explosionImpactPools,
     pitchJitterPct: 0.02,
-    gainJitterDb: 1.2,
-    startOffsetJitterMs: 12,
-    minLayers: 4,
-    maxLayers: 6,
+    gainJitterDb: 1.1,
+    startOffsetJitterMs: 10,
+    minLayers: 1,
+    maxLayers: 2,
     transientCooldown: 1,
-    impactCooldown: 2
+    impactCooldown: 1
   },
 
   tank_100mm: {
     weaponClass: "tank_100mm",
-    transientPool: ["tank_75mm_transient_01"],
-    bodyPool: ["tank_75mm_body_01"],
-    mechanicalPool: ["tank_75mm_mechanical_01"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02"],
-      armor: ["impact_armor_01", "impact_armor_02"]
-    },
-    tailPools: ["tail_large_01"],
-    pitchJitterPct: 0.025,
-    gainJitterDb: 1.5,
-    startOffsetJitterMs: 15,
-    minLayers: 4,
-    maxLayers: 6,
+    transientPool: CANNON_POOL,
+    bodyPool: ["explosion_02"],
+    impactPoolsByMaterial: explosionImpactPools,
+    pitchJitterPct: 0.024,
+    gainJitterDb: 1.2,
+    startOffsetJitterMs: 10,
+    minLayers: 1,
+    maxLayers: 2,
     transientCooldown: 1,
     impactCooldown: 1
   },
 
   tank_destroyer_150mm: {
     weaponClass: "tank_destroyer_150mm",
-    transientPool: ["artillery_transient_01"],
-    bodyPool: ["artillery_body_01"],
-    mechanicalPool: ["tank_75mm_mechanical_01"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02"],
-      armor: ["impact_armor_01", "impact_armor_02"],
-      masonry: ["impact_masonry_01"]
-    },
-    debrisPoolsByMaterial: {
-      earth: ["debris_earth_01"]
-    },
-    tailPools: ["tail_large_01"],
-    pitchJitterPct: 0.03,
-    gainJitterDb: 2.0,
-    startOffsetJitterMs: 20,
-    minLayers: 5,
-    maxLayers: 7,
-    transientCooldown: 0,
+    transientPool: ["cannon_fire_03"],
+    bodyPool: ["explosion_03"],
+    impactPoolsByMaterial: explosionImpactPools,
+    pitchJitterPct: 0.026,
+    gainJitterDb: 1.3,
+    startOffsetJitterMs: 12,
+    minLayers: 1,
+    maxLayers: 2,
+    transientCooldown: 1,
     impactCooldown: 1
   },
 
   rocket: {
     weaponClass: "rocket",
-    transientPool: ["rocket_transient_01"],
-    bodyPool: ["rocket_body_01"],
-    flightPool: ["rocket_flight_01"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02"],
-      armor: ["impact_armor_01", "impact_armor_02"],
-      masonry: ["impact_masonry_01"]
-    },
-    debrisPoolsByMaterial: {
-      earth: ["debris_earth_01"],
-      masonry: ["debris_masonry_01"]
-    },
-    tailPools: ["tail_large_01"],
-    pitchJitterPct: 0.035, // ±3.5%
-    gainJitterDb: 1.8,
-    startOffsetJitterMs: 15,
-    minLayers: 4,
-    maxLayers: 6,
+    transientPool: ["explosion_01"],
+    bodyPool: ["explosion_03"],
+    impactPoolsByMaterial: explosionImpactPools,
+    pitchJitterPct: 0.028,
+    gainJitterDb: 1.2,
+    startOffsetJitterMs: 14,
+    minLayers: 1,
+    maxLayers: 2,
     transientCooldown: 1,
-    impactCooldown: 1
+    impactCooldown: 0
   },
 
   artillery: {
     weaponClass: "artillery",
-    transientPool: ["artillery_transient_01"],
-    bodyPool: ["artillery_body_01"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02"],
-      mud: ["impact_mud_01"],
-      masonry: ["impact_masonry_01"]
-    },
-    debrisPoolsByMaterial: {
-      earth: ["debris_earth_01"],
-      wood: ["debris_wood_01"],
-      masonry: ["debris_masonry_01"]
-    },
-    tailPools: ["tail_large_01"],
+    transientPool: EXPLOSION_POOL,
+    bodyPool: ["explosion_02", "explosion_03"],
+    impactPoolsByMaterial: explosionImpactPools,
     pitchJitterPct: 0.03,
-    gainJitterDb: 2.0,
-    startOffsetJitterMs: 20,
-    minLayers: 5,
-    maxLayers: 7,
+    gainJitterDb: 1.4,
+    startOffsetJitterMs: 16,
+    minLayers: 1,
+    maxLayers: 2,
     transientCooldown: 0,
-    impactCooldown: 1
+    impactCooldown: 0
   },
 
   small_bomb: {
     weaponClass: "small_bomb",
-    transientPool: ["artillery_transient_01"],
-    bodyPool: ["artillery_body_01"],
-    flightPool: ["mortar_flight_01"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02"],
-      masonry: ["impact_masonry_01"]
-    },
-    debrisPoolsByMaterial: {
-      earth: ["debris_earth_01"],
-      masonry: ["debris_masonry_01"]
-    },
-    tailPools: ["tail_large_01"],
-    pitchJitterPct: 0.035,
-    gainJitterDb: 2.0,
-    startOffsetJitterMs: 20,
-    minLayers: 5,
-    maxLayers: 7,
+    transientPool: ["explosion_01", "explosion_02"],
+    bodyPool: ["explosion_03"],
+    impactPoolsByMaterial: explosionImpactPools,
+    pitchJitterPct: 0.032,
+    gainJitterDb: 1.4,
+    startOffsetJitterMs: 16,
+    minLayers: 1,
+    maxLayers: 2,
     transientCooldown: 0,
     impactCooldown: 0
   },
 
   large_bomb: {
     weaponClass: "large_bomb",
-    transientPool: ["large_bomb_transient_01"],
-    bodyPool: ["large_bomb_body_01"],
-    flightPool: ["large_bomb_flight_01"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02"],
-      masonry: ["impact_masonry_01"]
-    },
-    debrisPoolsByMaterial: {
-      earth: ["debris_earth_01"],
-      wood: ["debris_wood_01"],
-      masonry: ["debris_masonry_01"]
-    },
-    tailPools: ["tail_large_01"],
-    pitchJitterPct: 0.04,
-    gainJitterDb: 2.0,
-    startOffsetJitterMs: 25,
-    minLayers: 6,
-    maxLayers: 8,
+    transientPool: ["explosion_02", "explosion_03"],
+    bodyPool: ["explosion_01", "explosion_03"],
+    impactPoolsByMaterial: explosionImpactPools,
+    pitchJitterPct: 0.036,
+    gainJitterDb: 1.6,
+    startOffsetJitterMs: 18,
+    minLayers: 1,
+    maxLayers: 2,
     transientCooldown: 0,
     impactCooldown: 0
   },
 
   demolition_charge: {
     weaponClass: "demolition_charge",
-    transientPool: ["artillery_transient_01"],
-    bodyPool: ["artillery_body_01"],
-    impactPoolsByMaterial: {
-      earth: ["impact_earth_01", "impact_earth_02"],
-      masonry: ["impact_masonry_01"]
-    },
-    debrisPoolsByMaterial: {
-      wood: ["debris_wood_01"],
-      masonry: ["debris_masonry_01"]
-    },
-    tailPools: ["tail_large_01"],
+    transientPool: ["explosion_01", "explosion_03"],
+    bodyPool: ["explosion_02"],
+    impactPoolsByMaterial: explosionImpactPools,
     pitchJitterPct: 0.03,
-    gainJitterDb: 1.8,
-    startOffsetJitterMs: 15,
-    minLayers: 4,
-    maxLayers: 6,
+    gainJitterDb: 1.3,
+    startOffsetJitterMs: 14,
+    minLayers: 1,
+    maxLayers: 2,
     transientCooldown: 0,
-    impactCooldown: 1
+    impactCooldown: 0
   }
 };
 

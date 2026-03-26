@@ -428,7 +428,9 @@ export class BattleScreen {
           : "attack-preview-outcome__value--neutral";
     const retaliationValue = preview.retaliationPossible ? `${preview.expectedRetaliation.toFixed(1)}%` : "0.0%";
     const retaliationSummary = preview.retaliationPossible
-      ? `Projected attacker strength: ${projectedAttackerStrength.toFixed(1)}%`
+      ? preview.retaliationNote
+        ? `Projected attacker strength: ${projectedAttackerStrength.toFixed(1)}%. ${preview.retaliationNote}`
+        : `Projected attacker strength: ${projectedAttackerStrength.toFixed(1)}%`
       : preview.retaliationNote ?? "No return fire expected.";
     const accuracySummary = supportsStances
       ? `${profile.title} stance selected.`
@@ -546,7 +548,7 @@ export class BattleScreen {
               <p><strong>Damage / Hit:</strong> ${damagePerHitSummary}</p>
               <p><strong>Expected Damage:</strong> ${expectedDamageSummary}</p>
               <p><strong>Expected Suppression:</strong> ${suppressionSummary}</p>
-              ${!preview.retaliationPossible && preview.retaliationNote
+              ${preview.retaliationNote
                 ? `<p><strong>Return Fire Note:</strong> ${this.escapeHtml(preview.retaliationNote)}</p>`
                 : ""}
             </div>
@@ -4861,6 +4863,8 @@ export class BattleScreen {
         this.playerAttackHexes.clear();
         this.hexMapRenderer?.setZoneHighlights([]);
         statusMessage += " This convoy is automated. Set battalion resupply priority in Logistics instead of issuing manual orders.";
+      } else if (commandState?.isOnSentry) {
+        statusMessage += " Holding on sentry. If attacked before its next activation and able to return fire, combat resolves simultaneously.";
       } else if (this.playerMoveHexes.size === 0 && this.playerAttackHexes.size === 0) {
         statusMessage += " This unit has already moved and attacked this turn.";
       } else if (this.playerMoveHexes.size === 0) {
@@ -4882,6 +4886,8 @@ export class BattleScreen {
       if (this.baseCampStatus) {
         this.baseCampStatus.textContent = isAutomatedLogisticsUnit
           ? `${unitLabel} @ ${key} - Automated convoy`
+          : commandState?.isOnSentry
+            ? `${unitLabel} @ ${key} - Sentry`
           : `${unitLabel} @ ${key} - Move:${this.playerMoveHexes.size} Attack:${this.playerAttackHexes.size}`;
       }
       this.announceBattleUpdate(statusMessage);
@@ -5088,7 +5094,14 @@ export class BattleScreen {
       this.beginArtilleryTargeting(this.selectedHexKey, unitLabel, artilleryState.assetId, artilleryState.targetHexKeys);
       return;
     }
-    if (actionId === "digIn") {
+    if (actionId === "enterSentry") {
+      succeeded = engine.enterSentry(axial);
+      summary = `${unitLabel} went on sentry at ${this.selectedHexKey}.`;
+      if (!succeeded) {
+        this.announceBattleUpdate(commandState?.sentryReason ?? "This formation cannot enter sentry right now.");
+        return;
+      }
+    } else if (actionId === "digIn") {
       succeeded = engine.digInUnit(axial);
       summary = `${unitLabel} dug in at ${this.selectedHexKey}.`;
       if (!succeeded) {
@@ -5555,6 +5568,9 @@ export class BattleScreen {
       if (commandState.isAutomated) {
         chips.push({ label: "Automated Convoy", tone: "warning" });
       }
+      if (commandState.isOnSentry) {
+        chips.push({ label: "On Sentry", tone: "neutral" });
+      }
       if (commandState.suppressionState === "pinned") {
         chips.push({ label: `Pinned x${commandState.suppressorCount}`, tone: "danger" });
       } else if (commandState.suppressionState === "suppressed") {
@@ -5604,6 +5620,14 @@ export class BattleScreen {
         });
       }
     }
+    actions.push({
+      id: "enterSentry",
+      label: "Sentry",
+      detail: "Hold in place on alert. If attacked before the next activation and legal return fire exists, both sides fire simultaneously.",
+      tone: "defense",
+      available: commandState.canEnterSentry,
+      reason: commandState.sentryReason
+    });
     if (this.canUnitDigIn(unit)) {
       actions.push({
         id: "digIn",
@@ -5655,6 +5679,11 @@ export class BattleScreen {
       notes.push(`Pinned by ${commandState.suppressorCount} enemy suppressors. This battalion cannot move or retaliate until the pin is broken, and assault fire is unavailable.`);
     } else if (commandState.suppressionState === "suppressed") {
       notes.push("Under suppressive fire this turn. The battalion may still move and fire, but it cannot initiate assault fire until the next friendly turn begins.");
+    }
+    if (commandState.isOnSentry) {
+      notes.push("Sentry is active. If this formation is attacked before its next activation and it has valid return fire, combat resolves simultaneously instead of attacker-first.");
+    } else if (!commandState.canEnterSentry && commandState.sentryReason) {
+      notes.push(commandState.sentryReason);
     }
     if (commandState.existingHexModification) {
       notes.push(`This hex already contains ${this.describeHexModification(commandState.existingHexModification.type)}. Only one engineer-built modification may occupy a hex at a time.`);

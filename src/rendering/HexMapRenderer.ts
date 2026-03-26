@@ -8,7 +8,8 @@ import { RoadOverlayRenderer } from "./RoadOverlayRenderer";
 import { ProceduralEffectsAnimator, getZoomTier } from "./ProceduralEffects";
 import { loadEffectSpecifications } from "./EffectSpecifications";
 import { getTerrainTint, shouldUseTerrainResponse, loadTerrainTints } from "./TerrainResponseSystem";
-import { CombatSoundManager } from "../audio/CombatSoundManager";
+import { CombatSoundManager, type QueuedWeaponSoundRequest } from "../audio/CombatSoundManager";
+import type { WeaponSoundClass } from "../audio/SoundAssetMetadata";
 import terrainData from "../data/terrain.json";
 import unitTypesData from "../data/unitTypes.json";
 import { hexLine, type Axial } from "../core/Hex";
@@ -97,7 +98,7 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly soundManager: CombatSoundManager = new CombatSoundManager();
   private readonly recentEffects = new Map<string, number>(); // Dedupe guard: effectKey -> timestamp
   private static effectSpecsLoaded = false;
-  private static soundCatalogLoaded = false;
+  private soundCatalogReady: Promise<void> | null = null;
 
   private hexClickHandler: ((key: string) => void) | null = null;
   private boundDelegatedClickHandler: ((event: MouseEvent) => void) | null = null;
@@ -1048,9 +1049,8 @@ export class HexMapRenderer implements IMapRenderer {
       }
 
       // Load sound catalog asynchronously (only once)
-      if (!HexMapRenderer.soundCatalogLoaded) {
-        HexMapRenderer.soundCatalogLoaded = true;
-        this.soundManager.loadSoundCatalog("data/soundCatalog.json").catch((error) => {
+      if (!this.soundCatalogReady) {
+        this.soundCatalogReady = this.soundManager.loadSoundCatalog("data/soundCatalog.json").catch((error) => {
           console.error("[HexMapRenderer] Failed to load sound catalog:", error);
         });
       }
@@ -1565,15 +1565,20 @@ export class HexMapRenderer implements IMapRenderer {
 
     group.classList.remove("unit-stack--suppressed", "unit-stack--pinned");
     group.dataset.suppressionState = suppressionState;
+    group.dataset.sentryState = unit.onSentry ? "on" : "off";
     group.dataset.entrenchLevel = String(entrenchment);
 
+    const statusPips: Array<"sentry" | "suppressed" | "pinned"> = [];
+    if (unit.onSentry) {
+      statusPips.push("sentry");
+    }
     if (suppressionState === "suppressed" || suppressionState === "pinned") {
-      console.log("[HexMapRenderer] *** CREATING SUPPRESSION BADGE *** for", unit.type, "state:", suppressionState, "count:", suppressorCount);
       group.classList.add(suppressionState === "pinned" ? "unit-stack--pinned" : "unit-stack--suppressed");
-      const badge = this.renderSuppressionBadge(cx, cy, suppressionState, suppressorCount);
-      decorations.appendChild(badge);
-      console.log("[HexMapRenderer] *** BADGE APPENDED *** children count:", decorations.children.length,
-        "badge isConnected:", badge.isConnected, "badge:", badge);
+      statusPips.push(suppressionState);
+    }
+
+    if (statusPips.length > 0) {
+      decorations.appendChild(this.renderStatusPips(cx, cy, statusPips));
     }
   }
 
@@ -1600,45 +1605,96 @@ export class HexMapRenderer implements IMapRenderer {
     return group;
   }
 
-  private renderSuppressionBadge(
+  private renderStatusPips(
     cx: number,
     cy: number,
-    suppressionState: "suppressed" | "pinned",
-    suppressorCount: number
+    statuses: ReadonlyArray<"sentry" | "suppressed" | "pinned">
   ): SVGGElement {
     const group = document.createElementNS(SVG_NS, "g");
-    group.classList.add("unit-status-badge");
-    group.setAttribute("data-status", suppressionState);
+    group.classList.add("unit-status-pips");
 
-    const badgeWidth = suppressionState === "pinned" ? 28 : 22;
-    const badgeHeight = 14;
-    const x = cx + 10;
-    const y = cy - 25;
-    const fill = suppressionState === "pinned" ? "rgba(134, 29, 29, 0.92)" : "rgba(133, 95, 26, 0.92)";
-    const stroke = suppressionState === "pinned" ? "#ff928f" : "#ffd37a";
-    const textValue = suppressionState === "pinned" ? "PIN" : `SUP${suppressorCount > 1 ? suppressorCount : ""}`;
+    const spacing = 12;
+    const startX = cx + 12 - ((statuses.length - 1) * spacing) / 2;
+    const y = cy - 24;
+    statuses.forEach((status, index) => {
+      group.appendChild(this.renderStatusPip(startX + index * spacing, y, status));
+    });
 
-    const rect = document.createElementNS(SVG_NS, "rect");
-    rect.setAttribute("x", String(x));
-    rect.setAttribute("y", String(y));
-    rect.setAttribute("width", String(badgeWidth));
-    rect.setAttribute("height", String(badgeHeight));
-    rect.setAttribute("rx", "7");
-    rect.setAttribute("fill", fill);
-    rect.setAttribute("stroke", stroke);
-    rect.setAttribute("stroke-width", "1");
-    group.appendChild(rect);
+    return group;
+  }
 
-    const text = document.createElementNS(SVG_NS, "text");
-    text.setAttribute("x", String(x + badgeWidth / 2));
-    text.setAttribute("y", String(y + 10));
-    text.setAttribute("text-anchor", "middle");
-    text.setAttribute("font-size", suppressionState === "pinned" ? "6.4" : "6");
-    text.setAttribute("font-weight", "700");
-    text.setAttribute("letter-spacing", "0.35");
-    text.setAttribute("fill", "#fff5ed");
-    text.textContent = textValue;
-    group.appendChild(text);
+  private renderStatusPip(x: number, y: number, status: "sentry" | "suppressed" | "pinned"): SVGGElement {
+    const group = document.createElementNS(SVG_NS, "g");
+    group.classList.add("unit-status-pip");
+    group.setAttribute("data-status", status);
+
+    const backdrop = document.createElementNS(SVG_NS, "circle");
+    backdrop.setAttribute("cx", String(x));
+    backdrop.setAttribute("cy", String(y));
+    backdrop.setAttribute("r", "5.5");
+    backdrop.setAttribute("stroke-width", "1");
+    backdrop.setAttribute("opacity", "0.98");
+
+    if (status === "sentry") {
+      backdrop.setAttribute("fill", "rgba(41, 66, 82, 0.96)");
+      backdrop.setAttribute("stroke", "#b8e6f8");
+
+      const ring = document.createElementNS(SVG_NS, "circle");
+      ring.setAttribute("cx", String(x));
+      ring.setAttribute("cy", String(y));
+      ring.setAttribute("r", "2.2");
+      ring.setAttribute("fill", "none");
+      ring.setAttribute("stroke", "#e7fbff");
+      ring.setAttribute("stroke-width", "1");
+      group.appendChild(backdrop);
+      group.appendChild(ring);
+
+      const dot = document.createElementNS(SVG_NS, "circle");
+      dot.setAttribute("cx", String(x));
+      dot.setAttribute("cy", String(y));
+      dot.setAttribute("r", "0.8");
+      dot.setAttribute("fill", "#e7fbff");
+      group.appendChild(dot);
+
+      const crosshair = document.createElementNS(SVG_NS, "path");
+      crosshair.setAttribute(
+        "d",
+        `M ${x} ${y - 4.2} L ${x} ${y - 2.8} M ${x + 4.2} ${y} L ${x + 2.8} ${y} M ${x} ${y + 4.2} L ${x} ${y + 2.8} M ${x - 4.2} ${y} L ${x - 2.8} ${y}`
+      );
+      crosshair.setAttribute("fill", "none");
+      crosshair.setAttribute("stroke", "#e7fbff");
+      crosshair.setAttribute("stroke-width", "0.9");
+      crosshair.setAttribute("stroke-linecap", "round");
+      group.appendChild(crosshair);
+      return group;
+    }
+
+    if (status === "suppressed") {
+      backdrop.setAttribute("fill", "rgba(133, 95, 26, 0.94)");
+      backdrop.setAttribute("stroke", "#ffd37a");
+      group.appendChild(backdrop);
+
+      const slash = document.createElementNS(SVG_NS, "path");
+      slash.setAttribute("d", `M ${x - 2.6} ${y + 2.1} L ${x + 2.6} ${y - 2.1}`);
+      slash.setAttribute("fill", "none");
+      slash.setAttribute("stroke", "#fff4cf");
+      slash.setAttribute("stroke-width", "1.4");
+      slash.setAttribute("stroke-linecap", "round");
+      group.appendChild(slash);
+      return group;
+    }
+
+    backdrop.setAttribute("fill", "rgba(132, 27, 27, 0.94)");
+    backdrop.setAttribute("stroke", "#ff9e99");
+    group.appendChild(backdrop);
+
+    const cross = document.createElementNS(SVG_NS, "path");
+    cross.setAttribute("d", `M ${x - 2.6} ${y - 2.6} L ${x + 2.6} ${y + 2.6} M ${x + 2.6} ${y - 2.6} L ${x - 2.6} ${y + 2.6}`);
+    cross.setAttribute("fill", "none");
+    cross.setAttribute("stroke", "#fff1ef");
+    cross.setAttribute("stroke-width", "1.35");
+    cross.setAttribute("stroke-linecap", "round");
+    group.appendChild(cross);
 
     return group;
   }
@@ -3103,7 +3159,8 @@ export class HexMapRenderer implements IMapRenderer {
     hexKey: string,
     offsetX: number = 0,
     offsetY: number = 0,
-    scale: number = 1
+    scale: number = 1,
+    soundRequest?: QueuedWeaponSoundRequest | false
   ): Promise<void> {
     console.log(`[HexMapRenderer] playCombatAnimation START - type: ${animationType}, hex: ${hexKey}, offset: (${offsetX}, ${offsetY}), scale: ${scale}`);
 
@@ -3177,8 +3234,12 @@ export class HexMapRenderer implements IMapRenderer {
     const currentZoom = this.getCurrentZoom();
     const zoomTier = getZoomTier(currentZoom);
 
+    if (this.soundCatalogReady) {
+      await this.soundCatalogReady;
+    }
+
     console.log(`[HexMapRenderer] Calling combatAnimator.playAnimation at (${finalX}, ${finalY}), zoom: ${currentZoom.toFixed(2)} (${zoomTier}), terrain: ${terrainTint ?? 'none'}`);
-    await this.combatAnimator.playAnimation(animationType, finalX, finalY, scale, zoomTier, terrainTint);
+    await this.combatAnimator.playAnimation(animationType, finalX, finalY, scale, zoomTier, terrainTint, soundRequest);
     console.log(`[HexMapRenderer] playCombatAnimation COMPLETE - type: ${animationType}, hex: ${hexKey}`);
   }
 
@@ -3197,6 +3258,82 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     return unitDef.weaponEffectType;
+  }
+
+  private resolveWeaponSoundClass(
+    attackerHexKey?: string,
+    attackerType?: string,
+    attackerClass?: UnitClass
+  ): WeaponSoundClass {
+    if (attackerType === "Bomber") {
+      return "large_bomb";
+    }
+    if (attackerType === "Ground_Attack") {
+      return "small_bomb";
+    }
+    if (attackerClass === "artillery") {
+      return "artillery";
+    }
+
+    const weaponType = attackerHexKey ? this.getWeaponEffectType(attackerHexKey) : undefined;
+    switch (weaponType) {
+      case "mg":
+        return "mg";
+      case "cannon":
+        return attackerClass === "tank" ? "tank_75mm" : "cannon";
+      case "small_arms":
+        return "small_arms";
+      default:
+        if (attackerClass === "air" || attackerClass === "recon") {
+          return "mg";
+        }
+        if (attackerClass === "tank") {
+          return "tank_75mm";
+        }
+        return "small_arms";
+    }
+  }
+
+  private createArmorImpactSoundRequest(
+    attackerHexKey?: string,
+    attackerType?: string,
+    attackerClass?: UnitClass,
+    gainMultiplier: number = 0.75
+  ): QueuedWeaponSoundRequest {
+    return {
+      weaponClass: this.resolveWeaponSoundClass(attackerHexKey, attackerType, attackerClass),
+      targetMaterial: "armor",
+      playbackMode: "impact_only",
+      gainMultiplier
+    };
+  }
+
+  private async playWeaponSoundBurst(
+    attackerHexKey: string,
+    burstCount: number,
+    intervalMs: number,
+    gainMultiplier: number
+  ): Promise<void> {
+    const soundClass = this.resolveWeaponSoundClass(
+      attackerHexKey,
+      this.getUnitScenarioTypeAt(attackerHexKey),
+      this.getUnitClassAt(attackerHexKey)
+    );
+
+    const soundBursts = Array.from({ length: Math.max(1, burstCount) }).map((_, index) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          void this.soundManager.playWeaponSound({
+            weaponClass: soundClass,
+            playbackMode: "weapon",
+            gainMultiplier,
+            seed: Math.floor(performance.now() * 1000) + index
+          }).then(() => resolve());
+        }, index * intervalMs);
+      })
+    );
+
+    await Promise.all(soundBursts);
   }
 
   private chooseDirectFireImpactProfile(
@@ -3315,9 +3452,17 @@ export class HexMapRenderer implements IMapRenderer {
   /**
    * Plays a muzzle flash animation at the attacker's hex using the unit's weapon type.
    */
-  async playMuzzleFlash(attackerHexKey: string): Promise<void> {
+  async playMuzzleFlash(
+    attackerHexKey: string,
+    soundBursts: number = 1,
+    soundIntervalMs: number = 0,
+    gainMultiplier: number = 1
+  ): Promise<void> {
     const weaponType = this.getWeaponEffectType(attackerHexKey);
-    await this.playCombatAnimation(weaponType, attackerHexKey, 0, 0, 1.25);
+    await Promise.all([
+      this.playCombatAnimation(weaponType, attackerHexKey, 0, 0, 1.25, false),
+      this.playWeaponSoundBurst(attackerHexKey, soundBursts, soundIntervalMs, gainMultiplier)
+    ]);
   }
 
   /**
@@ -3583,6 +3728,7 @@ export class HexMapRenderer implements IMapRenderer {
   private async playSparkBurst(
     defenderHexKey: string,
     options: {
+      attackerHexKey?: string;
       attackerType?: string;
       attackerClass?: UnitClass;
       defenderClass?: UnitClass;
@@ -3610,6 +3756,11 @@ export class HexMapRenderer implements IMapRenderer {
     const baseScale = this.chooseImpactSparkScale(options.attackerType, options.attackerClass) * scaleMultiplier;
     const staggerMs = Math.max(28, Math.min(72, Math.round((options.durationMs ?? 160) * 0.32)));
     const jitterPx = 7 + (burstCount - 1) * 2;
+    const impactSoundRequest = this.createArmorImpactSoundRequest(
+      options.attackerHexKey,
+      options.attackerType,
+      options.attackerClass
+    );
 
     const burstPromises = Array.from({ length: burstCount }).map((_, index) =>
       new Promise<void>((resolve) => {
@@ -3617,7 +3768,17 @@ export class HexMapRenderer implements IMapRenderer {
           const offsetX = (Math.random() - 0.5) * jitterPx * 2;
           const offsetY = (Math.random() - 0.5) * jitterPx * 1.6;
           const scale = index === 0 ? baseScale : baseScale * 0.88;
-          void this.playCombatAnimation("impactHits", defenderHexKey, offsetX, offsetY, scale).then(() => resolve());
+          void this.playCombatAnimation(
+            "impactHits",
+            defenderHexKey,
+            offsetX,
+            offsetY,
+            scale,
+            {
+              ...impactSoundRequest,
+              gainMultiplier: index === 0 ? 0.78 : 0.64
+            }
+          ).then(() => resolve());
         }, index * staggerMs);
       })
     );
@@ -3703,7 +3864,12 @@ export class HexMapRenderer implements IMapRenderer {
         )
       : Promise.resolve();
 
-    const flashPromise = useAirBombingVisuals ? Promise.resolve() : this.playMuzzleFlash(attackerHexKey);
+    const muzzleSoundBursts = useAirStrafingVisuals ? 3 : useSmallArmsVisuals ? attackerClass === "recon" ? 2 : 3 : 1;
+    const muzzleSoundIntervalMs = useAirStrafingVisuals ? 88 : useSmallArmsVisuals ? 72 : 0;
+    const muzzleSoundGain = useAirStrafingVisuals ? 0.78 : useSmallArmsVisuals ? 0.84 : 1;
+    const flashPromise = useAirBombingVisuals
+      ? Promise.resolve()
+      : this.playMuzzleFlash(attackerHexKey, muzzleSoundBursts, muzzleSoundIntervalMs, muzzleSoundGain);
     const markerPromise = this.playTargetMarker(defenderHexKey, 240);
 
     const recoilMagnitude = this.chooseRecoilMagnitude(attackerClass);
@@ -3728,6 +3894,7 @@ export class HexMapRenderer implements IMapRenderer {
 
       const hitShakePromise = this.playHitShake(defenderHexKey, defenderIsAir ? 7 : targetIsHardTarget ? 5 : 4);
       const sparksPromise = this.playSparkBurst(defenderHexKey, {
+        attackerHexKey,
         attackerType,
         attackerClass,
         defenderClass,
@@ -3779,6 +3946,7 @@ export class HexMapRenderer implements IMapRenderer {
 
       const sparksPromise = !defenderIsAir && targetIsHardTarget
         ? this.playSparkBurst(defenderHexKey, {
+            attackerHexKey,
             attackerType,
             attackerClass,
             defenderClass,
@@ -3826,6 +3994,7 @@ export class HexMapRenderer implements IMapRenderer {
 
       const sparksPromise = defenderIsAir
         ? this.playSparkBurst(defenderHexKey, {
+            attackerHexKey,
             attackerType,
             attackerClass,
             defenderClass,
@@ -3834,6 +4003,7 @@ export class HexMapRenderer implements IMapRenderer {
           })
         : targetIsHardTarget
           ? this.playSparkBurst(defenderHexKey, {
+              attackerHexKey,
               attackerType,
               attackerClass,
               defenderClass,
@@ -3888,6 +4058,7 @@ export class HexMapRenderer implements IMapRenderer {
 
     if (useSmallArmsVisuals) {
       const sparksPromise = this.playSparkBurst(defenderHexKey, {
+        attackerHexKey,
         attackerType,
         attackerClass,
         defenderClass,
@@ -3925,13 +4096,14 @@ export class HexMapRenderer implements IMapRenderer {
       new Promise<void>((resolve) => {
         window.setTimeout(() => {
           const scale = index === 0 ? impactProfile.baseScale : impactProfile.baseScale * (0.94 - index * 0.03);
-          void this.playCombatAnimation(impactProfile.animationType, defenderHexKey, ox, oy, scale).then(() => resolve());
+          void this.playCombatAnimation(impactProfile.animationType, defenderHexKey, ox, oy, scale, false).then(() => resolve());
         }, index * impactProfile.staggerMs);
       })
     );
 
     const sparksPromise = defenderIsAir
       ? this.playSparkBurst(defenderHexKey, {
+          attackerHexKey,
           attackerType,
           attackerClass,
           defenderClass,
@@ -3940,6 +4112,7 @@ export class HexMapRenderer implements IMapRenderer {
         })
       : targetIsHardTarget
         ? this.playSparkBurst(defenderHexKey, {
+            attackerHexKey,
             attackerType,
             attackerClass,
             defenderClass

@@ -17,8 +17,7 @@ import {
   calculateProgress,
   getCurrentPhase
 } from "./EffectSpecifications";
-import { CombatSoundManager } from "../audio/CombatSoundManager";
-import type { WeaponSoundClass } from "../audio/SoundAssetMetadata";
+import { CombatSoundManager, type QueuedWeaponSoundRequest } from "../audio/CombatSoundManager";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -253,7 +252,8 @@ export class ProceduralEffectsAnimator {
     y: number,
     scale: number = 1,
     zoomTier: ZoomTier = 'mid',
-    terrainTint?: string
+    terrainTint?: string,
+    soundRequest?: QueuedWeaponSoundRequest | false
   ): Promise<void> {
     const spec = getEffectSpec(effectType);
 
@@ -276,11 +276,14 @@ export class ProceduralEffectsAnimator {
     };
 
     // Trigger sound playback
-    if (this.soundManager) {
+    const resolvedSoundRequest = soundRequest === undefined
+      ? this.resolveDefaultSoundRequest(effectType)
+      : soundRequest;
+
+    if (this.soundManager && resolvedSoundRequest) {
       this.soundManager.playWeaponSound({
-        weaponClass: effectType as WeaponSoundClass,
+        ...resolvedSoundRequest,
         seed,
-        gainMultiplier: 1.0
       }).catch((error) => {
         console.error(`[ProceduralEffects] Sound playback failed for ${effectType}:`, error);
       });
@@ -304,6 +307,34 @@ export class ProceduralEffectsAnimator {
     const timeSeed = performance.now() % 10000;
     this.seedCounter = (this.seedCounter + 1) % 1000;
     return Math.floor(timeSeed * 1000 + this.seedCounter);
+  }
+
+  private resolveDefaultSoundRequest(effectType: string): QueuedWeaponSoundRequest | null {
+    switch (effectType) {
+      case "artillery":
+        return {
+          weaponClass: "artillery",
+          playbackMode: "impact",
+          targetMaterial: "earth",
+          gainMultiplier: 0.94
+        };
+      case "explosionSmall":
+        return {
+          weaponClass: "small_bomb",
+          playbackMode: "impact",
+          targetMaterial: "earth",
+          gainMultiplier: 0.88
+        };
+      case "explosionLarge":
+        return {
+          weaponClass: "large_bomb",
+          playbackMode: "impact",
+          targetMaterial: "earth",
+          gainMultiplier: 1
+        };
+      default:
+        return null;
+    }
   }
 
   /**

@@ -948,7 +948,10 @@ export interface UnitCommandState {
   readonly maxEntrenchment: number;
   readonly suppressionState: UnitSuppressionState;
   readonly suppressorCount: number;
+  readonly isOnSentry: boolean;
   readonly existingHexModification: HexModification | null;
+  readonly canEnterSentry: boolean;
+  readonly sentryReason: string | null;
   readonly canDigIn: boolean;
   readonly digInReason: string | null;
   readonly canBuildModification: boolean;
@@ -1117,6 +1120,7 @@ export interface GameEngineAPI {
   cancelQueuedSupport(assetId: string): boolean;
   consumeBotTurnSummary(): BotTurnSummary | null;
   transferAllyControl(hex: Axial): boolean;
+  enterSentry(hex: Axial): boolean;
   digInUnit(hex: Axial): boolean;
   buildHexModification(hex: Axial, type: HexModificationType): boolean;
   getHexModification(hex: Axial): HexModification | null;
@@ -3818,7 +3822,7 @@ private automateSupplyConvoys(
       return;
     }
     const flags = this.playerActionFlags.get(hexKey) ?? this.createDefaultActionFlags();
-    if (flags.movementPointsUsed === 0 && flags.attacksUsed === 0) {
+    if (flags.movementPointsUsed === 0 && flags.attacksUsed === 0 && !unit.onSentry) {
       this.playerIdleUnitKeys.add(hexKey);
     } else {
       this.playerIdleUnitKeys.delete(hexKey);
@@ -3832,7 +3836,7 @@ private automateSupplyConvoys(
         return;
       }
       const flags = this.playerActionFlags.get(key) ?? this.createDefaultActionFlags();
-      if (flags.movementPointsUsed === 0 && flags.attacksUsed === 0) {
+      if (flags.movementPointsUsed === 0 && flags.attacksUsed === 0 && !unit.onSentry) {
         this.playerIdleUnitKeys.add(key);
       }
     });
@@ -3856,6 +3860,16 @@ private automateSupplyConvoys(
     }
   }
 
+  /** Clear sentry stance for units of the given faction at the start of their next activation. */
+  private clearSentryFor(faction: TurnFaction): void {
+    const placements = faction === "Player" ? this.playerPlacements : faction === "Bot" ? this.botPlacements : this.allyPlacements;
+    placements.forEach((unit) => {
+      if (unit.onSentry) {
+        unit.onSentry = false;
+      }
+    });
+  }
+
   private reconcilePlayerIdleUnitSet(): void {
     for (const key of Array.from(this.playerIdleUnitKeys)) {
       if (!this.playerPlacements.has(key)) {
@@ -3863,7 +3877,7 @@ private automateSupplyConvoys(
         continue;
       }
       const flags = this.playerActionFlags.get(key) ?? this.createDefaultActionFlags();
-      if (flags.movementPointsUsed > 0 || flags.attacksUsed > 0) {
+      if (flags.movementPointsUsed > 0 || flags.attacksUsed > 0 || this.playerPlacements.get(key)?.onSentry) {
         this.playerIdleUnitKeys.delete(key);
       }
     }
@@ -5992,6 +6006,7 @@ private automateSupplyConvoys(
         this._phase = "allyTurn";
         this._activeFaction = "Ally";
         this.clearSuppressionFor("Ally");
+        this.clearSentryFor("Ally");
         this.stepAirMissionsForFaction("Ally");
         this.advanceAirMissionRefits("Ally");
         this.applySupplyTickFor("Ally");
@@ -6003,6 +6018,7 @@ private automateSupplyConvoys(
       this._activeFaction = "Bot";
       this.botActionFlags.clear();
       this.clearSuppressionFor("Bot");
+      this.clearSentryFor("Bot");
       const botSummary = this.executeBotTurn();
       this.pendingBotTurnSummary = botSummary;
       this.stepAirMissionsForFaction("Bot");
@@ -6015,6 +6031,7 @@ private automateSupplyConvoys(
       this.advanceCounterIntelTurn();
       this.playerActionFlags.clear();
       this.clearSuppressionFor("Player");
+      this.clearSentryFor("Player");
       this.rebuildPlayerIdleUnitSet();
       this.refreshAircraftAmmoForFaction("Player");
       return playerSupplyReport;
@@ -6027,6 +6044,7 @@ private automateSupplyConvoys(
       this._turnNumber += 1;
       this.advanceCounterIntelTurn();
       this.playerActionFlags.clear();
+      this.clearSentryFor("Player");
       this.rebuildPlayerIdleUnitSet();
       this.refreshAircraftAmmoForFaction("Player");
       return this.applySupplyTickFor("Player");
@@ -6080,6 +6098,7 @@ private automateSupplyConvoys(
       attacker,
       attackerHex,
       attackerDef,
+      defender,
       projectedDefender,
       defenderHex,
       defenderDef,
@@ -6110,18 +6129,26 @@ private automateSupplyConvoys(
     attacker: ScenarioUnit,
     attackerHex: Axial,
     attackerDef: UnitTypeDefinition,
-    defender: ScenarioUnit,
+    originalDefender: ScenarioUnit,
+    projectedDefender: ScenarioUnit,
     defenderHex: Axial,
     defenderDef: UnitTypeDefinition,
     effectiveStance: CombatStance | undefined
   ): { expectedDamage: number; possible: boolean; note?: string } {
+    const simultaneousFire = originalDefender.onSentry === true;
+    const noteFor = (message: string): string =>
+      simultaneousFire
+        ? `Target is on sentry, but ${message.charAt(0).toLowerCase()}${message.slice(1)}`
+        : message;
     const attackerIsAircraft = this.isAircraft(attackerDef);
     const defenderIsAircraft = this.isAircraft(defenderDef);
     const defenderIsBomber = this.isBomber(defenderDef);
     const defenderKey = axialKey(defenderHex);
     const defenderGroundAmmoCost = defenderIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(defenderDef);
+    const retaliationDefender = structuredClone(simultaneousFire ? originalDefender : projectedDefender);
+    retaliationDefender.onSentry = false;
 
-    if (defender.strength <= 0) {
+    if (retaliationDefender.strength <= 0) {
       return {
         expectedDamage: 0,
         possible: false,
@@ -6133,15 +6160,15 @@ private automateSupplyConvoys(
       return {
         expectedDamage: 0,
         possible: false,
-        note: "Ground units cannot retaliate against fast-moving aircraft."
+        note: noteFor("Ground units cannot retaliate against fast-moving aircraft.")
       };
     }
 
-    if (this.resolveUnitSuppressionState(defender).state === "pinned") {
+    if (this.resolveUnitSuppressionState(retaliationDefender).state === "pinned") {
       return {
         expectedDamage: 0,
         possible: false,
-        note: "Target is pinned and cannot return fire."
+        note: noteFor("Target is pinned and cannot return fire.")
       };
     }
 
@@ -6155,7 +6182,7 @@ private automateSupplyConvoys(
       return {
         expectedDamage: 0,
         possible: false,
-        note: "Target is out of return-fire range."
+        note: noteFor("Target is out of return-fire range.")
       };
     }
 
@@ -6164,7 +6191,7 @@ private automateSupplyConvoys(
       return {
         expectedDamage: 0,
         possible: false,
-        note: "Target has already used its retaliation this turn."
+        note: noteFor("Target has already used its retaliation this turn.")
       };
     }
 
@@ -6174,30 +6201,30 @@ private automateSupplyConvoys(
         return {
           expectedDamage: 0,
           possible: false,
-          note: "Enemy aircraft must rearm before it can retaliate."
+          note: noteFor("Enemy aircraft must rearm before it can retaliate.")
         };
       }
       if (defenderAmmoState.air <= 0) {
         return {
           expectedDamage: 0,
           possible: false,
-          note: "Enemy aircraft has no interception ammo remaining."
+          note: noteFor("Enemy aircraft has no interception ammo remaining.")
         };
       }
     } else {
-      const defenderAmmo = typeof defender.ammo === "number" ? defender.ammo : null;
+      const defenderAmmo = typeof retaliationDefender.ammo === "number" ? retaliationDefender.ammo : null;
       if (defenderAmmo !== null && defenderAmmo < defenderGroundAmmoCost) {
         return {
           expectedDamage: 0,
           possible: false,
-          note: defenderGroundAmmoCost > 1
+          note: noteFor(defenderGroundAmmoCost > 1
             ? `Enemy unit lacks the ${defenderGroundAmmoCost.toFixed(0)} ammo needed to return indirect fire.`
-            : "Enemy unit has no ammunition remaining to retaliate."
+            : "Enemy unit has no ammunition remaining to retaliate.")
         };
       }
     }
 
-    const retaliationReq = this.buildAttackRequest(defender, attacker, "Bot", "Player", {
+    const retaliationReq = this.buildAttackRequest(retaliationDefender, attacker, "Bot", "Player", {
       allowBomberAirAttack: true,
       stance: effectiveStance === "assault" ? "assault" : undefined
     });
@@ -6205,7 +6232,7 @@ private automateSupplyConvoys(
       return {
         expectedDamage: 0,
         possible: false,
-        note: "Target lacks line of fire for retaliation."
+        note: noteFor("Target lacks line of fire for retaliation.")
       };
     }
 
@@ -6228,7 +6255,8 @@ private automateSupplyConvoys(
 
     return {
       expectedDamage: Math.max(0, retaliation.expectedDamage),
-      possible: true
+      possible: true,
+      note: simultaneousFire ? "Target is on sentry and will return fire simultaneously." : undefined
     };
   }
 
@@ -6850,6 +6878,7 @@ private automateSupplyConvoys(
     const moved = structuredClone(unit);
     moved.facing = this.resolveFacingToward(from, to, unit.facing);
     moved.hex = structuredClone(to);
+    moved.onSentry = false;
     if (Number.isFinite(availableFuel) && moveSummary.fuelCost > 0) {
       moved.fuel = Math.max(0, Number((moved.fuel - moveSummary.fuelCost).toFixed(2)));
     }
@@ -7101,8 +7130,10 @@ private automateSupplyConvoys(
 
     // Apply to defender
     const defKey = axialKey(defenderHex);
+    const defenderWasOnSentry = defender.onSentry === true;
     const updatedDef = structuredClone(defender);
     updatedDef.facing = this.resolveFacingToward(defenderHex, attackerHex, defender.facing);
+    updatedDef.onSentry = false;
     updatedDef.strength = Math.max(0, updatedDef.strength - inflicted);
     if (updatedDef.strength <= 0) {
       this.botPlacements.delete(defKey);
@@ -7129,6 +7160,7 @@ private automateSupplyConvoys(
     // Ammo consumption (minimal)
     const updatedAtk = structuredClone(attacker);
     updatedAtk.facing = this.resolveFacingToward(attackerHex, defenderHex, attacker.facing);
+    updatedAtk.onSentry = false;
     updatedAtk.ammo = attackerIsAircraft
       ? Math.max(0, updatedAtk.ammo - 1)
       : Math.max(0, updatedAtk.ammo - groundAttackAmmoCost);
@@ -7148,17 +7180,25 @@ private automateSupplyConvoys(
     // Exception: No counter-attack when aircraft attack ground units (aircraft are too fast/high)
     let retaliationResult: AttackResult | undefined;
     let retaliationOccurred = false;
+    let retaliationNote: string | undefined;
     let attackerRemainingStrength = updatedAtk.strength;
+    const retaliationNoteFor = (message: string): string =>
+      defenderWasOnSentry
+        ? `Enemy unit was on sentry, but ${message.charAt(0).toLowerCase()}${message.slice(1)}`
+        : message;
 
     // No retaliation if aircraft attacked ground unit
     let retaliationAllowed = !(attackerIsAircraft && !defenderIsAircraft);
+    const retaliationDefender = structuredClone(defenderWasOnSentry ? defender : updatedDef);
+    retaliationDefender.facing = this.resolveFacingToward(defenderHex, attackerHex, retaliationDefender.facing);
+    retaliationDefender.onSentry = false;
 
-      if (updatedDef.strength > 0 && retaliationAllowed) {
-        if (this.resolveUnitSuppressionState(updatedDef).state === "pinned") {
-          retaliationAllowed = false;
-        }
-        // Check defender's range - can they reach the attacker?
-        const distance = hexDistance(defenderHex, attackerHex);
+    if ((defenderWasOnSentry || updatedDef.strength > 0) && retaliationAllowed) {
+      if (this.resolveUnitSuppressionState(retaliationDefender).state === "pinned") {
+        retaliationAllowed = false;
+      }
+      // Check defender's range - can they reach the attacker?
+      const distance = hexDistance(defenderHex, attackerHex);
       const defenderRangeMin = defenderDef.rangeMin ?? 1;
       let defenderRangeMax = defenderDef.rangeMax ?? 1;
       if (defenderIsBomber && attackerIsAircraft) {
@@ -7192,7 +7232,7 @@ private automateSupplyConvoys(
             retaliationResult: undefined,
             attackerRemainingStrength,
             retaliationOccurred: false,
-            retaliationNote: "Enemy aircraft must rearm before it can retaliate."
+            retaliationNote: retaliationNoteFor("Enemy aircraft must rearm before it can retaliate.")
           };
         }
         if (defenderAmmoState.air <= 0) {
@@ -7207,11 +7247,11 @@ private automateSupplyConvoys(
             retaliationResult: undefined,
             attackerRemainingStrength,
             retaliationOccurred: false,
-            retaliationNote: "Enemy aircraft has depleted interception ammo and must rearm before retaliating."
+            retaliationNote: retaliationNoteFor("Enemy aircraft has depleted interception ammo and must rearm before retaliating.")
           };
         }
       } else {
-        const defenderAmmo = typeof updatedDef.ammo === "number" ? updatedDef.ammo : null;
+        const defenderAmmo = typeof retaliationDefender.ammo === "number" ? retaliationDefender.ammo : null;
         if (defenderAmmo !== null && defenderAmmo < defenderGroundAmmoCost) {
           retaliationOccurred = false;
           this.playerPlacements.set(atkKey, updatedAtk);
@@ -7224,9 +7264,9 @@ private automateSupplyConvoys(
             retaliationResult: undefined,
             attackerRemainingStrength,
             retaliationOccurred: false,
-            retaliationNote: defenderGroundAmmoCost > 1
+            retaliationNote: retaliationNoteFor(defenderGroundAmmoCost > 1
               ? `Enemy unit lacks the ${defenderGroundAmmoCost.toFixed(0)} ammo needed to return indirect fire.`
-              : "Enemy unit has no ammunition remaining to retaliate."
+              : "Enemy unit has no ammunition remaining to retaliate.")
           };
         }
       }
@@ -7234,7 +7274,7 @@ private automateSupplyConvoys(
       // Only attempt retaliation if all checks passed (range, LOS, limit)
       // If attacker used assault stance, retaliation also happens at close range
       const retaliationReq = retaliationAllowed
-        ? this.buildAttackRequest(updatedDef, updatedAtk, "Bot", "Player", {
+        ? this.buildAttackRequest(retaliationDefender, updatedAtk, "Bot", "Player", {
             allowBomberAirAttack: true,
             stance: effectiveStance === "assault" ? "assault" : undefined
           })
@@ -7281,6 +7321,8 @@ private automateSupplyConvoys(
           this.spendAircraftAmmo("Bot", defKey, attackerIsAircraft);
           if (typeof updatedDef.ammo === "number") {
             updatedDef.ammo = Math.max(0, updatedDef.ammo - 1);
+          }
+          if (updatedDef.strength > 0) {
             this.botPlacements.set(defKey, updatedDef);
             this.syncBotAmmo(defenderHex, updatedDef.ammo);
           }
@@ -7301,8 +7343,10 @@ private automateSupplyConvoys(
         if (!defenderIsAircraft && typeof updatedDef.ammo === "number") {
           // Ground-based retaliations spend one ammo just like primary attacks so supply mirrors stay accurate.
           updatedDef.ammo = Math.max(0, updatedDef.ammo - defenderGroundAmmoCost);
-          this.botPlacements.set(defKey, updatedDef);
-          this.syncBotAmmo(defenderHex, updatedDef.ammo);
+          if (updatedDef.strength > 0) {
+            this.botPlacements.set(defKey, updatedDef);
+            this.syncBotAmmo(defenderHex, updatedDef.ammo);
+          }
         }
 
         // Update bot action flags to track retaliation used
@@ -7313,6 +7357,7 @@ private automateSupplyConvoys(
         });
 
         retaliationOccurred = true;
+        retaliationNote = defenderWasOnSentry ? "Enemy unit was on sentry and returned fire simultaneously." : undefined;
       } else if (retaliationAllowed) {
         this.invalidateRosterCache();
         return {
@@ -7322,7 +7367,7 @@ private automateSupplyConvoys(
           retaliationResult: undefined,
           attackerRemainingStrength,
           retaliationOccurred: false,
-          retaliationNote: "Enemy unit lacked line of fire for retaliation."
+          retaliationNote: retaliationNoteFor("Enemy unit lacked line of fire for retaliation.")
         };
       }
     }
@@ -7356,7 +7401,8 @@ private automateSupplyConvoys(
       defenderDestroyed: updatedDef.strength <= 0,
       retaliationResult,
       attackerRemainingStrength,
-      retaliationOccurred
+      retaliationOccurred,
+      retaliationNote
     };
   }
 
@@ -9682,8 +9728,10 @@ private automateSupplyConvoys(
     );
 
     const playerKey = axialKey(targetHex);
+    const defenderWasOnSentry = defender.onSentry === true;
     const updatedPlayer = structuredClone(defender);
     updatedPlayer.facing = this.resolveFacingToward(targetHex, attackerHex, defender.facing);
+    updatedPlayer.onSentry = false;
     updatedPlayer.strength = Math.max(0, updatedPlayer.strength - damage);
     if (updatedPlayer.strength <= 0) {
       if (defenderFaction === "Player") {
@@ -9725,6 +9773,7 @@ private automateSupplyConvoys(
     const botKey = axialKey(attackerHex);
     const updatedBot = structuredClone(attackingUnit);
     updatedBot.facing = this.resolveFacingToward(attackerHex, targetHex, attackingUnit.facing);
+    updatedBot.onSentry = false;
     if (attackerIsAircraft) {
       this.spendAircraftAmmo("Bot", botKey, defenderIsAircraft);
       updatedBot.ammo = Math.max(0, updatedBot.ammo - 1);
@@ -9734,9 +9783,12 @@ private automateSupplyConvoys(
 
     let retaliationResult: AttackResult | undefined;
     let attackerStrengthAfter = updatedBot.strength;
-    if (defenderFaction === "Player" && updatedPlayer.strength > 0 && !(attackerIsAircraft && !defenderIsAircraft)) {
+    if (defenderFaction === "Player" && (defenderWasOnSentry || updatedPlayer.strength > 0) && !(attackerIsAircraft && !defenderIsAircraft)) {
       let retaliationAllowed = true;
-      if (this.resolveUnitSuppressionState(updatedPlayer).state === "pinned") {
+      const retaliationDefender = structuredClone(defenderWasOnSentry ? defender : updatedPlayer);
+      retaliationDefender.facing = this.resolveFacingToward(targetHex, attackerHex, retaliationDefender.facing);
+      retaliationDefender.onSentry = false;
+      if (this.resolveUnitSuppressionState(retaliationDefender).state === "pinned") {
         retaliationAllowed = false;
       }
 
@@ -9767,7 +9819,7 @@ private automateSupplyConvoys(
             retaliationAllowed = false;
           }
         } else {
-          const defenderAmmo = typeof updatedPlayer.ammo === "number" ? updatedPlayer.ammo : null;
+          const defenderAmmo = typeof retaliationDefender.ammo === "number" ? retaliationDefender.ammo : null;
           if (defenderAmmo !== null && defenderAmmo < defenderGroundAmmoCost) {
             retaliationAllowed = false;
           }
@@ -9775,7 +9827,7 @@ private automateSupplyConvoys(
       }
 
       const retaliationReq = retaliationAllowed
-        ? this.buildAttackRequest(updatedPlayer, updatedBot, "Player", "Bot", {
+        ? this.buildAttackRequest(retaliationDefender, updatedBot, "Player", "Bot", {
             allowBomberAirAttack: true,
             stance: effectiveStance === "assault" ? "assault" : undefined
           })
@@ -9817,13 +9869,17 @@ private automateSupplyConvoys(
           this.spendAircraftAmmo("Player", playerKey, attackerIsAircraft);
           if (typeof updatedPlayer.ammo === "number") {
             updatedPlayer.ammo = Math.max(0, updatedPlayer.ammo - 1);
-            this.playerPlacements.set(playerKey, updatedPlayer);
-            this.syncPlayerAmmo(targetHex, updatedPlayer.ammo);
+            if (updatedPlayer.strength > 0) {
+              this.playerPlacements.set(playerKey, updatedPlayer);
+              this.syncPlayerAmmo(targetHex, updatedPlayer.ammo);
+            }
           }
         } else if (typeof updatedPlayer.ammo === "number") {
           updatedPlayer.ammo = Math.max(0, updatedPlayer.ammo - defenderGroundAmmoCost);
-          this.playerPlacements.set(playerKey, updatedPlayer);
-          this.syncPlayerAmmo(targetHex, updatedPlayer.ammo);
+          if (updatedPlayer.strength > 0) {
+            this.playerPlacements.set(playerKey, updatedPlayer);
+            this.syncPlayerAmmo(targetHex, updatedPlayer.ammo);
+          }
         }
 
         const defenderFlags = this.playerActionFlags.get(playerKey) ?? this.createDefaultActionFlags();
@@ -10713,6 +10769,32 @@ private automateSupplyConvoys(
     return null;
   }
 
+  private resolveSentryAvailability(
+    hex: Axial,
+    unit: ScenarioUnit,
+    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+  ): { available: boolean; reason: string | null } {
+    if (this._phase !== "playerTurn") {
+      return { available: false, reason: "Sentry orders are available only during the player turn." };
+    }
+    if (this.isAutomatedPlayerUnit(unit)) {
+      return { available: false, reason: "Automated logistics convoys do not accept sentry orders." };
+    }
+    if (!this.playerPlacements.has(axialKey(hex))) {
+      return { available: false, reason: "No player formation occupies this hex." };
+    }
+    if (unit.onSentry) {
+      return { available: false, reason: "This formation is already on sentry." };
+    }
+    if (this.resolveUnitSuppressionState(unit).state === "pinned") {
+      return { available: false, reason: "Pinned formations cannot be placed on sentry." };
+    }
+    if (flags.attacksUsed > 0 || flags.movementPointsUsed > 0) {
+      return { available: false, reason: "Hold position and stay uncommitted this turn to set sentry." };
+    }
+    return { available: true, reason: null };
+  }
+
   private resolveDigInAvailability(
     hex: Axial,
     unit: ScenarioUnit,
@@ -10784,6 +10866,7 @@ private automateSupplyConvoys(
     const definition = this.getUnitDefinition(unit.type);
     const flags = this.playerActionFlags.get(key) ?? this.createDefaultActionFlags();
     const suppression = this.resolveUnitSuppressionState(unit);
+    const sentry = this.resolveSentryAvailability(hex, unit, flags);
     const digIn = this.resolveDigInAvailability(hex, unit, definition, flags);
     const build = this.resolveBuildModificationAvailability(hex, unit, definition, flags);
     const existingHexModification = this.getHexModification(hex);
@@ -10797,7 +10880,10 @@ private automateSupplyConvoys(
       maxEntrenchment: 2,
       suppressionState: suppression.state,
       suppressorCount: suppression.count,
+      isOnSentry: unit.onSentry === true,
       existingHexModification: existingHexModification ? structuredClone(existingHexModification) : null,
+      canEnterSentry: sentry.available,
+      sentryReason: sentry.reason,
       canDigIn: digIn.available,
       digInReason: digIn.reason,
       canBuildModification: build.available,
@@ -10820,6 +10906,31 @@ private automateSupplyConvoys(
       movementPointsUsed: Math.max(flags.movementPointsUsed, committedMovement),
       attacksUsed: Math.max(flags.attacksUsed, 1)
     };
+  }
+
+  /**
+   * Dig in action for infantry units. Increases entrenchment level (max 2).
+   * Unit cannot move or attack again this turn after digging in.
+   */
+  enterSentry(hex: Axial): boolean {
+    const key = axialKey(hex);
+    const unit = this.playerPlacements.get(key);
+    if (!unit) {
+      return false;
+    }
+    const flags = this.playerActionFlags.get(key) ?? this.createDefaultActionFlags();
+    const sentry = this.resolveSentryAvailability(hex, unit, flags);
+    if (!sentry.available) {
+      return false;
+    }
+
+    unit.onSentry = true;
+    this.playerPlacements.set(key, unit);
+    this.playerActionFlags.set(key, this.resolveCommittedFieldActionFlags(hex, flags));
+    this.updateIdleRegistryFor(key);
+    this.invalidateRosterCache();
+
+    return true;
   }
 
   /**
