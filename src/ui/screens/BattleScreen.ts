@@ -5619,7 +5619,7 @@ export class BattleScreen {
       actions.push(
         {
           id: "fortifications",
-          label: "Fortify Hex",
+          label: "Fortify",
           detail: "Build defensive works that improve cover for infantry and specialist defenders here.",
           tone: "defense",
           available: commandState.canBuildModification,

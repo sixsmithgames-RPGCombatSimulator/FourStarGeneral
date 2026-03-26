@@ -46,7 +46,7 @@ registerTest("SELECTION_INTEL_OVERLAY_RENDERS_COMMAND_CARDS_AND_NOTES", async ({
       },
       {
         id: "fortifications",
-        label: "Fortify Hex",
+        label: "Fortify",
         detail: "Build defensive works on this hex.",
         tone: "defense",
         available: false,
