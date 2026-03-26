@@ -46,6 +46,7 @@ export class CombatSoundManager {
   private readonly masterGainNode: GainNode;
   private readonly bufferCache: Map<string, AudioBuffer> = new Map();
   private soundCatalog: SoundCatalog | null = null;
+  private preloadPromise: Promise<void> | null = null;
 
   // Repetition control: track recently used variants
   private readonly transientHistory: Map<string, number[]> = new Map();
@@ -72,6 +73,8 @@ export class CombatSoundManager {
       }
 
       this.soundCatalog = await response.json();
+      this.preloadPromise = this.preloadCatalogBuffers();
+      await this.preloadPromise;
       console.log(`[CombatSoundManager] Loaded sound catalog v${this.soundCatalog?.version} with ${Object.keys(this.soundCatalog?.assets ?? {}).length} assets`);
     } catch (error) {
       console.error("[CombatSoundManager] Error loading sound catalog:", error);
@@ -113,6 +116,11 @@ export class CombatSoundManager {
     if (!this.soundCatalog) {
       console.warn("[CombatSoundManager] Sound catalog not loaded");
       return;
+    }
+
+    await this.ensureAudioContextReady();
+    if (this.preloadPromise) {
+      await this.preloadPromise;
     }
 
     const profile = WEAPON_AUDIO_PROFILES[request.weaponClass];
@@ -353,5 +361,26 @@ export class CombatSoundManager {
   clearRepetitionHistory(): void {
     this.transientHistory.clear();
     this.impactHistory.clear();
+  }
+
+  private async ensureAudioContextReady(): Promise<void> {
+    if (this.audioContext.state === "suspended") {
+      try {
+        await this.audioContext.resume();
+      } catch (error) {
+        console.warn("[CombatSoundManager] Failed to resume audio context:", error);
+      }
+    }
+  }
+
+  private async preloadCatalogBuffers(): Promise<void> {
+    if (!this.soundCatalog) {
+      return;
+    }
+
+    const assets = Object.values(this.soundCatalog.assets);
+    await Promise.all(assets.map(async (asset) => {
+      await this.loadAudioBuffer(asset);
+    }));
   }
 }
