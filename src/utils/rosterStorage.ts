@@ -49,6 +49,52 @@ export interface GeneralStatBlock {
   supplyBonus: number;
 }
 
+/**
+ * Detailed unit count by type for mission statistics.
+ */
+export interface UnitTypeCount {
+  type: string;
+  count: number;
+}
+
+/**
+ * Ammunition expenditure tracking for a mission.
+ */
+export interface AmmunitionExpenditure {
+  bombsDropped: number;
+  artilleryShellsFired: number;
+  rocketsFired: number;
+  smallArmsRounds: number;
+}
+
+/**
+ * Objective completion tracking by tier.
+ */
+export interface ObjectiveCompletion {
+  primaryCompleted: number;
+  primaryTotal: number;
+  secondaryCompleted: number;
+  secondaryTotal: number;
+  tertiaryCompleted: number;
+  tertiaryTotal: number;
+}
+
+/**
+ * Comprehensive statistics for a single mission.
+ */
+export interface MissionRecord {
+  missionKey: string;
+  missionTitle: string;
+  completedAt: string;
+  success: boolean;
+  turnsElapsed: number;
+  casualties: UnitTypeCount[];
+  enemiesDestroyed: UnitTypeCount[];
+  unitsDeployed: UnitTypeCount[];
+  ammunition: AmmunitionExpenditure;
+  objectives: ObjectiveCompletion;
+}
+
 export interface GeneralIdentity {
   name: string;
   rank?: string;
@@ -61,8 +107,8 @@ export interface GeneralIdentity {
 }
 
 /**
- * Simplified general profile structure for roster storage.
- * Contains only essential identity and stats data.
+ * General profile structure for roster storage.
+ * Contains identity, stats, and comprehensive mission history.
  */
 export interface GeneralRosterEntry {
   id: string;
@@ -74,6 +120,7 @@ export interface GeneralRosterEntry {
     unitsDeployed: number;
     casualtiesSustained: number;
   };
+  missionHistory?: MissionRecord[];
   createdAt?: string;
 }
 

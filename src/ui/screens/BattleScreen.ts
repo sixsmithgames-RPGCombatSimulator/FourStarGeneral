@@ -59,7 +59,15 @@ import type {
 import { ensureCampaignState } from "../../state/CampaignState";
 import { ensureTutorialState, type TutorialPhase } from "../../state/TutorialState";
 import { getNextPhase } from "../../data/tutorialSteps";
-import { findGeneralById, updateGeneral, saveRosterToLocalStorage } from "../../utils/rosterStorage";
+import {
+  findGeneralById,
+  updateGeneral,
+  saveRosterToLocalStorage,
+  type MissionRecord,
+  type UnitTypeCount,
+  type AmmunitionExpenditure,
+  type ObjectiveCompletion
+} from "../../utils/rosterStorage";
 import {
   ensureDeploymentState,
   type DeploymentPoolEntry,
@@ -4125,18 +4133,38 @@ export class BattleScreen {
       return;
     }
 
+    // Collect detailed mission statistics
+    const missionRecord = this.collectMissionStatistics();
+    if (!missionRecord) {
+      console.warn("[BattleScreen] Failed to collect mission statistics");
+      return;
+    }
+
+    // Calculate total casualties and units deployed from this mission
+    const totalCasualties = missionRecord.casualties.reduce((sum, c) => sum + c.count, 0);
+    const totalDeployed = missionRecord.unitsDeployed.reduce((sum, u) => sum + u.count, 0);
+
+    // Update service record summary
     const currentRecord = general.serviceRecord || { missionsCompleted: 0, victoriesAchieved: 0, unitsDeployed: 0, casualtiesSustained: 0 };
     const updatedRecord = {
       missionsCompleted: currentRecord.missionsCompleted + 1,
       victoriesAchieved: currentRecord.victoriesAchieved + (success ? 1 : 0),
-      unitsDeployed: currentRecord.unitsDeployed,
-      casualtiesSustained: currentRecord.casualtiesSustained
+      unitsDeployed: currentRecord.unitsDeployed + totalDeployed,
+      casualtiesSustained: currentRecord.casualtiesSustained + totalCasualties
     };
 
-    updateGeneral(this.uiState.selectedGeneralId, { serviceRecord: updatedRecord });
+    // Add mission to history
+    const currentHistory = general.missionHistory || [];
+    const updatedHistory = [...currentHistory, missionRecord];
+
+    // Update general with both summary and detailed history
+    updateGeneral(this.uiState.selectedGeneralId, {
+      serviceRecord: updatedRecord,
+      missionHistory: updatedHistory
+    });
     saveRosterToLocalStorage();
 
-    console.log(`[BattleScreen] Updated service record for ${general.identity.name}: ${updatedRecord.missionsCompleted} missions, ${updatedRecord.victoriesAchieved} victories`);
+    console.log(`[BattleScreen] Updated service record for ${general.identity.name}: ${updatedRecord.missionsCompleted} missions, ${updatedRecord.victoriesAchieved} victories, ${totalCasualties} casualties, ${missionRecord.enemiesDestroyed.reduce((sum, e) => sum + e.count, 0)} enemies destroyed`);
   }
 
   private resolveMissionEndResolution(): MissionEndResolution {
@@ -4211,6 +4239,195 @@ export class BattleScreen {
     } catch {
       return 0;
     }
+  }
+
+  /**
+   * Collects comprehensive mission statistics for service record.
+   * Tracks casualties, enemies destroyed, ammunition used, and objectives by tier.
+   */
+  private collectMissionStatistics(): MissionRecord | null {
+    if (!this.battleState || !this.scenario || !this.missionStatus) {
+      console.warn("[BattleScreen] Cannot collect mission statistics: missing required data");
+      return null;
+    }
+
+    if (typeof (this.battleState as BattleState).hasEngine !== "function" || !(this.battleState as BattleState).hasEngine()) {
+      console.warn("[BattleScreen] Cannot collect mission statistics: no game engine");
+      return null;
+    }
+
+    try {
+      const engine = (this.battleState as BattleState).ensureGameEngine();
+      const missionInfo = this.battleState.getPrecombatMissionInfo();
+      const missionKey = missionInfo?.missionKey ?? "unknown";
+      const missionTitle = this.uiState?.getSelectedMissionTitle() ?? "Unknown Mission";
+
+      // Calculate units deployed by type
+      const deployedUnits = this.scenario.sides.Player.units;
+      const unitsDeployed = this.aggregateUnitCounts(deployedUnits);
+
+      // Calculate casualties by comparing deployed to current
+      const currentPlayerUnits = engine.playerUnits;
+      const casualties = this.calculateUnitDifference(deployedUnits, currentPlayerUnits);
+
+      // Calculate enemies destroyed
+      const initialEnemyUnits = this.getInitialEnemyUnits();
+      const currentEnemyUnits = engine.botUnits;
+      const enemiesDestroyed = this.calculateUnitDifference(initialEnemyUnits, currentEnemyUnits);
+
+      // Track ammunition expenditure (approximation from supply history)
+      const ammunition = this.calculateAmmunitionExpenditure();
+
+      // Parse objectives by tier
+      const objectives = this.parseObjectivesByTier();
+
+      // Determine mission success
+      const success = this.missionStatus.outcome.state === "playerVictory";
+
+      // Get turn count
+      const turnsElapsed = this.missionStatus.turn;
+
+      return {
+        missionKey,
+        missionTitle,
+        completedAt: new Date().toISOString(),
+        success,
+        turnsElapsed,
+        casualties,
+        enemiesDestroyed,
+        unitsDeployed,
+        ammunition,
+        objectives
+      };
+    } catch (error) {
+      console.error("[BattleScreen] Error collecting mission statistics:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Aggregates unit counts by type from an array of scenario units.
+   */
+  private aggregateUnitCounts(units: readonly ScenarioUnit[]): UnitTypeCount[] {
+    const counts = new Map<string, number>();
+
+    for (const unit of units) {
+      const type = unit.type;
+      counts.set(type, (counts.get(type) ?? 0) + 1);
+    }
+
+    return Array.from(counts.entries())
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  /**
+   * Calculates the difference between initial and current unit counts.
+   * Returns units that were lost (in initial but not in current).
+   */
+  private calculateUnitDifference(initialUnits: readonly ScenarioUnit[], currentUnits: readonly ScenarioUnit[]): UnitTypeCount[] {
+    const initialCounts = new Map<string, number>();
+    const currentCounts = new Map<string, number>();
+
+    for (const unit of initialUnits) {
+      initialCounts.set(unit.type, (initialCounts.get(unit.type) ?? 0) + 1);
+    }
+
+    for (const unit of currentUnits) {
+      currentCounts.set(unit.type, (currentCounts.get(unit.type) ?? 0) + 1);
+    }
+
+    const differences: UnitTypeCount[] = [];
+    for (const [type, initialCount] of initialCounts.entries()) {
+      const currentCount = currentCounts.get(type) ?? 0;
+      const lost = initialCount - currentCount;
+      if (lost > 0) {
+        differences.push({ type, count: lost });
+      }
+    }
+
+    return differences.sort((a, b) => b.count - a.count);
+  }
+
+  /**
+   * Gets initial enemy units from scenario data.
+   */
+  private getInitialEnemyUnits(): readonly ScenarioUnit[] {
+    // Get Bot faction units
+    const enemySide = this.scenario.sides.Bot;
+    return enemySide?.units ?? [];
+  }
+
+  /**
+   * Calculates ammunition expenditure from supply history.
+   * This is an approximation based on ammo consumption patterns.
+   */
+  private calculateAmmunitionExpenditure(): AmmunitionExpenditure {
+    try {
+      const supplyHistory = this.battleState.getSupplyHistory("Player");
+      if (!supplyHistory || supplyHistory.length === 0) {
+        return { bombsDropped: 0, artilleryShellsFired: 0, rocketsFired: 0, smallArmsRounds: 0 };
+      }
+
+      // Extract ammo from categories
+      const initialSnapshot = supplyHistory[0];
+      const finalSnapshot = supplyHistory[supplyHistory.length - 1];
+
+      const initialAmmo = initialSnapshot?.categories?.find(c => c.resource === "ammo")?.total ?? 0;
+      const finalAmmo = finalSnapshot?.categories?.find(c => c.resource === "ammo")?.total ?? 0;
+      const totalAmmoUsed = Math.max(0, initialAmmo - finalAmmo);
+
+      // Estimate ammunition breakdown based on unit types deployed
+      // This is approximate - actual tracking would require engine modifications
+      const deployedUnits = this.scenario.sides.Player.units;
+      const hasBombers = deployedUnits.some(u => u.type.toLowerCase().includes("bomber"));
+      const hasArtillery = deployedUnits.some(u => u.type.toLowerCase().includes("artillery") || u.type.toLowerCase().includes("howitzer"));
+      const hasRockets = deployedUnits.some(u => u.type.toLowerCase().includes("rocket"));
+
+      return {
+        bombsDropped: hasBombers ? Math.floor(totalAmmoUsed * 0.15) : 0,
+        artilleryShellsFired: hasArtillery ? Math.floor(totalAmmoUsed * 0.30) : 0,
+        rocketsFired: hasRockets ? Math.floor(totalAmmoUsed * 0.20) : 0,
+        smallArmsRounds: Math.floor(totalAmmoUsed * 0.35)
+      };
+    } catch {
+      return {
+        bombsDropped: 0,
+        artilleryShellsFired: 0,
+        rocketsFired: 0,
+        smallArmsRounds: 0
+      };
+    }
+  }
+
+  /**
+   * Parses mission objectives by tier (primary/secondary/tertiary).
+   */
+  private parseObjectivesByTier(): ObjectiveCompletion {
+    if (!this.missionStatus?.objectives) {
+      return {
+        primaryCompleted: 0,
+        primaryTotal: 0,
+        secondaryCompleted: 0,
+        secondaryTotal: 0,
+        tertiaryCompleted: 0,
+        tertiaryTotal: 0
+      };
+    }
+
+    const objectives = this.missionStatus.objectives;
+    const primary = objectives.filter(obj => obj.tier === "primary");
+    const secondary = objectives.filter(obj => obj.tier === "secondary");
+    const tertiary = objectives.filter(obj => obj.tier === "tertiary");
+
+    return {
+      primaryCompleted: primary.filter(obj => obj.state === "completed").length,
+      primaryTotal: primary.length,
+      secondaryCompleted: secondary.filter(obj => obj.state === "completed").length,
+      secondaryTotal: secondary.length,
+      tertiaryCompleted: tertiary.filter(obj => obj.state === "completed").length,
+      tertiaryTotal: tertiary.length
+    };
   }
 
   /**

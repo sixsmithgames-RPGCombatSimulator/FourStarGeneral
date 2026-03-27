@@ -1759,22 +1759,88 @@ export class PopupManager implements IPopupManager {
 
   private composeGeneralHistory(profile: GeneralRosterEntry): string {
     const parts: string[] = [];
-    const { serviceRecord, identity } = profile;
+    const { serviceRecord, identity, missionHistory } = profile;
 
     if (serviceRecord) {
       parts.push(
         `${identity.name} has led ${serviceRecord.missionsCompleted} mission${serviceRecord.missionsCompleted === 1 ? "" : "s"} with ${serviceRecord.victoriesAchieved} victory${serviceRecord.victoriesAchieved === 1 ? "" : "ies"}.`
       );
-      parts.push(`Units deployed: ${serviceRecord.unitsDeployed}. Casualties sustained: ${serviceRecord.casualtiesSustained}.`);
+      parts.push(`Total units deployed: ${serviceRecord.unitsDeployed}. Total casualties: ${serviceRecord.casualtiesSustained}.`);
+
+      // Add detailed mission history if available
+      if (missionHistory && missionHistory.length > 0) {
+        parts.push("\n\n<strong>Recent Operations:</strong>");
+
+        // Show last 5 missions in reverse chronological order
+        const recentMissions = missionHistory.slice(-5).reverse();
+
+        for (const mission of recentMissions) {
+          parts.push(this.formatMissionRecord(mission));
+        }
+      }
     } else {
       parts.push("Operational history is still being compiled for this commander.");
     }
 
     if (identity.schoolLabel) {
-      parts.push(`${identity.name} is a graduate of ${identity.schoolLabel}, reinforcing doctrinal discipline.`);
+      parts.push(`\n${identity.name} is a graduate of ${identity.schoolLabel}, reinforcing doctrinal discipline.`);
     }
 
     return parts.join(" ");
+  }
+
+  private formatMissionRecord(mission: any): string {
+    const parts: string[] = [];
+    const date = new Date(mission.completedAt).toLocaleDateString();
+    const outcome = mission.success ? "✓ VICTORY" : "✗ DEFEAT";
+    const outcomeColor = mission.success ? "#4ade80" : "#f87171";
+
+    parts.push(`\n<div style="margin: 12px 0; padding: 12px; background: rgba(0,0,0,0.3); border-left: 3px solid ${outcomeColor}; border-radius: 4px;">`);
+    parts.push(`<strong style="color: ${outcomeColor};">${outcome}</strong> • ${mission.missionTitle} • ${date}`);
+    parts.push(`<br><span style="color: rgba(255,255,255,0.6); font-size: 0.85em;">${mission.turnsElapsed} turns</span>`);
+
+    // Objectives
+    const obj = mission.objectives;
+    if (obj.primaryTotal > 0 || obj.secondaryTotal > 0 || obj.tertiaryTotal > 0) {
+      parts.push(`<br><strong>Objectives:</strong>`);
+      if (obj.primaryTotal > 0) {
+        parts.push(` Primary ${obj.primaryCompleted}/${obj.primaryTotal}`);
+      }
+      if (obj.secondaryTotal > 0) {
+        parts.push(` • Secondary ${obj.secondaryCompleted}/${obj.secondaryTotal}`);
+      }
+      if (obj.tertiaryTotal > 0) {
+        parts.push(` • Tertiary ${obj.tertiaryCompleted}/${obj.tertiaryTotal}`);
+      }
+    }
+
+    // Casualties
+    const totalCasualties = mission.casualties.reduce((sum: number, c: any) => sum + c.count, 0);
+    if (totalCasualties > 0) {
+      const topCasualties = mission.casualties.slice(0, 3).map((c: any) => `${c.type} (${c.count})`).join(", ");
+      parts.push(`<br><strong style="color: #f87171;">Casualties (${totalCasualties}):</strong> ${topCasualties}`);
+    }
+
+    // Enemies destroyed
+    const totalDestroyed = mission.enemiesDestroyed.reduce((sum: number, e: any) => sum + e.count, 0);
+    if (totalDestroyed > 0) {
+      const topDestroyed = mission.enemiesDestroyed.slice(0, 3).map((e: any) => `${e.type} (${e.count})`).join(", ");
+      parts.push(`<br><strong style="color: #4ade80;">Destroyed (${totalDestroyed}):</strong> ${topDestroyed}`);
+    }
+
+    // Ammunition
+    const ammo = mission.ammunition;
+    const ammoUsed: string[] = [];
+    if (ammo.bombsDropped > 0) ammoUsed.push(`${ammo.bombsDropped} bombs`);
+    if (ammo.artilleryShellsFired > 0) ammoUsed.push(`${ammo.artilleryShellsFired} artillery`);
+    if (ammo.rocketsFired > 0) ammoUsed.push(`${ammo.rocketsFired} rockets`);
+    if (ammoUsed.length > 0) {
+      parts.push(`<br><strong>Ammunition:</strong> ${ammoUsed.join(", ")}`);
+    }
+
+    parts.push(`</div>`);
+
+    return parts.join("");
   }
 
   private resolveFocusTrait(stats: GeneralRosterEntry["stats"]): string | null {
