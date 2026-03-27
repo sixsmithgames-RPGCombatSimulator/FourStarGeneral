@@ -120,3 +120,34 @@ registerTest("DEPLOYMENT_MIRROR_SYNCHRONIZES_COUNTS", async ({ Given, When, Then
     }
   });
 });
+
+registerTest("DEPLOYMENT_MIRROR_NORMALIZES_PLACEMENTS_TO_OFFSET_KEYS", async ({ Given, When, Then }) => {
+  const deploymentState = new DeploymentState();
+
+  await Given("a deployment state with a registered recon alias and an odd-column player placement", async () => {
+    deploymentState.initialize([{ key: "recon", label: "Recon", remaining: 1 }]);
+    deploymentState.registerScenarioAlias("recon", "Recon_Bike");
+  });
+
+  await When("the engine mirror ingests a placement snapshot", async () => {
+    const engine = {
+      baseCamp: null,
+      getPlayerPlacementsSnapshot: () => [buildScenarioUnit("Recon_Bike", { q: 2, r: 3 })],
+      getReserveSnapshot: () => []
+    } as unknown as GameEngineAPI;
+
+    deploymentState.mirrorEngineState(engine);
+  });
+
+  await Then("the mirrored placement is indexed by offset hex key instead of axial key", async () => {
+    const offsetPlacement = deploymentState.getPlacement("2,4");
+    const axialPlacement = deploymentState.getPlacement("2,3");
+
+    if (!offsetPlacement || offsetPlacement.unitKey !== "recon") {
+      throw new Error("Expected mirrored odd-column placement to be available at offset key 2,4.");
+    }
+    if (axialPlacement) {
+      throw new Error("Expected mirrored placement map to stop exposing axial key 2,3 for UI occupancy checks.");
+    }
+  });
+});

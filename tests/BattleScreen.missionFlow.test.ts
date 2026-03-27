@@ -4,6 +4,7 @@ import { BattleScreen } from "../src/ui/screens/BattleScreen";
 import { getScenarioByMissionKey } from "../src/data/scenarioRegistry";
 import { ensureCampaignState } from "../src/state/CampaignState";
 import { ensureDeploymentState, resetDeploymentState } from "../src/state/DeploymentState";
+import type { ScenarioUnit } from "../src/core/types";
 
 function mountBattleScreenRoot(): HTMLElement {
   document.body.innerHTML = "<div id=\"battleScreen\"></div>";
@@ -295,6 +296,152 @@ registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({
       throw new Error(`Expected aria-pressed to be true, received ${toggleButton.getAttribute("aria-pressed")}`);
     }
     window.localStorage.removeItem("fsg-sound-enabled");
+  });
+});
+
+registerTest("BATTLESCREEN_AUTO_DEPLOY_SKIPS_PREDEPLOYED_HEXES", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let deployedToAxialKey: string | null = null;
+  let playerPlacements: ScenarioUnit[];
+  let reserveUnits: import("../src/game/GameEngine").ReserveUnit[];
+
+  const buildReserveUnit = (unit: ScenarioUnit): import("../src/game/GameEngine").ReserveUnit => ({
+    unit,
+    definition: {
+      key: unit.type,
+      name: unit.type,
+      description: "",
+      class: "recon",
+      moveType: "wheel",
+      movePoints: 4,
+      fuel: unit.fuel ?? 0,
+      ammo: unit.ammo ?? 0,
+      traits: [],
+      cost: 0
+    } as unknown as import("../src/game/GameEngine").ReserveUnit["definition"],
+    allocationKey: "recon"
+  });
+
+  await Given("a deployment zone where the closest auto-deploy hex already contains a predeployed unit", async () => {
+    mountBattleScreenRoot();
+    resetDeploymentState();
+
+    const deploymentState = ensureDeploymentState();
+    deploymentState.initialize([{ key: "recon", label: "Recon", remaining: 3 }]);
+    deploymentState.registerScenarioAlias("recon", "Recon_Bike");
+    deploymentState.registerZones([
+      {
+        zoneKey: "player-line",
+        capacity: 3,
+        hexKeys: ["1,3", "2,4", "3,4"],
+        name: "Player Line",
+        description: "Frontage",
+        faction: "Player"
+      }
+    ]);
+
+    playerPlacements = [
+      {
+        type: "Recon_Bike" as ScenarioUnit["type"],
+        hex: { q: 1, r: 3 },
+        strength: 10,
+        experience: 0,
+        ammo: 5,
+        fuel: 30,
+        entrench: 0,
+        facing: "N",
+        preDeployed: true
+      } as ScenarioUnit,
+      {
+        type: "Recon_Bike" as ScenarioUnit["type"],
+        hex: { q: 2, r: 3 },
+        strength: 10,
+        experience: 0,
+        ammo: 5,
+        fuel: 30,
+        entrench: 0,
+        facing: "N",
+        preDeployed: true
+      } as ScenarioUnit
+    ];
+
+    reserveUnits = [
+      buildReserveUnit({
+        type: "Recon_Bike" as ScenarioUnit["type"],
+        hex: { q: 0, r: 0 },
+        strength: 10,
+        experience: 0,
+        ammo: 5,
+        fuel: 30,
+        entrench: 0,
+        facing: "N"
+      } as ScenarioUnit)
+    ];
+
+    const fakeEngine = {
+      baseCamp: { key: "1,3", hex: { q: 1, r: 3 } },
+      getReserveSnapshot() {
+        return reserveUnits;
+      },
+      getPlayerPlacementsSnapshot() {
+        return playerPlacements;
+      },
+      deployUnitByKey(hex: { q: number; r: number }, unitKey: string) {
+        const key = `${hex.q},${hex.r}`;
+        if (playerPlacements.some((unit) => unit.hex.q === hex.q && unit.hex.r === hex.r)) {
+          throw new Error(`Hex ${key} already contains a deployed unit.`);
+        }
+        if (unitKey !== "recon") {
+          throw new Error(`Unexpected unit key ${unitKey}`);
+        }
+        deployedToAxialKey = key;
+        const [reserve] = reserveUnits;
+        if (!reserve) {
+          throw new Error("Expected one reserve unit to auto-deploy.");
+        }
+        playerPlacements.push({
+          ...reserve.unit,
+          hex: { q: hex.q, r: hex.r }
+        });
+        reserveUnits = [];
+      }
+    } as any;
+
+    const fakeBattleState = {
+      hasEngine() {
+        return true;
+      },
+      ensureGameEngine() {
+        return fakeEngine;
+      }
+    } as any;
+
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      { selectedMission: "patrol_river_watch" } as any
+    );
+
+    (screen as any).refreshDeploymentMirrors = () => {};
+    (screen as any).announceBattleUpdate = () => {};
+  });
+
+  await When("auto-deploy runs", async () => {
+    (screen as any).handleAutoDeploy("even");
+  });
+
+  await Then("the deployment skips the predeployed hex and uses the next open offset hex", async () => {
+    if (deployedToAxialKey !== "3,3") {
+      throw new Error(`Expected auto-deploy to skip occupied axial 2,3 and place on 3,3, received ${deployedToAxialKey ?? "<none>"}.`);
+    }
   });
 });
 

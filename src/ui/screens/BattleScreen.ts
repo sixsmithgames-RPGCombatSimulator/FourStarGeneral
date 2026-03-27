@@ -3498,6 +3498,8 @@ export class BattleScreen {
   private handleAutoDeploy(mode: "even" | "grouped"): void {
     try {
       const engine = this.prepareBattleState(false);
+      const deploymentState = ensureDeploymentState();
+      deploymentState.mirrorEngineState(engine);
       if (!engine.baseCamp) {
         this.announceBattleUpdate("Assign a base camp before auto-deploying units.");
         return;

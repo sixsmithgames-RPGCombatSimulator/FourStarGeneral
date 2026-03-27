@@ -282,7 +282,7 @@ export class DeploymentState {
 
   /**
    * Records a unit placement for the provided hex while keeping aggregate counters aligned.
-   * @param hexKey - Axial string key identifying the hex (e.g., "0,2").
+   * @param hexKey - Offset string key identifying the rendered hex (e.g., "0,2").
    * @param unitKey - Allocation key used by the UI (e.g., "infantryBattalion").
    * @param faction - Owning faction, defaults to the player.
    */
@@ -515,8 +515,13 @@ export class DeploymentState {
     const playerPlacements = engine.getPlayerPlacementsSnapshot();
     const placementCounts = new Map<string, number>();
     playerPlacements.forEach((unit) => {
-      const hexKey = axialKey(unit.hex);
-      const hint = options.placementHints?.get(hexKey) ?? previousPlacements.get(hexKey);
+      const axialHexKey = axialKey(unit.hex);
+      const hexKey = axialToOffsetKey(unit.hex);
+      const hint =
+        options.placementHints?.get(hexKey)
+        ?? options.placementHints?.get(axialHexKey)
+        ?? previousPlacements.get(hexKey)
+        ?? previousPlacements.get(axialHexKey);
       const unitKey = this.resolveUnitKeyFromScenario(unit, hint?.unitKey);
       const sprite = hint?.sprite ?? this.resolveSpriteForUnit(unitKey);
       this.placements.set(hexKey, { hexKey, unitKey, faction: "Player", sprite });
