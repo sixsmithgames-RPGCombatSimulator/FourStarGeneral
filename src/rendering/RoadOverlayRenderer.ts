@@ -7,6 +7,15 @@ import type { TilePalette } from "../core/types";
  * Creates dynamic road segments that connect to adjacent road tiles.
  */
 export class RoadOverlayRenderer {
+  private isHamlet(tile: TileDetails): boolean {
+    return (
+      tile.terrain.toLowerCase() === "city" &&
+      tile.terrainType.toLowerCase() === "urban" &&
+      tile.density.toLowerCase() === "sparse" &&
+      tile.features.some((feature) => feature.toLowerCase() === "buildings")
+    );
+  }
+
   /**
    * Checks if a tile contains a road.
    * @param tile - Tile to check
@@ -19,7 +28,7 @@ export class RoadOverlayRenderer {
 
     const terrain = tile.terrain.toLowerCase();
     const terrainType = tile.terrainType.toLowerCase();
-    return terrain === "road" || terrainType === "road";
+    return terrain === "road" || terrainType === "road" || this.isHamlet(tile);
   }
 
   /**

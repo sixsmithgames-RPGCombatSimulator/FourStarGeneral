@@ -4,7 +4,9 @@ import { runAllTests } from "./harness.js";
 // Import only tests that do not rely on JSON module loading in Node. These specs use inline scenarios.
 import "./HexMapRenderer.animateUnitMove.test.js";
 import "./HexMapRenderer.focusOnHex.test.js";
+import "./HexMapRenderer.muzzleFlash.test.js";
 import "./HexMapRenderer.tacticalOverlays.test.js";
+import "./RoadOverlayRenderer.test.js";
 import "./ProceduralPrimitives.test.js";
 import "./FrameSequenceAnimator.playback.test.js";
 import "./SpriteSheetAnimator.layout.test.js";

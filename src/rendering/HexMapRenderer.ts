@@ -3448,6 +3448,56 @@ export class HexMapRenderer implements IMapRenderer {
     }
   }
 
+  private chooseMuzzleFlashProfile(attackerHexKey: string): {
+    animationType: string;
+    baseScale: number;
+    offsets: Array<[number, number]>;
+    staggerMs: number;
+  } {
+    switch (this.getWeaponEffectType(attackerHexKey)) {
+      case "mg":
+        return {
+          animationType: "mg_muzzle",
+          baseScale: 0.3,
+          offsets: [
+            [0, 0],
+            [-4, -1],
+            [-2, 2],
+            [2, -2],
+            [5, 0],
+            [1, 3],
+            [-5, 1]
+          ],
+          staggerMs: 18
+        };
+      case "cannon":
+        return {
+          animationType: "cannon_muzzle",
+          baseScale: 0.42,
+          offsets: [
+            [0, 0],
+            [3, -1],
+            [-3, 2]
+          ],
+          staggerMs: 24
+        };
+      case "small_arms":
+      default:
+        return {
+          animationType: "small_arms_muzzle",
+          baseScale: 0.24,
+          offsets: [
+            [0, 0],
+            [-3, 1],
+            [2, -2],
+            [4, 1],
+            [-1, 3]
+          ],
+          staggerMs: 20
+        };
+    }
+  }
+
   /**
    * Get terrain type at the specified hex for terrain-responsive effects.
    */
@@ -3495,9 +3545,18 @@ export class HexMapRenderer implements IMapRenderer {
     soundIntervalMs: number = 0,
     gainMultiplier: number = 1
   ): Promise<void> {
-    const weaponType = this.getWeaponEffectType(attackerHexKey);
+    const profile = this.chooseMuzzleFlashProfile(attackerHexKey);
+    const visualBursts = profile.offsets.map(([offsetX, offsetY], index) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          const scale = index === 0 ? profile.baseScale : profile.baseScale * Math.max(0.72, 0.94 - index * 0.05);
+          void this.playCombatAnimation(profile.animationType, attackerHexKey, offsetX, offsetY, scale, false).then(() => resolve());
+        }, index * profile.staggerMs);
+      })
+    );
+
     await Promise.all([
-      this.playCombatAnimation(weaponType, attackerHexKey, 0, 0, 1.25, false),
+      Promise.all(visualBursts).then(() => undefined),
       this.playWeaponSoundBurst(attackerHexKey, soundBursts, soundIntervalMs, gainMultiplier)
     ]);
   }

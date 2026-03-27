@@ -1,5 +1,128 @@
 [
   {
+    "type": "small_arms_muzzle",
+    "displayName": "Small Arms Muzzle Flash",
+    "durationMs": 180,
+    "nodeCountBudget": {
+      "min": 3,
+      "typical": 5,
+      "max": 7
+    },
+    "useTerrainResponse": false,
+    "phases": [
+      {
+        "name": "flash",
+        "startMs": 0,
+        "endMs": 180,
+        "primitives": [
+          {
+            "type": "flash_core",
+            "startMs": 0,
+            "endMs": 120,
+            "params": {
+              "maxRadius": 10,
+              "peakProgress": 0.16,
+              "fadeProgress": 0.42
+            }
+          },
+          {
+            "type": "sparks",
+            "startMs": 10,
+            "endMs": 140,
+            "params": {
+              "sparkCount": 3,
+              "minLength": 4,
+              "maxLength": 8,
+              "strokeWidth": 0.8
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "mg_muzzle",
+    "displayName": "Machine Gun Muzzle Flash",
+    "durationMs": 220,
+    "nodeCountBudget": {
+      "min": 4,
+      "typical": 6,
+      "max": 9
+    },
+    "useTerrainResponse": false,
+    "phases": [
+      {
+        "name": "flash",
+        "startMs": 0,
+        "endMs": 220,
+        "primitives": [
+          {
+            "type": "flash_core",
+            "startMs": 0,
+            "endMs": 140,
+            "params": {
+              "maxRadius": 12,
+              "peakProgress": 0.15,
+              "fadeProgress": 0.4
+            }
+          },
+          {
+            "type": "sparks",
+            "startMs": 12,
+            "endMs": 170,
+            "params": {
+              "sparkCount": 4,
+              "minLength": 5,
+              "maxLength": 10,
+              "strokeWidth": 0.9
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cannon_muzzle",
+    "displayName": "Cannon Muzzle Flash",
+    "durationMs": 260,
+    "nodeCountBudget": {
+      "min": 5,
+      "typical": 8,
+      "max": 11
+    },
+    "useTerrainResponse": false,
+    "phases": [
+      {
+        "name": "flash",
+        "startMs": 0,
+        "endMs": 260,
+        "primitives": [
+          {
+            "type": "flash_core",
+            "startMs": 0,
+            "endMs": 150,
+            "params": {
+              "maxRadius": 18,
+              "peakProgress": 0.15,
+              "fadeProgress": 0.38
+            }
+          },
+          {
+            "type": "sparks",
+            "startMs": 10,
+            "endMs": 180,
+            "params": {
+              "sparkCount": 6,
+              "minLength": 6,
+              "maxLength": 12,
+              "strokeWidth": 1
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     "type": "small_arms",
     "displayName": "Small Arms Fire",
     "durationMs": 800,
