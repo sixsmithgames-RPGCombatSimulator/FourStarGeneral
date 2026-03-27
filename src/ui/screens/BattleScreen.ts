@@ -167,6 +167,7 @@ export class BattleScreen {
   private screenShownHandler: (event: Event) => void;
   private defaultSelectionKey: string | null;
   private deploymentPrimed = false;
+  private panelEventsBound = false;
   private battleUpdateUnsubscribe: (() => void) | null = null;
   private missionRulesController: MissionRulesController | null = null;
   private missionStatus: MissionStatus | null = null;
@@ -1746,10 +1747,21 @@ export class BattleScreen {
     }, 800);
   }
 
+  /**
+   * WHAT: Wires deployment-panel events into battle-screen engine actions exactly once.
+   * WHY: The deployment panel is long-lived, so repeated binding would process a single click
+   * multiple times and could consume the same reserve twice.
+   *
+   * @returns Nothing. The method installs event handlers on the shared deployment panel.
+   */
   private bindPanelEvents(): void {
     if (!this.deploymentPanel) {
       return;
     }
+    if (this.panelEventsBound) {
+      return;
+    }
+    this.panelEventsBound = true;
 
     this.deploymentPanel.on((event) => {
       const engine = this.battleState.ensureGameEngine();
@@ -1788,6 +1800,23 @@ export class BattleScreen {
           }
           const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
           const label = this.resolveUnitLabel(unitKey);
+          const liveReserveCount = this.countLiveReservesForUnitKey(engine, unitKey);
+          if (liveReserveCount <= 0) {
+            this.refreshDeploymentMirrors("sync");
+            if (this.isPlayerPlacementOccupyingHex(engine, axial)) {
+              return;
+            }
+            const reserveSummary = this.summarizeLiveReserveQueue(engine);
+            this.reportDeploymentPanelError({
+              title: "Deployment failed.",
+              detail: reserveSummary
+                ? `${label} is no longer present in the live reserve queue. Ready reserves: ${reserveSummary}.`
+                : `${label} is no longer present in the live reserve queue. No ready reserves remain.`,
+              action: "Review the refreshed reserve list, choose a ready unit, and retry the deployment.",
+              recoverable: true
+            });
+            return;
+          }
           try {
             engine.deployUnitByKey(axial, unitKey);
             this.deploymentPanel?.setCriticalError(null);
@@ -4428,6 +4457,64 @@ export class BattleScreen {
       tertiaryCompleted: tertiary.filter(obj => obj.state === "completed").length,
       tertiaryTotal: tertiary.length
     };
+  }
+
+  /**
+   * WHAT: Counts live reserves that match the requested unit key using deployment alias rules.
+   * WHY: The deployment panel can briefly drift behind engine truth after a reserve is consumed,
+   * so battle-screen preflight checks the live queue before issuing another deploy command.
+   *
+   * @param engine - Live game engine that owns the authoritative reserve queue.
+   * @param unitKey - Deployment allocation key requested by the panel.
+   * @returns Number of reserve entries that still match the requested key.
+   */
+  private countLiveReservesForUnitKey(engine: GameEngine, unitKey: string): number {
+    const deploymentState = ensureDeploymentState();
+    const scenarioType = deploymentState.getScenarioTypeForUnitKey(unitKey);
+    return engine.getReserveSnapshot().filter((reserve) => {
+      if (reserve.allocationKey === unitKey) {
+        return true;
+      }
+      if (scenarioType && reserve.unit.type === scenarioType) {
+        return true;
+      }
+      if (!reserve.allocationKey) {
+        return false;
+      }
+      return deploymentState.getUnitKeyForScenarioType(reserve.unit.type as string) === unitKey;
+    }).length;
+  }
+
+  /**
+   * WHAT: Checks whether a player placement already occupies the requested deployment hex.
+   * WHY: Duplicate deploy events can arrive after a successful placement; when the target hex is already filled,
+   * the safest behavior is to refresh mirrors and ignore the redundant request.
+   *
+   * @param engine - Live game engine containing current player placements.
+   * @param hex - Axial hex that the deployment request targeted.
+   * @returns True when a player unit already occupies the requested hex.
+   */
+  private isPlayerPlacementOccupyingHex(engine: GameEngine, hex: Axial): boolean {
+    return engine.getPlayerPlacementsSnapshot().some((unit) => unit.hex.q === hex.q && unit.hex.r === hex.r);
+  }
+
+  /**
+   * WHAT: Builds a concise summary of the live reserve queue for user-facing deployment errors.
+   * WHY: The project forbids hidden fallbacks, so deployment failures must explain what reserves remain
+   * after the UI is refreshed back to engine truth.
+   *
+   * @param engine - Live game engine containing the authoritative reserve queue.
+   * @returns Human-readable reserve summary, or an empty string when nothing remains ready.
+   */
+  private summarizeLiveReserveQueue(engine: GameEngine): string {
+    const summary = new Map<string, number>();
+    engine.getReserveSnapshot().forEach((reserve) => {
+      const label = reserve.allocationKey
+        ? this.resolveUnitLabel(reserve.allocationKey)
+        : String(reserve.unit.type);
+      summary.set(label, (summary.get(label) ?? 0) + 1);
+    });
+    return Array.from(summary.entries(), ([label, count]) => `${label} x${count}`).join(", ");
   }
 
   /**

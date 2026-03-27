@@ -1322,3 +1322,142 @@ registerTest("BATTLESCREEN_BASE_CAMP_ERRORS_USE_PANEL_MESSAGING", async ({ Given
     }
   });
 });
+
+registerTest("BATTLESCREEN_DUPLICATE_DEPLOY_EVENTS_IGNORE_STALE_SECOND_ATTEMPT", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let panelListener: ((event: { type: string; payload?: Record<string, unknown> }) => void) | null = null;
+  let criticalError: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null = null;
+  let deployCalls = 0;
+  const refreshReasons: string[] = [];
+  let reserveSnapshot = [
+    {
+      unit: { type: "Infantry_42", hex: { q: 0, r: 0 } },
+      definition: { name: "Infantry Battalion" },
+      allocationKey: "infantry"
+    }
+  ];
+  let placements: Array<{ type: string; hex: { q: number; r: number } }> = [];
+
+  await Given("a deployment panel event stream that delivers the same deploy request twice", async () => {
+    mountBattleScreenRoot();
+    resetDeploymentState();
+    ensureDeploymentState().registerScenarioAlias("infantry", "Infantry_42");
+
+    const fakeDeploymentPanel = {
+      on(listener: (event: { type: string; payload?: Record<string, unknown> }) => void) {
+        panelListener = listener;
+        return () => {};
+      },
+      setCriticalError(error: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null) {
+        criticalError = error;
+      },
+      resolveZoneForHex() {
+        return { name: "Allied Start" };
+      }
+    } as any;
+
+    const fakeEngine = {
+      getTurnSummary() {
+        return { phase: "deployment", activeFaction: "Player", turnNumber: 1 };
+      },
+      getReserveSnapshot() {
+        return reserveSnapshot;
+      },
+      getPlayerPlacementsSnapshot() {
+        return placements;
+      },
+      deployUnitByKey(_axial: { q: number; r: number }, unitKey: string) {
+        if (unitKey !== "infantry") {
+          throw new Error(`Unexpected unit key ${unitKey}`);
+        }
+        deployCalls += 1;
+        reserveSnapshot = [];
+        placements = [{ type: "Infantry_42", hex: { q: 3, r: 2 } }];
+      }
+    } as any;
+
+    screen = new BattleScreen(
+      {} as any,
+      { ensureGameEngine() { return fakeEngine; } } as any,
+      {} as any,
+      null,
+      fakeDeploymentPanel,
+      null,
+      null,
+      null,
+      null,
+      null,
+      { selectedMission: "training" } as any
+    );
+
+    (screen as any).battleAnnouncements = document.createElement("div");
+    (screen as any).baseCampStatus = document.createElement("div");
+    (screen as any).refreshDeploymentMirrors = (reason: string) => {
+      refreshReasons.push(reason);
+    };
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).completeTutorialPhase = () => {};
+  });
+
+  await When("the duplicate deploy events are processed", async () => {
+    (screen as any).bindPanelEvents();
+    if (!panelListener) {
+      throw new Error("Expected deployment panel listener to be registered.");
+    }
+    panelListener({ type: "deploy", payload: { unitKey: "infantry", hexKey: "3,3" } });
+    panelListener({ type: "deploy", payload: { unitKey: "infantry", hexKey: "3,3" } });
+  });
+
+  await Then("the second stale attempt refreshes mirrors without surfacing a false deployment failure", async () => {
+    if (deployCalls !== 1) {
+      throw new Error(`Expected exactly one live deployment, received ${deployCalls}.`);
+    }
+    if (criticalError !== null) {
+      throw new Error(`Expected no deployment-panel error for the duplicate deploy, received ${JSON.stringify(criticalError)}.`);
+    }
+    if (refreshReasons.join("|") !== "deploy|sync") {
+      throw new Error(`Expected refresh reasons deploy|sync, received ${refreshReasons.join("|") || "<none>"}.`);
+    }
+    resetDeploymentState();
+  });
+});
+
+registerTest("BATTLESCREEN_BIND_PANEL_EVENTS_IS_IDEMPOTENT", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let panelOnCalls = 0;
+
+  await Given("a battle screen with a reusable deployment panel", async () => {
+    mountBattleScreenRoot();
+    const fakeDeploymentPanel = {
+      on() {
+        panelOnCalls += 1;
+        return () => {};
+      }
+    } as any;
+
+    screen = new BattleScreen(
+      {} as any,
+      { ensureGameEngine() { return {}; } } as any,
+      {} as any,
+      null,
+      fakeDeploymentPanel,
+      null,
+      null,
+      null,
+      null,
+      null,
+      { selectedMission: "training" } as any
+    );
+  });
+
+  await When("panel events are bound more than once", async () => {
+    (screen as any).bindPanelEvents();
+    (screen as any).bindPanelEvents();
+  });
+
+  await Then("the deployment panel only receives one listener registration", async () => {
+    if (panelOnCalls !== 1) {
+      throw new Error(`Expected a single deployment-panel binding, received ${panelOnCalls}.`);
+    }
+  });
+});
