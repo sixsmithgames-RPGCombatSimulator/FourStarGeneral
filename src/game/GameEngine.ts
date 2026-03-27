@@ -6117,6 +6117,24 @@ private automateSupplyConvoys(
         ? Math.ceil(finalExpectedDamage)
         : Math.round(finalExpectedDamage)
     );
+
+    console.log("[GameEngine] *** PREVIEW CALCULATION DEBUG ***", {
+      attackerType: attacker.type,
+      attackerStrength: attacker.strength,
+      defenderType: defender.type,
+      defenderStrength: defender.strength,
+      attackResultExpectedDamage: attackResult.expectedDamage,
+      attackResultShots: attackResult.shots,
+      attackResultDamagePerHit: attackResult.damagePerHit,
+      attackResultExpectedHits: attackResult.expectedHits,
+      attackResultAccuracy: attackResult.accuracy,
+      damageMultiplier,
+      finalExpectedDamage,
+      projectedDefenderLoss,
+      isBomber: attackerIsBomber,
+      isAircraft: attackerIsAircraft
+    });
+
     const projectedDefender = structuredClone(defender);
     projectedDefender.strength = Math.max(0, projectedDefender.strength - projectedDefenderLoss);
     const retaliationPreview = this.previewRetaliationForPlayerAttack(
@@ -7152,6 +7170,22 @@ private automateSupplyConvoys(
         ? Math.ceil(attackResult.expectedDamage)
         : Math.round(attackResult.expectedDamage)
     );
+
+    console.log("[GameEngine] *** DAMAGE CALCULATION DEBUG ***", {
+      attackerType: attacker.type,
+      attackerStrength: attacker.strength,
+      defenderType: defender.type,
+      defenderStrength: defender.strength,
+      stance: effectiveStance,
+      attackResultExpectedDamage: attackResult.expectedDamage,
+      attackResultShots: attackResult.shots,
+      attackResultDamagePerHit: attackResult.damagePerHit,
+      attackResultExpectedHits: attackResult.expectedHits,
+      attackResultAccuracy: attackResult.accuracy,
+      inflictedAfterRounding: inflicted,
+      isBomber: attackerIsBomber,
+      isAircraft: attackerIsAircraft
+    });
 
     // Apply to defender
     const defKey = axialKey(defenderHex);
