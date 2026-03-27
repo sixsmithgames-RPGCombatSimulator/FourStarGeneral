@@ -4053,15 +4053,40 @@ private automateSupplyConvoys(
   private findReserveIndexByUnitKey(unitKey: string): number {
     const deploymentState = ensureDeploymentState();
     const scenarioType = deploymentState.getScenarioTypeForUnitKey(unitKey);
-    return this.reserves.findIndex((reserve) => {
+
+    // Try to find a matching reserve
+    const index = this.reserves.findIndex((reserve) => {
+      // First, try exact allocationKey match
       if (reserve.allocationKey === unitKey) {
         return true;
       }
-      if (scenarioType) {
-        return reserve.unit.type === scenarioType;
+      // Then try scenario type lookup
+      if (scenarioType && reserve.unit.type === scenarioType) {
+        return true;
+      }
+      // Finally, try reverse lookup - if the reserve's scenario type maps back to this unitKey
+      const reserveUnitKey = deploymentState.getUnitKeyForScenarioType(reserve.unit.type);
+      if (reserveUnitKey === unitKey) {
+        return true;
       }
       return false;
     });
+
+    // If not found, log details for debugging
+    if (index < 0) {
+      console.warn("[GameEngine] findReserveIndexByUnitKey failed", {
+        unitKey,
+        scenarioType,
+        availableReserves: this.reserves.map((r, i) => ({
+          index: i,
+          allocationKey: r.allocationKey,
+          scenarioType: r.unit.type,
+          mappedKey: deploymentState.getUnitKeyForScenarioType(r.unit.type)
+        }))
+      });
+    }
+
+    return index;
   }
 
   /**
