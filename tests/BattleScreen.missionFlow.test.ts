@@ -16,6 +16,7 @@ function mountBattleScreenRoot(): HTMLElement {
 }
 
 registerTest("SCENARIO_REGISTRY_REQUIRES_EXPLICIT_MISSION_MAPPING", async ({ Given, When, Then }) => {
+  let patrolScenarioName = "";
   let resolvedScenarioName = "";
   let thrown: unknown = null;
 
@@ -24,6 +25,7 @@ registerTest("SCENARIO_REGISTRY_REQUIRES_EXPLICIT_MISSION_MAPPING", async ({ Giv
   });
 
   await When("scenario sources are resolved", async () => {
+    patrolScenarioName = (getScenarioByMissionKey("patrol") as { name?: string }).name ?? "";
     resolvedScenarioName = (getScenarioByMissionKey("patrol_river_watch") as { name?: string }).name ?? "";
     try {
       getScenarioByMissionKey("unknown_mission");
@@ -33,12 +35,97 @@ registerTest("SCENARIO_REGISTRY_REQUIRES_EXPLICIT_MISSION_MAPPING", async ({ Giv
   });
 
   await Then("river watch resolves explicitly and unknown missions fail fast", async () => {
+    if (patrolScenarioName !== "Hamlet Defense") {
+      throw new Error(`Expected patrol to resolve Hamlet Defense, received ${patrolScenarioName || "<empty>"}`);
+    }
     if (resolvedScenarioName !== "River Crossing Watch") {
       throw new Error(`Expected River Crossing Watch, received ${resolvedScenarioName || "<empty>"}`);
     }
     if (!(thrown instanceof Error) || !thrown.message.includes("Unknown mission key: unknown_mission")) {
       throw new Error("Expected unknown mission lookup to throw an explicit scenario registry error");
     }
+  });
+});
+
+registerTest("BATTLESCREEN_BASE_CAMP_FALLS_BACK_TO_DEFAULT_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let assignedAxial: { q: number; r: number } | null = null;
+  let assignedZoneKey: string | null = null;
+
+  await Given("a deployment screen with a valid player zone but no explicit hex selection", async () => {
+    mountBattleScreenRoot();
+    resetDeploymentState();
+    ensureDeploymentState().registerZones([
+      {
+        zoneKey: "zone-alpha",
+        capacity: 4,
+        hexKeys: ["14,2", "15,2", "14,1", "15,1"],
+        name: "Town Perimeter",
+        description: "Hamlet deployment ring",
+        faction: "Player"
+      }
+    ]);
+
+    const fakeEngine = {
+      setBaseCamp(axial: { q: number; r: number }) {
+        assignedAxial = axial;
+      }
+    } as any;
+
+    const fakeBattleState = {
+      ensureGameEngine() {
+        return fakeEngine;
+      }
+    } as any;
+
+    const fakeDeploymentPanel = {
+      setCriticalError() {},
+      markBaseCampAssigned(zoneKey: string) {
+        assignedZoneKey = zoneKey;
+      }
+    } as any;
+
+    const fakeRenderer = {
+      applyHexSelection() {},
+      renderBaseCampMarker() {}
+    } as any;
+
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      fakeRenderer,
+      fakeDeploymentPanel,
+      null,
+      null,
+      null,
+      null,
+      null,
+      { selectedMission: "patrol" } as any
+    );
+
+    (screen as any).baseCampStatus = document.createElement("div");
+    (screen as any).refreshDeploymentMirrors = () => {};
+    (screen as any).completeTutorialPhase = () => {};
+    (screen as any).selectedHexKey = null;
+    (screen as any).defaultSelectionKey = null;
+  });
+
+  await When("base camp assignment runs without a prior click on a specific hex", async () => {
+    (screen as any).handleAssignBaseCamp();
+  });
+
+  await Then("the default player deployment hex is used instead of surfacing a null-selection error", async () => {
+    if (!assignedAxial || assignedAxial.q !== 14 || assignedAxial.r !== -5) {
+      throw new Error(`Expected fallback base camp assignment at offset 14,2 => axial 14,-5, received ${JSON.stringify(assignedAxial)}`);
+    }
+    if (assignedZoneKey !== "zone-alpha") {
+      throw new Error(`Expected fallback base camp assignment to lock zone-alpha, received ${assignedZoneKey}`);
+    }
+    if (!((screen as any).baseCampStatus.textContent ?? "").includes("Base camp: 14,2")) {
+      throw new Error(`Expected base camp status to confirm fallback hex 14,2, received ${(screen as any).baseCampStatus.textContent}`);
+    }
+    resetDeploymentState();
   });
 });
 

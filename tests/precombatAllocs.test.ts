@@ -542,8 +542,11 @@ registerTest("MISSION_PROFILE_EXPOSES_REUSABLE_CATEGORY_AND_DEPLOYMENT_DEFAULTS"
     if (patrolProfile.deployment.preferredZoneKey !== "zone-alpha") {
       throw new Error(`Expected baseline patrol preferred deployment zone zone-alpha, received ${patrolProfile.deployment.preferredZoneKey}`);
     }
-    if (patrolProfile.deployment.zoneDoctrine.length !== 2) {
-      throw new Error(`Expected baseline patrol doctrine to expose two deployment zones, received ${patrolProfile.deployment.zoneDoctrine.length}`);
+    if (patrolProfile.deployment.focusLabel !== "town perimeter") {
+      throw new Error(`Expected baseline patrol deployment focus label to be town perimeter, received ${patrolProfile.deployment.focusLabel}`);
+    }
+    if (patrolProfile.deployment.zoneDoctrine.length !== 1) {
+      throw new Error(`Expected baseline patrol doctrine to expose one deployment zone, received ${patrolProfile.deployment.zoneDoctrine.length}`);
     }
   });
 });

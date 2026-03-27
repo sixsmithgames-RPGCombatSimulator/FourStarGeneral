@@ -6951,12 +6951,31 @@ private automateSupplyConvoys(
 
   /** Resolve a basic attack and update units in place. */
   attackUnit(attackerHex: Axial, defenderHex: Axial, stance?: CombatStance): AttackResolution | null {
+    console.log("[GameEngine] *** attackUnit() ENTRY ***", {
+      attackerHex,
+      defenderHex,
+      stance,
+      phase: this._phase
+    });
+
     if (this._phase !== "playerTurn") {
       throw new Error("Attacks are allowed only during the player turn.");
     }
     const attacker = this.lookupUnit(attackerHex, "Player");
     const defender = this.lookupUnit(defenderHex, "Bot");
+
+    console.log("[GameEngine] *** attackUnit() LOOKUP RESULT ***", {
+      attackerFound: !!attacker,
+      defenderFound: !!defender,
+      attackerType: attacker?.type,
+      defenderType: defender?.type,
+      attackerStrength: attacker?.strength,
+      defenderStrength: defender?.strength,
+      contactState: this.getPlayerEnemyContactStateAtHex(defenderHex)
+    });
+
     if (!attacker || !defender || !this.getPlayerEnemyContactStateAtHex(defenderHex)) {
+      console.log("[GameEngine] *** attackUnit() EARLY RETURN - missing attacker/defender or no contact ***");
       return null;
     }
     if (this.isAutomatedPlayerUnit(attacker)) {
@@ -7031,6 +7050,16 @@ private automateSupplyConvoys(
         throw new Error("The squadron has expended its bomb load and must rearm at the base camp before attacking ground targets again.");
       }
     }
+
+    console.log("[GameEngine] *** attackUnit() AFTER VALIDATION ***", {
+      attackerType: attacker.type,
+      defenderType: defender.type,
+      attackerIsAircraft,
+      defenderIsAircraft,
+      maxAttacks,
+      attacksUsed: flags.attacksUsed,
+      movementPointsUsed: flags.movementPointsUsed
+    });
 
     // Pre-attack interception: layered CAP vs escort resolution before ground strike.
     if (attackerIsAircraft && !defenderIsAircraft) {
@@ -7131,11 +7160,33 @@ private automateSupplyConvoys(
       }
     }
 
+    console.log("[GameEngine] *** attackUnit() BEFORE buildAttackRequest ***", {
+      attackerType: attacker.type,
+      defenderType: defender.type,
+      effectiveStance
+    });
+
     const req = this.buildAttackRequest(attacker, defender, "Player", "Bot", { stance: effectiveStance });
     if (!req) {
+      console.log("[GameEngine] *** attackUnit() EARLY RETURN - buildAttackRequest returned null ***");
       return null;
     }
+
+    console.log("[GameEngine] *** attackUnit() BEFORE resolveAttack ***", {
+      attackerType: attacker.type,
+      defenderType: defender.type,
+      attackRequest: req
+    });
+
     let attackResult = resolveAttack(req);
+
+    console.log("[GameEngine] *** attackUnit() AFTER resolveAttack ***", {
+      attackerType: attacker.type,
+      defenderType: defender.type,
+      expectedDamage: attackResult.expectedDamage,
+      shots: attackResult.shots,
+      accuracy: attackResult.accuracy
+    });
 
     if (attackerIsBomber && !defenderIsAircraft) {
       const boostedDamage = attackResult.expectedDamage * 10;
@@ -7475,6 +7526,15 @@ private automateSupplyConvoys(
     });
 
     this.invalidateRosterCache();
+
+    console.log("[GameEngine] *** attackUnit() FINAL RETURN ***", {
+      attackerType: attacker.type,
+      defenderType: defender.type,
+      defenderRemainingStrength: updatedDef.strength,
+      defenderDestroyed: updatedDef.strength <= 0,
+      attackerRemainingStrength,
+      retaliationOccurred
+    });
 
     return {
       result: attackResult,

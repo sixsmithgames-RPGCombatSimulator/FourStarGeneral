@@ -12,7 +12,7 @@ import type { MissionKey } from "../state/UIState";
  */
 export const missionTitles: Record<MissionKey, string> = {
   training: "Training Exercise",
-  patrol: "Border Patrol",
+  patrol: "Hamlet Defense",
   patrol_river_watch: "River Crossing Watch",
   assault_citadel_ridge: "Citadel Ridge",
   assault: "Tactical Assault",
@@ -30,8 +30,8 @@ export const missionBriefings: Record<MissionKey, string> = {
     "Focus on unit coordination and terrain assessment. No hostile contact expected.",
 
   patrol:
-    "Conduct a routine border patrol to secure the perimeter and identify potential enemy reconnaissance units. " +
-    "Maintain defensive posture and report any suspicious activity. Light resistance anticipated.",
+    "Enemy battle groups are pushing up the southern road net toward the northern hamlet. " +
+    "Establish a base camp inside the town perimeter, deploy your reserves around the crossroads, and hold the settlement until the assault is broken. Expect a strong combined-arms attack with armor, artillery, and probing recon screens.",
 
   patrol_river_watch:
     "Recon reports enemy infiltrators massing along the river. Multiple shallow fords cut through the bend—if they slip across, they'll have a lodgment before dawn. " +
@@ -126,15 +126,16 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
   },
   patrol: {
     objectives: [
-      "Reconnoiter border checkpoints and report hostile sightings.",
-      "Maintain radio contact with HQ at each waypoint."
+      "Primary: Hold the northern hamlet and deny the enemy a breakthrough into town.",
+      "Secondary: Bleed the enemy armored spearhead along the southern approach roads.",
+      "Tertiary: Keep the allied garrison intact long enough to anchor the defense."
     ],
-    turnLimit: 30,
-    doctrine: "Maintain flexible response posture; adhere to reconnaissance-in-force doctrine.",
+    turnLimit: 20,
+    doctrine: "Anchor the defense on the hamlet, use the road lattice to shift reserves, and let artillery and anti-tank screens break up enemy armor before it reaches the town edge.",
     supplies: [
-      { label: "Rations", amount: "Standard patrol pack" },
-      { label: "Fuel", amount: "50% reserve" },
-      { label: "Ammo", amount: "Issue combat load" }
+      { label: "Requisition Budget", amount: "5,000,000 requisition points" },
+      { label: "Allied Garrison", amount: "Infantry, engineers, anti-tank gun, recon patrol" },
+      { label: "Enemy Pressure", amount: "Approx. 7,500,000 points of attacking forces" }
     ]
   },
   patrol_river_watch: {
@@ -228,22 +229,16 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
   },
   patrol: {
     preferredZoneKey: "zone-alpha",
-    focusLabel: "patrol line",
+    focusLabel: "town perimeter",
     validation: {
-      minimumPlayerZoneCapacityTotal: 16,
+      minimumPlayerZoneCapacityTotal: 20,
       minimumPlayerZoneFrontage: 5,
-      minimumPlayerZoneDepth: 3
+      minimumPlayerZoneDepth: 4
     },
     zoneDoctrine: [
       {
         zoneKey: "zone-alpha",
-        minimumCapacity: 12,
-        minimumFrontage: 5,
-        minimumDepth: 4
-      },
-      {
-        zoneKey: "zone-bravo",
-        minimumCapacity: 16,
+        minimumCapacity: 20,
         minimumFrontage: 5,
         minimumDepth: 4
       }

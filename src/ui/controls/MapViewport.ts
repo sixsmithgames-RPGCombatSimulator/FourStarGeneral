@@ -175,9 +175,6 @@ export class MapViewport implements IMapViewport {
    */
   setViewportRoot(root: SVGGElement | null): void {
     this.viewportRoot = root;
-    if (root) {
-      console.log("[MapViewport] viewportRoot set from external source");
-    }
   }
 
   /**
@@ -193,13 +190,11 @@ export class MapViewport implements IMapViewport {
    * Adjusts the zoom level by the specified delta.
    */
   adjustZoom(delta: number): void {
-    const oldZoom = this.transform.zoom;
     this.transform.zoom = this.clamp(
       this.transform.zoom + delta,
       this.MIN_ZOOM,
       this.MAX_ZOOM
     );
-    console.log("[MapViewport] adjustZoom:", { delta, oldZoom, newZoom: this.transform.zoom, transform: this.transform });
     this.updateTransform();
   }
 
@@ -253,21 +248,6 @@ export class MapViewport implements IMapViewport {
     this.transform.zoom = newZoom;
     this.transform.panX = panX;
     this.transform.panY = panY;
-
-    console.log("[MapViewport] adjustZoomAt applied", {
-      delta,
-      oldZoom,
-      newZoom,
-      screenX,
-      screenY,
-      mapX,
-      mapY,
-      renderScale,
-      contentOffsetX,
-      contentOffsetY,
-      panX,
-      panY
-    });
 
     this.updateTransform();
   }
@@ -399,7 +379,6 @@ export class MapViewport implements IMapViewport {
         console.warn("[MapViewport] updateTransform: viewportRoot not found - map may not be rendered yet");
         return;
       }
-      console.log("[MapViewport] viewportRoot found after re-query");
     }
 
     // CRITICAL: Use SVG transform attribute, NOT CSS transform
@@ -407,14 +386,6 @@ export class MapViewport implements IMapViewport {
     // mismatches between viewport state and actual rendered transform
     const transformValue = `translate(${panX}, ${panY}) scale(${zoom})`;
     this.viewportRoot.setAttribute("transform", transformValue);
-
-    console.log("[MapViewport] updateTransform applied:", {
-      zoom,
-      panX: panX.toFixed(2),
-      panY: panY.toFixed(2),
-      transformValue,
-      actualTransform: this.viewportRoot.getAttribute("transform")
-    });
   }
 
   /**

@@ -8,6 +8,7 @@ function cloneScenario<T>(value: T): T {
 }
 
 registerTest("SCENARIO_VALIDATION_ACCEPTS_REGISTERED_SCENARIOS", async ({ Given, When, Then }) => {
+  let patrolIssues: readonly string[] = [];
   let trainingIssues: readonly string[] = [];
   let riverIssues: readonly string[] = [];
 
@@ -16,11 +17,15 @@ registerTest("SCENARIO_VALIDATION_ACCEPTS_REGISTERED_SCENARIOS", async ({ Given,
   });
 
   await When("each scenario is validated against its authoritative profile", async () => {
+    patrolIssues = validateScenarioSource(getScenarioByMissionKey("patrol"), "patrol").issues;
     trainingIssues = validateScenarioSource(getScenarioByMissionKey("training"), "training").issues;
     riverIssues = validateScenarioSource(getScenarioByMissionKey("patrol_river_watch"), "patrol_river_watch").issues;
   });
 
   await Then("the shipped scenarios pass validation", async () => {
+    if (patrolIssues.length > 0) {
+      throw new Error(`Expected patrol scenario to validate cleanly, received: ${patrolIssues.join(" | ")}`);
+    }
     if (trainingIssues.length > 0) {
       throw new Error(`Expected training scenario to validate cleanly, received: ${trainingIssues.join(" | ")}`);
     }

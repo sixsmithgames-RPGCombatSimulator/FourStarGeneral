@@ -1869,10 +1869,11 @@ export class BattleScreen {
         case "highlightZone": {
           const zoneKey = event.payload?.zoneKey as string;
           console.log("[BattleScreen] highlightZone event received:", { zoneKey, payload: event.payload });
-          const zoneHexes = this.deploymentPanel?.getZoneHexes(zoneKey);
-          console.log("[BattleScreen] Zone hexes for", zoneKey, ":", Array.from(zoneHexes || []).slice(0, 5));
-          if (zoneHexes) {
+          const zoneHexes = Array.from(this.deploymentPanel?.getZoneHexes(zoneKey) ?? []);
+          console.log("[BattleScreen] Zone hexes for", zoneKey, ":", zoneHexes.slice(0, 5));
+          if (zoneHexes.length > 0) {
             this.hexMapRenderer?.setZoneHighlights(zoneHexes);
+            this.applySelectedHex(zoneHexes[0]);
 
             // Center camera on deployment zone (fire and forget - don't block event handler)
             this.centerCameraOnZone(zoneHexes).catch((err) => {
@@ -4523,7 +4524,8 @@ export class BattleScreen {
    * Handles assigning the base camp location.
    */
   private handleAssignBaseCamp(): void {
-    if (!this.selectedHexKey) {
+    const selectedHexKey = this.selectedHexKey ?? this.defaultSelectionKey ?? this.tryResolveFallbackDeploymentHexKey();
+    if (!selectedHexKey) {
       this.reportDeploymentPanelError({
         title: "Base camp assignment failed.",
         detail: "No hex is currently selected.",
@@ -4532,12 +4534,15 @@ export class BattleScreen {
       }, { mirrorToBaseCampStatus: true });
       return;
     }
+    if (!this.selectedHexKey) {
+      this.applySelectedHex(selectedHexKey);
+    }
     const engine = this.battleState.ensureGameEngine();
-    const parsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
+    const parsed = CoordinateSystem.parseHexKey(selectedHexKey);
     if (!parsed) {
       this.reportDeploymentPanelError({
         title: "Base camp assignment failed.",
-        detail: `The selected hex (${this.selectedHexKey}) could not be parsed.`,
+        detail: `The selected hex (${selectedHexKey}) could not be parsed.`,
         action: "Clear selection, choose a valid deployment hex, and retry.",
         recoverable: true
       }, { mirrorToBaseCampStatus: true });
@@ -4545,7 +4550,7 @@ export class BattleScreen {
     }
     const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
     const deploymentState = ensureDeploymentState();
-    const selection = this.resolvePlayerDeploymentSelection(this.selectedHexKey);
+    const selection = this.resolvePlayerDeploymentSelection(selectedHexKey);
     if (!selection.zoneKey) {
       const availableZones = deploymentState.getZoneUsageSummaries()
         .filter((zone) => zone.faction === "Player")
@@ -4553,7 +4558,7 @@ export class BattleScreen {
       const zoneSummary = availableZones.length > 0 ? ` Available player deployment zones: ${availableZones.join(", ")}.` : "";
       this.reportDeploymentPanelError({
         title: "Base camp assignment failed.",
-        detail: `Hex ${this.selectedHexKey} is outside the registered player deployment zones.${zoneSummary}`,
+        detail: `Hex ${selectedHexKey} is outside the registered player deployment zones.${zoneSummary}`,
         action: "Select a highlighted player deployment hex and try again.",
         recoverable: true
       }, { mirrorToBaseCampStatus: true });
@@ -4563,21 +4568,36 @@ export class BattleScreen {
       engine.setBaseCamp(axial);
       this.deploymentPanel?.setCriticalError(null);
       if (this.baseCampStatus) {
-        this.baseCampStatus.textContent = `Base camp: ${this.selectedHexKey}`;
+        this.baseCampStatus.textContent = `Base camp: ${selectedHexKey}`;
       }
       this.deploymentPanel?.markBaseCampAssigned(selection.zoneKey);
       const offsetKey = CoordinateSystem.makeHexKey(parsed.col, parsed.row);
       this.hexMapRenderer?.renderBaseCampMarker(offsetKey);
-      this.refreshDeploymentMirrors("baseCamp", { hexKey: this.selectedHexKey });
+      this.refreshDeploymentMirrors("baseCamp", { hexKey: selectedHexKey });
       this.completeTutorialPhase("base_camp");
     } catch (error) {
-      console.error("Failed to assign base camp", { hexKey: this.selectedHexKey, error });
+      console.error("Failed to assign base camp", { hexKey: selectedHexKey, error });
       this.reportDeploymentPanelError({
         title: "Base camp assignment failed.",
-        detail: `The engine could not anchor the base camp at ${this.selectedHexKey}.`,
+        detail: `The engine could not anchor the base camp at ${selectedHexKey}.`,
         action: "Retry with a valid deployment hex. If the issue persists, reload the mission.",
         recoverable: true
       }, { mirrorToBaseCampStatus: true });
+    }
+  }
+
+  private tryResolveFallbackDeploymentHexKey(): string | null {
+    try {
+      const fallbackHexKey = this.computeDefaultSelectionKey();
+      this.defaultSelectionKey = fallbackHexKey;
+      return fallbackHexKey;
+    } catch (error) {
+      console.warn("[BattleScreen] unable to resolve fallback deployment hex for base camp assignment", {
+        missionKey: this.uiState?.selectedMission ?? "training",
+        scenarioName: this.scenario.name,
+        error
+      });
+      return null;
     }
   }
 
