@@ -32,6 +32,12 @@ export interface PrecombatAllocationSummary {
     readonly costPerUnit: number;
     readonly category: AllocationCategory;
   }>;
+  readonly depotPackage: Readonly<{
+    ammo: number;
+    fuel: number;
+    rations: number;
+    parts: number;
+  }>;
 }
 
 /**

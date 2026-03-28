@@ -1036,6 +1036,13 @@ export interface GameEngineConfig {
   terrain: TerrainDictionary;
   playerSide: ScenarioSide;
   botSide: ScenarioSide;
+  /** Optional depot stock granted before turn one, typically from precombat supply purchases. */
+  initialPlayerDepotStock?: {
+    ammo: number;
+    fuel: number;
+    rations: number;
+    parts: number;
+  };
   /** Optional ally faction side. When present, ally units are AI-controlled but can be transferred to player control. */
   allySide?: ScenarioSide;
   /** Optional override that selects the tactical planner driving enemy turns. Defaults to "Heuristic". */
@@ -1313,15 +1320,18 @@ export class GameEngine implements GameEngineAPI {
     const totals = this.calculateUnitStockTotals(faction);
     const ammoTotal = totals?.ammo ?? 0;
     const fuelTotal = totals?.fuel ?? 0;
+    const initialDepotStock = faction === "Player"
+      ? this.initialPlayerDepotStock
+      : { ammo: 0, fuel: 0, rations: 0, parts: 0 };
     // Defensive guard: malformed supply mirrors can leave totals undefined; treat as zero stock to keep engine alive.
-    const baselineAmmo = Math.max(0, Math.round(ammoTotal * supplyBalance.stockpileMultiplier.ammo));
-    const baselineFuel = Math.max(0, Math.round(fuelTotal * supplyBalance.stockpileMultiplier.fuel));
+    const baselineAmmo = Math.max(0, Math.round(ammoTotal * supplyBalance.stockpileMultiplier.ammo) + initialDepotStock.ammo);
+    const baselineFuel = Math.max(0, Math.round(fuelTotal * supplyBalance.stockpileMultiplier.fuel) + initialDepotStock.fuel);
     return createSupplyState({
       baseline: {
         ammo: baselineAmmo,
         fuel: baselineFuel,
-        rations: 0,
-        parts: 0
+        rations: initialDepotStock.rations,
+        parts: initialDepotStock.parts
       },
       productionRate: {
         ammo: supplyBalance.production.ammo,
@@ -2435,7 +2445,8 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /**
-   * Deducts upkeep for a single unit, drawing from stockpiles first and falling back to onboard reserves when supply falters.
+   * Deducts upkeep for a single unit by charging the faction stockpile only.
+   * Connected units keep their onboard ammo/fuel until they actually spend it in combat or movement.
    */
   private applyUpkeepForUnit(
     faction: TurnFaction,
@@ -2450,14 +2461,6 @@ export class GameEngine implements GameEngineAPI {
       if (stockpileDraw > 0) {
         this.trackSupplyConsumption(faction, "ammo", stockpileDraw, `${unit.type} upkeep draw`);
       }
-      const unmet = upkeep.ammo - stockpileDraw;
-      if (unmet > 0) {
-        const onboardDrain = Math.min(unmet, state.ammo);
-        if (onboardDrain > 0) {
-          state.ammo = Math.max(0, state.ammo - onboardDrain);
-          unit.ammo = state.ammo;
-        }
-      }
     }
 
     if (upkeep.fuel > 0) {
@@ -2465,14 +2468,6 @@ export class GameEngine implements GameEngineAPI {
       const stockpileDraw = Math.min(upkeep.fuel, available);
       if (stockpileDraw > 0) {
         this.trackSupplyConsumption(faction, "fuel", stockpileDraw, `${unit.type} upkeep draw`);
-      }
-      const unmet = upkeep.fuel - stockpileDraw;
-      if (unmet > 0) {
-        const onboardDrain = Math.min(unmet, state.fuel);
-        if (onboardDrain > 0) {
-          state.fuel = Math.max(0, state.fuel - onboardDrain);
-          unit.fuel = state.fuel;
-        }
       }
     }
   }
@@ -3740,6 +3735,7 @@ private automateSupplyConvoys(
     Bot: createSupplyState({ baseline: { ammo: 0, fuel: 0, rations: 0, parts: 0 } }),
     Ally: createSupplyState({ baseline: { ammo: 0, fuel: 0, rations: 0, parts: 0 } })
   };
+  private readonly initialPlayerDepotStock: { ammo: number; fuel: number; rations: number; parts: number };
   /** Convoy cargo and assignment state tracked independently from the truck unit's onboard fuel. */
   private readonly supplyTruckStateByFaction: Record<TurnFaction, Map<string, SupplyTruckState>> = {
     Player: new Map(),
@@ -3944,6 +3940,12 @@ private automateSupplyConvoys(
     this.playerSide = structuredClone(config.playerSide);
     this.botSide = structuredClone(config.botSide);
     this.allySide = config.allySide ? structuredClone(config.allySide) : null;
+    this.initialPlayerDepotStock = {
+      ammo: Math.max(0, Math.round(config.initialPlayerDepotStock?.ammo ?? 0)),
+      fuel: Math.max(0, Math.round(config.initialPlayerDepotStock?.fuel ?? 0)),
+      rations: Math.max(0, Math.round(config.initialPlayerDepotStock?.rations ?? 0)),
+      parts: Math.max(0, Math.round(config.initialPlayerDepotStock?.parts ?? 0))
+    };
     this.ensureBaselineSupplyConvoysForSide(this.botSide);
     if (this.allySide) {
       this.ensureBaselineSupplyConvoysForSide(this.allySide);
@@ -4686,8 +4688,6 @@ private automateSupplyConvoys(
     asset.queuedHex = axialKey(targetHex);
     asset.queuedByHex = callerKey;
     asset.status = "queued";
-    this.playerActionFlags.set(callerKey, this.resolveCommittedFieldActionFlags(callerHex, flags));
-    this.updateIdleRegistryFor(callerKey);
     this.invalidateSupportSnapshot();
     this.invalidateRosterCache();
     return true;
@@ -5046,7 +5046,6 @@ private automateSupplyConvoys(
     if (asset.status !== "queued") {
       return false;
     }
-    const callerKey = asset.queuedByHex;
     asset.queuedHex = null;
     asset.queuedByHex = null;
     if (asset.cooldown > 0) {
@@ -5055,10 +5054,6 @@ private automateSupplyConvoys(
       asset.status = "ready";
     } else {
       asset.status = "maintenance";
-    }
-    if (callerKey) {
-      this.playerActionFlags.set(callerKey, this.createDefaultActionFlags());
-      this.updateIdleRegistryFor(callerKey);
     }
     this.invalidateSupportSnapshot();
     this.invalidateRosterCache();

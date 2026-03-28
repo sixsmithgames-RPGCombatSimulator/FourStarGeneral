@@ -86,11 +86,13 @@ export const COMBAT_PROFILES = {
   },
   "specialist.medium.antiTank": {
     label: "Towed anti-tank guns",
-    description: "Crew-served anti-armor weapons with high first-hit lethality but low shot counts.",
+    description: "Crew-served anti-armor weapons with high first-hit lethality and sustained, truck-backed ammunition supply.",
     accuracyReference: 55,
     softAttackReference: 5,
     hardAttackReference: 50,
-    shotsPerTurn: 6,
+    // Four guns firing about 30 rounds per minute across the five-minute turn window.
+    // The battery's tow trucks carry enough ready ammunition nearby to keep the guns firing.
+    shotsPerTurn: 120,
     baseDamagePerHit: 2.0,
     suppressionPerHit: 0.2,
     rangeAccuracy: [
@@ -107,15 +109,14 @@ export const COMBAT_PROFILES = {
     accuracyReference: 62,
     softAttackReference: 15,
     hardAttackReference: 70,
-    shotsPerTurn: 8,
+    shotsPerTurn: 240,
     baseDamagePerHit: 2.8,
     suppressionPerHit: 0.28,
     rangeAccuracy: [
       { range: 0, accuracy: 55 },
       { range: 1, accuracy: 40 },
       { range: 2, accuracy: 30 },
-      { range: 4, accuracy: 18 },
-      { range: 8, accuracy: 8 }
+      { range: 3, accuracy: 20 }
     ]
   },
   "recon.light.normal": {

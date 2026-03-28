@@ -534,25 +534,47 @@ export class PrecombatScreen {
   /**
    * Builds the dataset persisted to `BattleState` for later battle-phase loadout summaries.
    */
-  private buildAllocationSummary(entries: DeploymentPoolEntry[]): PrecombatAllocationSummary {
+  private buildAllocationSummary(_entries: DeploymentPoolEntry[]): PrecombatAllocationSummary {
     let totalSpend = 0;
-    const allocationSnapshots: PrecombatAllocationSummary["allocations"] = entries.map((entry) => {
-      const option = getAllocationOption(entry.key);
-      if (!option) {
-        throw new Error(`Allocation option missing during summary build: ${entry.key}`);
+    const depotPackage = {
+      ammo: 0,
+      fuel: 0,
+      rations: 0,
+      parts: 0
+    };
+    const allocationSnapshots: Array<PrecombatAllocationSummary["allocations"][number]> = [];
+
+    for (const [key, quantity] of this.allocationCounts.entries()) {
+      const baseline = this.predeployedCounts.get(key) ?? 0;
+      const requisitionQuantity = quantity - baseline;
+      if (requisitionQuantity <= 0) {
+        continue;
       }
-      totalSpend += option.costPerUnit * entry.remaining;
-      return {
-        key: entry.key,
-        label: entry.label,
-        quantity: entry.remaining,
+
+      const option = getAllocationOption(key);
+      if (!option) {
+        throw new Error(`Allocation option missing during summary build: ${key}`);
+      }
+
+      totalSpend += option.costPerUnit * requisitionQuantity;
+      allocationSnapshots.push({
+        key,
+        label: option.label,
+        quantity: requisitionQuantity,
         costPerUnit: option.costPerUnit,
         category: option.category
-      };
-    });
+      });
+
+      if (key === "ammo") {
+        depotPackage.ammo += requisitionQuantity;
+      } else if (key === "fuel") {
+        depotPackage.fuel += requisitionQuantity;
+      }
+    }
 
     return {
       allocations: allocationSnapshots,
+      depotPackage,
       totalSpend,
       remainingFunds: Math.max(0, this.allocationBudget - totalSpend),
       committedAt: new Date().toISOString()

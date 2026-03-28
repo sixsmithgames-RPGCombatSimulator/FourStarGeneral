@@ -337,6 +337,93 @@ registerTest("ONLY_BASE_ADJACENT_UNITS_RECEIVE_DIRECT_DEPOT_ISSUES", async ({ Gi
   });
 });
 
+registerTest("CONNECTED_UNITS_DO_NOT_LOSE_ONBOARD_AMMO_WHEN_DEPOT_STOCK_IS_EMPTY", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let ammoBefore = 0;
+
+  await Given("a connected battalion with onboard ammo but an empty depot", async () => {
+    const playerUnit: ScenarioUnit = {
+      type: "TestVehicle" as ScenarioUnit["type"],
+      hex: { q: 0, r: 1 },
+      strength: 10,
+      experience: 0,
+      ammo: 7,
+      fuel: 10,
+      entrench: 0,
+      facing: "N"
+    };
+    engine = createEngine([playerUnit]);
+    ammoBefore = findPlayerUnit(engine, { q: 0, r: 1 }).ammo;
+
+    const unsafeEngine = engine as unknown as {
+      supplyStateByFaction: {
+        Player: {
+          inventory: {
+            ammo: { current: number };
+            fuel: { current: number };
+          };
+        };
+      };
+    };
+    unsafeEngine.supplyStateByFaction.Player.inventory.ammo.current = 0;
+    unsafeEngine.supplyStateByFaction.Player.inventory.fuel.current = 100;
+  });
+
+  await When("the player supply tick runs without depot ammunition", async () => {
+    const unsafeEngine = engine as unknown as {
+      applySupplyTickFor: (faction: "Player") => unknown;
+    };
+    unsafeEngine.applySupplyTickFor("Player");
+  });
+
+  await Then("the battalion keeps its carried ammo until it actually fires", async () => {
+    const afterTick = findPlayerUnit(engine, { q: 0, r: 1 });
+    if (afterTick.ammo !== ammoBefore) {
+      throw new Error(`Expected connected upkeep to preserve onboard ammo, saw ${ammoBefore} drop to ${afterTick.ammo}.`);
+    }
+  });
+});
+
+registerTest("INITIAL_PLAYER_DEPOT_STOCK_AUGMENTS_LOGISTICS_SNAPSHOT", async ({ Given, Then }) => {
+  let engine: GameEngine;
+
+  await Given("a battle initialized with precombat depot stock bonuses", async () => {
+    const playerUnit: ScenarioUnit = {
+      type: "TestVehicle" as ScenarioUnit["type"],
+      hex: { q: 0, r: 1 },
+      strength: 10,
+      experience: 0,
+      ammo: 3,
+      fuel: 4,
+      entrench: 0,
+      facing: "N"
+    };
+    const cfg: GameEngineConfig = {
+      scenario: scenario(),
+      unitTypes,
+      terrain,
+      playerSide: { ...side({ q: 0, r: 0 }), units: [{ ...playerUnit, preDeployed: true }] },
+      botSide: side({ q: 3, r: 3 }),
+      initialPlayerDepotStock: { ammo: 5, fuel: 7, rations: 0, parts: 0 }
+    };
+    engine = new GameEngine(cfg);
+    engine.beginDeployment();
+    engine.setBaseCamp({ q: 0, r: 0 });
+    engine.finalizeDeployment();
+    engine.startPlayerTurnPhase();
+  });
+
+  await Then("the logistics snapshot includes the precombat ammo and fuel package", async () => {
+    const logistics = engine.getLogisticsSnapshot();
+    if (logistics.depotStock.ammo !== 8) {
+      throw new Error(`Expected depot ammo to include carried stock plus precombat package, saw ${logistics.depotStock.ammo}.`);
+    }
+    if (logistics.depotStock.fuel !== 11) {
+      throw new Error(`Expected depot fuel to include carried stock plus precombat package, saw ${logistics.depotStock.fuel}.`);
+    }
+  });
+});
+
 registerTest("SUPPLY_CONVOYS_DELIVER_TO_FORWARD_BATTALIONS", async ({ Given, When, Then }) => {
   let engine: GameEngine;
   let logisticsSnapshot: ReturnType<GameEngine["getLogisticsSnapshot"]> | null = null;

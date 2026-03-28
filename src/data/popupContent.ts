@@ -242,22 +242,27 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .logistics-overview__headline { margin: 0; font-size: 0.95rem; line-height: 1.45; color: rgba(245, 247, 255, 0.94); }
         .logistics-overview__rules { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.35rem; font-size: 0.82rem; line-height: 1.45; color: rgba(229, 236, 255, 0.76); }
 
-        .logistics-priority-grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
-        .logistics-priority-card { border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.16); background: rgba(17, 24, 36, 0.88); padding: 0.95rem 1rem; display: grid; gap: 0.75rem; }
-        .logistics-priority-card__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.8rem; }
-        .logistics-priority-card__header h4 { margin: 0; font-size: 0.98rem; letter-spacing: 0.05em; text-transform: uppercase; }
-        .logistics-priority-card__header p { margin: 0.25rem 0 0; font-size: 0.82rem; color: rgba(229, 236, 255, 0.68); }
-        .logistics-priority-card__meta { display: flex; flex-wrap: wrap; gap: 0.55rem 0.9rem; font-size: 0.8rem; color: rgba(229, 236, 255, 0.7); }
+        .logistics-priority-grid { display: grid; gap: 0.7rem; grid-template-columns: 1fr; }
+        .logistics-priority-card { border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.16); background: rgba(17, 24, 36, 0.88); padding: 0.75rem 0.9rem; }
+        .logistics-priority-card__row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0.8rem; }
+        .logistics-priority-card__summary { min-width: 0; }
+        .logistics-priority-card__summary h4 { margin: 0; font-size: 0.92rem; letter-spacing: 0.05em; text-transform: uppercase; }
+        .logistics-priority-card__summary p { margin: 0.2rem 0 0; font-size: 0.8rem; color: rgba(229, 236, 255, 0.68); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .logistics-priority-card__status { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 0.25rem 0.65rem; border-radius: 999px; white-space: nowrap; }
         .logistics-priority-card__status--direct,
         .logistics-priority-card__status--resupplied { background: rgba(110, 231, 169, 0.18); color: #d7ffe6; border: 1px solid rgba(110, 231, 169, 0.35); }
         .logistics-priority-card__status--delivering { background: rgba(149, 190, 255, 0.18); color: #dfeaff; border: 1px solid rgba(149, 190, 255, 0.35); }
         .logistics-priority-card__status--queued { background: rgba(245, 196, 109, 0.2); color: #ffe3ba; border: 1px solid rgba(245, 196, 109, 0.35); }
         .logistics-priority-card__status--isolated { background: rgba(255, 104, 104, 0.2); color: #ffd6d6; border: 1px solid rgba(255, 104, 104, 0.35); }
-        .logistics-priority-card__buttons { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+        .logistics-priority-card__buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.35rem; }
         .logistics-priority-button { border: 1px solid rgba(229, 236, 255, 0.18); background: rgba(14, 20, 31, 0.78); color: #f5f7ff; border-radius: 999px; padding: 0.38rem 0.82rem; font-size: 0.77rem; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease; }
         .logistics-priority-button:is(:hover, :focus-visible) { border-color: rgba(245, 196, 109, 0.55); color: #ffe9c7; }
         .logistics-priority-button.is-active { background: rgba(245, 196, 109, 0.2); border-color: rgba(245, 196, 109, 0.5); color: #ffe9c7; }
+        @media (max-width: 960px) {
+          .logistics-priority-card__row { grid-template-columns: 1fr; align-items: start; }
+          .logistics-priority-card__summary p { white-space: normal; }
+          .logistics-priority-card__buttons { justify-content: flex-start; }
+        }
 
         /* Supply source cards show throughput and bottlenecks */
         .logistics-sources-grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }

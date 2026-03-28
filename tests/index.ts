@@ -12,6 +12,7 @@ import "./FrameSequenceAnimator.playback.test.js";
 import "./SpriteSheetAnimator.layout.test.js";
 import "./MapViewport.interactions.test.js";
 import "./BattleScreen.animations.test.js";
+import "./BattleScreen.attackPreview.test.js";
 import "./BattleScreen.objectiveMarkers.test.js";
 import "./BattleScreen.missionFlow.test.js";
 import "./deploymentZonePlanner.test.js";
@@ -31,9 +32,11 @@ import "./AirStrike.damageRounding.test.js";
 import "./AirSupport.summary.test.js";
 import "./GroundLogistics.enforcement.test.js";
 import "./InfantryActions.commandState.test.js";
+import "./ArtillerySupport.commandState.test.js";
 import "./BotMovement.zeroFuelSupport.test.js";
 import "./ReconLOS.directFire.test.js";
 import "./ReconBike.balance.test.js";
+import "./ATGun.combatMath.test.js";
 import "./precombatLogisticsMinimum.test.js";
 
 // Execute the registered tests sequentially.

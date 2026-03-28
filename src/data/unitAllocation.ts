@@ -116,7 +116,7 @@ export const allocationOptions = [
     key: "antiTankBattery",
     label: "Anti-Tank Gun Battery",
     category: "units",
-    costPerUnit: 165_000,
+    costPerUnit: 80_000,
     description: "Crew-served anti-tank guns ideal for covering roads, crossings, and likely armored approach lanes.",
     maxQuantity: 6,
     spriteUrl: new URL("../assets/units/AT_Gun_50mm.png", import.meta.url).href

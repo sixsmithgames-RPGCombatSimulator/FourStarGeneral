@@ -15,7 +15,7 @@ type AuthoredUnit = {
 const loadoutByType: Record<string, { ammo: number; fuel: number }> = {
   Infantry_42: { ammo: 6, fuel: 0 },
   Engineer: { ammo: 5, fuel: 0 },
-  AT_Gun_50mm: { ammo: 5, fuel: 0 },
+  AT_Gun_50mm: { ammo: 6, fuel: 0 },
   Howitzer_105: { ammo: 6, fuel: 0 },
   Rocket_Artillery: { ammo: 4, fuel: 40 },
   Panzer_IV: { ammo: 7, fuel: 40 },

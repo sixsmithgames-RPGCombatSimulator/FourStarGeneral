@@ -33,6 +33,7 @@ import type {
   TileInstance,
   TilePalette,
   UnitClass,
+  UnitTypeDefinition,
   UnitTypeDictionary,
   CombatStance,
   HexModificationType
@@ -77,6 +78,7 @@ import {
 import type { UIState } from "../../state/UIState";
 import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
 import { getMissionDeploymentProfile, getMissionTurnLimit } from "../../data/missions";
+import { getCombatProfile } from "../../data/combatProfiles";
 import terrainSource from "../../data/terrain.json";
 import unitTypesSource from "../../data/unitTypes.json";
 import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
@@ -331,6 +333,10 @@ export class BattleScreen {
     const attackerType = preview.attacker.type;
     const defenderType = preview.defender.type;
     const attackerDef = this.unitTypes?.[attackerType];
+    const defenderDef = this.unitTypes?.[defenderType];
+    if (!attackerDef || !defenderDef) {
+      throw new Error(`Attack preview missing unit definition(s) for '${attackerType}' or '${defenderType}'.`);
+    }
     const attackerLabel = this.toTitleCase(attackerType);
     const defenderLabel = this.toTitleCase(defenderType);
 
@@ -391,14 +397,53 @@ export class BattleScreen {
     const commanderAccuracyBonus = commanderStats.accBonus ?? 0;
     const commanderDamageBonus = commanderStats.dmgBonus ?? 0;
 
+    // Surface both the shared profile table and the unit-specific scalar so the preview text lines up
+    // with the authored `accuracyBase` stat shown elsewhere in the UI.
+    const attackerProfile = getCombatProfile(attackerDef.combat as UnitTypeDefinition["combat"]);
+    const unitAccuracyScalar = Math.max(0.25, attackerDef.accuracyBase / attackerProfile.accuracyReference);
+    const rangeTableAccuracy = baseAccuracyPercent / unitAccuracyScalar;
+    const targetUsesSoftAttack = defenderDef.class === "infantry" || defenderDef.class === "specialist";
+    const attackStatLabel = targetUsesSoftAttack ? "Soft attack" : "Hard attack";
+    const attackStatValue = targetUsesSoftAttack ? attackerDef.softAttack : attackerDef.hardAttack;
+    const attackReference = targetUsesSoftAttack
+      ? attackerProfile.softAttackReference
+      : attackerProfile.hardAttackReference;
+    const attackScalar = Math.max(0, attackStatValue / attackReference);
+    const signatureMultipliers = {
+      tiny: 0.7,
+      small: 0.85,
+      medium: 1.0,
+      large: 1.15
+    } as const;
+    const signatureMultiplier = signatureMultipliers[
+      defenderDef.combat.signature as keyof typeof signatureMultipliers
+    ];
+    const afterSignature = combinedAfterCommander * signatureMultiplier;
+
+    // The core resolver applies the attack scalar before the AP-vs-armor scalar. Mirroring those
+    // intermediate values here makes AT-gun previews show exactly how penetration and firepower combine.
+    const afterAttackScalarDamagePerHit = preCommanderDamagePerHit * attackScalar;
+    const penetrationMargin = effectiveAP - facingArmor;
+    const penetrationScalar = facingArmor > 0
+      ? penetrationMargin >= 0
+        ? 1 + (penetrationMargin * 0.05)
+        : Math.max(0.1, 1 + (penetrationMargin * 0.15))
+      : 1;
+    const afterPenetrationDamagePerHit = afterAttackScalarDamagePerHit * penetrationScalar;
+    const weaponStatsLine = `Accuracy base ${attackerDef.accuracyBase}% • ${attackStatLabel} ${attackStatValue} • AP ${attackerDef.ap}`;
+    const penetrationMathLine = facingArmor > 0
+      ? `Pen x${penetrationScalar.toFixed(2)} (AP ${effectiveAP} vs Armor ${facingArmor}, margin ${penetrationMargin >= 0 ? "+" : ""}${penetrationMargin})`
+      : "Pen x1.00 (target has no armor)";
+
     const terrainDeltaText = `${terrainModifier >= 0 ? "+" : ""}${terrainModifier.toFixed(1)}%`;
     const accuracyBreakdownLine =
-      `Base ${baseAccuracyPercent.toFixed(1)}% x Cmd x${commanderAccuracyScalar.toFixed(2)} = ${baseWithCommander.toFixed(1)}%, ` +
+      `Range table ${rangeTableAccuracy.toFixed(1)}% x Unit accuracy x${unitAccuracyScalar.toFixed(2)} (${attackerDef.accuracyBase}/${attackerProfile.accuracyReference}) = ${baseAccuracyPercent.toFixed(1)}%, ` +
+      `Base x Cmd x${commanderAccuracyScalar.toFixed(2)} = ${baseWithCommander.toFixed(1)}%, ` +
       `Exp ${experienceAccuracyDelta.toFixed(1)}% x Cmd x${commanderAccuracyScalar.toFixed(2)} = ${experienceWithCommander.toFixed(1)}%, ` +
-      `Sum ${combinedAfterCommander.toFixed(1)}% x Terrain ${terrainMultiplier.toFixed(2)} (${terrainDeltaText}) = ${afterTerrain.toFixed(1)}% x Spot ${spottedMultiplier.toFixed(2)} = ${finalPreClamp.toFixed(1)}% -> Final ${accuracyDetails.final.toFixed(1)}%`;
+      `Sum ${combinedAfterCommander.toFixed(1)}% x Signature ${signatureMultiplier.toFixed(2)} (${defenderDef.combat.signature}) = ${afterSignature.toFixed(1)}% x Terrain ${terrainMultiplier.toFixed(2)} (${terrainDeltaText}) = ${afterTerrain.toFixed(1)}% x Spot ${spottedMultiplier.toFixed(2)} = ${finalPreClamp.toFixed(1)}% -> Final ${accuracyDetails.final.toFixed(1)}%`;
 
     const damageBreakdownLine =
-      `Table ${baseDamagePerHit.toFixed(3)}% x Exp x${experienceScalar.toFixed(2)} = ${preCommanderDamagePerHit.toFixed(3)}% x Cmd x${commanderDamageScalar.toFixed(2)} = ${prePayloadDamagePerHit.toFixed(3)}%`;
+      `Table ${baseDamagePerHit.toFixed(3)}% x Exp x${experienceScalar.toFixed(2)} = ${preCommanderDamagePerHit.toFixed(3)}% x ${attackStatLabel} x${attackScalar.toFixed(2)} (${attackStatValue}/${attackReference}) = ${afterAttackScalarDamagePerHit.toFixed(3)}% x ${penetrationMathLine} = ${afterPenetrationDamagePerHit.toFixed(3)}% x Cmd x${commanderDamageScalar.toFixed(2)} = ${prePayloadDamagePerHit.toFixed(3)}%`;
 
     const distance = Math.abs(attacker.q - defender.q) + Math.abs(attacker.r - defender.r) + Math.abs((-attacker.q - attacker.r) - (-defender.q - defender.r));
     const range = Math.floor(distance / 2);
@@ -553,6 +598,7 @@ export class BattleScreen {
 
             <div class="attack-preview-breakdown">
               <p><strong>Profile:</strong> ${this.escapeHtml(profile.description)}</p>
+              <p><strong>Weapon Inputs:</strong> ${this.escapeHtml(weaponStatsLine)}</p>
               <p><strong>Engagement Math:</strong> ${this.escapeHtml(profile.mathLine)}</p>
               <p><strong>Accuracy Math:</strong> ${this.escapeHtml(accuracyBreakdownLine)}</p>
               <p><strong>Damage Math:</strong> ${this.escapeHtml(damageBreakdownLine)}</p>
@@ -4941,6 +4987,7 @@ export class BattleScreen {
       unitTypes: this.cloneUnitTypes(),
       terrain: this.cloneTerrain(),
       playerSide,
+      initialPlayerDepotStock: this.resolveInitialPlayerDepotStock(),
       botSide: this.cloneScenarioSide(this.scenario.sides.Bot),
       allySide: this.scenario.sides.Ally ? this.cloneScenarioSide(this.scenario.sides.Ally) : undefined,
       // Enable the heuristic planner so campaign battles use the upgraded enemy AI rather than the legacy simple bot.
@@ -4950,6 +4997,20 @@ export class BattleScreen {
     };
     this.battleState.initializeEngine(config);
     this.assertBotUnitsHydrated();
+  }
+
+  private resolveInitialPlayerDepotStock(): { ammo: number; fuel: number; rations: number; parts: number } {
+    const summary = this.battleState.getPrecombatAllocationSummary();
+    if (!summary) {
+      return { ammo: 0, fuel: 0, rations: 0, parts: 0 };
+    }
+
+    return {
+      ammo: summary.depotPackage.ammo,
+      fuel: summary.depotPackage.fuel,
+      rations: summary.depotPackage.rations,
+      parts: summary.depotPackage.parts
+    };
   }
 
   private getMissionSessionKey(): string {

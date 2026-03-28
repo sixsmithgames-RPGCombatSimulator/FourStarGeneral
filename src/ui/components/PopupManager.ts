@@ -2392,18 +2392,13 @@ export class PopupManager implements IPopupManager {
 
     return `
       <article class="logistics-priority-card">
-        <header class="logistics-priority-card__header">
-          <div>
+        <header class="logistics-priority-card__row">
+          <div class="logistics-priority-card__summary">
             <h4>${this.escapeHtml(entry.unitLabel)}</h4>
-            <p>${this.escapeHtml(entry.hex)} · Needs ${this.formatQuantity(entry.ammoNeed)} ammo · ${this.formatQuantity(entry.fuelNeed)} fuel</p>
+            <p>${this.escapeHtml(entry.hex)} · Needs ${this.formatQuantity(entry.ammoNeed)} ammo · ${this.formatQuantity(entry.fuelNeed)} fuel · Assigned convoys: ${entry.assignedConvoys}</p>
           </div>
           <span class="logistics-priority-card__status logistics-priority-card__status--${entry.status}">${this.escapeHtml(statusLabel)}</span>
-        </header>
-        <div class="logistics-priority-card__meta">
-          <span>Assigned convoys: ${entry.assignedConvoys}</span>
-          <span>Current priority: ${this.escapeHtml(this.formatSupplyPriorityLabel(entry.priority))}</span>
-        </div>
-        <div class="logistics-priority-card__buttons" role="group" aria-label="Set ${this.escapeHtml(entry.unitLabel)} logistics priority">
+          <div class="logistics-priority-card__buttons" role="group" aria-label="Set ${this.escapeHtml(entry.unitLabel)} logistics priority">
           ${priorityOptions.map((priority) => `
             <button
               type="button"
@@ -2416,7 +2411,8 @@ export class PopupManager implements IPopupManager {
               ${this.escapeHtml(this.formatSupplyPriorityLabel(priority))}
             </button>
           `).join("")}
-        </div>
+          </div>
+        </header>
       </article>
     `;
   }
