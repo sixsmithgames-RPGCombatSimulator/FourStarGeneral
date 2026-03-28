@@ -2,6 +2,7 @@ import type { Axial } from "../core/Hex";
 import type { ScenarioData, ScenarioUnit } from "../core/types";
 import type { TurnSummary, TurnFaction } from "../game/GameEngine";
 import type { BotDifficulty } from "../game/bot/BotPlanner";
+import unitTypesData from "../data/unitTypes.json";
 
 export type ObjectiveTier = "primary" | "secondary" | "tertiary";
 
@@ -13,6 +14,13 @@ export interface ObjectiveProgress {
   readonly tier: ObjectiveTier;
   readonly state: ObjectiveState;
   readonly detail?: string;
+}
+
+export interface ObjectiveMarkerProgress {
+  readonly hex: Axial;
+  readonly status: "unoccupied" | "player" | "enemy";
+  readonly counter?: string;
+  readonly tooltip?: string;
 }
 
 export interface MissionOutcome {
@@ -32,6 +40,7 @@ export interface MissionStatus {
   readonly objectives: readonly ObjectiveProgress[];
   readonly outcome: MissionOutcome;
   readonly phase?: MissionPhaseStatus;
+  readonly markers?: readonly ObjectiveMarkerProgress[];
 }
 
 export interface MissionSnapshot {
@@ -40,6 +49,7 @@ export interface MissionSnapshot {
   readonly occupancy: ReadonlyMap<string, TurnFaction>;
   readonly playerUnits: readonly ScenarioUnit[];
   readonly botUnits: readonly ScenarioUnit[];
+  readonly allyUnits?: readonly ScenarioUnit[];
 }
 
 export interface MissionRulesController {
@@ -56,6 +66,32 @@ interface FordTracker {
   outcome: MissionOutcome;
   blockedFordsStreak: number;
   phase: MissionPhaseStatus;
+}
+
+interface TownDefenseTracker {
+  outcome: MissionOutcome;
+  initialFriendlyForce: number | null;
+}
+
+type UnitTypeKey = keyof typeof unitTypesData;
+
+function isFriendlyOccupant(faction: TurnFaction | undefined): boolean {
+  return faction === "Player" || faction === "Ally";
+}
+
+function toPercent(value: number): string {
+  return `${Math.max(0, Math.round(value * 100))}%`;
+}
+
+function getGroundForceScore(units: readonly ScenarioUnit[]): number {
+  return units.reduce((total, unit) => {
+    const definition = unitTypesData[unit.type as UnitTypeKey];
+    if (!definition || definition.moveType === "air") {
+      return total;
+    }
+    const strengthRatio = Math.max(0, Math.min(100, Number(unit.strength ?? 100))) / 100;
+    return total + definition.cost * strengthRatio;
+  }, 0);
 }
 
 function createRiverWatchPhase(turnNumber: number, blockedFordsStreak: number, difficulty: BotDifficulty): MissionPhaseStatus {
@@ -88,7 +124,8 @@ function createRiverWatchPhase(turnNumber: number, blockedFordsStreak: number, d
 function createRiverWatchController(scenario: ScenarioData, difficulty: BotDifficulty): MissionRulesController {
   const fordKeys = (scenario.objectives ?? []).map((objective, index) => ({
     key: makeKey(objective.hex),
-    label: `Ford ${index + 1}`
+    label: `Ford ${index + 1}`,
+    hex: objective.hex
   }));
 
   const tracker: FordTracker = {
@@ -153,6 +190,39 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
     return [primary, secondary, tertiary] satisfies readonly ObjectiveProgress[];
   };
 
+  const buildMarkers = (occupancy: ReadonlyMap<string, TurnFaction>): readonly ObjectiveMarkerProgress[] => {
+    return fordKeys.map(({ key, label, hex }) => {
+      const occupant = occupancy.get(key);
+      const counter = tracker.counters.get(key) ?? 0;
+
+      if (occupant === "Bot") {
+        return {
+          hex,
+          status: "enemy",
+          counter: `${counter}/8`,
+          tooltip: `${label} - Enemy controlled. Enemy has held for ${counter} of 8 turns.`
+        } satisfies ObjectiveMarkerProgress;
+      }
+
+      if (isFriendlyOccupant(occupant)) {
+        const allFordsHeld = fordKeys.every(({ key: fordKey }) => isFriendlyOccupant(occupancy.get(fordKey)));
+        return {
+          hex,
+          status: "player",
+          tooltip: allFordsHeld
+            ? `${label} - Secured. All fords have been held for ${tracker.blockedFordsStreak} of 8 turns.`
+            : `${label} - Secured. This crossing is held, but every ford must be held at once to win.`
+        } satisfies ObjectiveMarkerProgress;
+      }
+
+      return {
+        hex,
+        status: "unoccupied",
+        tooltip: `${label} - Contested. Move onto the ford and hold every crossing at once.`
+      } satisfies ObjectiveMarkerProgress;
+    });
+  };
+
   const deriveStatus = (snapshot: MissionSnapshot): MissionStatus => {
     const { turnSummary, occupancy, playerUnits, botUnits, scenario: snapScenario } = snapshot;
     const turnLimit = snapScenario.turnLimit ?? null;
@@ -203,7 +273,8 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
       turn: turnSummary.turnNumber,
       objectives: buildObjectives(outcome, playerUnits, botUnits),
       outcome,
-      phase: tracker.phase
+      phase: tracker.phase,
+      markers: buildMarkers(occupancy)
     } satisfies MissionStatus;
   };
 
@@ -216,8 +287,163 @@ function createRiverWatchController(scenario: ScenarioData, difficulty: BotDiffi
         turn: 0,
         objectives: buildObjectives(tracker.outcome, scenario.sides.Player.units, scenario.sides.Bot.units),
         outcome: tracker.outcome,
-        phase: tracker.phase
+        phase: tracker.phase,
+        markers: buildMarkers(new Map<string, TurnFaction>())
       };
+    }
+  } satisfies MissionRulesController;
+}
+
+function createTownDefenseController(scenario: ScenarioData): MissionRulesController {
+  const townHex = scenario.objectives[0]?.hex ?? scenario.sides.Player.hq;
+  const townKey = makeKey(townHex);
+  const turnLimit = scenario.turnLimit ?? null;
+  const initialBotForce = Math.max(getGroundForceScore(scenario.sides.Bot.units), 1);
+  const tracker: TownDefenseTracker = {
+    outcome: { state: "inProgress" },
+    initialFriendlyForce: null
+  };
+
+  const buildObjective = (
+    outcome: MissionOutcome,
+    townOccupant: TurnFaction | undefined,
+    enemyForceRatio: number,
+    friendlyForceRatio: number
+  ): ObjectiveProgress => {
+    const townStatus = townOccupant === "Bot"
+      ? "Enemy formations are inside the town center."
+      : isFriendlyOccupant(townOccupant)
+        ? "Friendly forces are holding the town center."
+        : "The town center is currently exposed.";
+
+    const forceStatus = `Enemy assault strength is at ${toPercent(enemyForceRatio)} of its opening force; defenders retain ${toPercent(friendlyForceRatio)} of their starting combat power.`;
+
+    return {
+      id: "primary_repel_enemy",
+      label: "Repel the enemy assault and keep the town in friendly hands",
+      tier: "primary",
+      state: outcome.state === "playerVictory" ? "completed" : outcome.state === "playerDefeat" ? "failed" : "inProgress",
+      detail: outcome.state === "playerVictory"
+        ? outcome.reason ?? "The enemy assault collapsed and withdrew from the town."
+        : outcome.state === "playerDefeat"
+          ? outcome.reason ?? "The defense failed before the assault could be broken."
+          : `${townStatus} ${forceStatus}`
+    } satisfies ObjectiveProgress;
+  };
+
+  const buildMarker = (
+    outcome: MissionOutcome,
+    townOccupant: TurnFaction | undefined,
+    enemyForceRatio: number,
+    friendlyForceRatio: number
+  ): ObjectiveMarkerProgress => {
+    const status = townOccupant === "Bot"
+      ? "enemy"
+      : isFriendlyOccupant(townOccupant)
+        ? "player"
+        : "unoccupied";
+
+    const tooltip = outcome.state === "playerVictory"
+      ? `Town center - Secure. ${outcome.reason ?? "The enemy assault has broken and is retreating."}`
+      : outcome.state === "playerDefeat"
+        ? `Town center - Lost. ${outcome.reason ?? "The defense failed before the assault could be broken."}`
+        : `Town center - ${status === "enemy" ? "Enemy pressure" : status === "player" ? "Defenders holding" : "Contested"}. Enemy ${toPercent(enemyForceRatio)} / Friendly ${toPercent(friendlyForceRatio)} remaining combat power.`;
+
+    return {
+      hex: townHex,
+      status,
+      tooltip
+    } satisfies ObjectiveMarkerProgress;
+  };
+
+  const deriveStatus = (snapshot: MissionSnapshot): MissionStatus => {
+    const { turnSummary, occupancy, playerUnits, botUnits } = snapshot;
+    const allyUnits = snapshot.allyUnits ?? scenario.sides.Ally?.units ?? [];
+    const friendlyUnits = [...playerUnits, ...allyUnits];
+    const remainingFriendlyForce = getGroundForceScore(friendlyUnits);
+    const remainingBotForce = getGroundForceScore(botUnits);
+
+    if (tracker.initialFriendlyForce === null && remainingFriendlyForce > 0) {
+      tracker.initialFriendlyForce = remainingFriendlyForce;
+    }
+
+    const initialFriendlyForce = Math.max(tracker.initialFriendlyForce ?? remainingFriendlyForce, 1);
+    const enemyForceRatio = remainingBotForce / initialBotForce;
+    const friendlyForceRatio = remainingFriendlyForce / initialFriendlyForce;
+    const townOccupant = occupancy.get(townKey);
+    const townHeldByFriendly = isFriendlyOccupant(townOccupant);
+
+    let outcome: MissionOutcome = tracker.outcome;
+
+    if (outcome.state === "inProgress") {
+      if (remainingBotForce <= 0 || botUnits.length === 0) {
+        outcome = { state: "playerVictory", reason: "The attacking force has been destroyed and the town remains secure." };
+      } else if (remainingFriendlyForce <= 0 || friendlyUnits.length === 0) {
+        outcome = { state: "playerDefeat", reason: "The defenders have been wiped out before the attack could be broken." };
+      } else {
+        const enemyShattered = remainingBotForce <= initialBotForce * 0.2 && remainingBotForce <= remainingFriendlyForce * 0.7;
+        const enemyHopelesslyOutmatched =
+          turnSummary.turnNumber >= 4 &&
+          remainingBotForce <= initialBotForce * 0.35 &&
+          remainingBotForce <= remainingFriendlyForce * 0.4;
+
+        if (townHeldByFriendly && (enemyShattered || enemyHopelesslyOutmatched)) {
+          outcome = { state: "playerVictory", reason: "The enemy assault has collapsed and the survivors are retreating from the town." };
+        } else if (turnLimit !== null && turnSummary.turnNumber >= turnLimit) {
+          if (townHeldByFriendly && remainingFriendlyForce >= remainingBotForce) {
+            outcome = { state: "playerVictory", reason: "The enemy attack spent itself before it could seize the town." };
+          } else if (townOccupant === "Bot") {
+            outcome = { state: "playerDefeat", reason: "Enemy forces forced their way into the town before the defense could throw them back." };
+          } else {
+            outcome = { state: "playerDefeat", reason: "The enemy still retained enough combat power to keep pressing the attack." };
+          }
+        }
+      }
+    }
+
+    tracker.outcome = outcome;
+
+    return {
+      turn: turnSummary.turnNumber,
+      objectives: [buildObjective(outcome, townOccupant, enemyForceRatio, friendlyForceRatio)],
+      outcome,
+      markers: [buildMarker(outcome, townOccupant, enemyForceRatio, friendlyForceRatio)]
+    } satisfies MissionStatus;
+  };
+
+  return {
+    onTurnAdvanced(snapshot: MissionSnapshot): MissionStatus {
+      return deriveStatus(snapshot);
+    },
+    getStatus(): MissionStatus {
+      const occupancy = new Map<string, TurnFaction>();
+      scenario.sides.Player.units.forEach((unit) => {
+        occupancy.set(makeKey(unit.hex), "Player");
+      });
+      scenario.sides.Bot.units.forEach((unit) => {
+        occupancy.set(makeKey(unit.hex), "Bot");
+      });
+      scenario.sides.Ally?.units.forEach((unit) => {
+        occupancy.set(makeKey(unit.hex), "Ally");
+      });
+
+      const seededFriendlyForce = getGroundForceScore([
+        ...scenario.sides.Player.units,
+        ...(scenario.sides.Ally?.units ?? [])
+      ]);
+      if (tracker.initialFriendlyForce === null && seededFriendlyForce > 0) {
+        tracker.initialFriendlyForce = seededFriendlyForce;
+      }
+      const enemyForceRatio = 1;
+      const friendlyForceRatio = 1;
+      const townOccupant = occupancy.get(townKey);
+
+      return {
+        turn: 0,
+        objectives: [buildObjective(tracker.outcome, townOccupant, enemyForceRatio, friendlyForceRatio)],
+        outcome: tracker.outcome,
+        markers: [buildMarker(tracker.outcome, townOccupant, enemyForceRatio, friendlyForceRatio)]
+      } satisfies MissionStatus;
     }
   } satisfies MissionRulesController;
 }
@@ -355,6 +581,9 @@ function createCitadelRidgeController(scenario: ScenarioData, difficulty: BotDif
 }
 
 export function createMissionRulesController(missionKey: string, scenario: ScenarioData, difficulty: BotDifficulty = "Normal"): MissionRulesController {
+  if (missionKey === "patrol") {
+    return createTownDefenseController(scenario);
+  }
   if (missionKey === "patrol_river_watch") {
     return createRiverWatchController(scenario, difficulty);
   }

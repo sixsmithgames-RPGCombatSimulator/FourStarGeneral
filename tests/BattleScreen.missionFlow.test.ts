@@ -35,8 +35,8 @@ registerTest("SCENARIO_REGISTRY_REQUIRES_EXPLICIT_MISSION_MAPPING", async ({ Giv
   });
 
   await Then("river watch resolves explicitly and unknown missions fail fast", async () => {
-    if (patrolScenarioName !== "Hamlet Defense") {
-      throw new Error(`Expected patrol to resolve Hamlet Defense, received ${patrolScenarioName || "<empty>"}`);
+    if (patrolScenarioName !== "Town Defense") {
+      throw new Error(`Expected patrol to resolve Town Defense, received ${patrolScenarioName || "<empty>"}`);
     }
     if (resolvedScenarioName !== "River Crossing Watch") {
       throw new Error(`Expected River Crossing Watch, received ${resolvedScenarioName || "<empty>"}`);
@@ -61,7 +61,7 @@ registerTest("BATTLESCREEN_BASE_CAMP_FALLS_BACK_TO_DEFAULT_DEPLOYMENT_HEX", asyn
         capacity: 4,
         hexKeys: ["14,2", "15,2", "14,1", "15,1"],
         name: "Town Perimeter",
-        description: "Hamlet deployment ring",
+        description: "Town deployment ring",
         faction: "Player"
       }
     ]);

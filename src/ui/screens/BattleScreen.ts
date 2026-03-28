@@ -2078,7 +2078,8 @@ export class BattleScreen {
       scenario: this.scenario,
       occupancy,
       playerUnits: engine.playerUnits,
-      botUnits: engine.botUnits
+      botUnits: engine.botUnits,
+      allyUnits: engine.allyUnits
     });
 
     this.missionStatus = status;
@@ -2154,16 +2155,31 @@ export class BattleScreen {
   }
 
   private updateObjectiveMarkers(): void {
-    if (!this.hexMapRenderer || !this.missionRulesController || !this.scenario.objectives) {
+    if (!this.hexMapRenderer) {
       return;
     }
 
-    const engine = this.battleState.hasEngine() ? this.battleState.ensureGameEngine() : null;
-    if (!engine) {
+    this.hexMapRenderer.clearObjectiveMarkers();
+
+    const missionMarkers = this.missionStatus?.markers ?? [];
+    if (missionMarkers.length > 0) {
+      missionMarkers.forEach((marker) => {
+        const offset = CoordinateSystem.axialToOffset(marker.hex.q, marker.hex.r);
+        const offsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+        this.hexMapRenderer?.renderObjectiveMarker(offsetKey, {
+          status: marker.status,
+          counter: marker.counter,
+          tooltip: marker.tooltip
+        });
+      });
       return;
     }
 
-    // Build occupancy map
+    if (!this.scenario.objectives || this.scenario.objectives.length === 0 || !this.battleState.hasEngine()) {
+      return;
+    }
+
+    const engine = this.battleState.ensureGameEngine();
     const occupancy = new Map<string, "Player" | "Bot" | "Ally">();
     engine.playerUnits.forEach((unit) => {
       occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Player");
@@ -2175,72 +2191,29 @@ export class BattleScreen {
       occupancy.set(`${unit.hex.q},${unit.hex.r}`, "Ally");
     });
 
-    // Get ford tracker counters from mission status
-    const fordCounters = new Map<string, number>();
-    let playerHoldStreak = 0;
-    if (this.missionStatus?.objectives) {
-      const primaryObjective = this.missionStatus.objectives.find(obj => obj.id === "primary_deny_fords");
-      if (primaryObjective?.detail) {
-        // Parse player hold streak: "Player hold all: 3/8 turns; Ford 1: Bot hold 2/8 turns..."
-        const playerStreakMatch = primaryObjective.detail.match(/Player hold all: (\d+)\/(\d+) turns/);
-        if (playerStreakMatch) {
-          playerHoldStreak = parseInt(playerStreakMatch[1], 10);
-        }
-
-        // Parse bot hold counters
-        const fordMatches = primaryObjective.detail.matchAll(/Ford (\d+): Bot hold (\d+)\/(\d+) turns/g);
-        let fordIndex = 0;
-        for (const match of fordMatches) {
-          const count = parseInt(match[2], 10);
-          if (this.scenario.objectives && fordIndex < this.scenario.objectives.length) {
-            const objective = this.scenario.objectives[fordIndex];
-            const key = `${objective.hex.q},${objective.hex.r}`;
-            fordCounters.set(key, count);
-          }
-          fordIndex++;
-        }
-      }
-    }
-
-    // Update professional objective markers for each hex
     for (let i = 0; i < this.scenario.objectives.length; i++) {
       const objective = this.scenario.objectives[i];
-      // Convert axial to offset coordinates for hex key
       const axialKey = `${objective.hex.q},${objective.hex.r}`;
       const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
       const offsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
-
       const occupant = occupancy.get(axialKey);
-      const counter = fordCounters.get(axialKey) ?? 0;
 
       let status: "unoccupied" | "player" | "enemy";
-      let counterText: string | undefined;
       let tooltipText: string;
 
       if (occupant === "Bot") {
         status = "enemy";
-        counterText = `${counter}/8`;
-        tooltipText = `Ford ${i + 1} - ENEMY CONTROLLED\nEnemy has held for ${counter} of 8 turns\n${8 - counter} turns remaining to secure`;
+        tooltipText = `Objective ${i + 1} - Enemy occupied.`;
       } else if (occupant === "Player" || occupant === "Ally") {
         status = "player";
-        const allFordsHeld = this.scenario.objectives.every(obj => {
-          const objKey = `${obj.hex.q},${obj.hex.r}`;
-          const objOccupant = occupancy.get(objKey);
-          return objOccupant === "Player" || objOccupant === "Ally";
-        });
-        if (allFordsHeld) {
-          tooltipText = `Ford ${i + 1} - SECURED\nAll fords held for ${playerHoldStreak} of 8 turns\nHold for ${8 - playerHoldStreak} more turns to win`;
-        } else {
-          tooltipText = `Ford ${i + 1} - SECURED\nYou control this ford, but not all fords\nMust hold ALL fords simultaneously for 8 turns to win`;
-        }
+        tooltipText = `Objective ${i + 1} - Secured by friendly forces.`;
       } else {
         status = "unoccupied";
-        tooltipText = `Ford ${i + 1} - CONTESTED\nNo forces currently holding\nMove units onto this ford and hold ALL fords for 8 turns to win`;
+        tooltipText = `Objective ${i + 1} - Unoccupied.`;
       }
 
       this.hexMapRenderer.renderObjectiveMarker(offsetKey, {
         status,
-        counter: counterText,
         tooltip: tooltipText
       });
     }
@@ -6595,9 +6568,7 @@ export class BattleScreen {
     this.objectiveHexKeys.clear();
     if (this.scenario.objectives) {
       for (const objective of this.scenario.objectives) {
-        // Handle hex as array [q, r]
-        const hexArray = objective.hex as unknown as [number, number];
-        this.objectiveHexKeys.add(`${hexArray[0]},${hexArray[1]}`);
+        this.objectiveHexKeys.add(`${objective.hex.q},${objective.hex.r}`);
       }
     }
 
@@ -6639,6 +6610,7 @@ export class BattleScreen {
     this.hexMapRenderer?.toggleSelectionGlow(false);
     this.hexMapRenderer?.setZoneHighlights([]);
     this.hexMapRenderer?.renderBaseCampMarker(null);
+    this.hexMapRenderer?.clearObjectiveMarkers();
     if (this.battleAnnouncements) {
       this.battleAnnouncements.textContent = "";
     }

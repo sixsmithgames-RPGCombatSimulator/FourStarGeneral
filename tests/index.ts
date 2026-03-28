@@ -12,6 +12,7 @@ import "./FrameSequenceAnimator.playback.test.js";
 import "./SpriteSheetAnimator.layout.test.js";
 import "./MapViewport.interactions.test.js";
 import "./BattleScreen.animations.test.js";
+import "./BattleScreen.objectiveMarkers.test.js";
 import "./BattleScreen.missionFlow.test.js";
 import "./deploymentZonePlanner.test.js";
 import "./scenarioValidation.test.js";
@@ -19,6 +20,7 @@ import "./CampaignMapRenderer.render.test.js";
 import "./CampaignState.observe.test.js";
 import "./CampaignScreen.status.test.js";
 import "./MissionRules.riverWatch.test.js";
+import "./MissionRules.townDefense.test.js";
 import "./unlockPurchases.test.js";
 // Air Support system tests
 import "./AirMissions.arrivals.test.js";

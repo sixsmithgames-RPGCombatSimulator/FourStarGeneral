@@ -12,7 +12,7 @@ import type { MissionKey } from "../state/UIState";
  */
 export const missionTitles: Record<MissionKey, string> = {
   training: "Training Exercise",
-  patrol: "Hamlet Defense",
+  patrol: "Town Defense",
   patrol_river_watch: "River Crossing Watch",
   assault_citadel_ridge: "Citadel Ridge",
   assault: "Tactical Assault",
@@ -30,8 +30,8 @@ export const missionBriefings: Record<MissionKey, string> = {
     "Focus on unit coordination and terrain assessment. No hostile contact expected.",
 
   patrol:
-    "Enemy battle groups are pushing up the southern road net toward the northern hamlet. " +
-    "Establish a base camp inside the town perimeter, deploy your reserves around the crossroads, and hold the settlement until the assault is broken. Expect a strong combined-arms attack with armor, artillery, and probing recon screens.",
+    "Enemy battle groups are pushing up the southern road net toward the northern town. " +
+    "Establish a base camp inside the town perimeter, deploy your reserves around the crossroads, and break the assault before the attackers can force their way into the center. Expect a strong combined-arms attack with armor, artillery, and probing recon screens.",
 
   patrol_river_watch:
     "Recon reports enemy infiltrators massing along the river. Multiple shallow fords cut through the bend—if they slip across, they'll have a lodgment before dawn. " +
@@ -126,12 +126,10 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
   },
   patrol: {
     objectives: [
-      "Primary: Hold the northern hamlet and deny the enemy a breakthrough into town.",
-      "Secondary: Bleed the enemy armored spearhead along the southern approach roads.",
-      "Tertiary: Keep the allied garrison intact long enough to anchor the defense."
+      "Primary: Repel the enemy assault and keep the town in friendly hands."
     ],
     turnLimit: 20,
-    doctrine: "Anchor the defense on the hamlet, use the road lattice to shift reserves, and let artillery and anti-tank screens break up enemy armor before it reaches the town edge.",
+    doctrine: "Anchor the defense on the town perimeter, use the road lattice to shift reserves, and let artillery and anti-tank screens break up enemy armor before it reaches the center.",
     supplies: [
       { label: "Requisition Budget", amount: "5,000,000 requisition points" },
       { label: "Allied Garrison", amount: "Infantry, engineers, anti-tank gun, recon patrol" },

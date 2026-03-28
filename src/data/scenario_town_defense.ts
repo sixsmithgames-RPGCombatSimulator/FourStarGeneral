@@ -121,19 +121,17 @@ const allyUnits = [
   makeUnit("Recon_Bike", [16, 4], { facing: "S" })
 ];
 
-const hamletDefenseScenario = {
+const townDefenseScenario = {
   ...baseScenario,
-  name: "Hamlet Defense",
+  name: "Town Defense",
   objectives: [
-    { hex: [15, 2], owner: "Player", vp: 200 },
-    { hex: [9, 8], owner: "Bot", vp: 125 },
-    { hex: [2, 13], owner: "Bot", vp: 175 }
+    { hex: [15, 2], owner: "Player", vp: 250 }
   ],
   deploymentZones: [
     {
       key: "zone-alpha",
       label: "Town Perimeter",
-      description: "Forward deployment ring around the northern hamlet and the road junction feeding it.",
+      description: "Forward deployment ring around the northern town and the road junction feeding it.",
       capacity: 20,
       faction: "Player",
       hexes: playerDeploymentHexes
@@ -150,7 +148,7 @@ const hamletDefenseScenario = {
     Bot: {
       hq: [2, 13],
       general: { accBonus: 15, dmgBonus: 0, moveBonus: 0, supplyBonus: 10 },
-      goal: "Break through the defensive road net and seize the northern hamlet before the defenders can stabilize the line.",
+      goal: "Break through the defensive road net and seize the northern town before the defenders can stabilize the line.",
       strategy: "Advance up the road spine with layered armor, keep artillery and flak protected in the rear, and use recon screens to expose the town approaches before committing the main thrust.",
       resources: 900,
       units: botUnits
@@ -163,4 +161,4 @@ const hamletDefenseScenario = {
   }
 };
 
-export default hamletDefenseScenario;
+export default townDefenseScenario;

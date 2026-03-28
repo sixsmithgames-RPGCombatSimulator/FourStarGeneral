@@ -46,12 +46,12 @@ const scenarioProfilesByName: Record<string, RawScenarioProfile> = {
     minObjectiveSpacing: 4,
     minRangeBuffer: 6
   },
-  "Hamlet Defense": {
-    scenarioName: "Hamlet Defense",
+  "Town Defense": {
+    scenarioName: "Town Defense",
     allowedMissionKeys: ["patrol"],
     minCols: 20,
     minRows: 15,
-    minObjectiveCount: 3,
+    minObjectiveCount: 1,
     minObjectiveSpacing: 4,
     minRangeBuffer: 6
   },
