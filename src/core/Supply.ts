@@ -82,6 +82,7 @@ export interface SupplyNetwork {
  */
 export interface SupplyUnitState {
   hex: Axial;
+  unitId?: string;
   ammo: number;
   fuel: number;
   entrench: number;
@@ -379,6 +380,7 @@ export function createSupplyUnits(units: ScenarioUnit[]): SupplyUnitState[] {
     })
     .map((unit) => ({
       hex: unit.hex,
+      unitId: unit.unitId,
       ammo: unit.ammo,
       fuel: unit.fuel,
       entrench: unit.entrench,
