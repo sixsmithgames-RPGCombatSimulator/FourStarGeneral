@@ -3,6 +3,7 @@ import { runAllTests } from "./harness.js";
 
 // Import only tests that do not rely on JSON module loading in Node. These specs use inline scenarios.
 import "./HexMapRenderer.animateUnitMove.test.js";
+import "./HexMapRenderer.artilleryTargetFx.test.js";
 import "./HexMapRenderer.focusOnHex.test.js";
 import "./HexMapRenderer.muzzleFlash.test.js";
 import "./HexMapRenderer.tacticalOverlays.test.js";
@@ -13,8 +14,10 @@ import "./SpriteSheetAnimator.layout.test.js";
 import "./MapViewport.interactions.test.js";
 import "./BattleScreen.animations.test.js";
 import "./BattleScreen.attackPreview.test.js";
+import "./BattleScreen.selectionIntel.test.js";
 import "./BattleScreen.objectiveMarkers.test.js";
 import "./BattleScreen.missionFlow.test.js";
+import "./SelectionIntelOverlay.commandCards.test.js";
 import "./deploymentZonePlanner.test.js";
 import "./scenarioValidation.test.js";
 import "./CampaignMapRenderer.render.test.js";

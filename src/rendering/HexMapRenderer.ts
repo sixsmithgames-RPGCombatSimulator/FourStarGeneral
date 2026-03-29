@@ -3039,7 +3039,7 @@ export class HexMapRenderer implements IMapRenderer {
   private isArcingArtilleryAttack(attackerHexKey: string): boolean {
     const attackerClass = this.getUnitClassAt(attackerHexKey);
     const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
-    return attackerClass === "artillery" || attackerType === "Flak_88" || attackerType === "SP_Artillery";
+    return attackerClass === "artillery" || attackerType === "SP_Artillery";
   }
 
   private isAirStrafingAttack(attackerHexKey: string): boolean {
@@ -3946,12 +3946,13 @@ export class HexMapRenderer implements IMapRenderer {
     const useAirStrafingVisuals = this.isAirStrafingAttack(attackerHexKey);
     const useAirBombingVisuals = this.isAirBombingAttack(attackerHexKey);
     const defenderIsAir = defenderClass === "air";
+    const suppressImpactFlash = useArcingArtilleryVisuals && defenderClass === "artillery";
 
     const defenderElement = this.hexElementMap.get(defenderHexKey);
     const defenderCenter = defenderElement ? this.extractHexCenter(defenderElement) : null;
     const flashRadius = HEX_RADIUS * (useArcingArtilleryVisuals || useAirBombingVisuals ? 1.55 : targetIsHardTarget ? 1.25 : 1.0);
     const flashIntensity = useArcingArtilleryVisuals || useAirBombingVisuals ? 0.62 : targetIsHardTarget ? 0.55 : 0.4;
-    const flashOverlayPromise = defenderCenter
+    const flashOverlayPromise = !suppressImpactFlash && defenderCenter
       ? this.playFlashOverlay(
           defenderCenter,
           flashRadius,

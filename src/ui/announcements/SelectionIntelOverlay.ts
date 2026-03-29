@@ -24,12 +24,15 @@ export class SelectionIntelOverlay {
   private readonly handleDismissBound = (event: Event) => this.handleDismiss(event);
   private readonly handleKeydownBound = (event: KeyboardEvent) => this.handleKeydown(event);
   private readonly handleToggleBound = (event: Event) => this.handleToggle(event);
+  private readonly handleRootClickBound = (event: Event) => this.handleRootClick(event);
   private readonly handlePointerDownBound = (event: PointerEvent) => this.handlePointerDown(event);
   private readonly handlePointerMoveBound = (event: PointerEvent) => this.handlePointerMove(event);
   private readonly handlePointerUpBound = (event: PointerEvent) => this.handlePointerUp(event);
 
   private lastSignature: string | null = null;
   private suppressedSignature: string | null = null;
+  private activeIntel: Exclude<SelectionIntel, null> | null = null;
+  private activeBattleTab: "orders" | "unit" = "orders";
   private collapsed = true;
   private activePointerId: number | null = null;
   private pointerOffsetX = 0;
@@ -68,6 +71,7 @@ export class SelectionIntelOverlay {
       this.root.setAttribute("aria-hidden", "true");
       this.root.classList.add("hidden");
       this.root.addEventListener("keydown", this.handleKeydownBound);
+      this.root.addEventListener("click", this.handleRootClickBound);
       this.root.dataset.collapsed = "true";
     }
     this.headerElement?.addEventListener("pointerdown", this.handlePointerDownBound);
@@ -81,6 +85,7 @@ export class SelectionIntelOverlay {
     this.dismissButton?.removeEventListener("click", this.handleDismissBound);
     this.toggleButton?.removeEventListener("click", this.handleToggleBound);
     this.root?.removeEventListener("keydown", this.handleKeydownBound);
+    this.root?.removeEventListener("click", this.handleRootClickBound);
     window.removeEventListener("pointermove", this.handlePointerMoveBound);
     window.removeEventListener("pointerup", this.handlePointerUpBound);
   }
@@ -99,6 +104,7 @@ export class SelectionIntelOverlay {
 
     if (!intel) {
       this.lastSignature = null;
+      this.activeIntel = null;
       this.hide();
       return;
     }
@@ -110,6 +116,7 @@ export class SelectionIntelOverlay {
     if (isNewIntel) {
       this.suppressedSignature = null;
       this.collapsed = intel.kind === "battle";
+      this.activeBattleTab = "orders";
     }
 
     if (this.suppressedSignature === signature) {
@@ -117,6 +124,7 @@ export class SelectionIntelOverlay {
       return;
     }
 
+    this.activeIntel = intel;
     this.render(intel);
     this.show();
   }
@@ -144,6 +152,9 @@ export class SelectionIntelOverlay {
   private handleToggle(event: Event): void {
     event.preventDefault();
     this.collapsed = !this.collapsed;
+    if (this.activeIntel) {
+      this.render(this.activeIntel);
+    }
     this.syncCollapsedState();
   }
 
@@ -161,12 +172,31 @@ export class SelectionIntelOverlay {
     }
   }
 
+  private handleRootClick(event: Event): void {
+    const target = event.target as HTMLElement | null;
+    const tabButton = target?.closest<HTMLButtonElement>("[data-selection-intel-tab]");
+    if (!tabButton) {
+      return;
+    }
+    const nextTab = tabButton.dataset.selectionIntelTab;
+    if (nextTab !== "orders" && nextTab !== "unit") {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.activeBattleTab = nextTab;
+    if (this.activeIntel) {
+      this.render(this.activeIntel);
+    }
+  }
+
   private render(intel: Exclude<SelectionIntel, null>): void {
     const title = this.resolveTitle(intel);
     const summary = this.composeSummary(intel);
 
     if (this.root) {
       this.root.dataset.intelKind = intel.kind;
+      this.root.dataset.activeTab = intel.kind === "battle" ? this.activeBattleTab : "";
     }
     if (this.toggleButton) {
       const canCollapse = intel.kind === "battle";
@@ -188,7 +218,8 @@ export class SelectionIntelOverlay {
     }
     if (this.notesElement) {
       const notes = this.resolveNotes(intel);
-      if (notes.length > 0) {
+      const showNotes = this.shouldShowNotes(intel) && notes.length > 0;
+      if (showNotes) {
         this.notesElement.classList.remove("hidden");
         this.notesElement.innerHTML = notes
           .map((note) => `<p class="battle-intel-overlay__note">${this.escapeHtml(note)}</p>`)
@@ -339,25 +370,7 @@ export class SelectionIntelOverlay {
    * Summarizes unit intel on a single line, covering strength, ammo, and immediate action state.
    */
   private composeBattleSummary(intel: BattleSelectionIntel): string {
-    const segments: string[] = [];
-    segments.push(this.resolveMeta(intel));
-
-    if (intel.unitStrength !== null) {
-      const percent = Math.round(Math.max(0, Math.min(100, intel.unitStrength)));
-      segments.push(`STR ${percent}%`);
-    }
-    if (intel.unitAmmo !== null) {
-      const ammo = Math.max(0, Math.round(intel.unitAmmo));
-      segments.push(`Ammo ${ammo}`);
-    }
-
-    if (intel.movementRemaining !== null) {
-      const maxLabel = typeof intel.movementMax === "number" ? `/${Math.max(0, Math.round(intel.movementMax))}` : "";
-      const remaining = Math.max(0, Math.round(intel.movementRemaining));
-      segments.push(`Move ${remaining}${maxLabel}`);
-    }
-
-    return segments.filter((segment) => segment.length > 0).join(" • ");
+    return this.resolveMeta(intel);
   }
 
   /**
@@ -392,22 +405,28 @@ export class SelectionIntelOverlay {
       { label: "Strength", value: intel.unitStrength !== null ? `${Math.round(intel.unitStrength)}%` : "—" },
       { label: "Ammo", value: intel.unitAmmo !== null ? `${Math.max(0, Math.round(intel.unitAmmo))}` : "—" },
       { label: "Fuel", value: intel.unitFuel !== null ? `${Math.max(0, Math.round(intel.unitFuel))}` : "—" },
-      { label: "Entrench", value: intel.unitEntrenchment !== null ? `${Math.max(0, Math.round(intel.unitEntrenchment))}/2` : "—" },
       {
         label: "Move",
         value: intel.movementRemaining !== null
           ? `${Math.max(0, Math.round(intel.movementRemaining))}${typeof intel.movementMax === "number" ? `/${Math.max(0, Math.round(intel.movementMax))}` : ""}`
           : "—"
       },
-      { label: "Targets", value: `${Math.max(0, Math.round(intel.attackOptions))}` }
+      { label: "Range", value: intel.rangeLabel }
     ];
+    if (intel.canEntrench) {
+      statCards.splice(3, 0, {
+        label: "Entrench",
+        value: intel.unitEntrenchment !== null ? `${Math.max(0, Math.round(intel.unitEntrenchment))}/2` : "—"
+      });
+    }
 
     const chipMarkup = intel.statusChips.length > 0
       ? `<div class="battle-intel-overlay__chip-row">${intel.statusChips.map((chip) => this.renderChipMarkup(chip)).join("")}</div>`
       : "";
-    const actionMarkup = intel.actionCards.length > 0
-      ? `<div class="battle-intel-overlay__actions">${intel.actionCards.map((action) => this.renderActionMarkup(action)).join("")}</div>`
-      : `<div class="battle-intel-overlay__status-line">No infantry field actions are available for this formation.</div>`;
+    const tabMarkup = this.collapsed ? "" : this.renderBattleTabMarkup(intel);
+    const contentMarkup = !this.collapsed && this.activeBattleTab === "unit"
+      ? this.renderBattleDetailsMarkup(intel)
+      : this.renderBattleActionsMarkup(intel);
 
     return `
       <div class="battle-intel-overlay__stats">
@@ -419,7 +438,8 @@ export class SelectionIntelOverlay {
         `).join("")}
       </div>
       ${chipMarkup}
-      ${actionMarkup}
+      ${tabMarkup}
+      ${contentMarkup}
     `;
   }
 
@@ -471,6 +491,62 @@ export class SelectionIntelOverlay {
     `;
   }
 
+  private renderBattleTabMarkup(intel: BattleSelectionIntel): string {
+    const tabs: Array<{ id: "orders" | "unit"; label: string; hidden?: boolean }> = [
+      { id: "orders", label: "Orders" },
+      { id: "unit", label: "Unit", hidden: intel.detailSections.length === 0 }
+    ];
+    const visibleTabs = tabs.filter((tab) => !tab.hidden);
+    if (visibleTabs.length < 2) {
+      return "";
+    }
+    return `
+      <div class="battle-intel-overlay__tabs" role="tablist" aria-label="Unit intel views">
+        ${visibleTabs.map((tab) => `
+          <button
+            type="button"
+            class="battle-intel-overlay__tab"
+            data-selection-intel-tab="${tab.id}"
+            role="tab"
+            aria-selected="${this.activeBattleTab === tab.id ? "true" : "false"}"
+          >
+            ${this.escapeHtml(tab.label)}
+          </button>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  private renderBattleActionsMarkup(intel: BattleSelectionIntel): string {
+    if (intel.actionCards.length > 0) {
+      return `<div class="battle-intel-overlay__actions">${intel.actionCards.map((action) => this.renderActionMarkup(action)).join("")}</div>`;
+    }
+    return `<div class="battle-intel-overlay__empty">${this.escapeHtml(intel.statusMessage)}</div>`;
+  }
+
+  private renderBattleDetailsMarkup(intel: BattleSelectionIntel): string {
+    if (intel.detailSections.length === 0) {
+      return `<div class="battle-intel-overlay__empty">Definition data is unavailable for this formation.</div>`;
+    }
+    return `
+      <div class="battle-intel-overlay__details">
+        ${intel.detailSections.map((section) => `
+          <section class="battle-intel-overlay__detail-section">
+            <h4 class="battle-intel-overlay__detail-title">${this.escapeHtml(section.title)}</h4>
+            <div class="battle-intel-overlay__detail-grid">
+              ${section.entries.map((entry) => `
+                <div class="battle-intel-overlay__detail-entry">
+                  <span class="battle-intel-overlay__detail-label">${this.escapeHtml(entry.label)}</span>
+                  <strong class="battle-intel-overlay__detail-value">${this.escapeHtml(entry.value)}</strong>
+                </div>
+              `).join("")}
+            </div>
+          </section>
+        `).join("")}
+      </div>
+    `;
+  }
+
   private resolveNotes(intel: Exclude<SelectionIntel, null>): readonly string[] {
     switch (intel.kind) {
       case "battle":
@@ -480,6 +556,10 @@ export class SelectionIntelOverlay {
       default:
         return intel.notes;
     }
+  }
+
+  private shouldShowNotes(intel: Exclude<SelectionIntel, null>): boolean {
+    return intel.kind !== "battle" || this.activeBattleTab === "orders";
   }
 
   private escapeHtml(value: string): string {

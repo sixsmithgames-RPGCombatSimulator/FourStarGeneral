@@ -282,7 +282,7 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const rangeAccuracy = getBaseAccuracyByRange(combatProfile, distance);
   const baseAccuracy = rangeAccuracy * resolveAccuracyScalar(attacker.unit, combatProfile);
 
-  // Step 2: Add experience bonus
+  // Step 2: Add experience bonus. Accuracy improves faster with veteran crews than post-hit damage.
   const experienceBonus = attacker.experience * combatBalance.accuracy.expPerStar;
   const commanderAccuracyBonus = attacker.general.accBonus ?? 0;
   const commanderScalar = 1 + (commanderAccuracyBonus * combatBalance.accuracy.commanderScalar);
@@ -337,9 +337,9 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   } satisfies AccuracyBreakdown;
 }
 
-/** Effective armor penetration value after experience bonuses. */
+/** Effective armor penetration stays at the authored weapon value. Experience does not increase AP. */
 export function calculateEffectiveAP(attacker: UnitCombatState): number {
-  return attacker.unit.ap + attacker.experience * combatBalance.penetration.starApBonus;
+  return attacker.unit.ap;
 }
 
 /**
@@ -369,7 +369,7 @@ export function calculateDamagePerHit(
 ): DamageBreakdown {
   const { attacker, isSoftTarget } = request;
   const combatProfile = resolveCombatProfile(attacker.unit);
-  const experienceScalar = 1 + attacker.experience * 0.1;
+  const experienceScalar = 1 + attacker.experience * combatBalance.damage.experienceScalarPerStar;
   const commanderDamageBonus = attacker.general.dmgBonus ?? 0;
   const damageScalar = 1 + (commanderDamageBonus / 100);
   const softAttackScalar = resolveAttackScalar(attacker.unit, combatProfile, true);

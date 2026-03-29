@@ -347,7 +347,7 @@ function createTownDefenseController(scenario: ScenarioData): MissionRulesContro
       ? `Town center - Secure. ${outcome.reason ?? "The enemy assault has broken and is retreating."}`
       : outcome.state === "playerDefeat"
         ? `Town center - Lost. ${outcome.reason ?? "The defense failed before the assault could be broken."}`
-        : `Town center - ${status === "enemy" ? "Enemy pressure" : status === "player" ? "Defenders holding" : "Contested"}. Enemy ${toPercent(enemyForceRatio)} / Friendly ${toPercent(friendlyForceRatio)} remaining combat power.`;
+        : `Town center - ${status === "enemy" ? "Enemy pressure" : status === "player" ? "Defenders holding" : "Contested"}. Hold the objective and repel all enemies.`;
 
     return {
       hex: townHex,

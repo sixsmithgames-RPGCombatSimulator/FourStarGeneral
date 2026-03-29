@@ -52,6 +52,7 @@ import type {
   ActivityDetailSection,
   BattleIntelAction,
   BattleIntelChip,
+  BattleIntelDetailSection,
   BattleSelectionIntel,
   DeploymentSelectionIntel,
   SelectionIntel,
@@ -372,8 +373,8 @@ export class BattleScreen {
     const postPayloadDamagePerHit = preview.finalDamagePerHit;
     const damagePerHitSummary = `${prePayloadDamagePerHit.toFixed(3)}% -> ${postPayloadDamagePerHit.toFixed(3)}%`;
 
-    const baseExpectedDamage = preview.result.expectedDamage;
-    const postPayloadExpectedDamage = preview.finalExpectedDamage;
+    const baseExpectedDamage = this.clampDisplayedDamage(preview.result.expectedDamage);
+    const postPayloadExpectedDamage = this.clampDisplayedDamage(preview.finalExpectedDamage);
     const baseExpectedSuppression = preview.result.expectedSuppression;
     const postPayloadExpectedSuppression = preview.finalExpectedSuppression;
     const expectedDamageSummary = `${baseExpectedDamage.toFixed(1)}% -> ${postPayloadExpectedDamage.toFixed(1)}%`;
@@ -1372,7 +1373,7 @@ export class BattleScreen {
       if (resolution) {
         // Compose battle update lines summarizing attack outcome and any counter-fire so commanders get full context.
         const announcements: string[] = [];
-        const inflicted = Math.max(0, Math.round(resolution.result.expectedDamage));
+        const inflicted = this.clampDisplayedDamageRounded(resolution.result.expectedDamage);
         let primaryReport = `Attack confirmed. Damage ≈ ${inflicted}.`;
         if (resolution.defenderDestroyed) {
           primaryReport += " Target destroyed.";
@@ -1404,7 +1405,7 @@ export class BattleScreen {
         announcements.forEach((text) => this.announceBattleUpdate(text));
 
         const retaliationDamage = resolution.retaliationOccurred
-          ? Math.max(0, Math.round(resolution.retaliationResult ? resolution.retaliationResult.expectedDamage : 0))
+          ? this.clampDisplayedDamageRounded(resolution.retaliationResult ? resolution.retaliationResult.expectedDamage : 0)
           : 0;
         const defenderDestroyedNote = resolution.defenderDestroyed ? " Target destroyed." : "";
         const retaliationSummary = resolution.retaliationOccurred
@@ -5466,17 +5467,31 @@ export class BattleScreen {
       this.playerMoveHexes.clear();
       this.playerAttackHexes.clear();
       this.hexMapRenderer?.setZoneHighlights([]);
-      if (this.baseCampStatus) {
-        this.baseCampStatus.textContent = `Selected hex: ${key}`;
+      const enemyContact = this.findEnemyContactAtHex(axial);
+      const terrainNotes: string[] = [];
+      if (enemyContact) {
+        terrainNotes.push(`Enemy contact: ${this.describeEnemyContact(enemyContact)}.`);
       }
       const hexModification = engine.getHexModification(axial);
+      if (hexModification) {
+        terrainNotes.push(`${this.toTitleCase(this.describeHexModification(hexModification.type))} remain in place here.`);
+      }
+      if (terrainNotes.length === 0) {
+        terrainNotes.push("Hex unoccupied.");
+      }
+      if (this.baseCampStatus) {
+        this.baseCampStatus.textContent = enemyContact
+          ? `Selected hex: ${key} - ${this.describeEnemyContact(enemyContact)}`
+          : `Selected hex: ${key}`;
+      }
+      this.announceBattleUpdate(enemyContact
+        ? `Selected ${key}. ${this.lookupTerrainName(key)}. ${this.describeEnemyContact(enemyContact)}.`
+        : `Selected ${key}. ${this.lookupTerrainName(key)}.`);
       const terrainIntel: TerrainSelectionIntel = {
         kind: "terrain",
         hexKey: key,
         terrainName: this.lookupTerrainName(key),
-        notes: hexModification
-          ? [`Hex unoccupied. ${this.toTitleCase(this.describeHexModification(hexModification.type))} remain in place here.`]
-          : ["Hex unoccupied."]
+        notes: terrainNotes
       };
       this.publishSelectionIntel(terrainIntel);
     }
@@ -6019,7 +6034,7 @@ export class BattleScreen {
       });
 
       const accuracy = Math.round(preview.result.accuracy);
-      const expectedDamage = preview.finalExpectedDamage.toFixed(1);
+      const expectedDamage = this.clampDisplayedDamage(preview.finalExpectedDamage).toFixed(1);
       const expectedHits = preview.result.expectedHits.toFixed(1);
       const damagePerHit = preview.finalDamagePerHit.toFixed(2);
       const shots = preview.result.shots;
@@ -6042,7 +6057,7 @@ export class BattleScreen {
     sections.push({
       title: "Outcome",
       entries: [
-        { label: "Damage Dealt", value: `${meta.inflictedDamage}` },
+        { label: "Damage Dealt", value: `${this.clampDisplayedDamageRounded(meta.inflictedDamage)}` },
         {
           label: "Defender Remaining",
           value: `${Math.max(0, resolution.defenderRemainingStrength)}%`
@@ -6056,7 +6071,7 @@ export class BattleScreen {
         },
         {
           label: "Retaliation",
-          value: resolution.retaliationOccurred ? `${meta.retaliationDamage}` : "None"
+          value: resolution.retaliationOccurred ? `${this.clampDisplayedDamageRounded(meta.retaliationDamage)}` : "None"
         }
       ]
     });
@@ -6113,6 +6128,8 @@ export class BattleScreen {
     statusMessage: string,
     commandState: UnitCommandState | null
   ): BattleSelectionIntel {
+    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary] as UnitTypeDefinition | undefined;
+    const canEntrench = this.canUnitDigIn(unit);
     return {
       kind: "battle",
       hexKey,
@@ -6124,11 +6141,14 @@ export class BattleScreen {
       unitEntrenchment: typeof unit.entrench === "number" ? unit.entrench : null,
       movementRemaining: movementBudget ? movementBudget.remaining : null,
       movementMax: movementBudget ? movementBudget.max : null,
+      rangeLabel: this.formatBattleRange(definition),
+      canEntrench,
       moveOptions: this.playerMoveHexes.size,
       attackOptions: this.playerAttackHexes.size,
       statusMessage,
       statusChips: this.buildBattleIntelStatusChips(unit, commandState),
       actionCards: this.buildBattleIntelActions(hexKey, unit, commandState),
+      detailSections: this.buildBattleIntelDetailSections(unit, definition),
       notes: this.buildBattleIntelNotes(unit, commandState)
     };
   }
@@ -6154,7 +6174,7 @@ export class BattleScreen {
         });
       }
     }
-    if (unit.entrench > 0) {
+    if (this.canUnitDigIn(unit) && unit.entrench > 0) {
       chips.push({ label: `Entrench ${unit.entrench}/2`, tone: unit.entrench >= 2 ? "good" : "neutral" });
     }
     if (this.isEngineerBattleUnit(unit)) {
@@ -6251,14 +6271,6 @@ export class BattleScreen {
     } else if (commandState.suppressionState === "suppressed") {
       notes.push("Under suppressive fire this turn. The battalion may still move and fire, but it cannot initiate assault fire until the next friendly turn begins.");
     }
-    if (commandState.isOnSentry) {
-      notes.push("Sentry is active. If this formation is attacked before its next activation and it has valid return fire, combat resolves simultaneously instead of attacker-first.");
-    } else if (!commandState.canEnterSentry && commandState.sentryReason) {
-      notes.push(commandState.sentryReason);
-    }
-    if (commandState.existingHexModification) {
-      notes.push(`This hex already contains ${this.describeHexModification(commandState.existingHexModification.type)}. Only one engineer-built modification may occupy a hex at a time.`);
-    }
     if (this.canUnitDigIn(unit) && !commandState.canDigIn && commandState.digInReason) {
       notes.push(commandState.digInReason);
     }
@@ -6275,6 +6287,98 @@ export class BattleScreen {
       }
     }
     return notes;
+  }
+
+  private buildBattleIntelDetailSections(
+    unit: ScenarioUnit,
+    definition: UnitTypeDefinition | null | undefined
+  ): BattleIntelDetailSection[] {
+    if (!definition) {
+      return [];
+    }
+
+    const sections: BattleIntelDetailSection[] = [];
+    sections.push({
+      title: "Unit",
+      entries: [
+        { label: "Class", value: this.formatIntelLabel(definition.class) },
+        { label: "Role", value: this.formatIntelLabel(definition.combat.role) },
+        { label: "Weight", value: this.formatIntelLabel(definition.combat.weight) },
+        { label: "Mobility", value: this.formatIntelLabel(definition.moveType) },
+        { label: "Vision", value: `${definition.vision} hex${definition.vision === 1 ? "" : "es"}` },
+        { label: "Initiative", value: `${definition.initiative}` },
+        { label: "Accuracy", value: `${definition.accuracyBase}%` }
+      ]
+    });
+
+    sections.push({
+      title: "Firepower",
+      entries: [
+        { label: "Soft Attack", value: `${definition.softAttack}` },
+        { label: "Hard Attack", value: `${definition.hardAttack}` },
+        { label: "Penetration", value: `${definition.ap}` }
+      ]
+    });
+
+    sections.push({
+      title: "Protection",
+      entries: [
+        {
+          label: "Armor",
+          value: `F ${definition.armor.front} / S ${definition.armor.side} / T ${definition.armor.top}`
+        },
+        { label: "Signature", value: this.formatIntelLabel(definition.combat.signature) }
+      ]
+    });
+
+    const traitValues = this.buildUnitTraitSummary(unit, definition);
+    if (traitValues.length > 0) {
+      sections.push({
+        title: "Traits",
+        entries: [{ label: "Capabilities", value: traitValues.join(" • ") }]
+      });
+    }
+
+    if (definition.airSupport) {
+      sections.push({
+        title: "Airframe",
+        entries: [
+          { label: "Mission Roles", value: definition.airSupport.roles.map((role) => this.formatIntelLabel(role)).join(" • ") },
+          { label: "Cruise Speed", value: `${definition.airSupport.cruiseSpeedKph} kph` },
+          { label: "Combat Radius", value: `${definition.airSupport.combatRadiusKm} km` },
+          { label: "Refit", value: `${definition.airSupport.refitTurns} turn${definition.airSupport.refitTurns === 1 ? "" : "s"}` }
+        ]
+      });
+    }
+
+    return sections;
+  }
+
+  private buildUnitTraitSummary(unit: ScenarioUnit, definition: UnitTypeDefinition): string[] {
+    const traits = new Set<string>((definition.traits ?? []).map((trait) => this.formatIntelLabel(trait)));
+    if (this.isEngineerBattleUnit(unit)) {
+      traits.add("Engineer");
+    }
+    return Array.from(traits);
+  }
+
+  private formatBattleRange(definition: UnitTypeDefinition | null | undefined): string {
+    if (!definition || definition.rangeMax <= 0) {
+      return "—";
+    }
+    const min = Math.max(1, definition.rangeMin);
+    const max = Math.max(min, definition.rangeMax);
+    if (min === max) {
+      return `${max}`;
+    }
+    return `${min}-${max}`;
+  }
+
+  private formatIntelLabel(value: string): string {
+    return value
+      .replace(/_/g, " ")
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/\b\w/g, (match) => match.toUpperCase());
   }
 
   private canUnitDigIn(unit: ScenarioUnit): boolean {
@@ -6591,6 +6695,35 @@ export class BattleScreen {
     }
     const estimate = contact.strengthEstimate ?? liveUnit?.strength ?? 75;
     return Math.min(100, Math.max(25, Math.round(estimate / 25) * 25));
+  }
+
+  private findEnemyContactAtHex(axial: Axial): EnemyContactSnapshot | null {
+    const engine = this.battleState.ensureGameEngine();
+    const contacts =
+      typeof (engine as { getEnemyContactSnapshot?: () => EnemyContactSnapshot[] }).getEnemyContactSnapshot === "function"
+        ? engine.getEnemyContactSnapshot()
+        : [];
+    return contacts.find((contact) => contact.hex.q === axial.q && contact.hex.r === axial.r) ?? null;
+  }
+
+  private describeEnemyContact(contact: EnemyContactSnapshot): string {
+    const label = this.formatScenarioUnitTypeLabel(contact.unitType ?? "Enemy Unit");
+    const strength = Math.max(0, Math.round(contact.strengthEstimate ?? 0));
+    return `${label} at ${strength}% strength`;
+  }
+
+  private formatScenarioUnitTypeLabel(unitType: string): string {
+    return unitType
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (segment) => segment.toUpperCase());
+  }
+
+  private clampDisplayedDamage(value: number): number {
+    return Math.min(100, Math.max(0, value));
+  }
+
+  private clampDisplayedDamageRounded(value: number): number {
+    return Math.round(this.clampDisplayedDamage(value));
   }
 
   /**

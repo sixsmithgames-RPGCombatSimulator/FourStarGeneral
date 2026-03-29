@@ -29,6 +29,16 @@ export interface BattleIntelAction {
   readonly reason?: string | null;
 }
 
+export interface BattleIntelDetailEntry {
+  readonly label: string;
+  readonly value: string;
+}
+
+export interface BattleIntelDetailSection {
+  readonly title: string;
+  readonly entries: readonly BattleIntelDetailEntry[];
+}
+
 /**
  * Describes player-controlled unit details when the commander selects a friendly formation during battle.
  */
@@ -43,11 +53,14 @@ export interface BattleSelectionIntel {
   readonly unitEntrenchment: number | null;
   readonly movementRemaining: number | null;
   readonly movementMax: number | null;
+  readonly rangeLabel: string;
+  readonly canEntrench: boolean;
   readonly moveOptions: number;
   readonly attackOptions: number;
   readonly statusMessage: string;
   readonly statusChips: readonly BattleIntelChip[];
   readonly actionCards: readonly BattleIntelAction[];
+  readonly detailSections: readonly BattleIntelDetailSection[];
   readonly notes: readonly string[];
 }
 

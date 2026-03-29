@@ -6225,11 +6225,11 @@ private automateSupplyConvoys(
     }
 
     const defenderFlags = this.botActionFlags.get(defenderKey) ?? this.createDefaultActionFlags();
-    if (defenderFlags.retaliationsUsed >= 1) {
+    if (defenderFlags.retaliationsUsed >= combatBalance.counterfire.maxRetaliationsPerTurn) {
       return {
         expectedDamage: 0,
         possible: false,
-        note: noteFor("Target has already used its retaliation this turn.")
+        note: noteFor("Target has already used all available retaliations this turn.")
       };
     }
 
@@ -7336,10 +7336,10 @@ private automateSupplyConvoys(
         retaliationAllowed = false; // Out of range
       }
 
-      // Check retaliation limit - defenders can only retaliate once per turn
+      // Check retaliation limit - defenders can only retaliate a limited number of times per turn
       const defenderFlags = this.botActionFlags.get(defKey) ?? { movementPointsUsed: 0, attacksUsed: 0, retaliationsUsed: 0, isRushing: false };
-      if (defenderFlags.retaliationsUsed >= 1) {
-        retaliationAllowed = false; // Already retaliated this turn
+      if (defenderFlags.retaliationsUsed >= combatBalance.counterfire.maxRetaliationsPerTurn) {
+        retaliationAllowed = false; // Already spent all retaliations this turn
       }
 
       // Build reverse attack request (defender attacking attacker)
@@ -7476,7 +7476,7 @@ private automateSupplyConvoys(
           }
         }
 
-        // Update bot action flags to track retaliation used
+        // Update bot action flags to track each retaliation and enforce the per-turn cap.
         const defenderFlags = this.botActionFlags.get(defKey) ?? { movementPointsUsed: 0, attacksUsed: 0, retaliationsUsed: 0, isRushing: false };
         this.botActionFlags.set(defKey, {
           ...defenderFlags,
@@ -9965,7 +9965,7 @@ private automateSupplyConvoys(
 
       if (retaliationAllowed) {
         const defenderFlags = this.playerActionFlags.get(playerKey) ?? this.createDefaultActionFlags();
-        if (defenderFlags.retaliationsUsed >= 1) {
+        if (defenderFlags.retaliationsUsed >= combatBalance.counterfire.maxRetaliationsPerTurn) {
           retaliationAllowed = false;
         }
       }

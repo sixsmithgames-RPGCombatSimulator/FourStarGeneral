@@ -188,3 +188,114 @@
 - Add a focused logistics regression proving initial depot stock augments the turn-one logistics snapshot.
 - Run `npm run build`.
 - Run a focused compiled harness for the logistics regression suite.
+
+## Enemy Hex Intel Plan
+
+### Intended behavior
+- Clicking a hex with a visible enemy contact should keep showing terrain context while also surfacing a minimal enemy summary for the player.
+- That summary should expose only the enemy unit type and strength, not hidden ammo or fuel state.
+
+### Current behavior
+- Non-player hex selection falls through to terrain intel only, even when the selected hex contains a spotted enemy formation.
+
+### Expected new behavior
+- The selection overlay should prepend an enemy-contact note when the selected hex matches a tracked enemy contact.
+- The battle status line should also reflect that visible enemy contact in concise form.
+
+### Impact analysis
+- Systems consuming this output:
+  - `BattleScreen` map selection feedback
+  - `SelectionIntelOverlay` terrain-intel rendering
+- Visual behaviors that could shift:
+  - Enemy-held hexes now display a simple contact note such as unit type and current strength estimate.
+
+### Verification
+- Add a focused selection-intel overlay regression covering terrain intel with an enemy contact note.
+- Run `npm run build`.
+- Run a focused compiled harness for the selection-intel overlay test.
+
+## Experience AP Plan
+
+### Intended behavior
+- Experience should improve crew performance through hit chance and damage efficiency, but it should not change authored armor penetration or armor values.
+
+### Current behavior
+- `calculateEffectiveAP(...)` adds an experience-based AP bonus, causing otherwise identical AT guns to show different penetration values when one has EXP and the other does not.
+- Armor values already remain authored and fixed.
+
+### Expected new behavior
+- Effective AP should match the unit definition's authored AP regardless of experience.
+- Experience should continue to affect accuracy and damage-per-hit through the existing veteran crew scalars.
+
+### Impact analysis
+- Systems consuming this output:
+  - Core combat resolution in `src/core/Combat.ts`
+  - Attack previews and combat detail readouts
+  - Focused AT-gun and preview regressions
+- Visual behaviors that could shift:
+  - Veteran anti-tank guns no longer display inflated AP values in previews.
+  - Damage into armor may drop slightly where the old EXP-derived AP bonus previously improved penetration margin.
+
+### Verification
+- Update focused AT-gun combat tests and attack-preview text tests to authored AP behavior.
+- Run `npm run build`.
+- Run focused compiled harness passes for the updated AT-gun and attack-preview tests.
+
+## Experience Veteran Tuning Plan
+
+### Intended behavior
+- Experience should make veteran crews substantially more accurate while only modestly improving the damage each successful hit causes.
+- The tuning rationale should be documented where the shared combat knobs live so future balance passes keep the same doctrine.
+
+### Current behavior
+- Accuracy gains only `+3%` per EXP, which undersells how quickly practiced crews improve ranging, fire control, and shot placement.
+- Damage per hit gains `+10%` per EXP, which overstates how much experience changes terminal effect after a round already lands.
+
+### Expected new behavior
+- Accuracy gains `+10%` per EXP.
+- Damage per hit gains `+3%` per EXP.
+- Shared combat comments should explain that accuracy is the skill that grows faster with experience, while post-hit lethality improves more slowly.
+
+### Impact analysis
+- Systems consuming this output:
+  - Core combat resolution in `src/core/Combat.ts`
+  - Shared combat tuning in `src/core/balance.ts`
+  - Focused AT-gun regressions and mocked attack-preview tests
+- Visual behaviors that could shift:
+  - Veteran-unit previews will show larger hit-chance increases.
+  - Veteran units will show smaller damage-per-hit deltas than before.
+
+### Verification
+- Update focused combat and preview regressions to the new experience scalars.
+- Run `npm run build`.
+- Run focused compiled harness passes for the updated AT-gun and attack-preview tests.
+
+## Counterfire Depth Plan
+
+### Intended behavior
+- Defending units should be able to retaliate multiple times during a turn instead of exhausting all return-fire capacity after the first exchange.
+- Each retaliation should continue to consume ammunition, and a unit with no remaining ammo should stop retaliating even if it has unused retaliation slots.
+
+### Current behavior
+- The engine hard-caps ground and air defensive fire at one retaliation per turn through repeated `>= 1` checks in preview and resolution flows.
+- Ammo spending already happens per retaliation, but the one-shot cap prevents that resource rule from mattering in sustained enemy contact.
+
+### Expected new behavior
+- Shared counterfire tuning should allow up to six retaliations per turn.
+- Player previews, player-initiated combat, and bot-initiated combat should all read the same retaliation cap.
+- Once a unit has spent its ammo on retaliation, further attacks in the same turn should not trigger return fire.
+
+### Impact analysis
+- Systems consuming this output:
+  - Shared counterfire tuning in `src/core/balance.ts`
+  - Player attack preview retaliation checks in `src/game/GameEngine.ts`
+  - Player and bot combat resolution retaliation gates in `src/game/GameEngine.ts`
+  - Focused command-state combat regressions
+- Visual behaviors that could shift:
+  - Attack previews will continue to show return fire deeper into a turn until the defender reaches six retaliations or runs dry.
+  - Defensive units under repeated attack will now keep spending ammo across multiple return-fire exchanges.
+
+### Verification
+- Add a focused regression proving a defending unit can retaliate six times and then stops once ammo is exhausted.
+- Run `npm run build`.
+- Run a focused compiled harness pass for the updated command-state test.

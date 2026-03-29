@@ -2469,6 +2469,39 @@
       flex-wrap: wrap;
       gap: 0.45rem;
     }
+    .battle-intel-overlay__tabs {
+      display: flex;
+      gap: 0.42rem;
+    }
+    .battle-intel-overlay__tab {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 1.95rem;
+      padding: 0.28rem 0.72rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: rgba(248, 249, 251, 0.72);
+      font-size: 0.66rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform 140ms ease;
+    }
+    .battle-intel-overlay__tab:hover,
+    .battle-intel-overlay__tab:focus-visible {
+      border-color: rgba(169, 240, 186, 0.26);
+      color: rgba(248, 249, 251, 0.92);
+      outline: none;
+      transform: translateY(-1px);
+    }
+    .battle-intel-overlay__tab[aria-selected="true"] {
+      border-color: rgba(169, 240, 186, 0.3);
+      background: linear-gradient(180deg, rgba(24, 48, 38, 0.5), rgba(9, 14, 22, 0.82));
+      color: #a9f0ba;
+    }
     .battle-intel-overlay__chip {
       display: inline-flex;
       align-items: center;
@@ -2501,6 +2534,47 @@
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
       gap: 0.55rem;
+    }
+    .battle-intel-overlay__details {
+      display: grid;
+      gap: 0.55rem;
+    }
+    .battle-intel-overlay__detail-section {
+      display: grid;
+      gap: 0.42rem;
+      padding: 0.72rem 0.78rem;
+      border-radius: 16px;
+      background: rgba(9, 14, 22, 0.68);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .battle-intel-overlay__detail-title {
+      margin: 0;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(248, 249, 251, 0.72);
+    }
+    .battle-intel-overlay__detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+      gap: 0.42rem 0.68rem;
+    }
+    .battle-intel-overlay__detail-entry {
+      display: grid;
+      gap: 0.12rem;
+      min-width: 0;
+    }
+    .battle-intel-overlay__detail-label {
+      font-size: 0.58rem;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: rgba(248, 249, 251, 0.54);
+    }
+    .battle-intel-overlay__detail-value {
+      font-size: 0.78rem;
+      line-height: 1.35;
+      color: rgba(248, 249, 251, 0.9);
     }
     .battle-intel-overlay__action {
       display: grid;

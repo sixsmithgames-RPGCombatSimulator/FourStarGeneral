@@ -1,13 +1,14 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { SelectionIntelOverlay } from "../src/ui/announcements/SelectionIntelOverlay";
-import type { BattleSelectionIntel } from "../src/ui/announcements/AnnouncementTypes";
+import type { BattleSelectionIntel, TerrainSelectionIntel } from "../src/ui/announcements/AnnouncementTypes";
 
 registerTest("SELECTION_INTEL_OVERLAY_RENDERS_COMMAND_CARDS_AND_NOTES", async ({ Given, When, Then }) => {
   const container = document.createElement("div");
   container.innerHTML = `
     <section id="battleIntelOverlay" class="battle-intel-overlay hidden" tabindex="-1">
       <button id="battleIntelOverlayDismiss" type="button">x</button>
+      <button id="battleIntelOverlayToggle" type="button">Expand</button>
       <header>
         <h3 id="battleIntelOverlayTitle"></h3>
         <p id="battleIntelOverlayMeta"></p>
@@ -29,6 +30,8 @@ registerTest("SELECTION_INTEL_OVERLAY_RENDERS_COMMAND_CARDS_AND_NOTES", async ({
     unitEntrenchment: 1,
     movementRemaining: 2,
     movementMax: 2,
+    rangeLabel: "1",
+    canEntrench: true,
     moveOptions: 3,
     attackOptions: 1,
     statusMessage: "Engineer Company selected at 4,2.",
@@ -51,6 +54,15 @@ registerTest("SELECTION_INTEL_OVERLAY_RENDERS_COMMAND_CARDS_AND_NOTES", async ({
         tone: "defense",
         available: false,
         reason: "Hold position and stay uncommitted this turn to use infantry field actions."
+      }
+    ],
+    detailSections: [
+      {
+        title: "Unit",
+        entries: [
+          { label: "Class", value: "Specialist" },
+          { label: "Role", value: "Anti Infantry" }
+        ]
       }
     ],
     notes: ["Under suppressive fire this turn."]
@@ -85,6 +97,143 @@ registerTest("SELECTION_INTEL_OVERLAY_RENDERS_COMMAND_CARDS_AND_NOTES", async ({
     const noteText = root.querySelector("#battleIntelOverlayNotes")?.textContent ?? "";
     if (!noteText.includes("Under suppressive fire")) {
       throw new Error(`Expected tactical note to render, received ${noteText}`);
+    }
+
+    overlay?.dispose();
+    container.remove();
+  });
+});
+
+registerTest("SELECTION_INTEL_OVERLAY_SHOWS_RANGE_AND_DETAILS_WITHOUT_REDUNDANT_BATTLE_SUMMARY", async ({ Given, When, Then }) => {
+  const container = document.createElement("div");
+  container.innerHTML = `
+    <section id="battleIntelOverlay" class="battle-intel-overlay hidden" tabindex="-1">
+      <button id="battleIntelOverlayDismiss" type="button">x</button>
+      <button id="battleIntelOverlayToggle" type="button">Expand</button>
+      <header>
+        <h3 id="battleIntelOverlayTitle"></h3>
+        <p id="battleIntelOverlayMeta"></p>
+      </header>
+      <div id="battleIntelOverlayBody"></div>
+      <div id="battleIntelOverlayNotes" class="hidden"></div>
+    </section>
+  `;
+  document.body.appendChild(container);
+
+  const intel: BattleSelectionIntel = {
+    kind: "battle",
+    hexKey: "14,5",
+    terrainName: "Hill",
+    unitLabel: "Anti-Tank Gun Battery",
+    unitStrength: 100,
+    unitAmmo: 4,
+    unitFuel: 0,
+    unitEntrenchment: 0,
+    movementRemaining: 1,
+    movementMax: 1,
+    rangeLabel: "1-2",
+    canEntrench: false,
+    moveOptions: 2,
+    attackOptions: 0,
+    statusMessage: "Anti-Tank Gun Battery selected at 14,5.",
+    statusChips: [{ label: "Fortifications", tone: "good" }],
+    actionCards: [
+      {
+        id: "enterSentry",
+        label: "Sentry",
+        detail: "Hold position and stay uncommitted this turn to set sentry.",
+        tone: "defense",
+        available: true
+      }
+    ],
+    detailSections: [
+      {
+        title: "Unit",
+        entries: [
+          { label: "Class", value: "Specialist" },
+          { label: "Role", value: "Anti Tank" },
+          { label: "Mobility", value: "Wheel" }
+        ]
+      },
+      {
+        title: "Protection",
+        entries: [{ label: "Armor", value: "F 1 / S 1 / T 1" }]
+      }
+    ],
+    notes: []
+  };
+
+  let overlay: SelectionIntelOverlay | null = null;
+  await Given("a mounted selection intel overlay", async () => {
+    overlay = new SelectionIntelOverlay();
+  });
+
+  await When("battle intel is expanded to inspect the unit details tab", async () => {
+    overlay?.update(intel);
+    document.getElementById("battleIntelOverlayToggle")?.click();
+    container.querySelector<HTMLButtonElement>("[data-selection-intel-tab='unit']")?.click();
+  });
+
+  await Then("the overlay replaces targets with range, hides non-infantry entrenchment, and renders unit details", async () => {
+    const metaText = document.getElementById("battleIntelOverlayMeta")?.textContent?.trim() ?? "";
+    if (metaText !== "14,5 • Hill") {
+      throw new Error(`Expected battle summary to only show hex and terrain, received '${metaText}'.`);
+    }
+
+    const bodyText = document.getElementById("battleIntelOverlayBody")?.textContent ?? "";
+    if (!bodyText.includes("Range") || !bodyText.includes("1-2")) {
+      throw new Error(`Expected overlay body to include range data, received '${bodyText}'.`);
+    }
+    if (bodyText.includes("Targets")) {
+      throw new Error("Expected legacy targets label to be removed from battle intel.");
+    }
+    if (bodyText.includes("Entrench")) {
+      throw new Error("Expected non-infantry unit overlay to omit the entrench stat.");
+    }
+    if (!bodyText.includes("Mobility") || !bodyText.includes("Anti Tank")) {
+      throw new Error(`Expected unit details tab to render non-redundant definition data, received '${bodyText}'.`);
+    }
+
+    overlay?.dispose();
+    container.remove();
+  });
+});
+
+registerTest("SELECTION_INTEL_OVERLAY_SHOWS_ENEMY_CONTACT_NOTES_FOR_TERRAIN_INTEL", async ({ Given, When, Then }) => {
+  const container = document.createElement("div");
+  container.innerHTML = `
+    <section id="battleIntelOverlay" class="battle-intel-overlay hidden" tabindex="-1">
+      <button id="battleIntelOverlayDismiss" type="button">x</button>
+      <header>
+        <h3 id="battleIntelOverlayTitle"></h3>
+        <p id="battleIntelOverlayMeta"></p>
+      </header>
+      <div id="battleIntelOverlayBody"></div>
+      <div id="battleIntelOverlayNotes" class="hidden"></div>
+    </section>
+  `;
+  document.body.appendChild(container);
+
+  const intel: TerrainSelectionIntel = {
+    kind: "terrain",
+    hexKey: "8,5",
+    terrainName: "Hill",
+    notes: ["Enemy contact: Heavy Tank at 75% strength."]
+  };
+
+  let overlay: SelectionIntelOverlay | null = null;
+  await Given("a mounted selection intel overlay", async () => {
+    overlay = new SelectionIntelOverlay();
+  });
+
+  await When("terrain intel includes an enemy contact note", async () => {
+    overlay?.update(intel);
+  });
+
+  await Then("the overlay body surfaces that enemy contact summary", async () => {
+    const bodyText = document.getElementById("battleIntelOverlayBody")?.textContent ?? "";
+    if (!bodyText.includes("Enemy contact: Heavy Tank at 75% strength.")) {
+      throw new Error(`Expected terrain overlay body to include the enemy contact note, received '${bodyText}'.`);
     }
 
     overlay?.dispose();

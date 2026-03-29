@@ -53,7 +53,9 @@ export const combat = {
   accuracy: {
     min: 0.1,
     max: 95,
-    expPerStar: 3,
+    // Veteran crews improve their hit chance quickly because shot placement and fire control are
+    // learned skills. Causing materially greater damage after impact improves more slowly.
+    expPerStar: 10,
     commanderScalar: 0.01,
     /**
      * Signature scales the final hit probability before cover and spotting are applied.
@@ -82,7 +84,6 @@ export const combat = {
    */
   penetration: {
     topAttackClasses: new Set(["artillery", "air"]),
-    starApBonus: 1,
     positiveDamageBonusPerPoint: 0.05,
     negativeDamagePenaltyPerPoint: 0.15,
     minimumDamageScalar: 0.1
@@ -101,7 +102,7 @@ export const combat = {
       antiInfantry: { soft: 1.2, hard: 0.8 },
       support: { soft: 0.7, hard: 0.7 }
     } as const,
-    experienceScalarPerStar: 0.1
+    experienceScalarPerStar: 0.03
   },
   /**
    * Counter-fire policy toggles. Adjust retaliation availability and its accuracy impact here.
@@ -109,7 +110,8 @@ export const combat = {
   counterfire: {
     adjacentOnly: true,
     accuracyPenalty: 20,
-    artyCloseCounterfire: false
+    artyCloseCounterfire: false,
+    maxRetaliationsPerTurn: 6
   },
   /**
    * Entrenchment itself is still capped here; the actual hit-chance effect is authored in `cover`

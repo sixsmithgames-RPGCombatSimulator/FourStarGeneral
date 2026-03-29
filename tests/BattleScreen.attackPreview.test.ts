@@ -62,34 +62,34 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
     },
     previewAttack(_attacker: Axial, _defender: Axial) {
       const result: AttackResult = {
-        accuracy: 25.3575,
-        shots: 6,
-        damagePerHit: 0.231,
-        expectedHits: 1.52145,
-        expectedDamage: 0.35145495,
-        expectedSuppression: 0.30429,
-        effectiveAP: 11,
+        accuracy: 33.81,
+        shots: 120,
+        damagePerHit: 0.2163,
+        expectedHits: 40.572,
+        expectedDamage: 8.7777636,
+        expectedSuppression: 8.1144,
+        effectiveAP: 10,
         facingArmor: 18,
         accuracyBreakdown: {
           baseRange: 18,
-          experienceBonus: 3,
+          experienceBonus: 10,
           commanderScalar: 1.05,
           baseWithCommander: 18.9,
-          experienceWithCommander: 3.15,
-          combinedAfterCommander: 22.05,
+          experienceWithCommander: 10.5,
+          combinedAfterCommander: 29.4,
           terrainModifier: 0,
           terrainMultiplier: 1,
-          afterTerrain: 25.3575,
+          afterTerrain: 33.81,
           spottedMultiplier: 1,
-          finalPreClamp: 25.3575,
-          final: 25.3575
+          finalPreClamp: 33.81,
+          final: 33.81
         },
         damageBreakdown: {
           baseTableValue: 2,
-          experienceScalar: 1.1,
-          afterExperience: 2.2,
+          experienceScalar: 1.03,
+          afterExperience: 2.06,
           commanderScalar: 1.05,
-          final: 0.231
+          final: 0.2163
         }
       };
 
@@ -99,7 +99,7 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
           hex: { q: 0, r: 0 },
           strength: 100,
           experience: 1,
-          ammo: 5,
+          ammo: 6,
           fuel: 0,
           entrench: 0,
           facing: "N" as ScenarioUnit["facing"]
@@ -118,9 +118,9 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
         commander: { accBonus: 5, dmgBonus: 5 },
         damageMultiplier: 1,
         suppressionMultiplier: 1,
-        finalDamagePerHit: 0.231,
-        finalExpectedDamage: 0.35145495,
-        finalExpectedSuppression: 0.30429,
+        finalDamagePerHit: 0.2163,
+        finalExpectedDamage: 8.7777636,
+        finalExpectedSuppression: 8.1144,
         expectedRetaliation: 0,
         retaliationPossible: false,
         retaliationNote: "No return fire expected."
@@ -168,7 +168,7 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
       "Unit accuracy x1.00 (55/55)",
       "x Signature 1.15 (large)",
       "Hard attack x1.00 (50/50)",
-      "Pen x0.10 (AP 11 vs Armor 18, margin -7)"
+      "Pen x0.10 (AP 10 vs Armor 18, margin -8)"
     ];
 
     for (const snippet of requiredSnippets) {
@@ -176,5 +176,92 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
         throw new Error(`Expected attack preview to include '${snippet}', received '${previewText}'.`);
       }
     }
+  });
+});
+
+registerTest("BATTLESCREEN_ATTACK_DETAILS_CAP_DAMAGE_DISPLAY_AT_100_PERCENT", async ({ Given, When, Then }) => {
+  let root: HTMLDivElement;
+  const fakeBattleState = {
+    hasEngine: () => true,
+    ensureGameEngine: () => ({
+      getPlayerPlacementsSnapshot: () => [],
+      getUnitCommandState: () => null
+    }),
+    getIdlePlayerUnitKeys: () => [],
+    getCurrentTurnSummary: () => ({ phase: "playerTurn", activeFaction: "Player", turnNumber: 1 }),
+    getPrecombatMissionInfo: () => null
+  } as unknown as import("../src/state/BattleState").BattleState;
+
+  let screen: BattleScreen;
+  let sections: Array<{ title: string; entries: Array<{ label: string; value: string }> }> = [];
+
+  await Given("a battle screen with an overkill preview and resolution", async () => {
+    root = document.createElement("div");
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+    screen = new BattleScreen(
+      {} as never,
+      fakeBattleState,
+      { getActivePopup: () => null, closePopup: () => {} } as never,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    );
+
+    const preview = {
+      attacker: { type: "Flak_88", strength: 100 },
+      defender: { type: "Assault_Gun", strength: 94 },
+      result: {
+        accuracy: 37,
+        shots: 240,
+        expectedHits: 88.1,
+        effectiveAP: 19,
+        facingArmor: 9
+      },
+      finalExpectedDamage: 468.3,
+      finalDamagePerHit: 5.31
+    } as unknown as import("../src/game/GameEngine").CombatPreview;
+
+    const resolution = {
+      defenderRemainingStrength: 0,
+      attackerRemainingStrength: 100,
+      retaliationOccurred: false
+    } as unknown as import("../src/game/GameEngine").AttackResolution;
+
+    sections = (screen as unknown as {
+      buildPlayerAttackDetails: (
+        resolution: import("../src/game/GameEngine").AttackResolution,
+        preview: import("../src/game/GameEngine").CombatPreview | null,
+        meta: { attackerHex: string; defenderHex: string; inflictedDamage: number; retaliationDamage: number }
+      ) => Array<{ title: string; entries: Array<{ label: string; value: string }> }>;
+    }).buildPlayerAttackDetails(resolution, preview, {
+      attackerHex: "10,2",
+      defenderHex: "10,4",
+      inflictedDamage: 468,
+      retaliationDamage: 0
+    });
+  });
+
+  await When("attack details are composed for the activity panel", async () => {
+    // Assertions live in Then.
+  });
+
+  await Then("expected and final damage display values stop at 100", async () => {
+    const previewSection = sections.find((section) => section.title === "Preview Odds");
+    const outcomeSection = sections.find((section) => section.title === "Outcome");
+    const expectedDamage = previewSection?.entries.find((entry) => entry.label === "Expected Damage")?.value;
+    const dealtDamage = outcomeSection?.entries.find((entry) => entry.label === "Damage Dealt")?.value;
+
+    if (expectedDamage !== "100.0%") {
+      throw new Error(`Expected capped preview damage of 100.0%, received '${expectedDamage ?? "<missing>"}'.`);
+    }
+    if (dealtDamage !== "100") {
+      throw new Error(`Expected capped dealt damage of 100, received '${dealtDamage ?? "<missing>"}'.`);
+    }
+
+    root.remove();
   });
 });

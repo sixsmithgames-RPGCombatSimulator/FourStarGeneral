@@ -99,8 +99,8 @@ export const COMBAT_PROFILES = {
       { range: 0, accuracy: 45 },
       { range: 1, accuracy: 28 },
       { range: 2, accuracy: 18 },
-      { range: 4, accuracy: 8 },
-      { range: 8, accuracy: 2 }
+      { range: 3, accuracy: 12 },
+      { range: 4, accuracy: 8 }
     ]
   },
   "specialist.heavy.antiTank": {
@@ -116,7 +116,8 @@ export const COMBAT_PROFILES = {
       { range: 0, accuracy: 55 },
       { range: 1, accuracy: 40 },
       { range: 2, accuracy: 30 },
-      { range: 3, accuracy: 20 }
+      { range: 3, accuracy: 20 },
+      { range: 4, accuracy: 10 }
     ]
   },
   "recon.light.normal": {

@@ -79,18 +79,18 @@ registerTest("AT_GUN_50MM_500M_SHOT_USES_RANGE_TABLE_AND_PENETRATION_LIMITS", as
   const result = resolveAttack(makeAttackRequest());
 
   assertClose(result.accuracyBreakdown.baseRange, 18, 0.001, "range-table base accuracy");
-  assertClose(result.accuracy, 24.15, 0.001, "final accuracy");
+  assertClose(result.accuracy, 32.2, 0.001, "final accuracy");
   if (result.shots !== 120) {
     throw new Error(`Expected rebalanced AT gun profile to fire 120 shots per turn, received ${result.shots}.`);
   }
-  if (result.effectiveAP !== 11) {
-    throw new Error(`Expected experienced AT gun to reach 11 AP, received ${result.effectiveAP}.`);
+  if (result.effectiveAP !== 10) {
+    throw new Error(`Expected AT gun AP to remain at its authored value of 10, received ${result.effectiveAP}.`);
   }
   if (result.facingArmor !== 18) {
     throw new Error(`Expected heavy tank front armor 18, received ${result.facingArmor}.`);
   }
-  assertClose(result.damagePerHit, 0.22, 0.0001, "damage per hit");
-  assertClose(result.expectedDamage, 6.376, 0.001, "expected damage");
+  assertClose(result.damagePerHit, 0.206, 0.0001, "damage per hit");
+  assertClose(result.expectedDamage, 7.95984, 0.001, "expected damage");
 
   await Then("the 50mm gun keeps its 500m range-table accuracy while the higher shot volume and new ammo reserve apply cleanly", () => {});
 });
@@ -116,8 +116,8 @@ registerTest("AT_GUN_50MM_DAMAGE_RESPONDS_TO_BOTH_HARD_ATTACK_AND_AP", async ({ 
   if (lowerHardAttack.effectiveAP !== baseline.effectiveAP) {
     throw new Error("Changing hard attack should not change the effective AP result.");
   }
-  if (lowerPenetration.effectiveAP !== 8) {
-    throw new Error(`Expected reduced-AP attacker to resolve 8 AP, received ${lowerPenetration.effectiveAP}.`);
+  if (lowerPenetration.effectiveAP !== 7) {
+    throw new Error(`Expected reduced-AP attacker to resolve 7 AP, received ${lowerPenetration.effectiveAP}.`);
   }
   if (!(lowerHardAttack.damagePerHit < baseline.damagePerHit)) {
     throw new Error(
