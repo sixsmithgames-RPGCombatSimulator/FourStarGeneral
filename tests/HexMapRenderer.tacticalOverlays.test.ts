@@ -72,8 +72,9 @@ registerTest("HEXMAP_RENDERER_SHOWS_TACTICAL_OVERLAYS_FOR_SUPPRESSION_AND_FIELDW
     if (modification.getAttribute("data-modification-facing") !== "SE") {
       throw new Error(`Expected fortification overlay to retain its edge facing, received '${modification.getAttribute("data-modification-facing")}'.`);
     }
-    if (!svg.querySelector('[data-modification-type="fortifications"] rect[fill="#050607"]')) {
-      throw new Error("Expected directional fortification overlay to render the black edge-aligned wall segment.");
+    const fortificationPanels = svg.querySelectorAll('[data-modification-type="fortifications"] rect[fill="#050607"][fill-opacity="0.2"][stroke="#050607"]');
+    if (fortificationPanels.length !== 3) {
+      throw new Error(`Expected directional fortification overlay to render three outlined black panel segments, received ${fortificationPanels.length}.`);
     }
 
     const unitStack = svg.querySelector<SVGGElement>('g.unit-stack[data-suppression-state="pinned"]');
@@ -225,6 +226,109 @@ registerTest("HEXMAP_RENDERER_KEEPS_SPOTTED_CONTACT_MARKERS_READABLE_WHEN_FACING
     const transform = facingGroup.getAttribute("transform") ?? "";
     if (!transform.includes("scale(1 1)")) {
       throw new Error(`Expected spotted contact marker to avoid horizontal mirroring, received '${transform}'.`);
+    }
+
+    viewport.remove();
+  });
+});
+
+registerTest("HEXMAP_RENDERER_SHOWS_TWO_STACKED_FORMATIONS_WITH_DISTINCT_SPRITE_LAYOUTS", async ({ Given, When, Then }) => {
+  const viewport = document.createElement("div");
+  viewport.style.width = "320px";
+  viewport.style.height = "220px";
+  Object.defineProperty(viewport, "clientWidth", { value: 320, configurable: true });
+  Object.defineProperty(viewport, "clientHeight", { value: 220, configurable: true });
+
+  const canvas = document.createElement("div");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  canvas.appendChild(svg);
+  viewport.appendChild(canvas);
+  document.body.appendChild(viewport);
+
+  const scenario: ScenarioData = {
+    name: "Stacked Formations",
+    size: { cols: 1, rows: 1 },
+    tilePalette: {
+      PLAINS: {
+        terrain: "plains",
+        terrainType: "grass",
+        density: "average",
+        features: [],
+        recon: "intel"
+      }
+    },
+    tiles: [[{ tile: "PLAINS" }]],
+    objectives: [],
+    turnLimit: 1,
+    sides: {
+      Player: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] },
+      Bot: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] }
+    }
+  };
+
+  const renderer = new HexMapRenderer();
+
+  await Given("a rendered battlefield hex", async () => {
+    renderer.render(svg as SVGSVGElement, canvas as HTMLDivElement, scenario);
+  });
+
+  await When("two full-strength formations share the same hex", async () => {
+    renderer.renderUnitStack("0,0", [
+      {
+        unit: {
+          type: "Infantry_42" as never,
+          hex: { q: 0, r: 0 },
+          strength: 100,
+          experience: 0,
+          ammo: 6,
+          fuel: 0,
+          entrench: 0,
+          facing: "NE"
+        },
+        faction: "Player"
+      },
+      {
+        unit: {
+          type: "Engineer" as never,
+          hex: { q: 0, r: 0 },
+          strength: 100,
+          experience: 0,
+          ammo: 6,
+          fuel: 0,
+          entrench: 0,
+          facing: "SW"
+        },
+        faction: "Ally"
+      }
+    ]);
+  });
+
+  await Then("the renderer draws two formation groups with scaled non-overlapping sprite positions", async () => {
+    const stack = svg.querySelector<SVGGElement>("g.unit-stack[data-stack-count='2']");
+    if (!stack) {
+      throw new Error("Expected the hex to render as a two-formation stack.");
+    }
+
+    const formationGroups = Array.from(stack.querySelectorAll<SVGGElement>(":scope > g.unit-stack-formation"));
+    if (formationGroups.length !== 2) {
+      throw new Error(`Expected two formation groups, received ${formationGroups.length}.`);
+    }
+
+    const images = Array.from(stack.querySelectorAll<SVGImageElement>("image.unit-icon"));
+    if (images.length !== 8) {
+      throw new Error(`Expected eight scaled sprite images for two full-strength formations, received ${images.length}.`);
+    }
+
+    const distinctPositions = new Set(
+      images.map((image) => `${image.getAttribute("x")},${image.getAttribute("y")}`)
+    );
+    if (distinctPositions.size < 8) {
+      throw new Error(`Expected stacked sprites to occupy distinct positions, received ${distinctPositions.size} unique placements.`);
+    }
+
+    const scales = new Set(images.map((image) => image.getAttribute("width")));
+    if (scales.has("26.4")) {
+      throw new Error("Expected stacked formations to scale down below the normal four-sprite unit width.");
     }
 
     viewport.remove();

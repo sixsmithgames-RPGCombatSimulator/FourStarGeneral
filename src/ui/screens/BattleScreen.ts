@@ -240,8 +240,6 @@ export class BattleScreen {
   private attackConfirmCancel: HTMLButtonElement | null = null;
   private attackConfirmBody: HTMLElement | null = null;
   private fortificationFacingDialog: HTMLElement | null = null;
-  private fortificationFacingAccept: HTMLButtonElement | null = null;
-  private fortificationFacingCancel: HTMLButtonElement | null = null;
   private fortificationFacingPreview: HTMLElement | null = null;
   private missionTitleElement: HTMLElement | null = null;
   private missionBriefingElement: HTMLElement | null = null;
@@ -281,7 +279,6 @@ export class BattleScreen {
   private fortificationDialogPreviouslyFocused: HTMLElement | null = null;
   private fortificationDialogKeydownHandler: (event: KeyboardEvent) => void;
   private pendingFortificationBuild: PendingFortificationContext | null = null;
-  private selectedFortificationFacing: HexEdgeFacing | null = null;
 
   /**
    * Prepares and displays the attack confirmation dialog so the commander can approve or cancel combat resolution.
@@ -1800,59 +1797,59 @@ export class BattleScreen {
       hexKey: this.selectedHexKey,
       unitLabel
     };
-    this.selectedFortificationFacing = null;
-    this.updateFortificationFacingDialogState();
+    this.renderFortificationFacingPreview();
     this.showFortificationFacingDialog();
   }
 
-  private updateFortificationFacingDialogState(): void {
+  private renderFortificationFacingPreview(): void {
     if (this.fortificationFacingPreview) {
-      this.fortificationFacingPreview.innerHTML = this.buildFortificationFacingPreviewMarkup(this.selectedFortificationFacing);
-    }
-
-    if (this.fortificationFacingDialog) {
-      this.fortificationFacingDialog.querySelectorAll<HTMLButtonElement>("[data-fortification-edge]").forEach((button) => {
-        const edge = this.normalizeFortificationEdgeFacing(button.dataset.fortificationEdge);
-        const isSelected = edge !== null && edge === this.selectedFortificationFacing;
-        button.setAttribute("aria-pressed", String(isSelected));
-        button.setAttribute("data-selected", String(isSelected));
-      });
-    }
-
-    if (this.fortificationFacingAccept) {
-      this.fortificationFacingAccept.disabled = this.selectedFortificationFacing === null;
+      this.fortificationFacingPreview.innerHTML = this.buildFortificationFacingPreviewMarkup();
     }
   }
 
-  private buildFortificationFacingPreviewMarkup(selectedFacing: HexEdgeFacing | null): string {
+  private buildFortificationFacingPreviewMarkup(): string {
     const edgePaths: Record<HexEdgeFacing, string> = {
-      NW: "M 28 96 L 50 58",
-      NE: "M 50 58 L 94 58",
-      E: "M 94 58 L 116 96",
-      SE: "M 116 96 L 94 134",
-      SW: "M 94 134 L 50 134",
-      W: "M 50 134 L 28 96"
+      NW: "M 35 67 L 110 24",
+      NE: "M 110 24 L 185 67",
+      E: "M 185 67 L 185 153",
+      SE: "M 185 153 L 110 196",
+      SW: "M 110 196 L 35 153",
+      W: "M 35 153 L 35 67"
     };
-    const activePath = selectedFacing ? edgePaths[selectedFacing] : "";
-    const activeLabel = selectedFacing ? `${selectedFacing} edge selected` : "Select a hex edge";
+    const labelPositions: Record<HexEdgeFacing, { x: number; y: number }> = {
+      NW: { x: 60, y: 42 },
+      NE: { x: 160, y: 42 },
+      E: { x: 200, y: 114 },
+      SE: { x: 160, y: 186 },
+      SW: { x: 60, y: 186 },
+      W: { x: 20, y: 114 }
+    };
 
     return `
-      <svg viewBox="0 0 144 164" class="fortification-facing-preview-svg" aria-hidden="true">
+      <svg viewBox="0 0 220 220" class="fortification-facing-preview-svg" aria-label="Select a fortification edge">
         <polygon
-          points="72,20 116,58 116,134 72,154 28,134 28,58"
-          fill="rgba(14,18,24,0.88)"
-          stroke="rgba(255,255,255,0.14)"
-          stroke-width="2"
+          class="fortification-facing-preview-hex"
+          points="110,24 185,67 185,153 110,196 35,153 35,67"
         />
-        <path
-          d="${activePath}"
-          fill="none"
-          stroke="${selectedFacing ? "#050607" : "rgba(255,255,255,0.12)"}"
-          stroke-width="${selectedFacing ? "7" : "0"}"
-          stroke-linecap="round"
-        />
-        <text x="72" y="90" text-anchor="middle" class="fortification-facing-preview-text">FORTIFY</text>
-        <text x="72" y="107" text-anchor="middle" class="fortification-facing-preview-subtext">${this.escapeHtml(activeLabel)}</text>
+        ${(Object.entries(edgePaths) as Array<[HexEdgeFacing, string]>).map(([edge, path]) => `
+          <path
+            class="fortification-facing-preview-edge"
+            data-fortification-edge="${edge}"
+            d="${path}"
+            tabindex="0"
+            role="button"
+            aria-label="Fortify ${edge} edge"
+          />
+        `).join("")}
+        ${(Object.entries(labelPositions) as Array<[HexEdgeFacing, { x: number; y: number }]>).map(([edge, point]) => `
+          <text
+            class="fortification-facing-preview-label"
+            x="${point.x}"
+            y="${point.y}"
+            text-anchor="middle"
+            dominant-baseline="middle"
+          >${edge}</text>
+        `).join("")}
       </svg>
     `;
   }
@@ -1869,8 +1866,8 @@ export class BattleScreen {
       const activeElement = document.activeElement;
       this.fortificationDialogPreviouslyFocused = activeElement instanceof HTMLElement ? activeElement : null;
       this.fortificationFacingDialog.addEventListener("keydown", this.fortificationDialogKeydownHandler);
-      const firstEdgeButton = this.fortificationFacingDialog.querySelector<HTMLButtonElement>("[data-fortification-edge]");
-      (firstEdgeButton ?? this.fortificationFacingCancel ?? this.fortificationFacingDialog).focus();
+      const firstEdgeTarget = this.fortificationFacingDialog.querySelector<SVGElement>("[data-fortification-edge]");
+      firstEdgeTarget?.focus();
     }
   }
 
@@ -1884,7 +1881,6 @@ export class BattleScreen {
     const focusTarget = this.fortificationDialogPreviouslyFocused ?? this.battleMainContainer;
     this.fortificationDialogPreviouslyFocused = null;
     this.pendingFortificationBuild = null;
-    this.selectedFortificationFacing = null;
     focusTarget?.focus?.();
   }
 
@@ -1899,14 +1895,26 @@ export class BattleScreen {
         this.hideFortificationFacingDialog();
         return;
       }
+      case "Enter":
+      case " ": {
+        const activeElement = document.activeElement;
+        const edge = this.normalizeFortificationEdgeFacing(activeElement?.getAttribute("data-fortification-edge"));
+        if (edge) {
+          event.preventDefault();
+          void this.handleConfirmFortificationFacing(edge);
+        }
+        return;
+      }
       case "Tab": {
         const focusableElements = this.getFortificationDialogFocusableElements();
         if (focusableElements.length === 0) {
           event.preventDefault();
           return;
         }
-        const currentElement = document.activeElement as HTMLElement | null;
-        const currentIndex = currentElement ? focusableElements.indexOf(currentElement) : -1;
+        const currentElement = document.activeElement;
+        const currentIndex = currentElement
+          ? focusableElements.findIndex((element) => element === currentElement)
+          : -1;
         const lastIndex = focusableElements.length - 1;
         const nextIndex = event.shiftKey
           ? (currentIndex <= 0 ? lastIndex : currentIndex - 1)
@@ -1920,7 +1928,7 @@ export class BattleScreen {
     }
   }
 
-  private getFortificationDialogFocusableElements(): HTMLElement[] {
+  private getFortificationDialogFocusableElements(): Array<HTMLElement | SVGElement> {
     if (!this.fortificationFacingDialog) {
       return [];
     }
@@ -1932,20 +1940,19 @@ export class BattleScreen {
       "textarea",
       '[tabindex]:not([tabindex="-1"])'
     ].join(",");
-    return Array.from(this.fortificationFacingDialog.querySelectorAll<HTMLElement>(selectors)).filter((element) => {
-      const isHidden = element.getAttribute("aria-hidden") === "true" || element.hidden;
-      const isDisabled = (element as HTMLButtonElement).disabled;
+    return Array.from(this.fortificationFacingDialog.querySelectorAll<HTMLElement | SVGElement>(selectors)).filter((element) => {
+      const isHidden = element.getAttribute("aria-hidden") === "true" || (element instanceof HTMLElement && element.hidden);
+      const isDisabled = element instanceof HTMLButtonElement && element.disabled;
       return !isHidden && !isDisabled;
     });
   }
 
-  private async handleConfirmFortificationFacing(): Promise<void> {
-    if (!this.pendingFortificationBuild || !this.selectedFortificationFacing) {
+  private async handleConfirmFortificationFacing(facing: HexEdgeFacing): Promise<void> {
+    if (!this.pendingFortificationBuild) {
       return;
     }
 
     const { hex, hexKey, unitLabel } = this.pendingFortificationBuild;
-    const facing = this.selectedFortificationFacing;
     const engine = this.battleState.ensureGameEngine();
     const succeeded = engine.buildHexModification(hex, "fortifications", facing);
     if (!succeeded) {
@@ -3589,8 +3596,6 @@ export class BattleScreen {
     this.attackConfirmCancel = this.element.querySelector("#battleAttackConfirmCancel");
     this.attackConfirmBody = this.element.querySelector("#battleAttackConfirmBody");
     this.fortificationFacingDialog = this.element.querySelector("#battleFortificationFacing");
-    this.fortificationFacingAccept = this.element.querySelector("#battleFortificationFacingAccept");
-    this.fortificationFacingCancel = this.element.querySelector("#battleFortificationFacingCancel");
     this.fortificationFacingPreview = this.element.querySelector("#battleFortificationFacingPreview");
     this.missionTitleElement = this.element.querySelector("#battleMissionTitle");
     this.missionBriefingElement = this.element.querySelector("#battleMissionSummary");
@@ -3664,8 +3669,6 @@ export class BattleScreen {
     this.endMissionButton?.addEventListener("click", () => this.handleEndMission());
     this.attackConfirmAccept?.addEventListener("click", () => void this.handleConfirmAttack());
     this.attackConfirmCancel?.addEventListener("click", () => this.handleCancelAttack());
-    this.fortificationFacingAccept?.addEventListener("click", () => void this.handleConfirmFortificationFacing());
-    this.fortificationFacingCancel?.addEventListener("click", () => this.hideFortificationFacingDialog());
     this.baseCampAssignButton?.addEventListener("click", () => this.handleAssignBaseCamp());
     this.deploymentPanelToggleButton?.addEventListener("click", () => this.handleToggleDeploymentPanel());
     this.autoDeployEvenlyButton?.addEventListener("click", () => this.handleAutoDeploy("even"));
@@ -3690,15 +3693,15 @@ export class BattleScreen {
     }
 
     this.fortificationFacingDialog.addEventListener("click", (event) => {
-      const target = event.target as HTMLElement | null;
+      const target = event.target as Element | null;
       if (target === this.fortificationFacingDialog) {
         this.hideFortificationFacingDialog();
         return;
       }
 
-      const edgeButton = target?.closest<HTMLButtonElement>("[data-fortification-edge]");
-      const edge = edgeButton?.dataset.fortificationEdge;
-      if (!edgeButton || !edge) {
+      const edgeElement = target?.closest("[data-fortification-edge]");
+      const edge = edgeElement?.getAttribute("data-fortification-edge");
+      if (!edgeElement || !edge) {
         return;
       }
 
@@ -3707,8 +3710,7 @@ export class BattleScreen {
         return;
       }
 
-      this.selectedFortificationFacing = normalizedEdge;
-      this.updateFortificationFacingDialogState();
+      void this.handleConfirmFortificationFacing(normalizedEdge);
     });
 
     this.fortificationFacingDialog.dataset.bound = "true";
@@ -6844,41 +6846,58 @@ export class BattleScreen {
         renderer.renderHexModification(CoordinateSystem.makeHexKey(col, row), modification);
       });
     }
-    const factions: Array<{ units: ScenarioUnit[]; label: "Player" | "Ally" }> = [
-      { units: engine.playerUnits ?? [], label: "Player" },
-      { units: engine.allyUnits ?? [], label: "Ally" }
-    ];
+    const renderStack = (
+      hexKey: string,
+      members: Array<{ unit: ScenarioUnit; faction: "Player" | "Bot" | "Ally"; reconStatus?: EnemyContactSnapshot["state"] | boolean }>
+    ): void => {
+      if (typeof renderer.renderUnitStack === "function") {
+        renderer.renderUnitStack(hexKey, members);
+        return;
+      }
+      const primary = members[0];
+      if (primary) {
+        renderer.renderUnit(hexKey, primary.unit, primary.faction, primary.reconStatus ?? "visible");
+      }
+    };
 
-    factions.forEach(({ units, label }) => {
-      units.forEach((unit) => {
-        const def = this.unitTypes[unit.type as keyof UnitTypeDictionary];
-        // Keep aircraft off the ground map; they operate via the Air Support system instead.
-        if (def?.moveType === "air") {
-          return;
-        }
-        if (!unit.hex || !Number.isFinite(unit.hex.q) || !Number.isFinite(unit.hex.r)) {
-          console.warn("[BattleScreen] Skipping malformed engine unit without a valid hex during render", {
-            label,
-            type: unit.type,
-            unitId: unit.unitId ?? null,
-            hex: unit.hex ?? null,
-            facing: (unit as { facing?: unknown }).facing ?? null
-          });
-          return;
-        }
-        const { col, row } = CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r);
-        const hexKey = CoordinateSystem.makeHexKey(col, row);
-        renderer.renderUnit(hexKey, unit, label);
+    const friendlyHexes = new Map<string, Axial>();
+    [...(engine.playerUnits ?? []), ...(engine.allyUnits ?? [])].forEach((unit) => {
+      const def = this.unitTypes[unit.type as keyof UnitTypeDictionary];
+      if (def?.moveType === "air") {
+        return;
+      }
+      if (!unit.hex || !Number.isFinite(unit.hex.q) || !Number.isFinite(unit.hex.r)) {
+        return;
+      }
+      friendlyHexes.set(`${unit.hex.q},${unit.hex.r}`, unit.hex);
+    });
 
-        // Temporary debug overlay: mark placements regardless of recon/LOS
-        if (this.debugPlacementOverlayEnabled && typeof renderer.renderDebugMarker === "function") {
-          renderer.renderDebugMarker(hexKey, {
-            label: label === "Player" ? "P" : "A",
-            color: label === "Player" ? "#1890ff" : "#52c41a",
-            opacity: label === "Player" ? 0.55 : 0.5
-          });
-        }
-      });
+    friendlyHexes.forEach((hex) => {
+      const stackMembers = engine
+        .getHexStackMembers(hex, "Player")
+        .filter((entry) => {
+          const def = this.unitTypes[entry.unit.type as keyof UnitTypeDictionary];
+          return def?.moveType !== "air";
+        })
+        .map((entry) => ({
+          unit: entry.unit,
+          faction: entry.faction === "Ally" ? "Ally" as const : "Player" as const
+        }));
+      if (stackMembers.length === 0) {
+        return;
+      }
+      const { col, row } = CoordinateSystem.axialToOffset(hex.q, hex.r);
+      const hexKey = CoordinateSystem.makeHexKey(col, row);
+      renderStack(hexKey, stackMembers);
+
+      if (this.debugPlacementOverlayEnabled && typeof renderer.renderDebugMarker === "function") {
+        const hasPlayer = stackMembers.some((entry) => entry.faction === "Player");
+        renderer.renderDebugMarker(hexKey, {
+          label: hasPlayer ? "P" : "A",
+          color: hasPlayer ? "#1890ff" : "#52c41a",
+          opacity: hasPlayer ? 0.55 : 0.5
+        });
+      }
     });
 
     const enemyContacts =
@@ -6894,20 +6913,31 @@ export class BattleScreen {
             strengthEstimate: unit.strength
           }));
 
+    const enemyStacks = new Map<string, Array<{ unit: ScenarioUnit; faction: "Bot"; reconStatus: EnemyContactSnapshot["state"] }>>();
     enemyContacts.forEach((contact) => {
       const renderUnit = this.buildEnemyContactRenderUnit(contact, engine.botUnits ?? []);
       if (!renderUnit) {
         return;
       }
+      const def = this.unitTypes[renderUnit.type as keyof UnitTypeDictionary];
+      if (def?.moveType === "air") {
+        return;
+      }
       const { col, row } = CoordinateSystem.axialToOffset(contact.hex.q, contact.hex.r);
       const hexKey = CoordinateSystem.makeHexKey(col, row);
-      renderer.renderUnit(hexKey, renderUnit, "Bot", contact.state);
+      const bucket = enemyStacks.get(hexKey) ?? [];
+      bucket.push({ unit: renderUnit, faction: "Bot", reconStatus: contact.state });
+      enemyStacks.set(hexKey, bucket);
+    });
+
+    enemyStacks.forEach((members, hexKey) => {
+      renderStack(hexKey, members);
 
       if (this.debugPlacementOverlayEnabled && typeof renderer.renderDebugMarker === "function") {
         renderer.renderDebugMarker(hexKey, {
           label: "B",
           color: "#fa541c",
-          opacity: contact.state === "visible" ? 0.5 : 0.35
+          opacity: members.some((entry) => entry.reconStatus === "visible") ? 0.5 : 0.35
         });
       }
     });

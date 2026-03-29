@@ -69,6 +69,12 @@ interface MoveAnimationContext {
   setGhostProgress: (progress: number) => void;
 }
 
+export interface RenderedUnitStackMember {
+  readonly unit: ScenarioUnit;
+  readonly faction: "Player" | "Bot" | "Ally";
+  readonly reconStatus?: ReconStatusKey | boolean;
+}
+
  type AftermathEntry = {
    smokeLevel: 0 | 1 | 2;
    flames: boolean;
@@ -1426,9 +1432,14 @@ export class HexMapRenderer implements IMapRenderer {
     return Math.max(1, Math.min(4, Math.ceil(normalized / 25)));
   }
 
-  private resolveUnitStackLayout(count: number): Array<{ ox: number; oy: number; scale: number }> {
+  private resolveUnitStackLayout(
+    count: number,
+    variant: "diamond" | "corners" = "diamond",
+    scaleMultiplier = 1,
+    spreadMultiplier = 1
+  ): Array<{ ox: number; oy: number; scale: number }> {
     const normalizedCount = Math.max(1, Math.min(4, Math.round(count)));
-    const spread = 20;
+    const spread = 20 * spreadMultiplier;
 
     // These scales intentionally change gradually from 4 -> 1 so the last remaining sprite
     // doesn't "pop" larger when the unit takes damage.
@@ -1439,13 +1450,21 @@ export class HexMapRenderer implements IMapRenderer {
       4: 0.66
     };
 
-    const scale = scaleByCount[normalizedCount] ?? 0.7;
+    const scale = (scaleByCount[normalizedCount] ?? 0.7) * scaleMultiplier;
 
     if (normalizedCount <= 1) {
-      return [{ ox: 0, oy: 0, scale }];
+      return variant === "corners"
+        ? [{ ox: -spread, oy: -spread, scale }]
+        : [{ ox: 0, oy: 0, scale }];
     }
 
     if (normalizedCount === 2) {
+      if (variant === "corners") {
+        return [
+          { ox: -spread, oy: -spread, scale },
+          { ox: spread, oy: -spread, scale }
+        ];
+      }
       return [
         { ox: -spread, oy: 0, scale },
         { ox: spread, oy: 0, scale }
@@ -1453,10 +1472,26 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     if (normalizedCount === 3) {
+      if (variant === "corners") {
+        return [
+          { ox: -spread, oy: -spread, scale },
+          { ox: spread, oy: -spread, scale },
+          { ox: -spread, oy: spread, scale }
+        ];
+      }
       return [
         { ox: 0, oy: -spread, scale },
         { ox: -spread, oy: 0, scale },
         { ox: spread, oy: 0, scale }
+      ];
+    }
+
+    if (variant === "corners") {
+      return [
+        { ox: -spread, oy: -spread, scale },
+        { ox: spread, oy: -spread, scale },
+        { ox: -spread, oy: spread, scale },
+        { ox: spread, oy: spread, scale }
       ];
     }
 
@@ -1467,6 +1502,20 @@ export class HexMapRenderer implements IMapRenderer {
       { ox: 0, oy: spread, scale },
       { ox: -spread, oy: 0, scale }
     ];
+  }
+
+  private resolveStackDecorationAnchor(
+    cx: number,
+    cy: number,
+    variant: "diamond" | "corners",
+    stacked: boolean
+  ): { cx: number; cy: number } {
+    if (!stacked) {
+      return { cx, cy };
+    }
+    return variant === "corners"
+      ? { cx: cx + 12, cy: cy + 2 }
+      : { cx: cx - 12, cy: cy + 2 };
   }
 
   private positionUnitStack(group: SVGGElement, cx: number, cy: number): void {
@@ -1567,6 +1616,30 @@ export class HexMapRenderer implements IMapRenderer {
       angleDeg: (Math.atan2(dy, dx) * 180) / Math.PI,
       length
     };
+  }
+
+  private appendFortificationPanels(container: SVGElement, totalLength: number): void {
+    const panelCount = 3;
+    const gap = 3;
+    const panelHeight = 6;
+    const usableLength = Math.max(18, totalLength);
+    const panelWidth = Math.max(5, (usableLength - gap * (panelCount - 1)) / panelCount);
+    const stripWidth = panelWidth * panelCount + gap * (panelCount - 1);
+    const startX = -stripWidth / 2;
+
+    for (let index = 0; index < panelCount; index += 1) {
+      const panel = document.createElementNS(SVG_NS, "rect");
+      panel.setAttribute("x", String(startX + index * (panelWidth + gap)));
+      panel.setAttribute("y", String(-panelHeight / 2));
+      panel.setAttribute("width", String(panelWidth));
+      panel.setAttribute("height", String(panelHeight));
+      panel.setAttribute("fill", "#050607");
+      panel.setAttribute("fill-opacity", "0.2");
+      panel.setAttribute("stroke", "#050607");
+      panel.setAttribute("stroke-opacity", "0.92");
+      panel.setAttribute("stroke-width", "0.9");
+      container.appendChild(panel);
+    }
   }
 
   private resolveFacingAngleDeg(facing: ScenarioUnit["facing"]): number {
@@ -1785,6 +1858,11 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   private applyFacingAngleToGroup(group: SVGGElement, cx: number, cy: number, angleDeg: number): void {
+    const formationGroups = Array.from(group.querySelectorAll<SVGGElement>(":scope > g.unit-stack-formation"));
+    if (formationGroups.length > 0) {
+      formationGroups.forEach((formationGroup) => this.applyFacingAngleToGroup(formationGroup, cx, cy, angleDeg));
+      return;
+    }
     const facingGroup = this.ensureFacingGroup(group);
     if (group.dataset.reconStatus === "spotted") {
       facingGroup.setAttribute("transform", `translate(${cx} ${cy}) scale(1 1) translate(${-cx} ${-cy})`);
@@ -2287,21 +2365,30 @@ export class HexMapRenderer implements IMapRenderer {
     });
   }
 
+  private isSupplyTruckUnit(unit: ScenarioUnit): boolean {
+    return unit.type === "Supply_Truck";
+  }
+
+  private resolveRenderableStackMembers(members: readonly RenderedUnitStackMember[]): RenderedUnitStackMember[] {
+    const prioritized = [...members].sort((left, right) => {
+      const leftConvoy = this.isSupplyTruckUnit(left.unit) ? 1 : 0;
+      const rightConvoy = this.isSupplyTruckUnit(right.unit) ? 1 : 0;
+      if (leftConvoy !== rightConvoy) {
+        return leftConvoy - rightConvoy;
+      }
+      return (right.unit.strength ?? 0) - (left.unit.strength ?? 0);
+    });
+    return prioritized.slice(0, 2);
+  }
+
   /**
-   * Renders or updates a unit icon on a hex cell.
-   * @param hexKey - The hex coordinate key
-   * @param unit - The unit to render
-   * @param faction - The faction (Player, Bot, or Ally)
-   * @param isSpottedOnly - If true, renders unit with reduced opacity (spotted via recon, no direct LOS)
+   * Renders one or two formations on a hex. Additional units are intentionally hidden once the visible cap is
+   * reached so stacked combat tiles remain readable.
    */
-  renderUnit(
-    hexKey: string,
-    unit: ScenarioUnit,
-    faction: "Player" | "Bot" | "Ally",
-    reconStatus: ReconStatusKey | boolean = "visible"
-  ): void {
+  renderUnitStack(hexKey: string, members: readonly RenderedUnitStackMember[]): void {
     const cell = this.hexElementMap.get(hexKey);
-    if (!cell) {
+    const visibleMembers = this.resolveRenderableStackMembers(members).filter((entry) => Boolean(entry.unit));
+    if (!cell || visibleMembers.length === 0) {
       return;
     }
 
@@ -2310,106 +2397,124 @@ export class HexMapRenderer implements IMapRenderer {
       this.removeAftermathOverlay(hexKey);
     }
 
-    const existing = this.hexUnitImageMap.get(hexKey) ?? null;
     const cx = Number(cell.dataset.cx ?? 0);
     const cy = Number(cell.dataset.cy ?? 0);
     const iconSize = 40;
-    const resolvedReconStatus: ReconStatusKey =
-      typeof reconStatus === "boolean" ? (reconStatus ? "spotted" : "visible") : reconStatus;
-    const spriteHref = resolvedReconStatus === "spotted" ? UNKNOWN_CONTACT_SPRITE : getSpriteForScenarioType(unit.type as string);
-    // Cache the unit class for this hex so combat effects can style by weapon/armor type.
+    const existing = this.hexUnitImageMap.get(hexKey) ?? null;
+    if (existing) {
+      existing.remove();
+      this.hexUnitImageMap.delete(hexKey);
+    }
+
+    const primaryMember = visibleMembers[0]!;
+    const primaryReconStatus: ReconStatusKey =
+      typeof primaryMember.reconStatus === "boolean"
+        ? (primaryMember.reconStatus ? "spotted" : "visible")
+        : (primaryMember.reconStatus ?? "visible");
+    this.hexUnitScenarioTypeMap.set(hexKey, String(primaryMember.unit.type));
     try {
-      const def = (unitTypesData as Record<string, UnitTypeDefinition>)[unit.type as string];
-      if (def && def.class) {
+      const def = (unitTypesData as Record<string, UnitTypeDefinition>)[primaryMember.unit.type as string];
+      if (def?.class) {
         this.hexUnitClassMap.set(hexKey, def.class);
       }
     } catch {}
-    this.hexUnitScenarioTypeMap.set(hexKey, String(unit.type));
-    const stackCount = this.resolveUnitStackCount(unit.strength);
-    const layout = this.resolveUnitStackLayout(stackCount);
-
-    const applyImageAttributes = (image: SVGImageElement, spec: { ox: number; oy: number; scale: number }): void => {
-      if (spriteHref) {
-        image.setAttribute("href", spriteHref);
-      } else {
-        image.removeAttribute("href");
-      }
-      image.setAttribute("preserveAspectRatio", "xMidYMid meet");
-      image.dataset.baseSize = String(iconSize);
-      image.dataset.scale = String(spec.scale);
-      image.dataset.ox = String(spec.ox);
-      image.dataset.oy = String(spec.oy);
-      image.classList.add("unit-icon");
-      image.classList.remove("faction-player", "faction-bot", "faction-ally", "spotted-only", "recon-identified", "recon-visible");
-      image.classList.add(`faction-${faction.toLowerCase()}`);
-      image.style.removeProperty("filter");
-
-      if (resolvedReconStatus === "spotted") {
-        image.style.opacity = "0.94";
-        image.classList.add("spotted-only");
-      } else if (resolvedReconStatus === "identified") {
-        image.style.opacity = "0.78";
-        image.style.filter = "saturate(0.55) brightness(0.95)";
-        image.classList.add("recon-identified");
-      } else {
-        image.style.removeProperty("opacity");
-        image.classList.add("recon-visible");
-      }
-    };
-
-    if (existing) {
-      this.ensureFacingGroup(existing);
-      existing.dataset.reconStatus = resolvedReconStatus;
-      const cachedClass = this.hexUnitClassMap.get(hexKey);
-      if (cachedClass) {
-        existing.dataset.unitClass = String(cachedClass);
-      }
-      const images = Array.from(existing.querySelectorAll<SVGImageElement>("image.unit-icon"));
-      if (images.length !== stackCount) {
-        existing.remove();
-        this.hexUnitImageMap.delete(hexKey);
-      } else {
-        images.forEach((image, idx) => {
-          const spec = layout[idx] ?? layout[0];
-          applyImageAttributes(image, spec);
-        });
-        this.positionUnitStack(existing, cx, cy);
-        const storedAngle = this.hexUnitFacingAngleMap.get(hexKey);
-        const angleDeg = storedAngle ?? this.resolveFacingAngleDeg(this.normalizeFacing(unit.facing));
-        this.applyFacingAngleToGroup(existing, cx, cy, angleDeg);
-        this.renderUnitDecorations(existing, cx, cy, unit);
-        if (storedAngle === undefined) {
-          this.hexUnitFacingAngleMap.set(hexKey, angleDeg);
-        }
-        return;
-      }
-    }
 
     const group = document.createElementNS(SVG_NS, "g");
     group.classList.add("unit-stack");
-    group.dataset.reconStatus = resolvedReconStatus;
-    const cachedClass = this.hexUnitClassMap.get(hexKey);
-    if (cachedClass) {
-      group.dataset.unitClass = String(cachedClass);
-    }
-    const facingGroup = document.createElementNS(SVG_NS, "g");
-    facingGroup.classList.add("unit-stack-facing");
-    layout.forEach((spec) => {
-      const image = document.createElementNS(SVG_NS, "image");
-      applyImageAttributes(image, spec);
-      facingGroup.appendChild(image);
+    group.dataset.reconStatus = primaryReconStatus;
+    group.dataset.stackCount = String(visibleMembers.length);
+
+    visibleMembers.forEach((member, index) => {
+      const variant: "diamond" | "corners" = index === 0 ? "diamond" : "corners";
+      const reconStatus: ReconStatusKey =
+        typeof member.reconStatus === "boolean"
+          ? (member.reconStatus ? "spotted" : "visible")
+          : (member.reconStatus ?? "visible");
+      const spriteHref = reconStatus === "spotted" ? UNKNOWN_CONTACT_SPRITE : getSpriteForScenarioType(member.unit.type as string);
+      const stackCount = this.resolveUnitStackCount(member.unit.strength);
+      const layout = this.resolveUnitStackLayout(
+        stackCount,
+        variant,
+        visibleMembers.length > 1 ? 0.74 : 1,
+        visibleMembers.length > 1 ? 0.72 : 1
+      );
+      const formationGroup = document.createElementNS(SVG_NS, "g");
+      formationGroup.classList.add("unit-stack-formation");
+      formationGroup.dataset.slot = String(index);
+      formationGroup.dataset.unitId = member.unit.unitId ?? `${member.unit.type}@${hexKey}:${index}`;
+      formationGroup.dataset.faction = member.faction;
+      formationGroup.dataset.reconStatus = reconStatus;
+
+      const facingGroup = document.createElementNS(SVG_NS, "g");
+      facingGroup.classList.add("unit-stack-facing");
+      layout.forEach((spec) => {
+        const image = document.createElementNS(SVG_NS, "image");
+        if (spriteHref) {
+          image.setAttribute("href", spriteHref);
+        } else {
+          image.removeAttribute("href");
+        }
+        image.setAttribute("preserveAspectRatio", "xMidYMid meet");
+        image.dataset.baseSize = String(iconSize);
+        image.dataset.scale = String(spec.scale);
+        image.dataset.ox = String(spec.ox);
+        image.dataset.oy = String(spec.oy);
+        image.classList.add("unit-icon", `faction-${member.faction.toLowerCase()}`);
+        image.classList.remove("spotted-only", "recon-identified", "recon-visible");
+        image.style.removeProperty("filter");
+
+        if (reconStatus === "spotted") {
+          image.style.opacity = "0.94";
+          image.classList.add("spotted-only");
+        } else if (reconStatus === "identified") {
+          image.style.opacity = "0.78";
+          image.style.filter = "saturate(0.55) brightness(0.95)";
+          image.classList.add("recon-identified");
+        } else {
+          image.style.removeProperty("opacity");
+          image.classList.add("recon-visible");
+        }
+        facingGroup.appendChild(image);
+      });
+      formationGroup.appendChild(facingGroup);
+      group.appendChild(formationGroup);
+
+      const decorationAnchor = this.resolveStackDecorationAnchor(cx, cy, variant, visibleMembers.length > 1);
+      this.renderUnitDecorations(formationGroup, decorationAnchor.cx, decorationAnchor.cy, member.unit);
+      this.applyFacingAngleToGroup(
+        formationGroup,
+        cx,
+        cy,
+        this.resolveFacingAngleDeg(this.normalizeFacing(member.unit.facing))
+      );
     });
-    group.appendChild(facingGroup);
+
     this.positionUnitStack(group, cx, cy);
-    const storedAngle = this.hexUnitFacingAngleMap.get(hexKey);
-    const angleDeg = storedAngle ?? this.resolveFacingAngleDeg(this.normalizeFacing(unit.facing));
-    this.applyFacingAngleToGroup(group, cx, cy, angleDeg);
-    this.renderUnitDecorations(group, cx, cy, unit);
-    if (storedAngle === undefined) {
-      this.hexUnitFacingAngleMap.set(hexKey, angleDeg);
+    const storedAngle = this.hexUnitFacingAngleMap.get(hexKey) ?? null;
+    if (storedAngle !== null && visibleMembers.length === 1) {
+      this.applyFacingAngleToGroup(group, cx, cy, storedAngle);
+    } else if (storedAngle === null && visibleMembers.length === 1) {
+      this.hexUnitFacingAngleMap.set(
+        hexKey,
+        this.resolveFacingAngleDeg(this.normalizeFacing(primaryMember.unit.facing))
+      );
+    } else if (visibleMembers.length > 1) {
+      this.hexUnitFacingAngleMap.delete(hexKey);
     }
     cell.appendChild(group);
     this.hexUnitImageMap.set(hexKey, group);
+  }
+
+  /**
+   * Renders or updates a single visible formation on a hex cell.
+   */
+  renderUnit(
+    hexKey: string,
+    unit: ScenarioUnit,
+    faction: "Player" | "Bot" | "Ally",
+    reconStatus: ReconStatusKey | boolean = "visible"
+  ): void {
+    this.renderUnitStack(hexKey, [{ unit, faction, reconStatus }]);
   }
 
   /**
@@ -2489,14 +2594,10 @@ export class HexMapRenderer implements IMapRenderer {
       case "fortifications": {
         const facing = this.normalizeHexEdgeFacing(modification.facing);
         if (!facing) {
-          const legacyWall = document.createElementNS(SVG_NS, "rect");
-          legacyWall.setAttribute("x", String(cx - 16));
-          legacyWall.setAttribute("y", String(cy + 10));
-          legacyWall.setAttribute("width", "32");
-          legacyWall.setAttribute("height", "5");
-          legacyWall.setAttribute("rx", "2.5");
-          legacyWall.setAttribute("fill", "#050607");
-          group.appendChild(legacyWall);
+          const legacyGroup = document.createElementNS(SVG_NS, "g");
+          legacyGroup.setAttribute("transform", `translate(${cx} ${cy + 12})`);
+          this.appendFortificationPanels(legacyGroup, 28);
+          group.appendChild(legacyGroup);
           break;
         }
 
@@ -2504,32 +2605,9 @@ export class HexMapRenderer implements IMapRenderer {
         const edgeGroup = document.createElementNS(SVG_NS, "g");
         edgeGroup.setAttribute(
           "transform",
-          `translate(${edge.mid.x + edge.inward.x * 6} ${edge.mid.y + edge.inward.y * 6}) rotate(${edge.angleDeg})`
+          `translate(${edge.mid.x + edge.inward.x * 4} ${edge.mid.y + edge.inward.y * 4}) rotate(${edge.angleDeg})`
         );
-
-        const wall = document.createElementNS(SVG_NS, "rect");
-        const wallLength = Math.max(18, edge.length - 16);
-        wall.setAttribute("x", String(-wallLength / 2));
-        wall.setAttribute("y", "-2.5");
-        wall.setAttribute("width", String(wallLength));
-        wall.setAttribute("height", "5");
-        wall.setAttribute("rx", "2.5");
-        wall.setAttribute("fill", "#050607");
-        edgeGroup.appendChild(wall);
-
-        [-0.28, 0, 0.28].forEach((ratio) => {
-          const bastion = document.createElementNS(SVG_NS, "rect");
-          bastion.setAttribute("x", String(ratio * wallLength - 4));
-          bastion.setAttribute("y", "-8");
-          bastion.setAttribute("width", "8");
-          bastion.setAttribute("height", "6");
-          bastion.setAttribute("rx", "1.5");
-          bastion.setAttribute("fill", "#121417");
-          bastion.setAttribute("stroke", "#050607");
-          bastion.setAttribute("stroke-width", "0.9");
-          edgeGroup.appendChild(bastion);
-        });
-
+        this.appendFortificationPanels(edgeGroup, Math.max(18, edge.length - 12));
         group.appendChild(edgeGroup);
         break;
       }

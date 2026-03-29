@@ -3108,78 +3108,77 @@
       justify-content: flex-end;
       background: rgba(0, 0, 0, 0.2);
     }
-    .fortification-facing-dialog__surface {
-      width: min(520px, 94vw);
+    #battleFortificationFacing {
+      background: rgba(8, 10, 16, 0.1);
+      backdrop-filter: blur(1px);
+    }
+    #battleFortificationFacing .battle-dialog__surface {
+      width: min(360px, 90vw);
+      max-height: none;
+      border-radius: 18px;
+      background: rgba(8, 10, 16, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      box-shadow: 0 16px 34px rgba(0, 0, 0, 0.18);
+      overflow: visible;
+    }
+    #battleFortificationFacing .battle-dialog__header {
+      padding: 1rem 1rem 0.35rem;
+      border-bottom: none;
+      background: transparent;
+    }
+    #battleFortificationFacing .battle-dialog__header h2 {
+      color: rgba(248, 249, 251, 0.96);
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-align: center;
+    }
+    #battleFortificationFacing .battle-dialog__body {
+      padding: 0.1rem 1rem 1rem;
+      overflow: visible;
     }
     .fortification-facing-dialog__body {
       display: grid;
-      gap: 1rem;
-      padding-top: 1rem;
-    }
-    .fortification-facing-dialog__body p {
-      margin: 0;
-      color: rgba(248, 249, 251, 0.78);
-    }
-    .fortification-facing-dialog__layout {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
-      gap: 1rem;
-      align-items: center;
+      place-items: center;
     }
     .fortification-facing-dialog__preview {
       display: grid;
       place-items: center;
-      min-height: 220px;
-      padding: 0.8rem;
-      border-radius: 18px;
-      background: rgba(9, 14, 22, 0.72);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      width: min(100%, 300px);
     }
     .fortification-facing-preview-svg {
-      width: min(100%, 240px);
+      width: min(100%, 280px);
       height: auto;
+      overflow: visible;
     }
-    .fortification-facing-preview-text {
-      fill: rgba(248, 249, 251, 0.9);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.18em;
+    .fortification-facing-preview-hex {
+      fill: rgba(0, 0, 0, 0.96);
+      stroke: rgba(248, 249, 251, 0.92);
+      stroke-width: 2.5;
     }
-    .fortification-facing-preview-subtext {
-      fill: rgba(248, 249, 251, 0.66);
-      font-size: 8px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .fortification-facing-dialog__edges {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.55rem;
-    }
-    .fortification-facing-dialog__edge {
-      min-height: 3rem;
-      border-radius: 14px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(9, 14, 22, 0.78);
-      color: rgba(248, 249, 251, 0.82);
-      font-size: 0.84rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+    .fortification-facing-preview-edge {
+      fill: none;
+      stroke: rgba(248, 249, 251, 0.001);
+      stroke-width: 18;
+      stroke-linecap: round;
       cursor: pointer;
-      transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, color 140ms ease;
+      pointer-events: stroke;
+      transition: stroke 120ms ease, filter 120ms ease;
     }
-    .fortification-facing-dialog__edge:hover,
-    .fortification-facing-dialog__edge:focus-visible {
-      transform: translateY(-1px);
-      border-color: rgba(255, 255, 255, 0.22);
+    .fortification-facing-preview-edge:hover,
+    .fortification-facing-preview-edge:focus-visible {
+      stroke: rgba(248, 249, 251, 0.98);
+      filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.38));
       outline: none;
     }
-    .fortification-facing-dialog__edge[data-selected="true"] {
-      border-color: rgba(255, 255, 255, 0.24);
-      background: linear-gradient(180deg, rgba(34, 38, 46, 0.92), rgba(10, 13, 18, 0.96));
-      color: #ffffff;
-      box-shadow: inset 0 0 0 1px rgba(5, 6, 7, 0.85);
+    .fortification-facing-preview-label {
+      fill: rgba(248, 249, 251, 0.96);
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      pointer-events: none;
+      user-select: none;
     }
 
     /* Combat Stance Selector */
@@ -3593,11 +3592,8 @@
       .battle-dialog__surface {
         width: min(96vw, 680px);
       }
-      .fortification-facing-dialog__layout {
-        grid-template-columns: minmax(0, 1fr);
-      }
-      .fortification-facing-dialog__edges {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+      #battleFortificationFacing .battle-dialog__surface {
+        width: min(92vw, 340px);
       }
       .battle-dialog__body,
       .attack-stance-selector,
@@ -5484,26 +5480,11 @@
       <div id="battleFortificationFacing" class="battle-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="battleFortificationFacingTitle" aria-describedby="battleFortificationFacingBody">
         <div class="battle-dialog__surface fortification-facing-dialog__surface">
           <header class="battle-dialog__header">
-            <h2 id="battleFortificationFacingTitle">Choose Fortification Edge</h2>
+            <h2 id="battleFortificationFacingTitle">Select Edge To Fortify</h2>
           </header>
           <div id="battleFortificationFacingBody" class="battle-dialog__body fortification-facing-dialog__body">
-            <p>Select the hex edge the works should protect. Full cover applies only through that face, while split-angle attacks receive half cover.</p>
-            <div class="fortification-facing-dialog__layout">
-              <div id="battleFortificationFacingPreview" class="fortification-facing-dialog__preview"></div>
-              <div class="fortification-facing-dialog__edges" aria-label="Fortification edge choices">
-                <button type="button" class="fortification-facing-dialog__edge" data-fortification-edge="NW" aria-pressed="false">NW</button>
-                <button type="button" class="fortification-facing-dialog__edge" data-fortification-edge="NE" aria-pressed="false">NE</button>
-                <button type="button" class="fortification-facing-dialog__edge" data-fortification-edge="W" aria-pressed="false">W</button>
-                <button type="button" class="fortification-facing-dialog__edge" data-fortification-edge="E" aria-pressed="false">E</button>
-                <button type="button" class="fortification-facing-dialog__edge" data-fortification-edge="SW" aria-pressed="false">SW</button>
-                <button type="button" class="fortification-facing-dialog__edge" data-fortification-edge="SE" aria-pressed="false">SE</button>
-              </div>
-            </div>
+            <div id="battleFortificationFacingPreview" class="fortification-facing-dialog__preview"></div>
           </div>
-          <footer class="battle-dialog__footer">
-            <button type="button" id="battleFortificationFacingAccept" class="primary-button" disabled>Build Fortification</button>
-            <button type="button" id="battleFortificationFacingCancel" class="secondary-button">Cancel</button>
-          </footer>
         </div>
       </div>
     </div>
