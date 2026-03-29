@@ -41,6 +41,7 @@ import "./BotMovement.zeroFuelSupport.test.js";
 import "./ReconLOS.directFire.test.js";
 import "./ReconBike.balance.test.js";
 import "./ATGun.combatMath.test.js";
+import "./BotTargeting.heuristic.test.js";
 import "./precombatLogisticsMinimum.test.js";
 
 // Execute the registered tests sequentially.

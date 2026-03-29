@@ -43,7 +43,6 @@ import {
   createSupplyUnits,
   computeSupplyRoutes,
   hasSupplyPath,
-  resolveUpkeepForClass,
   type SupplyRouteSummary,
   type SupplyNetwork,
   type SupplyUnitState,
@@ -2484,7 +2483,8 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /**
-   * Applies production gains and delivers any pending shipments slated for the active turn before upkeep drains occur.
+   * Applies production gains and delivers any pending shipments slated for the active turn before
+   * any depot issues or convoy loading are evaluated.
    */
   private advanceFactionSupplyState(faction: TurnFaction): void {
     const state = this.supplyStateByFaction[faction];
@@ -2493,34 +2493,6 @@ export class GameEngine implements GameEngineAPI {
     const production = accumulateProduction(state, state.lastUpdatedTurn, this._turnNumber);
     production.forEach((shipment) => applyShipment(state, shipment, this._turnNumber));
     state.lastUpdatedTurn = this._turnNumber;
-  }
-
-  /**
-   * Deducts upkeep for a single unit by charging the faction stockpile only.
-   * Connected units keep their onboard ammo/fuel until they actually spend it in combat or movement.
-   */
-  private applyUpkeepForUnit(
-    faction: TurnFaction,
-    supplyState: SupplyState,
-    unit: ScenarioUnit,
-    state: SupplyUnitState,
-    upkeep: { ammo: number; fuel: number }
-  ): void {
-    if (upkeep.ammo > 0) {
-      const available = Math.max(0, supplyState.inventory.ammo.current);
-      const stockpileDraw = Math.min(upkeep.ammo, available);
-      if (stockpileDraw > 0) {
-        this.trackSupplyConsumption(faction, "ammo", stockpileDraw, `${unit.type} upkeep draw`);
-      }
-    }
-
-    if (upkeep.fuel > 0) {
-      const available = Math.max(0, supplyState.inventory.fuel.current);
-      const stockpileDraw = Math.min(upkeep.fuel, available);
-      if (stockpileDraw > 0) {
-        this.trackSupplyConsumption(faction, "fuel", stockpileDraw, `${unit.type} upkeep draw`);
-      }
-    }
   }
 
   private isSupplyTruckType(unitType: ScenarioUnit["type"] | string): boolean {
@@ -6339,7 +6311,7 @@ private automateSupplyConvoys(
     this.advanceAirMissionRefits(this._activeFaction);
 
     if (this._phase === "playerTurn") {
-      // Player upkeep resolves before the ally/bot acts so ledgers and alerts update immediately.
+      // Player logistics resolve before the ally/bot acts so ledgers and alerts update immediately.
       const playerSupplyReport = this.applySupplyTickFor("Player");
       this.resolveQueuedSupportActions();
 
@@ -8822,7 +8794,7 @@ private automateSupplyConvoys(
   private applySupplyTickFor(faction: TurnFaction): SupplyTickReport {
     const units = faction === "Player" ? this.playerSupply : faction === "Bot" ? this.botSupply : this.allySupply;
     const supplyState = this.supplyStateByFaction[faction];
-    // Credit baseline production and deliver any shipments slated for this turn before upkeep drains consume stock.
+    // Credit baseline production and deliver any shipments slated for this turn before depot issue and convoy loading.
     this.advanceFactionSupplyState(faction);
     const network = this.buildSupplyNetwork(faction);
     const outOfSupply: ScenarioUnit[] = [];
@@ -8840,16 +8812,7 @@ private automateSupplyConvoys(
       }
 
       const connectedToSupply = hasSupplyPath(state.hex, network);
-      if (connectedToSupply) {
-        // Draw upkeep from the depot first, falling back to the unit's onboard stores when the stockpile runs dry.
-        const definition = this.getUnitDefinition(unit.type);
-        const upkeep = resolveUpkeepForClass(definition.class);
-        const scaledUpkeep = {
-          ammo: this.scaleSupplyAmount(upkeep.ammo, supplyScalar),
-          fuel: this.scaleSupplyAmount(upkeep.fuel, supplyScalar)
-        };
-        this.applyUpkeepForUnit(faction, supplyState, unit, state, scaledUpkeep);
-      } else {
+      if (!connectedToSupply) {
         const previous = { ammo: state.ammo, fuel: state.fuel, entrench: state.entrench, strength: state.strength };
         applyOutOfSupply(state, attritionProfile);
         unit.ammo = state.ammo;
@@ -9825,7 +9788,56 @@ private automateSupplyConvoys(
     this.maybeScheduleBasicBotAirCover();
   }
 
-  /** Attempts to schedule a single bot strike mission against the nearest player ground unit. */
+  /**
+   * Strike aircraft should hunt battlefield assets that matter most: armored formations and artillery first,
+   * then fall back to softer ground targets if nothing better is available.
+   */
+  private isPriorityBotStrikeTarget(definition: UnitTypeDefinition): boolean {
+    if (definition.moveType === "air") {
+      return false;
+    }
+    if (definition.class === "artillery") {
+      return true;
+    }
+    if (definition.class === "tank" || definition.class === "vehicle") {
+      return true;
+    }
+    const heaviestArmor = Math.max(definition.armor.front, definition.armor.side, definition.armor.top);
+    return heaviestArmor >= 6 && definition.combat.weight !== "light";
+  }
+
+  /**
+   * Rates bot strike targets so both bomber classes prefer armor and artillery over convenience shots.
+   */
+  private scoreBotStrikeTarget(attackerDef: UnitTypeDefinition, origin: Axial, target: ScenarioUnit): number {
+    const targetDef = this.getUnitDefinition(target.type);
+    if (targetDef.moveType === "air") {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const distance = hexDistance(origin, target.hex);
+    let score = Math.max(0, 18 - distance * 2);
+
+    if (this.isPriorityBotStrikeTarget(targetDef)) {
+      score += 34;
+      if (targetDef.class === "artillery") {
+        score += attackerDef.combat.role === "antiInfantry" ? 4 : 0;
+      } else if (attackerDef.combat.role === "antiVehicle") {
+        score += 4;
+      }
+    } else {
+      score -= 10;
+    }
+
+    if (targetDef.combat.role === "antiTank") {
+      score += 4;
+    }
+
+    score += Math.max(0, (target.strength ?? 100) * 0.05);
+    return score;
+  }
+
+  /** Attempts to schedule a single bot strike mission against the highest-value player ground unit in range. */
   private maybeScheduleBotStrikeAgainstPlayer(): boolean {
     if (this._phase !== "botTurn") {
       return false;
@@ -9853,29 +9865,25 @@ private automateSupplyConvoys(
         continue;
       }
 
-      // Find nearest player ground unit to target.
-      let bestTarget: ScenarioUnit | null = null;
-      let bestDistance = Number.POSITIVE_INFINITY;
-      for (const candidate of playerUnits) {
-        const candDef = this.getUnitDefinition(candidate.type);
-        if (candDef.moveType === "air") {
-          continue;
-        }
-        const d = hexDistance(unit.hex, candidate.hex);
-        if (d < bestDistance) {
-          bestDistance = d;
-          bestTarget = candidate;
-        }
-      }
-      if (!bestTarget) {
+      const rankedTargets = playerUnits
+        .filter((candidate) => this.getUnitDefinition(candidate.type).moveType !== "air")
+        .map((candidate) => ({
+          target: candidate,
+          score: this.scoreBotStrikeTarget(def, unit.hex, candidate)
+        }))
+        .sort((a, b) => b.score - a.score);
+
+      if (rankedTargets.length === 0) {
         continue;
       }
 
       const origin = structuredClone(unit.hex);
-      const targetHex = structuredClone(bestTarget.hex);
-      const result = this.tryScheduleAirMission({ kind: "strike", faction: "Bot", unitHex: origin, targetHex });
-      if (result.ok) {
-        return true;
+      for (const { target } of rankedTargets) {
+        const targetHex = structuredClone(target.hex);
+        const result = this.tryScheduleAirMission({ kind: "strike", faction: "Bot", unitHex: origin, targetHex });
+        if (result.ok) {
+          return true;
+        }
       }
     }
 

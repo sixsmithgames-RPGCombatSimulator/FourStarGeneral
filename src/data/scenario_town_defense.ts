@@ -69,56 +69,61 @@ const playerDeploymentHexes: Array<[number, number]> = [
 ];
 
 const botUnits = [
-  makeUnit("Howitzer_105", [0, 15], { entrench: 1 }),
-  makeUnit("Howitzer_105", [2, 15], { entrench: 1 }),
-  makeUnit("Howitzer_105", [4, 15], { entrench: 1 }),
-  makeUnit("Panzer_IV", [6, 15]),
-  makeUnit("SP_Artillery", [8, 15]),
-  makeUnit("Flak_88", [1, 14], { entrench: 1 }),
-  makeUnit("Fighter", [2, 14]),
-  makeUnit("Flak_88", [3, 14], { entrench: 1 }),
-  makeUnit("Bomber", [4, 14]),
-  makeUnit("SP_Artillery", [5, 14]),
-  makeUnit("Panzer_IV", [7, 14]),
-  makeUnit("Infantry_42", [0, 13], { entrench: 1 }),
-  makeUnit("Recon_Bike", [1, 13]),
-  makeUnit("Engineer", [3, 13], { entrench: 1 }),
-  makeUnit("Panzer_IV", [4, 13]),
-  makeUnit("Panzer_IV", [6, 13]),
-  makeUnit("Heavy_Tank", [7, 13]),
-  makeUnit("Recon_ArmoredCar", [8, 13]),
-  makeUnit("Recon_ArmoredCar", [0, 12]),
-  makeUnit("Tank_Destroyer", [1, 12], { entrench: 1 }),
-  makeUnit("AT_Gun_50mm", [2, 12], { entrench: 1 }),
-  makeUnit("Panzer_IV", [3, 12]),
-  makeUnit("Heavy_Tank", [4, 12]),
-  makeUnit("Panzer_IV", [5, 12]),
-  makeUnit("Heavy_Tank", [6, 12]),
-  makeUnit("Heavy_Tank", [8, 12]),
-  makeUnit("Infantry_42", [0, 11], { entrench: 1 }),
-  makeUnit("Recon_ArmoredCar", [1, 11]),
-  makeUnit("Assault_Gun", [2, 11]),
-  makeUnit("AT_Gun_50mm", [4, 11], { entrench: 1 }),
-  makeUnit("Tank_Destroyer", [5, 11]),
-  makeUnit("Assault_Gun", [6, 11]),
-  makeUnit("Tank_Destroyer", [7, 11]),
-  makeUnit("Assault_Gun", [8, 11]),
-  makeUnit("Engineer", [0, 10]),
-  makeUnit("Recon_Bike", [1, 10]),
-  makeUnit("Recon_ArmoredCar", [2, 10]),
-  makeUnit("AT_Gun_50mm", [3, 10], { entrench: 1 }),
-  makeUnit("Infantry_42", [4, 10]),
-  makeUnit("Infantry_42", [6, 10]),
-  makeUnit("Heavy_Tank", [9, 10]),
-  makeUnit("Panzer_IV", [4, 9]),
-  makeUnit("Infantry_42", [5, 9], { entrench: 1 })
+  makeUnit("Recon_Bike", [4, 11]),
+  makeUnit("Recon_Bike", [5, 11]),
+  // Infantry front line (closest to player)
+  makeUnit("Infantry_42", [2, 12], { entrench: 0 }),
+  makeUnit("Infantry_42", [3, 12], { entrench: 0 }),
+  makeUnit("Infantry_42", [4, 13], { entrench: 0 }),
+  makeUnit("Infantry_42", [5, 13], { entrench: 0 }),
+  makeUnit("Infantry_42", [6, 14], { entrench: 0 }),
+  makeUnit("Infantry_42", [7, 14], { entrench: 0 }),
+  makeUnit("AT_Infantry", [8, 15], { entrench: 0 }),
+  makeUnit("AT_Infantry", [9, 15], { entrench: 0 }),
+
+  // Second line - supporting infantry and recon
+  makeUnit("Engineer", [2, 12], { entrench: 0 }),
+  makeUnit("AT_Infantry", [3, 13], { entrench: 0 }),
+  makeUnit("AT_Gun_50mm", [4, 14]),
+  makeUnit("AT_Infantry", [5, 14]),
+  makeUnit("Engineer", [6, 14], { entrench: 0 }),
+  makeUnit("AT_Infantry", [7, 15]),
+  makeUnit("AT_Infantry", [4, 14]),
+  makeUnit("Engineer", [4, 13], { entrench: 0 }),
+// Third line - AT guns and more infantry
+  // Fourth line - armor and tanks
+  makeUnit("Tank_Destroyer", [1, 13]),
+  makeUnit("Panzer_IV", [1, 13]),
+  makeUnit("Panzer_IV", [2, 14]),
+  makeUnit("Heavy_Tank", [2, 14]),
+  makeUnit("Tank_Destroyer", [3, 14]),
+  makeUnit("Assault_Gun", [3, 14]),
+  makeUnit("Panzer_IV", [4, 15]),
+  makeUnit("Heavy_Tank", [4, 15]),
+  makeUnit("Tank_Destroyer", [5, 15]),
+  makeUnit("Assault_Gun", [5, 15]),
+  makeUnit("Panzer_IV", [0, 14]),
+  makeUnit("Heavy_Tank", [0, 14]),
+  makeUnit("Tank_Destroyer", [1, 14]),
+  makeUnit("Assault_Gun", [1, 14]),
+  makeUnit("Flak_88", [2, 15]),
+
+  // Artillery and air support (rear)
+  makeUnit("Howitzer_105", [2, 15]),
+  makeUnit("SP_Artillery", [3, 15]),
+  makeUnit("Howitzer_105", [3, 15]),
+  makeUnit("SP_Artillery", [0, 15]),
+  makeUnit("Howitzer_105", [0, 15]),
+  makeUnit("Flak_88", [1, 15]),
+  makeUnit("Fighter", [0, 12]),
+  makeUnit("Bomber", [0, 11])
 ];
 
 const allyUnits = [
-  makeUnit("Infantry_42", [13, 4], { entrench: 1, facing: "S" }),
-  makeUnit("Engineer", [15, 4], { entrench: 1, facing: "S" }),
-  makeUnit("AT_Gun_50mm", [12, 5], { entrench: 1, facing: "S" }),
-  makeUnit("Recon_Bike", [16, 4], { facing: "S" })
+  makeUnit("Infantry_42", [13, 4], { entrench: 0, facing: "S" }),
+  makeUnit("Engineer", [15, 4], { entrench: 0, facing: "S" }),
+  makeUnit("AT_Gun_50mm", [12, 5], { facing: "SW" }),
+  makeUnit("Recon_Bike", [16, 4], { facing: "SW" })
 ];
 
 const townDefenseScenario = {

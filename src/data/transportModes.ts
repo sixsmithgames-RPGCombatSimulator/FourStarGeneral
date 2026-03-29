@@ -42,7 +42,8 @@ const ARMOR_MOTORIZED_UNITS = [
   "SP_Artillery",
   "SPAA",
   "APC_Halftrack",
-  "Recon_ArmoredCar"
+  "Recon_ArmoredCar",
+  "Rocket_Artillery"
 ];
 
 /** Towed artillery (moves with armor speed when motorized, foot speed when manhandled). */
@@ -52,8 +53,7 @@ const TOWED_ARTILLERY_UNITS = [
   "Howitzer_105",
   "Artillery_155mm",
   "Artillery_105mm",
-  "Howitzer",
-  "Rocket_Artillery"
+  "Howitzer"
 ];
 
 /** Naval transport ships. */

@@ -463,7 +463,7 @@ export const popupContentRegistry: PopupContentDefinition[] = [
             <section class="logistics-panel__section">
               <header class="logistics-panel__header">
                 <h3>Ledger</h3>
-                <p>Production, shipments, and upkeep history.</p>
+                <p>Production, shipments, and depot issue history.</p>
               </header>
               <ul class="supplies-ledger" data-logistics-ledger></ul>
             </section>
@@ -598,7 +598,7 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         <section class="supplies-panel__section" data-supplies-ledger-section>
           <header class="supplies-panel__header">
             <h3>Ledger</h3>
-            <p>Production, shipments, and upkeep history.</p>
+            <p>Production, shipments, and depot issue history.</p>
           </header>
           <ul class="supplies-ledger" data-supplies-ledger></ul>
         </section>

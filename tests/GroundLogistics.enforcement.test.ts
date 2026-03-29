@@ -337,7 +337,7 @@ registerTest("ONLY_BASE_ADJACENT_UNITS_RECEIVE_DIRECT_DEPOT_ISSUES", async ({ Gi
   });
 });
 
-registerTest("CONNECTED_UNITS_DO_NOT_LOSE_ONBOARD_AMMO_WHEN_DEPOT_STOCK_IS_EMPTY", async ({ Given, When, Then }) => {
+registerTest("CONNECTED_UNITS_KEEP_ONBOARD_AMMO_WHEN_DEPOT_STOCK_IS_EMPTY", async ({ Given, When, Then }) => {
   let engine: GameEngine;
   let ammoBefore = 0;
 
@@ -379,7 +379,62 @@ registerTest("CONNECTED_UNITS_DO_NOT_LOSE_ONBOARD_AMMO_WHEN_DEPOT_STOCK_IS_EMPTY
   await Then("the battalion keeps its carried ammo until it actually fires", async () => {
     const afterTick = findPlayerUnit(engine, { q: 0, r: 1 });
     if (afterTick.ammo !== ammoBefore) {
-      throw new Error(`Expected connected upkeep to preserve onboard ammo, saw ${ammoBefore} drop to ${afterTick.ammo}.`);
+      throw new Error(`Expected the connected battalion to preserve onboard ammo, saw ${ammoBefore} drop to ${afterTick.ammo}.`);
+    }
+  });
+});
+
+registerTest("CONNECTED_FULL_UNITS_DO_NOT_DRAIN_DEPOT_AMMO_OR_FUEL_WHILE_IDLE", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let depotAmmoBefore = 0;
+  let depotFuelBefore = 0;
+  let depotAmmoAfter = 0;
+  let depotFuelAfter = 0;
+
+  await Given("a connected battalion that is already full on onboard ammo and fuel", async () => {
+    const playerUnit: ScenarioUnit = {
+      type: "TestVehicle" as ScenarioUnit["type"],
+      hex: { q: 0, r: 1 },
+      strength: 10,
+      experience: 0,
+      ammo: 10,
+      fuel: 10,
+      entrench: 0,
+      facing: "N"
+    };
+    engine = createEngine([playerUnit]);
+    const initialLogistics = engine.getLogisticsSnapshot();
+    depotAmmoBefore = initialLogistics.depotStock.ammo;
+    depotFuelBefore = initialLogistics.depotStock.fuel;
+
+    const unsafeEngine = engine as unknown as {
+      _turnNumber: number;
+      applySupplyTickFor: (faction: "Player") => unknown;
+      supplyStateByFaction: {
+        Player: {
+          lastUpdatedTurn: number;
+        };
+      };
+    };
+    unsafeEngine.supplyStateByFaction.Player.lastUpdatedTurn = unsafeEngine._turnNumber;
+  });
+
+  await When("the player supply tick runs without any actual depot issues or convoy loading", async () => {
+    const unsafeEngine = engine as unknown as {
+      applySupplyTickFor: (faction: "Player") => unknown;
+    };
+    unsafeEngine.applySupplyTickFor("Player");
+    const afterTick = engine.getLogisticsSnapshot();
+    depotAmmoAfter = afterTick.depotStock.ammo;
+    depotFuelAfter = afterTick.depotStock.fuel;
+  });
+
+  await Then("the depot remains unchanged because no ammunition or fuel was actually issued", async () => {
+    if (depotAmmoAfter !== depotAmmoBefore) {
+      throw new Error(`Expected idle connected battalions to leave depot ammo untouched, saw ${depotAmmoBefore} change to ${depotAmmoAfter}.`);
+    }
+    if (depotFuelAfter !== depotFuelBefore) {
+      throw new Error(`Expected idle connected battalions to leave depot fuel untouched, saw ${depotFuelBefore} change to ${depotFuelAfter}.`);
     }
   });
 });

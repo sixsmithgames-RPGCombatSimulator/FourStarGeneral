@@ -111,6 +111,28 @@ const OBJECTIVE_HOLD_BONUS = 5;
  * Bonus for moving toward an objective (distance reduction).
  */
 const OBJECTIVE_APPROACH_BONUS = 8;
+/**
+ * Base value for non-attack moves that deliberately set up a stronger shot on a later turn.
+ * This lets the planner prefer "good staging" over aimless pressure once contact is established.
+ */
+const FIRE_SETUP_BASE_BONUS = 10;
+/**
+ * Reward for destinations that can step into a valid firing lane on the next turn.
+ */
+const FIRE_SETUP_READY_BONUS = 8;
+/**
+ * Penalty per hex the destination still sits outside the unit's attack band.
+ */
+const FIRE_SETUP_RANGE_GAP_PENALTY = 5;
+/**
+ * Heavier penalty for positions that still cannot realistically attack after a full move next turn.
+ */
+const FIRE_SETUP_FUTURE_GAP_PENALTY = 9;
+/**
+ * Reward/penalty pair used by direct-fire units so they value staging hexes with a real firing lane.
+ */
+const FIRE_SETUP_LOS_BONUS = 4;
+const FIRE_SETUP_NO_LOS_PENALTY = 10;
 
 /**
  * Difficulty levels control how aggressively and intelligently the bot plays.
@@ -581,6 +603,156 @@ export function classifyUnitPurpose(definition: UnitTypeDefinition): UnitPurpose
   return "generalist";
 }
 
+/**
+ * Treat tanks, armored vehicles, and heavily protected ground formations as armored strike targets.
+ * The fallback armor check keeps odd specialist data aligned with the bot's battlefield priorities.
+ */
+function isArmoredGroundUnit(definition: UnitTypeDefinition): boolean {
+  if (definition.moveType === "air") {
+    return false;
+  }
+  if (definition.class === "tank" || definition.class === "vehicle") {
+    return true;
+  }
+
+  const heaviestArmor = Math.max(definition.armor.front, definition.armor.side, definition.armor.top);
+  return heaviestArmor >= 6 && definition.combat.weight !== "light";
+}
+
+/**
+ * Immediate attack scoring and multi-turn staging should agree on what a unit is meant to hunt.
+ */
+function calculatePurposeBonus(
+  purpose: UnitPurpose,
+  defender: PlannerUnitSnapshot | null
+): number {
+  if (!defender) {
+    return 0;
+  }
+
+  const defenderClass = defender.definition.class;
+  if (purpose === "antiArmor") {
+    if (isArmoredGroundUnit(defender.definition)) {
+      return 15;
+    }
+    if (defenderClass === "artillery") {
+      return 6;
+    }
+    if (defenderClass === "air" || defenderClass === "infantry") {
+      return -5;
+    }
+  }
+  if (purpose === "antiInfantry") {
+    if (defenderClass === "infantry" || defenderClass === "specialist") {
+      return 12;
+    }
+    if (defenderClass === "artillery") {
+      return 4;
+    }
+    if (isArmoredGroundUnit(defender.definition)) {
+      return -6;
+    }
+  }
+  if (purpose === "artillery") {
+    if (defenderClass === "artillery") {
+      return 8;
+    }
+    if (defenderClass === "infantry" || defenderClass === "specialist") {
+      return 6;
+    }
+    if (isArmoredGroundUnit(defender.definition)) {
+      return 4;
+    }
+  }
+  if (purpose === "recon" && defenderClass === "artillery") {
+    return 4;
+  }
+  return 0;
+}
+
+/**
+ * High-value battlefield assets attract fire even from generalists because removing them changes the whole fight.
+ */
+function calculateStrategicTargetBonus(defender: PlannerUnitSnapshot | null): number {
+  if (!defender) {
+    return 0;
+  }
+
+  let bonus = 0;
+  if (isArmoredGroundUnit(defender.definition)) {
+    bonus += 8;
+  }
+  if (defender.definition.class === "artillery") {
+    bonus += 10;
+  }
+  if (defender.definition.combat.role === "antiTank") {
+    bonus += 4;
+  }
+  if (defender.definition.class === "recon") {
+    bonus += 2;
+  }
+  return bonus;
+}
+
+/**
+ * Shared target-priority score used by both attack selection and positioning logic.
+ */
+function calculateTargetPriorityBonus(
+  purpose: UnitPurpose,
+  defender: PlannerUnitSnapshot | null
+): number {
+  return calculatePurposeBonus(purpose, defender) + calculateStrategicTargetBonus(defender);
+}
+
+/**
+ * Returns how many hexes separate a destination from the unit's valid firing band.
+ */
+function distanceToAttackBand(distance: number, rangeMin: number, rangeMax: number): number {
+  if (distance < rangeMin) {
+    return rangeMin - distance;
+  }
+  if (distance > rangeMax) {
+    return distance - rangeMax;
+  }
+  return 0;
+}
+
+/**
+ * Direct-fire formations need a firing lane; indirect artillery can stage behind the line as long as it is spotted.
+ */
+function requiresDirectLOS(definition: UnitTypeDefinition): boolean {
+  if (definition.moveType === "air") {
+    return false;
+  }
+  if (definition.class === "artillery") {
+    return false;
+  }
+  return !definition.traits.includes("indirect");
+}
+
+/**
+ * Used to skip air targets that most ground formations can never legally attack.
+ */
+function canPotentiallyAttackTarget(attacker: PlannerUnitSnapshot, defender: PlannerUnitSnapshot): boolean {
+  if (defender.definition.moveType !== "air") {
+    return true;
+  }
+  return attacker.definition.moveType === "air" || attacker.unit.type.toLowerCase().includes("flak");
+}
+
+/**
+ * Human-readable label for rationale strings when the planner stages around battlefield priorities.
+ */
+function describePriorityTarget(defender: PlannerUnitSnapshot): string {
+  if (defender.definition.class === "artillery") {
+    return `artillery ${defender.unit.type}`;
+  }
+  if (isArmoredGroundUnit(defender.definition)) {
+    return `armored ${defender.unit.type}`;
+  }
+  return defender.unit.type;
+}
+
 // ==========================================
 // ADVANCED TACTICAL AI SCORING FUNCTIONS
 // ==========================================
@@ -863,35 +1035,8 @@ export function scoreCandidate(
   // Use provided modifiers or default to Normal difficulty values
   const mods = modifiers ?? getDifficultyModifiers("Normal");
 
-  const purposeBonus = (() => {
-    if (!defender) {
-      return 0;
-    }
-    const defenderClass = defender.definition.class;
-    if (purpose === "antiArmor") {
-      if (defenderClass === "tank" || defenderClass === "vehicle") {
-        return 15;
-      }
-      if (defenderClass === "artillery" || defenderClass === "air" || defenderClass === "infantry") {
-        return -5;
-      }
-    }
-    if (purpose === "antiInfantry") {
-      if (defenderClass === "infantry" || defenderClass === "specialist") {
-        return 12;
-      }
-      if (defenderClass === "tank" || defenderClass === "vehicle") {
-        return -6;
-      }
-    }
-    if (purpose === "artillery" && defenderClass === "infantry") {
-      return 6;
-    }
-    if (purpose === "recon" && defenderClass === "artillery") {
-      return 4;
-    }
-    return 0;
-  })();
+  const purposeBonus = calculatePurposeBonus(purpose, defender);
+  const strategicTargetBonus = calculateStrategicTargetBonus(defender);
 
   // Apply difficulty modifiers to scoring weights
   const damageScore = candidate.expectedDamage * mods.damageWeight;
@@ -922,7 +1067,13 @@ export function scoreCandidate(
     tacticalBonus += calculateFlankingBonus(candidate.destination, defender, mods);
   }
 
-  return damageScore + purposeBonus + attackOpportunityBonus + mobilityPenalty + tacticalBonus - retaliationPenalty;
+  return damageScore
+    + purposeBonus
+    + strategicTargetBonus
+    + attackOpportunityBonus
+    + mobilityPenalty
+    + tacticalBonus
+    - retaliationPenalty;
 }
 
 /**
@@ -1051,6 +1202,91 @@ function scoreObjectiveAdvance(
 }
 
 /**
+ * When a unit cannot justify an immediate shot, look for the best staging hex to threaten a valuable target
+ * on the following turn. This fills the gap between "attack now" and "march at the nearest thing."
+ */
+function scoreFireSetup(
+  snapshot: PlannerUnitSnapshot,
+  reachable: Map<string, ReachableHex>,
+  enemies: readonly PlannerUnitSnapshot[],
+  input: BotPlannerInput,
+  modifiers: DifficultyModifiers
+): ActionCandidate | null {
+  if (enemies.length === 0) {
+    return null;
+  }
+
+  const purpose = classifyUnitPurpose(snapshot.definition);
+  const rangeMin = snapshot.definition.rangeMin ?? 1;
+  const rangeMax = snapshot.definition.rangeMax ?? 1;
+  if (rangeMax <= 0) {
+    return null;
+  }
+
+  const nextTurnMoveAllowance = Math.max(1, input.movementAllowance(snapshot));
+  const requiresLos = requiresDirectLOS(snapshot.definition);
+  let best: ActionCandidate | null = null;
+
+  for (const option of reachable.values()) {
+    if (option.path.length <= 1) {
+      continue;
+    }
+
+    const terrain = input.map.terrainAt(option.hex);
+    const nearestEnemyDistance = enemies.reduce(
+      (min, enemy) => Math.min(min, hexDistance(option.hex, enemy.unit.hex)),
+      Number.POSITIVE_INFINITY
+    );
+
+    for (const enemy of enemies) {
+      if (!canPotentiallyAttackTarget(snapshot, enemy)) {
+        continue;
+      }
+
+      const distance = hexDistance(option.hex, enemy.unit.hex);
+      const rangeGap = distanceToAttackBand(distance, rangeMin, rangeMax);
+      const futureGap = Math.max(0, rangeGap - nextTurnMoveAllowance);
+      const hasLos = !requiresLos || input.losAllows(option.hex, enemy.unit.hex, false);
+
+      let score = FIRE_SETUP_BASE_BONUS
+        + calculateTargetPriorityBonus(purpose, enemy)
+        - rangeGap * FIRE_SETUP_RANGE_GAP_PENALTY
+        - futureGap * FIRE_SETUP_FUTURE_GAP_PENALTY
+        - (option.path.length - 1) * 0.75;
+
+      if (futureGap === 0) {
+        score += FIRE_SETUP_READY_BONUS;
+      }
+
+      // Direct-fire units should not stage onto hexes that still leave the target masked next turn.
+      score += hasLos ? FIRE_SETUP_LOS_BONUS : -FIRE_SETUP_NO_LOS_PENALTY;
+      score += calculateTerrainPositionScore(option.hex, terrain, false);
+      score += calculateArtilleryPositionScore(option.hex, nearestEnemyDistance, snapshot, enemy, modifiers);
+
+      const candidate: ActionCandidate = {
+        destination: option.hex,
+        path: option.path,
+        attackTarget: null,
+        expectedDamage: 0,
+        expectedRetaliation: 0,
+        score,
+        rationale: `Stage for ${describePriorityTarget(enemy)}`
+      };
+
+      if (option.path.length > 1) {
+        candidate.score += STEERING_TIE_BIAS * steeringBias(snapshot.unit.hex, option.path[1], enemy.unit.hex);
+      }
+
+      if (!best || candidate.score > best.score) {
+        best = candidate;
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
  * Evaluate all reachable attack positions for a single unit and pick the highest scoring candidate.
  */
 function pickBestCandidate(
@@ -1098,6 +1334,7 @@ function pickBestCandidate(
     }
   }
   const enemyNearOrVisible = enemyVisible || nearestEnemyDistance <= PROXIMITY_ENGAGE_RADIUS || globallySpottedPlayers.length > 0;
+  const pressureTargets = globallySpottedPlayers.length > 0 ? globallySpottedPlayers : input.playerUnits;
 
   for (const playerSnapshot of input.playerUnits) {
     const rangeMax = snapshot.definition.rangeMax ?? 1;
@@ -1138,6 +1375,16 @@ function pickBestCandidate(
     }
   }
 
+  const setupCandidate = scoreFireSetup(snapshot, reachable, pressureTargets, input, difficultyMods);
+  if (setupCandidate && (allowEnemyEliminationFallback || enemyNearOrVisible)) {
+    if (enemyNearOrVisible) {
+      setupCandidate.score += difficultyMods.contactEngageBonus + Math.max(0, PROXIMITY_ENGAGE_RADIUS - nearestEnemyDistance);
+    }
+    if (!top || setupCandidate.score > top.score) {
+      top = setupCandidate;
+    }
+  }
+
   // Consider movement toward objectives if no attack was valuable.
   if (!top || top.score < 0) {
     const advanceCandidate = scoreObjectiveAdvance(snapshot.unit.hex, reachable, activeObjectives, input.occupancy, difficultyMods);
@@ -1153,7 +1400,6 @@ function pickBestCandidate(
     // Engage nearby/visible enemies even when objectives exist; otherwise fall back to elimination goal
     // only when no contested objectives remain.
     if ((allowEnemyEliminationFallback || enemyNearOrVisible) && (!top || top.score < 0)) {
-      const pressureTargets = globallySpottedPlayers.length > 0 ? globallySpottedPlayers : input.playerUnits;
       const pressureCandidate = scoreEnemyPressure(snapshot.unit.hex, reachable, pressureTargets);
       if (pressureCandidate && enemyNearOrVisible) {
         // Apply difficulty-based contact engagement bonus
@@ -1168,7 +1414,6 @@ function pickBestCandidate(
   // If we already have a decent objective move but an enemy-pressure option clearly outranks it
   // (due to proximity/visibility), prefer the pressure move. This keeps the AI responsive to contact.
   if ((allowEnemyEliminationFallback || enemyNearOrVisible)) {
-    const pressureTargets = globallySpottedPlayers.length > 0 ? globallySpottedPlayers : input.playerUnits;
     const pressureCandidate = scoreEnemyPressure(snapshot.unit.hex, reachable, pressureTargets);
     if (pressureCandidate && enemyNearOrVisible) {
       // Apply difficulty-based contact engagement bonus
