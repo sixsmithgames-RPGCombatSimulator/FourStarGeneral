@@ -6029,6 +6029,20 @@ export class BattleScreen {
         this.announceBattleUpdate(commandState?.sentryReason ?? "This formation cannot enter sentry right now.");
         return;
       }
+    } else if (actionId === "moveOutTow") {
+      succeeded = engine.moveOutTowableUnit(axial, this.selectedPlayerUnitId ?? undefined);
+      summary = `${unitLabel} moved out from ${this.selectedHexKey} and is now ready to tow.`;
+      if (!succeeded) {
+        this.announceBattleUpdate(commandState?.moveOutReason ?? "This battery cannot move out right now.");
+        return;
+      }
+    } else if (actionId === "deployTow") {
+      succeeded = engine.deployTowableUnit(axial, this.selectedPlayerUnitId ?? undefined);
+      summary = `${unitLabel} deployed its guns at ${this.selectedHexKey}.`;
+      if (!succeeded) {
+        this.announceBattleUpdate(commandState?.deployTowReason ?? "This battery cannot deploy right now.");
+        return;
+      }
     } else if (actionId === "exitSentry") {
       succeeded = engine.exitSentry(axial, this.selectedPlayerUnitId ?? undefined);
       summary = `${unitLabel} exited sentry mode at ${this.selectedHexKey}.`;
@@ -6569,6 +6583,11 @@ export class BattleScreen {
       if (commandState.isAutomated) {
         chips.push({ label: "Automated Convoy", tone: "warning" });
       }
+      if (commandState.towState === "towed") {
+        chips.push({ label: "Towed", tone: "warning" });
+      } else if (commandState.towState === "deployed") {
+        chips.push({ label: "Deployed", tone: "neutral" });
+      }
       if (commandState.isOnSentry) {
         chips.push({ label: "On Sentry", tone: "neutral" });
       }
@@ -6599,6 +6618,25 @@ export class BattleScreen {
     }
 
     const actions: BattleIntelAction[] = [];
+    if (commandState.towState === "deployed") {
+      actions.push({
+        id: "moveOutTow",
+        label: "Move Out",
+        detail: "Hook up the battery for towing. This spends half the unit's movement and switches it to towed status.",
+        tone: "mobility",
+        available: commandState.canMoveOut,
+        reason: commandState.moveOutReason
+      });
+    } else if (commandState.towState === "towed") {
+      actions.push({
+        id: "deployTow",
+        label: "Deploy",
+        detail: "Unlimber the guns for firing. If the unit already spent movement this turn, deployment consumes the rest of the turn.",
+        tone: "defense",
+        available: commandState.canDeployTow,
+        reason: commandState.deployTowReason
+      });
+    }
     if (this.canUnitObserveArtillery(unit)) {
       const queuedArtillery = this.getQueuedArtilleryForCallerHex(hexKey);
       if (queuedArtillery) {
@@ -6682,6 +6720,11 @@ export class BattleScreen {
       notes.push(`Pinned by ${commandState.suppressorCount} enemy suppressors. This battalion cannot move or retaliate until the pin is broken, and assault fire is unavailable.`);
     } else if (commandState.suppressionState === "suppressed") {
       notes.push("Under suppressive fire this turn. The battalion may still move and fire, but it cannot initiate assault fire until the next friendly turn begins.");
+    }
+    if (commandState.towState === "deployed") {
+      notes.push("This battery is deployed for fire. Choose Move Out to limber the guns before towing to a new position.");
+    } else if (commandState.towState === "towed") {
+      notes.push("This battery is limbered for towing. Deploy it before firing; deploying after movement ends its turn.");
     }
     if (this.canUnitDigIn(unit) && !commandState.canDigIn && commandState.digInReason) {
       notes.push(commandState.digInReason);

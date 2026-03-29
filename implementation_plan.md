@@ -299,3 +299,36 @@
 - Add a focused regression proving a defending unit can retaliate six times and then stops once ammo is exhausted.
 - Run `npm run build`.
 - Run a focused compiled harness pass for the updated command-state test.
+
+## Towed Gun Tempo Plan
+
+### Intended behavior
+- Towed gun formations should alternate between `deployed` and `towed` postures instead of using generic vehicle move-and-fire rules.
+- A deployed battery must choose `Move Out` before towing, which spends half its movement to hook up.
+- A towed battery gets full movement at the start of the turn, must `Deploy` before firing, and loses the rest of the turn if it deploys after already spending movement.
+
+### Current behavior
+- Towed guns have no explicit limbered/unlimbered state.
+- Artillery-class batteries are globally blocked from attacking after any movement, which prevents the deploy-after-tow flow the design calls for.
+- The battle UI has no `Move Out` or `Deploy` commands for towable batteries.
+
+### Expected new behavior
+- Towable batteries persist a `towState` of `deployed` or `towed`.
+- `Move Out` switches a deployed battery to `towed` and spends half its movement allowance.
+- `Deploy` switches a towed battery back to `deployed`; if the battery already spent movement this turn, deployment commits the rest of the turn.
+- A battery that starts the turn already towed can deploy and fire in the same turn as long as it has not moved first.
+
+### Impact analysis
+- Systems consuming this output:
+  - Shared scenario-unit state in `src/core/types.ts`
+  - Player movement and attack gating in `src/game/GameEngine.ts`
+  - Player command-state and action cards in `src/ui/screens/BattleScreen.ts`
+  - Focused command-state regressions for towable batteries
+- Visual behaviors that could shift:
+  - Towed batteries now show explicit `Towed` or `Deployed` status chips.
+  - Battle intel actions now include `Move Out` and `Deploy` for towable batteries.
+
+### Verification
+- Add focused regressions for move-out, deploy-after-movement, and deploy-then-fire flows.
+- Run `npm run build`.
+- Run a focused compiled harness pass for the updated command-state tests.

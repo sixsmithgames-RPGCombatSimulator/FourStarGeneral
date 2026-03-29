@@ -621,6 +621,91 @@ registerTest("HEXMAP_AIR_BOMBING_ATTACK_SPAWNS_ONE_CENTERED_EXPLOSION", async ({
   });
 });
 
+registerTest("HEXMAP_ROCKET_ARTILLERY_ATTACK_SPAWNS_TRIPLE_BARRAGE_SALVOS", async ({ Given, When, Then }) => {
+  const renderer = new HexMapRenderer() as unknown as {
+    playAttackSequence(attackerHexKey: string, defenderHexKey: string, targetIsHardTarget: boolean): Promise<void>;
+    hexElementMap: Map<string, unknown>;
+    extractHexCenter: (element: unknown) => { cx: number; cy: number } | null;
+    setHexFacingAngle: (hexKey: string, cx: number, cy: number, angle: number) => void;
+    getUnitClassAt: (hexKey: string) => string | undefined;
+    getUnitScenarioTypeAt: (hexKey: string) => string | undefined;
+    isSmallArmsAttack: (hexKey: string) => boolean;
+    isArcingArtilleryAttack: (hexKey: string) => boolean;
+    isAirStrafingAttack: (hexKey: string) => boolean;
+    isAirBombingAttack: (hexKey: string) => boolean;
+    playFlashOverlay: () => Promise<void>;
+    playMuzzleFlash: () => Promise<void>;
+    playTargetMarker: () => Promise<void>;
+    playRecoilNudge: () => Promise<void>;
+    playHitShake: () => Promise<void>;
+    playSparkBurst: () => Promise<void>;
+    playDustCloudLinger: () => Promise<void>;
+    playProjectileTracer: () => Promise<void>;
+    playArcedProjectile: () => Promise<void>;
+  } & {
+    playCombatAnimation: (animationType: string, hexKey: string, offsetX?: number, offsetY?: number, scale?: number) => Promise<void>;
+  };
+
+  const combatCalls: Array<{ animationType: string; hexKey: string; offsetX: number; offsetY: number; scale: number }> = [];
+  let arcedProjectileCalls = 0;
+  const originalSetTimeout = window.setTimeout;
+
+  await Given("a rocket-artillery renderer path with non-impact visuals stubbed", async () => {
+    window.setTimeout = ((handler: TimerHandler, _timeout?: number, ...args: unknown[]) => {
+      if (typeof handler === "function") {
+        handler(...args);
+      }
+      return 0 as unknown as number;
+    }) as typeof window.setTimeout;
+    renderer.hexElementMap.set("0,0", {});
+    renderer.hexElementMap.set("1,0", {});
+    renderer.extractHexCenter = () => ({ cx: 100, cy: 100 });
+    renderer.setHexFacingAngle = () => {};
+    renderer.getUnitClassAt = (hexKey) => (hexKey === "0,0" ? "artillery" : "tank");
+    renderer.getUnitScenarioTypeAt = (hexKey) => (hexKey === "0,0" ? "Rocket_Artillery" : "Medium_Tank");
+    renderer.isSmallArmsAttack = () => false;
+    renderer.isArcingArtilleryAttack = () => true;
+    renderer.isAirStrafingAttack = () => false;
+    renderer.isAirBombingAttack = () => false;
+    renderer.playFlashOverlay = async () => {};
+    renderer.playMuzzleFlash = async () => {};
+    renderer.playTargetMarker = async () => {};
+    renderer.playRecoilNudge = async () => {};
+    renderer.playHitShake = async () => {};
+    renderer.playSparkBurst = async () => {};
+    renderer.playDustCloudLinger = async () => {};
+    renderer.playProjectileTracer = async () => {};
+    renderer.playArcedProjectile = async () => {
+      arcedProjectileCalls += 1;
+    };
+    renderer.playCombatAnimation = async (animationType, hexKey, offsetX = 0, offsetY = 0, scale = 1) => {
+      combatCalls.push({ animationType, hexKey, offsetX, offsetY, scale });
+    };
+  });
+
+  await When("the rocket artillery attack sequence resolves", async () => {
+    await renderer.playAttackSequence("0,0", "1,0", true);
+  });
+
+  window.setTimeout = originalSetTimeout;
+
+  await Then("it plays three artillery-style salvos with spread-out small explosions", async () => {
+    if (arcedProjectileCalls !== 3) {
+      throw new Error(`Expected three rocket-tracer lob animations, received ${arcedProjectileCalls}.`);
+    }
+
+    const impactCalls = combatCalls.filter((call) => call.animationType === "explosionSmall");
+    if (impactCalls.length !== 12) {
+      throw new Error(`Expected twelve small rocket-artillery explosions, found ${impactCalls.length}.`);
+    }
+
+    const uniqueOffsets = new Set(impactCalls.map((call) => `${call.offsetX},${call.offsetY}`));
+    if (uniqueOffsets.size < 10) {
+      throw new Error(`Expected rocket-artillery salvos to spread across many distinct impact points, found ${uniqueOffsets.size}.`);
+    }
+  });
+});
+
 registerTest("HEXMAP_RENDERUNIT_DOES_NOT_ADD_WATER_TRANSPORT_OVERLAY", async ({ Given, When, Then }) => {
   const viewport = document.createElement("div");
   viewport.style.width = "300px";

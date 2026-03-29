@@ -117,6 +117,8 @@ export interface ScenarioUnit {
   suppressedBy?: string[];
   /** Holds the battalion on alert until its next activation or until incoming fire breaks the stance. */
   onSentry?: boolean;
+  /** Tow posture for limbered gun batteries and anti-tank pieces. */
+  towState?: "deployed" | "towed";
 }
 
 export interface ScenarioSide {

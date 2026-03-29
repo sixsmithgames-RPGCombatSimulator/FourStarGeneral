@@ -62,6 +62,7 @@ import {
   type AttackEstimate
 } from "./bot/BotPlanner";
 import { AIR_MISSION_TEMPLATES } from "../data/airMissions";
+import { TOWED_ARTILLERY_UNITS } from "../data/transportModes";
 import {
   getReconIntelSnapshot as buildInitialReconIntelSnapshot,
   type ReconIntelBrief,
@@ -973,6 +974,7 @@ export interface EnemyContactSnapshot {
 }
 
 export type UnitSuppressionState = "clear" | "suppressed" | "pinned";
+export type UnitTowState = "deployed" | "towed";
 
 export interface UnitCommandState {
   readonly unitId: string;
@@ -984,8 +986,13 @@ export interface UnitCommandState {
   readonly suppressionState: UnitSuppressionState;
   readonly suppressorCount: number;
   readonly isOnSentry: boolean;
+  readonly towState: UnitTowState | null;
   readonly existingHexModification: HexModification | null;
   readonly existingHexModifications: readonly HexModification[];
+  readonly canMoveOut: boolean;
+  readonly moveOutReason: string | null;
+  readonly canDeployTow: boolean;
+  readonly deployTowReason: string | null;
   readonly canEnterSentry: boolean;
   readonly sentryReason: string | null;
   readonly canDigIn: boolean;
@@ -1168,6 +1175,8 @@ export interface GameEngineAPI {
   transferAllyControl(hex: Axial): boolean;
   enterSentry(hex: Axial, unitId?: string): boolean;
   exitSentry(hex: Axial, unitId?: string): boolean;
+  moveOutTowableUnit(hex: Axial, unitId?: string): boolean;
+  deployTowableUnit(hex: Axial, unitId?: string): boolean;
   digInUnit(hex: Axial, unitId?: string): boolean;
   buildHexModification(hex: Axial, type: HexModificationType, facing?: HexEdgeFacing | null, unitId?: string): boolean;
   getHexModification(hex: Axial): HexModification | null;
@@ -1229,6 +1238,7 @@ function normalizeCombatClassification(value: CombatClassification | undefined, 
 export class GameEngine implements GameEngineAPI {
   /** Conversion factor mapping a single hex (250m) into kilometers for range validation. */
   private static readonly KILOMETERS_PER_HEX = 0.25;
+  private static readonly TOWABLE_UNIT_TYPES = new Set<string>(TOWED_ARTILLERY_UNITS);
   private static readonly AIR_COVER_PATROL_RADIUS_HEX = 12;
   private static readonly ENEMY_CONTACT_MEMORY_TURNS = 2;
   private static readonly RECON_SPOTTING_RANGE_BONUS = 2;
@@ -3852,6 +3862,50 @@ private automateSupplyConvoys(
     return !this.isAutomatedPlayerUnit(unit);
   }
 
+  private isTowableUnit(unitOrType: ScenarioUnit | UnitTypeDefinition | string): boolean {
+    if (typeof unitOrType === "string") {
+      return GameEngine.TOWABLE_UNIT_TYPES.has(unitOrType);
+    }
+    if ("type" in unitOrType) {
+      return GameEngine.TOWABLE_UNIT_TYPES.has(unitOrType.type);
+    }
+    return false;
+  }
+
+  private resolveTowState(unit: ScenarioUnit): UnitTowState | null {
+    if (!this.isTowableUnit(unit)) {
+      return null;
+    }
+    return unit.towState === "towed" ? "towed" : "deployed";
+  }
+
+  private resolveBaseMovementAllowance(
+    definition: UnitTypeDefinition,
+    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+  ): number {
+    const moveScalar = this.commanderMoveScalar();
+    const baseMovement = Math.max(1, Math.ceil((definition.movement ?? 1) * moveScalar));
+    const rushingBonus = flags.isRushing && definition.class === "infantry" ? 1 : 0;
+    let adjustedMax = baseMovement + rushingBonus;
+
+    if (flags.attacksUsed > 0) {
+      if (definition.class === "artillery") {
+        adjustedMax = 0;
+      } else {
+        adjustedMax = Math.floor(adjustedMax / 2);
+      }
+    }
+
+    return Math.max(0, adjustedMax);
+  }
+
+  private resolveTowHookupCost(
+    definition: UnitTypeDefinition,
+    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+  ): number {
+    return Math.max(1, Math.ceil(this.resolveBaseMovementAllowance(definition, flags) / 2));
+  }
+
   private getPlacementOverflowMapForFaction(faction: TurnFaction): Map<string, ScenarioUnit[]> {
     if (faction === "Player") {
       return this.playerPlacementOverflow;
@@ -6160,8 +6214,8 @@ private automateSupplyConvoys(
     // Previously, autoDeployAirReservesToBaseZone() would place aircraft into the base camp zone, which
     // caused them to appear as on-map units. That behavior is now disabled so squadrons are managed only
     // through the air mission system and not as standard ground deployments.
-    this.playerSupply = createSupplyUnits(Array.from(this.playerPlacements.values()));
-    this.botSupply = createSupplyUnits(this.botSide.units ?? []);
+    this.playerSupply = createSupplyUnits(this.getAllUnitsForFaction("Player"));
+    this.botSupply = createSupplyUnits(this.getAllUnitsForFaction("Bot"));
     this.recordSupplySnapshot("Player");
     return this.reserves.map((entry) => ({ unit: structuredClone(entry.unit), definition: entry.definition }));
   }
@@ -7064,6 +7118,9 @@ private automateSupplyConvoys(
     const flags = this.getUnitActionFlags("Player", unit);
 
     const def = this.getUnitDefinition(unit.type);
+    if (this.isTowableUnit(unit) && this.resolveTowState(unit) === "towed") {
+      return [];
+    }
     const halfMovement = Math.floor(def.movement / 2);
 
     // Determine if unit can attack based on movement and attacks used
@@ -7203,6 +7260,9 @@ private automateSupplyConvoys(
     if (this.resolveUnitSuppressionState(unit).state === "pinned") {
       throw new Error("Pinned formations cannot move until the pin is broken.");
     }
+    if (this.isTowableUnit(unit) && this.resolveTowState(unit) !== "towed") {
+      throw new Error("This battery must choose Move Out before it can be towed.");
+    }
 
     if (definition.class === "artillery" && flags.attacksUsed > 0) {
       throw new Error("Artillery cannot move after attacking.");
@@ -7309,6 +7369,9 @@ private automateSupplyConvoys(
     const attackerKey = this.getSquadronId(attacker);
     const flags = this.getUnitActionFlags("Player", attacker);
     const unitDef = this.getUnitDefinition(attacker.type);
+    if (this.isTowableUnit(attacker) && this.resolveTowState(attacker) === "towed") {
+      throw new Error("This battery must deploy before it can fire.");
+    }
     const primaryDefenderDef = this.getUnitDefinition(primaryDefender.type);
     const effectiveStance = this.resolveCombatStanceForAttacker(attacker, unitDef, stance);
     if (stance === "assault" && effectiveStance !== "assault") {
@@ -8758,7 +8821,6 @@ private automateSupplyConvoys(
    */
   private applySupplyTickFor(faction: TurnFaction): SupplyTickReport {
     const units = faction === "Player" ? this.playerSupply : faction === "Bot" ? this.botSupply : this.allySupply;
-    const placements = faction === "Player" ? this.playerPlacements : faction === "Bot" ? this.botPlacements : this.allyPlacements;
     const supplyState = this.supplyStateByFaction[faction];
     // Credit baseline production and deliver any shipments slated for this turn before upkeep drains consume stock.
     this.advanceFactionSupplyState(faction);
@@ -8772,8 +8834,7 @@ private automateSupplyConvoys(
       strengthLossWhenEmpty: this.scaleSupplyAmount(supplyBalance.tick.stepLossWhenEmpty, supplyScalar)
     };
     units.forEach((state) => {
-      const key = axialKey(state.hex);
-      const unit = placements.get(key);
+      const unit = this.findUnitInFactionAtHex(state.hex, faction, state.unitId);
       if (!unit) {
         return;
       }
@@ -11348,6 +11409,9 @@ private automateSupplyConvoys(
     if (unit.onSentry) {
       return { available: false, reason: "This formation is already on sentry." };
     }
+    if (this.resolveTowState(unit) === "towed") {
+      return { available: false, reason: "Deploy the battery before placing it on sentry." };
+    }
     if (this.resolveUnitSuppressionState(unit).state === "pinned") {
       return { available: false, reason: "Pinned formations cannot be placed on sentry." };
     }
@@ -11461,6 +11525,72 @@ private automateSupplyConvoys(
     return { available: true, reason: null };
   }
 
+  private resolveMoveOutAvailability(
+    hex: Axial,
+    unit: ScenarioUnit,
+    definition: UnitTypeDefinition,
+    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+  ): { available: boolean; reason: string | null } {
+    if (this._phase !== "playerTurn") {
+      return { available: false, reason: "Move-out orders are available only during the player turn." };
+    }
+    if (!this.isTowableUnit(unit)) {
+      return { available: false, reason: "This formation does not require towing drills." };
+    }
+    if (this.isAutomatedPlayerUnit(unit)) {
+      return { available: false, reason: "Automated logistics convoys do not accept towing orders." };
+    }
+    if (!this.playerPlacements.has(axialKey(hex))) {
+      return { available: false, reason: "No player formation occupies this hex." };
+    }
+    if (this.resolveTowState(unit) === "towed") {
+      return { available: false, reason: "This formation is already limbered and ready to tow." };
+    }
+    if (unit.onSentry) {
+      return { available: false, reason: "Cancel sentry before limbering the guns." };
+    }
+    if (this.resolveUnitSuppressionState(unit).state === "pinned") {
+      return { available: false, reason: "Pinned formations cannot hook up for towing." };
+    }
+    if (flags.attacksUsed > 0 || flags.movementPointsUsed > 0) {
+      return { available: false, reason: "Hook-up drills require the battery to start the turn uncommitted." };
+    }
+    return { available: true, reason: null };
+  }
+
+  private resolveTowDeployAvailability(
+    hex: Axial,
+    unit: ScenarioUnit,
+    definition: UnitTypeDefinition,
+    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+  ): { available: boolean; reason: string | null } {
+    if (this._phase !== "playerTurn") {
+      return { available: false, reason: "Deployment drills are available only during the player turn." };
+    }
+    if (!this.isTowableUnit(unit)) {
+      return { available: false, reason: "This formation does not use tow deployment drills." };
+    }
+    if (this.isAutomatedPlayerUnit(unit)) {
+      return { available: false, reason: "Automated logistics convoys do not accept tow deployment orders." };
+    }
+    if (!this.playerPlacements.has(axialKey(hex))) {
+      return { available: false, reason: "No player formation occupies this hex." };
+    }
+    if (this.resolveTowState(unit) !== "towed") {
+      return { available: false, reason: "This formation is already deployed for fire." };
+    }
+    if (unit.onSentry) {
+      return { available: false, reason: "Cancel sentry before deploying the guns." };
+    }
+    if (this.resolveUnitSuppressionState(unit).state === "pinned") {
+      return { available: false, reason: "Pinned formations cannot deploy their guns." };
+    }
+    if (flags.attacksUsed > 0) {
+      return { available: false, reason: "This formation has already attacked this turn." };
+    }
+    return { available: true, reason: null };
+  }
+
   /**
    * Supplies a read-only action state for the selected unit so the command UI can stay in sync with engine rules.
    */
@@ -11472,6 +11602,9 @@ private automateSupplyConvoys(
     const definition = this.getUnitDefinition(unit.type);
     const flags = this.getUnitActionFlags("Player", unit);
     const suppression = this.resolveUnitSuppressionState(unit);
+    const towState = this.resolveTowState(unit);
+    const moveOut = this.resolveMoveOutAvailability(hex, unit, definition, flags);
+    const towDeploy = this.resolveTowDeployAvailability(hex, unit, definition, flags);
     const sentry = this.resolveSentryAvailability(hex, unit, flags);
     const digIn = this.resolveDigInAvailability(hex, unit, definition, flags);
     const build = this.resolveBuildModificationAvailability(hex, unit, definition, flags);
@@ -11488,8 +11621,13 @@ private automateSupplyConvoys(
       suppressionState: suppression.state,
       suppressorCount: suppression.count,
       isOnSentry: unit.onSentry === true,
+      towState,
       existingHexModification: existingHexModification ? structuredClone(existingHexModification) : null,
       existingHexModifications: existingHexModifications.map((entry) => structuredClone(entry)),
+      canMoveOut: moveOut.available,
+      moveOutReason: moveOut.reason,
+      canDeployTow: towDeploy.available,
+      deployTowReason: towDeploy.reason,
       canEnterSentry: sentry.available,
       sentryReason: sentry.reason,
       canDigIn: digIn.available,
@@ -11559,6 +11697,61 @@ private automateSupplyConvoys(
     this.replaceUnitInFactionHex("Player", unit);
 
     // Update idle registry - unit becomes idle again if it hasn't acted
+    this.updateIdleRegistryFor(key);
+    this.invalidateRosterCache();
+
+    return true;
+  }
+
+  moveOutTowableUnit(hex: Axial, unitId?: string): boolean {
+    const key = axialKey(hex);
+    const unit = this.lookupUnit(hex, "Player", false, unitId);
+    if (!unit) {
+      return false;
+    }
+    const definition = this.getUnitDefinition(unit.type);
+    const flags = this.getUnitActionFlags("Player", unit);
+    const availability = this.resolveMoveOutAvailability(hex, unit, definition, flags);
+    if (!availability.available) {
+      return false;
+    }
+
+    unit.towState = "towed";
+    unit.onSentry = false;
+    unit.entrench = 0;
+    this.replaceUnitInFactionHex("Player", unit);
+    this.syncPlayerEntrench(hex, unit.entrench, this.getSquadronId(unit));
+    this.setUnitActionFlags("Player", unit, {
+      ...flags,
+      movementPointsUsed: flags.movementPointsUsed + this.resolveTowHookupCost(definition, flags),
+      isRushing: false
+    });
+    this.updateIdleRegistryFor(key);
+    this.invalidateRosterCache();
+
+    return true;
+  }
+
+  deployTowableUnit(hex: Axial, unitId?: string): boolean {
+    const key = axialKey(hex);
+    const unit = this.lookupUnit(hex, "Player", false, unitId);
+    if (!unit) {
+      return false;
+    }
+    const definition = this.getUnitDefinition(unit.type);
+    const flags = this.getUnitActionFlags("Player", unit);
+    const availability = this.resolveTowDeployAvailability(hex, unit, definition, flags);
+    if (!availability.available) {
+      return false;
+    }
+
+    unit.towState = "deployed";
+    unit.onSentry = false;
+    this.replaceUnitInFactionHex("Player", unit);
+
+    if (flags.movementPointsUsed > 0) {
+      this.setUnitActionFlags("Player", unit, this.resolveCommittedFieldActionFlags(hex, flags, this.getSquadronId(unit)));
+    }
     this.updateIdleRegistryFor(key);
     this.invalidateRosterCache();
 

@@ -3224,6 +3224,10 @@ export class HexMapRenderer implements IMapRenderer {
     return attackerClass === "artillery" || attackerType === "SP_Artillery";
   }
 
+  private isRocketArtilleryAttack(attackerHexKey: string): boolean {
+    return this.getUnitScenarioTypeAt(attackerHexKey) === "Rocket_Artillery";
+  }
+
   private isAirStrafingAttack(attackerHexKey: string): boolean {
     const attackerClass = this.getUnitClassAt(attackerHexKey);
     const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
@@ -4066,35 +4070,84 @@ export class HexMapRenderer implements IMapRenderer {
 
   private async playArtilleryImpactBurst(
     defenderHexKey: string,
-    targetIsHardTarget: boolean
+    targetIsHardTarget: boolean,
+    options?: {
+      centerOffsetX?: number;
+      centerOffsetY?: number;
+      spreadScale?: number;
+      staggerMs?: number;
+      scaleMultiplier?: number;
+    }
   ): Promise<void> {
-    const spreadPx = targetIsHardTarget ? HEX_RADIUS * 0.42 : HEX_RADIUS * 0.54;
+    const spreadPx = (targetIsHardTarget ? HEX_RADIUS * 0.42 : HEX_RADIUS * 0.54) * (options?.spreadScale ?? 1);
     const roundedSpread = Math.max(10, Math.round(spreadPx));
+    const centerOffsetX = Math.round(options?.centerOffsetX ?? 0);
+    const centerOffsetY = Math.round(options?.centerOffsetY ?? 0);
     const impactOffsets = targetIsHardTarget
       ? [
-          [-roundedSpread, -Math.round(roundedSpread * 0.28)],
-          [Math.round(roundedSpread * 0.78), -Math.round(roundedSpread * 0.14)],
-          [-Math.round(roundedSpread * 0.32), Math.round(roundedSpread * 0.52)],
-          [Math.round(roundedSpread * 0.44), Math.round(roundedSpread * 0.38)]
+          [centerOffsetX - roundedSpread, centerOffsetY - Math.round(roundedSpread * 0.28)],
+          [centerOffsetX + Math.round(roundedSpread * 0.78), centerOffsetY - Math.round(roundedSpread * 0.14)],
+          [centerOffsetX - Math.round(roundedSpread * 0.32), centerOffsetY + Math.round(roundedSpread * 0.52)],
+          [centerOffsetX + Math.round(roundedSpread * 0.44), centerOffsetY + Math.round(roundedSpread * 0.38)]
         ]
       : [
-          [-roundedSpread, Math.round(roundedSpread * 0.18)],
-          [Math.round(roundedSpread * 0.82), -Math.round(roundedSpread * 0.34)],
-          [Math.round(roundedSpread * 0.16), Math.round(roundedSpread * 0.62)],
-          [-Math.round(roundedSpread * 0.46), -Math.round(roundedSpread * 0.44)]
+          [centerOffsetX - roundedSpread, centerOffsetY + Math.round(roundedSpread * 0.18)],
+          [centerOffsetX + Math.round(roundedSpread * 0.82), centerOffsetY - Math.round(roundedSpread * 0.34)],
+          [centerOffsetX + Math.round(roundedSpread * 0.16), centerOffsetY + Math.round(roundedSpread * 0.62)],
+          [centerOffsetX - Math.round(roundedSpread * 0.46), centerOffsetY - Math.round(roundedSpread * 0.44)]
         ];
-    const baseScale = targetIsHardTarget ? 0.38 : 0.34;
+    const baseScale = (targetIsHardTarget ? 0.38 : 0.34) * (options?.scaleMultiplier ?? 1);
+    const staggerMs = Math.max(70, Math.round(options?.staggerMs ?? 180));
 
     const burstPromises = impactOffsets.map(([offsetX, offsetY], index) =>
       new Promise<void>((resolve) => {
         window.setTimeout(() => {
           const scale = baseScale * (0.96 + index * 0.04);
           void this.playCombatAnimation("explosionSmall", defenderHexKey, offsetX, offsetY, scale).then(() => resolve());
-        }, index * 180);
+        }, index * staggerMs);
       })
     );
 
     await Promise.all(burstPromises);
+  }
+
+  private async playRocketArtillerySalvo(
+    attackerHexKey: string,
+    defenderHexKey: string,
+    targetIsHardTarget: boolean
+  ): Promise<void> {
+    const volleyCenters = [
+      { x: -Math.round(HEX_RADIUS * 0.34), y: -Math.round(HEX_RADIUS * 0.18) },
+      { x: Math.round(HEX_RADIUS * 0.3), y: -Math.round(HEX_RADIUS * 0.08) },
+      { x: Math.round(HEX_RADIUS * 0.06), y: Math.round(HEX_RADIUS * 0.3) }
+    ];
+
+    const volleyPromises = volleyCenters.map((center, index) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          void Promise.all([
+            this.playArcedProjectile(attackerHexKey, defenderHexKey, 520, {
+              color: "#ff8f4a",
+              radius: 2.8,
+              arcHeight: 48 + index * 4
+            }),
+            new Promise<void>((impactResolve) => {
+              window.setTimeout(() => {
+                void this.playArtilleryImpactBurst(defenderHexKey, targetIsHardTarget, {
+                  centerOffsetX: center.x,
+                  centerOffsetY: center.y,
+                  spreadScale: 0.92,
+                  staggerMs: 95,
+                  scaleMultiplier: 0.94
+                }).then(() => impactResolve());
+              }, 230 + index * 20);
+            })
+          ]).then(() => resolve());
+        }, index * 120);
+      })
+    );
+
+    await Promise.all(volleyPromises);
   }
 
   /**
@@ -4125,10 +4178,11 @@ export class HexMapRenderer implements IMapRenderer {
     const defenderClass = this.getUnitClassAt(defenderHexKey);
     const useSmallArmsVisuals = this.isSmallArmsAttack(attackerHexKey);
     const useArcingArtilleryVisuals = this.isArcingArtilleryAttack(attackerHexKey);
+    const useRocketArtilleryVisuals = this.isRocketArtilleryAttack(attackerHexKey);
     const useAirStrafingVisuals = this.isAirStrafingAttack(attackerHexKey);
     const useAirBombingVisuals = this.isAirBombingAttack(attackerHexKey);
     const defenderIsAir = defenderClass === "air";
-    const suppressImpactFlash = useArcingArtilleryVisuals && defenderClass === "artillery";
+    const suppressImpactFlash = useArcingArtilleryVisuals;
 
     const defenderElement = this.hexElementMap.get(defenderHexKey);
     const defenderCenter = defenderElement ? this.extractHexCenter(defenderElement) : null;
@@ -4257,19 +4311,23 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     if (useArcingArtilleryVisuals) {
-      const lobPromise = this.playArcedProjectile(attackerHexKey, defenderHexKey, 620, {
-        color: "#ffcf5a",
-        radius: 3.2,
-        arcHeight: attackerType === "Flak_88" ? 42 : 56
-      });
+      const lobPromise = useRocketArtilleryVisuals
+        ? Promise.resolve()
+        : this.playArcedProjectile(attackerHexKey, defenderHexKey, 620, {
+            color: "#ffcf5a",
+            radius: 3.2,
+            arcHeight: attackerType === "Flak_88" ? 42 : 56
+          });
 
-      await new Promise((resolve) => setTimeout(resolve, 420));
+      await new Promise((resolve) => setTimeout(resolve, useRocketArtilleryVisuals ? 120 : 420));
 
       const hitShakePromise = this.playHitShake(defenderHexKey, targetIsHardTarget ? 6 : 5);
 
       const impactPromise = defenderIsAir
         ? this.playCombatAnimation("explosionSmall", defenderHexKey, 0, 0, 1.7)
-        : this.playArtilleryImpactBurst(defenderHexKey, targetIsHardTarget);
+        : useRocketArtilleryVisuals
+          ? this.playRocketArtillerySalvo(attackerHexKey, defenderHexKey, targetIsHardTarget)
+          : this.playArtilleryImpactBurst(defenderHexKey, targetIsHardTarget);
 
       const sparksPromise = defenderIsAir
         ? this.playSparkBurst(defenderHexKey, {
@@ -4297,7 +4355,7 @@ export class HexMapRenderer implements IMapRenderer {
             return;
           }
           void this.playDustCloudLinger(defenderHexKey, 0.65).then(() => resolve());
-        }, 140);
+        }, useRocketArtilleryVisuals ? 260 : 140);
       });
 
       await Promise.all([

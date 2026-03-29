@@ -99,6 +99,26 @@ const retaliationDummyDef: UnitTypeDefinition = {
   cost: 60
 };
 
+const towedGunDef: UnitTypeDefinition = {
+  class: "specialist",
+  combat: { category: "specialist", weight: "medium", role: "antiTank", signature: "medium" },
+  movement: 2,
+  moveType: "wheel",
+  vision: 2,
+  ammo: 6,
+  fuel: 0,
+  rangeMin: 1,
+  rangeMax: 2,
+  initiative: 2,
+  armor: { front: 1, side: 1, top: 1 },
+  hardAttack: 12,
+  softAttack: 3,
+  ap: 6,
+  accuracyBase: 55,
+  traits: [],
+  cost: 110
+};
+
 const wheeledReconDef: UnitTypeDefinition = {
   class: "recon",
   combat: { category: "recon", weight: "light", role: "normal", signature: "small" },
@@ -144,6 +164,7 @@ const unitTypes: UnitTypeDictionary = {
   TestEngineer: engineerDef,
   TestShockInfantry: shockInfantryDef,
   TestRetaliationDummy: retaliationDummyDef,
+  AT_Gun_50mm: towedGunDef,
   TestReconTruck: wheeledReconDef,
   Recon_Bike: wheeledReconDef,
   Supply_Truck: supplyTruckDef
@@ -362,6 +383,57 @@ registerTest("ENGINEERS_CAN_STACK_FORTIFICATIONS_ACROSS_MULTIPLE_HEX_EDGES", asy
   }
 
   await Then("fortifications can stack across multiple edges on the same hex", () => {});
+});
+
+registerTest("STACKED_UNITS_KEEP_ENTRENCHMENT_UNTIL_THEY_MOVE_OFF_HEX", async ({ Then }) => {
+  const entrenchedInfantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    unitId: "stack-alpha",
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const stackedWingman: ScenarioUnit = {
+    type: "TestShockInfantry" as unknown as ScenarioUnit["type"],
+    unitId: "stack-bravo",
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "SE" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([entrenchedInfantry, stackedWingman]);
+
+  if (!engine.digInUnit(entrenchedInfantry.hex, entrenchedInfantry.unitId)) {
+    throw new Error("Expected the primary stacked infantry unit to dig in successfully.");
+  }
+
+  const beforeTurnAdvance = engine.getHexStackMembers(entrenchedInfantry.hex, "Player");
+  const entrenchedBeforeTurn = beforeTurnAdvance.find((entry) => entry.unitId === entrenchedInfantry.unitId)?.unit.entrench ?? -1;
+  if (entrenchedBeforeTurn !== 1) {
+    throw new Error(`Expected entrenched unit to hold level 1 before turn advance, received ${entrenchedBeforeTurn}.`);
+  }
+
+  engine.endTurn();
+
+  const afterTurnAdvance = engine.getHexStackMembers(entrenchedInfantry.hex, "Player");
+  const entrenchedAfterTurn = afterTurnAdvance.find((entry) => entry.unitId === entrenchedInfantry.unitId)?.unit.entrench ?? -1;
+  const wingmanEntrench = afterTurnAdvance.find((entry) => entry.unitId === stackedWingman.unitId)?.unit.entrench ?? -1;
+  if (entrenchedAfterTurn !== 1) {
+    throw new Error(`Expected entrenched stacked unit to keep entrenchment until it moves, received ${entrenchedAfterTurn}.`);
+  }
+  if (wingmanEntrench !== 0) {
+    throw new Error(`Expected the unentrenched stacked unit to remain at entrenchment 0, received ${wingmanEntrench}.`);
+  }
+
+  await Then("stacking no longer wipes entrenchment off the unit that dug in", () => {});
 });
 
 registerTest("RECON_BIKES_CAN_ASSAULT_BUT_CANNOT_DIG_IN", async ({ Then }) => {
@@ -805,4 +877,125 @@ registerTest("SENTRY_DEFENDERS_RETURN_FIRE_SIMULTANEOUSLY_DURING_BOT_ATTACKS", a
   }
 
   await Then("sentry preserves simultaneous return fire on lethal bot attacks", () => {});
+});
+
+registerTest("TOWED_GUNS_MUST_MOVE_OUT_BEFORE_TOWING_AND_DEPLOY_AFTER_MOVEMENT_ENDS_THE_TURN", async ({ Then }) => {
+  const gun: ScenarioUnit = {
+    type: "AT_Gun_50mm" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 1,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const target: ScenarioUnit = {
+    type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"],
+    hex: { q: 2, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 40,
+    entrench: 0,
+    facing: "SW" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([gun], [target]);
+
+  const initialCommand = engine.getUnitCommandState(gun.hex);
+  const initialBudget = engine.getMovementBudget(gun.hex);
+  if (initialCommand?.towState !== "deployed" || !initialCommand.canMoveOut) {
+    throw new Error(`Expected gun to begin deployed with Move Out available, received ${JSON.stringify(initialCommand)}`);
+  }
+  if (initialBudget?.remaining !== 0) {
+    throw new Error(`Expected deployed gun to have no towing movement before Move Out, received ${JSON.stringify(initialBudget)}`);
+  }
+  if (engine.getReachableHexes(gun.hex).length !== 0) {
+    throw new Error("Expected deployed gun to have no reachable towing hexes before Move Out.");
+  }
+
+  if (!engine.moveOutTowableUnit(gun.hex)) {
+    throw new Error("Expected deployed gun to enter towed status after Move Out.");
+  }
+
+  const towedBudget = engine.getMovementBudget(gun.hex);
+  if (!towedBudget || towedBudget.remaining !== 1) {
+    throw new Error(`Expected Move Out to spend half of a 2-point movement allowance, received ${JSON.stringify(towedBudget)}`);
+  }
+
+  const moveResolution = engine.moveUnit(gun.hex, { q: 1, r: 0 });
+  const movedHex = moveResolution.to;
+  const movedCommand = engine.getUnitCommandState(movedHex);
+  if (movedCommand?.towState !== "towed" || !movedCommand.canDeployTow) {
+    throw new Error(`Expected moved gun to remain towed and eligible to deploy, received ${JSON.stringify(movedCommand)}`);
+  }
+
+  if (!engine.deployTowableUnit(movedHex)) {
+    throw new Error("Expected towed gun to deploy after movement.");
+  }
+
+  const deployedAfterMove = engine.getUnitCommandState(movedHex);
+  if (deployedAfterMove?.towState !== "deployed") {
+    throw new Error(`Expected gun to return to deployed status after unlimbering, received ${JSON.stringify(deployedAfterMove)}`);
+  }
+  if (engine.getAttackableTargets(movedHex).length !== 0) {
+    throw new Error("Expected move-then-deploy to consume the rest of the turn and prevent firing.");
+  }
+
+  await Then("deployed-start guns must Move Out first, and deploying after movement ends their turn", () => {});
+});
+
+registerTest("TOWED_GUNS_CAN_DEPLOY_AND_FIRE_IF_THEY_HAVE_NOT_MOVED", async ({ Then }) => {
+  const gun: ScenarioUnit = {
+    type: "AT_Gun_50mm" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"],
+    towState: "towed"
+  };
+  const target: ScenarioUnit = {
+    type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"],
+    hex: { q: 2, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 40,
+    entrench: 0,
+    facing: "SW" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([gun], [target]);
+
+  const towedBudget = engine.getMovementBudget(gun.hex);
+  const towedCommand = engine.getUnitCommandState(gun.hex);
+  if (!towedBudget || towedBudget.remaining !== 2) {
+    throw new Error(`Expected already-towed gun to begin with full movement, received ${JSON.stringify(towedBudget)}`);
+  }
+  if (towedCommand?.towState !== "towed" || !towedCommand.canDeployTow) {
+    throw new Error(`Expected already-towed gun to be ready to deploy, received ${JSON.stringify(towedCommand)}`);
+  }
+  if (engine.getAttackableTargets(gun.hex).length !== 0) {
+    throw new Error("Expected towed gun to have no attack targets before deploying.");
+  }
+
+  if (!engine.deployTowableUnit(gun.hex)) {
+    throw new Error("Expected already-towed gun to deploy without spending the turn.");
+  }
+
+  const deployedTargets = engine.getAttackableTargets(gun.hex);
+  if (!deployedTargets.some((hex) => hex.q === target.hex.q && hex.r === target.hex.r)) {
+    throw new Error(`Expected deployed gun to regain attack permission without prior movement, received ${JSON.stringify(deployedTargets)}`);
+  }
+
+  const resolution = engine.attackUnit(gun.hex, target.hex);
+  if (!resolution) {
+    throw new Error("Expected deployed gun to be able to fire after deploying from a stationary towed state.");
+  }
+
+  await Then("already-towed guns can deploy and fire in the same turn when they have not moved", () => {});
 });
