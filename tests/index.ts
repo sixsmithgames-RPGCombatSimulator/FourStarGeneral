@@ -9,6 +9,7 @@ import "./HexMapRenderer.muzzleFlash.test.js";
 import "./HexMapRenderer.tacticalOverlays.test.js";
 import "./RoadOverlayRenderer.test.js";
 import "./ProceduralPrimitives.test.js";
+import "./Combat.directionalFortifications.test.js";
 import "./FrameSequenceAnimator.playback.test.js";
 import "./SpriteSheetAnimator.layout.test.js";
 import "./MapViewport.interactions.test.js";

@@ -6,7 +6,7 @@
 import { combat as combatBalance, HEX_SCALE_METERS } from "./balance";
 import type { Axial } from "./Hex";
 import { axialDirections, hexDistance, subtract } from "./Hex";
-import type { TerrainDefinition, UnitClass, UnitTypeDefinition } from "./types";
+import type { HexEdgeFacing, TerrainDefinition, UnitClass, UnitTypeDefinition } from "./types";
 import type { ScenarioUnit } from "./types";
 import { getCombatProfile, type CombatProfileDefinition } from "../data/combatProfiles";
 
@@ -83,7 +83,8 @@ export interface DefenderContext {
   isRushing?: boolean; // Infantry rushing loses terrain cover
   isSpottedOnly?: boolean; // Target visible only via aircraft/recon spotting (no direct LOS)
   stance?: "assault" | "suppressive" | "digIn"; // Combat stance (infantry only)
-  fortified?: boolean; // Hex has fortifications built by engineers (improves cover for infantry)
+  fortified?: boolean; // Legacy presence flag for hex fortifications.
+  fortificationFacing?: HexEdgeFacing | null; // Directional edge facing for engineer-built fortifications.
 }
 
 /**
@@ -157,6 +158,27 @@ const FACING_TO_INDEX: Record<Facing, number> = {
   NW: 5
 };
 
+const HEX_EDGE_TO_ANGLE_DEG: Record<HexEdgeFacing, number> = {
+  E: 0,
+  SE: 60,
+  SW: 120,
+  W: 180,
+  NW: -120,
+  NE: -60
+};
+
+function normalizeAngleDelta(angleA: number, angleB: number): number {
+  const raw = Math.abs(angleA - angleB) % 360;
+  return raw > 180 ? 360 - raw : raw;
+}
+
+function axialToPixelVector(diff: Axial): { x: number; y: number } {
+  return {
+    x: Math.sqrt(3) * (diff.q + diff.r / 2),
+    y: 1.5 * diff.r
+  };
+}
+
 /**
  * Convert a vector into a direction index by taking the closest axial direction. This supports the
  * armor facing heuristic without relying on floating-point angles.
@@ -211,18 +233,64 @@ function getBaseAccuracyByRange(profile: CombatProfileDefinition, distance: numb
  * to hook in without rewriting callers. Rushing infantry lose terrain cover (no bonus).
  * Fortifications built by engineers improve cover for infantry-type units.
  */
-export function terrainAccMod(terrain: TerrainDefinition | null | undefined, isRushing?: boolean, fortified?: boolean, defenderClass?: UnitClass): number {
+export function terrainAccMod(
+  terrain: TerrainDefinition | null | undefined,
+  isRushing?: boolean,
+  fortificationCoverPct = 0,
+  defenderClass?: UnitClass
+): number {
   // Rushing units lose terrain cover
   if (isRushing) return 0;
 
   let baseMod = terrain?.accMod ?? 0;
 
-  // Fortifications provide +15% cover bonus for infantry-type units
-  if (fortified && defenderClass && ["infantry", "recon", "specialist"].includes(defenderClass)) {
-    baseMod += 15;
+  if (
+    fortificationCoverPct !== 0 &&
+    defenderClass &&
+    ["infantry", "recon", "specialist"].includes(defenderClass)
+  ) {
+    baseMod += fortificationCoverPct;
   }
 
   return baseMod;
+}
+
+export function resolveFortificationCoverBonusPct(
+  attackerHex: Axial,
+  defenderHex: Axial,
+  fortificationFacing: HexEdgeFacing | null | undefined,
+  attackerClass: UnitClass
+): number {
+  if (combatBalance.penetration.topAttackClasses.has(attackerClass)) {
+    return 0;
+  }
+  if (!fortificationFacing) {
+    return combatBalance.cover.fortificationBonusPct;
+  }
+
+  const attackVector = axialToPixelVector(subtract(attackerHex, defenderHex));
+  if (attackVector.x === 0 && attackVector.y === 0) {
+    return 0;
+  }
+
+  const attackAngle = Math.atan2(attackVector.y, attackVector.x) * (180 / Math.PI);
+  const edgeDiffs = (Object.entries(HEX_EDGE_TO_ANGLE_DEG) as Array<[HexEdgeFacing, number]>)
+    .map(([edge, angle]) => ({ edge, diff: normalizeAngleDelta(attackAngle, angle) }))
+    .sort((left, right) => left.diff - right.diff);
+
+  const primary = edgeDiffs[0];
+  const secondary = edgeDiffs[1];
+  if (!primary) {
+    return 0;
+  }
+
+  if (secondary && Math.abs(primary.diff - secondary.diff) <= 0.5) {
+    return fortificationFacing === primary.edge || fortificationFacing === secondary.edge
+      ? combatBalance.cover.fortificationBonusPct * 0.5
+      : 0;
+  }
+
+  return fortificationFacing === primary.edge ? combatBalance.cover.fortificationBonusPct : 0;
 }
 
 /**
@@ -305,7 +373,15 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const afterSignature = combinedAfterCommander * signatureMultiplier;
 
   // Step 4: Apply terrain modifier multiplicatively.
-  const terrainMod = terrainAccMod(defenderCtx.terrain, defenderCtx.isRushing, defenderCtx.fortified, defenderCtx.class);
+  const fortificationCoverPct = defenderCtx.fortified
+    ? resolveFortificationCoverBonusPct(
+      attackerCtx.hex,
+      defenderCtx.hex,
+      defenderCtx.fortificationFacing,
+      attacker.unit.class
+    )
+    : 0;
+  const terrainMod = terrainAccMod(defenderCtx.terrain, defenderCtx.isRushing, fortificationCoverPct, defenderCtx.class);
   const terrainMultiplier = 1 + terrainMod / 100;
   const afterTerrain = afterSignature * terrainMultiplier;
 

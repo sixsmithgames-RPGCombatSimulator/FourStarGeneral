@@ -19,6 +19,7 @@ import type {
   AirSupportProfile,
   CombatClassification,
   CombatStance,
+  HexEdgeFacing,
   HexModification,
   HexModificationType
 } from "../core/types";
@@ -1129,7 +1130,7 @@ export interface GameEngineAPI {
   transferAllyControl(hex: Axial): boolean;
   enterSentry(hex: Axial): boolean;
   digInUnit(hex: Axial): boolean;
-  buildHexModification(hex: Axial, type: HexModificationType): boolean;
+  buildHexModification(hex: Axial, type: HexModificationType, facing?: HexEdgeFacing | null): boolean;
   getHexModification(hex: Axial): HexModification | null;
   getHexModificationSnapshots(): HexModification[];
   getUnitCommandState(hex: Axial): UnitCommandState | null;
@@ -8356,6 +8357,7 @@ private automateSupplyConvoys(
     // Check for fortifications on defender's hex
     const defenderMod = this.getHexModification(defender.hex);
     const defenderFortified = defenderMod?.type === "fortifications";
+    const defenderFortificationFacing = defenderFortified ? defenderMod?.facing ?? null : null;
 
     const defenderCtx: DefenderContext = {
       terrain: this.terrainAt(defender.hex) ?? this.defaultTerrain(),
@@ -8365,7 +8367,8 @@ private automateSupplyConvoys(
       isRushing: isDefenderRushing || isAssault, // Attacker loses cover when assaulting
       isSpottedOnly,
       stance: isAssault ? "assault" : undefined, // Defender also at close range if assaulted
-      fortified: defenderFortified
+      fortified: defenderFortified,
+      fortificationFacing: defenderFortificationFacing
     };
     return {
       attacker: attackerState,
@@ -9568,6 +9571,20 @@ private automateSupplyConvoys(
     return bestFacing;
   }
 
+  private normalizeHexEdgeFacing(facing: HexEdgeFacing | string | null | undefined): HexEdgeFacing | null {
+    switch (facing) {
+      case "NW":
+      case "NE":
+      case "E":
+      case "SE":
+      case "SW":
+      case "W":
+        return facing;
+      default:
+        return null;
+    }
+  }
+
   /** Resolves a bot attack against the nearest player unit when adjacency allows it. */
   /**
    * Chooses the appropriate combat stance for a bot unit based on tactical situation.
@@ -9796,6 +9813,7 @@ private automateSupplyConvoys(
 
     const defenderMod = this.getHexModification(defender.hex);
     const defenderFortified = defenderMod?.type === "fortifications";
+    const defenderFortificationFacing = defenderFortified ? defenderMod?.facing ?? null : null;
     const req: AttackRequest = {
       attacker: {
         unit: attackerDef,
@@ -9821,7 +9839,8 @@ private automateSupplyConvoys(
         isRushing: isAssault,
         isSpottedOnly,
         stance: isAssault ? "assault" : undefined,
-        fortified: defenderFortified
+        fortified: defenderFortified,
+        fortificationFacing: defenderFortificationFacing
       },
       targetFacing: defender.facing,
       isSoftTarget: defenderDef.class === "infantry" || defenderDef.class === "specialist"
@@ -11148,7 +11167,7 @@ private automateSupplyConvoys(
    * Build a hex modification (tank traps, fortifications, cleared path).
    * Only engineers can build modifications.
    */
-  buildHexModification(hex: Axial, type: HexModificationType): boolean {
+  buildHexModification(hex: Axial, type: HexModificationType, facing?: HexEdgeFacing | null): boolean {
     const key = axialKey(hex);
     const unit = this.playerPlacements.get(key);
     if (!unit) {
@@ -11160,12 +11179,19 @@ private automateSupplyConvoys(
     if (!build.available) {
       return false;
     }
+    const normalizedFacing = type === "fortifications"
+      ? this.normalizeHexEdgeFacing(facing)
+      : null;
+    if (type === "fortifications" && !normalizedFacing) {
+      return false;
+    }
 
     // Build the modification
     const modification: HexModification = {
       type,
       hex: structuredClone(hex),
       faction: "Player",
+      facing: normalizedFacing ?? undefined,
       builtOnTurn: this._turnNumber
     };
     this.hexModifications.set(key, modification);

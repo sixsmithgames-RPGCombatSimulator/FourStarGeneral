@@ -79,6 +79,7 @@ export type CombatStance = "assault" | "suppressive" | "digIn";
  * Types of hex modifications that can be built by engineer units.
  */
 export type HexModificationType = "tankTraps" | "fortifications" | "clearedPath";
+export type HexEdgeFacing = "NW" | "NE" | "E" | "SE" | "SW" | "W";
 
 /**
  * Hex modification built by engineers to alter terrain properties.
@@ -90,6 +91,8 @@ export interface HexModification {
   hex: Axial;
   /** Faction that built this modification */
   faction: "Player" | "Bot" | "Ally";
+  /** Optional edge-facing for directional battlefield works such as fortifications. */
+  facing?: HexEdgeFacing;
   /** Turn when modification was built (for persistence/serialization) */
   builtOnTurn?: number;
 }

@@ -253,12 +253,12 @@ registerTest("INFANTRY_COMMAND_STATE_TRACKS_DIG_IN_AND_ENGINEER_FIELDWORKS", asy
     throw new Error(`Expected engineer to be ready for fieldworks, received ${JSON.stringify(engineerCommand)}`);
   }
 
-  if (!engine.buildHexModification(engineer.hex, "fortifications")) {
+  if (!engine.buildHexModification(engineer.hex, "fortifications", "SE")) {
     throw new Error("Expected engineer fortification command to succeed.");
   }
 
   const modifications = engine.getHexModificationSnapshots();
-  if (modifications.length !== 1 || modifications[0]?.type !== "fortifications") {
+  if (modifications.length !== 1 || modifications[0]?.type !== "fortifications" || modifications[0]?.facing !== "SE") {
     throw new Error(`Expected a fortification snapshot after building fieldworks, received ${JSON.stringify(modifications)}`);
   }
   const engineerMovement = engine.getMovementBudget(engineer.hex);
@@ -268,7 +268,7 @@ registerTest("INFANTRY_COMMAND_STATE_TRACKS_DIG_IN_AND_ENGINEER_FIELDWORKS", asy
 
   const restored = GameEngine.fromSerialized(config, engine.serialize());
   const restoredModifications = restored.getHexModificationSnapshots();
-  if (restoredModifications.length !== 1 || restoredModifications[0]?.type !== "fortifications") {
+  if (restoredModifications.length !== 1 || restoredModifications[0]?.type !== "fortifications" || restoredModifications[0]?.facing !== "SE") {
     throw new Error(`Expected engineer fieldworks to persist through serialization, received ${JSON.stringify(restoredModifications)}`);
   }
 

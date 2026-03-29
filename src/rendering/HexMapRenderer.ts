@@ -1,5 +1,5 @@
 import type { IMapRenderer } from "../contracts/IMapRenderer";
-import type { HexModification, ScenarioData, ScenarioUnit, TerrainDictionary, UnitClass, UnitTypeDefinition } from "../core/types";
+import type { HexEdgeFacing, HexModification, ScenarioData, ScenarioUnit, TerrainDictionary, UnitClass, UnitTypeDefinition } from "../core/types";
 import { getSpriteForScenarioType } from "../data/unitSpriteCatalog";
 import { HEX_RADIUS, HEX_HEIGHT, HEX_WIDTH } from "../core/balance";
 import { CoordinateSystem, type TileDetails } from "./CoordinateSystem";
@@ -1506,6 +1506,69 @@ export class HexMapRenderer implements IMapRenderer {
     }
   }
 
+  private normalizeHexEdgeFacing(facing: HexEdgeFacing | string | null | undefined): HexEdgeFacing | null {
+    switch (facing) {
+      case "NW":
+      case "NE":
+      case "E":
+      case "SE":
+      case "SW":
+      case "W":
+        return facing;
+      default:
+        return null;
+    }
+  }
+
+  private getHexVertices(cx: number, cy: number): Array<{ x: number; y: number }> {
+    const halfWidth = HEX_WIDTH / 2;
+    return [
+      { x: cx, y: cy - HEX_RADIUS },
+      { x: cx + halfWidth, y: cy - HEX_RADIUS / 2 },
+      { x: cx + halfWidth, y: cy + HEX_RADIUS / 2 },
+      { x: cx, y: cy + HEX_RADIUS },
+      { x: cx - halfWidth, y: cy + HEX_RADIUS / 2 },
+      { x: cx - halfWidth, y: cy - HEX_RADIUS / 2 }
+    ];
+  }
+
+  private resolveHexEdgeGeometry(cx: number, cy: number, facing: HexEdgeFacing): {
+    mid: { x: number; y: number };
+    inward: { x: number; y: number };
+    angleDeg: number;
+    length: number;
+  } {
+    const vertices = this.getHexVertices(cx, cy);
+    const [start, end] = (() => {
+      switch (facing) {
+        case "NW":
+          return [vertices[5]!, vertices[0]!];
+        case "NE":
+          return [vertices[0]!, vertices[1]!];
+        case "E":
+          return [vertices[1]!, vertices[2]!];
+        case "SE":
+          return [vertices[2]!, vertices[3]!];
+        case "SW":
+          return [vertices[3]!, vertices[4]!];
+        case "W":
+        default:
+          return [vertices[4]!, vertices[5]!];
+      }
+    })();
+
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const tangent = { x: dx / length, y: dy / length };
+    return {
+      mid: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 },
+      inward: { x: -tangent.y, y: tangent.x },
+      angleDeg: (Math.atan2(dy, dx) * 180) / Math.PI,
+      length
+    };
+  }
+
   private resolveFacingAngleDeg(facing: ScenarioUnit["facing"]): number {
     const facingVectors: Record<ScenarioUnit["facing"], { q: number; r: number }> = {
       N: { q: 0, r: -1 },
@@ -2394,6 +2457,11 @@ export class HexMapRenderer implements IMapRenderer {
 
     overlay.setAttribute("data-modification-type", modification.type);
     overlay.setAttribute("data-faction", modification.faction);
+    if (modification.facing) {
+      overlay.setAttribute("data-modification-facing", modification.facing);
+    } else {
+      overlay.removeAttribute("data-modification-facing");
+    }
     overlay.replaceChildren(this.buildHexModificationOverlay(cell, modification));
 
     const existingUnitGroup = this.hexUnitImageMap.get(hexKey);
@@ -2413,29 +2481,56 @@ export class HexMapRenderer implements IMapRenderer {
     const group = document.createElementNS(SVG_NS, "g");
     group.classList.add("hex-modification-overlay__icon");
     group.setAttribute("data-modification-type", modification.type);
+    if (modification.facing) {
+      group.setAttribute("data-modification-facing", modification.facing);
+    }
 
     switch (modification.type) {
       case "fortifications": {
-        const wall = document.createElementNS(SVG_NS, "path");
-        wall.setAttribute("d", `M ${cx - 20} ${cy + 18} Q ${cx - 10} ${cy + 8} ${cx} ${cy + 14} Q ${cx + 10} ${cy + 8} ${cx + 20} ${cy + 18}`);
-        wall.setAttribute("fill", "none");
-        wall.setAttribute("stroke", stroke);
-        wall.setAttribute("stroke-width", "2.4");
-        wall.setAttribute("stroke-linecap", "round");
-        group.appendChild(wall);
+        const facing = this.normalizeHexEdgeFacing(modification.facing);
+        if (!facing) {
+          const legacyWall = document.createElementNS(SVG_NS, "rect");
+          legacyWall.setAttribute("x", String(cx - 16));
+          legacyWall.setAttribute("y", String(cy + 10));
+          legacyWall.setAttribute("width", "32");
+          legacyWall.setAttribute("height", "5");
+          legacyWall.setAttribute("rx", "2.5");
+          legacyWall.setAttribute("fill", "#050607");
+          group.appendChild(legacyWall);
+          break;
+        }
 
-        [-12, 0, 12].forEach((offset) => {
+        const edge = this.resolveHexEdgeGeometry(cx, cy, facing);
+        const edgeGroup = document.createElementNS(SVG_NS, "g");
+        edgeGroup.setAttribute(
+          "transform",
+          `translate(${edge.mid.x + edge.inward.x * 6} ${edge.mid.y + edge.inward.y * 6}) rotate(${edge.angleDeg})`
+        );
+
+        const wall = document.createElementNS(SVG_NS, "rect");
+        const wallLength = Math.max(18, edge.length - 16);
+        wall.setAttribute("x", String(-wallLength / 2));
+        wall.setAttribute("y", "-2.5");
+        wall.setAttribute("width", String(wallLength));
+        wall.setAttribute("height", "5");
+        wall.setAttribute("rx", "2.5");
+        wall.setAttribute("fill", "#050607");
+        edgeGroup.appendChild(wall);
+
+        [-0.28, 0, 0.28].forEach((ratio) => {
           const bastion = document.createElementNS(SVG_NS, "rect");
-          bastion.setAttribute("x", String(cx + offset - 4));
-          bastion.setAttribute("y", String(cy + 9));
+          bastion.setAttribute("x", String(ratio * wallLength - 4));
+          bastion.setAttribute("y", "-8");
           bastion.setAttribute("width", "8");
           bastion.setAttribute("height", "6");
-          bastion.setAttribute("rx", "1.6");
-          bastion.setAttribute("fill", fill);
-          bastion.setAttribute("stroke", stroke);
-          bastion.setAttribute("stroke-width", "1");
-          group.appendChild(bastion);
+          bastion.setAttribute("rx", "1.5");
+          bastion.setAttribute("fill", "#121417");
+          bastion.setAttribute("stroke", "#050607");
+          bastion.setAttribute("stroke-width", "0.9");
+          edgeGroup.appendChild(bastion);
         });
+
+        group.appendChild(edgeGroup);
         break;
       }
       case "tankTraps": {

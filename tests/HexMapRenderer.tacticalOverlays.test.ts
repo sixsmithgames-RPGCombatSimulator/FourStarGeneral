@@ -48,6 +48,7 @@ registerTest("HEXMAP_RENDERER_SHOWS_TACTICAL_OVERLAYS_FOR_SUPPRESSION_AND_FIELDW
       type: "fortifications",
       hex: { q: 0, r: 0 },
       faction: "Player",
+      facing: "SE",
       builtOnTurn: 2
     });
     renderer.renderUnit("0,0", {
@@ -67,6 +68,12 @@ registerTest("HEXMAP_RENDERER_SHOWS_TACTICAL_OVERLAYS_FOR_SUPPRESSION_AND_FIELDW
     const modification = svg.querySelector('[data-modification-type="fortifications"]');
     if (!modification) {
       throw new Error("Expected fortification overlay to render on the modified hex.");
+    }
+    if (modification.getAttribute("data-modification-facing") !== "SE") {
+      throw new Error(`Expected fortification overlay to retain its edge facing, received '${modification.getAttribute("data-modification-facing")}'.`);
+    }
+    if (!svg.querySelector('[data-modification-type="fortifications"] rect[fill="#050607"]')) {
+      throw new Error("Expected directional fortification overlay to render the black edge-aligned wall segment.");
     }
 
     const unitStack = svg.querySelector<SVGGElement>('g.unit-stack[data-suppression-state="pinned"]');
