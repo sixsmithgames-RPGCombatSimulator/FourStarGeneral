@@ -985,12 +985,14 @@ export interface UnitCommandState {
   readonly suppressorCount: number;
   readonly isOnSentry: boolean;
   readonly existingHexModification: HexModification | null;
+  readonly existingHexModifications: readonly HexModification[];
   readonly canEnterSentry: boolean;
   readonly sentryReason: string | null;
   readonly canDigIn: boolean;
   readonly digInReason: string | null;
   readonly canBuildModification: boolean;
   readonly buildReason: string | null;
+  readonly buildModificationAvailability: Readonly<Record<HexModificationType, { available: boolean; reason: string | null }>>;
 }
 
 interface InternalEnemyContactState {
@@ -1169,6 +1171,7 @@ export interface GameEngineAPI {
   digInUnit(hex: Axial, unitId?: string): boolean;
   buildHexModification(hex: Axial, type: HexModificationType, facing?: HexEdgeFacing | null, unitId?: string): boolean;
   getHexModification(hex: Axial): HexModification | null;
+  getHexModifications(hex: Axial): HexModification[];
   getHexModificationSnapshots(): HexModification[];
   getUnitCommandState(hex: Axial, unitId?: string): UnitCommandState | null;
 }
@@ -1262,7 +1265,7 @@ export class GameEngine implements GameEngineAPI {
   private readonly allyPlacements: UnitPlacementMap = new Map();
 
   /** Hex modifications built by engineers (tank traps, fortifications, cleared paths). */
-  private readonly hexModifications: Map<string, HexModification> = new Map();
+  private readonly hexModifications: Map<string, HexModification[]> = new Map();
 
   /** Units not deployed at battle start; accessible via reserve UI. */
   private readonly reserves: ReserveUnit[] = [];
@@ -6054,7 +6057,10 @@ private automateSupplyConvoys(
     if (Array.isArray(state.hexModifications)) {
       state.hexModifications.forEach((entry) => {
         const clone = structuredClone(entry);
-        this.hexModifications.set(axialKey(clone.hex), clone);
+        const key = axialKey(clone.hex);
+        const bucket = this.hexModifications.get(key) ?? [];
+        bucket.push(clone);
+        this.hexModifications.set(key, bucket);
       });
     }
 
@@ -6676,17 +6682,15 @@ private automateSupplyConvoys(
 
     // Apply hex modification effects
     if (hex) {
-      const modification = this.getHexModification(hex);
-      if (modification) {
-        if (modification.type === "tankTraps") {
-          // Tank traps triple movement cost for vehicles
-          if (moveType === "track" || moveType === "wheel") {
-            cost = cost * 3;
-          }
-        } else if (modification.type === "clearedPath") {
-          // Cleared paths reduce movement cost by 50% (min 1)
-          cost = Math.max(1, Math.round(cost * 0.5));
+      const modifications = this.getHexModifications(hex);
+      if (modifications.some((modification) => modification.type === "tankTraps")) {
+        // Tank traps triple movement cost for vehicles
+        if (moveType === "track" || moveType === "wheel") {
+          cost = cost * 3;
         }
+      } else if (modifications.some((modification) => modification.type === "clearedPath")) {
+        // Cleared paths reduce movement cost by 50% (min 1)
+        cost = Math.max(1, Math.round(cost * 0.5));
       }
     }
 
@@ -7864,7 +7868,7 @@ private automateSupplyConvoys(
         knownUnitType: entry.knownUnitType,
         source: entry.source
       })),
-      hexModifications: Array.from(this.hexModifications.values()).map((entry) => structuredClone(entry))
+      hexModifications: Array.from(this.hexModifications.values()).flatMap((entries) => entries.map((entry) => structuredClone(entry)))
     };
   }
 
@@ -8688,9 +8692,12 @@ private automateSupplyConvoys(
     const isDefenderRushing = this.getUnitActionFlags(defenderFaction, defender).isRushing;
 
     // Check for fortifications on defender's hex
-    const defenderMod = this.getHexModification(defender.hex);
-    const defenderFortified = defenderMod?.type === "fortifications";
-    const defenderFortificationFacing = defenderFortified ? defenderMod?.facing ?? null : null;
+    const defenderMods = this.getHexModifications(defender.hex);
+    const defenderFortificationFacings = defenderMods
+      .filter((entry) => entry.type === "fortifications")
+      .map((entry) => entry.facing)
+      .filter((edge): edge is HexEdgeFacing => edge !== null && edge !== undefined);
+    const defenderFortified = defenderFortificationFacings.length > 0;
 
     const defenderCtx: DefenderContext = {
       terrain: this.terrainAt(defender.hex) ?? this.defaultTerrain(),
@@ -8701,7 +8708,7 @@ private automateSupplyConvoys(
       isSpottedOnly,
       stance: isAssault ? "assault" : undefined, // Defender also at close range if assaulted
       fortified: defenderFortified,
-      fortificationFacing: defenderFortificationFacing
+      fortificationFacings: defenderFortificationFacings
     };
     return {
       attacker: attackerState,
@@ -10189,9 +10196,12 @@ private automateSupplyConvoys(
       }
     }
 
-    const defenderMod = this.getHexModification(defender.hex);
-    const defenderFortified = defenderMod?.type === "fortifications";
-    const defenderFortificationFacing = defenderFortified ? defenderMod?.facing ?? null : null;
+    const defenderMods = this.getHexModifications(defender.hex);
+    const defenderFortificationFacings = defenderMods
+      .filter((entry) => entry.type === "fortifications")
+      .map((entry) => entry.facing)
+      .filter((edge): edge is HexEdgeFacing => edge !== null && edge !== undefined);
+    const defenderFortified = defenderFortificationFacings.length > 0;
     const req: AttackRequest = {
       attacker: {
         unit: attackerDef,
@@ -10218,7 +10228,7 @@ private automateSupplyConvoys(
         isSpottedOnly,
         stance: isAssault ? "assault" : undefined,
         fortified: defenderFortified,
-        fortificationFacing: defenderFortificationFacing
+        fortificationFacings: defenderFortificationFacings
       },
       targetFacing: defender.facing,
       isSoftTarget: defenderDef.class === "infantry" || defenderDef.class === "specialist"
@@ -11379,6 +11389,32 @@ private automateSupplyConvoys(
     unit: ScenarioUnit,
     definition: UnitTypeDefinition,
     flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+  ): {
+    available: boolean;
+    reason: string | null;
+    byType: Record<HexModificationType, { available: boolean; reason: string | null }>;
+  } {
+    const byType: Record<HexModificationType, { available: boolean; reason: string | null }> = {
+      fortifications: this.resolveBuildModificationAvailabilityForType(hex, unit, definition, flags, "fortifications"),
+      tankTraps: this.resolveBuildModificationAvailabilityForType(hex, unit, definition, flags, "tankTraps"),
+      clearedPath: this.resolveBuildModificationAvailabilityForType(hex, unit, definition, flags, "clearedPath")
+    };
+    const available = Object.values(byType).some((entry) => entry.available);
+    return {
+      available,
+      reason: available
+        ? null
+        : byType.fortifications.reason ?? byType.tankTraps.reason ?? byType.clearedPath.reason ?? null,
+      byType
+    };
+  }
+
+  private resolveBuildModificationAvailabilityForType(
+    hex: Axial,
+    unit: ScenarioUnit,
+    definition: UnitTypeDefinition,
+    flags: ReturnType<GameEngine["createDefaultActionFlags"]>,
+    type: HexModificationType
   ): { available: boolean; reason: string | null } {
     if (this._phase !== "playerTurn") {
       return { available: false, reason: "Engineer fieldworks can be ordered only during the player turn." };
@@ -11396,11 +11432,30 @@ private automateSupplyConvoys(
     if (commitmentReason) {
       return { available: false, reason: commitmentReason };
     }
-    const existingMod = this.hexModifications.get(axialKey(hex));
-    if (existingMod) {
+    const existingMods = this.hexModifications.get(axialKey(hex)) ?? [];
+    if (type === "fortifications") {
+      const blockingNonFortification = existingMods.find((entry) => entry.type !== "fortifications");
+      if (blockingNonFortification) {
+        return {
+          available: false,
+          reason: `This hex already contains ${this.describeHexModification(blockingNonFortification.type)}.`
+        };
+      }
+      const fortifiedEdges = new Set(
+        existingMods
+          .filter((entry) => entry.type === "fortifications")
+          .map((entry) => entry.facing)
+          .filter((edge): edge is HexEdgeFacing => edge !== null && edge !== undefined)
+      );
+      if (fortifiedEdges.size >= 6) {
+        return { available: false, reason: "All six hex edges already contain fortifications." };
+      }
+      return { available: true, reason: null };
+    }
+    if (existingMods.length > 0) {
       return {
         available: false,
-        reason: `This hex already contains ${this.describeHexModification(existingMod.type)}.`
+        reason: `This hex already contains ${this.describeHexModification(existingMods[0]!.type)}.`
       };
     }
     return { available: true, reason: null };
@@ -11420,7 +11475,8 @@ private automateSupplyConvoys(
     const sentry = this.resolveSentryAvailability(hex, unit, flags);
     const digIn = this.resolveDigInAvailability(hex, unit, definition, flags);
     const build = this.resolveBuildModificationAvailability(hex, unit, definition, flags);
-    const existingHexModification = this.getHexModification(hex);
+    const existingHexModifications = this.getHexModifications(hex);
+    const existingHexModification = existingHexModifications[0] ?? null;
 
     return {
       unitId: this.getSquadronId(unit),
@@ -11433,12 +11489,14 @@ private automateSupplyConvoys(
       suppressorCount: suppression.count,
       isOnSentry: unit.onSentry === true,
       existingHexModification: existingHexModification ? structuredClone(existingHexModification) : null,
+      existingHexModifications: existingHexModifications.map((entry) => structuredClone(entry)),
       canEnterSentry: sentry.available,
       sentryReason: sentry.reason,
       canDigIn: digIn.available,
       digInReason: digIn.reason,
       canBuildModification: build.available,
-      buildReason: build.reason
+      buildReason: build.reason,
+      buildModificationAvailability: structuredClone(build.byType)
     };
   }
 
@@ -11549,7 +11607,7 @@ private automateSupplyConvoys(
     }
     const def = this.getUnitDefinition(unit.type);
     const flags = this.getUnitActionFlags("Player", unit);
-    const build = this.resolveBuildModificationAvailability(hex, unit, def, flags);
+    const build = this.resolveBuildModificationAvailabilityForType(hex, unit, def, flags, type);
     if (!build.available) {
       return false;
     }
@@ -11557,6 +11615,13 @@ private automateSupplyConvoys(
       ? this.normalizeHexEdgeFacing(facing)
       : null;
     if (type === "fortifications" && !normalizedFacing) {
+      return false;
+    }
+    const existingMods = this.hexModifications.get(key) ?? [];
+    if (
+      type === "fortifications" &&
+      existingMods.some((entry) => entry.type === "fortifications" && entry.facing === normalizedFacing)
+    ) {
       return false;
     }
 
@@ -11568,7 +11633,7 @@ private automateSupplyConvoys(
       facing: normalizedFacing ?? undefined,
       builtOnTurn: this._turnNumber
     };
-    this.hexModifications.set(key, modification);
+    this.hexModifications.set(key, [...existingMods, modification]);
 
     // Engineering work also commits the unit for the rest of the turn.
     this.setUnitActionFlags("Player", unit, this.resolveCommittedFieldActionFlags(hex, flags, this.getSquadronId(unit)));
@@ -11583,10 +11648,15 @@ private automateSupplyConvoys(
    */
   getHexModification(hex: Axial): HexModification | null {
     const key = axialKey(hex);
-    return this.hexModifications.get(key) ?? null;
+    return this.hexModifications.get(key)?.[0] ?? null;
+  }
+
+  getHexModifications(hex: Axial): HexModification[] {
+    const key = axialKey(hex);
+    return (this.hexModifications.get(key) ?? []).map((entry) => structuredClone(entry));
   }
 
   getHexModificationSnapshots(): HexModification[] {
-    return Array.from(this.hexModifications.values()).map((entry) => structuredClone(entry));
+    return Array.from(this.hexModifications.values()).flatMap((entries) => entries.map((entry) => structuredClone(entry)));
   }
 }

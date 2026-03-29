@@ -302,6 +302,68 @@ registerTest("WHEELED_RECON_UNITS_CANNOT_DIG_IN", async ({ Then }) => {
   await Then("vehicle recon formations are excluded from dig-in commands", () => {});
 });
 
+registerTest("ENGINEERS_CAN_STACK_FORTIFICATIONS_ACROSS_MULTIPLE_HEX_EDGES", async ({ Then }) => {
+  const engineerA: ScenarioUnit = {
+    type: "TestEngineer" as unknown as ScenarioUnit["type"],
+    unitId: "eng-a",
+    hex: { q: 1, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 5,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const engineerB: ScenarioUnit = {
+    type: "TestEngineer" as unknown as ScenarioUnit["type"],
+    unitId: "eng-b",
+    hex: { q: 1, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 5,
+    fuel: 0,
+    entrench: 0,
+    facing: "SE" as ScenarioUnit["facing"]
+  };
+
+  const { engine, config } = createEngine([engineerA, engineerB]);
+
+  if (!engine.buildHexModification(engineerA.hex, "fortifications", "SE", engineerA.unitId)) {
+    throw new Error("Expected first engineer to fortify the SE edge.");
+  }
+  if (!engine.buildHexModification(engineerB.hex, "fortifications", "E", engineerB.unitId)) {
+    throw new Error("Expected second engineer to fortify the E edge on the same hex.");
+  }
+  if (engine.buildHexModification(engineerB.hex, "fortifications", "SE", engineerB.unitId)) {
+    throw new Error("Expected duplicate fortification on the same edge to be rejected.");
+  }
+
+  const commandState = engine.getUnitCommandState(engineerA.hex, engineerA.unitId);
+  if (!commandState) {
+    throw new Error("Expected engineer command state to remain available.");
+  }
+  if (commandState.existingHexModifications.length !== 2) {
+    throw new Error(`Expected command state to expose two fortified edges, received ${JSON.stringify(commandState.existingHexModifications)}.`);
+  }
+
+  const modifications = engine.getHexModificationSnapshots()
+    .filter((modification) => modification.type === "fortifications")
+    .sort((left, right) => String(left.facing).localeCompare(String(right.facing)));
+  if (modifications.length !== 2 || modifications[0]?.facing !== "E" || modifications[1]?.facing !== "SE") {
+    throw new Error(`Expected two fortification snapshots on distinct edges, received ${JSON.stringify(modifications)}.`);
+  }
+
+  const restored = GameEngine.fromSerialized(config, engine.serialize());
+  const restoredModifications = restored.getHexModificationSnapshots()
+    .filter((modification) => modification.type === "fortifications")
+    .sort((left, right) => String(left.facing).localeCompare(String(right.facing)));
+  if (restoredModifications.length !== 2 || restoredModifications[0]?.facing !== "E" || restoredModifications[1]?.facing !== "SE") {
+    throw new Error(`Expected stacked fortifications to persist through serialization, received ${JSON.stringify(restoredModifications)}.`);
+  }
+
+  await Then("fortifications can stack across multiple edges on the same hex", () => {});
+});
+
 registerTest("RECON_BIKES_CAN_ASSAULT_BUT_CANNOT_DIG_IN", async ({ Then }) => {
   const reconBike: ScenarioUnit = {
     type: "Recon_Bike" as unknown as ScenarioUnit["type"],

@@ -34,6 +34,7 @@ registerTest("SELECTION_INTEL_OVERLAY_RENDERS_COMMAND_CARDS_AND_NOTES", async ({
     canEntrench: true,
     moveOptions: 3,
     attackOptions: 1,
+    unitTabs: [],
     statusMessage: "Engineer Company selected at 4,2.",
     statusChips: [
       { label: "Engineer", tone: "neutral" },
@@ -135,6 +136,7 @@ registerTest("SELECTION_INTEL_OVERLAY_SHOWS_RANGE_AND_DETAILS_WITHOUT_REDUNDANT_
     canEntrench: false,
     moveOptions: 2,
     attackOptions: 0,
+    unitTabs: [],
     statusMessage: "Anti-Tank Gun Battery selected at 14,5.",
     statusChips: [{ label: "Fortifications", tone: "good" }],
     actionCards: [
@@ -192,6 +194,96 @@ registerTest("SELECTION_INTEL_OVERLAY_SHOWS_RANGE_AND_DETAILS_WITHOUT_REDUNDANT_
     }
     if (!bodyText.includes("Mobility") || !bodyText.includes("Anti Tank")) {
       throw new Error(`Expected unit details tab to render non-redundant definition data, received '${bodyText}'.`);
+    }
+
+    overlay?.dispose();
+    container.remove();
+  });
+});
+
+registerTest("SELECTION_INTEL_OVERLAY_RENDERS_STACK_UNIT_TABS_FOR_SHARED_HEX_CONTROL", async ({ Given, When, Then }) => {
+  const container = document.createElement("div");
+  container.innerHTML = `
+    <section id="battleIntelOverlay" class="battle-intel-overlay hidden" tabindex="-1">
+      <button id="battleIntelOverlayDismiss" type="button">x</button>
+      <button id="battleIntelOverlayToggle" type="button">Expand</button>
+      <header>
+        <h3 id="battleIntelOverlayTitle"></h3>
+        <p id="battleIntelOverlayMeta"></p>
+      </header>
+      <div id="battleIntelOverlayBody"></div>
+      <div id="battleIntelOverlayNotes" class="hidden"></div>
+    </section>
+  `;
+  document.body.appendChild(container);
+
+  const intel: BattleSelectionIntel = {
+    kind: "battle",
+    hexKey: "6,9",
+    terrainName: "Road",
+    unitLabel: "Engineering Corps",
+    unitStrength: 100,
+    unitAmmo: 6,
+    unitFuel: null,
+    unitEntrenchment: 0,
+    movementRemaining: 3,
+    movementMax: 3,
+    rangeLabel: "1",
+    canEntrench: true,
+    moveOptions: 6,
+    attackOptions: 1,
+    unitTabs: [
+      {
+        unitId: "engineer_1",
+        label: "Engineering Corps",
+        detail: "100% strength",
+        selected: true
+      },
+      {
+        unitId: "infantry_2",
+        label: "Infantry Battalion",
+        detail: "76% strength",
+        selected: false
+      }
+    ],
+    statusMessage: "Engineering Corps selected at 6,9.",
+    statusChips: [{ label: "Engineer", tone: "neutral" }],
+    actionCards: [
+      {
+        id: "digIn",
+        label: "Dig In",
+        detail: "Gain +1 entrenchment, up to level 2.",
+        tone: "defense",
+        available: true
+      }
+    ],
+    detailSections: [],
+    notes: []
+  };
+
+  let overlay: SelectionIntelOverlay | null = null;
+  await Given("a mounted selection intel overlay for a stacked hex", async () => {
+    overlay = new SelectionIntelOverlay();
+  });
+
+  await When("battle intel includes multiple player-controlled units on the selected hex", async () => {
+    overlay?.update(intel);
+  });
+
+  await Then("the overlay renders selector tabs so the commander can switch units", async () => {
+    const root = document.getElementById("battleIntelOverlay");
+    const unitTabs = Array.from(root?.querySelectorAll<HTMLButtonElement>("[data-selection-action^='selectUnit:']") ?? []);
+    if (unitTabs.length !== 2) {
+      throw new Error(`Expected two stack unit tabs, found ${unitTabs.length}.`);
+    }
+    if (unitTabs[0]?.dataset.selectionAction !== "selectUnit:engineer_1" || unitTabs[0]?.getAttribute("aria-selected") !== "true") {
+      throw new Error("Expected the first stack unit tab to be selected for the engineer formation.");
+    }
+    if (unitTabs[1]?.dataset.selectionAction !== "selectUnit:infantry_2" || unitTabs[1]?.getAttribute("aria-selected") !== "false") {
+      throw new Error("Expected the second stack unit tab to target the alternate battalion.");
+    }
+    if (!(root?.textContent ?? "").includes("76% strength")) {
+      throw new Error("Expected stack unit tabs to include a compact readiness summary for alternate units.");
     }
 
     overlay?.dispose();

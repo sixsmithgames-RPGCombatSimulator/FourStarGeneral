@@ -85,6 +85,7 @@ export interface DefenderContext {
   stance?: "assault" | "suppressive" | "digIn"; // Combat stance (infantry only)
   fortified?: boolean; // Legacy presence flag for hex fortifications.
   fortificationFacing?: HexEdgeFacing | null; // Directional edge facing for engineer-built fortifications.
+  fortificationFacings?: readonly HexEdgeFacing[] | null; // Multiple fortified edges on the same hex.
 }
 
 /**
@@ -258,13 +259,18 @@ export function terrainAccMod(
 export function resolveFortificationCoverBonusPct(
   attackerHex: Axial,
   defenderHex: Axial,
-  fortificationFacing: HexEdgeFacing | null | undefined,
+  fortificationFacing: readonly HexEdgeFacing[] | HexEdgeFacing | null | undefined,
   attackerClass: UnitClass
 ): number {
   if (combatBalance.penetration.topAttackClasses.has(attackerClass)) {
     return 0;
   }
-  if (!fortificationFacing) {
+  const fortifiedFacings = Array.isArray(fortificationFacing)
+    ? fortificationFacing.filter((edge): edge is HexEdgeFacing => edge !== null && edge !== undefined)
+    : fortificationFacing
+      ? [fortificationFacing]
+      : [];
+  if (fortifiedFacings.length === 0) {
     return combatBalance.cover.fortificationBonusPct;
   }
 
@@ -285,12 +291,12 @@ export function resolveFortificationCoverBonusPct(
   }
 
   if (secondary && Math.abs(primary.diff - secondary.diff) <= 0.5) {
-    return fortificationFacing === primary.edge || fortificationFacing === secondary.edge
+    return fortifiedFacings.includes(primary.edge) || fortifiedFacings.includes(secondary.edge)
       ? combatBalance.cover.fortificationBonusPct * 0.5
       : 0;
   }
 
-  return fortificationFacing === primary.edge ? combatBalance.cover.fortificationBonusPct : 0;
+  return fortifiedFacings.includes(primary.edge) ? combatBalance.cover.fortificationBonusPct : 0;
 }
 
 /**
@@ -377,7 +383,7 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
     ? resolveFortificationCoverBonusPct(
       attackerCtx.hex,
       defenderCtx.hex,
-      defenderCtx.fortificationFacing,
+      defenderCtx.fortificationFacings ?? defenderCtx.fortificationFacing,
       attacker.unit.class
     )
     : 0;

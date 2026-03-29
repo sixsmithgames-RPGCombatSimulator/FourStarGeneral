@@ -29,6 +29,13 @@ export interface BattleIntelAction {
   readonly reason?: string | null;
 }
 
+export interface BattleIntelUnitTab {
+  readonly unitId: string;
+  readonly label: string;
+  readonly detail: string;
+  readonly selected: boolean;
+}
+
 export interface BattleIntelDetailEntry {
   readonly label: string;
   readonly value: string;
@@ -57,6 +64,7 @@ export interface BattleSelectionIntel {
   readonly canEntrench: boolean;
   readonly moveOptions: number;
   readonly attackOptions: number;
+  readonly unitTabs: readonly BattleIntelUnitTab[];
   readonly statusMessage: string;
   readonly statusChips: readonly BattleIntelChip[];
   readonly actionCards: readonly BattleIntelAction[];

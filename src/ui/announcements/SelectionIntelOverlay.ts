@@ -2,6 +2,7 @@ import type {
   BattleIntelAction,
   BattleIntelChip,
   BattleSelectionIntel,
+  BattleIntelUnitTab,
   DeploymentSelectionIntel,
   SelectionIntel,
   TerrainSelectionIntel
@@ -423,12 +424,14 @@ export class SelectionIntelOverlay {
     const chipMarkup = intel.statusChips.length > 0
       ? `<div class="battle-intel-overlay__chip-row">${intel.statusChips.map((chip) => this.renderChipMarkup(chip)).join("")}</div>`
       : "";
+    const unitTabMarkup = intel.unitTabs.length > 1 ? this.renderBattleUnitTabsMarkup(intel.unitTabs) : "";
     const tabMarkup = this.collapsed ? "" : this.renderBattleTabMarkup(intel);
     const contentMarkup = !this.collapsed && this.activeBattleTab === "unit"
       ? this.renderBattleDetailsMarkup(intel)
       : this.renderBattleActionsMarkup(intel);
 
     return `
+      ${unitTabMarkup}
       <div class="battle-intel-overlay__stats">
         ${statCards.map((stat) => `
           <article class="battle-intel-overlay__stat">
@@ -472,6 +475,26 @@ export class SelectionIntelOverlay {
 
   private renderChipMarkup(chip: BattleIntelChip): string {
     return `<span class="battle-intel-overlay__chip battle-intel-overlay__chip--${chip.tone}">${this.escapeHtml(chip.label)}</span>`;
+  }
+
+  private renderBattleUnitTabsMarkup(unitTabs: readonly BattleIntelUnitTab[]): string {
+    return `
+      <div class="battle-intel-overlay__unit-tabs" role="tablist" aria-label="Units on selected hex">
+        ${unitTabs.map((unitTab) => `
+          <button
+            type="button"
+            class="battle-intel-overlay__unit-tab"
+            data-selection-action="selectUnit:${this.escapeHtml(unitTab.unitId)}"
+            role="tab"
+            aria-selected="${unitTab.selected ? "true" : "false"}"
+            title="${this.escapeHtml(unitTab.label)}"
+          >
+            <span class="battle-intel-overlay__unit-tab-label">${this.escapeHtml(unitTab.label)}</span>
+            <span class="battle-intel-overlay__unit-tab-detail">${this.escapeHtml(unitTab.detail)}</span>
+          </button>
+        `).join("")}
+      </div>
+    `;
   }
 
   private renderActionMarkup(action: BattleIntelAction): string {

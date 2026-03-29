@@ -2547,8 +2547,12 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   renderHexModification(hexKey: string, modification: HexModification): void {
+    this.renderHexModifications(hexKey, [modification]);
+  }
+
+  renderHexModifications(hexKey: string, modifications: readonly HexModification[]): void {
     const cell = this.hexElementMap.get(hexKey);
-    if (!cell) {
+    if (!cell || modifications.length === 0) {
       return;
     }
 
@@ -2560,14 +2564,19 @@ export class HexMapRenderer implements IMapRenderer {
       this.hexModificationOverlayMap.set(hexKey, overlay);
     }
 
-    overlay.setAttribute("data-modification-type", modification.type);
-    overlay.setAttribute("data-faction", modification.faction);
-    if (modification.facing) {
-      overlay.setAttribute("data-modification-facing", modification.facing);
+    const primary = modifications[0]!;
+    overlay.setAttribute("data-modification-type", primary.type);
+    overlay.setAttribute("data-faction", primary.faction);
+    overlay.setAttribute("data-modification-count", String(modifications.length));
+    const facings = modifications
+      .map((modification) => modification.facing)
+      .filter((facing): facing is HexEdgeFacing => facing !== null && facing !== undefined);
+    if (facings.length > 0) {
+      overlay.setAttribute("data-modification-facing", facings.join(","));
     } else {
       overlay.removeAttribute("data-modification-facing");
     }
-    overlay.replaceChildren(this.buildHexModificationOverlay(cell, modification));
+    overlay.replaceChildren(...modifications.map((modification) => this.buildHexModificationOverlay(cell, modification)));
 
     const existingUnitGroup = this.hexUnitImageMap.get(hexKey);
     if (existingUnitGroup && existingUnitGroup.parentNode === cell) {
