@@ -15,6 +15,8 @@ export interface UnitAllocationOption {
   readonly description: string;
   readonly maxQuantity: number;
   readonly spriteUrl?: string;
+  readonly implemented?: boolean;
+  readonly visibleInAllocationUi?: boolean;
 }
 
 /**
@@ -150,73 +152,73 @@ export const allocationOptions = [
   },
   {
     key: "scoutPlaneWing",
-    label: "Scout Plane Wing",
-    category: "units",
+    label: "Reconnaissance Flight",
+    category: "support",
     costPerUnit: 185_000,
-    description: "Observation aircraft for battlefield scouting, route checks, and extended contact reporting.",
+    description: "Off-map observation flight for battlefield scouting, artillery spotting, and route reconnaissance over the front.",
     maxQuantity: 3,
     spriteUrl: new URL("../assets/units/Scout_Plane.png", import.meta.url).href
   },
   {
     key: "fighter",
     label: "Fighter Squadron",
-    category: "units",
+    category: "support",
     costPerUnit: 240_000,
-    description: "Air-superiority squadron for escort cover, interception, and protection of friendly air operations.",
+    description: "Off-map fighter cover committed to escort, interception, and local air superiority over the battle area.",
     maxQuantity: 4,
     spriteUrl: new URL("../assets/units/Fighter.png", import.meta.url).href
   },
   {
     key: "interceptorWing",
-    label: "Interceptor Wing",
-    category: "units",
+    label: "Interceptor Squadron",
+    category: "support",
     costPerUnit: 255_000,
-    description: "High-speed interceptors optimized for stopping hostile aircraft before they reach the frontline.",
+    description: "High-readiness interceptor package tasked with breaking up hostile reconnaissance and bombing sorties.",
     maxQuantity: 3,
     spriteUrl: new URL("../assets/units/Interceptor.png", import.meta.url).href
   },
   {
     key: "groundAttackWing",
-    label: "Ground Attack Wing",
-    category: "units",
+    label: "Close Support Squadron",
+    category: "support",
     costPerUnit: 265_000,
-    description: "Close-support strike aircraft armed for anti-vehicle attacks and rapid battlefield interdiction.",
+    description: "Fighter-bombers assigned to timed strikes against armor, gun lines, and exposed troop concentrations.",
     maxQuantity: 3,
     spriteUrl: new URL("../assets/units/Ground_Attack.png", import.meta.url).href
   },
   {
     key: "bomber",
-    label: "Tactical Bomber Wing",
-    category: "units",
+    label: "Tactical Bomber Squadron",
+    category: "support",
     costPerUnit: 260_000,
-    description: "Tactical bomber package for heavier area strikes against concentrations, depots, and strongpoints.",
+    description: "Medium bomber detachment for heavier interdiction strikes against reserves, depots, and fortified positions.",
     maxQuantity: 4,
     spriteUrl: new URL("../assets/units/Bomber.png", import.meta.url).href
   },
   {
     key: "transportWing",
-    label: "Transport Air Wing",
-    category: "units",
+    label: "Transport Flight",
+    category: "support",
     costPerUnit: 190_000,
-    description: "Transport aircraft package for airborne drops, emergency lift, and rapid supply relocation.",
+    description: "Transport aircraft held off-map for airborne drops, courier lifts, and emergency resupply runs.",
     maxQuantity: 2,
     spriteUrl: new URL("../assets/units/Transport_Plane.png", import.meta.url).href
   },
   {
     key: "apcTruckColumn",
-    label: "APC Truck Column",
+    label: "Motor Transport Column",
     category: "units",
     costPerUnit: 140_000,
-    description: "Motor transport column for shifting infantry and support teams between threatened sectors.",
+    description: "Soft-skinned troop lorries for moving infantry and weapons teams between staging areas and threatened sectors.",
     maxQuantity: 6,
     spriteUrl: new URL("../assets/units/APC_Truck.png", import.meta.url).href
   },
   {
     key: "apcHalftrackCompany",
-    label: "APC Halftrack Company",
+    label: "Halftrack Carrier Company",
     category: "units",
     costPerUnit: 175_000,
-    description: "Protected halftracks that keep mechanized infantry moving under light fire and rough conditions.",
+    description: "Protected halftracks that keep mechanized infantry moving under light fire and across broken ground.",
     maxQuantity: 5,
     spriteUrl: new URL("../assets/units/APC_Halftrack.png", import.meta.url).href
   },
@@ -225,35 +227,36 @@ export const allocationOptions = [
     label: "Supply Convoy",
     category: "logistics",
     costPerUnit: 40_000,
-    description: "Dedicated sustainment convoy carrying fuel and ammunition forward so battalions can keep fighting.",
+    description: "Forward resupply convoy carrying packaged ammunition, fuel, and rations from rear dumps to the line.",
     maxQuantity: 6,
     spriteUrl: new URL("../assets/units/Supply_Truck.png", import.meta.url).href
   },
   {
     key: "ammo",
-    label: "Ammunition Cache",
+    label: "Ammunition Dump",
     category: "supplies",
     costPerUnit: 30_000,
-    description: "Forward ammunition stock for artillery, anti-tank guns, and prolonged frontline engagements.",
+    description: "Requisitioned shell and small-arms reserve held in revetted dumps behind the fighting line.",
     maxQuantity: 50,
     spriteUrl: undefined
   },
   {
     key: "fuel",
-    label: "Fuel Depot",
+    label: "Fuel Dump",
     category: "supplies",
     costPerUnit: 25_000,
-    description: "Fuel reserve package to keep armored, motorized, and logistics formations operating.",
+    description: "Drummed fuel reserve and pumping gear for replenishing armored, motorized, and convoy formations.",
     maxQuantity: 50,
     spriteUrl: undefined
   },
   {
     key: "medic",
-    label: "Medical Team",
-    category: "support",
+    label: "Medical Detachment",
+    category: "logistics",
     costPerUnit: 60_000,
-    description: "Forward aid and evacuation team for stabilizing casualties near the fighting.",
+    description: "Forward aid and evacuation detachment for casualty clearing, ambulance runs, and stabilization near the front.",
     maxQuantity: 15,
+    implemented: false,
     spriteUrl: undefined
   },
   {
@@ -261,17 +264,38 @@ export const allocationOptions = [
     label: "Transport Column",
     category: "logistics",
     costPerUnit: 70_000,
-    description: "General-purpose truck lift for moving men, stores, and reserve supplies behind the line.",
+    description: "Rear-area truck lift reserved for campaign movement planning rather than tactical battle requisitions.",
     maxQuantity: 15,
+    visibleInAllocationUi: false,
     spriteUrl: undefined
   },
   {
     key: "maintenance",
-    label: "Maintenance Crew",
+    label: "Recovery & Repair Section",
     category: "logistics",
     costPerUnit: 55_000,
-    description: "Mobile repair and recovery detachment for keeping armored and motorized equipment serviceable.",
+    description: "Field workshop and recovery section for damaged vehicles, gun teams, and broken-down prime movers.",
     maxQuantity: 12,
+    spriteUrl: undefined
+  },
+  {
+    key: "corpsArtilleryGroup",
+    label: "Corps Artillery Group",
+    category: "support",
+    costPerUnit: 165_000,
+    description: "Observer-directed off-map corps guns for timed bombardments beyond the range of on-map batteries.",
+    maxQuantity: 2,
+    implemented: false,
+    spriteUrl: undefined
+  },
+  {
+    key: "shoreFireControlParty",
+    label: "Shore Fire Control Party",
+    category: "support",
+    costPerUnit: 210_000,
+    description: "Naval gunfire liaison team coordinating destroyer and cruiser bombardment from offshore stations.",
+    maxQuantity: 1,
+    implemented: false,
     spriteUrl: undefined
   }
 ] as const satisfies readonly UnitAllocationOption[];

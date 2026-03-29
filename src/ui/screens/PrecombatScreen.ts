@@ -628,12 +628,20 @@ export class PrecombatScreen {
     return 0;
   }
 
+  private isAllocationVisible(option: UnitAllocationOption): boolean {
+    return option.visibleInAllocationUi !== false;
+  }
+
+  private isAllocationImplemented(option: UnitAllocationOption): boolean {
+    return option.implemented !== false;
+  }
+
   private isDeployableAllocation(option: UnitAllocationOption): boolean {
-    return option.category === "units" || option.key === "supplyConvoy";
+    return this.isAllocationImplemented(option) && findTemplateForUnitKey(option.key) !== null;
   }
 
   private shouldApplyScenarioRestrictions(option: UnitAllocationOption): boolean {
-    return option.category === "units" || option.key === "supplyConvoy";
+    return this.isDeployableAllocation(option);
   }
 
   private rerenderAllocations(): void {
@@ -654,11 +662,14 @@ export class PrecombatScreen {
         return;
       }
       const filteredAllocations = allocations.filter((option) => {
+        if (!this.isAllocationVisible(option)) {
+          return false;
+        }
         if (!this.shouldApplyScenarioRestrictions(option)) {
           return true;
         }
         return this.isUnitAllowedByScenario(option.key);
-      });
+      }).sort((left, right) => Number(this.isAllocationImplemented(right)) - Number(this.isAllocationImplemented(left)));
       container.innerHTML = filteredAllocations
         .map((option) => this.renderAllocationItem(option, this.allocationCounts.get(option.key) ?? 0))
         .join("");
@@ -683,9 +694,10 @@ export class PrecombatScreen {
     const lockedBaseline = this.predeployedCounts.get(option.key) ?? 0;
     const missionMinimum = this.getMissionMinimumAllocationCount(option.key);
     const quantityFloor = Math.max(lockedBaseline, missionMinimum);
+    const unavailable = !this.isAllocationImplemented(option);
     const locked = this.unlockState.isUnitLocked(option.key);
-    const decrementDisabled = locked || quantity <= quantityFloor;
-    const incrementDisabled = locked || quantity >= option.maxQuantity;
+    const decrementDisabled = unavailable || locked || quantity <= quantityFloor;
+    const incrementDisabled = unavailable || locked || quantity >= option.maxQuantity;
     const requisitionQuantity = Math.max(0, quantity - lockedBaseline);
     const totalCost = option.costPerUnit * requisitionQuantity;
     const composition = Object.prototype.hasOwnProperty.call(unitComposition, option.key)
@@ -699,10 +711,15 @@ export class PrecombatScreen {
     const missionMinimumBadge = missionMinimum > lockedBaseline
       ? `<span class="allocation-lock" aria-label="${option.label} has a mission minimum of ${missionMinimum}.">Mission minimum ×${missionMinimum}</span>`
       : "";
-    const unlockBadge = locked
+    const availabilityBadge = unavailable
+      ? `<span class="allocation-lock" aria-label="${option.label} is planned but not yet implemented.">Planned feature</span>`
+      : "";
+    const unlockBadge = !unavailable && locked
       ? `<span class="allocation-lock" aria-label="${option.label} requires a roster unlock before you can requisition it.">Unlock required</span>`
       : "";
-    const controlsMarkup = locked
+    const controlsMarkup = unavailable
+      ? `<div class="allocation-quantity allocation-quantity--disabled" role="group" aria-label="${option.label} availability"><span class="allocation-count">Pending</span></div>`
+      : locked
       ? `<div class="allocation-quantity" role="group" aria-label="${option.label} unlock controls"><span class="allocation-count">Roster locked</span><a class="secondary-button allocation-unlock-link" href="${this.unlockState.buildPurchaseUrlForSku(option.key)}">Unlock Unit</a></div>`
       : `<div class="allocation-quantity" role="group" aria-label="${option.label} quantity controls">
             <button
@@ -726,7 +743,7 @@ export class PrecombatScreen {
             >+</button>
           </div>`;
     return `
-      <li class="allocation-item" data-key="${option.key}" data-locked="${locked ? "true" : "false"}">
+      <li class="allocation-item" data-key="${option.key}" data-locked="${locked ? "true" : "false"}" data-unavailable="${unavailable ? "true" : "false"}">
         <header>
           <div class="allocation-visual">
             ${option.spriteUrl ? `<img src="${option.spriteUrl}" alt="${option.label}" class="allocation-thumb" />` : `<div class="allocation-fallback">${option.label.charAt(0)}</div>`}
@@ -745,6 +762,7 @@ export class PrecombatScreen {
               : ""}
             ${baselineBadge}
             ${missionMinimumBadge}
+            ${availabilityBadge}
             ${unlockBadge}
           </div>
         </header>
@@ -841,6 +859,13 @@ export class PrecombatScreen {
     const option = getAllocationOption(optionKey);
     if (!option) {
       console.warn("Attempted to adjust unknown allocation option", optionKey);
+      return;
+    }
+
+    if (!this.isAllocationImplemented(option)) {
+      this.allocationFeedbackElement.classList.remove("feedback--ready");
+      this.allocationFeedbackElement.classList.add("feedback--warning");
+      this.allocationFeedbackElement.textContent = `${option.label} is planned but not yet implemented for precombat requisitioning.`;
       return;
     }
 

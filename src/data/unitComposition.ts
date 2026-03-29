@@ -23,6 +23,8 @@ export type UnitAllocationKey =
   | "groundAttackWing"
   | "bomber"
   | "transportWing"
+  | "corpsArtilleryGroup"
+  | "shoreFireControlParty"
   | "apcTruckColumn"
   | "apcHalftrackCompany"
   | "supplyConvoy"
@@ -79,7 +81,7 @@ export const unitComposition: Record<UnitAllocationKey, UnitCompositionProfile> 
       "Light mortar section",
       "Pathfinder radios"
     ],
-    notes: "Air-delivered unit requiring dedicated transport wing support."
+    notes: "Air-delivered unit requiring dedicated transport flight support."
   },
   engineer: {
     combatReference: { unitType: "Engineer" },
@@ -172,94 +174,106 @@ export const unitComposition: Record<UnitAllocationKey, UnitCompositionProfile> 
     combatReference: { unitType: "Scout_Plane" },
     personnel: 90,
     vehicles: 6,
-    equipmentSummary: ["6 reconnaissance aircraft", "Photo lab trailer"],
-    notes: "Includes ground crews and analysts for aerial reconnaissance packages."
+    equipmentSummary: ["6 reconnaissance aircraft", "Photo interpretation section"],
+    notes: "Off-map reconnaissance package with pilots, fitters, and aerial observers."
   },
   fighter: {
     combatReference: { unitType: "Fighter" },
     personnel: 120,
     vehicles: 12,
-    equipmentSummary: ["12 fighter aircraft", "Workshop tents"],
-    notes: "Split across two flights with rotating alert schedules."
+    equipmentSummary: ["12 fighter aircraft", "Readiness dispersal crews"],
+    notes: "Maintained off-map and committed as escort, CAP, or interception sorties."
   },
   interceptorWing: {
     combatReference: { unitType: "Interceptor" },
     personnel: 110,
     vehicles: 10,
-    equipmentSummary: ["10 interceptor aircraft", "Early-warning radar liaison"],
-    notes: "Optimized for high-altitude scramble missions."
+    equipmentSummary: ["10 interceptor aircraft", "Scramble control section"],
+    notes: "Held at high readiness for defensive counter-air duties."
   },
   groundAttackWing: {
     combatReference: { unitType: "Ground_Attack" },
     personnel: 130,
     vehicles: 8,
-    equipmentSummary: ["8 ground-attack aircraft", "Rocket/ordnance stocks"],
-    notes: "Carries mixed HE and anti-armor ordnance for close air support."
+    equipmentSummary: ["8 fighter-bombers", "Rocket and bomb dump"],
+    notes: "Tasked for close support and interdiction sorties over the battlefield."
   },
   bomber: {
     combatReference: { unitType: "Bomber" },
     personnel: 150,
     vehicles: 6,
-    equipmentSummary: ["6 tactical bombers", "Bomb assembly team"],
-    notes: "Includes dedicated navigation and bombardier crews."
+    equipmentSummary: ["6 tactical bombers", "Bomb preparation crew"],
+    notes: "Medium bombers assigned to heavier off-map strike packages."
   },
   transportWing: {
     combatReference: { unitType: "Transport_Plane" },
     personnel: 140,
     vehicles: 5,
-    equipmentSummary: ["5 transport aircraft", "Airborne cargo rigging kits"],
-    notes: "Supports airborne operations and rapid logistical lifts."
+    equipmentSummary: ["5 transport aircraft", "Cargo rigging section"],
+    notes: "Supports airborne insertions, courier flights, and emergency aerial resupply."
+  },
+  corpsArtilleryGroup: {
+    personnel: 36,
+    vehicles: 4,
+    equipmentSummary: ["3 off-map fire missions", "Forward observer party"],
+    notes: "Planned support asset representing corps artillery held beyond the battle area."
+  },
+  shoreFireControlParty: {
+    personnel: 18,
+    vehicles: 2,
+    equipmentSummary: ["2 naval fire missions", "Shore observer team"],
+    notes: "Planned support asset for destroyer and cruiser gunfire coordination."
   },
   apcTruckColumn: {
     combatReference: { unitType: "APC_Truck" },
-    personnel: 200,
-    vehicles: 40,
-    equipmentSummary: ["32 troop trucks", "8 light escort vehicles"],
-    notes: "Configured to shuttle infantry between forward staging areas."
+    personnel: 120,
+    vehicles: 28,
+    equipmentSummary: ["24 troop lorries", "4 dispatch jeeps"],
+    notes: "Configured to shuttle infantry between rear staging areas and jump-off points."
   },
   apcHalftrackCompany: {
     combatReference: { unitType: "APC_Halftrack" },
     personnel: 180,
     vehicles: 24,
     equipmentSummary: ["24 halftracks", "Field repair trailer"],
-    notes: "Provides armored mobility for mechanized infantry detachments."
+    notes: "Provides protected battlefield lift for mechanized infantry detachments."
   },
   supplyConvoy: {
     combatReference: { unitType: "Supply_Truck" },
-    personnel: 180,
-    vehicles: 30,
-    equipmentSummary: ["30 supply trucks", "Mobile depot staff"],
-    notes: "Carries mixed fuel, ammo, and ration loads for frontline sustainment."
+    personnel: 48,
+    vehicles: 8,
+    equipmentSummary: ["6 supply lorries", "2 fuel bowsers"],
+    notes: "Small forward convoy shuttling mixed loads from rear dumps to frontline units."
   },
   ammo: {
-    personnel: 48,
-    vehicles: 12,
-    equipmentSummary: ["12 ammunition trucks", "Mobile storage tents"],
-    notes: "Dedicated to replenishing artillery and armored formations."
+    personnel: 28,
+    vehicles: 0,
+    equipmentSummary: ["Shell revetments", "Ready-use ammunition stacks"],
+    notes: "Static ammunition dump feeding artillery, anti-tank guns, and frontline resupply points."
   },
   fuel: {
-    personnel: 42,
-    vehicles: 14,
-    equipmentSummary: ["14 tanker lorries", "Pump assemblies"],
-    notes: "Supports mechanized units with forward refuel capability."
+    personnel: 18,
+    vehicles: 0,
+    equipmentSummary: ["Drummed fuel stocks", "Pump and hose sets"],
+    notes: "Static fuel dump for replenishing armored, motorized, and logistics formations."
   },
   medic: {
-    personnel: 72,
-    vehicles: 10,
-    equipmentSummary: ["4 ambulance trucks", "6 field aid jeeps", "Mobile surgical kits"],
-    notes: "Combines frontline aid posts with evacuation transport."
+    personnel: 32,
+    vehicles: 4,
+    equipmentSummary: ["Aid-post section", "Ambulance pair", "Field dressings"],
+    notes: "Planned logistics service combining casualty collection, stabilization, and evacuation."
   },
   transport: {
     personnel: 90,
     vehicles: 26,
     equipmentSummary: ["20 cargo trucks", "6 liaison jeeps"],
-    notes: "General-purpose lift that supplements dedicated supply convoys."
+    notes: "Campaign-level rear-area lift kept outside the tactical requisition screen."
   },
   maintenance: {
-    personnel: 84,
-    vehicles: 18,
-    equipmentSummary: ["Mobile machine shop", "Recovery crane", "Spare parts trailers"],
-    notes: "Keeps armored and motorized assets serviceable near the front."
+    personnel: 54,
+    vehicles: 6,
+    equipmentSummary: ["Workshop lorry", "Recovery tractor", "Spare parts trailer"],
+    notes: "Keeps damaged vehicles, guns, and prime movers serviceable near the front."
   }
 };
 

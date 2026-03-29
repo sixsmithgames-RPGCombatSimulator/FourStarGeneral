@@ -550,6 +550,16 @@
         0 8px 18px rgba(0, 0, 0, 0.14);
       min-width: 0;
     }
+    .allocation-item[data-unavailable="true"] {
+      opacity: 0.56;
+      border-color: rgba(166, 166, 166, 0.14);
+      background:
+        linear-gradient(180deg, rgba(22, 22, 20, 0.92) 0%, rgba(16, 16, 15, 0.96) 100%);
+    }
+    .allocation-item[data-unavailable="true"] .allocation-thumb,
+    .allocation-item[data-unavailable="true"] .allocation-fallback {
+      filter: grayscale(1);
+    }
     .allocation-item header,
     .deployment-item {
       display: flex;
@@ -649,6 +659,10 @@
       border-radius: 999px;
       padding: 0.12rem 0.34rem;
       background: rgba(9, 11, 9, 0.78);
+    }
+    .allocation-quantity--disabled {
+      border-color: rgba(166, 166, 166, 0.18);
+      background: rgba(16, 18, 16, 0.72);
     }
     .allocation-quantity .allocation-count {
       min-width: 1.3rem;
@@ -5531,28 +5545,28 @@
               <div class="allocation-section allocation-section--units">
                 <header>
                   <h3>Units</h3>
-                  <p>Combat formations and support elements</p>
+                  <p>Combat formations and battlefield carriers</p>
                 </header>
                 <ul id="allocationUnitList" class="allocation-items"></ul>
               </div>
               <div class="allocation-section allocation-section--supplies">
                 <header>
                   <h3>Supplies</h3>
-                  <p>Ammunition and fuel reserves</p>
+                  <p>Depot stockpiles and reserve dumps</p>
                 </header>
                 <ul id="allocationSupplyList" class="allocation-items"></ul>
               </div>
               <div class="allocation-section allocation-section--support">
                 <header>
                   <h3>Support</h3>
-                  <p>Engineering and medical assets</p>
+                  <p>Air support and off-map fires</p>
                 </header>
                 <ul id="allocationSupportList" class="allocation-items"></ul>
               </div>
               <div class="allocation-section allocation-section--logistics">
                 <header>
                   <h3>Logistics</h3>
-                  <p>Transport and maintenance</p>
+                  <p>Convoys, recovery, and medical services</p>
                 </header>
                 <ul id="allocationLogisticsList" class="allocation-items"></ul>
               </div>
