@@ -6,6 +6,7 @@ import "./HexMapRenderer.animateUnitMove.test.js";
 import "./HexMapRenderer.artilleryTargetFx.test.js";
 import "./HexMapRenderer.focusOnHex.test.js";
 import "./HexMapRenderer.muzzleFlash.test.js";
+import "./HexMapRenderer.wreckSilhouette.test.js";
 import "./HexMapRenderer.tacticalOverlays.test.js";
 import "./WreckFxRenderer.test.js";
 import "./RoadOverlayRenderer.test.js";

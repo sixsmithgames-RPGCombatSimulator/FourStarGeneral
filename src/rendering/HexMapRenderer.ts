@@ -81,6 +81,7 @@ export interface RenderedUnitStackMember {
    flames: boolean;
    wreck: boolean;
    wreckClass: WreckFxClass;
+   wreckScenarioType: string | null;
    fireTurnsRemaining: number;
    group: SVGGElement | null;
  };
@@ -2846,6 +2847,7 @@ export class HexMapRenderer implements IMapRenderer {
       flames: hasFlames,
       wreck: true,
       wreckClass,
+      wreckScenarioType: scenarioType ?? null,
       fireTurnsRemaining: Math.max(0, Math.floor(fireTurns)),
       group: existing?.group ?? null
     };
@@ -2870,6 +2872,7 @@ export class HexMapRenderer implements IMapRenderer {
       flames,
       wreck: false,
       wreckClass: resolveWreckFxClass(unitClass, this.getUnitScenarioTypeAt(hexKey)),
+      wreckScenarioType: this.getUnitScenarioTypeAt(hexKey) ?? null,
       fireTurnsRemaining: Math.max(0, Math.floor(turns)),
       group: existing?.group ?? null
     };
@@ -2943,7 +2946,7 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     if (entry.wreck) {
-      group.appendChild(this.createWreckShape(center.cx, center.cy));
+      group.appendChild(this.createWreckShape(hexKey, entry.wreckClass, entry.wreckScenarioType, center.cx, center.cy));
       if (entry.flames || entry.smokeLevel > 0) {
         this.wreckFxRenderer?.upsertWreck({
           hexKey,
@@ -3065,41 +3068,163 @@ export class HexMapRenderer implements IMapRenderer {
     return g;
   }
 
-  private createWreckShape(cx: number, cy: number): SVGGElement {
+  private createWreckFragment(
+    group: SVGGElement,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    rotationDeg: number,
+    fill: string,
+    opacity: number = 0.86
+  ): void {
+    const fragment = document.createElementNS(SVG_NS, "rect");
+    fragment.setAttribute("x", String(x - width / 2));
+    fragment.setAttribute("y", String(y - height / 2));
+    fragment.setAttribute("width", String(width));
+    fragment.setAttribute("height", String(height));
+    fragment.setAttribute("rx", String(Math.min(width, height) * 0.22));
+    fragment.setAttribute("fill", fill);
+    fragment.setAttribute("opacity", String(opacity));
+    fragment.setAttribute("transform", `rotate(${rotationDeg} ${x} ${y})`);
+    group.appendChild(fragment);
+  }
+
+  private createWreckWheel(group: SVGGElement, x: number, y: number, radius: number, opacity: number = 0.72): void {
+    const wheel = document.createElementNS(SVG_NS, "circle");
+    wheel.setAttribute("cx", String(x));
+    wheel.setAttribute("cy", String(y));
+    wheel.setAttribute("r", String(radius));
+    wheel.setAttribute("fill", "none");
+    wheel.setAttribute("stroke", "#242424");
+    wheel.setAttribute("stroke-width", String(Math.max(0.8, radius * 0.45)));
+    wheel.setAttribute("opacity", String(opacity));
+    group.appendChild(wheel);
+  }
+
+  private createScatterDebris(
+    group: SVGGElement,
+    rand: () => number,
+    cx: number,
+    cy: number,
+    count: number,
+    spreadX: number,
+    spreadY: number,
+    minSize: number,
+    maxSize: number
+  ): void {
+    for (let index = 0; index < count; index += 1) {
+      const x = cx + (rand() - 0.5) * spreadX;
+      const y = cy + 8 + (rand() - 0.5) * spreadY;
+      const width = minSize + rand() * (maxSize - minSize);
+      const height = Math.max(1.2, minSize * 0.45 + rand() * (maxSize - minSize) * 0.55);
+      const rotation = -38 + rand() * 76;
+      const fill = rand() > 0.55 ? "#2d2d2d" : "#434343";
+      this.createWreckFragment(group, x, y, width, height, rotation, fill, 0.72 + rand() * 0.16);
+    }
+  }
+
+  private createWreckShape(hexKey: string, wreckClass: WreckFxClass, scenarioType: string | null, cx: number, cy: number): SVGGElement {
     const g = document.createElementNS(SVG_NS, "g");
-    const body = document.createElementNS(SVG_NS, "rect");
-    body.setAttribute("x", String(cx - 14));
-    body.setAttribute("y", String(cy + 2));
-    body.setAttribute("width", "28");
-    body.setAttribute("height", "12");
-    body.setAttribute("rx", "3");
-    body.setAttribute("fill", "#2b2b2b");
-    body.setAttribute("opacity", "0.85");
-    body.setAttribute("transform", `rotate(-12 ${cx} ${cy})`);
+    const rand = this.seededRandom(this.seedFromHexKey(`${hexKey}:wreck:${wreckClass}:${scenarioType ?? "generic"}`));
+    const normalizedType = String(scenarioType ?? "").toLowerCase();
 
-    const turret = document.createElementNS(SVG_NS, "rect");
-    turret.setAttribute("x", String(cx - 6));
-    turret.setAttribute("y", String(cy - 2));
-    turret.setAttribute("width", "12");
-    turret.setAttribute("height", "8");
-    turret.setAttribute("rx", "2");
-    turret.setAttribute("fill", "#1f1f1f");
-    turret.setAttribute("opacity", "0.9");
-    turret.setAttribute("transform", `rotate(8 ${cx} ${cy})`);
+    const scorch = document.createElementNS(SVG_NS, "ellipse");
+    scorch.setAttribute("cx", String(cx));
+    scorch.setAttribute("cy", String(cy + 12));
+    scorch.setAttribute("rx", wreckClass === "tank" || wreckClass === "convoy" ? "18" : wreckClass === "artillery" ? "16" : normalizedType.includes("bike") ? "10" : "13");
+    scorch.setAttribute("ry", wreckClass === "tank" ? "6.5" : normalizedType.includes("bike") ? "3.4" : "4.6");
+    scorch.setAttribute("fill", "#131313");
+    scorch.setAttribute("opacity", "0.24");
+    g.appendChild(scorch);
 
-    const debris = document.createElementNS(SVG_NS, "path");
-    debris.setAttribute(
-      "d",
-      `M ${cx - 18} ${cy + 18} L ${cx - 6} ${cy + 14} L ${cx + 2} ${cy + 22} L ${cx + 18} ${cy + 16}`
-    );
-    debris.setAttribute("stroke", "#3a3a3a");
-    debris.setAttribute("stroke-width", "3");
-    debris.setAttribute("stroke-linecap", "round");
-    debris.setAttribute("opacity", "0.7");
+    if (normalizedType.includes("bike")) {
+      const frame = document.createElementNS(SVG_NS, "path");
+      frame.setAttribute("d", `M ${cx - 7} ${cy + 6} L ${cx - 1} ${cy + 1} L ${cx + 5} ${cy + 6} L ${cx - 2} ${cy + 8} Z`);
+      frame.setAttribute("fill", "#2a2a2a");
+      frame.setAttribute("opacity", "0.84");
+      const fork = document.createElementNS(SVG_NS, "path");
+      fork.setAttribute("d", `M ${cx - 2} ${cy + 1} L ${cx + 6} ${cy - 2} M ${cx - 1} ${cy + 2} L ${cx - 7} ${cy + 3}`);
+      fork.setAttribute("stroke", "#3b3b3b");
+      fork.setAttribute("stroke-width", "1.8");
+      fork.setAttribute("stroke-linecap", "round");
+      fork.setAttribute("opacity", "0.76");
+      g.append(frame, fork);
+      this.createWreckWheel(g, cx - 7, cy + 7, 2.8, 0.68);
+      this.createWreckWheel(g, cx + 7, cy + 4, 2.5, 0.62);
+      this.createScatterDebris(g, rand, cx, cy, 9, 22, 12, 1.4, 3.6);
+      return g;
+    }
 
-    g.appendChild(body);
-    g.appendChild(turret);
-    g.appendChild(debris);
+    if (wreckClass === "tank") {
+      const hull = document.createElementNS(SVG_NS, "path");
+      hull.setAttribute("d", `M ${cx - 12} ${cy + 7} L ${cx - 4} ${cy + 1} L ${cx + 10} ${cy + 4} L ${cx + 6} ${cy + 10} L ${cx - 8} ${cy + 11} Z`);
+      hull.setAttribute("fill", "#2a2a2a");
+      hull.setAttribute("opacity", "0.88");
+      hull.setAttribute("transform", `rotate(${-10 + rand() * 12} ${cx} ${cy})`);
+      const turret = document.createElementNS(SVG_NS, "path");
+      turret.setAttribute("d", `M ${cx - 3} ${cy - 1} L ${cx + 6} ${cy + 1} L ${cx + 2} ${cy + 6} L ${cx - 5} ${cy + 4} Z`);
+      turret.setAttribute("fill", "#202020");
+      turret.setAttribute("opacity", "0.9");
+      turret.setAttribute("transform", `rotate(${8 + rand() * 18} ${cx} ${cy})`);
+      const tracks = document.createElementNS(SVG_NS, "path");
+      tracks.setAttribute("d", `M ${cx - 15} ${cy + 12} L ${cx - 6} ${cy + 10} M ${cx + 2} ${cy + 12} L ${cx + 13} ${cy + 9}`);
+      tracks.setAttribute("stroke", "#4b4b4b");
+      tracks.setAttribute("stroke-width", "2.6");
+      tracks.setAttribute("stroke-linecap", "round");
+      tracks.setAttribute("opacity", "0.7");
+      g.append(hull, turret, tracks);
+      this.createScatterDebris(g, rand, cx, cy, 10, 30, 16, 1.8, 4.8);
+      return g;
+    }
+
+    if (wreckClass === "artillery") {
+      const carriage = document.createElementNS(SVG_NS, "path");
+      carriage.setAttribute("d", `M ${cx - 11} ${cy + 7} L ${cx - 2} ${cy + 2} L ${cx + 4} ${cy + 5} L ${cx - 4} ${cy + 10} Z`);
+      carriage.setAttribute("fill", "#2c2c2c");
+      carriage.setAttribute("opacity", "0.84");
+      const barrel = document.createElementNS(SVG_NS, "path");
+      barrel.setAttribute("d", `M ${cx - 1} ${cy + 2} L ${cx + 10} ${cy - 3}`);
+      barrel.setAttribute("stroke", "#3f3f3f");
+      barrel.setAttribute("stroke-width", "2.2");
+      barrel.setAttribute("stroke-linecap", "round");
+      barrel.setAttribute("opacity", "0.78");
+      this.createWreckWheel(g, cx - 10, cy + 9, 3.2, 0.62);
+      g.append(carriage, barrel);
+      this.createScatterDebris(g, rand, cx, cy, 9, 26, 15, 1.6, 4.2);
+      return g;
+    }
+
+    if (wreckClass === "convoy" || wreckClass === "truck") {
+      const chassis = document.createElementNS(SVG_NS, "path");
+      chassis.setAttribute("d", `M ${cx - 10} ${cy + 6} L ${cx - 1} ${cy + 1} L ${cx + 8} ${cy + 4} L ${cx + 4} ${cy + 9} L ${cx - 7} ${cy + 10} Z`);
+      chassis.setAttribute("fill", wreckClass === "convoy" ? "#292929" : "#2f2f2f");
+      chassis.setAttribute("opacity", "0.84");
+      chassis.setAttribute("transform", `rotate(${-14 + rand() * 16} ${cx} ${cy})`);
+      const cabin = document.createElementNS(SVG_NS, "rect");
+      cabin.setAttribute("x", String(cx - 3));
+      cabin.setAttribute("y", String(cy + 1));
+      cabin.setAttribute("width", wreckClass === "convoy" ? "7" : "6");
+      cabin.setAttribute("height", "4");
+      cabin.setAttribute("rx", "1.2");
+      cabin.setAttribute("fill", "#202020");
+      cabin.setAttribute("opacity", "0.8");
+      cabin.setAttribute("transform", `rotate(${6 + rand() * 10} ${cx} ${cy})`);
+      g.append(chassis, cabin);
+      this.createWreckWheel(g, cx - 8, cy + 9, 2.5, 0.6);
+      this.createWreckWheel(g, cx + 7, cy + 7, 2.2, 0.56);
+      this.createScatterDebris(g, rand, cx, cy, wreckClass === "convoy" ? 11 : 8, wreckClass === "convoy" ? 32 : 26, 15, 1.4, wreckClass === "convoy" ? 4.6 : 3.9);
+      return g;
+    }
+
+    const rubbleStroke = document.createElementNS(SVG_NS, "path");
+    rubbleStroke.setAttribute("d", `M ${cx - 7} ${cy + 8} L ${cx - 1} ${cy + 4} M ${cx + 2} ${cy + 9} L ${cx + 7} ${cy + 6}`);
+    rubbleStroke.setAttribute("stroke", "#3f3f3f");
+    rubbleStroke.setAttribute("stroke-width", "1.8");
+    rubbleStroke.setAttribute("stroke-linecap", "round");
+    rubbleStroke.setAttribute("opacity", "0.68");
+    g.appendChild(rubbleStroke);
+    this.createScatterDebris(g, rand, cx, cy, 7, 18, 10, 1.2, 3.2);
     return g;
   }
 

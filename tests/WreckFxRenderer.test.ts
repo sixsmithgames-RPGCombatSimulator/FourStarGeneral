@@ -22,6 +22,7 @@ registerTest("WRECK_FX_CLASSIFIER_SEPARATES_CONVOY_ARTILLERY_AND_TANK_CASES", as
   const convoy = resolveWreckFxClass("vehicle", "Supply_Truck");
   const artillery = resolveWreckFxClass("artillery", "Howitzer_105");
   const tank = resolveWreckFxClass("tank", "Heavy_Tank");
+  const reconBike = resolveWreckFxClass("recon", "Recon_Bike");
   const infantry = resolveWreckFxClass("infantry", "Infantry");
 
   if (convoy !== "convoy") {
@@ -32,6 +33,9 @@ registerTest("WRECK_FX_CLASSIFIER_SEPARATES_CONVOY_ARTILLERY_AND_TANK_CASES", as
   }
   if (tank !== "tank") {
     throw new Error(`Expected tanks to resolve as tank wrecks, received ${tank}.`);
+  }
+  if (reconBike !== "truck") {
+    throw new Error(`Expected recon bikes to use the light vehicle/truck wreck preset, received ${reconBike}.`);
   }
   if (infantry !== "infantry") {
     throw new Error(`Expected infantry to remain infantry wrecks, received ${infantry}.`);

@@ -535,6 +535,10 @@ export function getWreckFxPreset(wreckClass: WreckFxClass): WreckFxPreset {
 
 export function resolveWreckFxClass(unitClass?: UnitClass, scenarioType?: string | null): WreckFxClass {
   const normalizedType = String(scenarioType ?? "").toLowerCase();
+  const isGroundReconVehicle =
+    unitClass === "recon" &&
+    !normalizedType.includes("plane") &&
+    !normalizedType.includes("air");
   if (normalizedType.includes("supply")) {
     return "convoy";
   }
@@ -552,6 +556,10 @@ export function resolveWreckFxClass(unitClass?: UnitClass, scenarioType?: string
   }
   if (
     unitClass === "vehicle" ||
+    isGroundReconVehicle ||
+    normalizedType.includes("bike") ||
+    normalizedType.includes("car") ||
+    normalizedType.includes("armored") ||
     normalizedType.includes("truck") ||
     normalizedType.includes("halftrack") ||
     normalizedType.includes("apc")
