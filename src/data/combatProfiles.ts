@@ -90,34 +90,36 @@ export const COMBAT_PROFILES = {
     accuracyReference: 55,
     softAttackReference: 5,
     hardAttackReference: 50,
-    // Four guns firing about 30 rounds per minute across the five-minute turn window.
+    // Four guns firing about 5 rounds per minute across the five-minute turn window.
     // The battery's tow trucks carry enough ready ammunition nearby to keep the guns firing.
     shotsPerTurn: 120,
-    baseDamagePerHit: 2.0,
+    baseDamagePerHit: 1.0,
     suppressionPerHit: 0.2,
     rangeAccuracy: [
-      { range: 0, accuracy: 45 },
-      { range: 1, accuracy: 28 },
-      { range: 2, accuracy: 18 },
-      { range: 3, accuracy: 12 },
-      { range: 4, accuracy: 8 }
+      { range: 0, accuracy: 55 },
+      { range: 1, accuracy: 50 },
+      { range: 2, accuracy: 45 },
+      { range: 3, accuracy: 35 },
+      { range: 4, accuracy: 25 }
     ]
   },
   "specialist.heavy.antiTank": {
     label: "Heavy anti-tank specialists",
     description: "Large-caliber dual-purpose guns optimized to defeat armor and aircraft at long range.",
-    accuracyReference: 62,
+    accuracyReference: 55,
     softAttackReference: 15,
     hardAttackReference: 70,
+    // Four guns firing about 10 rounds per minute across the five-minute turn window.
+    // The battery's tow trucks carry enough ready ammunition nearby to keep the guns firing.
     shotsPerTurn: 240,
-    baseDamagePerHit: 2.8,
-    suppressionPerHit: 0.28,
+    baseDamagePerHit: 1.0,
+    suppressionPerHit: 0.2,
     rangeAccuracy: [
       { range: 0, accuracy: 55 },
-      { range: 1, accuracy: 40 },
-      { range: 2, accuracy: 30 },
-      { range: 3, accuracy: 20 },
-      { range: 4, accuracy: 10 }
+      { range: 1, accuracy: 50 },
+      { range: 2, accuracy: 45 },
+      { range: 3, accuracy: 40 },
+      { range: 4, accuracy: 30 }
     ]
   },
   "recon.light.normal": {
