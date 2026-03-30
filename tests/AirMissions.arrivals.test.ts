@@ -71,7 +71,7 @@ registerTest("AIR_MISSION_ARRIVALS_QUEUE_TURN_START", async ({ Given, When, Then
     ammo: 6,
     fuel: 50,
     entrench: 0,
-    facing: "N"
+    facing: "NW"
   };
 
   await Given("a player fighter deployed and an air cover mission scheduled", async () => {

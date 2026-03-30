@@ -7254,7 +7254,7 @@ export class BattleScreen {
       ammo: liveUnit?.ammo ?? 0,
       fuel: liveUnit?.fuel ?? 0,
       entrench: liveUnit?.entrench ?? 0,
-      facing: liveUnit?.facing ?? "S",
+      facing: liveUnit?.facing ?? "SE",
       unitId: contact.unitId,
       suppressedBy
     };

@@ -151,12 +151,12 @@ export interface AttackResult {
 
 /** Maps facing strings to direction indices in the axial direction table. */
 const FACING_TO_INDEX: Record<Facing, number> = {
-  N: 0,
+  E: 0,
   NE: 1,
-  SE: 2,
-  S: 3,
+  NW: 2,
+  W: 3,
   SW: 4,
-  NW: 5
+  SE: 5
 };
 
 const HEX_EDGE_TO_ANGLE_DEG: Record<HexEdgeFacing, number> = {

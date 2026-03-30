@@ -78,7 +78,7 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
           ammo: 6,
           fuel: 0,
           entrench: 0,
-          facing: "N"
+          facing: "NW"
         } satisfies ScenarioUnit,
         defender: {
           // Infantry defender should be treated as a soft target (hardTargetFlag === false)
@@ -89,7 +89,7 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
           ammo: 6,
           fuel: 0,
           entrench: 0,
-          facing: "S"
+          facing: "SE"
         } satisfies ScenarioUnit,
         result,
         commander: { accBonus: 0, dmgBonus: 0 },
@@ -356,7 +356,7 @@ registerTest("BATTLESCREEN_SUPPORT_ARTILLERY_IMPACTS_WAIT_FOR_FOCUS_AND_USE_BARR
         ammo: 4,
         fuel: 30,
         entrench: 0,
-        facing: "N"
+        facing: "NW"
       }
     ] as ScenarioUnit[],
     getSupportSnapshot() {
@@ -492,7 +492,7 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
           ammo: 6,
           fuel: 0,
           entrench: 0,
-          facing: "N" as ScenarioUnit["facing"]
+          facing: "NW" as ScenarioUnit["facing"]
         }
       ];
     },
@@ -544,7 +544,7 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
           ammo: 6,
           fuel: 0,
           entrench: 0,
-          facing: "N" as ScenarioUnit["facing"]
+          facing: "NW" as ScenarioUnit["facing"]
         },
         defender: {
           type: "Infantry_42" as unknown as ScenarioUnit["type"],
@@ -554,7 +554,7 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
           ammo: 6,
           fuel: 0,
           entrench: 0,
-          facing: "S" as ScenarioUnit["facing"]
+          facing: "SE" as ScenarioUnit["facing"]
         },
         result,
         commander: { accBonus: 0, dmgBonus: 0 },

@@ -26,7 +26,7 @@ function buildScenarioUnit(type: ScenarioUnit["type"], hex: { q: number; r: numb
     ammo: 6,
     fuel: 0,
     entrench: 0,
-    facing: "N"
+    facing: "NW"
   } as MutableScenarioUnit;
 }
 

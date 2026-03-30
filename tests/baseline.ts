@@ -108,7 +108,7 @@ function makeUnitState(): UnitCombatState {
 function makeContexts(attackerHex: Axial, defenderHex: Axial): { attackerCtx: AttackerContext; defenderCtx: DefenderContext } {
   return {
     attackerCtx: { hex: attackerHex },
-    defenderCtx: { terrain: plains, class: "infantry", facing: "N", hex: defenderHex }
+    defenderCtx: { terrain: plains, class: "infantry", facing: "NW", hex: defenderHex }
   };
 }
 
@@ -129,7 +129,7 @@ registerTest("ACCURACY_RANGE_DROP", async ({ Given, When, Then }) => {
       defender,
       attackerCtx: near.attackerCtx,
       defenderCtx: near.defenderCtx,
-      targetFacing: "S",
+      targetFacing: "SE",
       isSoftTarget: true,
       ...baseRequest
     }).final;
@@ -139,7 +139,7 @@ registerTest("ACCURACY_RANGE_DROP", async ({ Given, When, Then }) => {
       defender,
       attackerCtx: far.attackerCtx,
       defenderCtx: far.defenderCtx,
-      targetFacing: "S",
+      targetFacing: "SE",
       isSoftTarget: true,
       ...baseRequest
     }).final;

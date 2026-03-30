@@ -495,7 +495,7 @@ registerTest("UNIT_FACING_UPDATES_AFTER_MOVEMENT_AND_ATTACK", async ({ Then }) =
     ammo: 6,
     fuel: 0,
     entrench: 0,
-    facing: "N" as ScenarioUnit["facing"]
+    facing: "NW" as ScenarioUnit["facing"]
   };
   const enemyInfantry: ScenarioUnit = {
     type: "TestInfantry" as unknown as ScenarioUnit["type"],
@@ -505,7 +505,7 @@ registerTest("UNIT_FACING_UPDATES_AFTER_MOVEMENT_AND_ATTACK", async ({ Then }) =
     ammo: 6,
     fuel: 0,
     entrench: 0,
-    facing: "N" as ScenarioUnit["facing"]
+    facing: "NW" as ScenarioUnit["facing"]
   };
 
   const { engine } = createEngine([infantry], [enemyInfantry]);
@@ -763,10 +763,10 @@ registerTest("PLAYER_DEFENDER_RETALIATES_UP_TO_SIX_TIMES_AND_SPENDS_AMMO", async
     facing: "NE" as ScenarioUnit["facing"]
   };
   const attackers: ScenarioUnit[] = [
-    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 1, r: 0 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "S" as ScenarioUnit["facing"] },
+    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 1, r: 0 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "SE" as ScenarioUnit["facing"] },
     { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 2, r: 0 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "SW" as ScenarioUnit["facing"] },
     { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 2, r: 1 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "NW" as ScenarioUnit["facing"] },
-    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 1, r: 2 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "N" as ScenarioUnit["facing"] },
+    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 1, r: 2 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "NW" as ScenarioUnit["facing"] },
     { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 0, r: 2 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "NE" as ScenarioUnit["facing"] },
     { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 0, r: 1 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "SE" as ScenarioUnit["facing"] },
     { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 0, r: 0 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "SE" as ScenarioUnit["facing"] }

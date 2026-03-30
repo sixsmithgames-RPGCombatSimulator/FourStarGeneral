@@ -59,7 +59,7 @@ registerTest("HEXMAP_RENDERER_SHOWS_TACTICAL_OVERLAYS_FOR_SUPPRESSION_AND_FIELDW
       ammo: 6,
       fuel: 0,
       entrench: 2,
-      facing: "N",
+      facing: "NW",
       suppressedBy: ["enemy-a", "enemy-b"]
     }, "Player");
   });
@@ -145,7 +145,7 @@ registerTest("HEXMAP_RENDERER_SHOWS_SENTRY_STATUS_PIP", async ({ Given, When, Th
       ammo: 6,
       fuel: 0,
       entrench: 0,
-      facing: "N",
+      facing: "NW",
       onSentry: true
     }, "Player");
   });

@@ -1,5 +1,5 @@
 import type { IMapRenderer } from "../contracts/IMapRenderer";
-import type { HexEdgeFacing, HexModification, ScenarioData, ScenarioUnit, TerrainDictionary, UnitClass, UnitTypeDefinition } from "../core/types";
+import { normalizeFacingDirection, type HexEdgeFacing, type HexModification, type ScenarioData, type ScenarioUnit, type TerrainDictionary, type UnitClass, type UnitTypeDefinition } from "../core/types";
 import { getSpriteForScenarioType } from "../data/unitSpriteCatalog";
 import { HEX_RADIUS, HEX_HEIGHT, HEX_WIDTH } from "../core/balance";
 import { CoordinateSystem, type TileDetails } from "./CoordinateSystem";
@@ -1552,31 +1552,14 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   private normalizeFacing(facing: ScenarioUnit["facing"] | string | null | undefined): ScenarioUnit["facing"] {
-    switch (facing) {
-      case "N":
-      case "NE":
-      case "SE":
-      case "S":
-      case "SW":
-      case "NW":
-        return facing;
-      default:
-        return "N";
-    }
+    return normalizeFacingDirection(facing);
   }
 
   private normalizeHexEdgeFacing(facing: HexEdgeFacing | string | null | undefined): HexEdgeFacing | null {
-    switch (facing) {
-      case "NW":
-      case "NE":
-      case "E":
-      case "SE":
-      case "SW":
-      case "W":
-        return facing;
-      default:
-        return null;
+    if (facing === null || facing === undefined) {
+      return null;
     }
+    return normalizeFacingDirection(facing, "NW");
   }
 
   private getHexVertices(cx: number, cy: number): Array<{ x: number; y: number }> {
@@ -1654,12 +1637,12 @@ export class HexMapRenderer implements IMapRenderer {
 
   private resolveFacingAngleDeg(facing: ScenarioUnit["facing"]): number {
     const facingVectors: Record<ScenarioUnit["facing"], { q: number; r: number }> = {
-      N: { q: 0, r: -1 },
+      E: { q: 1, r: 0 },
       NE: { q: 1, r: -1 },
-      SE: { q: 1, r: 0 },
-      S: { q: 0, r: 1 },
+      NW: { q: 0, r: -1 },
+      W: { q: -1, r: 0 },
       SW: { q: -1, r: 1 },
-      NW: { q: -1, r: 0 }
+      SE: { q: 0, r: 1 }
     };
     const v = facingVectors[facing];
     const origin = CoordinateSystem.axialToPixel(0, 0);

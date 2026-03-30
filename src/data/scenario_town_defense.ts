@@ -40,7 +40,7 @@ function makeUnit(type: string, hex: readonly [number, number], overrides: Omit<
     ammo: loadout.ammo,
     fuel: loadout.fuel,
     entrench: 0,
-    facing: "S",
+    facing: "SE",
     ...overrides
   };
 }
@@ -120,8 +120,8 @@ const botUnits = [
 ];
 
 const allyUnits = [
-  makeUnit("Infantry_42", [13, 4], { entrench: 0, facing: "S" }),
-  makeUnit("Engineer", [15, 4], { entrench: 0, facing: "S" }),
+  makeUnit("Infantry_42", [13, 4], { entrench: 0, facing: "SE" }),
+  makeUnit("Engineer", [15, 4], { entrench: 0, facing: "SE" }),
   makeUnit("AT_Gun_50mm", [12, 5], { facing: "SW" }),
   makeUnit("Recon_Bike", [16, 4], { facing: "SW" })
 ];

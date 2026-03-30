@@ -117,7 +117,7 @@ function makeUnit(type: keyof typeof unitTypes, hex: Axial): ScenarioUnit {
     ammo: unitTypes[type].ammo ?? 6,
     fuel: unitTypes[type].fuel ?? 50,
     entrench: 0,
-    facing: "N"
+    facing: "NW"
   };
 }
 

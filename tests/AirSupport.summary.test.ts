@@ -82,7 +82,7 @@ registerTest("AIR_SUPPORT_HUD_SUMMARY_AND_CANCEL", async ({ Given, When, Then })
       ammo: 6,
       fuel: 50,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine.initializeFromAllocations([fighter]);
     engine.setBaseCamp({ q: 0, r: 0 });

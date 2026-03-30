@@ -243,7 +243,7 @@ registerTest("PLAYER_RECON_ATTACK_TARGETS_RESPECT_SELECTED_UNIT_DIRECT_FIRE_LOS"
       ammo: 6,
       fuel: 40,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const playerSpotter: ScenarioUnit = {
       type: "TestSpotterInfantry" as ScenarioUnit["type"],
@@ -253,7 +253,7 @@ registerTest("PLAYER_RECON_ATTACK_TARGETS_RESPECT_SELECTED_UNIT_DIRECT_FIRE_LOS"
       ammo: 6,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const defender: ScenarioUnit = {
       type: "TestEnemyInfantry" as ScenarioUnit["type"],
@@ -263,7 +263,7 @@ registerTest("PLAYER_RECON_ATTACK_TARGETS_RESPECT_SELECTED_UNIT_DIRECT_FIRE_LOS"
       ammo: 6,
       fuel: 0,
       entrench: 0,
-      facing: "S"
+      facing: "SE"
     };
     engine = createEngine([reconCar, playerSpotter], [defender]);
   });
@@ -297,7 +297,7 @@ registerTest("RECON_SPOTTING_AND_DIRECT_FIRE_WORK_AGAINST_AN_ADJACENT_HILL_OCCUP
       ammo: 6,
       fuel: 40,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const defender: ScenarioUnit = {
       type: "TestEnemyInfantry" as ScenarioUnit["type"],
@@ -307,7 +307,7 @@ registerTest("RECON_SPOTTING_AND_DIRECT_FIRE_WORK_AGAINST_AN_ADJACENT_HILL_OCCUP
       ammo: 6,
       fuel: 0,
       entrench: 0,
-      facing: "S"
+      facing: "SE"
     };
     engine = createEngine([reconCar], [defender]);
   });

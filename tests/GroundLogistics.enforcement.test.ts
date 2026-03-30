@@ -215,7 +215,7 @@ function createDepotSeeder(hex = { q: 3, r: 0 }): ScenarioUnit {
     ammo: 10,
     fuel: 10,
     entrench: 0,
-    facing: "N"
+    facing: "NW"
   };
 }
 
@@ -231,7 +231,7 @@ registerTest("GROUND_UNITS_STOP_ATTACKING_OR_MOVING_WITHOUT_CARRIED_STOCK", asyn
       ammo: 0,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const enemyUnit: ScenarioUnit = {
       type: "EnemyInfantry" as ScenarioUnit["type"],
@@ -241,7 +241,7 @@ registerTest("GROUND_UNITS_STOP_ATTACKING_OR_MOVING_WITHOUT_CARRIED_STOCK", asyn
       ammo: 4,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine = createEngine([playerUnit], [enemyUnit]);
   });
@@ -292,7 +292,7 @@ registerTest("ONLY_BASE_ADJACENT_UNITS_RECEIVE_DIRECT_DEPOT_ISSUES", async ({ Gi
       ammo: 0,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const forwardVehicle: ScenarioUnit = {
       type: "TestVehicle" as ScenarioUnit["type"],
@@ -302,7 +302,7 @@ registerTest("ONLY_BASE_ADJACENT_UNITS_RECEIVE_DIRECT_DEPOT_ISSUES", async ({ Gi
       ammo: 0,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine = createEngine([nearBaseVehicle, forwardVehicle, createDepotSeeder()]);
   });
@@ -350,7 +350,7 @@ registerTest("CONNECTED_UNITS_KEEP_ONBOARD_AMMO_WHEN_DEPOT_STOCK_IS_EMPTY", asyn
       ammo: 7,
       fuel: 10,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine = createEngine([playerUnit]);
     ammoBefore = findPlayerUnit(engine, { q: 0, r: 1 }).ammo;
@@ -400,7 +400,7 @@ registerTest("CONNECTED_FULL_UNITS_DO_NOT_DRAIN_DEPOT_AMMO_OR_FUEL_WHILE_IDLE", 
       ammo: 10,
       fuel: 10,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine = createEngine([playerUnit]);
     const initialLogistics = engine.getLogisticsSnapshot();
@@ -451,7 +451,7 @@ registerTest("INITIAL_PLAYER_DEPOT_STOCK_AUGMENTS_LOGISTICS_SNAPSHOT", async ({ 
       ammo: 3,
       fuel: 4,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const cfg: GameEngineConfig = {
       scenario: scenario(),
@@ -492,7 +492,7 @@ registerTest("SUPPLY_CONVOYS_DELIVER_TO_FORWARD_BATTALIONS", async ({ Given, Whe
       ammo: 0,
       fuel: 12,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const forwardVehicle: ScenarioUnit = {
       type: "TestVehicle" as ScenarioUnit["type"],
@@ -502,7 +502,7 @@ registerTest("SUPPLY_CONVOYS_DELIVER_TO_FORWARD_BATTALIONS", async ({ Given, Whe
       ammo: 0,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine = createEngine([convoy, forwardVehicle, createDepotSeeder()]);
   });
@@ -546,7 +546,7 @@ registerTest("SUPPLY_PRIORITIES_DECIDE_WHICH_BATTALION_GETS_THE_NEXT_CONVOY", as
       ammo: 0,
       fuel: 12,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const closerVehicle: ScenarioUnit = {
       type: "TestVehicle" as ScenarioUnit["type"],
@@ -556,7 +556,7 @@ registerTest("SUPPLY_PRIORITIES_DECIDE_WHICH_BATTALION_GETS_THE_NEXT_CONVOY", as
       ammo: 0,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const fartherVehicle: ScenarioUnit = {
       type: "TestVehicle" as ScenarioUnit["type"],
@@ -566,7 +566,7 @@ registerTest("SUPPLY_PRIORITIES_DECIDE_WHICH_BATTALION_GETS_THE_NEXT_CONVOY", as
       ammo: 0,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine = createEngine([convoy, closerVehicle, fartherVehicle, createDepotSeeder()]);
   });
@@ -661,7 +661,7 @@ registerTest("BOT_FACTIONS_AUTO_STAGE_CONVOYS_AND_RESTORE_STRANDED_MOBILITY_WHEN
       ammo: 4,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const botVehicle: ScenarioUnit = {
       type: "TestVehicle" as ScenarioUnit["type"],
@@ -671,7 +671,7 @@ registerTest("BOT_FACTIONS_AUTO_STAGE_CONVOYS_AND_RESTORE_STRANDED_MOBILITY_WHEN
       ammo: 0,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine = createEngine([playerScreen], [botVehicle]);
   });

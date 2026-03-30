@@ -2,6 +2,7 @@ import {
   COMBAT_ROLE_VALUES,
   COMBAT_SIGNATURE_VALUES,
   COMBAT_WEIGHT_VALUES,
+  normalizeFacingDirection,
   UNIT_CLASS_VALUES
 } from "../core/types";
 import type {
@@ -4442,7 +4443,7 @@ private automateSupplyConvoys(
         ammo: allocation.ammo ?? definition.ammo,
         fuel: allocation.fuel ?? definition.fuel,
         entrench: allocation.entrench ?? 0,
-        facing: allocation.facing ?? "N"
+        facing: normalizeFacingDirection(allocation.facing)
       } satisfies ScenarioUnit;
     });
   }
@@ -4838,7 +4839,7 @@ private automateSupplyConvoys(
         ammo: 0,
         fuel: convoyTemplate.fuel ?? 70,
         entrench: 0,
-        facing: "N"
+        facing: "NW"
       });
       occupied.add(axialKey(hex));
     });
@@ -9989,7 +9990,7 @@ private automateSupplyConvoys(
   private resolveFacingToward(
     from: Axial,
     to: Axial,
-    fallback: ScenarioUnit["facing"] = "N"
+    fallback: ScenarioUnit["facing"] = "NW"
   ): ScenarioUnit["facing"] {
     const dq = to.q - from.q;
     const dr = to.r - from.r;
@@ -10004,12 +10005,12 @@ private automateSupplyConvoys(
 
     const moveVector = pixelVector(dq, dr);
     const facingVectors: Record<ScenarioUnit["facing"], { x: number; y: number }> = {
-      N: pixelVector(0, -1),
+      E: pixelVector(1, 0),
       NE: pixelVector(1, -1),
-      SE: pixelVector(1, 0),
-      S: pixelVector(0, 1),
+      NW: pixelVector(0, -1),
+      W: pixelVector(-1, 0),
       SW: pixelVector(-1, 1),
-      NW: pixelVector(-1, 0)
+      SE: pixelVector(0, 1)
     };
 
     let bestFacing = fallback;
@@ -10026,17 +10027,10 @@ private automateSupplyConvoys(
   }
 
   private normalizeHexEdgeFacing(facing: HexEdgeFacing | string | null | undefined): HexEdgeFacing | null {
-    switch (facing) {
-      case "NW":
-      case "NE":
-      case "E":
-      case "SE":
-      case "SW":
-      case "W":
-        return facing;
-      default:
-        return null;
+    if (facing === null || facing === undefined) {
+      return null;
     }
+    return normalizeFacingDirection(facing, "NW");
   }
 
   /** Resolves a bot attack against the nearest player unit when adjacency allows it. */

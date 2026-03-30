@@ -175,7 +175,7 @@ function createPlannerSnapshot(
       ammo: definition.ammo,
       fuel: definition.fuel,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     },
     definition
   };
@@ -301,7 +301,7 @@ registerTest("BOT_GROUND_ATTACK_STRIKES_ARMOR_OVER_CLOSER_INFANTRY", async ({ Gi
       ammo: 6,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const tank: ScenarioUnit = {
       type: "TestTank" as ScenarioUnit["type"],
@@ -311,7 +311,7 @@ registerTest("BOT_GROUND_ATTACK_STRIKES_ARMOR_OVER_CLOSER_INFANTRY", async ({ Gi
       ammo: 6,
       fuel: 55,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const attacker: ScenarioUnit = {
       type: "TestGroundAttack" as ScenarioUnit["type"],
@@ -321,7 +321,7 @@ registerTest("BOT_GROUND_ATTACK_STRIKES_ARMOR_OVER_CLOSER_INFANTRY", async ({ Gi
       ammo: 5,
       fuel: 55,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine = createHeuristicEngine([infantry, tank], [attacker]);
   });
@@ -353,7 +353,7 @@ registerTest("BOT_LEVEL_BOMBERS_STRIKE_ARTILLERY_OVER_CLOSER_INFANTRY", async ({
       ammo: 6,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const artillery: ScenarioUnit = {
       type: "TestArtillery" as ScenarioUnit["type"],
@@ -363,7 +363,7 @@ registerTest("BOT_LEVEL_BOMBERS_STRIKE_ARTILLERY_OVER_CLOSER_INFANTRY", async ({
       ammo: 5,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const attacker: ScenarioUnit = {
       type: "TestBomber" as ScenarioUnit["type"],
@@ -373,7 +373,7 @@ registerTest("BOT_LEVEL_BOMBERS_STRIKE_ARTILLERY_OVER_CLOSER_INFANTRY", async ({
       ammo: 4,
       fuel: 60,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine = createHeuristicEngine([infantry, artillery], [attacker]);
   });

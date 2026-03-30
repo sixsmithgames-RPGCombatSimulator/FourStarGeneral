@@ -250,12 +250,12 @@ export const SCENARIO_UNIT_PROPERTY_CANON = tuplesToEntries(SCENARIO_UNIT_PROPER
 export const SCENARIO_UNIT_PROPERTY_KEYS = tuplesToKeys(SCENARIO_UNIT_PROPERTY_TUPLES) as ScenarioUnitPropertyKey[];
 
 export const SCENARIO_UNIT_FACING_TUPLES = [
-  ["N", "North hexside."],
-  ["NE", "North-east hexside."],
-  ["SE", "South-east hexside."],
-  ["S", "South hexside."],
-  ["SW", "South-west hexside."],
-  ["NW", "North-west hexside."]
+  ["NW", "North-west hex edge."],
+  ["NE", "North-east hex edge."],
+  ["E", "East hex edge."],
+  ["SE", "South-east hex edge."],
+  ["SW", "South-west hex edge."],
+  ["W", "West hex edge."]
 ] as const;
 
 enforceUniqueTuples(SCENARIO_UNIT_FACING_TUPLES, "scenario unit facing");

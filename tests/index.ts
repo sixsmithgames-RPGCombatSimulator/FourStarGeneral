@@ -19,6 +19,7 @@ import "./BattleScreen.attackPreview.test.js";
 import "./BattleScreen.selectionIntel.test.js";
 import "./BattleScreen.objectiveMarkers.test.js";
 import "./BattleScreen.missionFlow.test.js";
+import "./FacingDirection.migration.test.js";
 import "./SelectionIntelOverlay.commandCards.test.js";
 import "./deploymentZonePlanner.test.js";
 import "./scenarioValidation.test.js";

@@ -56,7 +56,7 @@ registerTest("HEXMAP_ANIMATE_UNIT_MOVE", async ({ Given, When, Then }) => {
       ammo: 6,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     }, "Player");
     renderer.renderUnit("1,0", {
       type: "Infantry" as never,
@@ -66,7 +66,7 @@ registerTest("HEXMAP_ANIMATE_UNIT_MOVE", async ({ Given, When, Then }) => {
       ammo: 6,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     }, "Player");
   });
 
@@ -267,7 +267,7 @@ registerTest("HEXMAP_RENDERUNIT_REJECTS_MALFORMED_FACING_WITHOUT_CRASHING", asyn
         ammo: 6,
         fuel: 0,
         entrench: 0,
-        facing: "BROKEN" as unknown as "N"
+        facing: "BROKEN" as unknown as "NW"
       }, "Player");
     } catch (error) {
       thrown = error;
@@ -755,7 +755,7 @@ registerTest("HEXMAP_RENDERUNIT_DOES_NOT_ADD_WATER_TRANSPORT_OVERLAY", async ({ 
       ammo: 6,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     }, "Player");
   });
 

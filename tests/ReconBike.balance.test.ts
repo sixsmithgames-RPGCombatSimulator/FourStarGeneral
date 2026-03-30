@@ -40,13 +40,13 @@ function makeSoftTargetRequest(
     defenderCtx: {
       terrain: plains,
       class: "infantry",
-      facing: "S",
+      facing: "SE",
       hex: { q: 0, r: 1 },
       isRushing: options?.stance === "assault",
       isSpottedOnly: false,
       stance: options?.stance === "assault" ? "assault" : undefined
     },
-    targetFacing: "S",
+    targetFacing: "SE",
     isSoftTarget: true
   };
 }
@@ -62,13 +62,13 @@ function makeReconBikeTargetRequest(options?: { stance?: "assault" | "suppressiv
     defenderCtx: {
       terrain: plains,
       class: "recon",
-      facing: "S",
+      facing: "SE",
       hex: { q: 0, r: 1 },
       isRushing: false,
       isSpottedOnly: false,
       stance: undefined
     },
-    targetFacing: "S",
+    targetFacing: "SE",
     isSoftTarget: false
   };
 }

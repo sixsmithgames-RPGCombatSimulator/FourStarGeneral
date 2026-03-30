@@ -50,7 +50,7 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
           ammo: 5,
           fuel: 0,
           entrench: 0,
-          facing: "N" as ScenarioUnit["facing"]
+          facing: "NW" as ScenarioUnit["facing"]
         }
       ];
     },
@@ -102,7 +102,7 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
           ammo: 6,
           fuel: 0,
           entrench: 0,
-          facing: "N" as ScenarioUnit["facing"]
+          facing: "NW" as ScenarioUnit["facing"]
         },
         defender: {
           type: "Heavy_Tank" as unknown as ScenarioUnit["type"],
@@ -112,7 +112,7 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
           ammo: 6,
           fuel: 35,
           entrench: 0,
-          facing: "S" as ScenarioUnit["facing"]
+          facing: "SE" as ScenarioUnit["facing"]
         },
         result,
         commander: { accBonus: 5, dmgBonus: 5 },

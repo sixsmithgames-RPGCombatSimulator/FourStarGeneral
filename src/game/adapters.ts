@@ -52,7 +52,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 0,
     entrench: 1,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -62,7 +62,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 7,
     fuel: 40,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -72,7 +72,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 0,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -82,7 +82,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 0,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -92,7 +92,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 50,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 2
   },
   {
@@ -102,7 +102,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 4,
     fuel: 60,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   // Legacy scenarios list recon assets by their scenario type (e.g., `Recon_Bike`). Register the canonical
@@ -114,7 +114,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 45,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   // Scenario files still reference the original `Recon_Bike` type. Mirror it to the shared `reconBike`
@@ -126,7 +126,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 5,
     fuel: 30,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   // Engineers appear in legacy scenarios even when the commander skips precombat. Expose the canonical
@@ -139,7 +139,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 5,
     fuel: 0,
     entrench: 1,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -149,7 +149,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 0,
     entrench: 1,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -159,7 +159,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 7,
     fuel: 0,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 2
   },
   {
@@ -169,7 +169,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 0,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 2
   },
   {
@@ -179,7 +179,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 5,
     fuel: 0,
     entrench: 1,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -189,7 +189,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 5,
     fuel: 0,
     entrench: 1,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -199,7 +199,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 0,
     entrench: 1,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -209,7 +209,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 45,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -219,7 +219,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 0,
     fuel: 60,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 0
   },
   {
@@ -229,7 +229,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 2,
     fuel: 50,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 0
   },
   {
@@ -239,7 +239,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 0,
     fuel: 70,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 0
   },
   {
@@ -249,7 +249,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 7,
     fuel: 40,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -259,7 +259,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 35,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -269,7 +269,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 35,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -279,7 +279,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 30,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -289,7 +289,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 0,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -299,7 +299,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 5,
     fuel: 30,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -309,7 +309,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 40,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -319,7 +319,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 2,
     fuel: 55,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 2
   },
   {
@@ -329,7 +329,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 6,
     fuel: 50,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 2
   },
   {
@@ -339,7 +339,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 7,
     fuel: 55,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 2
   },
   {
@@ -349,7 +349,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 5,
     fuel: 55,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 2
   },
   {
@@ -359,7 +359,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 4,
     fuel: 60,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   },
   {
@@ -369,7 +369,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     ammo: 0,
     fuel: 65,
     entrench: 0,
-    facing: "N",
+    facing: "NW",
     experience: 1
   }
 ] as const;

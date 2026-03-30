@@ -148,7 +148,7 @@ registerTest("BOT_TOW_GUNS_WITH_ZERO_FUEL_CAPACITY_CAN_STILL_ADVANCE", async ({ 
       ammo: 6,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const botTowGun: ScenarioUnit = {
       type: "TestTowGun" as ScenarioUnit["type"],

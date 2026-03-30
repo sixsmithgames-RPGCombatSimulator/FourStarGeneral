@@ -79,7 +79,31 @@ export type CombatStance = "assault" | "suppressive" | "digIn";
  * Types of hex modifications that can be built by engineer units.
  */
 export type HexModificationType = "tankTraps" | "fortifications" | "clearedPath";
-export type HexEdgeFacing = "NW" | "NE" | "E" | "SE" | "SW" | "W";
+export type FacingDirection = "NW" | "NE" | "E" | "SE" | "SW" | "W";
+export type HexEdgeFacing = FacingDirection;
+export type LegacyScenarioFacing = "N" | "NE" | "SE" | "S" | "SW" | "NW";
+export const FACING_DIRECTIONS = ["NW", "NE", "E", "SE", "SW", "W"] as const;
+
+export function normalizeFacingDirection(
+  facing: FacingDirection | LegacyScenarioFacing | string | null | undefined,
+  fallback: FacingDirection = "NW"
+): FacingDirection {
+  switch (facing) {
+    case "NW":
+    case "NE":
+    case "E":
+    case "SE":
+    case "SW":
+    case "W":
+      return facing;
+    case "N":
+      return "NW";
+    case "S":
+      return "SE";
+    default:
+      return fallback;
+  }
+}
 
 /**
  * Hex modification built by engineers to alter terrain properties.
@@ -105,7 +129,7 @@ export interface ScenarioUnit {
   ammo: number;
   fuel: number;
   entrench: number;
-  facing: "N" | "NE" | "SE" | "S" | "SW" | "NW";
+  facing: FacingDirection;
   /** When true, unit begins play placed on its hex instead of in reserves. Optional. */
   preDeployed?: boolean;
   /** Stable unique identifier for this unit instance. Generated once and persisted across saves/loads.

@@ -141,7 +141,7 @@ registerTest("INTEL_VERIFICATION_CONFIRMS_FALSE_REPORTS", async ({ Given, When, 
       ammo: 8,
       fuel: 8,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine = createEngine([playerUnit]);
   });
@@ -192,7 +192,7 @@ registerTest("COUNTER_INTEL_DECEPTION_PULLS_SIMPLE_BOT_OFF_THE_REAL_AXIS", async
       ammo: 6,
       fuel: 0,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     const botUnit: ScenarioUnit = {
       type: "TestVehicle" as ScenarioUnit["type"],
@@ -202,7 +202,7 @@ registerTest("COUNTER_INTEL_DECEPTION_PULLS_SIMPLE_BOT_OFF_THE_REAL_AXIS", async
       ammo: 8,
       fuel: 8,
       entrench: 0,
-      facing: "N"
+      facing: "NW"
     };
     engine = createEngine([playerUnit], [botUnit], "Simple");
     const deception = engine.deployCounterIntel({ q: 5, r: 3 });

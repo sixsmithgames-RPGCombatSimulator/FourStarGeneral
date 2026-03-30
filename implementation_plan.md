@@ -361,3 +361,34 @@
 - Add a focused regression proving expanded intel survives a selection change.
 - Run `npm run build`.
 - Run focused compiled harness passes for the updated selection-intel tests.
+
+## Facing Direction Unification Plan
+
+### Intended behavior
+- Unit facing and hex-edge facing should use the same six labels: `NW`, `NE`, `E`, `SE`, `SW`, `W`.
+- Movement, combat, fortification checks, rendering, scenario validation, and authored data should all consume that same edge-based facing vocabulary.
+
+### Current behavior
+- Unit facings used a legacy vertex-style set with `N` and `S`, while fortifications already used edge labels with `E` and `W`.
+- Several engine, renderer, adapter, scenario, and test paths still authored or defaulted to the legacy literals.
+
+### Expected new behavior
+- `FacingDirection` becomes the shared type for unit facings and edge facings.
+- Legacy authored `N` and `S` values normalize to `NW` and `SE` only at compatibility boundaries.
+- Runtime movement and combat heading resolution should emit the shared edge labels directly.
+
+### Impact analysis
+- Systems consuming this output:
+  - Shared facing types and compatibility normalization in `src/core/types.ts`
+  - Directional armor math in `src/core/Combat.ts`
+  - Engine facing defaults and heading resolution in `src/game/GameEngine.ts`
+  - Sprite rotation and fortification rendering in `src/rendering/HexMapRenderer.ts`
+  - Authored scenario, adapter, and focused test data using unit facings
+- Visual behaviors that could shift:
+  - Units now rotate using the same label set shown in directional fortification logic.
+  - Newly spawned or allocated units default to `NW` instead of the removed legacy `N`.
+
+### Verification
+- Add focused regressions for legacy facing normalization and edge-direction heading resolution.
+- Run `npm run build`.
+- Run a focused harness pass for the new facing-direction tests.

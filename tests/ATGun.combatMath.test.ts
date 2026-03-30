@@ -37,7 +37,7 @@ function makeAttackRequest(options?: {
   attackerExperience?: number;
   defenderFacing?: ScenarioUnit["facing"];
 }): AttackRequest {
-  const defenderFacing = options?.defenderFacing ?? "S";
+  const defenderFacing = options?.defenderFacing ?? "SE";
   const defender = makeUnitState("Heavy_Tank");
 
   return {
@@ -96,16 +96,16 @@ registerTest("AT_GUN_50MM_500M_SHOT_USES_RANGE_TABLE_AND_PENETRATION_LIMITS", as
 });
 
 registerTest("AT_GUN_50MM_DAMAGE_RESPONDS_TO_BOTH_HARD_ATTACK_AND_AP", async ({ Then }) => {
-  const baseline = resolveAttack(makeAttackRequest({ defenderFacing: "N" }));
+  const baseline = resolveAttack(makeAttackRequest({ defenderFacing: "NW" }));
   const lowerHardAttack = resolveAttack(
     makeAttackRequest({
-      defenderFacing: "N",
+      defenderFacing: "NW",
       attackerOverride: { hardAttack: 25 }
     })
   );
   const lowerPenetration = resolveAttack(
     makeAttackRequest({
-      defenderFacing: "N",
+      defenderFacing: "NW",
       attackerOverride: { ap: 7 }
     })
   );

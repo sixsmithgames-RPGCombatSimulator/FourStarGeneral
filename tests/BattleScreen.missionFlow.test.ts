@@ -436,7 +436,7 @@ registerTest("BATTLESCREEN_AUTO_DEPLOY_SKIPS_PREDEPLOYED_HEXES", async ({ Given,
         ammo: 5,
         fuel: 30,
         entrench: 0,
-        facing: "N",
+        facing: "NW",
         preDeployed: true
       } as ScenarioUnit,
       {
@@ -447,7 +447,7 @@ registerTest("BATTLESCREEN_AUTO_DEPLOY_SKIPS_PREDEPLOYED_HEXES", async ({ Given,
         ammo: 5,
         fuel: 30,
         entrench: 0,
-        facing: "N",
+        facing: "NW",
         preDeployed: true
       } as ScenarioUnit
     ];
@@ -461,7 +461,7 @@ registerTest("BATTLESCREEN_AUTO_DEPLOY_SKIPS_PREDEPLOYED_HEXES", async ({ Given,
         ammo: 5,
         fuel: 30,
         entrench: 0,
-        facing: "N"
+        facing: "NW"
       } as ScenarioUnit)
     ];
 

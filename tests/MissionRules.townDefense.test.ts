@@ -22,17 +22,17 @@ const townDefenseScenario: ScenarioData = {
       hq: { q: 2, r: 12 },
       general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 },
       units: [
-        { type: "Panzer_IV", hex: { q: 2, r: 12 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "N" },
-        { type: "Panzer_IV", hex: { q: 3, r: 12 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "N" },
-        { type: "Infantry_42", hex: { q: 2, r: 11 }, strength: 100, experience: 0, ammo: 6, fuel: 0, entrench: 0, facing: "N" },
-        { type: "Infantry_42", hex: { q: 3, r: 11 }, strength: 100, experience: 0, ammo: 6, fuel: 0, entrench: 0, facing: "N" }
+        { type: "Panzer_IV", hex: { q: 2, r: 12 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "NW" },
+        { type: "Panzer_IV", hex: { q: 3, r: 12 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "NW" },
+        { type: "Infantry_42", hex: { q: 2, r: 11 }, strength: 100, experience: 0, ammo: 6, fuel: 0, entrench: 0, facing: "NW" },
+        { type: "Infantry_42", hex: { q: 3, r: 11 }, strength: 100, experience: 0, ammo: 6, fuel: 0, entrench: 0, facing: "NW" }
       ]
     },
     Ally: {
       hq: { q: 15, r: -4 },
       general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 },
       units: [
-        { type: "Infantry_42", hex: { q: 15, r: -4 }, strength: 100, experience: 0, ammo: 6, fuel: 0, entrench: 0, facing: "S" }
+        { type: "Infantry_42", hex: { q: 15, r: -4 }, strength: 100, experience: 0, ammo: 6, fuel: 0, entrench: 0, facing: "SE" }
       ]
     }
   }
@@ -47,7 +47,7 @@ function makeUnit(type: ScenarioUnit["type"], q: number, r: number, strength = 1
     ammo: 6,
     fuel: type === "Infantry_42" ? 0 : 40,
     entrench: 0,
-    facing: "S"
+    facing: "SE"
   };
 }
 
