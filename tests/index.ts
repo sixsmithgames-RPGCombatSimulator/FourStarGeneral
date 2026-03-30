@@ -7,6 +7,7 @@ import "./HexMapRenderer.artilleryTargetFx.test.js";
 import "./HexMapRenderer.focusOnHex.test.js";
 import "./HexMapRenderer.muzzleFlash.test.js";
 import "./HexMapRenderer.tacticalOverlays.test.js";
+import "./WreckFxRenderer.test.js";
 import "./RoadOverlayRenderer.test.js";
 import "./ProceduralPrimitives.test.js";
 import "./Combat.directionalFortifications.test.js";

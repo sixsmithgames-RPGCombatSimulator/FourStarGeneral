@@ -332,3 +332,32 @@
 - Add focused regressions for move-out, deploy-after-movement, and deploy-then-fire flows.
 - Run `npm run build`.
 - Run a focused compiled harness pass for the updated command-state tests.
+
+## Battle Messaging Plan
+
+### Intended behavior
+- Move failures should explain both the blocking rule and the corrective action instead of logging a generic failure.
+- The battle intel overlay should keep its expanded mode across unit and hex selection changes until the commander explicitly switches back to compact mode.
+
+### Current behavior
+- Player move failures collapse to a generic "Move failed" message even when the engine already provided a specific reason.
+- Fresh battle intel forces the overlay back to compact mode on every selection change.
+
+### Expected new behavior
+- Move failure announcements and activity-log entries should mirror the engine reason and append the next step the player can take.
+- Expanded battle intel should stay expanded while selecting another unit on the same hex or another occupied hex; only the user toggling `Compact` should collapse it.
+
+### Impact analysis
+- Systems consuming this output:
+  - Player move error handling in `src/ui/screens/BattleScreen.ts`
+  - Persistent selection overlay state in `src/ui/announcements/SelectionIntelOverlay.ts`
+  - Focused battle-screen and overlay regressions
+- Visual behaviors that could shift:
+  - System activity entries now explain why a move failed and how to recover.
+  - The intel card no longer snaps back to compact mode when the commander keeps reviewing different units.
+
+### Verification
+- Add a focused regression for tow-state move failure messaging.
+- Add a focused regression proving expanded intel survives a selection change.
+- Run `npm run build`.
+- Run focused compiled harness passes for the updated selection-intel tests.

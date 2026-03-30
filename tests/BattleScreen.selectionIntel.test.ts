@@ -76,3 +76,18 @@ registerTest("BATTLE_SCREEN_STACK_UNIT_SELECTOR_SWITCHES_THE_ACTIVE_UNIT_ON_A_SH
     }
   });
 });
+
+registerTest("BATTLE_SCREEN_MOVE_FAILURE_MESSAGE_EXPLAINS_THE_PROBLEM_AND_FIX", async ({ Then }) => {
+  const message = (BattleScreen.prototype as unknown as {
+    buildMoveFailureMessage: (error: unknown) => string;
+  }).buildMoveFailureMessage(new Error("This battery must choose Move Out before it can be towed."));
+
+  await Then("tow-state move failures tell the commander exactly what to do next", async () => {
+    if (!message.includes("This battery must choose Move Out before it can be towed.")) {
+      throw new Error(`Expected move failure message to include the engine reason, received '${message}'.`);
+    }
+    if (!message.includes("Use Move Out first, then pick a destination hex.")) {
+      throw new Error(`Expected move failure message to include the corrective step, received '${message}'.`);
+    }
+  });
+});

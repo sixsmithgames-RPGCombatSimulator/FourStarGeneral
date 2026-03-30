@@ -8,6 +8,7 @@ import { RoadOverlayRenderer } from "./RoadOverlayRenderer";
 import { ProceduralEffectsAnimator, getZoomTier } from "./ProceduralEffects";
 import { loadEffectSpecifications } from "./EffectSpecifications";
 import { getTerrainTint, shouldUseTerrainResponse, loadTerrainTints } from "./TerrainResponseSystem";
+import { WreckFxRenderer, resolveWreckFxClass, type WreckFxClass } from "./WreckFxRenderer";
 import { CombatSoundManager, type QueuedWeaponSoundRequest } from "../audio/CombatSoundManager";
 import type { WeaponSoundClass } from "../audio/SoundAssetMetadata";
 import terrainData from "../data/terrain.json";
@@ -79,6 +80,7 @@ export interface RenderedUnitStackMember {
    smokeLevel: 0 | 1 | 2;
    flames: boolean;
    wreck: boolean;
+   wreckClass: WreckFxClass;
    fireTurnsRemaining: number;
    group: SVGGElement | null;
  };
@@ -105,6 +107,7 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly recentEffects = new Map<string, number>(); // Dedupe guard: effectKey -> timestamp
   private static effectSpecsLoaded = false;
   private soundCatalogReady: Promise<void> | null = null;
+  private wreckFxRenderer: WreckFxRenderer | null = null;
 
   private hexClickHandler: ((key: string) => void) | null = null;
   private boundDelegatedClickHandler: ((event: MouseEvent) => void) | null = null;
@@ -1017,6 +1020,13 @@ export class HexMapRenderer implements IMapRenderer {
     this.cacheHexReferences();
     this.applyReconOverlayClasses();
     this.rebindHexInteractions();
+
+    if (!this.wreckFxRenderer) {
+      this.wreckFxRenderer = new WreckFxRenderer(svg, () => getZoomTier(this.getCurrentZoom()));
+    } else {
+      this.wreckFxRenderer.bindSvg(svg);
+    }
+
     this.rehydrateAftermathOverlays();
 
     // Get reference to the combat effects layer (now inside viewportRoot)
@@ -2844,12 +2854,15 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   markHexWrecked(hexKey: string, unitClass?: UnitClass, fireTurns = 2): void {
-    const hasFlames = unitClass === "vehicle" || unitClass === "tank";
+    const scenarioType = this.getUnitScenarioTypeAt(hexKey);
+    const wreckClass = resolveWreckFxClass(unitClass, scenarioType);
+    const hasFlames = wreckClass !== "infantry";
     const existing = this.aftermathByHexKey.get(hexKey);
     const next: AftermathEntry = {
       smokeLevel: hasFlames ? 2 : 0,
       flames: hasFlames,
       wreck: true,
+      wreckClass,
       fireTurnsRemaining: Math.max(0, Math.floor(fireTurns)),
       group: existing?.group ?? null
     };
@@ -2873,6 +2886,7 @@ export class HexMapRenderer implements IMapRenderer {
       smokeLevel,
       flames,
       wreck: false,
+      wreckClass: resolveWreckFxClass(unitClass, this.getUnitScenarioTypeAt(hexKey)),
       fireTurnsRemaining: Math.max(0, Math.floor(turns)),
       group: existing?.group ?? null
     };
@@ -2908,6 +2922,7 @@ export class HexMapRenderer implements IMapRenderer {
 
   private removeAftermathOverlay(hexKey: string): void {
     const entry = this.aftermathByHexKey.get(hexKey);
+    this.wreckFxRenderer?.removeWreck(hexKey);
     if (entry?.group) {
       entry.group.remove();
       entry.group = null;
@@ -2946,7 +2961,22 @@ export class HexMapRenderer implements IMapRenderer {
 
     if (entry.wreck) {
       group.appendChild(this.createWreckShape(center.cx, center.cy));
+      if (entry.flames || entry.smokeLevel > 0) {
+        this.wreckFxRenderer?.upsertWreck({
+          hexKey,
+          parentGroup: group,
+          anchorX: center.cx,
+          anchorY: center.cy + 8,
+          seed: this.seedFromHexKey(`${hexKey}:${entry.wreckClass}`),
+          wreckClass: entry.wreckClass
+        });
+      } else {
+        this.wreckFxRenderer?.removeWreck(hexKey);
+      }
+      return;
     }
+
+    this.wreckFxRenderer?.removeWreck(hexKey);
 
     const smokeLevel = entry.smokeLevel;
     if (smokeLevel === 1 || smokeLevel === 2) {

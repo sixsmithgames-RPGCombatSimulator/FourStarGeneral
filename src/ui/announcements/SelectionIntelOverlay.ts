@@ -116,7 +116,6 @@ export class SelectionIntelOverlay {
 
     if (isNewIntel) {
       this.suppressedSignature = null;
-      this.collapsed = intel.kind === "battle";
       this.activeBattleTab = "orders";
     }
 

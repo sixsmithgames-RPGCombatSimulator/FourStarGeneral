@@ -332,3 +332,102 @@ registerTest("SELECTION_INTEL_OVERLAY_SHOWS_ENEMY_CONTACT_NOTES_FOR_TERRAIN_INTE
     container.remove();
   });
 });
+
+registerTest("SELECTION_INTEL_OVERLAY_KEEPS_EXPANDED_MODE_ACROSS_SELECTION_CHANGES", async ({ Given, When, Then }) => {
+  const container = document.createElement("div");
+  container.innerHTML = `
+    <section id="battleIntelOverlay" class="battle-intel-overlay hidden" tabindex="-1">
+      <button id="battleIntelOverlayDismiss" type="button">x</button>
+      <button id="battleIntelOverlayToggle" type="button">Expand</button>
+      <header>
+        <h3 id="battleIntelOverlayTitle"></h3>
+        <p id="battleIntelOverlayMeta"></p>
+      </header>
+      <div id="battleIntelOverlayBody"></div>
+      <div id="battleIntelOverlayNotes" class="hidden"></div>
+    </section>
+  `;
+  document.body.appendChild(container);
+
+  const firstIntel: BattleSelectionIntel = {
+    kind: "battle",
+    hexKey: "6,6",
+    terrainName: "River",
+    unitLabel: "Recon Squad",
+    unitStrength: 97,
+    unitAmmo: 6,
+    unitFuel: 39,
+    unitEntrenchment: 0,
+    movementRemaining: 4,
+    movementMax: 4,
+    rangeLabel: "1-2",
+    canEntrench: false,
+    moveOptions: 4,
+    attackOptions: 2,
+    unitTabs: [],
+    statusMessage: "Recon Squad selected at 6,6.",
+    statusChips: [],
+    actionCards: [
+      {
+        id: "enterSentry",
+        label: "Sentry",
+        detail: "Hold position and stay uncommitted this turn to set sentry.",
+        tone: "defense",
+        available: true
+      }
+    ],
+    detailSections: [
+      {
+        title: "Unit",
+        entries: [{ label: "Class", value: "Recon" }]
+      }
+    ],
+    notes: []
+  };
+
+  const secondIntel: BattleSelectionIntel = {
+    ...firstIntel,
+    hexKey: "7,6",
+    terrainName: "Hill",
+    unitLabel: "Infantry Battalion",
+    unitStrength: 84,
+    unitAmmo: 4,
+    unitFuel: null,
+    movementRemaining: 2,
+    movementMax: 2,
+    rangeLabel: "1",
+    canEntrench: true,
+    statusMessage: "Infantry Battalion selected at 7,6.",
+    detailSections: [
+      {
+        title: "Unit",
+        entries: [{ label: "Class", value: "Line Infantry" }]
+      }
+    ]
+  };
+
+  let overlay: SelectionIntelOverlay | null = null;
+  await Given("a mounted selection intel overlay", async () => {
+    overlay = new SelectionIntelOverlay();
+  });
+
+  await When("the commander expands battle intel and then selects another unit", async () => {
+    overlay?.update(firstIntel);
+    document.getElementById("battleIntelOverlayToggle")?.click();
+    overlay?.update(secondIntel);
+  });
+
+  await Then("the overlay remains expanded until the commander explicitly compacts it", async () => {
+    const root = document.getElementById("battleIntelOverlay");
+    const toggle = document.getElementById("battleIntelOverlayToggle");
+    if (root?.dataset.collapsed !== "false") {
+      throw new Error(`Expected expanded mode to persist across selection changes, received collapsed=${root?.dataset.collapsed ?? "missing"}.`);
+    }
+    if (toggle?.textContent?.trim() !== "Compact") {
+      throw new Error(`Expected toggle to stay in compact-mode control state, received '${toggle?.textContent ?? ""}'.`);
+    }
+
+    overlay?.dispose();
+    container.remove();
+  });
+});

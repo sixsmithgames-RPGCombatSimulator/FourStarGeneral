@@ -5894,13 +5894,39 @@ export class BattleScreen {
       // Clear stale selection and let user reselect
       this.clearSelectedHex();
       this.renderEngineUnits();
-      this.announceBattleUpdate("Move failed. Please reselect your unit.");
+      const moveFailureMessage = this.buildMoveFailureMessage(err);
+      this.announceBattleUpdate(moveFailureMessage);
       this.publishActivityEvent({
         category: "system",
         type: "move",
-        summary: "Move command failed."
+        summary: moveFailureMessage
       });
     }
+  }
+
+  private buildMoveFailureMessage(error: unknown): string {
+    const reason = error instanceof Error && error.message.trim().length > 0
+      ? error.message.trim()
+      : "The route is no longer valid.";
+
+    let correctiveAction = "Select the unit again and choose a legal destination hex.";
+    if (reason.includes("must choose Move Out before it can be towed")) {
+      correctiveAction = "Use Move Out first, then pick a destination hex.";
+    } else if (reason.includes("Pinned formations cannot move")) {
+      correctiveAction = "Break the pin or wait until the unit recovers before moving it.";
+    } else if (reason.includes("Artillery cannot move after attacking")) {
+      correctiveAction = "Move before firing next turn, or leave the battery in place now.";
+    } else if (reason.includes("Destination hex is occupied")) {
+      correctiveAction = "Pick an open hex.";
+    } else if (reason.includes("Destination is not reachable")) {
+      correctiveAction = "Choose a highlighted hex within the unit's remaining movement.";
+    } else if (reason.includes("This logistics convoy is AI-controlled")) {
+      correctiveAction = "Let the convoy move during the supply phase instead of issuing manual orders.";
+    } else if (reason.includes("Movement is allowed only during the player turn")) {
+      correctiveAction = "Wait until your next player turn to issue the move.";
+    }
+
+    return `Move failed: ${reason} ${correctiveAction}`;
   }
 
   /**
