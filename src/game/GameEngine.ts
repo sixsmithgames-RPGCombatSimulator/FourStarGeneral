@@ -9340,7 +9340,6 @@ private automateSupplyConvoys(
       const visited: Axial[] = [structuredClone(plan.origin)];
       if (toKey !== fromKey) {
         console.log(`[Bot AI] Executing move for ${unit.type} from ${fromKey} to ${toKey}`);
-        this.botPlacements.delete(fromKey);
         const moved = structuredClone(unit);
 
         // Get unit's actual movement points for this turn
@@ -9383,25 +9382,30 @@ private automateSupplyConvoys(
           fuelSpent += stepFuel;
           hexesMoved += 1;
         }
-        if (Number.isFinite(availableFuel) && fuelSpent > 0) {
-          moved.fuel = Math.max(0, Number((moved.fuel - fuelSpent).toFixed(2)));
+        if (hexesMoved > 0) {
+          if (Number.isFinite(availableFuel) && fuelSpent > 0) {
+            moved.fuel = Math.max(0, Number((moved.fuel - fuelSpent).toFixed(2)));
+          }
+          moved.entrench = 0;
+          const finalKey = axialKey(current);
+          console.log(`[Bot AI] ${unit.type} moved from ${fromKey} to ${finalKey} (${visited.length - 1} steps)`);
+          this.botPlacements.delete(fromKey);
+          this.botPlacements.set(finalKey, moved);
+          this.syncBotFuel(current, moved.fuel);
+          this.syncBotEntrench(current, moved.entrench);
+          occupancy.delete(fromKey);
+          occupancy.add(finalKey);
+          moves.push({
+            unitType: moved.type,
+            from: structuredClone(unit.hex),
+            to: structuredClone(current),
+            path: visited,
+            distance: visited.length - 1,
+            duration: Math.max(visited.length - 1, 1)
+          });
+        } else {
+          console.log(`[Bot AI] ${unit.type} could not progress along planned path from ${fromKey}; holding position`);
         }
-        moved.entrench = 0;
-        const finalKey = axialKey(current);
-        console.log(`[Bot AI] ${unit.type} moved from ${fromKey} to ${finalKey} (${visited.length - 1} steps)`);
-        this.botPlacements.set(finalKey, moved);
-        this.syncBotFuel(current, moved.fuel);
-        this.syncBotEntrench(current, moved.entrench);
-        occupancy.delete(fromKey);
-        occupancy.add(finalKey);
-        moves.push({
-          unitType: moved.type,
-          from: structuredClone(unit.hex),
-          to: structuredClone(current),
-          path: visited,
-          distance: visited.length - 1,
-          duration: Math.max(visited.length - 1, 1)
-        });
       }
 
       if (plan.attackTarget) {

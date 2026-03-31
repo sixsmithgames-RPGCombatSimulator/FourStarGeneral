@@ -493,6 +493,13 @@ interface ActionCandidate {
 }
 
 /**
+ * Enemy-pressure should overrule objective marching, but not a deliberate firing setup or attack plan.
+ */
+function isObjectiveCandidate(candidate: ActionCandidate | null): boolean {
+  return Boolean(candidate && candidate.attackTarget === null && candidate.rationale.toLowerCase().includes("objective"));
+}
+
+/**
  * Dijkstra-style search restricted by movement allowance to collect passable tiles and the cheapest path to each.
  * The planner keeps this pure so the engine can re-run it without mutating live state.
  */
@@ -1227,41 +1234,80 @@ function scoreFireSetup(
   const requiresLos = requiresDirectLOS(snapshot.definition);
   let best: ActionCandidate | null = null;
 
-  for (const option of reachable.values()) {
-    if (option.path.length <= 1) {
+  const evaluateSetupPosition = (
+    hex: Axial,
+    path: readonly Axial[],
+    enemy: PlannerUnitSnapshot
+  ): { score: number; rangeGap: number; futureGap: number; hasLos: boolean } => {
+    const terrain = input.map.terrainAt(hex);
+    const nearestEnemyDistance = enemies.reduce(
+      (min, other) => Math.min(min, hexDistance(hex, other.unit.hex)),
+      Number.POSITIVE_INFINITY
+    );
+    const distance = hexDistance(hex, enemy.unit.hex);
+    const rangeGap = distanceToAttackBand(distance, rangeMin, rangeMax);
+    const futureGap = Math.max(0, rangeGap - nextTurnMoveAllowance);
+    const hasLos = !requiresLos || input.losAllows(hex, enemy.unit.hex, false);
+
+    let score = FIRE_SETUP_BASE_BONUS
+      + calculateTargetPriorityBonus(purpose, enemy)
+      - rangeGap * FIRE_SETUP_RANGE_GAP_PENALTY
+      - futureGap * FIRE_SETUP_FUTURE_GAP_PENALTY
+      - (path.length - 1) * 0.75;
+
+    if (futureGap === 0) {
+      score += FIRE_SETUP_READY_BONUS;
+    }
+
+    // Direct-fire units should not stage onto hexes that still leave the target masked next turn.
+    score += hasLos ? FIRE_SETUP_LOS_BONUS : -FIRE_SETUP_NO_LOS_PENALTY;
+    score += calculateTerrainPositionScore(hex, terrain, false);
+    score += calculateArtilleryPositionScore(hex, nearestEnemyDistance, snapshot, enemy, modifiers);
+
+    return { score, rangeGap, futureGap, hasLos };
+  };
+
+  for (const enemy of enemies) {
+    if (!canPotentiallyAttackTarget(snapshot, enemy)) {
       continue;
     }
 
-    const terrain = input.map.terrainAt(option.hex);
-    const nearestEnemyDistance = enemies.reduce(
-      (min, enemy) => Math.min(min, hexDistance(option.hex, enemy.unit.hex)),
-      Number.POSITIVE_INFINITY
-    );
+    const originEvaluation = evaluateSetupPosition(snapshot.unit.hex, [snapshot.unit.hex], enemy);
+    if (originEvaluation.futureGap === 0 && originEvaluation.hasLos) {
+      const holdCandidate: ActionCandidate = {
+        destination: snapshot.unit.hex,
+        path: [snapshot.unit.hex],
+        attackTarget: null,
+        expectedDamage: 0,
+        expectedRetaliation: 0,
+        score: originEvaluation.score,
+        rationale: `Hold fire lane on ${describePriorityTarget(enemy)}`
+      };
 
-    for (const enemy of enemies) {
-      if (!canPotentiallyAttackTarget(snapshot, enemy)) {
+      if (!best || holdCandidate.score > best.score) {
+        best = holdCandidate;
+      }
+    }
+
+    for (const option of reachable.values()) {
+      if (option.path.length <= 1) {
         continue;
       }
 
-      const distance = hexDistance(option.hex, enemy.unit.hex);
-      const rangeGap = distanceToAttackBand(distance, rangeMin, rangeMax);
-      const futureGap = Math.max(0, rangeGap - nextTurnMoveAllowance);
-      const hasLos = !requiresLos || input.losAllows(option.hex, enemy.unit.hex, false);
+      const evaluation = evaluateSetupPosition(option.hex, option.path, enemy);
+      const rangeImprovement = originEvaluation.rangeGap - evaluation.rangeGap;
+      const futureImprovement = originEvaluation.futureGap - evaluation.futureGap;
+      const losImprovement = (evaluation.hasLos ? 1 : 0) - (originEvaluation.hasLos ? 1 : 0);
 
-      let score = FIRE_SETUP_BASE_BONUS
-        + calculateTargetPriorityBonus(purpose, enemy)
-        - rangeGap * FIRE_SETUP_RANGE_GAP_PENALTY
-        - futureGap * FIRE_SETUP_FUTURE_GAP_PENALTY
-        - (option.path.length - 1) * 0.75;
-
-      if (futureGap === 0) {
-        score += FIRE_SETUP_READY_BONUS;
+      // If the move does not improve attack timing or LOS, it is just churn and should not compete.
+      if (rangeImprovement <= 0 && futureImprovement <= 0 && losImprovement <= 0) {
+        continue;
       }
 
-      // Direct-fire units should not stage onto hexes that still leave the target masked next turn.
-      score += hasLos ? FIRE_SETUP_LOS_BONUS : -FIRE_SETUP_NO_LOS_PENALTY;
-      score += calculateTerrainPositionScore(option.hex, terrain, false);
-      score += calculateArtilleryPositionScore(option.hex, nearestEnemyDistance, snapshot, enemy, modifiers);
+      let score = evaluation.score
+        + rangeImprovement * 6
+        + futureImprovement * 10
+        + losImprovement * 8;
 
       const candidate: ActionCandidate = {
         destination: option.hex,
@@ -1413,7 +1459,7 @@ function pickBestCandidate(
 
   // If we already have a decent objective move but an enemy-pressure option clearly outranks it
   // (due to proximity/visibility), prefer the pressure move. This keeps the AI responsive to contact.
-  if ((allowEnemyEliminationFallback || enemyNearOrVisible)) {
+  if ((allowEnemyEliminationFallback || enemyNearOrVisible) && isObjectiveCandidate(top)) {
     const pressureCandidate = scoreEnemyPressure(snapshot.unit.hex, reachable, pressureTargets);
     if (pressureCandidate && enemyNearOrVisible) {
       // Apply difficulty-based contact engagement bonus

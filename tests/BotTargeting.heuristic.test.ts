@@ -289,6 +289,49 @@ registerTest("BOT_PLANNER_STAGES_FOR_ARMORED_TARGETS_WITH_A_REAL_FIRING_LANE", a
   });
 });
 
+registerTest("BOT_PLANNER_HOLDS_A_GOOD_FIRING_LANE_INSTEAD_OF_SHUFFLING_SIDEWAYS", async ({ Given, When, Then }) => {
+  let plannedDestination = "";
+
+  await Given("an anti-tank gun already covering an armored target from a useful staging hex", async () => {
+    const botUnit = createPlannerSnapshot("BotATGun", antiTankGunDef, { q: 0, r: 0 });
+    const blocker = createPlannerSnapshot("BotBlocker", playerInfantryDef, { q: 1, r: 0 });
+    const playerTank = createPlannerSnapshot("EnemyTank", playerTankDef, { q: 2, r: 0 });
+
+    const input: BotPlannerInput = {
+      botUnits: [botUnit, blocker],
+      playerUnits: [playerTank],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(botUnit.unit.hex), "bot"],
+        [axialKey(blocker.unit.hex), "bot"],
+        [axialKey(playerTank.unit.hex), "player"]
+      ]),
+      map: {
+        inBounds: () => true,
+        terrainAt: () => plains,
+        movementCost: () => 1
+      },
+      losAllows: () => true,
+      movementAllowance: () => 1,
+      attackEstimator: () => null,
+      difficulty: "Normal"
+    };
+
+    const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "0,0");
+    plannedDestination = plan ? axialKey(plan.destination) : "";
+  });
+
+  await When("the planner compares lateral movement against simply holding the lane", async () => {
+    // Planner result captured during Given to keep the test focused on the chosen destination.
+  });
+
+  await Then("the unit should stay put instead of sidestepping without improving range or LOS", async () => {
+    if (plannedDestination !== "0,0") {
+      throw new Error(`Expected the anti-tank gun to hold at 0,0, but planner chose ${plannedDestination || "no move"}.`);
+    }
+  });
+});
+
 registerTest("BOT_GROUND_ATTACK_STRIKES_ARMOR_OVER_CLOSER_INFANTRY", async ({ Given, When, Then }) => {
   let engine: GameEngine;
 
