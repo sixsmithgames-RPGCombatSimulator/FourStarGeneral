@@ -382,37 +382,8 @@ function validateRangeEnvelope(
     return;
   }
 
-  let longestGroundRange = 0;
-  for (const sideKey of ["Player", "Bot", "Ally"]) {
-    const sideRecord = asRecord(sidesRecord[sideKey]);
-    if (!sideRecord) {
-      continue;
-    }
-    const unitsValue = sideRecord.units;
-    if (!Array.isArray(unitsValue)) {
-      issues.push(`Scenario ${scenarioName ?? missionKey} side ${sideKey} must declare a units array.`);
-      continue;
-    }
-    unitsValue.forEach((unit, index) => {
-      const unitRecord = asRecord(unit);
-      const unitType = readString(unitRecord?.type);
-      if (!unitType) {
-        issues.push(`Scenario ${scenarioName ?? missionKey} side ${sideKey} unit ${index} is missing a type.`);
-        return;
-      }
-      const definition = unitTypes[unitType as UnitTypeKey];
-      if (!definition) {
-        issues.push(`Scenario ${scenarioName ?? missionKey} references unknown unit type ${unitType}.`);
-        return;
-      }
-      if (definition.moveType !== "air") {
-        longestGroundRange = Math.max(longestGroundRange, Number(definition.rangeMax ?? 0));
-      }
-    });
-  }
-
-  const requiredCols = longestGroundRange + profile.minRangeBuffer;
-  const requiredRows = longestGroundRange + profile.minRangeBuffer;
+  // Only validate minimum map dimensions, not range envelope
+  // Artillery can sit at the back and fire - countered by air units and off-map support
   if (size.cols < profile.minCols) {
     issues.push(
       `Scenario ${scenarioName ?? missionKey} width ${size.cols} is below the profile minimum ${profile.minCols}.`
@@ -421,16 +392,6 @@ function validateRangeEnvelope(
   if (size.rows < profile.minRows) {
     issues.push(
       `Scenario ${scenarioName ?? missionKey} depth ${size.rows} is below the profile minimum ${profile.minRows}.`
-    );
-  }
-  if (size.cols < requiredCols) {
-    issues.push(
-      `Scenario ${scenarioName ?? missionKey} width ${size.cols} is too narrow for longest non-air range ${longestGroundRange}; require at least ${requiredCols}.`
-    );
-  }
-  if (size.rows < requiredRows) {
-    issues.push(
-      `Scenario ${scenarioName ?? missionKey} depth ${size.rows} is too shallow for longest non-air range ${longestGroundRange}; require at least ${requiredRows}.`
     );
   }
 }
