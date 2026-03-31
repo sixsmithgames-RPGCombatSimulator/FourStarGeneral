@@ -4655,13 +4655,21 @@ private automateSupplyConvoys(
       return null;
     }
 
+    const contactHex = currentlyObserved && liveLookup ? liveLookup.unit.hex : entry.lastKnownHex;
+    const contactHexKey = axialKey(contactHex);
+    // Friendly occupation always outranks stale contact memory. If our troops now hold the hex, do not
+    // surface a phantom enemy marker there or the UI will paint the contact over the player unit.
+    if (this.playerPlacements.has(contactHexKey) || this.allyPlacements.has(contactHexKey)) {
+      return null;
+    }
+
     const state: EnemyContactState = currentlyObserved ? entry.state : "spotted";
     const strengthSource = currentlyObserved ? liveLookup?.unit.strength ?? entry.lastKnownStrength : entry.lastKnownStrength;
     const strengthEstimate = this.resolveEnemyContactStrengthEstimate(state, strengthSource);
 
     return {
       unitId: entry.unitId,
-      hex: structuredClone(currentlyObserved && liveLookup ? liveLookup.unit.hex : entry.lastKnownHex),
+      hex: structuredClone(contactHex),
       state,
       lastSeenTurn: entry.lastSeenTurn,
       source: entry.source,

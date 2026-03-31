@@ -7183,6 +7183,10 @@ export class BattleScreen {
 
     const enemyStacks = new Map<string, Array<{ unit: ScenarioUnit; faction: "Bot"; reconStatus: EnemyContactSnapshot["state"] }>>();
     enemyContacts.forEach((contact) => {
+      const friendlyOccupiesHex = friendlyHexes.has(`${contact.hex.q},${contact.hex.r}`);
+      if (friendlyOccupiesHex) {
+        return;
+      }
       const renderUnit = this.buildEnemyContactRenderUnit(contact, engine.botUnits ?? []);
       if (!renderUnit) {
         return;
