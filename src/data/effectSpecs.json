@@ -123,6 +123,94 @@
     ]
   },
   {
+    "type": "flakBurst",
+    "displayName": "Flak Airburst",
+    "durationMs": 420,
+    "nodeCountBudget": {
+      "min": 4,
+      "typical": 7,
+      "max": 10
+    },
+    "useTerrainResponse": false,
+    "phases": [
+      {
+        "name": "burst",
+        "startMs": 0,
+        "endMs": 220,
+        "primitives": [
+          {
+            "type": "flash_core",
+            "startMs": 0,
+            "endMs": 120,
+            "params": {
+              "maxRadius": 12,
+              "peakProgress": 0.16,
+              "fadeProgress": 0.34
+            }
+          },
+          {
+            "type": "sparks",
+            "startMs": 18,
+            "endMs": 150,
+            "params": {
+              "sparkCount": 4,
+              "minLength": 4,
+              "maxLength": 8,
+              "strokeWidth": 0.9
+            }
+          }
+        ]
+      },
+      {
+        "name": "smoke",
+        "startMs": 40,
+        "endMs": 420,
+        "primitives": [
+          {
+            "type": "smoke_puff",
+            "startMs": 40,
+            "endMs": 420,
+            "params": {
+              "maxRadius": 18,
+              "riseDistance": 10,
+              "driftX": 4
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "airDamageSmoke",
+    "displayName": "Air Damage Smoke",
+    "durationMs": 340,
+    "nodeCountBudget": {
+      "min": 2,
+      "typical": 4,
+      "max": 6
+    },
+    "useTerrainResponse": false,
+    "phases": [
+      {
+        "name": "trail",
+        "startMs": 0,
+        "endMs": 340,
+        "primitives": [
+          {
+            "type": "smoke_puff",
+            "startMs": 0,
+            "endMs": 340,
+            "params": {
+              "maxRadius": 14,
+              "riseDistance": 8,
+              "driftX": 2
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
     "type": "small_arms",
     "displayName": "Small Arms Fire",
     "durationMs": 800,

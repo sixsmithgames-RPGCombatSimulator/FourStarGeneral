@@ -109,6 +109,15 @@ interface PendingFortificationContext {
   readonly unitId: string | null;
 }
 
+interface PreparedAirMissionFlight {
+  readonly missionId: string;
+  readonly faction: TurnFaction;
+  readonly kind: string;
+  readonly originKey: string;
+  readonly destKey: string;
+  readonly unitType: string;
+}
+
 interface BattleSelectionStackMember {
   readonly unitId: string;
   readonly unit: ScenarioUnit;
@@ -2753,142 +2762,27 @@ export class BattleScreen {
     this.idleUnitHighlightKeys = nextHighlightKeys;
   }
 
+  private async triggerAirOperations(summary: TurnSummary): Promise<void> {
+    void summary;
+    const arrivals = this.battleState.consumeAirMissionArrivals();
+    const engagements = this.battleState.consumeAirEngagements();
+    if ((!arrivals || arrivals.length === 0) && (!engagements || engagements.length === 0)) {
+      return;
+    }
+    await this.playAirOperations(arrivals ?? [], engagements ?? []);
+  }
+
   private async triggerAirMissionArrivals(summary: TurnSummary): Promise<void> {
     void summary;
     const arrivals = this.battleState.consumeAirMissionArrivals();
     if (!arrivals || arrivals.length === 0) {
       return;
     }
-    await this.playAirMissionArrivals(arrivals);
+    await this.playAirOperations(arrivals, []);
   }
 
   private async playAirMissionArrivals(arrivals: AirMissionArrival[]): Promise<void> {
-    const renderer = this.hexMapRenderer;
-    if (!renderer) {
-      return;
-    }
-
-    let hadAnimationError = false;
-
-    // Build flight data for all arrivals first.
-    const flights: Array<{ missionId: string; faction: TurnFaction; kind: string; originKey: string; destKey: string; unitType: string }> = [];
-    for (const a of arrivals) {
-      try {
-        // `AirMissionArrival.unitKey` is a stable squadronId (unitId), not an axial hex key.
-        // Use the explicit origin hex key (base) when provided so animations start from the correct map location.
-        const originOffsetKey = a.originHexKey ? CoordinateSystem.axialKeyToOffsetKey(a.originHexKey) : null;
-        let destOffsetKey: string | null = null;
-        if (a.targetHex) {
-          const off = CoordinateSystem.axialToOffset(a.targetHex.q, a.targetHex.r);
-          destOffsetKey = CoordinateSystem.makeHexKey(off.col, off.row);
-        } else if (a.escortTargetUnitKey) {
-          // Escort missions store the protected strike squadronId, so resolve its current hex via the engine.
-          const engine = this.battleState.ensureGameEngine();
-          const protectedUnit = (a.faction === "Player" ? engine.playerUnits : engine.botUnits).find(
-            (u) => u.unitId === a.escortTargetUnitKey
-          );
-          if (protectedUnit) {
-            const off = CoordinateSystem.axialToOffset(protectedUnit.hex.q, protectedUnit.hex.r);
-            destOffsetKey = CoordinateSystem.makeHexKey(off.col, off.row);
-          }
-        }
-        if (!originOffsetKey || !destOffsetKey) {
-          console.warn("[BattleScreen] Air mission arrival animation skipped: unable to resolve geometry", {
-            arrival: a,
-            originOffsetKey,
-            destOffsetKey
-          });
-          // Fallback to a subtle dust puff if geometry cannot be derived.
-          const fallback = originOffsetKey ?? destOffsetKey;
-          if (fallback) {
-            await renderer.playDustCloud(fallback);
-          }
-          continue;
-        }
-        flights.push({ missionId: a.missionId, faction: a.faction, kind: a.kind, originKey: originOffsetKey, destKey: destOffsetKey, unitType: a.unitType });
-      } catch (error) {
-        hadAnimationError = true;
-        console.error("[BattleScreen] Failed while preparing air mission arrival animation", { arrival: a }, error);
-      }
-    }
-
-    if (flights.length === 0) {
-      return;
-    }
-
-    // Focus camera on the first destination for visual context.
-    this.focusCameraOnHex(flights[0].destKey);
-    await this.waitForNextFrame();
-
-    // Animate all flights simultaneously with 75% staggered start times (choreography beats).
-    // Each subsequent flight starts after 25% of the animation duration has elapsed.
-    const STAGGER_RATIO = 0.25; // 25% delay between each flight start = 75% overlap.
-    const BASE_DURATION_MS = 800; // Approximate base animation duration.
-    const staggerDelayMs = BASE_DURATION_MS * STAGGER_RATIO;
-
-    const flightPromises: Promise<void>[] = flights.map((f, index) => {
-      return new Promise((resolve) => {
-        // Stagger the start of each animation.
-        setTimeout(async () => {
-          try {
-            if (typeof (renderer as any).animateAircraftRoundTrip === "function") {
-              await (renderer as any).animateAircraftRoundTrip(f.originKey, f.destKey, f.unitType);
-            } else {
-              await renderer.animateAircraftFlyover(f.originKey, f.destKey, f.unitType);
-            }
-          } catch (error) {
-            hadAnimationError = true;
-            console.error("[BattleScreen] Air mission arrival animation failed", { flight: f }, error);
-          }
-          resolve();
-        }, index * staggerDelayMs);
-      });
-    });
-
-    await Promise.all(flightPromises);
-
-    const engine = this.battleState.ensureGameEngine();
-    for (const flight of flights) {
-      if (flight.kind !== "strike") {
-        continue;
-      }
-
-      try {
-        const missions = engine.getScheduledAirMissions(flight.faction);
-        const mission = missions.find((m) => m.id === flight.missionId) ?? null;
-        const outcome = mission?.outcome as any;
-        if (!mission || !outcome || outcome.type !== "strike") {
-          continue;
-        }
-
-        await renderer.playExplosion(flight.destKey, true);
-        await renderer.playDustCloud(flight.destKey);
-
-        const defenderType = typeof outcome.defenderType === "string" ? outcome.defenderType : null;
-        const defenderClass = defenderType ? (this.unitTypes?.[defenderType as keyof UnitTypeDictionary]?.class as UnitClass | undefined) : undefined;
-
-        if (outcome.defenderDestroyed) {
-          renderer.markHexWrecked(flight.destKey, defenderClass, 2);
-        } else if (typeof mission.targetHex?.q === "number" && typeof mission.targetHex?.r === "number") {
-          const opponentUnits = flight.faction === "Player" ? engine.botUnits : engine.playerUnits;
-          const defenderNow = opponentUnits.find((u) => u.hex.q === mission.targetHex!.q && u.hex.r === mission.targetHex!.r) ?? null;
-          renderer.markHexDamaged(flight.destKey, defenderClass, defenderNow?.strength, 2);
-        }
-
-        this.renderEngineUnits();
-      } catch (error) {
-        hadAnimationError = true;
-        console.error("[BattleScreen] Air strike impact animation failed", { flight }, error);
-      }
-    }
-
-    if (hadAnimationError) {
-      this.publishActivityEvent({
-        category: "system",
-        type: "log",
-        summary: "Air mission animation failed. Check console for details."
-      });
-    }
+    await this.playAirOperations(arrivals, []);
   }
 
   private async triggerAirEngagements(summary: TurnSummary): Promise<void> {
@@ -2897,101 +2791,399 @@ export class BattleScreen {
     if (!engagements || engagements.length === 0) {
       return;
     }
-    await this.playAirEngagements(engagements);
+    await this.playAirOperations([], engagements);
   }
 
   private async playAirEngagements(events: AirEngagementEvent[]): Promise<void> {
+    await this.playAirOperations([], events);
+  }
+
+  private async playAirOperations(arrivals: AirMissionArrival[], events: AirEngagementEvent[]): Promise<void> {
     const renderer = this.hexMapRenderer;
     if (!renderer) {
       return;
     }
+
     const engine = this.battleState.ensureGameEngine();
     let hadAnimationError = false;
-    for (const e of events) {
-      try {
-        const locOff = CoordinateSystem.axialToOffset(e.location.q, e.location.r);
-        const locKey = CoordinateSystem.makeHexKey(locOff.col, locOff.row);
 
-        this.focusCameraOnHex(locKey);
-        await this.waitForNextFrame();
+    try {
+      const preparedFlights = await this.collectAirMissionFlights(arrivals, renderer);
+      const linkedEventsByMissionId = new Map<string, AirEngagementEvent[]>();
+      const standaloneEvents: AirEngagementEvent[] = [];
 
-        // Engagement participants generally report squadron IDs (unitId). Resolve them to their current hex positions.
-        const resolveUnitOffsetKey = (squadronIdOrHexKey: string, faction: "Player" | "Bot" | "Ally"): string | null => {
-          const reserves = faction === "Player" ? (engine.reserveUnits ?? []).map((entry) => entry.unit) : [];
-          const units = faction === "Player" ? [...(engine.playerUnits ?? []), ...reserves] : faction === "Bot" ? (engine.botUnits ?? []) : (engine.allyUnits ?? []);
-          const unit = units.find((u) => u.unitId === squadronIdOrHexKey);
-          if (!unit) {
-            // Some call sites still emit axial hex keys ("q,r") instead of unitId. Support both formats.
-            return CoordinateSystem.axialKeyToOffsetKey(squadronIdOrHexKey);
-          }
-          const off = CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r);
-          return CoordinateSystem.makeHexKey(off.col, off.row);
-        };
-
-        if (e.type === "flak") {
-          // === FLAK ENGAGEMENT ANIMATION ===
-          const bomberFrom = resolveUnitOffsetKey(e.bomber.unitKey, e.bomber.faction);
-          const flights: Promise<void>[] = [];
-
-          if (bomberFrom) {
-            // Animate bomber approaching target
-            flights.push(renderer.animateAircraftFlyover(bomberFrom, locKey, e.bomber.unitType));
-          }
-
-          // Wait for bomber to start approaching
-          await Promise.all(flights);
-
-          // Animate flak bursts from AA positions
-          for (const interceptor of e.interceptors) {
-            if (interceptor.hex) {
-              const aaOff = CoordinateSystem.axialToOffset(interceptor.hex.q, interceptor.hex.r);
-              const aaKey = CoordinateSystem.makeHexKey(aaOff.col, aaOff.row);
-
-              // Show muzzle flash at AA position and target
-              await Promise.all([
-                renderer.playMuzzleFlash(aaKey),
-                renderer.playMuzzleFlash(locKey)
-              ]);
-              // Brief delay between flak bursts
-              await this.waitForNextFrame();
-              await this.waitForNextFrame();
-            }
-          }
-        } else {
-          // === AIR-TO-AIR ENGAGEMENT ANIMATION ===
-          const bomberFrom = resolveUnitOffsetKey(e.bomber.unitKey, e.bomber.faction);
-          const flights: Promise<void>[] = [];
-          if (bomberFrom) {
-            flights.push(renderer.animateAircraftFlyover(bomberFrom, locKey, e.bomber.unitType));
-          }
-          e.interceptors.forEach((i) => {
-            const from = resolveUnitOffsetKey(i.unitKey, i.faction);
-            if (from) {
-              flights.push(renderer.animateAircraftFlyover(from, locKey, i.unitType));
-            }
-          });
-          e.escorts.forEach((s) => {
-            const from = resolveUnitOffsetKey(s.unitKey, s.faction);
-            if (from) {
-              flights.push(renderer.animateAircraftFlyover(from, locKey, s.unitType));
-            }
-          });
-          await Promise.all(flights);
-          await renderer.playDogfight(locKey);
+      for (const event of events) {
+        if (event.missionId) {
+          const linked = linkedEventsByMissionId.get(event.missionId) ?? [];
+          linked.push(event);
+          linkedEventsByMissionId.set(event.missionId, linked);
+          continue;
         }
-      } catch (error) {
-        hadAnimationError = true;
-        console.error("[BattleScreen] Air engagement animation failed", { event: e }, error);
+        standaloneEvents.push(event);
       }
+
+      const standaloneBatch: PreparedAirMissionFlight[] = [];
+      for (const flight of preparedFlights) {
+        const linkedEvents = linkedEventsByMissionId.get(flight.missionId) ?? [];
+        const hasLinkedStrikeEngagement = flight.kind === "strike" && linkedEvents.length > 0;
+
+        if (!hasLinkedStrikeEngagement) {
+          standaloneBatch.push(flight);
+          continue;
+        }
+
+        if (standaloneBatch.length > 0) {
+          await this.playStandaloneAirMissionArrivals(standaloneBatch.splice(0), renderer, engine);
+        }
+
+        await this.playMissionStrikeOperation(flight, linkedEvents, renderer, engine);
+        linkedEventsByMissionId.delete(flight.missionId);
+      }
+
+      if (standaloneBatch.length > 0) {
+        await this.playStandaloneAirMissionArrivals(standaloneBatch, renderer, engine);
+      }
+
+      for (const linkedEvents of linkedEventsByMissionId.values()) {
+        standaloneEvents.push(...linkedEvents);
+      }
+
+      for (const event of standaloneEvents) {
+        await this.playStandaloneAirEngagementEvent(event, renderer, engine);
+      }
+    } catch (error) {
+      hadAnimationError = true;
+      console.error("[BattleScreen] Air operations animation failed", { arrivals, events }, error);
     }
 
     if (hadAnimationError) {
       this.publishActivityEvent({
         category: "system",
         type: "log",
-        summary: "Air engagement animation failed. Check console for details."
+        summary: "Air operation animation failed. Check console for details."
       });
     }
+  }
+
+  private async collectAirMissionFlights(arrivals: AirMissionArrival[], renderer: HexMapRenderer): Promise<PreparedAirMissionFlight[]> {
+    const flights: PreparedAirMissionFlight[] = [];
+    const engine = this.battleState.ensureGameEngine();
+
+    for (const arrival of arrivals) {
+      try {
+        const originOffsetKey = arrival.originHexKey ? CoordinateSystem.axialKeyToOffsetKey(arrival.originHexKey) : null;
+        let destOffsetKey: string | null = null;
+
+        if (arrival.targetHex) {
+          const offset = CoordinateSystem.axialToOffset(arrival.targetHex.q, arrival.targetHex.r);
+          destOffsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+        } else if (arrival.escortTargetUnitKey) {
+          const protectedUnit = (arrival.faction === "Player" ? engine.playerUnits : engine.botUnits).find(
+            (unit) => unit.unitId === arrival.escortTargetUnitKey
+          );
+          if (protectedUnit) {
+            const offset = CoordinateSystem.axialToOffset(protectedUnit.hex.q, protectedUnit.hex.r);
+            destOffsetKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+          }
+        }
+
+        if (!originOffsetKey || !destOffsetKey) {
+          console.warn("[BattleScreen] Air mission arrival animation skipped: unable to resolve geometry", {
+            arrival,
+            originOffsetKey,
+            destOffsetKey
+          });
+          const fallback = originOffsetKey ?? destOffsetKey;
+          if (fallback) {
+            await renderer.playDustCloud(fallback);
+          }
+          continue;
+        }
+
+        flights.push({
+          missionId: arrival.missionId,
+          faction: arrival.faction,
+          kind: arrival.kind,
+          originKey: originOffsetKey,
+          destKey: destOffsetKey,
+          unitType: arrival.unitType
+        });
+      } catch (error) {
+        console.error("[BattleScreen] Failed while preparing air mission arrival animation", { arrival }, error);
+      }
+    }
+
+    return flights;
+  }
+
+  private async playStandaloneAirMissionArrivals(
+    flights: PreparedAirMissionFlight[],
+    renderer: HexMapRenderer,
+    engine: GameEngine
+  ): Promise<void> {
+    if (flights.length === 0) {
+      return;
+    }
+
+    await this.focusCameraOnHex(flights[0].destKey);
+    await this.waitForNextFrame();
+    await this.waitMs(180);
+
+    const staggerDelayMs = 200;
+    const flightPromises: Promise<void>[] = flights.map((flight, index) =>
+      new Promise((resolve) => {
+        window.setTimeout(() => {
+          const startFlight = typeof (renderer as any).animateAircraftRoundTrip === "function"
+            ? (renderer as any).animateAircraftRoundTrip(flight.originKey, flight.destKey, flight.unitType)
+            : renderer.animateAircraftFlyover(flight.originKey, flight.destKey, flight.unitType);
+          void startFlight.then(() => resolve()).catch((error: unknown) => {
+            console.error("[BattleScreen] Air mission arrival animation failed", { flight }, error);
+            resolve();
+          });
+        }, index * staggerDelayMs);
+      })
+    );
+
+    await Promise.all(flightPromises);
+
+    for (const flight of flights) {
+      if (flight.kind !== "strike") {
+        continue;
+      }
+      await this.playResolvedAirStrikeImpact(flight, renderer, engine);
+    }
+  }
+
+  private resolveAirEngagementOffsetKey(squadronIdOrHexKey: string, faction: "Player" | "Bot" | "Ally", engine: GameEngine): string | null {
+    const reserves = faction === "Player" ? (engine.reserveUnits ?? []).map((entry) => entry.unit) : [];
+    const units = faction === "Player"
+      ? [...(engine.playerUnits ?? []), ...reserves]
+      : faction === "Bot"
+        ? (engine.botUnits ?? [])
+        : (engine.allyUnits ?? []);
+
+    const unit = units.find((candidate) => candidate.unitId === squadronIdOrHexKey);
+    if (!unit) {
+      return CoordinateSystem.axialKeyToOffsetKey(squadronIdOrHexKey);
+    }
+
+    const offset = CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r);
+    return CoordinateSystem.makeHexKey(offset.col, offset.row);
+  }
+
+  private async playStandaloneAirEngagementEvent(
+    event: AirEngagementEvent,
+    renderer: HexMapRenderer,
+    engine: GameEngine
+  ): Promise<void> {
+    const locOff = CoordinateSystem.axialToOffset(event.location.q, event.location.r);
+    const locKey = CoordinateSystem.makeHexKey(locOff.col, locOff.row);
+
+    await this.focusCameraOnHex(locKey);
+    await this.waitForNextFrame();
+    await this.waitMs(180);
+
+    if (event.type === "flak") {
+      this.announceFlakEngagement(event);
+      const bomberFrom = this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
+      if (!bomberFrom) {
+        return;
+      }
+
+      const flakWindowEnd = event.bomberDestroyed ? 0.84 : 0.92;
+      let nextBurstProgress = 0.68;
+
+      await renderer.animateAircraftFlyover(
+        bomberFrom,
+        locKey,
+        event.bomber.unitType,
+        2200,
+        (progress, centerX, centerY) => {
+          while (progress >= nextBurstProgress && nextBurstProgress <= flakWindowEnd) {
+            void renderer.playFlakBurstAt(centerX, centerY, event.interceptors.length, 0.92);
+            nextBurstProgress += 0.08;
+          }
+        },
+        event.bomberDestroyed ? 0.84 : 1
+      );
+
+      if (!event.bomberDestroyed) {
+        await this.playDamagedAircraftReturn(renderer, locKey, bomberFrom, event.bomber.unitType, event.flakDamage ?? 0);
+      }
+      return;
+    }
+
+    const bomberFrom = this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
+    const flights: Promise<void>[] = [];
+    if (bomberFrom) {
+      flights.push(renderer.animateAircraftFlyover(bomberFrom, locKey, event.bomber.unitType));
+    }
+    event.interceptors.forEach((interceptor) => {
+      const from = this.resolveAirEngagementOffsetKey(interceptor.unitKey, interceptor.faction, engine);
+      if (from) {
+        flights.push(renderer.animateAircraftFlyover(from, locKey, interceptor.unitType, 1400));
+      }
+    });
+    event.escorts.forEach((escort) => {
+      const from = this.resolveAirEngagementOffsetKey(escort.unitKey, escort.faction, engine);
+      if (from) {
+        flights.push(renderer.animateAircraftFlyover(from, locKey, escort.unitType, 1400));
+      }
+    });
+    await Promise.all(flights);
+    await renderer.playDogfight(locKey);
+  }
+
+  private async playMissionStrikeOperation(
+    flight: PreparedAirMissionFlight,
+    linkedEvents: AirEngagementEvent[],
+    renderer: HexMapRenderer,
+    engine: GameEngine
+  ): Promise<void> {
+    await this.focusCameraOnHex(flight.destKey);
+    await this.waitForNextFrame();
+    await this.waitMs(220);
+
+    const flakEvent = linkedEvents.find((event) => event.type === "flak") ?? null;
+    const airToAirEvent = linkedEvents.find((event) => event.type === "airToAir") ?? null;
+
+    if (flakEvent) {
+      this.announceFlakEngagement(flakEvent);
+    }
+
+    let nextBurstProgress = 0.68;
+    const flakWindowEnd = flakEvent?.bomberDestroyed ? 0.84 : 0.92;
+    let interceptPromise: Promise<void> | null = null;
+    let interceptTriggered = false;
+
+    await renderer.animateAircraftFlyover(
+      flight.originKey,
+      flight.destKey,
+      flight.unitType,
+      2300,
+      (progress, centerX, centerY) => {
+        if (flakEvent) {
+          while (progress >= nextBurstProgress && nextBurstProgress <= flakWindowEnd) {
+            void renderer.playFlakBurstAt(centerX, centerY, flakEvent.interceptors.length, 0.92);
+            nextBurstProgress += 0.08;
+          }
+        }
+
+        if (airToAirEvent && !interceptTriggered && progress >= 0.82) {
+          interceptTriggered = true;
+          interceptPromise = this.playMissionAirInterceptEvent(airToAirEvent, flight.destKey, renderer, engine);
+        }
+      },
+      flakEvent?.bomberDestroyed ? 0.84 : 1
+    );
+
+    if (interceptPromise) {
+      await interceptPromise;
+    }
+
+    const bomberDestroyedBeforeImpact = flakEvent?.bomberDestroyed === true || airToAirEvent?.bomberDestroyed === true;
+    if (!bomberDestroyedBeforeImpact) {
+      await this.playResolvedAirStrikeImpact(flight, renderer, engine);
+      const mission = engine.getScheduledAirMissions(flight.faction).find((entry) => entry.id === flight.missionId) ?? null;
+      const outcome = mission?.outcome as any;
+      const totalAttrition =
+        Math.max(0, Number(outcome?.meta?.flakAttrition ?? 0)) +
+        Math.max(0, Number(outcome?.meta?.bomberAttrition ?? 0));
+      await this.playDamagedAircraftReturn(renderer, flight.destKey, flight.originKey, flight.unitType, totalAttrition);
+    }
+  }
+
+  private async playMissionAirInterceptEvent(
+    event: AirEngagementEvent,
+    locKey: string,
+    renderer: HexMapRenderer,
+    engine: GameEngine
+  ): Promise<void> {
+    const interceptorFlights: Promise<void>[] = [];
+
+    event.interceptors.forEach((interceptor) => {
+      const from = this.resolveAirEngagementOffsetKey(interceptor.unitKey, interceptor.faction, engine);
+      if (from) {
+        interceptorFlights.push(renderer.animateAircraftFlyover(from, locKey, interceptor.unitType, 1200));
+      }
+    });
+
+    event.escorts.forEach((escort) => {
+      const from = this.resolveAirEngagementOffsetKey(escort.unitKey, escort.faction, engine);
+      if (from) {
+        interceptorFlights.push(renderer.animateAircraftFlyover(from, locKey, escort.unitType, 1200));
+      }
+    });
+
+    if (interceptorFlights.length === 0) {
+      return;
+    }
+
+    await Promise.all(interceptorFlights);
+    await renderer.playDogfight(locKey);
+  }
+
+  private async playResolvedAirStrikeImpact(
+    flight: PreparedAirMissionFlight,
+    renderer: HexMapRenderer,
+    engine: GameEngine
+  ): Promise<void> {
+    const mission = engine.getScheduledAirMissions(flight.faction).find((entry) => entry.id === flight.missionId) ?? null;
+    const outcome = mission?.outcome as any;
+    if (!mission || !outcome || outcome.type !== "strike" || outcome.result === "aborted" || !outcome.defenderType) {
+      return;
+    }
+
+    await renderer.playExplosion(flight.destKey, true);
+    await renderer.playDustCloud(flight.destKey);
+
+    const defenderType = typeof outcome.defenderType === "string" ? outcome.defenderType : null;
+    const defenderClass = defenderType ? (this.unitTypes?.[defenderType as keyof UnitTypeDictionary]?.class as UnitClass | undefined) : undefined;
+
+    if (outcome.defenderDestroyed) {
+      renderer.markHexWrecked(flight.destKey, defenderClass, 2);
+    } else if (typeof mission.targetHex?.q === "number" && typeof mission.targetHex?.r === "number") {
+      const opponentUnits = flight.faction === "Player" ? engine.botUnits : engine.playerUnits;
+      const defenderNow = opponentUnits.find((unit) => unit.hex.q === mission.targetHex!.q && unit.hex.r === mission.targetHex!.r) ?? null;
+      renderer.markHexDamaged(flight.destKey, defenderClass, defenderNow?.strength, 2);
+    }
+
+    this.renderEngineUnits();
+  }
+
+  private async playDamagedAircraftReturn(
+    renderer: HexMapRenderer,
+    fromKey: string,
+    toKey: string,
+    unitType: string,
+    damage: number
+  ): Promise<void> {
+    const smokeScale = damage >= 36 ? 0.82 : damage >= 18 ? 0.7 : 0.58;
+    const smokeInterval = damage >= 36 ? 0.12 : damage >= 18 ? 0.16 : 0.22;
+    let nextSmokeProgress = 0.1;
+
+    await this.waitMs(120);
+    await renderer.animateAircraftFlyover(fromKey, toKey, unitType, 1900, (progress, centerX, centerY) => {
+      if (damage <= 0) {
+        return;
+      }
+      while (progress >= nextSmokeProgress && nextSmokeProgress < 0.96) {
+        void renderer.playAirDamageSmokeTrailAt(centerX - 4, centerY + 2, smokeScale);
+        nextSmokeProgress += smokeInterval;
+      }
+    });
+  }
+
+  private announceFlakEngagement(event: AirEngagementEvent): void {
+    const batteryCount = event.interceptors.length;
+    const batteryLabel = batteryCount === 1 ? "battery" : "batteries";
+    const bomberLabel = this.toTitleCase(event.bomber.unitType);
+    const flakDamage = Math.max(0, Math.round(event.flakDamage ?? 0));
+    const strengthAfter = Math.max(0, Math.round(event.bomberStrengthAfter ?? 0));
+    const destructionSuffix = event.bomberDestroyed ? " Strike package broken up before release." : "";
+    this.announceBattleUpdate(
+      `${batteryCount} Flak ${batteryLabel} engaged incoming ${bomberLabel}. AA damage: ${flakDamage}%. Bomber strength now ${strengthAfter}.${destructionSuffix}`
+    );
   }
 
   private updateTurnStatusDisplay(summary: TurnSummary): void {
@@ -3170,6 +3362,12 @@ export class BattleScreen {
   private waitForNextFrame(): Promise<void> {
     return new Promise((resolve) => {
       window.requestAnimationFrame(() => resolve());
+    });
+  }
+
+  private waitMs(durationMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      window.setTimeout(() => resolve(), durationMs);
     });
   }
 
@@ -4366,8 +4564,7 @@ export class BattleScreen {
     const summary = this.battleState.getCurrentTurnSummary();
 
     await this.triggerSupportImpacts();
-    await this.triggerAirMissionArrivals(summary);
-    await this.triggerAirEngagements(summary);
+    await this.triggerAirOperations(summary);
 
     // Consume and announce bot turn actions
     const botSummary = this.battleState.consumeBotTurnSummary();

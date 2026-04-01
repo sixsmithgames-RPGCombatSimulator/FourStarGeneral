@@ -53,6 +53,7 @@ const UNKNOWN_CONTACT_SPRITE = `data:image/svg+xml;utf8,${encodeURIComponent(
 )}`;
 
 type CombatAnimationKey = keyof typeof import("./SpriteSheetAnimator").COMBAT_ANIMATIONS;
+type AircraftAnimationProgressCallback = (progress: number, centerX: number, centerY: number) => void;
 
 /**
  * Handle returned when staging a unit move so callers can delay playback until the camera settles.
@@ -273,7 +274,14 @@ export class HexMapRenderer implements IMapRenderer {
    * Animates a temporary aircraft sprite flying from one hex to another without mutating unit icons.
    * Used for Air Support visuals (arrivals and air-to-air engagements) so sorties can be shown "in action".
    */
-  async animateAircraftFlyover(fromKey: string, toKey: string, scenarioType: string, durationMs = 2800): Promise<void> {
+  async animateAircraftFlyover(
+    fromKey: string,
+    toKey: string,
+    scenarioType: string,
+    durationMs = 2800,
+    onProgress?: AircraftAnimationProgressCallback,
+    endProgress = 1
+  ): Promise<void> {
     if (!this.svgElement) {
       console.warn("[HexMapRenderer] animateAircraftFlyover skipped: no SVG element available", {
         fromKey,
@@ -339,9 +347,16 @@ export class HexMapRenderer implements IMapRenderer {
     ghost.setAttribute("x", String(startX));
     ghost.setAttribute("y", String(startY));
 
+    const clampedEndProgress = this.clamp(endProgress, 0.01, 1);
+    const effectiveDurationMs = Math.max(1, durationMs * clampedEndProgress);
+
     if (durationMs <= 0) {
-      ghost.setAttribute("x", String(endX));
-      ghost.setAttribute("y", String(endY));
+      const finalProgress = clampedEndProgress;
+      const finalX = startX + (endX - startX) * finalProgress;
+      const finalY = startY + (endY - startY) * finalProgress;
+      ghost.setAttribute("x", String(finalX));
+      ghost.setAttribute("y", String(finalY));
+      onProgress?.(finalProgress, finalX + iconSize / 2, finalY + iconSize / 2);
       ghost.remove();
       return;
     }
@@ -350,12 +365,14 @@ export class HexMapRenderer implements IMapRenderer {
       const startTime = performance.now();
       const step: FrameRequestCallback = (now) => {
         const elapsed = now - startTime;
-        const t = Math.min(1, elapsed / durationMs);
+        const t = Math.min(1, elapsed / effectiveDurationMs);
         const eased = this.easeInOut(t);
-        const x = startX + (endX - startX) * eased;
-        const y = startY + (endY - startY) * eased;
+        const progressedDistance = eased * clampedEndProgress;
+        const x = startX + (endX - startX) * progressedDistance;
+        const y = startY + (endY - startY) * progressedDistance;
         ghost.setAttribute("x", String(x));
         ghost.setAttribute("y", String(y));
+        onProgress?.(progressedDistance, x + iconSize / 2, y + iconSize / 2);
         if (t >= 1) {
           resolve();
           return;
@@ -373,7 +390,14 @@ export class HexMapRenderer implements IMapRenderer {
    * This is used primarily for dedicated air missions (ingress/egress), while engagements
    * can continue to rely on the straight-line helper when desired.
    */
-  async animateAircraftArc(fromKey: string, toKey: string, scenarioType: string, durationMs = 2800): Promise<void> {
+  async animateAircraftArc(
+    fromKey: string,
+    toKey: string,
+    scenarioType: string,
+    durationMs = 2800,
+    onProgress?: AircraftAnimationProgressCallback,
+    endProgress = 1
+  ): Promise<void> {
     if (!this.svgElement) {
       console.warn("[HexMapRenderer] animateAircraftArc skipped: no SVG element available", {
         fromKey,
@@ -449,9 +473,17 @@ export class HexMapRenderer implements IMapRenderer {
     ghost.setAttribute("x", String(startX));
     ghost.setAttribute("y", String(startY));
 
+    const clampedEndProgress = this.clamp(endProgress, 0.01, 1);
+    const effectiveDurationMs = Math.max(1, durationMs * clampedEndProgress);
+
     if (durationMs <= 0) {
-      ghost.setAttribute("x", String(endX));
-      ghost.setAttribute("y", String(endY));
+      const eased = clampedEndProgress;
+      const oneMinusT = 1 - eased;
+      const bx = oneMinusT * oneMinusT * startX + 2 * oneMinusT * eased * controlX + eased * eased * endX;
+      const by = oneMinusT * oneMinusT * startY + 2 * oneMinusT * eased * controlY + eased * eased * endY;
+      ghost.setAttribute("x", String(bx));
+      ghost.setAttribute("y", String(by));
+      onProgress?.(clampedEndProgress, bx + iconSize / 2, by + iconSize / 2);
       ghost.remove();
       return;
     }
@@ -460,14 +492,16 @@ export class HexMapRenderer implements IMapRenderer {
       const startTime = performance.now();
       const step: FrameRequestCallback = (now) => {
         const elapsed = now - startTime;
-        const t = Math.min(1, elapsed / durationMs);
+        const t = Math.min(1, elapsed / effectiveDurationMs);
         const eased = this.easeInOut(t);
-        const oneMinusT = 1 - eased;
+        const progressedDistance = eased * clampedEndProgress;
+        const oneMinusT = 1 - progressedDistance;
         // Quadratic Bézier interpolation between start, control, and end.
-        const bx = oneMinusT * oneMinusT * startX + 2 * oneMinusT * eased * controlX + eased * eased * endX;
-        const by = oneMinusT * oneMinusT * startY + 2 * oneMinusT * eased * controlY + eased * eased * endY;
+        const bx = oneMinusT * oneMinusT * startX + 2 * oneMinusT * progressedDistance * controlX + progressedDistance * progressedDistance * endX;
+        const by = oneMinusT * oneMinusT * startY + 2 * oneMinusT * progressedDistance * controlY + progressedDistance * progressedDistance * endY;
         ghost.setAttribute("x", String(bx));
         ghost.setAttribute("y", String(by));
+        onProgress?.(progressedDistance, bx + iconSize / 2, by + iconSize / 2);
         if (t >= 1) {
           resolve();
           return;
@@ -1943,6 +1977,17 @@ export class HexMapRenderer implements IMapRenderer {
    */
   getHexElement(key: string): SVGGElement | undefined {
     return this.hexElementMap.get(key);
+  }
+
+  /**
+   * Returns the cached center point for a hex in viewport coordinates.
+   */
+  getHexCenter(key: string): { cx: number; cy: number } | null {
+    const cell = this.hexElementMap.get(key);
+    if (!cell) {
+      return null;
+    }
+    return this.extractHexCenter(cell);
   }
 
   /**
@@ -3516,7 +3561,7 @@ export class HexMapRenderer implements IMapRenderer {
    * Returns a promise that resolves when the animation completes.
    */
   async playCombatAnimation(
-    animationType: CombatAnimationKey,
+    animationType: CombatAnimationKey | string,
     hexKey: string,
     offsetX: number = 0,
     offsetY: number = 0,
@@ -3544,23 +3589,6 @@ export class HexMapRenderer implements IMapRenderer {
         }
       }
     }
-
-    const effectsLayer = this.ensureCombatEffectsLayer();
-    if (!effectsLayer) {
-      console.error("[HexMapRenderer] playCombatAnimation FAILED - No effects layer available");
-      return;
-    }
-    console.log("[HexMapRenderer] Effects layer obtained:", effectsLayer, "isConnected:", effectsLayer.isConnected, "parentNode:", effectsLayer.parentNode?.nodeName);
-
-    if (!this.combatAnimator) {
-      console.log("[HexMapRenderer] Creating new ProceduralEffectsAnimator with SVG effects layer and sound manager");
-      this.combatAnimator = new ProceduralEffectsAnimator(effectsLayer, this.soundManager);
-    }
-    if (!this.combatAnimator) {
-      console.warn("[HexMapRenderer] Combat animator not initialized");
-      return;
-    }
-    console.log("[HexMapRenderer] Combat animator ready:", this.combatAnimator);
 
     const hexElement = this.hexElementMap.get(hexKey);
     if (!hexElement) {
@@ -3591,7 +3619,56 @@ export class HexMapRenderer implements IMapRenderer {
       terrainTint = tint.dust;
     }
 
-    // Determine zoom tier for performance scaling
+    await this.playCombatAnimationAt(animationType, finalX, finalY, scale, soundRequest, terrainTint);
+    console.log(`[HexMapRenderer] playCombatAnimation COMPLETE - type: ${animationType}, hex: ${hexKey}`);
+  }
+
+  /**
+   * Plays a combat effect directly at viewport coordinates, which keeps airbursts and future freeform effects off the hex grid.
+   */
+  async playCombatAnimationAt(
+    animationType: CombatAnimationKey | string,
+    x: number,
+    y: number,
+    scale: number = 1,
+    soundRequest?: QueuedWeaponSoundRequest | false,
+    terrainTint?: string
+  ): Promise<void> {
+    const effectsLayer = this.ensureCombatEffectsLayer();
+    if (!effectsLayer) {
+      console.error("[HexMapRenderer] playCombatAnimationAt FAILED - No effects layer available");
+      return;
+    }
+    console.log("[HexMapRenderer] Effects layer obtained:", effectsLayer, "isConnected:", effectsLayer.isConnected, "parentNode:", effectsLayer.parentNode?.nodeName);
+
+    if (!this.combatAnimator) {
+      console.log("[HexMapRenderer] Creating new ProceduralEffectsAnimator with SVG effects layer and sound manager");
+      this.combatAnimator = new ProceduralEffectsAnimator(effectsLayer, this.soundManager);
+    }
+    if (!this.combatAnimator) {
+      console.warn("[HexMapRenderer] Combat animator not initialized");
+      return;
+    }
+    console.log("[HexMapRenderer] Combat animator ready:", this.combatAnimator);
+
+    const effectKey = `${animationType}:${Math.round(x)}:${Math.round(y)}:${Math.round(scale * 100)}`;
+    const now = performance.now();
+    const lastCall = this.recentEffects.get(effectKey);
+    if (lastCall && now - lastCall < 100) {
+      console.log(`[HexMapRenderer] playCombatAnimationAt SKIPPED - duplicate within 100ms: ${effectKey}`);
+      return;
+    }
+    this.recentEffects.set(effectKey, now);
+
+    if (this.recentEffects.size > 100) {
+      const cutoff = now - 1000;
+      for (const [key, timestamp] of this.recentEffects.entries()) {
+        if (timestamp < cutoff) {
+          this.recentEffects.delete(key);
+        }
+      }
+    }
+
     const currentZoom = this.getCurrentZoom();
     const zoomTier = getZoomTier(currentZoom);
 
@@ -3599,9 +3676,38 @@ export class HexMapRenderer implements IMapRenderer {
       await this.soundCatalogReady;
     }
 
-    console.log(`[HexMapRenderer] Calling combatAnimator.playAnimation at (${finalX}, ${finalY}), zoom: ${currentZoom.toFixed(2)} (${zoomTier}), terrain: ${terrainTint ?? 'none'}`);
-    await this.combatAnimator.playAnimation(animationType, finalX, finalY, scale, zoomTier, terrainTint, soundRequest);
-    console.log(`[HexMapRenderer] playCombatAnimation COMPLETE - type: ${animationType}, hex: ${hexKey}`);
+    console.log(`[HexMapRenderer] Calling combatAnimator.playAnimation at (${x}, ${y}), zoom: ${currentZoom.toFixed(2)} (${zoomTier}), terrain: ${terrainTint ?? 'none'}`);
+    await this.combatAnimator.playAnimation(animationType, x, y, scale, zoomTier, terrainTint, soundRequest);
+  }
+
+  /**
+   * Plays clustered airborne flak puffs around a live aircraft position instead of snapping to a ground hex.
+   */
+  async playFlakBurstAt(x: number, y: number, count: number = 1, scale: number = 0.92): Promise<void> {
+    const burstCount = Math.max(1, count);
+    const spreadPx = burstCount === 1 ? 6 : Math.min(18, 8 + burstCount * 2);
+    const burstPromises = Array.from({ length: burstCount }).map((_, index) => {
+      const ratio = burstCount === 1 ? 0.5 : index / burstCount;
+      const angle = ratio * Math.PI * 2 + Math.PI / 6;
+      const radius = burstCount === 1 ? 0 : spreadPx * (0.55 + (index % 2) * 0.18);
+      const offsetX = Math.cos(angle) * radius;
+      const offsetY = Math.sin(angle) * radius * 0.72;
+      const burstScale = scale * (index === 0 ? 1 : Math.max(0.72, 0.94 - index * 0.06));
+      return new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          void this.playCombatAnimationAt("flakBurst", x + offsetX, y + offsetY, burstScale, false).then(() => resolve());
+        }, index * 35);
+      });
+    });
+
+    await Promise.all(burstPromises);
+  }
+
+  /**
+   * Plays a faint smoke puff that can trail a damaged aircraft on egress.
+   */
+  async playAirDamageSmokeTrailAt(x: number, y: number, scale: number = 0.72): Promise<void> {
+    await this.playCombatAnimationAt("airDamageSmoke", x, y, scale, false);
   }
 
   /**

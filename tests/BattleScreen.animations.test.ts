@@ -1,7 +1,7 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
-import type { BotTurnSummary } from "../src/game/GameEngine";
+import type { AirEngagementEvent, AirMissionArrival, BotTurnSummary } from "../src/game/GameEngine";
 import type { AttackResult } from "../src/core/Combat";
 import type { Axial, ScenarioUnit } from "../src/core/types";
 
@@ -496,6 +496,24 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
         }
       ];
     },
+    getHexStackMembers() {
+      return [
+        {
+          unitId: "u_inf_1",
+          unit: {
+            type: "Infantry_42" as unknown as ScenarioUnit["type"],
+            hex: { q: 0, r: 0 },
+            strength: 100,
+            experience: 0,
+            ammo: 6,
+            fuel: 0,
+            entrench: 0,
+            facing: "NW" as ScenarioUnit["facing"]
+          },
+          faction: "Player"
+        }
+      ];
+    },
     getUnitCommandState() {
       return {
         suppressionState: "clear",
@@ -613,4 +631,329 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
       throw new Error("Expected suppressive button to clear its selected state after assault was chosen.");
     }
   });
+});
+
+registerTest("BATTLESCREEN_AIR_OPERATIONS_LINK_FLAK_TO_STRIKE_INGRESS", async ({ Given, When, Then }) => {
+  const originalSetTimeout = window.setTimeout;
+  window.setTimeout = ((cb: unknown) => {
+    (cb as () => void)();
+    return 0 as any;
+  }) as any;
+
+  try {
+    const root = document.getElementById("battleScreen") ?? document.createElement("div");
+    if (!root.parentElement) {
+      root.id = "battleScreen";
+      document.body.appendChild(root);
+    }
+
+    const callOrder: string[] = [];
+    const announcements: string[] = [];
+
+    const fakeEngine = {
+      playerUnits: [] as ScenarioUnit[],
+      botUnits: [
+        {
+          type: "Medium_Tank" as unknown as ScenarioUnit["type"],
+          hex: { q: 0, r: 0 },
+          strength: 74,
+          experience: 0,
+          ammo: 4,
+          fuel: 20,
+          entrench: 0,
+          facing: "NW" as ScenarioUnit["facing"]
+        }
+      ] as ScenarioUnit[],
+      reserveUnits: [],
+      allyUnits: [],
+      getScheduledAirMissions() {
+        return [
+          {
+            id: "air-1",
+            targetHex: { q: 0, r: 0 },
+            outcome: {
+              type: "strike",
+              result: "partial",
+              defenderType: "Medium_Tank",
+              defenderDestroyed: false,
+              meta: {
+                flakAttrition: 24,
+                bomberAttrition: 0
+              }
+            }
+          }
+        ];
+      }
+    } as const;
+
+    const fakeBattleState = {
+      hasEngine: () => true,
+      ensureGameEngine: () => fakeEngine
+    } as unknown as import("../src/state/BattleState").BattleState;
+
+    const fakeRenderer = {
+      async animateAircraftFlyover(
+        fromKey: string,
+        toKey: string,
+        _unitType: string,
+        _durationMs?: number,
+        onProgress?: (progress: number, centerX: number, centerY: number) => void,
+        endProgress: number = 1
+      ): Promise<void> {
+        callOrder.push(`flight:${fromKey}->${toKey}:${endProgress.toFixed(2)}`);
+        onProgress?.(0.72, 180, 120);
+        onProgress?.(0.9, 200, 140);
+      },
+      async playFlakBurstAt(_x: number, _y: number, count: number): Promise<void> {
+        callOrder.push(`flak:${count}`);
+      },
+      async playExplosion(hexKey: string): Promise<void> {
+        callOrder.push(`impact:${hexKey}`);
+      },
+      async playDustCloud(hexKey: string): Promise<void> {
+        callOrder.push(`dust:${hexKey}`);
+      },
+      async playDogfight(): Promise<void> {},
+      async playAirDamageSmokeTrailAt(): Promise<void> {
+        callOrder.push("trail");
+      },
+      markHexDamaged: () => {
+        callOrder.push("markDamaged");
+      },
+      markHexWrecked: () => {},
+      advanceAftermathTurn: () => {},
+      renderUnit: () => {},
+      clearUnit: () => {},
+      applyHexSelection: () => {},
+      syncQueuedTargetMarkers: () => {}
+    } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+
+    let screen: BattleScreen;
+
+    await Given("a battle screen with a mission-linked flak strike", async () => {
+      screen = new BattleScreen(
+        {} as any,
+        fakeBattleState,
+        {} as any,
+        fakeRenderer,
+        null,
+        null,
+        null,
+        {} as any,
+        null
+      );
+      (screen as any).focusCameraOnHex = async (hexKey: string): Promise<void> => {
+        callOrder.push(`focus:${hexKey}`);
+      };
+      (screen as any).renderEngineUnits = () => {
+        callOrder.push("render");
+      };
+      (screen as any).announceBattleUpdate = (message: string) => {
+        announcements.push(message);
+      };
+    });
+
+    const arrivals: AirMissionArrival[] = [
+      {
+        missionId: "air-1",
+        faction: "Player",
+        unitKey: "u_bomber",
+        originHexKey: "1,0",
+        unitType: "Bomber",
+        kind: "strike",
+        targetHex: { q: 0, r: 0 }
+      }
+    ];
+    const engagements: AirEngagementEvent[] = [
+      {
+        type: "flak",
+        missionId: "air-1",
+        location: { q: 0, r: 0 },
+        bomber: { faction: "Player", unitKey: "u_bomber", unitType: "Bomber" },
+        interceptors: [
+          { faction: "Bot", unitKey: "aa-1", unitType: "Flak_88", hex: { q: 0, r: 1 } },
+          { faction: "Bot", unitKey: "aa-2", unitType: "Flak_88", hex: { q: 1, r: 1 } }
+        ],
+        escorts: [],
+        flakDamage: 24,
+        bomberStrengthBefore: 100,
+        bomberStrengthAfter: 76,
+        bomberDestroyed: false
+      }
+    ];
+
+    await When("air operations are played", async () => {
+      await (screen as any).playAirOperations(arrivals, engagements);
+    });
+
+    await Then("flak bursts occur during ingress before the strike impact and the bomber returns", async () => {
+      if (callOrder[0] !== "focus:0,0") {
+        throw new Error(`Expected focus on the target hex before air playback, saw ${callOrder[0] ?? "nothing"}.`);
+      }
+
+      const flakIndex = callOrder.findIndex((entry) => entry.startsWith("flak:"));
+      const impactIndex = callOrder.findIndex((entry) => entry.startsWith("impact:"));
+      const returnFlightIndex = callOrder.findIndex((entry) => entry === "flight:0,0->1,0:1.00");
+
+      if (flakIndex < 0) {
+        throw new Error(`Expected mission-linked flak bursts during ingress, saw ${JSON.stringify(callOrder)}.`);
+      }
+      if (impactIndex < 0 || flakIndex > impactIndex) {
+        throw new Error(`Expected flak to occur before strike impact, saw ${JSON.stringify(callOrder)}.`);
+      }
+      if (returnFlightIndex < 0) {
+        throw new Error(`Expected bomber egress flight after the strike, saw ${JSON.stringify(callOrder)}.`);
+      }
+      if (!announcements.some((message) => message.includes("2 Flak batteries engaged incoming Bomber. AA damage: 24%. Bomber strength now 76."))) {
+        throw new Error(`Expected flak engagement announcement with damage totals, saw ${JSON.stringify(announcements)}.`);
+      }
+    });
+  } finally {
+    window.setTimeout = originalSetTimeout;
+  }
+});
+
+registerTest("BATTLESCREEN_AIR_OPERATIONS_STOP_DESTROYED_BOMBER_BEFORE_TARGET", async ({ Given, When, Then }) => {
+  const originalSetTimeout = window.setTimeout;
+  window.setTimeout = ((cb: unknown) => {
+    (cb as () => void)();
+    return 0 as any;
+  }) as any;
+
+  try {
+    const root = document.getElementById("battleScreen") ?? document.createElement("div");
+    if (!root.parentElement) {
+      root.id = "battleScreen";
+      document.body.appendChild(root);
+    }
+
+    const callOrder: string[] = [];
+
+    const fakeEngine = {
+      playerUnits: [] as ScenarioUnit[],
+      botUnits: [] as ScenarioUnit[],
+      reserveUnits: [],
+      allyUnits: [],
+      getScheduledAirMissions() {
+        return [
+          {
+            id: "air-2",
+            targetHex: { q: 0, r: 0 },
+            outcome: {
+              type: "strike",
+              result: "aborted",
+              meta: {
+                flakAttrition: 100,
+                bomberAttrition: 0
+              }
+            }
+          }
+        ];
+      }
+    } as const;
+
+    const fakeBattleState = {
+      hasEngine: () => true,
+      ensureGameEngine: () => fakeEngine
+    } as unknown as import("../src/state/BattleState").BattleState;
+
+    const fakeRenderer = {
+      async animateAircraftFlyover(
+        fromKey: string,
+        toKey: string,
+        _unitType: string,
+        _durationMs?: number,
+        onProgress?: (progress: number, centerX: number, centerY: number) => void,
+        endProgress: number = 1
+      ): Promise<void> {
+        callOrder.push(`flight:${fromKey}->${toKey}:${endProgress.toFixed(2)}`);
+        onProgress?.(0.74, 180, 120);
+      },
+      async playFlakBurstAt(): Promise<void> {
+        callOrder.push("flak");
+      },
+      async playExplosion(): Promise<void> {
+        callOrder.push("impact");
+      },
+      async playDustCloud(): Promise<void> {
+        callOrder.push("dust");
+      },
+      async playAirDamageSmokeTrailAt(): Promise<void> {
+        callOrder.push("trail");
+      },
+      markHexDamaged: () => {},
+      markHexWrecked: () => {},
+      advanceAftermathTurn: () => {},
+      renderUnit: () => {},
+      clearUnit: () => {},
+      applyHexSelection: () => {},
+      syncQueuedTargetMarkers: () => {}
+    } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+
+    let screen: BattleScreen;
+
+    await Given("a mission-linked flak event that destroys the bomber", async () => {
+      screen = new BattleScreen(
+        {} as any,
+        fakeBattleState,
+        {} as any,
+        fakeRenderer,
+        null,
+        null,
+        null,
+        {} as any,
+        null
+      );
+      (screen as any).focusCameraOnHex = async (hexKey: string): Promise<void> => {
+        callOrder.push(`focus:${hexKey}`);
+      };
+      (screen as any).announceBattleUpdate = () => {};
+    });
+
+    const arrivals: AirMissionArrival[] = [
+      {
+        missionId: "air-2",
+        faction: "Player",
+        unitKey: "u_bomber",
+        originHexKey: "1,0",
+        unitType: "Bomber",
+        kind: "strike",
+        targetHex: { q: 0, r: 0 }
+      }
+    ];
+    const engagements: AirEngagementEvent[] = [
+      {
+        type: "flak",
+        missionId: "air-2",
+        location: { q: 0, r: 0 },
+        bomber: { faction: "Player", unitKey: "u_bomber", unitType: "Bomber" },
+        interceptors: [
+          { faction: "Bot", unitKey: "aa-1", unitType: "Flak_88", hex: { q: 0, r: 1 } }
+        ],
+        escorts: [],
+        flakDamage: 100,
+        bomberStrengthBefore: 100,
+        bomberStrengthAfter: 0,
+        bomberDestroyed: true
+      }
+    ];
+
+    await When("the linked air operation plays", async () => {
+      await (screen as any).playAirOperations(arrivals, engagements);
+    });
+
+    await Then("the bomber stops short of the target and no strike impact or return leg is played", async () => {
+      if (!callOrder.includes("flight:1,0->0,0:0.84")) {
+        throw new Error(`Expected destroyed bomber ingress to stop short of the target, saw ${JSON.stringify(callOrder)}.`);
+      }
+      if (callOrder.some((entry) => entry === "impact" || entry === "dust")) {
+        throw new Error(`Did not expect a strike impact after bomber destruction, saw ${JSON.stringify(callOrder)}.`);
+      }
+      if (callOrder.some((entry) => entry === "flight:0,0->1,0:1.00" || entry === "trail")) {
+        throw new Error(`Did not expect a return leg for a destroyed bomber, saw ${JSON.stringify(callOrder)}.`);
+      }
+    });
+  } finally {
+    window.setTimeout = originalSetTimeout;
+  }
 });

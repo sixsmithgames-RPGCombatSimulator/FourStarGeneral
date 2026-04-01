@@ -840,9 +840,14 @@ export interface AirMissionArrival {
 export interface AirEngagementEvent {
   readonly type: "airToAir" | "flak";
   readonly location: Axial;
+  readonly missionId?: string;
   readonly bomber: { readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string };
   readonly interceptors: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly hex?: Axial }>;
   readonly escorts: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string }>;
+  readonly flakDamage?: number;
+  readonly bomberStrengthBefore?: number;
+  readonly bomberStrengthAfter?: number;
+  readonly bomberDestroyed?: boolean;
 }
 
 /** Captures ongoing refit timers so hydration can restore readiness cycles after sorties. */
@@ -1784,21 +1789,10 @@ export class GameEngine implements GameEngineAPI {
         });
       }
 
-      // Emit flak engagement event for animation
-      this.pendingAirEngagements.push({
-        type: "flak",
-        location: structuredClone(mission.targetHex!),
-        bomber: {
-          faction: mission.faction,
-          unitKey: mission.unitKey,
-          unitType: mission.unitType as string
-        },
-        interceptors: flakInterceptorsForEvent,
-        escorts: []  // Escorts don't engage ground AA
-      });
-
       // Track bomber state as it takes sequential flak damage
+      const bomberStrengthBeforeFlak = attackerBefore.strength;
       let currentBomber = attackerPlacements.get(attackerHexKey) ?? attacker;
+      let bomberDestroyedByFlak = false;
 
       for (const flakEntry of flakUnits) {
         if (currentBomber.strength <= 0) break;  // Already destroyed
@@ -1849,20 +1843,42 @@ export class GameEngine implements GameEngineAPI {
             this.removeBotSupplyEntryFor(attacker.hex);
           }
           this.invalidateRosterCache();
-          return {
-            type: "strike",
-            result: "aborted",
-            details: "Strike package was destroyed by ground-based anti-aircraft fire before reaching the target.",
-            refitRequired: true,
-            meta: {
-              flakAttrition: attackerBefore.strength,
-              capIntercepts: 0,
-              escortsEngaged: 0,
-              escortsWins: 0,
-              bomberAttrition: 0
-            }
-          };
+          bomberDestroyedByFlak = true;
+          break;
         }
+      }
+
+      this.pendingAirEngagements.push({
+        type: "flak",
+        missionId: mission.id,
+        location: structuredClone(mission.targetHex!),
+        bomber: {
+          faction: mission.faction,
+          unitKey: mission.unitKey,
+          unitType: mission.unitType as string
+        },
+        interceptors: flakInterceptorsForEvent,
+        escorts: [],
+        flakDamage: flakAttrition,
+        bomberStrengthBefore: bomberStrengthBeforeFlak,
+        bomberStrengthAfter: Math.max(0, currentBomber.strength),
+        bomberDestroyed: bomberDestroyedByFlak
+      });
+
+      if (bomberDestroyedByFlak) {
+        return {
+          type: "strike",
+          result: "aborted",
+          details: "Strike package was destroyed by ground-based anti-aircraft fire before reaching the target.",
+          refitRequired: true,
+          meta: {
+            flakAttrition: attackerBefore.strength,
+            capIntercepts: 0,
+            escortsEngaged: 0,
+            escortsWins: 0,
+            bomberAttrition: 0
+          }
+        };
       }
     }
 
@@ -1903,13 +1919,6 @@ export class GameEngine implements GameEngineAPI {
           });
         }
       }
-      this.pendingAirEngagements.push({
-        type: "airToAir",
-        location: structuredClone(mission.targetHex!),
-        bomber: { faction: mission.faction, unitKey: mission.unitKey, unitType: mission.unitType as string },
-        interceptors: interceptorsForEvent,
-        escorts: escortsForEvent
-      });
 
       // Step 1: Escorts engage CAP first (one escort per CAP where available)
       for (let i = 0; i < capMissions.length; i++) {
@@ -1975,7 +1984,9 @@ export class GameEngine implements GameEngineAPI {
 
       // Step 2: Any surviving CAP engages the bomber (sequentially)
       // Track bomber state as it may suffer multiple engagements.
+      const bomberStrengthBeforeCap = attackerPlacements.get(attackerHexKey)?.strength ?? attackerBefore.strength;
       let currentBomber = attackerPlacements.get(attackerHexKey) ?? attacker;
+      let bomberDestroyedByCap = false;
       for (const cap of capMissions) {
         if (cap.interceptions >= 1) {
           continue; // this CAP already spent its interception
@@ -2021,17 +2032,34 @@ export class GameEngine implements GameEngineAPI {
             this.removeBotSupplyEntryFor(attacker.hex);
           }
           this.invalidateRosterCache();
-          return {
-            type: "strike",
-            result: "aborted",
-            details: "Strike package was intercepted and destroyed before reaching the target.",
-            refitRequired: true,
-            meta: { capIntercepts, escortsEngaged, escortsWins, bomberAttrition: attackerBefore.strength }
-          };
+          bomberDestroyedByCap = true;
+          break;
         }
       }
       // Record bomber attrition vs. its initial strength after all CAP passes.
       bomberAttrition = Math.max(0, attackerBefore.strength - (attackerPlacements.get(attackerHexKey)?.strength ?? attackerBefore.strength));
+
+      this.pendingAirEngagements.push({
+        type: "airToAir",
+        missionId: mission.id,
+        location: structuredClone(mission.targetHex!),
+        bomber: { faction: mission.faction, unitKey: mission.unitKey, unitType: mission.unitType as string },
+        interceptors: interceptorsForEvent,
+        escorts: escortsForEvent,
+        bomberStrengthBefore: bomberStrengthBeforeCap,
+        bomberStrengthAfter: attackerPlacements.get(attackerHexKey)?.strength ?? 0,
+        bomberDestroyed: bomberDestroyedByCap
+      });
+
+      if (bomberDestroyedByCap) {
+        return {
+          type: "strike",
+          result: "aborted",
+          details: "Strike package was intercepted and destroyed before reaching the target.",
+          refitRequired: true,
+          meta: { capIntercepts, escortsEngaged, escortsWins, bomberAttrition: attackerBefore.strength }
+        };
+      }
     }
 
     let request = this.buildAttackRequest(attacker, defender, mission.faction, opponentFaction, { allowBomberAirAttack: true });
@@ -7690,19 +7718,10 @@ private automateSupplyConvoys(
           });
         }
 
-        this.pendingAirEngagements.push({
-          type: "flak",
-          location: structuredClone(defenderHex),
-          bomber: {
-            faction: "Player",
-            unitKey: attackerKey,
-            unitType: attacker.type as string
-          },
-          interceptors: flakInterceptorsForEvent,
-          escorts: []
-        });
-
         // Process sequential flak damage
+        const bomberStrengthBeforeFlak = attackingSnapshot.strength;
+        let flakDamage = 0;
+        let bomberDestroyedByFlak = false;
         for (const flakEntry of flakUnits) {
           if (attackingSnapshot.strength <= 0) break;
 
@@ -7730,6 +7749,7 @@ private automateSupplyConvoys(
           const suffered = roundAppliedDamage(flakResult.expectedDamage, flakDef, unitDef);
           attackingSnapshot = structuredClone(attackingSnapshot);
           attackingSnapshot.strength = Math.max(0, attackingSnapshot.strength - suffered);
+          flakDamage += suffered;
 
           this.recordFlakEngagement(opponentFaction, flakEntry.unit, flakEntry.hexKey);
 
@@ -7741,8 +7761,29 @@ private automateSupplyConvoys(
             clearAircraftRegistryFor("Player", attacker);
             this.updateIdleRegistryFor(attackerOriginKey);
             this.invalidateRosterCache();
-            return null;  // Aircraft destroyed by flak before reaching target
+            bomberDestroyedByFlak = true;
+            break;
           }
+        }
+
+        this.pendingAirEngagements.push({
+          type: "flak",
+          location: structuredClone(defenderHex),
+          bomber: {
+            faction: "Player",
+            unitKey: attackerKey,
+            unitType: attacker.type as string
+          },
+          interceptors: flakInterceptorsForEvent,
+          escorts: [],
+          flakDamage,
+          bomberStrengthBefore: bomberStrengthBeforeFlak,
+          bomberStrengthAfter: attackingSnapshot.strength,
+          bomberDestroyed: bomberDestroyedByFlak
+        });
+
+        if (bomberDestroyedByFlak) {
+          return null;  // Aircraft destroyed by flak before reaching target
         }
       }
 
@@ -10473,20 +10514,11 @@ private automateSupplyConvoys(
           });
         }
 
-        this.pendingAirEngagements.push({
-          type: "flak",
-          location: structuredClone(targetHex),
-          bomber: {
-            faction: "Bot",
-            unitKey: atkKey,
-            unitType: attackingUnit.type as string
-          },
-          interceptors: flakInterceptorsForEvent,
-          escorts: []
-        });
-
         // Track bot bomber as variable since it may be destroyed
+        const bomberStrengthBeforeFlak = attackingUnit.strength;
         let currentAtk = attackingUnit;
+        let flakDamage = 0;
+        let bomberDestroyedByFlak = false;
 
         for (const flakEntry of flakUnits) {
           if (currentAtk.strength <= 0) break;
@@ -10511,6 +10543,7 @@ private automateSupplyConvoys(
           const suffered = Math.max(0, Math.round(flakResult.expectedDamage));
           const updatedAtk = structuredClone(currentAtk);
           updatedAtk.strength = Math.max(0, updatedAtk.strength - suffered);
+          flakDamage += suffered;
 
           this.recordFlakEngagement("Player", flakEntry.unit, flakEntry.hexKey);
 
@@ -10518,11 +10551,34 @@ private automateSupplyConvoys(
             this.botPlacements.delete(atkKey);
             this.removeBotSupplyEntryFor(attackerHex);
             this.invalidateRosterCache();
-            return null;  // Bot attack aborted, aircraft destroyed
+            currentAtk = updatedAtk;
+            attackingUnit = updatedAtk;
+            bomberDestroyedByFlak = true;
+            break;
           }
 
           currentAtk = updatedAtk;
           attackingUnit = updatedAtk;  // Update for subsequent CAP checks
+        }
+
+        this.pendingAirEngagements.push({
+          type: "flak",
+          location: structuredClone(targetHex),
+          bomber: {
+            faction: "Bot",
+            unitKey: atkKey,
+            unitType: attackingUnit.type as string
+          },
+          interceptors: flakInterceptorsForEvent,
+          escorts: [],
+          flakDamage,
+          bomberStrengthBefore: bomberStrengthBeforeFlak,
+          bomberStrengthAfter: currentAtk.strength,
+          bomberDestroyed: bomberDestroyedByFlak
+        });
+
+        if (bomberDestroyedByFlak) {
+          return null;  // Bot attack aborted, aircraft destroyed
         }
       }
 
