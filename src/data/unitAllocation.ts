@@ -128,7 +128,7 @@ export const allocationOptions = [
     label: "Flak Battery",
     category: "units",
     costPerUnit: 210_000,
-    description: "Heavy anti-air battery that also threatens light vehicles and exposed ground targets with direct fire.",
+    description: "Dual-purpose 88mm battery providing defensive flak coverage against hostile air strikes while engaging armor and soft targets.",
     maxQuantity: 6,
     spriteUrl: new URL("../assets/units/Flak_88.png", import.meta.url).href
   },
