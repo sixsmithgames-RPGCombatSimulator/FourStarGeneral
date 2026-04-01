@@ -280,7 +280,7 @@ export const COMBAT_PROFILES = {
     softAttackReference: 50,
     hardAttackReference: 14,
     shotsPerTurn: 40,
-    baseDamagePerHit: 6.5,
+    baseDamagePerHit: 1.05,
     suppressionPerHit: 4.5,
     rangeAccuracy: [
       { range: 4, accuracy: 25 },
@@ -297,7 +297,7 @@ export const COMBAT_PROFILES = {
     softAttackReference: 60,
     hardAttackReference: 16,
     shotsPerTurn: 240,
-    baseDamagePerHit: 1.1,
+    baseDamagePerHit: 0.2,
     suppressionPerHit: 1.7,
     rangeAccuracy: [
       { range: 4, accuracy: 12 },
@@ -314,8 +314,8 @@ export const COMBAT_PROFILES = {
     softAttackReference: 52,
     hardAttackReference: 20,
     shotsPerTurn: 40,
-    baseDamagePerHit: 0.75,
-    suppressionPerHit: 0.5,
+    baseDamagePerHit: 0.95,
+    suppressionPerHit: 4.5,
     rangeAccuracy: [
       { range: 4, accuracy: 16 },
       { range: 8, accuracy: 11 },
@@ -327,7 +327,7 @@ export const COMBAT_PROFILES = {
   "air.light.normal": {
     label: "Fighter sweep",
     description: "Fast airframes optimized for strafing and air-to-air engagements rather than payload weight.",
-    accuracyReference: 65,
+    accuracyReference: 85,
     softAttackReference: 18,
     hardAttackReference: 15,
     shotsPerTurn: 4,
@@ -343,12 +343,12 @@ export const COMBAT_PROFILES = {
   "air.light.antiVehicle": {
     label: "Ground-attack sorties",
     description: "Attack aircraft using rockets, cannon fire, and low-altitude strike runs against vehicles.",
-    accuracyReference: 60,
+    accuracyReference: 70,
     softAttackReference: 35,
     hardAttackReference: 20,
     shotsPerTurn: 4,
-    baseDamagePerHit: 3.2,
-    suppressionPerHit: 0.4,
+    baseDamagePerHit: 20.0,
+    suppressionPerHit: 20.0,
     rangeAccuracy: [
       { range: 0, accuracy: 55 },
       { range: 1, accuracy: 36 },
@@ -363,8 +363,8 @@ export const COMBAT_PROFILES = {
     softAttackReference: 45,
     hardAttackReference: 16,
     shotsPerTurn: 2,
-    baseDamagePerHit: 6,
-    suppressionPerHit: 1,
+    baseDamagePerHit: 50.0,
+    suppressionPerHit: 50.0,
     rangeAccuracy: [
       { range: 0, accuracy: 48 },
       { range: 1, accuracy: 30 },
