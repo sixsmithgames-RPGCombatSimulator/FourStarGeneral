@@ -499,7 +499,7 @@
     "softAttack": 35,
     "ap": 12,
     "accuracyBase": 60,
-    "traits": ["carpet"],
+    "traits": [],
     "cost": 380,
     "airSupport": {
       "roles": ["strike"],
@@ -525,7 +525,7 @@
     "softAttack": 50,
     "ap": 16,
     "accuracyBase": 55,
-    "traits": ["indirect", "carpet"],
+    "traits": ["indirect"],
     "sprite": "units/Bomber.png",
     "cost": 380,
     "airSupport": {

@@ -2928,25 +2928,57 @@ export class BattleScreen {
           return CoordinateSystem.makeHexKey(off.col, off.row);
         };
 
-        const bomberFrom = resolveUnitOffsetKey(e.bomber.unitKey, e.bomber.faction);
-        const flights: Promise<void>[] = [];
-        if (bomberFrom) {
-          flights.push(renderer.animateAircraftFlyover(bomberFrom, locKey, e.bomber.unitType));
+        if (e.type === "flak") {
+          // === FLAK ENGAGEMENT ANIMATION ===
+          const bomberFrom = resolveUnitOffsetKey(e.bomber.unitKey, e.bomber.faction);
+          const flights: Promise<void>[] = [];
+
+          if (bomberFrom) {
+            // Animate bomber approaching target
+            flights.push(renderer.animateAircraftFlyover(bomberFrom, locKey, e.bomber.unitType));
+          }
+
+          // Wait for bomber to start approaching
+          await Promise.all(flights);
+
+          // Animate flak bursts from AA positions
+          for (const interceptor of e.interceptors) {
+            if (interceptor.hex) {
+              const aaOff = CoordinateSystem.axialToOffset(interceptor.hex.q, interceptor.hex.r);
+              const aaKey = CoordinateSystem.makeHexKey(aaOff.col, aaOff.row);
+
+              // Show muzzle flash at AA position and target
+              await Promise.all([
+                renderer.playMuzzleFlash(aaKey),
+                renderer.playMuzzleFlash(locKey)
+              ]);
+              // Brief delay between flak bursts
+              await this.waitForNextFrame();
+              await this.waitForNextFrame();
+            }
+          }
+        } else {
+          // === AIR-TO-AIR ENGAGEMENT ANIMATION ===
+          const bomberFrom = resolveUnitOffsetKey(e.bomber.unitKey, e.bomber.faction);
+          const flights: Promise<void>[] = [];
+          if (bomberFrom) {
+            flights.push(renderer.animateAircraftFlyover(bomberFrom, locKey, e.bomber.unitType));
+          }
+          e.interceptors.forEach((i) => {
+            const from = resolveUnitOffsetKey(i.unitKey, i.faction);
+            if (from) {
+              flights.push(renderer.animateAircraftFlyover(from, locKey, i.unitType));
+            }
+          });
+          e.escorts.forEach((s) => {
+            const from = resolveUnitOffsetKey(s.unitKey, s.faction);
+            if (from) {
+              flights.push(renderer.animateAircraftFlyover(from, locKey, s.unitType));
+            }
+          });
+          await Promise.all(flights);
+          await renderer.playDogfight(locKey);
         }
-        e.interceptors.forEach((i) => {
-          const from = resolveUnitOffsetKey(i.unitKey, i.faction);
-          if (from) {
-            flights.push(renderer.animateAircraftFlyover(from, locKey, i.unitType));
-          }
-        });
-        e.escorts.forEach((s) => {
-          const from = resolveUnitOffsetKey(s.unitKey, s.faction);
-          if (from) {
-            flights.push(renderer.animateAircraftFlyover(from, locKey, s.unitType));
-          }
-        });
-        await Promise.all(flights);
-        await renderer.playDogfight(locKey);
       } catch (error) {
         hadAnimationError = true;
         console.error("[BattleScreen] Air engagement animation failed", { event: e }, error);

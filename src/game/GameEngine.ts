@@ -767,6 +767,7 @@ interface AirMissionOutcomeBase {
   readonly refitRequired: boolean;
   /** Optional engagement metrics used by sortie logs and HUD summaries. */
   readonly meta?: {
+    readonly flakAttrition?: number;
     readonly capIntercepts?: number;
     readonly capKills?: number;
     readonly escortsEngaged?: number;
@@ -837,10 +838,10 @@ export interface AirMissionArrival {
  * Allows the battle screen to animate bombers continuing to target while fighters/interceptors converge and engage.
  */
 export interface AirEngagementEvent {
-  readonly type: "airToAir";
+  readonly type: "airToAir" | "flak";
   readonly location: Axial;
   readonly bomber: { readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string };
-  readonly interceptors: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string }>;
+  readonly interceptors: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly hex?: Axial }>;
   readonly escorts: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string }>;
 }
 
@@ -951,6 +952,7 @@ export interface SerializedBattleState {
   airborneReserves?: ScenarioUnit[];
   airMissions?: SerializedAirMission[];
   airMissionRefits?: SerializedAirMissionRefit[];
+  aaEngagements?: Array<{ unitKey: string; count: number }>;
   airMissionReports?: AirMissionReportEntry[];
   reconIntelSnapshot?: ReconIntelSnapshot;
   counterIntelOperations?: SerializedCounterIntelOperation[];
@@ -1758,8 +1760,113 @@ export class GameEngine implements GameEngineAPI {
     const attackerBefore = structuredClone(attacker);
     const defenderBefore = structuredClone(defender);
 
-    // Interception: hostile air cover over the objective may engage the strike package before ordnance release.
     const opponentFaction: TurnFaction = mission.faction === "Player" ? "Bot" : "Player";
+
+    // === FLAK ENGAGEMENT: Ground AA intercepts before CAP ===
+    const flakUnits = this.findAllActiveFlakUnitsForHex(opponentFaction, mission.targetHex);
+    let flakAttrition = 0;
+
+    if (flakUnits.length > 0) {
+      const flakInterceptorsForEvent: Array<{
+        faction: TurnFaction;
+        unitKey: string;
+        unitType: string;
+        hex: Axial;
+      }> = [];
+
+      // Build event list for visual playback
+      for (const flakEntry of flakUnits) {
+        flakInterceptorsForEvent.push({
+          faction: opponentFaction,
+          unitKey: this.getSquadronId(flakEntry.unit),
+          unitType: flakEntry.unit.type as string,
+          hex: structuredClone(flakEntry.unit.hex)
+        });
+      }
+
+      // Emit flak engagement event for animation
+      this.pendingAirEngagements.push({
+        type: "flak",
+        location: structuredClone(mission.targetHex!),
+        bomber: {
+          faction: mission.faction,
+          unitKey: mission.unitKey,
+          unitType: mission.unitType as string
+        },
+        interceptors: flakInterceptorsForEvent,
+        escorts: []  // Escorts don't engage ground AA
+      });
+
+      // Track bomber state as it takes sequential flak damage
+      let currentBomber = attackerPlacements.get(attackerHexKey) ?? attacker;
+
+      for (const flakEntry of flakUnits) {
+        if (currentBomber.strength <= 0) break;  // Already destroyed
+
+        const flakReq = this.buildMissionAttackRequest(
+          opponentFaction,
+          flakEntry.unit,
+          currentBomber
+        );
+        if (!flakReq) continue;
+
+        // Ground-based AA has severe accuracy penalty against fast-moving, distant aircraft
+        let flakResult = resolveAttack(flakReq);
+        const flakDef = this.getUnitDefinition(flakEntry.unit.type);
+        if (this.hasAntiAirCapability(flakDef) && this.isAircraft(attackerDefinition)) {
+          // Apply 75% accuracy reduction for ground AA vs aircraft (small, fast, distant targets)
+          flakResult = {
+            ...flakResult,
+            accuracy: flakResult.accuracy * 0.25,
+            expectedHits: flakResult.expectedHits * 0.25,
+            expectedDamage: flakResult.expectedDamage * 0.25,
+            expectedSuppression: flakResult.expectedSuppression * 0.25
+          };
+        }
+
+        const suffered = Math.max(0, Math.round(flakResult.expectedDamage));
+        const updatedBomber = structuredClone(currentBomber);
+        updatedBomber.strength = Math.max(0, updatedBomber.strength - suffered);
+
+        // Record engagement and consume ammo
+        this.recordFlakEngagement(opponentFaction, flakEntry.unit, flakEntry.hexKey);
+
+        attackerPlacements.set(attackerHexKey, updatedBomber);
+        if (mission.faction === "Player") {
+          this.syncPlayerStrength(updatedBomber.hex, updatedBomber.strength);
+        } else {
+          this.syncBotStrength(updatedBomber.hex, updatedBomber.strength);
+        }
+
+        currentBomber = updatedBomber;
+        flakAttrition += suffered;
+
+        if (updatedBomber.strength <= 0) {
+          attackerPlacements.delete(attackerHexKey);
+          if (mission.faction === "Player") {
+            this.removeSupplyEntryFor(attacker.hex);
+          } else {
+            this.removeBotSupplyEntryFor(attacker.hex);
+          }
+          this.invalidateRosterCache();
+          return {
+            type: "strike",
+            result: "aborted",
+            details: "Strike package was destroyed by ground-based anti-aircraft fire before reaching the target.",
+            refitRequired: true,
+            meta: {
+              flakAttrition: attackerBefore.strength,
+              capIntercepts: 0,
+              escortsEngaged: 0,
+              escortsWins: 0,
+              bomberAttrition: 0
+            }
+          };
+        }
+      }
+    }
+
+    // Interception: hostile air cover over the objective may engage the strike package before ordnance release.
     // Collect all eligible CAP flights covering the target hex (limit: 1 interception per CAP per resolution).
     const capMissions = this.findAllActiveAirCoverForHex(opponentFaction, defenderKey).filter((m) => m.interceptions < 1);
     // Collect all eligible friendly escorts protecting this bomber (limit: 1 engagement per escort per resolution).
@@ -2057,7 +2164,7 @@ export class GameEngine implements GameEngineAPI {
           ? `Strike damaged the enemy ${defender.type} at ${defenderKey}, inflicting ${inflicted}% strength loss.`
           : `Strike expended ordnance on the enemy ${defender.type}, but no significant damage was recorded.`,
       refitRequired: true,
-      meta: { capIntercepts, escortsEngaged, escortsWins, bomberAttrition },
+      meta: { flakAttrition, capIntercepts, escortsEngaged, escortsWins, bomberAttrition },
       damageInflicted: inflicted,
       defenderDestroyed,
       defenderType: defender.type
@@ -2410,6 +2517,85 @@ export class GameEngine implements GameEngineAPI {
       results.push(mission);
     }
     return results;
+  }
+
+  /**
+   * Returns all sentry ground-based AA units within range of the target hex.
+   * Only includes units with "intercept" trait that haven't exceeded engagement limits.
+   */
+  private findAllActiveFlakUnitsForHex(
+    faction: TurnFaction,
+    targetHex: Axial
+  ): Array<{ unit: ScenarioUnit; hexKey: string }> {
+    const results: Array<{ unit: ScenarioUnit; hexKey: string }> = [];
+    const allUnits = this.getAllUnitsForFaction(faction);
+
+    for (const unit of allUnits) {
+      // Must be on sentry
+      if (!unit.onSentry) continue;
+
+      // Must have intercept trait
+      const definition = this.getUnitDefinition(unit.type);
+      if (!definition?.traits?.includes("intercept")) continue;
+
+      // Must not be aircraft (ground-based AA only)
+      if (this.isAircraft(definition)) continue;
+
+      // Must have ammo
+      if (unit.ammo <= 0) continue;
+
+      // Must not have exceeded per-turn engagement limit
+      const unitId = this.getSquadronId(unit);
+      const engagements = this.aaEngagementsByUnitId.get(unitId) ?? 0;
+      if (engagements >= 1) continue;  // One engagement per turn
+
+      // Must be within range
+      const distance = hexDistance(unit.hex, targetHex);
+      if (distance > definition.rangeMax) continue;
+      if (distance < definition.rangeMin) continue;
+
+      results.push({ unit, hexKey: axialKey(unit.hex) });
+    }
+
+    return results;
+  }
+
+  /**
+   * Checks if a unit definition has anti-air capability (intercept trait, not aircraft).
+   */
+  private hasAntiAirCapability(definition: UnitTypeDefinition | null): boolean {
+    return definition?.traits?.includes("intercept") === true &&
+           this.isAircraft(definition) === false;
+  }
+
+  /** Resets AA engagement counters at turn start */
+  private clearFlakEngagementsFor(faction: TurnFaction): void {
+    this.getAllUnitsForFaction(faction).forEach((unit) => {
+      const unitId = this.getSquadronId(unit);
+      this.aaEngagementsByUnitId.delete(unitId);
+    });
+  }
+
+  /** Increments engagement counter and breaks sentry for AA unit */
+  private recordFlakEngagement(faction: TurnFaction, unit: ScenarioUnit, hexKey: string): void {
+    const unitId = this.getSquadronId(unit);
+    const current = this.aaEngagementsByUnitId.get(unitId) ?? 0;
+    this.aaEngagementsByUnitId.set(unitId, current + 1);
+
+    // Break sentry immediately and consume ammo
+    const updatedUnit = structuredClone(unit);
+    updatedUnit.onSentry = false;
+    updatedUnit.ammo = Math.max(0, updatedUnit.ammo - 1);
+
+    if (faction === "Player") {
+      this.playerPlacements.set(hexKey, updatedUnit);
+      this.syncPlayerAmmo(updatedUnit.hex, updatedUnit.ammo);
+    } else if (faction === "Bot") {
+      this.botPlacements.set(hexKey, updatedUnit);
+      this.syncBotAmmo(updatedUnit.hex, updatedUnit.ammo);
+    }
+
+    this.invalidateRosterCache();
   }
 
   /** Flags the assigned squadron for refit and schedules the timer based on its air support profile. */
@@ -3797,6 +3983,9 @@ private automateSupplyConvoys(
   private airMissionIdCounter = 0;
   /** Refitting squadrons keyed by squadron id so planners know when they return to Ready status. */
   private readonly airMissionRefitTimers = new Map<string, { missionId: string; faction: TurnFaction; remaining: number }>();
+
+  /** Tracks which AA units have engaged aircraft this turn for rate limiting (one engagement per turn per unit). */
+  private readonly aaEngagementsByUnitId = new Map<string, number>();
 
   /** Counter for generating unique unit IDs within this engine session. */
   private unitIdCounter = 0;
@@ -6119,6 +6308,12 @@ private automateSupplyConvoys(
         this.airMissionRefitTimers.set(refit.unitKey, { missionId: refit.missionId, faction: refit.faction, remaining: refit.remaining });
       });
     }
+    // Restore AA engagement counters
+    if (Array.isArray(state.aaEngagements)) {
+      state.aaEngagements.forEach((entry) => {
+        this.aaEngagementsByUnitId.set(entry.unitKey, entry.count);
+      });
+    }
     if (Array.isArray(state.airMissionReports)) {
       state.airMissionReports.forEach((entry) => this.airMissionReports.push(structuredClone(entry)));
     }
@@ -6213,6 +6408,7 @@ private automateSupplyConvoys(
     this._activeFaction = "Player";
     this._turnNumber = 1;
     this.playerActionFlags.clear();
+    this.clearFlakEngagementsFor("Player");
     this.rebuildPlayerIdleUnitSet();
     this.refreshAircraftAmmoForFaction("Player");
   }
@@ -6340,6 +6536,7 @@ private automateSupplyConvoys(
       this._phase = "botTurn";
       this._activeFaction = "Bot";
       this.botActionFlags.clear();
+      this.clearFlakEngagementsFor("Bot");
       this.clearSuppressionFor("Bot");
       this.clearSentryFor("Bot");
       const botSummary = this.executeBotTurn();
@@ -6353,6 +6550,7 @@ private automateSupplyConvoys(
       this._turnNumber += 1;
       this.advanceCounterIntelTurn();
       this.playerActionFlags.clear();
+      this.clearFlakEngagementsFor("Player");
       this.clearSuppressionFor("Player");
       this.clearSentryFor("Player");
       this.rebuildPlayerIdleUnitSet();
@@ -7471,6 +7669,83 @@ private automateSupplyConvoys(
     if (attackerIsAircraft && !primaryDefenderIsAircraft) {
       const opponentFaction: TurnFaction = "Bot";
       const defenderHexKey = axialKey(defenderHex);
+
+      // === FLAK ENGAGEMENT: Ground AA intercepts before CAP ===
+      const flakUnits = this.findAllActiveFlakUnitsForHex(opponentFaction, defenderHex);
+
+      if (flakUnits.length > 0) {
+        const flakInterceptorsForEvent: Array<{
+          faction: TurnFaction;
+          unitKey: string;
+          unitType: string;
+          hex: Axial;
+        }> = [];
+
+        for (const flakEntry of flakUnits) {
+          flakInterceptorsForEvent.push({
+            faction: opponentFaction,
+            unitKey: this.getSquadronId(flakEntry.unit),
+            unitType: flakEntry.unit.type as string,
+            hex: structuredClone(flakEntry.unit.hex)
+          });
+        }
+
+        this.pendingAirEngagements.push({
+          type: "flak",
+          location: structuredClone(defenderHex),
+          bomber: {
+            faction: "Player",
+            unitKey: attackerKey,
+            unitType: attacker.type as string
+          },
+          interceptors: flakInterceptorsForEvent,
+          escorts: []
+        });
+
+        // Process sequential flak damage
+        for (const flakEntry of flakUnits) {
+          if (attackingSnapshot.strength <= 0) break;
+
+          const flakReq = this.buildMissionAttackRequest(
+            opponentFaction,
+            flakEntry.unit,
+            attackingSnapshot
+          );
+          if (!flakReq) continue;
+
+          // Ground-based AA has severe accuracy penalty against fast-moving, distant aircraft
+          let flakResult = resolveAttack(flakReq);
+          const flakDef = this.getUnitDefinition(flakEntry.unit.type);
+          if (this.hasAntiAirCapability(flakDef) && this.isAircraft(unitDef)) {
+            // Apply 75% accuracy reduction for ground AA vs aircraft (small, fast, distant targets)
+            flakResult = {
+              ...flakResult,
+              accuracy: flakResult.accuracy * 0.25,
+              expectedHits: flakResult.expectedHits * 0.25,
+              expectedDamage: flakResult.expectedDamage * 0.25,
+              expectedSuppression: flakResult.expectedSuppression * 0.25
+            };
+          }
+
+          const suffered = roundAppliedDamage(flakResult.expectedDamage, flakDef, unitDef);
+          attackingSnapshot = structuredClone(attackingSnapshot);
+          attackingSnapshot.strength = Math.max(0, attackingSnapshot.strength - suffered);
+
+          this.recordFlakEngagement(opponentFaction, flakEntry.unit, flakEntry.hexKey);
+
+          if (attackingSnapshot.strength <= 0) {
+            this.removeUnitFromFactionHex("Player", attackerHex, attackerKey);
+            this.deleteUnitActionFlags("Player", attacker);
+            this.playerIdleUnitKeys.delete(attackerOriginKey);
+            this.removeSupplyEntryForFaction("Player", attackerHex, attackerKey);
+            clearAircraftRegistryFor("Player", attacker);
+            this.updateIdleRegistryFor(attackerOriginKey);
+            this.invalidateRosterCache();
+            return null;  // Aircraft destroyed by flak before reaching target
+          }
+        }
+      }
+
       const capMissions = this.findAllActiveAirCoverForHex(opponentFaction, defenderHexKey).filter((mission) => mission.interceptions < 1);
       const escortMissions = this.findAllActiveEscortsForUnit("Player", attackerKey).filter((mission) => mission.interceptions < 1);
 
@@ -7882,6 +8157,10 @@ private automateSupplyConvoys(
         unitKey,
         faction: timer.faction,
         remaining: timer.remaining
+      })),
+      aaEngagements: Array.from(this.aaEngagementsByUnitId.entries()).map(([unitKey, count]) => ({
+        unitKey,
+        count
       })),
       airMissionReports: this.airMissionReports.map((entry) => structuredClone(entry)),
       reconIntelSnapshot: structuredClone(this.ensureReconIntelSnapshot()),
@@ -10172,10 +10451,84 @@ private automateSupplyConvoys(
 
     if (attackerIsAircraft && !defenderIsAircraft) {
       const defHexKey = axialKey(targetHex);
+
+      // === FLAK ENGAGEMENT: Player AA intercepts bot aircraft before CAP ===
+      const flakUnits = this.findAllActiveFlakUnitsForHex("Player", targetHex);
+      const atkKey = axialKey(attackerHex);
+
+      if (flakUnits.length > 0) {
+        const flakInterceptorsForEvent: Array<{
+          faction: TurnFaction;
+          unitKey: string;
+          unitType: string;
+          hex: Axial;
+        }> = [];
+
+        for (const flakEntry of flakUnits) {
+          flakInterceptorsForEvent.push({
+            faction: "Player",
+            unitKey: this.getSquadronId(flakEntry.unit),
+            unitType: flakEntry.unit.type as string,
+            hex: structuredClone(flakEntry.unit.hex)
+          });
+        }
+
+        this.pendingAirEngagements.push({
+          type: "flak",
+          location: structuredClone(targetHex),
+          bomber: {
+            faction: "Bot",
+            unitKey: atkKey,
+            unitType: attackingUnit.type as string
+          },
+          interceptors: flakInterceptorsForEvent,
+          escorts: []
+        });
+
+        // Track bot bomber as variable since it may be destroyed
+        let currentAtk = attackingUnit;
+
+        for (const flakEntry of flakUnits) {
+          if (currentAtk.strength <= 0) break;
+
+          const flakReq = this.buildMissionAttackRequest("Player", flakEntry.unit, currentAtk);
+          if (!flakReq) continue;
+
+          // Ground-based AA has severe accuracy penalty against fast-moving, distant aircraft
+          let flakResult = resolveAttack(flakReq);
+          const flakDef = this.getUnitDefinition(flakEntry.unit.type);
+          if (this.hasAntiAirCapability(flakDef) && this.isAircraft(attackerDef)) {
+            // Apply 75% accuracy reduction for ground AA vs aircraft (small, fast, distant targets)
+            flakResult = {
+              ...flakResult,
+              accuracy: flakResult.accuracy * 0.25,
+              expectedHits: flakResult.expectedHits * 0.25,
+              expectedDamage: flakResult.expectedDamage * 0.25,
+              expectedSuppression: flakResult.expectedSuppression * 0.25
+            };
+          }
+
+          const suffered = Math.max(0, Math.round(flakResult.expectedDamage));
+          const updatedAtk = structuredClone(currentAtk);
+          updatedAtk.strength = Math.max(0, updatedAtk.strength - suffered);
+
+          this.recordFlakEngagement("Player", flakEntry.unit, flakEntry.hexKey);
+
+          if (updatedAtk.strength <= 0) {
+            this.botPlacements.delete(atkKey);
+            this.removeBotSupplyEntryFor(attackerHex);
+            this.invalidateRosterCache();
+            return null;  // Bot attack aborted, aircraft destroyed
+          }
+
+          currentAtk = updatedAtk;
+          attackingUnit = updatedAtk;  // Update for subsequent CAP checks
+        }
+      }
+
       const capMissions = this.findAllActiveAirCoverForHex("Player", defHexKey).filter((m) => m.interceptions < 1);
       const botAttackerSquadronId = this.getSquadronId(attackingUnit);
       const escortMissions = this.findAllActiveEscortsForUnit("Bot", botAttackerSquadronId).filter((m) => m.interceptions < 1);
-      const atkKey = axialKey(attackerHex);
       if (capMissions.length > 0) {
         const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string }> = [];
         const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string }> = [];
