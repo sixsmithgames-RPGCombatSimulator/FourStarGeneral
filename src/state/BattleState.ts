@@ -166,6 +166,14 @@ export class BattleState {
   }
 
   /**
+   * Returns the active game engine instance when one has been initialized.
+   * UI call sites can use this for optional turn/phase checks without throwing.
+   */
+  tryGetGameEngine(): GameEngine | null {
+    return this.gameEngine;
+  }
+
+  /**
    * Returns the latest cached roster snapshot, fetching a fresh copy from the engine when available.
    * The defensive clone shields UI layers from mutating engine state and matches PLAN_battle_Army expectations.
    */
