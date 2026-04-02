@@ -85,6 +85,30 @@ const DEFENSIVE_TERRAIN_BONUS = 4;
  * Penalty for leaving cover to move into open terrain.
  */
 const EXPOSED_POSITION_PENALTY = -3;
+/**
+ * Bonus per nearby ally when staging an assault. Keeps the formation moving as a group instead of feeding units piecemeal.
+ */
+const ASSAULT_SUPPORT_BONUS = 3;
+/**
+ * Reward for ending a move on a destination that masks the approach from hostile LOS.
+ */
+const MASKED_APPROACH_BONUS = 6;
+/**
+ * Penalty per visible hostile when a unit advances without being ready to fight from that endpoint.
+ */
+const EXPOSED_APPROACH_PENALTY = 3.5;
+/**
+ * Penalty for pushing a combat unit ahead of its nearby support umbrella.
+ */
+const LONE_ADVANCE_PENALTY = 7;
+/**
+ * Recon units should scout for the formation, not die unsupported far in front of it.
+ */
+const RECON_OVERRUN_PENALTY = 10;
+/**
+ * Small reward for approach hexes that naturally block LOS and help hide the advance.
+ */
+const BLOCKING_TERRAIN_APPROACH_BONUS = 3;
 
 /**
  * Bonus for recon units spotting enemies for allies.
@@ -260,10 +284,12 @@ function steeringBias(origin: Axial, firstStep: Axial, target: Axial): number {
  * Promote moves that shrink distance to an active objective even when it cannot be captured this turn.
  */
 function scoreObjectiveApproach(
+  snapshot: PlannerUnitSnapshot,
   origin: Axial,
   reachable: Map<string, ReachableHex>,
   objectives: readonly { hex: Axial; owner: "Player" | "Bot"; vp: number }[],
   occupancy: ReadonlyMap<string, "bot" | "player">,
+  input: BotPlannerInput,
   modifiers: DifficultyModifiers
 ): ActionCandidate | null {
   if (objectives.length === 0) {
@@ -324,7 +350,8 @@ function scoreObjectiveApproach(
       attackTarget: null,
       expectedDamage: 0,
       expectedRetaliation: 0,
-      score: bestReductionScore - (option.path.length - 1),
+      score: bestReductionScore - (option.path.length - 1)
+        + calculateApproachPositionScore(snapshot, option.hex, bestTargetHex, input, modifiers),
       rationale
     };
 
@@ -360,15 +387,17 @@ function filterActiveObjectives(
  * When no formal objective exists, drift toward the nearest enemy so formations keep pressure on the frontline.
  */
 function scoreEnemyPressure(
-  origin: Axial,
+  snapshot: PlannerUnitSnapshot,
   reachable: Map<string, ReachableHex>,
-  enemies: readonly PlannerUnitSnapshot[]
+  enemies: readonly PlannerUnitSnapshot[],
+  input: BotPlannerInput,
+  modifiers: DifficultyModifiers
 ): ActionCandidate | null {
   if (enemies.length === 0) {
     return null;
   }
 
-  const originDistance = enemies.reduce((min, enemy) => Math.min(min, hexDistance(origin, enemy.unit.hex)), Infinity);
+  const purpose = classifyUnitPurpose(snapshot.definition);
   let best: ActionCandidate | null = null;
 
   for (const option of reachable.values()) {
@@ -376,40 +405,40 @@ function scoreEnemyPressure(
       continue; // Staying in place does not apply pressure.
     }
 
-    let nearest: PlannerUnitSnapshot | null = null;
-    let nearestDistance = Infinity;
     for (const enemy of enemies) {
-      const distance = hexDistance(option.hex, enemy.unit.hex);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearest = enemy;
+      if (!canPotentiallyAttackTarget(snapshot, enemy)) {
+        continue;
       }
-    }
 
-    if (nearestDistance >= originDistance) {
-      continue; // Only reward moves that demonstrably tighten the noose.
-    }
+      const originDistance = hexDistance(snapshot.unit.hex, enemy.unit.hex);
+      const distance = hexDistance(option.hex, enemy.unit.hex);
+      if (distance >= originDistance) {
+        continue; // Only reward moves that demonstrably tighten the noose.
+      }
 
-    const distanceGain = originDistance - nearestDistance;
-    const score = 3 + distanceGain * 3 - (option.path.length - 1);
-    const rationaleTarget = nearest ? nearest.unit.type : "enemy forces";
-    const candidate: ActionCandidate = {
-      destination: option.hex,
-      path: option.path,
-      attackTarget: null,
-      expectedDamage: 0,
-      expectedRetaliation: 0,
-      score,
-      rationale: `Advance to pressure ${rationaleTarget}`
-    };
+      const distanceGain = originDistance - distance;
+      let score = 3 + distanceGain * 3.5 - (option.path.length - 1) * 0.5;
+      score += calculateTargetPriorityBonus(purpose, enemy) * 0.35;
+      score += calculateApproachPositionScore(snapshot, option.hex, enemy.unit.hex, input, modifiers);
 
-    // Steering: add a small nudge toward the nearest enemy to break ties consistently toward the target
-    if (nearest && option.path.length > 1) {
-      candidate.score += STEERING_TIE_BIAS * steeringBias(origin, option.path[1], nearest.unit.hex);
-    }
+      const candidate: ActionCandidate = {
+        destination: option.hex,
+        path: option.path,
+        attackTarget: null,
+        expectedDamage: 0,
+        expectedRetaliation: 0,
+        score,
+        rationale: `Advance to pressure ${describePriorityTarget(enemy)}`
+      };
 
-    if (!best || candidate.score > best.score) {
-      best = candidate;
+      // Steering: add a small nudge toward the chosen enemy to break ties consistently toward the target.
+      if (option.path.length > 1) {
+        candidate.score += STEERING_TIE_BIAS * steeringBias(snapshot.unit.hex, option.path[1], enemy.unit.hex);
+      }
+
+      if (!best || candidate.score > best.score) {
+        best = candidate;
+      }
     }
   }
 
@@ -511,6 +540,7 @@ export function computeReachableHexes(
   originKey: string
 ): Map<string, ReachableHex> {
   const results = new Map<string, ReachableHex>();
+  const bestCosts = new Map<string, number>([[originKey, 0]]);
   const frontier: Array<{ hex: Axial; cost: number; path: Axial[] }> = [{
     hex: origin,
     cost: 0,
@@ -528,14 +558,18 @@ export function computeReachableHexes(
     }
 
     const currentKey = axialKey(current.hex);
-    if (results.has(currentKey)) {
+    const bestKnownCost = bestCosts.get(currentKey);
+    if (bestKnownCost !== undefined && current.cost > bestKnownCost) {
       continue;
     }
-    results.set(currentKey, {
-      hex: current.hex,
-      cost: current.cost,
-      path: current.path
-    });
+    const currentOccupant = input.occupancy.get(currentKey);
+    if (currentKey === originKey || currentOccupant !== "bot") {
+      results.set(currentKey, {
+        hex: current.hex,
+        cost: current.cost,
+        path: current.path
+      });
+    }
 
     // Stop exploring once the allocation budget is exhausted.
     if (current.cost >= allowance) {
@@ -557,9 +591,6 @@ export function computeReachableHexes(
       }
 
       const occupant = input.occupancy.get(neighborKey);
-      if (occupant === "bot" && neighborKey !== originKey) {
-        continue; // Avoid pathing through fellow bot units to limit congestion.
-      }
       if (occupant === "player") {
         continue; // Do not step onto enemy-occupied hexes; attacks target adjacent positions instead.
       }
@@ -569,10 +600,11 @@ export function computeReachableHexes(
         continue;
       }
 
-      const known = results.get(neighborKey);
-      if (known && known.cost <= newCost) {
+      const knownCost = bestCosts.get(neighborKey);
+      if (knownCost !== undefined && knownCost <= newCost) {
         continue;
       }
+      bestCosts.set(neighborKey, newCost);
 
       frontier.push({
         hex: neighbor,
@@ -985,6 +1017,99 @@ function calculateReconSpottingBonus(
 }
 
 /**
+ * Scores the safety and cohesion of a non-attack destination so the bot stages whole groups instead of lone probes.
+ * This rewards covered, mutually supporting approaches and penalizes exposed lunges that end outside a fighting posture.
+ */
+function calculateApproachPositionScore(
+  snapshot: PlannerUnitSnapshot,
+  destination: Axial,
+  focusHex: Axial | null,
+  input: BotPlannerInput,
+  modifiers: DifficultyModifiers
+): number {
+  if (!modifiers.useTacticalAI) {
+    return 0;
+  }
+
+  const terrain = input.map.terrainAt(destination);
+  const selfKey = axialKey(snapshot.unit.hex);
+  const supportDistances = input.botUnits
+    .filter((ally) => axialKey(ally.unit.hex) !== selfKey)
+    .map((ally) => hexDistance(ally.unit.hex, destination));
+  const nearbySupport = supportDistances.filter((distance) => distance <= SUPPORT_RANGE).length;
+  const nearestSupportDistance = supportDistances.length > 0 ? Math.min(...supportDistances) : Number.POSITIVE_INFINITY;
+  const nearestEnemyDistance = input.playerUnits.reduce(
+    (min, enemy) => Math.min(min, hexDistance(destination, enemy.unit.hex)),
+    Number.POSITIVE_INFINITY
+  );
+
+  const rangeMin = snapshot.definition.rangeMin ?? 1;
+  const rangeMax = snapshot.definition.rangeMax ?? 1;
+  const focusDistance = focusHex ? hexDistance(destination, focusHex) : Number.POSITIVE_INFINITY;
+  const inAttackBand = focusHex ? distanceToAttackBand(focusDistance, rangeMin, rangeMax) === 0 : false;
+  const wantsCoveredApproach = requiresDirectLOS(snapshot.definition)
+    || snapshot.definition.class === "recon"
+    || isArmoredGroundUnit(snapshot.definition);
+  const isAir = snapshot.definition.moveType === "air";
+  const focusKey = focusHex ? axialKey(focusHex) : null;
+  let visibleThreats = 0;
+
+  input.playerUnits.forEach((enemy) => {
+    const enemyKey = axialKey(enemy.unit.hex);
+    if (focusKey && inAttackBand && enemyKey === focusKey) {
+      return;
+    }
+    if (input.losAllows(destination, enemy.unit.hex, isAir)) {
+      visibleThreats += 1;
+    }
+  });
+
+  let score = calculateTerrainPositionScore(destination, terrain, false);
+
+  if (terrain?.blocksLOS && nearestEnemyDistance <= PROXIMITY_ENGAGE_RADIUS + 2) {
+    score += BLOCKING_TERRAIN_APPROACH_BONUS;
+  }
+
+  if (nearbySupport > 0) {
+    score += Math.min(nearbySupport, 3) * ASSAULT_SUPPORT_BONUS;
+  } else if (nearestEnemyDistance <= PROXIMITY_ENGAGE_RADIUS + 2 && snapshot.definition.class !== "artillery") {
+    score -= LONE_ADVANCE_PENALTY;
+    if (Number.isFinite(nearestSupportDistance)) {
+      score -= Math.max(0, nearestSupportDistance - SUPPORT_RANGE) * 1.5;
+    }
+  }
+
+  if (wantsCoveredApproach) {
+    if (visibleThreats === 0 && nearestEnemyDistance <= PROXIMITY_ENGAGE_RADIUS + 2) {
+      score += MASKED_APPROACH_BONUS;
+    } else if (!inAttackBand) {
+      score -= visibleThreats * EXPOSED_APPROACH_PENALTY;
+      if (visibleThreats > 1) {
+        // Multiple open firing lanes are where piecemeal pushes get chewed up. Penalize them sharply.
+        score -= (visibleThreats - 1) * 4;
+      }
+    } else if (visibleThreats > 1) {
+      score -= (visibleThreats - 1) * 2;
+    }
+  }
+
+  if (snapshot.definition.class === "recon") {
+    if (nearbySupport === 0 && visibleThreats > 0) {
+      score -= RECON_OVERRUN_PENALTY;
+    }
+    if (nearbySupport > 0 && visibleThreats === 0) {
+      score += 3;
+    }
+  }
+
+  if (isArmoredGroundUnit(snapshot.definition) && nearbySupport > 0) {
+    score += 2;
+  }
+
+  return score;
+}
+
+/**
  * Calculates bonus for moving to or holding objective hexes.
  * Returns a high score for occupying objectives, scaled by difficulty and VP value.
  */
@@ -1159,10 +1284,12 @@ export function scoreCandidateAdvanced(
  * Prioritizes actually reaching and occupying objective hexes.
  */
 function scoreObjectiveAdvance(
+  snapshot: PlannerUnitSnapshot,
   origin: Axial,
   reachable: Map<string, ReachableHex>,
   objectives: readonly { hex: Axial; owner: "Player" | "Bot"; vp: number }[],
   occupancy: ReadonlyMap<string, "bot" | "player">,
+  input: BotPlannerInput,
   modifiers: DifficultyModifiers
 ): ActionCandidate | null {
   if (objectives.length === 0) {
@@ -1198,7 +1325,7 @@ function scoreObjectiveAdvance(
         attackTarget: null,
         expectedDamage: 0,
         expectedRetaliation: 0,
-        score,
+        score: score + calculateApproachPositionScore(snapshot, option.hex, objective.hex, input, modifiers),
         rationale: destKey === key
           ? `Occupy objective worth ${objective.vp} VP`
           : `Advance to objective worth ${objective.vp} VP`
@@ -1263,6 +1390,7 @@ function scoreFireSetup(
     score += hasLos ? FIRE_SETUP_LOS_BONUS : -FIRE_SETUP_NO_LOS_PENALTY;
     score += calculateTerrainPositionScore(hex, terrain, false);
     score += calculateArtilleryPositionScore(hex, nearestEnemyDistance, snapshot, enemy, modifiers);
+    score += calculateApproachPositionScore(snapshot, hex, enemy.unit.hex, input, modifiers);
 
     return { score, rangeGap, futureGap, hasLos };
   };
@@ -1433,12 +1561,12 @@ function pickBestCandidate(
 
   // Consider movement toward objectives if no attack was valuable.
   if (!top || top.score < 0) {
-    const advanceCandidate = scoreObjectiveAdvance(snapshot.unit.hex, reachable, activeObjectives, input.occupancy, difficultyMods);
+    const advanceCandidate = scoreObjectiveAdvance(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods);
     if (advanceCandidate && (!top || advanceCandidate.score > top.score)) {
       top = advanceCandidate;
     }
     if (!top || top.score < 0) {
-      const approachCandidate = scoreObjectiveApproach(snapshot.unit.hex, reachable, activeObjectives, input.occupancy, difficultyMods);
+      const approachCandidate = scoreObjectiveApproach(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods);
       if (approachCandidate && (!top || approachCandidate.score > top.score)) {
         top = approachCandidate;
       }
@@ -1446,7 +1574,7 @@ function pickBestCandidate(
     // Engage nearby/visible enemies even when objectives exist; otherwise fall back to elimination goal
     // only when no contested objectives remain.
     if ((allowEnemyEliminationFallback || enemyNearOrVisible) && (!top || top.score < 0)) {
-      const pressureCandidate = scoreEnemyPressure(snapshot.unit.hex, reachable, pressureTargets);
+      const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods);
       if (pressureCandidate && enemyNearOrVisible) {
         // Apply difficulty-based contact engagement bonus
         pressureCandidate.score += difficultyMods.contactEngageBonus + Math.max(0, PROXIMITY_ENGAGE_RADIUS - nearestEnemyDistance);
@@ -1460,7 +1588,7 @@ function pickBestCandidate(
   // If we already have a decent objective move but an enemy-pressure option clearly outranks it
   // (due to proximity/visibility), prefer the pressure move. This keeps the AI responsive to contact.
   if ((allowEnemyEliminationFallback || enemyNearOrVisible) && isObjectiveCandidate(top)) {
-    const pressureCandidate = scoreEnemyPressure(snapshot.unit.hex, reachable, pressureTargets);
+    const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods);
     if (pressureCandidate && enemyNearOrVisible) {
       // Apply difficulty-based contact engagement bonus
       pressureCandidate.score += difficultyMods.contactEngageBonus + Math.max(0, PROXIMITY_ENGAGE_RADIUS - nearestEnemyDistance);
@@ -1473,7 +1601,7 @@ function pickBestCandidate(
   // Final fallback: move toward nearest enemy even if we can't reach/attack them this turn
   // This prevents units from getting stuck when they can't find valid attack positions
   if (!top || top.score <= 0) {
-    const fallbackPressure = scoreEnemyPressure(snapshot.unit.hex, reachable, input.playerUnits);
+    const fallbackPressure = scoreEnemyPressure(snapshot, reachable, input.playerUnits, input, difficultyMods);
     if (fallbackPressure && (!top || fallbackPressure.score > top.score)) {
       top = fallbackPressure;
     }

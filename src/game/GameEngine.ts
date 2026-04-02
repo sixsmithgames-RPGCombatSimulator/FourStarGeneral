@@ -11859,8 +11859,11 @@ private automateSupplyConvoys(
     if (!this.playerPlacements.has(axialKey(hex))) {
       return { available: false, reason: "No player formation occupies this hex." };
     }
-    if (definition.moveType !== "leg" || !["infantry", "recon", "specialist"].includes(definition.class)) {
-      return { available: false, reason: "Only foot infantry-style formations can dig in." };
+    if (definition.class !== "infantry") {
+      return { available: false, reason: "Only infantry formations can dig in." };
+    }
+    if (this.isTowableUnit(unit)) {
+      return { available: false, reason: "Towable artillery cannot entrench." };
     }
     if (unit.entrench >= 2) {
       return { available: false, reason: "Entrenchment is already at maximum depth." };

@@ -19,6 +19,13 @@ const plains: TerrainDefinition = {
   blocksLOS: false
 };
 
+const woods: TerrainDefinition = {
+  moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
+  defense: 3,
+  accMod: -1,
+  blocksLOS: true
+};
+
 const terrain: TerrainDictionary = { plains } as unknown as TerrainDictionary;
 
 const playerInfantryDef: UnitTypeDefinition = {
@@ -328,6 +335,101 @@ registerTest("BOT_PLANNER_HOLDS_A_GOOD_FIRING_LANE_INSTEAD_OF_SHUFFLING_SIDEWAYS
   await Then("the unit should stay put instead of sidestepping without improving range or LOS", async () => {
     if (plannedDestination !== "0,0") {
       throw new Error(`Expected the anti-tank gun to hold at 0,0, but planner chose ${plannedDestination || "no move"}.`);
+    }
+  });
+});
+
+registerTest("BOT_PLANNER_PATHS_THROUGH_FRIENDLY_HEXES_TO_JOIN_THE_ASSAULT_LINE", async ({ Given, When, Then }) => {
+  let plannedDestination = "";
+
+  await Given("a rear tank queued behind a friendly screen in a one-hex-wide lane toward enemy armor", async () => {
+    const rearTank = createPlannerSnapshot("RearTank", playerTankDef, { q: 0, r: 0 });
+    const frontScreen = createPlannerSnapshot("FrontScreen", playerInfantryDef, { q: 1, r: 0 });
+    const enemyTank = createPlannerSnapshot("EnemyTank", playerTankDef, { q: 4, r: 0 });
+
+    const input: BotPlannerInput = {
+      botUnits: [rearTank, frontScreen],
+      playerUnits: [enemyTank],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(rearTank.unit.hex), "bot"],
+        [axialKey(frontScreen.unit.hex), "bot"],
+        [axialKey(enemyTank.unit.hex), "player"]
+      ]),
+      map: {
+        inBounds: (hex) => hex.r === 0 && hex.q >= 0 && hex.q <= 4,
+        terrainAt: () => plains,
+        movementCost: () => 1
+      },
+      losAllows: () => true,
+      movementAllowance: () => 2,
+      attackEstimator: () => null,
+      difficulty: "Normal"
+    };
+
+    const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "0,0");
+    plannedDestination = plan ? axialKey(plan.destination) : "";
+  });
+
+  await When("the planner evaluates a follow-on move behind the lead element", async () => {
+    // Planner result captured during Given to keep the test focused on the pathing output.
+  });
+
+  await Then("the rear tank should plan through the friendly screen instead of stalling in place", async () => {
+    if (plannedDestination !== "2,0") {
+      throw new Error(`Expected the rear tank to form up at 2,0, but planner chose ${plannedDestination || "no move"}.`);
+    }
+  });
+});
+
+registerTest("BOT_PLANNER_PREFERS_A_MASKED_APPROACH_OVER_AN_EXPOSED_STRAIGHT_LUNGE", async ({ Given, When, Then }) => {
+  let plannedDestination = "";
+
+  await Given("a tank can either close under woods cover or step into view of multiple defenders", async () => {
+    const botTank = createPlannerSnapshot("BotTank", playerTankDef, { q: 0, r: 0 });
+    const botInfantry = createPlannerSnapshot("BotInfantry", playerInfantryDef, { q: 1, r: 2 });
+    const enemyTank = createPlannerSnapshot("EnemyTank", playerTankDef, { q: 4, r: 0 });
+    const enemyArtillery = createPlannerSnapshot("EnemyArtillery", playerArtilleryDef, { q: 4, r: 2 });
+    const artilleryKey = axialKey(enemyArtillery.unit.hex);
+
+    const input: BotPlannerInput = {
+      botUnits: [botTank, botInfantry],
+      playerUnits: [enemyTank, enemyArtillery],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(botTank.unit.hex), "bot"],
+        [axialKey(botInfantry.unit.hex), "bot"],
+        [axialKey(enemyTank.unit.hex), "player"],
+        [artilleryKey, "player"]
+      ]),
+      map: {
+        inBounds: () => true,
+        terrainAt: (hex) => axialKey(hex) === "1,1" ? woods : plains,
+        movementCost: () => 1
+      },
+      losAllows: (attackerHex, targetHex) => {
+        const attackerKey = axialKey(attackerHex);
+        if (axialKey(targetHex) === artilleryKey && attackerKey === "1,1") {
+          return false;
+        }
+        return true;
+      },
+      movementAllowance: () => 2,
+      attackEstimator: () => null,
+      difficulty: "Normal"
+    };
+
+    const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "0,0");
+    plannedDestination = plan ? axialKey(plan.destination) : "";
+  });
+
+  await When("the planner scores staging hexes for the armored push", async () => {
+    // Planner result captured during Given to keep the test focused on the chosen destination.
+  });
+
+  await Then("the tank should choose the masked woods approach instead of the fully exposed center hex", async () => {
+    if (plannedDestination !== "1,1") {
+      throw new Error(`Expected the tank to stage at 1,1, but planner chose ${plannedDestination || "no move"}.`);
     }
   });
 });
