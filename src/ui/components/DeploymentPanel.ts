@@ -245,20 +245,16 @@ export class DeploymentPanel {
     this.statusElement.removeAttribute("aria-live");
 
     if (isBattlePhaseLayout) {
-      const reserves = deploymentState.getReserves();
-      const readyCount = reserves.reduce((sum, entry) => (entry.status === "ready" ? sum + entry.remaining : sum), 0);
-      this.statusElement.textContent = readyCount > 0
-        ? `${readyCount} reserve unit${readyCount === 1 ? "" : "s"} ready. Select a valid base-camp hex to reinforce.`
-        : "All reserves committed. No reinforcements remain.";
+      this.statusElement.textContent = "Deployment locked. Army Roster handles reinforcements.";
       return;
     }
 
-    const deployed = deploymentState.getTotalDeployed();
     const total = deploymentState.pool.reduce((sum, entry) => sum + deploymentState.getUnitCount(entry.key), 0);
+    const deployed = deploymentState.getTotalDeployed();
     const remaining = Math.max(0, total - deployed);
 
     if (!this.baseCampAssigned) {
-      this.statusElement.textContent = "Step 1: Assign a base camp to unlock deployment planning.";
+      this.statusElement.textContent = "Assign a base camp to begin placement.";
       return;
     }
 
@@ -269,16 +265,9 @@ export class DeploymentPanel {
       return;
     }
 
-    const baseCampKey = deploymentState.getBaseCampKey();
-    const baseCampCopy = baseCampKey
-      ? `Base camp ${baseCampKey} secured.`
-      : "Base camp assigned.";
-
-    const readinessCopy = remaining === 0
+    this.statusElement.textContent = remaining === 0
       ? "All requisitioned units deployed."
       : `${remaining} unit${remaining === 1 ? "" : "s"} awaiting placement.`;
-
-    this.statusElement.textContent = `${deployed}/${total} units staged. ${readinessCopy} ${baseCampCopy}`;
   }
 
   /**
@@ -294,16 +283,18 @@ export class DeploymentPanel {
           <li class="deployment-zone is-locked" data-zone-key="${this.escapeHtml(lockedZone.key)}" tabindex="-1">
             <span class="deployment-zone-name">${this.escapeHtml(lockedZone.name)}</span>
             <span class="deployment-zone-capacity" aria-hidden="true">${usedSlots}/${lockedZone.totalCapacity}</span>
-            <span class="deployment-zone-description">Deployment zone locked after base camp assignment.</span>
+            <span class="deployment-zone-description">Base camp sector locked.</span>
           </li>
         `;
-        this.zoneSummary.textContent = this.composeZoneSummaryCopy();
+        this.zoneSummary.removeAttribute("data-zone-active");
+        this.zoneSummary.textContent = "";
       } else {
         this.zoneList.innerHTML = `
           <li class="deployment-zone is-empty" aria-live="polite">
             Deployment zone lock pending. Scenario data may still be loading.
           </li>
         `;
+        this.zoneSummary.removeAttribute("data-zone-active");
         this.zoneSummary.textContent = "Deployment zone lock pending.";
       }
       this.panel.setAttribute("data-zone-locked", "true");
@@ -326,13 +317,14 @@ export class DeploymentPanel {
     const markup = Array.from(this.zoneMetaMap.values(), (zone) => this.renderZoneListItem(zone)).join("");
     this.zoneList.innerHTML = markup;
     if (!this.baseCampAssigned) {
-      this.zoneSummary.textContent = "Step 2: Select a deployment zone to guide base camp placement.";
+      this.zoneSummary.removeAttribute("data-zone-active");
+      this.zoneSummary.textContent = "Select a sector for base camp.";
     } else if (this.selectedZoneKey) {
       this.zoneSummary.textContent = this.composeZoneSummaryCopy();
       this.zoneSummary.setAttribute("data-zone-active", this.selectedZoneLabel ?? "");
     } else {
       this.zoneSummary.removeAttribute("data-zone-active");
-      this.zoneSummary.textContent = "Base camp locked in. Select any deployment hex to begin staging units.";
+      this.zoneSummary.textContent = "";
     }
     this.syncZoneHighlight();
   }
@@ -493,7 +485,6 @@ export class DeploymentPanel {
           </div>
           <span class="deployment-unit-meta" aria-hidden="true">
             <span class="deployment-unit-chip"><strong class="deployment-unit-remaining">${entry.remaining}</strong> remaining</span>
-            <span class="deployment-unit-chip">${deployed}/${total} committed</span>
           </span>
         </div>
         <span class="sr-only">${entry.remaining} remaining of ${total} total.</span>
@@ -554,17 +545,16 @@ export class DeploymentPanel {
 
   private composeZoneSummaryCopy(): string {
     if (!this.selectedZoneKey) {
-      return "No deployment zone selected.";
+      return "";
     }
     const deploymentState = ensureDeploymentState();
     const summary = deploymentState
       .getZoneUsageSummaries()
       .find((zone) => zone.zoneKey === this.selectedZoneKey);
     if (!summary) {
-      return `${this.selectedZoneLabel ?? "Unknown zone"}: capacity data loading.`;
+      return "Capacity data loading.";
     }
-    const label = this.selectedZoneLabel ?? summary.name ?? this.titleCaseFromKey(summary.zoneKey);
-    return `${label}: ${summary.remaining}/${summary.capacity} slots available.`;
+    return `${summary.remaining}/${summary.capacity} slots open.`;
   }
 
   private composeSelectionMessage(): string {
@@ -598,12 +588,18 @@ export class DeploymentPanel {
       }
     });
 
+    if (this.lockedZoneKey && this.baseCampAssigned) {
+      this.zoneSummary.removeAttribute("data-zone-active");
+      this.zoneSummary.textContent = "";
+      return;
+    }
+
     if (this.selectedZoneLabel) {
       this.zoneSummary.setAttribute("data-zone-active", this.selectedZoneLabel);
       this.zoneSummary.textContent = this.composeZoneSummaryCopy();
     } else {
       this.zoneSummary.removeAttribute("data-zone-active");
-      this.zoneSummary.textContent = "No deployment zone selected.";
+      this.zoneSummary.textContent = "";
     }
   }
 

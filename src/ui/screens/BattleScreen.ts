@@ -5904,10 +5904,9 @@ export class BattleScreen {
       if (this.baseCampStatus) {
         this.baseCampStatus.setAttribute("aria-live", "polite");
         if (selection.zoneKey && selection.remainingCapacity !== null && selection.totalCapacity !== null) {
-          const capacityMessage = `${selection.remainingCapacity} of ${selection.totalCapacity} positions open in ${selection.zoneLabel ?? "Deployment zone"}.`;
-          this.baseCampStatus.textContent = `Selected hex: ${key} — ${capacityMessage}`;
+          this.baseCampStatus.textContent = `Selected hex: ${key} in ${selection.zoneLabel ?? "deployment zone"}.`;
         } else {
-          this.baseCampStatus.textContent = `Selected hex: ${key} — outside player deployment zones. Choose a highlighted hex for base camp placement.`;
+          this.baseCampStatus.textContent = `Selected hex: ${key}. Outside the deployment area.`;
         }
       }
       this.hexMapRenderer?.setZoneHighlights(zoneHexes);
@@ -5920,10 +5919,10 @@ export class BattleScreen {
       const baseAnnouncement = selection.zoneLabel
         ? `Selected ${key}. ${terrainLabel}. Zone ${selection.zoneLabel}.`
         : `Selected ${key}. ${terrainLabel}. Outside player deployment zones.`;
-      const capacityDetails = selection.zoneKey && selection.remainingCapacity !== null && selection.totalCapacity !== null
-        ? `${selection.remainingCapacity} of ${selection.totalCapacity} slots open in ${selection.zoneLabel ?? "Deployment zone"}.`
+      const placementGuidance = selection.zoneKey
+        ? "Ready for base camp placement."
         : "Choose a highlighted player deployment hex to place the base camp.";
-      const combinedAnnouncement = capacityDetails ? `${baseAnnouncement} ${capacityDetails}` : baseAnnouncement;
+      const combinedAnnouncement = `${baseAnnouncement} ${placementGuidance}`;
       this.announceBattleUpdate(combinedAnnouncement);
 
       const zoneIntel: DeploymentSelectionIntel = {

@@ -1351,7 +1351,10 @@ export class PopupManager implements IPopupManager {
         <ul class="army-roster-list" data-roster-list="frontline"></ul>
       </section>
       <section class="army-roster-section" data-roster-section="reserves">
-        <header><h4>Reserves</h4></header>
+        <header>
+          <h4>Reserves</h4>
+          <p class="army-roster-note">Reserve call-ups arrive at base camp automatically during battle.</p>
+        </header>
         <ul class="army-roster-list" data-roster-list="reserves"></ul>
       </section>
       <section class="army-roster-section" data-roster-section="support">
@@ -1494,7 +1497,7 @@ export class PopupManager implements IPopupManager {
 
     // Add deploy button for reserve units
     const deployButtonMarkup = entry.status === "reserves"
-      ? `<button type="button" class="roster-deploy-btn" data-roster-deploy="${this.escapeHtml(entry.unitKey)}" aria-label="Deploy ${this.escapeHtml(entry.label)} from reserves">Deploy</button>`
+      ? `<button type="button" class="roster-deploy-btn" data-roster-deploy="${this.escapeHtml(entry.unitKey)}" aria-label="Deploy ${this.escapeHtml(entry.label)} from reserves to base camp" title="Reserve call-ups arrive at base camp automatically">Deploy</button>`
       : "";
 
     return `
