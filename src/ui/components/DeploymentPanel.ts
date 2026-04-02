@@ -129,6 +129,8 @@ export class DeploymentPanel {
     const disabledAttributes = canCallReserve
       ? ""
       : " data-deployment-disabled=\"true\"";
+    const statusLabel = entry.status === "ready" ? "Ready" : "Exhausted";
+    const reserveNote = canCallReserve ? "Call-up available" : "No call-ups left";
     const deployButton = canCallReserve
       ? `<button type="button" class="reserve-deploy" aria-label="Deploy ${this.escapeHtml(entry.label)}">Deploy</button>`
       : `<button type="button" class="reserve-deploy" aria-label="Deploy ${this.escapeHtml(entry.label)}" disabled>Deploy</button>`;
@@ -137,9 +139,13 @@ export class DeploymentPanel {
       <li class="deployment-unit reserve-entry" data-unit-key="${this.escapeHtml(entry.unitKey)}"${disabledAttributes} tabindex="0" aria-label="${this.escapeHtml(ariaLabel)}">
         <span class="deployment-unit-visual" aria-hidden="true">${spriteMarkup}</span>
         <div class="deployment-unit-copy">
-          <span class="deployment-unit-label">${this.escapeHtml(entry.label)}</span>
+          <div class="deployment-unit-topline">
+            <span class="deployment-unit-label">${this.escapeHtml(entry.label)}</span>
+            <span class="deployment-status deployment-status--${entry.status}">${statusLabel}</span>
+          </div>
           <span class="deployment-unit-meta" aria-hidden="true">
-            <span class="deployment-unit-remaining">${entry.remaining}</span> in reserve · status ${entry.status}
+            <span class="deployment-unit-chip"><strong class="deployment-unit-remaining">${entry.remaining}</strong> in reserve</span>
+            <span class="deployment-unit-chip">${this.escapeHtml(reserveNote)}</span>
           </span>
         </div>
         <div class="reserve-actions">${deployButton}</div>
@@ -242,7 +248,7 @@ export class DeploymentPanel {
       const reserves = deploymentState.getReserves();
       const readyCount = reserves.reduce((sum, entry) => (entry.status === "ready" ? sum + entry.remaining : sum), 0);
       this.statusElement.textContent = readyCount > 0
-        ? `Reserves ready: ${readyCount} standing by. Select a valid base-camp hex to reinforce.`
+        ? `${readyCount} reserve unit${readyCount === 1 ? "" : "s"} ready. Select a valid base-camp hex to reinforce.`
         : "All reserves committed. No reinforcements remain.";
       return;
     }
@@ -263,19 +269,16 @@ export class DeploymentPanel {
       return;
     }
 
-    const selectionMessage = this.composeSelectionMessage();
-    const summary = selectionMessage ? `${selectionMessage}` : "Select a deployment hex to review zone capacity.";
-
     const baseCampKey = deploymentState.getBaseCampKey();
     const baseCampCopy = baseCampKey
-      ? `Base camp anchored at ${baseCampKey}.`
-      : "Base camp assigned; awaiting placement updates.";
+      ? `Base camp ${baseCampKey} secured.`
+      : "Base camp assigned.";
 
     const readinessCopy = remaining === 0
       ? "All requisitioned units deployed."
-      : `${remaining} unit${remaining === 1 ? "" : "s"} remaining in reserve.`;
+      : `${remaining} unit${remaining === 1 ? "" : "s"} awaiting placement.`;
 
-    this.statusElement.textContent = `Deployment ready: ${deployed}/${total} units placed. ${readinessCopy} ${baseCampCopy} ${summary}`;
+    this.statusElement.textContent = `${deployed}/${total} units staged. ${readinessCopy} ${baseCampCopy}`;
   }
 
   /**
@@ -484,10 +487,13 @@ export class DeploymentPanel {
       <li class="deployment-unit" data-unit-key="${this.escapeHtml(entry.key)}"${disabledAttr} data-status="${statusLabel.toLowerCase()}" tabindex="0" aria-label="${this.escapeHtml(ariaLabel)}">
         <span class="deployment-unit-visual" aria-hidden="true">${thumbnailMarkup}</span>
         <div class="deployment-unit-copy">
-          <span class="deployment-unit-label">${this.escapeHtml(entry.label)}</span>
-          <span class="deployment-unit-meta" aria-hidden="true">
-            <span class="deployment-unit-remaining">${entry.remaining}</span> remaining · ${deployed}/${total} committed
+          <div class="deployment-unit-topline">
+            <span class="deployment-unit-label">${this.escapeHtml(entry.label)}</span>
             <span class="deployment-status deployment-status--${statusLabel.toLowerCase()}">${statusLabel}</span>
+          </div>
+          <span class="deployment-unit-meta" aria-hidden="true">
+            <span class="deployment-unit-chip"><strong class="deployment-unit-remaining">${entry.remaining}</strong> remaining</span>
+            <span class="deployment-unit-chip">${deployed}/${total} committed</span>
           </span>
         </div>
         <span class="sr-only">${entry.remaining} remaining of ${total} total.</span>
