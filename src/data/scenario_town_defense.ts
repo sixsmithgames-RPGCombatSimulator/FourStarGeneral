@@ -115,8 +115,13 @@ const botUnits = [
   makeUnit("SP_Artillery", [0, 15]),
   makeUnit("Howitzer_105", [0, 15]),
   makeUnit("Flak_88", [1, 15]),
+
+  // Air support - 4 tactical bombers with 1 fighter escort
   makeUnit("Fighter", [0, 12]),
-  makeUnit("Bomber", [0, 11])
+  makeUnit("Bomber", [0, 11]),
+  makeUnit("Bomber", [1, 11]),
+  makeUnit("Bomber", [0, 10]),
+  makeUnit("Bomber", [1, 10])
 ];
 
 const allyUnits = [
