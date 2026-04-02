@@ -10100,25 +10100,23 @@ private automateSupplyConvoys(
   }
 
   /**
-   * Heuristic air operations: pair escorts with queued strike packages when available, then attempt a CAP over
-   * a strategically valuable area (near player-held objectives). Falls back to a local CAP if none found.
+   * Heuristic air operations: queue every available strike package, pair escorts with queued strikes when
+   * available, then attempt a CAP over a strategically valuable area (near player-held objectives).
+   * Falls back to a local CAP if no better patrol zone is found.
    */
   private maybeScheduleHeuristicAirOps(): void {
     if (this._phase !== "botTurn") {
       return;
     }
-    // 1) Attempt to launch a single bomber strike against a nearby player unit.
-    this.maybeScheduleBotStrikeAgainstPlayer();
-    // 2) Try pairing an escort with the earliest queued bot strike.
-    if (this.maybeScheduleBotEscortForQueuedStrike()) {
-      return;
+    // 1) Queue every available strike package against the best reachable player assets.
+    this.maybeScheduleBotStrikesAgainstPlayer();
+    // 2) Pair any free escorts with queued strike packages.
+    this.maybeScheduleBotEscortsForQueuedStrikes();
+    // 3) Seed a CAP over a high-value zone if a fighter is still free.
+    if (!this.maybeScheduleStrategicBotAirCover()) {
+      // 4) Fallback to local CAP heuristic.
+      this.maybeScheduleBasicBotAirCover();
     }
-    // 3) Seed a CAP over a high-value zone.
-    if (this.maybeScheduleStrategicBotAirCover()) {
-      return;
-    }
-    // 4) Fallback to local CAP heuristic.
-    this.maybeScheduleBasicBotAirCover();
   }
 
   /**
@@ -10170,18 +10168,38 @@ private automateSupplyConvoys(
     return score;
   }
 
-  /** Attempts to schedule a single bot strike mission against the highest-value player ground unit in range. */
-  private maybeScheduleBotStrikeAgainstPlayer(): boolean {
+  /** Tracks strike saturation so multiple bombers spread across valuable targets before doubling up. */
+  private getBotStrikeTargetAssignmentKey(target: ScenarioUnit): string {
+    this.ensureUnitId(target);
+    return target.unitId ?? axialKey(target.hex);
+  }
+
+  /** Attempts to schedule every available bot strike mission against high-value player ground units in range. */
+  private maybeScheduleBotStrikesAgainstPlayer(): number {
     if (this._phase !== "botTurn") {
-      return false;
+      return 0;
     }
 
-    const playerUnits = Array.from(this.playerPlacements.values());
+    const playerUnits = Array.from(this.playerPlacements.values()).filter(
+      (candidate) => this.getUnitDefinition(candidate.type).moveType !== "air"
+    );
     if (playerUnits.length === 0) {
-      return false;
+      return 0;
     }
 
-    // Pick a single bomber-capable squadron and aim at the nearest non-air player unit.
+    const queuedStrikeLoadByTarget = new Map<string, number>();
+    for (const mission of this.scheduledAirMissions.values()) {
+      if (mission.faction !== "Bot" || mission.template.kind !== "strike" || mission.status !== "queued") {
+        continue;
+      }
+      const targetKey = mission.targetUnitKey ?? (mission.targetHex ? axialKey(mission.targetHex) : null);
+      if (!targetKey) {
+        continue;
+      }
+      queuedStrikeLoadByTarget.set(targetKey, (queuedStrikeLoadByTarget.get(targetKey) ?? 0) + 1);
+    }
+
+    let scheduled = 0;
     for (const [_unitKey, unit] of this.botPlacements.entries()) {
       const def = this.getUnitDefinition(unit.type);
       const profile = def.airSupport;
@@ -10199,10 +10217,11 @@ private automateSupplyConvoys(
       }
 
       const rankedTargets = playerUnits
-        .filter((candidate) => this.getUnitDefinition(candidate.type).moveType !== "air")
         .map((candidate) => ({
           target: candidate,
-          score: this.scoreBotStrikeTarget(def, unit.hex, candidate)
+          score:
+            this.scoreBotStrikeTarget(def, unit.hex, candidate)
+            - (queuedStrikeLoadByTarget.get(this.getBotStrikeTargetAssignmentKey(candidate)) ?? 0) * 18
         }))
         .sort((a, b) => b.score - a.score);
 
@@ -10215,43 +10234,65 @@ private automateSupplyConvoys(
         const targetHex = structuredClone(target.hex);
         const result = this.tryScheduleAirMission({ kind: "strike", faction: "Bot", unitHex: origin, targetHex });
         if (result.ok) {
-          return true;
+          const targetKey = this.getBotStrikeTargetAssignmentKey(target);
+          queuedStrikeLoadByTarget.set(targetKey, (queuedStrikeLoadByTarget.get(targetKey) ?? 0) + 1);
+          scheduled += 1;
+          break;
         }
       }
     }
 
-    return false;
+    return scheduled;
   }
 
-  /** Attempts to schedule a single escort mission for the first queued bot strike package within range. */
-  private maybeScheduleBotEscortForQueuedStrike(): boolean {
-    // Find earliest queued strike mission
-    const queuedBotStrike = Array.from(this.scheduledAirMissions.values()).find(
+  /** Attempts to schedule escorts for queued bot strike packages while fighters remain available. */
+  private maybeScheduleBotEscortsForQueuedStrikes(): number {
+    const queuedBotStrikes = Array.from(this.scheduledAirMissions.values()).filter(
       (m) => m.faction === "Bot" && m.template.kind === "strike" && m.status === "queued"
     );
-    if (!queuedBotStrike) {
-      return false;
+    if (queuedBotStrikes.length === 0) {
+      return 0;
     }
-    const bomberHex = this.parseAxialKey(queuedBotStrike.unitKey);
-    if (!bomberHex) {
-      return false;
-    }
-    // Select the first available escort-capable fighter within range
-    for (const [unitKey, unit] of this.botPlacements.entries()) {
-      const def = this.getUnitDefinition(unit.type);
-      const profile = def.airSupport;
-      if (!this.isAircraft(def) || !profile || !profile.roles?.includes("escort")) continue;
-      const squadronId = this.getSquadronId(unit);
-      if (this.airMissionAssignmentsByUnit.has(squadronId)) continue;
-      if (this.aircraftNeedsRearm("Bot", squadronId)) continue;
-      const origin = this.parseAxialKey(unitKey);
-      if (!origin) continue;
-      const result = this.tryScheduleAirMission({ kind: "escort", faction: "Bot", unitHex: origin, escortTargetHex: bomberHex });
-      if (result.ok) {
-        return true;
+
+    let scheduled = 0;
+    for (const queuedBotStrike of queuedBotStrikes) {
+      const alreadyEscorted = Array.from(this.scheduledAirMissions.values()).some(
+        (mission) =>
+          mission.faction === "Bot"
+          && mission.template.kind === "escort"
+          && mission.status === "queued"
+          && mission.escortTargetUnitKey === queuedBotStrike.unitKey
+      );
+      if (alreadyEscorted) {
+        continue;
+      }
+
+      const protectedLookup = this.lookupUnitBySquadronId(queuedBotStrike.unitKey, "Bot");
+      const bomberHex =
+        protectedLookup?.unit.hex
+        ?? (queuedBotStrike.originHexKey ? GameEngine.parseAxialKey(queuedBotStrike.originHexKey) : null);
+      if (!bomberHex) {
+        continue;
+      }
+
+      for (const [unitKey, unit] of this.botPlacements.entries()) {
+        const def = this.getUnitDefinition(unit.type);
+        const profile = def.airSupport;
+        if (!this.isAircraft(def) || !profile || !profile.roles?.includes("escort")) continue;
+        const squadronId = this.getSquadronId(unit);
+        if (this.airMissionAssignmentsByUnit.has(squadronId)) continue;
+        if (this.aircraftNeedsRearm("Bot", squadronId)) continue;
+        const origin = this.parseAxialKey(unitKey);
+        if (!origin) continue;
+        const result = this.tryScheduleAirMission({ kind: "escort", faction: "Bot", unitHex: origin, escortTargetHex: bomberHex });
+        if (result.ok) {
+          scheduled += 1;
+          break;
+        }
       }
     }
-    return false;
+
+    return scheduled;
   }
 
   /** Attempts to schedule CAP near the most relevant player-held objective by covering the nearest friendly unit. */

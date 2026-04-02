@@ -16,6 +16,7 @@ import "./FrameSequenceAnimator.playback.test.js";
 import "./SpriteSheetAnimator.layout.test.js";
 import "./MapViewport.interactions.test.js";
 import "./BattleScreen.animations.test.js";
+import "./BattleScreen.activityLog.test.js";
 import "./BattleScreen.attackPreview.test.js";
 import "./BattleScreen.selectionIntel.test.js";
 import "./BattleScreen.objectiveMarkers.test.js";

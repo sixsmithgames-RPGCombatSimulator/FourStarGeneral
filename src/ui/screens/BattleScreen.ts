@@ -8,6 +8,7 @@ import {
   SupplyTickReport,
   TurnSummary,
   BotTurnSummary,
+  type BotAttackSummary,
   type UnitCommandState,
   type EnemyContactSnapshot,
   type TurnFaction,
@@ -3240,6 +3241,23 @@ export class BattleScreen {
   /**
    * Announces the bot's moves and attacks during their turn.
    */
+  private describeBotAttackCounterfire(attack: BotAttackSummary): string {
+    const retaliationDamage = this.clampDisplayedDamageRounded(attack.retaliation?.damage ?? 0);
+    if (retaliationDamage <= 0) {
+      return "";
+    }
+
+    const attackerStrengthAfter = attack.retaliation?.attackerStrengthAfter;
+    if (typeof attackerStrengthAfter === "number") {
+      if (attackerStrengthAfter <= 0) {
+        return ` Counterfire dealt ${retaliationDamage} damage and destroyed the attacker.`;
+      }
+      return ` Counterfire dealt ${retaliationDamage} damage; attacker strength now ${Math.round(attackerStrengthAfter)}.`;
+    }
+
+    return ` Counterfire dealt ${retaliationDamage} damage.`;
+  }
+
   private announceBotTurnActions(botSummary: BotTurnSummary): void {
     // Announce bot moves
     if (botSummary.moves.length > 0) {
@@ -3251,10 +3269,11 @@ export class BattleScreen {
       botSummary.attacks.forEach((attack) => {
         const attackerLabel = this.toTitleCase(attack.attackerType);
         const defenderLabel = this.toTitleCase(attack.defenderType);
-        const damage = attack.inflictedDamage;
+        const damage = this.clampDisplayedDamageRounded(attack.inflictedDamage);
         const destroyed = attack.defenderDestroyed ? " Target destroyed!" : "";
+        const counterfire = this.describeBotAttackCounterfire(attack);
         this.announceBattleUpdate(
-          `Enemy ${attackerLabel} attacked ${defenderLabel}. Damage: ${Math.round(damage)}.${destroyed}`
+          `Enemy ${attackerLabel} attacked ${defenderLabel}. Damage: ${damage}.${destroyed}${counterfire}`
         );
       });
     }
@@ -3290,12 +3309,25 @@ export class BattleScreen {
       const targetKey = CoordinateSystem.makeHexKey(targetOffset.col, targetOffset.row);
       const attackerLabel = this.toTitleCase(attack.attackerType);
       const defenderLabel = this.toTitleCase(attack.defenderType);
-      const damage = Math.round(attack.inflictedDamage);
+      const damage = this.clampDisplayedDamageRounded(attack.inflictedDamage);
+      const retaliationDamage = this.clampDisplayedDamageRounded(attack.retaliation?.damage ?? 0);
+      const attackerStrengthAfter = attack.retaliation?.attackerStrengthAfter;
       const destructionNote = attack.defenderDestroyed ? " Target destroyed." : "";
+      const counterfire = this.describeBotAttackCounterfire(attack);
       this.publishActivityEvent({
         category: "enemy",
         type: "attack",
-        summary: `Enemy ${attackerLabel} attacked ${defenderLabel} from ${originKey} to ${targetKey} for ${damage} damage.${destructionNote}`
+        summary: `Enemy ${attackerLabel} attacked ${defenderLabel} from ${originKey} to ${targetKey} for ${damage} damage.${destructionNote}${counterfire}`,
+        details: {
+          attackerType: attack.attackerType,
+          defenderType: attack.defenderType,
+          attackerHex: originKey,
+          defenderHex: targetKey,
+          inflictedDamage: damage,
+          retaliationDamage,
+          attackerStrengthAfter,
+          defenderDestroyed: attack.defenderDestroyed
+        }
       });
     });
 

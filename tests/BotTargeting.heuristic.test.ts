@@ -537,3 +537,72 @@ registerTest("BOT_LEVEL_BOMBERS_STRIKE_ARTILLERY_OVER_CLOSER_INFANTRY", async ({
     }
   });
 });
+
+registerTest("BOT_LEVEL_MULTIPLE_BOMBERS_QUEUE_MULTIPLE_STRIKES", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+
+  await Given("two bot bombers and two valuable ground targets", async () => {
+    const artillery: ScenarioUnit = {
+      type: "TestArtillery" as ScenarioUnit["type"],
+      hex: { q: 4, r: 0 },
+      strength: 100,
+      experience: 0,
+      ammo: 5,
+      fuel: 0,
+      entrench: 0,
+      facing: "NW"
+    };
+    const tank: ScenarioUnit = {
+      type: "TestTank" as ScenarioUnit["type"],
+      hex: { q: 4, r: 1 },
+      strength: 100,
+      experience: 0,
+      ammo: 6,
+      fuel: 55,
+      entrench: 0,
+      facing: "NW"
+    };
+    const firstBomber: ScenarioUnit = {
+      type: "TestBomber" as ScenarioUnit["type"],
+      hex: { q: 0, r: 0 },
+      strength: 100,
+      experience: 0,
+      ammo: 4,
+      fuel: 60,
+      entrench: 0,
+      facing: "NW"
+    };
+    const secondBomber: ScenarioUnit = {
+      type: "TestBomber" as ScenarioUnit["type"],
+      hex: { q: 0, r: 1 },
+      strength: 100,
+      experience: 0,
+      ammo: 4,
+      fuel: 60,
+      entrench: 0,
+      facing: "NW"
+    };
+    engine = createHeuristicEngine([artillery, tank], [firstBomber, secondBomber]);
+  });
+
+  await When("the bot runs its air-tasking pass for the turn", async () => {
+    engine.endTurn();
+  });
+
+  await Then("both bombers should resolve strike missions against meaningful targets", async () => {
+    const strikeReports = engine.getAirMissionReports().filter(
+      (entry) => entry.faction === "Bot" && entry.kind === "strike" && entry.event === "resolved"
+    );
+    if (strikeReports.length !== 2) {
+      throw new Error(`Expected 2 resolved bot strike reports, received ${strikeReports.length}.`);
+    }
+
+    const resolvedTargets = strikeReports
+      .map((entry) => (entry.targetHex ? axialKey(entry.targetHex) : "<missing>"))
+      .sort();
+    const expectedTargets = ["4,0", "4,1"];
+    if (resolvedTargets.length !== expectedTargets.length || resolvedTargets.some((target, index) => target !== expectedTargets[index])) {
+      throw new Error(`Expected bombers to divide strikes across 4,0 and 4,1, but received ${resolvedTargets.join(", ")}.`);
+    }
+  });
+});
