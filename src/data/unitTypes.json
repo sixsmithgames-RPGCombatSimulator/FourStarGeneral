@@ -298,7 +298,7 @@
     "vision": 3,
     "ammo": 6,
     "fuel": 35,
-    "rangeMin": 2,
+    "rangeMin": 1,
     "rangeMax": 6,
     "initiative": 5,
     "armor": { "front": 18, "side": 10, "top": 5 },
