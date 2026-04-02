@@ -243,3 +243,52 @@ registerTest("AIR_INTERCEPTION_LAYERED_ESCORTS_ABSORB_CAP", async ({ Given, When
     }
   });
 });
+
+registerTest("AIR_INTERCEPTION_ESCORT_REPORTS_SUCCESS_AFTER_ENGAGING_INTERCEPTORS", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let outcome: unknown = null;
+
+  await Given("an escort mission that already fought but lost track of its protected bomber", async () => {
+    const config: GameEngineConfig = {
+      scenario: scenario(),
+      unitTypes,
+      terrain,
+      playerSide: side(),
+      botSide: side()
+    };
+    engine = new GameEngine(config);
+  });
+
+  await When("the escort mission resolves after recording an interception", async () => {
+    outcome = (engine as any).resolveEscortMission({
+      id: "esc-report",
+      template: {
+        kind: "escort",
+        label: "Escort",
+        description: "",
+        allowedRoles: ["escort"],
+        requiresTarget: false,
+        requiresFriendlyEscortTarget: true,
+        durationTurns: 1
+      },
+      faction: "Player",
+      unitKey: "u_esc1",
+      unitType: "Fighter",
+      status: "resolving",
+      launchTurn: 1,
+      turnsRemaining: 0,
+      escortTargetUnitKey: "u_bomber",
+      interceptions: 1
+    });
+  });
+
+  await Then("the mission should report a successful escort action instead of an abort", async () => {
+    const escortOutcome = outcome as { result?: string; details?: string; interceptions?: number };
+    if (escortOutcome.result !== "success") {
+      throw new Error(`Expected escort mission to resolve successfully after combat, saw ${escortOutcome.result ?? "<missing>"}.`);
+    }
+    if (escortOutcome.interceptions !== 1) {
+      throw new Error(`Expected escort mission to preserve its interception count, saw ${escortOutcome.interceptions ?? "<missing>"}.`);
+    }
+  });
+});

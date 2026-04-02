@@ -827,6 +827,7 @@ export interface AirMissionArrival {
   readonly unitKey: string;
   readonly originHexKey?: string;
   readonly unitType: string;
+  readonly unitStrength?: number;
   readonly kind: AirMissionKind;
   readonly targetHex?: Axial;
   readonly targetUnitKey?: string;
@@ -841,9 +842,9 @@ export interface AirEngagementEvent {
   readonly type: "airToAir" | "flak";
   readonly location: Axial;
   readonly missionId?: string;
-  readonly bomber: { readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string };
-  readonly interceptors: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly hex?: Axial }>;
-  readonly escorts: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string }>;
+  readonly bomber: { readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly strength?: number };
+  readonly interceptors: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly strength?: number; readonly hex?: Axial }>;
+  readonly escorts: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly strength?: number }>;
   readonly flakDamage?: number;
   readonly bomberStrengthBefore?: number;
   readonly bomberStrengthAfter?: number;
@@ -1569,6 +1570,7 @@ export class GameEngine implements GameEngineAPI {
           unitKey: mission.unitKey,
           originHexKey,
           unitType: mission.unitType,
+          unitStrength: this.lookupUnitBySquadronId(mission.unitKey, mission.faction)?.unit.strength,
           kind: mission.template.kind,
           targetHex: mission.targetHex ? structuredClone(mission.targetHex) : undefined,
           targetUnitKey: mission.targetUnitKey,
@@ -1855,7 +1857,8 @@ export class GameEngine implements GameEngineAPI {
         bomber: {
           faction: mission.faction,
           unitKey: mission.unitKey,
-          unitType: mission.unitType as string
+          unitType: mission.unitType as string,
+          strength: bomberStrengthBeforeFlak
         },
         interceptors: flakInterceptorsForEvent,
         escorts: [],
@@ -1895,8 +1898,8 @@ export class GameEngine implements GameEngineAPI {
     let bomberAttrition = 0;
 
     if (capMissions.length > 0) {
-      const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string }> = [];
-      const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string }> = [];
+      const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
+      const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
 
       // Build event lists using current unit types (omit missing units gracefully)
       for (const cap of capMissions) {
@@ -1905,7 +1908,8 @@ export class GameEngine implements GameEngineAPI {
           interceptorsForEvent.push({
             faction: opponentFaction,
             unitKey: cap.unitKey,
-            unitType: capLookup.unit.type as string
+            unitType: capLookup.unit.type as string,
+            strength: capLookup.unit.strength
           });
         }
       }
@@ -1915,7 +1919,8 @@ export class GameEngine implements GameEngineAPI {
           escortsForEvent.push({
             faction: mission.faction,
             unitKey: em.unitKey,
-            unitType: escortLookup.unit.type as string
+            unitType: escortLookup.unit.type as string,
+            strength: escortLookup.unit.strength
           });
         }
       }
@@ -2043,7 +2048,12 @@ export class GameEngine implements GameEngineAPI {
         type: "airToAir",
         missionId: mission.id,
         location: structuredClone(mission.targetHex!),
-        bomber: { faction: mission.faction, unitKey: mission.unitKey, unitType: mission.unitType as string },
+        bomber: {
+          faction: mission.faction,
+          unitKey: mission.unitKey,
+          unitType: mission.unitType as string,
+          strength: bomberStrengthBeforeCap
+        },
         interceptors: interceptorsForEvent,
         escorts: escortsForEvent,
         bomberStrengthBefore: bomberStrengthBeforeCap,
@@ -2213,6 +2223,16 @@ export class GameEngine implements GameEngineAPI {
     // Look up the protected unit by its stable squadronId instead of hex key.
     const protectedLookup = this.lookupUnitBySquadronId(mission.escortTargetUnitKey, mission.faction);
     if (!protectedLookup) {
+      if ((mission.interceptions ?? 0) > 0) {
+        return {
+          type: "escort",
+          result: "success",
+          details: "Escort engaged hostile interceptors while covering the linked strike package.",
+          refitRequired: true,
+          interceptions: mission.interceptions,
+          protectedUnitKey: mission.escortTargetUnitKey
+        };
+      }
       return {
         type: "escort",
         result: "aborted",
@@ -2221,12 +2241,16 @@ export class GameEngine implements GameEngineAPI {
       };
     }
 
+    const interceptions = mission.interceptions ?? 0;
     return {
       type: "escort",
       result: "success",
-      details: `Escort maintained air cover for ${protectedLookup.unit.type}; no enemy interceptors challenged the route.`,
+      details:
+        interceptions > 0
+          ? `Escort engaged ${interceptions} hostile interception${interceptions === 1 ? "" : "s"} while protecting ${protectedLookup.unit.type}.`
+          : `Escort maintained air cover for ${protectedLookup.unit.type}; no enemy interceptors challenged the route.`,
       refitRequired: true,
-      interceptions: mission.interceptions,
+      interceptions,
       protectedUnitKey: mission.escortTargetUnitKey
     };
   }
@@ -7772,7 +7796,8 @@ private automateSupplyConvoys(
           bomber: {
             faction: "Player",
             unitKey: attackerKey,
-            unitType: attacker.type as string
+            unitType: attacker.type as string,
+            strength: bomberStrengthBeforeFlak
           },
           interceptors: flakInterceptorsForEvent,
           escorts: [],
@@ -7791,24 +7816,34 @@ private automateSupplyConvoys(
       const escortMissions = this.findAllActiveEscortsForUnit("Player", attackerKey).filter((mission) => mission.interceptions < 1);
 
       if (capMissions.length > 0) {
-        const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string }> = [];
-        const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string }> = [];
+        const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
+        const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         for (const cap of capMissions) {
           const capLookup = this.lookupUnitBySquadronId(cap.unitKey, opponentFaction);
           if (capLookup) {
-            interceptorsForEvent.push({ faction: opponentFaction, unitKey: cap.unitKey, unitType: capLookup.unit.type as string });
+            interceptorsForEvent.push({
+              faction: opponentFaction,
+              unitKey: cap.unitKey,
+              unitType: capLookup.unit.type as string,
+              strength: capLookup.unit.strength
+            });
           }
         }
         for (const escort of escortMissions) {
           const escortLookup = this.lookupUnitBySquadronId(escort.unitKey, "Player");
           if (escortLookup) {
-            escortsForEvent.push({ faction: "Player", unitKey: escort.unitKey, unitType: escortLookup.unit.type as string });
+            escortsForEvent.push({
+              faction: "Player",
+              unitKey: escort.unitKey,
+              unitType: escortLookup.unit.type as string,
+              strength: escortLookup.unit.strength
+            });
           }
         }
         this.pendingAirEngagements.push({
           type: "airToAir",
           location: structuredClone(defenderHex),
-          bomber: { faction: "Player", unitKey: attackerKey, unitType: attacker.type as string },
+          bomber: { faction: "Player", unitKey: attackerKey, unitType: attacker.type as string, strength: attackingSnapshot.strength },
           interceptors: interceptorsForEvent,
           escorts: escortsForEvent
         });
@@ -10608,7 +10643,8 @@ private automateSupplyConvoys(
           bomber: {
             faction: "Bot",
             unitKey: atkKey,
-            unitType: attackingUnit.type as string
+            unitType: attackingUnit.type as string,
+            strength: bomberStrengthBeforeFlak
           },
           interceptors: flakInterceptorsForEvent,
           escorts: [],
@@ -10627,24 +10663,34 @@ private automateSupplyConvoys(
       const botAttackerSquadronId = this.getSquadronId(attackingUnit);
       const escortMissions = this.findAllActiveEscortsForUnit("Bot", botAttackerSquadronId).filter((m) => m.interceptions < 1);
       if (capMissions.length > 0) {
-        const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string }> = [];
-        const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string }> = [];
+        const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
+        const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         for (const cap of capMissions) {
           const capLookup = this.lookupUnitBySquadronId(cap.unitKey, "Player");
           if (capLookup) {
-            interceptorsForEvent.push({ faction: "Player", unitKey: cap.unitKey, unitType: capLookup.unit.type as string });
+            interceptorsForEvent.push({
+              faction: "Player",
+              unitKey: cap.unitKey,
+              unitType: capLookup.unit.type as string,
+              strength: capLookup.unit.strength
+            });
           }
         }
         for (const em of escortMissions) {
           const escortLookup = this.lookupUnitBySquadronId(em.unitKey, "Bot");
           if (escortLookup) {
-            escortsForEvent.push({ faction: "Bot", unitKey: em.unitKey, unitType: escortLookup.unit.type as string });
+            escortsForEvent.push({
+              faction: "Bot",
+              unitKey: em.unitKey,
+              unitType: escortLookup.unit.type as string,
+              strength: escortLookup.unit.strength
+            });
           }
         }
         this.pendingAirEngagements.push({
           type: "airToAir",
           location: structuredClone(targetHex),
-          bomber: { faction: "Bot", unitKey: atkKey, unitType: attackingUnit.type as string },
+          bomber: { faction: "Bot", unitKey: atkKey, unitType: attackingUnit.type as string, strength: attackingUnit.strength },
           interceptors: interceptorsForEvent,
           escorts: escortsForEvent
         });

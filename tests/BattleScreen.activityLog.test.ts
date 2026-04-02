@@ -1,7 +1,7 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
-import type { BotTurnSummary } from "../src/game/GameEngine";
+import type { AirEngagementEvent, BotTurnSummary } from "../src/game/GameEngine";
 
 registerTest("BATTLESCREEN_ENEMY_ACTIVITY_LOG_SHOWS_COUNTERFIRE_DAMAGE", async ({ When, Then }) => {
   const published: Array<{ summary: string; details?: Record<string, unknown> }> = [];
@@ -52,6 +52,57 @@ registerTest("BATTLESCREEN_ENEMY_ACTIVITY_LOG_SHOWS_COUNTERFIRE_DAMAGE", async (
 
     if ((entry.details?.attackerStrengthAfter as number | undefined) !== 52) {
       throw new Error(`Expected attacker strength detail of 52, received ${String(entry.details?.attackerStrengthAfter)}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_DEFENSIVE_AIR_EVENTS_LOG_PLAYER_REACTIONS", async ({ When, Then }) => {
+  const published: Array<{ category: string; summary: string }> = [];
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+
+  (screen as any).publishActivityEvent = (event: { category: string; summary: string }) => {
+    published.push(event);
+  };
+  (screen as any).announceBattleUpdate = () => {};
+  (screen as any).toTitleCase = (value: string) => value.replace(/_/g, " ");
+
+  const flakEvent: AirEngagementEvent = {
+    type: "flak",
+    location: { q: 12, r: -6 },
+    bomber: { faction: "Bot", unitKey: "bomber-1", unitType: "Bomber", strength: 100 },
+    interceptors: [{ faction: "Player", unitKey: "flak-1", unitType: "Flak_88", strength: 100, hex: { q: 11, r: -5 } }],
+    escorts: [],
+    flakDamage: 18,
+    bomberStrengthBefore: 100,
+    bomberStrengthAfter: 82,
+    bomberDestroyed: false
+  };
+
+  const interceptEvent: AirEngagementEvent = {
+    type: "airToAir",
+    location: { q: 12, r: -6 },
+    bomber: { faction: "Bot", unitKey: "bomber-1", unitType: "Bomber", strength: 82 },
+    interceptors: [{ faction: "Player", unitKey: "cap-1", unitType: "Fighter", strength: 100 }],
+    escorts: [{ faction: "Bot", unitKey: "escort-1", unitType: "Fighter", strength: 100 }],
+    bomberDestroyed: false
+  };
+
+  await When("player flak and CAP react during enemy air operations", async () => {
+    (screen as any).announceFlakEngagement(flakEvent);
+    (screen as any).announceAirInterceptEngagement(interceptEvent);
+  });
+
+  await Then("both defensive air events should appear in the player activity log", async () => {
+    if (published.length !== 2) {
+      throw new Error(`Expected 2 defensive air log entries, received ${published.length}.`);
+    }
+
+    if (published[0]?.category !== "player" || !published[0].summary.includes("Flak battery engaged incoming Bomber")) {
+      throw new Error(`Expected player flak activity entry, saw ${JSON.stringify(published[0])}.`);
+    }
+
+    if (published[1]?.category !== "player" || !published[1].summary.includes("Player air patrol intercepted enemy Bomber")) {
+      throw new Error(`Expected player interception activity entry, saw ${JSON.stringify(published[1])}.`);
     }
   });
 });

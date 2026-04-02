@@ -282,7 +282,8 @@ export class HexMapRenderer implements IMapRenderer {
     durationMs = 2800,
     onProgress?: AircraftAnimationProgressCallback,
     endProgress = 1,
-    strength?: number
+    strength?: number,
+    laneOffsetPx = 0
   ): Promise<void> {
     if (!this.svgElement) {
       console.warn("[HexMapRenderer] animateAircraftFlyover skipped: no SVG element available", {
@@ -345,10 +346,15 @@ export class HexMapRenderer implements IMapRenderer {
     layer.appendChild(ghost);
 
     // For formations (groups), position via transform. For single sprites, use x/y attributes.
-    const startCenterX = startCenter.cx;
-    const startCenterY = startCenter.cy;
-    const endCenterX = endCenter.cx;
-    const endCenterY = endCenter.cy;
+    const dx = endCenter.cx - startCenter.cx;
+    const dy = endCenter.cy - startCenter.cy;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const nx = -dy / distance;
+    const ny = dx / distance;
+    const startCenterX = startCenter.cx + nx * laneOffsetPx;
+    const startCenterY = startCenter.cy + ny * laneOffsetPx;
+    const endCenterX = endCenter.cx + nx * laneOffsetPx;
+    const endCenterY = endCenter.cy + ny * laneOffsetPx;
 
     if (isFormation) {
       ghost.setAttribute("transform", `translate(${startCenterX},${startCenterY})`);
@@ -424,7 +430,8 @@ export class HexMapRenderer implements IMapRenderer {
     durationMs = 2800,
     onProgress?: AircraftAnimationProgressCallback,
     endProgress = 1,
-    strength?: number
+    strength?: number,
+    laneOffsetPx = 0
   ): Promise<void> {
     if (!this.svgElement) {
       console.warn("[HexMapRenderer] animateAircraftArc skipped: no SVG element available", {
@@ -475,10 +482,15 @@ export class HexMapRenderer implements IMapRenderer {
     const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, strength);
     const isFormation = ghost instanceof SVGGElement;
 
-    const startCenterX = startCenter.cx;
-    const startCenterY = startCenter.cy;
-    const endCenterX = endCenter.cx;
-    const endCenterY = endCenter.cy;
+    const rawDx = endCenter.cx - startCenter.cx;
+    const rawDy = endCenter.cy - startCenter.cy;
+    const rawDistance = Math.max(1, Math.hypot(rawDx, rawDy));
+    const rawNx = -rawDy / rawDistance;
+    const rawNy = rawDx / rawDistance;
+    const startCenterX = startCenter.cx + rawNx * laneOffsetPx;
+    const startCenterY = startCenter.cy + rawNy * laneOffsetPx;
+    const endCenterX = endCenter.cx + rawNx * laneOffsetPx;
+    const endCenterY = endCenter.cy + rawNy * laneOffsetPx;
 
     const dx = endCenterX - startCenterX;
     const dy = endCenterY - startCenterY;
@@ -574,13 +586,15 @@ export class HexMapRenderer implements IMapRenderer {
     toKey: string,
     scenarioType: string,
     legDurationMs = 2200,
-    pauseMs = 300
+    pauseMs = 300,
+    strength?: number,
+    laneOffsetPx = 0
   ): Promise<void> {
-    await this.animateAircraftArc(fromKey, toKey, scenarioType, legDurationMs);
+    await this.animateAircraftArc(fromKey, toKey, scenarioType, legDurationMs, undefined, 1, strength, laneOffsetPx);
     if (pauseMs > 0) {
       await new Promise<void>((resolve) => setTimeout(resolve, pauseMs));
     }
-    await this.animateAircraftArc(toKey, fromKey, scenarioType, legDurationMs);
+    await this.animateAircraftArc(toKey, fromKey, scenarioType, legDurationMs, undefined, 1, strength, laneOffsetPx);
   }
 
   /** Plays a brief tracer effect at the given hex key to indicate aerial gunfire. */

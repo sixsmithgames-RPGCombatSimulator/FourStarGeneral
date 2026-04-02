@@ -957,3 +957,150 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_STOP_DESTROYED_BOMBER_BEFORE_TARGET", 
     window.setTimeout = originalSetTimeout;
   }
 });
+
+registerTest("BATTLESCREEN_AIR_OPERATIONS_LAUNCH_LINKED_STRIKES_IN_PARALLEL", async ({ Given, When, Then }) => {
+  const originalSetTimeout = window.setTimeout;
+  window.setTimeout = ((cb: unknown) => {
+    (cb as () => void)();
+    return 0 as any;
+  }) as any;
+
+  try {
+    const root = document.getElementById("battleScreen") ?? document.createElement("div");
+    if (!root.parentElement) {
+      root.id = "battleScreen";
+      document.body.appendChild(root);
+    }
+
+    const startedFlights: string[] = [];
+    let releaseFlights: (() => void) | null = null;
+    const flightsReleased = new Promise<void>((resolve) => {
+      releaseFlights = resolve;
+    });
+
+    const fakeEngine = {
+      playerUnits: [] as ScenarioUnit[],
+      botUnits: [] as ScenarioUnit[],
+      reserveUnits: [],
+      allyUnits: [],
+      getScheduledAirMissions() {
+        return [];
+      }
+    } as const;
+
+    const fakeBattleState = {
+      hasEngine: () => true,
+      ensureGameEngine: () => fakeEngine
+    } as unknown as import("../src/state/BattleState").BattleState;
+
+    const fakeRenderer = {
+      async playFlakBurstAt(): Promise<void> {},
+      async playExplosion(): Promise<void> {},
+      async playDustCloud(): Promise<void> {},
+      async playDogfight(): Promise<void> {},
+      async playAirDamageSmokeTrailAt(): Promise<void> {},
+      markHexDamaged: () => {},
+      markHexWrecked: () => {},
+      advanceAftermathTurn: () => {},
+      renderUnit: () => {},
+      clearUnit: () => {},
+      applyHexSelection: () => {},
+      syncQueuedTargetMarkers: () => {}
+    } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+
+    let screen: BattleScreen;
+
+    await Given("two strike missions resolve with linked flak events", async () => {
+      screen = new BattleScreen(
+        {} as any,
+        fakeBattleState,
+        {} as any,
+        fakeRenderer,
+        null,
+        null,
+        null,
+        {} as any,
+        null
+      );
+      (screen as any).focusCameraOnHex = async (): Promise<void> => {};
+      (screen as any).waitForNextFrame = async (): Promise<void> => {};
+      (screen as any).announceBattleUpdate = () => {};
+      (screen as any).publishActivityEvent = () => {};
+      (screen as any).renderEngineUnits = () => {};
+      (screen as any).collectAirMissionFlights = async () => [
+        {
+          missionId: "strike-1",
+          faction: "Bot",
+          kind: "strike",
+          unitKey: "b1",
+          originKey: "0,10",
+          destKey: "12,-6",
+          unitType: "Bomber",
+          strength: 100,
+          laneOffsetPx: -9
+        },
+        {
+          missionId: "strike-2",
+          faction: "Bot",
+          kind: "strike",
+          unitKey: "b2",
+          originKey: "1,10",
+          destKey: "13,-6",
+          unitType: "Bomber",
+          strength: 100,
+          laneOffsetPx: 9
+        }
+      ];
+      (screen as any).playMissionStrikeOperation = async (flight: { missionId: string }) => {
+        startedFlights.push(flight.missionId);
+        await flightsReleased;
+      };
+    });
+
+    const arrivals: AirMissionArrival[] = [];
+    const engagements: AirEngagementEvent[] = [
+      {
+        type: "flak",
+        missionId: "strike-1",
+        location: { q: 12, r: -6 },
+        bomber: { faction: "Bot", unitKey: "b1", unitType: "Bomber", strength: 100 },
+        interceptors: [{ faction: "Player", unitKey: "aa-1", unitType: "Flak_88", strength: 100, hex: { q: 11, r: -5 } }],
+        escorts: [],
+        flakDamage: 0,
+        bomberStrengthBefore: 100,
+        bomberStrengthAfter: 100,
+        bomberDestroyed: false
+      },
+      {
+        type: "flak",
+        missionId: "strike-2",
+        location: { q: 13, r: -6 },
+        bomber: { faction: "Bot", unitKey: "b2", unitType: "Bomber", strength: 100 },
+        interceptors: [{ faction: "Player", unitKey: "aa-2", unitType: "Flak_88", strength: 100, hex: { q: 12, r: -5 } }],
+        escorts: [],
+        flakDamage: 0,
+        bomberStrengthBefore: 100,
+        bomberStrengthAfter: 100,
+        bomberDestroyed: false
+      }
+    ];
+
+    let playback: Promise<void> | null = null;
+
+    await When("the combined air-operations sequence begins", async () => {
+      playback = (screen as any).playAirOperations(arrivals, engagements);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await Then("both strike packages should start before the first one finishes", async () => {
+      if (startedFlights.length < 2) {
+        throw new Error(`Expected both strike flights to begin in parallel, saw ${JSON.stringify(startedFlights)}.`);
+      }
+      releaseFlights?.();
+      await playback;
+    });
+  } finally {
+    window.setTimeout = originalSetTimeout;
+  }
+});
