@@ -273,6 +273,7 @@ export class HexMapRenderer implements IMapRenderer {
   /**
    * Animates a temporary aircraft sprite flying from one hex to another without mutating unit icons.
    * Used for Air Support visuals (arrivals and air-to-air engagements) so sorties can be shown "in action".
+   * When strength is provided, renders as a formation with 1-4 sprites based on strength.
    */
   async animateAircraftFlyover(
     fromKey: string,
@@ -280,7 +281,8 @@ export class HexMapRenderer implements IMapRenderer {
     scenarioType: string,
     durationMs = 2800,
     onProgress?: AircraftAnimationProgressCallback,
-    endProgress = 1
+    endProgress = 1,
+    strength?: number
   ): Promise<void> {
     if (!this.svgElement) {
       console.warn("[HexMapRenderer] animateAircraftFlyover skipped: no SVG element available", {
@@ -328,12 +330,9 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const iconSize = 40;
-    const startX = startCenter.cx - iconSize / 2;
-    const startY = startCenter.cy - iconSize / 2;
-    const endX = endCenter.cx - iconSize / 2;
-    const endY = endCenter.cy - iconSize / 2;
+    const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, strength);
+    const isFormation = ghost instanceof SVGGElement;
 
-    const ghost = this.createMoveGhost(spriteHref, iconSize, iconSize);
     const layer = this.ensureCombatEffectsLayer();
     if (!layer) {
       console.error("[HexMapRenderer] animateAircraftFlyover skipped: missing combat effects layer", {
@@ -344,19 +343,39 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
     layer.appendChild(ghost);
-    ghost.setAttribute("x", String(startX));
-    ghost.setAttribute("y", String(startY));
+
+    // For formations (groups), position via transform. For single sprites, use x/y attributes.
+    const startCenterX = startCenter.cx;
+    const startCenterY = startCenter.cy;
+    const endCenterX = endCenter.cx;
+    const endCenterY = endCenter.cy;
+
+    if (isFormation) {
+      ghost.setAttribute("transform", `translate(${startCenterX},${startCenterY})`);
+    } else {
+      const startX = startCenterX - iconSize / 2;
+      const startY = startCenterY - iconSize / 2;
+      (ghost as SVGImageElement).setAttribute("x", String(startX));
+      (ghost as SVGImageElement).setAttribute("y", String(startY));
+    }
 
     const clampedEndProgress = this.clamp(endProgress, 0.01, 1);
     const effectiveDurationMs = Math.max(1, durationMs * clampedEndProgress);
 
     if (durationMs <= 0) {
       const finalProgress = clampedEndProgress;
-      const finalX = startX + (endX - startX) * finalProgress;
-      const finalY = startY + (endY - startY) * finalProgress;
-      ghost.setAttribute("x", String(finalX));
-      ghost.setAttribute("y", String(finalY));
-      onProgress?.(finalProgress, finalX + iconSize / 2, finalY + iconSize / 2);
+      const finalCenterX = startCenterX + (endCenterX - startCenterX) * finalProgress;
+      const finalCenterY = startCenterY + (endCenterY - startCenterY) * finalProgress;
+
+      if (isFormation) {
+        ghost.setAttribute("transform", `translate(${finalCenterX},${finalCenterY})`);
+      } else {
+        const finalX = finalCenterX - iconSize / 2;
+        const finalY = finalCenterY - iconSize / 2;
+        (ghost as SVGImageElement).setAttribute("x", String(finalX));
+        (ghost as SVGImageElement).setAttribute("y", String(finalY));
+      }
+      onProgress?.(finalProgress, finalCenterX, finalCenterY);
       ghost.remove();
       return;
     }
@@ -368,11 +387,18 @@ export class HexMapRenderer implements IMapRenderer {
         const t = Math.min(1, elapsed / effectiveDurationMs);
         const eased = this.easeInOut(t);
         const progressedDistance = eased * clampedEndProgress;
-        const x = startX + (endX - startX) * progressedDistance;
-        const y = startY + (endY - startY) * progressedDistance;
-        ghost.setAttribute("x", String(x));
-        ghost.setAttribute("y", String(y));
-        onProgress?.(progressedDistance, x + iconSize / 2, y + iconSize / 2);
+        const centerX = startCenterX + (endCenterX - startCenterX) * progressedDistance;
+        const centerY = startCenterY + (endCenterY - startCenterY) * progressedDistance;
+
+        if (isFormation) {
+          ghost.setAttribute("transform", `translate(${centerX},${centerY})`);
+        } else {
+          const x = centerX - iconSize / 2;
+          const y = centerY - iconSize / 2;
+          (ghost as SVGImageElement).setAttribute("x", String(x));
+          (ghost as SVGImageElement).setAttribute("y", String(y));
+        }
+        onProgress?.(progressedDistance, centerX, centerY);
         if (t >= 1) {
           resolve();
           return;
@@ -389,6 +415,7 @@ export class HexMapRenderer implements IMapRenderer {
    * Animates an aircraft along a shallow arc between two hexes for more cinematic flyovers.
    * This is used primarily for dedicated air missions (ingress/egress), while engagements
    * can continue to rely on the straight-line helper when desired.
+   * When strength is provided, renders as a formation with 1-4 sprites based on strength.
    */
   async animateAircraftArc(
     fromKey: string,
@@ -396,7 +423,8 @@ export class HexMapRenderer implements IMapRenderer {
     scenarioType: string,
     durationMs = 2800,
     onProgress?: AircraftAnimationProgressCallback,
-    endProgress = 1
+    endProgress = 1,
+    strength?: number
   ): Promise<void> {
     if (!this.svgElement) {
       console.warn("[HexMapRenderer] animateAircraftArc skipped: no SVG element available", {
@@ -444,22 +472,24 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const iconSize = 40;
-    const startX = startCenter.cx - iconSize / 2;
-    const startY = startCenter.cy - iconSize / 2;
-    const endX = endCenter.cx - iconSize / 2;
-    const endY = endCenter.cy - iconSize / 2;
+    const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, strength);
+    const isFormation = ghost instanceof SVGGElement;
 
-    const dx = endX - startX;
-    const dy = endY - startY;
+    const startCenterX = startCenter.cx;
+    const startCenterY = startCenter.cy;
+    const endCenterX = endCenter.cx;
+    const endCenterY = endCenter.cy;
+
+    const dx = endCenterX - startCenterX;
+    const dy = endCenterY - startCenterY;
     const distance = Math.max(1, Math.hypot(dx, dy));
     // Perpendicular normal for arc offset; fixed orientation keeps visuals predictable.
     const nx = -dy / distance;
     const ny = dx / distance;
     const arcAmplitude = distance * 0.3;
-    const controlX = (startX + endX) / 2 + nx * arcAmplitude;
-    const controlY = (startY + endY) / 2 + ny * arcAmplitude;
+    const controlCenterX = (startCenterX + endCenterX) / 2 + nx * arcAmplitude;
+    const controlCenterY = (startCenterY + endCenterY) / 2 + ny * arcAmplitude;
 
-    const ghost = this.createMoveGhost(spriteHref, iconSize, iconSize);
     const layer = this.ensureCombatEffectsLayer();
     if (!layer) {
       console.error("[HexMapRenderer] animateAircraftArc skipped: missing combat effects layer", {
@@ -470,8 +500,15 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
     layer.appendChild(ghost);
-    ghost.setAttribute("x", String(startX));
-    ghost.setAttribute("y", String(startY));
+
+    if (isFormation) {
+      ghost.setAttribute("transform", `translate(${startCenterX},${startCenterY})`);
+    } else {
+      const startX = startCenterX - iconSize / 2;
+      const startY = startCenterY - iconSize / 2;
+      (ghost as SVGImageElement).setAttribute("x", String(startX));
+      (ghost as SVGImageElement).setAttribute("y", String(startY));
+    }
 
     const clampedEndProgress = this.clamp(endProgress, 0.01, 1);
     const effectiveDurationMs = Math.max(1, durationMs * clampedEndProgress);
@@ -479,11 +516,18 @@ export class HexMapRenderer implements IMapRenderer {
     if (durationMs <= 0) {
       const eased = clampedEndProgress;
       const oneMinusT = 1 - eased;
-      const bx = oneMinusT * oneMinusT * startX + 2 * oneMinusT * eased * controlX + eased * eased * endX;
-      const by = oneMinusT * oneMinusT * startY + 2 * oneMinusT * eased * controlY + eased * eased * endY;
-      ghost.setAttribute("x", String(bx));
-      ghost.setAttribute("y", String(by));
-      onProgress?.(clampedEndProgress, bx + iconSize / 2, by + iconSize / 2);
+      const bcx = oneMinusT * oneMinusT * startCenterX + 2 * oneMinusT * eased * controlCenterX + eased * eased * endCenterX;
+      const bcy = oneMinusT * oneMinusT * startCenterY + 2 * oneMinusT * eased * controlCenterY + eased * eased * endCenterY;
+
+      if (isFormation) {
+        ghost.setAttribute("transform", `translate(${bcx},${bcy})`);
+      } else {
+        const bx = bcx - iconSize / 2;
+        const by = bcy - iconSize / 2;
+        (ghost as SVGImageElement).setAttribute("x", String(bx));
+        (ghost as SVGImageElement).setAttribute("y", String(by));
+      }
+      onProgress?.(clampedEndProgress, bcx, bcy);
       ghost.remove();
       return;
     }
@@ -496,12 +540,19 @@ export class HexMapRenderer implements IMapRenderer {
         const eased = this.easeInOut(t);
         const progressedDistance = eased * clampedEndProgress;
         const oneMinusT = 1 - progressedDistance;
-        // Quadratic Bézier interpolation between start, control, and end.
-        const bx = oneMinusT * oneMinusT * startX + 2 * oneMinusT * progressedDistance * controlX + progressedDistance * progressedDistance * endX;
-        const by = oneMinusT * oneMinusT * startY + 2 * oneMinusT * progressedDistance * controlY + progressedDistance * progressedDistance * endY;
-        ghost.setAttribute("x", String(bx));
-        ghost.setAttribute("y", String(by));
-        onProgress?.(progressedDistance, bx + iconSize / 2, by + iconSize / 2);
+        // Quadratic Bézier interpolation between start, control, and end points (using center coordinates)
+        const bcx = oneMinusT * oneMinusT * startCenterX + 2 * oneMinusT * progressedDistance * controlCenterX + progressedDistance * progressedDistance * endCenterX;
+        const bcy = oneMinusT * oneMinusT * startCenterY + 2 * oneMinusT * progressedDistance * controlCenterY + progressedDistance * progressedDistance * endCenterY;
+
+        if (isFormation) {
+          ghost.setAttribute("transform", `translate(${bcx},${bcy})`);
+        } else {
+          const bx = bcx - iconSize / 2;
+          const by = bcy - iconSize / 2;
+          (ghost as SVGImageElement).setAttribute("x", String(bx));
+          (ghost as SVGImageElement).setAttribute("y", String(by));
+        }
+        onProgress?.(progressedDistance, bcx, bcy);
         if (t >= 1) {
           resolve();
           return;
@@ -3291,6 +3342,97 @@ export class HexMapRenderer implements IMapRenderer {
     ghost.setAttribute("preserveAspectRatio", "xMidYMid slice");
     ghost.style.pointerEvents = "none";
     return ghost;
+  }
+
+  /**
+   * Resolves formation layout for aircraft sprites based on strength.
+   * Returns positions for 1-4 sprites in tactical flight formations.
+   */
+  private resolveAircraftFormationLayout(
+    strength: number
+  ): Array<{ ox: number; oy: number; scale: number }> {
+    const stackCount = this.resolveUnitStackCount(strength);
+    const spacing = 22; // pixels between aircraft in formation
+
+    // Scale decreases as formation size increases to maintain visual cohesion
+    const scaleByCount: Record<number, number> = {
+      1: 0.85,
+      2: 0.78,
+      3: 0.72,
+      4: 0.68
+    };
+    const scale = scaleByCount[stackCount] ?? 0.72;
+
+    switch (stackCount) {
+      case 1:
+        // Single aircraft - centered
+        return [{ ox: 0, oy: 0, scale }];
+
+      case 2:
+        // Two-ship element - side by side
+        return [
+          { ox: -spacing, oy: 0, scale },
+          { ox: spacing, oy: 0, scale }
+        ];
+
+      case 3:
+        // Three-ship vic - leader with two wingmen
+        return [
+          { ox: 0, oy: -spacing * 0.6, scale },           // Lead
+          { ox: -spacing * 1.1, oy: spacing * 0.5, scale }, // Left wing
+          { ox: spacing * 1.1, oy: spacing * 0.5, scale }   // Right wing
+        ];
+
+      case 4:
+        // Four-ship finger-four - staggered pairs
+        return [
+          { ox: -spacing * 0.8, oy: -spacing * 0.5, scale }, // Lead left
+          { ox: spacing * 0.8, oy: -spacing * 0.5, scale },  // Lead right
+          { ox: -spacing * 0.8, oy: spacing * 0.6, scale },  // Trail left
+          { ox: spacing * 0.8, oy: spacing * 0.6, scale }    // Trail right
+        ];
+
+      default:
+        return [{ ox: 0, oy: 0, scale }];
+    }
+  }
+
+  /**
+   * Creates a formation group for aircraft animations showing multiple sprites based on strength.
+   * Falls back to single sprite if strength is not provided (backward compatibility).
+   */
+  private createAircraftFormationGhost(
+    spriteHref: string,
+    iconSize: number,
+    strength?: number
+  ): SVGGElement | SVGImageElement {
+    // Backward compatibility: if no strength provided, use single sprite
+    if (strength === undefined || strength === null) {
+      return this.createMoveGhost(spriteHref, iconSize, iconSize);
+    }
+
+    const formationGroup = document.createElementNS(SVG_NS, "g");
+    formationGroup.classList.add("aircraft-formation");
+    formationGroup.style.pointerEvents = "none";
+
+    const layout = this.resolveAircraftFormationLayout(strength);
+
+    layout.forEach((spec, index) => {
+      const sprite = document.createElementNS(SVG_NS, "image");
+      sprite.setAttribute("href", spriteHref);
+      const spriteSize = iconSize * spec.scale;
+      sprite.setAttribute("width", String(spriteSize));
+      sprite.setAttribute("height", String(spriteSize));
+      // Center each sprite at its offset position
+      sprite.setAttribute("x", String(spec.ox - spriteSize / 2));
+      sprite.setAttribute("y", String(spec.oy - spriteSize / 2));
+      sprite.setAttribute("preserveAspectRatio", "xMidYMid slice");
+      sprite.classList.add("aircraft-sprite", `formation-pos-${index}`);
+      sprite.style.pointerEvents = "none";
+      formationGroup.appendChild(sprite);
+    });
+
+    return formationGroup;
   }
 
   private cleanupMoveGhost(ghost: SVGGElement, original: SVGGElement, restoreOpacity: string): void {

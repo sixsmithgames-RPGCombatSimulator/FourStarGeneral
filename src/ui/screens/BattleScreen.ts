@@ -3004,7 +3004,8 @@ export class BattleScreen {
             nextBurstProgress += 0.08;
           }
         },
-        event.bomberDestroyed ? 0.84 : 1
+        event.bomberDestroyed ? 0.84 : 1,
+        event.bomberStrengthBefore // Show formation based on strength before flak damage
       );
 
       if (!event.bomberDestroyed) {
@@ -3056,6 +3057,9 @@ export class BattleScreen {
     let interceptPromise: Promise<void> | null = null;
     let interceptTriggered = false;
 
+    // Get bomber strength for formation rendering
+    const bomberStrength = flakEvent?.bomberStrengthBefore;
+
     await renderer.animateAircraftFlyover(
       flight.originKey,
       flight.destKey,
@@ -3074,7 +3078,8 @@ export class BattleScreen {
           interceptPromise = this.playMissionAirInterceptEvent(airToAirEvent, flight.destKey, renderer, engine);
         }
       },
-      flakEvent?.bomberDestroyed ? 0.84 : 1
+      flakEvent?.bomberDestroyed ? 0.84 : 1,
+      bomberStrength
     );
 
     if (interceptPromise) {
