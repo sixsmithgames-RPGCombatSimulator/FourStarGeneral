@@ -127,7 +127,7 @@ const botUnits = [
 const allyUnits = [
   makeUnit("Infantry_42", [13, 4], { entrench: 0, facing: "SE" }),
   makeUnit("Engineer", [15, 4], { entrench: 0, facing: "SE" }),
-  makeUnit("AT_Gun_50mm", [12, 5], { facing: "SW" }),
+  makeUnit("AT_Gun_50mm", [15, 5], { facing: "SW" }),
   makeUnit("Recon_Bike", [16, 4], { facing: "SW" })
 ];
 
