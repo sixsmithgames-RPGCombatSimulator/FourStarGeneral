@@ -1,0 +1,695 @@
+[
+  {
+    "weapon_id": "US_RIFLE_M1_GARAND",
+    "display_name": "M1 Garand",
+    "short_name": "M1 Garand",
+    "ui_group": "Rifle",
+    "nation_label": "United States",
+    "short_description": "M1 Garand is a service rifle in the 7.62 mm class. It is comfortable in general battlefield fighting at typical engagement distances.",
+    "long_description": "M1 Garand is a service rifle in the 7.62 mm class. It is comfortable in general battlefield fighting at typical engagement distances. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "US_CARBINE_M1",
+    "display_name": "M1 Carbine",
+    "short_name": "M1 Carbine",
+    "ui_group": "Carbine",
+    "nation_label": "United States",
+    "short_description": "M1 Carbine is a light carbine in the 7.62 mm class. It is strongest at short range where mobility and initiative decide the fight.",
+    "long_description": "M1 Carbine is a light carbine in the 7.62 mm class. It is strongest at short range where mobility and initiative decide the fight. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "US_BAR_M1918A2",
+    "display_name": "M1918A2 BAR",
+    "short_name": "M1918A2 BAR",
+    "ui_group": "Automatic Rifle",
+    "nation_label": "United States",
+    "short_description": "M1918A2 BAR is a automatic rifle in the 7.62 mm class. Its main value is sustained fire, suppression, and holding lanes of approach.",
+    "long_description": "M1918A2 BAR is a automatic rifle in the 7.62 mm class. Its main value is sustained fire, suppression, and holding lanes of approach. It can maintain steady fire without relying on a single decisive shot."
+  },
+  {
+    "weapon_id": "US_M1919A4",
+    "display_name": "Browning M1919A4",
+    "short_name": "Browning M1919A4",
+    "ui_group": "Medium MG",
+    "nation_label": "United States",
+    "short_description": "Browning M1919A4 is a medium machine gun in the 7.62 mm class. Its main value is sustained fire, suppression, and holding lanes of approach.",
+    "long_description": "Browning M1919A4 is a medium machine gun in the 7.62 mm class. Its main value is sustained fire, suppression, and holding lanes of approach. High rate of fire supports suppression and repeated target engagement. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "US_M2HB",
+    "display_name": "Browning M2HB",
+    "short_name": "Browning M2HB",
+    "ui_group": "Heavy MG",
+    "nation_label": "United States",
+    "short_description": "Browning M2HB is a heavy machine gun in the 12.7 mm class. Its main value is sustained fire, suppression, and holding lanes of approach.",
+    "long_description": "Browning M2HB is a heavy machine gun in the 12.7 mm class. Its main value is sustained fire, suppression, and holding lanes of approach. High rate of fire supports suppression and repeated target engagement. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "US_BAZOOKA_M1A1",
+    "display_name": "M1A1 Bazooka",
+    "short_name": "M1A1 Bazooka",
+    "ui_group": "AT Rocket Launcher",
+    "nation_label": "United States",
+    "short_description": "M1A1 Bazooka is a anti-tank rocket launcher in the 60 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "M1A1 Bazooka is a anti-tank rocket launcher in the 60 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "US_MORTAR_60_M2",
+    "display_name": "M2 60mm Mortar",
+    "short_name": "M2 60mm Mortar",
+    "ui_group": "Light Mortar",
+    "nation_label": "United States",
+    "short_description": "M2 60mm Mortar is a light mortar in the 60 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range.",
+    "long_description": "M2 60mm Mortar is a light mortar in the 60 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "US_MORTAR_81_M1",
+    "display_name": "M1 81mm Mortar",
+    "short_name": "M1 81mm Mortar",
+    "ui_group": "Medium Mortar",
+    "nation_label": "United States",
+    "short_description": "M1 81mm Mortar is a medium mortar in the 81 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range.",
+    "long_description": "M1 81mm Mortar is a medium mortar in the 81 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "US_MORTAR_107_M2",
+    "display_name": "M2 4.2-inch Mortar",
+    "short_name": "M2 4.2-inch Mortar",
+    "ui_group": "Heavy Mortar",
+    "nation_label": "United States",
+    "short_description": "M2 4.2-inch Mortar is a heavy mortar in the 107 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range.",
+    "long_description": "M2 4.2-inch Mortar is a heavy mortar in the 107 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "US_GRENADE_MK2",
+    "display_name": "Mk 2 Grenade",
+    "short_name": "Mk 2 Grenade",
+    "ui_group": "Fragmentation Grenade",
+    "nation_label": "United States",
+    "short_description": "Mk 2 Grenade is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "Mk 2 Grenade is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  },
+  {
+    "weapon_id": "US_MINE_M2_BOUNDING",
+    "display_name": "M2 Bounding Mine",
+    "short_name": "M2 Bounding Mine",
+    "ui_group": "AP Mine",
+    "nation_label": "United States",
+    "short_description": "M2 Bounding Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "M2 Bounding Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  },
+  {
+    "weapon_id": "US_MINE_M15_AT",
+    "display_name": "M15 AT Mine",
+    "short_name": "M15 AT Mine",
+    "ui_group": "AT Mine",
+    "nation_label": "United States",
+    "short_description": "M15 AT Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "M15 AT Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  },
+  {
+    "weapon_id": "US_SATCHEL_GENERIC",
+    "display_name": "Satchel Charge",
+    "short_name": "Satchel Charge",
+    "ui_group": "Demolition Charge",
+    "nation_label": "United States",
+    "short_description": "Satchel Charge is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "Satchel Charge is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  },
+  {
+    "weapon_id": "DE_RIFLE_KAR98K",
+    "display_name": "Kar98k",
+    "short_name": "Kar98k",
+    "ui_group": "Rifle",
+    "nation_label": "Germany",
+    "short_description": "Kar98k is a service rifle in the 7.92 mm class. It is comfortable in general battlefield fighting at typical engagement distances.",
+    "long_description": "Kar98k is a service rifle in the 7.92 mm class. It is comfortable in general battlefield fighting at typical engagement distances. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "DE_SMG_MP40",
+    "display_name": "MP 40",
+    "short_name": "MP 40",
+    "ui_group": "SMG",
+    "nation_label": "Germany",
+    "short_description": "MP 40 is a infantry in the 9 mm class. It is strongest at short range where mobility and initiative decide the fight.",
+    "long_description": "MP 40 is a infantry in the 9 mm class. It is strongest at short range where mobility and initiative decide the fight. High rate of fire supports suppression and repeated target engagement."
+  },
+  {
+    "weapon_id": "DE_AR_STG44",
+    "display_name": "StG 44",
+    "short_name": "StG 44",
+    "ui_group": "Assault Rifle",
+    "nation_label": "Germany",
+    "short_description": "StG 44 is a infantry in the 7.92 mm class. It is comfortable in general battlefield fighting at typical engagement distances.",
+    "long_description": "StG 44 is a infantry in the 7.92 mm class. It is comfortable in general battlefield fighting at typical engagement distances. High rate of fire supports suppression and repeated target engagement."
+  },
+  {
+    "weapon_id": "DE_MG34",
+    "display_name": "MG 34",
+    "short_name": "MG 34",
+    "ui_group": "General Purpose MG",
+    "nation_label": "Germany",
+    "short_description": "MG 34 is a general-purpose machine gun in the 7.92 mm class. Its main value is sustained fire, suppression, and holding lanes of approach.",
+    "long_description": "MG 34 is a general-purpose machine gun in the 7.92 mm class. Its main value is sustained fire, suppression, and holding lanes of approach. High rate of fire supports suppression and repeated target engagement. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "DE_MG42",
+    "display_name": "MG 42",
+    "short_name": "MG 42",
+    "ui_group": "General Purpose MG",
+    "nation_label": "Germany",
+    "short_description": "MG 42 is a general-purpose machine gun in the 7.92 mm class. Its main value is sustained fire, suppression, and holding lanes of approach.",
+    "long_description": "MG 42 is a general-purpose machine gun in the 7.92 mm class. Its main value is sustained fire, suppression, and holding lanes of approach. High rate of fire supports suppression and repeated target engagement. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "DE_MORTAR_50_LEGRW36",
+    "display_name": "5 cm leGrW 36",
+    "short_name": "5 cm leGrW 36",
+    "ui_group": "Light Mortar",
+    "nation_label": "Germany",
+    "short_description": "5 cm leGrW 36 is a light mortar in the 50 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range.",
+    "long_description": "5 cm leGrW 36 is a light mortar in the 50 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "DE_MORTAR_81_GRW34",
+    "display_name": "8 cm GrW 34",
+    "short_name": "8 cm GrW 34",
+    "ui_group": "Medium Mortar",
+    "nation_label": "Germany",
+    "short_description": "8 cm GrW 34 is a medium mortar in the 81 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range.",
+    "long_description": "8 cm GrW 34 is a medium mortar in the 81 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "DE_PANZERFAUST_30",
+    "display_name": "Panzerfaust 30",
+    "short_name": "Panzerfaust 30",
+    "ui_group": "Disposable AT Launcher",
+    "nation_label": "Germany",
+    "short_description": "Panzerfaust 30 is a infantry in the 149 mm class. It is strongest at short range where mobility and initiative decide the fight.",
+    "long_description": "Panzerfaust 30 is a infantry in the 149 mm class. It is strongest at short range where mobility and initiative decide the fight. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "DE_PANZERFAUST_60",
+    "display_name": "Panzerfaust 60",
+    "short_name": "Panzerfaust 60",
+    "ui_group": "Disposable AT Launcher",
+    "nation_label": "Germany",
+    "short_description": "Panzerfaust 60 is a infantry in the 149 mm class. It is strongest at short range where mobility and initiative decide the fight.",
+    "long_description": "Panzerfaust 60 is a infantry in the 149 mm class. It is strongest at short range where mobility and initiative decide the fight. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "DE_PANZERFAUST_100",
+    "display_name": "Panzerfaust 100",
+    "short_name": "Panzerfaust 100",
+    "ui_group": "Disposable AT Launcher",
+    "nation_label": "Germany",
+    "short_description": "Panzerfaust 100 is a infantry in the 149 mm class. It is strongest at short range where mobility and initiative decide the fight.",
+    "long_description": "Panzerfaust 100 is a infantry in the 149 mm class. It is strongest at short range where mobility and initiative decide the fight. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "DE_PANZERSCHRECK_RPZB54",
+    "display_name": "Panzerschreck RPzB 54",
+    "short_name": "Panzerschreck RPzB 54",
+    "ui_group": "AT Rocket Launcher",
+    "nation_label": "Germany",
+    "short_description": "Panzerschreck RPzB 54 is a anti-tank rocket launcher in the 88 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "Panzerschreck RPzB 54 is a anti-tank rocket launcher in the 88 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "DE_SMINE",
+    "display_name": "S-Mine",
+    "short_name": "S-Mine",
+    "ui_group": "AP Mine",
+    "nation_label": "Germany",
+    "short_description": "S-Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "S-Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  },
+  {
+    "weapon_id": "DE_TELLERMINE_42",
+    "display_name": "Tellermine 42",
+    "short_name": "Tellermine 42",
+    "ui_group": "AT Mine",
+    "nation_label": "Germany",
+    "short_description": "Tellermine 42 is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "Tellermine 42 is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  },
+  {
+    "weapon_id": "UK_RIFLE_NO4",
+    "display_name": "Lee-Enfield No. 4",
+    "short_name": "Lee-Enfield No. 4",
+    "ui_group": "Rifle",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "Lee-Enfield No. 4 is a service rifle in the 7.7 mm class. It is comfortable in general battlefield fighting at typical engagement distances.",
+    "long_description": "Lee-Enfield No. 4 is a service rifle in the 7.7 mm class. It is comfortable in general battlefield fighting at typical engagement distances. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "UK_SMG_STEN_MK2",
+    "display_name": "Sten Mk II",
+    "short_name": "Sten Mk II",
+    "ui_group": "SMG",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "Sten Mk II is a infantry in the 9 mm class. It is strongest at short range where mobility and initiative decide the fight.",
+    "long_description": "Sten Mk II is a infantry in the 9 mm class. It is strongest at short range where mobility and initiative decide the fight. High rate of fire supports suppression and repeated target engagement."
+  },
+  {
+    "weapon_id": "UK_LMG_BREN",
+    "display_name": "Bren Gun",
+    "short_name": "Bren Gun",
+    "ui_group": "Light MG",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "Bren Gun is a light machine gun in the 7.7 mm class. Its main value is sustained fire, suppression, and holding lanes of approach.",
+    "long_description": "Bren Gun is a light machine gun in the 7.7 mm class. Its main value is sustained fire, suppression, and holding lanes of approach. High rate of fire supports suppression and repeated target engagement."
+  },
+  {
+    "weapon_id": "UK_MMG_VICKERS",
+    "display_name": "Vickers MG",
+    "short_name": "Vickers MG",
+    "ui_group": "Heavy MG",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "Vickers MG is a heavy machine gun in the 7.7 mm class. Its main value is sustained fire, suppression, and holding lanes of approach.",
+    "long_description": "Vickers MG is a heavy machine gun in the 7.7 mm class. Its main value is sustained fire, suppression, and holding lanes of approach. High rate of fire supports suppression and repeated target engagement. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "UK_BOYS_ATR",
+    "display_name": "Boys ATR",
+    "short_name": "Boys ATR",
+    "ui_group": "AT Rifle",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "Boys ATR is a anti-tank rifle in the 13.9 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "Boys ATR is a anti-tank rifle in the 13.9 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "UK_PIAT",
+    "display_name": "PIAT",
+    "short_name": "PIAT",
+    "ui_group": "AT Projector",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "PIAT is a infantry in the 89 mm class. It is strongest at short range where mobility and initiative decide the fight.",
+    "long_description": "PIAT is a infantry in the 89 mm class. It is strongest at short range where mobility and initiative decide the fight. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "UK_MORTAR_2IN",
+    "display_name": "2-inch Mortar",
+    "short_name": "2-inch Mortar",
+    "ui_group": "Light Mortar",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "2-inch Mortar is a light mortar in the 51 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range.",
+    "long_description": "2-inch Mortar is a light mortar in the 51 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "UK_MORTAR_3IN",
+    "display_name": "3-inch Mortar",
+    "short_name": "3-inch Mortar",
+    "ui_group": "Medium Mortar",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "3-inch Mortar is a medium mortar in the 81 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range.",
+    "long_description": "3-inch Mortar is a medium mortar in the 81 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "UK_GRENADE_NO36",
+    "display_name": "No. 36M Grenade",
+    "short_name": "No. 36M Grenade",
+    "ui_group": "Fragmentation Grenade",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "No. 36M Grenade is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "No. 36M Grenade is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  },
+  {
+    "weapon_id": "UK_HAWKINS_MINE",
+    "display_name": "Hawkins AT Mine",
+    "short_name": "Hawkins AT Mine",
+    "ui_group": "AT Mine",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "Hawkins AT Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "Hawkins AT Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  },
+  {
+    "weapon_id": "SU_RIFLE_M91_30",
+    "display_name": "Mosin-Nagant M91/30",
+    "short_name": "Mosin-Nagant M91/30",
+    "ui_group": "Rifle",
+    "nation_label": "Soviet Union",
+    "short_description": "Mosin-Nagant M91/30 is a service rifle in the 7.62 mm class. It is comfortable in general battlefield fighting at typical engagement distances.",
+    "long_description": "Mosin-Nagant M91/30 is a service rifle in the 7.62 mm class. It is comfortable in general battlefield fighting at typical engagement distances. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "SU_SMG_PPSH41",
+    "display_name": "PPSh-41",
+    "short_name": "PPSh-41",
+    "ui_group": "SMG",
+    "nation_label": "Soviet Union",
+    "short_description": "PPSh-41 is a infantry in the 7.62 mm class. It is strongest at short range where mobility and initiative decide the fight.",
+    "long_description": "PPSh-41 is a infantry in the 7.62 mm class. It is strongest at short range where mobility and initiative decide the fight. High rate of fire supports suppression and repeated target engagement."
+  },
+  {
+    "weapon_id": "SU_LMG_DP27",
+    "display_name": "DP-27",
+    "short_name": "DP-27",
+    "ui_group": "Light MG",
+    "nation_label": "Soviet Union",
+    "short_description": "DP-27 is a light machine gun in the 7.62 mm class. Its main value is sustained fire, suppression, and holding lanes of approach.",
+    "long_description": "DP-27 is a light machine gun in the 7.62 mm class. Its main value is sustained fire, suppression, and holding lanes of approach. High rate of fire supports suppression and repeated target engagement."
+  },
+  {
+    "weapon_id": "SU_ATR_PTRD41",
+    "display_name": "PTRD-41",
+    "short_name": "PTRD-41",
+    "ui_group": "AT Rifle",
+    "nation_label": "Soviet Union",
+    "short_description": "PTRD-41 is a anti-tank rifle in the 14.5 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "PTRD-41 is a anti-tank rifle in the 14.5 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "SU_ATR_PTRS41",
+    "display_name": "PTRS-41",
+    "short_name": "PTRS-41",
+    "ui_group": "AT Rifle",
+    "nation_label": "Soviet Union",
+    "short_description": "PTRS-41 is a anti-tank rifle in the 14.5 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "PTRS-41 is a anti-tank rifle in the 14.5 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "SU_MORTAR_50_RM38",
+    "display_name": "RM-38 50mm Mortar",
+    "short_name": "RM-38 50mm Mortar",
+    "ui_group": "Light Mortar",
+    "nation_label": "Soviet Union",
+    "short_description": "RM-38 50mm Mortar is a light mortar in the 50 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range.",
+    "long_description": "RM-38 50mm Mortar is a light mortar in the 50 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "SU_MORTAR_82_PM37",
+    "display_name": "82-PM-37",
+    "short_name": "82-PM-37",
+    "ui_group": "Medium Mortar",
+    "nation_label": "Soviet Union",
+    "short_description": "82-PM-37 is a medium mortar in the 82 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range.",
+    "long_description": "82-PM-37 is a medium mortar in the 82 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "SU_MORTAR_120_PM38",
+    "display_name": "PM-38 120mm Mortar",
+    "short_name": "PM-38 120mm Mortar",
+    "ui_group": "Heavy Mortar",
+    "nation_label": "Soviet Union",
+    "short_description": "PM-38 120mm Mortar is a heavy mortar in the 120 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range.",
+    "long_description": "PM-38 120mm Mortar is a heavy mortar in the 120 mm class. Most effective when supporting attacks with explosive fire rather than trading shots at point-blank range. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "SU_GRENADE_F1",
+    "display_name": "F-1 Grenade",
+    "short_name": "F-1 Grenade",
+    "ui_group": "Fragmentation Grenade",
+    "nation_label": "Soviet Union",
+    "short_description": "F-1 Grenade is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "F-1 Grenade is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  },
+  {
+    "weapon_id": "SU_MINE_PMD6",
+    "display_name": "PMD-6 AP Mine",
+    "short_name": "PMD-6 AP Mine",
+    "ui_group": "AP Mine",
+    "nation_label": "Soviet Union",
+    "short_description": "PMD-6 AP Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "PMD-6 AP Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  },
+  {
+    "weapon_id": "SU_MINE_TM35",
+    "display_name": "TM-35 AT Mine",
+    "short_name": "TM-35 AT Mine",
+    "ui_group": "AT Mine",
+    "nation_label": "Soviet Union",
+    "short_description": "TM-35 AT Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "TM-35 AT Mine is a explosive in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  },
+  {
+    "weapon_id": "GEN_COAX_RIFLE_MG",
+    "display_name": "Vehicle Coaxial Rifle-Caliber MG",
+    "short_name": "Vehicle Coaxial Rifle-Caliber MG",
+    "ui_group": "Coax MG",
+    "nation_label": "Generic",
+    "short_description": "Vehicle Coaxial Rifle-Caliber MG is a vehicle weapon in the 7.62 mm class. It performs well from standoff range and can control open ground.",
+    "long_description": "Vehicle Coaxial Rifle-Caliber MG is a vehicle weapon in the 7.62 mm class. It performs well from standoff range and can control open ground. High rate of fire supports suppression and repeated target engagement."
+  },
+  {
+    "weapon_id": "GEN_AA_50CAL",
+    "display_name": "Vehicle .50 cal HMG",
+    "short_name": "Vehicle .50 cal HMG",
+    "ui_group": "AA Heavy MG",
+    "nation_label": "Generic",
+    "short_description": "Vehicle .50 cal HMG is a vehicle weapon in the 12.7 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning.",
+    "long_description": "Vehicle .50 cal HMG is a vehicle weapon in the 12.7 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning. High rate of fire supports suppression and repeated target engagement."
+  },
+  {
+    "weapon_id": "GEN_AUTO_20MM",
+    "display_name": "Vehicle 20mm Autocannon",
+    "short_name": "Vehicle 20mm Autocannon",
+    "ui_group": "Autocannon",
+    "nation_label": "Generic",
+    "short_description": "Vehicle 20mm Autocannon is a autocannon in the 20 mm class. It performs well from standoff range and can control open ground.",
+    "long_description": "Vehicle 20mm Autocannon is a autocannon in the 20 mm class. It performs well from standoff range and can control open ground. It can maintain steady fire without relying on a single decisive shot."
+  },
+  {
+    "weapon_id": "GEN_AUTO_37MM",
+    "display_name": "Vehicle 37mm Autocannon",
+    "short_name": "Vehicle 37mm Autocannon",
+    "ui_group": "Autocannon",
+    "nation_label": "Generic",
+    "short_description": "Vehicle 37mm Autocannon is a autocannon in the 37 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning.",
+    "long_description": "Vehicle 37mm Autocannon is a autocannon in the 37 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning. It can maintain steady fire without relying on a single decisive shot."
+  },
+  {
+    "weapon_id": "US_37MM_M6",
+    "display_name": "37mm Gun M6",
+    "short_name": "37mm Gun M6",
+    "ui_group": "Tank Gun",
+    "nation_label": "United States",
+    "short_description": "37mm Gun M6 is a tank gun in the 37 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "37mm Gun M6 is a tank gun in the 37 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume."
+  },
+  {
+    "weapon_id": "US_75MM_M3",
+    "display_name": "75mm Gun M3",
+    "short_name": "75mm Gun M3",
+    "ui_group": "Tank Gun",
+    "nation_label": "United States",
+    "short_description": "75mm Gun M3 is a tank gun in the 75 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "75mm Gun M3 is a tank gun in the 75 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "US_76MM_M1",
+    "display_name": "76mm Gun M1",
+    "short_name": "76mm Gun M1",
+    "ui_group": "Tank Gun",
+    "nation_label": "United States",
+    "short_description": "76mm Gun M1 is a tank gun in the 76.2 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "76mm Gun M1 is a tank gun in the 76.2 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "US_3IN_M7",
+    "display_name": "3-inch Gun M7",
+    "short_name": "3-inch Gun M7",
+    "ui_group": "Tank Destroyer Gun",
+    "nation_label": "United States",
+    "short_description": "3-inch Gun M7 is a vehicle weapon in the 76.2 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning.",
+    "long_description": "3-inch Gun M7 is a vehicle weapon in the 76.2 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "US_90MM_M3",
+    "display_name": "90mm Gun M3",
+    "short_name": "90mm Gun M3",
+    "ui_group": "Tank Gun",
+    "nation_label": "United States",
+    "short_description": "90mm Gun M3 is a tank gun in the 90 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "90mm Gun M3 is a tank gun in the 90 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "US_105MM_M4",
+    "display_name": "105mm Howitzer M4",
+    "short_name": "105mm Howitzer M4",
+    "ui_group": "Tank Howitzer",
+    "nation_label": "United States",
+    "short_description": "105mm Howitzer M4 is a vehicle weapon in the 105 mm class. It fills a flexible combat role without leaning entirely on one extreme strength.",
+    "long_description": "105mm Howitzer M4 is a vehicle weapon in the 105 mm class. It fills a flexible combat role without leaning entirely on one extreme strength. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "DE_37MM_KWK36",
+    "display_name": "3.7 cm KwK 36",
+    "short_name": "3.7 cm KwK 36",
+    "ui_group": "Tank Gun",
+    "nation_label": "Germany",
+    "short_description": "3.7 cm KwK 36 is a tank gun in the 37 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "3.7 cm KwK 36 is a tank gun in the 37 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "DE_50MM_KWK38_L42",
+    "display_name": "5 cm KwK 38 L/42",
+    "short_name": "5 cm KwK 38 L/42",
+    "ui_group": "Tank Gun",
+    "nation_label": "Germany",
+    "short_description": "5 cm KwK 38 L/42 is a tank gun in the 50 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "5 cm KwK 38 L/42 is a tank gun in the 50 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "DE_50MM_KWK39_L60",
+    "display_name": "5 cm KwK 39 L/60",
+    "short_name": "5 cm KwK 39 L/60",
+    "ui_group": "Tank Gun",
+    "nation_label": "Germany",
+    "short_description": "5 cm KwK 39 L/60 is a tank gun in the 50 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "5 cm KwK 39 L/60 is a tank gun in the 50 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "DE_75MM_KWK37_L24",
+    "display_name": "7.5 cm KwK 37 L/24",
+    "short_name": "7.5 cm KwK 37 L/24",
+    "ui_group": "Tank Gun",
+    "nation_label": "Germany",
+    "short_description": "7.5 cm KwK 37 L/24 is a tank gun in the 75 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "7.5 cm KwK 37 L/24 is a tank gun in the 75 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "DE_75MM_KWK40",
+    "display_name": "7.5 cm KwK 40",
+    "short_name": "7.5 cm KwK 40",
+    "ui_group": "Tank Gun",
+    "nation_label": "Germany",
+    "short_description": "7.5 cm KwK 40 is a tank gun in the 75 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "7.5 cm KwK 40 is a tank gun in the 75 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "DE_75MM_KWK42",
+    "display_name": "7.5 cm KwK 42",
+    "short_name": "7.5 cm KwK 42",
+    "ui_group": "Tank Gun",
+    "nation_label": "Germany",
+    "short_description": "7.5 cm KwK 42 is a tank gun in the 75 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "7.5 cm KwK 42 is a tank gun in the 75 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "DE_88MM_KWK36",
+    "display_name": "8.8 cm KwK 36",
+    "short_name": "8.8 cm KwK 36",
+    "ui_group": "Tank Gun",
+    "nation_label": "Germany",
+    "short_description": "8.8 cm KwK 36 is a tank gun in the 88 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "8.8 cm KwK 36 is a tank gun in the 88 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "DE_88MM_KWK43",
+    "display_name": "8.8 cm KwK 43",
+    "short_name": "8.8 cm KwK 43",
+    "ui_group": "Tank Gun",
+    "nation_label": "Germany",
+    "short_description": "8.8 cm KwK 43 is a tank gun in the 88 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "8.8 cm KwK 43 is a tank gun in the 88 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "DE_50MM_PAK38",
+    "display_name": "5 cm Pak 38",
+    "short_name": "5 cm Pak 38",
+    "ui_group": "AT Gun",
+    "nation_label": "Germany",
+    "short_description": "5 cm Pak 38 is a anti-tank gun in the 50 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "5 cm Pak 38 is a anti-tank gun in the 50 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "DE_75MM_PAK40",
+    "display_name": "7.5 cm Pak 40",
+    "short_name": "7.5 cm Pak 40",
+    "ui_group": "AT Gun",
+    "nation_label": "Germany",
+    "short_description": "7.5 cm Pak 40 is a anti-tank gun in the 75 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "7.5 cm Pak 40 is a anti-tank gun in the 75 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "DE_88MM_FLAK36",
+    "display_name": "8.8 cm Flak 36",
+    "short_name": "8.8 cm Flak 36",
+    "ui_group": "Heavy AA/AT Gun",
+    "nation_label": "Germany",
+    "short_description": "8.8 cm Flak 36 is a vehicle weapon in the 88 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning.",
+    "long_description": "8.8 cm Flak 36 is a vehicle weapon in the 88 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly."
+  },
+  {
+    "weapon_id": "UK_2PDR",
+    "display_name": "QF 2-pounder",
+    "short_name": "QF 2-pounder",
+    "ui_group": "Tank/AT Gun",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "QF 2-pounder is a vehicle weapon in the 40 mm class. It performs well from standoff range and can control open ground.",
+    "long_description": "QF 2-pounder is a vehicle weapon in the 40 mm class. It performs well from standoff range and can control open ground. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "UK_6PDR",
+    "display_name": "QF 6-pounder",
+    "short_name": "QF 6-pounder",
+    "ui_group": "AT/Tank Gun",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "QF 6-pounder is a vehicle weapon in the 57 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning.",
+    "long_description": "QF 6-pounder is a vehicle weapon in the 57 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "UK_17PDR",
+    "display_name": "QF 17-pounder",
+    "short_name": "QF 17-pounder",
+    "ui_group": "Tank/AT Gun",
+    "nation_label": "Britain/Commonwealth",
+    "short_description": "QF 17-pounder is a vehicle weapon in the 76.2 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning.",
+    "long_description": "QF 17-pounder is a vehicle weapon in the 76.2 mm class. It reaches far beyond ordinary infantry weapons and rewards careful positioning. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "SU_45MM_20K",
+    "display_name": "45 mm 20-K",
+    "short_name": "45 mm 20-K",
+    "ui_group": "Tank Gun",
+    "nation_label": "Soviet Union",
+    "short_description": "45 mm 20-K is a tank gun in the 45 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "45 mm 20-K is a tank gun in the 45 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "SU_57MM_ZIS2",
+    "display_name": "57 mm ZiS-2",
+    "short_name": "57 mm ZiS-2",
+    "ui_group": "AT Gun",
+    "nation_label": "Soviet Union",
+    "short_description": "57 mm ZiS-2 is a anti-tank gun in the 57 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "57 mm ZiS-2 is a anti-tank gun in the 57 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Crew handling matters, so it performs best when set and served properly. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "SU_76MM_F34",
+    "display_name": "76 mm F-34",
+    "short_name": "76 mm F-34",
+    "ui_group": "Tank Gun",
+    "nation_label": "Soviet Union",
+    "short_description": "76 mm F-34 is a tank gun in the 76.2 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "76 mm F-34 is a tank gun in the 76.2 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "SU_85MM_ZISS53",
+    "display_name": "85 mm ZiS-S-53",
+    "short_name": "85 mm ZiS-S-53",
+    "ui_group": "Tank Gun",
+    "nation_label": "Soviet Union",
+    "short_description": "85 mm ZiS-S-53 is a tank gun in the 85 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "85 mm ZiS-S-53 is a tank gun in the 85 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "SU_122MM_D25T",
+    "display_name": "122 mm D-25T",
+    "short_name": "122 mm D-25T",
+    "ui_group": "Tank Gun",
+    "nation_label": "Soviet Union",
+    "short_description": "122 mm D-25T is a tank gun in the 122 mm class. Built to threaten vehicles and strongpoints with direct fire.",
+    "long_description": "122 mm D-25T is a tank gun in the 122 mm class. Built to threaten vehicles and strongpoints with direct fire. It favors deliberate fire and shot placement over sheer volume. Protection, sightlines, and firing position shape its battlefield value as much as raw statistics."
+  },
+  {
+    "weapon_id": "GEN_CLAYMORE_M18A1",
+    "display_name": "M18A1 Claymore",
+    "short_name": "M18A1 Claymore",
+    "ui_group": "Directional Mine",
+    "nation_label": "Generic",
+    "short_description": "M18A1 Claymore is a directional mine in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews.",
+    "long_description": "M18A1 Claymore is a directional mine in the 0 mm class. Use it to break up infantry, clear cover, or threaten exposed crews."
+  }
+]

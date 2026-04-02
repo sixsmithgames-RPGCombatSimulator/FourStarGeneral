@@ -743,5 +743,45 @@
     "Sheet": "Platform_Loadouts",
     "Column": "last_reviewed_date",
     "Description": "Last review date for the row."
+  },
+  {
+    "Sheet": "Platform_Presentation",
+    "Column": "presentation sheet",
+    "Description": "Player-facing display names and in-game descriptions derived from canon platform rows."
+  },
+  {
+    "Sheet": "Platform_Presentation.platform_id",
+    "Column": "text / FK",
+    "Description": "Stable foreign key to Platforms.platform_id."
+  },
+  {
+    "Sheet": "Platform_Presentation.display_name",
+    "Column": "text",
+    "Description": "Game-friendly full display name for UI cards and rosters."
+  },
+  {
+    "Sheet": "Platform_Presentation.short_name",
+    "Column": "text",
+    "Description": "Compact label for counters, tags, and tight UI spaces."
+  },
+  {
+    "Sheet": "Platform_Presentation.ui_group",
+    "Column": "text",
+    "Description": "Presentation grouping such as Medium Tank, Heavy Tank, or Transport."
+  },
+  {
+    "Sheet": "Platform_Presentation.nation_label",
+    "Column": "text",
+    "Description": "Player-facing nation label."
+  },
+  {
+    "Sheet": "Platform_Presentation.short_description",
+    "Column": "text",
+    "Description": "Concise in-game description for tooltips or unit cards."
+  },
+  {
+    "Sheet": "Platform_Presentation.long_description",
+    "Column": "text",
+    "Description": "Longer in-game description for detail panes or encyclopedias."
   }
 ]

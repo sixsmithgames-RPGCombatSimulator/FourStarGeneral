@@ -6574,9 +6574,21 @@ export class BattleScreen {
 
   /**
    * Stores the latest selection intel payload and forwards it to the persistent overlay presenter.
+   * Suppresses auto-show during enemy/bot turns to avoid blocking the view of enemy actions.
    */
   private publishSelectionIntel(intel: SelectionIntel | null): void {
     this.selectionIntel = intel;
+
+    // Don't auto-show intel overlay during enemy turns - let players watch the action
+    const engine = this.battleState.tryGetGameEngine();
+    const currentPhase = engine?.getTurnSummary().phase;
+    const isEnemyTurn = currentPhase === "botTurn" || currentPhase === "allyTurn";
+
+    if (isEnemyTurn && intel) {
+      // Store the intel but don't show the overlay during enemy turns
+      return;
+    }
+
     this.selectionIntelOverlay?.update(intel);
   }
 

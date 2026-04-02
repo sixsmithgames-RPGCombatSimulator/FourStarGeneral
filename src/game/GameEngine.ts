@@ -757,7 +757,7 @@ export interface BotAttackSummary {
 export type AirMissionStatus = "queued" | "inFlight" | "resolving" | "completed";
 
 /** Result buckets emitted once an air mission resolves. */
-type AirMissionResult = "success" | "partial" | "aborted";
+type AirMissionResult = "success" | "partial" | "aborted" | "destroyed";
 
 /** Shared outcome fields that every mission report surfaces to the UI layer. */
 interface AirMissionOutcomeBase {
@@ -1868,7 +1868,7 @@ export class GameEngine implements GameEngineAPI {
       if (bomberDestroyedByFlak) {
         return {
           type: "strike",
-          result: "aborted",
+          result: "destroyed",
           details: "Strike package was destroyed by ground-based anti-aircraft fire before reaching the target.",
           refitRequired: true,
           meta: {
@@ -2054,7 +2054,7 @@ export class GameEngine implements GameEngineAPI {
       if (bomberDestroyedByCap) {
         return {
           type: "strike",
-          result: "aborted",
+          result: "destroyed",
           details: "Strike package was intercepted and destroyed before reaching the target.",
           refitRequired: true,
           meta: { capIntercepts, escortsEngaged, escortsWins, bomberAttrition: attackerBefore.strength }

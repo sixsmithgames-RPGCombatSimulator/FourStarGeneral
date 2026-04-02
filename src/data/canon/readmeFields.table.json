@@ -94,5 +94,13 @@
   {
     "Field": "Starter coverage currently includes selected US, UK, and German WWII AFVs, guns, and support vehicles with explicit confidence and provenance fields.",
     "Meaning": null
+  },
+  {
+    "Field": "Added sheet",
+    "Meaning": "Platform_Presentation"
+  },
+  {
+    "Field": "Purpose",
+    "Meaning": "Game-friendly display names plus short and long descriptions derived from platform canon rows for use in UI, cards, and in-game encyclopedia text."
   }
 ]

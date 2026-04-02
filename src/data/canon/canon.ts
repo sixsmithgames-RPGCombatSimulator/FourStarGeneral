@@ -11,6 +11,9 @@ import platformMobilityData from "./platformMobility.table.json";
 import platformSensorsData from "./platformSensors.table.json";
 import weaponMountsData from "./weaponMounts.table.json";
 import platformLoadoutsData from "./platformLoadouts.table.json";
+import platformPresentationData from "./platformPresentation.table.json";
+import weaponPresentationData from "./weaponPresentation.table.json";
+import ammoPresentationData from "./ammoPresentation.table.json";
 
 export interface CanonSheetSummary {
   readonly sheet_name: string;
@@ -39,6 +42,9 @@ export interface CanonIntegrityReport {
   readonly duplicate_sensor_ids: readonly string[];
   readonly duplicate_mount_ids: readonly string[];
   readonly duplicate_loadout_ids: readonly string[];
+  readonly duplicate_platform_presentation_ids: readonly string[];
+  readonly duplicate_weapon_presentation_ids: readonly string[];
+  readonly duplicate_ammo_presentation_ids: readonly string[];
   readonly missing_accuracy_profiles: readonly string[];
   readonly missing_ammo_families: readonly string[];
   readonly missing_source_references: readonly string[];
@@ -50,6 +56,9 @@ export interface CanonIntegrityReport {
   readonly platforms_missing_sensors: readonly string[];
   readonly platforms_missing_mounts: readonly string[];
   readonly platforms_missing_loadouts: readonly string[];
+  readonly platforms_missing_presentation: readonly string[];
+  readonly weapons_missing_presentation: readonly string[];
+  readonly ammo_missing_presentation: readonly string[];
   readonly weapon_category_counts: Readonly<Record<string, number>>;
   readonly weapon_platform_counts: Readonly<Record<string, number>>;
   readonly ammo_type_counts: Readonly<Record<string, number>>;
@@ -58,6 +67,9 @@ export interface CanonIntegrityReport {
   readonly platform_nation_counts: Readonly<Record<string, number>>;
   readonly mobility_type_counts: Readonly<Record<string, number>>;
   readonly mount_type_counts: Readonly<Record<string, number>>;
+  readonly presentation_ui_group_counts: Readonly<Record<string, number>>;
+  readonly weapon_presentation_ui_group_counts: Readonly<Record<string, number>>;
+  readonly ammo_presentation_ui_group_counts: Readonly<Record<string, number>>;
   readonly source_type_counts: Readonly<Record<string, number>>;
 }
 
@@ -259,6 +271,36 @@ export interface CanonPlatformLoadoutRecord {
   readonly last_reviewed_date: string | null;
 }
 
+export interface CanonPlatformPresentationRecord {
+  readonly platform_id: string;
+  readonly display_name: string;
+  readonly short_name: string;
+  readonly ui_group: string;
+  readonly nation_label: string;
+  readonly short_description: string;
+  readonly long_description: string;
+}
+
+export interface CanonWeaponPresentationRecord {
+  readonly weapon_id: string;
+  readonly display_name: string;
+  readonly short_name: string;
+  readonly ui_group: string;
+  readonly nation_label: string;
+  readonly short_description: string;
+  readonly long_description: string;
+}
+
+export interface CanonAmmoPresentationRecord {
+  readonly ammo_id: string;
+  readonly display_name: string;
+  readonly short_name: string;
+  readonly ui_group: string;
+  readonly ammo_family_label: string;
+  readonly short_description: string;
+  readonly long_description: string;
+}
+
 export interface CanonTables {
   readonly readmeFields: readonly CanonReadmeField[];
   readonly weapons: readonly CanonWeaponRecord[];
@@ -272,6 +314,9 @@ export interface CanonTables {
   readonly platformSensors: readonly CanonPlatformSensorsRecord[];
   readonly weaponMounts: readonly CanonWeaponMountRecord[];
   readonly platformLoadouts: readonly CanonPlatformLoadoutRecord[];
+  readonly platformPresentation: readonly CanonPlatformPresentationRecord[];
+  readonly weaponPresentation: readonly CanonWeaponPresentationRecord[];
+  readonly ammoPresentation: readonly CanonAmmoPresentationRecord[];
 }
 
 export interface CanonDataset extends CanonTables {
@@ -291,6 +336,11 @@ const platformMobility = Object.freeze(platformMobilityData as CanonPlatformMobi
 const platformSensors = Object.freeze(platformSensorsData as CanonPlatformSensorsRecord[]);
 const weaponMounts = Object.freeze(weaponMountsData as CanonWeaponMountRecord[]);
 const platformLoadouts = Object.freeze(platformLoadoutsData as CanonPlatformLoadoutRecord[]);
+const platformPresentation = Object.freeze(platformPresentationData as CanonPlatformPresentationRecord[]);
+const weaponPresentation = Object.freeze(weaponPresentationData as CanonWeaponPresentationRecord[]);
+const ammoPresentation = Object.freeze(ammoPresentationData as CanonAmmoPresentationRecord[]);
+
+const PLATFORM_CLASSES_WITHOUT_REQUIRED_ARMAMENT = new Set(["truck"]);
 
 export const canonManifest = manifest;
 export const canonTables = Object.freeze({
@@ -306,6 +356,9 @@ export const canonTables = Object.freeze({
   platformSensors,
   weaponMounts,
   platformLoadouts,
+  platformPresentation,
+  weaponPresentation,
+  ammoPresentation,
 }) as CanonTables;
 
 export const canon = Object.freeze({
@@ -422,7 +475,14 @@ function findParentsWithoutChildren<
   return Object.freeze(uncovered);
 }
 
+function filterPlatformsForRequiredArmament(platformRows: readonly CanonPlatformRecord[]): readonly CanonPlatformRecord[] {
+  return Object.freeze(
+    platformRows.filter((platform) => !PLATFORM_CLASSES_WITHOUT_REQUIRED_ARMAMENT.has(platform.platform_class))
+  );
+}
+
 export function calculateCanonIntegrity(dataset: CanonTables = canonTables): CanonIntegrityReport {
+  const combatArmedPlatforms = filterPlatformsForRequiredArmament(dataset.platforms);
   const accuracyProfiles = new Set(dataset.accuracyCurveBands.map((band) => band.profile_id));
   const ammoFamilies = new Set(dataset.ammo.map((entry) => entry.ammo_family));
   const sourceIds = new Set(dataset.sourcesLog.map((entry) => entry.source_id));
@@ -510,6 +570,12 @@ export function calculateCanonIntegrity(dataset: CanonTables = canonTables): Can
       referenceField: "platform_id",
       validKeys: platformIds,
     }),
+    ...describeMissingReferences(dataset.platformPresentation, {
+      tableLabel: "Platform_Presentation",
+      idField: "platform_id",
+      referenceField: "platform_id",
+      validKeys: platformIds,
+    }),
   ].sort();
 
   const missingWeaponReferences = [
@@ -550,6 +616,9 @@ export function calculateCanonIntegrity(dataset: CanonTables = canonTables): Can
     duplicate_sensor_ids: findDuplicates(dataset.platformSensors.map((entry) => entry.sensors_id)),
     duplicate_mount_ids: findDuplicates(dataset.weaponMounts.map((entry) => entry.mount_id)),
     duplicate_loadout_ids: findDuplicates(dataset.platformLoadouts.map((entry) => entry.loadout_id)),
+    duplicate_platform_presentation_ids: findDuplicates(dataset.platformPresentation.map((entry) => entry.platform_id)),
+    duplicate_weapon_presentation_ids: findDuplicates(dataset.weaponPresentation.map((entry) => entry.weapon_id)),
+    duplicate_ammo_presentation_ids: findDuplicates(dataset.ammoPresentation.map((entry) => entry.ammo_id)),
     missing_accuracy_profiles: Object.freeze(Array.from(new Set(missingAccuracyProfiles)).sort()),
     missing_ammo_families: Object.freeze(Array.from(new Set(missingAmmoFamilies)).sort()),
     missing_source_references: Object.freeze(missingSourceReferences),
@@ -571,15 +640,30 @@ export function calculateCanonIntegrity(dataset: CanonTables = canonTables): Can
       childRows: dataset.platformSensors,
       childForeignKeyField: "platform_id",
     }),
-    platforms_missing_mounts: findParentsWithoutChildren(dataset.platforms, {
+    platforms_missing_mounts: findParentsWithoutChildren(combatArmedPlatforms, {
       parentIdField: "platform_id",
       childRows: dataset.weaponMounts,
       childForeignKeyField: "platform_id",
     }),
-    platforms_missing_loadouts: findParentsWithoutChildren(dataset.platforms, {
+    platforms_missing_loadouts: findParentsWithoutChildren(combatArmedPlatforms, {
       parentIdField: "platform_id",
       childRows: dataset.platformLoadouts,
       childForeignKeyField: "platform_id",
+    }),
+    platforms_missing_presentation: findParentsWithoutChildren(dataset.platforms, {
+      parentIdField: "platform_id",
+      childRows: dataset.platformPresentation,
+      childForeignKeyField: "platform_id",
+    }),
+    weapons_missing_presentation: findParentsWithoutChildren(dataset.weapons, {
+      parentIdField: "weapon_id",
+      childRows: dataset.weaponPresentation,
+      childForeignKeyField: "weapon_id",
+    }),
+    ammo_missing_presentation: findParentsWithoutChildren(dataset.ammo, {
+      parentIdField: "ammo_id",
+      childRows: dataset.ammoPresentation,
+      childForeignKeyField: "ammo_id",
     }),
     weapon_category_counts: Object.freeze(countBy(dataset.weapons, (weapon) => weapon.category)),
     weapon_platform_counts: Object.freeze(countBy(dataset.weapons, (weapon) => weapon.platform)),
@@ -593,6 +677,15 @@ export function calculateCanonIntegrity(dataset: CanonTables = canonTables): Can
       countBy(dataset.platformMobility, (mobility) => mobility.move_type)
     ),
     mount_type_counts: Object.freeze(countBy(dataset.weaponMounts, (mount) => mount.mount_type)),
+    presentation_ui_group_counts: Object.freeze(
+      countBy(dataset.platformPresentation, (presentation) => presentation.ui_group)
+    ),
+    weapon_presentation_ui_group_counts: Object.freeze(
+      countBy(dataset.weaponPresentation, (presentation) => presentation.ui_group)
+    ),
+    ammo_presentation_ui_group_counts: Object.freeze(
+      countBy(dataset.ammoPresentation, (presentation) => presentation.ui_group)
+    ),
     source_type_counts: Object.freeze(countBy(dataset.sourcesLog, (source) => source.source_type)),
   });
 }
@@ -615,6 +708,9 @@ export function validateCanonManifest(dataset: CanonDataset = canon): readonly s
     ["platformSensors", dataset.platformSensors.length],
     ["weaponMounts", dataset.weaponMounts.length],
     ["platformLoadouts", dataset.platformLoadouts.length],
+    ["platformPresentation", dataset.platformPresentation.length],
+    ["weaponPresentation", dataset.weaponPresentation.length],
+    ["ammoPresentation", dataset.ammoPresentation.length],
   ];
   tableCountChecks.forEach(([tableKey, actualCount]) => {
     const declaredCount = dataset.manifest.table_counts[tableKey];
@@ -635,6 +731,9 @@ export function validateCanonManifest(dataset: CanonDataset = canon): readonly s
     ["duplicate_sensor_ids", derivedIntegrity.duplicate_sensor_ids, declaredIntegrity.duplicate_sensor_ids],
     ["duplicate_mount_ids", derivedIntegrity.duplicate_mount_ids, declaredIntegrity.duplicate_mount_ids],
     ["duplicate_loadout_ids", derivedIntegrity.duplicate_loadout_ids, declaredIntegrity.duplicate_loadout_ids],
+    ["duplicate_platform_presentation_ids", derivedIntegrity.duplicate_platform_presentation_ids, declaredIntegrity.duplicate_platform_presentation_ids],
+    ["duplicate_weapon_presentation_ids", derivedIntegrity.duplicate_weapon_presentation_ids, declaredIntegrity.duplicate_weapon_presentation_ids],
+    ["duplicate_ammo_presentation_ids", derivedIntegrity.duplicate_ammo_presentation_ids, declaredIntegrity.duplicate_ammo_presentation_ids],
     ["missing_accuracy_profiles", derivedIntegrity.missing_accuracy_profiles, declaredIntegrity.missing_accuracy_profiles],
     ["missing_ammo_families", derivedIntegrity.missing_ammo_families, declaredIntegrity.missing_ammo_families],
     ["missing_source_references", derivedIntegrity.missing_source_references, declaredIntegrity.missing_source_references],
@@ -646,6 +745,9 @@ export function validateCanonManifest(dataset: CanonDataset = canon): readonly s
     ["platforms_missing_sensors", derivedIntegrity.platforms_missing_sensors, declaredIntegrity.platforms_missing_sensors],
     ["platforms_missing_mounts", derivedIntegrity.platforms_missing_mounts, declaredIntegrity.platforms_missing_mounts],
     ["platforms_missing_loadouts", derivedIntegrity.platforms_missing_loadouts, declaredIntegrity.platforms_missing_loadouts],
+    ["platforms_missing_presentation", derivedIntegrity.platforms_missing_presentation, declaredIntegrity.platforms_missing_presentation],
+    ["weapons_missing_presentation", derivedIntegrity.weapons_missing_presentation, declaredIntegrity.weapons_missing_presentation],
+    ["ammo_missing_presentation", derivedIntegrity.ammo_missing_presentation, declaredIntegrity.ammo_missing_presentation],
   ];
   arrayChecks.forEach(([label, actual, expected]) => {
     if (!compareStringArrays(actual, expected)) {
@@ -662,6 +764,9 @@ export function validateCanonManifest(dataset: CanonDataset = canon): readonly s
     ["platform_nation_counts", derivedIntegrity.platform_nation_counts, declaredIntegrity.platform_nation_counts],
     ["mobility_type_counts", derivedIntegrity.mobility_type_counts, declaredIntegrity.mobility_type_counts],
     ["mount_type_counts", derivedIntegrity.mount_type_counts, declaredIntegrity.mount_type_counts],
+    ["presentation_ui_group_counts", derivedIntegrity.presentation_ui_group_counts, declaredIntegrity.presentation_ui_group_counts],
+    ["weapon_presentation_ui_group_counts", derivedIntegrity.weapon_presentation_ui_group_counts, declaredIntegrity.weapon_presentation_ui_group_counts],
+    ["ammo_presentation_ui_group_counts", derivedIntegrity.ammo_presentation_ui_group_counts, declaredIntegrity.ammo_presentation_ui_group_counts],
     ["source_type_counts", derivedIntegrity.source_type_counts, declaredIntegrity.source_type_counts],
   ];
   countChecks.forEach(([label, actual, expected]) => {
@@ -758,6 +863,21 @@ export const PLATFORM_LOADOUTS_BY_PLATFORM_ID = groupBy(
   (entry) => entry.platform_id
 ) as ReadonlyMap<string, readonly CanonPlatformLoadoutRecord[]>;
 
+export const PLATFORM_PRESENTATION_BY_PLATFORM_ID = mapBy(
+  platformPresentation,
+  (entry) => entry.platform_id
+) as ReadonlyMap<string, CanonPlatformPresentationRecord>;
+
+export const WEAPON_PRESENTATION_BY_WEAPON_ID = mapBy(
+  weaponPresentation,
+  (entry) => entry.weapon_id
+) as ReadonlyMap<string, CanonWeaponPresentationRecord>;
+
+export const AMMO_PRESENTATION_BY_AMMO_ID = mapBy(
+  ammoPresentation,
+  (entry) => entry.ammo_id
+) as ReadonlyMap<string, CanonAmmoPresentationRecord>;
+
 export function getAccuracyProfileBands(profileId: string): readonly CanonAccuracyCurveBandRecord[] {
   return ACCURACY_PROFILE_BANDS_BY_ID.get(profileId) ?? [];
 }
@@ -780,4 +900,56 @@ export function getWeaponMountsForPlatform(platformId: string): readonly CanonWe
 
 export function getPlatformLoadouts(platformId: string): readonly CanonPlatformLoadoutRecord[] {
   return PLATFORM_LOADOUTS_BY_PLATFORM_ID.get(platformId) ?? [];
+}
+
+export function getPlatformPresentation(platformId: string): CanonPlatformPresentationRecord | undefined {
+  return PLATFORM_PRESENTATION_BY_PLATFORM_ID.get(platformId);
+}
+
+export function getPlatformDisplayName(platformId: string): string {
+  return getPlatformPresentation(platformId)?.display_name ?? PLATFORM_CANON_BY_ID.get(platformId)?.platform_name ?? platformId;
+}
+
+export function getPlatformShortName(platformId: string): string {
+  return getPlatformPresentation(platformId)?.short_name ?? getPlatformDisplayName(platformId);
+}
+
+export function getPlatformShortDescription(platformId: string): string | null {
+  return getPlatformPresentation(platformId)?.short_description ?? null;
+}
+
+export function getPlatformLongDescription(platformId: string): string | null {
+  return getPlatformPresentation(platformId)?.long_description ?? null;
+}
+
+export function getWeaponPresentation(weaponId: string): CanonWeaponPresentationRecord | undefined {
+  return WEAPON_PRESENTATION_BY_WEAPON_ID.get(weaponId);
+}
+
+export function getWeaponDisplayName(weaponId: string): string {
+  return getWeaponPresentation(weaponId)?.display_name ?? WEAPON_CANON_BY_ID.get(weaponId)?.weapon_name ?? weaponId;
+}
+
+export function getWeaponShortDescription(weaponId: string): string | null {
+  return getWeaponPresentation(weaponId)?.short_description ?? null;
+}
+
+export function getWeaponLongDescription(weaponId: string): string | null {
+  return getWeaponPresentation(weaponId)?.long_description ?? null;
+}
+
+export function getAmmoPresentation(ammoId: string): CanonAmmoPresentationRecord | undefined {
+  return AMMO_PRESENTATION_BY_AMMO_ID.get(ammoId);
+}
+
+export function getAmmoDisplayName(ammoId: string): string {
+  return getAmmoPresentation(ammoId)?.display_name ?? AMMO_CANON_BY_ID.get(ammoId)?.ammo_name ?? ammoId;
+}
+
+export function getAmmoShortDescription(ammoId: string): string | null {
+  return getAmmoPresentation(ammoId)?.short_description ?? null;
+}
+
+export function getAmmoLongDescription(ammoId: string): string | null {
+  return getAmmoPresentation(ammoId)?.long_description ?? null;
 }

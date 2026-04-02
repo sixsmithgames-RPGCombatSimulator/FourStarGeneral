@@ -1,16 +1,16 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "source_workbook": {
-    "relative_path": "design/fsg_weapon_database_platforms_v2.xlsx",
-    "file_name": "fsg_weapon_database_platforms_v2.xlsx",
-    "sha256": "e0406453ec4b596422de911330ad1fef2e536902fc9d6fbb45e9413d6bdadffc",
+    "relative_path": "design/fsg_weapon_database_platforms_v3_presentation.xlsx",
+    "file_name": "fsg_weapon_database_platforms_v3_presentation.xlsx",
+    "sha256": "f0d89f61b418178e44cc5e521a34f4b1cf335f76b6d1f81732015a6b74ad90c2",
     "workbook_title": "Weapon Database Seed for Four Star General"
   },
   "sheet_summaries": [
     {
       "sheet_name": "README",
       "table_key": "readmeFields",
-      "row_count": 24,
+      "row_count": 26,
       "column_count": 2,
       "worksheet_path": "xl/worksheets/sheet1.xml"
     },
@@ -24,7 +24,7 @@
     {
       "sheet_name": "Ammo_DB",
       "table_key": "ammo",
-      "row_count": 124,
+      "row_count": 131,
       "column_count": 12,
       "worksheet_path": "xl/worksheets/sheet3.xml"
     },
@@ -38,7 +38,7 @@
     {
       "sheet_name": "Data_Dictionary",
       "table_key": "dataDictionary",
-      "row_count": 149,
+      "row_count": 157,
       "column_count": 3,
       "worksheet_path": "xl/worksheets/sheet5.xml"
     },
@@ -59,7 +59,7 @@
     {
       "sheet_name": "Platform_Armor",
       "table_key": "platformArmor",
-      "row_count": 85,
+      "row_count": 89,
       "column_count": 14,
       "worksheet_path": "xl/worksheets/sheet8.xml"
     },
@@ -87,24 +87,34 @@
     {
       "sheet_name": "Platform_Loadouts",
       "table_key": "platformLoadouts",
-      "row_count": 47,
+      "row_count": 53,
       "column_count": 16,
       "worksheet_path": "xl/worksheets/sheet12.xml"
+    },
+    {
+      "sheet_name": "Platform_Presentation",
+      "table_key": "platformPresentation",
+      "row_count": 14,
+      "column_count": 7,
+      "worksheet_path": "xl/worksheets/sheet13.xml"
     }
   ],
   "table_counts": {
-    "readmeFields": 24,
+    "readmeFields": 26,
     "weapons": 77,
-    "ammo": 124,
+    "ammo": 131,
     "accuracyCurveBands": 139,
-    "dataDictionary": 149,
+    "dataDictionary": 157,
     "sourcesLog": 19,
     "platforms": 14,
-    "platformArmor": 85,
+    "platformArmor": 89,
     "platformMobility": 14,
     "platformSensors": 14,
     "weaponMounts": 32,
-    "platformLoadouts": 47
+    "platformLoadouts": 53,
+    "platformPresentation": 14,
+    "weaponPresentation": 77,
+    "ammoPresentation": 131
   },
   "integrity": {
     "duplicate_weapon_ids": [],
@@ -118,29 +128,23 @@
     "duplicate_sensor_ids": [],
     "duplicate_mount_ids": [],
     "duplicate_loadout_ids": [],
+    "duplicate_platform_presentation_ids": [],
+    "duplicate_weapon_presentation_ids": [],
+    "duplicate_ammo_presentation_ids": [],
     "missing_accuracy_profiles": [],
-    "missing_ammo_families": [
-      "20MM_AUTO_GENERIC",
-      "37MM_AUTO_GENERIC",
-      "RIFLECAL_MG_GENERIC"
-    ],
+    "missing_ammo_families": [],
     "missing_source_references": [],
     "missing_platform_references": [],
     "missing_weapon_references": [],
     "missing_ammo_references": [],
-    "platforms_missing_armor": [
-      "DE_OPEL_BLITZ_36S"
-    ],
+    "platforms_missing_armor": [],
     "platforms_missing_mobility": [],
     "platforms_missing_sensors": [],
-    "platforms_missing_mounts": [
-      "DE_OPEL_BLITZ_36S"
-    ],
-    "platforms_missing_loadouts": [
-      "DE_FLAK36_88_TOWED",
-      "DE_OPEL_BLITZ_36S",
-      "DE_PAK40_TOWED"
-    ],
+    "platforms_missing_mounts": [],
+    "platforms_missing_loadouts": [],
+    "platforms_missing_presentation": [],
+    "weapons_missing_presentation": [],
+    "ammo_missing_presentation": [],
     "weapon_category_counts": {
       "Explosive": 12,
       "Infantry": 26,
@@ -163,8 +167,8 @@
       "Vehicle-mounted": 4
     },
     "ammo_type_counts": {
-      "AP": 12,
-      "AP-T": 3,
+      "AP": 14,
+      "AP-T": 4,
       "APBC-T": 1,
       "APCBC": 3,
       "APCBC-HE": 4,
@@ -177,19 +181,19 @@
       "APHEBC": 2,
       "API": 2,
       "APIT": 1,
-      "Ball": 10,
+      "Ball": 11,
       "Blast": 5,
       "Canister": 1,
       "Demolition": 1,
       "Directional FRAG": 1,
       "FRAG": 5,
-      "HE": 29,
+      "HE": 31,
       "HE/Time Fuze": 1,
       "HEAT": 9,
       "Illumination": 2,
       "Incendiary/Tracer": 1,
       "Smoke": 8,
-      "Tracer": 3
+      "Tracer": 4
     },
     "accuracy_profile_band_counts": {
       "AA_HEAVY": 7,
@@ -251,6 +255,78 @@
       "main_gun": 12,
       "pintle_mg": 1,
       "shield_mg": 1
+    },
+    "presentation_ui_group_counts": {
+      "Anti-Tank Gun": 1,
+      "Armored Transport": 1,
+      "Assault Gun": 1,
+      "Heavy AA / AT Gun": 1,
+      "Heavy Tank": 1,
+      "Medium Tank": 5,
+      "Tank Destroyer": 3,
+      "Truck": 1
+    },
+    "weapon_presentation_ui_group_counts": {
+      "AA Heavy MG": 1,
+      "AP Mine": 3,
+      "AT Gun": 3,
+      "AT Mine": 4,
+      "AT Projector": 1,
+      "AT Rifle": 3,
+      "AT Rocket Launcher": 2,
+      "AT/Tank Gun": 1,
+      "Assault Rifle": 1,
+      "Autocannon": 2,
+      "Automatic Rifle": 1,
+      "Carbine": 1,
+      "Coax MG": 1,
+      "Demolition Charge": 1,
+      "Directional Mine": 1,
+      "Disposable AT Launcher": 3,
+      "Fragmentation Grenade": 3,
+      "General Purpose MG": 2,
+      "Heavy AA/AT Gun": 1,
+      "Heavy MG": 2,
+      "Heavy Mortar": 2,
+      "Light MG": 2,
+      "Light Mortar": 4,
+      "Medium MG": 1,
+      "Medium Mortar": 4,
+      "Rifle": 4,
+      "SMG": 3,
+      "Tank Destroyer Gun": 1,
+      "Tank Gun": 16,
+      "Tank Howitzer": 1,
+      "Tank/AT Gun": 2
+    },
+    "ammo_presentation_ui_group_counts": {
+      "AP": 14,
+      "AP-T": 4,
+      "APBC-T": 1,
+      "APCBC": 3,
+      "APCBC-HE": 4,
+      "APCBC-HE-T": 4,
+      "APCR": 7,
+      "APCR-like": 2,
+      "APCR/HVAP": 4,
+      "APDS": 2,
+      "APHE": 1,
+      "APHEBC": 2,
+      "API": 2,
+      "APIT": 1,
+      "Ball": 11,
+      "Blast": 5,
+      "Canister": 1,
+      "Demolition": 1,
+      "Directional FRAG": 1,
+      "FRAG": 5,
+      "HE": 31,
+      "HE/Time Fuze": 1,
+      "HEAT": 9,
+      "Illumination": 2,
+      "Incendiary/Tracer": 1,
+      "Smoke": 8,
+      "Tracer": 4
     },
     "source_type_counts": {
       "pdf": 6,
