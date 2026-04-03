@@ -366,14 +366,8 @@ export class HexMapRenderer implements IMapRenderer {
     const endCenterX = endCenter.cx + nx * laneOffsetPx;
     const endCenterY = endCenter.cy + ny * laneOffsetPx;
 
-    if (isFormation) {
-      ghost.setAttribute("transform", `translate(${startCenterX},${startCenterY})`);
-    } else {
-      const startX = startCenterX - iconSize / 2;
-      const startY = startCenterY - iconSize / 2;
-      (ghost as SVGImageElement).setAttribute("x", String(startX));
-      (ghost as SVGImageElement).setAttribute("y", String(startY));
-    }
+    const headingDegrees = this.resolveAircraftHeadingDegrees(endCenterX - startCenterX, endCenterY - startCenterY);
+    this.positionAircraftGhost(ghost, isFormation, iconSize, startCenterX, startCenterY, headingDegrees);
 
     const clampedEndProgress = this.clamp(endProgress, 0.01, 1);
     const effectiveDurationMs = Math.max(1, durationMs * clampedEndProgress);
@@ -383,14 +377,7 @@ export class HexMapRenderer implements IMapRenderer {
       const finalCenterX = startCenterX + (endCenterX - startCenterX) * finalProgress;
       const finalCenterY = startCenterY + (endCenterY - startCenterY) * finalProgress;
 
-      if (isFormation) {
-        ghost.setAttribute("transform", `translate(${finalCenterX},${finalCenterY})`);
-      } else {
-        const finalX = finalCenterX - iconSize / 2;
-        const finalY = finalCenterY - iconSize / 2;
-        (ghost as SVGImageElement).setAttribute("x", String(finalX));
-        (ghost as SVGImageElement).setAttribute("y", String(finalY));
-      }
+      this.positionAircraftGhost(ghost, isFormation, iconSize, finalCenterX, finalCenterY, headingDegrees);
       onProgress?.(finalProgress, finalCenterX, finalCenterY);
       ghost.remove();
       return;
@@ -406,14 +393,7 @@ export class HexMapRenderer implements IMapRenderer {
         const centerX = startCenterX + (endCenterX - startCenterX) * progressedDistance;
         const centerY = startCenterY + (endCenterY - startCenterY) * progressedDistance;
 
-        if (isFormation) {
-          ghost.setAttribute("transform", `translate(${centerX},${centerY})`);
-        } else {
-          const x = centerX - iconSize / 2;
-          const y = centerY - iconSize / 2;
-          (ghost as SVGImageElement).setAttribute("x", String(x));
-          (ghost as SVGImageElement).setAttribute("y", String(y));
-        }
+        this.positionAircraftGhost(ghost, isFormation, iconSize, centerX, centerY, headingDegrees);
         onProgress?.(progressedDistance, centerX, centerY);
         if (t >= 1) {
           resolve();
@@ -523,14 +503,8 @@ export class HexMapRenderer implements IMapRenderer {
     }
     layer.appendChild(ghost);
 
-    if (isFormation) {
-      ghost.setAttribute("transform", `translate(${startCenterX},${startCenterY})`);
-    } else {
-      const startX = startCenterX - iconSize / 2;
-      const startY = startCenterY - iconSize / 2;
-      (ghost as SVGImageElement).setAttribute("x", String(startX));
-      (ghost as SVGImageElement).setAttribute("y", String(startY));
-    }
+    let lastHeadingDegrees = this.resolveAircraftHeadingDegrees(controlCenterX - startCenterX, controlCenterY - startCenterY);
+    this.positionAircraftGhost(ghost, isFormation, iconSize, startCenterX, startCenterY, lastHeadingDegrees);
 
     const clampedEndProgress = this.clamp(endProgress, 0.01, 1);
     const effectiveDurationMs = Math.max(1, durationMs * clampedEndProgress);
@@ -541,14 +515,10 @@ export class HexMapRenderer implements IMapRenderer {
       const bcx = oneMinusT * oneMinusT * startCenterX + 2 * oneMinusT * eased * controlCenterX + eased * eased * endCenterX;
       const bcy = oneMinusT * oneMinusT * startCenterY + 2 * oneMinusT * eased * controlCenterY + eased * eased * endCenterY;
 
-      if (isFormation) {
-        ghost.setAttribute("transform", `translate(${bcx},${bcy})`);
-      } else {
-        const bx = bcx - iconSize / 2;
-        const by = bcy - iconSize / 2;
-        (ghost as SVGImageElement).setAttribute("x", String(bx));
-        (ghost as SVGImageElement).setAttribute("y", String(by));
-      }
+      const tangentX = 2 * (1 - eased) * (controlCenterX - startCenterX) + 2 * eased * (endCenterX - controlCenterX);
+      const tangentY = 2 * (1 - eased) * (controlCenterY - startCenterY) + 2 * eased * (endCenterY - controlCenterY);
+      lastHeadingDegrees = this.resolveAircraftHeadingDegrees(tangentX, tangentY, lastHeadingDegrees);
+      this.positionAircraftGhost(ghost, isFormation, iconSize, bcx, bcy, lastHeadingDegrees);
       onProgress?.(clampedEndProgress, bcx, bcy);
       ghost.remove();
       return;
@@ -566,14 +536,14 @@ export class HexMapRenderer implements IMapRenderer {
         const bcx = oneMinusT * oneMinusT * startCenterX + 2 * oneMinusT * progressedDistance * controlCenterX + progressedDistance * progressedDistance * endCenterX;
         const bcy = oneMinusT * oneMinusT * startCenterY + 2 * oneMinusT * progressedDistance * controlCenterY + progressedDistance * progressedDistance * endCenterY;
 
-        if (isFormation) {
-          ghost.setAttribute("transform", `translate(${bcx},${bcy})`);
-        } else {
-          const bx = bcx - iconSize / 2;
-          const by = bcy - iconSize / 2;
-          (ghost as SVGImageElement).setAttribute("x", String(bx));
-          (ghost as SVGImageElement).setAttribute("y", String(by));
-        }
+        const tangentX =
+          2 * (1 - progressedDistance) * (controlCenterX - startCenterX) +
+          2 * progressedDistance * (endCenterX - controlCenterX);
+        const tangentY =
+          2 * (1 - progressedDistance) * (controlCenterY - startCenterY) +
+          2 * progressedDistance * (endCenterY - controlCenterY);
+        lastHeadingDegrees = this.resolveAircraftHeadingDegrees(tangentX, tangentY, lastHeadingDegrees);
+        this.positionAircraftGhost(ghost, isFormation, iconSize, bcx, bcy, lastHeadingDegrees);
         onProgress?.(progressedDistance, bcx, bcy);
         if (t >= 1) {
           resolve();
@@ -696,38 +666,150 @@ export class HexMapRenderer implements IMapRenderer {
     const shiftedTarget = { cx: targetCenter.cx + nx * laneOffsetPx, cy: targetCenter.cy + ny * laneOffsetPx };
     const shiftedReturn = { cx: returnCenter.cx + nx * laneOffsetPx, cy: returnCenter.cy + ny * laneOffsetPx };
 
+    const ingressDurationMs = Math.max(0, options.ingressDurationMs ?? 2300);
+    const egressDurationMs = Math.max(0, options.egressDurationMs ?? 1900);
+    const totalDurationMs = Math.max(1, ingressDurationMs + egressDurationMs);
+    const ingressDistance = Math.max(1, Math.hypot(shiftedTarget.cx - shiftedStart.cx, shiftedTarget.cy - shiftedStart.cy));
+    const egressDistance = Math.max(1, Math.hypot(shiftedReturn.cx - shiftedTarget.cx, shiftedReturn.cy - shiftedTarget.cy));
+    const ingressDirection = this.normalizeAircraftVector(
+      shiftedTarget.cx - shiftedStart.cx,
+      shiftedTarget.cy - shiftedStart.cy,
+      1,
+      0
+    );
+    const egressDirection = this.normalizeAircraftVector(
+      shiftedReturn.cx - shiftedTarget.cx,
+      shiftedReturn.cy - shiftedTarget.cy,
+      -ingressDirection.x,
+      -ingressDirection.y
+    );
+    const turnDirection = this.resolveAircraftSortieTurnVector(ingressDirection, egressDirection, laneOffsetPx);
+    const ingressTangent = {
+      dx: ingressDirection.x * ingressDistance * 0.88,
+      dy: ingressDirection.y * ingressDistance * 0.88
+    };
+    const sharedTurnSpeed =
+      Math.min(
+        ingressDistance / Math.max(1, ingressDurationMs || 1),
+        egressDistance / Math.max(1, egressDurationMs || 1)
+      ) * 0.92;
+    const targetIngressTangent = {
+      dx: turnDirection.x * sharedTurnSpeed * Math.max(1, ingressDurationMs || 1),
+      dy: turnDirection.y * sharedTurnSpeed * Math.max(1, ingressDurationMs || 1)
+    };
+    const targetEgressTangent = {
+      dx: turnDirection.x * sharedTurnSpeed * Math.max(1, egressDurationMs || 1),
+      dy: turnDirection.y * sharedTurnSpeed * Math.max(1, egressDurationMs || 1)
+    };
+    const egressTangent = {
+      dx: egressDirection.x * egressDistance * 0.88,
+      dy: egressDirection.y * egressDistance * 0.88
+    };
+    let lastHeadingDegrees = this.resolveAircraftHeadingDegrees(ingressDirection.x, ingressDirection.y);
+    let targetPassTriggered = false;
+    let targetPassError: unknown = null;
+    let targetPassPromise: Promise<void> | null = null;
+    const triggerTargetPass = (centerX: number, centerY: number): void => {
+      if (targetPassTriggered) {
+        return;
+      }
+      targetPassTriggered = true;
+      try {
+        targetPassPromise = Promise.resolve(options.onTargetPass?.(centerX, centerY)).catch((error) => {
+          targetPassError = error;
+        });
+      } catch (error) {
+        targetPassError = error;
+        targetPassPromise = Promise.resolve();
+      }
+    };
+
     layer.appendChild(ghost);
-    this.positionAircraftGhost(ghost, isFormation, iconSize, shiftedStart.cx, shiftedStart.cy);
+    this.positionAircraftGhost(ghost, isFormation, iconSize, shiftedStart.cx, shiftedStart.cy, lastHeadingDegrees);
 
     try {
-      await this.animateAircraftGhostArcSegment(
-        ghost,
-        isFormation,
-        iconSize,
-        shiftedStart,
-        shiftedTarget,
-        Math.max(1, options.ingressDurationMs ?? 2300),
-        options.onIngressProgress,
-        1
-      );
+      await new Promise<void>((resolve) => {
+        const startTime = performance.now();
+        const step: FrameRequestCallback = (now) => {
+          const elapsed = Math.min(totalDurationMs, Math.max(0, now - startTime));
+          const inIngress = ingressDurationMs > 0 && (egressDurationMs <= 0 || elapsed <= ingressDurationMs);
+          let centerX = shiftedTarget.cx;
+          let centerY = shiftedTarget.cy;
+          let tangentX = targetIngressTangent.dx;
+          let tangentY = targetIngressTangent.dy;
 
-      await Promise.resolve(options.onTargetPass?.(shiftedTarget.cx, shiftedTarget.cy));
+          if (inIngress || egressDurationMs <= 0) {
+            const ingressProgress = ingressDurationMs <= 0 ? 1 : elapsed / Math.max(1, ingressDurationMs);
+            const point = this.interpolateAircraftHermitePoint(
+              shiftedStart,
+              shiftedTarget,
+              ingressTangent,
+              targetIngressTangent,
+              ingressProgress
+            );
+            const tangent = this.interpolateAircraftHermiteDerivative(
+              shiftedStart,
+              shiftedTarget,
+              ingressTangent,
+              targetIngressTangent,
+              ingressProgress
+            );
+            centerX = point.cx;
+            centerY = point.cy;
+            tangentX = tangent.dx;
+            tangentY = tangent.dy;
+            options.onIngressProgress?.(ingressProgress, centerX, centerY);
+            if (!targetPassTriggered && ingressProgress >= 1) {
+              triggerTargetPass(centerX, centerY);
+            }
+          } else {
+            if (!targetPassTriggered) {
+              triggerTargetPass(shiftedTarget.cx, shiftedTarget.cy);
+            }
+            const egressProgress = (elapsed - ingressDurationMs) / Math.max(1, egressDurationMs);
+            const point = this.interpolateAircraftHermitePoint(
+              shiftedTarget,
+              shiftedReturn,
+              targetEgressTangent,
+              egressTangent,
+              egressProgress
+            );
+            const tangent = this.interpolateAircraftHermiteDerivative(
+              shiftedTarget,
+              shiftedReturn,
+              targetEgressTangent,
+              egressTangent,
+              egressProgress
+            );
+            centerX = point.cx;
+            centerY = point.cy;
+            tangentX = tangent.dx;
+            tangentY = tangent.dy;
+            options.onEgressProgress?.(egressProgress, centerX, centerY);
+          }
 
-      const turnDelayMs = Math.max(0, options.turnDelayMs ?? 0);
-      if (turnDelayMs > 0) {
-        await new Promise<void>((resolve) => setTimeout(resolve, turnDelayMs));
+          lastHeadingDegrees = this.resolveAircraftHeadingDegrees(tangentX, tangentY, lastHeadingDegrees);
+          this.positionAircraftGhost(ghost, isFormation, iconSize, centerX, centerY, lastHeadingDegrees);
+
+          if (elapsed >= totalDurationMs) {
+            if (!targetPassTriggered) {
+              triggerTargetPass(shiftedTarget.cx, shiftedTarget.cy);
+            }
+            resolve();
+            return;
+          }
+
+          this.scheduleAnimationFrame(step);
+        };
+        this.scheduleAnimationFrame(step);
+      });
+
+      if (targetPassPromise) {
+        await targetPassPromise;
       }
-
-      await this.animateAircraftGhostArcSegment(
-        ghost,
-        isFormation,
-        iconSize,
-        shiftedTarget,
-        shiftedReturn,
-        Math.max(1, options.egressDurationMs ?? 1900),
-        options.onEgressProgress,
-        -1
-      );
+      if (targetPassError) {
+        throw targetPassError;
+      }
     } finally {
       ghost.remove();
     }
@@ -3585,15 +3667,107 @@ export class HexMapRenderer implements IMapRenderer {
     return formationGroup;
   }
 
+  private normalizeAircraftVector(
+    dx: number,
+    dy: number,
+    fallbackX = 1,
+    fallbackY = 0
+  ): { x: number; y: number } {
+    const length = Math.hypot(dx, dy);
+    if (length > 0.001) {
+      return { x: dx / length, y: dy / length };
+    }
+
+    const fallbackLength = Math.max(0.001, Math.hypot(fallbackX, fallbackY));
+    return {
+      x: fallbackX / fallbackLength,
+      y: fallbackY / fallbackLength
+    };
+  }
+
+  private resolveAircraftHeadingDegrees(dx: number, dy: number, fallbackDegrees = 0): number {
+    if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) {
+      return fallbackDegrees;
+    }
+    return Math.atan2(dy, dx) * (180 / Math.PI);
+  }
+
+  private resolveAircraftSortieTurnVector(
+    ingressDirection: { x: number; y: number },
+    egressDirection: { x: number; y: number },
+    laneOffsetPx: number
+  ): { x: number; y: number } {
+    const blendedDirection = this.normalizeAircraftVector(
+      ingressDirection.x + egressDirection.x,
+      ingressDirection.y + egressDirection.y,
+      0,
+      0
+    );
+    const blendedLength = Math.hypot(ingressDirection.x + egressDirection.x, ingressDirection.y + egressDirection.y);
+    if (blendedLength > 0.2) {
+      return blendedDirection;
+    }
+
+    const bankSign = laneOffsetPx < 0 ? -1 : 1;
+    return this.normalizeAircraftVector(
+      -ingressDirection.y * bankSign,
+      ingressDirection.x * bankSign,
+      -ingressDirection.y,
+      ingressDirection.x
+    );
+  }
+
+  private interpolateAircraftHermitePoint(
+    start: { cx: number; cy: number },
+    end: { cx: number; cy: number },
+    startTangent: { dx: number; dy: number },
+    endTangent: { dx: number; dy: number },
+    progress: number
+  ): { cx: number; cy: number } {
+    const t = this.clamp(progress, 0, 1);
+    const t2 = t * t;
+    const t3 = t2 * t;
+    const h00 = 2 * t3 - 3 * t2 + 1;
+    const h10 = t3 - 2 * t2 + t;
+    const h01 = -2 * t3 + 3 * t2;
+    const h11 = t3 - t2;
+
+    return {
+      cx: h00 * start.cx + h10 * startTangent.dx + h01 * end.cx + h11 * endTangent.dx,
+      cy: h00 * start.cy + h10 * startTangent.dy + h01 * end.cy + h11 * endTangent.dy
+    };
+  }
+
+  private interpolateAircraftHermiteDerivative(
+    start: { cx: number; cy: number },
+    end: { cx: number; cy: number },
+    startTangent: { dx: number; dy: number },
+    endTangent: { dx: number; dy: number },
+    progress: number
+  ): { dx: number; dy: number } {
+    const t = this.clamp(progress, 0, 1);
+    const t2 = t * t;
+    const dh00 = 6 * t2 - 6 * t;
+    const dh10 = 3 * t2 - 4 * t + 1;
+    const dh01 = -6 * t2 + 6 * t;
+    const dh11 = 3 * t2 - 2 * t;
+
+    return {
+      dx: dh00 * start.cx + dh10 * startTangent.dx + dh01 * end.cx + dh11 * endTangent.dx,
+      dy: dh00 * start.cy + dh10 * startTangent.dy + dh01 * end.cy + dh11 * endTangent.dy
+    };
+  }
+
   private positionAircraftGhost(
     ghost: SVGGElement | SVGImageElement,
     isFormation: boolean,
     iconSize: number,
     centerX: number,
-    centerY: number
+    centerY: number,
+    headingDegrees = 0
   ): void {
     if (isFormation) {
-      ghost.setAttribute("transform", `translate(${centerX},${centerY})`);
+      ghost.setAttribute("transform", `translate(${centerX},${centerY}) rotate(${headingDegrees})`);
       return;
     }
 
@@ -3601,6 +3775,7 @@ export class HexMapRenderer implements IMapRenderer {
     const y = centerY - iconSize / 2;
     (ghost as SVGImageElement).setAttribute("x", String(x));
     (ghost as SVGImageElement).setAttribute("y", String(y));
+    (ghost as SVGImageElement).setAttribute("transform", `rotate(${headingDegrees} ${centerX} ${centerY})`);
   }
 
   private async animateAircraftGhostArcSegment(
@@ -3625,13 +3800,17 @@ export class HexMapRenderer implements IMapRenderer {
     };
 
     if (durationMs <= 0) {
-      this.positionAircraftGhost(ghost, isFormation, iconSize, end.cx, end.cy);
+      const tangentX = 2 * (end.cx - control.cx);
+      const tangentY = 2 * (end.cy - control.cy);
+      const headingDegrees = this.resolveAircraftHeadingDegrees(tangentX, tangentY);
+      this.positionAircraftGhost(ghost, isFormation, iconSize, end.cx, end.cy, headingDegrees);
       onProgress?.(1, end.cx, end.cy);
       return;
     }
 
     await new Promise<void>((resolve) => {
       const startTime = performance.now();
+      let lastHeadingDegrees = this.resolveAircraftHeadingDegrees(control.cx - start.cx, control.cy - start.cy);
       const step: FrameRequestCallback = (now) => {
         const elapsed = now - startTime;
         const t = Math.min(1, elapsed / durationMs);
@@ -3639,8 +3818,11 @@ export class HexMapRenderer implements IMapRenderer {
         const omt = 1 - eased;
         const centerX = omt * omt * start.cx + 2 * omt * eased * control.cx + eased * eased * end.cx;
         const centerY = omt * omt * start.cy + 2 * omt * eased * control.cy + eased * eased * end.cy;
+        const tangentX = 2 * omt * (control.cx - start.cx) + 2 * eased * (end.cx - control.cx);
+        const tangentY = 2 * omt * (control.cy - start.cy) + 2 * eased * (end.cy - control.cy);
 
-        this.positionAircraftGhost(ghost, isFormation, iconSize, centerX, centerY);
+        lastHeadingDegrees = this.resolveAircraftHeadingDegrees(tangentX, tangentY, lastHeadingDegrees);
+        this.positionAircraftGhost(ghost, isFormation, iconSize, centerX, centerY, lastHeadingDegrees);
         onProgress?.(eased, centerX, centerY);
 
         if (t >= 1) {

@@ -24,40 +24,393 @@ export const popupContentRegistry: PopupContentDefinition[] = [
     title: "Air Support",
     body: `
       <style>
-        .air-panel { display: grid; gap: 1.25rem; }
-        .air-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem; }
-        .air-chip { border: 1px solid rgba(229,236,255,0.18); background: rgba(14,18,28,0.85); border-radius: 12px; padding: 0.6rem 0.8rem; display: grid; gap: 0.25rem; text-align: center; }
-        .air-chip strong { font-size: 1.1rem; letter-spacing: 0.04em; }
-        .air-chip span { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(229,236,255,0.72); }
-        .air-section { display: grid; gap: 0.6rem; }
-        .air-section header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
-        .air-mission-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
-        .air-mission-item { border: 1px solid rgba(229,236,255,0.14); background: rgba(13,18,28,0.8); border-radius: 12px; padding: 0.6rem 0.75rem; display: grid; gap: 0.25rem; }
-        .air-mission-line { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
-        .air-badge { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid rgba(229,236,255,0.24); border-radius: 999px; padding: 0.15rem 0.55rem; }
-        .air-badge--success { border-color: rgba(100,200,100,0.5); background: rgba(100,200,100,0.15); color: #9fefa0; }
-        .air-badge--partial { border-color: rgba(245,196,109,0.5); background: rgba(245,196,109,0.15); color: #f5c46d; }
-        .air-badge--aborted { border-color: rgba(255,100,100,0.5); background: rgba(255,100,100,0.15); color: #ffa0a0; }
-        .air-mission-outcome { display: flex; align-items: center; gap: 0.5rem; padding-top: 0.35rem; border-top: 1px solid rgba(229,236,255,0.1); margin-top: 0.25rem; flex-wrap: wrap; }
-        .air-outcome-details { font-size: 0.8rem; color: rgba(229,236,255,0.8); }
-        .air-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-        .air-form { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end; }
-        .air-form .field { display: grid; gap: 0.35rem; }
-        .air-form label { font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(229,236,255,0.75); }
-        .air-form select { padding: 0.55rem 0.7rem; border-radius: 10px; border: 1px solid rgba(229,236,255,0.18); background: rgba(17,24,36,0.75); color: #f5f7ff; font-size: 0.9rem; }
-        .air-form .button-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-        .air-button { padding: 0.5rem 0.8rem; border-radius: 10px; border: 1px solid rgba(229,236,255,0.18); background: rgba(17,24,36,0.75); color: #f5f7ff; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; cursor: pointer; }
-        .air-button.primary { border-color: rgba(245,196,109,0.5); background: linear-gradient(135deg, rgba(245,196,109,0.22), rgba(14,16,24,0.25)); color: #fff; }
-        .air-note { font-size: 0.8rem; color: rgba(229,236,255,0.7); }
+        .air-panel { display: grid; gap: 0.95rem; color: #efe6c9; padding: 0.1rem 0 0.4rem; }
+        .air-briefing {
+          position: relative;
+          display: grid;
+          gap: 0.5rem;
+          padding: 0.95rem 1.05rem 1.05rem;
+          border-radius: 18px;
+          border: 1px solid rgba(170, 145, 94, 0.24);
+          background:
+            radial-gradient(circle at top right, rgba(124, 101, 51, 0.2), transparent 42%),
+            linear-gradient(180deg, rgba(32, 35, 24, 0.96) 0%, rgba(15, 17, 12, 0.98) 100%);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+          overflow: hidden;
+        }
+        .air-briefing::before {
+          content: "Theater Air Command";
+          display: block;
+          font-family: var(--font-label);
+          font-size: 0.58rem;
+          font-weight: 700;
+          letter-spacing: 0.26em;
+          text-transform: uppercase;
+          color: rgba(226, 205, 154, 0.72);
+        }
+        .air-briefing__grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.25fr) minmax(220px, 0.75fr);
+          gap: 0.9rem;
+          align-items: start;
+        }
+        .air-briefing__copy {
+          display: grid;
+          gap: 0.35rem;
+        }
+        .air-briefing__copy h3 {
+          margin: 0;
+          font-family: var(--font-heading);
+          font-size: 1.12rem;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          line-height: 1.08;
+          color: #efe3bf;
+        }
+        .air-briefing__copy p {
+          margin: 0;
+          color: var(--text-secondary);
+          font-size: 0.82rem;
+          line-height: 1.5;
+        }
+        .air-briefing__facts {
+          display: grid;
+          gap: 0.45rem;
+        }
+        .air-briefing__fact {
+          display: grid;
+          gap: 0.16rem;
+          padding: 0.52rem 0.62rem;
+          border-radius: 12px;
+          border: 1px solid rgba(170, 145, 94, 0.16);
+          background: rgba(10, 13, 9, 0.38);
+        }
+        .air-briefing__fact-label {
+          font-family: var(--font-label);
+          font-size: 0.56rem;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          color: rgba(226, 205, 154, 0.7);
+        }
+        .air-briefing__fact strong {
+          font-size: 0.84rem;
+          line-height: 1.25;
+          color: #f2e8c7;
+        }
+        .air-layout {
+          display: grid;
+          grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.8fr);
+          gap: 0.85rem;
+          align-items: start;
+        }
+        .air-section {
+          display: grid;
+          gap: 0.65rem;
+          padding: 0.95rem 1rem;
+          border-radius: 16px;
+          border: 1px solid rgba(170, 145, 94, 0.18);
+          background: linear-gradient(180deg, rgba(16, 19, 14, 0.96) 0%, rgba(10, 12, 9, 0.98) 100%);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+        }
+        .air-section header {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 0.2rem 0.8rem;
+          align-items: end;
+        }
+        .air-section h3 {
+          margin: 0;
+          font-family: var(--font-heading);
+          font-size: 0.96rem;
+          letter-spacing: 0.09em;
+          text-transform: uppercase;
+          color: #efe3bf;
+        }
+        .air-note {
+          margin: 0;
+          font-family: var(--font-label);
+          font-size: 0.63rem;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: rgba(216, 199, 157, 0.72);
+        }
+        .air-summary {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 0.65rem;
+        }
+        .air-chip {
+          display: grid;
+          gap: 0.2rem;
+          min-height: 4.75rem;
+          align-content: center;
+          text-align: center;
+          padding: 0.65rem 0.7rem;
+          border-radius: 14px;
+          border: 1px solid rgba(170, 145, 94, 0.16);
+          background:
+            linear-gradient(180deg, rgba(27, 24, 17, 0.96) 0%, rgba(13, 12, 9, 0.98) 100%);
+        }
+        .air-chip strong {
+          font-family: var(--font-heading);
+          font-size: 1.2rem;
+          letter-spacing: 0.05em;
+          color: #f2e8c7;
+        }
+        .air-chip span {
+          font-family: var(--font-label);
+          font-size: 0.62rem;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: rgba(216, 199, 157, 0.74);
+        }
+        .air-actions {
+          display: flex;
+          gap: 0.45rem;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        .air-form {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 0.75rem 0.8rem;
+          align-items: end;
+        }
+        .air-form .field {
+          display: grid;
+          gap: 0.32rem;
+        }
+        .air-form .field--mission,
+        .air-form .field--submit {
+          grid-column: 1 / -1;
+        }
+        .air-form label {
+          font-family: var(--font-label);
+          font-size: 0.63rem;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: rgba(226, 205, 154, 0.76);
+        }
+        .air-form select {
+          width: 100%;
+          min-height: 2.75rem;
+          padding: 0.55rem 0.75rem;
+          border-radius: 12px;
+          border: 1px solid rgba(170, 145, 94, 0.2);
+          background: linear-gradient(180deg, rgba(20, 23, 17, 0.96) 0%, rgba(11, 13, 10, 0.98) 100%);
+          color: #f2e8c7;
+          font-size: 0.88rem;
+          line-height: 1.35;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        }
+        .air-form select:focus-visible {
+          outline: none;
+          border-color: rgba(232, 197, 123, 0.52);
+          box-shadow: 0 0 0 1px rgba(232, 197, 123, 0.22);
+        }
+        .air-button {
+          min-height: 2.75rem;
+          padding: 0.55rem 0.95rem;
+          border-radius: 12px;
+          border: 1px solid rgba(170, 145, 94, 0.22);
+          background: linear-gradient(180deg, rgba(20, 23, 17, 0.96) 0%, rgba(11, 13, 10, 0.98) 100%);
+          color: #ded2ab;
+          font-family: var(--font-label);
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+        }
+        .air-button:hover,
+        .air-button:focus-visible {
+          outline: none;
+          transform: translateY(-1px);
+          border-color: rgba(232, 197, 123, 0.4);
+        }
+        .air-button.primary {
+          border-color: rgba(170, 145, 94, 0.34);
+          background: linear-gradient(180deg, rgba(97, 77, 38, 0.92) 0%, rgba(60, 49, 23, 0.96) 100%);
+          color: #f7e7b7;
+        }
+        .air-mission-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: grid;
+          gap: 0.7rem;
+        }
+        .air-mission-item {
+          display: grid;
+          gap: 0.65rem;
+          padding: 0.8rem 0.9rem;
+          border-radius: 14px;
+          border: 1px solid rgba(170, 145, 94, 0.16);
+          background: linear-gradient(180deg, rgba(22, 20, 14, 0.96) 0%, rgba(11, 12, 9, 0.98) 100%);
+        }
+        .air-mission-head {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 0.5rem;
+          align-items: start;
+        }
+        .air-mission-title {
+          display: grid;
+          gap: 0.18rem;
+          min-width: 0;
+        }
+        .air-mission-title strong {
+          font-size: 0.9rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #f2e8c7;
+        }
+        .air-mission-subtitle {
+          font-size: 0.73rem;
+          color: var(--text-secondary);
+        }
+        .air-mission-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 0.45rem;
+        }
+        .air-mission-fact {
+          display: grid;
+          gap: 0.18rem;
+          padding: 0.48rem 0.55rem;
+          border-radius: 10px;
+          border: 1px solid rgba(170, 145, 94, 0.12);
+          background: rgba(11, 13, 10, 0.44);
+        }
+        .air-mission-label {
+          font-family: var(--font-label);
+          font-size: 0.55rem;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: rgba(216, 199, 157, 0.66);
+        }
+        .air-mission-fact strong {
+          font-size: 0.74rem;
+          line-height: 1.3;
+          color: #efe3bf;
+        }
+        .air-mission-actions {
+          display: flex;
+          justify-content: flex-end;
+        }
+        .air-badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0.16rem 0.5rem;
+          border-radius: 999px;
+          border: 1px solid rgba(170, 145, 94, 0.22);
+          font-family: var(--font-label);
+          font-size: 0.58rem;
+          font-weight: 700;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          line-height: 1;
+          white-space: nowrap;
+          color: #e4d5ab;
+          background: rgba(68, 58, 33, 0.18);
+        }
+        .air-badge--queued {
+          border-color: rgba(170, 145, 94, 0.34);
+          color: #e4d5ab;
+          background: rgba(88, 72, 36, 0.2);
+        }
+        .air-badge--inflight {
+          border-color: rgba(124, 168, 199, 0.38);
+          color: #b8d9ea;
+          background: rgba(37, 63, 76, 0.22);
+        }
+        .air-badge--resolving {
+          border-color: rgba(208, 175, 103, 0.34);
+          color: #e9cf90;
+          background: rgba(112, 89, 45, 0.2);
+        }
+        .air-badge--completed,
+        .air-badge--success {
+          border-color: rgba(118, 187, 128, 0.34);
+          color: #a7ddb3;
+          background: rgba(52, 88, 54, 0.18);
+        }
+        .air-badge--partial {
+          border-color: rgba(208, 175, 103, 0.34);
+          color: #e9cf90;
+          background: rgba(112, 89, 45, 0.2);
+        }
+        .air-badge--aborted {
+          border-color: rgba(214, 114, 116, 0.34);
+          color: #ffabae;
+          background: rgba(91, 39, 39, 0.2);
+        }
+        .air-mission-outcome {
+          display: flex;
+          align-items: center;
+          gap: 0.45rem;
+          flex-wrap: wrap;
+          padding-top: 0.5rem;
+          border-top: 1px solid rgba(170, 145, 94, 0.1);
+        }
+        .air-outcome-details {
+          font-size: 0.79rem;
+          line-height: 1.45;
+          color: var(--text-secondary);
+        }
+        .air-mission-empty {
+          padding: 1rem 1.05rem;
+          border-radius: 14px;
+          border: 1px dashed rgba(170, 145, 94, 0.24);
+          background: rgba(15, 18, 14, 0.82);
+          color: var(--text-secondary);
+          line-height: 1.5;
+        }
+        @media (max-width: 760px) {
+          .air-briefing__grid,
+          .air-layout {
+            grid-template-columns: 1fr;
+          }
+          .air-section header,
+          .air-mission-head {
+            grid-template-columns: 1fr;
+          }
+          .air-summary,
+          .air-mission-grid,
+          .air-form {
+            grid-template-columns: 1fr;
+          }
+        }
       </style>
       <div class="air-panel" data-air-panel>
+        <section class="air-briefing">
+          <div class="air-briefing__grid">
+            <div class="air-briefing__copy">
+              <h3 data-air-brief-title>Standing Patrol Orders</h3>
+              <p data-air-brief-text>Assign fighter cover, strike sorties, and emergency lifts from the sortie board. Air wings launch from reserve strips and recover off-map after each mission.</p>
+            </div>
+            <div class="air-briefing__facts">
+              <div class="air-briefing__fact">
+                <span class="air-briefing__fact-label">Targeting</span>
+                <strong data-air-brief-target>Base CAP or selected sector</strong>
+              </div>
+              <div class="air-briefing__fact">
+                <span class="air-briefing__fact-label">Readiness</span>
+                <strong data-air-brief-refit>Refit follows each sortie</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+        <div class="air-layout">
         <section class="air-section">
           <header>
-            <h3>Schedule Mission</h3>
-            <span class="air-note">Pick mission, squadron, and target</span>
+            <h3>Sortie Orders</h3>
+            <span class="air-note">Mission, squadron, and patrol zone</span>
           </header>
           <form class="air-form" data-air-form>
-            <div class="field">
+            <div class="field field--mission">
               <label>Mission</label>
               <select data-air-mission-kind></select>
             </div>
@@ -69,34 +422,35 @@ export const popupContentRegistry: PopupContentDefinition[] = [
               <label>Target</label>
               <select data-air-target-select></select>
             </div>
-            <div class="field">
-              <button type="submit" class="air-button primary">Schedule</button>
+            <div class="field field--submit">
+              <button type="submit" class="air-button primary">Issue Sortie</button>
             </div>
           </form>
-          <div class="air-note" data-air-feedback></div>
         </section>
         <section class="air-section">
           <header>
-            <h3>Summary</h3>
-            <span class="air-note">Active sorties and refit cycles</span>
+            <h3>Readiness Board</h3>
+            <span class="air-note">Queue and refit picture</span>
           </header>
           <div class="air-summary" data-air-summary>
             <div class="air-chip"><strong data-air-queued>0</strong><span>Queued</span></div>
             <div class="air-chip"><strong data-air-inflight>0</strong><span>In Flight</span></div>
-            <div class="air-chip"><strong data-air-resolving>0</strong><span>Resolving</span></div>
+            <div class="air-chip"><strong data-air-resolving>0</strong><span>On Run</span></div>
             <div class="air-chip"><strong data-air-completed>0</strong><span>Completed</span></div>
             <div class="air-chip"><strong data-air-refit>0</strong><span>Refit</span></div>
           </div>
         </section>
+        </div>
         <section class="air-section">
           <header>
-            <h3>Missions</h3>
+            <h3>Operations Log</h3>
             <div class="air-actions">
-              <button type="button" class="air-button" data-air-refresh>Refresh</button>
+              <button type="button" class="air-button" data-air-refresh>Refresh Board</button>
             </div>
           </header>
           <ul class="air-mission-list" data-air-mission-list></ul>
         </section>
+        <div class="sr-only air-feedback" aria-live="polite" data-air-feedback></div>
       </div>
     `
   },

@@ -787,12 +787,17 @@ export class PopupManager implements IPopupManager {
         const kind = (kindSelect.value ?? "") as any;
         this.populateEligibleSquadrons(unitSelect, engine, kind);
         this.populateTargets(targetSelect, engine, kind);
+        this.updateAirSupportBrief(panel, engine, kind, unitSelect.value ?? "");
       };
       // Seed initial dropdown population and enable/disable escort based on current missions
       this.disableEscortUnlessBomberScheduled(kindSelect, engine);
       const initialKind = (kindSelect.value ?? "") as any;
       this.populateEligibleSquadrons(unitSelect, engine, initialKind);
       this.populateTargets(targetSelect, engine, initialKind);
+      unitSelect.onchange = () => {
+        this.updateAirSupportBrief(panel, engine, kindSelect.value ?? "", unitSelect.value ?? "");
+      };
+      this.updateAirSupportBrief(panel, engine, initialKind, unitSelect.value ?? "");
 
       form.onsubmit = (ev) => {
         ev.preventDefault();
@@ -835,33 +840,9 @@ export class PopupManager implements IPopupManager {
           request.escortTargetHex = parsedTarget;
         }
 
-        // Confirmation: summarize mission parameters and potential refit impact so the commander explicitly approves.
-        try {
-          const refitTurns = engine.getAircraftRefitTurns(unitHex as any);
-          const parts: string[] = [];
-          parts.push(`Confirm ${String(kind)} mission`);
-          parts.push(`Unit: ${unitHex.q},${unitHex.r}`);
-          if (request.targetHex) {
-            parts.push(`Target: ${request.targetHex.q},${request.targetHex.r}`);
-          }
-          if (request.escortTargetHex) {
-            parts.push(`Escort: ${request.escortTargetHex.q},${request.escortTargetHex.r}`);
-          }
-          if (typeof refitTurns === "number") {
-            parts.push(`Refit: ${refitTurns} turn(s) after sortie`);
-          }
-          const confirmed = window.confirm(parts.join("\n"));
-          if (!confirmed) {
-            feedback && (feedback.textContent = "Scheduling cancelled.");
-            return;
-          }
-        } catch {
-          // If refit preview fails, proceed without blocking but still try to schedule.
-        }
-
         const result = engine.tryScheduleAirMission(request);
         if (result.ok) {
-          feedback && (feedback.textContent = `Mission scheduled (#${result.missionId}). Click the map marker or use Cancel to reposition.`);
+          feedback && (feedback.textContent = "Sortie queued.");
           this.renderAirSupportPanel();
           this.battleState.emitBattleUpdate("missionUpdated");
         } else {
@@ -879,6 +860,64 @@ export class PopupManager implements IPopupManager {
       select.innerHTML = templates.map((t) => `<option value="${t.kind}">${this.escapeHtml(t.label)}</option>`).join("");
     } catch {
       select.innerHTML = "";
+    }
+  }
+
+  private updateAirSupportBrief(
+    panel: HTMLElement,
+    engine: GameEngineAPI,
+    kind: string,
+    unitValue: string
+  ): void {
+    const title = panel.querySelector<HTMLElement>("[data-air-brief-title]");
+    const text = panel.querySelector<HTMLElement>("[data-air-brief-text]");
+    const target = panel.querySelector<HTMLElement>("[data-air-brief-target]");
+    const refit = panel.querySelector<HTMLElement>("[data-air-brief-refit]");
+
+    let template:
+      | { label: string; description: string; requiresTarget?: boolean; requiresFriendlyEscortTarget?: boolean }
+      | undefined;
+
+    try {
+      template = engine.listAirMissionTemplates().find((entry) => entry.kind === kind);
+    } catch {
+      template = undefined;
+    }
+
+    if (title) {
+      title.textContent = template?.label ?? "Standing Patrol Orders";
+    }
+    if (text) {
+      text.textContent = template?.description
+        ?? "Assign fighter cover, strike sorties, and emergency lifts from the sortie board.";
+    }
+    if (target) {
+      if (kind === "airTransport") {
+        target.textContent = "Drop zone required";
+      } else if (template?.requiresFriendlyEscortTarget) {
+        target.textContent = "Queued bomber required";
+      } else if (template?.requiresTarget) {
+        target.textContent = "Target hex required";
+      } else if (kind === "airCover") {
+        target.textContent = "Base CAP or selected sector";
+      } else {
+        target.textContent = "Optional assignment";
+      }
+    }
+    if (refit) {
+      let refitCopy = "Refit follows each sortie";
+      const unitHex = this.parseAxialString(unitValue);
+      if (unitHex) {
+        try {
+          const refitTurns = engine.getAircraftRefitTurns(unitHex as any);
+          if (typeof refitTurns === "number") {
+            refitCopy = `${refitTurns} turn${refitTurns === 1 ? "" : "s"} of refit after sortie`;
+          }
+        } catch {
+          // Leave default wording when the selected entry is unavailable.
+        }
+      }
+      refit.textContent = refitCopy;
     }
   }
 
@@ -1046,7 +1085,7 @@ export class PopupManager implements IPopupManager {
   private renderAirMissionList(list: HTMLUListElement, engine: GameEngineAPI): void {
     const missions = engine.getScheduledAirMissions();
     if (!missions || missions.length === 0) {
-      list.innerHTML = '<li class="air-mission-item">No air missions scheduled.</li>';
+      list.innerHTML = '<li class="air-mission-empty">No sorties queued. Air wings remain on standby until new orders are issued.</li>';
       return;
     }
     const resolveSquadronLabel = (squadronId: string | undefined): string => {
@@ -1068,8 +1107,10 @@ export class PopupManager implements IPopupManager {
       }
       return `${String(match.type)} @ ${match.hex.q},${match.hex.r}`;
     };
-    const compose = (m: { id: string; kind: string; status: string; unitType: string; targetHex?: { q: number; r: number }; escortTargetUnitKey?: string; outcome?: { result: string; details: string; damageInflicted?: number; defenderDestroyed?: boolean; defenderType?: string } }): string => {
+    const compose = (m: { id: string; kind: string; status: string; unitType: string; originHexKey?: string; launchTurn: number; turnsRemaining: number; targetHex?: { q: number; r: number }; escortTargetUnitKey?: string; outcome?: { result: string; details: string; damageInflicted?: number; defenderDestroyed?: boolean; defenderType?: string } }): string => {
       const status = m.status;
+      const kindLabel = this.formatAirMissionKindLabel(m.kind);
+      const statusLabel = this.formatAirMissionStatusLabel(status);
       // Show "Base CAP" for Air Cover missions without a specific target hex.
       let target: string;
       if (m.targetHex) {
@@ -1079,6 +1120,7 @@ export class PopupManager implements IPopupManager {
       } else {
         target = resolveSquadronLabel(m.escortTargetUnitKey);
       }
+      const origin = m.originHexKey ?? "Airbase";
       const cancel = status === "queued" ? `<button type="button" class="air-button" data-air-cancel="${m.id}">Cancel</button>` : "";
 
       // Build outcome display for completed missions
@@ -1096,14 +1138,33 @@ export class PopupManager implements IPopupManager {
 
       return `
         <li class="air-mission-item">
-          <div class="air-mission-line">
-            <strong>${this.escapeHtml(String(m.kind))}</strong>
-            <span class="air-badge">${this.escapeHtml(String(status))}</span>
+          <div class="air-mission-head">
+            <div class="air-mission-title">
+              <strong>${this.escapeHtml(kindLabel)}</strong>
+              <span class="air-mission-subtitle">${this.escapeHtml(String(m.unitType))}</span>
+            </div>
+            <span class="air-badge air-badge--${this.escapeHtml(this.formatAirMissionStatusClass(status))}">${this.escapeHtml(statusLabel)}</span>
           </div>
-          <div class="air-mission-line">
-            <span>Unit: ${this.escapeHtml(String(m.unitType))}</span>
-            <span>Target: ${this.escapeHtml(target)}</span>
-            <div class="air-actions">${cancel}</div>
+          <div class="air-mission-grid">
+            <div class="air-mission-fact">
+              <span class="air-mission-label">Origin</span>
+              <strong>${this.escapeHtml(origin)}</strong>
+            </div>
+            <div class="air-mission-fact">
+              <span class="air-mission-label">Target</span>
+              <strong>${this.escapeHtml(target)}</strong>
+            </div>
+            <div class="air-mission-fact">
+              <span class="air-mission-label">Launch Turn</span>
+              <strong>${this.escapeHtml(String(m.launchTurn))}</strong>
+            </div>
+            <div class="air-mission-fact">
+              <span class="air-mission-label">Turns Remaining</span>
+              <strong>${this.escapeHtml(String(m.turnsRemaining))}</strong>
+            </div>
+          </div>
+          <div class="air-mission-actions">
+            ${cancel}
           </div>
           ${outcomeMarkup}
         </li>`;
@@ -1122,6 +1183,49 @@ export class PopupManager implements IPopupManager {
         }
       };
     });
+  }
+
+  private formatAirMissionKindLabel(kind: string): string {
+    switch (kind) {
+      case "strike":
+        return "Strike Target";
+      case "escort":
+        return "Escort Sortie";
+      case "airCover":
+        return "Air Cover";
+      case "airTransport":
+        return "Air Transport";
+      default:
+        return kind;
+    }
+  }
+
+  private formatAirMissionStatusLabel(status: string): string {
+    switch (status) {
+      case "inFlight":
+        return "In Flight";
+      case "queued":
+        return "Queued";
+      case "resolving":
+        return "On Run";
+      case "completed":
+        return "Completed";
+      default:
+        return status;
+    }
+  }
+
+  private formatAirMissionStatusClass(status: string): string {
+    switch (status) {
+      case "inFlight":
+        return "inflight";
+      case "queued":
+      case "resolving":
+      case "completed":
+        return status;
+      default:
+        return status.toLowerCase();
+    }
   }
 
   /** Parses "q,r" into an axial coordinate. Returns null when invalid. */
