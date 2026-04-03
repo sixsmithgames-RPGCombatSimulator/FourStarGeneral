@@ -136,7 +136,7 @@
         { "type": "Howitzer_105", "hex": [1, 14], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "NW" },
         { "type": "Fighter", "hex": [6, 10], "strength": 100, "experience": 0, "ammo": 6, "fuel": 50, "entrench": 0, "facing": "NW" },
         { "type": "Bomber", "hex": [5, 9], "strength": 100, "experience": 0, "ammo": 4, "fuel": 60, "entrench": 0, "facing": "NW" },
-        { "type": "Flak_88", "hex": [2, 12], "strength": 89, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "NW" },
+        { "type": "Flak_88", "hex": [2, 12], "strength": 89, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "NW" },
         { "type": "Heavy_Tank", "hex": [4, 11], "strength": 100, "experience": 0, "ammo": 6, "fuel": 35, "entrench": 0, "facing": "NW" }
       ]
     },
@@ -147,17 +147,17 @@
       "strategy": "Entrench infantry near bridgeheads, use armor to counterattack crossings, and keep air assets circling the bastion.",
       "resources": 600,
       "units": [
-        { "type": "AT_Gun_50mm", "hex": [11, 4], "strength": 89, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 2, "facing": "W" },
-        { "type": "Howitzer_105", "hex": [14, 5], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "W" },
+        { "type": "AT_Gun_50mm", "hex": [11, 4], "strength": 89, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "W" },
+        { "type": "Howitzer_105", "hex": [14, 5], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
         { "type": "Infantry_42", "hex": [13, 5], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 2, "facing": "W" },
-        { "type": "Infantry_42", "hex": [15, 6], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "W" },
+        { "type": "Infantry_42", "hex": [15, 6], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 2, "facing": "W" },
         { "type": "Engineer", "hex": [12, 4], "strength": 89, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "W" },
         { "type": "Panzer_IV", "hex": [16, 5], "strength": 100, "experience": 0, "ammo": 7, "fuel": 40, "entrench": 0, "facing": "W" },
         { "type": "Heavy_Tank", "hex": [17, 6], "strength": 100, "experience": 0, "ammo": 6, "fuel": 35, "entrench": 0, "facing": "W" },
         { "type": "Recon_Bike", "hex": [13, 6], "strength": 89, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "W" },
         { "type": "Fighter", "hex": [17, 4], "strength": 100, "experience": 0, "ammo": 6, "fuel": 50, "entrench": 0, "facing": "W" },
         { "type": "Bomber", "hex": [18, 5], "strength": 100, "experience": 0, "ammo": 4, "fuel": 60, "entrench": 0, "facing": "W" },
-        { "type": "Flak_88", "hex": [15, 4], "strength": 89, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "W" }
+        { "type": "Flak_88", "hex": [15, 4], "strength": 89, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" }
       ]
     }
   }
