@@ -2,6 +2,24 @@ import { CoordinateSystem, type TileEntry, type TileDetails } from "./Coordinate
 import { axialDirections } from "../core/Hex";
 import type { TilePalette } from "../core/types";
 
+interface RoadOverlayStyle {
+  readonly strokeColor?: string;
+  readonly strokeWidth?: number;
+  readonly opacity?: number;
+}
+
+interface RoadOverlayOptions {
+  readonly treatCurrentAsRoad?: boolean;
+  readonly style?: RoadOverlayStyle;
+  readonly neighborHasRoad?: (args: {
+    readonly tile: TileDetails | null;
+    readonly col: number;
+    readonly row: number;
+    readonly q: number;
+    readonly r: number;
+  }) => boolean;
+}
+
 /**
  * Renders road overlays on hex tiles with neighbor-aware connections.
  * Creates dynamic road segments that connect to adjacent road tiles.
@@ -16,19 +34,29 @@ export class RoadOverlayRenderer {
     );
   }
 
+  private canHostRoad(tile: TileDetails | null | undefined): boolean {
+    if (!tile) {
+      return false;
+    }
+    const terrain = tile.terrain.toLowerCase();
+    const terrainType = tile.terrainType.toLowerCase();
+    return terrain !== "sea" && terrain !== "river" && terrainType !== "water";
+  }
+
   /**
    * Checks if a tile contains a road.
    * @param tile - Tile to check
    * @returns True if tile has a road
    */
   hasRoad(tile: TileDetails | null | undefined): boolean {
-    if (!tile) {
+    if (!tile || !this.canHostRoad(tile)) {
       return false;
     }
 
     const terrain = tile.terrain.toLowerCase();
     const terrainType = tile.terrainType.toLowerCase();
-    return terrain === "road" || terrainType === "road" || this.isHamlet(tile);
+    const features = tile.features.map((feature) => feature.toLowerCase());
+    return terrain === "road" || terrainType === "road" || features.includes("road") || this.isHamlet(tile);
   }
 
   /**
@@ -49,23 +77,26 @@ export class RoadOverlayRenderer {
     col: number,
     row: number,
     tiles: TileEntry[][],
-    tilePalette: TilePalette
+    tilePalette: TilePalette,
+    options: RoadOverlayOptions = {}
   ): string {
-    if (!this.hasRoad(tile)) {
+    const treatCurrentAsRoad = options.treatCurrentAsRoad ?? this.hasRoad(tile);
+    if (!treatCurrentAsRoad) {
       return "";
     }
 
     // Check for paved feature using a case-insensitive match so scenario data can
     // specify variants like "paved" or "paving" without additional config.
     const isPaved = tile.features.some((feature) => feature.toLowerCase().includes("pav"));
-    const strokeColor = isPaved ? "#2a2a2a" : "#8b6f47";
-    const strokeWidth = isPaved ? 2 : 3;
+    const style: RoadOverlayStyle = {
+      strokeColor: options.style?.strokeColor ?? (isPaved ? "#2a2a2a" : "#8b6f47"),
+      strokeWidth: options.style?.strokeWidth ?? (isPaved ? 2 : 3),
+      opacity: options.style?.opacity ?? 1
+    };
 
     // Use axial neighbours so the logic is orientation-agnostic and works for both flat-top and pointy-top.
     const hasRoadNeighbor: boolean[] = [];
-    const edgeVectors: Array<{ dx: number; dy: number }> = [];
     const currentAxial = CoordinateSystem.offsetToAxial(col, row);
-    const currentPixel = CoordinateSystem.axialToPixel(currentAxial.q, currentAxial.r);
 
     for (const dir of axialDirections) {
       const nq = currentAxial.q + dir.q;
@@ -75,38 +106,40 @@ export class RoadOverlayRenderer {
       if (nRow >= 0 && nRow < tiles.length && nCol >= 0 && nCol < tiles[nRow].length) {
         const neighborEntry = tiles[nRow][nCol];
         const neighborTile = CoordinateSystem.resolveTile(neighborEntry, tilePalette);
-        hasRoadNeighbor.push(this.hasRoad(neighborTile));
-
-        const neighborPixel = CoordinateSystem.axialToPixel(nq, nr);
-        edgeVectors.push({
-          dx: neighborPixel.x - currentPixel.x,
-          dy: neighborPixel.y - currentPixel.y
-        });
+        hasRoadNeighbor.push(
+          options.neighborHasRoad?.({
+            tile: neighborTile,
+            col: nCol,
+            row: nRow,
+            q: nq,
+            r: nr
+          }) ?? this.hasRoad(neighborTile)
+        );
       } else {
         hasRoadNeighbor.push(false);
-        edgeVectors.push({ dx: 0, dy: 0 });
       }
     }
 
-    // Draw road hub and connections using shallow curves so segments feel organic while remaining aligned.
-    const hubRadius = strokeWidth * 0.55;
-    let markup = `<circle cx="${cx}" cy="${cy}" r="${hubRadius}" fill="${strokeColor}" />`;
+    const currentPixel = CoordinateSystem.axialToPixel(currentAxial.q, currentAxial.r);
+    const edgeVectors = axialDirections.map((dir) => {
+      const neighborPixel = CoordinateSystem.axialToPixel(currentAxial.q + dir.q, currentAxial.r + dir.r);
+      return {
+        dx: neighborPixel.x - currentPixel.x,
+        dy: neighborPixel.y - currentPixel.y
+      };
+    });
 
+    let markup = `<circle data-road-hub="true" cx="${cx}" cy="${cy}" r="${(style.strokeWidth ?? 3) * 0.55}" fill="${style.strokeColor ?? "#8b6f47"}" opacity="${style.opacity ?? 1}" />`;
     edgeVectors.forEach(({ dx, dy }, index) => {
       if (!hasRoadNeighbor[index]) {
         return;
       }
-
       const edgeX = cx + dx / 2;
       const edgeY = cy + dy / 2;
-
-      // Bend the segment slightly by aiming the control point a fraction of the way toward the edge while
-      // nudging orthogonally. The offset sign alternates to avoid symmetrical "spokes".
       const curvature = 0.18;
       const controlX = cx + dx * 0.35 + dy * curvature;
       const controlY = cy + dy * 0.35 - dx * curvature;
-
-      markup += `<path d="M ${cx} ${cy} Q ${controlX} ${controlY} ${edgeX} ${edgeY}" fill="none" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-linecap="round" />`;
+      markup += `<path data-road-segment="true" d="M ${cx} ${cy} Q ${controlX} ${controlY} ${edgeX} ${edgeY}" fill="none" stroke="${style.strokeColor ?? "#8b6f47"}" stroke-width="${style.strokeWidth ?? 3}" stroke-linecap="round" opacity="${style.opacity ?? 1}" />`;
     });
 
     return markup;

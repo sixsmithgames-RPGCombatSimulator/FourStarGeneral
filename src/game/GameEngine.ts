@@ -13,6 +13,7 @@ import type {
   UnitTypeDefinition,
   TerrainDictionary,
   TerrainDefinition,
+  TileDefinition,
   UnitClass,
   TileInstance,
   AirMissionKind,
@@ -3886,7 +3887,8 @@ private automateSupplyConvoys(
           const stepCost = this.resolveMoveCost(
             truckDefinition.moveType,
             this.terrainAt(step),
-            step
+            step,
+            current
           );
           const stepFuel = this.resolveMovementFuelStep(
             truckDefinition.moveType,
@@ -7034,9 +7036,9 @@ private automateSupplyConvoys(
    * Normalizes terrain move costs so the rest of the engine can treat air movement as a flat cost per hex.
    * Airframes ignore ground terrain entirely, while ground units fall back to terrain-specific tables.
    * Ford features override river impassability for ground units.
-   * Hex modifications (tank traps, cleared paths) further adjust movement costs.
+   * Road surfaces and engineer works then reshape the final price paid to cross that hex.
    */
-  private resolveMoveCost(moveType: string, terrain: TerrainDefinition | null, hex?: Axial): number {
+  private resolveMoveCost(moveType: string, terrain: TerrainDefinition | null, hex?: Axial, fromHex?: Axial): number {
     if (moveType === "air") {
       return 1;
     }
@@ -7073,36 +7075,87 @@ private automateSupplyConvoys(
       }
     }
 
-    // Apply hex modification effects
     if (hex) {
-      const modifications = this.getHexModifications(hex);
-      if (modifications.some((modification) => modification.type === "tankTraps")) {
-        // Tank traps triple movement cost for vehicles
-        if (moveType === "track" || moveType === "wheel") {
-          cost = cost * 3;
-        }
-      } else if (modifications.some((modification) => modification.type === "clearedPath")) {
-        // Cleared paths reduce movement cost by 50% (min 1)
-        cost = Math.max(1, Math.round(cost * 0.5));
+      const roadCost = this.resolveRoadMoveCost(moveType);
+      if (roadCost !== null && this.isRoad(hex)) {
+        cost = Math.min(cost, roadCost);
+      }
+
+      cost = this.resolveClearedPathMoveCost(moveType, cost, hex);
+
+      // Edge tank traps penalize the specific boundary being crossed rather than the whole hex interior.
+      if ((moveType === "track" || moveType === "wheel") && fromHex && this.hasTankTrapAcrossEdge(fromHex, hex)) {
+        cost = Number((cost * 3).toFixed(2));
       }
     }
 
     return cost;
   }
 
+  private resolveRoadMoveCost(moveType: string): number | null {
+    if (moveType === "air") {
+      return 1;
+    }
+    const roadDefinition = (this.terrain.road ?? null) as TerrainDefinition | null;
+    if (!roadDefinition) {
+      return null;
+    }
+    const roadCost = roadDefinition.moveCost[moveType as keyof TerrainDefinition["moveCost"]];
+    return typeof roadCost === "number" ? roadCost : null;
+  }
+
+  private resolveClearedPathMoveCost(moveType: string, baseCost: number, hex: Axial): number {
+    const clearPathLevel = this.getHexModificationLevel(hex, "clearedPath");
+    if (clearPathLevel <= 0) {
+      return baseCost;
+    }
+    const roadCost = this.resolveRoadMoveCost(moveType);
+    if (roadCost === null) {
+      return baseCost;
+    }
+
+    const normalizedBase = baseCost >= 999
+      ? Math.max(roadCost + 4.5, 5)
+      : baseCost;
+    const stepShare = Math.max(0, Math.min(3, clearPathLevel)) / 3;
+    const blended = normalizedBase + (roadCost - normalizedBase) * stepShare;
+    return Math.max(roadCost, Number(blended.toFixed(2)));
+  }
+
+  private getHexModificationLevel(hex: Axial, type: HexModificationType): number {
+    return this.getHexModifications(hex).reduce((highest, modification) => {
+      if (modification.type !== type) {
+        return highest;
+      }
+      return Math.max(highest, modification.level ?? 1);
+    }, 0);
+  }
+
+  private resolveCrossedHexEdge(from: Axial, to: Axial): HexEdgeFacing {
+    return normalizeFacingDirection(this.resolveFacingToward(to, from), "NW");
+  }
+
+  private hasEdgeModification(hex: Axial, type: HexModificationType, facing: HexEdgeFacing): boolean {
+    return this.getHexModifications(hex).some((modification) => (
+      modification.type === type &&
+      this.normalizeHexEdgeFacing(modification.facing) === facing
+    ));
+  }
+
+  private hasTankTrapAcrossEdge(fromHex: Axial, toHex: Axial): boolean {
+    const enteringFacing = this.resolveCrossedHexEdge(fromHex, toHex);
+    const exitingFacing = this.resolveCrossedHexEdge(toHex, fromHex);
+    return (
+      this.hasEdgeModification(toHex, "tankTraps", enteringFacing) ||
+      this.hasEdgeModification(fromHex, "tankTraps", exitingFacing)
+    );
+  }
+
   /**
    * Returns the features array for the tile at the given hex.
    */
   private getTileFeaturesAt(hex: Axial): readonly string[] {
-    const entry = this.lookupTileEntry(hex);
-    if (!entry) {
-      return [];
-    }
-    const paletteEntry = this.scenario.tilePalette[entry.tile];
-    if (!paletteEntry) {
-      return [];
-    }
-    return paletteEntry.features ?? [];
+    return this.lookupTileDetails(hex)?.features ?? [];
   }
 
   /**
@@ -7231,7 +7284,7 @@ private automateSupplyConvoys(
           continue;
         }
         const terrain = this.terrainAt(neighbor);
-        const moveCost = this.resolveMoveCost(moveType, terrain, neighbor);
+        const moveCost = this.resolveMoveCost(moveType, terrain, neighbor, current.hex);
         if (moveCost >= 999) {
           continue;
         }
@@ -7339,7 +7392,7 @@ private automateSupplyConvoys(
           continue;
         }
         const terrain = this.terrainAt(neighbor);
-        const moveCost = this.resolveMoveCost(moveType, terrain, neighbor);
+        const moveCost = this.resolveMoveCost(moveType, terrain, neighbor, current.hex);
         if (moveCost >= 999) {
           continue;
         }
@@ -7422,7 +7475,7 @@ private automateSupplyConvoys(
         }
 
         const terrain = this.terrainAt(neighbor);
-        const moveCost = this.resolveMoveCost(moveType, terrain, neighbor);
+      const moveCost = this.resolveMoveCost(moveType, terrain, neighbor, current.hex);
         if (moveCost >= 999) {
           continue;
         }
@@ -8747,8 +8800,9 @@ private automateSupplyConvoys(
 
       if (routePlan) {
         let cumulativeCost = 0;
-        routePlan.path.slice(1).forEach((hex) => {
-          cumulativeCost += this.resolveMoveCost("wheel", this.terrainAt(hex), hex);
+        routePlan.path.slice(1).forEach((hex, index) => {
+          const previous = routePlan.path[index] ?? routePlan.path[0]!;
+          cumulativeCost += this.resolveMoveCost("wheel", this.terrainAt(hex), hex, previous);
           const nodeKey = this.formatAxial(hex);
           const seen = delayNodesMap.get(nodeKey) ?? 0;
           delayNodesMap.set(nodeKey, Math.max(seen, cumulativeCost));
@@ -9365,13 +9419,27 @@ private automateSupplyConvoys(
     };
   }
 
-  /** Simple heuristic: treat tiles flagged as road or containing bridges as roads for supply routing. */
-  private isRoad(hex: Axial): boolean {
-    const entry = this.lookupTileEntry(hex);
-    if (!entry) {
+  private tileCanHostRoad(tile: TileDefinition | null): boolean {
+    if (!tile) {
       return false;
     }
-    return entry.tile.toLowerCase().includes("road");
+    return tile.terrain !== "sea" && tile.terrain !== "river" && tile.terrainType !== "water";
+  }
+
+  private tileHasRoadSurface(tile: TileDefinition | null): boolean {
+    if (!tile || !this.tileCanHostRoad(tile)) {
+      return false;
+    }
+    const terrain = tile.terrain.toLowerCase();
+    const terrainType = tile.terrainType.toLowerCase();
+    const features = tile.features.map((feature) => feature.toLowerCase());
+    const isHamlet = terrain === "city" && terrainType === "urban" && tile.density.toLowerCase() === "sparse" && features.includes("buildings");
+    return terrain === "road" || terrainType === "road" || features.includes("road") || isHamlet;
+  }
+
+  /** Treat any explicit road surface or authored road feature as part of the road network. */
+  private isRoad(hex: Axial): boolean {
+    return this.tileHasRoadSurface(this.lookupTileDetails(hex));
   }
 
   /** In-bounds check for axial coordinates. */
@@ -9839,7 +9907,7 @@ private automateSupplyConvoys(
 
           // Calculate movement cost for this step
           const terrain = this.terrainAt(step);
-          const stepCost = this.resolveMoveCost(unitDef.moveType, terrain, step);
+          const stepCost = this.resolveMoveCost(unitDef.moveType, terrain, step, current);
           const stepFuel = this.resolveMovementFuelStep(unitDef.moveType, step);
 
           // Units can always move at least 1 hex per turn, even through difficult terrain
@@ -10214,7 +10282,7 @@ private automateSupplyConvoys(
 
       // Check if the terrain is passable for this unit type
       const terrain = this.terrainAt(candidate);
-      const moveCost = this.resolveMoveCost(moveType, terrain, candidate);
+      const moveCost = this.resolveMoveCost(moveType, terrain, candidate, origin);
       if (moveCost >= 999) {
         impassableCount++;
         return; // Impassable terrain
@@ -11334,8 +11402,7 @@ private automateSupplyConvoys(
     return entry ?? null;
   }
 
-  /** Translate palette entry into the canonical terrain definition used by combat and supply logic. */
-  private terrainAt(hex: Axial): TerrainDefinition | null {
+  private lookupTileDetails(hex: Axial): TileDefinition | null {
     const entry = this.lookupTileEntry(hex);
     if (!entry) {
       return null;
@@ -11344,7 +11411,24 @@ private automateSupplyConvoys(
     if (!paletteEntry) {
       return null;
     }
-    const terrainDefinition = this.terrain[paletteEntry.terrain as keyof TerrainDictionary];
+    const mergedFeatures = (entry.features ?? paletteEntry.features)
+      ? [...(entry.features ?? paletteEntry.features)]
+      : [];
+    return {
+      ...paletteEntry,
+      density: entry.density ?? paletteEntry.density,
+      features: mergedFeatures as TileDefinition["features"],
+      recon: entry.recon ?? paletteEntry.recon
+    };
+  }
+
+  /** Translate palette entry into the canonical terrain definition used by combat and supply logic. */
+  private terrainAt(hex: Axial): TerrainDefinition | null {
+    const tile = this.lookupTileDetails(hex);
+    if (!tile) {
+      return null;
+    }
+    const terrainDefinition = this.terrain[tile.terrain as keyof TerrainDictionary];
     return (terrainDefinition ?? null) as TerrainDefinition | null;
   }
 
@@ -12129,7 +12213,7 @@ private automateSupplyConvoys(
 
   private resolveActionCommitmentReason(flags: ReturnType<GameEngine["createDefaultActionFlags"]>): string | null {
     if (flags.attacksUsed > 0 || flags.movementPointsUsed > 0) {
-      return "Hold position and stay uncommitted this turn to use infantry field actions.";
+      return "Hold position and stay uncommitted this turn to use field actions.";
     }
     return null;
   }
@@ -12237,41 +12321,45 @@ private automateSupplyConvoys(
     if (!this.isEngineerUnit(unit, definition)) {
       return { available: false, reason: "Only engineer battalions can build battlefield modifications." };
     }
-    if (type === "fortifications") {
-      const commitmentReason = this.resolveActionCommitmentReason(flags);
-      if (commitmentReason) {
-        return { available: false, reason: commitmentReason };
-      }
-    } else if (flags.attacksUsed > 0) {
-      return {
-        available: false,
-        reason: "This engineer battalion has already attacked this turn."
-      };
+    const commitmentReason = this.resolveActionCommitmentReason(flags);
+    if (commitmentReason) {
+      return { available: false, reason: commitmentReason };
     }
     const existingMods = this.hexModifications.get(axialKey(hex)) ?? [];
-    if (type === "fortifications") {
-      const blockingNonFortification = existingMods.find((entry) => entry.type !== "fortifications");
-      if (blockingNonFortification) {
-        return {
-          available: false,
-          reason: `This hex already contains ${this.describeHexModification(blockingNonFortification.type)}.`
-        };
-      }
-      const fortifiedEdges = new Set(
+    if (type === "fortifications" || type === "tankTraps") {
+      const occupiedEdges = new Set(
         existingMods
-          .filter((entry) => entry.type === "fortifications")
+          .filter((entry) => entry.type === type)
           .map((entry) => entry.facing)
           .filter((edge): edge is HexEdgeFacing => edge !== null && edge !== undefined)
       );
-      if (fortifiedEdges.size >= 6) {
-        return { available: false, reason: "All six hex edges already contain fortifications." };
+      if (occupiedEdges.size >= 6) {
+        return {
+          available: false,
+          reason: `All six hex edges already contain ${type === "fortifications" ? "fortifications" : "tank traps"}.`
+        };
       }
       return { available: true, reason: null };
     }
-    if (existingMods.length > 0) {
+
+    const tile = this.lookupTileDetails(hex);
+    if (!this.tileCanHostRoad(tile)) {
       return {
         available: false,
-        reason: `This hex already contains ${this.describeHexModification(existingMods[0]!.type)}.`
+        reason: "Cleared paths can be cut only across land hexes."
+      };
+    }
+    if (this.tileHasRoadSurface(tile)) {
+      return {
+        available: false,
+        reason: "This hex already has a road surface."
+      };
+    }
+    const currentLevel = this.getHexModificationLevel(hex, "clearedPath");
+    if (currentLevel >= 3) {
+      return {
+        available: false,
+        reason: "This hex already has a fully developed cleared path."
       };
     }
     return { available: true, reason: null };
@@ -12556,31 +12644,49 @@ private automateSupplyConvoys(
     if (!build.available) {
       return false;
     }
-    const normalizedFacing = type === "fortifications"
+    const usesFacing = type === "fortifications" || type === "tankTraps";
+    const normalizedFacing = usesFacing
       ? this.normalizeHexEdgeFacing(facing)
       : null;
-    if (type === "fortifications" && !normalizedFacing) {
+    if (usesFacing && !normalizedFacing) {
       return false;
     }
     const existingMods = this.hexModifications.get(key) ?? [];
     if (
-      type === "fortifications" &&
-      existingMods.some((entry) => entry.type === "fortifications" && entry.facing === normalizedFacing)
+      usesFacing &&
+      existingMods.some((entry) => entry.type === type && this.normalizeHexEdgeFacing(entry.facing) === normalizedFacing)
     ) {
       return false;
     }
 
-    // Build the modification
-    const modification: HexModification = {
-      type,
-      hex: structuredClone(hex),
-      faction: "Player",
-      facing: normalizedFacing ?? undefined,
-      builtOnTurn: this._turnNumber
-    };
-    this.hexModifications.set(key, [...existingMods, modification]);
+    if (type === "clearedPath") {
+      const existingPath = existingMods.find((entry) => entry.type === "clearedPath") ?? null;
+      if (existingPath) {
+        existingPath.level = Math.min(3, (existingPath.level ?? 1) + 1);
+        existingPath.builtOnTurn = this._turnNumber;
+      } else {
+        existingMods.push({
+          type,
+          hex: structuredClone(hex),
+          faction: "Player",
+          level: 1,
+          builtOnTurn: this._turnNumber
+        });
+      }
+      this.hexModifications.set(key, existingMods);
+    } else {
+      existingMods.push({
+        type,
+        hex: structuredClone(hex),
+        faction: "Player",
+        facing: normalizedFacing ?? undefined,
+        builtOnTurn: this._turnNumber
+      });
+      this.hexModifications.set(key, existingMods);
+    }
 
-    // Engineering work also commits the unit for the rest of the turn.
+    // These engineer actions abstract a short five-minute slice of work across a roughly 250m hex,
+    // so even edge works and path clearing consume the battalion's remaining operational tempo.
     this.setUnitActionFlags("Player", unit, this.resolveCommittedFieldActionFlags(hex, flags, this.getSquadronId(unit)));
     this.updateIdleRegistryFor(key);
     this.invalidateRosterCache();

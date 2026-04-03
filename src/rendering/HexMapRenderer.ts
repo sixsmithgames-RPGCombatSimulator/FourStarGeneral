@@ -13,7 +13,7 @@ import { CombatSoundManager, type QueuedWeaponSoundRequest } from "../audio/Comb
 import type { WeaponSoundClass } from "../audio/SoundAssetMetadata";
 import terrainData from "../data/terrain.json";
 import unitTypesData from "../data/unitTypes.json";
-import { hexLine, type Axial } from "../core/Hex";
+import { axialDirections, hexLine, type Axial } from "../core/Hex";
 
 /**
  * Recon status types.
@@ -142,6 +142,7 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly objectiveMarkerMap: Map<string, SVGGElement> = new Map();
   /** Engineer-built terrain overlays such as fortifications and tank traps. */
   private readonly hexModificationOverlayMap: Map<string, SVGGElement> = new Map();
+  private readonly hexModificationStateMap: Map<string, HexModification[]> = new Map();
   private queuedTargetMarkerLayer: SVGGElement | null = null;
   private selectionGlow: SVGCircleElement | null = null;
 
@@ -1739,6 +1740,7 @@ export class HexMapRenderer implements IMapRenderer {
     this.hexLabelMap.clear();
     this.hexUnitImageMap.clear();
     this.hexModificationOverlayMap.clear();
+    this.hexModificationStateMap.clear();
 
     this.aftermathByHexKey.forEach((entry) => {
       entry.group = null;
@@ -1961,6 +1963,34 @@ export class HexMapRenderer implements IMapRenderer {
       panel.setAttribute("stroke-opacity", "0.92");
       panel.setAttribute("stroke-width", "0.9");
       container.appendChild(panel);
+    }
+  }
+
+  private appendTankTrapPanels(container: SVGElement, totalLength: number): void {
+    const trapCount = 3;
+    const gap = 6;
+    const usableLength = Math.max(18, totalLength);
+    const trapWidth = Math.max(6, (usableLength - gap * (trapCount - 1)) / trapCount);
+    const stripWidth = trapWidth * trapCount + gap * (trapCount - 1);
+    const startX = -stripWidth / 2;
+
+    for (let index = 0; index < trapCount; index += 1) {
+      const centerX = startX + index * (trapWidth + gap) + trapWidth / 2;
+      [
+        { x1: centerX - 4.5, y1: 4.8, x2: centerX + 4.5, y2: -4.8 },
+        { x1: centerX - 4.5, y1: -4.8, x2: centerX + 4.5, y2: 4.8 },
+        { x1: centerX, y1: -5.6, x2: centerX, y2: 5.6 }
+      ].forEach((segment) => {
+        const line = document.createElementNS(SVG_NS, "line");
+        line.setAttribute("x1", String(segment.x1));
+        line.setAttribute("y1", String(segment.y1));
+        line.setAttribute("x2", String(segment.x2));
+        line.setAttribute("y2", String(segment.y2));
+        line.setAttribute("stroke", "#050607");
+        line.setAttribute("stroke-width", "1.35");
+        line.setAttribute("stroke-linecap", "round");
+        container.appendChild(line);
+      });
     }
   }
 
@@ -2906,17 +2936,19 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   clearHexModification(hexKey: string): void {
+    this.hexModificationStateMap.delete(hexKey);
     const overlay = this.hexModificationOverlayMap.get(hexKey);
-    if (!overlay) {
-      return;
+    if (overlay) {
+      overlay.remove();
+      this.hexModificationOverlayMap.delete(hexKey);
     }
-    overlay.remove();
-    this.hexModificationOverlayMap.delete(hexKey);
+    this.getAdjacentHexKeys(hexKey).forEach((neighborHexKey) => this.refreshHexModificationOverlay(neighborHexKey));
   }
 
   clearAllHexModifications(): void {
     this.hexModificationOverlayMap.forEach((overlay) => overlay.remove());
     this.hexModificationOverlayMap.clear();
+    this.hexModificationStateMap.clear();
   }
 
   renderHexModification(hexKey: string, modification: HexModification): void {
@@ -2924,8 +2956,23 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   renderHexModifications(hexKey: string, modifications: readonly HexModification[]): void {
+    this.hexModificationStateMap.set(hexKey, modifications.map((modification) => structuredClone(modification)));
+    this.refreshHexModificationOverlay(hexKey);
+    this.getAdjacentHexKeys(hexKey).forEach((neighborHexKey) => this.refreshHexModificationOverlay(neighborHexKey));
+  }
+
+  private refreshHexModificationOverlay(hexKey: string): void {
     const cell = this.hexElementMap.get(hexKey);
-    if (!cell || modifications.length === 0) {
+    if (!cell) {
+      return;
+    }
+    const modifications = this.hexModificationStateMap.get(hexKey) ?? [];
+    if (modifications.length === 0) {
+      const existing = this.hexModificationOverlayMap.get(hexKey);
+      if (existing) {
+        existing.remove();
+        this.hexModificationOverlayMap.delete(hexKey);
+      }
       return;
     }
 
@@ -2949,7 +2996,15 @@ export class HexMapRenderer implements IMapRenderer {
     } else {
       overlay.removeAttribute("data-modification-facing");
     }
-    overlay.replaceChildren(...modifications.map((modification) => this.buildHexModificationOverlay(cell, modification)));
+    const clearPathLevel = modifications
+      .filter((modification) => modification.type === "clearedPath")
+      .reduce((highest, modification) => Math.max(highest, modification.level ?? 1), 0);
+    if (clearPathLevel > 0) {
+      overlay.setAttribute("data-cleared-path-level", String(clearPathLevel));
+    } else {
+      overlay.removeAttribute("data-cleared-path-level");
+    }
+    overlay.replaceChildren(...modifications.map((modification) => this.buildHexModificationOverlay(hexKey, cell, modification)));
 
     const existingUnitGroup = this.hexUnitImageMap.get(hexKey);
     if (existingUnitGroup && existingUnitGroup.parentNode === cell) {
@@ -2959,11 +3014,10 @@ export class HexMapRenderer implements IMapRenderer {
     }
   }
 
-  private buildHexModificationOverlay(cell: SVGGElement, modification: HexModification): SVGElement {
+  private buildHexModificationOverlay(hexKey: string, cell: SVGGElement, modification: HexModification): SVGElement {
     const center = this.extractHexCenter(cell);
     const cx = center?.cx ?? Number(cell.dataset.cx ?? 0);
     const cy = center?.cy ?? Number(cell.dataset.cy ?? 0);
-    const { stroke, fill } = this.resolveFactionAccent(modification.faction);
 
     const group = document.createElementNS(SVG_NS, "g");
     group.classList.add("hex-modification-overlay__icon");
@@ -2994,50 +3048,62 @@ export class HexMapRenderer implements IMapRenderer {
         break;
       }
       case "tankTraps": {
-        [-12, 0, 12].forEach((offset) => {
-          const first = document.createElementNS(SVG_NS, "line");
-          first.setAttribute("x1", String(cx + offset - 4));
-          first.setAttribute("y1", String(cy + 8));
-          first.setAttribute("x2", String(cx + offset + 4));
-          first.setAttribute("y2", String(cy + 18));
-          first.setAttribute("stroke", stroke);
-          first.setAttribute("stroke-width", "2");
-          first.setAttribute("stroke-linecap", "round");
-          group.appendChild(first);
+        const facing = this.normalizeHexEdgeFacing(modification.facing);
+        if (!facing) {
+          const legacyGroup = document.createElementNS(SVG_NS, "g");
+          legacyGroup.setAttribute("transform", `translate(${cx} ${cy + 12})`);
+          this.appendTankTrapPanels(legacyGroup, 28);
+          group.appendChild(legacyGroup);
+          break;
+        }
 
-          const second = document.createElementNS(SVG_NS, "line");
-          second.setAttribute("x1", String(cx + offset + 4));
-          second.setAttribute("y1", String(cy + 8));
-          second.setAttribute("x2", String(cx + offset - 4));
-          second.setAttribute("y2", String(cy + 18));
-          second.setAttribute("stroke", stroke);
-          second.setAttribute("stroke-width", "2");
-          second.setAttribute("stroke-linecap", "round");
-          group.appendChild(second);
-        });
+        const edge = this.resolveHexEdgeGeometry(cx, cy, facing);
+        const edgeGroup = document.createElementNS(SVG_NS, "g");
+        edgeGroup.setAttribute(
+          "transform",
+          `translate(${edge.mid.x + edge.inward.x * 4} ${edge.mid.y + edge.inward.y * 4}) rotate(${edge.angleDeg})`
+        );
+        this.appendTankTrapPanels(edgeGroup, Math.max(18, edge.length - 12));
+        group.appendChild(edgeGroup);
         break;
       }
       case "clearedPath":
       default: {
-        const lane = document.createElementNS(SVG_NS, "path");
-        lane.setAttribute("d", `M ${cx - 20} ${cy + 18} C ${cx - 8} ${cy + 10}, ${cx + 4} ${cy + 22}, ${cx + 20} ${cy + 14}`);
-        lane.setAttribute("fill", "none");
-        lane.setAttribute("stroke", stroke);
-        lane.setAttribute("stroke-width", "2.2");
-        lane.setAttribute("stroke-linecap", "round");
-        lane.setAttribute("stroke-dasharray", "5 3");
-        group.appendChild(lane);
-
-        [0, 10].forEach((offset) => {
-          const chevron = document.createElementNS(SVG_NS, "path");
-          chevron.setAttribute("d", `M ${cx - 4 + offset} ${cy + 10} L ${cx + 1 + offset} ${cy + 15} L ${cx - 4 + offset} ${cy + 20}`);
-          chevron.setAttribute("fill", "none");
-          chevron.setAttribute("stroke", stroke);
-          chevron.setAttribute("stroke-width", "1.8");
-          chevron.setAttribute("stroke-linecap", "round");
-          chevron.setAttribute("stroke-linejoin", "round");
-          group.appendChild(chevron);
-        });
+        const level = Math.max(1, Math.min(3, modification.level ?? 1));
+        group.setAttribute("data-cleared-path-level", String(level));
+        const tile = this.getTileDetailsAtHexKey(hexKey);
+        const offset = CoordinateSystem.parseHexKey(hexKey);
+        if (tile && offset && this.scenarioData) {
+          group.innerHTML = this.roadRenderer.drawRoadOverlay(
+            cx,
+            cy,
+            tile,
+            offset.col,
+            offset.row,
+            this.scenarioData.tiles,
+            this.scenarioData.tilePalette,
+            {
+              treatCurrentAsRoad: true,
+              style: {
+                strokeColor: "#8b6f47",
+                strokeWidth: this.resolveClearedPathStrokeWidth(level),
+                opacity: 0.96
+              },
+              neighborHasRoad: ({ tile: neighborTile, col, row }) => (
+                this.roadRenderer.hasRoad(neighborTile) ||
+                this.getClearPathLevelForHexKey(CoordinateSystem.makeHexKey(col, row)) > 0
+              )
+            }
+          );
+        } else {
+          const lane = document.createElementNS(SVG_NS, "path");
+          lane.setAttribute("d", `M ${cx - 20} ${cy + 18} C ${cx - 8} ${cy + 10}, ${cx + 4} ${cy + 22}, ${cx + 20} ${cy + 14}`);
+          lane.setAttribute("fill", "none");
+          lane.setAttribute("stroke", "#8b6f47");
+          lane.setAttribute("stroke-width", String(this.resolveClearedPathStrokeWidth(level)));
+          lane.setAttribute("stroke-linecap", "round");
+          group.appendChild(lane);
+        }
         break;
       }
     }
@@ -3045,16 +3111,56 @@ export class HexMapRenderer implements IMapRenderer {
     return group;
   }
 
-  private resolveFactionAccent(faction: HexModification["faction"]): { stroke: string; fill: string } {
-    switch (faction) {
-      case "Bot":
-        return { stroke: "#ff8d82", fill: "rgba(110, 35, 35, 0.6)" };
-      case "Ally":
-        return { stroke: "#8ee0a8", fill: "rgba(28, 74, 46, 0.6)" };
-      case "Player":
+  private resolveClearedPathStrokeWidth(level: number): number {
+    switch (Math.max(1, Math.min(3, level))) {
+      case 1:
+        return 1.2;
+      case 2:
+        return 2.1;
+      case 3:
       default:
-        return { stroke: "#f3d49a", fill: "rgba(113, 79, 22, 0.56)" };
+        return 3;
     }
+  }
+
+  private getTileDetailsAtHexKey(hexKey: string): TileDetails | null {
+    if (!this.scenarioData) {
+      return null;
+    }
+    const offset = CoordinateSystem.parseHexKey(hexKey);
+    if (!offset) {
+      return null;
+    }
+    const rowTiles = this.scenarioData.tiles[offset.row];
+    if (!rowTiles) {
+      return null;
+    }
+    const tileEntry = rowTiles[offset.col];
+    if (!tileEntry) {
+      return null;
+    }
+    return CoordinateSystem.resolveTile(tileEntry, this.scenarioData.tilePalette);
+  }
+
+  private getClearPathLevelForHexKey(hexKey: string): number {
+    return (this.hexModificationStateMap.get(hexKey) ?? []).reduce((highest, modification) => {
+      if (modification.type !== "clearedPath") {
+        return highest;
+      }
+      return Math.max(highest, modification.level ?? 1);
+    }, 0);
+  }
+
+  private getAdjacentHexKeys(hexKey: string): string[] {
+    const offset = CoordinateSystem.parseHexKey(hexKey);
+    if (!offset) {
+      return [];
+    }
+    const axial = CoordinateSystem.offsetToAxial(offset.col, offset.row);
+    return axialDirections.map((dir) => {
+      const neighbor = CoordinateSystem.axialToOffset(axial.q + dir.q, axial.r + dir.r);
+      return CoordinateSystem.makeHexKey(neighbor.col, neighbor.row);
+    }).filter((neighborHexKey) => this.hexElementMap.has(neighborHexKey));
   }
 
   /**

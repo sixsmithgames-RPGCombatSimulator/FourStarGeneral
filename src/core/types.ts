@@ -9,6 +9,7 @@ export type MoveType = "leg" | "wheel" | "track" | "air";
 export type TerrainDensity = "sparse" | "average" | "dense";
 export type ReconStatus = "aerial" | "intel" | "firsthand" | "none";
 export type TerrainFeature =
+  | "road"
   | "rocks"
   | "foothills"
   | "cliffs"
@@ -115,8 +116,10 @@ export interface HexModification {
   hex: Axial;
   /** Faction that built this modification */
   faction: "Player" | "Bot" | "Ally";
-  /** Optional edge-facing for directional battlefield works such as fortifications. */
+  /** Optional edge-facing for directional battlefield works such as fortifications or tank traps. */
   facing?: HexEdgeFacing;
+  /** Optional build depth for progressive works such as cleared paths. */
+  level?: number;
   /** Turn when modification was built (for persistence/serialization) */
   builtOnTurn?: number;
 }

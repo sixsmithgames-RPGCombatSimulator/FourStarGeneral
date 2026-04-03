@@ -108,6 +108,7 @@ interface PendingFortificationContext {
   readonly hexKey: string;
   readonly unitLabel: string;
   readonly unitId: string | null;
+  readonly modificationType: "fortifications" | "tankTraps";
 }
 
 interface PreparedAirMissionFlight {
@@ -1831,12 +1832,17 @@ export class BattleScreen {
     this.currentAttackStance = null;
   }
 
-  private promptFortificationFacing(hex: Axial, unitLabel: string, unitId: string | null): void {
+  private promptFortificationFacing(
+    hex: Axial,
+    unitLabel: string,
+    unitId: string | null,
+    modificationType: "fortifications" | "tankTraps" = "fortifications"
+  ): void {
     if (!this.selectedHexKey) {
       return;
     }
     if (!this.fortificationFacingDialog) {
-      this.announceBattleUpdate("Fortification direction chooser is unavailable right now.");
+      this.announceBattleUpdate("Edge-work direction chooser is unavailable right now.");
       return;
     }
     if (this.popupManager.getActivePopup()) {
@@ -1847,7 +1853,8 @@ export class BattleScreen {
       hex: structuredClone(hex),
       hexKey: this.selectedHexKey,
       unitLabel,
-      unitId
+      unitId,
+      modificationType
     };
     this.renderFortificationFacingPreview();
     this.showFortificationFacingDialog();
@@ -1855,18 +1862,25 @@ export class BattleScreen {
 
   private renderFortificationFacingPreview(): void {
     if (this.fortificationFacingPreview) {
-      const fortifiedFacings = this.pendingFortificationBuild
+      const pendingBuild = this.pendingFortificationBuild;
+      const fortifiedFacings = pendingBuild
         ? this.battleState.ensureGameEngine()
-          .getHexModifications(this.pendingFortificationBuild.hex)
-          .filter((modification) => modification.type === "fortifications")
+          .getHexModifications(pendingBuild.hex)
+          .filter((modification) => modification.type === pendingBuild.modificationType)
           .map((modification) => this.normalizeFortificationEdgeFacing(modification.facing))
           .filter((facing): facing is HexEdgeFacing => facing !== null)
         : [];
-      this.fortificationFacingPreview.innerHTML = this.buildFortificationFacingPreviewMarkup(fortifiedFacings);
+      this.fortificationFacingPreview.innerHTML = this.buildFortificationFacingPreviewMarkup(
+        fortifiedFacings,
+        pendingBuild?.modificationType ?? "fortifications"
+      );
     }
   }
 
-  private buildFortificationFacingPreviewMarkup(fortifiedFacings: readonly HexEdgeFacing[]): string {
+  private buildFortificationFacingPreviewMarkup(
+    fortifiedFacings: readonly HexEdgeFacing[],
+    modificationType: "fortifications" | "tankTraps"
+  ): string {
     const edgePaths: Record<HexEdgeFacing, string> = {
       NW: "M 35 67 L 110 24",
       NE: "M 110 24 L 185 67",
@@ -1883,9 +1897,9 @@ export class BattleScreen {
       SW: { x: 60, y: 186 },
       W: { x: 20, y: 114 }
     };
-
+    const noun = modificationType === "tankTraps" ? "tank-trap" : "fortification";
     return `
-      <svg viewBox="0 0 220 220" class="fortification-facing-preview-svg" aria-label="Select a fortification edge">
+      <svg viewBox="0 0 220 220" class="fortification-facing-preview-svg" aria-label="Select a ${noun} edge">
         <polygon
           class="fortification-facing-preview-hex"
           points="110,24 185,67 185,153 110,196 35,153 35,67"
@@ -1901,7 +1915,7 @@ export class BattleScreen {
             tabindex="${isBuilt ? "-1" : "0"}"
             role="button"
             aria-disabled="${isBuilt ? "true" : "false"}"
-            aria-label="${isBuilt ? `${edge} edge already fortified` : `Fortify ${edge} edge`}"
+            aria-label="${isBuilt ? `${edge} edge already has ${noun} works` : `Build ${noun} works on the ${edge} edge`}"
           />
         `;
         }).join("")}
@@ -2015,24 +2029,28 @@ export class BattleScreen {
       return;
     }
 
-    const { hex, hexKey, unitLabel, unitId } = this.pendingFortificationBuild;
+    const { hex, hexKey, unitLabel, unitId, modificationType } = this.pendingFortificationBuild;
     const engine = this.battleState.ensureGameEngine();
     const fortifiedFacings = new Set(
       engine
         .getHexModifications(hex)
-        .filter((modification) => modification.type === "fortifications")
+        .filter((modification) => modification.type === modificationType)
         .map((modification) => this.normalizeFortificationEdgeFacing(modification.facing))
         .filter((edge): edge is HexEdgeFacing => edge !== null)
     );
     if (fortifiedFacings.has(facing)) {
-      this.announceBattleUpdate(`${unitLabel} already has fortifications on the ${facing} edge at ${hexKey}.`);
+      this.announceBattleUpdate(`${unitLabel} already has ${this.describeHexModification(modificationType)} on the ${facing} edge at ${hexKey}.`);
       this.renderFortificationFacingPreview();
       return;
     }
-    const succeeded = engine.buildHexModification(hex, "fortifications", facing, unitId ?? undefined);
+    const succeeded = engine.buildHexModification(hex, modificationType, facing, unitId ?? undefined);
     if (!succeeded) {
       const commandState = engine.getUnitCommandState(hex, unitId ?? undefined);
-      this.announceBattleUpdate(commandState?.buildReason ?? "Engineer fieldworks are not available on this hex right now.");
+      this.announceBattleUpdate(
+        commandState?.buildModificationAvailability?.[modificationType]?.reason ??
+        commandState?.buildReason ??
+        "Engineer fieldworks are not available on this hex right now."
+      );
       this.renderFortificationFacingPreview();
       return;
     }
@@ -2041,7 +2059,7 @@ export class BattleScreen {
     this.renderEngineUnits();
     this.applySelectedHex(hexKey);
 
-    const summary = `${unitLabel} established fortifications on the ${facing} edge at ${hexKey}.`;
+    const summary = `${unitLabel} established ${this.describeHexModification(modificationType)} on the ${facing} edge at ${hexKey}.`;
     this.announceBattleUpdate(summary);
     this.publishActivityEvent({
       category: "player",
@@ -6746,14 +6764,27 @@ export class BattleScreen {
       if (!modificationType) {
         return;
       }
-      if (modificationType === "fortifications") {
-        this.promptFortificationFacing(axial, unitLabel, this.selectedPlayerUnitId);
+      if (modificationType === "fortifications" || modificationType === "tankTraps") {
+        this.promptFortificationFacing(axial, unitLabel, this.selectedPlayerUnitId, modificationType);
         return;
       }
       succeeded = engine.buildHexModification(axial, modificationType, undefined, this.selectedPlayerUnitId ?? undefined);
-      summary = `${unitLabel} established ${this.describeHexModification(modificationType)} at ${this.selectedHexKey}.`;
+      if (modificationType === "clearedPath") {
+        const currentLevel = engine.getHexModifications(axial)
+          .find((modification) => modification.type === "clearedPath")
+          ?.level ?? 1;
+        summary = currentLevel > 1
+          ? `${unitLabel} improved the cleared path to level ${currentLevel} at ${this.selectedHexKey}.`
+          : `${unitLabel} cleared a path at ${this.selectedHexKey}.`;
+      } else {
+        summary = `${unitLabel} established ${this.describeHexModification(modificationType)} at ${this.selectedHexKey}.`;
+      }
       if (!succeeded) {
-        this.announceBattleUpdate(commandState?.buildReason ?? "Engineer fieldworks are not available on this hex right now.");
+        this.announceBattleUpdate(
+          commandState?.buildModificationAvailability?.[modificationType]?.reason ??
+          commandState?.buildReason ??
+          "Engineer fieldworks are not available on this hex right now."
+        );
         return;
       }
     }
@@ -7385,7 +7416,7 @@ export class BattleScreen {
         {
           id: "fortifications",
           label: "Fortify",
-          detail: "Build directional defensive works along a chosen hex edge. Cover applies only from the protected side.",
+          detail: "Build directional defensive works along a chosen hex edge. The engineer must start fresh, and the five-minute build effort consumes the rest of the turn.",
           tone: "defense",
           available: fortificationsBuild.available,
           reason: fortificationsBuild.reason
@@ -7393,7 +7424,7 @@ export class BattleScreen {
         {
           id: "tankTraps",
           label: "Lay Tank Traps",
-          detail: "Create an anti-vehicle obstacle that sharply slows wheeled and tracked movement. Can be ordered after movement, but consumes the rest of the engineer's turn.",
+          detail: "Emplace anti-vehicle obstacles along a chosen hex edge. The engineer must start fresh, and the edge work consumes the rest of the turn.",
           tone: "denial",
           available: tankTrapsBuild.available,
           reason: tankTrapsBuild.reason
@@ -7401,7 +7432,7 @@ export class BattleScreen {
         {
           id: "clearedPath",
           label: "Clear Path",
-          detail: "Open a faster lane through the hex so follow-on battalions can move more quickly. Can be ordered after movement, but consumes the rest of the engineer's turn.",
+          detail: "Cut or widen an internal lane through the hex, improving it up to level 3 until movement approaches road quality. The engineer must start fresh, and each pass consumes the rest of the turn.",
           tone: "mobility",
           available: clearedPathBuild.available,
           reason: clearedPathBuild.reason
@@ -7576,15 +7607,20 @@ export class BattleScreen {
 
   private describeHexModificationPlacement(modification: HexModification): string {
     const facing = this.normalizeFortificationEdgeFacing(modification.facing);
-    if (modification.type === "fortifications" && facing) {
-      return `fortifications on the ${facing} edge`;
+    if ((modification.type === "fortifications" || modification.type === "tankTraps") && facing) {
+      return `${this.describeHexModification(modification.type)} on the ${facing} edge`;
+    }
+    if (modification.type === "clearedPath") {
+      const level = Math.max(1, modification.level ?? 1);
+      return level > 1 ? `a cleared path (level ${level})` : "a cleared path";
     }
     return this.describeHexModification(modification.type);
   }
 
   private describeHexModificationCollection(modifications: readonly HexModification[]): string {
     const fortifications = modifications.filter((modification) => modification.type === "fortifications");
-    const others = modifications.filter((modification) => modification.type !== "fortifications");
+    const tankTraps = modifications.filter((modification) => modification.type === "tankTraps");
+    const others = modifications.filter((modification) => modification.type !== "fortifications" && modification.type !== "tankTraps");
     const parts: string[] = [];
 
     if (fortifications.length === 1) {
@@ -7592,26 +7628,41 @@ export class BattleScreen {
     } else if (fortifications.length > 1) {
       parts.push(`fortifications on ${fortifications.length} edges`);
     }
+    if (tankTraps.length === 1) {
+      parts.push(this.describeHexModificationPlacement(tankTraps[0]!));
+    } else if (tankTraps.length > 1) {
+      parts.push(`tank traps on ${tankTraps.length} edges`);
+    }
     others.forEach((modification) => parts.push(this.describeHexModificationPlacement(modification)));
     return parts.join(" and ");
   }
 
   private formatHexModificationLabel(modification: HexModification): string {
     const facing = this.normalizeFortificationEdgeFacing(modification.facing);
-    if (modification.type === "fortifications" && facing) {
-      return `Fortifications ${facing}`;
+    if ((modification.type === "fortifications" || modification.type === "tankTraps") && facing) {
+      return `${this.toTitleCase(this.describeHexModification(modification.type))} ${facing}`;
+    }
+    if (modification.type === "clearedPath") {
+      return `Clear Path ${Math.max(1, modification.level ?? 1)}/3`;
     }
     return this.toTitleCase(this.describeHexModification(modification.type));
   }
 
   private formatHexModificationCollectionLabel(modifications: readonly HexModification[]): string {
     const fortifications = modifications.filter((modification) => modification.type === "fortifications");
-    const others = modifications.filter((modification) => modification.type !== "fortifications");
-    if (fortifications.length > 1 && others.length === 0) {
+    const tankTraps = modifications.filter((modification) => modification.type === "tankTraps");
+    const others = modifications.filter((modification) => modification.type !== "fortifications" && modification.type !== "tankTraps");
+    if (fortifications.length > 1 && tankTraps.length === 0 && others.length === 0) {
       return `Fortifications ${fortifications.length}/6`;
     }
-    if (fortifications.length === 1 && others.length === 0) {
+    if (tankTraps.length > 1 && fortifications.length === 0 && others.length === 0) {
+      return `Tank Traps ${tankTraps.length}/6`;
+    }
+    if (fortifications.length === 1 && tankTraps.length === 0 && others.length === 0) {
       return this.formatHexModificationLabel(fortifications[0]!);
+    }
+    if (tankTraps.length === 1 && fortifications.length === 0 && others.length === 0) {
+      return this.formatHexModificationLabel(tankTraps[0]!);
     }
     return modifications.map((modification) => this.formatHexModificationLabel(modification)).join(" • ");
   }
