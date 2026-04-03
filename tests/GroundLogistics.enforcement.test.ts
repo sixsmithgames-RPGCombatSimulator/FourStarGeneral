@@ -219,6 +219,19 @@ function createDepotSeeder(hex = { q: 3, r: 0 }): ScenarioUnit {
   };
 }
 
+function createSupplyTruck(hex = { q: 1, r: 0 }): ScenarioUnit {
+  return {
+    type: "Supply_Truck" as ScenarioUnit["type"],
+    hex,
+    strength: 10,
+    experience: 0,
+    ammo: 0,
+    fuel: 12,
+    entrench: 0,
+    facing: "NW"
+  };
+}
+
 registerTest("GROUND_UNITS_STOP_ATTACKING_OR_MOVING_WITHOUT_CARRIED_STOCK", async ({ Given, Then }) => {
   let engine: GameEngine;
 
@@ -333,6 +346,70 @@ registerTest("ONLY_BASE_ADJACENT_UNITS_RECEIVE_DIRECT_DEPOT_ISSUES", async ({ Gi
     }
     if (queueEntry.status !== "queued") {
       throw new Error(`Expected the forward battalion to be queued for convoy service, saw '${queueEntry.status}'.`);
+    }
+  });
+});
+
+registerTest("CONVOYS_ROTATE_EQUAL_PRIORITY_DELIVERIES_ACROSS_TURNS", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let firstTargetHex: string | null = null;
+
+  await Given("a single convoy serving two equal-priority battalions just beyond direct depot range", async () => {
+    const targetAlpha: ScenarioUnit = {
+      type: "TestVehicle" as ScenarioUnit["type"],
+      hex: { q: 2, r: 0 },
+      strength: 10,
+      experience: 0,
+      ammo: 0,
+      fuel: 0,
+      entrench: 0,
+      facing: "NW"
+    };
+    const targetBravo: ScenarioUnit = {
+      type: "TestVehicle" as ScenarioUnit["type"],
+      hex: { q: 1, r: 1 },
+      strength: 10,
+      experience: 0,
+      ammo: 0,
+      fuel: 0,
+      entrench: 0,
+      facing: "NW"
+    };
+
+    engine = createEngine([
+      createSupplyTruck({ q: 1, r: 0 }),
+      targetAlpha,
+      targetBravo,
+      createDepotSeeder({ q: 3, r: 0 })
+    ]);
+  });
+
+  await When("the convoy completes two end-turn automation passes", async () => {
+    engine.endTurn();
+    const alphaAfterFirst = findPlayerUnit(engine, { q: 2, r: 0 });
+    const bravoAfterFirst = findPlayerUnit(engine, { q: 1, r: 1 });
+    firstTargetHex = alphaAfterFirst.ammo > 0 || alphaAfterFirst.fuel > 0 ? "2,0"
+      : bravoAfterFirst.ammo > 0 || bravoAfterFirst.fuel > 0 ? "1,1"
+      : null;
+
+    engine.endTurn();
+  });
+
+  await Then("both battalions should have received at least one convoy delivery instead of one being serviced twice first", async () => {
+    if (!firstTargetHex) {
+      throw new Error("Expected one of the equal-priority battalions to receive the first convoy delivery.");
+    }
+
+    const alphaAfterSecond = findPlayerUnit(engine, { q: 2, r: 0 });
+    const bravoAfterSecond = findPlayerUnit(engine, { q: 1, r: 1 });
+
+    const alphaServiced = alphaAfterSecond.ammo > 0 || alphaAfterSecond.fuel > 0;
+    const bravoServiced = bravoAfterSecond.ammo > 0 || bravoAfterSecond.fuel > 0;
+
+    if (!alphaServiced || !bravoServiced) {
+      throw new Error(
+        `Expected the convoy to rotate equal-priority service across both battalions by the second pass, saw alpha ammo=${alphaAfterSecond.ammo}, fuel=${alphaAfterSecond.fuel}; bravo ammo=${bravoAfterSecond.ammo}, fuel=${bravoAfterSecond.fuel}.`
+      );
     }
   });
 });

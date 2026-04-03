@@ -615,6 +615,13 @@ interface ConvoyAllocationResult {
   fuelToReserve: number;
 }
 
+interface ConvoyReachableTarget {
+  entry: SupplyDemandEntry;
+  need: { ammoNeed: number; fuelNeed: number };
+  plan: MovementPathPlan;
+  cargoMismatchPenalty: number;
+}
+
 /**
  * Structured combat resolution payload returned to the UI layer after an attack.
  * Bundles the raw `AttackResult` math along with high-level flags so announcements
@@ -2826,6 +2833,146 @@ export class GameEngine implements GameEngineAPI {
     }
   }
 
+  private getSupplyDemandPriorityRank(entry: SupplyDemandEntry): number {
+    switch (entry.priority) {
+      case "critical":
+        return 4;
+      case "high":
+        return 3;
+      case "normal":
+        return 2;
+      case "low":
+      default:
+        return 1;
+    }
+  }
+
+  private getConvoyServiceHistoryMap(faction: TurnFaction): Map<string, number> {
+    return this.convoyServiceHistoryByFaction[faction];
+  }
+
+  private getConvoyServiceSequence(faction: TurnFaction, unitId: string | null | undefined): number {
+    const normalized = this.normalizeUnitId(unitId);
+    if (!normalized) {
+      return 0;
+    }
+    return this.getConvoyServiceHistoryMap(faction).get(normalized) ?? 0;
+  }
+
+  private recordConvoyService(faction: TurnFaction, unitId: string | null | undefined): void {
+    const normalized = this.normalizeUnitId(unitId);
+    if (!normalized) {
+      return;
+    }
+    const nextSequence = (this.convoyServiceSequenceByFaction[faction] ?? 0) + 1;
+    this.convoyServiceSequenceByFaction[faction] = nextSequence;
+    this.getConvoyServiceHistoryMap(faction).set(normalized, nextSequence);
+  }
+
+  private reserveConvoyAssignment(
+    truckState: SupplyTruckState,
+    target: SupplyDemandEntry,
+    reservations: Map<string, ConvoyReservation>,
+    ammoToReserve: number,
+    fuelToReserve: number
+  ): boolean {
+    const unitId = this.normalizeUnitId(target.unit.unitId);
+    if (!unitId) {
+      return false;
+    }
+
+    let reservation = reservations.get(unitId);
+    if (!reservation) {
+      reservation = {
+        unitId,
+        ammoReserved: 0,
+        fuelReserved: 0,
+        assignedTrucks: []
+      };
+      reservations.set(unitId, reservation);
+    }
+
+    reservation.ammoReserved += ammoToReserve;
+    reservation.fuelReserved += fuelToReserve;
+    if (!reservation.assignedTrucks.includes(truckState.unitId)) {
+      reservation.assignedTrucks.push(truckState.unitId);
+    }
+
+    truckState.assignedUnitId = unitId;
+    target.assignmentCount += 1;
+    truckState.status = "delivering";
+    return true;
+  }
+
+  private compareConvoyReachableTargets(
+    faction: TurnFaction,
+    left: ConvoyReachableTarget,
+    right: ConvoyReachableTarget
+  ): number {
+    const priorityDiff = this.getSupplyDemandPriorityRank(right.entry) - this.getSupplyDemandPriorityRank(left.entry);
+    if (priorityDiff !== 0) {
+      return priorityDiff;
+    }
+
+    const mismatchDiff = left.cargoMismatchPenalty - right.cargoMismatchPenalty;
+    if (mismatchDiff !== 0) {
+      return mismatchDiff;
+    }
+
+    const assignmentDiff = left.entry.assignmentCount - right.entry.assignmentCount;
+    if (assignmentDiff !== 0) {
+      return assignmentDiff;
+    }
+
+    const leftServiceSequence = this.getConvoyServiceSequence(faction, left.entry.unit.unitId);
+    const rightServiceSequence = this.getConvoyServiceSequence(faction, right.entry.unit.unitId);
+    if (leftServiceSequence !== rightServiceSequence) {
+      return leftServiceSequence - rightServiceSequence;
+    }
+
+    const leftNeed = left.need.ammoNeed + left.need.fuelNeed;
+    const rightNeed = right.need.ammoNeed + right.need.fuelNeed;
+    if (leftNeed !== rightNeed) {
+      return rightNeed - leftNeed;
+    }
+
+    const costDiff = left.plan.summary.cost - right.plan.summary.cost;
+    if (costDiff !== 0) {
+      return costDiff;
+    }
+
+    const leftUnitId = this.normalizeUnitId(left.entry.unit.unitId) ?? `${left.entry.unit.type}@${axialKey(left.entry.unit.hex)}`;
+    const rightUnitId = this.normalizeUnitId(right.entry.unit.unitId) ?? `${right.entry.unit.type}@${axialKey(right.entry.unit.hex)}`;
+    return leftUnitId.localeCompare(rightUnitId);
+  }
+
+  private shouldRotateConvoyAssignment(
+    faction: TurnFaction,
+    currentEntry: SupplyDemandEntry | null,
+    bestEntry: SupplyDemandEntry | null
+  ): boolean {
+    if (!currentEntry || !bestEntry) {
+      return false;
+    }
+
+    const currentUnitId = this.normalizeUnitId(currentEntry.unit.unitId);
+    const bestUnitId = this.normalizeUnitId(bestEntry.unit.unitId);
+    if (!currentUnitId || !bestUnitId || currentUnitId === bestUnitId) {
+      return false;
+    }
+
+    const currentPriority = this.getSupplyDemandPriorityRank(currentEntry);
+    const bestPriority = this.getSupplyDemandPriorityRank(bestEntry);
+    if (bestPriority > currentPriority) {
+      return true;
+    }
+    if (bestPriority < currentPriority) {
+      return false;
+    }
+
+    return this.getConvoyServiceSequence(faction, currentUnitId) > 0;
+  }
+
   private ensureSupplyTruckStatesForFaction(faction: TurnFaction): void {
     const placements = this.getPlacementMapForFaction(faction);
     const stateMap = this.getSupplyTruckStateMap(faction);
@@ -2964,10 +3111,15 @@ export class GameEngine implements GameEngineAPI {
   private resolveSupplyDemandEntries(faction: TurnFaction): SupplyDemandEntry[] {
     const placements = Array.from(this.getPlacementMapForFaction(faction).values());
     const entries: SupplyDemandEntry[] = [];
+    const liveDemandUnitIds = new Set<string>();
 
     placements
       .filter((unit) => !this.isSupplyTruckType(unit.type))
       .forEach((unit) => {
+        const unitId = this.normalizeUnitId(this.ensureUnitId(unit));
+        if (unitId) {
+          liveDemandUnitIds.add(unitId);
+        }
         const definition = this.getUnitDefinition(unit.type);
         const state = this.getSupplyStateForHex(faction, unit.hex);
         if (!state || definition.moveType === "air") {
@@ -2989,6 +3141,13 @@ export class GameEngine implements GameEngineAPI {
           status: "queued"
         });
       });
+
+    const serviceHistory = this.getConvoyServiceHistoryMap(faction);
+    Array.from(serviceHistory.keys()).forEach((unitId) => {
+      if (!liveDemandUnitIds.has(unitId)) {
+        serviceHistory.delete(unitId);
+      }
+    });
 
     return entries;
   }
@@ -3035,23 +3194,29 @@ export class GameEngine implements GameEngineAPI {
     const occupied = this.buildUnifiedOccupancySet();
     occupied.delete(axialKey(truck.hex));
 
-    let best: { entry: SupplyDemandEntry; score: number } | null = null;
+    const reachable: ConvoyReachableTarget[] = [];
     for (const entry of availableDemand) {
       const serviceHexes = this.collectServiceHexes(entry.unit.hex, truck.hex);
       const plan = this.findCheapestPathToAny(truck.hex, serviceHexes, this.getUnitDefinition(truck.type).moveType, occupied);
-      const travelPenalty = plan ? plan.summary.cost * 4 : 80;
-      const cargoMismatchPenalty = (entry.ammoNeed > 0 && truckState.ammoCargo <= 0 ? 45 : 0)
-        + (entry.fuelNeed > 0 && truckState.fuelCargo <= 0 ? 45 : 0);
-      const score = this.scoreSupplyDemand(entry) - travelPenalty - cargoMismatchPenalty;
-      if (!best || score > best.score) {
-        best = { entry, score };
+      if (!plan) {
+        continue;
       }
+      reachable.push({
+        entry,
+        need: { ammoNeed: entry.ammoNeed, fuelNeed: entry.fuelNeed },
+        plan,
+        cargoMismatchPenalty:
+          (entry.ammoNeed > 0 && truckState.ammoCargo <= 0 ? 45 : 0) +
+          (entry.fuelNeed > 0 && truckState.fuelCargo <= 0 ? 45 : 0)
+      });
     }
 
-    if (!best || best.score < -20) {
+    if (reachable.length === 0) {
       return null;
     }
-    return best.entry;
+
+    reachable.sort((left, right) => this.compareConvoyReachableTargets(faction, left, right));
+    return reachable[0]?.entry ?? null;
   }
 
   private collectServiceHexes(targetHex: Axial, origin: Axial): Axial[] {
@@ -3161,33 +3326,6 @@ export class GameEngine implements GameEngineAPI {
       fuelToReserve: 0
     };
 
-    const getDemandPriority = (entry: SupplyDemandEntry): number => {
-      const raw =
-        (entry as unknown as { priority?: unknown; supplyPriority?: unknown }).priority ??
-        (entry as unknown as { priority?: unknown; supplyPriority?: unknown }).supplyPriority ??
-        (entry.unit as unknown as { priority?: unknown; supplyPriority?: unknown }).priority ??
-        (entry.unit as unknown as { priority?: unknown; supplyPriority?: unknown }).supplyPriority ??
-        "normal";
-
-      if (typeof raw === "number" && Number.isFinite(raw)) {
-        return raw;
-      }
-
-      switch (String(raw).trim().toLowerCase()) {
-        case "critical":
-          return 4;
-        case "high":
-          return 3;
-        case "normal":
-        case "medium":
-          return 2;
-        case "low":
-          return 1;
-        default:
-          return 2;
-      }
-    };
-
     const buildPlanForEntry = (entry: SupplyDemandEntry) => {
       const destinationOptions = this.collectServiceHexes(entry.unit.hex, truck.hex);
       if (destinationOptions.length === 0) {
@@ -3203,11 +3341,7 @@ export class GameEngine implements GameEngineAPI {
       );
     };
 
-    const reachable: Array<{
-      entry: SupplyDemandEntry;
-      need: { ammoNeed: number; fuelNeed: number };
-      plan: NonNullable<ReturnType<typeof GameEngine.prototype.findCheapestPathToAny>>;
-    }> = [];
+    const reachable: ConvoyReachableTarget[] = [];
 
     for (const demand of demands) {
       const unitId = this.normalizeUnitId(demand.unit.unitId);
@@ -3226,21 +3360,22 @@ export class GameEngine implements GameEngineAPI {
         continue;
       }
 
-      reachable.push({ entry: demand, need, plan });
+      reachable.push({
+        entry: demand,
+        need,
+        plan,
+        cargoMismatchPenalty:
+          (need.ammoNeed > 0 && truckState.ammoCargo <= 0 ? 45 : 0) +
+          (need.fuelNeed > 0 && truckState.fuelCargo <= 0 ? 45 : 0)
+      });
     }
 
     if (reachable.length === 0) {
       return nullResult;
     }
 
-    // Among reachable targets, select by priority, then cost
-    const highestPriority = Math.max(...reachable.map(({ entry }) => getDemandPriority(entry)));
-    const topPriority = reachable.filter(({ entry }) => getDemandPriority(entry) === highestPriority);
-
-    // Among equal priority, prefer lower cost
-    topPriority.sort((a, b) => a.plan.summary.cost - b.plan.summary.cost);
-
-    const chosen = topPriority[0];
+    reachable.sort((left, right) => this.compareConvoyReachableTargets(faction, left, right));
+    const chosen = reachable[0]!;
 
     // Reserve what this truck can deliver
     const ammoToReserve = Math.min(chosen.need.ammoNeed, truckState.ammoCargo);
@@ -3473,17 +3608,17 @@ private automateSupplyConvoys(
     occupied.delete(axialKey(truck.hex));
     const availableFuel = this.resolveFuelBudget(truck, truckDefinition);
 
-    // Check if current assignment is still valid
+    // Check if current assignment is still valid.
+    let currentDemand: SupplyDemandEntry | null = null;
+    let currentNeed: { ammoNeed: number; fuelNeed: number } | null = null;
     let currentAssignmentValid = false;
     if (truckState.assignedUnitId) {
-      const currentDemand = demands.find(
-        (entry) => this.normalizeUnitId(entry.unit.unitId) === truckState.assignedUnitId
-      );
+      currentDemand =
+        demands.find((entry) => this.normalizeUnitId(entry.unit.unitId) === truckState.assignedUnitId) ?? null;
 
       if (currentDemand) {
-        const need = this.refreshDemandWithReservations(faction, currentDemand, reservations);
-        if (need) {
-          // Check reachability
+        currentNeed = this.refreshDemandWithReservations(faction, currentDemand, reservations);
+        if (currentNeed) {
           const destinationOptions = this.collectServiceHexes(currentDemand.unit.hex, truck.hex);
           const plan = destinationOptions.length > 0
             ? this.findCheapestPathToAny(
@@ -3495,59 +3630,56 @@ private automateSupplyConvoys(
               )
             : null;
 
-          const alreadyWithinServiceRadius = hexDistance(truck.hex, currentDemand.unit.hex) <= supplyBalance.convoy.serviceRadius;
+          const alreadyWithinServiceRadius =
+            hexDistance(truck.hex, currentDemand.unit.hex) <= supplyBalance.convoy.serviceRadius;
           currentAssignmentValid = plan !== null && (alreadyWithinServiceRadius || plan.path.length > 1);
         }
       }
 
       if (!currentAssignmentValid) {
         truckState.assignedUnitId = null;
+        currentDemand = null;
+        currentNeed = null;
       }
     }
 
-    // Allocate new target if needed or if higher priority available
-    if (!truckState.assignedUnitId || !currentAssignmentValid) {
-      const allocation = this.selectConvoyTarget(
-        faction,
-        truck,
+    const allocation = this.selectConvoyTarget(
+      faction,
+      truck,
+      truckState,
+      truckDefinition,
+      demands,
+      reservations,
+      occupied,
+      availableFuel
+    );
+
+    const keepCurrentAssignment =
+      currentAssignmentValid &&
+      currentDemand !== null &&
+      currentNeed !== null &&
+      (!allocation.targetUnit || !this.shouldRotateConvoyAssignment(faction, currentDemand, allocation.targetUnit));
+
+    if (keepCurrentAssignment) {
+      this.reserveConvoyAssignment(
         truckState,
-        truckDefinition,
-        demands,
+        currentDemand!,
         reservations,
-        occupied,
-        availableFuel
+        Math.min(currentNeed!.ammoNeed, truckState.ammoCargo),
+        Math.min(currentNeed!.fuelNeed, truckState.fuelCargo)
       );
-
-      if (allocation.targetUnit) {
-        const unitId = this.normalizeUnitId(allocation.targetUnit.unit.unitId);
-        if (unitId) {
-          // Make reservation
-          let reservation = reservations.get(unitId);
-          if (!reservation) {
-            reservation = {
-              unitId,
-              ammoReserved: 0,
-              fuelReserved: 0,
-              assignedTrucks: []
-            };
-            reservations.set(unitId, reservation);
-          }
-
-          reservation.ammoReserved += allocation.ammoToReserve;
-          reservation.fuelReserved += allocation.fuelToReserve;
-          if (!reservation.assignedTrucks.includes(truckId)) {
-            reservation.assignedTrucks.push(truckId);
-          }
-
-          truckState.assignedUnitId = unitId;
-          allocation.targetUnit.assignmentCount += 1;
-          truckState.status = "delivering";
-        }
-      } else {
-        // No reachable targets with cargo - return to depot
-        truckState.assignedUnitId = null;
-        truckState.status = atSource ? "idle" : "returning";
-      }
+    } else if (allocation.targetUnit) {
+      this.reserveConvoyAssignment(
+        truckState,
+        allocation.targetUnit,
+        reservations,
+        allocation.ammoToReserve,
+        allocation.fuelToReserve
+      );
+    } else {
+      // No reachable targets with cargo - return to depot.
+      truckState.assignedUnitId = null;
+      truckState.status = atSource ? "idle" : "returning";
     }
   }
 
@@ -3603,45 +3735,6 @@ private automateSupplyConvoys(
         return entry.ammoNeed > 0 || entry.fuelNeed > 0 ? entry : null;
       };
 
-      const getDemandPriority = (entry: SupplyDemandEntry): number => {
-        const raw =
-          (entry as unknown as { priority?: unknown; supplyPriority?: unknown })
-            .priority ??
-          (entry as unknown as { priority?: unknown; supplyPriority?: unknown })
-            .supplyPriority ??
-          (
-            entry.unit as unknown as {
-              priority?: unknown;
-              supplyPriority?: unknown;
-            }
-          ).priority ??
-          (
-            entry.unit as unknown as {
-              priority?: unknown;
-              supplyPriority?: unknown;
-            }
-          ).supplyPriority ??
-          "normal";
-
-        if (typeof raw === "number" && Number.isFinite(raw)) {
-          return raw;
-        }
-
-        switch (String(raw).trim().toLowerCase()) {
-          case "critical":
-            return 4;
-          case "high":
-            return 3;
-          case "normal":
-          case "medium":
-            return 2;
-          case "low":
-            return 1;
-          default:
-            return 2;
-        }
-      };
-
       const buildPlanForEntry = (entry: SupplyDemandEntry | null) => {
         if (!entry || !hasCargo()) {
           return null;
@@ -3676,7 +3769,7 @@ private automateSupplyConvoys(
       ) => {
         const reachable: Array<{
           entry: SupplyDemandEntry;
-          plan: NonNullable<ReturnType<typeof GameEngine.prototype.findCheapestPathToAny>>;
+          plan: MovementPathPlan;
         }> = [];
 
         for (const demand of demands) {
@@ -3696,16 +3789,16 @@ private automateSupplyConvoys(
         if (reachable.length === 0) {
           return {
             entry: null as SupplyDemandEntry | null,
-            plan: null as ReturnType<typeof this.findCheapestPathToAny> | null
+            plan: null as MovementPathPlan | null
           };
         }
 
         const highestPriority = Math.max(
-          ...reachable.map(({ entry }) => getDemandPriority(entry))
+          ...reachable.map(({ entry }) => this.getSupplyDemandPriorityRank(entry))
         );
 
         const topPriority = reachable.filter(
-          ({ entry }) => getDemandPriority(entry) === highestPriority
+          ({ entry }) => this.getSupplyDemandPriorityRank(entry) === highestPriority
         );
 
         const chosenEntry =
@@ -3754,6 +3847,10 @@ private automateSupplyConvoys(
           entry.definition
         );
 
+        if (delivered) {
+          this.recordConvoyService(faction, entry.unit.unitId);
+        }
+
         entry.ammoNeed = Math.max(
           0,
           (entry.definition.ammo ?? 0) - assignedState.ammo
@@ -3776,7 +3873,7 @@ private automateSupplyConvoys(
       };
 
       const advanceAlongPlan = (
-        plan: NonNullable<ReturnType<typeof this.findCheapestPathToAny>>
+        plan: MovementPathPlan
       ) => {
         let remainingMove = Math.max(1, truckDefinition.movement ?? 1);
         let fuelSpent = 0;
@@ -3844,8 +3941,7 @@ private automateSupplyConvoys(
           truckState.assignedUnitId = assignedEntry?.unit.unitId ?? null;
         } else if (
           bestReachable.entry &&
-          getDemandPriority(bestReachable.entry) >
-            getDemandPriority(assignedEntry)
+          this.shouldRotateConvoyAssignment(faction, assignedEntry, bestReachable.entry)
         ) {
           assignedEntry = bestReachable.entry;
           assignedPlan = bestReachable.plan;
@@ -3862,7 +3958,7 @@ private automateSupplyConvoys(
       }
 
       let destinationOptions: Axial[] = [];
-      let plan: ReturnType<typeof this.findCheapestPathToAny> | null = null;
+      let plan: MovementPathPlan | null = null;
 
       if (assignedEntry && hasCargo()) {
         destinationOptions = this.collectServiceHexes(
@@ -3905,7 +4001,7 @@ private automateSupplyConvoys(
       }
 
       let movement = advanceAlongPlan(
-        plan as NonNullable<ReturnType<typeof this.findCheapestPathToAny>>
+        plan as MovementPathPlan
       );
 
       // If the live board state blocks execution, immediately try another target.
@@ -4003,6 +4099,17 @@ private automateSupplyConvoys(
     Player: new Map(),
     Bot: new Map(),
     Ally: new Map()
+  };
+  /** Tracks convoy-service recency so equal-priority units can rotate fairly across turns. */
+  private readonly convoyServiceHistoryByFaction: Record<TurnFaction, Map<string, number>> = {
+    Player: new Map(),
+    Bot: new Map(),
+    Ally: new Map()
+  };
+  private convoyServiceSequenceByFaction: Record<TurnFaction, number> = {
+    Player: 0,
+    Bot: 0,
+    Ally: 0
   };
   /** Optional player-configured resupply priorities keyed by the stable unit id. */
   private readonly supplyPriorityByUnitId = new Map<string, SupplyPriority>();

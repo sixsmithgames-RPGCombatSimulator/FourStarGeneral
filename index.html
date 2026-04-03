@@ -4876,6 +4876,32 @@
       }
     }
 
+    @keyframes move-option-pulse {
+      0%, 100% {
+        stroke: #5fa65b;
+        stroke-width: 3;
+        stroke-opacity: 0.95;
+      }
+      50% {
+        stroke: #9ed17a;
+        stroke-width: 4;
+        stroke-opacity: 0.72;
+      }
+    }
+
+    @keyframes attack-target-pulse {
+      0%, 100% {
+        stroke: #ff4444;
+        stroke-width: 3;
+        stroke-opacity: 1;
+      }
+      50% {
+        stroke: #ff8888;
+        stroke-width: 4;
+        stroke-opacity: 0.7;
+      }
+    }
+
     @keyframes allocationOverlayIn {
       from {
         opacity: 0;
@@ -4923,6 +4949,22 @@
 
     .hex-cell.idle-unit-highlight .unit-icon {
       filter: drop-shadow(0 0 4px rgba(94, 173, 255, 0.35));
+    }
+
+    .hex-tile.move-option-highlight,
+    .hex-cell.move-option-highlight .hex-tile {
+      animation: move-option-pulse 2s ease-in-out infinite;
+      stroke-dasharray: 4 3;
+      stroke-width: 2.5;
+      filter: drop-shadow(0 0 6px rgba(116, 186, 96, 0.34));
+    }
+
+    .hex-tile.attack-target-highlight,
+    .hex-cell.attack-target-highlight .hex-tile {
+      animation: attack-target-pulse 2s ease-in-out infinite;
+      stroke-dasharray: 4 3;
+      stroke-width: 2.5;
+      filter: drop-shadow(0 0 6px rgba(255, 87, 138, 0.3));
     }
 
     /* Ally faction styling */

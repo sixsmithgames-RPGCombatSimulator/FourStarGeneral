@@ -37,6 +37,8 @@ const HEX_DEFAULT_STROKE_WIDTH = 1;
 const SVG_NS = "http://www.w3.org/2000/svg";
 const SELECTION_GLOW_CLASS = "hex-selection-glow";
 const ACTIVE_ZONE_CLASS = "deployment-zone";
+const MOVE_OPTION_HIGHLIGHT_CLASS = "move-option-highlight";
+const ATTACK_TARGET_HIGHLIGHT_CLASS = "attack-target-highlight";
 const IDLE_UNIT_HIGHLIGHT_CLASS = "idle-unit-highlight";
 /**
  * Static sprite used for the base camp marker. Using new URL ensures bundlers resolve the asset with type safety.
@@ -126,6 +128,8 @@ export class HexMapRenderer implements IMapRenderer {
   private selectionChangedHandler: ((key: string | null) => void) | null = null;
   private highlightedHexKey: string | null = null;
   private readonly activeZoneKeys = new Set<string>();
+  private readonly moveOptionHighlightKeys = new Set<string>();
+  private readonly attackTargetHighlightKeys = new Set<string>();
   private readonly idleUnitHighlightKeys = new Set<string>();
   /** Tracks the unit class occupying each hex so effects can vary by attacker/defender type. */
   private readonly hexUnitClassMap: Map<string, UnitClass> = new Map();
@@ -1237,6 +1241,8 @@ export class HexMapRenderer implements IMapRenderer {
 
     const previousSelection = this.highlightedHexKey;
     const previousZoneKeys = new Set(this.activeZoneKeys);
+    const previousMoveOptionKeys = new Set(this.moveOptionHighlightKeys);
+    const previousAttackTargetKeys = new Set(this.attackTargetHighlightKeys);
 
     this.resetReconOverlayState();
     let minX = Number.POSITIVE_INFINITY;
@@ -1395,10 +1401,15 @@ export class HexMapRenderer implements IMapRenderer {
       this.applyHexSelection(previousSelection, true);
     }
 
+    this.activeZoneKeys.clear();
     if (previousZoneKeys.size > 0) {
       this.setZoneHighlights(previousZoneKeys);
-    } else if (this.activeZoneKeys.size > 0) {
-      this.setZoneHighlights([]);
+    }
+
+    this.moveOptionHighlightKeys.clear();
+    this.attackTargetHighlightKeys.clear();
+    if (previousMoveOptionKeys.size > 0 || previousAttackTargetKeys.size > 0) {
+      this.setTacticalHighlights(previousMoveOptionKeys, previousAttackTargetKeys);
     }
 
     if (this.baseCampHexKey) {
@@ -2444,20 +2455,56 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   /**
+   * Applies distinct highlight classes for reachable movement hexes and valid attack targets.
+   * Movement options stay green while hostile targets remain red.
+   */
+  setTacticalHighlights(moveKeys: Iterable<string>, attackKeys: Iterable<string>): void {
+    const nextMoveKeys = new Set(moveKeys);
+    const nextAttackKeys = new Set(attackKeys);
+
+    nextMoveKeys.forEach((key) => {
+      if (!this.moveOptionHighlightKeys.has(key)) {
+        this.toggleHexHighlightClass(key, MOVE_OPTION_HIGHLIGHT_CLASS, true);
+      }
+    });
+    this.moveOptionHighlightKeys.forEach((key) => {
+      if (!nextMoveKeys.has(key)) {
+        this.toggleHexHighlightClass(key, MOVE_OPTION_HIGHLIGHT_CLASS, false);
+      }
+    });
+
+    nextAttackKeys.forEach((key) => {
+      if (!this.attackTargetHighlightKeys.has(key)) {
+        this.toggleHexHighlightClass(key, ATTACK_TARGET_HIGHLIGHT_CLASS, true);
+      }
+    });
+    this.attackTargetHighlightKeys.forEach((key) => {
+      if (!nextAttackKeys.has(key)) {
+        this.toggleHexHighlightClass(key, ATTACK_TARGET_HIGHLIGHT_CLASS, false);
+      }
+    });
+
+    this.moveOptionHighlightKeys.clear();
+    nextMoveKeys.forEach((key) => this.moveOptionHighlightKeys.add(key));
+
+    this.attackTargetHighlightKeys.clear();
+    nextAttackKeys.forEach((key) => this.attackTargetHighlightKeys.add(key));
+  }
+
+  clearTacticalHighlights(): void {
+    this.setTacticalHighlights([], []);
+  }
+
+  /**
    * Applies or removes the idle-unit outline on the specified hex key.
    * The outline uses a dedicated CSS class so the highlight style remains overridable via stylesheets.
    */
   toggleIdleUnitHighlight(hexKey: string, enabled: boolean): void {
-    const group = this.hexElementMap.get(hexKey);
-    const polygon = this.hexPolygonMap.get(hexKey);
-
     if (enabled) {
-      group?.classList.add(IDLE_UNIT_HIGHLIGHT_CLASS);
-      polygon?.classList.add(IDLE_UNIT_HIGHLIGHT_CLASS);
+      this.toggleHexHighlightClass(hexKey, IDLE_UNIT_HIGHLIGHT_CLASS, true);
       this.idleUnitHighlightKeys.add(hexKey);
     } else {
-      group?.classList.remove(IDLE_UNIT_HIGHLIGHT_CLASS);
-      polygon?.classList.remove(IDLE_UNIT_HIGHLIGHT_CLASS);
+      this.toggleHexHighlightClass(hexKey, IDLE_UNIT_HIGHLIGHT_CLASS, false);
       this.idleUnitHighlightKeys.delete(hexKey);
     }
   }
@@ -2471,14 +2518,18 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   private toggleZoneOutline(hexKey: string, enabled: boolean): void {
+    this.toggleHexHighlightClass(hexKey, ACTIVE_ZONE_CLASS, enabled);
+  }
+
+  private toggleHexHighlightClass(hexKey: string, className: string, enabled: boolean): void {
     const group = this.hexElementMap.get(hexKey);
     const polygon = this.hexPolygonMap.get(hexKey);
     if (enabled) {
-      group?.classList.add(ACTIVE_ZONE_CLASS);
-      polygon?.classList.add(ACTIVE_ZONE_CLASS);
+      group?.classList.add(className);
+      polygon?.classList.add(className);
     } else {
-      group?.classList.remove(ACTIVE_ZONE_CLASS);
-      polygon?.classList.remove(ACTIVE_ZONE_CLASS);
+      group?.classList.remove(className);
+      polygon?.classList.remove(className);
     }
   }
 

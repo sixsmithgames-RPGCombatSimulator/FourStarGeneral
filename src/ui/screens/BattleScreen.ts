@@ -2330,9 +2330,11 @@ export class BattleScreen {
             return this.deploymentPanel?.getZoneHexes(zoneMeta.key) ?? [];
           })();
           this.hexMapRenderer.setZoneHighlights(activeZoneKeys);
+          this.hexMapRenderer.clearTacticalHighlights();
         } else {
           // During gameplay, zone highlights are not shown; objective markers provide visual feedback
           this.hexMapRenderer.setZoneHighlights([]);
+          this.hexMapRenderer.setTacticalHighlights(this.playerMoveHexes, this.playerAttackHexes);
         }
       }
 
@@ -6274,6 +6276,7 @@ export class BattleScreen {
       }
       // Clear all zone highlights
       this.hexMapRenderer?.setZoneHighlights([]);
+      this.hexMapRenderer?.clearTacticalHighlights();
       this.deploymentPanel?.setSelectedHex(null);
       this.playerMoveHexes.clear();
       this.playerAttackHexes.clear();
@@ -6350,8 +6353,7 @@ export class BattleScreen {
         const key = CoordinateSystem.makeHexKey(col, row);
         return key;
       }));
-      const overlay = new Set<string>([...this.playerMoveHexes, ...this.playerAttackHexes]);
-      this.hexMapRenderer?.setZoneHighlights(overlay);
+      this.hexMapRenderer?.setTacticalHighlights(this.playerMoveHexes, this.playerAttackHexes);
 
       // Provide clear feedback about unit's action state. Resolve labels strictly so bad data surfaces immediately.
       const unitLabel = this.resolveUnitLabelForHex(key, selectedUnitId);
@@ -6366,7 +6368,7 @@ export class BattleScreen {
       if (isAutomatedLogisticsUnit) {
         this.playerMoveHexes.clear();
         this.playerAttackHexes.clear();
-        this.hexMapRenderer?.setZoneHighlights([]);
+        this.hexMapRenderer?.clearTacticalHighlights();
         statusMessage += " This convoy is automated. Set battalion resupply priority in Logistics instead of issuing manual orders.";
       } else if (commandState?.isOnSentry) {
         statusMessage += " Holding on sentry. If attacked before its next activation and able to return fire, combat resolves simultaneously.";
@@ -6420,7 +6422,7 @@ export class BattleScreen {
       this.selectedPlayerUnitId = null;
       this.playerMoveHexes.clear();
       this.playerAttackHexes.clear();
-      this.hexMapRenderer?.setZoneHighlights([]);
+      this.hexMapRenderer?.clearTacticalHighlights();
       const enemyContact = this.findEnemyContactAtHex(axial);
       const terrainNotes: string[] = [];
       if (enemyContact) {
@@ -8011,6 +8013,7 @@ export class BattleScreen {
     this.clearAirPreviewOverlay();
     this.hexMapRenderer?.toggleSelectionGlow(false);
     this.hexMapRenderer?.setZoneHighlights([]);
+    this.hexMapRenderer?.clearTacticalHighlights();
     this.hexMapRenderer?.renderBaseCampMarker(null);
     this.hexMapRenderer?.clearObjectiveMarkers();
     if (this.battleAnnouncements) {
