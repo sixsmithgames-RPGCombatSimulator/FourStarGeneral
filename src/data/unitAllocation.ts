@@ -276,6 +276,7 @@ export const allocationOptions = [
     costPerUnit: 55_000,
     description: "Field workshop and recovery section for damaged vehicles, gun teams, and broken-down prime movers.",
     maxQuantity: 12,
+    implemented: false,
     spriteUrl: undefined
   },
   {

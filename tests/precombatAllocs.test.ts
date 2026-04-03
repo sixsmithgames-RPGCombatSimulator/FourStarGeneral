@@ -191,6 +191,90 @@ registerTest("PRECOMBAT_RENDER_IDEMPOTENCE", async ({ Given, When, Then }) => {
   });
 });
 
+registerTest("PRECOMBAT_UNIMPLEMENTED_LOGISTICS_RENDER_AS_PENDING", async ({ Given, When, Then }) => {
+  document.body.innerHTML = `
+    <section id="precombatScreen">
+      <h1 id="precombatMissionTitle"></h1>
+      <p id="precombatMissionBriefing"></p>
+      <ul id="objectiveList"></ul>
+      <span id="missionTurnLimit"></span>
+      <ul id="baselineSupplyList"></ul>
+      <p id="missionDoctrineNotes"></p>
+      <button id="returnToLanding"></button>
+      <button id="proceedToBattle"></button>
+      <button id="allocationWarningReturn"></button>
+      <button id="allocationWarningProceed"></button>
+      <div id="allocationUnitList"></div>
+      <div id="allocationSupplyList"></div>
+      <div id="allocationSupportList"></div>
+      <div id="allocationLogisticsList"></div>
+      <button id="resetAllocations"></button>
+      <div id="allocationWarningOverlay" class="hidden"></div>
+      <div id="allocationWarningModal"></div>
+      <div id="predeployedSummary"></div>
+      <div id="predeployedUnitList"></div>
+      <aside id="precombatBudgetPanel" data-state="ready">
+        <span id="budgetSpent"></span>
+        <span id="budgetRemaining"></span>
+        <div id="allocationFeedback"></div>
+      </aside>
+      <article id="commanderSummaryCard">
+        <h2 id="commanderName"></h2>
+        <p id="commanderSummary"></p>
+        <span id="commanderMissions"></span>
+        <span id="commanderVictories"></span>
+        <span id="commanderUnits"></span>
+        <span id="commanderCasualties"></span>
+      </article>
+      <div id="precombatMapCanvas"></div>
+      <svg id="precombatHexMap"></svg>
+      <footer class="precombat-footer"></footer>
+    </section>
+  `;
+
+  let medicCard: HTMLElement | null = null;
+  let maintenanceCard: HTMLElement | null = null;
+
+  await Given("a precombat screen rendering the logistics allocation list", async () => {
+    const fakeScreenManager: IScreenManager = {
+      showScreen: () => {},
+      showScreenById: () => {},
+      getCurrentScreen: () => null
+    };
+
+    const battleState = new BattleState();
+    const screen = new PrecombatScreen(fakeScreenManager, battleState);
+    // @ts-expect-error - overriding private helper purely for testing efficiency.
+    screen.renderMiniMap = () => {};
+    screen.initialize();
+    screen.setup("training", null, "Normal");
+  });
+
+  await When("the logistics cards are queried for unavailable rows", async () => {
+    medicCard = document.querySelector<HTMLElement>('#allocationLogisticsList [data-key="medic"]');
+    maintenanceCard = document.querySelector<HTMLElement>('#allocationLogisticsList [data-key="maintenance"]');
+  });
+
+  await Then("medical and recovery sections both render in the greyed pending state", async () => {
+    if (!medicCard || medicCard.dataset.unavailable !== "true") {
+      throw new Error("Expected Medical Detachment to render as an unavailable logistics card.");
+    }
+    if (!maintenanceCard || maintenanceCard.dataset.unavailable !== "true") {
+      throw new Error("Expected Recovery & Repair Section to render as an unavailable logistics card.");
+    }
+    if (!(medicCard.textContent ?? "").includes("Pending")) {
+      throw new Error("Expected Medical Detachment to show the pending unavailable label.");
+    }
+    if (!(maintenanceCard.textContent ?? "").includes("Pending")) {
+      throw new Error("Expected Recovery & Repair Section to show the pending unavailable label.");
+    }
+    if (!(maintenanceCard.textContent ?? "").includes("Planned feature")) {
+      throw new Error("Expected Recovery & Repair Section to show the planned feature badge.");
+    }
+    document.body.innerHTML = "";
+  });
+});
+
 registerTest("PRECOMBAT_SEEDS_LOW_COST_SUPPLY_CONVOYS_BUT_STILL_REQUIRES_COMBAT_FORCES", async ({ Given, When, Then }) => {
   document.body.innerHTML = `
     <section id="precombatScreen">
