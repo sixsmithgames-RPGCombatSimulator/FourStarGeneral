@@ -3341,16 +3341,25 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    this.wreckFxRenderer?.removeWreck(hexKey);
-
-    const smokeLevel = entry.smokeLevel;
-    if (smokeLevel === 1 || smokeLevel === 2) {
-      group.appendChild(this.createSmokeShape(hexKey, center.cx, center.cy, smokeLevel));
+    if (entry.smokeLevel > 0 || entry.flames) {
+      this.wreckFxRenderer?.upsertWreck({
+        hexKey,
+        parentGroup: group,
+        anchorX: center.cx,
+        anchorY: center.cy + 6,
+        seed: this.seedFromHexKey(`${hexKey}:${entry.wreckClass}:damage:${entry.smokeLevel}:${entry.flames ? 1 : 0}`),
+        wreckClass: entry.wreckClass,
+        mode: "damage",
+        forcedSeverity: this.resolveDamageAftermathSeverity(entry),
+        allowFlames: entry.flames
+      });
+    } else {
+      this.wreckFxRenderer?.removeWreck(hexKey);
     }
+  }
 
-    if (entry.flames) {
-      group.appendChild(this.createFlamesShape(hexKey, center.cx, center.cy));
-    }
+  private resolveDamageAftermathSeverity(entry: AftermathEntry): "settling" | "smoldering" {
+    return entry.flames || entry.smokeLevel === 2 ? "settling" : "smoldering";
   }
 
   private seedFromHexKey(hexKey: string): number {
@@ -3371,80 +3380,6 @@ export class HexMapRenderer implements IMapRenderer {
       r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
       return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
     };
-  }
-
-  private createSmokeShape(hexKey: string, cx: number, cy: number, smokeLevel: 1 | 2): SVGGElement {
-    const g = document.createElementNS(SVG_NS, "g");
-    const rand = this.seededRandom(this.seedFromHexKey(`${hexKey}:smoke:${smokeLevel}`));
-    const puffCount = smokeLevel === 2 ? 7 : 5;
-    const baseR = smokeLevel === 2 ? 10 : 8;
-    for (let i = 0; i < puffCount; i += 1) {
-      const c = document.createElementNS(SVG_NS, "circle");
-      const dx = (rand() - 0.5) * (smokeLevel === 2 ? 18 : 14);
-      const dy = 8 + (rand() - 0.5) * 10;
-      const r = baseR + rand() * 7;
-      c.setAttribute("cx", String(cx + dx));
-      c.setAttribute("cy", String(cy + dy));
-      c.setAttribute("r", String(r));
-      c.setAttribute("fill", "#4f4f4f");
-      c.setAttribute("opacity", smokeLevel === 2 ? "0.26" : "0.18");
-
-      const drift = document.createElementNS(SVG_NS, "animateTransform");
-      drift.setAttribute("attributeName", "transform");
-      drift.setAttribute("type", "translate");
-      drift.setAttribute("values", "0 12; 0 -18");
-      drift.setAttribute("dur", `${2.2 + rand() * 1.6}s`);
-      drift.setAttribute("repeatCount", "indefinite");
-
-      const fade = document.createElementNS(SVG_NS, "animate");
-      fade.setAttribute("attributeName", "opacity");
-      fade.setAttribute("values", "0; 0.30; 0");
-      fade.setAttribute("dur", `${2.2 + rand() * 1.6}s`);
-      fade.setAttribute("repeatCount", "indefinite");
-
-      c.appendChild(drift);
-      c.appendChild(fade);
-      g.appendChild(c);
-    }
-    return g;
-  }
-
-  private createFlamesShape(hexKey: string, cx: number, cy: number): SVGGElement {
-    const g = document.createElementNS(SVG_NS, "g");
-    const rand = this.seededRandom(this.seedFromHexKey(`${hexKey}:flames`));
-    const offsets: Array<[number, number]> = [[-9, 12], [8, 14], [0, 8]];
-    offsets.forEach(([dx, dy], index) => {
-      const flame = document.createElementNS(SVG_NS, "path");
-      const x = cx + dx;
-      const y = cy + dy;
-      const h = 10 + index * 3;
-      const w = 7 + index * 2;
-      flame.setAttribute(
-        "d",
-        `M ${x} ${y} C ${x - w} ${y - h * 0.3}, ${x - w * 0.5} ${y - h}, ${x} ${y - h} C ${x + w * 0.5} ${y - h}, ${x + w} ${y - h * 0.3}, ${x} ${y} Z`
-      );
-      flame.setAttribute("fill", index === 2 ? "#ffd35f" : "#ff6a00");
-      flame.setAttribute("opacity", "0.85");
-
-      const drift = document.createElementNS(SVG_NS, "animateTransform");
-      drift.setAttribute("attributeName", "transform");
-      drift.setAttribute("type", "translate");
-      const rise = 2 + Math.round(rand() * 3);
-      drift.setAttribute("values", `0 0; 0 ${-rise}; 0 0`);
-      drift.setAttribute("dur", `${0.45 + index * 0.12}s`);
-      drift.setAttribute("repeatCount", "indefinite");
-
-      const alpha = document.createElementNS(SVG_NS, "animate");
-      alpha.setAttribute("attributeName", "opacity");
-      alpha.setAttribute("values", "0.55; 0.95; 0.55");
-      alpha.setAttribute("dur", `${0.45 + index * 0.12}s`);
-      alpha.setAttribute("repeatCount", "indefinite");
-
-      flame.appendChild(drift);
-      flame.appendChild(alpha);
-      g.appendChild(flame);
-    });
-    return g;
   }
 
   private createWreckFragment(

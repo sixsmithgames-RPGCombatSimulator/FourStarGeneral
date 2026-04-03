@@ -1124,7 +1124,9 @@ export class BattleScreen {
       console.warn("[BattleScreen] playSupportImpacts: No renderer available");
       return;
     }
-    
+
+    this.closeSelectionIntelForAnimation();
+
     // Freeze camera movement during effects
     this.freezeCamera();
 
@@ -1319,6 +1321,7 @@ export class BattleScreen {
     attackerUnitId?: string | null,
     defenderUnitId?: string | null
   ): Promise<void> {
+    this.closeSelectionIntelForAnimation();
     const engine = this.battleState.ensureGameEngine();
     try {
       const attackerOffset = CoordinateSystem.axialToOffset(attacker.q, attacker.r);
@@ -1516,6 +1519,7 @@ export class BattleScreen {
    * Falls back to an immediate render when the renderer is unavailable or animation prerequisites are missing.
    */
   private async playBotTurnAnimations(botSummary: BotTurnSummary): Promise<void> {
+    this.closeSelectionIntelForAnimation();
     if (!this.hexMapRenderer) {
       this.renderEngineUnits();
       return;
@@ -2791,6 +2795,8 @@ export class BattleScreen {
       return;
     }
 
+    this.closeSelectionIntelForAnimation();
+
     const engine = this.battleState.ensureGameEngine();
     let hadAnimationError = false;
 
@@ -3431,13 +3437,42 @@ export class BattleScreen {
     const bomberFaction = event.bomber.faction === "Player" ? "player" : "enemy";
     const location = `${event.location.q},${event.location.r}`;
     const escortNote = event.escorts.length > 0 ? ` ${event.escorts.length} escort${event.escorts.length === 1 ? "" : "s"} responded.` : "";
+    const strengthBefore =
+      typeof event.bomberStrengthBefore === "number"
+        ? Math.max(0, Math.round(event.bomberStrengthBefore))
+        : typeof event.bomber.strength === "number"
+          ? Math.max(0, Math.round(event.bomber.strength))
+          : null;
+    const strengthAfter =
+      typeof event.bomberStrengthAfter === "number"
+        ? Math.max(0, Math.round(event.bomberStrengthAfter))
+        : null;
+    const interceptDamage =
+      strengthBefore !== null && strengthAfter !== null
+        ? Math.max(0, strengthBefore - strengthAfter)
+        : null;
+    const attritionNote =
+      interceptDamage !== null && strengthAfter !== null
+        ? ` Interception damage: ${interceptDamage}%. Bomber strength now ${strengthAfter}.`
+        : "";
     const destructionNote = event.bomberDestroyed ? " Strike package destroyed before target." : "";
-    const summary = `${interceptorLabel} intercepted ${bomberFaction} ${this.toTitleCase(event.bomber.unitType)} over ${location}.${escortNote}${destructionNote}`;
+    const summary = `${interceptorLabel} intercepted ${bomberFaction} ${this.toTitleCase(event.bomber.unitType)} over ${location}.${escortNote}${attritionNote}${destructionNote}`;
     this.announceBattleUpdate(summary);
+    const details: Record<string, unknown> = {};
+    if (interceptDamage !== null) {
+      details.interceptionDamage = interceptDamage;
+    }
+    if (strengthAfter !== null) {
+      details.bomberStrengthAfter = strengthAfter;
+    }
+    if (event.bomberDestroyed) {
+      details.bomberDestroyed = true;
+    }
     this.publishActivityEvent({
       category: interceptorFaction === "Player" ? "player" : "enemy",
       type: "log",
-      summary
+      summary,
+      details: Object.keys(details).length > 0 ? details : undefined
     });
   }
 
@@ -6467,6 +6502,7 @@ export class BattleScreen {
     toAxial: Axial,
     unitId?: string | null
   ): Promise<void> {
+    this.closeSelectionIntelForAnimation();
     const engine = this.battleState.ensureGameEngine();
 
     // Prime the animation before updating engine state
@@ -6985,6 +7021,10 @@ export class BattleScreen {
     this.selectionIntelOverlay?.update(intel);
   }
 
+  private closeSelectionIntelForAnimation(): void {
+    this.publishSelectionIntel(null);
+  }
+
   private reportDeploymentPanelError(
     error: DeploymentPanelCriticalError,
     options?: { mirrorToBaseCampStatus?: boolean }
@@ -7353,7 +7393,7 @@ export class BattleScreen {
         {
           id: "tankTraps",
           label: "Lay Tank Traps",
-          detail: "Create an anti-vehicle obstacle that sharply slows wheeled and tracked movement.",
+          detail: "Create an anti-vehicle obstacle that sharply slows wheeled and tracked movement. Can be ordered after movement, but consumes the rest of the engineer's turn.",
           tone: "denial",
           available: tankTrapsBuild.available,
           reason: tankTrapsBuild.reason
@@ -7361,7 +7401,7 @@ export class BattleScreen {
         {
           id: "clearedPath",
           label: "Clear Path",
-          detail: "Open a faster lane through the hex so follow-on battalions can move more quickly.",
+          detail: "Open a faster lane through the hex so follow-on battalions can move more quickly. Can be ordered after movement, but consumes the rest of the engineer's turn.",
           tone: "mobility",
           available: clearedPathBuild.available,
           reason: clearedPathBuild.reason

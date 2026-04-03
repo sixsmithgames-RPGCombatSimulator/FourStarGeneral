@@ -1,7 +1,7 @@
 import { registerTest } from "./harness.js";
 import type { ScenarioUnit, ScenarioSide, ScenarioData, TerrainDefinition, TerrainDictionary, UnitTypeDictionary, UnitTypeDefinition, Axial } from "../src/core/types";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
-import type { AttackResolution } from "../src/game/GameEngine";
+import type { AirEngagementEvent, AttackResolution } from "../src/game/GameEngine";
 
 // Inline terrain and unit definitions to avoid JSON loader requirements
 const plains: TerrainDefinition = {
@@ -128,6 +128,8 @@ registerTest("INTERCEPTION_CAP_STOPS_BOMBER_BOTH_SIDES", async ({ Given, When, T
   // resolveBotAttack is private, so capture the outcome as unknown and treat it via runtime assertions.
   let botAttack: unknown = null;
   let botBomber: ScenarioUnit | null = null;
+  let playerEngagements: AirEngagementEvent[] = [];
+  let botEngagements: AirEngagementEvent[] = [];
 
   await Given("mirrored battles where a bomber attacks an AA-protected hex", async () => {
     const config: GameEngineConfig = {
@@ -229,6 +231,8 @@ registerTest("INTERCEPTION_CAP_STOPS_BOMBER_BOTH_SIDES", async ({ Given, When, T
   await When("each bomber attempts to attack the protected hex", async () => {
     playerAttack = playerEngine.attackUnit({ q: 0, r: 0 }, { q: 0, r: 1 });
     botAttack = (botEngine as any).resolveBotAttack(botBomber!, { q: 0, r: 1 }, { q: 0, r: 0 });
+    playerEngagements = playerEngine.consumeAirEngagements();
+    botEngagements = botEngine.consumeAirEngagements();
   });
 
   await Then("both bombers are intercepted by CAP before the strike resolves", async () => {
@@ -245,6 +249,21 @@ registerTest("INTERCEPTION_CAP_STOPS_BOMBER_BOTH_SIDES", async ({ Given, When, T
     const botAborted = botAttack === null;
     if (playerAborted !== botAborted) {
       throw new Error(`Expected interception parity (both attacks abort or neither). Got playerAborted=${playerAborted}, botAborted=${botAborted}`);
+    }
+
+    const playerAirIntercept = playerEngagements.find((event) => event.type === "airToAir");
+    const botAirIntercept = botEngagements.find((event) => event.type === "airToAir");
+    if (!playerAirIntercept || typeof playerAirIntercept.bomberStrengthBefore !== "number" || typeof playerAirIntercept.bomberStrengthAfter !== "number") {
+      throw new Error(`Expected player interception event to include bomber before/after strength, saw ${JSON.stringify(playerAirIntercept)}.`);
+    }
+    if (!botAirIntercept || typeof botAirIntercept.bomberStrengthBefore !== "number" || typeof botAirIntercept.bomberStrengthAfter !== "number") {
+      throw new Error(`Expected bot interception event to include bomber before/after strength, saw ${JSON.stringify(botAirIntercept)}.`);
+    }
+    if (playerAirIntercept.bomberStrengthAfter > playerAirIntercept.bomberStrengthBefore) {
+      throw new Error(`Expected player interception attrition to never increase bomber strength, saw before=${playerAirIntercept.bomberStrengthBefore}, after=${playerAirIntercept.bomberStrengthAfter}.`);
+    }
+    if (botAirIntercept.bomberStrengthAfter > botAirIntercept.bomberStrengthBefore) {
+      throw new Error(`Expected bot interception attrition to never increase bomber strength, saw before=${botAirIntercept.bomberStrengthBefore}, after=${botAirIntercept.bomberStrengthAfter}.`);
     }
   });
 });

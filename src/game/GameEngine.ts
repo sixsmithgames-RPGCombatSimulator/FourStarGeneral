@@ -17,6 +17,7 @@ import type {
   TileInstance,
   AirMissionKind,
   AirMissionTemplate,
+  AirSupportRole,
   AirSupportProfile,
   CombatClassification,
   CombatStance,
@@ -7923,6 +7924,8 @@ private automateSupplyConvoys(
       const escortMissions = this.findAllActiveEscortsForUnit("Player", attackerKey).filter((mission) => mission.interceptions < 1);
 
       if (capMissions.length > 0) {
+        const bomberStrengthBeforeCap = attackingSnapshot.strength;
+        let bomberDestroyedByCap = false;
         const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         for (const cap of capMissions) {
@@ -7947,13 +7950,6 @@ private automateSupplyConvoys(
             });
           }
         }
-        this.pendingAirEngagements.push({
-          type: "airToAir",
-          location: structuredClone(defenderHex),
-          bomber: { faction: "Player", unitKey: attackerKey, unitType: attacker.type as string, strength: attackingSnapshot.strength },
-          interceptors: interceptorsForEvent,
-          escorts: escortsForEvent
-        });
 
         for (const cap of capMissions) {
           const capLookup = this.lookupUnitBySquadronId(cap.unitKey, opponentFaction);
@@ -8026,11 +8022,32 @@ private automateSupplyConvoys(
             clearAircraftRegistryFor("Player", attacker);
             this.updateIdleRegistryFor(attackerOriginKey);
             this.invalidateRosterCache();
-            return null;
+            bomberDestroyedByCap = true;
+            break;
           }
 
           this.replaceUnitInFactionHex("Player", attackingSnapshot);
           this.syncStrengthForFaction("Player", attackingSnapshot.hex, attackingSnapshot.strength, attackerKey);
+        }
+
+        this.pendingAirEngagements.push({
+          type: "airToAir",
+          location: structuredClone(defenderHex),
+          bomber: {
+            faction: "Player",
+            unitKey: attackerKey,
+            unitType: attacker.type as string,
+            strength: bomberStrengthBeforeCap
+          },
+          interceptors: interceptorsForEvent,
+          escorts: escortsForEvent,
+          bomberStrengthBefore: bomberStrengthBeforeCap,
+          bomberStrengthAfter: attackingSnapshot.strength,
+          bomberDestroyed: bomberDestroyedByCap
+        });
+
+        if (bomberDestroyedByCap) {
+          return null;
         }
       }
     }
@@ -10217,13 +10234,96 @@ private automateSupplyConvoys(
     return best;
   }
 
+  /** Collects aircraft candidates for air-role checks, including player reserves when relevant. */
+  private collectAirRoleCandidateUnits(
+    faction: TurnFaction,
+    includeReserves = faction === "Player"
+  ): ScenarioUnit[] {
+    const units = Array.from(this.getPlacementMapForFaction(faction).values());
+    if (includeReserves && faction === "Player") {
+      this.reserves.forEach((entry) => units.push(entry.unit));
+    }
+    return units;
+  }
+
+  /** Reports whether a faction currently fields aircraft that can perform the requested role. */
+  private hasFactionAirRoleCapability(
+    faction: TurnFaction,
+    role: AirSupportRole,
+    options: {
+      requireAvailable?: boolean;
+      includeAssigned?: boolean;
+      includeReserves?: boolean;
+    } = {}
+  ): boolean {
+    const {
+      requireAvailable = false,
+      includeAssigned = false,
+      includeReserves = faction === "Player"
+    } = options;
+
+    for (const unit of this.collectAirRoleCandidateUnits(faction, includeReserves)) {
+      const definition = this.getUnitDefinition(unit.type);
+      const roles = definition.airSupport?.roles ?? [];
+      if (!this.isAircraft(definition) || !roles.includes(role)) {
+        continue;
+      }
+
+      if (!requireAvailable) {
+        return true;
+      }
+
+      const squadronId = this.getSquadronId(unit);
+      if (!includeAssigned && this.airMissionAssignmentsByUnit.has(squadronId)) {
+        continue;
+      }
+      if (this.aircraftNeedsRearm(faction, squadronId)) {
+        continue;
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  /** CAP is only worthwhile if the player still has available strike aircraft to threaten bot positions. */
+  private playerHasAvailableStrikeAircraft(): boolean {
+    return this.hasFactionAirRoleCapability("Player", "strike", {
+      requireAvailable: true,
+      includeAssigned: false,
+      includeReserves: true
+    });
+  }
+
+  /** Escorts matter whenever the player has active or available interception-capable fighters. */
+  private playerHasInterceptorPresence(): boolean {
+    if (
+      Array.from(this.scheduledAirMissions.values()).some(
+        (mission) =>
+          mission.faction === "Player"
+          && mission.template.kind === "airCover"
+          && (mission.status === "queued" || mission.status === "inFlight" || mission.status === "resolving")
+      )
+    ) {
+      return true;
+    }
+
+    return this.hasFactionAirRoleCapability("Player", "cap", {
+      requireAvailable: true,
+      includeAssigned: false,
+      includeReserves: true
+    });
+  }
+
   /**
-   * Minimal bot air scheduling heuristic: attempts to launch a single CAP mission over a friendly hex
-   * using the first available fighter with a CAP-capable air support profile. This is intentionally
-   * conservative and runs once per bot turn before ground actions to seed interceptions for the player turn.
+   * Minimal bot air scheduling heuristic: launch a single CAP mission only when the player still has
+   * available strike aircraft that could threaten bot positions next turn.
    */
   private maybeScheduleBasicBotAirCover(): void {
     if (this._phase !== "botTurn") {
+      return;
+    }
+    if (!this.playerHasAvailableStrikeAircraft()) {
       return;
     }
     for (const [unitKey, unit] of this.botPlacements.entries()) {
@@ -10243,8 +10343,8 @@ private automateSupplyConvoys(
 
   /**
    * Heuristic air operations: queue every available strike package, pair escorts with queued strikes when
-   * available, then attempt a CAP over a strategically valuable area (near player-held objectives).
-   * Falls back to a local CAP if no better patrol zone is found.
+   * the player can intercept them, then attempt a CAP over a strategically valuable area only if the
+   * player still fields available strike aircraft. Falls back to a local CAP if no better patrol zone is found.
    */
   private maybeScheduleHeuristicAirOps(): void {
     if (this._phase !== "botTurn") {
@@ -10389,6 +10489,10 @@ private automateSupplyConvoys(
 
   /** Attempts to schedule escorts for queued bot strike packages while fighters remain available. */
   private maybeScheduleBotEscortsForQueuedStrikes(): number {
+    if (!this.playerHasInterceptorPresence()) {
+      return 0;
+    }
+
     const queuedBotStrikes = Array.from(this.scheduledAirMissions.values()).filter(
       (m) => m.faction === "Bot" && m.template.kind === "strike" && m.status === "queued"
     );
@@ -10439,6 +10543,10 @@ private automateSupplyConvoys(
 
   /** Attempts to schedule CAP near the most relevant player-held objective by covering the nearest friendly unit. */
   private maybeScheduleStrategicBotAirCover(): boolean {
+    if (!this.playerHasAvailableStrikeAircraft()) {
+      return false;
+    }
+
     // Identify a player-held objective; pick the one nearest to any bot unit.
     const objectives = (this.scenario.objectives ?? []).filter((o) => o.owner === "Player");
     if (objectives.length === 0) {
@@ -10770,6 +10878,8 @@ private automateSupplyConvoys(
       const botAttackerSquadronId = this.getSquadronId(attackingUnit);
       const escortMissions = this.findAllActiveEscortsForUnit("Bot", botAttackerSquadronId).filter((m) => m.interceptions < 1);
       if (capMissions.length > 0) {
+        const bomberStrengthBeforeCap = attackingUnit.strength;
+        let bomberDestroyedByCap = false;
         const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         for (const cap of capMissions) {
@@ -10794,13 +10904,6 @@ private automateSupplyConvoys(
             });
           }
         }
-        this.pendingAirEngagements.push({
-          type: "airToAir",
-          location: structuredClone(targetHex),
-          bomber: { faction: "Bot", unitKey: atkKey, unitType: attackingUnit.type as string, strength: attackingUnit.strength },
-          interceptors: interceptorsForEvent,
-          escorts: escortsForEvent
-        });
 
         for (const cap of capMissions) {
           const capLookup = this.lookupUnitBySquadronId(cap.unitKey, "Player");
@@ -10864,12 +10967,34 @@ private automateSupplyConvoys(
           this.botPlacements.set(atkKey, updatedAtkBefore);
           this.syncBotStrength(attackerHex, updatedAtkBefore.strength);
           currentAtk = updatedAtkBefore;
+          attackingUnit = updatedAtkBefore;
           if (updatedAtkBefore.strength <= 0) {
             this.botPlacements.delete(atkKey);
             this.removeBotSupplyEntryFor(attackerHex);
             this.invalidateRosterCache();
-            return null;
+            bomberDestroyedByCap = true;
+            break;
           }
+        }
+
+        this.pendingAirEngagements.push({
+          type: "airToAir",
+          location: structuredClone(targetHex),
+          bomber: {
+            faction: "Bot",
+            unitKey: atkKey,
+            unitType: attackingUnit.type as string,
+            strength: bomberStrengthBeforeCap
+          },
+          interceptors: interceptorsForEvent,
+          escorts: escortsForEvent,
+          bomberStrengthBefore: bomberStrengthBeforeCap,
+          bomberStrengthAfter: currentAtk.strength,
+          bomberDestroyed: bomberDestroyedByCap
+        });
+
+        if (bomberDestroyedByCap) {
+          return null;
         }
       }
     }
@@ -12112,9 +12237,16 @@ private automateSupplyConvoys(
     if (!this.isEngineerUnit(unit, definition)) {
       return { available: false, reason: "Only engineer battalions can build battlefield modifications." };
     }
-    const commitmentReason = this.resolveActionCommitmentReason(flags);
-    if (commitmentReason) {
-      return { available: false, reason: commitmentReason };
+    if (type === "fortifications") {
+      const commitmentReason = this.resolveActionCommitmentReason(flags);
+      if (commitmentReason) {
+        return { available: false, reason: commitmentReason };
+      }
+    } else if (flags.attacksUsed > 0) {
+      return {
+        available: false,
+        reason: "This engineer battalion has already attacked this turn."
+      };
     }
     const existingMods = this.hexModifications.get(axialKey(hex)) ?? [];
     if (type === "fortifications") {

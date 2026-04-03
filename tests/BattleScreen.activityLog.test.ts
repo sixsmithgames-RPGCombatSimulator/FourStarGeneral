@@ -57,10 +57,10 @@ registerTest("BATTLESCREEN_ENEMY_ACTIVITY_LOG_SHOWS_COUNTERFIRE_DAMAGE", async (
 });
 
 registerTest("BATTLESCREEN_DEFENSIVE_AIR_EVENTS_LOG_PLAYER_REACTIONS", async ({ When, Then }) => {
-  const published: Array<{ category: string; summary: string }> = [];
+  const published: Array<{ category: string; summary: string; details?: Record<string, unknown> }> = [];
   const screen = Object.create(BattleScreen.prototype) as BattleScreen;
 
-  (screen as any).publishActivityEvent = (event: { category: string; summary: string }) => {
+  (screen as any).publishActivityEvent = (event: { category: string; summary: string; details?: Record<string, unknown> }) => {
     published.push(event);
   };
   (screen as any).announceBattleUpdate = () => {};
@@ -84,6 +84,8 @@ registerTest("BATTLESCREEN_DEFENSIVE_AIR_EVENTS_LOG_PLAYER_REACTIONS", async ({ 
     bomber: { faction: "Bot", unitKey: "bomber-1", unitType: "Bomber", strength: 82 },
     interceptors: [{ faction: "Player", unitKey: "cap-1", unitType: "Fighter", strength: 100 }],
     escorts: [{ faction: "Bot", unitKey: "escort-1", unitType: "Fighter", strength: 100 }],
+    bomberStrengthBefore: 82,
+    bomberStrengthAfter: 58,
     bomberDestroyed: false
   };
 
@@ -103,6 +105,18 @@ registerTest("BATTLESCREEN_DEFENSIVE_AIR_EVENTS_LOG_PLAYER_REACTIONS", async ({ 
 
     if (published[1]?.category !== "player" || !published[1].summary.includes("Player air patrol intercepted enemy Bomber")) {
       throw new Error(`Expected player interception activity entry, saw ${JSON.stringify(published[1])}.`);
+    }
+
+    if (!published[1].summary.includes("Interception damage: 24%. Bomber strength now 58.")) {
+      throw new Error(`Expected interception damage summary in activity log, saw ${published[1].summary}.`);
+    }
+
+    if ((published[1].details?.interceptionDamage as number | undefined) !== 24) {
+      throw new Error(`Expected interception damage detail of 24, received ${String(published[1].details?.interceptionDamage)}.`);
+    }
+
+    if ((published[1].details?.bomberStrengthAfter as number | undefined) !== 58) {
+      throw new Error(`Expected bomber strength-after detail of 58, received ${String(published[1].details?.bomberStrengthAfter)}.`);
     }
   });
 });

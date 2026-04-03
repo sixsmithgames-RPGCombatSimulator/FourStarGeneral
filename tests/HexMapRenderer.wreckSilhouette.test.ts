@@ -1,6 +1,7 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { HexMapRenderer } from "../src/rendering/HexMapRenderer";
+import type { ScenarioData } from "../src/core/types";
 
 registerTest("HEXMAP_RECON_BIKE_WRECKS_USE_SMALL_SCATTERED_SILHOUETTES", async ({ Then }) => {
   const renderer = new HexMapRenderer() as unknown as {
@@ -27,4 +28,98 @@ registerTest("HEXMAP_RECON_BIKE_WRECKS_USE_SMALL_SCATTERED_SILHOUETTES", async (
   }
 
   await Then("light vehicle wrecks stay low-profile and fragmented", () => {});
+});
+
+registerTest("HEXMAP_DAMAGED_VEHICLES_USE_LAYERED_AFTERMATH_FX_WITHOUT_LEGACY_ANIMATE_NODES", async ({ Given, When, Then }) => {
+  const viewport = document.createElement("div");
+  viewport.style.width = "240px";
+  viewport.style.height = "180px";
+
+  const canvas = document.createElement("div");
+  canvas.id = "battleMapCanvas";
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.id = "battleHexMap";
+
+  canvas.appendChild(svg);
+  viewport.appendChild(canvas);
+  document.body.appendChild(viewport);
+
+  const scenario: ScenarioData = {
+    name: "Aftermath Harness",
+    size: { cols: 1, rows: 1 },
+    tilePalette: {
+      PLAINS: {
+        terrain: "plains",
+        terrainType: "grass",
+        density: "average",
+        features: [],
+        recon: "intel"
+      }
+    },
+    tiles: [[{ tile: "PLAINS" }]],
+    objectives: [],
+    turnLimit: 1,
+    sides: {
+      Player: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] },
+      Bot: { hq: { q: 0, r: 0 }, general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 }, units: [] }
+    }
+  };
+
+  const renderer = new HexMapRenderer() as unknown as {
+    render(svg: SVGSVGElement, canvas: HTMLDivElement, scenario: ScenarioData): void;
+    renderUnit(hexKey: string, unit: any, faction?: "Player" | "Bot" | "Ally"): void;
+    markHexDamaged(hexKey: string, unitClass?: "vehicle" | "tank", strengthAfter?: number, turns?: number): void;
+    wreckFxRenderer: { stepForTests(timestamp: number): void; stopAll(): void } | null;
+  };
+
+  await Given("a rendered vehicle on a single battlefield hex", async () => {
+    renderer.render(svg, canvas as HTMLDivElement, scenario);
+    renderer.renderUnit("0,0", {
+      type: "Recon_ArmoredCar" as never,
+      hex: { q: 0, r: 0 },
+      strength: 42,
+      experience: 0,
+      ammo: 6,
+      fuel: 30,
+      entrench: 0,
+      facing: "NE"
+    }, "Player");
+  });
+
+  await When("the hex is marked as damaged but not wrecked", async () => {
+    renderer.markHexDamaged("0,0", "vehicle", 42, 2);
+    renderer.wreckFxRenderer?.stepForTests(performance.now() + 16);
+  });
+
+  await Then("the aftermath overlay uses the pooled layered FX renderer instead of legacy animate nodes", async () => {
+    const cell = svg.querySelector<SVGGElement>('[data-hex="0,0"]');
+    if (!cell) {
+      throw new Error("Expected rendered hex cell.");
+    }
+
+    const overlay = cell.querySelector<SVGGElement>(".aftermath-overlay");
+    if (!overlay) {
+      throw new Error("Expected a damage aftermath overlay.");
+    }
+
+    const fxRoot = overlay.querySelector<SVGGElement>('[data-wreck-mode="damage"]');
+    if (!fxRoot) {
+      throw new Error("Expected damaged vehicles to mount the modern layered aftermath renderer.");
+    }
+
+    const legacyAnimateNodes = overlay.querySelectorAll("animate, animateTransform");
+    if (legacyAnimateNodes.length !== 0) {
+      throw new Error(`Expected no legacy SMIL aftermath nodes, found ${legacyAnimateNodes.length}.`);
+    }
+
+    const visibleSmoke = Array.from(fxRoot.querySelectorAll(".smoke-low path, .smoke-mid path, .smoke-high ellipse"))
+      .filter((node) => (node as SVGElement).style.display !== "none");
+    if (visibleSmoke.length === 0) {
+      throw new Error("Expected the layered damage aftermath renderer to show smoke particles.");
+    }
+
+    renderer.wreckFxRenderer?.stopAll();
+    viewport.remove();
+  });
 });

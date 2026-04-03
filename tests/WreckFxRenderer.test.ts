@@ -124,3 +124,46 @@ registerTest("WRECK_FX_RENDERER_MOUNTS_LAYERED_GROUPS_FOR_TANK_WRECKS", async ({
 
   await Then("the renderer mounts layered persistent wreck visuals instead of one flat blob", () => {});
 });
+
+registerTest("WRECK_FX_RENDERER_SUPPORTS_SUBTLER_DAMAGE_MODE_WITHOUT_LEGACY_FLAME_BLOBS", async ({ Then }) => {
+  const { svg, parent } = createSvgHost();
+  const renderer = new WreckFxRenderer(svg, () => "mid");
+  renderer.upsertWreck({
+    hexKey: "7,3",
+    parentGroup: parent,
+    anchorX: 164,
+    anchorY: 188,
+    seed: 4321,
+    wreckClass: "truck",
+    mode: "damage",
+    forcedSeverity: "smoldering",
+    allowFlames: false
+  });
+  renderer.stepForTests(performance.now() + 16);
+
+  const root = parent.querySelector('[data-wreck-hex="7,3"]') as SVGGElement | null;
+  if (!root) {
+    throw new Error("Expected damage-mode wreck FX to mount a root group.");
+  }
+  if (root.getAttribute("data-wreck-mode") !== "damage") {
+    throw new Error(`Expected damage-mode root, received ${root.getAttribute("data-wreck-mode")}.`);
+  }
+
+  const visibleFlames = Array.from(root.querySelectorAll(".flame-layer path")).filter((node) => (node as SVGElement).style.display !== "none");
+  const visibleSmoke = Array.from(root.querySelectorAll(".smoke-low path, .smoke-mid path, .smoke-high ellipse")).filter((node) => (node as SVGElement).style.display !== "none");
+  const visibleHaze = Array.from(root.querySelectorAll(".heat-haze ellipse")).filter((node) => (node as SVGElement).style.display !== "none");
+
+  if (visibleFlames.length !== 0) {
+    throw new Error(`Expected non-burning damage FX to suppress flames, received ${visibleFlames.length} visible flame nodes.`);
+  }
+  if (visibleSmoke.length === 0) {
+    throw new Error("Expected damage-mode FX to retain layered smoke.");
+  }
+  if (visibleHaze.length !== 0) {
+    throw new Error("Expected damage-mode FX to skip heat haze.");
+  }
+
+  renderer.stopAll();
+
+  await Then("persistent vehicle damage uses the modern layered renderer without promoting to full wreck fire", () => {});
+});

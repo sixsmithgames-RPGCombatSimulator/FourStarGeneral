@@ -8,6 +8,7 @@ const HOTSPOT_BASE_Y = 206;
 export type WreckFxZoomTier = "far" | "mid" | "near";
 export type WreckFxSeverity = "fresh" | "burning" | "settling" | "smoldering";
 export type WreckFxClass = "infantry" | "truck" | "artillery" | "tank" | "convoy";
+export type WreckFxMode = "wreck" | "damage";
 
 type ParticleFamily = "flame" | "smokeLow" | "smokeMid" | "smokeHigh" | "emberAir" | "heatHaze";
 type TieredCount = Readonly<Record<WreckFxZoomTier, number>>;
@@ -56,6 +57,9 @@ export interface WreckFxMountOptions {
   readonly anchorY: number;
   readonly seed: number;
   readonly wreckClass: WreckFxClass;
+  readonly mode?: WreckFxMode;
+  readonly forcedSeverity?: WreckFxSeverity | null;
+  readonly allowFlames?: boolean;
 }
 
 interface FlameParticle {
@@ -137,7 +141,7 @@ interface EmitterState {
 interface WreckFxInstance {
   readonly hexKey: string;
   readonly seed: number;
-  readonly preset: WreckFxPreset;
+  preset: WreckFxPreset;
   readonly root: SVGGElement;
   readonly shadowGroup: SVGGElement;
   readonly emberBedGroup: SVGGElement;
@@ -156,6 +160,9 @@ interface WreckFxInstance {
   readonly emberAir: EmberAirParticle[];
   readonly heatHaze: HeatHazeParticle[];
   readonly emitters: Record<ParticleFamily, EmitterState>;
+  mode: WreckFxMode;
+  forcedSeverity: WreckFxSeverity | null;
+  allowFlames: boolean;
   startedAtMs: number;
   anchorX: number;
   anchorY: number;
@@ -191,6 +198,10 @@ function createSeverityProfile(
   lifetimes: ParticleLifetimes
 ): WreckSeverityProfile {
   return { counts: countsConfig, intervalsMs, lifetimes };
+}
+
+function scaledCount(value: number, scale: number, minimum: number = 0): number {
+  return Math.max(minimum, Math.round(value * scale));
 }
 
 export const WRECK_FX_PRESETS: Readonly<Record<WreckFxClass, WreckFxPreset>> = {
@@ -729,17 +740,43 @@ export class WreckFxRenderer {
 
   upsertWreck(options: WreckFxMountOptions): void {
     ensureSharedDefs(this.svgRoot);
+    const mode = options.mode ?? "wreck";
+    const forcedSeverity = options.forcedSeverity ?? null;
+    const allowFlames = options.allowFlames ?? true;
     const preset = getWreckFxPreset(options.wreckClass);
     let instance = this.instances.get(options.hexKey);
+    if (
+      instance &&
+      (
+        instance.preset.wreckClass !== options.wreckClass ||
+        instance.mode !== mode ||
+        instance.forcedSeverity !== forcedSeverity ||
+        instance.allowFlames !== allowFlames
+      )
+    ) {
+      instance.root.remove();
+      this.instances.delete(options.hexKey);
+      instance = undefined;
+    }
     if (!instance) {
-      instance = this.createInstance(options.hexKey, options.seed, preset);
+      instance = this.createInstance(options.hexKey, options.seed, preset, mode, forcedSeverity, allowFlames);
       this.instances.set(options.hexKey, instance);
     }
 
+    instance.preset = preset;
+    instance.mode = mode;
+    instance.forcedSeverity = forcedSeverity;
+    instance.allowFlames = allowFlames;
     instance.startedAtMs ||= performance.now();
     instance.anchorX = options.anchorX;
     instance.anchorY = options.anchorY;
     instance.zoomTier = this.zoomResolver();
+    instance.root.setAttribute("data-wreck-mode", mode);
+    if (forcedSeverity) {
+      instance.root.setAttribute("data-wreck-severity", forcedSeverity);
+    } else {
+      instance.root.removeAttribute("data-wreck-severity");
+    }
     instance.root.setAttribute("transform", `translate(${options.anchorX - ANCHOR_X} ${options.anchorY - ANCHOR_Y})`);
 
     if (instance.root.parentNode !== options.parentGroup) {
@@ -795,10 +832,21 @@ export class WreckFxRenderer {
     }
   };
 
-  private createInstance(hexKey: string, seed: number, preset: WreckFxPreset): WreckFxInstance {
+  private createInstance(
+    hexKey: string,
+    seed: number,
+    preset: WreckFxPreset,
+    mode: WreckFxMode,
+    forcedSeverity: WreckFxSeverity | null,
+    allowFlames: boolean
+  ): WreckFxInstance {
     const root = createGroup("wreck-fx");
     root.setAttribute("data-wreck-hex", hexKey);
     root.setAttribute("data-wreck-class", preset.wreckClass);
+    root.setAttribute("data-wreck-mode", mode);
+    if (forcedSeverity) {
+      root.setAttribute("data-wreck-severity", forcedSeverity);
+    }
 
     const shadowGroup = createGroup("wreck-shadow");
     const emberBedGroup = createGroup("ember-bed");
@@ -923,6 +971,9 @@ export class WreckFxRenderer {
       emberAir,
       heatHaze,
       emitters: createEmitterState(),
+      mode,
+      forcedSeverity,
+      allowFlames,
       startedAtMs: performance.now(),
       anchorX: 0,
       anchorY: 0,
@@ -964,7 +1015,7 @@ export class WreckFxRenderer {
   private updateInstance(instance: WreckFxInstance, nowMs: number, dtMs: number): void {
     instance.zoomTier = this.zoomResolver();
     const elapsedMs = Math.max(0, nowMs - instance.startedAtMs);
-    const severity = resolveWreckSeverity(instance.preset, elapsedMs);
+    const severity = instance.forcedSeverity ?? resolveWreckSeverity(instance.preset, elapsedMs);
     const profile = instance.preset.severities[severity];
 
     this.renderShadow(instance, nowMs);
@@ -977,12 +1028,25 @@ export class WreckFxRenderer {
     this.updateEmberAir(instance, nowMs);
     this.updateHeatHaze(instance, nowMs);
 
-    this.emitFamily(instance, "flame", dtMs, pickTierValue(profile.counts.flame, instance.zoomTier), profile);
-    this.emitFamily(instance, "smokeLow", dtMs, pickTierValue(profile.counts.smokeLow, instance.zoomTier), profile);
-    this.emitFamily(instance, "smokeMid", dtMs, pickTierValue(profile.counts.smokeMid, instance.zoomTier), profile);
-    this.emitFamily(instance, "smokeHigh", dtMs, pickTierValue(profile.counts.smokeHigh, instance.zoomTier), profile);
-    this.emitFamily(instance, "emberAir", dtMs, pickTierValue(profile.counts.emberAir, instance.zoomTier), profile);
-    const hazeTarget = instance.preset.heatHazeEnabled ? pickTierValue(profile.counts.heatHaze, instance.zoomTier) : 0;
+    const countScale = instance.mode === "damage"
+      ? instance.allowFlames ? 0.72 : 0.56
+      : 1;
+    const flameTarget = instance.allowFlames
+      ? scaledCount(pickTierValue(profile.counts.flame, instance.zoomTier), countScale)
+      : 0;
+    const smokeLowTarget = scaledCount(pickTierValue(profile.counts.smokeLow, instance.zoomTier), countScale, 1);
+    const smokeMidTarget = scaledCount(pickTierValue(profile.counts.smokeMid, instance.zoomTier), countScale, 1);
+    const smokeHighTarget = scaledCount(pickTierValue(profile.counts.smokeHigh, instance.zoomTier), countScale);
+    const emberAirTarget = scaledCount(pickTierValue(profile.counts.emberAir, instance.zoomTier), countScale);
+    const hazeTarget = instance.mode === "wreck" && instance.preset.heatHazeEnabled
+      ? pickTierValue(profile.counts.heatHaze, instance.zoomTier)
+      : 0;
+
+    this.emitFamily(instance, "flame", dtMs, flameTarget, profile);
+    this.emitFamily(instance, "smokeLow", dtMs, smokeLowTarget, profile);
+    this.emitFamily(instance, "smokeMid", dtMs, smokeMidTarget, profile);
+    this.emitFamily(instance, "smokeHigh", dtMs, smokeHighTarget, profile);
+    this.emitFamily(instance, "emberAir", dtMs, emberAirTarget, profile);
     this.emitFamily(instance, "heatHaze", dtMs, hazeTarget, profile);
   }
 
@@ -992,21 +1056,22 @@ export class WreckFxRenderer {
     }
 
     const pulse = 0.92 + Math.sin((nowMs + instance.seed) / 600) * 0.04;
+    const isDamageMode = instance.mode === "damage";
     const shadow = document.createElementNS(SVG_NS, "ellipse");
     shadow.setAttribute("cx", `${ANCHOR_X}`);
-    shadow.setAttribute("cy", `${ANCHOR_Y - 4}`);
-    shadow.setAttribute("rx", `${30 * pulse}`);
-    shadow.setAttribute("ry", `${9 * pulse}`);
+    shadow.setAttribute("cy", `${ANCHOR_Y - (isDamageMode ? 6 : 4)}`);
+    shadow.setAttribute("rx", `${(isDamageMode ? 18 : 30) * pulse}`);
+    shadow.setAttribute("ry", `${(isDamageMode ? 5 : 9) * pulse}`);
     shadow.setAttribute("fill", "#0d0b0a");
-    shadow.setAttribute("opacity", "0.28");
+    shadow.setAttribute("opacity", isDamageMode ? "0.14" : "0.28");
 
     const warmGlow = document.createElementNS(SVG_NS, "ellipse");
     warmGlow.setAttribute("cx", `${ANCHOR_X}`);
-    warmGlow.setAttribute("cy", `${ANCHOR_Y - 10}`);
-    warmGlow.setAttribute("rx", `${22 * pulse}`);
-    warmGlow.setAttribute("ry", `${6 * pulse}`);
+    warmGlow.setAttribute("cy", `${ANCHOR_Y - (isDamageMode ? 12 : 10)}`);
+    warmGlow.setAttribute("rx", `${(isDamageMode ? 14 : 22) * pulse}`);
+    warmGlow.setAttribute("ry", `${(isDamageMode ? 3.8 : 6) * pulse}`);
     warmGlow.setAttribute("fill", "#6d3a18");
-    warmGlow.setAttribute("opacity", "0.12");
+    warmGlow.setAttribute("opacity", isDamageMode ? "0.07" : "0.12");
     warmGlow.setAttribute("filter", "url(#wreck-smoke-blur-small)");
 
     instance.shadowGroup.append(shadow, warmGlow);
@@ -1014,8 +1079,11 @@ export class WreckFxRenderer {
 
   private renderEmberBed(instance: WreckFxInstance, nowMs: number): void {
     const hotspots = hotspotPositions(instance.preset);
-    const emberCount = pickTierValue(instance.preset.emberBedCount, instance.zoomTier);
-    const glowCount = pickTierValue(instance.preset.emberGlowCount, instance.zoomTier);
+    const emberScale = instance.mode === "damage"
+      ? instance.allowFlames ? 0.68 : 0.42
+      : 1;
+    const emberCount = scaledCount(pickTierValue(instance.preset.emberBedCount, instance.zoomTier), emberScale, 1);
+    const glowCount = scaledCount(pickTierValue(instance.preset.emberGlowCount, instance.zoomTier), emberScale);
 
     instance.emberBed.forEach((element, index) => {
       if (index >= emberCount) {
