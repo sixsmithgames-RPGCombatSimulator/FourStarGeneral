@@ -54,6 +54,16 @@ const UNKNOWN_CONTACT_SPRITE = `data:image/svg+xml;utf8,${encodeURIComponent(
 
 type CombatAnimationKey = keyof typeof import("./SpriteSheetAnimator").COMBAT_ANIMATIONS;
 type AircraftAnimationProgressCallback = (progress: number, centerX: number, centerY: number) => void;
+type AircraftSortieOptions = {
+  ingressDurationMs?: number;
+  egressDurationMs?: number;
+  turnDelayMs?: number;
+  strength?: number;
+  laneOffsetPx?: number;
+  onIngressProgress?: AircraftAnimationProgressCallback;
+  onEgressProgress?: AircraftAnimationProgressCallback;
+  onTargetPass?: (centerX: number, centerY: number) => void | Promise<void>;
+};
 
 /**
  * Handle returned when staging a unit move so callers can delay playback until the camera settles.
@@ -595,6 +605,132 @@ export class HexMapRenderer implements IMapRenderer {
       await new Promise<void>((resolve) => setTimeout(resolve, pauseMs));
     }
     await this.animateAircraftArc(toKey, fromKey, scenarioType, legDurationMs, undefined, 1, strength, laneOffsetPx);
+  }
+
+  /**
+   * Flies a single persistent aircraft ghost through ingress, target pass, and egress without despawning
+   * between legs. This keeps strike sorties visually continuous while still allowing BattleScreen to hook
+   * flak, impact, and smoke effects into precise phases of the run.
+   */
+  async animateAircraftSortie(
+    fromKey: string,
+    targetKey: string,
+    returnKey: string,
+    scenarioType: string,
+    options: AircraftSortieOptions = {}
+  ): Promise<void> {
+    if (!this.svgElement) {
+      console.warn("[HexMapRenderer] animateAircraftSortie skipped: no SVG element available", {
+        fromKey,
+        targetKey,
+        returnKey,
+        scenarioType
+      });
+      return;
+    }
+
+    const fromCell = this.hexElementMap.get(fromKey);
+    const targetCell = this.hexElementMap.get(targetKey);
+    const returnCell = this.hexElementMap.get(returnKey);
+    if (!fromCell || !targetCell || !returnCell) {
+      console.warn("[HexMapRenderer] animateAircraftSortie skipped: missing hex cell(s)", {
+        fromKey,
+        targetKey,
+        returnKey,
+        scenarioType,
+        hasFrom: !!fromCell,
+        hasTarget: !!targetCell,
+        hasReturn: !!returnCell
+      });
+      return;
+    }
+
+    const startCenter = this.extractHexCenter(fromCell);
+    const targetCenter = this.extractHexCenter(targetCell);
+    const returnCenter = this.extractHexCenter(returnCell);
+    if (!startCenter || !targetCenter || !returnCenter) {
+      console.warn("[HexMapRenderer] animateAircraftSortie skipped: missing hex center(s)", {
+        fromKey,
+        targetKey,
+        returnKey,
+        scenarioType,
+        hasStartCenter: !!startCenter,
+        hasTargetCenter: !!targetCenter,
+        hasReturnCenter: !!returnCenter
+      });
+      return;
+    }
+
+    const spriteHref = getSpriteForScenarioType(scenarioType);
+    if (!spriteHref) {
+      console.error("[HexMapRenderer] animateAircraftSortie skipped: missing sprite mapping for scenarioType", {
+        fromKey,
+        targetKey,
+        returnKey,
+        scenarioType
+      });
+      return;
+    }
+
+    const iconSize = 40;
+    const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, options.strength);
+    const isFormation = ghost instanceof SVGGElement;
+    const layer = this.ensureCombatEffectsLayer();
+    if (!layer) {
+      console.error("[HexMapRenderer] animateAircraftSortie skipped: missing combat effects layer", {
+        fromKey,
+        targetKey,
+        returnKey,
+        scenarioType
+      });
+      return;
+    }
+
+    const rawDx = targetCenter.cx - startCenter.cx;
+    const rawDy = targetCenter.cy - startCenter.cy;
+    const rawDistance = Math.max(1, Math.hypot(rawDx, rawDy));
+    const nx = -rawDy / rawDistance;
+    const ny = rawDx / rawDistance;
+    const laneOffsetPx = options.laneOffsetPx ?? 0;
+    const shiftedStart = { cx: startCenter.cx + nx * laneOffsetPx, cy: startCenter.cy + ny * laneOffsetPx };
+    const shiftedTarget = { cx: targetCenter.cx + nx * laneOffsetPx, cy: targetCenter.cy + ny * laneOffsetPx };
+    const shiftedReturn = { cx: returnCenter.cx + nx * laneOffsetPx, cy: returnCenter.cy + ny * laneOffsetPx };
+
+    layer.appendChild(ghost);
+    this.positionAircraftGhost(ghost, isFormation, iconSize, shiftedStart.cx, shiftedStart.cy);
+
+    try {
+      await this.animateAircraftGhostArcSegment(
+        ghost,
+        isFormation,
+        iconSize,
+        shiftedStart,
+        shiftedTarget,
+        Math.max(1, options.ingressDurationMs ?? 2300),
+        options.onIngressProgress,
+        1
+      );
+
+      await Promise.resolve(options.onTargetPass?.(shiftedTarget.cx, shiftedTarget.cy));
+
+      const turnDelayMs = Math.max(0, options.turnDelayMs ?? 0);
+      if (turnDelayMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, turnDelayMs));
+      }
+
+      await this.animateAircraftGhostArcSegment(
+        ghost,
+        isFormation,
+        iconSize,
+        shiftedTarget,
+        shiftedReturn,
+        Math.max(1, options.egressDurationMs ?? 1900),
+        options.onEgressProgress,
+        -1
+      );
+    } finally {
+      ghost.remove();
+    }
   }
 
   /** Plays a brief tracer effect at the given hex key to indicate aerial gunfire. */
@@ -3447,6 +3583,74 @@ export class HexMapRenderer implements IMapRenderer {
     });
 
     return formationGroup;
+  }
+
+  private positionAircraftGhost(
+    ghost: SVGGElement | SVGImageElement,
+    isFormation: boolean,
+    iconSize: number,
+    centerX: number,
+    centerY: number
+  ): void {
+    if (isFormation) {
+      ghost.setAttribute("transform", `translate(${centerX},${centerY})`);
+      return;
+    }
+
+    const x = centerX - iconSize / 2;
+    const y = centerY - iconSize / 2;
+    (ghost as SVGImageElement).setAttribute("x", String(x));
+    (ghost as SVGImageElement).setAttribute("y", String(y));
+  }
+
+  private async animateAircraftGhostArcSegment(
+    ghost: SVGGElement | SVGImageElement,
+    isFormation: boolean,
+    iconSize: number,
+    start: { cx: number; cy: number },
+    end: { cx: number; cy: number },
+    durationMs: number,
+    onProgress?: AircraftAnimationProgressCallback,
+    bendDirection = 1
+  ): Promise<void> {
+    const dx = end.cx - start.cx;
+    const dy = end.cy - start.cy;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const nx = -dy / distance;
+    const ny = dx / distance;
+    const arcAmplitude = distance * 0.3 * bendDirection;
+    const control = {
+      cx: (start.cx + end.cx) / 2 + nx * arcAmplitude,
+      cy: (start.cy + end.cy) / 2 + ny * arcAmplitude
+    };
+
+    if (durationMs <= 0) {
+      this.positionAircraftGhost(ghost, isFormation, iconSize, end.cx, end.cy);
+      onProgress?.(1, end.cx, end.cy);
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      const startTime = performance.now();
+      const step: FrameRequestCallback = (now) => {
+        const elapsed = now - startTime;
+        const t = Math.min(1, elapsed / durationMs);
+        const eased = this.easeInOut(t);
+        const omt = 1 - eased;
+        const centerX = omt * omt * start.cx + 2 * omt * eased * control.cx + eased * eased * end.cx;
+        const centerY = omt * omt * start.cy + 2 * omt * eased * control.cy + eased * eased * end.cy;
+
+        this.positionAircraftGhost(ghost, isFormation, iconSize, centerX, centerY);
+        onProgress?.(eased, centerX, centerY);
+
+        if (t >= 1) {
+          resolve();
+          return;
+        }
+        this.scheduleAnimationFrame(step);
+      };
+      this.scheduleAnimationFrame(step);
+    });
   }
 
   private cleanupMoveGhost(ghost: SVGGElement, original: SVGGElement, restoreOpacity: string): void {

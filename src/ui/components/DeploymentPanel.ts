@@ -483,9 +483,7 @@ export class DeploymentPanel {
             <span class="deployment-unit-label">${this.escapeHtml(entry.label)}</span>
             <span class="deployment-status deployment-status--${statusLabel.toLowerCase()}">${statusLabel}</span>
           </div>
-          <span class="deployment-unit-meta" aria-hidden="true">
-            <span class="deployment-unit-chip"><strong class="deployment-unit-remaining">${entry.remaining}</strong> remaining</span>
-          </span>
+          <span class="deployment-unit-meta" aria-hidden="true"><strong class="deployment-unit-remaining">${entry.remaining}</strong> remaining</span>
         </div>
         <span class="sr-only">${entry.remaining} remaining of ${total} total.</span>
       </li>

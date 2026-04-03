@@ -1104,3 +1104,140 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LAUNCH_LINKED_STRIKES_IN_PARALLEL", as
     window.setTimeout = originalSetTimeout;
   }
 });
+
+registerTest("BATTLESCREEN_STRIKE_USES_CONTINUOUS_SORTIE_WHEN_RENDERER_SUPPORTS_IT", async ({ Given, When, Then }) => {
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const callOrder: string[] = [];
+  const fakeEngine = {
+    playerUnits: [] as ScenarioUnit[],
+    botUnits: [
+      {
+        type: "Medium_Tank" as unknown as ScenarioUnit["type"],
+        hex: { q: 0, r: 0 },
+        strength: 74,
+        experience: 0,
+        ammo: 4,
+        fuel: 20,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"]
+      }
+    ] as ScenarioUnit[],
+    reserveUnits: [],
+    allyUnits: [],
+    getScheduledAirMissions() {
+      return [
+        {
+          id: "sortie-1",
+          targetHex: { q: 0, r: 0 },
+          outcome: {
+            type: "strike",
+            result: "partial",
+            defenderType: "Medium_Tank",
+            defenderDestroyed: false,
+            meta: {
+              flakAttrition: 0,
+              bomberAttrition: 0
+            }
+          }
+        }
+      ];
+    }
+  } as const;
+
+  const fakeBattleState = {
+    hasEngine: () => true,
+    ensureGameEngine: () => fakeEngine
+  } as unknown as import("../src/state/BattleState").BattleState;
+
+  const fakeRenderer = {
+    async animateAircraftSortie(
+      _fromKey: string,
+      _toKey: string,
+      _returnKey: string,
+      _unitType: string,
+      options?: { onTargetPass?: () => Promise<void> | void }
+    ): Promise<void> {
+      callOrder.push("sortie-start");
+      await options?.onTargetPass?.();
+      callOrder.push("sortie-end");
+    },
+    async animateAircraftFlyover(): Promise<void> {
+      throw new Error("Expected continuous sortie path instead of separate flyover legs.");
+    },
+    async playExplosion(): Promise<void> {
+      callOrder.push("impact");
+    },
+    async playDustCloud(): Promise<void> {
+      callOrder.push("dust");
+    },
+    async playAirDamageSmokeTrailAt(): Promise<void> {},
+    markHexDamaged: () => {
+      callOrder.push("markDamaged");
+    },
+    markHexWrecked: () => {},
+    advanceAftermathTurn: () => {},
+    renderUnit: () => {},
+    clearUnit: () => {},
+    applyHexSelection: () => {},
+    syncQueuedTargetMarkers: () => {}
+  } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+
+  let screen: BattleScreen;
+
+  await Given("a battle screen with renderer support for continuous sorties", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      fakeRenderer,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).focusCameraOnHex = async (): Promise<void> => {};
+    (screen as any).waitForNextFrame = async (): Promise<void> => {};
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+    (screen as any).renderEngineUnits = () => {};
+  });
+
+  await When("a strike mission plays", async () => {
+    await (screen as any).playMissionStrikeOperation(
+      {
+        missionId: "sortie-1",
+        faction: "Player",
+        kind: "strike",
+        unitKey: "u_bomber",
+        originKey: "1,0",
+        destKey: "0,0",
+        unitType: "Bomber",
+        strength: 100,
+        laneOffsetPx: 0
+      },
+      [],
+      fakeRenderer,
+      fakeEngine,
+      true
+    );
+  });
+
+  await Then("impact resolves during the sortie rather than after a separate return animation", async () => {
+    const sortieStartIndex = callOrder.indexOf("sortie-start");
+    const impactIndex = callOrder.indexOf("impact");
+    const sortieEndIndex = callOrder.indexOf("sortie-end");
+
+    if (sortieStartIndex < 0 || impactIndex < 0 || sortieEndIndex < 0) {
+      throw new Error(`Expected sortie start, impact, and sortie end markers, saw ${JSON.stringify(callOrder)}.`);
+    }
+    if (!(sortieStartIndex < impactIndex && impactIndex < sortieEndIndex)) {
+      throw new Error(`Expected impact to occur during the continuous sortie, saw ${JSON.stringify(callOrder)}.`);
+    }
+  });
+});
