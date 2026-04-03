@@ -6,12 +6,12 @@
     "PLAINS": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": [], "recon": "intel" },
     "FOREST": { "terrain": "forest", "terrainType": "rural", "density": "dense", "features": ["trees", "shrubs"], "recon": "intel" },
     "HILL": { "terrain": "hill", "terrainType": "rural", "density": "average", "features": ["foothills"], "recon": "intel" },
-    "ROAD": { "terrain": "road", "terrainType": "rural", "density": "sparse", "features": [], "recon": "intel" },
+    "ROAD": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["road"], "recon": "intel" },
     "HAMLET": { "terrain": "city", "terrainType": "urban", "density": "sparse", "features": ["buildings"], "recon": "intel" },
     "RIVER_DEEP": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": ["large river"], "recon": "intel" },
     "SHALLOW_CROSSING": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": ["large river", "shallow"], "recon": "intel" },
     "FORD": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": ["large river", "shallow", "ford"], "recon": "intel" },
-    "RUBBLE_BRIDGE": { "terrain": "road", "terrainType": "rural", "density": "sparse", "features": ["bridge", "rubble"], "recon": "intel" }
+    "RUBBLE_BRIDGE": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["road", "bridge", "rubble"], "recon": "intel" }
   },
   "tiles": [
     ["ROAD","PLAINS","FOREST","HILL","PLAINS","PLAINS","PLAINS","RIVER_DEEP","PLAINS","PLAINS","FOREST","HILL","FOREST","PLAINS"],
