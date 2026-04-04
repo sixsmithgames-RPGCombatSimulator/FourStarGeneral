@@ -172,17 +172,11 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         }
         .air-form {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 0.75rem 0.8rem;
-          align-items: end;
+          gap: 0.75rem;
         }
         .air-form .field {
           display: grid;
           gap: 0.32rem;
-        }
-        .air-form .field--mission,
-        .air-form .field--submit {
-          grid-column: 1 / -1;
         }
         .air-form label {
           font-family: var(--font-label);
@@ -191,22 +185,288 @@ export const popupContentRegistry: PopupContentDefinition[] = [
           text-transform: uppercase;
           color: rgba(226, 205, 154, 0.76);
         }
-        .air-form select {
-          width: 100%;
-          min-height: 2.75rem;
-          padding: 0.55rem 0.75rem;
+        .air-orders-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.16fr) minmax(240px, 0.84fr);
+          gap: 0.8rem;
+          align-items: start;
+        }
+        .air-mission-tabs {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 0.5rem;
+        }
+        .air-mission-tab {
+          display: grid;
+          gap: 0.16rem;
+          min-height: 4.15rem;
+          padding: 0.6rem 0.72rem;
           border-radius: 12px;
           border: 1px solid rgba(170, 145, 94, 0.2);
-          background: linear-gradient(180deg, rgba(20, 23, 17, 0.96) 0%, rgba(11, 13, 10, 0.98) 100%);
-          color: #f2e8c7;
-          font-size: 0.88rem;
-          line-height: 1.35;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+          background: linear-gradient(180deg, rgba(22, 25, 18, 0.96) 0%, rgba(11, 13, 10, 0.98) 100%);
+          color: #efe3bf;
+          text-align: left;
+          cursor: pointer;
+          transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
         }
-        .air-form select:focus-visible {
+        .air-mission-tab:hover,
+        .air-mission-tab:focus-visible {
           outline: none;
           border-color: rgba(232, 197, 123, 0.52);
-          box-shadow: 0 0 0 1px rgba(232, 197, 123, 0.22);
+          transform: translateY(-1px);
+        }
+        .air-mission-tab[aria-selected="true"] {
+          border-color: rgba(222, 192, 123, 0.54);
+          background:
+            radial-gradient(circle at top right, rgba(191, 154, 73, 0.18), transparent 42%),
+            linear-gradient(180deg, rgba(71, 59, 30, 0.96) 0%, rgba(33, 28, 14, 0.98) 100%);
+          box-shadow: 0 0 0 1px rgba(222, 192, 123, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+        .air-mission-tab:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+          transform: none;
+        }
+        .air-mission-tab strong {
+          font-family: var(--font-heading);
+          font-size: 0.78rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          line-height: 1.2;
+        }
+        .air-mission-tab span {
+          font-size: 0.69rem;
+          line-height: 1.38;
+          color: var(--text-secondary);
+        }
+        .air-mission-tab[aria-selected="true"] span {
+          color: rgba(247, 231, 183, 0.9);
+        }
+        .air-squadron-grid,
+        .air-target-choice-grid {
+          display: grid;
+          gap: 0.48rem;
+          max-height: 18.65rem;
+          overflow-y: auto;
+          padding-right: 0.18rem;
+        }
+        .air-squadron-card,
+        .air-target-choice {
+          width: 100%;
+          border: 1px solid rgba(170, 145, 94, 0.18);
+          border-radius: 14px;
+          background: linear-gradient(180deg, rgba(21, 20, 14, 0.94) 0%, rgba(10, 11, 9, 0.98) 100%);
+          color: #efe3bf;
+          text-align: left;
+          transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+        }
+        .air-squadron-card {
+          display: grid;
+          grid-template-columns: 2.8rem minmax(0, 1fr);
+          align-items: center;
+          gap: 0.55rem;
+          padding: 0.58rem 0.64rem;
+          cursor: pointer;
+        }
+        .air-squadron-card:hover,
+        .air-squadron-card:focus-visible,
+        .air-target-choice:hover,
+        .air-target-choice:focus-visible {
+          outline: none;
+          border-color: rgba(222, 192, 123, 0.4);
+          transform: translateY(-1px);
+          box-shadow: 0 10px 18px rgba(0, 0, 0, 0.18);
+        }
+        .air-squadron-card[aria-pressed="true"],
+        .air-target-choice[aria-pressed="true"] {
+          border-color: rgba(222, 192, 123, 0.58);
+          background:
+            radial-gradient(circle at top right, rgba(191, 154, 73, 0.16), transparent 44%),
+            linear-gradient(180deg, rgba(61, 50, 24, 0.96) 0%, rgba(24, 21, 11, 0.98) 100%);
+          box-shadow: 0 0 0 1px rgba(222, 192, 123, 0.2), 0 12px 22px rgba(62, 48, 18, 0.22);
+        }
+        .air-squadron-card:disabled {
+          opacity: 0.56;
+          cursor: not-allowed;
+          transform: none;
+          box-shadow: none;
+        }
+        .air-squadron-card__visual {
+          width: 2.8rem;
+          height: 2.8rem;
+          border-radius: 11px;
+          border: 1px solid rgba(170, 145, 94, 0.16);
+          background: rgba(17, 18, 13, 0.74);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+        }
+        .air-squadron-card__visual img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+        }
+        .air-squadron-card__fallback {
+          font-family: var(--font-heading);
+          font-size: 0.84rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: rgba(239, 227, 191, 0.82);
+        }
+        .air-squadron-card__copy,
+        .air-target-choice__copy {
+          display: grid;
+          gap: 0.24rem;
+          min-width: 0;
+        }
+        .air-squadron-card__topline {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 0.35rem;
+          align-items: start;
+        }
+        .air-squadron-card__label,
+        .air-target-choice__label {
+          font-family: var(--font-heading);
+          font-size: 0.78rem;
+          letter-spacing: 0.07em;
+          text-transform: uppercase;
+          line-height: 1.2;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .air-squadron-card__meta {
+          display: flex;
+          gap: 0.28rem;
+          flex-wrap: wrap;
+        }
+        .air-squadron-stat {
+          display: inline-flex;
+          align-items: center;
+          padding: 0.1rem 0.42rem;
+          border-radius: 999px;
+          border: 1px solid rgba(170, 145, 94, 0.14);
+          background: rgba(12, 14, 10, 0.52);
+          font-family: var(--font-label);
+          font-size: 0.58rem;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: rgba(226, 205, 154, 0.74);
+        }
+        .air-squadron-card__detail,
+        .air-target-choice__detail,
+        .air-target-choice__meta {
+          font-size: 0.69rem;
+          line-height: 1.4;
+          color: var(--text-secondary);
+        }
+        .air-status-pill {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0.14rem 0.48rem;
+          border-radius: 999px;
+          border: 1px solid rgba(170, 145, 94, 0.2);
+          font-family: var(--font-label);
+          font-size: 0.56rem;
+          font-weight: 700;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          line-height: 1;
+          white-space: nowrap;
+          background: rgba(68, 58, 33, 0.18);
+          color: #e4d5ab;
+        }
+        .air-status-pill--ready {
+          border-color: rgba(118, 187, 128, 0.34);
+          color: #a7ddb3;
+          background: rgba(52, 88, 54, 0.18);
+        }
+        .air-status-pill--reserve {
+          border-color: rgba(149, 190, 255, 0.3);
+          color: #d3e3ff;
+          background: rgba(37, 56, 88, 0.18);
+        }
+        .air-status-pill--queued {
+          border-color: rgba(170, 145, 94, 0.34);
+          color: #e4d5ab;
+          background: rgba(88, 72, 36, 0.2);
+        }
+        .air-status-pill--inflight {
+          border-color: rgba(124, 168, 199, 0.38);
+          color: #b8d9ea;
+          background: rgba(37, 63, 76, 0.22);
+        }
+        .air-status-pill--resolving {
+          border-color: rgba(208, 175, 103, 0.34);
+          color: #e9cf90;
+          background: rgba(112, 89, 45, 0.2);
+        }
+        .air-target-panel {
+          display: grid;
+          gap: 0.55rem;
+        }
+        .air-target-card {
+          display: grid;
+          gap: 0.45rem;
+          padding: 0.72rem 0.78rem;
+          border-radius: 14px;
+          border: 1px solid rgba(170, 145, 94, 0.18);
+          background:
+            radial-gradient(circle at top right, rgba(124, 101, 51, 0.16), transparent 42%),
+            linear-gradient(180deg, rgba(20, 21, 15, 0.96) 0%, rgba(10, 11, 9, 0.98) 100%);
+        }
+        .air-target-card__eyebrow {
+          font-family: var(--font-label);
+          font-size: 0.56rem;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          color: rgba(226, 205, 154, 0.7);
+        }
+        .air-target-card__title {
+          font-family: var(--font-heading);
+          font-size: 0.88rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          line-height: 1.2;
+          color: #f2e8c7;
+        }
+        .air-target-card__detail {
+          margin: 0;
+          font-size: 0.73rem;
+          line-height: 1.48;
+          color: var(--text-secondary);
+        }
+        .air-target-actions {
+          display: flex;
+          gap: 0.45rem;
+          flex-wrap: wrap;
+        }
+        .air-target-choice {
+          display: grid;
+          gap: 0.26rem;
+          padding: 0.58rem 0.64rem;
+          cursor: pointer;
+        }
+        .air-target-choice__meta {
+          font-family: var(--font-label);
+          font-size: 0.58rem;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+        }
+        .air-order-note {
+          min-height: 1.05rem;
+          font-size: 0.73rem;
+          line-height: 1.45;
+          color: var(--text-secondary);
+        }
+        .air-order-note[data-tone="warning"] {
+          color: #e9cf90;
+        }
+        .air-order-note[data-tone="success"] {
+          color: #a7ddb3;
         }
         .air-button {
           min-height: 2.75rem;
@@ -379,8 +639,13 @@ export const popupContentRegistry: PopupContentDefinition[] = [
           }
           .air-summary,
           .air-mission-grid,
-          .air-form {
+          .air-mission-tabs,
+          .air-orders-grid {
             grid-template-columns: 1fr;
+          }
+          .air-squadron-grid,
+          .air-target-choice-grid {
+            max-height: none;
           }
         }
       </style>
@@ -407,23 +672,26 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         <section class="air-section">
           <header>
             <h3>Sortie Orders</h3>
-            <span class="air-note">Mission, squadron, and patrol zone</span>
+            <span class="air-note">Mission tabs, squadron board, and map-marked target</span>
           </header>
           <form class="air-form" data-air-form>
             <div class="field field--mission">
               <label>Mission</label>
-              <select data-air-mission-kind></select>
+              <div class="air-mission-tabs" role="tablist" aria-label="Sortie mission types" data-air-mission-tabs></div>
             </div>
-            <div class="field">
-              <label>Squadron</label>
-              <select data-air-unit-select></select>
+            <div class="air-orders-grid">
+              <div class="field">
+                <label>Squadron</label>
+                <div class="air-squadron-grid" data-air-squadron-grid></div>
+              </div>
+              <div class="field">
+                <label>Target</label>
+                <div class="air-target-panel" data-air-target-panel></div>
+              </div>
             </div>
-            <div class="field">
-              <label>Target</label>
-              <select data-air-target-select></select>
-            </div>
+            <div class="air-order-note" data-air-order-note></div>
             <div class="field field--submit">
-              <button type="submit" class="air-button primary">Issue Sortie</button>
+              <button type="submit" class="air-button primary" data-air-submit>Issue Sortie</button>
             </div>
           </form>
         </section>

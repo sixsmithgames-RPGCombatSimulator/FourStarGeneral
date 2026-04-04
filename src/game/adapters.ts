@@ -70,7 +70,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     type: "Howitzer_105",
     strength: 100,
     ammo: 6,
-    fuel: 0,
+    fuel: 2,
     entrench: 0,
     facing: "NW",
     experience: 1
@@ -80,7 +80,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     type: "Howitzer_105",
     strength: 100,
     ammo: 6,
-    fuel: 0,
+    fuel: 2,
     entrench: 0,
     facing: "NW",
     experience: 1
@@ -187,7 +187,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     type: "AT_Gun_50mm",
     strength: 100,
     ammo: 5,
-    fuel: 0,
+    fuel: 2,
     entrench: 1,
     facing: "NW",
     experience: 1
@@ -197,7 +197,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     type: "Flak_88",
     strength: 100,
     ammo: 6,
-    fuel: 0,
+    fuel: 2,
     entrench: 1,
     facing: "NW",
     experience: 1
@@ -287,7 +287,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     type: "Howitzer_105",
     strength: 100,
     ammo: 6,
-    fuel: 0,
+    fuel: 2,
     entrench: 0,
     facing: "NW",
     experience: 1
