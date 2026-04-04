@@ -2358,7 +2358,7 @@ export class GameEngine implements GameEngineAPI {
     return {
       type: "airCover",
       result: "success",
-      details: `Combat air patrol completed over ${axialKey(patrolHex)}; no hostile bombers entered the area.`,
+      details: `Combat air patrol completed over ${this.formatAxial(patrolHex)}; no hostile bombers entered the area.`,
       refitRequired: true,
       interceptions: mission.interceptions,
       protectedHex: structuredClone(patrolHex),
@@ -2832,6 +2832,28 @@ export class GameEngine implements GameEngineAPI {
     return this.allyPlacements;
   }
 
+  private getHostileFactionsFor(faction: TurnFaction): readonly TurnFaction[] {
+    return faction === "Bot" ? ["Player", "Ally"] : ["Bot"];
+  }
+
+  private forEachOccupiedHexKeyForFaction(faction: TurnFaction, visitor: (key: string) => void): void {
+    this.getPlacementMapForFaction(faction).forEach((_unit, key) => visitor(key));
+    this.getPlacementOverflowMapForFaction(faction).forEach((_units, key) => visitor(key));
+  }
+
+  private buildConvoyBlockingOccupancySet(faction: TurnFaction): Set<string> {
+    const blocked = new Set<string>();
+    this.getHostileFactionsFor(faction).forEach((hostileFaction) => {
+      this.forEachOccupiedHexKeyForFaction(hostileFaction, (key) => blocked.add(key));
+    });
+    return blocked;
+  }
+
+  private isHexBlockedForConvoy(hex: Axial, faction: TurnFaction): boolean {
+    return this.getHostileFactionsFor(faction)
+      .some((hostileFaction) => this.getUnitsAtHexForFaction(hex, hostileFaction).length > 0);
+  }
+
   private getSupplyMirrorForFaction(faction: TurnFaction): SupplyUnitState[] {
     if (faction === "Player") {
       return this.playerSupply;
@@ -2863,9 +2885,16 @@ export class GameEngine implements GameEngineAPI {
       .some((source) => hexDistance(source, hex) <= supplyBalance.convoy.sourceRadius);
   }
 
-  private getSupplyStateForHex(faction: TurnFaction, hex: Axial): SupplyUnitState | null {
+  private getSupplyStateForHex(faction: TurnFaction, hex: Axial, unitId?: string | null): SupplyUnitState | null {
+    const mirror = this.getSupplyMirrorForFaction(faction);
+    if (unitId) {
+      const byUnitId = mirror.find((entry) => entry.unitId === unitId);
+      if (byUnitId) {
+        return byUnitId;
+      }
+    }
     const key = axialKey(hex);
-    return this.getSupplyMirrorForFaction(faction).find((entry) => axialKey(entry.hex) === key) ?? null;
+    return mirror.find((entry) => axialKey(entry.hex) === key) ?? null;
   }
 
   private getDisplayUnitLabel(unit: ScenarioUnit): string {
@@ -3182,7 +3211,7 @@ export class GameEngine implements GameEngineAPI {
   }
 
   private resolveSupplyDemandEntries(faction: TurnFaction): SupplyDemandEntry[] {
-    const placements = Array.from(this.getPlacementMapForFaction(faction).values());
+    const placements = this.getAllUnitsForFaction(faction);
     const entries: SupplyDemandEntry[] = [];
     const liveDemandUnitIds = new Set<string>();
 
@@ -3194,7 +3223,7 @@ export class GameEngine implements GameEngineAPI {
           liveDemandUnitIds.add(unitId);
         }
         const definition = this.getUnitDefinition(unit.type);
-        const state = this.getSupplyStateForHex(faction, unit.hex);
+        const state = this.getSupplyStateForHex(faction, unit.hex, unitId);
         if (!state || definition.moveType === "air") {
           return;
         }
@@ -3234,7 +3263,7 @@ export class GameEngine implements GameEngineAPI {
       if (!entry.directEligible) {
         return;
       }
-      const state = this.getSupplyStateForHex(faction, entry.unit.hex);
+      const state = this.getSupplyStateForHex(faction, entry.unit.hex, entry.unit.unitId);
       if (!state) {
         return;
       }
@@ -3264,12 +3293,12 @@ export class GameEngine implements GameEngineAPI {
       return null;
     }
 
-    const occupied = this.buildUnifiedOccupancySet();
+    const occupied = this.buildConvoyBlockingOccupancySet(faction);
     occupied.delete(axialKey(truck.hex));
 
     const reachable: ConvoyReachableTarget[] = [];
     for (const entry of availableDemand) {
-      const serviceHexes = this.collectServiceHexes(entry.unit.hex, truck.hex);
+      const serviceHexes = this.collectServiceHexes(entry.unit.hex, truck.hex, faction);
       const plan = this.findCheapestPathToAny(truck.hex, serviceHexes, this.getUnitDefinition(truck.type).moveType, occupied);
       if (!plan) {
         continue;
@@ -3292,9 +3321,9 @@ export class GameEngine implements GameEngineAPI {
     return reachable[0]?.entry ?? null;
   }
 
-  private collectServiceHexes(targetHex: Axial, origin: Axial): Axial[] {
+  private collectServiceHexes(targetHex: Axial, origin: Axial, faction: TurnFaction): Axial[] {
     const candidates: Axial[] = [];
-    if (!this.isOccupied(targetHex) || (targetHex.q === origin.q && targetHex.r === origin.r)) {
+    if (!this.isHexBlockedForConvoy(targetHex, faction) || (targetHex.q === origin.q && targetHex.r === origin.r)) {
       candidates.push(structuredClone(targetHex));
     }
     neighbors(targetHex).forEach((neighbor) => {
@@ -3302,7 +3331,7 @@ export class GameEngine implements GameEngineAPI {
         return;
       }
       const key = axialKey(neighbor);
-      if (this.isOccupied(neighbor) && key !== axialKey(origin)) {
+      if (this.isHexBlockedForConvoy(neighbor, faction) && key !== axialKey(origin)) {
         return;
       }
       candidates.push(structuredClone(neighbor));
@@ -3313,7 +3342,7 @@ export class GameEngine implements GameEngineAPI {
   private collectSourceApproachHexes(faction: TurnFaction, origin: Axial): Axial[] {
     const candidates: Axial[] = [];
     this.getSupplySourceHexes(faction).forEach((source) => {
-      if (!this.isOccupied(source) || axialKey(source) === axialKey(origin)) {
+      if (!this.isHexBlockedForConvoy(source, faction) || axialKey(source) === axialKey(origin)) {
         candidates.push(structuredClone(source));
       }
       neighbors(source).forEach((neighbor) => {
@@ -3321,7 +3350,7 @@ export class GameEngine implements GameEngineAPI {
           return;
         }
         const key = axialKey(neighbor);
-        if (this.isOccupied(neighbor) && key !== axialKey(origin)) {
+        if (this.isHexBlockedForConvoy(neighbor, faction) && key !== axialKey(origin)) {
           return;
         }
         candidates.push(structuredClone(neighbor));
@@ -3354,7 +3383,7 @@ export class GameEngine implements GameEngineAPI {
       return null;
     }
 
-    const unitState = this.getSupplyStateForHex(faction, entry.unit.hex);
+    const unitState = this.getSupplyStateForHex(faction, entry.unit.hex, entry.unit.unitId);
     if (!unitState) {
       return null;
     }
@@ -3400,7 +3429,7 @@ export class GameEngine implements GameEngineAPI {
     };
 
     const buildPlanForEntry = (entry: SupplyDemandEntry) => {
-      const destinationOptions = this.collectServiceHexes(entry.unit.hex, truck.hex);
+      const destinationOptions = this.collectServiceHexes(entry.unit.hex, truck.hex, faction);
       if (destinationOptions.length === 0) {
         return null;
       }
@@ -3492,7 +3521,7 @@ export class GameEngine implements GameEngineAPI {
         if (currentDemand) {
           const need = this.refreshDemandWithReservations(faction, currentDemand, reservations);
           if (need && hexDistance(truck.hex, currentDemand.unit.hex) <= supplyBalance.convoy.serviceRadius) {
-            const unitState = this.getSupplyStateForHex(faction, currentDemand.unit.hex);
+            const unitState = this.getSupplyStateForHex(faction, currentDemand.unit.hex, currentDemand.unit.unitId);
             if (unitState) {
               const delivered = this.deliverConvoyCargoToUnit(
                 faction,
@@ -3570,7 +3599,11 @@ export class GameEngine implements GameEngineAPI {
 
       // If in range, deliver immediately and loop
       if (hexDistance(truck.hex, allocation.targetUnit.unit.hex) <= supplyBalance.convoy.serviceRadius) {
-        const unitState = this.getSupplyStateForHex(faction, allocation.targetUnit.unit.hex);
+        const unitState = this.getSupplyStateForHex(
+          faction,
+          allocation.targetUnit.unit.hex,
+          allocation.targetUnit.unit.unitId
+        );
         if (unitState) {
           this.deliverConvoyCargoToUnit(
             faction,
@@ -3628,7 +3661,7 @@ private automateSupplyConvoys(
       continue;
     }
 
-    const unitState = this.getSupplyStateForHex(faction, demand.unit.hex);
+    const unitState = this.getSupplyStateForHex(faction, demand.unit.hex, demand.unit.unitId);
     if (!unitState) {
       continue;
     }
@@ -3643,7 +3676,7 @@ private automateSupplyConvoys(
   // PHASE 2: ALLOCATE CONVOY WORK
   // ======================
   // Assign trucks to targets with reservation-based workload splitting
-  const trucks = Array.from(placements.values()).filter((unit) => this.isSupplyTruckType(unit.type));
+  const trucks = this.getAllUnitsForFaction(faction).filter((unit) => this.isSupplyTruckType(unit.type));
 
   for (const truck of trucks) {
     const truckId = this.normalizeUnitId(this.ensureUnitId(truck));
@@ -3658,7 +3691,7 @@ private automateSupplyConvoys(
     }
 
     const truckDefinition = this.getUnitDefinition(truck.type);
-    const truckSupplyState = mirror.find((entry) => axialKey(entry.hex) === axialKey(truck.hex)) ?? null;
+    const truckSupplyState = this.getSupplyStateForHex(faction, truck.hex, truckId);
 
     if (!truckSupplyState) {
       continue;
@@ -3677,7 +3710,7 @@ private automateSupplyConvoys(
       continue;
     }
 
-    const occupied = this.buildUnifiedOccupancySet();
+    const occupied = this.buildConvoyBlockingOccupancySet(faction);
     occupied.delete(axialKey(truck.hex));
     const availableFuel = this.resolveFuelBudget(truck, truckDefinition);
 
@@ -3692,7 +3725,7 @@ private automateSupplyConvoys(
       if (currentDemand) {
         currentNeed = this.refreshDemandWithReservations(faction, currentDemand, reservations);
         if (currentNeed) {
-          const destinationOptions = this.collectServiceHexes(currentDemand.unit.hex, truck.hex);
+          const destinationOptions = this.collectServiceHexes(currentDemand.unit.hex, truck.hex, faction);
           const plan = destinationOptions.length > 0
             ? this.findCheapestPathToAny(
                 truck.hex,
@@ -3773,7 +3806,7 @@ private automateSupplyConvoys(
     }
 
     const truckDefinition = this.getUnitDefinition(truck.type);
-    const truckSupplyState = mirror.find((entry) => axialKey(entry.hex) === axialKey(truck.hex)) ?? null;
+    const truckSupplyState = this.getSupplyStateForHex(faction, truck.hex, truckId);
 
     if (!truckSupplyState) {
       continue;
@@ -3781,7 +3814,7 @@ private automateSupplyConvoys(
 
     const atSource = this.isHexWithinSupplySourceRadius(truck.hex, faction);
     const hasCargo = (): boolean => truckState.ammoCargo > 0 || truckState.fuelCargo > 0;
-    const occupied = this.buildUnifiedOccupancySet();
+    const occupied = this.buildConvoyBlockingOccupancySet(faction);
     occupied.delete(axialKey(truck.hex));
     const availableFuel = this.resolveFuelBudget(truck, truckDefinition);
 
@@ -3792,7 +3825,7 @@ private automateSupplyConvoys(
           return null;
         }
 
-        const unitState = this.getSupplyStateForHex(faction, entry.unit.hex);
+        const unitState = this.getSupplyStateForHex(faction, entry.unit.hex, entry.unit.unitId);
         if (!unitState) {
           return null;
         }
@@ -3815,7 +3848,8 @@ private automateSupplyConvoys(
 
         const destinationOptions = this.collectServiceHexes(
           entry.unit.hex,
-          truck.hex
+          truck.hex,
+          faction
         );
         if (destinationOptions.length === 0) {
           return null;
@@ -3907,7 +3941,7 @@ private automateSupplyConvoys(
           return false;
         }
 
-        const assignedState = this.getSupplyStateForHex(faction, entry.unit.hex);
+        const assignedState = this.getSupplyStateForHex(faction, entry.unit.hex, entry.unit.unitId);
         if (!assignedState) {
           return false;
         }
@@ -3975,7 +4009,7 @@ private automateSupplyConvoys(
           ) {
             break;
           }
-          if (this.isOccupied(step) && axialKey(step) !== axialKey(truck.hex)) {
+          if (this.isHexBlockedForConvoy(step, faction)) {
             break;
           }
 
@@ -4037,7 +4071,8 @@ private automateSupplyConvoys(
       if (assignedEntry && hasCargo()) {
         destinationOptions = this.collectServiceHexes(
           assignedEntry.unit.hex,
-          truck.hex
+          truck.hex,
+          faction
         );
         truckState.status = "delivering";
         plan = assignedPlan;
@@ -4102,33 +4137,37 @@ private automateSupplyConvoys(
         return;
       }
 
-      const fromKey = axialKey(truck.hex);
-      const toKey = axialKey(movement.current);
-
-      this.getPlacementMapForFaction(faction).delete(fromKey);
-      truck.facing = this.resolveFacingToward(
+      const fromHex = structuredClone(truck.hex);
+      const movedTruck = structuredClone(truck);
+      movedTruck.facing = this.resolveFacingToward(
         truck.hex,
         movement.current,
         truck.facing
       );
-      truck.hex = structuredClone(movement.current);
+      movedTruck.hex = structuredClone(movement.current);
 
       if (Number.isFinite(availableFuel) && movement.fuelSpent > 0) {
-        truck.fuel = Math.max(
+        movedTruck.fuel = Math.max(
           0,
-          Number((truck.fuel - movement.fuelSpent).toFixed(2))
+          Number((movedTruck.fuel - movement.fuelSpent).toFixed(2))
         );
       }
 
-      truck.entrench = 0;
-      this.getPlacementMapForFaction(faction).set(toKey, structuredClone(truck));
+      movedTruck.entrench = 0;
+      this.removeUnitFromFactionHex(faction, fromHex, truckId);
+      this.addUnitToFactionHex(faction, movedTruck);
+      truck.facing = movedTruck.facing;
+      truck.hex = structuredClone(movedTruck.hex);
+      truck.fuel = movedTruck.fuel;
+      truck.entrench = movedTruck.entrench;
       this.updateSupplyPositionForFaction(
         faction,
-        movement.traveled[0],
-        movement.current
+        fromHex,
+        movement.current,
+        truckId
       );
-      this.syncFuelForFaction(faction, movement.current, truck.fuel);
-      this.syncEntrenchForFaction(faction, movement.current, truck.entrench);
+      this.syncFuelForFaction(faction, movement.current, truck.fuel, truckId);
+      this.syncEntrenchForFaction(faction, movement.current, truck.entrench, truckId);
 
       if (this.isHexWithinSupplySourceRadius(truck.hex, faction)) {
         this.loadSupplyTruckFromDepot(
@@ -4808,7 +4847,7 @@ private automateSupplyConvoys(
     clone.hex = structuredClone(hex);
     this.ensureUnitId(clone);
     if (!this.canFactionEnterHex(clone, "Player", hex)) {
-      throw new Error(`Hex ${key} cannot accept another deployed unit.`);
+      throw new Error(`Hex ${this.formatAxial(hex)} cannot accept another deployed unit.`);
     }
     const deploymentState = ensureDeploymentState();
     const allocationKey = entry.allocationKey ?? deploymentState.getUnitKeyForScenarioType(clone.type as string);
@@ -6137,7 +6176,7 @@ private automateSupplyConvoys(
         id: `alert-counter-intel-${focus.id}`,
         severity: "info",
         timeframe: "current",
-        message: `Counter-intelligence screen active near ${axialKey(focus.targetHex)}. Enemy maneuver estimates are being pulled off-axis.`,
+        message: `Counter-intelligence screen active near ${this.formatAxial(focus.targetHex)}. Enemy maneuver estimates are being pulled off-axis.`,
         action: "Mask the real main effort while the decoy axis burns enemy time."
       });
     }
@@ -6166,8 +6205,8 @@ private automateSupplyConvoys(
   private mapCounterIntelOperation(operation: InternalCounterIntelOperation): ReconIntelCounterIntelOperation {
     return {
       id: operation.id,
-      label: `Deception Screen ${axialKey(operation.targetHex)}`,
-      targetHex: axialKey(operation.targetHex),
+      label: `Deception Screen ${this.formatAxial(operation.targetHex)}`,
+      targetHex: this.formatAxial(operation.targetHex),
       radius: operation.radius,
       remainingTurns: operation.remainingTurns,
       effect: "Enemy planning is biased toward this false approach."
@@ -8702,7 +8741,7 @@ private automateSupplyConvoys(
 
   getLogisticsSnapshot(): LogisticsSnapshot {
     this.ensureSupplyTruckStatesForFaction("Player");
-    const allPlacements = Array.from(this.playerPlacements.values());
+    const allPlacements = this.getAllUnitsForFaction("Player");
     const convoyUnits = allPlacements.filter((unit) => this.isSupplyTruckType(unit.type));
     const placements = allPlacements.filter((unit) => !this.isSupplyTruckType(unit.type));
     const totalUnits = placements.length;
@@ -8862,12 +8901,12 @@ private automateSupplyConvoys(
       const convoyId = unit.unitId ?? this.ensureUnitId(unit);
       const convoyState = convoyStateMap.get(convoyId)!;
       const assignedUnit = placements.find((candidate) => candidate.unitId === convoyState.assignedUnitId) ?? null;
-      const occupancy = this.buildUnifiedOccupancySet();
+      const occupancy = this.buildConvoyBlockingOccupancySet("Player");
       occupancy.delete(axialKey(unit.hex));
       const routePlan = assignedUnit
         ? this.findCheapestPathToAny(
           unit.hex,
-          this.collectServiceHexes(assignedUnit.hex, unit.hex),
+          this.collectServiceHexes(assignedUnit.hex, unit.hex, "Player"),
           this.getUnitDefinition(unit.type).moveType,
           occupancy
         )
@@ -9716,11 +9755,11 @@ private automateSupplyConvoys(
 
   /** Build a unified occupancy set covering all factions for plan application. */
   private buildUnifiedOccupancySet(): Set<string> {
-    const keys: string[] = [];
-    this.playerPlacements.forEach((_u, key) => keys.push(key));
-    this.botPlacements.forEach((_u, key) => keys.push(key));
-    this.allyPlacements.forEach((_u, key) => keys.push(key));
-    return new Set(keys);
+    const keys = new Set<string>();
+    this.forEachOccupiedHexKeyForFaction("Player", (key) => keys.add(key));
+    this.forEachOccupiedHexKeyForFaction("Bot", (key) => keys.add(key));
+    this.forEachOccupiedHexKeyForFaction("Ally", (key) => keys.add(key));
+    return keys;
   }
 
   private plannerMovementAllowance(snapshot: PlannerUnitSnapshot): number {
@@ -11830,9 +11869,9 @@ private automateSupplyConvoys(
     return "delivering";
   }
 
-  /** Formats an axial coordinate for quick display inside the logistics overlays. */
+  /** Formats a battle hex into the offset coordinate display used by the UI. */
   private formatAxial(hex: Axial): string {
-    return `${hex.q},${hex.r}`;
+    return this.toOffsetKey(hex);
   }
 
   /**
@@ -11992,7 +12031,7 @@ private automateSupplyConvoys(
         ammo: unit.ammo,
         fuel,
         morale: null,
-        location: axialKey(unit.hex),
+        location: this.formatAxial(unit.hex),
         status: "frontline",
         orders: [],
         attachments: [],
@@ -12074,7 +12113,7 @@ private automateSupplyConvoys(
         ammo: casualty.unit.ammo,
         fuel,
         morale: null,
-        location: axialKey(casualty.unit.hex),
+        location: this.formatAxial(casualty.unit.hex),
         status: "casualty",
         orders: [],
         attachments: [],

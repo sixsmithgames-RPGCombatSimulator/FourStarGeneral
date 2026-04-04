@@ -840,12 +840,12 @@ export class PopupManager implements IPopupManager {
           const refitTurns = engine.getAircraftRefitTurns(unitHex as any);
           const parts: string[] = [];
           parts.push(`Confirm ${String(kind)} mission`);
-          parts.push(`Unit: ${unitHex.q},${unitHex.r}`);
+          parts.push(`Unit: ${this.formatDisplayHex(unitHex)}`);
           if (request.targetHex) {
-            parts.push(`Target: ${request.targetHex.q},${request.targetHex.r}`);
+            parts.push(`Target: ${this.formatDisplayHex(request.targetHex)}`);
           }
           if (request.escortTargetHex) {
-            parts.push(`Escort: ${request.escortTargetHex.q},${request.escortTargetHex.r}`);
+            parts.push(`Escort: ${this.formatDisplayHex(request.escortTargetHex)}`);
           }
           if (typeof refitTurns === "number") {
             parts.push(`Refit: ${refitTurns} turn(s) after sortie`);
@@ -935,7 +935,9 @@ export class PopupManager implements IPopupManager {
       // Build options: deployed units first, then reserves
       const options: string[] = [];
       for (const u of eligibleDeployed) {
-        options.push(`<option value="${mk(u.hex)}">${this.escapeHtml(String(u.type))} — ${mk(u.hex)}</option>`);
+        options.push(
+          `<option value="${mk(u.hex)}">${this.escapeHtml(String(u.type))} — ${this.escapeHtml(this.formatDisplayHex(u.hex))}</option>`
+        );
       }
       for (const r of eligibleReserves) {
         // Reserves use their scenario hex as identifier (consistent with lookupUnit including reserves)
@@ -980,13 +982,13 @@ export class PopupManager implements IPopupManager {
           }
           if (unit) {
             options.push(
-              `<option value="${mk(unit.hex)}">Bomber at ${mk(unit.hex)} — ${this.escapeHtml(String(unit.type))}</option>`
+              `<option value="${mk(unit.hex)}">Bomber at ${this.escapeHtml(this.formatDisplayHex(unit.hex))} — ${this.escapeHtml(String(unit.type))}</option>`
             );
             continue;
           }
           if (typeof m.originHexKey === "string" && m.originHexKey.length > 0) {
             options.push(
-              `<option value="${this.escapeHtml(m.originHexKey)}">Bomber at ${this.escapeHtml(m.originHexKey)} — ${this.escapeHtml(String(m.unitType))}</option>`
+              `<option value="${this.escapeHtml(m.originHexKey)}">Bomber at ${this.escapeHtml(this.formatDisplayHexKey(m.originHexKey))} — ${this.escapeHtml(String(m.unitType))}</option>`
             );
           }
         }
@@ -1008,7 +1010,9 @@ export class PopupManager implements IPopupManager {
         options.push(`<option value="">Base CAP (cover home base)</option>`);
         // Also allow selecting specific hexes to patrol.
         for (const u of targets) {
-          options.push(`<option value="${mk(u.hex)}">Patrol over ${mk(u.hex)} — ${this.escapeHtml(String(u.type))}</option>`);
+          options.push(
+            `<option value="${mk(u.hex)}">Patrol over ${this.escapeHtml(this.formatDisplayHex(u.hex))} — ${this.escapeHtml(String(u.type))}</option>`
+          );
         }
         select.disabled = false;
         select.innerHTML = options.join("");
@@ -1034,7 +1038,7 @@ export class PopupManager implements IPopupManager {
       }
       select.disabled = false;
       select.innerHTML = enemies
-        .map((u) => `<option value="${mk(u.hex)}">${this.escapeHtml(String(u.type))} — ${mk(u.hex)}</option>`)
+        .map((u) => `<option value="${mk(u.hex)}">${this.escapeHtml(String(u.type))} — ${this.escapeHtml(this.formatDisplayHex(u.hex))}</option>`)
         .join("");
     } catch {
       select.innerHTML = `<option value="" disabled selected>Unavailable</option>`;
@@ -1066,14 +1070,14 @@ export class PopupManager implements IPopupManager {
         });
         return "Unknown squadron";
       }
-      return `${String(match.type)} @ ${match.hex.q},${match.hex.r}`;
+      return `${String(match.type)} @ ${this.formatDisplayHex(match.hex)}`;
     };
     const compose = (m: { id: string; kind: string; status: string; unitType: string; targetHex?: { q: number; r: number }; escortTargetUnitKey?: string; outcome?: { result: string; details: string; damageInflicted?: number; defenderDestroyed?: boolean; defenderType?: string } }): string => {
       const status = m.status;
       // Show "Base CAP" for Air Cover missions without a specific target hex.
       let target: string;
       if (m.targetHex) {
-        target = `${m.targetHex.q},${m.targetHex.r}`;
+        target = this.formatDisplayHex(m.targetHex);
       } else if (m.kind === "airCover") {
         target = "Base CAP";
       } else {
@@ -1133,6 +1137,19 @@ export class PopupManager implements IPopupManager {
     const r = Number(parts[1]);
     if (!Number.isFinite(q) || !Number.isFinite(r)) return null;
     return { q, r };
+  }
+
+  private formatDisplayHex(hex: { q: number; r: number }): string {
+    const { col, row } = CoordinateSystem.axialToOffset(hex.q, hex.r);
+    return `${col},${row}`;
+  }
+
+  private formatDisplayHexKey(value: string | null | undefined): string {
+    if (!value) {
+      return "";
+    }
+    const axial = this.parseAxialString(value);
+    return axial ? this.formatDisplayHex(axial) : value;
   }
 
   /** Handles map clicks when Air Support panel is in pick mode (target/escort). */

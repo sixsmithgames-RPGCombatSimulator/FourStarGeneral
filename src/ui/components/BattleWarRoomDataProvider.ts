@@ -1,4 +1,5 @@
 import { createEmptyWarRoomData, type WarRoomData } from "../../data/warRoomTypes";
+import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import type { BattleState } from "../../state/BattleState";
 import { ensureDeploymentState } from "../../state/DeploymentState";
 import type { WarRoomDataProvider } from "./WarRoomDataProvider";
@@ -16,6 +17,11 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
     this.battleState = battleState;
     // Mirror any meaningful battle-state changes directly into the overlay so commanders see fresh data without reopening.
     this.unsubscribeBattleUpdates = this.battleState.subscribeToBattleUpdates(() => this.publishUpdate());
+  }
+
+  private formatDisplayHex(hex: { q: number; r: number }): string {
+    const { col, row } = CoordinateSystem.axialToOffset(hex.q, hex.r);
+    return `${col},${row}`;
   }
 
   /**
@@ -56,7 +62,7 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
     // Promote deployed player units as proxy recon reports until a dedicated recon module is wired in.
     const playerUnits = engine.playerUnits;
     snapshot.reconReports = playerUnits.slice(0, 4).map((unit, index) => ({
-      sector: `Hex ${unit.hex.q},${unit.hex.r}`,
+      sector: `Hex ${this.formatDisplayHex(unit.hex)}`,
       finding: `${unit.type} holding position with strength ${unit.strength}.`,
       confidence: index === 0 ? "High" : "Medium",
       reportedBy: "Forward Observer",
