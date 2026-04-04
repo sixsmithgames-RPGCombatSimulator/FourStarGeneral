@@ -614,7 +614,13 @@ export class CampaignMapRenderer {
       }
 
       forces.slice(0, FORCE_POSITIONS.length).forEach((force, index) => {
-        const spriteUrl = getSpriteForScenarioType(force.unitType);
+        const spriteFaction =
+          instance.factionControl === "Bot"
+            ? "Bot"
+            : instance.factionControl === "Player"
+              ? "Player"
+              : undefined;
+        const spriteUrl = getSpriteForScenarioType(force.unitType, spriteFaction);
         if (!spriteUrl) {
           return;
         }

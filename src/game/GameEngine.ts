@@ -726,6 +726,10 @@ export interface AirMissionReportEntry {
   readonly kills?: { escorts?: number; cap?: number };
   /** Total percentage strength lost by the bomber due to interceptions (strike missions). */
   readonly bomberAttrition?: number;
+  /** Total percentage strength lost by hostile interceptors during escort / air-combat exchanges. */
+  readonly interceptorAttrition?: number;
+  /** Total percentage strength lost by escort flights during air-combat exchanges. */
+  readonly escortAttrition?: number;
   /** Freeform notes for UI log rendering. */
   readonly notes?: string[];
 }
@@ -782,6 +786,10 @@ interface AirMissionOutcomeBase {
     readonly escortsEngaged?: number;
     readonly escortsWins?: number;
     readonly bomberAttrition?: number;
+    readonly interceptorAttrition?: number;
+    readonly interceptorKills?: number;
+    readonly escortAttrition?: number;
+    readonly escortKills?: number;
   };
 }
 
@@ -826,6 +834,9 @@ export interface SerializedAirMission {
   readonly targetUnitKey?: string;
   readonly escortTargetUnitKey?: string;
   readonly interceptions?: number;
+  readonly airCombatDamageInflicted?: number;
+  readonly airCombatDamageTaken?: number;
+  readonly airCombatKills?: number;
   readonly outcome?: AirMissionOutcome;
 }
 
@@ -858,6 +869,10 @@ export interface AirEngagementEvent {
   readonly bomberStrengthBefore?: number;
   readonly bomberStrengthAfter?: number;
   readonly bomberDestroyed?: boolean;
+  readonly interceptorAttrition?: number;
+  readonly interceptorKills?: number;
+  readonly escortAttrition?: number;
+  readonly escortKills?: number;
 }
 
 /** Captures ongoing refit timers so hydration can restore readiness cycles after sorties. */
@@ -894,6 +909,9 @@ interface ScheduledAirMission {
   targetUnitKey?: string;
   escortTargetUnitKey?: string;
   interceptions: number;
+  airCombatDamageInflicted: number;
+  airCombatDamageTaken: number;
+  airCombatKills: number;
   outcome?: AirMissionOutcome;
 }
 
@@ -1480,6 +1498,9 @@ export class GameEngine implements GameEngineAPI {
       targetUnitKey: mission.targetUnitKey,
       escortTargetUnitKey: mission.escortTargetUnitKey,
       interceptions: mission.interceptions,
+      airCombatDamageInflicted: mission.airCombatDamageInflicted,
+      airCombatDamageTaken: mission.airCombatDamageTaken,
+      airCombatKills: mission.airCombatKills,
       outcome: mission.outcome ? structuredClone(mission.outcome) : undefined
     } satisfies SerializedAirMission;
   }
@@ -1501,6 +1522,9 @@ export class GameEngine implements GameEngineAPI {
       targetUnitKey: entry.targetUnitKey,
       escortTargetUnitKey: entry.escortTargetUnitKey,
       interceptions: entry.interceptions ?? 0,
+      airCombatDamageInflicted: entry.airCombatDamageInflicted ?? 0,
+      airCombatDamageTaken: entry.airCombatDamageTaken ?? 0,
+      airCombatKills: entry.airCombatKills ?? 0,
       outcome: entry.outcome ? structuredClone(entry.outcome) : undefined
     };
 
@@ -1905,6 +1929,9 @@ export class GameEngine implements GameEngineAPI {
     let escortsWins = 0;
     let capIntercepts = 0;
     let bomberAttrition = 0;
+    let interceptorAttrition = 0;
+    let escortAttrition = 0;
+    let interceptorKills = 0;
 
     if (capMissions.length > 0) {
       const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
@@ -1969,6 +1996,9 @@ export class GameEngine implements GameEngineAPI {
           };
         }
         const inflicted = Math.max(0, Math.round(escortResult.expectedDamage));
+        interceptorAttrition += inflicted;
+        this.addMissionAirCombatInflicted(escort, inflicted);
+        this.addMissionAirCombatTaken(cap, inflicted);
         const updatedCap = structuredClone(capUnit);
         updatedCap.strength = Math.max(0, updatedCap.strength - inflicted);
         // Spend fighter ammo and count the engagement for the escort.
@@ -1984,6 +2014,8 @@ export class GameEngine implements GameEngineAPI {
         }
         if (updatedCap.strength <= 0) {
           escortsWins += 1;
+          interceptorKills += 1;
+          this.addMissionAirCombatInflicted(escort, 0, 1);
           if (opponentFaction === "Player") {
             this.playerPlacements.delete(capHexKey);
             this.removeSupplyEntryFor(capUnit.hex);
@@ -2024,6 +2056,8 @@ export class GameEngine implements GameEngineAPI {
           };
         }
         const suffered = Math.max(0, Math.round(capResult.expectedDamage));
+        bomberAttrition += suffered;
+        this.addMissionAirCombatInflicted(cap, suffered, 0);
         const updatedBomber = structuredClone(currentBomber);
         updatedBomber.strength = Math.max(0, updatedBomber.strength - suffered);
         // Spend fighter ammo for CAP and record interception.
@@ -2039,6 +2073,7 @@ export class GameEngine implements GameEngineAPI {
         }
         currentBomber = updatedBomber;
         if (updatedBomber.strength <= 0) {
+          this.addMissionAirCombatInflicted(cap, 0, 1);
           attackerPlacements.delete(attackerHexKey);
           if (mission.faction === "Player") {
             this.removeSupplyEntryFor(attacker.hex);
@@ -2050,7 +2085,7 @@ export class GameEngine implements GameEngineAPI {
           break;
         }
       }
-      // Record bomber attrition vs. its initial strength after all CAP passes.
+      // Reconcile with the post-engagement snapshot so aggregate reporting stays exact.
       bomberAttrition = Math.max(0, attackerBefore.strength - (attackerPlacements.get(attackerHexKey)?.strength ?? attackerBefore.strength));
 
       this.pendingAirEngagements.push({
@@ -2067,7 +2102,10 @@ export class GameEngine implements GameEngineAPI {
         escorts: escortsForEvent,
         bomberStrengthBefore: bomberStrengthBeforeCap,
         bomberStrengthAfter: attackerPlacements.get(attackerHexKey)?.strength ?? 0,
-        bomberDestroyed: bomberDestroyedByCap
+        bomberDestroyed: bomberDestroyedByCap,
+        interceptorAttrition,
+        interceptorKills,
+        escortAttrition
       });
 
       if (bomberDestroyedByCap) {
@@ -2076,7 +2114,16 @@ export class GameEngine implements GameEngineAPI {
           result: "destroyed",
           details: "Strike package was intercepted and destroyed before reaching the target.",
           refitRequired: true,
-          meta: { capIntercepts, escortsEngaged, escortsWins, bomberAttrition: attackerBefore.strength }
+          meta: {
+            capIntercepts,
+            capKills: 1,
+            escortsEngaged,
+            escortsWins,
+            bomberAttrition: attackerBefore.strength,
+            interceptorAttrition,
+            interceptorKills,
+            escortAttrition
+          }
         };
       }
     }
@@ -2211,7 +2258,16 @@ export class GameEngine implements GameEngineAPI {
           ? `Strike damaged the enemy ${defender.type} at ${defenderKey}, inflicting ${inflicted}% strength loss.`
           : `Strike expended ordnance on the enemy ${defender.type}, but no significant damage was recorded.`,
       refitRequired: true,
-      meta: { flakAttrition, capIntercepts, escortsEngaged, escortsWins, bomberAttrition },
+      meta: {
+        flakAttrition,
+        capIntercepts,
+        escortsEngaged,
+        escortsWins,
+        bomberAttrition,
+        interceptorAttrition,
+        interceptorKills,
+        escortAttrition
+      },
       damageInflicted: inflicted,
       defenderDestroyed,
       defenderType: defender.type
@@ -2239,7 +2295,12 @@ export class GameEngine implements GameEngineAPI {
           details: "Escort engaged hostile interceptors while covering the linked strike package.",
           refitRequired: true,
           interceptions: mission.interceptions,
-          protectedUnitKey: mission.escortTargetUnitKey
+          protectedUnitKey: mission.escortTargetUnitKey,
+          meta: {
+            interceptorAttrition: mission.airCombatDamageInflicted,
+            interceptorKills: mission.airCombatKills,
+            escortAttrition: mission.airCombatDamageTaken
+          }
         };
       }
       return {
@@ -2260,7 +2321,12 @@ export class GameEngine implements GameEngineAPI {
           : `Escort maintained air cover for ${protectedLookup.unit.type}; no enemy interceptors challenged the route.`,
       refitRequired: true,
       interceptions,
-      protectedUnitKey: mission.escortTargetUnitKey
+      protectedUnitKey: mission.escortTargetUnitKey,
+      meta: {
+        interceptorAttrition: mission.airCombatDamageInflicted,
+        interceptorKills: mission.airCombatKills,
+        escortAttrition: mission.airCombatDamageTaken
+      }
     };
   }
 
@@ -2295,7 +2361,12 @@ export class GameEngine implements GameEngineAPI {
       details: `Combat air patrol completed over ${axialKey(patrolHex)}; no hostile bombers entered the area.`,
       refitRequired: true,
       interceptions: mission.interceptions,
-      protectedHex: structuredClone(patrolHex)
+      protectedHex: structuredClone(patrolHex),
+      meta: {
+        bomberAttrition: mission.airCombatDamageInflicted,
+        capKills: mission.airCombatKills,
+        interceptorAttrition: mission.airCombatDamageTaken
+      }
     };
   }
 
@@ -5659,7 +5730,10 @@ private automateSupplyConvoys(
       targetHex: request.targetHex ? structuredClone(request.targetHex) : undefined,
       targetUnitKey,
       escortTargetUnitKey,
-      interceptions: 0
+      interceptions: 0,
+      airCombatDamageInflicted: 0,
+      airCombatDamageTaken: 0,
+      airCombatKills: 0
     };
     this.scheduledAirMissions.set(missionId, mission);
     this.airMissionAssignmentsByUnit.set(squadronId, missionId);
@@ -7979,6 +8053,9 @@ private automateSupplyConvoys(
       if (capMissions.length > 0) {
         const bomberStrengthBeforeCap = attackingSnapshot.strength;
         let bomberDestroyedByCap = false;
+        let interceptorAttrition = 0;
+        let escortAttrition = 0;
+        let interceptorKills = 0;
         const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         for (const cap of capMissions) {
@@ -8028,12 +8105,14 @@ private automateSupplyConvoys(
           const escortDef = this.getUnitDefinition(escortUnit.type);
           const escortResult = scaleAttackResult(resolveAttack(escortReq), escortDef, capDef);
           const inflicted = roundAppliedDamage(escortResult.expectedDamage, escortDef, capDef);
+          interceptorAttrition += inflicted;
           const updatedCap = structuredClone(capUnit);
           updatedCap.strength = Math.max(0, updatedCap.strength - inflicted);
           this.spendAircraftAmmo("Player", resolveAircraftRegistryKey("Player", escortUnit), true);
           escort.interceptions += 1;
 
           if (updatedCap.strength <= 0) {
+            interceptorKills += 1;
             this.removeUnitFromFactionHex("Bot", updatedCap.hex, cap.unitKey);
             this.deleteUnitActionFlags("Bot", capUnit);
             this.removeSupplyEntryForFaction("Bot", updatedCap.hex, cap.unitKey);
@@ -8096,7 +8175,10 @@ private automateSupplyConvoys(
           escorts: escortsForEvent,
           bomberStrengthBefore: bomberStrengthBeforeCap,
           bomberStrengthAfter: attackingSnapshot.strength,
-          bomberDestroyed: bomberDestroyedByCap
+          bomberDestroyed: bomberDestroyedByCap,
+          interceptorAttrition,
+          interceptorKills,
+          escortAttrition
         });
 
         if (bomberDestroyedByCap) {
@@ -10948,6 +11030,9 @@ private automateSupplyConvoys(
       if (capMissions.length > 0) {
         const bomberStrengthBeforeCap = attackingUnit.strength;
         let bomberDestroyedByCap = false;
+        let interceptorAttrition = 0;
+        let escortAttrition = 0;
+        let interceptorKills = 0;
         const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
         for (const cap of capMissions) {
@@ -10996,6 +11081,7 @@ private automateSupplyConvoys(
             };
           }
           const inflicted = Math.max(0, Math.round(escortRes.expectedDamage));
+          interceptorAttrition += inflicted;
           const updatedCap = structuredClone(capUnit);
           updatedCap.strength = Math.max(0, updatedCap.strength - inflicted);
           this.spendAircraftAmmo("Bot", escort.unitKey, true);
@@ -11003,6 +11089,7 @@ private automateSupplyConvoys(
           this.playerPlacements.set(capHexKey, updatedCap);
           this.syncPlayerStrength(updatedCap.hex, updatedCap.strength);
           if (updatedCap.strength <= 0) {
+            interceptorKills += 1;
             this.playerPlacements.delete(capHexKey);
             this.removeSupplyEntryFor(capUnit.hex);
             cap.interceptions += 1;
@@ -11058,7 +11145,10 @@ private automateSupplyConvoys(
           escorts: escortsForEvent,
           bomberStrengthBefore: bomberStrengthBeforeCap,
           bomberStrengthAfter: currentAtk.strength,
-          bomberDestroyed: bomberDestroyedByCap
+          bomberDestroyed: bomberDestroyedByCap,
+          interceptorAttrition,
+          interceptorKills,
+          escortAttrition
         });
 
         if (bomberDestroyedByCap) {
@@ -12108,13 +12198,24 @@ private automateSupplyConvoys(
       event?: "resolved" | "refitStarted" | "refitCompleted";
       kills?: { escorts?: number; cap?: number };
       bomberAttrition?: number;
+      interceptorAttrition?: number;
+      escortAttrition?: number;
       notes?: string[];
     } = {}
   ): void {
-    const { outcome, event, kills, bomberAttrition, notes } = options;
+    const { outcome, event, kills, bomberAttrition, interceptorAttrition, escortAttrition, notes } = options;
     // Derive metrics from outcome meta if not explicitly provided
-    const derivedKills = kills ?? (outcome?.meta ? { escorts: outcome.meta.escortsWins ?? 0, cap: outcome.meta.capKills ?? 0 } : undefined);
+    const derivedKills = kills ?? (
+      outcome?.meta
+        ? {
+            escorts: outcome.meta.escortKills ?? outcome.meta.escortsWins ?? 0,
+            cap: outcome.meta.interceptorKills ?? outcome.meta.capKills ?? 0
+          }
+        : undefined
+    );
     const derivedAttrition = bomberAttrition ?? (outcome?.meta?.bomberAttrition ?? undefined);
+    const derivedInterceptorAttrition = interceptorAttrition ?? (outcome?.meta?.interceptorAttrition ?? undefined);
+    const derivedEscortAttrition = escortAttrition ?? (outcome?.meta?.escortAttrition ?? undefined);
     const entry: AirMissionReportEntry = {
       id: `airMission_${mission.id}_${this._turnNumber}`,
       missionId: mission.id,
@@ -12131,6 +12232,8 @@ private automateSupplyConvoys(
       event: event ?? (outcome ? "resolved" : undefined),
       kills: derivedKills,
       bomberAttrition: derivedAttrition,
+      interceptorAttrition: derivedInterceptorAttrition,
+      escortAttrition: derivedEscortAttrition,
       notes
     };
 
@@ -12138,6 +12241,21 @@ private automateSupplyConvoys(
     if (this.airMissionReports.length > 50) {
       this.airMissionReports.shift();
     }
+  }
+
+  private addMissionAirCombatInflicted(mission: ScheduledAirMission | undefined, damage: number, kills = 0): void {
+    if (!mission) {
+      return;
+    }
+    mission.airCombatDamageInflicted += Math.max(0, Math.round(damage));
+    mission.airCombatKills += Math.max(0, Math.round(kills));
+  }
+
+  private addMissionAirCombatTaken(mission: ScheduledAirMission | undefined, damage: number): void {
+    if (!mission) {
+      return;
+    }
+    mission.airCombatDamageTaken += Math.max(0, Math.round(damage));
   }
 
   /**

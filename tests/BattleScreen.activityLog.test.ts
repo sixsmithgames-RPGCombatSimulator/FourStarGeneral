@@ -1,7 +1,7 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
-import type { AirEngagementEvent, BotTurnSummary } from "../src/game/GameEngine";
+import type { AirEngagementEvent, AirMissionReportEntry, BotTurnSummary } from "../src/game/GameEngine";
 
 registerTest("BATTLESCREEN_ENEMY_ACTIVITY_LOG_SHOWS_COUNTERFIRE_DAMAGE", async ({ When, Then }) => {
   const published: Array<{ summary: string; details?: Record<string, unknown> }> = [];
@@ -86,7 +86,9 @@ registerTest("BATTLESCREEN_DEFENSIVE_AIR_EVENTS_LOG_PLAYER_REACTIONS", async ({ 
     escorts: [{ faction: "Bot", unitKey: "escort-1", unitType: "Fighter", strength: 100 }],
     bomberStrengthBefore: 82,
     bomberStrengthAfter: 58,
-    bomberDestroyed: false
+    bomberDestroyed: false,
+    interceptorAttrition: 17,
+    interceptorKills: 1
   };
 
   await When("player flak and CAP react during enemy air operations", async () => {
@@ -111,12 +113,189 @@ registerTest("BATTLESCREEN_DEFENSIVE_AIR_EVENTS_LOG_PLAYER_REACTIONS", async ({ 
       throw new Error(`Expected interception damage summary in activity log, saw ${published[1].summary}.`);
     }
 
+    if (!published[1].summary.includes("Interceptors took 17% damage and lost 1 flight.")) {
+      throw new Error(`Expected interceptor attrition summary in activity log, saw ${published[1].summary}.`);
+    }
+
     if ((published[1].details?.interceptionDamage as number | undefined) !== 24) {
       throw new Error(`Expected interception damage detail of 24, received ${String(published[1].details?.interceptionDamage)}.`);
     }
 
+    if ((published[1].details?.interceptorAttrition as number | undefined) !== 17) {
+      throw new Error(`Expected interceptor attrition detail of 17, received ${String(published[1].details?.interceptorAttrition)}.`);
+    }
+
+    if ((published[1].details?.interceptorKills as number | undefined) !== 1) {
+      throw new Error(`Expected interceptor kill detail of 1, received ${String(published[1].details?.interceptorKills)}.`);
+    }
+
     if ((published[1].details?.bomberStrengthAfter as number | undefined) !== 58) {
       throw new Error(`Expected bomber strength-after detail of 58, received ${String(published[1].details?.bomberStrengthAfter)}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_AIR_MISSION_LOGS_SURFACE_ESCORT_AND_CAP_ATTRITION", async ({ When, Then }) => {
+  const published: Array<{ category: string; summary: string; details?: Record<string, unknown> }> = [];
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+
+  const reports: AirMissionReportEntry[] = [
+    {
+      id: "escort-report-1",
+      missionId: "escort-1",
+      turnResolved: 3,
+      timestamp: "2026-04-03T03:16:00.000Z",
+      faction: "Bot",
+      unitType: "Fighter",
+      unitKey: "escort-1",
+      kind: "escort",
+      escortTargetUnitKey: "bomber-1",
+      interceptions: 1,
+      interceptorAttrition: 21,
+      outcome: {
+        type: "escort",
+        result: "success",
+        details: "Escort engaged hostile interceptors while covering the linked strike package.",
+        refitRequired: true,
+        interceptions: 1,
+        protectedUnitKey: "bomber-1",
+        meta: {
+          interceptorAttrition: 21,
+          interceptorKills: 1,
+          escortAttrition: 6
+        }
+      }
+    },
+    {
+      id: "cap-report-1",
+      missionId: "cap-1",
+      turnResolved: 3,
+      timestamp: "2026-04-03T03:16:00.000Z",
+      faction: "Player",
+      unitType: "Interceptor",
+      unitKey: "cap-1",
+      kind: "airCover",
+      targetHex: { q: 14, r: -7 },
+      interceptions: 1,
+      bomberAttrition: 24,
+      interceptorAttrition: 9,
+      outcome: {
+        type: "airCover",
+        result: "success",
+        details: "Combat air patrol disrupted the strike package.",
+        refitRequired: true,
+        interceptions: 1,
+        protectedHex: { q: 14, r: -7 },
+        meta: {
+          bomberAttrition: 24,
+          capKills: 1,
+          interceptorAttrition: 9
+        }
+      }
+    }
+  ];
+
+  (screen as any).seenAirReportIds = new Set<string>();
+  (screen as any).battleState = {
+    ensureGameEngine: () => ({
+      getAirMissionReports: () => reports
+    })
+  };
+  (screen as any).publishActivityEvent = (event: { category: string; summary: string; details?: Record<string, unknown> }) => {
+    published.push(event);
+  };
+  (screen as any).resolveAirSquadronLabel = () => "Bomber @ 1,11";
+
+  await When("resolved escort and CAP reports are mirrored into the activity log", async () => {
+    (screen as any).syncAirMissionLogs();
+  });
+
+  await Then("the summaries should include the missing air-combat attrition details", async () => {
+    if (published.length !== 2) {
+      throw new Error(`Expected 2 air mission activity entries, received ${published.length}.`);
+    }
+
+    if (!published[0]!.summary.includes("21 damage to interceptors")) {
+      throw new Error(`Expected escort summary to include interceptor attrition, saw ${published[0]!.summary}.`);
+    }
+
+    if (!published[0]!.summary.includes("1 interceptor destroyed")) {
+      throw new Error(`Expected escort summary to include interceptor kill count, saw ${published[0]!.summary}.`);
+    }
+
+    if (!published[0]!.summary.includes("escort losses 6%")) {
+      throw new Error(`Expected escort summary to include escort losses, saw ${published[0]!.summary}.`);
+    }
+
+    if (!published[1]!.summary.includes("24 damage to strike package")) {
+      throw new Error(`Expected CAP summary to include bomber attrition, saw ${published[1]!.summary}.`);
+    }
+
+    if (!published[1]!.summary.includes("strike package destroyed")) {
+      throw new Error(`Expected CAP summary to include strike-package kill, saw ${published[1]!.summary}.`);
+    }
+
+    if (!published[1]!.summary.includes("patrol losses 9%")) {
+      throw new Error(`Expected CAP summary to include patrol losses, saw ${published[1]!.summary}.`);
+    }
+
+    if (!published[1]!.summary.includes("target 14,0")) {
+      throw new Error(`Expected CAP summary to use player-facing offset coordinates, saw ${published[1]!.summary}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_AIR_MISSION_LOGS_FORMAT_STRIKE_TARGETS_IN_OFFSET_COORDINATES", async ({ When, Then }) => {
+  const published: Array<{ category: string; summary: string; details?: Record<string, unknown> }> = [];
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+
+  const reports: AirMissionReportEntry[] = [
+    {
+      id: "strike-report-1",
+      missionId: "strike-1",
+      turnResolved: 7,
+      timestamp: "2026-04-04T04:29:00.000Z",
+      faction: "Bot",
+      unitType: "Bomber",
+      unitKey: "bomber-1",
+      kind: "strike",
+      targetHex: { q: 14, r: -7 },
+      outcome: {
+        type: "strike",
+        result: "partial",
+        details: "Strike package damaged the target.",
+        refitRequired: true,
+        damageInflicted: 24,
+        defenderType: "Artillery_105"
+      }
+    }
+  ];
+
+  (screen as any).seenAirReportIds = new Set<string>();
+  (screen as any).battleState = {
+    ensureGameEngine: () => ({
+      getAirMissionReports: () => reports
+    })
+  };
+  (screen as any).publishActivityEvent = (event: { category: string; summary: string; details?: Record<string, unknown> }) => {
+    published.push(event);
+  };
+
+  await When("resolved strike reports are mirrored into the activity log", async () => {
+    (screen as any).syncAirMissionLogs();
+  });
+
+  await Then("the strike summary should use offset map coordinates instead of raw axial coordinates", async () => {
+    if (published.length !== 1) {
+      throw new Error(`Expected 1 strike activity entry, received ${published.length}.`);
+    }
+
+    if (!published[0]!.summary.includes("target 14,0")) {
+      throw new Error(`Expected strike summary to use offset coordinates, saw ${published[0]!.summary}.`);
+    }
+
+    if (published[0]!.summary.includes("14,-7")) {
+      throw new Error(`Did not expect raw axial coordinates in the strike summary, saw ${published[0]!.summary}.`);
     }
   });
 });

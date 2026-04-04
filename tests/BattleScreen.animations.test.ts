@@ -37,6 +37,9 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
     getScheduledAirMissions() {
       return [];
     },
+    getTurnSummary() {
+      return { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 } as const;
+    },
     previewAttack(_a: Axial, _d: Axial) {
       const result: AttackResult = {
         accuracy: 60,
@@ -49,11 +52,10 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
         facingArmor: 1,
         accuracyBreakdown: {
           baseRange: 60,
-          experienceBonus: 0,
           commanderScalar: 1,
-          baseWithCommander: 60,
-          experienceWithCommander: 0,
-          combinedAfterCommander: 60,
+          afterCommander: 60,
+          experienceScalar: 1,
+          afterExperience: 60,
           terrainModifier: 0,
           terrainMultiplier: 1,
           afterTerrain: 60,
@@ -120,11 +122,10 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
           facingArmor: 1,
           accuracyBreakdown: {
             baseRange: 60,
-            experienceBonus: 0,
             commanderScalar: 1,
-            baseWithCommander: 60,
-            experienceWithCommander: 0,
-            combinedAfterCommander: 60,
+            afterCommander: 60,
+            experienceScalar: 1,
+            afterExperience: 60,
             terrainModifier: 0,
             terrainMultiplier: 1,
             afterTerrain: 60,
@@ -153,6 +154,9 @@ registerTest("BATTLESCREEN_PLAYER_ATTACK_AWAITS_ANIMATION", async ({ Given, When
       return true;
     },
     ensureGameEngine() {
+      return fakeEngine as unknown as ReturnType<(typeof import("../src/state/BattleState"))['ensureBattleState']>["ensureGameEngine"];
+    },
+    tryGetGameEngine() {
       return fakeEngine as unknown as ReturnType<(typeof import("../src/state/BattleState"))['ensureBattleState']>["ensureGameEngine"];
     },
     emitBattleUpdate() {
@@ -254,12 +258,16 @@ registerTest("BATTLESCREEN_BOT_ATTACK_ANIMATION_HARD_TARGET", async ({ Given, Wh
     },
     getScheduledAirMissions() {
       return [];
+    },
+    getTurnSummary() {
+      return { phase: "botTurn", activeFaction: "Bot", turnNumber: 1 } as const;
     }
   } as const;
 
   const fakeBattleState = {
     hasEngine: () => true,
     ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine,
     getIdlePlayerUnitKeys: () => [],
     getCurrentTurnSummary: () => ({ phase: "botTurn", activeFaction: "Bot", turnNumber: 1 })
   } as unknown as import("../src/state/BattleState").BattleState;
@@ -364,12 +372,16 @@ registerTest("BATTLESCREEN_SUPPORT_ARTILLERY_IMPACTS_WAIT_FOR_FOCUS_AND_USE_BARR
     },
     getScheduledAirMissions() {
       return [];
+    },
+    getTurnSummary() {
+      return { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 } as const;
     }
   } as const;
 
   const fakeBattleState = {
     hasEngine: () => true,
-    ensureGameEngine: () => fakeEngine
+    ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine
   } as unknown as import("../src/state/BattleState").BattleState;
 
   const fakeRenderer = {
@@ -520,10 +532,13 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
         suppressorCount: 0
       };
     },
+    getTurnSummary() {
+      return { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 } as const;
+    },
     previewAttack(_a: Axial, _d: Axial, stance?: string) {
       lastRequestedStance = stance;
       const result: AttackResult = {
-        accuracy: 60,
+        accuracy: stance === "assault" ? 60 : 40,
         shots: 4,
         damagePerHit: 5,
         expectedHits: 2,
@@ -532,15 +547,14 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
         effectiveAP: 2,
         facingArmor: 1,
         accuracyBreakdown: {
-          baseRange: 40,
-          experienceBonus: 0,
+          baseRange: stance === "assault" ? 60 : 40,
           commanderScalar: 1,
-          baseWithCommander: 40,
-          experienceWithCommander: 0,
-          combinedAfterCommander: 40,
+          afterCommander: stance === "assault" ? 60 : 40,
+          experienceScalar: 1,
+          afterExperience: stance === "assault" ? 60 : 40,
           terrainModifier: 0,
           terrainMultiplier: 1,
-          afterTerrain: 40,
+          afterTerrain: stance === "assault" ? 60 : 40,
           spottedMultiplier: 1,
           finalPreClamp: stance === "assault" ? 60 : 40,
           final: stance === "assault" ? 60 : 40
@@ -590,6 +604,7 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_PRESERVES_ASSAULT_SELECTION", async ({ 
   const fakeBattleState = {
     hasEngine: () => true,
     ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine,
     getIdlePlayerUnitKeys: () => [],
     getCurrentTurnSummary: () => ({ phase: "playerTurn", activeFaction: "Player", turnNumber: 1 }),
     getPrecombatMissionInfo: () => null
@@ -683,12 +698,16 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LINK_FLAK_TO_STRIKE_INGRESS", async ({
             }
           }
         ];
+      },
+      getTurnSummary() {
+        return { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 } as const;
       }
     } as const;
 
     const fakeBattleState = {
       hasEngine: () => true,
-      ensureGameEngine: () => fakeEngine
+      ensureGameEngine: () => fakeEngine,
+      tryGetGameEngine: () => fakeEngine
     } as unknown as import("../src/state/BattleState").BattleState;
 
     const fakeRenderer = {
@@ -849,12 +868,16 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_STOP_DESTROYED_BOMBER_BEFORE_TARGET", 
             }
           }
         ];
+      },
+      getTurnSummary() {
+        return { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 } as const;
       }
     } as const;
 
     const fakeBattleState = {
       hasEngine: () => true,
-      ensureGameEngine: () => fakeEngine
+      ensureGameEngine: () => fakeEngine,
+      tryGetGameEngine: () => fakeEngine
     } as unknown as import("../src/state/BattleState").BattleState;
 
     const fakeRenderer = {
@@ -985,12 +1008,16 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_LAUNCH_LINKED_STRIKES_IN_PARALLEL", as
       allyUnits: [],
       getScheduledAirMissions() {
         return [];
+      },
+      getTurnSummary() {
+        return { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 } as const;
       }
     } as const;
 
     const fakeBattleState = {
       hasEngine: () => true,
-      ensureGameEngine: () => fakeEngine
+      ensureGameEngine: () => fakeEngine,
+      tryGetGameEngine: () => fakeEngine
     } as unknown as import("../src/state/BattleState").BattleState;
 
     const fakeRenderer = {
@@ -1146,12 +1173,16 @@ registerTest("BATTLESCREEN_STRIKE_USES_CONTINUOUS_SORTIE_WHEN_RENDERER_SUPPORTS_
           }
         }
       ];
+    },
+    getTurnSummary() {
+      return { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 } as const;
     }
   } as const;
 
   const fakeBattleState = {
     hasEngine: () => true,
-    ensureGameEngine: () => fakeEngine
+    ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine
   } as unknown as import("../src/state/BattleState").BattleState;
 
   const fakeRenderer = {
@@ -1221,6 +1252,7 @@ registerTest("BATTLESCREEN_STRIKE_USES_CONTINUOUS_SORTIE_WHEN_RENDERER_SUPPORTS_
         strength: 100,
         laneOffsetPx: 0
       },
+      [],
       [],
       fakeRenderer,
       fakeEngine,

@@ -166,7 +166,7 @@ export const allocationOptions = [
     costPerUnit: 240_000,
     description: "Off-map fighter cover committed to escort, interception, and local air superiority over the battle area.",
     maxQuantity: 4,
-    spriteUrl: new URL("../assets/units/Fighter.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Aircraft_USA_P51.png", import.meta.url).href
   },
   {
     key: "interceptorWing",
@@ -175,7 +175,7 @@ export const allocationOptions = [
     costPerUnit: 255_000,
     description: "High-readiness interceptor package tasked with breaking up hostile reconnaissance and bombing sorties.",
     maxQuantity: 3,
-    spriteUrl: new URL("../assets/units/Interceptor.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Aircraft_England_Spitfire.png", import.meta.url).href
   },
   {
     key: "groundAttackWing",
@@ -184,7 +184,7 @@ export const allocationOptions = [
     costPerUnit: 265_000,
     description: "Fighter-bombers assigned to timed strikes against armor, gun lines, and exposed troop concentrations.",
     maxQuantity: 3,
-    spriteUrl: new URL("../assets/units/Ground_Attack.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Aircraft_USA_B25.png", import.meta.url).href
   },
   {
     key: "bomber",
@@ -193,7 +193,7 @@ export const allocationOptions = [
     costPerUnit: 260_000,
     description: "Medium bomber detachment for heavier interdiction strikes against reserves, depots, and fortified positions.",
     maxQuantity: 4,
-    spriteUrl: new URL("../assets/units/Bomber.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Aircraft_USA_B17.png", import.meta.url).href
   },
   {
     key: "transportWing",

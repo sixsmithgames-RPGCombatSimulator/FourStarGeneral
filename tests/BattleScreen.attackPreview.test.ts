@@ -60,29 +60,49 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
         suppressorCount: 0
       };
     },
+    getTurnSummary() {
+      return { phase: "playerTurn", activeFaction: "Player", turnNumber: 1 } as const;
+    },
+    getHexStackMembers() {
+      return [
+        {
+          unitId: "u_at_1",
+          unit: {
+            type: "AT_Gun_50mm" as unknown as ScenarioUnit["type"],
+            hex: { q: 0, r: 0 },
+            strength: 100,
+            experience: 1,
+            ammo: 5,
+            fuel: 0,
+            entrench: 0,
+            facing: "NW" as ScenarioUnit["facing"]
+          },
+          faction: "Player"
+        }
+      ];
+    },
     previewAttack(_attacker: Axial, _defender: Axial) {
       const result: AttackResult = {
-        accuracy: 33.81,
+        accuracy: 22.38705,
         shots: 120,
         damagePerHit: 0.2163,
-        expectedHits: 40.572,
-        expectedDamage: 8.7777636,
-        expectedSuppression: 8.1144,
+        expectedHits: 26.86446,
+        expectedDamage: 5.810782698,
+        expectedSuppression: 5.372892,
         effectiveAP: 10,
         facingArmor: 18,
         accuracyBreakdown: {
           baseRange: 18,
-          experienceBonus: 10,
           commanderScalar: 1.05,
-          baseWithCommander: 18.9,
-          experienceWithCommander: 10.5,
-          combinedAfterCommander: 29.4,
+          afterCommander: 18.9,
+          experienceScalar: 1.03,
+          afterExperience: 19.467,
           terrainModifier: 0,
           terrainMultiplier: 1,
-          afterTerrain: 33.81,
+          afterTerrain: 22.38705,
           spottedMultiplier: 1,
-          finalPreClamp: 33.81,
-          final: 33.81
+          finalPreClamp: 22.38705,
+          final: 22.38705
         },
         damageBreakdown: {
           baseTableValue: 2,
@@ -119,8 +139,8 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
         damageMultiplier: 1,
         suppressionMultiplier: 1,
         finalDamagePerHit: 0.2163,
-        finalExpectedDamage: 8.7777636,
-        finalExpectedSuppression: 8.1144,
+        finalExpectedDamage: 5.810782698,
+        finalExpectedSuppression: 5.372892,
         expectedRetaliation: 0,
         retaliationPossible: false,
         retaliationNote: "No return fire expected."
@@ -131,6 +151,7 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
   const fakeBattleState = {
     hasEngine: () => true,
     ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine,
     getIdlePlayerUnitKeys: () => [],
     getCurrentTurnSummary: () => ({ phase: "playerTurn", activeFaction: "Player", turnNumber: 1 }),
     getPrecombatMissionInfo: () => null
@@ -181,12 +202,16 @@ registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_M
 
 registerTest("BATTLESCREEN_ATTACK_DETAILS_CAP_DAMAGE_DISPLAY_AT_100_PERCENT", async ({ Given, When, Then }) => {
   let root: HTMLDivElement;
+  const overkillEngine = {
+    getPlayerPlacementsSnapshot: () => [],
+    getUnitCommandState: () => null,
+    getTurnSummary: () => ({ phase: "playerTurn", activeFaction: "Player", turnNumber: 1 } as const),
+    getHexStackMembers: () => []
+  };
   const fakeBattleState = {
     hasEngine: () => true,
-    ensureGameEngine: () => ({
-      getPlayerPlacementsSnapshot: () => [],
-      getUnitCommandState: () => null
-    }),
+    ensureGameEngine: () => overkillEngine,
+    tryGetGameEngine: () => overkillEngine,
     getIdlePlayerUnitKeys: () => [],
     getCurrentTurnSummary: () => ({ phase: "playerTurn", activeFaction: "Player", turnNumber: 1 }),
     getPrecombatMissionInfo: () => null

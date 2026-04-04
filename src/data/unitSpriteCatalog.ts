@@ -5,6 +5,14 @@ import { deploymentTemplates } from "../game/adapters";
  * Using `import.meta.url` keeps paths correct regardless of build tooling.
  */
 const unitSprite = (fileName: string): string => new URL(`../assets/units/${fileName}`, import.meta.url).href;
+type SpriteFaction = "Player" | "Bot" | "Ally";
+
+type FactionSpriteMap = {
+  readonly Player?: string;
+  readonly Bot?: string;
+  readonly Ally?: string;
+  readonly fallback?: string;
+};
 
 /**
  * Direct mapping from engine `ScenarioUnit.type` values to concrete sprite assets.
@@ -51,6 +59,64 @@ const SCENARIO_SPRITES: Record<string, string> = {
   Artillery_105mm: unitSprite("Howitzer_105.png")
 };
 
+const FACTION_AIRCRAFT_SPRITES: Record<string, FactionSpriteMap> = {
+  Fighter: {
+    Player: unitSprite("Aircraft_USA_P51.png"),
+    Ally: unitSprite("Aircraft_USA_P51.png"),
+    Bot: unitSprite("Aircraft_German_BF109.png"),
+    fallback: unitSprite("Aircraft_USA_P51.png")
+  },
+  Interceptor: {
+    Player: unitSprite("Aircraft_England_Spitfire.png"),
+    Ally: unitSprite("Aircraft_England_Spitfire.png"),
+    Bot: unitSprite("Aircraft_German_FW190.png"),
+    fallback: unitSprite("Aircraft_England_Spitfire.png")
+  },
+  Ground_Attack: {
+    Player: unitSprite("Aircraft_USA_B25.png"),
+    Ally: unitSprite("Aircraft_USA_B25.png"),
+    Bot: unitSprite("Aircraft_German_JU87.png"),
+    fallback: unitSprite("Aircraft_USA_B25.png")
+  },
+  Bomber: {
+    Player: unitSprite("Aircraft_USA_B17.png"),
+    Ally: unitSprite("Aircraft_USA_B17.png"),
+    Bot: unitSprite("Aircraft_German_HE177.png"),
+    fallback: unitSprite("Aircraft_USA_B17.png")
+  },
+  Bomber_Elite: {
+    Player: unitSprite("Aircraft_USA_B17.png"),
+    Ally: unitSprite("Aircraft_USA_B17.png"),
+    Bot: unitSprite("Aircraft_German_HE177.png"),
+    fallback: unitSprite("Aircraft_USA_B17.png")
+  }
+};
+
+function normalizeSpriteFaction(faction?: string | null): SpriteFaction | null {
+  if (faction === "Bot") {
+    return "Bot";
+  }
+  if (faction === "Ally") {
+    return "Ally";
+  }
+  if (faction === "Player") {
+    return "Player";
+  }
+  return null;
+}
+
+function resolveScenarioSprite(scenarioType: string, faction?: string | null): string | undefined {
+  const aircraftSpriteSet = FACTION_AIRCRAFT_SPRITES[scenarioType];
+  if (aircraftSpriteSet) {
+    const spriteFaction = normalizeSpriteFaction(faction);
+    if (spriteFaction && aircraftSpriteSet[spriteFaction]) {
+      return aircraftSpriteSet[spriteFaction];
+    }
+    return aircraftSpriteSet.Player ?? aircraftSpriteSet.Ally ?? aircraftSpriteSet.Bot ?? aircraftSpriteSet.fallback;
+  }
+  return SCENARIO_SPRITES[scenarioType];
+}
+
 /**
  * Allocation keys point to ScenarioUnit templates. This lookup allows UI-only data (e.g., deployment options)
  * to translate into a concrete engine type and therefore the correct sprite.
@@ -64,7 +130,7 @@ deploymentTemplates.forEach((template) => {
 const ALLOCATION_SPRITES: Record<string, string> = {};
 
 Object.entries(allocationKeyToScenarioType).forEach(([allocationKey, scenarioType]) => {
-  const sprite = SCENARIO_SPRITES[scenarioType];
+  const sprite = resolveScenarioSprite(scenarioType, "Player");
   if (sprite) {
     ALLOCATION_SPRITES[allocationKey] = sprite;
   }
@@ -73,13 +139,17 @@ Object.entries(allocationKeyToScenarioType).forEach(([allocationKey, scenarioTyp
 /**
  * Retrieves the sprite URL registered for a given engine scenario type.
  */
-export function getSpriteForScenarioType(scenarioType: string): string | undefined {
-  return SCENARIO_SPRITES[scenarioType];
+export function getSpriteForScenarioType(scenarioType: string, faction?: string | null): string | undefined {
+  return resolveScenarioSprite(scenarioType, faction);
 }
 
 /**
  * Retrieves the sprite URL for a deployment allocation key, if the catalogue includes one.
  */
-export function getSpriteForAllocationKey(allocationKey: string): string | undefined {
+export function getSpriteForAllocationKey(allocationKey: string, faction?: string | null): string | undefined {
+  const scenarioType = allocationKeyToScenarioType[allocationKey];
+  if (scenarioType) {
+    return resolveScenarioSprite(scenarioType, faction) ?? ALLOCATION_SPRITES[allocationKey];
+  }
   return ALLOCATION_SPRITES[allocationKey];
 }

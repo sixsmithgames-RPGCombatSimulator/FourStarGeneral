@@ -278,17 +278,34 @@ registerTest("AIR_INTERCEPTION_ESCORT_REPORTS_SUCCESS_AFTER_ENGAGING_INTERCEPTOR
       launchTurn: 1,
       turnsRemaining: 0,
       escortTargetUnitKey: "u_bomber",
-      interceptions: 1
+      interceptions: 1,
+      airCombatDamageInflicted: 19,
+      airCombatDamageTaken: 4,
+      airCombatKills: 1
     });
   });
 
   await Then("the mission should report a successful escort action instead of an abort", async () => {
-    const escortOutcome = outcome as { result?: string; details?: string; interceptions?: number };
+    const escortOutcome = outcome as {
+      result?: string;
+      details?: string;
+      interceptions?: number;
+      meta?: { interceptorAttrition?: number; escortAttrition?: number; interceptorKills?: number };
+    };
     if (escortOutcome.result !== "success") {
       throw new Error(`Expected escort mission to resolve successfully after combat, saw ${escortOutcome.result ?? "<missing>"}.`);
     }
     if (escortOutcome.interceptions !== 1) {
       throw new Error(`Expected escort mission to preserve its interception count, saw ${escortOutcome.interceptions ?? "<missing>"}.`);
+    }
+    if (escortOutcome.meta?.interceptorAttrition !== 19) {
+      throw new Error(`Expected escort mission to preserve interceptor attrition, saw ${escortOutcome.meta?.interceptorAttrition ?? "<missing>"}.`);
+    }
+    if (escortOutcome.meta?.escortAttrition !== 4) {
+      throw new Error(`Expected escort mission to preserve escort attrition, saw ${escortOutcome.meta?.escortAttrition ?? "<missing>"}.`);
+    }
+    if (escortOutcome.meta?.interceptorKills !== 1) {
+      throw new Error(`Expected escort mission to preserve interceptor kills, saw ${escortOutcome.meta?.interceptorKills ?? "<missing>"}.`);
     }
   });
 });

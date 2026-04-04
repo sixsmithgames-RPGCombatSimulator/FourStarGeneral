@@ -191,7 +191,7 @@ export class DeploymentState {
         this.unitKeyToScenarioType.set(template.key, scenarioType);
       }
 
-      const sprite = getSpriteForAllocationKey(template.key) ?? getSpriteForScenarioType(scenarioType);
+      const sprite = getSpriteForAllocationKey(template.key, "Player") ?? getSpriteForScenarioType(scenarioType, "Player");
       if (sprite && !this.spriteMap.has(template.key)) {
         this.spriteMap.set(template.key, sprite);
       }
@@ -909,7 +909,7 @@ export class DeploymentState {
 
     this.registerScenarioAlias(template.key, scenarioType);
 
-    const sprite = getSpriteForAllocationKey(template.key) ?? getSpriteForScenarioType(scenarioType);
+    const sprite = getSpriteForAllocationKey(template.key, "Player") ?? getSpriteForScenarioType(scenarioType, "Player");
     if (sprite) {
       this.spriteMap.set(template.key, sprite);
     }
@@ -980,13 +980,13 @@ export class DeploymentState {
     // the initial allocation still use consistent iconography.
     const scenarioType = this.unitKeyToScenarioType.get(unitKey);
     if (scenarioType) {
-      const catalogSprite = getSpriteForScenarioType(scenarioType);
+      const catalogSprite = getSpriteForScenarioType(scenarioType, "Player");
       if (catalogSprite) {
         this.spriteMap.set(unitKey, catalogSprite);
         return catalogSprite;
       }
     }
-    const allocationSprite = getSpriteForAllocationKey(unitKey);
+    const allocationSprite = getSpriteForAllocationKey(unitKey, "Player");
     if (allocationSprite) {
       this.spriteMap.set(unitKey, allocationSprite);
       return allocationSprite;

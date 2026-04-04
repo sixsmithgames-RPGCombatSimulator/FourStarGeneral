@@ -56,12 +56,14 @@ const UNKNOWN_CONTACT_SPRITE = `data:image/svg+xml;utf8,${encodeURIComponent(
 
 type CombatAnimationKey = keyof typeof import("./SpriteSheetAnimator").COMBAT_ANIMATIONS;
 type AircraftAnimationProgressCallback = (progress: number, centerX: number, centerY: number) => void;
+type SpriteRenderFaction = "Player" | "Bot" | "Ally";
 type AircraftSortieOptions = {
   ingressDurationMs?: number;
   egressDurationMs?: number;
   turnDelayMs?: number;
   strength?: number;
   laneOffsetPx?: number;
+  faction?: SpriteRenderFaction;
   onIngressProgress?: AircraftAnimationProgressCallback;
   onEgressProgress?: AircraftAnimationProgressCallback;
   onTargetPass?: (centerX: number, centerY: number) => void | Promise<void>;
@@ -298,7 +300,8 @@ export class HexMapRenderer implements IMapRenderer {
     onProgress?: AircraftAnimationProgressCallback,
     endProgress = 1,
     strength?: number,
-    laneOffsetPx = 0
+    laneOffsetPx = 0,
+    faction?: SpriteRenderFaction
   ): Promise<void> {
     if (!this.svgElement) {
       console.warn("[HexMapRenderer] animateAircraftFlyover skipped: no SVG element available", {
@@ -335,7 +338,7 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const spriteHref = getSpriteForScenarioType(scenarioType);
+    const spriteHref = getSpriteForScenarioType(scenarioType, faction);
     if (!spriteHref) {
       console.error("[HexMapRenderer] animateAircraftFlyover skipped: missing sprite mapping for scenarioType", {
         fromKey,
@@ -426,7 +429,8 @@ export class HexMapRenderer implements IMapRenderer {
     onProgress?: AircraftAnimationProgressCallback,
     endProgress = 1,
     strength?: number,
-    laneOffsetPx = 0
+    laneOffsetPx = 0,
+    faction?: SpriteRenderFaction
   ): Promise<void> {
     if (!this.svgElement) {
       console.warn("[HexMapRenderer] animateAircraftArc skipped: no SVG element available", {
@@ -463,7 +467,7 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const spriteHref = getSpriteForScenarioType(scenarioType);
+    const spriteHref = getSpriteForScenarioType(scenarioType, faction);
     if (!spriteHref) {
       console.error("[HexMapRenderer] animateAircraftArc skipped: missing sprite mapping for scenarioType", {
         fromKey,
@@ -573,13 +577,14 @@ export class HexMapRenderer implements IMapRenderer {
     legDurationMs = 2200,
     pauseMs = 300,
     strength?: number,
-    laneOffsetPx = 0
+    laneOffsetPx = 0,
+    faction?: SpriteRenderFaction
   ): Promise<void> {
-    await this.animateAircraftArc(fromKey, toKey, scenarioType, legDurationMs, undefined, 1, strength, laneOffsetPx);
+    await this.animateAircraftArc(fromKey, toKey, scenarioType, legDurationMs, undefined, 1, strength, laneOffsetPx, faction);
     if (pauseMs > 0) {
       await new Promise<void>((resolve) => setTimeout(resolve, pauseMs));
     }
-    await this.animateAircraftArc(toKey, fromKey, scenarioType, legDurationMs, undefined, 1, strength, laneOffsetPx);
+    await this.animateAircraftArc(toKey, fromKey, scenarioType, legDurationMs, undefined, 1, strength, laneOffsetPx, faction);
   }
 
   /**
@@ -636,7 +641,7 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const spriteHref = getSpriteForScenarioType(scenarioType);
+    const spriteHref = getSpriteForScenarioType(scenarioType, options.faction);
     if (!spriteHref) {
       console.error("[HexMapRenderer] animateAircraftSortie skipped: missing sprite mapping for scenarioType", {
         fromKey,
@@ -2833,7 +2838,8 @@ export class HexMapRenderer implements IMapRenderer {
         typeof member.reconStatus === "boolean"
           ? (member.reconStatus ? "spotted" : "visible")
           : (member.reconStatus ?? "visible");
-      const spriteHref = reconStatus === "spotted" ? UNKNOWN_CONTACT_SPRITE : getSpriteForScenarioType(member.unit.type as string);
+      const spriteHref =
+        reconStatus === "spotted" ? UNKNOWN_CONTACT_SPRITE : getSpriteForScenarioType(member.unit.type as string, member.faction);
       const stackCount = this.resolveUnitStackCount(member.unit.strength);
       const layout = this.resolveUnitStackLayout(
         stackCount,

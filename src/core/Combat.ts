@@ -115,11 +115,10 @@ export interface AttackRequest {
  */
 export interface AccuracyBreakdown {
   readonly baseRange: number;
-  readonly experienceBonus: number;
   readonly commanderScalar: number;
-  readonly baseWithCommander: number;
-  readonly experienceWithCommander: number;
-  readonly combinedAfterCommander: number;
+  readonly afterCommander: number;
+  readonly experienceScalar: number;
+  readonly afterExperience: number;
   readonly terrainModifier: number;
   readonly terrainMultiplier: number;
   readonly afterTerrain: number;
@@ -356,15 +355,14 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const rangeAccuracy = getBaseAccuracyByRange(combatProfile, distance);
   const baseAccuracy = rangeAccuracy * resolveAccuracyScalar(attacker.unit, combatProfile);
 
-  // Step 2: Add experience bonus. Accuracy improves faster with veteran crews than post-hit damage.
-  const experienceBonus = attacker.experience * combatBalance.accuracy.expPerStar;
+  // Step 2: Apply commander and experience bonuses multiplicatively
   const commanderAccuracyBonus = attacker.general.accBonus ?? 0;
   const commanderScalar = 1 + (commanderAccuracyBonus * combatBalance.accuracy.commanderScalar);
+  const experienceScalar = 1 + (attacker.experience * combatBalance.accuracy.expPerStar / 100);
 
-  // Apply commander bonus to base and experience components individually.
-  const baseWithCommander = baseAccuracy * commanderScalar;
-  const experienceWithCommander = experienceBonus * commanderScalar;
-  const combinedAfterCommander = baseWithCommander + experienceWithCommander;
+  // Chain multipliers: Base × Commander × Experience
+  const afterCommander = baseAccuracy * commanderScalar;
+  const afterExperience = afterCommander * experienceScalar;
 
   // Step 3: Apply target signature modifier
   // Smaller signatures are harder to hit, larger signatures are easier to hit
@@ -376,7 +374,7 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
     large: 1.15   // +15% hit chance
   };
   const signatureMultiplier = signatureMultipliers[defenderSignature] ?? 1.0;
-  const afterSignature = combinedAfterCommander * signatureMultiplier;
+  const afterSignature = afterExperience * signatureMultiplier;
 
   // Step 4: Apply terrain modifier multiplicatively.
   const fortificationCoverPct = defenderCtx.fortified
@@ -405,11 +403,10 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
 
   return {
     baseRange: baseAccuracy,
-    experienceBonus,
     commanderScalar,
-    baseWithCommander,
-    experienceWithCommander,
-    combinedAfterCommander,
+    afterCommander,
+    experienceScalar,
+    afterExperience,
     terrainModifier: terrainMod,
     terrainMultiplier,
     afterTerrain,
