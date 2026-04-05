@@ -442,7 +442,7 @@
     "rangeMin": 1,
     "rangeMax": 2,
     "initiative": 6,
-    "armor": { "front": 5, "side": 4, "top": 4 },
+    "armor": { "front": 2, "side": 2, "top": 2 },
     "hardAttack": 12,
     "softAttack": 18,
     "ap": 6,
@@ -482,7 +482,7 @@
     "rangeMin": 1,
     "rangeMax": 4,
     "initiative": 7,
-    "armor": { "front": 5, "side": 5, "top": 4 },
+    "armor": { "front": 2, "side": 2, "top": 1 },
     "hardAttack": 15,
     "softAttack": 12,
     "ap": 7,
@@ -544,7 +544,7 @@
         "rangeMin": 1,
         "rangeMax": 2,
         "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "medium" },
-        "shotsScalar": 0.65,
+        "shotsScalar": 5.0,
         "damageScalar": 0.7,
         "suppressionScalar": 0.4
       }
@@ -586,7 +586,7 @@
         "rangeMin": 1,
         "rangeMax": 2,
         "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "large" },
-        "shotsScalar": 0.95,
+        "shotsScalar": 5.0,
         "damageScalar": 0.7,
         "suppressionScalar": 0.4
       }

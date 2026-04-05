@@ -330,7 +330,7 @@ export const COMBAT_PROFILES = {
     accuracyReference: 85,
     softAttackReference: 18,
     hardAttackReference: 15,
-    shotsPerTurn: 4,
+    shotsPerTurn: 16,
     baseDamagePerHit: 2.6,
     suppressionPerHit: 0.3,
     rangeAccuracy: [

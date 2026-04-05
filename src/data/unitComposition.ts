@@ -186,9 +186,9 @@ export const unitComposition: Record<UnitAllocationKey, UnitCompositionProfile> 
   },
   interceptorWing: {
     combatReference: { unitType: "Interceptor" },
-    personnel: 110,
-    vehicles: 10,
-    equipmentSummary: ["10 interceptor aircraft", "Scramble control section"],
+    personnel: 160,
+    vehicles: 16,
+    equipmentSummary: ["16 interceptor aircraft", "Scramble control section"],
     notes: "Held at high readiness for defensive counter-air duties."
   },
   groundAttackWing: {
