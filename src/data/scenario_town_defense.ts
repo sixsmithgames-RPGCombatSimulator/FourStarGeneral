@@ -120,8 +120,9 @@ const botUnits = [
   makeUnit("SP_Artillery", [5, 15]),
   makeUnit("Flak_88", [1, 15]),
 
-  // Air support - 4 tactical bombers with 1 fighter escort
+  // Air support - 4 tactical bombers with 2 fighter escorts
   makeUnit("Fighter", [0, 12]),
+  makeUnit("Fighter", [1, 12]),
   makeUnit("Bomber", [0, 11]),
   makeUnit("Bomber", [1, 11]),
   makeUnit("Bomber", [0, 10]),
@@ -152,7 +153,7 @@ const townDefenseScenario = {
     }
   ],
   playerBudget: 5_000_000,
-  turnLimit: 20,
+  turnLimit: 25,
   sides: {
     Player: {
       hq: [15, 2],
@@ -161,7 +162,7 @@ const townDefenseScenario = {
     },
     Bot: {
       hq: [2, 13],
-      general: { accBonus: 15, dmgBonus: 0, moveBonus: 0, supplyBonus: 10 },
+      general: { accBonus: 0, dmgBonus: 10, moveBonus: 15, supplyBonus: 0 },
       goal: "Break through the defensive road net and seize the northern town before the defenders can stabilize the line.",
       strategy: "Advance up the road spine with layered armor, keep artillery and flak protected in the rear, and use recon screens to expose the town approaches before committing the main thrust.",
       resources: 900,
