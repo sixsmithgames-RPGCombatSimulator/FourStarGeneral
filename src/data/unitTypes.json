@@ -544,7 +544,7 @@
         "rangeMin": 1,
         "rangeMax": 2,
         "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "medium" },
-        "shotsScalar": 5.0,
+        "shotsScalar": 10.0,
         "damageScalar": 0.7,
         "suppressionScalar": 0.4
       }
@@ -586,7 +586,7 @@
         "rangeMin": 1,
         "rangeMax": 2,
         "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "large" },
-        "shotsScalar": 5.0,
+        "shotsScalar": 10.0,
         "damageScalar": 0.7,
         "suppressionScalar": 0.4
       }
