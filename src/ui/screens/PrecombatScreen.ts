@@ -8,7 +8,7 @@ import {
   type UnitAllocationOption
 } from "../../data/unitAllocation";
 import { unitComposition } from "../../data/unitComposition";
-import { getMissionBriefing, getMissionSummaryPackage, getMissionTitle } from "../../data/missions";
+import { getMissionBriefing, getMissionSummaryPackage, getMissionTitle, getMissionTurnLimit } from "../../data/missions";
 import {
   ensureDeploymentState,
   type DeploymentPoolEntry
@@ -19,6 +19,7 @@ import type { MissionKey } from "../../state/UIState";
 import { findGeneralById, getAllGenerals } from "../../utils/rosterStorage";
 import { ensureTutorialState, isTrainingMission } from "../../state/TutorialState";
 import { getNextPhase } from "../../data/tutorialSteps";
+import { createMissionRulesController } from "../../state/missionRules";
 import { HexMapRenderer } from "../../rendering/HexMapRenderer";
 import type { ScenarioData, ScenarioDeploymentZone, ScenarioUnit } from "../../core/types";
 import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
@@ -95,7 +96,7 @@ export class PrecombatScreen {
    *   modules can short-circuit recalculations when this flag is false.
    */
   private readonly allocationCounts = new Map<string, number>();
-  private allocationBudget = 10_000_000;
+  private allocationBudget = 10_000;
   private allocationDirty = false;
   private readonly predeployedCounts = new Map<string, number>();
   private readonly predeployedRoster = new Map<string, { label: string; scenarioType: string; count: number }>();
@@ -434,7 +435,7 @@ export class PrecombatScreen {
 
     const rawScenarioBudget = (this.scenarioSource as Record<string, unknown>)["playerBudget"];
     const scenarioBudget: number | undefined = typeof rawScenarioBudget === "number" ? rawScenarioBudget : undefined;
-    this.allocationBudget = scenarioBudget ?? 10_000_000;
+    this.allocationBudget = scenarioBudget ?? 10_000;
 
     console.info("[PrecombatScreen] Budget initialized:", {
       scenarioBudget,
@@ -565,10 +566,12 @@ export class PrecombatScreen {
         category: option.category
       });
 
-      if (key === "ammo") {
-        depotPackage.ammo += requisitionQuantity;
-      } else if (key === "fuel") {
-        depotPackage.fuel += requisitionQuantity;
+      const depotPayload = option.depotPayload;
+      if (depotPayload) {
+        depotPackage.ammo += (depotPayload.ammo ?? 0) * requisitionQuantity;
+        depotPackage.fuel += (depotPayload.fuel ?? 0) * requisitionQuantity;
+        depotPackage.rations += (depotPayload.rations ?? 0) * requisitionQuantity;
+        depotPackage.parts += (depotPayload.parts ?? 0) * requisitionQuantity;
       }
     }
 
@@ -641,7 +644,7 @@ export class PrecombatScreen {
   }
 
   private shouldApplyScenarioRestrictions(option: UnitAllocationOption): boolean {
-    return this.isDeployableAllocation(option);
+    return option.category === "units" && this.isDeployableAllocation(option);
   }
 
   private rerenderAllocations(): void {
@@ -751,7 +754,7 @@ export class PrecombatScreen {
           <div class="allocation-copy">
             <div class="allocation-title-row">
               <h4>${option.label}</h4>
-              <span class="allocation-cost">$${option.costPerUnit.toLocaleString()} ea.</span>
+              <span class="allocation-cost">${option.costPerUnit.toLocaleString()} RP</span>
             </div>
             <p class="allocation-copy__description">${option.description}</p>
             ${compositionSummary.length > 0
@@ -768,7 +771,7 @@ export class PrecombatScreen {
         </header>
         <footer class="allocation-meta">
           ${controlsMarkup}
-          <span class="allocation-total">$${totalCost.toLocaleString()}</span>
+          <span class="allocation-total">${totalCost.toLocaleString()} RP</span>
         </footer>
       </li>
     `;
@@ -928,8 +931,8 @@ export class PrecombatScreen {
     const spent = this.calculateSpend();
     const remaining = this.allocationBudget - spent;
 
-    this.budgetSpentElement.textContent = `Spent: $${spent.toLocaleString()}`;
-    this.budgetRemainingElement.textContent = `Remaining: $${Math.max(remaining, 0).toLocaleString()}`;
+    this.budgetSpentElement.textContent = `Spent: ${spent.toLocaleString()} RP`;
+    this.budgetRemainingElement.textContent = `Budget Remaining: ${Math.max(remaining, 0).toLocaleString()} requisition points`;
     this.budgetPanel.dataset.state = remaining < 0 ? "over-budget" : "within-budget";
 
     const hasAnyForces = this.hasOperationalCombatForces();
@@ -938,12 +941,12 @@ export class PrecombatScreen {
     // Normalize feedback styling before we decide which state to present so repeated calls cannot accumulate stale classes.
     this.allocationFeedbackElement.classList.remove("feedback--warning", "feedback--ready");
     if (remaining < 0) {
-      this.allocationFeedbackElement.textContent = "Over budget: adjust allocations before proceeding.";
+      this.allocationFeedbackElement.textContent = "Over requisition budget: adjust allocations before proceeding.";
       this.allocationFeedbackElement.classList.add("feedback--warning");
     } else if (!hasAnyForces) {
-      this.allocationFeedbackElement.textContent = "Allocate at least one asset to continue.";
+      this.allocationFeedbackElement.textContent = "Allocate at least one combat formation to continue.";
     } else {
-      this.allocationFeedbackElement.textContent = "Budget status nominal. You may proceed when ready.";
+      this.allocationFeedbackElement.textContent = "Requisition budget nominal. You may proceed when ready.";
       this.allocationFeedbackElement.classList.add("feedback--ready");
     }
 
@@ -1088,11 +1091,8 @@ export class PrecombatScreen {
     const rawUnits = ((this.scenarioSource.sides as { Player?: { units?: ScenarioUnit[] } } | undefined)?.Player?.units ?? []) as unknown as Array<
       ScenarioUnit & { preDeployed?: boolean }
     >;
-    // Only scenario units explicitly marked preDeployed=true are treated as baseline assets.
     const playerUnits = rawUnits.filter((u) => (u as unknown as { preDeployed?: boolean }).preDeployed === true);
-    if (playerUnits.length === 0) {
-      return;
-    }
+    const alliedUnits = ((this.scenarioSource.sides as { Ally?: { units?: ScenarioUnit[] } } | undefined)?.Ally?.units ?? []) as ScenarioUnit[];
 
     const deploymentState = ensureDeploymentState();
 
@@ -1104,7 +1104,7 @@ export class PrecombatScreen {
 
       const nextCount = (this.predeployedCounts.get(allocationKey) ?? 0) + 1;
       this.predeployedCounts.set(allocationKey, nextCount);
-      this.predeployedRoster.set(allocationKey, {
+      this.predeployedRoster.set(`Player:${allocationKey}`, {
         label,
         scenarioType,
         count: nextCount
@@ -1112,6 +1112,20 @@ export class PrecombatScreen {
 
       const current = this.allocationCounts.get(allocationKey) ?? 0;
       this.allocationCounts.set(allocationKey, Math.max(current, nextCount));
+    });
+
+    alliedUnits.forEach((unit) => {
+      const scenarioType = unit.type as string;
+      const allocationKey = deploymentState.getUnitKeyForScenarioType(scenarioType) ?? scenarioType;
+      const option = getAllocationOption(allocationKey);
+      const label = `Allied ${option?.label ?? this.formatScenarioLabel(scenarioType)}`;
+      const rosterKey = `Ally:${allocationKey}`;
+      const existing = this.predeployedRoster.get(rosterKey);
+      this.predeployedRoster.set(rosterKey, {
+        label,
+        scenarioType,
+        count: (existing?.count ?? 0) + 1
+      });
     });
 
     this.renderPredeployedOverview();
@@ -1167,7 +1181,7 @@ export class PrecombatScreen {
     }
 
     const totalUnits = entries.reduce((sum, entry) => sum + entry.count, 0);
-    this.predeployedSummaryElement.textContent = `${totalUnits} unit${totalUnits === 1 ? "" : "s"} arrive with the scenario and are locked in theatre. Additional requisitions add to these totals.`;
+    this.predeployedSummaryElement.textContent = `${totalUnits} scenario formation${totalUnits === 1 ? "" : "s"} are already in theater, including allied support. Requisitions add only to your own committed force.`;
 
     this.predeployedListElement.innerHTML = entries
       .map((entry) => `<li><span class="predeployed-label">${entry.label}</span><span class="predeployed-count">×${entry.count}</span></li>`)
@@ -1190,14 +1204,20 @@ export class PrecombatScreen {
     const title = getMissionTitle(missionKey);
     const briefing = getMissionBriefing(missionKey);
     const summary = getMissionSummaryPackage(missionKey, selectedDifficulty);
+    const missionRules = createMissionRulesController(missionKey, this.miniMapScenario, selectedDifficulty);
+    const missionRuleObjectives = missionRules.getStatus().objectives;
+    const objectives = missionRuleObjectives.length > 0
+      ? missionRuleObjectives.map((objective) => `${this.formatScenarioLabel(objective.tier)}: ${objective.label}`)
+      : [...summary.objectives];
     const scenarioTurnLimit = typeof this.miniMapScenario.turnLimit === "number" && this.miniMapScenario.turnLimit > 0
       ? this.miniMapScenario.turnLimit
       : null;
-    const effectiveTurnLimit = summary.turnLimit > 0 ? summary.turnLimit : scenarioTurnLimit;
+    const authoredTurnLimit = getMissionTurnLimit(missionKey, selectedDifficulty);
+    const effectiveTurnLimit = authoredTurnLimit > 0 ? authoredTurnLimit : scenarioTurnLimit;
 
     this.missionTitleElement.textContent = title;
     this.missionBriefingElement.textContent = briefing;
-    this.objectiveListElement.innerHTML = summary.objectives
+    this.objectiveListElement.innerHTML = objectives
       .map((objective) => `<li>${objective}</li>`)
       .join("");
     this.missionTurnLimitElement.textContent = effectiveTurnLimit !== null ? `${effectiveTurnLimit} turns` : "Pending";
@@ -1210,7 +1230,7 @@ export class PrecombatScreen {
       missionKey,
       title,
       briefing,
-      objectives: summary.objectives,
+      objectives,
       doctrine: summary.doctrine,
       turnLimit: effectiveTurnLimit,
       baselineSupplies: summary.supplies

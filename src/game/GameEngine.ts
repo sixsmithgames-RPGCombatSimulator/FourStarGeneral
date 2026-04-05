@@ -1010,6 +1010,26 @@ export interface EnemyContactSnapshot {
   strengthEstimate?: number;
 }
 
+export interface ReconObservedContact {
+  unitId: string;
+  hex: Axial;
+  state: EnemyContactState;
+  unitType?: ScenarioUnit["type"];
+  strengthEstimate?: number;
+  movedThisTurn: boolean;
+  attackedThisTurn: boolean;
+}
+
+export interface PlayerReconReport {
+  observerUnitId: string;
+  observerType: ScenarioUnit["type"];
+  observerHex: Axial;
+  observerStrength: number;
+  source: string;
+  spottingRange: number;
+  contacts: readonly ReconObservedContact[];
+}
+
 export type UnitSuppressionState = "clear" | "suppressed" | "pinned";
 export type UnitTowState = "deployed" | "towed";
 
@@ -1153,6 +1173,7 @@ export interface GameEngineAPI {
   getSupplySnapshot(faction?: TurnFaction): SupplySnapshot;
   getSupplyHistory(faction?: TurnFaction): SupplySnapshot[];
   getEnemyContactSnapshot(): EnemyContactSnapshot[];
+  getPlayerReconReports(): PlayerReconReport[];
   getReconIntelSnapshot(): ReconIntelSnapshot;
   deployCounterIntel(targetHex: Axial): { ok: true; operationId: string } | { ok: false; reason: string };
   verifyIntelBrief(briefId: string): { ok: true; status: ReconIntelVerificationStatus } | { ok: false; reason: string };
@@ -2872,10 +2893,13 @@ export class GameEngine implements GameEngineAPI {
 
   private getSupplySourceHexes(faction: TurnFaction): Axial[] {
     const sources: Axial[] = [];
-    if (faction === "Player" && this._baseCamp) {
-      sources.push(structuredClone(this._baseCamp.hex));
+    if (faction === "Player") {
+      if (this._baseCamp) {
+        sources.push(structuredClone(this._baseCamp.hex));
+      }
+      return sources;
     }
-    const side = faction === "Player" ? this.playerSide : faction === "Bot" ? this.botSide : this.allySide;
+    const side = faction === "Bot" ? this.botSide : this.allySide;
     if (side?.hq) {
       sources.push(structuredClone(side.hq));
     }
@@ -5032,6 +5056,74 @@ private automateSupplyConvoys(
       });
   }
 
+  getPlayerReconReports(): PlayerReconReport[] {
+    const observers = this.listPlayerReportingReconUnits();
+    const lister = this.createLosLister();
+
+    return observers
+      .map((observer) => {
+        const observerDef = this.getUnitDefinition(observer.type);
+        const contacts = this.getAllUnitsForFaction("Bot")
+          .filter((target) => {
+            const targetDefinition = this.getUnitDefinition(target.type);
+            return targetDefinition.moveType !== "air";
+          })
+          .flatMap((target): ReconObservedContact[] => {
+            const observation = this.evaluateEnemyObservationFromObserver(target, observer, lister);
+            if (!observation) {
+              return [];
+            }
+
+            const targetId = this.ensureUnitId(target);
+            const flags = this.botActionFlags.get(targetId) ?? this.createDefaultActionFlags();
+            return [{
+              unitId: targetId,
+              hex: structuredClone(target.hex),
+              state: observation.state,
+              unitType: observation.state === "spotted" ? undefined : target.type,
+              strengthEstimate: this.resolveEnemyContactStrengthEstimate(observation.state, target.strength) ?? undefined,
+              movedThisTurn: flags.movementPointsUsed > 0,
+              attackedThisTurn: flags.attacksUsed > 0
+            } satisfies ReconObservedContact];
+          })
+          .sort((left, right) => {
+            const movementRank = Number(right.movedThisTurn) - Number(left.movedThisTurn);
+            if (movementRank !== 0) {
+              return movementRank;
+            }
+            const engagementRank = Number(right.attackedThisTurn) - Number(left.attackedThisTurn);
+            if (engagementRank !== 0) {
+              return engagementRank;
+            }
+            const stateRank = this.rankEnemyContactState(right.state) - this.rankEnemyContactState(left.state);
+            if (stateRank !== 0) {
+              return stateRank;
+            }
+            return (right.strengthEstimate ?? 0) - (left.strengthEstimate ?? 0);
+          });
+
+        return {
+          observerUnitId: this.getSquadronId(observer),
+          observerType: observer.type,
+          observerHex: structuredClone(observer.hex),
+          observerStrength: observer.strength,
+          source: this.describeEnemyObservationSource(observerDef, observer),
+          spottingRange: this.resolveSpottingRange(observerDef),
+          contacts
+        } satisfies PlayerReconReport;
+      })
+      .sort((left, right) => {
+        const contactRank = right.contacts.length - left.contacts.length;
+        if (contactRank !== 0) {
+          return contactRank;
+        }
+        if (left.source !== right.source) {
+          return left.source.localeCompare(right.source);
+        }
+        return axialKey(left.observerHex).localeCompare(axialKey(right.observerHex));
+      });
+  }
+
   deployCounterIntel(targetHex: Axial): { ok: true; operationId: string } | { ok: false; reason: string } {
     if (this._phase !== "playerTurn" || this._activeFaction !== "Player") {
       return { ok: false, reason: "Counter-intelligence can only be deployed during your turn." };
@@ -5222,6 +5314,51 @@ private automateSupplyConvoys(
     });
   }
 
+  private listPlayerReportingReconUnits(): ScenarioUnit[] {
+    return this.getAllUnitsForFaction("Player").filter((unit) => {
+      if (this.isAutomatedPlayerUnit(unit)) {
+        return false;
+      }
+      return this.isReconReportingUnit(unit);
+    });
+  }
+
+  private isReconReportingUnit(unit: ScenarioUnit): boolean {
+    const definition = this.getUnitDefinition(unit.type);
+    const airRoles = definition.airSupport?.roles ?? [];
+    return definition.class === "recon" || (definition.moveType === "air" && airRoles.includes("recon"));
+  }
+
+  private evaluateEnemyObservationFromObserver(
+    target: ScenarioUnit,
+    observer: ScenarioUnit,
+    lister = this.createLosLister()
+  ): { state: EnemyContactState; source: string } | null {
+    const observerDef = this.getUnitDefinition(observer.type);
+    const distance = hexDistance(observer.hex, target.hex);
+    if (distance > this.resolveSpottingRange(observerDef)) {
+      return null;
+    }
+
+    const hasLOS = losClearAdvanced({
+      attackerClass: observerDef.class,
+      attackerHex: observer.hex,
+      targetHex: target.hex,
+      isAttackerAir: observerDef.moveType === "air",
+      lister,
+      purpose: "spotting"
+    });
+    if (!hasLOS) {
+      return null;
+    }
+
+    const state: EnemyContactState = observerDef.class === "recon" || observerDef.moveType === "air" ? "identified" : "visible";
+    return {
+      state,
+      source: this.describeEnemyObservationSource(observerDef, observer)
+    };
+  }
+
   private evaluateEnemyObservationForPlayer(
     target: ScenarioUnit,
     observers: readonly ScenarioUnit[]
@@ -5236,31 +5373,17 @@ private automateSupplyConvoys(
     let bestContact: CandidateContact | null = null;
 
     for (const observer of observers) {
-      const observerDef = this.getUnitDefinition(observer.type);
-      const distance = hexDistance(observer.hex, target.hex);
-      if (distance > this.resolveSpottingRange(observerDef)) {
+      const observation = this.evaluateEnemyObservationFromObserver(target, observer, lister);
+      if (!observation) {
         continue;
       }
 
-      const hasLOS = losClearAdvanced({
-        attackerClass: observerDef.class,
-        attackerHex: observer.hex,
-        targetHex: target.hex,
-        isAttackerAir: observerDef.moveType === "air",
-        lister,
-        purpose: "spotting"
-      });
-      if (!hasLOS) {
-        continue;
-      }
-
-      const state: EnemyContactState = observerDef.class === "recon" || observerDef.moveType === "air" ? "identified" : "visible";
-      const rank = this.rankEnemyContactState(state);
+      const rank = this.rankEnemyContactState(observation.state);
       if (!bestContact || rank > bestContact.rank) {
         bestContact = {
           rank,
-          state,
-          source: this.describeEnemyObservationSource(observerDef, observer)
+          state: observation.state,
+          source: observation.source
         };
       }
     }
@@ -8804,9 +8927,6 @@ private automateSupplyConvoys(
     if (this._baseCamp) {
       sources.push({ key: "baseCamp", label: "Base Camp", hex: this._baseCamp.hex });
     }
-    if (this.playerSide.hq) {
-      sources.push({ key: "hq", label: "Headquarters", hex: this.playerSide.hq });
-    }
     const depotTotals = getInventoryTotals(this.supplyStateByFaction.Player, ["ammo", "fuel", "parts"]);
     const carriedAmmoTotal = this.playerSupply.reduce<number>((sum, entry) => sum + (entry.ammo ?? 0), 0);
     const carriedFuelTotal = this.playerSupply.reduce<number>((sum, entry) => sum + (entry.fuel ?? 0), 0);
@@ -9051,7 +9171,7 @@ private automateSupplyConvoys(
       alerts.push({ level: "warning", message: "Convoy coverage is thinner than the current resupply queue." });
     }
     if (sources.length === 0 && totalUnits > 0) {
-      alerts.push({ level: "critical", message: "No active base camp or headquarters is feeding the logistics network." });
+      alerts.push({ level: "critical", message: "No active base camp is feeding the logistics network." });
     }
 
     return {
@@ -9583,16 +9703,8 @@ private automateSupplyConvoys(
 
   /** Construct the supply network for the specified faction using the base camp as the primary source. */
   private buildSupplyNetwork(faction: TurnFaction): SupplyNetwork {
-    const sources: Axial[] = [];
-    if (faction === "Player" && this._baseCamp) {
-      sources.push(this._baseCamp.hex);
-    }
-    const side = faction === "Player" ? this.playerSide : faction === "Bot" ? this.botSide : this.allySide;
-    if (side?.hq) {
-      sources.push(side.hq);
-    }
     return {
-      sources,
+      sources: this.getSupplySourceHexes(faction),
       map: {
         terrainAt: (hex) => this.terrainAt(hex),
         isRoad: (hex) => this.isRoad(hex),

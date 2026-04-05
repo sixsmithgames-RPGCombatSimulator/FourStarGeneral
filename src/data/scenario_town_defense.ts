@@ -152,7 +152,7 @@ const townDefenseScenario = {
       hexes: playerDeploymentHexes
     }
   ],
-  playerBudget: 5_000_000,
+  playerBudget: 5_000,
   turnLimit: 25,
   sides: {
     Player: {

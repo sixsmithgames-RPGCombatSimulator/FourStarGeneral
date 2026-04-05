@@ -164,6 +164,41 @@ Implement right-click context menus directly on units for quick access to common
 
 ---
 
+## 5. Campaign Intelligence Modal
+
+### Concept
+Reframe the existing Intelligence modal as a strategic planning tool that only opens from the campaign map. It should never appear in the tactical battle sidebar.
+
+### Entry Point & Scope
+- **Trigger**: Campaign-only control in the campaign sidebar plus optional access from selected fronts, regions, or bases
+- **Default State**: Theater-wide summary when no campaign element is selected
+- **Context Pivot**: Selecting a front, region, or base should retarget the modal to that operational area
+- **Battle Restriction**: Tactical battles keep using the inline selection/battle intel overlays instead of the campaign modal
+
+### Modal Contents
+- **Theater Summary**: Overall intel coverage, active fronts, suspected enemy buildups, strategic alerts, and ongoing deception activity
+- **Area Brief**: Last confirmed sightings, likely enemy objectives, supply posture, and confidence for the selected campaign location
+- **Filters**: All reports, last segment, current segment, and forecast views with high/medium/low confidence filters
+- **Counter-Intelligence Actions**: Verify a report, project deception onto a campaign-map hex/front, and review active deception screens or pending verification tasks
+
+### Handoff Into Tactical Play
+- Confirmed campaign briefs should feed the precombat briefing and mission bridge when an engagement is queued
+- Deception and verification outcomes should influence precombat assumptions before the battle starts
+- Once the battle map loads, this modal should no longer be available; only tactical overlays remain
+
+### Technical Considerations
+- Read strategic intel from `CampaignState` instead of `BattleState`/`GameEngine`
+- Use campaign-map selection context so the modal can switch between theater, front, and hex-level summaries
+- Persist campaign intel verification and deception outcomes by segment so they survive screen changes
+- Reuse the shared popup shell, but keep the data model and actions campaign-specific
+
+### User Benefits
+- Separates strategic intelligence planning from tactical execution
+- Keeps the battle sidebar focused on immediate combat tools
+- Gives campaign decisions a clear home before the player commits to precombat and battle
+
+---
+
 ## Implementation Priority
 
 ### Phase 1 (High Priority)
@@ -173,6 +208,7 @@ Implement right-click context menus directly on units for quick access to common
 ### Phase 2 (Medium Priority)
 3. **Fortification Damage System** - Tactical depth expansion
 4. **Unit Context Menu** - User experience improvement
+5. **Campaign Intelligence Modal** - Strategic intel, verification, and deception at the campaign-map level
 
 ### Phase 3 (Future Extensions)
 - Medical and repair systems
@@ -189,12 +225,14 @@ Implement right-click context menus directly on units for quick access to common
 - Current damage and combat calculation framework
 - Unit data model and state management
 - UI rendering and event handling systems
+- Campaign state, campaign-map selection state, and precombat mission handoff
 
 ### New Components
 - Status tracking and visualization system
 - Fortification damage modeling
 - Context menu framework
 - Enhanced visual effects system
+- Strategic intel aggregation, verification, and deception state for the campaign layer
 
 ---
 
@@ -211,6 +249,7 @@ Implement right-click context menus directly on units for quick access to common
 - Performance under heavy load
 - User experience validation
 - Cross-platform compatibility
+- Campaign intel handoff into precombat and battle-start briefing data
 
 ### User Acceptance Testing
 - Tactical gameplay impact

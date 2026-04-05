@@ -7,7 +7,7 @@ import type {
 } from "../../contracts/IPopupManager";
 import { getPopupContent } from "../../data/popupContent";
 import { ensureBattleState, type BattleUpdateReason } from "../../state/BattleState";
-import type { BattleRosterSnapshot, RosterUnitSummary } from "../../game/GameEngine";
+import type { BattleRosterSnapshot, PlayerReconReport, ReconObservedContact, RosterUnitSummary } from "../../game/GameEngine";
 import type {
   SupplyAlert,
   SupplyCategorySnapshot,
@@ -109,6 +109,37 @@ interface AirPlannerViewModel {
   readonly squadronCards: readonly AirSquadronCardView[];
   readonly selectedSquadron: AirSquadronCardView | null;
   readonly escortTargets: readonly AirEscortTargetView[];
+}
+
+interface ReconContactView {
+  readonly unitId: string;
+  readonly label: string;
+  readonly locationLabel: string;
+  readonly activityLabel: string;
+  readonly classificationLabel: string;
+  readonly strengthLabel: string;
+}
+
+interface ReconObserverView {
+  readonly observerId: string;
+  readonly label: string;
+  readonly shortLabel: string;
+  readonly locationLabel: string;
+  readonly strength: number;
+  readonly spottingRange: number;
+  readonly sourceLabel: string;
+  readonly statusLabel: string;
+  readonly statusClass: "contact" | "watching";
+  readonly spriteUrl?: string;
+  readonly contacts: readonly ReconContactView[];
+}
+
+interface ReconBoardViewModel {
+  readonly observers: readonly ReconObserverView[];
+  readonly totalObservers: number;
+  readonly activeObservers: number;
+  readonly totalContacts: number;
+  readonly emptyMessage: string;
 }
 
 /**
@@ -498,30 +529,32 @@ export class PopupManager implements IPopupManager {
   }
 
   /**
-   * Renders the Recon panel with live and recent reports so commanders can see the current contact picture.
+   * Renders the Recon panel from direct player recon observations only.
    */
   private renderReconPanel(): void {
-    this.reconIntelSnapshot = this.requestReconIntelSnapshot();
-    if (!this.reconIntelSnapshot) {
-      return;
-    }
+    const panel = this.popupBody.querySelector<HTMLElement>("[data-recon-panel]");
     const list = this.popupBody.querySelector<HTMLElement>("[data-recon-report-list]");
-    if (!list) {
+    if (!panel || !list) {
       return;
     }
-    const reconReports = this.reconIntelSnapshot.sectors
-      .filter((sector) => sector.timeframe === "current" || sector.timeframe === "last")
-      .sort((left, right) => {
-        const timeframeRank = (left.timeframe === "current" ? 0 : 1) - (right.timeframe === "current" ? 0 : 1);
-        if (timeframeRank !== 0) {
-          return timeframeRank;
-        }
-        const confidenceRank = { high: 0, medium: 1, low: 2 } as const;
-        return confidenceRank[left.confidence] - confidenceRank[right.confidence];
-      });
-    list.innerHTML = reconReports.length === 0
-      ? '<div class="recon-report-empty">No reconnaissance reports are available yet.</div>'
-      : reconReports.map((sector) => this.composeReconReportCard(sector)).join("");
+
+    const view = this.buildReconBoardView();
+    const totalObservers = panel.querySelector<HTMLElement>("[data-recon-observers]");
+    const activeObservers = panel.querySelector<HTMLElement>("[data-recon-active]");
+    const totalContacts = panel.querySelector<HTMLElement>("[data-recon-contacts]");
+    if (totalObservers) {
+      totalObservers.textContent = String(view.totalObservers);
+    }
+    if (activeObservers) {
+      activeObservers.textContent = String(view.activeObservers);
+    }
+    if (totalContacts) {
+      totalContacts.textContent = String(view.totalContacts);
+    }
+
+    list.innerHTML = view.observers.length === 0
+      ? `<div class="recon-report-empty">${this.escapeHtml(view.emptyMessage)}</div>`
+      : view.observers.map((observer) => this.renderReconObserverRowMarkup(observer)).join("");
   }
 
   private refreshReconIntelSnapshot(): void {
@@ -637,22 +670,143 @@ export class PopupManager implements IPopupManager {
     }
   }
 
-  /**
-   * Creates a card for a recon sector formatted for the Recon panel.
-   */
-  private composeReconReportCard(sector: ReconIntelSectorReport): string {
+  private buildReconBoardView(): ReconBoardViewModel {
+    if (!this.battleState.hasEngine()) {
+      return {
+        observers: [],
+        totalObservers: 0,
+        activeObservers: 0,
+        totalContacts: 0,
+        emptyMessage: "Recon board comes online once battle begins."
+      };
+    }
+
+    try {
+      const engine = this.battleState.ensureGameEngine();
+      const reports = engine.getPlayerReconReports();
+      const observers = reports.map((report) => this.buildReconObserverView(report));
+      const uniqueContacts = new Set<string>();
+      observers.forEach((observer) => observer.contacts.forEach((contact) => uniqueContacts.add(contact.unitId)));
+      return {
+        observers,
+        totalObservers: observers.length,
+        activeObservers: observers.filter((observer) => observer.contacts.length > 0).length,
+        totalContacts: uniqueContacts.size,
+        emptyMessage: "No player reconnaissance units are on station."
+      };
+    } catch (error) {
+      console.warn("PopupManager: Failed to render direct recon reports.", error);
+      return {
+        observers: [],
+        totalObservers: 0,
+        activeObservers: 0,
+        totalContacts: 0,
+        emptyMessage: "Recon board is unavailable right now."
+      };
+    }
+  }
+
+  private buildReconObserverView(report: PlayerReconReport): ReconObserverView {
+    const label = this.formatAirUnitLabel(String(report.observerType));
+    const contacts = report.contacts.map((contact) => this.buildReconContactView(contact));
+    return {
+      observerId: report.observerUnitId,
+      label,
+      shortLabel: this.buildAirUnitMonogram(String(report.observerType)),
+      locationLabel: this.formatDisplayHex(report.observerHex),
+      strength: Math.max(0, Math.round(report.observerStrength)),
+      spottingRange: Math.max(1, Math.round(report.spottingRange)),
+      sourceLabel: report.source,
+      statusLabel: contacts.length > 0 ? `${contacts.length} contact${contacts.length === 1 ? "" : "s"}` : "Watching",
+      statusClass: contacts.length > 0 ? "contact" : "watching",
+      spriteUrl: getSpriteForScenarioType(String(report.observerType)),
+      contacts
+    };
+  }
+
+  private buildReconContactView(contact: ReconObservedContact): ReconContactView {
+    return {
+      unitId: contact.unitId,
+      label: this.formatAirUnitLabel(String(contact.unitType ?? "Enemy Contact")),
+      locationLabel: this.formatDisplayHex(contact.hex),
+      activityLabel: this.describeReconContactActivity(contact),
+      classificationLabel: this.describeReconContactClassification(contact.state),
+      strengthLabel: typeof contact.strengthEstimate === "number" ? `Strength est. ${Math.max(0, Math.round(contact.strengthEstimate))}` : "Strength unknown"
+    };
+  }
+
+  private renderReconObserverRowMarkup(observer: ReconObserverView): string {
+    const visual = observer.spriteUrl
+      ? `<img src="${this.escapeHtml(observer.spriteUrl)}" alt="${this.escapeHtml(observer.label)}">`
+      : `<span class="recon-observer-card__fallback">${this.escapeHtml(observer.shortLabel)}</span>`;
+
     return `
-      <article class="recon-report-card" data-recon-sector-id="${sector.id}">
-        <strong>${sector.name}</strong>
-        <div class="meta-line">
-          <span class="meta-pill">${this.describeReconIntelTimeframe(sector.timeframe)}</span>
-          <span class="meta-pill">${this.describeReconIntelConfidence(sector.confidence)}</span>
-          <span>${sector.coordinates}</span>
+      <article class="recon-row" data-recon-observer-id="${this.escapeHtml(observer.observerId)}">
+        <div class="recon-observer-card">
+          <span class="recon-observer-card__visual">${visual}</span>
+          <span class="recon-observer-card__copy">
+            <span class="recon-observer-card__topline">
+              <span class="recon-observer-card__label">${this.escapeHtml(observer.label)}</span>
+              <span class="recon-status-pill recon-status-pill--${observer.statusClass}">${this.escapeHtml(observer.statusLabel)}</span>
+            </span>
+            <span class="recon-observer-card__meta">
+              <span class="recon-observer-stat">Strength ${this.escapeHtml(String(observer.strength))}</span>
+              <span class="recon-observer-stat">At ${this.escapeHtml(observer.locationLabel)}</span>
+              <span class="recon-observer-stat">Watch ${this.escapeHtml(String(observer.spottingRange))} hex</span>
+            </span>
+            <span class="recon-observer-card__detail">${this.escapeHtml(observer.sourceLabel)}</span>
+          </span>
         </div>
-        <p>${sector.summary}</p>
-        <p>${sector.activity}</p>
+        <div class="recon-target-card${observer.contacts.length === 0 ? " recon-target-card--quiet" : ""}">
+          <span class="recon-target-card__eyebrow">Observation Log</span>
+          <strong class="recon-target-card__title">
+            ${this.escapeHtml(observer.contacts.length > 0 ? "Enemy movement observed" : "No hostile movement in sight")}
+          </strong>
+          ${observer.contacts.length > 0
+            ? `<div class="recon-contact-list">
+                ${observer.contacts.map((contact) => `
+                  <div class="recon-contact-item">
+                    <div class="recon-contact-item__header">
+                      <strong>${this.escapeHtml(contact.label)}</strong>
+                      <span class="recon-contact-pill">${this.escapeHtml(contact.locationLabel)}</span>
+                      <span class="recon-contact-pill recon-contact-pill--activity">${this.escapeHtml(contact.activityLabel)}</span>
+                    </div>
+                    <div class="recon-contact-item__meta">
+                      <span>${this.escapeHtml(contact.classificationLabel)}</span>
+                      <span>${this.escapeHtml(contact.strengthLabel)}</span>
+                    </div>
+                  </div>
+                `).join("")}
+              </div>`
+            : `<p class="recon-target-card__detail">This station has no confirmed enemy formations in view right now.</p>`}
+        </div>
       </article>
     `;
+  }
+
+  private describeReconContactActivity(contact: ReconObservedContact): string {
+    if (contact.movedThisTurn && contact.attackedThisTurn) {
+      return "Maneuvering and engaged";
+    }
+    if (contact.movedThisTurn) {
+      return "Maneuvering";
+    }
+    if (contact.attackedThisTurn) {
+      return "Engaged";
+    }
+    return "Holding";
+  }
+
+  private describeReconContactClassification(state: ReconObservedContact["state"]): string {
+    switch (state) {
+      case "visible":
+        return "Direct sight";
+      case "identified":
+        return "Tracked by recon";
+      case "spotted":
+      default:
+        return "Spotted";
+    }
   }
 
   /**
@@ -689,6 +843,13 @@ export class PopupManager implements IPopupManager {
    */
   openPopup(key: PopupKey, trigger?: HTMLButtonElement): void {
     const resolvedKey: PopupKey = key === "supplies" ? "logistics" : key;
+
+    // Reserve the strategic intelligence modal for campaign-map workflows. Tactical battles
+    // surface intel through the inline battle overlay instead of this shared popup route.
+    if (resolvedKey === "intelligence" && !this.isCampaignScreenVisible()) {
+      console.warn("PopupManager: Intelligence popup is only available on the campaign map.");
+      return;
+    }
 
     // Handle special popup types
     if (resolvedKey === "baseOperations") {
@@ -2206,7 +2367,7 @@ export class PopupManager implements IPopupManager {
   }
 
   /**
-   * Opens the recon popup and renders last-turn reconnaissance reports.
+   * Opens the recon popup and renders direct observation reports from player recon assets.
    */
   private openReconPopup(key: PopupKey, trigger?: HTMLButtonElement): void {
     const content = getPopupContent("recon");
@@ -2216,12 +2377,11 @@ export class PopupManager implements IPopupManager {
     }
 
     this.showPopup(key, content, trigger);
-    this.reconIntelSnapshot = this.requestReconIntelSnapshot();
     this.renderReconPanel();
   }
 
   /**
-   * Opens the intelligence popup and hydrates it with analyst briefs and alerts.
+   * Opens the campaign intelligence popup and hydrates it with analyst briefs and alerts.
    */
   private openIntelPopup(key: PopupKey, trigger?: HTMLButtonElement): void {
     const content = getPopupContent("intelligence");
@@ -2248,6 +2408,13 @@ export class PopupManager implements IPopupManager {
     this.popupLayer.classList.add("hidden");
     this.popupLayer.setAttribute("aria-hidden", "true");
     delete this.popupDialog.dataset.popupKey;
+  }
+
+  private isCampaignScreenVisible(): boolean {
+    const campaignScreen = document.getElementById("campaignScreen");
+    return campaignScreen !== null
+      && !campaignScreen.classList.contains("hidden")
+      && campaignScreen.getAttribute("aria-hidden") !== "true";
   }
 
   /**
@@ -2666,19 +2833,34 @@ export class PopupManager implements IPopupManager {
         const direction = entry.delta >= 0 ? "+" : "-";
         const amount = this.formatQuantity(Math.abs(entry.delta));
         const resourceLabel = this.resolveResourceLabel(entry.type as SupplyResourceKey);
-        const timestamp = this.formatDate(entry.timestamp);
+        const actorLabel = this.simplifySupplyLedgerReason(entry.reason);
         return `
           <li class="supplies-ledger__entry" data-supplies-ledger-entry="${entry.type}">
             <span class="supplies-ledger__delta supplies-ledger__delta--${entry.delta >= 0 ? "positive" : "negative"}">
-              ${direction}${amount}
+              ${direction}${amount} ${resourceLabel}
             </span>
-            <span class="supplies-ledger__resource">${resourceLabel}</span>
-            <span class="supplies-ledger__reason">${this.escapeHtml(entry.reason)}</span>
-            <time class="supplies-ledger__timestamp" datetime="${entry.timestamp}">${timestamp}</time>
+            <span class="supplies-ledger__reason">${this.escapeHtml(actorLabel)}</span>
+            <time class="supplies-ledger__timestamp" datetime="${entry.timestamp}">Turn ${entry.turn}</time>
           </li>
         `;
       })
       .join("");
+  }
+
+  private simplifySupplyLedgerReason(reason: string): string {
+    const normalized = reason.trim();
+    if (normalized.length === 0) {
+      return "Base Camp";
+    }
+    if (/^base production$/i.test(normalized)) {
+      return "Base Camp";
+    }
+    if (/^Supply convoy (loadout|refuel)$/i.test(normalized)) {
+      return "Supply Convoy";
+    }
+    return normalized
+      .replace(/\s+depot issue$/i, "")
+      .replace(/_/g, " ");
   }
 
   private composeGeneralTraitMarkup(profile: GeneralRosterEntry): string {
@@ -3218,30 +3400,40 @@ export class PopupManager implements IPopupManager {
     const supplySnapshot = this.pullSupplySnapshot("Player");
     if (!snapshot) {
       const emptyMessage = `<div class="logistics-panel__empty">Logistics data becomes available once the battle engine initializes and units are deployed.</div>`;
-      panel.querySelectorAll("[data-logistics-overview], [data-logistics-supply-categories], [data-logistics-priorities], [data-logistics-sources], [data-logistics-stockpiles], [data-logistics-convoys], [data-logistics-delays], [data-logistics-alerts], [data-logistics-trend], [data-logistics-ledger]")
+      panel.querySelectorAll("[data-logistics-overview], [data-logistics-info], [data-logistics-supply-categories], [data-logistics-priorities], [data-logistics-convoys], [data-logistics-ledger]")
         .forEach((container) => { container.innerHTML = emptyMessage; });
+      const alertsStrip = panel.querySelector<HTMLElement>("[data-logistics-alerts]");
+      if (alertsStrip) {
+        alertsStrip.hidden = true;
+        alertsStrip.innerHTML = "";
+      }
       return;
     }
 
+    const alertsContainer = panel.querySelector<HTMLElement>("[data-logistics-alerts]");
     const overviewContainer = panel.querySelector<HTMLElement>("[data-logistics-overview]");
+    const infoContainer = panel.querySelector<HTMLElement>("[data-logistics-info]");
     const supplyCategoriesContainer = panel.querySelector<HTMLElement>("[data-logistics-supply-categories]");
     const prioritiesContainer = panel.querySelector<HTMLElement>("[data-logistics-priorities]");
-    const sourcesContainer = panel.querySelector<HTMLElement>("[data-logistics-sources]");
-    const stockpilesContainer = panel.querySelector<HTMLElement>("[data-logistics-stockpiles]");
     const convoysContainer = panel.querySelector<HTMLElement>("[data-logistics-convoys]");
-    const delaysContainer = panel.querySelector<HTMLElement>("[data-logistics-delays]");
-    const alertsContainer = panel.querySelector<HTMLElement>("[data-logistics-alerts]");
-    const trendContainer = panel.querySelector<HTMLElement>("[data-logistics-trend]");
     const ledgerContainer = panel.querySelector<HTMLElement>("[data-logistics-ledger]");
+
+    if (alertsContainer) {
+      const alertMarkup = this.composeLogisticsAlertTiles(snapshot, supplySnapshot);
+      alertsContainer.hidden = alertMarkup.length === 0;
+      alertsContainer.innerHTML = alertMarkup;
+    }
 
     if (overviewContainer) {
       overviewContainer.innerHTML = this.composeLogisticsOverview(snapshot, supplySnapshot);
     }
 
+    if (infoContainer) {
+      infoContainer.innerHTML = this.composeLogisticsInfoMarkup();
+    }
+
     if (supplyCategoriesContainer) {
-      supplyCategoriesContainer.innerHTML = supplySnapshot
-        ? supplySnapshot.categories.map((category: SupplyCategorySnapshot) => this.composeSupplyCategoryCard(category)).join("")
-        : '<div class="logistics-panel__empty">Supply breakdown will populate once the live ledger is available.</div>';
+      supplyCategoriesContainer.innerHTML = this.composeLogisticsSupplyStatusMarkup(snapshot, supplySnapshot);
     }
 
     if (prioritiesContainer) {
@@ -3250,38 +3442,10 @@ export class PopupManager implements IPopupManager {
         : snapshot.priorityTargets.map((entry) => this.composePriorityItem(entry)).join("");
     }
 
-    if (sourcesContainer) {
-      sourcesContainer.innerHTML = snapshot.supplySources.length === 0
-        ? '<div class="logistics-panel__empty">No supply sources available.</div>'
-        : snapshot.supplySources.map((source) => this.composeSupplySourceCard(source)).join("");
-    }
-
-    if (stockpilesContainer) {
-      stockpilesContainer.innerHTML = snapshot.stockpiles.length === 0
-        ? '<div class="logistics-panel__empty">No stockpile data available.</div>'
-        : snapshot.stockpiles.map((stockpile) => this.composeStockpileCard(stockpile)).join("");
-    }
-
     if (convoysContainer) {
       convoysContainer.innerHTML = snapshot.convoyStatuses.length === 0
         ? '<li class="logistics-panel__empty">No active convoys.</li>'
         : snapshot.convoyStatuses.map((convoy) => this.composeConvoyItem(convoy)).join("");
-    }
-
-    if (delaysContainer) {
-      delaysContainer.innerHTML = snapshot.delayNodes.length === 0
-        ? '<li class="logistics-panel__empty">No delay nodes detected.</li>'
-        : snapshot.delayNodes.map((delay) => this.composeDelayItem(delay)).join("");
-    }
-
-    if (alertsContainer) {
-      alertsContainer.innerHTML = this.composeCombinedLogisticsAlerts(snapshot.alerts, supplySnapshot?.alerts ?? []);
-    }
-
-    if (trendContainer) {
-      trendContainer.innerHTML = supplySnapshot
-        ? this.composeSupplyTrendMarkup(supplySnapshot.categories)
-        : '<div class="logistics-panel__empty">Trend history is not available yet.</div>';
     }
 
     if (ledgerContainer) {
@@ -3310,56 +3474,122 @@ export class PopupManager implements IPopupManager {
 
   /** Summarizes the current logistics model so the panel explains what the numbers mean and what the player can do. */
   private composeLogisticsOverview(snapshot: LogisticsSnapshot, supplySnapshot: SupplySnapshot | null): string {
-    const directIssueLabel = supplyBalance.convoy.sourceRadius <= 1
-      ? "On source or adjacent"
-      : `Base/HQ +${supplyBalance.convoy.sourceRadius} hex`;
     const phaseLabel = this.formatBattlePhaseLabel(supplySnapshot?.phase ?? "playerTurn");
-    const depotRations = supplySnapshot?.stockpile.rations ?? 0;
-    const depotParts = supplySnapshot?.stockpile.parts ?? snapshot.depotStock.parts;
+    const categories = this.selectLogisticsResourceCategories(supplySnapshot);
+    const ammoCategory = categories.find((category) => category.resource === "ammo");
+    const fuelCategory = categories.find((category) => category.resource === "fuel");
+    const theaterAmmo = (ammoCategory?.total ?? 0) + snapshot.convoyCargo.ammo + snapshot.depotStock.ammo;
+    const theaterFuel = (fuelCategory?.total ?? 0) + snapshot.convoyCargo.fuel + snapshot.depotStock.fuel;
 
     return `
-      <div class="logistics-overview">
-        <div class="logistics-overview__hero">
-          <article class="logistics-overview__metric">
-            <span>Turn</span>
-            <strong>${snapshot.turn}</strong>
-            <small>${this.escapeHtml(phaseLabel)}</small>
-          </article>
-          <article class="logistics-overview__metric">
-            <span>Deployed</span>
-            <strong>${snapshot.deployedUnits}</strong>
-            <small>${snapshot.isolatedUnits} isolated</small>
-          </article>
-          <article class="logistics-overview__metric">
-            <span>Convoys</span>
-            <strong>${snapshot.convoyUnits}</strong>
-            <small>${snapshot.loadedConvoys} loaded for delivery</small>
-          </article>
-          <article class="logistics-overview__metric">
-            <span>Queue</span>
-            <strong>${snapshot.priorityTargets.length}</strong>
-            <small>${snapshot.connectedUnits} in network</small>
-          </article>
-        </div>
-        <div class="logistics-overview__stock">
-          <span class="logistics-overview__stock-item"><strong>Depot Ammo</strong> ${this.formatQuantity(snapshot.depotStock.ammo)}</span>
-          <span class="logistics-overview__stock-item"><strong>Depot Fuel</strong> ${this.formatQuantity(snapshot.depotStock.fuel)}</span>
-          <span class="logistics-overview__stock-item"><strong>Rations</strong> ${this.formatQuantity(depotRations)}</span>
-          <span class="logistics-overview__stock-item"><strong>Parts</strong> ${this.formatQuantity(depotParts)}</span>
-          <span class="logistics-overview__stock-item"><strong>Convoy Cargo</strong> ${this.formatQuantity(snapshot.convoyCargo.ammo)} ammo · ${this.formatQuantity(snapshot.convoyCargo.fuel)} fuel</span>
-          <span class="logistics-overview__stock-item"><strong>Direct Issue</strong> ${directIssueLabel}</span>
-        </div>
-        <div class="logistics-overview__brief">
-          <p class="logistics-overview__headline">Base Camp and HQ only issue supplies on their own hex and adjacent hexes. Everything farther forward must be sustained by automated on-map supply convoys.</p>
-          <ul class="logistics-overview__rules">
-            <li>Convoys are live map units for both sides. They return to Base Camp or HQ to reload before running the next delivery.</li>
-            <li>Each convoy carries up to ${supplyBalance.convoy.ammoCapacity} ammo and ${supplyBalance.convoy.fuelCapacity} fuel, unloading up to ${supplyBalance.convoy.unloadAmmoPerTurn}/${supplyBalance.convoy.unloadFuelPerTurn} per turn.</li>
-            <li>Ground attacks spend onboard ammo. Motorized movement spends onboard fuel. Infantry do not burn fuel to move.</li>
-            <li>Use the resupply queue below to raise or lower delivery priority. Forward battalions wait on convoy service instead of abstract depot teleportation.</li>
-          </ul>
-        </div>
+      <div class="logistics-summary">
+        <span class="logistics-summary__chip"><strong>Turn</strong> ${snapshot.turn} · ${this.escapeHtml(phaseLabel)}</span>
+        <span class="logistics-summary__chip"><strong>Ammo</strong> ${this.formatQuantity(theaterAmmo)} total</span>
+        <span class="logistics-summary__chip"><strong>Fuel</strong> ${this.formatQuantity(theaterFuel)} total</span>
+        <span class="logistics-summary__chip"><strong>Convoys</strong> ${snapshot.convoyUnits} active · ${snapshot.loadedConvoys} loaded</span>
+        <span class="logistics-summary__chip"><strong>Queue</strong> ${snapshot.priorityTargets.length} waiting</span>
+        <span class="logistics-summary__chip"><strong>Network</strong> ${snapshot.connectedUnits} supplied · ${snapshot.isolatedUnits} cut off</span>
       </div>
     `;
+  }
+
+  private composeLogisticsInfoMarkup(): string {
+    return `
+      <details class="logistics-info">
+        <summary>How Supply Works</summary>
+        <div class="logistics-info__body">
+          <p>Base Camp is the only depot source. Units on the base hex or an adjacent hex can refill there; everything farther forward waits on automated convoy service.</p>
+          <ul class="logistics-info__rules">
+            <li>Convoys are live map units. They reload at Base Camp, move forward, unload, then return for the next run.</li>
+            <li>Each convoy carries up to ${supplyBalance.convoy.ammoCapacity} ammo and ${supplyBalance.convoy.fuelCapacity} fuel.</li>
+            <li>Ground attacks spend carried ammo. Motorized movement spends carried fuel. Foot infantry movement does not.</li>
+          </ul>
+        </div>
+      </details>
+    `;
+  }
+
+  private composeLogisticsAlertTiles(snapshot: LogisticsSnapshot, supplySnapshot: SupplySnapshot | null): string {
+    const categories = this.selectLogisticsResourceCategories(supplySnapshot);
+    const tiles = categories.flatMap((category) => {
+      const depotTotal = category.resource === "ammo" ? snapshot.depotStock.ammo : snapshot.depotStock.fuel;
+      const convoyTotal = category.resource === "ammo" ? snapshot.convoyCargo.ammo : snapshot.convoyCargo.fuel;
+      const shouldWarn = category.status !== "stable" || depotTotal <= 0;
+      if (!shouldWarn) {
+        return [];
+      }
+
+      const level = depotTotal <= 0 && convoyTotal <= 0 ? "critical" : category.status === "critical" ? "critical" : "warning";
+      const title = category.resource === "ammo"
+        ? (level === "critical" ? "Ammo Critical" : "Low Ammo")
+        : (level === "critical" ? "Fuel Critical" : "Low Fuel");
+
+      return [`
+        <article class="logistics-alert-chip logistics-alert-chip--${level}">
+          <strong>${title}</strong>
+          <span>Depot ${this.formatQuantity(depotTotal)} · Convoys ${this.formatQuantity(convoyTotal)}</span>
+        </article>
+      `];
+    });
+
+    return tiles.join("");
+  }
+
+  private composeLogisticsSupplyStatusMarkup(snapshot: LogisticsSnapshot, supplySnapshot: SupplySnapshot | null): string {
+    const categories = this.selectLogisticsResourceCategories(supplySnapshot);
+    if (categories.length === 0) {
+      return '<div class="logistics-panel__empty">Supply status will populate once the live ledger is available.</div>';
+    }
+
+    return categories.map((category) => this.composeLogisticsResourceCard(category, snapshot)).join("");
+  }
+
+  private composeLogisticsResourceCard(category: SupplyCategorySnapshot, snapshot: LogisticsSnapshot): string {
+    const resourceName = category.resource === "ammo" ? "Ammo" : "Fuel";
+    const depotTotal = category.resource === "ammo" ? snapshot.depotStock.ammo : snapshot.depotStock.fuel;
+    const convoyTotal = category.resource === "ammo" ? snapshot.convoyCargo.ammo : snapshot.convoyCargo.fuel;
+    const unitTotal = category.total;
+    const theaterTotal = unitTotal + convoyTotal + depotTotal;
+    const burnRate = Math.max(0, category.consumptionPerTurn);
+    const theaterOutlook = burnRate > 0
+      ? Math.max(1, Math.ceil(theaterTotal / burnRate))
+      : category.estimatedDepletionTurns;
+    const statusLabel = category.status === "stable"
+      ? "Ready"
+      : category.status === "warning"
+        ? "Low"
+        : category.status === "critical"
+          ? "Critical"
+          : "Pending";
+
+    return `
+      <article class="logistics-resource-card" data-logistics-resource="${category.resource}">
+        <header class="logistics-resource-card__header">
+          <div>
+            <h4>${resourceName}</h4>
+            <p>${this.formatQuantity(theaterTotal)} total in theater</p>
+          </div>
+          <span class="supplies-card__status supplies-card__status--${category.status}">${statusLabel}</span>
+        </header>
+        <dl class="logistics-resource-card__metrics">
+          <div><dt>On Units</dt><dd>${this.formatQuantity(unitTotal)}</dd></div>
+          <div><dt>On Convoys</dt><dd>${this.formatQuantity(convoyTotal)}</dd></div>
+          <div><dt>Depot</dt><dd>${this.formatQuantity(depotTotal)}</dd></div>
+          <div><dt>Burn / Turn</dt><dd>${this.formatDelta(category.consumptionPerTurn)}</dd></div>
+          <div><dt>Outlook</dt><dd>${theaterOutlook === null ? (theaterTotal > 0 ? "Holding" : "Empty") : `${theaterOutlook} turns`}</dd></div>
+        </dl>
+        <p class="logistics-resource-card__note">${category.resource === "ammo"
+          ? "Battalions need carried ammo to fire. Convoys move ammo forward from Base Camp."
+          : "Motor formations need carried fuel to move. Foot infantry do not spend fuel."}</p>
+      </article>
+    `;
+  }
+
+  private selectLogisticsResourceCategories(supplySnapshot: SupplySnapshot | null): SupplyCategorySnapshot[] {
+    if (!supplySnapshot) {
+      return [];
+    }
+    return supplySnapshot.categories.filter((category) => category.resource === "ammo" || category.resource === "fuel");
   }
 
   /**
@@ -3562,7 +3792,7 @@ export class PopupManager implements IPopupManager {
   private formatPriorityStatusLabel(status: LogisticsPriorityEntry["status"]): string {
     switch (status) {
       case "direct":
-        return "At Depot";
+        return "At Base";
       case "delivering":
         return "Convoy Assigned";
       case "resupplied":

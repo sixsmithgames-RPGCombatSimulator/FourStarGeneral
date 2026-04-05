@@ -128,12 +128,11 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
     objectives: [
       "Primary: Repel the enemy assault and keep the town in friendly hands."
     ],
-    turnLimit: 20,
+    turnLimit: 25,
     doctrine: "Anchor the defense on the town perimeter, use the road lattice to shift reserves, and let artillery and anti-tank screens break up enemy armor before it reaches the center.",
     supplies: [
-      { label: "Requisition Budget", amount: "5,000,000 requisition points" },
-      { label: "Allied Garrison", amount: "Infantry, engineers, anti-tank gun, recon patrol" },
-      { label: "Enemy Pressure", amount: "Approx. 7,500,000 points of attacking forces" }
+      { label: "Requisition Budget", amount: "5,000 requisition points" },
+      { label: "Allied Garrison", amount: "Infantry, engineers, anti-tank gun, recon patrol" }
     ]
   },
   patrol_river_watch: {
@@ -159,7 +158,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
     turnLimit: 17,
     doctrine: "Mass fires and armor on one shoulder of the ridge, suppress the bunker line, then commit infantry to hold the captured strongpoints before the defenders can counterattack.",
     supplies: [
-      { label: "Requisition Budget", amount: "2,600,000 requisition points" },
+      { label: "Requisition Budget", amount: "2,600 requisition points" },
       { label: "Baseline Forces", amount: "No predeployed units" },
       { label: "Operational Window", amount: "15-20 turns depending on difficulty" }
     ]
@@ -428,9 +427,22 @@ export function getMissionSummaryPackage(mission: MissionKey, difficulty: BotDif
     return summary;
   }
 
+  if (mission === "patrol_river_watch") {
+    return {
+      ...summary,
+      turnLimit,
+      supplies: summary.supplies.map((item) => item.label === "Duration"
+        ? { ...item, amount: `Hold until dawn on turn ${turnLimit}` }
+        : item)
+    };
+  }
+
   return {
     ...summary,
-    turnLimit
+    turnLimit,
+    supplies: summary.supplies.map((item) => item.label === "Operational Window"
+      ? { ...item, amount: `Assault window closes on turn ${turnLimit}` }
+      : item)
   };
 }
 

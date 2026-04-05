@@ -110,7 +110,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "ui_overview",
     title: "Battle Interface Overview",
     content:
-      "Welcome to the battlefield! Let's familiarize you with the interface. The sidebar on the left provides quick access to HQ, Intel, Logistics, and your Army Roster.",
+      "Welcome to the battlefield! Let's familiarize you with the interface. The sidebar on the left provides quick access to HQ, your commander profile, recon, air support, logistics, and your Army Roster.",
     highlightSelector: ".control-sidebar",
     position: "right",
     arrowDirection: "left",

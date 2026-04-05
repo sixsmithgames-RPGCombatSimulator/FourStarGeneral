@@ -78,7 +78,7 @@
     }
   ],
   "turnLimit": 17,
-  "playerBudget": 2600000,
+  "playerBudget": 2600,
   "allowedUnits": [
     "infantry",
     "airborneDetachment",

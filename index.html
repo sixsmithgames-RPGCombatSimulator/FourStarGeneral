@@ -4018,6 +4018,64 @@
     .battle-popup[data-popup-key="airSupport"] [data-popup-body] {
       padding-right: 0.25rem;
     }
+    .battle-popup[data-popup-key="recon"] {
+      width: min(980px, calc(100vw - 2rem));
+      max-height: 88vh;
+      padding: 1.2rem 1.3rem 1.3rem;
+      border-radius: 22px;
+      border: 1px solid rgba(170, 145, 94, 0.24);
+      background:
+        radial-gradient(circle at top right, rgba(118, 109, 70, 0.16), transparent 38%),
+        linear-gradient(180deg, rgba(24, 27, 20, 0.98) 0%, rgba(11, 12, 9, 0.995) 100%);
+      box-shadow:
+        0 30px 70px rgba(4, 6, 3, 0.58),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    .battle-popup[data-popup-key="recon"] .popup-header {
+      align-items: start;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid rgba(170, 145, 94, 0.16);
+    }
+    .battle-popup[data-popup-key="recon"] .popup-title {
+      font-family: var(--font-heading);
+      font-size: 1.3rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      line-height: 1.05;
+      color: #efe3bf;
+    }
+    .battle-popup[data-popup-key="recon"] .popup-title::before {
+      content: "Observation Board";
+      display: block;
+      margin-bottom: 0.32rem;
+      font-family: var(--font-label);
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.28em;
+      color: rgba(226, 205, 154, 0.72);
+    }
+    .battle-popup[data-popup-key="recon"] #battlePopupClose {
+      width: 2.2rem;
+      height: 2.2rem;
+      border-radius: 999px;
+      border: 1px solid rgba(170, 145, 94, 0.24);
+      background: linear-gradient(180deg, rgba(31, 34, 26, 0.96) 0%, rgba(15, 17, 13, 0.98) 100%);
+      color: #d8c79d;
+      font-size: 1.1rem;
+      line-height: 1;
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+    .battle-popup[data-popup-key="recon"] #battlePopupClose:hover,
+    .battle-popup[data-popup-key="recon"] #battlePopupClose:focus-visible {
+      outline: none;
+      transform: translateY(-1px);
+      border-color: rgba(232, 197, 123, 0.42);
+      background: linear-gradient(180deg, rgba(66, 59, 37, 0.98) 0%, rgba(23, 25, 18, 0.98) 100%);
+    }
+    .battle-popup[data-popup-key="recon"] [data-popup-body] {
+      padding-right: 0.25rem;
+    }
     [data-popup-body] {
       overflow-y: auto;
       overflow-x: hidden;
@@ -5608,17 +5666,8 @@
             <img src="/src/assets/Interface/Recon_Icon.png" alt="" draggable="false">
           </span>
         </button>
-        <button
-          type="button"
-          class="sidebar-button"
-          data-popup="intelligence"
-          title="Intelligence"
-          aria-label="Intelligence"
-        >
-          <span class="sidebar-button__icon" aria-hidden="true">
-            <img src="/src/assets/Interface/Intel_Icon.png" alt="" draggable="false">
-          </span>
-        </button>
+        <!-- Strategic intelligence belongs on the campaign map. Tactical battles use the
+             inline battle intel overlay instead of opening the campaign intel modal here. -->
         <button
           type="button"
           class="sidebar-button"

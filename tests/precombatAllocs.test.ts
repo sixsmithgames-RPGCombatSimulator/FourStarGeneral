@@ -446,6 +446,11 @@ registerTest("PRECOMBAT_RIVER_WATCH_USES_AUTHORED_MISSION_PACKAGE", async ({ Giv
     const summary = getMissionSummaryPackage("patrol_river_watch", "Normal");
     const missionInfo = battleState.getPrecombatMissionInfo();
     const titleElement = document.getElementById("precombatMissionTitle");
+    const expectedObjectives = [
+      "Primary: Hold all fords for 8 consecutive turns",
+      "Secondary: Destroy the enemy comms team before it reaches the central ford",
+      "Tertiary: Keep at least one recon unit alive"
+    ];
 
     if (!titleElement || titleElement.textContent !== getMissionTitle("patrol_river_watch")) {
       throw new Error(`Expected authored mission title, received ${titleElement?.textContent}`);
@@ -457,11 +462,14 @@ registerTest("PRECOMBAT_RIVER_WATCH_USES_AUTHORED_MISSION_PACKAGE", async ({ Giv
       throw new Error("Expected objective list element to exist.");
     }
     const objectiveText = objectiveList.textContent ?? "";
-    if (!objectiveText.includes(summary.objectives[0])) {
+    if (!objectiveText.includes(expectedObjectives[0])) {
       throw new Error(`Expected primary authored objective, received ${objectiveText}`);
     }
-    if (!objectiveText.includes(summary.objectives[1])) {
+    if (!objectiveText.includes(expectedObjectives[1])) {
       throw new Error("Expected authored secondary objective to render.");
+    }
+    if (!objectiveText.includes(expectedObjectives[2])) {
+      throw new Error("Expected authored tertiary objective to render.");
     }
     if (!doctrineElement || doctrineElement.textContent !== summary.doctrine) {
       throw new Error(`Expected authored doctrine, received ${doctrineElement?.textContent}`);
@@ -485,8 +493,8 @@ registerTest("PRECOMBAT_RIVER_WATCH_USES_AUTHORED_MISSION_PACKAGE", async ({ Giv
     if (missionInfo.briefing !== getMissionBriefing("patrol_river_watch")) {
       throw new Error("Expected BattleState mission briefing to match the authored package.");
     }
-    if (missionInfo.objectives.join("|") !== summary.objectives.join("|")) {
-      throw new Error("Expected BattleState mission objectives to match the authored package.");
+    if (missionInfo.objectives.join("|") !== expectedObjectives.join("|")) {
+      throw new Error("Expected BattleState mission objectives to match the mission-rule summary.");
     }
     if (missionInfo.baselineSupplies.map((item) => `${item.label}:${item.amount}`).join("|") !== summary.supplies.map((item) => `${item.label}:${item.amount}`).join("|")) {
       throw new Error("Expected BattleState baseline supplies to match the authored package.");

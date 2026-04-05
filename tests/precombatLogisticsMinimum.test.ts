@@ -137,3 +137,40 @@ registerTest("PRECOMBAT_HONORS_EXPLICIT_CONVOY_RESTRICTIONS", async ({ Given, Wh
     document.body.innerHTML = "";
   });
 });
+
+registerTest("PRECOMBAT_SUPPLY_REQUISITIONS_CONVERT_TO_REAL_DEPOT_PACKAGES", async ({ Given, When, Then }) => {
+  let screen: PrecombatScreen;
+  let depotAmmo = 0;
+  let depotFuel = 0;
+
+  await Given("a precombat requisition plan that buys one ammunition dump and one fuel dump", async () => {
+    screen = createScreen();
+    screen.setup("training", null, "Normal");
+
+    const internals = screen as unknown as {
+      allocationCounts: Map<string, number>;
+      buildAllocationSummary: (entries: unknown[]) => { depotPackage: { ammo: number; fuel: number } };
+    };
+
+    internals.allocationCounts.set("ammo", 1);
+    internals.allocationCounts.set("fuel", 1);
+
+    const summary = internals.buildAllocationSummary([]);
+    depotAmmo = summary.depotPackage.ammo;
+    depotFuel = summary.depotPackage.fuel;
+  });
+
+  await When("the summary converts requisitions into depot stock", async () => {
+    // Assertions run in Then for clearer failure output.
+  });
+
+  await Then("each dump adds a full stock package instead of a literal single point", async () => {
+    if (depotAmmo !== 36) {
+      throw new Error(`Expected one ammunition dump to seed 36 depot ammo, received ${depotAmmo}.`);
+    }
+    if (depotFuel !== 54) {
+      throw new Error(`Expected one fuel dump to seed 54 depot fuel, received ${depotFuel}.`);
+    }
+    document.body.innerHTML = "";
+  });
+});

@@ -709,24 +709,368 @@ export const popupContentRegistry: PopupContentDefinition[] = [
     title: "Reconnaissance",
     body: `
       <style>
-        .recon-panel { display: grid; gap: 1.25rem; }
-        .recon-panel__header { display: grid; gap: 0.35rem; }
-        .recon-panel__header h3 { margin: 0; letter-spacing: 0.08em; text-transform: uppercase; }
-        .recon-panel__header p { margin: 0; color: rgba(229, 236, 255, 0.68); font-size: 0.95rem; line-height: 1.5; }
-        .recon-panel__list { display: grid; gap: 1rem; }
-        .recon-report-card { border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.18); background: rgba(13, 18, 28, 0.86); padding: 1rem 1.25rem; display: grid; gap: 0.55rem; }
-        .recon-report-card strong { letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.95rem; }
-        .recon-report-card .meta-line { font-size: 0.8rem; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(229, 236, 255, 0.65); display: flex; gap: 0.5rem; flex-wrap: wrap; }
-        .recon-report-card .meta-pill { border: 1px solid rgba(229, 236, 255, 0.24); border-radius: 999px; padding: 0.2rem 0.55rem; font-size: 0.78rem; }
-        .recon-report-card p { margin: 0; color: rgba(245, 250, 255, 0.82); line-height: 1.5; font-size: 0.95rem; }
-        .recon-report-empty { font-size: 0.95rem; color: rgba(229, 236, 255, 0.72); text-align: center; padding: 1.25rem; border: 1px dashed rgba(229, 236, 255, 0.2); border-radius: 12px; background: rgba(12, 16, 25, 0.6); }
+        .recon-panel {
+          display: grid;
+          gap: 0.92rem;
+          padding: 0.08rem 0 0.2rem;
+        }
+        .recon-briefing {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 0.75rem 1rem;
+          align-items: end;
+          padding: 0.9rem 1rem;
+          border-radius: 16px;
+          border: 1px solid rgba(170, 145, 94, 0.18);
+          background:
+            radial-gradient(circle at top right, rgba(126, 108, 59, 0.13), transparent 42%),
+            linear-gradient(180deg, rgba(20, 23, 16, 0.97) 0%, rgba(10, 12, 9, 0.99) 100%);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+        }
+        .recon-briefing__copy {
+          display: grid;
+          gap: 0.28rem;
+          min-width: 0;
+        }
+        .recon-briefing__copy h3 {
+          margin: 0;
+          font-family: var(--font-heading);
+          font-size: 1.02rem;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          line-height: 1.05;
+          color: #efe3bf;
+        }
+        .recon-briefing__copy p {
+          margin: 0;
+          max-width: 60ch;
+          color: var(--text-secondary);
+          font-size: 0.81rem;
+          line-height: 1.45;
+        }
+        .recon-readiness-board {
+          display: grid;
+          gap: 0.28rem;
+          min-width: min(310px, 100%);
+          justify-items: end;
+        }
+        .recon-readiness-board__label {
+          font-family: var(--font-heading);
+          font-size: 0.84rem;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: #efe3bf;
+        }
+        .recon-summary {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(72px, 1fr));
+          gap: 0.38rem;
+        }
+        .recon-chip {
+          display: grid;
+          gap: 0.12rem;
+          align-content: center;
+          text-align: center;
+          padding: 0.42rem 0.5rem;
+          border-radius: 12px;
+          border: 1px solid rgba(170, 145, 94, 0.16);
+          background: linear-gradient(180deg, rgba(27, 24, 17, 0.96) 0%, rgba(13, 12, 9, 0.98) 100%);
+        }
+        .recon-chip strong {
+          font-family: var(--font-heading);
+          font-size: 0.98rem;
+          letter-spacing: 0.05em;
+          color: #f2e8c7;
+        }
+        .recon-chip span {
+          font-family: var(--font-label);
+          font-size: 0.5rem;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: rgba(216, 199, 157, 0.74);
+        }
+        .recon-orders-shell {
+          display: grid;
+          gap: 0.62rem;
+          padding: 0.92rem 1rem 0.98rem;
+          border-radius: 16px;
+          border: 1px solid rgba(170, 145, 94, 0.18);
+          background: linear-gradient(180deg, rgba(15, 18, 13, 0.96) 0%, rgba(9, 11, 9, 0.985) 100%);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+        }
+        .recon-orders-header {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          gap: 0.45rem 0.9rem;
+          align-items: center;
+        }
+        .recon-orders-title {
+          margin: 0;
+          font-family: var(--font-heading);
+          font-size: 0.96rem;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: #efe3bf;
+          white-space: nowrap;
+        }
+        .recon-order-note {
+          justify-self: end;
+          font-family: var(--font-label);
+          font-size: 0.62rem;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: rgba(216, 199, 157, 0.72);
+          text-align: right;
+        }
+        .recon-report-board {
+          display: grid;
+          gap: 0.68rem;
+          max-height: 32rem;
+          overflow-y: auto;
+          padding-right: 0.18rem;
+        }
+        .recon-row {
+          display: grid;
+          grid-template-columns: minmax(240px, 0.92fr) minmax(0, 1.08fr);
+          gap: 0.68rem;
+          align-items: stretch;
+        }
+        .recon-observer-card,
+        .recon-target-card {
+          border: 1px solid rgba(170, 145, 94, 0.18);
+          border-radius: 14px;
+          background: linear-gradient(180deg, rgba(21, 20, 14, 0.94) 0%, rgba(10, 11, 9, 0.98) 100%);
+          color: #efe3bf;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+        }
+        .recon-observer-card {
+          display: grid;
+          grid-template-columns: 3.9rem minmax(0, 1fr);
+          gap: 0.55rem;
+          align-items: stretch;
+          padding: 0.68rem 0.72rem;
+        }
+        .recon-observer-card__visual {
+          display: grid;
+          place-items: center;
+          min-height: 5rem;
+          border-radius: 12px;
+          background: linear-gradient(180deg, rgba(44, 40, 28, 0.9) 0%, rgba(21, 22, 17, 0.96) 100%);
+          border: 1px solid rgba(170, 145, 94, 0.14);
+          overflow: hidden;
+        }
+        .recon-observer-card__visual img {
+          width: 82%;
+          height: auto;
+          object-fit: contain;
+          filter: saturate(0.92);
+        }
+        .recon-observer-card__fallback {
+          font-family: var(--font-heading);
+          font-size: 1rem;
+          letter-spacing: 0.08em;
+          color: rgba(239, 227, 191, 0.88);
+        }
+        .recon-observer-card__copy {
+          display: grid;
+          gap: 0.28rem;
+          min-width: 0;
+          align-content: center;
+        }
+        .recon-observer-card__topline {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 0.55rem;
+          flex-wrap: wrap;
+        }
+        .recon-observer-card__label {
+          font-family: var(--font-heading);
+          font-size: 0.82rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #f2e8c7;
+        }
+        .recon-status-pill {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 1.32rem;
+          padding: 0.12rem 0.55rem;
+          border-radius: 999px;
+          border: 1px solid rgba(170, 145, 94, 0.22);
+          background: rgba(26, 25, 18, 0.88);
+          font-family: var(--font-label);
+          font-size: 0.58rem;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: rgba(216, 199, 157, 0.86);
+        }
+        .recon-status-pill--contact {
+          border-color: rgba(122, 214, 170, 0.34);
+          background: rgba(21, 45, 31, 0.78);
+          color: #c8efd4;
+        }
+        .recon-status-pill--watching {
+          border-color: rgba(170, 145, 94, 0.22);
+          color: rgba(216, 199, 157, 0.82);
+        }
+        .recon-observer-card__meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.3rem 0.35rem;
+        }
+        .recon-observer-stat {
+          display: inline-flex;
+          align-items: center;
+          min-height: 1.2rem;
+          padding: 0.12rem 0.45rem;
+          border-radius: 999px;
+          background: rgba(14, 16, 12, 0.76);
+          border: 1px solid rgba(170, 145, 94, 0.12);
+          font-size: 0.68rem;
+          color: rgba(228, 220, 195, 0.84);
+        }
+        .recon-observer-card__detail {
+          font-size: 0.77rem;
+          line-height: 1.4;
+          color: rgba(228, 220, 195, 0.78);
+        }
+        .recon-target-card {
+          display: grid;
+          gap: 0.48rem;
+          padding: 0.76rem 0.84rem;
+          align-content: start;
+        }
+        .recon-target-card--quiet {
+          background: linear-gradient(180deg, rgba(18, 19, 14, 0.94) 0%, rgba(10, 11, 9, 0.98) 100%);
+        }
+        .recon-target-card__eyebrow {
+          font-family: var(--font-label);
+          font-size: 0.56rem;
+          font-weight: 700;
+          letter-spacing: 0.24em;
+          text-transform: uppercase;
+          color: rgba(226, 205, 154, 0.72);
+        }
+        .recon-target-card__title {
+          margin: 0;
+          font-family: var(--font-heading);
+          font-size: 0.96rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #f2e8c7;
+        }
+        .recon-target-card__detail {
+          margin: 0;
+          color: rgba(228, 220, 195, 0.78);
+          font-size: 0.79rem;
+          line-height: 1.45;
+        }
+        .recon-contact-list {
+          display: grid;
+          gap: 0.45rem;
+        }
+        .recon-contact-item {
+          display: grid;
+          gap: 0.18rem;
+          padding: 0.5rem 0.58rem;
+          border-radius: 12px;
+          border: 1px solid rgba(170, 145, 94, 0.12);
+          background: rgba(11, 13, 10, 0.74);
+        }
+        .recon-contact-item__header {
+          display: flex;
+          align-items: center;
+          gap: 0.34rem;
+          flex-wrap: wrap;
+        }
+        .recon-contact-item__header strong {
+          font-family: var(--font-heading);
+          font-size: 0.72rem;
+          letter-spacing: 0.07em;
+          text-transform: uppercase;
+          color: #f0e5c1;
+        }
+        .recon-contact-item__meta {
+          display: flex;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+          font-size: 0.7rem;
+          color: rgba(220, 210, 180, 0.74);
+        }
+        .recon-contact-pill {
+          display: inline-flex;
+          align-items: center;
+          min-height: 1.14rem;
+          padding: 0.08rem 0.42rem;
+          border-radius: 999px;
+          border: 1px solid rgba(170, 145, 94, 0.18);
+          background: rgba(24, 24, 18, 0.84);
+          font-family: var(--font-label);
+          font-size: 0.54rem;
+          letter-spacing: 0.11em;
+          text-transform: uppercase;
+          color: rgba(216, 199, 157, 0.82);
+        }
+        .recon-contact-pill--activity {
+          border-color: rgba(122, 214, 170, 0.28);
+          color: #c8efd4;
+        }
+        .recon-report-empty {
+          font-size: 0.9rem;
+          color: rgba(229, 236, 255, 0.72);
+          text-align: center;
+          padding: 1.25rem;
+          border: 1px dashed rgba(170, 145, 94, 0.2);
+          border-radius: 12px;
+          background: rgba(12, 16, 25, 0.42);
+        }
+        @media (max-width: 880px) {
+          .recon-briefing {
+            grid-template-columns: minmax(0, 1fr);
+          }
+          .recon-readiness-board {
+            justify-items: start;
+            min-width: 0;
+          }
+          .recon-orders-header {
+            grid-template-columns: minmax(0, 1fr);
+          }
+          .recon-order-note {
+            justify-self: start;
+            text-align: left;
+          }
+          .recon-row {
+            grid-template-columns: minmax(0, 1fr);
+          }
+          .recon-report-board {
+            max-height: none;
+          }
+        }
       </style>
-        <div class="recon-panel" data-recon-panel>
-        <header class="recon-panel__header">
-          <h3>Recon Reports</h3>
-          <p>Live and recent contact reports from reconnaissance aircraft, patrols, and forward observers.</p>
-        </header>
-        <div class="recon-panel__list" data-recon-report-list></div>
+      <div class="recon-panel" data-recon-panel>
+        <section class="recon-briefing">
+          <div class="recon-briefing__copy">
+            <h3>Observation Net</h3>
+            <p>Reports only what your recon formations can currently see. Deception screens, disputed briefs, and analyst interpretation stay in Intelligence.</p>
+          </div>
+          <div class="recon-readiness-board">
+            <span class="recon-readiness-board__label">Field Screen</span>
+            <div class="recon-summary">
+              <div class="recon-chip"><strong data-recon-observers>0</strong><span>Observers</span></div>
+              <div class="recon-chip"><strong data-recon-active>0</strong><span>With Contact</span></div>
+              <div class="recon-chip"><strong data-recon-contacts>0</strong><span>Contacts</span></div>
+            </div>
+          </div>
+        </section>
+        <section class="recon-orders-shell">
+          <div class="recon-orders-header">
+            <h3 class="recon-orders-title">Observation Board</h3>
+            <div class="recon-order-note">Current line-of-sight reports only</div>
+          </div>
+          <div class="recon-report-board" data-recon-report-list></div>
+        </section>
       </div>
     `
   },
@@ -828,23 +1172,44 @@ export const popupContentRegistry: PopupContentDefinition[] = [
     title: "Logistics",
     body: `
       <style>
-        .logistics-panel { display: grid; gap: 1.1rem; padding: 0.4rem 0 0.75rem; }
-        .logistics-panel__section { display: grid; gap: 0.75rem; }
-        .logistics-panel__header h3 { margin: 0; font-size: 1rem; letter-spacing: 0.08em; text-transform: uppercase; }
-        .logistics-panel__header p { margin: 0; font-size: 0.85rem; color: rgba(229, 236, 255, 0.72); line-height: 1.4; }
+        .logistics-panel { display: grid; gap: 0.95rem; padding: 0.15rem 0 0.55rem; }
+        .logistics-panel__section { display: grid; gap: 0.55rem; }
+        .logistics-panel__header h3 { margin: 0; font-size: 0.96rem; letter-spacing: 0.08em; text-transform: uppercase; }
+        .logistics-panel__header p { margin: 0; font-size: 0.82rem; color: rgba(229, 236, 255, 0.68); line-height: 1.35; }
 
-        .logistics-overview { display: grid; gap: 0.9rem; }
-        .logistics-overview__hero { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-        .logistics-overview__metric { display: grid; gap: 0.25rem; border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(14, 20, 31, 0.82); padding: 0.8rem 0.9rem; }
-        .logistics-overview__metric span { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(229, 236, 255, 0.62); }
-        .logistics-overview__metric strong { font-size: 1.2rem; color: rgba(245, 247, 255, 0.96); }
-        .logistics-overview__metric small { font-size: 0.8rem; color: rgba(229, 236, 255, 0.7); }
-        .logistics-overview__stock { display: flex; flex-wrap: wrap; gap: 0.55rem; }
-        .logistics-overview__stock-item { display: inline-flex; gap: 0.45rem; align-items: center; border-radius: 999px; padding: 0.45rem 0.8rem; background: rgba(17, 24, 36, 0.78); border: 1px solid rgba(229, 236, 255, 0.14); font-size: 0.82rem; color: rgba(245, 247, 255, 0.9); }
-        .logistics-overview__stock-item strong { letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.72rem; color: rgba(229, 236, 255, 0.68); }
-        .logistics-overview__brief { display: grid; gap: 0.6rem; padding: 0.9rem 1rem; border-radius: 16px; background: linear-gradient(135deg, rgba(245, 196, 109, 0.13), rgba(149, 190, 255, 0.08)); border: 1px solid rgba(245, 196, 109, 0.18); }
-        .logistics-overview__headline { margin: 0; font-size: 0.95rem; line-height: 1.45; color: rgba(245, 247, 255, 0.94); }
-        .logistics-overview__rules { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.35rem; font-size: 0.82rem; line-height: 1.45; color: rgba(229, 236, 255, 0.76); }
+        .logistics-alert-strip { display: grid; gap: 0.55rem; grid-template-columns: repeat(auto-fit, minmax(180px, max-content)); }
+        .logistics-alert-chip { display: grid; gap: 0.18rem; padding: 0.65rem 0.85rem; border-radius: 12px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(17, 24, 36, 0.84); }
+        .logistics-alert-chip strong { font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; }
+        .logistics-alert-chip span { font-size: 0.78rem; color: rgba(229, 236, 255, 0.78); }
+        .logistics-alert-chip--critical { border-color: rgba(255, 104, 104, 0.35); background: rgba(78, 23, 29, 0.72); color: #ffd6d6; }
+        .logistics-alert-chip--warning { border-color: rgba(245, 196, 109, 0.35); background: rgba(64, 45, 19, 0.7); color: #ffe3ba; }
+
+        .logistics-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .logistics-summary__chip { display: inline-flex; gap: 0.45rem; align-items: center; padding: 0.48rem 0.78rem; border-radius: 999px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(14, 20, 31, 0.82); font-size: 0.82rem; color: rgba(245, 247, 255, 0.92); }
+        .logistics-summary__chip strong { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(229, 236, 255, 0.68); }
+
+        .logistics-info { border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(13, 20, 31, 0.66); overflow: hidden; }
+        .logistics-info summary { list-style: none; cursor: pointer; padding: 0.7rem 0.9rem; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(245, 247, 255, 0.94); }
+        .logistics-info summary::-webkit-details-marker { display: none; }
+        .logistics-info__body { display: grid; gap: 0.5rem; padding: 0 0.9rem 0.9rem; font-size: 0.82rem; line-height: 1.45; color: rgba(229, 236, 255, 0.8); }
+        .logistics-info__body p { margin: 0; }
+        .logistics-info__rules { margin: 0; padding-left: 1rem; display: grid; gap: 0.32rem; }
+
+        .logistics-resource-grid { display: grid; gap: 0.8rem; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+        .logistics-resource-card { border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.16); background: rgba(17, 24, 36, 0.88); padding: 0.82rem 0.95rem; display: grid; gap: 0.7rem; }
+        .logistics-resource-card__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
+        .logistics-resource-card__header h4 { margin: 0; font-size: 0.96rem; letter-spacing: 0.06em; text-transform: uppercase; }
+        .logistics-resource-card__header p { margin: 0.18rem 0 0; font-size: 0.8rem; color: rgba(229, 236, 255, 0.68); }
+        .logistics-resource-card__metrics { display: grid; gap: 0.45rem 0.8rem; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); font-size: 0.82rem; }
+        .logistics-resource-card__metrics dt { margin: 0; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(229, 236, 255, 0.68); }
+        .logistics-resource-card__metrics dd { margin: 0; font-size: 0.98rem; color: rgba(245, 247, 255, 0.94); }
+        .logistics-resource-card__note { margin: 0; font-size: 0.79rem; color: rgba(229, 236, 255, 0.72); line-height: 1.4; }
+
+        .supplies-card__status { font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 999px; padding: 0.24rem 0.62rem; }
+        .supplies-card__status--critical { background: rgba(255, 104, 104, 0.2); color: #ffd6d6; border: 1px solid rgba(255, 104, 104, 0.4); }
+        .supplies-card__status--warning { background: rgba(255, 196, 109, 0.2); color: #ffe5c4; border: 1px solid rgba(255, 196, 109, 0.4); }
+        .supplies-card__status--stable { background: rgba(149, 190, 255, 0.18); color: #dfeaff; border: 1px solid rgba(149, 190, 255, 0.35); }
+        .supplies-card__status--unknown { background: rgba(160, 160, 160, 0.18); color: #f5f5f5; border: 1px solid rgba(160, 160, 160, 0.35); }
 
         .logistics-priority-grid { display: grid; gap: 0.7rem; grid-template-columns: 1fr; }
         .logistics-priority-card { border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.16); background: rgba(17, 24, 36, 0.88); padding: 0.75rem 0.9rem; }
@@ -925,48 +1290,11 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .logistics-alert-item--warning { background: rgba(255, 196, 109, 0.18); border: 1px solid rgba(255, 196, 109, 0.35); color: #ffe3ba; }
         .logistics-alert-item--info { background: rgba(149, 190, 255, 0.15); border: 1px solid rgba(149, 190, 255, 0.3); color: #dfeaff; }
 
-        .logistics-detail-group { border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.12); background: rgba(12, 18, 29, 0.7); overflow: hidden; }
-        .logistics-detail-group summary { list-style: none; cursor: pointer; padding: 0.9rem 1rem; font-size: 0.9rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(245, 247, 255, 0.94); }
-        .logistics-detail-group summary::-webkit-details-marker { display: none; }
-        .logistics-detail-group__body { display: grid; gap: 1rem; padding: 0 1rem 1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-
-        .supplies-category-grid { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
-        .supplies-card { border-radius: 16px; border: 1px solid rgba(229, 236, 255, 0.18); background: rgba(17, 24, 36, 0.88); padding: 0.95rem 1rem; display: grid; gap: 0.7rem; }
-        .supplies-card__header { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
-        .supplies-card__header h4 { margin: 0; font-size: 1rem; letter-spacing: 0.06em; text-transform: uppercase; }
-        .supplies-card__subhead { margin: 0.2rem 0 0; font-size: 0.8rem; color: rgba(229, 236, 255, 0.68); }
-        .supplies-card__status { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 999px; padding: 0.25rem 0.65rem; }
-        .supplies-card__status--critical { background: rgba(255, 104, 104, 0.2); color: #ffd6d6; border: 1px solid rgba(255, 104, 104, 0.4); }
-        .supplies-card__status--warning { background: rgba(255, 196, 109, 0.2); color: #ffe5c4; border: 1px solid rgba(255, 196, 109, 0.4); }
-        .supplies-card__status--stable { background: rgba(149, 190, 255, 0.18); color: #dfeaff; border: 1px solid rgba(149, 190, 255, 0.35); }
-        .supplies-card__status--unknown { background: rgba(160, 160, 160, 0.18); color: #f5f5f5; border: 1px solid rgba(160, 160, 160, 0.35); }
-        .supplies-card__total-row { display: flex; align-items: baseline; gap: 0.6rem; }
-        .supplies-card__overall { font-size: 1.6rem; line-height: 1; color: rgba(245, 247, 255, 0.96); }
-        .supplies-card__overall-label { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(229, 236, 255, 0.62); }
-        .supplies-card__gauge { position: relative; display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: rgba(229, 236, 255, 0.15); }
-        .supplies-card__gauge-bar { display: block; height: 100%; }
-        .supplies-card__gauge-bar--frontline { background: linear-gradient(90deg, rgba(245, 196, 109, 0.9), rgba(255, 177, 80, 0.9)); }
-        .supplies-card__gauge-bar--reserve { background: linear-gradient(90deg, rgba(149, 190, 255, 0.9), rgba(116, 166, 255, 0.9)); }
-        .supplies-card__gauge-bar--depot { background: linear-gradient(90deg, rgba(110, 231, 169, 0.8), rgba(69, 199, 144, 0.8)); }
-        .supplies-card__gauge-bar--buffer { background: rgba(229, 236, 255, 0.25); }
-        .supplies-card__gauge-bar--empty { background: rgba(229, 236, 255, 0.2); }
-        .supplies-card__gauge-legend { margin: 0; font-size: 0.8rem; color: rgba(229, 236, 255, 0.72); }
-        .supplies-card__metrics { display: grid; gap: 0.45rem 0.9rem; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); font-size: 0.83rem; }
-        .supplies-card__metrics dt { margin: 0; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(229, 236, 255, 0.72); }
-        .supplies-card__metrics dd { margin: 0; font-size: 1rem; color: rgba(245, 247, 255, 0.92); }
-        .supplies-card__footer { margin: 0; font-size: 0.8rem; line-height: 1.4; color: rgba(229, 236, 255, 0.68); }
-
-        .supplies-trend { display: grid; gap: 0.9rem; }
-        .supplies-trend__series { border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(14, 20, 31, 0.8); padding: 0.85rem 0.95rem; display: grid; gap: 0.5rem; }
-        .supplies-trend__series h5 { margin: 0; font-size: 0.9rem; letter-spacing: 0.06em; text-transform: uppercase; }
-        .supplies-trend__points { display: flex; gap: 0.45rem; flex-wrap: wrap; font-size: 0.84rem; color: rgba(229, 236, 255, 0.82); }
-
         .supplies-ledger { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.65rem; }
         .supplies-ledger__entry { display: grid; gap: 0.35rem; border-radius: 14px; border: 1px solid rgba(229, 236, 255, 0.14); background: rgba(14, 20, 31, 0.8); padding: 0.85rem 0.95rem; font-size: 0.84rem; }
         .supplies-ledger__delta { font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
         .supplies-ledger__delta--positive { color: #6ee7a9; }
         .supplies-ledger__delta--negative { color: #ff9696; }
-        .supplies-ledger__resource { color: rgba(229, 236, 255, 0.78); }
         .supplies-ledger__reason { color: rgba(229, 236, 255, 0.65); }
         .supplies-ledger__timestamp { font-size: 0.75rem; color: rgba(229, 236, 255, 0.55); }
         .supplies-ledger__empty { text-align: center; font-size: 0.85rem; color: rgba(229, 236, 255, 0.6); border-radius: 12px; border: 1px dashed rgba(229, 236, 255, 0.18); padding: 0.75rem; background: rgba(14, 20, 31, 0.5); }
@@ -974,38 +1302,39 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .logistics-panel__empty { font-size: 0.9rem; color: rgba(229, 236, 255, 0.72); text-align: center; padding: 1rem; border-radius: 12px; border: 1px dashed rgba(229, 236, 255, 0.25); background: rgba(13, 20, 31, 0.6); }
 
         @media (max-width: 720px) {
-          .logistics-priority-card__header,
-          .logistics-source-card__header,
+          .logistics-alert-strip,
+          .logistics-summary,
+          .logistics-resource-grid,
           .logistics-convoy-item,
-          .logistics-delay-item {
+          .logistics-priority-card__row {
             grid-template-columns: 1fr;
-            flex-direction: column;
-            align-items: flex-start;
           }
-          .logistics-convoy-item__eta,
-          .logistics-priority-card__status,
-          .logistics-convoy-item__status {
-            margin-top: 0.2rem;
+          .logistics-priority-card__summary p {
+            white-space: normal;
           }
-          .logistics-detail-group__body {
-            grid-template-columns: 1fr;
+          .logistics-priority-card__buttons {
+            justify-content: flex-start;
           }
         }
       </style>
       <div id="logisticsPanel" class="logistics-panel" aria-live="polite">
+        <div class="logistics-alert-strip" data-logistics-alerts hidden></div>
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
-            <h3>Overview</h3>
-            <p>What is in depot, how many convoys are active, and the rules governing forward delivery.</p>
+            <h3>Status</h3>
+            <p>Quick read on theater supply, convoy coverage, and current queue pressure.</p>
           </header>
           <div data-logistics-overview></div>
         </section>
         <section class="logistics-panel__section">
+          <div data-logistics-info></div>
+        </section>
+        <section class="logistics-panel__section">
           <header class="logistics-panel__header">
             <h3>Supply Status</h3>
-            <p>Current carried stock, depot reserves, and depletion outlook by resource.</p>
+            <p>Ammo and fuel on units, on convoys, and still in the Base Camp depot.</p>
           </header>
-          <div class="supplies-category-grid" data-logistics-supply-categories></div>
+          <div class="logistics-resource-grid" data-logistics-supply-categories></div>
         </section>
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
@@ -1023,56 +1352,11 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         </section>
         <section class="logistics-panel__section">
           <header class="logistics-panel__header">
-            <h3>Alerts</h3>
-            <p>Critical logistics notifications.</p>
+            <h3>Supply History</h3>
+            <p>Recent depot issues, convoy loadouts, and base replenishment entries.</p>
           </header>
-          <ul class="logistics-alerts-list" data-logistics-alerts></ul>
+          <ul class="supplies-ledger" data-logistics-ledger></ul>
         </section>
-        <details class="logistics-detail-group">
-          <summary>Operational Detail</summary>
-          <div class="logistics-detail-group__body">
-            <section class="logistics-panel__section">
-              <header class="logistics-panel__header">
-                <h3>Primary Supply Sources</h3>
-                <p>Each battalion is assigned to its best current source instead of being counted against every source.</p>
-              </header>
-              <div class="logistics-sources-grid" data-logistics-sources></div>
-            </section>
-            <section class="logistics-panel__section">
-              <header class="logistics-panel__header">
-                <h3>Depot Stock</h3>
-                <p>Condensed depot inventory and carried-load averages.</p>
-              </header>
-              <div class="logistics-stockpiles-grid" data-logistics-stockpiles></div>
-            </section>
-            <section class="logistics-panel__section">
-              <header class="logistics-panel__header">
-                <h3>Delay Nodes</h3>
-                <p>Chokepoints currently slowing convoy movement.</p>
-              </header>
-              <ul class="logistics-delays-list" data-logistics-delays></ul>
-            </section>
-          </div>
-        </details>
-        <details class="logistics-detail-group">
-          <summary>Supply History</summary>
-          <div class="logistics-detail-group__body">
-            <section class="logistics-panel__section">
-              <header class="logistics-panel__header">
-                <h3>Recent Trend</h3>
-                <p>Last turns by resource.</p>
-              </header>
-              <div class="supplies-trend" data-logistics-trend></div>
-            </section>
-            <section class="logistics-panel__section">
-              <header class="logistics-panel__header">
-                <h3>Ledger</h3>
-                <p>Production, shipments, and depot issue history.</p>
-              </header>
-              <ul class="supplies-ledger" data-logistics-ledger></ul>
-            </section>
-          </div>
-        </details>
       </div>
     `
   },
