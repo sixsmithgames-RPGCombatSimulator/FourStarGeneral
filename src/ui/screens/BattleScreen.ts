@@ -5206,13 +5206,21 @@ export class BattleScreen {
 
     this.pendingIdleTurnAdvance = { summary };
 
+    const engine = this.battleState.ensureGameEngine();
     const items = idleAxialKeys.slice(0, 6).map((axialKey) => {
+      const unit = engine.playerUnits.find((u) => `${u.hex.q},${u.hex.r}` === axialKey);
       const offsetKey = CoordinateSystem.axialKeyToOffsetKey(axialKey);
-      const label = offsetKey ?? axialKey;
-      return `<li><strong>${label}</strong> ΓÇö Orders remaining</li>`;
+
+      if (unit) {
+        const unitDef = this.unitTypes[unit.type as keyof UnitTypeDictionary];
+        const unitLabel = unitDef?.label ?? unit.type;
+        return `<li><strong>${unitLabel}</strong> at ${offsetKey ?? axialKey}</li>`;
+      }
+
+      return `<li><strong>Unit</strong> at ${offsetKey ?? axialKey}</li>`;
     });
     if (idleAxialKeys.length > 6) {
-      items.push(`<li>ΓÇªand ${idleAxialKeys.length - 6} more units awaiting orders.</li>`);
+      items.push(`<li>…and ${idleAxialKeys.length - 6} more units awaiting orders.</li>`);
     }
     this.idleWarningList.innerHTML = items.join("");
 
