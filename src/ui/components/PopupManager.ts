@@ -75,6 +75,7 @@ interface AirMissionTabView {
 interface AirSquadronCardView {
   readonly value: string;
   readonly squadronId: string;
+  readonly originValue: string;
   readonly label: string;
   readonly shortLabel: string;
   readonly locationLabel: string;
@@ -86,6 +87,7 @@ interface AirSquadronCardView {
   readonly disabled: boolean;
   readonly spriteUrl?: string;
   readonly refitTurns: number | null;
+  readonly combatRadiusKm: number | null;
   readonly combatRadiusHex: number | null;
 }
 
@@ -1142,7 +1144,7 @@ export class PopupManager implements IPopupManager {
           const visual = card.spriteUrl
             ? `<img src="${this.escapeHtml(card.spriteUrl)}" alt="${this.escapeHtml(card.label)}">`
             : `<span class="air-squadron-card__fallback">${this.escapeHtml(card.shortLabel)}</span>`;
-          const radiusCopy = card.combatRadiusHex === null ? "Radius unavailable" : `Radius ${card.combatRadiusHex} hex`;
+          const radiusCopy = this.formatAirRadiusCopy(card);
           const refitCopy = card.refitTurns === null ? "Refit variable" : `Refit ${card.refitTurns} turn${card.refitTurns === 1 ? "" : "s"}`;
           const baseCopy = card.isReserve ? "Reserve Strip" : `Base ${card.locationLabel}`;
           return `
@@ -1334,8 +1336,9 @@ export class PopupManager implements IPopupManager {
             : "ready";
 
         return {
-          value: `${unit.hex.q},${unit.hex.r}`,
+          value: squadronId,
           squadronId,
+          originValue: `${unit.hex.q},${unit.hex.r}`,
           label: this.formatAirUnitLabel(String(unit.type)),
           shortLabel: this.buildAirUnitMonogram(String(unit.type)),
           locationLabel: this.formatDisplayHex(unit.hex),
@@ -1347,7 +1350,8 @@ export class PopupManager implements IPopupManager {
           disabled: assignment !== null,
           spriteUrl: getSpriteForScenarioType(String(unit.type)),
           refitTurns,
-          combatRadiusHex: this.resolveAirPlannerRadiusHex(engine, unit)
+          combatRadiusKm: ((unitTypesSource as Record<string, { airSupport?: { combatRadiusKm?: number } }>)[String(unit.type)]?.airSupport?.combatRadiusKm ?? null) as number | null,
+          combatRadiusHex: this.resolveAirPlannerRadiusHex(engine, unit, squadronId)
         } satisfies AirSquadronCardView;
       });
   }
@@ -1366,7 +1370,7 @@ export class PopupManager implements IPopupManager {
         const origin = entry.originHexKey ?? this.resolveAirMissionOriginHex(engine, entry) ?? "";
         const target = entry.targetHex ? this.formatDisplayHex(entry.targetHex) : "Target pending";
         return {
-          value: origin,
+          value: entry.unitKey,
           label: `${this.formatAirUnitLabel(entry.unitType)} Package`,
           detail: `Target ${target}`,
           meta: origin ? `Launch ${this.formatDisplayHexKey(origin)}` : "Launch strip unavailable"
@@ -1379,8 +1383,12 @@ export class PopupManager implements IPopupManager {
     return unit.unitId ?? `${String(unit.type)}@${axialKey(unit.hex)}`;
   }
 
-  private resolveAirPlannerRadiusHex(engine: GameEngineAPI, unit: Pick<ScenarioUnit, "hex" | "type">): number | null {
-    const engineRadius = engine.getAircraftCombatRadiusHex({ q: unit.hex.q, r: unit.hex.r });
+  private resolveAirPlannerRadiusHex(
+    engine: GameEngineAPI,
+    unit: Pick<ScenarioUnit, "hex" | "type">,
+    squadronId?: string
+  ): number | null {
+    const engineRadius = engine.getAircraftCombatRadiusHex({ q: unit.hex.q, r: unit.hex.r }, squadronId);
     if (typeof engineRadius === "number") {
       return engineRadius;
     }
@@ -1588,7 +1596,7 @@ export class PopupManager implements IPopupManager {
       return;
     }
 
-    const unitHex = this.parseAxialString(squadron.value);
+    const unitHex = this.parseAxialString(squadron.originValue);
     if (!unitHex) {
       this.setAirPlannerFeedback("The selected squadron does not have a valid launch hex.", "warning");
       this.renderAirSupportPanel();
@@ -1598,12 +1606,15 @@ export class PopupManager implements IPopupManager {
     const request: {
       kind: AirMissionKind;
       faction: TurnFaction;
+      unitId: string;
       unitHex: { q: number; r: number };
       targetHex?: { q: number; r: number };
       escortTargetHex?: { q: number; r: number };
+      escortTargetUnitId?: string;
     } = {
       kind: mission.kind,
       faction: engine.activeFaction,
+      unitId: squadron.squadronId,
       unitHex
     };
 
@@ -1613,7 +1624,7 @@ export class PopupManager implements IPopupManager {
       this.renderAirSupportPanel();
       return;
     }
-    if (mission.requiresFriendlyEscortTarget && !parsedTarget) {
+    if (mission.requiresFriendlyEscortTarget && !this.airPlannerState.targetValue) {
       this.setAirPlannerFeedback("Choose the bomber package this escort wing will protect.", "warning");
       this.renderAirSupportPanel();
       return;
@@ -1622,8 +1633,8 @@ export class PopupManager implements IPopupManager {
     if ((mission.requiresTarget || mission.kind === "airCover") && parsedTarget) {
       request.targetHex = parsedTarget;
     }
-    if (mission.requiresFriendlyEscortTarget && parsedTarget) {
-      request.escortTargetHex = parsedTarget;
+    if (mission.requiresFriendlyEscortTarget) {
+      request.escortTargetUnitId = this.airPlannerState.targetValue;
     }
 
     const result = engine.tryScheduleAirMission(request);
@@ -1646,7 +1657,7 @@ export class PopupManager implements IPopupManager {
       return;
     }
 
-    const origin = this.parseAxialString(squadron.value);
+    const origin = this.parseAxialString(squadron.originValue);
     const radius = squadron.combatRadiusHex;
     if (origin && typeof radius === "number" && radius > 0) {
       document.dispatchEvent(new CustomEvent("air:previewRange", { detail: { origin, radius } }));
@@ -1898,6 +1909,21 @@ export class PopupManager implements IPopupManager {
     return axial ? this.formatDisplayHex(axial) : value;
   }
 
+  private formatAirRadiusCopy(card: Pick<AirSquadronCardView, "combatRadiusHex" | "combatRadiusKm">): string {
+    if (typeof card.combatRadiusHex !== "number" || !Number.isFinite(card.combatRadiusHex)) {
+      return typeof card.combatRadiusKm === "number" ? `${card.combatRadiusKm} km range` : "Range unavailable";
+    }
+    if (card.combatRadiusHex >= 80) {
+      return typeof card.combatRadiusKm === "number"
+        ? `Theater-wide (${card.combatRadiusKm} km)`
+        : "Theater-wide range";
+    }
+    if (typeof card.combatRadiusKm === "number") {
+      return `${card.combatRadiusHex} hex / ${card.combatRadiusKm} km`;
+    }
+    return `${card.combatRadiusHex} hex radius`;
+  }
+
   /** Handles map clicks when Air Support panel is in pick mode (target/escort). */
   private onBattleHexClicked(event: CustomEvent<{ offsetKey: string }>): void {
     const key = event.detail?.offsetKey ?? "";
@@ -1940,7 +1966,7 @@ export class PopupManager implements IPopupManager {
     }
 
     this.airPlannerState.targetValue = value;
-    this.setAirPlannerFeedback(`Marked ${value} on the map.`, "success");
+    this.setAirPlannerFeedback(`Marked ${this.formatDisplayHexKey(value)} on the map.`, "success");
     document.dispatchEvent(new CustomEvent("air:clearPreview"));
     this.airPickMode = null;
     if (this.airPlannerState.suspendedForMapPick) {

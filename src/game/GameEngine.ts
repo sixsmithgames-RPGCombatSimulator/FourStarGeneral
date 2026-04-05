@@ -888,8 +888,10 @@ export interface ScheduleAirMissionInput {
   readonly kind: AirMissionKind;
   readonly faction: TurnFaction;
   readonly unitHex: Axial;
+  readonly unitId?: string;
   readonly targetHex?: Axial;
   readonly escortTargetHex?: Axial;
+  readonly escortTargetUnitId?: string;
 }
 
 /** Internal representation retains the mission template for validation without re-searching the catalog. */
@@ -1186,9 +1188,9 @@ export interface GameEngineAPI {
   /** Lightweight counts for HUD summary widgets. */
   getAirSupportSummary(): { queued: number; inFlight: number; resolving: number; completed: number; refit: number };
   /** Returns the aircraft's combat radius in hexes for the active faction at the given hex, or null if not an aircraft. */
-  getAircraftCombatRadiusHex(origin: Axial): number | null;
+  getAircraftCombatRadiusHex(origin: Axial, unitId?: string | null): number | null;
   /** Returns refit turns for the aircraft at the given hex (active faction), or null if not an aircraft. */
-  getAircraftRefitTurns(origin: Axial): number | null;
+  getAircraftRefitTurns(origin: Axial, unitId?: string | null): number | null;
   /** Cancels a queued air mission for the active faction. Returns true if a mission was canceled. */
   cancelQueuedAirMission(missionId: string): boolean;
   consumeSupportImpactEvents(): SupportImpactEvent[];
@@ -5488,8 +5490,10 @@ private automateSupplyConvoys(
    * Returns the aircraft's combat radius in hexes at the provided origin for the active faction.
    * UI uses this to draw a range overlay when scheduling missions. Null when no friendly aircraft present.
    */
-  getAircraftCombatRadiusHex(origin: Axial): number | null {
-    const unit = this.lookupUnit(origin, this._activeFaction);
+  getAircraftCombatRadiusHex(origin: Axial, unitId?: string | null): number | null {
+    const unit = unitId
+      ? this.lookupUnitBySquadronId(unitId, this._activeFaction)?.unit ?? this.lookupUnit(origin, this._activeFaction, true, unitId)
+      : this.lookupUnit(origin, this._activeFaction, true, unitId);
     if (!unit) {
       return null;
     }
@@ -5505,8 +5509,10 @@ private automateSupplyConvoys(
   /**
    * Returns refit turns for a friendly aircraft at the given origin, or null when not applicable.
    */
-  getAircraftRefitTurns(origin: Axial): number | null {
-    const unit = this.lookupUnit(origin, this._activeFaction);
+  getAircraftRefitTurns(origin: Axial, unitId?: string | null): number | null {
+    const unit = unitId
+      ? this.lookupUnitBySquadronId(unitId, this._activeFaction)?.unit ?? this.lookupUnit(origin, this._activeFaction, true, unitId)
+      : this.lookupUnit(origin, this._activeFaction, true, unitId);
     if (!unit) {
       return null;
     }
@@ -5593,17 +5599,24 @@ private automateSupplyConvoys(
     const template = this.getAirMissionTemplate(request.kind);
 
     // Resolve the squadron at the requested origin, preferring aircraft whose roles match the mission requirements.
-    const originKey = axialKey(request.unitHex);
+    const requestedUnitId = request.unitId?.trim() ? request.unitId.trim() : null;
+    let launchHex = structuredClone(request.unitHex);
+    const originCandidates = requestedUnitId
+      ? (() => {
+          const lookup = this.lookupUnitBySquadronId(requestedUnitId, request.faction);
+          if (!lookup) {
+            return [] as ScenarioUnit[];
+          }
+          launchHex = structuredClone(lookup.unit.hex);
+          return [lookup.unit];
+        })()
+      : this.getUnitsAtHexForFaction(request.unitHex, request.faction);
+    const originKey = axialKey(launchHex);
     let unit: ScenarioUnit | null = null;
 
     // Collect candidate units at this origin: deployed first, then (for the player) matching reserves.
-    const candidates: ScenarioUnit[] = [];
-    const placementMap = request.faction === "Player" ? this.playerPlacements : this.botPlacements;
-    const deployed = placementMap.get(originKey) ?? null;
-    if (deployed) {
-      candidates.push(deployed);
-    }
-    if (request.faction === "Player") {
+    const candidates: ScenarioUnit[] = [...originCandidates];
+    if (request.faction === "Player" && !requestedUnitId) {
       this.reserves.forEach((entry) => {
         if (axialKey(entry.unit.hex) === originKey) {
           candidates.push(entry.unit);
@@ -5699,17 +5712,17 @@ private automateSupplyConvoys(
       return { ok: false, code: "NEEDS_REFIT", reason: "This squadron must rearm before another mission." };
     }
     // Keep the hex-based key for airbase capacity checks (multiple squadrons can share a base).
-    const originHexKey = axialKey(request.unitHex);
+    const originHexKey = axialKey(launchHex);
 
     if (template.requiresTarget && !request.targetHex) {
       return { ok: false, code: "TARGET_REQUIRED", reason: "This mission requires selecting a target hex." };
     }
-    if (template.requiresFriendlyEscortTarget && !request.escortTargetHex) {
+    if (template.requiresFriendlyEscortTarget && !request.escortTargetHex && !request.escortTargetUnitId) {
       return { ok: false, code: "ESCORT_TARGET_REQUIRED", reason: "Escort missions require pairing with a friendly unit." };
     }
     if (request.targetHex && unitDefinition.airSupport) {
       try {
-        this.assertAirMissionRange(unitDefinition.airSupport, request.unitHex, request.targetHex);
+        this.assertAirMissionRange(unitDefinition.airSupport, launchHex, request.targetHex);
       } catch (e) {
         return { ok: false, code: "OUT_OF_RANGE", reason: (e as Error).message };
       }
@@ -5717,13 +5730,15 @@ private automateSupplyConvoys(
 
     // Escort guardrails: target must exist and not already be in-flight.
     let escortTargetUnitKey: string | undefined;
-    if (request.escortTargetHex) {
-      const escortTargetUnit = this.lookupUnit(request.escortTargetHex, request.faction, true);
+    if (request.escortTargetHex || request.escortTargetUnitId) {
+      const escortTargetUnit = request.escortTargetUnitId
+        ? this.lookupUnitBySquadronId(request.escortTargetUnitId, request.faction)?.unit ?? null
+        : this.lookupUnit(request.escortTargetHex!, request.faction, true);
       if (!escortTargetUnit) {
         return { ok: false, code: "ESCORT_TARGET_MISSING", reason: "Escort target unit was not found at the selected hex." };
       }
       try {
-        this.assertEscortDistance(unitDefinition.airSupport, request.unitHex, request.escortTargetHex);
+        this.assertEscortDistance(unitDefinition.airSupport, launchHex, escortTargetUnit.hex);
       } catch (e) {
         return { ok: false, code: "OUT_OF_RANGE", reason: (e as Error).message };
       }
