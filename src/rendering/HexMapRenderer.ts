@@ -827,7 +827,21 @@ export class HexMapRenderer implements IMapRenderer {
 
   /** Plays a brief tracer effect at the given hex key to indicate aerial gunfire. */
   async playDogfight(hexKey: string): Promise<void> {
-    await this.playCombatAnimation("tracer", hexKey, 0, 0, 1.2);
+    const bursts = [
+      { offsetX: 0, offsetY: 0, scale: 1.18 },
+      { offsetX: 8, offsetY: -5, scale: 1.06 },
+      { offsetX: -7, offsetY: 5, scale: 1.02 }
+    ];
+
+    for (let index = 0; index < bursts.length; index += 1) {
+      const burst = bursts[index]!;
+      if (index > 0) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 80);
+        });
+      }
+      await this.playCombatAnimation("tracer", hexKey, burst.offsetX, burst.offsetY, burst.scale);
+    }
   }
 
   /**
@@ -4210,12 +4224,13 @@ export class HexMapRenderer implements IMapRenderer {
   ): Promise<void> {
     console.log(`[HexMapRenderer] playCombatAnimation START - type: ${animationType}, hex: ${hexKey}, offset: (${offsetX}, ${offsetY}), scale: ${scale}`);
 
-    // Dedupe guard: prevent same effect from firing twice within 100ms window
+    const dedupeWindowMs = this.getEffectDedupeWindowMs(animationType);
+    // Dedupe guard: prevent same effect from firing twice within a short window
     const effectKey = `${animationType}:${hexKey}:${Math.round(offsetX)}:${Math.round(offsetY)}`;
     const now = performance.now();
     const lastCall = this.recentEffects.get(effectKey);
-    if (lastCall && now - lastCall < 100) {
-      console.log(`[HexMapRenderer] playCombatAnimation SKIPPED - duplicate within 100ms: ${effectKey}`);
+    if (lastCall && now - lastCall < dedupeWindowMs) {
+      console.log(`[HexMapRenderer] playCombatAnimation SKIPPED - duplicate within ${dedupeWindowMs}ms: ${effectKey}`);
       return;
     }
     this.recentEffects.set(effectKey, now);
@@ -4266,6 +4281,19 @@ export class HexMapRenderer implements IMapRenderer {
   /**
    * Plays a combat effect directly at viewport coordinates, which keeps airbursts and future freeform effects off the hex grid.
    */
+  private getEffectDedupeWindowMs(animationType: CombatAnimationKey | string): number {
+    if (animationType === "flakBurst") {
+      return 24;
+    }
+    if (animationType === "airDamageSmoke") {
+      return 40;
+    }
+    return 100;
+  }
+
+  /**
+   * Plays a combat effect directly at viewport coordinates, which keeps airbursts and future freeform effects off the hex grid.
+   */
   async playCombatAnimationAt(
     animationType: CombatAnimationKey | string,
     x: number,
@@ -4291,11 +4319,12 @@ export class HexMapRenderer implements IMapRenderer {
     }
     console.log("[HexMapRenderer] Combat animator ready:", this.combatAnimator);
 
+    const dedupeWindowMs = this.getEffectDedupeWindowMs(animationType);
     const effectKey = `${animationType}:${Math.round(x)}:${Math.round(y)}:${Math.round(scale * 100)}`;
     const now = performance.now();
     const lastCall = this.recentEffects.get(effectKey);
-    if (lastCall && now - lastCall < 100) {
-      console.log(`[HexMapRenderer] playCombatAnimationAt SKIPPED - duplicate within 100ms: ${effectKey}`);
+    if (lastCall && now - lastCall < dedupeWindowMs) {
+      console.log(`[HexMapRenderer] playCombatAnimationAt SKIPPED - duplicate within ${dedupeWindowMs}ms: ${effectKey}`);
       return;
     }
     this.recentEffects.set(effectKey, now);
@@ -4323,20 +4352,20 @@ export class HexMapRenderer implements IMapRenderer {
   /**
    * Plays clustered airborne flak puffs around a live aircraft position instead of snapping to a ground hex.
    */
-  async playFlakBurstAt(x: number, y: number, count: number = 1, scale: number = 0.92): Promise<void> {
+  async playFlakBurstAt(x: number, y: number, count: number = 1, scale: number = 1.08): Promise<void> {
     const burstCount = Math.max(1, count);
-    const spreadPx = burstCount === 1 ? 6 : Math.min(18, 8 + burstCount * 2);
+    const spreadPx = burstCount === 1 ? 8 : Math.min(24, 10 + burstCount * 2.5);
     const burstPromises = Array.from({ length: burstCount }).map((_, index) => {
       const ratio = burstCount === 1 ? 0.5 : index / burstCount;
       const angle = ratio * Math.PI * 2 + Math.PI / 6;
       const radius = burstCount === 1 ? 0 : spreadPx * (0.55 + (index % 2) * 0.18);
       const offsetX = Math.cos(angle) * radius;
       const offsetY = Math.sin(angle) * radius * 0.72;
-      const burstScale = scale * (index === 0 ? 1 : Math.max(0.72, 0.94 - index * 0.06));
+      const burstScale = scale * (index === 0 ? 1 : Math.max(0.78, 0.96 - index * 0.05));
       return new Promise<void>((resolve) => {
         window.setTimeout(() => {
           void this.playCombatAnimationAt("flakBurst", x + offsetX, y + offsetY, burstScale, false).then(() => resolve());
-        }, index * 35);
+        }, index * 70);
       });
     });
 

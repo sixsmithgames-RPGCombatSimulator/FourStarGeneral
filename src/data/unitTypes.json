@@ -454,6 +454,20 @@
       "cruiseSpeedKph": 540,
       "combatRadiusKm": 250,
       "refitTurns": 1
+    },
+    "airCombat": {
+      "attack": {
+        "accuracyBase": 68,
+        "hardAttack": 18,
+        "softAttack": 18,
+        "ap": 6,
+        "rangeMin": 1,
+        "rangeMax": 2,
+        "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "medium" },
+        "shotsScalar": 1.1,
+        "damageScalar": 2.6,
+        "suppressionScalar": 2.6
+      }
     }
   },
   "Interceptor": {
@@ -480,6 +494,20 @@
       "cruiseSpeedKph": 600,
       "combatRadiusKm": 220,
       "refitTurns": 1
+    },
+    "airCombat": {
+      "attack": {
+        "accuracyBase": 74,
+        "hardAttack": 20,
+        "softAttack": 20,
+        "ap": 7,
+        "rangeMin": 1,
+        "rangeMax": 2,
+        "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "small" },
+        "shotsScalar": 1.15,
+        "damageScalar": 2.9,
+        "suppressionScalar": 2.9
+      }
     }
   },
   "Ground_Attack": {
@@ -506,6 +534,20 @@
       "cruiseSpeedKph": 420,
       "combatRadiusKm": 180,
       "refitTurns": 2
+    },
+    "airCombat": {
+      "turret": {
+        "accuracyBase": 34,
+        "hardAttack": 6,
+        "softAttack": 6,
+        "ap": 1,
+        "rangeMin": 1,
+        "rangeMax": 2,
+        "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "medium" },
+        "shotsScalar": 0.65,
+        "damageScalar": 0.7,
+        "suppressionScalar": 0.4
+      }
     }
   },
   "Bomber": {
@@ -533,6 +575,20 @@
       "cruiseSpeedKph": 450,
       "combatRadiusKm": 200,
       "refitTurns": 2
+    },
+    "airCombat": {
+      "turret": {
+        "accuracyBase": 42,
+        "hardAttack": 9,
+        "softAttack": 9,
+        "ap": 2,
+        "rangeMin": 1,
+        "rangeMax": 2,
+        "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "large" },
+        "shotsScalar": 0.95,
+        "damageScalar": 0.9,
+        "suppressionScalar": 0.6
+      }
     }
   },
   "Transport_Plane": {

@@ -235,6 +235,26 @@ export interface AirSupportProfile {
   refitTurns: number;
 }
 
+// AirCombatWeaponProfile captures aircraft-only firepower used during interceptions and defensive turret exchanges.
+// This stays separate from ground-attack ordnance so bomb values are not reused against fighters.
+export interface AirCombatWeaponProfile {
+  accuracyBase?: number;
+  hardAttack?: number;
+  softAttack?: number;
+  ap?: number;
+  rangeMin?: number;
+  rangeMax?: number;
+  combat?: CombatClassification;
+  shotsScalar?: number;
+  damageScalar?: number;
+  suppressionScalar?: number;
+}
+
+export interface AirCombatProfile {
+  attack?: AirCombatWeaponProfile;
+  turret?: AirCombatWeaponProfile;
+}
+
 // Mission kinds enumerate the user-facing Air Support selections shown in the planner UI.
 export type AirMissionKind = "strike" | "escort" | "airCover" | "airTransport";
 
@@ -283,6 +303,7 @@ export interface UnitTypeDefinition {
   traits: string[];
   cost: number;
   airSupport?: AirSupportProfile;
+  airCombat?: AirCombatProfile;
 }
 
 export type UnitTypeDictionary = typeof unitTypesData;

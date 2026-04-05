@@ -309,3 +309,120 @@ registerTest("AIR_INTERCEPTION_ESCORT_REPORTS_SUCCESS_AFTER_ENGAGING_INTERCEPTOR
     }
   });
 });
+
+registerTest("AIR_INTERCEPTION_BOMBER_TURRETS_RETURN_FIRE_WITHOUT_REUSING_GROUND_ORDNANCE", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let engagements: ReturnType<GameEngine["consumeAirEngagements"]> = [];
+
+  await Given("a bomber with a dedicated turret profile attacking through one CAP interceptor", async () => {
+    const interceptorDef: UnitTypeDefinition = {
+      ...fighterDef,
+      airCombat: {
+        attack: {
+          accuracyBase: 74,
+          hardAttack: 18,
+          softAttack: 18,
+          ap: 6,
+          rangeMin: 1,
+          rangeMax: 2,
+          combat: { category: "air", weight: "light", role: "normal", signature: "small" },
+          shotsScalar: 1.1,
+          damageScalar: 2.5,
+          suppressionScalar: 2.5
+        }
+      }
+    };
+    const turretBomberDef: UnitTypeDefinition = {
+      ...bomberDef,
+      airCombat: {
+        turret: {
+          accuracyBase: 78,
+          hardAttack: 14,
+          softAttack: 14,
+          ap: 3,
+          rangeMin: 1,
+          rangeMax: 2,
+          combat: { category: "air", weight: "light", role: "normal", signature: "large" },
+          shotsScalar: 1.2,
+          damageScalar: 1.6,
+          suppressionScalar: 1.1
+        }
+      }
+    };
+    const config: GameEngineConfig = {
+      scenario: scenario(),
+      unitTypes: {
+        Bomber: turretBomberDef,
+        Interceptor: interceptorDef,
+        Infantry_42: infantryDef
+      } as unknown as UnitTypeDictionary,
+      terrain,
+      playerSide: side(),
+      botSide: side()
+    };
+    engine = new GameEngine(config);
+
+    engine.beginDeployment();
+    const bomber: ScenarioUnit = {
+      type: "Bomber" as unknown as ScenarioUnit["type"],
+      hex: { q: 0, r: 0 },
+      strength: 100,
+      experience: 0,
+      ammo: turretBomberDef.ammo ?? 4,
+      fuel: turretBomberDef.fuel ?? 60,
+      entrench: 0,
+      facing: "NW",
+      unitId: "u_bomber"
+    };
+    const playerSpotter = make("Infantry_42", { q: 1, r: 1 });
+    (bomber as any).preDeployed = true;
+    (playerSpotter as any).preDeployed = true;
+    engine.initializeFromAllocations([bomber, playerSpotter]);
+    engine.setBaseCamp({ q: 0, r: 0 });
+    engine.finalizeDeployment();
+    engine.startPlayerTurnPhase();
+
+    const botDef = make("Infantry_42", { q: 0, r: 1 });
+    (engine as any).botPlacements.set("0,1", botDef);
+    const cap: ScenarioUnit = {
+      type: "Interceptor" as unknown as ScenarioUnit["type"],
+      hex: { q: 0, r: 2 },
+      strength: 100,
+      experience: 0,
+      ammo: interceptorDef.ammo ?? 6,
+      fuel: interceptorDef.fuel ?? 50,
+      entrench: 0,
+      facing: "NW",
+      unitId: "u_cap"
+    };
+    (engine as any).botPlacements.set("0,2", cap);
+    (engine as any).scheduledAirMissions.set("cap", {
+      id: "cap",
+      template: { kind: "airCover", label: "CAP", description: "", allowedRoles: ["cap"], requiresTarget: true, requiresFriendlyEscortTarget: false, durationTurns: 1 },
+      faction: "Bot",
+      unitKey: "u_cap",
+      unitType: "Interceptor",
+      status: "inFlight",
+      launchTurn: 1,
+      turnsRemaining: 0,
+      targetHex: { q: 0, r: 1 },
+      escortTargetUnitKey: undefined,
+      interceptions: 0
+    });
+  });
+
+  await When("the bomber attacks through that interception layer", async () => {
+    engine.attackUnit({ q: 0, r: 0 }, { q: 0, r: 1 });
+    engagements = engine.consumeAirEngagements();
+  });
+
+  await Then("the resulting air event should include interceptor attrition from turret fire", async () => {
+    const evt = engagements.find((entry) => entry.type === "airToAir");
+    if (!evt) {
+      throw new Error("Expected an air-to-air engagement event for the CAP interception.");
+    }
+    if ((evt.interceptorAttrition ?? 0) <= 0) {
+      throw new Error(`Expected bomber turret fire to inflict interceptor attrition, saw ${evt.interceptorAttrition ?? 0}.`);
+    }
+  });
+});
