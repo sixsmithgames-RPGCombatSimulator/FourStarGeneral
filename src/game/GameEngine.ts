@@ -3076,11 +3076,11 @@ export class GameEngine implements GameEngineAPI {
   }
 
   private ensureSupplyTruckStatesForFaction(faction: TurnFaction): void {
-    const placements = this.getPlacementMapForFaction(faction);
+    const allUnits = this.getAllUnitsForFaction(faction);
     const stateMap = this.getSupplyTruckStateMap(faction);
     const liveIds = new Set<string>();
 
-    placements.forEach((unit) => {
+    allUnits.forEach((unit) => {
       if (!this.isSupplyTruckType(unit.type)) {
         return;
       }
@@ -8933,63 +8933,71 @@ private automateSupplyConvoys(
         || (right.ammoNeed + right.fuelNeed) - (left.ammoNeed + left.fuelNeed)
       );
 
-    const convoyStatuses: LogisticsConvoyStatusEntry[] = convoyUnits.map((unit) => {
-      const convoyId = unit.unitId ?? this.ensureUnitId(unit);
-      const convoyState = convoyStateMap.get(convoyId)!;
-      const assignedUnit = placements.find((candidate) => candidate.unitId === convoyState.assignedUnitId) ?? null;
-      const occupancy = this.buildConvoyBlockingOccupancySet("Player");
-      occupancy.delete(axialKey(unit.hex));
-      const routePlan = assignedUnit
-        ? this.findCheapestPathToAny(
-          unit.hex,
-          this.collectServiceHexes(assignedUnit.hex, unit.hex, "Player"),
-          this.getUnitDefinition(unit.type).moveType,
-          occupancy
-        )
-        : this.isHexWithinSupplySourceRadius(unit.hex, "Player")
-          ? null
-          : this.findCheapestPathToAny(
+    const convoyStatuses: LogisticsConvoyStatusEntry[] = convoyUnits
+      .map((unit) => {
+        const convoyId = unit.unitId ?? this.ensureUnitId(unit);
+        const convoyState = convoyStateMap.get(convoyId);
+
+        // Skip units without a valid convoy state
+        if (!convoyState) {
+          return null;
+        }
+
+        const assignedUnit = placements.find((candidate) => candidate.unitId === convoyState.assignedUnitId) ?? null;
+        const occupancy = this.buildConvoyBlockingOccupancySet("Player");
+        occupancy.delete(axialKey(unit.hex));
+        const routePlan = assignedUnit
+          ? this.findCheapestPathToAny(
             unit.hex,
-            this.collectSourceApproachHexes("Player", unit.hex),
+            this.collectServiceHexes(assignedUnit.hex, unit.hex, "Player"),
             this.getUnitDefinition(unit.type).moveType,
             occupancy
-          );
+          )
+          : this.isHexWithinSupplySourceRadius(unit.hex, "Player")
+            ? null
+            : this.findCheapestPathToAny(
+              unit.hex,
+              this.collectSourceApproachHexes("Player", unit.hex),
+              this.getUnitDefinition(unit.type).moveType,
+              occupancy
+            );
 
-      if (routePlan) {
-        let cumulativeCost = 0;
-        routePlan.path.slice(1).forEach((hex, index) => {
-          const previous = routePlan.path[index] ?? routePlan.path[0]!;
-          cumulativeCost += this.resolveMoveCost("wheel", this.terrainAt(hex), hex, previous);
-          const nodeKey = this.formatAxial(hex);
-          const seen = delayNodesMap.get(nodeKey) ?? 0;
-          delayNodesMap.set(nodeKey, Math.max(seen, cumulativeCost));
-        });
-      }
+        if (routePlan) {
+          let cumulativeCost = 0;
+          routePlan.path.slice(1).forEach((hex, index) => {
+            const previous = routePlan.path[index] ?? routePlan.path[0]!;
+            cumulativeCost += this.resolveMoveCost("wheel", this.terrainAt(hex), hex, previous);
+            const nodeKey = this.formatAxial(hex);
+            const seen = delayNodesMap.get(nodeKey) ?? 0;
+            delayNodesMap.set(nodeKey, Math.max(seen, cumulativeCost));
+          });
+        }
 
-      const etaHours = routePlan
-        ? Number((((routePlan.path.length - 1) * 5) / 60).toFixed(2))
-        : 0;
-      const incident = unit.fuel <= 0
-        ? "Out of fuel"
-        : convoyState.status === "blocked" || (assignedUnit !== null && !routePlan)
-          ? "Route blocked"
-          : null;
-      const routeLabel = assignedUnit
-        ? `${this.getDisplayUnitLabel(unit)} → ${this.getDisplayUnitLabel(assignedUnit)} @ ${this.formatAxial(assignedUnit.hex)}`
-        : this.isHexWithinSupplySourceRadius(unit.hex, "Player")
-          ? `${this.getDisplayUnitLabel(unit)} rearming at depot`
-          : `${this.getDisplayUnitLabel(unit)} → Depot`;
-      return {
-        unitId: convoyId,
-        convoyLabel: `${this.getDisplayUnitLabel(unit)} @ ${this.formatAxial(unit.hex)}`,
-        route: routeLabel,
-        status: incident ? "blocked" : convoyState.status,
-        etaHours,
-        cargoAmmo: Number(convoyState.ammoCargo.toFixed(2)),
-        cargoFuel: Number(convoyState.fuelCargo.toFixed(2)),
-        incident
-      } satisfies LogisticsConvoyStatusEntry;
-    });
+        const etaHours = routePlan
+          ? Number((((routePlan.path.length - 1) * 5) / 60).toFixed(2))
+          : 0;
+        const incident = unit.fuel <= 0
+          ? "Out of fuel"
+          : convoyState.status === "blocked" || (assignedUnit !== null && !routePlan)
+            ? "Route blocked"
+            : null;
+        const routeLabel = assignedUnit
+          ? `${this.getDisplayUnitLabel(unit)} → ${this.getDisplayUnitLabel(assignedUnit)} @ ${this.formatAxial(assignedUnit.hex)}`
+          : this.isHexWithinSupplySourceRadius(unit.hex, "Player")
+            ? `${this.getDisplayUnitLabel(unit)} rearming at depot`
+            : `${this.getDisplayUnitLabel(unit)} → Depot`;
+        return {
+          unitId: convoyId,
+          convoyLabel: `${this.getDisplayUnitLabel(unit)} @ ${this.formatAxial(unit.hex)}`,
+          route: routeLabel,
+          status: incident ? "blocked" : convoyState.status,
+          etaHours,
+          cargoAmmo: Number(convoyState.ammoCargo.toFixed(2)),
+          cargoFuel: Number(convoyState.fuelCargo.toFixed(2)),
+          incident
+        } satisfies LogisticsConvoyStatusEntry;
+      })
+      .filter((entry): entry is LogisticsConvoyStatusEntry => entry !== null);
 
     const delayNodes: LogisticsDelayNode[] = Array.from(delayNodesMap.entries())
       .sort((a, b) => b[1] - a[1])
