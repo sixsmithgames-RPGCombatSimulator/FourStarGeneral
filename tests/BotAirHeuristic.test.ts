@@ -363,7 +363,7 @@ registerTest("BOT_AIR_HEURISTIC_SKIPS_LONE_BOMBER_RUNS_INTO_HEAVY_FLAK", async (
   });
 
   await Then("it should decline the sortie instead of throwing away the bomber", async () => {
-    const strikeMissions = Array.from((engine as any).scheduledAirMissions.values()).filter(
+    const strikeMissions = (Array.from((engine as any).scheduledAirMissions.values()) as any[]).filter(
       (mission: { template: { kind: string } }) => mission.template.kind === "strike"
     );
     if (strikeMissions.length !== 0) {
@@ -378,7 +378,7 @@ registerTest("BOT_AIR_HEURISTIC_GROUND_ATTACK_PREFERS_ARMOR_OVER_CLOSER_INFANTRY
   await Given("an anti-vehicle strike aircraft with a closer infantry target and a farther tank", async () => {
     engine = createBotTurnEngine();
 
-    const attacker = make("GroundAttack", { q: 0, r: 0 });
+    const attacker = make("Ground_Attack", { q: 0, r: 0 });
     (attacker as any).unitId = "bot-ground-attack";
     (engine as any).botPlacements.set("0,0", attacker);
 
@@ -396,7 +396,7 @@ registerTest("BOT_AIR_HEURISTIC_GROUND_ATTACK_PREFERS_ARMOR_OVER_CLOSER_INFANTRY
   });
 
   await Then("it should queue the anti-vehicle sortie against the armored target", async () => {
-    const strike = Array.from((engine as any).scheduledAirMissions.values()).find(
+    const strike = (Array.from((engine as any).scheduledAirMissions.values()) as any[]).find(
       (mission: { template: { kind: string }; targetHex?: Axial }) => mission.template.kind === "strike"
     ) as { targetHex?: Axial } | undefined;
     if (!strike?.targetHex || `${strike.targetHex.q},${strike.targetHex.r}` !== "4,0") {
@@ -429,7 +429,7 @@ registerTest("BOT_AIR_HEURISTIC_BOMBERS_PREFER_ARTILLERY_OVER_CLOSER_INFANTRY", 
   });
 
   await Then("the artillery battery should be selected ahead of the infantry convenience shot", async () => {
-    const strike = Array.from((engine as any).scheduledAirMissions.values()).find(
+    const strike = (Array.from((engine as any).scheduledAirMissions.values()) as any[]).find(
       (mission: { template: { kind: string }; targetHex?: Axial }) => mission.template.kind === "strike"
     ) as { targetHex?: Axial } | undefined;
     if (!strike?.targetHex || `${strike.targetHex.q},${strike.targetHex.r}` !== "4,0") {
@@ -466,7 +466,7 @@ registerTest("BOT_AIR_HEURISTIC_SPLITS_MULTIPLE_BOMBERS_ACROSS_VALUABLE_TARGETS"
   });
 
   await Then("the queued strikes should cover both valuable targets before doubling up", async () => {
-    const strikeTargets = Array.from((engine as any).scheduledAirMissions.values())
+    const strikeTargets = (Array.from((engine as any).scheduledAirMissions.values()) as any[])
       .filter((mission: { template: { kind: string } }) => mission.template.kind === "strike")
       .map((mission: { targetHex?: Axial }) => mission.targetHex ? `${mission.targetHex.q},${mission.targetHex.r}` : "<missing>")
       .sort();

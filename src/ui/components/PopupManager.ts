@@ -61,6 +61,8 @@ interface AirSupportPlannerState {
   missionKind: AirMissionKind | "";
   squadronValue: string;
   targetValue: string;
+  targetValues: Record<string, string>;
+  targetSquadronId: string;
   feedback: string;
   feedbackTone: AirPlannerFeedbackTone;
   suspendedForMapPick: boolean;
@@ -89,6 +91,9 @@ interface AirSquadronCardView {
   readonly refitTurns: number | null;
   readonly combatRadiusKm: number | null;
   readonly combatRadiusHex: number | null;
+  readonly assignmentMissionLabel?: string;
+  readonly assignmentTargetLabel?: string;
+  readonly assignmentSummary?: string;
 }
 
 interface AirEscortTargetView {
@@ -133,6 +138,8 @@ export class PopupManager implements IPopupManager {
     missionKind: "",
     squadronValue: "",
     targetValue: "",
+    targetValues: {},
+    targetSquadronId: "",
     feedback: "",
     feedbackTone: "neutral",
     suspendedForMapPick: false
@@ -337,6 +344,7 @@ export class PopupManager implements IPopupManager {
         if (this.activePopup === "airSupport" && this.airPickMode) {
           event.preventDefault();
           this.airPickMode = null;
+          this.airPlannerState.targetSquadronId = "";
           document.dispatchEvent(new CustomEvent("air:clearPreview"));
           this.setAirPlannerFeedback("Target selection cancelled.", "neutral");
           if (this.airPlannerState.suspendedForMapPick) {
@@ -1082,6 +1090,8 @@ export class PopupManager implements IPopupManager {
     this.airPlannerState.missionKind = "";
     this.airPlannerState.squadronValue = "";
     this.airPlannerState.targetValue = "";
+    this.airPlannerState.targetValues = {};
+    this.airPlannerState.targetSquadronId = "";
     this.airPlannerState.feedback = "";
     this.airPlannerState.feedbackTone = "neutral";
     this.airPlannerState.suspendedForMapPick = false;
@@ -1091,6 +1101,34 @@ export class PopupManager implements IPopupManager {
   private setAirPlannerFeedback(message: string, tone: AirPlannerFeedbackTone = "neutral"): void {
     this.airPlannerState.feedback = message;
     this.airPlannerState.feedbackTone = tone;
+  }
+
+  private buildAirPlannerTargetKey(missionKind: AirMissionKind | "", squadronId: string): string {
+    return missionKind && squadronId ? `${missionKind}:${squadronId}` : "";
+  }
+
+  private getAirPlannerTargetValue(missionKind: AirMissionKind | "", squadronId: string): string {
+    const key = this.buildAirPlannerTargetKey(missionKind, squadronId);
+    return key ? this.airPlannerState.targetValues[key] ?? "" : "";
+  }
+
+  private setAirPlannerTargetValue(missionKind: AirMissionKind | "", squadronId: string, value: string): void {
+    const key = this.buildAirPlannerTargetKey(missionKind, squadronId);
+    if (!key) {
+      return;
+    }
+    if (value) {
+      this.airPlannerState.targetValues[key] = value;
+    } else {
+      delete this.airPlannerState.targetValues[key];
+    }
+    if (this.airPlannerState.missionKind === missionKind && this.airPlannerState.squadronValue === squadronId) {
+      this.airPlannerState.targetValue = value;
+    }
+  }
+
+  private clearAirPlannerTargetValue(missionKind: AirMissionKind | "", squadronId: string): void {
+    this.setAirPlannerTargetValue(missionKind, squadronId, "");
   }
 
   private renderAirSupportOrderBoard(panel: HTMLElement, engine: GameEngineAPI): void {
@@ -1120,8 +1158,8 @@ export class PopupManager implements IPopupManager {
             return;
           }
           this.airPlannerState.missionKind = kind;
-          this.airPlannerState.targetValue = "";
           this.airPickMode = null;
+          this.airPlannerState.targetSquadronId = "";
           this.setAirPlannerFeedback("", "neutral");
           document.dispatchEvent(new CustomEvent("air:clearPreview"));
           this.renderAirSupportPanel();
@@ -1129,119 +1167,260 @@ export class PopupManager implements IPopupManager {
       });
     }
 
-    const squadronGrid = panel.querySelector<HTMLElement>("[data-air-squadron-grid]");
-    if (squadronGrid) {
+    const sortieBoard = panel.querySelector<HTMLElement>("[data-air-sortie-board]");
+    if (sortieBoard) {
       if (view.squadronCards.length === 0) {
-        squadronGrid.innerHTML = `
-          <div class="air-target-card">
-            <span class="air-target-card__eyebrow">Squadron Board</span>
+        sortieBoard.innerHTML = `
+          <div class="air-target-card air-target-card--empty">
+            <span class="air-target-card__eyebrow">Sortie Board</span>
             <strong class="air-target-card__title">No eligible wings</strong>
-            <p class="air-target-card__detail">No ready squadron can fly this mission profile right now.</p>
+            <p class="air-target-card__detail">No squadron can fly this mission profile right now.</p>
           </div>
         `;
       } else {
-        squadronGrid.innerHTML = view.squadronCards.map((card) => {
-          const visual = card.spriteUrl
-            ? `<img src="${this.escapeHtml(card.spriteUrl)}" alt="${this.escapeHtml(card.label)}">`
-            : `<span class="air-squadron-card__fallback">${this.escapeHtml(card.shortLabel)}</span>`;
-          const radiusCopy = this.formatAirRadiusCopy(card);
-          const refitCopy = card.refitTurns === null ? "Refit variable" : `Refit ${card.refitTurns} turn${card.refitTurns === 1 ? "" : "s"}`;
-          const baseCopy = card.isReserve ? "Reserve Strip" : `Base ${card.locationLabel}`;
-          return `
-            <button
-              type="button"
-              class="air-squadron-card"
-              data-air-squadron="${this.escapeHtml(card.value)}"
-              aria-pressed="${card.value === this.airPlannerState.squadronValue ? "true" : "false"}"
-              ${card.disabled ? "disabled" : ""}
-            >
-              <span class="air-squadron-card__visual">${visual}</span>
-              <span class="air-squadron-card__copy">
-                <span class="air-squadron-card__topline">
-                  <span class="air-squadron-card__label">${this.escapeHtml(card.label)}</span>
-                  <span class="air-status-pill air-status-pill--${this.escapeHtml(card.statusClass)}">${this.escapeHtml(card.statusLabel)}</span>
-                </span>
-                <span class="air-squadron-card__meta">
-                  <span class="air-squadron-stat">Strength ${this.escapeHtml(String(card.strength))}</span>
-                  <span class="air-squadron-stat">${this.escapeHtml(baseCopy)}</span>
-                </span>
-                <span class="air-squadron-card__detail">${this.escapeHtml(card.roleLabel)} · ${this.escapeHtml(radiusCopy)} · ${this.escapeHtml(refitCopy)}</span>
-              </span>
-            </button>
-          `;
-        }).join("");
+        sortieBoard.innerHTML = view.squadronCards.map((card) => this.renderAirSortieRowMarkup(engine, view, card)).join("");
       }
 
-      squadronGrid.querySelectorAll<HTMLButtonElement>("[data-air-squadron]").forEach((button) => {
+      sortieBoard.querySelectorAll<HTMLButtonElement>("[data-air-squadron]").forEach((button) => {
         button.onclick = () => {
           const value = button.dataset.airSquadron ?? "";
-          if (!value || button.disabled) {
+          const card = view.squadronCards.find((entry) => entry.value === value) ?? null;
+          if (!card || button.disabled) {
             return;
           }
-          this.airPlannerState.squadronValue = value;
+          this.airPlannerState.squadronValue = card.value;
+          this.airPlannerState.targetValue = this.getAirPlannerTargetValue(view.selectedMission?.kind ?? "", card.squadronId);
           this.setAirPlannerFeedback("", "neutral");
           this.renderAirSupportPanel();
         };
       });
-    }
 
-    const targetPanel = panel.querySelector<HTMLElement>("[data-air-target-panel]");
-    if (targetPanel) {
-      targetPanel.innerHTML = this.renderAirTargetPanelMarkup(engine, view);
-
-      targetPanel.querySelectorAll<HTMLButtonElement>("[data-air-pick-target]").forEach((button) => {
-        button.onclick = () => this.beginAirTargetSelection(view);
-      });
-      targetPanel.querySelectorAll<HTMLButtonElement>("[data-air-clear-target]").forEach((button) => {
+      sortieBoard.querySelectorAll<HTMLButtonElement>("[data-air-pick-target]").forEach((button) => {
         button.onclick = () => {
+          const squadronId = button.dataset.airPickTarget ?? "";
+          const squadron = view.squadronCards.find((entry) => entry.squadronId === squadronId) ?? null;
+          if (!squadron || !view.selectedMission) {
+            return;
+          }
+          this.beginAirTargetSelection(squadron, view.selectedMission);
+        };
+      });
+
+      sortieBoard.querySelectorAll<HTMLButtonElement>("[data-air-clear-target]").forEach((button) => {
+        button.onclick = () => {
+          const squadronId = button.dataset.airClearTarget ?? "";
+          if (!squadronId || !view.selectedMission) {
+            return;
+          }
+          this.airPlannerState.squadronValue = squadronId;
+          this.clearAirPlannerTargetValue(view.selectedMission.kind, squadronId);
           this.airPlannerState.targetValue = "";
           this.setAirPlannerFeedback("", "neutral");
           this.renderAirSupportPanel();
         };
       });
-      targetPanel.querySelectorAll<HTMLButtonElement>("[data-air-escort-target]").forEach((button) => {
+
+      sortieBoard.querySelectorAll<HTMLButtonElement>("[data-air-escort-target]").forEach((button) => {
         button.onclick = () => {
-          const value = button.dataset.airEscortTarget ?? "";
-          if (!value) {
+          const targetValue = button.dataset.airEscortTarget ?? "";
+          const squadronId = button.dataset.airEscortSquadron ?? "";
+          if (!targetValue || !squadronId || !view.selectedMission) {
             return;
           }
-          this.airPlannerState.targetValue = value;
+          this.airPlannerState.squadronValue = squadronId;
+          this.setAirPlannerTargetValue(view.selectedMission.kind, squadronId, targetValue);
           this.setAirPlannerFeedback("", "neutral");
           this.renderAirSupportPanel();
         };
       });
+
+      sortieBoard.querySelectorAll<HTMLButtonElement>("[data-air-submit-sortie]").forEach((button) => {
+        button.onclick = () => {
+          const squadronId = button.dataset.airSubmitSortie ?? "";
+          const squadron = view.squadronCards.find((entry) => entry.squadronId === squadronId) ?? null;
+          this.scheduleAirPlannerMission(engine, view.selectedMission, squadron);
+        };
+      });
     }
 
-    const form = panel.querySelector<HTMLFormElement>("[data-air-form]");
-    if (form) {
-      form.onsubmit = (event) => {
-        event.preventDefault();
-        this.scheduleAirPlannerMission(engine, view);
-      };
-    }
-
-    const submitButton = panel.querySelector<HTMLButtonElement>("[data-air-submit]");
-    if (submitButton) {
-      const mission = view.selectedMission;
-      const canSubmit = Boolean(
-        mission
-        && view.selectedSquadron
-        && !view.selectedSquadron.disabled
-        && (!mission.requiresTarget || this.airPlannerState.targetValue)
-        && (!mission.requiresFriendlyEscortTarget || this.airPlannerState.targetValue)
-      );
-      submitButton.disabled = !canSubmit;
-      submitButton.textContent = mission?.kind === "airCover"
-        ? "Assign Patrol"
-        : mission?.kind === "escort"
-          ? "Assign Escort"
-          : mission?.kind === "airTransport"
-            ? "Commit Drop"
-            : "Issue Sortie";
-    }
-
-    this.updateAirSupportBriefFromPlanner(panel, engine, view);
+    this.updateAirSupportBriefFromPlanner(panel, view);
     this.syncAirPlannerFeedback(panel, view);
+  }
+
+  private renderAirSortieRowMarkup(engine: GameEngineAPI, view: AirPlannerViewModel, card: AirSquadronCardView): string {
+    const visual = card.spriteUrl
+      ? `<img src="${this.escapeHtml(card.spriteUrl)}" alt="${this.escapeHtml(card.label)}">`
+      : `<span class="air-squadron-card__fallback">${this.escapeHtml(card.shortLabel)}</span>`;
+    const radiusCopy = this.formatAirRadiusCopy(card);
+    const refitCopy = card.refitTurns === null ? "Refit variable" : `Refit ${card.refitTurns} turn${card.refitTurns === 1 ? "" : "s"}`;
+    const baseCopy = card.isReserve ? "Reserve Strip" : `Base ${card.locationLabel}`;
+
+    return `
+      <article class="air-sortie-row">
+        <button
+          type="button"
+          class="air-squadron-card air-squadron-card--row"
+          data-air-squadron="${this.escapeHtml(card.value)}"
+          aria-pressed="${card.value === this.airPlannerState.squadronValue ? "true" : "false"}"
+          ${card.disabled ? "disabled" : ""}
+        >
+          <span class="air-squadron-card__visual">${visual}</span>
+          <span class="air-squadron-card__copy">
+            <span class="air-squadron-card__topline">
+              <span class="air-squadron-card__label">${this.escapeHtml(card.label)}</span>
+              <span class="air-status-pill air-status-pill--${this.escapeHtml(card.statusClass)}">${this.escapeHtml(card.statusLabel)}</span>
+            </span>
+            <span class="air-squadron-card__meta">
+              <span class="air-squadron-stat">Strength ${this.escapeHtml(String(card.strength))}</span>
+              <span class="air-squadron-stat">${this.escapeHtml(baseCopy)}</span>
+            </span>
+            <span class="air-squadron-card__detail">${this.escapeHtml(card.roleLabel)}</span>
+            <span class="air-squadron-card__detail air-squadron-card__detail--quiet">${this.escapeHtml(radiusCopy)} · ${this.escapeHtml(refitCopy)}</span>
+          </span>
+        </button>
+        ${this.renderAirSortieTargetTileMarkup(engine, view, card)}
+      </article>
+    `;
+  }
+
+  private renderAirSortieTargetTileMarkup(engine: GameEngineAPI, view: AirPlannerViewModel, card: AirSquadronCardView): string {
+    const mission = view.selectedMission;
+    if (!mission) {
+      return `
+        <div class="air-target-card air-target-card--row">
+          <span class="air-target-card__eyebrow">Target Board</span>
+          <strong class="air-target-card__title">Orders unavailable</strong>
+          <p class="air-target-card__detail">Mission data is unavailable until the battle engine is active.</p>
+        </div>
+      `;
+    }
+
+    const targetValue = this.getAirPlannerTargetValue(mission.kind, card.squadronId);
+    const assignLabel = this.getAirSortieButtonLabel(mission.kind);
+
+    if (card.disabled) {
+      return `
+        <div class="air-target-card air-target-card--row air-target-card--committed">
+          <span class="air-target-card__eyebrow">${this.escapeHtml(card.assignmentMissionLabel ?? "Current Orders")}</span>
+          <strong class="air-target-card__title">${this.escapeHtml(card.assignmentTargetLabel ?? card.statusLabel)}</strong>
+          <p class="air-target-card__detail">${this.escapeHtml(card.assignmentSummary ?? "Squadron already committed to an active sortie.")}</p>
+          <div class="air-target-card__footnote">Committed aircraft are managed from the operations log below.</div>
+        </div>
+      `;
+    }
+
+    if (mission.kind === "escort") {
+      const selectedEscort = view.escortTargets.find((entry) => entry.value === targetValue) ?? null;
+      const canSubmit = Boolean(selectedEscort);
+      return `
+        <div class="air-target-card air-target-card--row">
+          <span class="air-target-card__eyebrow">Escort Board</span>
+          <strong class="air-target-card__title">${this.escapeHtml(selectedEscort?.label ?? "Select Strike Package")}</strong>
+          <p class="air-target-card__detail">${this.escapeHtml(
+            selectedEscort
+              ? `${selectedEscort.detail}. ${selectedEscort.meta}.`
+              : view.escortTargets.length > 0
+                ? "Choose the bomber stream this escort wing will protect."
+                : "Queue a strike package first, then assign escorts to it from this board."
+          )}</p>
+          ${view.escortTargets.length > 0 ? `
+            <div class="air-target-choice-grid air-target-choice-grid--row">
+              ${view.escortTargets.map((entry) => `
+                <button
+                  type="button"
+                  class="air-target-choice"
+                  data-air-escort-target="${this.escapeHtml(entry.value)}"
+                  data-air-escort-squadron="${this.escapeHtml(card.squadronId)}"
+                  aria-pressed="${entry.value === targetValue ? "true" : "false"}"
+                >
+                  <span class="air-target-choice__copy">
+                    <span class="air-target-choice__label">${this.escapeHtml(entry.label)}</span>
+                    <span class="air-target-choice__detail">${this.escapeHtml(entry.detail)}</span>
+                    <span class="air-target-choice__meta">${this.escapeHtml(entry.meta)}</span>
+                  </span>
+                </button>
+              `).join("")}
+            </div>
+          ` : ""}
+          <div class="air-target-actions">
+            <button
+              type="button"
+              class="air-button primary air-button--assign"
+              data-air-submit-sortie="${this.escapeHtml(card.squadronId)}"
+              ${canSubmit ? "" : "disabled"}
+            >${this.escapeHtml(assignLabel)}</button>
+          </div>
+        </div>
+      `;
+    }
+
+    const targetSelected = targetValue.length > 0;
+    const parsedTarget = this.parseAxialString(targetValue);
+    const title = targetSelected
+      ? this.describeAirTargetSelection(engine, mission.kind, targetValue)
+      : mission.kind === "airCover"
+        ? "Base CAP"
+        : "Awaiting map mark";
+    const detail = (() => {
+      if (mission.kind === "airCover" && !targetSelected) {
+        return "No patrol hex selected. This wing will hold base CAP over its home strip.";
+      }
+      if (!targetSelected) {
+        return "Choose a hex on the map. The board will reopen once the target is marked.";
+      }
+      if (mission.kind === "airTransport") {
+        return "Airborne infantry will launch from this transport wing and drop into the marked hex.";
+      }
+      if (mission.kind === "airCover") {
+        return "Combat air patrol will center on this hex instead of remaining over the base.";
+      }
+      return "Strike aircraft will stage their run against the selected hex when the mission executes.";
+    })();
+    const pickLabel = mission.kind === "airTransport"
+      ? "Choose Drop Zone"
+      : mission.kind === "airCover"
+        ? "Choose Patrol Hex"
+        : "Choose Target";
+    const canSubmit = mission.kind === "airCover" || (mission.requiresTarget ? parsedTarget !== null : true);
+
+    return `
+      <div class="air-target-card air-target-card--row">
+        <span class="air-target-card__eyebrow">${this.escapeHtml(mission.kind === "airTransport" ? "Drop Zone" : "Target Board")}</span>
+        <strong class="air-target-card__title">${this.escapeHtml(title)}</strong>
+        <p class="air-target-card__detail">${this.escapeHtml(detail)}</p>
+        <div class="air-target-actions">
+          <button
+            type="button"
+            class="air-button"
+            data-air-pick-target="${this.escapeHtml(card.squadronId)}"
+          >${this.escapeHtml(pickLabel)}</button>
+          ${mission.kind === "airCover"
+            ? `<button type="button" class="air-button" data-air-clear-target="${this.escapeHtml(card.squadronId)}" ${targetSelected ? "" : "disabled"}>Use Base CAP</button>`
+            : targetSelected
+              ? `<button type="button" class="air-button" data-air-clear-target="${this.escapeHtml(card.squadronId)}">Clear Mark</button>`
+              : ""}
+          <button
+            type="button"
+            class="air-button primary air-button--assign"
+            data-air-submit-sortie="${this.escapeHtml(card.squadronId)}"
+            ${canSubmit ? "" : "disabled"}
+          >${this.escapeHtml(assignLabel)}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  private getAirSortieButtonLabel(kind: AirMissionKind): string {
+    switch (kind) {
+      case "airCover":
+        return "Assign Patrol";
+      case "escort":
+        return "Assign Escort";
+      case "airTransport":
+        return "Commit Drop";
+      default:
+        return "Issue Sortie";
+    }
   }
 
   private buildAirPlannerView(engine: GameEngineAPI): AirPlannerViewModel {
@@ -1261,12 +1440,12 @@ export class PopupManager implements IPopupManager {
     const selectedSquadron = squadronCards.find((entry) => entry.value === this.airPlannerState.squadronValue && !entry.disabled)
       ?? firstReadySquadron;
     this.airPlannerState.squadronValue = selectedSquadron?.value ?? "";
+    this.airPlannerState.targetValue = selectedMission && selectedSquadron
+      ? this.getAirPlannerTargetValue(selectedMission.kind, selectedSquadron.squadronId)
+      : "";
 
     const escortTargets = this.buildAirEscortTargets(engine, selectedMission);
-    if (selectedMission?.kind === "escort") {
-      const selectedEscort = escortTargets.find((entry) => entry.value === this.airPlannerState.targetValue) ?? escortTargets[0] ?? null;
-      this.airPlannerState.targetValue = selectedEscort?.value ?? "";
-    } else if (this.airPickMode === "escort") {
+    if (this.airPickMode === "escort") {
       this.airPickMode = null;
     }
 
@@ -1334,6 +1513,9 @@ export class PopupManager implements IPopupManager {
           : isReserve
             ? "reserve"
             : "ready";
+        const assignmentMissionLabel = assignment ? this.formatAirMissionKindLabel(assignment.kind) : undefined;
+        const assignmentTargetLabel = assignment ? this.describeScheduledAirMissionTarget(engine, assignment) : undefined;
+        const assignmentSummary = assignment ? this.describeAirAssignmentSummary(assignment) : undefined;
 
         return {
           value: squadronId,
@@ -1351,7 +1533,10 @@ export class PopupManager implements IPopupManager {
           spriteUrl: getSpriteForScenarioType(String(unit.type)),
           refitTurns,
           combatRadiusKm: ((unitTypesSource as Record<string, { airSupport?: { combatRadiusKm?: number } }>)[String(unit.type)]?.airSupport?.combatRadiusKm ?? null) as number | null,
-          combatRadiusHex: this.resolveAirPlannerRadiusHex(engine, unit, squadronId)
+          combatRadiusHex: this.resolveAirPlannerRadiusHex(engine, unit, squadronId),
+          assignmentMissionLabel,
+          assignmentTargetLabel,
+          assignmentSummary
         } satisfies AirSquadronCardView;
       });
   }
@@ -1409,11 +1594,9 @@ export class PopupManager implements IPopupManager {
     return match ? `${match.hex.q},${match.hex.r}` : null;
   }
 
-  private updateAirSupportBriefFromPlanner(panel: HTMLElement, engine: GameEngineAPI, view: AirPlannerViewModel): void {
+  private updateAirSupportBriefFromPlanner(panel: HTMLElement, view: AirPlannerViewModel): void {
     const title = panel.querySelector<HTMLElement>("[data-air-brief-title]");
     const text = panel.querySelector<HTMLElement>("[data-air-brief-text]");
-    const target = panel.querySelector<HTMLElement>("[data-air-brief-target]");
-    const refit = panel.querySelector<HTMLElement>("[data-air-brief-refit]");
 
     if (title) {
       title.textContent = view.selectedMission?.label ?? "Standing Patrol Orders";
@@ -1421,17 +1604,6 @@ export class PopupManager implements IPopupManager {
     if (text) {
       text.textContent = view.selectedMission?.description
         ?? "Assign fighter cover, strike sorties, and emergency lifts from the sortie board.";
-    }
-    if (target) {
-      target.textContent = this.describeAirBriefTarget(engine, view);
-    }
-    if (refit) {
-      if (view.selectedSquadron?.refitTurns !== null && view.selectedSquadron?.refitTurns !== undefined) {
-        const turns = view.selectedSquadron.refitTurns;
-        refit.textContent = `${turns} turn${turns === 1 ? "" : "s"} of refit after sortie`;
-      } else {
-        refit.textContent = "Refit follows each sortie";
-      }
     }
   }
 
@@ -1566,35 +1738,50 @@ export class PopupManager implements IPopupManager {
 
   private describeAirPlannerFallback(view: AirPlannerViewModel): { message: string; tone: AirPlannerFeedbackTone } {
     const mission = view.selectedMission;
+    const selectedSquadron = view.selectedSquadron;
+    const targetValue = mission && selectedSquadron
+      ? this.getAirPlannerTargetValue(mission.kind, selectedSquadron.squadronId)
+      : "";
     if (!mission) {
       return { message: "Air planner is unavailable until the battle engine is active.", tone: "warning" };
     }
-    if (!view.selectedSquadron) {
+    if (!selectedSquadron) {
       return { message: "No ready squadron is available for this mission profile.", tone: "warning" };
     }
     if (mission.kind === "escort" && view.escortTargets.length === 0) {
       return { message: "Queue a bomber strike first. Escort flights only attach to queued strike packages.", tone: "warning" };
     }
-    if (mission.requiresFriendlyEscortTarget && !this.airPlannerState.targetValue) {
-      return { message: "Choose which queued bomber package this escort wing will protect.", tone: "warning" };
+    if (mission.requiresFriendlyEscortTarget && !targetValue) {
+      return { message: "Choose a queued strike package from the matching aircraft tile.", tone: "warning" };
     }
-    if (mission.requiresTarget && !this.airPlannerState.targetValue) {
-      return { message: "Mark a target on the map before issuing this sortie.", tone: "warning" };
+    if (mission.requiresTarget && !targetValue) {
+      return { message: "Mark a target from the aircraft tile before issuing this sortie.", tone: "warning" };
     }
-    if (mission.kind === "airCover" && !this.airPlannerState.targetValue) {
-      return { message: "No patrol hex selected. The squadron will fly base CAP over its home strip.", tone: "neutral" };
+    if (mission.kind === "airCover" && !targetValue) {
+      return { message: "Without a patrol hex, assigned fighters will fly base CAP over their home strip.", tone: "neutral" };
     }
-    return { message: "Orders post immediately to the operations log and commit the wing until recovery is complete.", tone: "neutral" };
+    return { message: "Use each aircraft row to pick a target and post its sortie directly from that tile.", tone: "neutral" };
   }
 
-  private scheduleAirPlannerMission(engine: GameEngineAPI, view: AirPlannerViewModel): void {
-    const mission = view.selectedMission;
-    const squadron = view.selectedSquadron;
+  private scheduleAirPlannerMission(
+    engine: GameEngineAPI,
+    mission: AirMissionTemplate | null,
+    squadron: AirSquadronCardView | null
+  ): void {
     if (!mission || !squadron) {
       this.setAirPlannerFeedback("Select a ready squadron before issuing orders.", "warning");
       this.renderAirSupportPanel();
       return;
     }
+    if (squadron.disabled) {
+      this.setAirPlannerFeedback("That squadron is already committed to an active sortie.", "warning");
+      this.renderAirSupportPanel();
+      return;
+    }
+
+    this.airPlannerState.squadronValue = squadron.value;
+    const targetValue = this.getAirPlannerTargetValue(mission.kind, squadron.squadronId);
+    this.airPlannerState.targetValue = targetValue;
 
     const unitHex = this.parseAxialString(squadron.originValue);
     if (!unitHex) {
@@ -1618,13 +1805,13 @@ export class PopupManager implements IPopupManager {
       unitHex
     };
 
-    const parsedTarget = this.parseAxialString(this.airPlannerState.targetValue);
+    const parsedTarget = this.parseAxialString(targetValue);
     if (mission.requiresTarget && !parsedTarget) {
       this.setAirPlannerFeedback("Mark a target on the map before issuing this sortie.", "warning");
       this.renderAirSupportPanel();
       return;
     }
-    if (mission.requiresFriendlyEscortTarget && !this.airPlannerState.targetValue) {
+    if (mission.requiresFriendlyEscortTarget && !targetValue) {
       this.setAirPlannerFeedback("Choose the bomber package this escort wing will protect.", "warning");
       this.renderAirSupportPanel();
       return;
@@ -1634,7 +1821,7 @@ export class PopupManager implements IPopupManager {
       request.targetHex = parsedTarget;
     }
     if (mission.requiresFriendlyEscortTarget) {
-      request.escortTargetUnitId = this.airPlannerState.targetValue;
+      request.escortTargetUnitId = targetValue;
     }
 
     const result = engine.tryScheduleAirMission(request);
@@ -1644,19 +1831,23 @@ export class PopupManager implements IPopupManager {
       return;
     }
 
+    this.clearAirPlannerTargetValue(mission.kind, squadron.squadronId);
+    this.airPlannerState.targetValue = "";
     this.setAirPlannerFeedback(`${this.formatAirMissionKindLabel(mission.kind)} posted to the operations log.`, "success");
     this.renderAirSupportPanel();
     this.battleState.emitBattleUpdate("missionUpdated");
   }
 
-  private beginAirTargetSelection(view: AirPlannerViewModel): void {
-    const squadron = view.selectedSquadron;
-    if (!squadron) {
+  private beginAirTargetSelection(squadron: AirSquadronCardView | null, mission: AirMissionTemplate | null): void {
+    if (!squadron || !mission) {
       this.setAirPlannerFeedback("Select a ready squadron before marking a target.", "warning");
       this.renderAirSupportPanel();
       return;
     }
 
+    this.airPlannerState.squadronValue = squadron.value;
+    this.airPlannerState.targetSquadronId = squadron.squadronId;
+    this.airPlannerState.targetValue = this.getAirPlannerTargetValue(mission.kind, squadron.squadronId);
     const origin = this.parseAxialString(squadron.originValue);
     const radius = squadron.combatRadiusHex;
     if (origin && typeof radius === "number" && radius > 0) {
@@ -1738,6 +1929,49 @@ export class PopupManager implements IPopupManager {
       .join("");
   }
 
+  private resolveAirSquadronLabel(engine: GameEngineAPI, squadronId: string | undefined): string {
+    if (!squadronId) {
+      return "—";
+    }
+
+    const deployed = [...(engine.playerUnits ?? []), ...(engine.botUnits ?? [])];
+    const reserves = (engine.reserveUnits ?? []).map((entry) => entry.unit);
+    const allUnits = [...deployed, ...reserves];
+    const match = allUnits.find((unit) => unit.unitId === squadronId) ?? null;
+    if (!match) {
+      return "Unknown squadron";
+    }
+    return `${this.formatAirUnitLabel(String(match.type))} @ ${this.formatDisplayHex(match.hex)}`;
+  }
+
+  private describeScheduledAirMissionTarget(
+    engine: GameEngineAPI,
+    mission: Pick<SerializedAirMission, "kind" | "targetHex" | "escortTargetUnitKey">
+  ): string {
+    if (mission.targetHex) {
+      return this.describeAirTargetSelection(engine, mission.kind as AirMissionKind, `${mission.targetHex.q},${mission.targetHex.r}`);
+    }
+    if (mission.kind === "airCover") {
+      return "Base CAP";
+    }
+    return this.resolveAirSquadronLabel(engine, mission.escortTargetUnitKey);
+  }
+
+  private describeAirAssignmentSummary(mission: Pick<SerializedAirMission, "status" | "turnsRemaining">): string {
+    switch (mission.status) {
+      case "queued":
+        return `Orders posted. Launch pending this turn${typeof mission.turnsRemaining === "number" ? `, ${mission.turnsRemaining} turn${mission.turnsRemaining === 1 ? "" : "s"} remaining.` : "."}`;
+      case "inFlight":
+        return typeof mission.turnsRemaining === "number"
+          ? `Sortie in progress. ${mission.turnsRemaining} turn${mission.turnsRemaining === 1 ? "" : "s"} remaining before recovery.`
+          : "Sortie in progress.";
+      case "resolving":
+        return "Strike package is executing and will recover to refit once the run is complete.";
+      default:
+        return "Squadron committed to an active sortie.";
+    }
+  }
+
   /** Renders the mission roster with cancel actions for queued sorties. */
   private renderAirMissionList(list: HTMLUListElement, engine: GameEngineAPI): void {
     const missions = engine.getScheduledAirMissions();
@@ -1745,38 +1979,11 @@ export class PopupManager implements IPopupManager {
       list.innerHTML = '<li class="air-mission-empty">No sorties queued. Air wings remain on standby until new orders are issued.</li>';
       return;
     }
-    const resolveSquadronLabel = (squadronId: string | undefined): string => {
-      if (!squadronId) {
-        return "—";
-      }
-
-      const deployed = [...(engine.playerUnits ?? []), ...(engine.botUnits ?? [])];
-      const reserves = (engine.reserveUnits ?? []).map((entry) => entry.unit);
-      const allUnits = [...deployed, ...reserves];
-      const match = allUnits.find((unit) => unit.unitId === squadronId) ?? null;
-      if (!match) {
-        console.error("[PopupManager] Unable to resolve squadron id for Air Support label", {
-          squadronId,
-          deployedCount: deployed.length,
-          reserveCount: reserves.length
-        });
-        return "Unknown squadron";
-      }
-      return `${String(match.type)} @ ${this.formatDisplayHex(match.hex)}`;
-    };
     const compose = (m: { id: string; kind: string; status: string; unitType: string; originHexKey?: string; launchTurn: number; turnsRemaining: number; targetHex?: { q: number; r: number }; escortTargetUnitKey?: string; outcome?: { result: string; details: string; damageInflicted?: number; defenderDestroyed?: boolean; defenderType?: string } }): string => {
       const status = m.status;
       const kindLabel = this.formatAirMissionKindLabel(m.kind);
       const statusLabel = this.formatAirMissionStatusLabel(status);
-      // Show "Base CAP" for Air Cover missions without a specific target hex.
-      let target: string;
-      if (m.targetHex) {
-        target = this.formatDisplayHex(m.targetHex);
-      } else if (m.kind === "airCover") {
-        target = "Base CAP";
-      } else {
-        target = resolveSquadronLabel(m.escortTargetUnitKey);
-      }
+      const target = this.describeScheduledAirMissionTarget(engine, m as SerializedAirMission);
       const origin = m.originHexKey ? this.formatDisplayHexKey(m.originHexKey) : "Airbase";
       const cancel = status === "queued" ? `<button type="button" class="air-button" data-air-cancel="${m.id}">Cancel</button>` : "";
 
@@ -1798,7 +2005,7 @@ export class PopupManager implements IPopupManager {
           <div class="air-mission-head">
             <div class="air-mission-title">
               <strong>${this.escapeHtml(kindLabel)}</strong>
-              <span class="air-mission-subtitle">${this.escapeHtml(String(m.unitType))}</span>
+              <span class="air-mission-subtitle">${this.escapeHtml(this.formatAirUnitLabel(String(m.unitType)))}</span>
             </div>
             <span class="air-badge air-badge--${this.escapeHtml(this.formatAirMissionStatusClass(status))}">${this.escapeHtml(statusLabel)}</span>
           </div>
@@ -1965,10 +2172,16 @@ export class PopupManager implements IPopupManager {
       return;
     }
 
+    const missionKind = this.airPlannerState.missionKind;
+    const squadronId = this.airPlannerState.targetSquadronId || this.airPlannerState.squadronValue;
+    if (missionKind && squadronId) {
+      this.setAirPlannerTargetValue(missionKind, squadronId, value);
+    }
     this.airPlannerState.targetValue = value;
     this.setAirPlannerFeedback(`Marked ${this.formatDisplayHexKey(value)} on the map.`, "success");
     document.dispatchEvent(new CustomEvent("air:clearPreview"));
     this.airPickMode = null;
+    this.airPlannerState.targetSquadronId = "";
     if (this.airPlannerState.suspendedForMapPick) {
       this.resumeAirSupportPopupFromMapPick();
     } else {

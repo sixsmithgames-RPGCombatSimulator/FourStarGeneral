@@ -1228,7 +1228,7 @@ function calculateApproachPositionScore(
 
   if (snapshot.definition.class === "infantry" || snapshot.definition.class === "specialist") {
     if (!inAttackBand) {
-      if (terrain?.blocksLOS || terrain?.defense >= 2 || visibleThreats === 0) {
+      if (terrain?.blocksLOS || (terrain?.defense ?? 0) >= 2 || visibleThreats === 0) {
         score += INFANTRY_COVER_MARCH_BONUS;
       } else if (visibleThreats > 0) {
         score -= visibleThreats * INFANTRY_EXPOSED_MARCH_PENALTY;

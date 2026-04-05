@@ -24,84 +24,66 @@ export const popupContentRegistry: PopupContentDefinition[] = [
     title: "Air Support",
     body: `
       <style>
-        .air-panel { display: grid; gap: 0.95rem; color: #efe6c9; padding: 0.1rem 0 0.4rem; }
+        .air-panel { display: grid; gap: 0.8rem; color: #efe6c9; padding: 0.08rem 0 0.35rem; }
         .air-briefing {
           position: relative;
           display: grid;
-          gap: 0.5rem;
-          padding: 0.95rem 1.05rem 1.05rem;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 0.8rem 1rem;
+          align-items: end;
+          padding: 0.9rem 1rem;
           border-radius: 18px;
           border: 1px solid rgba(170, 145, 94, 0.24);
           background:
-            radial-gradient(circle at top right, rgba(124, 101, 51, 0.2), transparent 42%),
-            linear-gradient(180deg, rgba(32, 35, 24, 0.96) 0%, rgba(15, 17, 12, 0.98) 100%);
+            radial-gradient(circle at top right, rgba(124, 101, 51, 0.18), transparent 42%),
+            linear-gradient(180deg, rgba(30, 33, 23, 0.96) 0%, rgba(14, 16, 12, 0.985) 100%);
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
           overflow: hidden;
         }
         .air-briefing::before {
           content: "Theater Air Command";
+          grid-column: 1 / -1;
           display: block;
           font-family: var(--font-label);
-          font-size: 0.58rem;
+          font-size: 0.56rem;
           font-weight: 700;
-          letter-spacing: 0.26em;
+          letter-spacing: 0.28em;
           text-transform: uppercase;
           color: rgba(226, 205, 154, 0.72);
         }
-        .air-briefing__grid {
-          display: grid;
-          grid-template-columns: minmax(0, 1.25fr) minmax(220px, 0.75fr);
-          gap: 0.9rem;
-          align-items: start;
-        }
         .air-briefing__copy {
           display: grid;
-          gap: 0.35rem;
+          gap: 0.28rem;
+          min-width: 0;
         }
         .air-briefing__copy h3 {
           margin: 0;
           font-family: var(--font-heading);
-          font-size: 1.12rem;
-          letter-spacing: 0.12em;
+          font-size: 1.04rem;
+          letter-spacing: 0.1em;
           text-transform: uppercase;
-          line-height: 1.08;
+          line-height: 1.05;
           color: #efe3bf;
         }
         .air-briefing__copy p {
           margin: 0;
+          max-width: 54ch;
           color: var(--text-secondary);
-          font-size: 0.82rem;
-          line-height: 1.5;
+          font-size: 0.8rem;
+          line-height: 1.45;
         }
-        .air-briefing__facts {
+        .air-readiness-board {
           display: grid;
-          gap: 0.45rem;
+          gap: 0.28rem;
+          min-width: min(310px, 100%);
+          justify-items: end;
         }
-        .air-briefing__fact {
-          display: grid;
-          gap: 0.16rem;
-          padding: 0.52rem 0.62rem;
-          border-radius: 12px;
-          border: 1px solid rgba(170, 145, 94, 0.16);
-          background: rgba(10, 13, 9, 0.38);
-        }
-        .air-briefing__fact-label {
-          font-family: var(--font-label);
-          font-size: 0.56rem;
-          letter-spacing: 0.18em;
-          text-transform: uppercase;
-          color: rgba(226, 205, 154, 0.7);
-        }
-        .air-briefing__fact strong {
+        .air-readiness-board__label {
+          font-family: var(--font-heading);
           font-size: 0.84rem;
-          line-height: 1.25;
-          color: #f2e8c7;
-        }
-        .air-layout {
-          display: grid;
-          grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.8fr);
-          gap: 0.85rem;
-          align-items: start;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: #efe3bf;
         }
         .air-section {
           display: grid;
@@ -136,33 +118,57 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         }
         .air-summary {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 0.65rem;
+          grid-template-columns: repeat(3, minmax(72px, 1fr));
+          gap: 0.38rem;
         }
         .air-chip {
           display: grid;
-          gap: 0.2rem;
-          min-height: 4.75rem;
+          gap: 0.12rem;
+          min-height: 0;
           align-content: center;
           text-align: center;
-          padding: 0.65rem 0.7rem;
-          border-radius: 14px;
+          padding: 0.42rem 0.5rem;
+          border-radius: 12px;
           border: 1px solid rgba(170, 145, 94, 0.16);
           background:
             linear-gradient(180deg, rgba(27, 24, 17, 0.96) 0%, rgba(13, 12, 9, 0.98) 100%);
         }
         .air-chip strong {
           font-family: var(--font-heading);
-          font-size: 1.2rem;
+          font-size: 0.98rem;
           letter-spacing: 0.05em;
           color: #f2e8c7;
         }
         .air-chip span {
           font-family: var(--font-label);
-          font-size: 0.62rem;
+          font-size: 0.5rem;
           letter-spacing: 0.14em;
           text-transform: uppercase;
           color: rgba(216, 199, 157, 0.74);
+        }
+        .air-orders-shell {
+          display: grid;
+          gap: 0.55rem;
+          padding: 0.9rem 1rem 0.95rem;
+          border-radius: 16px;
+          border: 1px solid rgba(170, 145, 94, 0.18);
+          background: linear-gradient(180deg, rgba(15, 18, 13, 0.96) 0%, rgba(9, 11, 9, 0.985) 100%);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+        }
+        .air-orders-header {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          gap: 0.55rem 0.9rem;
+          align-items: center;
+        }
+        .air-orders-title {
+          margin: 0;
+          font-family: var(--font-heading);
+          font-size: 0.96rem;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: #efe3bf;
+          white-space: nowrap;
         }
         .air-actions {
           display: flex;
@@ -170,42 +176,22 @@ export const popupContentRegistry: PopupContentDefinition[] = [
           flex-wrap: wrap;
           justify-content: flex-end;
         }
-        .air-form {
-          display: grid;
-          gap: 0.75rem;
-        }
-        .air-form .field {
-          display: grid;
-          gap: 0.32rem;
-        }
-        .air-form label {
-          font-family: var(--font-label);
-          font-size: 0.63rem;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
-          color: rgba(226, 205, 154, 0.76);
-        }
-        .air-orders-grid {
-          display: grid;
-          grid-template-columns: minmax(0, 1.16fr) minmax(240px, 0.84fr);
-          gap: 0.8rem;
-          align-items: start;
-        }
         .air-mission-tabs {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 0.5rem;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.28rem;
         }
         .air-mission-tab {
-          display: grid;
-          gap: 0.16rem;
-          min-height: 4.15rem;
-          padding: 0.6rem 0.72rem;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 2.2rem;
+          padding: 0.35rem 0.72rem;
           border-radius: 12px;
           border: 1px solid rgba(170, 145, 94, 0.2);
           background: linear-gradient(180deg, rgba(22, 25, 18, 0.96) 0%, rgba(11, 13, 10, 0.98) 100%);
           color: #efe3bf;
-          text-align: left;
+          text-align: center;
           cursor: pointer;
           transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
@@ -230,26 +216,26 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         }
         .air-mission-tab strong {
           font-family: var(--font-heading);
-          font-size: 0.78rem;
+          font-size: 0.74rem;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           line-height: 1.2;
         }
         .air-mission-tab span {
-          font-size: 0.69rem;
-          line-height: 1.38;
-          color: var(--text-secondary);
+          display: none;
         }
-        .air-mission-tab[aria-selected="true"] span {
-          color: rgba(247, 231, 183, 0.9);
-        }
-        .air-squadron-grid,
-        .air-target-choice-grid {
+        .air-sortie-board {
           display: grid;
-          gap: 0.48rem;
-          max-height: 18.65rem;
+          gap: 0.68rem;
+          max-height: 31rem;
           overflow-y: auto;
           padding-right: 0.18rem;
+        }
+        .air-sortie-row {
+          display: grid;
+          grid-template-columns: minmax(240px, 0.92fr) minmax(0, 1.08fr);
+          gap: 0.68rem;
+          align-items: stretch;
         }
         .air-squadron-card,
         .air-target-choice {
@@ -263,11 +249,14 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         }
         .air-squadron-card {
           display: grid;
-          grid-template-columns: 2.8rem minmax(0, 1fr);
-          align-items: center;
+          grid-template-columns: 3.9rem minmax(0, 1fr);
+          align-items: stretch;
           gap: 0.55rem;
-          padding: 0.58rem 0.64rem;
+          padding: 0.68rem 0.72rem;
           cursor: pointer;
+        }
+        .air-squadron-card--row {
+          height: 100%;
         }
         .air-squadron-card:hover,
         .air-squadron-card:focus-visible,
@@ -293,8 +282,8 @@ export const popupContentRegistry: PopupContentDefinition[] = [
           box-shadow: none;
         }
         .air-squadron-card__visual {
-          width: 2.8rem;
-          height: 2.8rem;
+          width: 3.9rem;
+          height: 3.9rem;
           border-radius: 11px;
           border: 1px solid rgba(170, 145, 94, 0.16);
           background: rgba(17, 18, 13, 0.74);
@@ -318,8 +307,9 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .air-squadron-card__copy,
         .air-target-choice__copy {
           display: grid;
-          gap: 0.24rem;
+          gap: 0.22rem;
           min-width: 0;
+          align-content: center;
         }
         .air-squadron-card__topline {
           display: grid;
@@ -330,7 +320,7 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .air-squadron-card__label,
         .air-target-choice__label {
           font-family: var(--font-heading);
-          font-size: 0.78rem;
+          font-size: 0.82rem;
           letter-spacing: 0.07em;
           text-transform: uppercase;
           line-height: 1.2;
@@ -345,12 +335,12 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .air-squadron-stat {
           display: inline-flex;
           align-items: center;
-          padding: 0.1rem 0.42rem;
+          padding: 0.08rem 0.4rem;
           border-radius: 999px;
           border: 1px solid rgba(170, 145, 94, 0.14);
           background: rgba(12, 14, 10, 0.52);
           font-family: var(--font-label);
-          font-size: 0.58rem;
+          font-size: 0.56rem;
           letter-spacing: 0.1em;
           text-transform: uppercase;
           color: rgba(226, 205, 154, 0.74);
@@ -358,9 +348,12 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         .air-squadron-card__detail,
         .air-target-choice__detail,
         .air-target-choice__meta {
-          font-size: 0.69rem;
-          line-height: 1.4;
+          font-size: 0.68rem;
+          line-height: 1.36;
           color: var(--text-secondary);
+        }
+        .air-squadron-card__detail--quiet {
+          color: rgba(205, 198, 177, 0.78);
         }
         .air-status-pill {
           display: inline-flex;
@@ -404,19 +397,24 @@ export const popupContentRegistry: PopupContentDefinition[] = [
           color: #e9cf90;
           background: rgba(112, 89, 45, 0.2);
         }
-        .air-target-panel {
-          display: grid;
-          gap: 0.55rem;
-        }
         .air-target-card {
           display: grid;
-          gap: 0.45rem;
-          padding: 0.72rem 0.78rem;
+          gap: 0.38rem;
+          padding: 0.72rem 0.8rem;
           border-radius: 14px;
           border: 1px solid rgba(170, 145, 94, 0.18);
           background:
             radial-gradient(circle at top right, rgba(124, 101, 51, 0.16), transparent 42%),
             linear-gradient(180deg, rgba(20, 21, 15, 0.96) 0%, rgba(10, 11, 9, 0.98) 100%);
+        }
+        .air-target-card--row,
+        .air-target-card--empty {
+          height: 100%;
+        }
+        .air-target-card--committed {
+          background:
+            radial-gradient(circle at top right, rgba(106, 85, 44, 0.12), transparent 46%),
+            linear-gradient(180deg, rgba(24, 22, 16, 0.96) 0%, rgba(12, 12, 9, 0.99) 100%);
         }
         .air-target-card__eyebrow {
           font-family: var(--font-label);
@@ -427,7 +425,7 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         }
         .air-target-card__title {
           font-family: var(--font-heading);
-          font-size: 0.88rem;
+          font-size: 0.86rem;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           line-height: 1.2;
@@ -435,20 +433,36 @@ export const popupContentRegistry: PopupContentDefinition[] = [
         }
         .air-target-card__detail {
           margin: 0;
-          font-size: 0.73rem;
-          line-height: 1.48;
+          font-size: 0.71rem;
+          line-height: 1.42;
           color: var(--text-secondary);
+        }
+        .air-target-card__footnote {
+          font-size: 0.64rem;
+          line-height: 1.35;
+          color: rgba(216, 199, 157, 0.72);
         }
         .air-target-actions {
           display: flex;
           gap: 0.45rem;
           flex-wrap: wrap;
+          align-items: center;
+        }
+        .air-button--assign {
+          margin-left: auto;
         }
         .air-target-choice {
           display: grid;
           gap: 0.26rem;
           padding: 0.58rem 0.64rem;
           cursor: pointer;
+        }
+        .air-target-choice-grid {
+          display: grid;
+          gap: 0.45rem;
+        }
+        .air-target-choice-grid--row {
+          grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
         }
         .air-target-choice__meta {
           font-family: var(--font-label);
@@ -457,9 +471,9 @@ export const popupContentRegistry: PopupContentDefinition[] = [
           text-transform: uppercase;
         }
         .air-order-note {
-          min-height: 1.05rem;
-          font-size: 0.73rem;
-          line-height: 1.45;
+          min-height: 0;
+          font-size: 0.7rem;
+          line-height: 1.35;
           color: var(--text-secondary);
         }
         .air-order-note[data-tone="warning"] {
@@ -469,14 +483,14 @@ export const popupContentRegistry: PopupContentDefinition[] = [
           color: #a7ddb3;
         }
         .air-button {
-          min-height: 2.75rem;
-          padding: 0.55rem 0.95rem;
+          min-height: 2.35rem;
+          padding: 0.48rem 0.86rem;
           border-radius: 12px;
           border: 1px solid rgba(170, 145, 94, 0.22);
           background: linear-gradient(180deg, rgba(20, 23, 17, 0.96) 0%, rgba(11, 13, 10, 0.98) 100%);
           color: #ded2ab;
           font-family: var(--font-label);
-          font-size: 0.68rem;
+          font-size: 0.64rem;
           font-weight: 700;
           letter-spacing: 0.14em;
           text-transform: uppercase;
@@ -629,86 +643,54 @@ export const popupContentRegistry: PopupContentDefinition[] = [
           line-height: 1.5;
         }
         @media (max-width: 760px) {
-          .air-briefing__grid,
-          .air-layout {
-            grid-template-columns: 1fr;
-          }
+          .air-briefing,
+          .air-orders-header,
+          .air-sortie-row,
           .air-section header,
           .air-mission-head {
             grid-template-columns: 1fr;
           }
           .air-summary,
           .air-mission-grid,
-          .air-mission-tabs,
-          .air-orders-grid {
+          .air-target-choice-grid--row {
             grid-template-columns: 1fr;
           }
-          .air-squadron-grid,
+          .air-readiness-board {
+            min-width: 0;
+            justify-items: stretch;
+          }
+          .air-sortie-board,
           .air-target-choice-grid {
             max-height: none;
+          }
+          .air-button--assign {
+            margin-left: 0;
           }
         }
       </style>
       <div class="air-panel" data-air-panel>
         <section class="air-briefing">
-          <div class="air-briefing__grid">
-            <div class="air-briefing__copy">
-              <h3 data-air-brief-title>Standing Patrol Orders</h3>
-              <p data-air-brief-text>Assign fighter cover, strike sorties, and emergency lifts from the sortie board. Air wings launch from reserve strips and recover off-map after each mission.</p>
-            </div>
-            <div class="air-briefing__facts">
-              <div class="air-briefing__fact">
-                <span class="air-briefing__fact-label">Targeting</span>
-                <strong data-air-brief-target>Base CAP or selected sector</strong>
-              </div>
-              <div class="air-briefing__fact">
-                <span class="air-briefing__fact-label">Readiness</span>
-                <strong data-air-brief-refit>Refit follows each sortie</strong>
-              </div>
+          <div class="air-briefing__copy">
+            <h3 data-air-brief-title>Standing Patrol Orders</h3>
+            <p data-air-brief-text>Assign fighter cover, strike sorties, and emergency lifts from the sortie board. Air wings launch from reserve strips and recover off-map after each mission.</p>
+          </div>
+          <div class="air-readiness-board">
+            <span class="air-readiness-board__label">Readiness Board</span>
+            <div class="air-summary" data-air-summary>
+              <div class="air-chip"><strong data-air-queued>0</strong><span>On Deck</span></div>
+              <div class="air-chip"><strong data-air-inflight>0</strong><span>In Flight</span></div>
+              <div class="air-chip"><strong data-air-refit>0</strong><span>Refit</span></div>
             </div>
           </div>
         </section>
-        <div class="air-layout">
-        <section class="air-section">
-          <header>
-            <h3>Sortie Orders</h3>
-            <span class="air-note">Mission tabs, squadron board, and map-marked target</span>
-          </header>
-          <form class="air-form" data-air-form>
-            <div class="field field--mission">
-              <label>Mission</label>
-              <div class="air-mission-tabs" role="tablist" aria-label="Sortie mission types" data-air-mission-tabs></div>
-            </div>
-            <div class="air-orders-grid">
-              <div class="field">
-                <label>Squadron</label>
-                <div class="air-squadron-grid" data-air-squadron-grid></div>
-              </div>
-              <div class="field">
-                <label>Target</label>
-                <div class="air-target-panel" data-air-target-panel></div>
-              </div>
-            </div>
-            <div class="air-order-note" data-air-order-note></div>
-            <div class="field field--submit">
-              <button type="submit" class="air-button primary" data-air-submit>Issue Sortie</button>
-            </div>
-          </form>
-        </section>
-        <section class="air-section">
-          <header>
-            <h3>Readiness Board</h3>
-            <span class="air-note">Queue and refit picture</span>
-          </header>
-          <div class="air-summary" data-air-summary>
-            <div class="air-chip"><strong data-air-queued>0</strong><span>Queued</span></div>
-            <div class="air-chip"><strong data-air-inflight>0</strong><span>In Flight</span></div>
-            <div class="air-chip"><strong data-air-resolving>0</strong><span>On Run</span></div>
-            <div class="air-chip"><strong data-air-completed>0</strong><span>Completed</span></div>
-            <div class="air-chip"><strong data-air-refit>0</strong><span>Refit</span></div>
+        <section class="air-orders-shell">
+          <div class="air-orders-header">
+            <h3 class="air-orders-title">Sortie Orders</h3>
+            <div class="air-mission-tabs" role="tablist" aria-label="Sortie mission types" data-air-mission-tabs></div>
           </div>
+          <div class="air-order-note" data-air-order-note></div>
+          <div class="air-sortie-board" data-air-sortie-board></div>
         </section>
-        </div>
         <section class="air-section">
           <header>
             <h3>Operations Log</h3>
