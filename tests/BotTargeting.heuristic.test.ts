@@ -108,6 +108,26 @@ const antiTankGunDef: UnitTypeDefinition = {
   cost: 120
 };
 
+const reconBikeDef: UnitTypeDefinition = {
+  class: "recon",
+  combat: { category: "recon", weight: "light", role: "normal", signature: "small" },
+  movement: 4,
+  moveType: "wheel",
+  vision: 4,
+  ammo: 4,
+  fuel: 50,
+  rangeMin: 1,
+  rangeMax: 1,
+  initiative: 5,
+  armor: { front: 2, side: 1, top: 1 },
+  hardAttack: 4,
+  softAttack: 8,
+  ap: 1,
+  accuracyBase: 58,
+  traits: [],
+  cost: 95
+};
+
 const bomberDef: UnitTypeDefinition = {
   class: "air",
   combat: { category: "air", weight: "medium", role: "antiInfantry", signature: "large" },
@@ -654,6 +674,137 @@ registerTest("BOT_PLANNER_INFANTRY_MARCHES_THROUGH_COVER_TOWARD_HIGH_VALUE_GUNS"
   await Then("the infantry should advance through the covered hex instead of drifting into the open", async () => {
     if (plannedDestination !== "1,1") {
       throw new Error(`Expected infantry to march through covered hex 1,1, but planner chose ${plannedDestination || "no move"}.`);
+    }
+  });
+});
+
+registerTest("BOT_PLANNER_RECON_PREFERS_A_SCREENING_LANE_OVER_A_SUICIDAL_FRONTLINE_POKE", async ({ Given, When, Then }) => {
+  let plannedDestination = "";
+  let plannedAttackTarget = "";
+
+  await Given("a recon bike choosing between a front-line jab and a safer spotting lane under enemy recon and artillery coverage", async () => {
+    const botRecon = createPlannerSnapshot("BotRecon", reconBikeDef, { q: 0, r: 2 });
+    const botTank = createPlannerSnapshot("BotTank", playerTankDef, { q: 0, r: 3 });
+    const playerFrontInfantry = createPlannerSnapshot("PlayerFrontInfantry", playerInfantryDef, { q: 2, r: 1 });
+    const playerRecon = createPlannerSnapshot("PlayerRecon", reconBikeDef, { q: 3, r: 1 });
+    const playerArtillery = createPlannerSnapshot("PlayerArtillery", playerArtilleryDef, { q: 4, r: 1 });
+    const playerBomber = createPlannerSnapshot("PlayerBomber", bomberDef, { q: 6, r: 0 });
+
+    const input: BotPlannerInput = {
+      botUnits: [botRecon, botTank],
+      playerUnits: [playerFrontInfantry, playerRecon, playerArtillery, playerBomber],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(botRecon.unit.hex), "bot"],
+        [axialKey(botTank.unit.hex), "bot"],
+        [axialKey(playerFrontInfantry.unit.hex), "player"],
+        [axialKey(playerRecon.unit.hex), "player"],
+        [axialKey(playerArtillery.unit.hex), "player"],
+        [axialKey(playerBomber.unit.hex), "player"]
+      ]),
+      map: {
+        inBounds: (hex) => hex.q >= 0 && hex.q <= 6 && hex.r >= 0 && hex.r <= 6,
+        terrainAt: (hex) => axialKey(hex) === "1,2" ? woods : plains,
+        movementCost: () => 1
+      },
+      losAllows: (attackerHex, targetHex) => {
+        const attackerKey = axialKey(attackerHex);
+        const targetKey = axialKey(targetHex);
+        const visiblePairs = new Set([
+          "1,1->2,1",
+          "1,1->3,1",
+          "1,1->4,1",
+          "1,2->2,1",
+          "1,2->4,1",
+          "3,1->1,1"
+        ]);
+        return visiblePairs.has(`${attackerKey}->${targetKey}`);
+      },
+      movementAllowance: () => 1,
+      attackEstimator: (_attacker, attackerHex, defender, defenderHex) => {
+        if (axialKey(attackerHex) === "1,1"
+          && axialKey(defenderHex) === "2,1"
+          && defender.unit.type === "PlayerFrontInfantry") {
+          return {
+            expectedDamage: 7,
+            expectedRetaliation: 4
+          };
+        }
+        return null;
+      },
+      difficulty: "Normal"
+    };
+
+    const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "0,2");
+    plannedDestination = plan ? axialKey(plan.destination) : "";
+    plannedAttackTarget = plan?.attackTarget ? axialKey(plan.attackTarget) : "";
+  });
+
+  await When("the planner compares the attack against the safer reconnaissance screen", async () => {
+    // Result captured during Given.
+  });
+
+  await Then("the recon should avoid the exposed attack hex and move into the safer spotting lane instead", async () => {
+    if (plannedDestination !== "1,2") {
+      throw new Error(`Expected recon to choose screening hex 1,2, but planner chose ${plannedDestination || "no move"}.`);
+    }
+    if (plannedAttackTarget) {
+      throw new Error(`Expected recon to skip the front-line attack, but it planned an attack on ${plannedAttackTarget}.`);
+    }
+  });
+});
+
+registerTest("BOT_PLANNER_RECON_SPREADS_INTO_A_SECOND_SPOTTING_LANE_INSTEAD_OF_CLUSTERING", async ({ Given, When, Then }) => {
+  let plannedDestination = "";
+
+  await Given("a second recon bike choosing between clustering beside another scout or covering a different enemy avenue", async () => {
+    const anchorRecon = createPlannerSnapshot("AnchorRecon", reconBikeDef, { q: 1, r: 1 });
+    const movingRecon = createPlannerSnapshot("MovingRecon", reconBikeDef, { q: 0, r: 3 });
+    const botTank = createPlannerSnapshot("BotTank", playerTankDef, { q: 0, r: 4 });
+    const firstArtillery = createPlannerSnapshot("FirstArtillery", playerArtilleryDef, { q: 4, r: 1 });
+    const secondArtillery = createPlannerSnapshot("SecondArtillery", playerArtilleryDef, { q: 5, r: 3 });
+
+    const input: BotPlannerInput = {
+      botUnits: [anchorRecon, movingRecon, botTank],
+      playerUnits: [firstArtillery, secondArtillery],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(anchorRecon.unit.hex), "bot"],
+        [axialKey(movingRecon.unit.hex), "bot"],
+        [axialKey(botTank.unit.hex), "bot"],
+        [axialKey(firstArtillery.unit.hex), "player"],
+        [axialKey(secondArtillery.unit.hex), "player"]
+      ]),
+      map: {
+        inBounds: (hex) => hex.q >= 0 && hex.q <= 6 && hex.r >= 0 && hex.r <= 6,
+        terrainAt: () => plains,
+        movementCost: () => 1
+      },
+      losAllows: (attackerHex, targetHex) => {
+        const attackerKey = axialKey(attackerHex);
+        const targetKey = axialKey(targetHex);
+        const visiblePairs = new Set([
+          "1,2->4,1",
+          "2,3->5,3"
+        ]);
+        return visiblePairs.has(`${attackerKey}->${targetKey}`);
+      },
+      movementAllowance: (snapshot) => (snapshot.unit.type === "MovingRecon" ? 2 : 0),
+      attackEstimator: () => null,
+      difficulty: "Normal"
+    };
+
+    const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "0,3");
+    plannedDestination = plan ? axialKey(plan.destination) : "";
+  });
+
+  await When("the planner scores the clustered lane against the unique spotting lane", async () => {
+    // Result captured during Given.
+  });
+
+  await Then("the moving recon should peel into the second lane instead of piling up beside the first scout", async () => {
+    if (plannedDestination !== "2,3") {
+      throw new Error(`Expected moving recon to spread to 2,3, but planner chose ${plannedDestination || "no move"}.`);
     }
   });
 });

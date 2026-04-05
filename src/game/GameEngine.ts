@@ -6980,7 +6980,9 @@ private automateSupplyConvoys(
     }
 
     const finalDamagePerHit = aggregateAttackResult.damagePerHit * damageMultiplier;
-    const finalExpectedDamage = aggregateAttackResult.expectedDamage;
+    // Clamp expected damage to defender's remaining strength so preview shows realistic values
+    const rawExpectedDamage = aggregateAttackResult.expectedDamage;
+    const finalExpectedDamage = Math.min(rawExpectedDamage, defender.strength);
     const finalExpectedSuppression = totalExpectedSuppression;
     const projectedDefenderLoss = Math.max(
       0,

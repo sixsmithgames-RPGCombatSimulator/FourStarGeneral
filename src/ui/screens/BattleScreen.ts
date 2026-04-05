@@ -1344,6 +1344,7 @@ export class BattleScreen {
         this.pendingAttack.defenderUnitId
       );
       this.pendingAttack = null;
+      this.currentAttackStance = null;
     } finally {
       this.attackConfirmationLocked = false;
     }
@@ -1357,6 +1358,7 @@ export class BattleScreen {
       return;
     }
     this.hideAttackDialog();
+    this.currentAttackStance = null;
     if (this.pendingAttack) {
       this.announceBattleUpdate("Attack cancelled. Select a new target or continue maneuvering.");
     }
@@ -1880,7 +1882,7 @@ export class BattleScreen {
     this.attackDialogPreviouslyFocused = null;
     focusTarget?.focus?.();
     this.attackConfirmationLocked = false;
-    this.currentAttackStance = null;
+    // Don't clear currentAttackStance here - it needs to remain available until after attack execution
   }
 
   private promptFortificationFacing(

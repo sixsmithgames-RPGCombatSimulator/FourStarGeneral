@@ -143,6 +143,38 @@ const RECON_SPOTTING_BONUS = 10;
  * Range within which recon provides spotting bonuses to allies.
  */
 const RECON_SPOTTING_RANGE = 6;
+/**
+ * Recon elements should fan out into overlapping lanes rather than stack into the same hex cluster.
+ */
+const RECON_CLUSTER_PENALTY = 6;
+/**
+ * Small reward for maintaining a dispersed recon screen that covers distinct avenues of approach.
+ */
+const RECON_SPREAD_BONUS = 4;
+/**
+ * Reward for recon units sitting just ahead of friendly combat troops instead of diving into the front line.
+ */
+const RECON_SCREENING_BONUS = 5;
+/**
+ * Penalty for recon ending too close to the enemy front where it stops scouting and starts dying.
+ */
+const RECON_FRONTLINE_PENALTY = 12;
+/**
+ * Direct enemy fire on a recon endpoint should matter even if the unit is not the immediate attack target.
+ */
+const RECON_DIRECT_THREAT_WEIGHT = 0.12;
+/**
+ * Penalty when enemy recon can expose the endpoint to artillery and air support.
+ */
+const RECON_COUNTERSPOT_PENALTY = 6;
+/**
+ * Additional punishment when spotted recon sits inside enemy artillery coverage.
+ */
+const RECON_COUNTERBATTERY_SPOT_PENALTY = 5;
+/**
+ * Additional punishment when spotted recon can be serviced by strike aircraft.
+ */
+const RECON_AIR_STRIKE_SPOT_PENALTY = 4;
 
 /**
  * Bonus applied for occupying an objective hex.
@@ -1113,23 +1145,166 @@ function calculateReconSpottingBonus(
   if (attacker.definition.class !== "recon") return 0;
 
   const isAir = attacker.definition.moveType === "air";
-  let spottedForAllies = 0;
+  let spottingScore = 0;
+  const otherReconAllies = allies.filter((ally) => ally !== attacker && ally.definition.class === "recon");
+
+  const allyFollowThroughValue = (ally: PlannerUnitSnapshot, enemy: PlannerUnitSnapshot): number => {
+    if (ally === attacker || ally.definition.class === "recon") {
+      return 0;
+    }
+
+    const allyDistance = hexDistance(ally.unit.hex, enemy.unit.hex);
+    const rangeMin = ally.definition.rangeMin ?? 1;
+    const rangeMax = ally.definition.rangeMax ?? 1;
+
+    if (ally.definition.class === "artillery") {
+      return allyDistance >= rangeMin && allyDistance <= rangeMax ? 1.8 : 0;
+    }
+
+    if (ally.definition.moveType === "air" && ally.definition.airSupport?.roles?.includes("strike")) {
+      return 1.7;
+    }
+
+    if (allyDistance <= RECON_SPOTTING_RANGE) {
+      if (ally.definition.traits.includes("indirect") || (ally.definition.rangeMax ?? 1) > 1) {
+        return 1.2;
+      }
+      return 0.85;
+    }
+
+    return 0;
+  };
 
   for (const enemy of enemies) {
     // Check if we can see this enemy from the new position
     if (!losAllows(hex, enemy.unit.hex, isAir)) continue;
 
-    // Count how many allies would benefit from this spotting
-    for (const ally of allies) {
-      if (ally === attacker) continue;
-      const allyDistance = hexDistance(ally.unit.hex, enemy.unit.hex);
-      if (allyDistance <= RECON_SPOTTING_RANGE) {
-        spottedForAllies++;
-      }
+    const followThrough = allies.reduce((sum, ally) => sum + allyFollowThroughValue(ally, enemy), 0);
+    if (followThrough <= 0) {
+      continue;
+    }
+
+    const alreadyCoveredByOtherRecon = otherReconAllies.some((ally) =>
+      losAllows(ally.unit.hex, enemy.unit.hex, ally.definition.moveType === "air")
+    );
+    const coverageMultiplier = alreadyCoveredByOtherRecon ? 0.35 : 1;
+    const targetValue = 1
+      + Math.min(1.2, calculateTargetPriorityBonus("recon", enemy) * 0.025)
+      + Math.min(1.0, calculateThreatProjection(enemy) * 0.015);
+    spottingScore += Math.min(followThrough, 3.5) * targetValue * coverageMultiplier;
+  }
+
+  return Math.min(spottingScore, RECON_SPOTTING_BONUS * 2.4);
+}
+
+/**
+ * Recon should screen, spot, and survive. This helper penalizes clustering, front-line lunges,
+ * and counter-spotting exposure while rewarding dispersed observation lanes for the main body.
+ */
+function calculateReconPositioningScore(
+  destination: Axial,
+  attacker: PlannerUnitSnapshot,
+  input: BotPlannerInput,
+  focusHex: Axial | null
+): number {
+  if (attacker.definition.class !== "recon") {
+    return 0;
+  }
+
+  const selfKey = axialKey(attacker.unit.hex);
+  const otherReconAllies = input.botUnits.filter((ally) =>
+    axialKey(ally.unit.hex) !== selfKey && ally.definition.class === "recon"
+  );
+  const combatSupportDistances = input.botUnits
+    .filter((ally) => axialKey(ally.unit.hex) !== selfKey && ally.definition.class !== "recon" && ally.definition.moveType !== "air")
+    .map((ally) => hexDistance(ally.unit.hex, destination));
+  const nearbyCombatSupport = combatSupportDistances.filter((distance) => distance <= SUPPORT_RANGE).length;
+  const nearestCombatSupportDistance = combatSupportDistances.length > 0
+    ? Math.min(...combatSupportDistances)
+    : Number.POSITIVE_INFINITY;
+  const nearestEnemyDistance = input.playerUnits.reduce(
+    (min, enemy) => Math.min(min, hexDistance(destination, enemy.unit.hex)),
+    Number.POSITIVE_INFINITY
+  );
+
+  const canProjectThreatToHex = (enemy: PlannerUnitSnapshot): boolean => {
+    const rangeMin = enemy.definition.rangeMin ?? 1;
+    const rangeMax = enemy.definition.rangeMax ?? 1;
+    if (rangeMax <= 0) {
+      return false;
+    }
+    const distance = hexDistance(enemy.unit.hex, destination);
+    if (distance < rangeMin || distance > rangeMax) {
+      return false;
+    }
+    const isEnemyAir = enemy.definition.moveType === "air";
+    return !requiresDirectLOS(enemy.definition) || input.losAllows(enemy.unit.hex, destination, isEnemyAir);
+  };
+
+  const directThreats = input.playerUnits.filter((enemy) =>
+    enemy.definition.class !== "artillery"
+    && !(enemy.definition.moveType === "air" && enemy.definition.airSupport?.roles?.includes("strike"))
+    && canProjectThreatToHex(enemy)
+  );
+  const playerReconSpotters = input.playerUnits.filter((enemy) =>
+    enemy.definition.class === "recon" && input.losAllows(enemy.unit.hex, destination, enemy.definition.moveType === "air")
+  );
+  const artilleryCoverage = input.playerUnits.filter((enemy) =>
+    enemy.definition.class === "artillery" && canProjectThreatToHex(enemy)
+  ).length;
+  const strikeAircraftCoverage = input.playerUnits.filter((enemy) =>
+    enemy.definition.moveType === "air" && enemy.definition.airSupport?.roles?.includes("strike")
+  ).length;
+  const nearbyReconCount = otherReconAllies.filter((ally) => hexDistance(ally.unit.hex, destination) <= 2).length;
+  const spreadWindowCount = otherReconAllies.filter((ally) => {
+    const distance = hexDistance(ally.unit.hex, destination);
+    return distance >= 3 && distance <= RECON_SPOTTING_RANGE;
+  }).length;
+
+  let score = calculateReconSpottingBonus(destination, input.playerUnits, input.botUnits, attacker, input.losAllows);
+
+  if (nearbyReconCount > 0) {
+    score -= nearbyReconCount * RECON_CLUSTER_PENALTY;
+  } else if (spreadWindowCount > 0) {
+    score += RECON_SPREAD_BONUS;
+  }
+
+  if (nearestEnemyDistance <= 1) {
+    score -= RECON_FRONTLINE_PENALTY;
+  } else if (nearestEnemyDistance >= 2 && nearestEnemyDistance <= 4 && nearbyCombatSupport > 0) {
+    score += RECON_SCREENING_BONUS;
+  }
+
+  if (nearbyCombatSupport === 0 && nearestEnemyDistance <= PROXIMITY_ENGAGE_RADIUS + 1) {
+    score -= RECON_OVERRUN_PENALTY;
+    if (Number.isFinite(nearestCombatSupportDistance)) {
+      score -= Math.max(0, nearestCombatSupportDistance - SUPPORT_RANGE) * 1.5;
     }
   }
 
-  return Math.min(spottedForAllies, 3) * RECON_SPOTTING_BONUS * 0.3;
+  if (directThreats.length > 0) {
+    const weightedThreat = directThreats.reduce(
+      (sum, enemy) => sum + 1 + calculateThreatProjection(enemy) * RECON_DIRECT_THREAT_WEIGHT,
+      0
+    );
+    score -= weightedThreat;
+  }
+
+  if (playerReconSpotters.length > 0) {
+    score -= playerReconSpotters.length * RECON_COUNTERSPOT_PENALTY;
+    if (artilleryCoverage > 0) {
+      score -= artilleryCoverage * RECON_COUNTERBATTERY_SPOT_PENALTY;
+    }
+    if (strikeAircraftCoverage > 0) {
+      score -= Math.min(2, strikeAircraftCoverage) * RECON_AIR_STRIKE_SPOT_PENALTY;
+    }
+  }
+
+  if (focusHex && hexDistance(destination, focusHex) <= 1 && directThreats.length > 1) {
+    score -= 4;
+  }
+
+  return score;
 }
 
 /**
@@ -1155,6 +1330,13 @@ function calculateApproachPositionScore(
     .map((ally) => hexDistance(ally.unit.hex, destination));
   const nearbySupport = supportDistances.filter((distance) => distance <= SUPPORT_RANGE).length;
   const nearestSupportDistance = supportDistances.length > 0 ? Math.min(...supportDistances) : Number.POSITIVE_INFINITY;
+  const combatSupportDistances = input.botUnits
+    .filter((ally) => axialKey(ally.unit.hex) !== selfKey && ally.definition.class !== "recon" && ally.definition.moveType !== "air")
+    .map((ally) => hexDistance(ally.unit.hex, destination));
+  const nearbyCombatSupport = combatSupportDistances.filter((distance) => distance <= SUPPORT_RANGE).length;
+  const nearestCombatSupportDistance = combatSupportDistances.length > 0
+    ? Math.min(...combatSupportDistances)
+    : Number.POSITIVE_INFINITY;
   const nearestEnemyDistance = input.playerUnits.reduce(
     (min, enemy) => Math.min(min, hexDistance(destination, enemy.unit.hex)),
     Number.POSITIVE_INFINITY
@@ -1189,6 +1371,8 @@ function calculateApproachPositionScore(
   });
 
   let score = calculateTerrainPositionScore(destination, terrain, false);
+  const relevantSupportCount = snapshot.definition.class === "recon" ? nearbyCombatSupport : nearbySupport;
+  const relevantSupportDistance = snapshot.definition.class === "recon" ? nearestCombatSupportDistance : nearestSupportDistance;
 
   if (terrain?.blocksLOS && nearestEnemyDistance <= PROXIMITY_ENGAGE_RADIUS + 2) {
     score += BLOCKING_TERRAIN_APPROACH_BONUS;
@@ -1203,12 +1387,12 @@ function calculateApproachPositionScore(
     score -= STALLED_APPROACH_PENALTY;
   }
 
-  if (nearbySupport > 0) {
-    score += Math.min(nearbySupport, 3) * ASSAULT_SUPPORT_BONUS;
+  if (relevantSupportCount > 0) {
+    score += Math.min(relevantSupportCount, 3) * ASSAULT_SUPPORT_BONUS;
   } else if (nearestEnemyDistance <= PROXIMITY_ENGAGE_RADIUS + 2 && snapshot.definition.class !== "artillery") {
     score -= LONE_ADVANCE_PENALTY;
-    if (Number.isFinite(nearestSupportDistance)) {
-      score -= Math.max(0, nearestSupportDistance - SUPPORT_RANGE) * 1.5;
+    if (Number.isFinite(relevantSupportDistance)) {
+      score -= Math.max(0, relevantSupportDistance - SUPPORT_RANGE) * 1.5;
     }
   }
 
@@ -1233,15 +1417,6 @@ function calculateApproachPositionScore(
       } else if (visibleThreats > 0) {
         score -= visibleThreats * INFANTRY_EXPOSED_MARCH_PENALTY;
       }
-    }
-  }
-
-  if (snapshot.definition.class === "recon") {
-    if (nearbySupport === 0 && visibleThreats > 0) {
-      score -= RECON_OVERRUN_PENALTY;
-    }
-    if (nearbySupport > 0 && visibleThreats === 0) {
-      score += 3;
     }
   }
 
@@ -1273,6 +1448,8 @@ function calculateApproachPositionScore(
       score -= ARMORED_OUTRUN_SUPPORT_PENALTY + (closestArmorTimingGap - 1) * 2;
     }
   }
+
+  score += calculateReconPositioningScore(destination, snapshot, input, focusHex);
 
   return score;
 }
@@ -1427,14 +1604,8 @@ export function scoreCandidateAdvanced(
     score += calculateTerrainPositionScore(candidate.destination, terrain, false);
   }
 
-  // Recon spotting bonus
-  score += calculateReconSpottingBonus(
-    candidate.destination,
-    input.playerUnits,
-    input.botUnits,
-    attacker,
-    input.losAllows
-  );
+  // Recon units should be rewarded for unique spotting lanes and punished for clustered or overexposed endpoints.
+  score += calculateReconPositioningScore(candidate.destination, attacker, input, defender?.unit.hex ?? null);
 
   // Objective control bonus - prioritize holding objectives
   score += scoreObjectiveControl(
@@ -1778,6 +1949,18 @@ function pickBestCandidate(
     if (fallbackPressure && (!top || fallbackPressure.score > top.score)) {
       top = fallbackPressure;
     }
+  }
+
+  if (purpose === "recon" && top && top.score < 0) {
+    top = {
+      destination: snapshot.unit.hex,
+      path: [snapshot.unit.hex],
+      attackTarget: null,
+      expectedDamage: 0,
+      expectedRetaliation: 0,
+      score: 0,
+      rationale: "Hold scouting screen"
+    };
   }
 
   // Only hold position if literally no movement is possible
