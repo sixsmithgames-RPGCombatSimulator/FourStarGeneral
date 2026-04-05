@@ -5214,8 +5214,7 @@ export class BattleScreen {
       const offsetKey = CoordinateSystem.axialKeyToOffsetKey(axialKey);
 
       if (unit) {
-        const unitDef = this.unitTypes[unit.type as keyof UnitTypeDictionary];
-        const unitLabel = unitDef?.label ?? unit.type;
+        const unitLabel = this.toTitleCase(unit.type);
         return `<li><strong>${unitLabel}</strong> at ${offsetKey ?? axialKey}</li>`;
       }
 

@@ -724,7 +724,7 @@ registerTest("BOT_PLANNER_RECON_PREFERS_A_SCREENING_LANE_OVER_A_SUICIDAL_FRONTLI
       attackEstimator: (_attacker, attackerHex, defender, defenderHex) => {
         if (axialKey(attackerHex) === "1,1"
           && axialKey(defenderHex) === "2,1"
-          && defender.unit.type === "PlayerFrontInfantry") {
+          && (defender.unit.type as string) === "PlayerFrontInfantry") {
           return {
             expectedDamage: 7,
             expectedRetaliation: 4
@@ -789,7 +789,7 @@ registerTest("BOT_PLANNER_RECON_SPREADS_INTO_A_SECOND_SPOTTING_LANE_INSTEAD_OF_C
         ]);
         return visiblePairs.has(`${attackerKey}->${targetKey}`);
       },
-      movementAllowance: (snapshot) => (snapshot.unit.type === "MovingRecon" ? 2 : 0),
+      movementAllowance: (snapshot) => ((snapshot.unit.type as string) === "MovingRecon" ? 2 : 0),
       attackEstimator: () => null,
       difficulty: "Normal"
     };
