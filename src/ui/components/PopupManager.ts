@@ -41,7 +41,7 @@ import { getAllGenerals, type GeneralRosterEntry } from "../../utils/rosterStora
 import type { WarRoomOverlay } from "./WarRoomOverlay";
 import type { GameEngineAPI } from "../../game/GameEngine";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
-import { combat as combatBalance, supply as supplyBalance } from "../../core/balance";
+import { supply as supplyBalance } from "../../core/balance";
 import { axialKey } from "../../core/Hex";
 import type { AirMissionTemplate, AirMissionKind, ScenarioUnit } from "../../core/types";
 import unitTypesSource from "../../data/unitTypes.json";
@@ -2674,8 +2674,8 @@ export class PopupManager implements IPopupManager {
       label: unit.label,
       strength: Math.max(0, Math.round(unit.strength)),
       experience: Math.max(0, Math.round(unit.experience)),
-      ammo: Math.max(0, Math.round(unit.ammo)),
-      fuel: unit.fuel === null ? null : Math.max(0, Math.round(unit.fuel)),
+      ammo: Math.max(0, unit.ammo),
+      fuel: unit.fuel === null ? null : Math.max(0, unit.fuel),
       status,
       supportCategory,
       sprite: unit.sprite

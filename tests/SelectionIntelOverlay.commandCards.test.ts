@@ -105,6 +105,75 @@ registerTest("SELECTION_INTEL_OVERLAY_RENDERS_COMMAND_CARDS_AND_NOTES", async ({
   });
 });
 
+registerTest("SELECTION_INTEL_OVERLAY_SHOWS_FRACTIONAL_AMMO_AND_FUEL_PRECISELY", async ({ Given, When, Then }) => {
+  const container = document.createElement("div");
+  container.innerHTML = `
+    <section id="battleIntelOverlay" class="battle-intel-overlay hidden" tabindex="-1">
+      <button id="battleIntelOverlayDismiss" type="button">x</button>
+      <button id="battleIntelOverlayToggle" type="button">Expand</button>
+      <header>
+        <h3 id="battleIntelOverlayTitle"></h3>
+        <p id="battleIntelOverlayMeta"></p>
+      </header>
+      <div id="battleIntelOverlayBody"></div>
+      <div id="battleIntelOverlayNotes" class="hidden"></div>
+    </section>
+  `;
+  document.body.appendChild(container);
+
+  const intel: BattleSelectionIntel = {
+    kind: "battle",
+    hexKey: "8,4",
+    terrainName: "Village",
+    unitLabel: "Artillery Battery",
+    unitStrength: 100,
+    unitAmmo: 0.5,
+    unitFuel: 1.25,
+    unitEntrenchment: 0,
+    movementRemaining: 1,
+    movementMax: 1,
+    rangeLabel: "2-3",
+    canEntrench: false,
+    moveOptions: 1,
+    attackOptions: 0,
+    unitTabs: [],
+    statusMessage: "Artillery Battery selected at 8,4.",
+    statusChips: [],
+    actionCards: [],
+    detailSections: [],
+    notes: []
+  };
+
+  let overlay: SelectionIntelOverlay | null = null;
+  await Given("a mounted selection intel overlay", async () => {
+    overlay = new SelectionIntelOverlay();
+  });
+
+  await When("battle intel contains fractional carried resources", async () => {
+    overlay?.update(intel);
+  });
+
+  await Then("the stat cards keep those fractional values instead of rounding them away", async () => {
+    const stats = Array.from(document.querySelectorAll<HTMLElement>(".battle-intel-overlay__stat"));
+    const values = new Map(
+      stats.map((stat) => [
+        stat.querySelector<HTMLElement>(".battle-intel-overlay__stat-label")?.textContent?.trim() ?? "",
+        stat.querySelector<HTMLElement>(".battle-intel-overlay__stat-value")?.textContent?.trim() ?? ""
+      ])
+    );
+
+    if (values.get("Ammo") !== "0.5") {
+      throw new Error(`Expected fractional ammo display to remain precise, received '${values.get("Ammo") ?? "missing"}'.`);
+    }
+    if (values.get("Fuel") !== "1.25") {
+      throw new Error(`Expected fractional fuel display to remain precise, received '${values.get("Fuel") ?? "missing"}'.`);
+    }
+
+    overlay?.dispose();
+    container.remove();
+  });
+});
+
 registerTest("SELECTION_INTEL_OVERLAY_SHOWS_RANGE_AND_DETAILS_WITHOUT_REDUNDANT_BATTLE_SUMMARY", async ({ Given, When, Then }) => {
   const container = document.createElement("div");
   container.innerHTML = `

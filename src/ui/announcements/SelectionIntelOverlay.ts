@@ -403,8 +403,8 @@ export class SelectionIntelOverlay {
   private renderBattleMarkup(intel: BattleSelectionIntel): string {
     const statCards = [
       { label: "Strength", value: intel.unitStrength !== null ? `${Math.round(intel.unitStrength)}%` : "—" },
-      { label: "Ammo", value: intel.unitAmmo !== null ? `${Math.max(0, Math.round(intel.unitAmmo))}` : "—" },
-      { label: "Fuel", value: intel.unitFuel !== null ? `${Math.max(0, Math.round(intel.unitFuel))}` : "—" },
+      { label: "Ammo", value: this.formatResourceValue(intel.unitAmmo) },
+      { label: "Fuel", value: this.formatResourceValue(intel.unitFuel) },
       {
         label: "Move",
         value: intel.movementRemaining !== null
@@ -443,6 +443,14 @@ export class SelectionIntelOverlay {
       ${tabMarkup}
       ${contentMarkup}
     `;
+  }
+
+  private formatResourceValue(value: number | null): string {
+    if (value === null || !Number.isFinite(value)) {
+      return "—";
+    }
+    const safeValue = Math.max(0, value);
+    return safeValue.toFixed(2).replace(/\.?0+$/, "");
   }
 
   private renderDeploymentMarkup(intel: DeploymentSelectionIntel): string {

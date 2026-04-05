@@ -93,6 +93,54 @@ registerTest("BATTLE_SCREEN_MOVE_FAILURE_MESSAGE_EXPLAINS_THE_PROBLEM_AND_FIX", 
   });
 });
 
+registerTest("BATTLE_SCREEN_AMMO_HELPERS_DISTINGUISH_LOW_AMMO_FROM_ALREADY_ATTACKED", async ({ Then }) => {
+  const helpers = BattleScreen.prototype as unknown as {
+    buildBattleActionSummary: (moveOptions: number, attackOptions: number, ammoStatusMessage: string | null) => string;
+    buildBattleAmmoStatusMessage: (
+      this: {
+        resolveBattleAttackAmmoCost: (definition: unknown) => number;
+        formatBattleResourceValue: (value: number | null) => string;
+      },
+      unit: unknown,
+      definition: unknown
+    ) => string | null;
+    resolveBattleAttackAmmoCost: (definition: unknown) => number;
+    formatBattleResourceValue: (value: number | null) => string;
+  };
+
+  const fakeScreen = {
+    resolveBattleAttackAmmoCost: helpers.resolveBattleAttackAmmoCost,
+    formatBattleResourceValue: helpers.formatBattleResourceValue
+  };
+
+  const standardAmmoMessage = helpers.buildBattleAmmoStatusMessage.call(
+    fakeScreen,
+    { ammo: 1 },
+    { moveType: "tracked", class: "tank", traits: [] }
+  );
+  const lowAmmoMessage = helpers.buildBattleAmmoStatusMessage.call(
+    fakeScreen,
+    { ammo: 1 },
+    { moveType: "towed", class: "artillery", traits: [] }
+  );
+  const actionSummary = helpers.buildBattleActionSummary(3, 0, lowAmmoMessage);
+
+  await Then("one ammo is still enough for a one-cost attack while higher-cost attacks explain the real blocker", async () => {
+    if (standardAmmoMessage !== null) {
+      throw new Error(`Expected one ammo to remain attack-capable for standard attacks, received '${standardAmmoMessage}'.`);
+    }
+    if (!lowAmmoMessage?.includes("needs 2 ammo") || !lowAmmoMessage.includes("has 1 remaining")) {
+      throw new Error(`Expected low-artillery-ammo message to explain the precise shortage, received '${lowAmmoMessage ?? "null"}'.`);
+    }
+    if (actionSummary.includes("already moved and attacked") || actionSummary.includes("attacked this turn")) {
+      throw new Error(`Expected low-ammo summary to avoid the already-attacked explanation, received '${actionSummary}'.`);
+    }
+    if (!actionSummary.includes("No attack options are available until the unit is resupplied.")) {
+      throw new Error(`Expected low-ammo summary to direct the player toward resupply, received '${actionSummary}'.`);
+    }
+  });
+});
+
 registerTest("BATTLE_SCREEN_DOES_NOT_RENDER_SPOTTED_CONTACT_MARKERS_OVER_FRIENDLY_STACKS", async ({ Then }) => {
   const renderCalls: Array<{ hexKey: string; members: Array<{ faction: string; unit: { type: string } }> }> = [];
   const playerUnit = {
