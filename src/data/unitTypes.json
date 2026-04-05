@@ -538,9 +538,9 @@
     "airCombat": {
       "turret": {
         "accuracyBase": 34,
-        "hardAttack": 6,
-        "softAttack": 6,
-        "ap": 1,
+        "hardAttack": 9,
+        "softAttack": 9,
+        "ap": 4,
         "rangeMin": 1,
         "rangeMax": 2,
         "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "medium" },
@@ -578,16 +578,17 @@
     },
     "airCombat": {
       "turret": {
-        "accuracyBase": 42,
+        // Accuracy base 52 (higher than Ground_Attack to reflect more turrets)
+        "accuracyBase": 52,
         "hardAttack": 9,
         "softAttack": 9,
-        "ap": 2,
+        "ap": 4,
         "rangeMin": 1,
         "rangeMax": 2,
         "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "large" },
         "shotsScalar": 0.95,
-        "damageScalar": 0.9,
-        "suppressionScalar": 0.6
+        "damageScalar": 0.7,
+        "suppressionScalar": 0.4
       }
     }
   },
