@@ -578,7 +578,6 @@
     },
     "airCombat": {
       "turret": {
-        // Accuracy base 52 (higher than Ground_Attack to reflect more turrets)
         "accuracyBase": 52,
         "hardAttack": 9,
         "softAttack": 9,

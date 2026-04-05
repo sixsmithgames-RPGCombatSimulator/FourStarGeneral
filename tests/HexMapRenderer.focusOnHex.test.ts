@@ -93,3 +93,23 @@ registerTest("HEXMAP_FOCUS_ON_HEX", async ({ Given, When, Then }) => {
     viewport.remove();
   });
 });
+
+registerTest("HEXMAP_AIRCRAFT_HEADINGS_ASSUME_NOSE_UP_SPRITES", async ({ When, Then }) => {
+  const renderer = new HexMapRenderer();
+  let northHeading = 0;
+  let eastHeading = 0;
+
+  await When("aircraft headings are resolved for nose-up aircraft sprites", async () => {
+    northHeading = (renderer as any).resolveAircraftHeadingDegrees(0, -1);
+    eastHeading = (renderer as any).resolveAircraftHeadingDegrees(1, 0);
+  });
+
+  await Then("northbound movement should remain upright while eastbound movement rotates clockwise", async () => {
+    if (northHeading !== 0) {
+      throw new Error(`Expected northbound aircraft heading to remain 0 degrees, received ${northHeading}.`);
+    }
+    if (eastHeading !== 90) {
+      throw new Error(`Expected eastbound aircraft heading to rotate to 90 degrees, received ${eastHeading}.`);
+    }
+  });
+});

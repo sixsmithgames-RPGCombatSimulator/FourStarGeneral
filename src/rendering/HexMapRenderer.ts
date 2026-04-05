@@ -827,21 +827,110 @@ export class HexMapRenderer implements IMapRenderer {
 
   /** Plays a brief tracer effect at the given hex key to indicate aerial gunfire. */
   async playDogfight(hexKey: string): Promise<void> {
-    const bursts = [
-      { offsetX: 0, offsetY: 0, scale: 1.18 },
-      { offsetX: 8, offsetY: -5, scale: 1.06 },
-      { offsetX: -7, offsetY: 5, scale: 1.02 }
-    ];
-
-    for (let index = 0; index < bursts.length; index += 1) {
-      const burst = bursts[index]!;
-      if (index > 0) {
-        await new Promise<void>((resolve) => {
-          window.setTimeout(resolve, 80);
-        });
-      }
-      await this.playCombatAnimation("tracer", hexKey, burst.offsetX, burst.offsetY, burst.scale);
+    const effectsLayer = this.ensureCombatEffectsLayer();
+    const hexElement = this.hexElementMap.get(hexKey);
+    const center = hexElement ? this.extractHexCenter(hexElement) : null;
+    if (!effectsLayer || !center) {
+      return;
     }
+
+    const burstGroup = document.createElementNS(SVG_NS, "g");
+    burstGroup.classList.add("air-dogfight-burst");
+    burstGroup.style.pointerEvents = "none";
+    effectsLayer.appendChild(burstGroup);
+
+    const tracerCount = 12;
+    const burstCount = 12;
+    const tracerLifetimeMs = 170;
+    const burstLifetimeMs = 210;
+
+    const scheduleCleanup = (node: SVGElement, delayMs: number) => {
+      window.setTimeout(() => node.remove(), delayMs);
+    };
+
+    for (let index = 0; index < tracerCount; index += 1) {
+      const ringAngle = (index / tracerCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.28;
+      const orbitRadius = 6 + Math.random() * 18;
+      const tracerAngle = ringAngle + (Math.random() - 0.5) * 1.1;
+      const tracerLength = 8 + Math.random() * 7;
+      const cx = center.cx + Math.cos(ringAngle) * orbitRadius;
+      const cy = center.cy + Math.sin(ringAngle) * orbitRadius * 0.72;
+      const x1 = cx - Math.cos(tracerAngle) * tracerLength * 0.5;
+      const y1 = cy - Math.sin(tracerAngle) * tracerLength * 0.5;
+      const x2 = cx + Math.cos(tracerAngle) * tracerLength * 0.5;
+      const y2 = cy + Math.sin(tracerAngle) * tracerLength * 0.5;
+      const dashGap = tracerLength + 8;
+      const tracerDelayMs = index * 10;
+
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", String(x1));
+      line.setAttribute("y1", String(y1));
+      line.setAttribute("x2", String(x2));
+      line.setAttribute("y2", String(y2));
+      line.setAttribute("stroke", index % 3 === 0 ? "#fff7d9" : index % 2 === 0 ? "#ffd68c" : "#ffb14f");
+      line.setAttribute("stroke-width", String(index % 4 === 0 ? 0.95 : 0.8));
+      line.setAttribute("stroke-linecap", "round");
+      line.style.opacity = "0";
+      line.style.strokeDasharray = `${Math.max(4, tracerLength * 0.65)} ${dashGap}`;
+      line.style.strokeDashoffset = String(dashGap);
+      burstGroup.appendChild(line);
+
+      window.setTimeout(() => {
+        line.style.transition = `stroke-dashoffset ${tracerLifetimeMs}ms linear, opacity ${Math.max(90, tracerLifetimeMs - 40)}ms ease-out`;
+        line.style.opacity = "0.95";
+        line.style.strokeDashoffset = "0";
+      }, tracerDelayMs);
+      window.setTimeout(() => {
+        line.style.opacity = "0";
+      }, tracerDelayMs + Math.max(90, tracerLifetimeMs - 40));
+      scheduleCleanup(line, tracerDelayMs + tracerLifetimeMs + 60);
+    }
+
+    for (let index = 0; index < burstCount; index += 1) {
+      const angle = (index / burstCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+      const radius = 4 + Math.random() * 16;
+      const x = center.cx + Math.cos(angle) * radius;
+      const y = center.cy + Math.sin(angle) * radius * 0.74;
+      const flashDelayMs = 12 + index * 9;
+
+      const cluster = document.createElementNS(SVG_NS, "g");
+      cluster.setAttribute("transform", `translate(${x},${y})`);
+      cluster.style.opacity = "0";
+
+      const flash = document.createElementNS(SVG_NS, "circle");
+      flash.setAttribute("cx", "0");
+      flash.setAttribute("cy", "0");
+      flash.setAttribute("r", String(1.1 + Math.random() * 1.6));
+      flash.setAttribute("fill", index % 3 === 0 ? "#fff6cf" : "#ffce74");
+      flash.setAttribute("opacity", "0.92");
+      cluster.appendChild(flash);
+
+      const puff = document.createElementNS(SVG_NS, "ellipse");
+      puff.setAttribute("cx", String((Math.random() - 0.5) * 1.8));
+      puff.setAttribute("cy", String(0.8 + Math.random() * 1.8));
+      puff.setAttribute("rx", String(2.2 + Math.random() * 2.2));
+      puff.setAttribute("ry", String(1.3 + Math.random() * 1.4));
+      puff.setAttribute("fill", index % 2 === 0 ? "#d7cab9" : "#bca895");
+      puff.setAttribute("opacity", "0.26");
+      cluster.appendChild(puff);
+
+      burstGroup.appendChild(cluster);
+      window.setTimeout(() => {
+        cluster.style.transition = `opacity ${burstLifetimeMs}ms ease-out`;
+        cluster.style.opacity = "1";
+      }, flashDelayMs);
+      window.setTimeout(() => {
+        cluster.style.opacity = "0";
+      }, flashDelayMs + 70);
+      scheduleCleanup(cluster, flashDelayMs + burstLifetimeMs + 70);
+    }
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(() => {
+        burstGroup.remove();
+        resolve();
+      }, 320);
+    });
   }
 
   /**
@@ -3801,7 +3890,7 @@ export class HexMapRenderer implements IMapRenderer {
     if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) {
       return fallbackDegrees;
     }
-    return Math.atan2(dy, dx) * (180 / Math.PI);
+    return Math.atan2(dy, dx) * (180 / Math.PI) + 90;
   }
 
   private resolveAircraftSortieTurnVector(

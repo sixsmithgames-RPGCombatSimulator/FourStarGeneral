@@ -216,7 +216,7 @@ export class BattleScreen {
   private static readonly BOT_MOVE_ANIMATION_MS = 500;
   private static readonly BOT_CAMERA_PADDING = 96;
   private static readonly ACTIVITY_EVENT_LIMIT = 120;
-  private static readonly AIR_SEQUENCE_TIME_SCALE = 2;
+  private static readonly AIR_SEQUENCE_TIME_SCALE = 1.5;
 
   // DOM element references
   private battleAnnouncements: HTMLElement | null = null;
@@ -1249,36 +1249,67 @@ export class BattleScreen {
             };
           };
           const outcomeMeta = outcome.meta ?? {};
-          const bomberAttrition = Math.max(0, Math.round(outcomeMeta.bomberAttrition ?? 0));
-          const interceptorAttrition = Math.max(0, Math.round(outcomeMeta.interceptorAttrition ?? 0));
+          const bomberAttrition = Math.max(0, Math.round(outcomeMeta.bomberAttrition ?? r.bomberAttrition ?? 0));
+          const interceptorAttrition = Math.max(0, Math.round(outcomeMeta.interceptorAttrition ?? r.interceptorAttrition ?? 0));
           const interceptorKills = Math.max(0, Math.round(outcomeMeta.interceptorKills ?? 0));
-          const escortAttrition = Math.max(0, Math.round(outcomeMeta.escortAttrition ?? 0));
-          const bomberKills = Math.max(0, Math.round(outcomeMeta.capKills ?? 0));
+          const escortAttrition = Math.max(0, Math.round(outcomeMeta.escortAttrition ?? r.escortAttrition ?? 0));
+          const escortKills = Math.max(0, Math.round(outcomeMeta.escortKills ?? 0));
+          const strikePackageKills = Math.max(0, Math.round(outcomeMeta.capKills ?? (r.kind === "airCover" ? r.kills?.cap ?? 0 : 0)));
           outcomeSummary = outcome.result ? ` [${outcome.result.toUpperCase()}]` : "";
+          const detailFragments: string[] = [];
+
           if (outcome.defenderDestroyed) {
-            outcomeSummary += " — Target destroyed!";
+            detailFragments.push("Target destroyed!");
           } else if (typeof outcome.damageInflicted === "number" && outcome.damageInflicted > 0) {
-            outcomeSummary += ` — ${outcome.damageInflicted} damage dealt`;
-          } else if (r.kind === "escort" && interceptorAttrition > 0) {
-            outcomeSummary += ` — ${interceptorAttrition} damage to interceptors`;
-          } else if (r.kind === "airCover" && bomberAttrition > 0) {
-            outcomeSummary += ` — ${bomberAttrition} damage to strike package`;
+            detailFragments.push(`${outcome.damageInflicted} damage dealt`);
           }
 
-          if (r.kind === "escort") {
-            if (interceptorKills > 0) {
-              outcomeSummary += `${interceptorAttrition > 0 ? "," : " —"} ${interceptorKills} interceptor${interceptorKills === 1 ? "" : "s"} destroyed`;
-            }
-            if (escortAttrition > 0) {
-              outcomeSummary += `${interceptorAttrition > 0 || interceptorKills > 0 ? ";" : " —"} escort losses ${escortAttrition}%`;
-            }
-          } else if (r.kind === "airCover") {
-            if (bomberKills > 0) {
-              outcomeSummary += `${bomberAttrition > 0 ? "," : " —"} strike package destroyed`;
+          if (r.kind === "strike") {
+            if (bomberAttrition > 0) {
+              detailFragments.push(`strike package losses ${bomberAttrition}%`);
             }
             if (interceptorAttrition > 0) {
-              outcomeSummary += `${bomberAttrition > 0 || bomberKills > 0 ? ";" : " —"} patrol losses ${interceptorAttrition}%`;
+              detailFragments.push(`interceptors lost ${interceptorAttrition}%`);
             }
+            if (escortAttrition > 0) {
+              detailFragments.push(`escorts lost ${escortAttrition}%`);
+            }
+            if (interceptorKills > 0) {
+              detailFragments.push(`${interceptorKills} interceptor flight${interceptorKills === 1 ? "" : "s"} destroyed`);
+            }
+            if (escortKills > 0) {
+              detailFragments.push(`${escortKills} escort flight${escortKills === 1 ? "" : "s"} destroyed`);
+            }
+          } else if (r.kind === "escort") {
+            if (interceptorAttrition > 0) {
+              detailFragments.push(`${interceptorAttrition} damage to interceptors`);
+            }
+            if (interceptorKills > 0) {
+              detailFragments.push(`${interceptorKills} interceptor${interceptorKills === 1 ? "" : "s"} destroyed`);
+            }
+            if (escortAttrition > 0) {
+              detailFragments.push(`escort losses ${escortAttrition}%`);
+            }
+            if (escortKills > 0) {
+              detailFragments.push(`${escortKills} escort flight${escortKills === 1 ? "" : "s"} lost`);
+            }
+          } else if (r.kind === "airCover") {
+            if (bomberAttrition > 0) {
+              detailFragments.push(`${bomberAttrition} damage to strike package`);
+            }
+            if (strikePackageKills > 0) {
+              detailFragments.push("strike package destroyed");
+            }
+            if (escortAttrition > 0) {
+              detailFragments.push(`escorts lost ${escortAttrition}%`);
+            }
+            if (interceptorAttrition > 0) {
+              detailFragments.push(`patrol losses ${interceptorAttrition}%`);
+            }
+          }
+
+          if (detailFragments.length > 0) {
+            outcomeSummary += ` — ${detailFragments.join("; ")}`;
           }
         }
 
@@ -4177,8 +4208,8 @@ export class BattleScreen {
     locKey: string,
     renderer: HexMapRenderer
   ): Promise<void> {
-    const firstPassDelayMs = this.scaleAirSequenceMs(180);
-    const secondPassDelayMs = this.scaleAirSequenceMs(130);
+    const firstPassDelayMs = this.scaleAirSequenceMs(90);
+    const secondPassDelayMs = this.scaleAirSequenceMs(70);
 
     if (event.escorts.length > 0) {
       await renderer.playDogfight(locKey);

@@ -299,3 +299,76 @@ registerTest("BATTLESCREEN_AIR_MISSION_LOGS_FORMAT_STRIKE_TARGETS_IN_OFFSET_COOR
     }
   });
 });
+
+registerTest("BATTLESCREEN_STRIKE_LOGS_INCLUDE_AIR_COMBAT_DAMAGE_ON_BOTH_SIDES", async ({ When, Then }) => {
+  const published: Array<{ category: string; summary: string; details?: Record<string, unknown> }> = [];
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+
+  const reports: AirMissionReportEntry[] = [
+    {
+      id: "strike-report-2",
+      missionId: "strike-2",
+      turnResolved: 8,
+      timestamp: "2026-04-05T22:52:00.000Z",
+      faction: "Player",
+      unitType: "Bomber",
+      unitKey: "bomber-2",
+      kind: "strike",
+      targetHex: { q: 4, r: 3 },
+      bomberAttrition: 19,
+      interceptorAttrition: 27,
+      escortAttrition: 8,
+      outcome: {
+        type: "strike",
+        result: "partial",
+        details: "Strike package damaged the target.",
+        refitRequired: true,
+        damageInflicted: 3,
+        defenderType: "Artillery_105",
+        meta: {
+          bomberAttrition: 19,
+          interceptorAttrition: 27,
+          interceptorKills: 1,
+          escortAttrition: 8
+        }
+      }
+    }
+  ];
+
+  (screen as any).seenAirReportIds = new Set<string>();
+  (screen as any).battleState = {
+    ensureGameEngine: () => ({
+      getAirMissionReports: () => reports
+    })
+  };
+  (screen as any).publishActivityEvent = (event: { category: string; summary: string; details?: Record<string, unknown> }) => {
+    published.push(event);
+  };
+
+  await When("resolved strike reports are mirrored into the activity log", async () => {
+    (screen as any).syncAirMissionLogs();
+  });
+
+  await Then("the strike summary should include target damage plus strike, interceptor, and escort losses", async () => {
+    if (published.length !== 1) {
+      throw new Error(`Expected 1 strike activity entry, received ${published.length}.`);
+    }
+
+    const summary = published[0]!.summary;
+    if (!summary.includes("3 damage dealt")) {
+      throw new Error(`Expected target damage in strike summary, saw ${summary}.`);
+    }
+    if (!summary.includes("strike package losses 19%")) {
+      throw new Error(`Expected strike-package attrition in strike summary, saw ${summary}.`);
+    }
+    if (!summary.includes("interceptors lost 27%")) {
+      throw new Error(`Expected interceptor attrition in strike summary, saw ${summary}.`);
+    }
+    if (!summary.includes("escorts lost 8%")) {
+      throw new Error(`Expected escort attrition in strike summary, saw ${summary}.`);
+    }
+    if (!summary.includes("1 interceptor flight destroyed")) {
+      throw new Error(`Expected interceptor kill count in strike summary, saw ${summary}.`);
+    }
+  });
+});

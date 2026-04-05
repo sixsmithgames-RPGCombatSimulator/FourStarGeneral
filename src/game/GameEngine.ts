@@ -5048,6 +5048,10 @@ private automateSupplyConvoys(
     });
     // Seed ally placements if ally side is present. Ally units are always predeployed.
     if (this.allySide) {
+      console.log("[GameEngine] Ally units from config:", this.allySide.units.length);
+      this.allySide.units.forEach((unit, index) => {
+        console.log(`[GameEngine] Ally unit ${index}:`, unit.type, "at", unit.hex);
+      });
       (this.allySide.units ?? []).forEach((unit) => {
         const clone = structuredClone(unit);
         this.ensureUnitId(clone);
