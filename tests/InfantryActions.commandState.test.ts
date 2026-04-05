@@ -999,3 +999,86 @@ registerTest("TOWED_GUNS_CAN_DEPLOY_AND_FIRE_IF_THEY_HAVE_NOT_MOVED", async ({ T
 
   await Then("already-towed guns can deploy and fire in the same turn when they have not moved", () => {});
 });
+
+registerTest("TOWED_GUNS_CANNOT_RETALIATE_UNTIL_DEPLOYED", async ({ Then }) => {
+  const playerAttacker: ScenarioUnit = {
+    type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 40,
+    entrench: 0,
+    facing: "SE" as ScenarioUnit["facing"]
+  };
+  const towedBotGun: ScenarioUnit = {
+    type: "AT_Gun_50mm" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "SW" as ScenarioUnit["facing"],
+    towState: "towed"
+  };
+
+  const { engine: playerVsTowed } = createEngine([playerAttacker], [towedBotGun]);
+  const towedPreview = playerVsTowed.previewAttack(playerAttacker.hex, towedBotGun.hex);
+  if (!towedPreview) {
+    throw new Error("Expected preview against a limbered gun to be available.");
+  }
+  if (towedPreview.retaliationPossible || towedPreview.expectedRetaliation > 0) {
+    throw new Error(`Expected limbered gun preview to show no retaliation, received ${JSON.stringify(towedPreview)}`);
+  }
+  if (!towedPreview.retaliationNote?.includes("limbered")) {
+    throw new Error(`Expected limbered retaliation preview note, received ${JSON.stringify(towedPreview)}`);
+  }
+
+  const towedResolution = playerVsTowed.attackUnit(playerAttacker.hex, towedBotGun.hex);
+  if (!towedResolution) {
+    throw new Error("Expected live attack against a limbered gun to resolve.");
+  }
+  if (towedResolution.retaliationOccurred) {
+    throw new Error(`Expected limbered gun to skip retaliation, received ${JSON.stringify(towedResolution)}`);
+  }
+
+  const deployedBotGun: ScenarioUnit = {
+    ...towedBotGun,
+    towState: "deployed"
+  };
+  const { engine: playerVsDeployed } = createEngine([playerAttacker], [deployedBotGun]);
+  const deployedPreview = playerVsDeployed.previewAttack(playerAttacker.hex, deployedBotGun.hex);
+  if (!deployedPreview) {
+    throw new Error("Expected preview against a deployed gun to be available.");
+  }
+  if (!deployedPreview.retaliationPossible || deployedPreview.expectedRetaliation <= 0) {
+    throw new Error(`Expected deployed gun preview to retain retaliation, received ${JSON.stringify(deployedPreview)}`);
+  }
+
+  const playerTowedGun: ScenarioUnit = {
+    ...towedBotGun,
+    hex: { q: 1, r: 1 }
+  };
+  const botAttacker: ScenarioUnit = {
+    ...playerAttacker,
+    hex: { q: 1, r: 0 }
+  };
+  const { engine: botVsTowed } = createEngine([playerTowedGun], [botAttacker]);
+  const towedBotAttack = (botVsTowed as any).resolveBotAttack(botAttacker, botAttacker.hex, playerTowedGun.hex);
+  if (towedBotAttack?.retaliation) {
+    throw new Error(`Expected bot summary to omit retaliation from limbered gun, received ${JSON.stringify(towedBotAttack)}`);
+  }
+
+  const playerDeployedGun: ScenarioUnit = {
+    ...playerTowedGun,
+    towState: "deployed"
+  };
+  const { engine: botVsDeployed } = createEngine([playerDeployedGun], [botAttacker]);
+  const deployedBotAttack = (botVsDeployed as any).resolveBotAttack(botAttacker, botAttacker.hex, playerDeployedGun.hex);
+  if (!deployedBotAttack?.retaliation || deployedBotAttack.retaliation.damage <= 0) {
+    throw new Error(`Expected deployed gun to retain bot-turn retaliation, received ${JSON.stringify(deployedBotAttack)}`);
+  }
+
+  await Then("limbered guns lose retaliation in previews and live combat until they are deployed again", () => {});
+});

@@ -109,6 +109,30 @@ const RECON_OVERRUN_PENALTY = 10;
  * Small reward for approach hexes that naturally block LOS and help hide the advance.
  */
 const BLOCKING_TERRAIN_APPROACH_BONUS = 3;
+/**
+ * Reward for shaving whole turns off the march to a firing position.
+ */
+const TIME_TO_TARGET_BONUS = 8;
+/**
+ * Penalty for burning movement without improving when the unit can realistically fight.
+ */
+const STALLED_APPROACH_PENALTY = 6;
+/**
+ * Infantry and towed support should lean into masked covered movement while closing.
+ */
+const INFANTRY_COVER_MARCH_BONUS = 4;
+/**
+ * Infantry caught crossing open ground ahead of the line are very vulnerable.
+ */
+const INFANTRY_EXPOSED_MARCH_PENALTY = 5;
+/**
+ * Armor should arrive as a spearhead, not as single vehicles trickling forward.
+ */
+const ARMORED_UNIFIED_FRONT_BONUS = 5;
+/**
+ * Armor that outruns the rest of the front loses most of its battlefield leverage.
+ */
+const ARMORED_OUTRUN_SUPPORT_PENALTY = 7;
 
 /**
  * Bonus for recon units spotting enemies for allies.
@@ -351,7 +375,7 @@ function scoreObjectiveApproach(
       expectedDamage: 0,
       expectedRetaliation: 0,
       score: bestReductionScore - (option.path.length - 1)
-        + calculateApproachPositionScore(snapshot, option.hex, bestTargetHex, input, modifiers),
+        + calculateApproachPositionScore(snapshot, option.hex, bestTargetHex, input, modifiers, option.path.length),
       rationale
     };
 
@@ -412,14 +436,21 @@ function scoreEnemyPressure(
 
       const originDistance = hexDistance(snapshot.unit.hex, enemy.unit.hex);
       const distance = hexDistance(option.hex, enemy.unit.hex);
-      if (distance >= originDistance) {
-        continue; // Only reward moves that demonstrably tighten the noose.
+      const distanceGain = originDistance - distance;
+      const originTurns = estimateTurnsToAttackWindow(snapshot.definition, snapshot.unit.hex, enemy.unit.hex, input);
+      const destinationTurns = estimateTurnsToAttackWindow(snapshot.definition, option.hex, enemy.unit.hex, input);
+      const turnGain = originTurns - destinationTurns;
+      if (distanceGain <= 0 && turnGain <= 0) {
+        continue; // Only reward moves that tighten the noose or materially improve attack timing.
       }
 
-      const distanceGain = originDistance - distance;
-      let score = 3 + distanceGain * 3.5 - (option.path.length - 1) * 0.5;
-      score += calculateTargetPriorityBonus(purpose, enemy) * 0.35;
-      score += calculateApproachPositionScore(snapshot, option.hex, enemy.unit.hex, input, modifiers);
+      let score = 4
+        + distanceGain * 2.5
+        + turnGain * 12
+        + calculateTargetPriorityBonus(purpose, enemy) * 0.5
+        + calculatePressureDamagePotential(snapshot, enemy) * 0.22
+        - (option.path.length - 1) * 0.45;
+      score += calculateApproachPositionScore(snapshot, option.hex, enemy.unit.hex, input, modifiers, option.path.length);
 
       const candidate: ActionCandidate = {
         destination: option.hex,
@@ -710,6 +741,90 @@ function calculatePurposeBonus(
 }
 
 /**
+ * Uses weapon stats and battlefield role to estimate how urgently the formation should neutralize this target.
+ */
+function calculateThreatProjection(defender: PlannerUnitSnapshot | null): number {
+  if (!defender) {
+    return 0;
+  }
+
+  const def = defender.definition;
+  let threat = 0;
+  threat += def.softAttack * 0.45;
+  threat += def.hardAttack * 0.75;
+  threat += def.ap * 0.7;
+  threat += (def.rangeMax ?? 1) * 2.5;
+  threat += Math.max(def.armor.front, def.armor.side, def.armor.top) * 0.8;
+
+  if (def.class === "artillery") {
+    threat += 18;
+  }
+  if (def.combat.role === "antiTank") {
+    threat += 16;
+  }
+  if (isArmoredGroundUnit(def)) {
+    threat += 12;
+  }
+  if (def.class === "recon") {
+    threat += 6;
+  }
+  if (def.traits.includes("intercept")) {
+    threat += 10;
+  }
+
+  return threat;
+}
+
+/**
+ * Uses the unit's real tactical move rate so "next turn" estimates do not inherit the planner's long-horizon search allowance.
+ */
+function resolveTacticalMoveRate(definition: UnitTypeDefinition): number {
+  return Math.max(1, definition.movement ?? 1);
+}
+
+/**
+ * Rough offensive leverage estimate for staging and pressure scoring.
+ */
+function calculatePressureDamagePotential(
+  attacker: PlannerUnitSnapshot,
+  defender: PlannerUnitSnapshot | null
+): number {
+  if (!defender) {
+    return 0;
+  }
+
+  const againstArmor = isArmoredGroundUnit(defender.definition);
+  const baseDamage = againstArmor
+    ? attacker.definition.hardAttack * 0.75 + attacker.definition.ap * 0.55
+    : attacker.definition.softAttack * 0.65 + attacker.definition.hardAttack * 0.15;
+  const rangeFactor = Math.max(1, (attacker.definition.rangeMax ?? 1) * 0.35);
+  return baseDamage + rangeFactor;
+}
+
+/**
+ * Estimates how many turns remain before the unit can reach a valid attack window on the target.
+ */
+function estimateTurnsToAttackWindow(
+  definition: UnitTypeDefinition,
+  fromHex: Axial,
+  targetHex: Axial,
+  input: BotPlannerInput
+): number {
+  const rangeMin = definition.rangeMin ?? 1;
+  const rangeMax = definition.rangeMax ?? 1;
+  const distance = hexDistance(fromHex, targetHex);
+  const attackBandGap = distanceToAttackBand(distance, rangeMin, rangeMax);
+  const tacticalMoveRate = resolveTacticalMoveRate(definition);
+  let turns = attackBandGap <= 0 ? 0 : Math.ceil(attackBandGap / tacticalMoveRate);
+
+  if (requiresDirectLOS(definition) && !input.losAllows(fromHex, targetHex, definition.moveType === "air")) {
+    turns += 1;
+  }
+
+  return turns;
+}
+
+/**
  * High-value battlefield assets attract fire even from generalists because removing them changes the whole fight.
  */
 function calculateStrategicTargetBonus(defender: PlannerUnitSnapshot | null): number {
@@ -719,17 +834,18 @@ function calculateStrategicTargetBonus(defender: PlannerUnitSnapshot | null): nu
 
   let bonus = 0;
   if (isArmoredGroundUnit(defender.definition)) {
-    bonus += 8;
+    bonus += 14;
   }
   if (defender.definition.class === "artillery") {
-    bonus += 10;
+    bonus += 18;
   }
   if (defender.definition.combat.role === "antiTank") {
-    bonus += 4;
+    bonus += 12;
   }
   if (defender.definition.class === "recon") {
-    bonus += 2;
+    bonus += 4;
   }
+  bonus += calculateThreatProjection(defender) * 0.55;
   return bonus;
 }
 
@@ -1025,7 +1141,8 @@ function calculateApproachPositionScore(
   destination: Axial,
   focusHex: Axial | null,
   input: BotPlannerInput,
-  modifiers: DifficultyModifiers
+  modifiers: DifficultyModifiers,
+  pathLength = 1
 ): number {
   if (!modifiers.useTacticalAI) {
     return 0;
@@ -1047,6 +1164,13 @@ function calculateApproachPositionScore(
   const rangeMax = snapshot.definition.rangeMax ?? 1;
   const focusDistance = focusHex ? hexDistance(destination, focusHex) : Number.POSITIVE_INFINITY;
   const inAttackBand = focusHex ? distanceToAttackBand(focusDistance, rangeMin, rangeMax) === 0 : false;
+  const originTurnsToAttack = focusHex
+    ? estimateTurnsToAttackWindow(snapshot.definition, snapshot.unit.hex, focusHex, input)
+    : 0;
+  const destinationTurnsToAttack = focusHex
+    ? estimateTurnsToAttackWindow(snapshot.definition, destination, focusHex, input)
+    : 0;
+  const turnGain = originTurnsToAttack - destinationTurnsToAttack;
   const wantsCoveredApproach = requiresDirectLOS(snapshot.definition)
     || snapshot.definition.class === "recon"
     || isArmoredGroundUnit(snapshot.definition);
@@ -1068,6 +1192,15 @@ function calculateApproachPositionScore(
 
   if (terrain?.blocksLOS && nearestEnemyDistance <= PROXIMITY_ENGAGE_RADIUS + 2) {
     score += BLOCKING_TERRAIN_APPROACH_BONUS;
+    if (isArmoredGroundUnit(snapshot.definition)) {
+      score += 4;
+    }
+  }
+
+  if (turnGain > 0) {
+    score += turnGain * TIME_TO_TARGET_BONUS;
+  } else if (pathLength > 1 && focusHex && !inAttackBand) {
+    score -= STALLED_APPROACH_PENALTY;
   }
 
   if (nearbySupport > 0) {
@@ -1093,6 +1226,16 @@ function calculateApproachPositionScore(
     }
   }
 
+  if (snapshot.definition.class === "infantry" || snapshot.definition.class === "specialist") {
+    if (!inAttackBand) {
+      if (terrain?.blocksLOS || terrain?.defense >= 2 || visibleThreats === 0) {
+        score += INFANTRY_COVER_MARCH_BONUS;
+      } else if (visibleThreats > 0) {
+        score -= visibleThreats * INFANTRY_EXPOSED_MARCH_PENALTY;
+      }
+    }
+  }
+
   if (snapshot.definition.class === "recon") {
     if (nearbySupport === 0 && visibleThreats > 0) {
       score -= RECON_OVERRUN_PENALTY;
@@ -1102,8 +1245,33 @@ function calculateApproachPositionScore(
     }
   }
 
-  if (isArmoredGroundUnit(snapshot.definition) && nearbySupport > 0) {
-    score += 2;
+  if (isArmoredGroundUnit(snapshot.definition)) {
+    if (!inAttackBand && !terrain?.blocksLOS) {
+      score -= visibleThreats * 5;
+    }
+    if (!inAttackBand && visibleThreats > nearbySupport) {
+      score -= (visibleThreats - nearbySupport) * 6;
+    }
+    const alliedArmorTurnBand = input.botUnits
+      .filter((ally) => axialKey(ally.unit.hex) !== selfKey && isArmoredGroundUnit(ally.definition))
+      .map((ally) => {
+        const allyTurns = focusHex
+          ? estimateTurnsToAttackWindow(ally.definition, ally.unit.hex, focusHex, input)
+          : 0;
+        return Math.abs(destinationTurnsToAttack - allyTurns);
+      });
+    const closestArmorTimingGap = alliedArmorTurnBand.length > 0
+      ? Math.min(...alliedArmorTurnBand)
+      : Number.POSITIVE_INFINITY;
+
+    if (nearbySupport > 0) {
+      score += 2;
+    }
+    if (closestArmorTimingGap <= 1) {
+      score += ARMORED_UNIFIED_FRONT_BONUS;
+    } else if (Number.isFinite(closestArmorTimingGap) && destinationTurnsToAttack < originTurnsToAttack) {
+      score -= ARMORED_OUTRUN_SUPPORT_PENALTY + (closestArmorTimingGap - 1) * 2;
+    }
   }
 
   return score;
@@ -1325,7 +1493,7 @@ function scoreObjectiveAdvance(
         attackTarget: null,
         expectedDamage: 0,
         expectedRetaliation: 0,
-        score: score + calculateApproachPositionScore(snapshot, option.hex, objective.hex, input, modifiers),
+        score: score + calculateApproachPositionScore(snapshot, option.hex, objective.hex, input, modifiers, option.path.length),
         rationale: destKey === key
           ? `Occupy objective worth ${objective.vp} VP`
           : `Advance to objective worth ${objective.vp} VP`
@@ -1357,7 +1525,7 @@ function scoreFireSetup(
     return null;
   }
 
-  const nextTurnMoveAllowance = Math.max(1, input.movementAllowance(snapshot));
+  const nextTurnMoveAllowance = resolveTacticalMoveRate(snapshot.definition);
   const requiresLos = requiresDirectLOS(snapshot.definition);
   let best: ActionCandidate | null = null;
 
@@ -1365,7 +1533,7 @@ function scoreFireSetup(
     hex: Axial,
     path: readonly Axial[],
     enemy: PlannerUnitSnapshot
-  ): { score: number; rangeGap: number; futureGap: number; hasLos: boolean } => {
+  ): { score: number; rangeGap: number; futureGap: number; hasLos: boolean; turnsToAttack: number } => {
     const terrain = input.map.terrainAt(hex);
     const nearestEnemyDistance = enemies.reduce(
       (min, other) => Math.min(min, hexDistance(hex, other.unit.hex)),
@@ -1375,11 +1543,14 @@ function scoreFireSetup(
     const rangeGap = distanceToAttackBand(distance, rangeMin, rangeMax);
     const futureGap = Math.max(0, rangeGap - nextTurnMoveAllowance);
     const hasLos = !requiresLos || input.losAllows(hex, enemy.unit.hex, false);
+    const turnsToAttack = estimateTurnsToAttackWindow(snapshot.definition, hex, enemy.unit.hex, input);
 
     let score = FIRE_SETUP_BASE_BONUS
       + calculateTargetPriorityBonus(purpose, enemy)
+      + calculateThreatProjection(enemy) * 0.2
       - rangeGap * FIRE_SETUP_RANGE_GAP_PENALTY
       - futureGap * FIRE_SETUP_FUTURE_GAP_PENALTY
+      - turnsToAttack * TIME_TO_TARGET_BONUS * 0.7
       - (path.length - 1) * 0.75;
 
     if (futureGap === 0) {
@@ -1390,9 +1561,9 @@ function scoreFireSetup(
     score += hasLos ? FIRE_SETUP_LOS_BONUS : -FIRE_SETUP_NO_LOS_PENALTY;
     score += calculateTerrainPositionScore(hex, terrain, false);
     score += calculateArtilleryPositionScore(hex, nearestEnemyDistance, snapshot, enemy, modifiers);
-    score += calculateApproachPositionScore(snapshot, hex, enemy.unit.hex, input, modifiers);
+    score += calculateApproachPositionScore(snapshot, hex, enemy.unit.hex, input, modifiers, path.length);
 
-    return { score, rangeGap, futureGap, hasLos };
+    return { score, rangeGap, futureGap, hasLos, turnsToAttack };
   };
 
   for (const enemy of enemies) {
@@ -1426,16 +1597,18 @@ function scoreFireSetup(
       const rangeImprovement = originEvaluation.rangeGap - evaluation.rangeGap;
       const futureImprovement = originEvaluation.futureGap - evaluation.futureGap;
       const losImprovement = (evaluation.hasLos ? 1 : 0) - (originEvaluation.hasLos ? 1 : 0);
+      const turnImprovement = originEvaluation.turnsToAttack - evaluation.turnsToAttack;
 
       // If the move does not improve attack timing or LOS, it is just churn and should not compete.
-      if (rangeImprovement <= 0 && futureImprovement <= 0 && losImprovement <= 0) {
+      if (rangeImprovement <= 0 && futureImprovement <= 0 && losImprovement <= 0 && turnImprovement <= 0) {
         continue;
       }
 
       let score = evaluation.score
         + rangeImprovement * 6
         + futureImprovement * 10
-        + losImprovement * 8;
+        + losImprovement * 8
+        + turnImprovement * 14;
 
       const candidate: ActionCandidate = {
         destination: option.hex,

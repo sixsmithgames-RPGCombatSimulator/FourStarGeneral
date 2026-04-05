@@ -4313,6 +4313,14 @@ private automateSupplyConvoys(
     return unit.towState === "towed" ? "towed" : "deployed";
   }
 
+  private isRetaliationBlockedByTowState(unit: ScenarioUnit): boolean {
+    return this.resolveTowState(unit) === "towed";
+  }
+
+  private buildTowStateRetaliationUnavailableNote(subject: string): string {
+    return `${subject} is limbered and cannot return fire until deployed.`;
+  }
+
   private resolveBaseMovementAllowance(
     definition: UnitTypeDefinition,
     flags: ReturnType<GameEngine["createDefaultActionFlags"]>
@@ -7055,6 +7063,14 @@ private automateSupplyConvoys(
       };
     }
 
+    if (this.isRetaliationBlockedByTowState(retaliationDefender)) {
+      return {
+        expectedDamage: 0,
+        possible: false,
+        note: noteFor(this.buildTowStateRetaliationUnavailableNote("Target"))
+      };
+    }
+
     const distance = hexDistance(defenderHex, attackerHex);
     const defenderRangeMin = defenderDef.rangeMin ?? 1;
     let defenderRangeMax = defenderDef.rangeMax ?? 1;
@@ -7196,9 +7212,9 @@ private automateSupplyConvoys(
 
       cost = this.resolveClearedPathMoveCost(moveType, cost, hex);
 
-      // Edge tank traps penalize the specific boundary being crossed rather than the whole hex interior.
+      // Tank traps completely block tracked and wheeled vehicles (must be cleared by engineers).
       if ((moveType === "track" || moveType === "wheel") && fromHex && this.hasTankTrapAcrossEdge(fromHex, hex)) {
-        cost = Number((cost * 3).toFixed(2));
+        cost = 999;
       }
     }
 
@@ -7258,10 +7274,22 @@ private automateSupplyConvoys(
   private hasTankTrapAcrossEdge(fromHex: Axial, toHex: Axial): boolean {
     const enteringFacing = this.resolveCrossedHexEdge(fromHex, toHex);
     const exitingFacing = this.resolveCrossedHexEdge(toHex, fromHex);
-    return (
-      this.hasEdgeModification(toHex, "tankTraps", enteringFacing) ||
-      this.hasEdgeModification(fromHex, "tankTraps", exitingFacing)
-    );
+
+    // Check if tank trap exists on either side of the edge
+    const hasTrapAtTo = this.hasEdgeModification(toHex, "tankTraps", enteringFacing);
+    const hasTrapAtFrom = this.hasEdgeModification(fromHex, "tankTraps", exitingFacing);
+
+    // If no trap, no blockage
+    if (!hasTrapAtTo && !hasTrapAtFrom) {
+      return false;
+    }
+
+    // Check if engineers have cleared a path through the trap
+    const hasClearedPathAtTo = this.hasEdgeModification(toHex, "clearedPath", enteringFacing);
+    const hasClearedPathAtFrom = this.hasEdgeModification(fromHex, "clearedPath", exitingFacing);
+
+    // Tank trap blocks unless cleared on the same edge
+    return (hasTrapAtTo && !hasClearedPathAtTo) || (hasTrapAtFrom && !hasClearedPathAtFrom);
   }
 
   /**
@@ -8303,6 +8331,14 @@ private automateSupplyConvoys(
       const retaliationDefender = structuredClone(defenderWasOnSentry ? defenderBefore : updatedDefender);
       retaliationDefender.facing = this.resolveFacingToward(defenderHex, attackerHex, retaliationDefender.facing);
       retaliationDefender.onSentry = false;
+
+      if (retaliationAllowed && this.isRetaliationBlockedByTowState(retaliationDefender)) {
+        retaliationAllowed = false;
+        retaliationNoteForEntry = resolveRetaliationNote(
+          defenderWasOnSentry,
+          this.buildTowStateRetaliationUnavailableNote("Enemy unit")
+        );
+      }
 
       if (retaliationAllowed && this.resolveUnitSuppressionState(retaliationDefender).state === "pinned") {
         retaliationAllowed = false;
@@ -9818,7 +9854,7 @@ private automateSupplyConvoys(
     const expectedDamage = Math.max(0, Math.round(result.expectedDamage));
 
     let expectedRetaliation = 0;
-    if (!(atkIsAir && !defIsAir)) {
+    if (!(atkIsAir && !defIsAir) && !this.isRetaliationBlockedByTowState(defUnit)) {
       const distance = hexDistance(defenderHex, attackerHex);
       const rMin = defDef.rangeMin ?? 1;
       const rMax = defDef.rangeMax ?? 1;
@@ -10569,6 +10605,101 @@ private automateSupplyConvoys(
   }
 
   /**
+   * Captures how dangerous the target is to the bot's ground advance so sorties bias toward decisive battlefield threats.
+   */
+  private calculateBotStrikeThreatValue(definition: UnitTypeDefinition): number {
+    let value = 0;
+    value += definition.softAttack * 0.18;
+    value += definition.hardAttack * 0.4;
+    value += definition.ap * 0.32;
+    value += (definition.rangeMax ?? 1) * 1.5;
+
+    if (definition.class === "artillery") {
+      value += 14;
+    }
+    if (definition.class === "tank" || definition.class === "vehicle") {
+      value += 10;
+    }
+    if (definition.combat.role === "antiTank") {
+      value += 8;
+    }
+
+    const heaviestArmor = Math.max(definition.armor.front, definition.armor.side, definition.armor.top);
+    if (heaviestArmor >= 6 && definition.combat.weight !== "light") {
+      value += 6;
+    }
+
+    return value;
+  }
+
+  /**
+   * Different strike aircraft should value different target classes even before raw damage is considered.
+   */
+  private calculateBotStrikeRoleBonus(
+    attackerDef: UnitTypeDefinition,
+    targetDef: UnitTypeDefinition
+  ): number {
+    const priorityTarget = this.isPriorityBotStrikeTarget(targetDef);
+
+    if (attackerDef.combat.role === "antiVehicle") {
+      if (targetDef.class === "artillery") {
+        return 10;
+      }
+      return priorityTarget ? 12 : -12;
+    }
+
+    if (attackerDef.combat.role === "antiInfantry") {
+      if (targetDef.class === "artillery") {
+        return 10;
+      }
+      if (targetDef.class === "infantry" || targetDef.class === "specialist") {
+        return 0;
+      }
+      return priorityTarget ? 6 : -2;
+    }
+
+    return priorityTarget ? 4 : 0;
+  }
+
+  /**
+   * Raw expected damage is discounted when the sortie is hitting a low-value target for its aircraft role.
+   */
+  private scoreBotStrikeEffectValue(
+    attackerDef: UnitTypeDefinition,
+    targetDef: UnitTypeDefinition,
+    strikeDamage: number
+  ): number {
+    if (strikeDamage <= 0) {
+      return 0;
+    }
+
+    const priorityTarget = this.isPriorityBotStrikeTarget(targetDef);
+    let multiplier = 0.4;
+
+    if (attackerDef.combat.role === "antiVehicle") {
+      multiplier = priorityTarget ? 0.7 : 0.25;
+    } else if (attackerDef.combat.role === "antiInfantry") {
+      if (targetDef.class === "artillery") {
+        multiplier = 0.65;
+      } else if (targetDef.class === "infantry" || targetDef.class === "specialist") {
+        multiplier = 0.4;
+      } else if (priorityTarget) {
+        multiplier = 0.35;
+      }
+    } else if (priorityTarget) {
+      multiplier = 0.55;
+    }
+
+    let value = strikeDamage * multiplier;
+    if (targetDef.class === "artillery") {
+      value += 6;
+    } else if (priorityTarget) {
+      value += 4;
+    }
+    return value;
+  }
+
+  /**
    * Rates bot strike targets so both bomber classes prefer armor and artillery over convenience shots.
    */
   private scoreBotStrikeTarget(attackerDef: UnitTypeDefinition, origin: Axial, target: ScenarioUnit): number {
@@ -10582,14 +10713,12 @@ private automateSupplyConvoys(
 
     if (this.isPriorityBotStrikeTarget(targetDef)) {
       score += 34;
-      if (targetDef.class === "artillery") {
-        score += attackerDef.combat.role === "antiInfantry" ? 4 : 0;
-      } else if (attackerDef.combat.role === "antiVehicle") {
-        score += 4;
-      }
     } else {
       score -= 10;
     }
+
+    score += this.calculateBotStrikeThreatValue(targetDef) * 0.45;
+    score += this.calculateBotStrikeRoleBonus(attackerDef, targetDef);
 
     if (targetDef.combat.role === "antiTank") {
       score += 4;
@@ -10597,6 +10726,195 @@ private automateSupplyConvoys(
 
     score += Math.max(0, (target.strength ?? 100) * 0.05);
     return score;
+  }
+
+  /** Collects unassigned, mission-ready bot aircraft for a specific sortie role. */
+  private collectAvailableBotAircraftForRole(role: "strike" | "escort" | "cap"): ScenarioUnit[] {
+    return Array.from(this.botPlacements.values()).filter((unit) => {
+      const def = this.getUnitDefinition(unit.type);
+      const profile = def.airSupport;
+      if (!this.isAircraft(def) || !profile || !profile.roles?.includes(role)) {
+        return false;
+      }
+      const squadronId = this.getSquadronId(unit);
+      if (this.airMissionAssignmentsByUnit.has(squadronId)) {
+        return false;
+      }
+      if (this.aircraftNeedsRearm("Bot", squadronId)) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  /** Mirrors the strike-resolution damage scaling so scheduling decisions reflect the real attack profile. */
+  private scaleAirMissionAttackResult(
+    result: ReturnType<typeof resolveAttack>,
+    attackingDefinition: UnitTypeDefinition,
+    defendingDefinition: UnitTypeDefinition
+  ): ReturnType<typeof resolveAttack> {
+    if (this.isBomber(attackingDefinition) && !this.isAircraft(defendingDefinition)) {
+      return {
+        ...result,
+        damagePerHit: result.damagePerHit * 10,
+        expectedDamage: result.expectedDamage * 10,
+        expectedSuppression: result.expectedSuppression * 10
+      };
+    }
+
+    if (this.isAircraft(attackingDefinition) && !this.isBomber(attackingDefinition) && this.isAircraft(defendingDefinition)) {
+      return {
+        ...result,
+        damagePerHit: result.damagePerHit * 4,
+        expectedDamage: result.expectedDamage * 4,
+        expectedSuppression: result.expectedSuppression * 4
+      };
+    }
+
+    return result;
+  }
+
+  /** Estimates how much damage a strike aircraft should inflict if it reaches the target. */
+  private estimateBotStrikeDamageAgainstTarget(attacker: ScenarioUnit, target: ScenarioUnit): number {
+    const req = this.buildMissionAttackRequest("Bot", attacker, target);
+    if (!req) {
+      return 0;
+    }
+    const attackerDef = this.getUnitDefinition(attacker.type);
+    const targetDef = this.getUnitDefinition(target.type);
+    const scaled = this.scaleAirMissionAttackResult(resolveAttack(req), attackerDef, targetDef);
+    return Math.max(0, Math.round(scaled.expectedDamage));
+  }
+
+  /**
+   * Estimates expected bomber attrition from player flak/CAP for a prospective strike, while respecting any
+   * defensive shots already likely to be consumed by earlier queued raids in the same turn.
+   */
+  private estimateBotStrikeAttrition(
+    attacker: ScenarioUnit,
+    targetHex: Axial,
+    escort: ScenarioUnit | null,
+    reservedFlakIds: ReadonlySet<string>,
+    reservedCapMissionIds: ReadonlySet<string>
+  ): {
+    expectedAttrition: number;
+    bomberStrengthAfter: number;
+    bomberDestroyed: boolean;
+    engagedFlakIds: string[];
+    engagedCapMissionIds: string[];
+  } {
+    const attackerDef = this.getUnitDefinition(attacker.type);
+    let currentBomber = structuredClone(attacker);
+    let expectedAttrition = 0;
+    const engagedFlakIds: string[] = [];
+    const engagedCapMissionIds: string[] = [];
+
+    const flakUnits = this.findAllActiveFlakUnitsForHex("Player", targetHex).filter((entry) => {
+      const flakId = this.getSquadronId(entry.unit);
+      return !reservedFlakIds.has(flakId);
+    });
+
+    for (const flakEntry of flakUnits) {
+      if (currentBomber.strength <= 0) {
+        break;
+      }
+
+      const flakReq = this.buildMissionAttackRequest("Player", flakEntry.unit, currentBomber);
+      if (!flakReq) {
+        continue;
+      }
+
+      let flakResult = resolveAttack(flakReq);
+      const flakDef = this.getUnitDefinition(flakEntry.unit.type);
+      if (this.hasAntiAirCapability(flakDef) && this.isAircraft(attackerDef)) {
+        flakResult = {
+          ...flakResult,
+          accuracy: flakResult.accuracy * 0.25,
+          expectedHits: flakResult.expectedHits * 0.25,
+          expectedDamage: flakResult.expectedDamage * 0.25,
+          expectedSuppression: flakResult.expectedSuppression * 0.25
+        };
+      }
+
+      const suffered = Math.max(0, Math.round(flakResult.expectedDamage));
+      engagedFlakIds.push(this.getSquadronId(flakEntry.unit));
+      expectedAttrition += suffered;
+      currentBomber = {
+        ...currentBomber,
+        strength: Math.max(0, currentBomber.strength - suffered)
+      };
+    }
+
+    if (currentBomber.strength <= 0) {
+      return {
+        expectedAttrition,
+        bomberStrengthAfter: 0,
+        bomberDestroyed: true,
+        engagedFlakIds,
+        engagedCapMissionIds
+      };
+    }
+
+    const capOverrides = new Map<string, ScenarioUnit>();
+    const availableCapMissions = this.findAllActiveAirCoverForHex("Player", axialKey(targetHex)).filter(
+      (mission) => mission.interceptions < 1 && !reservedCapMissionIds.has(mission.id)
+    );
+
+    if (escort && availableCapMissions.length > 0) {
+      const escortedCap = availableCapMissions[0];
+      const capLookup = this.lookupUnitBySquadronId(escortedCap.unitKey, "Player");
+      if (capLookup) {
+        const capUnit = structuredClone(capLookup.unit);
+        const escortReq = this.buildMissionAttackRequest("Bot", escort, capUnit);
+        if (escortReq) {
+          const escortDef = this.getUnitDefinition(escort.type);
+          const capDef = this.getUnitDefinition(capUnit.type);
+          const escortResult = this.scaleAirMissionAttackResult(resolveAttack(escortReq), escortDef, capDef);
+          const inflicted = Math.max(0, Math.round(escortResult.expectedDamage));
+          capUnit.strength = Math.max(0, capUnit.strength - inflicted);
+          if (capUnit.strength <= 0) {
+            engagedCapMissionIds.push(escortedCap.id);
+          } else {
+            capOverrides.set(escortedCap.id, capUnit);
+          }
+        }
+      }
+    }
+
+    for (const capMission of availableCapMissions) {
+      if (currentBomber.strength <= 0 || engagedCapMissionIds.includes(capMission.id)) {
+        continue;
+      }
+
+      const capLookup = this.lookupUnitBySquadronId(capMission.unitKey, "Player");
+      const capUnit = capOverrides.get(capMission.id) ?? capLookup?.unit;
+      if (!capUnit) {
+        continue;
+      }
+
+      const capReq = this.buildMissionAttackRequest("Player", capUnit, currentBomber);
+      if (!capReq) {
+        continue;
+      }
+
+      const capDef = this.getUnitDefinition(capUnit.type);
+      const capResult = this.scaleAirMissionAttackResult(resolveAttack(capReq), capDef, attackerDef);
+      const suffered = Math.max(0, Math.round(capResult.expectedDamage));
+      engagedCapMissionIds.push(capMission.id);
+      expectedAttrition += suffered;
+      currentBomber = {
+        ...currentBomber,
+        strength: Math.max(0, currentBomber.strength - suffered)
+      };
+    }
+
+    return {
+      expectedAttrition,
+      bomberStrengthAfter: currentBomber.strength,
+      bomberDestroyed: currentBomber.strength <= 0,
+      engagedFlakIds,
+      engagedCapMissionIds
+    };
   }
 
   /** Tracks strike saturation so multiple bombers spread across valuable targets before doubling up. */
@@ -10618,6 +10936,17 @@ private automateSupplyConvoys(
       return 0;
     }
 
+    const strikeAircraft = this.collectAvailableBotAircraftForRole("strike").sort(
+      (left, right) => (right.strength ?? 100) - (left.strength ?? 100)
+    );
+    if (strikeAircraft.length === 0) {
+      return 0;
+    }
+
+    const escortPool = this.playerHasInterceptorPresence()
+      ? this.collectAvailableBotAircraftForRole("escort").sort((left, right) => (right.strength ?? 100) - (left.strength ?? 100))
+      : [];
+
     const queuedStrikeLoadByTarget = new Map<string, number>();
     for (const mission of this.scheduledAirMissions.values()) {
       if (mission.faction !== "Bot" || mission.template.kind !== "strike" || mission.status !== "queued") {
@@ -10630,30 +10959,58 @@ private automateSupplyConvoys(
       queuedStrikeLoadByTarget.set(targetKey, (queuedStrikeLoadByTarget.get(targetKey) ?? 0) + 1);
     }
 
+    const reservedFlakIds = new Set<string>();
+    const reservedCapMissionIds = new Set<string>();
     let scheduled = 0;
-    for (const [_unitKey, unit] of this.botPlacements.entries()) {
+    let reservedEscortCount = 0;
+    for (const unit of strikeAircraft) {
       const def = this.getUnitDefinition(unit.type);
-      const profile = def.airSupport;
-      const isBomber = this.isAircraft(def) && !!profile && profile.roles?.includes("strike");
-      if (!isBomber) {
-        continue;
-      }
-      // Skip squadrons already assigned or needing refit.
-      const squadronId = this.getSquadronId(unit);
-      if (this.airMissionAssignmentsByUnit.has(squadronId)) {
-        continue;
-      }
-      if (this.aircraftNeedsRearm("Bot", squadronId)) {
-        continue;
-      }
-
+      const escortCandidate = reservedEscortCount < escortPool.length ? escortPool[reservedEscortCount] : null;
+      const remainingRaidMass = Math.max(1, strikeAircraft.length - scheduled);
+      const waveSupportFactor = 1 + Math.max(0, remainingRaidMass - 1) * 0.35;
       const rankedTargets = playerUnits
-        .map((candidate) => ({
-          target: candidate,
-          score:
+        .map((candidate) => {
+          const candidateDef = this.getUnitDefinition(candidate.type);
+          const strikeDamage = this.estimateBotStrikeDamageAgainstTarget(unit, candidate);
+          const damageValue = this.scoreBotStrikeEffectValue(def, candidateDef, strikeDamage);
+          const attrition = this.estimateBotStrikeAttrition(
+            unit,
+            candidate.hex,
+            escortCandidate,
+            reservedFlakIds,
+            reservedCapMissionIds
+          );
+          const targetLoadPenalty = (queuedStrikeLoadByTarget.get(this.getBotStrikeTargetAssignmentKey(candidate)) ?? 0)
+            * (this.isPriorityBotStrikeTarget(candidateDef) ? 28 : 18);
+          const destructionPenalty = attrition.bomberDestroyed ? 90 : 0;
+          const crippledPenalty = attrition.bomberStrengthAfter <= 35 ? 32 : attrition.bomberStrengthAfter <= 55 ? 14 : 0;
+          const riskPenalty = (attrition.expectedAttrition * 1.25 + destructionPenalty + crippledPenalty) / waveSupportFactor;
+          let score =
             this.scoreBotStrikeTarget(def, unit.hex, candidate)
-            - (queuedStrikeLoadByTarget.get(this.getBotStrikeTargetAssignmentKey(candidate)) ?? 0) * 18
-        }))
+            + damageValue
+            - riskPenalty
+            - targetLoadPenalty;
+
+          if (escortCandidate) {
+            score += 8;
+          }
+          if (attrition.bomberDestroyed && !escortCandidate && remainingRaidMass <= 1) {
+            score -= 36;
+          }
+          if (attrition.bomberStrengthAfter <= 40 && !escortCandidate && remainingRaidMass <= 1) {
+            score -= 18;
+          }
+          if (attrition.expectedAttrition >= Math.max(18, damageValue) && !this.isPriorityBotStrikeTarget(candidateDef)) {
+            score -= 18;
+          }
+
+          return {
+            target: candidate,
+            score,
+            attrition,
+            shouldReserveEscort: escortCandidate !== null
+          };
+        })
         .sort((a, b) => b.score - a.score);
 
       if (rankedTargets.length === 0) {
@@ -10661,12 +11018,21 @@ private automateSupplyConvoys(
       }
 
       const origin = structuredClone(unit.hex);
-      for (const { target } of rankedTargets) {
+      for (const rankedTarget of rankedTargets) {
+        const { target, score, attrition, shouldReserveEscort } = rankedTarget;
+        if (score < 14) {
+          continue;
+        }
         const targetHex = structuredClone(target.hex);
         const result = this.tryScheduleAirMission({ kind: "strike", faction: "Bot", unitHex: origin, targetHex });
         if (result.ok) {
           const targetKey = this.getBotStrikeTargetAssignmentKey(target);
           queuedStrikeLoadByTarget.set(targetKey, (queuedStrikeLoadByTarget.get(targetKey) ?? 0) + 1);
+          attrition.engagedFlakIds.forEach((flakId) => reservedFlakIds.add(flakId));
+          attrition.engagedCapMissionIds.forEach((missionId) => reservedCapMissionIds.add(missionId));
+          if (shouldReserveEscort) {
+            reservedEscortCount += 1;
+          }
           scheduled += 1;
           break;
         }
@@ -11354,6 +11720,9 @@ private automateSupplyConvoys(
       const retaliationDefender = structuredClone(defenderWasOnSentry ? defender : updatedPlayer);
       retaliationDefender.facing = this.resolveFacingToward(targetHex, attackerHex, retaliationDefender.facing);
       retaliationDefender.onSentry = false;
+      if (this.isRetaliationBlockedByTowState(retaliationDefender)) {
+        retaliationAllowed = false;
+      }
       if (this.resolveUnitSuppressionState(retaliationDefender).state === "pinned") {
         retaliationAllowed = false;
       }

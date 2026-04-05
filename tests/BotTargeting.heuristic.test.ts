@@ -606,3 +606,54 @@ registerTest("BOT_LEVEL_MULTIPLE_BOMBERS_QUEUE_MULTIPLE_STRIKES", async ({ Given
     }
   });
 });
+
+registerTest("BOT_PLANNER_INFANTRY_MARCHES_THROUGH_COVER_TOWARD_HIGH_VALUE_GUNS", async ({ Given, When, Then }) => {
+  let plannedDestination = "";
+
+  await Given("an infantry unit choosing between a covered approach and an exposed shortcut toward enemy guns", async () => {
+    const botInfantry = createPlannerSnapshot("BotInfantry", playerInfantryDef, { q: 0, r: 1 });
+    const supportInfantry = createPlannerSnapshot("SupportInfantry", playerInfantryDef, { q: 0, r: 2 });
+    const enemyArtillery = createPlannerSnapshot("EnemyArtillery", playerArtilleryDef, { q: 4, r: 1 });
+    const enemyInfantry = createPlannerSnapshot("EnemyInfantry", playerInfantryDef, { q: 3, r: 2 });
+    const enemyInfantryKey = axialKey(enemyInfantry.unit.hex);
+
+    const input: BotPlannerInput = {
+      botUnits: [botInfantry, supportInfantry],
+      playerUnits: [enemyArtillery, enemyInfantry],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(botInfantry.unit.hex), "bot"],
+        [axialKey(supportInfantry.unit.hex), "bot"],
+        [axialKey(enemyArtillery.unit.hex), "player"],
+        [enemyInfantryKey, "player"]
+      ]),
+      map: {
+        inBounds: (hex) => hex.q >= 0 && hex.q <= 5 && hex.r >= 0 && hex.r <= 5,
+        terrainAt: (hex) => axialKey(hex) === "1,1" ? woods : plains,
+        movementCost: () => 1
+      },
+      losAllows: (attackerHex, targetHex) => {
+        if (axialKey(attackerHex) === "1,1" && axialKey(targetHex) === enemyInfantryKey) {
+          return false;
+        }
+        return true;
+      },
+      movementAllowance: () => 1,
+      attackEstimator: () => null,
+      difficulty: "Normal"
+    };
+
+    const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "0,1");
+    plannedDestination = plan ? axialKey(plan.destination) : "";
+  });
+
+  await When("the planner weighs approach timing against exposure on the way in", async () => {
+    // Planner result captured during Given to keep the test focused on the chosen destination.
+  });
+
+  await Then("the infantry should advance through the covered hex instead of drifting into the open", async () => {
+    if (plannedDestination !== "1,1") {
+      throw new Error(`Expected infantry to march through covered hex 1,1, but planner chose ${plannedDestination || "no move"}.`);
+    }
+  });
+});

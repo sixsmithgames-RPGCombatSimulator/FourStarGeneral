@@ -110,10 +110,14 @@ const botUnits = [
 
   // Artillery and air support (rear)
   makeUnit("Howitzer_105", [2, 15]),
+  makeUnit("SP_Artillery", [2, 15]),
   makeUnit("SP_Artillery", [3, 15]),
   makeUnit("Howitzer_105", [3, 15]),
+  makeUnit("SP_Artillery", [1, 15]),
   makeUnit("SP_Artillery", [0, 15]),
   makeUnit("Howitzer_105", [0, 15]),
+  makeUnit("SP_Artillery", [4, 15]),
+  makeUnit("SP_Artillery", [5, 15]),
   makeUnit("Flak_88", [1, 15]),
 
   // Air support - 4 tactical bombers with 1 fighter escort
