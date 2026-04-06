@@ -62,7 +62,8 @@ import {
   type BotStrategyMode,
   type BotDifficulty,
   type PlannerUnitSnapshot,
-  type AttackEstimate
+  type AttackEstimate,
+  type PlannedBotAction
 } from "./bot/BotPlanner";
 import { AIR_MISSION_TEMPLATES } from "../data/airMissions";
 import { TOWED_ARTILLERY_UNITS } from "../data/transportModes";
@@ -10406,6 +10407,82 @@ private automateSupplyConvoys(
     } satisfies BotPlannerInput;
   }
 
+  /**
+   * Heuristic plans may intentionally route through friendly hexes so rear units can join the line once
+   * the lead elements step off. Execute those lane-clearing plans first so follow-on units do not bounce
+   * off the very blockers the planner expected to move.
+   */
+  private prioritizeHeuristicPlansForExecution(plans: readonly PlannedBotAction[]): PlannedBotAction[] {
+    if (plans.length <= 1) {
+      return [...plans];
+    }
+
+    const planByOrigin = new Map<string, PlannedBotAction>();
+    const dependencyMap = new Map<string, Set<string>>();
+    const dependentCounts = new Map<string, number>();
+    plans.forEach((plan) => {
+      const originKey = axialKey(plan.origin);
+      planByOrigin.set(originKey, plan);
+      dependencyMap.set(originKey, new Set<string>());
+      dependentCounts.set(originKey, 0);
+    });
+
+    plans.forEach((plan) => {
+      const planKey = axialKey(plan.origin);
+      const blockers = dependencyMap.get(planKey)!;
+      for (let i = 1; i < plan.path.length; i += 1) {
+        const stepKey = axialKey(plan.path[i]);
+        const blocker = planByOrigin.get(stepKey);
+        if (!blocker || stepKey === planKey || axialKey(blocker.destination) === stepKey || blockers.has(stepKey)) {
+          continue;
+        }
+        blockers.add(stepKey);
+        dependentCounts.set(stepKey, (dependentCounts.get(stepKey) ?? 0) + 1);
+      }
+    });
+
+    const comparePlans = (a: PlannedBotAction, b: PlannedBotAction): number => {
+      const aKey = axialKey(a.origin);
+      const bKey = axialKey(b.origin);
+      const dependentDelta = (dependentCounts.get(bKey) ?? 0) - (dependentCounts.get(aKey) ?? 0);
+      if (dependentDelta !== 0) {
+        return dependentDelta;
+      }
+      const movingDelta =
+        Number(axialKey(b.destination) !== bKey)
+        - Number(axialKey(a.destination) !== aKey);
+      if (movingDelta !== 0) {
+        return movingDelta;
+      }
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return a.unitKey.localeCompare(b.unitKey);
+    };
+
+    const remaining = new Map(planByOrigin);
+    const pendingDependencies = new Map<string, Set<string>>();
+    dependencyMap.forEach((blockers, key) => pendingDependencies.set(key, new Set(blockers)));
+    const ordered: PlannedBotAction[] = [];
+
+    while (remaining.size > 0) {
+      const ready = Array.from(remaining.values())
+        .filter((plan) => (pendingDependencies.get(axialKey(plan.origin))?.size ?? 0) === 0)
+        .sort(comparePlans);
+      const next = ready[0] ?? Array.from(remaining.values()).sort(comparePlans)[0];
+      if (!next) {
+        break;
+      }
+      const nextKey = axialKey(next.origin);
+      ordered.push(next);
+      remaining.delete(nextKey);
+      pendingDependencies.delete(nextKey);
+      pendingDependencies.forEach((blockers) => blockers.delete(nextKey));
+    }
+
+    return ordered;
+  }
+
   private executeHeuristicBotTurn(): BotTurnSummary {
     // Expanded air heuristic: attempt escort pairing for queued strikes, then strategic CAP over high-value areas.
     this.maybeScheduleHeuristicAirOps();
@@ -10426,7 +10503,7 @@ private automateSupplyConvoys(
       this.allyPlacements.size > 0 ? [this.allyPlacements] : [],
       this.buildPlannerCounterIntelDecoys("Player")
     );
-    const plans = planHeuristicBotTurn(input);
+    const plans = this.prioritizeHeuristicPlansForExecution(planHeuristicBotTurn(input));
     console.log(`[Bot AI] Planner generated ${plans.length} plans`);
 
     const occupancy = this.buildUnifiedOccupancySet();
@@ -10434,21 +10511,23 @@ private automateSupplyConvoys(
     for (const plan of plans) {
       const fromKey = axialKey(plan.origin);
       const toKey = axialKey(plan.destination);
-      console.log(`[Bot AI] Plan for ${plan.unit.unit.type} at ${fromKey}: ${plan.rationale} (score: ${plan.score.toFixed(1)}, destination: ${toKey}, path length: ${plan.path.length})`);
+      const fromLabel = this.formatAxial(plan.origin);
+      const toLabel = this.formatAxial(plan.destination);
+      console.log(`[Bot AI] Plan for ${plan.unit.unit.type} at ${fromLabel}: ${plan.rationale} (score: ${plan.score.toFixed(1)}, destination: ${toLabel}, path length: ${plan.path.length})`);
       const unit = this.botPlacements.get(fromKey);
       if (!unit) {
-        console.log(`[Bot AI] Unit not found at ${fromKey}, skipping plan`);
+        console.log(`[Bot AI] Unit not found at ${fromLabel}, skipping plan`);
         continue;
       }
       if (toKey !== fromKey && occupancy.has(toKey)) {
-        console.log(`[Bot AI] Destination ${toKey} is occupied, skipping plan`);
+        console.log(`[Bot AI] Destination ${toLabel} is occupied, skipping plan`);
         continue;
       }
 
       let current = structuredClone(plan.origin);
       const visited: Axial[] = [structuredClone(plan.origin)];
       if (toKey !== fromKey) {
-        console.log(`[Bot AI] Executing move for ${unit.type} from ${fromKey} to ${toKey}`);
+        console.log(`[Bot AI] Executing move for ${unit.type} from ${fromLabel} to ${toLabel}`);
         const moved = structuredClone(unit);
 
         // Get unit's actual movement points for this turn
@@ -10463,7 +10542,7 @@ private automateSupplyConvoys(
           const step = plan.path[i];
           const stepKey = axialKey(step);
           if (occupancy.has(stepKey)) {
-            console.log(`[Bot AI] Path blocked at ${stepKey}, stopping movement`);
+            console.log(`[Bot AI] Path blocked at ${this.formatAxial(step)}, stopping movement`);
             break;
           }
 
@@ -10497,7 +10576,7 @@ private automateSupplyConvoys(
           }
           moved.entrench = 0;
           const finalKey = axialKey(current);
-          console.log(`[Bot AI] ${unit.type} moved from ${fromKey} to ${finalKey} (${visited.length - 1} steps)`);
+          console.log(`[Bot AI] ${unit.type} moved from ${fromLabel} to ${this.formatAxial(current)} (${visited.length - 1} steps)`);
           this.botPlacements.delete(fromKey);
           this.botPlacements.set(finalKey, moved);
           this.syncBotFuel(current, moved.fuel);
@@ -10513,7 +10592,7 @@ private automateSupplyConvoys(
             duration: Math.max(visited.length - 1, 1)
           });
         } else {
-          console.log(`[Bot AI] ${unit.type} could not progress along planned path from ${fromKey}; holding position`);
+          console.log(`[Bot AI] ${unit.type} could not progress along planned path from ${fromLabel}; holding position`);
         }
       }
 
@@ -10542,7 +10621,7 @@ private automateSupplyConvoys(
     }
 
     const input = this.buildPlannerInputFor(this.allyPlacements, this.botPlacements, this.botDifficulty);
-    const plans = planHeuristicBotTurn(input);
+    const plans = this.prioritizeHeuristicPlansForExecution(planHeuristicBotTurn(input));
     const occupancy = this.buildUnifiedOccupancySet();
 
     for (const plan of plans) {
@@ -10636,7 +10715,7 @@ private automateSupplyConvoys(
         return;
       }
       const origin = structuredClone(unit.hex);
-      console.log(`[Bot AI] ${unit.type} at (${origin.q},${origin.r}) evaluating movement`);
+      console.log(`[Bot AI] ${unit.type} at ${this.formatAxial(origin)} evaluating movement`);
 
       const nearestTarget = this.selectBotPerceivedTarget(origin, liveTargets);
       if (!nearestTarget) {
@@ -10646,7 +10725,7 @@ private automateSupplyConvoys(
       const nearest = nearestTarget.hex;
 
       const distance = hexDistance(origin, nearest);
-      console.log(`[Bot AI] ${unit.type}: Nearest player at (${nearest.q},${nearest.r}), distance: ${distance}`);
+      console.log(`[Bot AI] ${unit.type}: Nearest player at ${this.formatAxial(nearest)}, distance: ${distance}`);
 
       const attemptAttack = (attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial): void => {
         const stance = this.chooseBotStance(attackingUnit, targetHex);

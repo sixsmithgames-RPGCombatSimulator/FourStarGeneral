@@ -8,7 +8,12 @@ import type {
   UnitTypeDefinition,
   UnitTypeDictionary
 } from "../src/core/types";
-import { planHeuristicBotTurn, type BotPlannerInput, type PlannerUnitSnapshot } from "../src/game/bot/BotPlanner";
+import {
+  planHeuristicBotTurn,
+  type BotPlannerInput,
+  type PlannerUnitSnapshot,
+  type PlannedBotAction
+} from "../src/game/bot/BotPlanner";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
 import { registerTest } from "./harness";
 
@@ -208,6 +213,28 @@ function createPlannerSnapshot(
   };
 }
 
+function createPlannedAction(
+  type: string,
+  definition: UnitTypeDefinition,
+  origin: Axial,
+  destination: Axial,
+  path: readonly Axial[],
+  score: number
+): PlannedBotAction {
+  return {
+    unit: createPlannerSnapshot(type, definition, origin),
+    unitKey: axialKey(origin),
+    origin: { ...origin },
+    destination: { ...destination },
+    path: path.map((hex) => ({ ...hex })),
+    attackTarget: null,
+    expectedDamage: 0,
+    expectedRetaliation: 0,
+    score,
+    rationale: "Synthetic ordering regression"
+  };
+}
+
 function side(hq = { q: 0, r: 0 }, units: ScenarioUnit[] = []): ScenarioSide {
   return {
     hq,
@@ -398,6 +425,53 @@ registerTest("BOT_PLANNER_PATHS_THROUGH_FRIENDLY_HEXES_TO_JOIN_THE_ASSAULT_LINE"
   await Then("the rear tank should plan through the friendly screen instead of stalling in place", async () => {
     if (plannedDestination !== "2,0") {
       throw new Error(`Expected the rear tank to form up at 2,0, but planner chose ${plannedDestination || "no move"}.`);
+    }
+  });
+});
+
+registerTest("BOT_EXECUTION_MOVES_LANE_CLEARING_UNITS_BEFORE_THEIR_FOLLOWERS", async ({ Given, When, Then }) => {
+  let orderedOrigins: string[] = [];
+
+  await Given("a rear tank plan that depends on a lead element clearing the lane first", async () => {
+    const engine = createHeuristicEngine([], []);
+    const rearTankPlan = createPlannedAction(
+      "RearTank",
+      playerTankDef,
+      { q: 0, r: 0 },
+      { q: 3, r: 0 },
+      [
+        { q: 0, r: 0 },
+        { q: 1, r: 0 },
+        { q: 2, r: 0 },
+        { q: 3, r: 0 }
+      ],
+      25
+    );
+    const leadTankPlan = createPlannedAction(
+      "LeadTank",
+      playerTankDef,
+      { q: 1, r: 0 },
+      { q: 2, r: -1 },
+      [
+        { q: 1, r: 0 },
+        { q: 2, r: -1 }
+      ],
+      12
+    );
+
+    orderedOrigins = ((engine as any).prioritizeHeuristicPlansForExecution([
+      rearTankPlan,
+      leadTankPlan
+    ]) as PlannedBotAction[]).map((plan) => axialKey(plan.origin));
+  });
+
+  await When("the executor reorders heuristic plans for movement", async () => {
+    // Ordered results were captured during Given so the assertion stays focused on the sequencing.
+  });
+
+  await Then("the lane-clearing unit should execute before the rear unit that needs the vacated hex", async () => {
+    if (orderedOrigins.join(" -> ") !== "1,0 -> 0,0") {
+      throw new Error(`Expected lead unit at 1,0 to move before follower at 0,0, but saw ${orderedOrigins.join(" -> ") || "no order"}.`);
     }
   });
 });
