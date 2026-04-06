@@ -789,3 +789,130 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_SKIP_THE_BOMBER_PASS_WHEN_FLAK_ALREADY
     }
   });
 });
+
+registerTest("BATTLESCREEN_LINKED_CAP_SORTIES_ARE_NOT_REPLAYED_AS_STANDALONE_PATROLS", async ({ Given, When, Then }) => {
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const callOrder: string[] = [];
+  const fakeEngine = {
+    playerUnits: [] as ScenarioUnit[],
+    botUnits: [] as ScenarioUnit[],
+    reserveUnits: [],
+    allyUnits: [],
+    getScheduledAirMissions() {
+      return [];
+    }
+  } as const;
+
+  const fakeBattleState = {
+    hasEngine: () => true,
+    ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine
+  } as unknown as import("../src/state/BattleState").BattleState;
+
+  let screen: BattleScreen;
+
+  await Given("a linked strike whose interception already includes the CAP squadron", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      {} as any,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).focusCameraOnHex = async (): Promise<void> => {};
+    (screen as any).waitForNextFrame = async (): Promise<void> => {};
+    (screen as any).waitMs = async (): Promise<void> => {};
+    (screen as any).closeSelectionIntelForAnimation = () => {};
+    (screen as any).collectAirMissionFlights = async () => [
+      {
+        missionId: "strike-1",
+        faction: "Bot",
+        kind: "strike",
+        unitKey: "bomber-1",
+        originKey: "0,10",
+        destKey: "12,5",
+        unitType: "Bomber",
+        strength: 100,
+        laneOffsetPx: 0
+      },
+      {
+        missionId: "cap-1",
+        faction: "Player",
+        kind: "airCover",
+        unitKey: "cap-squadron-1",
+        originKey: "10,8",
+        destKey: "12,5",
+        unitType: "Interceptor",
+        strength: 100,
+        laneOffsetPx: 0
+      }
+    ];
+    (screen as any).playMissionStrikeOperation = async () => {
+      callOrder.push("linkedStrike");
+    };
+    (screen as any).playStandaloneAirMissionFlight = async (flight: { missionId: string; kind: string; unitKey: string }) => {
+      callOrder.push(`standalone:${flight.kind}:${flight.unitKey}:${flight.missionId}`);
+    };
+    (screen as any).playStandaloneAirEngagementEvent = async () => {
+      callOrder.push("standaloneEvent");
+    };
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+  });
+
+  await When("air operations are played", async () => {
+    await (screen as any).playAirOperations(
+      [] as AirMissionArrival[],
+      [
+        {
+          type: "airToAir",
+          missionId: "strike-1",
+          location: { q: 12, r: 5 },
+          bomber: {
+            faction: "Bot",
+            unitKey: "bomber-1",
+            unitType: "Bomber",
+            strength: 100
+          },
+          interceptors: [
+            {
+              faction: "Player",
+              unitKey: "cap-squadron-1",
+              unitType: "Interceptor",
+              strength: 100
+            }
+          ],
+          escorts: [],
+          bomberStrengthBefore: 100,
+          bomberStrengthAfter: 90,
+          bomberDestroyed: false,
+          interceptorAttrition: 0,
+          interceptorKills: 0,
+          escortAttrition: 0,
+          escortKills: 0,
+          escortsEngaged: 0,
+          interceptorsAfterEscortPhase: 1,
+          escortsAfterEscortPhase: 0
+        }
+      ]
+    );
+  });
+
+  await Then("the CAP squadron should only appear inside the linked strike battle and not replay later as a patrol", async () => {
+    if (!callOrder.includes("linkedStrike")) {
+      throw new Error(`Expected the linked strike animation to run, saw ${JSON.stringify(callOrder)}.`);
+    }
+    if (callOrder.some((entry) => entry.startsWith("standalone:airCover:cap-squadron-1"))) {
+      throw new Error(`Did not expect the claimed CAP squadron to replay as a standalone patrol, saw ${JSON.stringify(callOrder)}.`);
+    }
+  });
+});

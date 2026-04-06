@@ -958,17 +958,19 @@ export class HexMapRenderer implements IMapRenderer {
       line.setAttribute("x2", String(x2));
       line.setAttribute("y2", String(y2));
       line.setAttribute("stroke", index % 3 === 0 ? "#fff7d9" : index % 2 === 0 ? "#ffd68c" : "#ffb14f");
-      line.setAttribute("stroke-width", String(index % 4 === 0 ? 0.9 : 0.74));
+      line.setAttribute("stroke-width", String(index % 4 === 0 ? 1.1 : 0.92));
       line.setAttribute("stroke-linecap", "round");
-      line.style.opacity = "0";
+      line.style.opacity = "0.18";
       line.style.strokeDasharray = `${Math.max(4, tracerLength * 0.65)} ${dashGap}`;
       line.style.strokeDashoffset = String(dashGap);
       burstGroup.appendChild(line);
 
       window.setTimeout(() => {
-        line.style.transition = `stroke-dashoffset ${tracerLifetimeMs}ms linear, opacity ${Math.max(90, tracerLifetimeMs - 40)}ms ease-out`;
-        line.style.opacity = "0.95";
-        line.style.strokeDashoffset = "0";
+        window.requestAnimationFrame(() => {
+          line.style.transition = `stroke-dashoffset ${tracerLifetimeMs}ms linear, opacity ${Math.max(90, tracerLifetimeMs - 40)}ms ease-out`;
+          line.style.opacity = "0.98";
+          line.style.strokeDashoffset = "0";
+        });
       }, tracerDelayMs);
       window.setTimeout(() => {
         line.style.opacity = "0";
@@ -1006,8 +1008,10 @@ export class HexMapRenderer implements IMapRenderer {
 
       burstGroup.appendChild(cluster);
       window.setTimeout(() => {
-        cluster.style.transition = `opacity ${burstLifetimeMs}ms ease-out`;
-        cluster.style.opacity = "1";
+        window.requestAnimationFrame(() => {
+          cluster.style.transition = `opacity ${burstLifetimeMs}ms ease-out`;
+          cluster.style.opacity = "1";
+        });
       }, flashDelayMs);
       window.setTimeout(() => {
         cluster.style.opacity = "0";

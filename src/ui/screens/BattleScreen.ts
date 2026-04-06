@@ -2973,10 +2973,19 @@ export class BattleScreen {
       }
 
       const linkedStrikeFlights: Array<{ flight: PreparedAirMissionFlight; linkedEvents: AirEngagementEvent[]; escorts: PreparedAirMissionFlight[] }> = [];
-      const standaloneFlights: PreparedAirMissionFlight[] = [];
+      const linkedStrikeMissionIds = new Set<string>();
+      const claimedAirBattleUnitKeys = new Set<string>();
       for (const flight of nonEscortFlights) {
         const linkedEvents = linkedEventsByMissionId.get(flight.missionId) ?? [];
         if (flight.kind === "strike" && linkedEvents.length > 0) {
+          linkedStrikeMissionIds.add(flight.missionId);
+          linkedEvents.forEach((event) => {
+            if (event.type !== "airToAir") {
+              return;
+            }
+            event.interceptors.forEach((participant) => claimedAirBattleUnitKeys.add(participant.unitKey));
+            event.escorts.forEach((participant) => claimedAirBattleUnitKeys.add(participant.unitKey));
+          });
           linkedStrikeFlights.push({
             flight,
             linkedEvents,
@@ -2984,11 +2993,24 @@ export class BattleScreen {
           });
           linkedEscortFlights.delete(flight.unitKey);
           linkedEventsByMissionId.delete(flight.missionId);
-        } else {
-          standaloneFlights.push(flight);
         }
       }
-      linkedEscortFlights.forEach((escorts) => standaloneFlights.push(...escorts));
+
+      const standaloneFlights: PreparedAirMissionFlight[] = [];
+      for (const flight of nonEscortFlights) {
+        if (linkedStrikeMissionIds.has(flight.missionId)) {
+          continue;
+        }
+        if ((flight.kind === "airCover" || flight.kind === "escort") && claimedAirBattleUnitKeys.has(flight.unitKey)) {
+          continue;
+        }
+        standaloneFlights.push(flight);
+      }
+      linkedEscortFlights.forEach((escorts) =>
+        standaloneFlights.push(
+          ...escorts.filter((flight) => !claimedAirBattleUnitKeys.has(flight.unitKey))
+        )
+      );
 
       if (linkedStrikeFlights.length > 0) {
         const firstStrikeFocusKey =
