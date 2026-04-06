@@ -369,3 +369,423 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_PLAY_ESCORT_CLASH_BEFORE_BOMBER_DEFENS
     }
   });
 });
+
+registerTest("BATTLESCREEN_LINKED_FLAK_AND_CAP_ANIMATE_IN_ONE_SEQUENCE_EVEN_IF_FLAK_BREAKS_UP_THE_STRIKE", async ({ Given, When, Then }) => {
+  const callOrder: string[] = [];
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const fakeEngine = {
+    playerUnits: [] as ScenarioUnit[],
+    botUnits: [] as ScenarioUnit[],
+    reserveUnits: [] as ScenarioUnit[],
+    allyUnits: [] as ScenarioUnit[],
+    getScheduledAirMissions() {
+      return [
+        {
+          id: "strike-1",
+          kind: "strike",
+          faction: "Bot",
+          unitKey: "bomber-1",
+          status: "completed",
+          targetHex: { q: 0, r: 0 },
+          outcome: {
+            type: "strike",
+            result: "destroyed",
+            refitRequired: true,
+            details: "Strike package broken up before release.",
+            meta: {
+              flakAttrition: 100,
+              bomberAttrition: 0
+            }
+          }
+        }
+      ];
+    }
+  } as const;
+
+  const fakeBattleState = {
+    hasEngine: () => true,
+    ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine
+  } as unknown as import("../src/state/BattleState").BattleState;
+
+  const fakeRenderer = {
+    async animateAircraftArc(
+      fromKey: string,
+      toKey: string,
+      unitType: string
+    ): Promise<void> {
+      callOrder.push(`bomber:${unitType}:${fromKey}->${toKey}`);
+    },
+    async playFlakBurstAt(): Promise<void> {},
+    async playExplosion(): Promise<void> {},
+    async playDustCloud(): Promise<void> {},
+    async playAirDamageSmokeTrailAt(): Promise<void> {},
+    async playDogfight(): Promise<void> {}
+  } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+
+  let screen: BattleScreen;
+
+  await Given("a linked strike where flak destroys the bomber before impact but CAP also engaged", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      fakeRenderer,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).focusCameraOnHex = async (): Promise<void> => {};
+    (screen as any).waitForNextFrame = async (): Promise<void> => {};
+    (screen as any).waitMs = async (): Promise<void> => {};
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+    (screen as any).announceFlakEngagement = () => {
+      callOrder.push("announceFlak");
+    };
+    (screen as any).playMissionAirInterceptEvent = async () => {
+      callOrder.push("playIntercept");
+    };
+  });
+
+  await When("the linked strike animation runs", async () => {
+    await (screen as any).playMissionStrikeOperation(
+      {
+        missionId: "strike-1",
+        faction: "Bot",
+        kind: "strike",
+        unitKey: "bomber-1",
+        originKey: "0,0",
+        destKey: "1,0",
+        unitType: "Bomber",
+        strength: 100,
+        laneOffsetPx: 0
+      },
+      [
+        {
+          type: "flak",
+          missionId: "strike-1",
+          location: { q: 0, r: 0 },
+          bomber: { faction: "Bot", unitKey: "bomber-1", unitType: "Bomber", strength: 100 },
+          interceptors: [{ faction: "Player", unitKey: "flak-1", unitType: "Flak_88", strength: 100, hex: { q: 0, r: 1 } }],
+          escorts: [],
+          flakDamage: 100,
+          bomberStrengthBefore: 100,
+          bomberStrengthAfter: 0,
+          bomberDestroyed: true
+        },
+        {
+          type: "airToAir",
+          missionId: "strike-1",
+          location: { q: 0, r: 0 },
+          bomber: { faction: "Bot", unitKey: "bomber-1", unitType: "Bomber", strength: 100 },
+          interceptors: [{ faction: "Player", unitKey: "cap-1", unitType: "Interceptor", strength: 100 }],
+          escorts: [{ faction: "Bot", unitKey: "escort-1", unitType: "Fighter", strength: 100 }],
+          bomberStrengthBefore: 100,
+          bomberStrengthAfter: 0,
+          bomberDestroyed: true,
+          interceptorAttrition: 0,
+          interceptorKills: 0,
+          escortAttrition: 0,
+          escortKills: 0,
+          escortsEngaged: 1,
+          interceptorsAfterEscortPhase: 1,
+          escortsAfterEscortPhase: 1
+        }
+      ],
+      [],
+      fakeRenderer,
+      fakeEngine as any,
+      true
+    );
+  });
+
+  await Then("the interceptor sequence should still be invoked before the strike returns", async () => {
+    if (!callOrder.includes("playIntercept")) {
+      throw new Error(`Expected linked CAP/escort animation to play in the same sequence, saw ${JSON.stringify(callOrder)}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BOMBER_WINDOW", async ({ Given, When, Then }) => {
+  const callOrder: string[] = [];
+  const waits: number[] = [];
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const fakeEngine = {
+    playerUnits: [
+      {
+        type: "Interceptor" as unknown as ScenarioUnit["type"],
+        hex: { q: 0, r: 2 },
+        strength: 100,
+        experience: 0,
+        ammo: 5,
+        fuel: 40,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "cap-1"
+      }
+    ] as ScenarioUnit[],
+    botUnits: [
+      {
+        type: "Bomber" as unknown as ScenarioUnit["type"],
+        hex: { q: -1, r: -1 },
+        strength: 100,
+        experience: 0,
+        ammo: 4,
+        fuel: 50,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "bomber-1"
+      },
+      {
+        type: "Fighter" as unknown as ScenarioUnit["type"],
+        hex: { q: 1, r: -2 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 50,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "escort-1"
+      }
+    ] as ScenarioUnit[],
+    reserveUnits: [],
+    allyUnits: [],
+    getScheduledAirMissions() {
+      return [];
+    }
+  } as const;
+
+  const fakeBattleState = {
+    hasEngine: () => true,
+    ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine
+  } as unknown as import("../src/state/BattleState").BattleState;
+
+  const fakeRenderer = {
+    async animateAircraftFlyover(
+      fromKey: string,
+      toKey: string,
+      unitType: string,
+      _durationMs: number,
+      _onProgress?: unknown,
+      _endProgress?: number,
+      _strength?: number,
+      _laneOffsetPx?: number,
+      faction?: string
+    ): Promise<void> {
+      callOrder.push(`fly:${faction ?? "unknown"}:${unitType}:${fromKey}->${toKey}`);
+    },
+    async playDogfight(hexKey: string): Promise<void> {
+      callOrder.push(`dogfight:${hexKey}`);
+    }
+  } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+
+  let screen: BattleScreen;
+
+  await Given("an escort clash that should hold the bomber-defense pass until the bomber arrives", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      fakeRenderer,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+    (screen as any).waitMs = async (durationMs: number): Promise<void> => {
+      waits.push(durationMs);
+    };
+  });
+
+  const event: AirEngagementEvent = {
+    type: "airToAir",
+    location: { q: 0, r: 0 },
+    bomber: {
+      faction: "Bot",
+      unitKey: "bomber-1",
+      unitType: "Bomber",
+      strength: 100
+    },
+    interceptors: [
+      {
+        faction: "Player",
+        unitKey: "cap-1",
+        unitType: "Interceptor",
+        strength: 100
+      }
+    ],
+    escorts: [
+      {
+        faction: "Bot",
+        unitKey: "escort-1",
+        unitType: "Fighter",
+        strength: 100
+      }
+    ],
+    bomberStrengthBefore: 100,
+    bomberStrengthAfter: 76,
+    bomberDestroyed: false,
+    interceptorAttrition: 10,
+    interceptorKills: 0,
+    escortAttrition: 14,
+    escortKills: 0,
+    escortsEngaged: 1,
+    interceptorsAfterEscortPhase: 1,
+    escortsAfterEscortPhase: 1
+  };
+
+  await When("the mission air intercept event is played with a delayed bomber arrival window", async () => {
+    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, 900, true);
+  });
+
+  await Then("the bomber-defense pass should wait substantially longer than the escort opening burst", async () => {
+    const dogfightCalls = callOrder.filter((entry) => entry.startsWith("dogfight:"));
+    if (dogfightCalls.length !== 2) {
+      throw new Error(`Expected escort and bomber-defense dogfight passes, saw ${JSON.stringify(callOrder)}.`);
+    }
+
+    if (!waits.some((durationMs) => durationMs >= 700)) {
+      throw new Error(`Expected a substantial hold before the bomber-defense pass, saw waits ${JSON.stringify(waits)}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_AIR_INTERCEPTS_SKIP_THE_BOMBER_PASS_WHEN_FLAK_ALREADY_BREAKS_UP_THE_STRIKE", async ({ Given, When, Then }) => {
+  const callOrder: string[] = [];
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const fakeEngine = {
+    playerUnits: [
+      {
+        type: "Interceptor" as unknown as ScenarioUnit["type"],
+        hex: { q: 0, r: 2 },
+        strength: 100,
+        experience: 0,
+        ammo: 5,
+        fuel: 40,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "cap-1"
+      }
+    ] as ScenarioUnit[],
+    botUnits: [
+      {
+        type: "Fighter" as unknown as ScenarioUnit["type"],
+        hex: { q: 1, r: -2 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 50,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "escort-1"
+      }
+    ] as ScenarioUnit[],
+    reserveUnits: [],
+    allyUnits: [],
+    getScheduledAirMissions() {
+      return [];
+    }
+  } as const;
+
+  const fakeBattleState = {
+    hasEngine: () => true,
+    ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine
+  } as unknown as import("../src/state/BattleState").BattleState;
+
+  const fakeRenderer = {
+    async animateAircraftFlyover(): Promise<void> {},
+    async playDogfight(hexKey: string): Promise<void> {
+      callOrder.push(`dogfight:${hexKey}`);
+    }
+  } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+
+  let screen: BattleScreen;
+
+  await Given("a bomber already broken up by flak before the bomber-defense run", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      fakeRenderer,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+    (screen as any).waitMs = async (): Promise<void> => {};
+  });
+
+  const event: AirEngagementEvent = {
+    type: "airToAir",
+    location: { q: 0, r: 0 },
+    bomber: {
+      faction: "Bot",
+      unitKey: "bomber-1",
+      unitType: "Bomber",
+      strength: 100
+    },
+    interceptors: [
+      {
+        faction: "Player",
+        unitKey: "cap-1",
+        unitType: "Interceptor",
+        strength: 100
+      }
+    ],
+    escorts: [
+      {
+        faction: "Bot",
+        unitKey: "escort-1",
+        unitType: "Fighter",
+        strength: 100
+      }
+    ],
+    bomberStrengthBefore: 100,
+    bomberStrengthAfter: 0,
+    bomberDestroyed: true,
+    interceptorAttrition: 0,
+    interceptorKills: 0,
+    escortAttrition: 0,
+    escortKills: 0,
+    escortsEngaged: 1,
+    interceptorsAfterEscortPhase: 1,
+    escortsAfterEscortPhase: 1
+  };
+
+  await When("the air intercept playback is told the bomber-defense pass is unavailable", async () => {
+    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, 900, false);
+  });
+
+  await Then("only the escort clash should be shown", async () => {
+    const dogfightCalls = callOrder.filter((entry) => entry.startsWith("dogfight:"));
+    if (dogfightCalls.length !== 1) {
+      throw new Error(`Expected only one escort clash pass when flak already broke up the strike, saw ${JSON.stringify(callOrder)}.`);
+    }
+  });
+});

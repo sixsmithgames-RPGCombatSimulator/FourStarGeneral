@@ -219,6 +219,9 @@ export class BattleScreen {
   private static readonly BOT_CAMERA_PADDING = 96;
   private static readonly ACTIVITY_EVENT_LIMIT = 120;
   private static readonly AIR_SEQUENCE_TIME_SCALE = 1.5;
+  private static readonly AIR_BOMBER_SPEED_MULTIPLIER = 1;
+  private static readonly AIR_FIGHTER_SPEED_MULTIPLIER = 1.5;
+  private static readonly AIR_DOGFIGHT_ORBIT_BASE_MS = 760;
 
   // DOM element references
   private battleAnnouncements: HTMLElement | null = null;
@@ -3278,67 +3281,33 @@ export class BattleScreen {
 
     this.announceAirInterceptEngagement(event);
     const bomberFrom = this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
-    const flights: Promise<void>[] = [];
-    if (bomberFrom) {
-      flights.push(
-        this.animateAircraftLeg(
+    const bomberIngressPromise = bomberFrom
+      ? this.animateAircraftLeg(
           renderer,
           bomberFrom,
           locKey,
           event.bomber.unitType,
-          this.scaleAirSequenceMs(1500),
+          this.resolveBomberInterceptIngressDurationMs(),
           undefined,
           1,
           event.bomber.strength ?? this.resolveAirSquadronStrength(event.bomber.unitKey, event.bomber.faction, engine),
           laneOffsetPx,
           event.bomber.faction
         )
-      );
-    }
-    const participantOffsets = this.buildAirLaneOffsets(event.interceptors.length + event.escorts.length + (bomberFrom ? 1 : 0));
-    let participantIndex = bomberFrom ? 1 : 0;
-    event.interceptors.forEach((interceptor) => {
-      const from = this.resolveAirEngagementOffsetKey(interceptor.unitKey, interceptor.faction, engine);
-      if (from) {
-        flights.push(
-          this.animateAircraftLeg(
-            renderer,
-            from,
-            locKey,
-            interceptor.unitType,
-            this.scaleAirSequenceMs(1400),
-            undefined,
-            1,
-            interceptor.strength ?? this.resolveAirSquadronStrength(interceptor.unitKey, interceptor.faction, engine),
-            participantOffsets[participantIndex] ?? 0,
-            interceptor.faction
-          )
-        );
-      }
-      participantIndex += 1;
-    });
-    event.escorts.forEach((escort) => {
-      const from = this.resolveAirEngagementOffsetKey(escort.unitKey, escort.faction, engine);
-      if (from) {
-        flights.push(
-          this.animateAircraftLeg(
-            renderer,
-            from,
-            locKey,
-            escort.unitType,
-            this.scaleAirSequenceMs(1400),
-            undefined,
-            1,
-            escort.strength ?? this.resolveAirSquadronStrength(escort.unitKey, escort.faction, engine),
-            participantOffsets[participantIndex] ?? 0,
-            escort.faction
-          )
-        );
-      }
-      participantIndex += 1;
-    });
-    await Promise.all(flights);
-    await this.playAirInterceptPasses(event, locKey, renderer);
+      : Promise.resolve();
+    await Promise.all([
+      bomberIngressPromise,
+      this.playMissionAirInterceptEvent(
+        event,
+        locKey,
+        renderer,
+        engine,
+        laneOffsetPx,
+        false,
+        true,
+        this.resolveAirInterceptBomberArrivalDelayMs()
+      )
+    ]);
   }
 
   private async playMissionStrikeOperation(
@@ -3379,12 +3348,12 @@ export class BattleScreen {
     const remainingStrength = Math.max(1, Math.round((bomberStrength ?? 100) - totalAttrition));
 
     if (airToAirEvent) {
-      await this.animateAircraftLeg(
+      const bomberIngressPromise = this.animateAircraftLeg(
         renderer,
         flight.originKey,
         interceptLocKey,
         flight.unitType,
-        this.scaleAirSequenceMs(2300),
+        this.resolveBomberInterceptIngressDurationMs(),
         (progress, centerX, centerY) => {
           if (!flakEvent) {
             return;
@@ -3399,20 +3368,24 @@ export class BattleScreen {
         flight.laneOffsetPx,
         flight.faction
       );
+      await Promise.all([
+        bomberIngressPromise,
+        this.playMissionAirInterceptEvent(
+          airToAirEvent,
+          interceptLocKey,
+          renderer,
+          engine,
+          flight.laneOffsetPx,
+          false,
+          true,
+          this.resolveAirInterceptBomberArrivalDelayMs(),
+          flakEvent?.bomberDestroyed !== true
+        )
+      ]);
 
-      if (flakEvent?.bomberDestroyed) {
+      if (bomberDestroyedBeforeImpact) {
         return;
       }
-
-      await this.waitMs(this.scaleAirSequenceMs(140));
-      await this.playMissionAirInterceptEvent(
-        airToAirEvent,
-        interceptLocKey,
-        renderer,
-        engine,
-        flight.laneOffsetPx,
-        false
-      );
 
       if (!bomberDestroyedBeforeImpact) {
         if (interceptLocKey !== destKey) {
@@ -3421,7 +3394,7 @@ export class BattleScreen {
             interceptLocKey,
             destKey,
             flight.unitType,
-            this.scaleAirSequenceMs(1500),
+            this.scaleAirSpeedDuration(900, BattleScreen.AIR_BOMBER_SPEED_MULTIPLIER),
             undefined,
             1,
             remainingStrength,
@@ -3540,28 +3513,75 @@ export class BattleScreen {
     renderer: HexMapRenderer,
     engine: GameEngine,
     fallbackLaneOffsetPx = 0,
-    skipEscortFlights = false
+    skipEscortFlights = false,
+    announceEvent = true,
+    bomberArrivalDelayMs = 0,
+    allowBomberDefensePass = true
   ): Promise<void> {
-    this.announceAirInterceptEngagement(event);
+    if (announceEvent) {
+      this.announceAirInterceptEngagement(event);
+    }
     const interceptorFlights: Promise<void>[] = [];
+    const orbitFlights: Promise<void>[] = [];
     const participantOffsets = this.buildAirLaneOffsets(event.interceptors.length + event.escorts.length);
     let participantIndex = 0;
+    const orbitDurationMs = this.scaleAirSequenceMs(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS);
+    const orbitTurns = event.escorts.length > 0 ? 1.8 : 1.45;
+
+    const orbitParticipant = (
+      unitType: string,
+      strength: number,
+      laneOffsetPx: number,
+      faction: TurnFaction,
+      orbitIndex: number,
+      clockwise: boolean
+    ): Promise<void> => {
+      if (typeof (renderer as any).animateAircraftOrbitAt !== "function") {
+        return Promise.resolve();
+      }
+      const radius = 18 + (orbitIndex % 3) * 5 + Math.min(8, Math.abs(laneOffsetPx) * 0.18);
+      const startAngleRad = (orbitIndex / Math.max(1, event.interceptors.length + event.escorts.length)) * Math.PI * 2;
+      return (renderer as any).animateAircraftOrbitAt(
+        locKey,
+        unitType,
+        orbitDurationMs,
+        strength,
+        laneOffsetPx,
+        faction,
+        {
+          orbitRadiusPx: radius,
+          turns: orbitTurns,
+          startAngleRad,
+          clockwise,
+          verticalScale: 0.66
+        }
+      );
+    };
 
     event.interceptors.forEach((interceptor) => {
       const from = this.resolveAirEngagementOffsetKey(interceptor.unitKey, interceptor.faction, engine);
       if (from) {
+        const orbitIndex = participantIndex;
+        const laneOffset = participantOffsets[participantIndex] ?? fallbackLaneOffsetPx;
+        const visibleStrength =
+          interceptor.strength ?? this.resolveAirSquadronStrength(interceptor.unitKey, interceptor.faction, engine);
         interceptorFlights.push(
           this.animateAircraftLeg(
             renderer,
             from,
             locKey,
             interceptor.unitType,
-            this.scaleAirSequenceMs(1200),
+            this.resolveFighterInterceptIngressDurationMs(),
             undefined,
             1,
-            interceptor.strength ?? this.resolveAirSquadronStrength(interceptor.unitKey, interceptor.faction, engine),
-            participantOffsets[participantIndex] ?? fallbackLaneOffsetPx,
+            visibleStrength,
+            laneOffset,
             interceptor.faction
+          )
+        );
+        orbitFlights.push(
+          interceptorFlights[interceptorFlights.length - 1]!.then(() =>
+            orbitParticipant(interceptor.unitType, visibleStrength, laneOffset, interceptor.faction, orbitIndex, false)
           )
         );
       }
@@ -3572,18 +3592,27 @@ export class BattleScreen {
       if (!skipEscortFlights) {
         const from = this.resolveAirEngagementOffsetKey(escort.unitKey, escort.faction, engine);
         if (from) {
+          const orbitIndex = participantIndex;
+          const laneOffset = participantOffsets[participantIndex] ?? -fallbackLaneOffsetPx;
+          const visibleStrength =
+            escort.strength ?? this.resolveAirSquadronStrength(escort.unitKey, escort.faction, engine);
           interceptorFlights.push(
             this.animateAircraftLeg(
               renderer,
               from,
               locKey,
               escort.unitType,
-              this.scaleAirSequenceMs(1200),
+              this.resolveFighterInterceptIngressDurationMs(),
               undefined,
               1,
-              escort.strength ?? this.resolveAirSquadronStrength(escort.unitKey, escort.faction, engine),
-              participantOffsets[participantIndex] ?? -fallbackLaneOffsetPx,
+              visibleStrength,
+              laneOffset,
               escort.faction
+            )
+          );
+          orbitFlights.push(
+            interceptorFlights[interceptorFlights.length - 1]!.then(() =>
+              orbitParticipant(escort.unitType, visibleStrength, laneOffset, escort.faction, orbitIndex, true)
             )
           );
         }
@@ -3596,7 +3625,14 @@ export class BattleScreen {
     }
 
     await Promise.all(interceptorFlights);
-    await this.playAirInterceptPasses(event, locKey, renderer);
+    const passesPromise = this.playAirInterceptPasses(
+      event,
+      locKey,
+      renderer,
+      bomberArrivalDelayMs,
+      allowBomberDefensePass
+    );
+    await Promise.all([...orbitFlights, passesPromise]);
   }
 
   private async playResolvedAirStrikeImpact(
@@ -3857,8 +3893,8 @@ export class BattleScreen {
         flight.originKey,
         flight.unitType,
         {
-          ingressDurationMs: this.scaleAirSequenceMs(2300),
-          egressDurationMs: this.scaleAirSequenceMs(1900),
+          ingressDurationMs: this.scaleAirSpeedDuration(2300, BattleScreen.AIR_FIGHTER_SPEED_MULTIPLIER),
+          egressDurationMs: this.scaleAirSpeedDuration(1900, BattleScreen.AIR_FIGHTER_SPEED_MULTIPLIER),
           strength: flight.strength,
           laneOffsetPx: flight.laneOffsetPx,
           faction: flight.faction
@@ -3872,7 +3908,7 @@ export class BattleScreen {
         flight.originKey,
         destKey,
         flight.unitType,
-        this.scaleAirSequenceMs(2300),
+        this.scaleAirSpeedDuration(2300, BattleScreen.AIR_FIGHTER_SPEED_MULTIPLIER),
         this.scaleAirSequenceMs(120),
         flight.strength,
         flight.laneOffsetPx,
@@ -3886,7 +3922,7 @@ export class BattleScreen {
       flight.originKey,
       destKey,
       flight.unitType,
-      this.scaleAirSequenceMs(2300),
+      this.scaleAirSpeedDuration(2300, BattleScreen.AIR_FIGHTER_SPEED_MULTIPLIER),
       undefined,
       1,
       flight.strength,
@@ -4207,6 +4243,23 @@ export class BattleScreen {
     return Math.max(1, Math.round(durationMs * BattleScreen.AIR_SEQUENCE_TIME_SCALE));
   }
 
+  private scaleAirSpeedDuration(durationMs: number, speedMultiplier = 1): number {
+    const safeSpeed = Math.max(0.1, speedMultiplier);
+    return this.scaleAirSequenceMs(Math.round(durationMs / safeSpeed));
+  }
+
+  private resolveBomberInterceptIngressDurationMs(): number {
+    return this.scaleAirSpeedDuration(1500, BattleScreen.AIR_BOMBER_SPEED_MULTIPLIER);
+  }
+
+  private resolveFighterInterceptIngressDurationMs(): number {
+    return this.scaleAirSpeedDuration(1200, BattleScreen.AIR_FIGHTER_SPEED_MULTIPLIER);
+  }
+
+  private resolveAirInterceptBomberArrivalDelayMs(): number {
+    return Math.max(0, this.resolveBomberInterceptIngressDurationMs() - this.resolveFighterInterceptIngressDurationMs());
+  }
+
   private resolveInterceptorsAfterEscortPhase(event: AirEngagementEvent): number {
     if (typeof event.interceptorsAfterEscortPhase === "number") {
       return Math.max(0, Math.round(event.interceptorsAfterEscortPhase));
@@ -4245,19 +4298,35 @@ export class BattleScreen {
   private async playAirInterceptPasses(
     event: AirEngagementEvent,
     locKey: string,
-    renderer: HexMapRenderer
+    renderer: HexMapRenderer,
+    bomberArrivalDelayMs = 0,
+    allowBomberDefensePass = true
   ): Promise<void> {
-    const firstPassDelayMs = this.scaleAirSequenceMs(90);
-    const secondPassDelayMs = this.scaleAirSequenceMs(70);
+    const escortOpeningDelayMs = this.scaleAirSequenceMs(70);
+    const followThroughDelayMs = this.scaleAirSequenceMs(55);
 
     if (event.escorts.length > 0) {
+      await this.waitMs(escortOpeningDelayMs);
       await renderer.playDogfight(locKey);
-      await this.waitMs(firstPassDelayMs);
+    }
+
+    if (!allowBomberDefensePass) {
+      if (event.escorts.length > 0) {
+        await this.waitMs(followThroughDelayMs);
+      }
+      return;
     }
 
     if (event.escorts.length === 0 || this.shouldPlayBomberDefensePass(event)) {
+      const gapBeforeBomberPass =
+        event.escorts.length > 0
+          ? Math.max(this.scaleAirSequenceMs(95), bomberArrivalDelayMs - escortOpeningDelayMs)
+          : Math.max(0, bomberArrivalDelayMs);
+      if (gapBeforeBomberPass > 0) {
+        await this.waitMs(gapBeforeBomberPass);
+      }
       await renderer.playDogfight(locKey);
-      await this.waitMs(secondPassDelayMs);
+      await this.waitMs(followThroughDelayMs);
     }
   }
 

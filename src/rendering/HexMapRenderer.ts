@@ -68,6 +68,14 @@ type AircraftSortieOptions = {
   onEgressProgress?: AircraftAnimationProgressCallback;
   onTargetPass?: (centerX: number, centerY: number) => void | Promise<void>;
 };
+type AircraftOrbitOptions = {
+  orbitRadiusPx?: number;
+  turns?: number;
+  startAngleRad?: number;
+  clockwise?: boolean;
+  verticalScale?: number;
+  onProgress?: AircraftAnimationProgressCallback;
+};
 
 /**
  * Handle returned when staging a unit move so callers can delay playback until the camera settles.
@@ -567,6 +575,88 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   /**
+   * Orbits an aircraft around a focal hex so air-to-air engagements can show circling fighters
+   * instead of only straight-line ingress legs.
+   */
+  async animateAircraftOrbitAt(
+    hexKey: string,
+    scenarioType: string,
+    durationMs = 800,
+    strength?: number,
+    laneOffsetPx = 0,
+    faction?: SpriteRenderFaction,
+    options: AircraftOrbitOptions = {}
+  ): Promise<void> {
+    if (!this.svgElement) {
+      return;
+    }
+
+    const cell = this.hexElementMap.get(hexKey);
+    if (!cell) {
+      return;
+    }
+    const center = this.extractHexCenter(cell);
+    if (!center) {
+      return;
+    }
+
+    const spriteHref = getSpriteForScenarioType(scenarioType, faction);
+    if (!spriteHref) {
+      return;
+    }
+
+    const iconSize = 40;
+    const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, strength);
+    const isFormation = ghost instanceof SVGGElement;
+    const layer = this.ensureCombatEffectsLayer();
+    if (!layer) {
+      return;
+    }
+    layer.appendChild(ghost);
+
+    const orbitRadiusPx = Math.max(10, options.orbitRadiusPx ?? (20 + Math.min(10, Math.abs(laneOffsetPx) * 0.25)));
+    const turns = Math.max(0.25, options.turns ?? 1.5);
+    const startAngleRad = options.startAngleRad ?? 0;
+    const direction = options.clockwise === false ? -1 : 1;
+    const verticalScale = Math.max(0.4, options.verticalScale ?? 0.7);
+
+    const stepOrbit = (progress: number): void => {
+      const angle = startAngleRad + direction * progress * turns * Math.PI * 2;
+      const centerX = center.cx + Math.cos(angle) * orbitRadiusPx;
+      const centerY = center.cy + Math.sin(angle) * orbitRadiusPx * verticalScale;
+      const tangentX = -Math.sin(angle) * orbitRadiusPx * direction;
+      const tangentY = Math.cos(angle) * orbitRadiusPx * verticalScale * direction;
+      const headingDegrees = this.resolveAircraftHeadingDegrees(tangentX, tangentY);
+      this.positionAircraftGhost(ghost, isFormation, iconSize, centerX, centerY, headingDegrees);
+      options.onProgress?.(progress, centerX, centerY);
+    };
+
+    if (durationMs <= 0) {
+      stepOrbit(1);
+      ghost.remove();
+      return;
+    }
+
+    stepOrbit(0);
+    await new Promise<void>((resolve) => {
+      const startTime = performance.now();
+      const step: FrameRequestCallback = (now) => {
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / durationMs);
+        stepOrbit(progress);
+        if (progress >= 1) {
+          resolve();
+          return;
+        }
+        this.scheduleAnimationFrame(step);
+      };
+      this.scheduleAnimationFrame(step);
+    });
+
+    ghost.remove();
+  }
+
+  /**
    * Convenience helper for mission-style flights that should clearly depart and return.
    * Flies an arc from origin to destination, pauses briefly, then flies a mirrored arc back.
    */
@@ -841,8 +931,8 @@ export class HexMapRenderer implements IMapRenderer {
 
     const tracerCount = 12;
     const burstCount = 12;
-    const tracerLifetimeMs = 170;
-    const burstLifetimeMs = 210;
+    const tracerLifetimeMs = 220;
+    const burstLifetimeMs = 260;
 
     const scheduleCleanup = (node: SVGElement, delayMs: number) => {
       window.setTimeout(() => node.remove(), delayMs);
@@ -850,7 +940,7 @@ export class HexMapRenderer implements IMapRenderer {
 
     for (let index = 0; index < tracerCount; index += 1) {
       const ringAngle = (index / tracerCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.28;
-      const orbitRadius = 6 + Math.random() * 18;
+      const orbitRadius = 10 + Math.random() * 18;
       const tracerAngle = ringAngle + (Math.random() - 0.5) * 1.1;
       const tracerLength = 8 + Math.random() * 7;
       const cx = center.cx + Math.cos(ringAngle) * orbitRadius;
@@ -868,7 +958,7 @@ export class HexMapRenderer implements IMapRenderer {
       line.setAttribute("x2", String(x2));
       line.setAttribute("y2", String(y2));
       line.setAttribute("stroke", index % 3 === 0 ? "#fff7d9" : index % 2 === 0 ? "#ffd68c" : "#ffb14f");
-      line.setAttribute("stroke-width", String(index % 4 === 0 ? 0.95 : 0.8));
+      line.setAttribute("stroke-width", String(index % 4 === 0 ? 0.9 : 0.74));
       line.setAttribute("stroke-linecap", "round");
       line.style.opacity = "0";
       line.style.strokeDasharray = `${Math.max(4, tracerLength * 0.65)} ${dashGap}`;
@@ -888,7 +978,7 @@ export class HexMapRenderer implements IMapRenderer {
 
     for (let index = 0; index < burstCount; index += 1) {
       const angle = (index / burstCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
-      const radius = 4 + Math.random() * 16;
+      const radius = 8 + Math.random() * 16;
       const x = center.cx + Math.cos(angle) * radius;
       const y = center.cy + Math.sin(angle) * radius * 0.74;
       const flashDelayMs = 12 + index * 9;
@@ -900,7 +990,7 @@ export class HexMapRenderer implements IMapRenderer {
       const flash = document.createElementNS(SVG_NS, "circle");
       flash.setAttribute("cx", "0");
       flash.setAttribute("cy", "0");
-      flash.setAttribute("r", String(1.1 + Math.random() * 1.6));
+      flash.setAttribute("r", String(0.95 + Math.random() * 1.2));
       flash.setAttribute("fill", index % 3 === 0 ? "#fff6cf" : "#ffce74");
       flash.setAttribute("opacity", "0.92");
       cluster.appendChild(flash);
@@ -908,8 +998,8 @@ export class HexMapRenderer implements IMapRenderer {
       const puff = document.createElementNS(SVG_NS, "ellipse");
       puff.setAttribute("cx", String((Math.random() - 0.5) * 1.8));
       puff.setAttribute("cy", String(0.8 + Math.random() * 1.8));
-      puff.setAttribute("rx", String(2.2 + Math.random() * 2.2));
-      puff.setAttribute("ry", String(1.3 + Math.random() * 1.4));
+      puff.setAttribute("rx", String(1.8 + Math.random() * 1.8));
+      puff.setAttribute("ry", String(1.1 + Math.random() * 1.1));
       puff.setAttribute("fill", index % 2 === 0 ? "#d7cab9" : "#bca895");
       puff.setAttribute("opacity", "0.26");
       cluster.appendChild(puff);
