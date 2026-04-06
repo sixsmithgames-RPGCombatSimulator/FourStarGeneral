@@ -1,35 +1,26 @@
 /**
  * Tutorial step definitions for the training mission walkthrough.
- * Each step provides guidance with professional-style overlays.
+ * Each step provides structured guidance for the training operation.
  */
 
 import type { TutorialPhase, TutorialStep } from "../state/TutorialState";
 
-// Re-export TutorialStep type for use by other modules
 export type { TutorialStep };
 
-/**
- * Complete list of tutorial steps in order.
- */
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
-  // === WELCOME & INTRODUCTION ===
   {
     phase: "welcome",
     title: "Welcome, Commander",
     content:
-      "Welcome to your first command assignment. This training exercise will teach you the fundamentals of tactical warfare. " +
-      "You'll learn how to requisition forces, deploy units, and engage the enemy.",
+      "This training operation walks through the full battle loop: requisitioning a balanced force, deploying it, then using engineers, off-map artillery, flak, air support, logistics, and reserves under live conditions.",
     position: "center",
     actionLabel: "Begin Training"
   },
-
-  // === PRECOMBAT PHASE: UNIT PURCHASING ===
   {
     phase: "budget_overview",
     title: "Operational Budget",
     content:
-      "Every operation begins with resource allocation. Your budget determines how many units and supplies you can bring to the battlefield. " +
-      "The budget panel shows your total funds and remaining balance.",
+      "Every mission begins with requisitions. Watch the budget board as you build a force package that can attack, hold, resupply, and defend itself from air attack.",
     highlightSelector: "#precombatBudgetPanel",
     position: "left",
     arrowDirection: "right",
@@ -37,21 +28,19 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "unit_categories",
-    title: "Force Composition",
+    title: "Build a Task Force",
     content:
-      "Your forces are organized into categories: Combat Units (infantry, armor, artillery), Support (air squadrons), Supplies (ammunition, fuel), and Logistics. " +
-      "A balanced force is key to victory.",
-    highlightSelector: ".allocation-category-tabs, #allocationUnitList",
+      "The requisition board is split between frontline units, supplies, support, and logistics. In this tutorial, build around infantry, armor, engineers, flak, and fighter cover while keeping the convoy train intact.",
+    highlightSelector: "#allocationUnitList, #allocationSupportList, #allocationLogisticsList",
     position: "right",
     arrowDirection: "left",
     actionLabel: "Continue"
   },
   {
     phase: "select_infantry",
-    title: "Infantry - The Backbone",
+    title: "Line Infantry First",
     content:
-      "Infantry battalions are versatile and cost-effective. They excel at holding ground and fighting in difficult terrain. " +
-      "Use the + button to add infantry to your force. Try adding 2-3 battalions.",
+      "Add an Infantry Battalion. Infantry will anchor your line, spot for artillery, and hold terrain that armor should not fight over alone.",
     highlightSelector: "[data-key='infantry']",
     position: "right",
     arrowDirection: "left",
@@ -60,10 +49,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "adjust_quantity",
-    title: "Adjusting Quantities",
+    title: "Shape the Force",
     content:
-      "Excellent! Use + and - to adjust unit counts. Each unit has a maximum limit and cost per unit. " +
-      "Watch your remaining budget as you add forces.",
+      "Use the quantity controls to adjust your package. You do not need a huge force here, but you do need a balanced one that can move, breach, defend, and stay supplied.",
     highlightSelector: ".allocation-quantity",
     position: "right",
     arrowDirection: "left",
@@ -72,10 +60,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_tanks",
-    title: "Armor - Breakthrough Power",
+    title: "Add Armor",
     content:
-      "Tank companies provide mobile firepower and can break through enemy lines. They're expensive but devastating. " +
-      "Add at least 1 tank company to your force.",
+      "Add a Tank Company. Armor gives you breakthrough power and mobile fire support, but it performs best when infantry screens for it and logistics keeps it fueled.",
     highlightSelector: "[data-key='tank']",
     position: "right",
     arrowDirection: "left",
@@ -83,34 +70,52 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Add Tanks"
   },
   {
-    phase: "select_support",
-    title: "Artillery & Support",
+    phase: "select_engineers",
+    title: "Add Engineers",
     content:
-      "Artillery provides long-range fire support, softening enemy positions before your troops advance. " +
-      "Consider adding artillery or other support units to round out your force.",
-    highlightSelector: "[data-key='howitzer']",
+      "Add an Engineering Corps. Engineers dig in, build fortifications, lay tank traps, and clear movement lanes once the battle begins.",
+    highlightSelector: "[data-key='engineer']",
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
-    actionLabel: "Add Artillery"
+    actionLabel: "Add Engineers"
+  },
+  {
+    phase: "select_flak",
+    title: "Add Flak Cover",
+    content:
+      "Add a Flak Battery. It protects your base camp, gun lines, and reserves from enemy air attack and can still threaten armor and soft targets from good positions.",
+    highlightSelector: "[data-key='flakBattery']",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Add Flak"
+  },
+  {
+    phase: "select_air_wing",
+    title: "Add Fighter Support",
+    content:
+      "Add a Fighter Squadron. Air wings stay off-map and will be tasked later through the Air Support board for patrol, escort, and strike coverage.",
+    highlightSelector: "[data-key='fighter']",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Add Fighters"
   },
   {
     phase: "review_allocation",
-    title: "Review Your Force",
+    title: "Review the Package",
     content:
-      "Take your time to review and adjust your force. You have Reset Allocations to start over, and Begin Battle when ready. " +
-      "I'll let you work freely now - click Continue to dismiss this overlay and review your force at your own pace. When you're satisfied, click Begin Battle to proceed.",
+      "Review your force before stepping off. This training battle is designed to teach engineers, flak, sorties, roster control, and logistics, and it already includes a standing convoy package plus an attached off-map heavy artillery battery for you to call once the fight starts.",
     highlightSelector: "#resetAllocations, #proceedToBattle",
     position: "center",
     actionLabel: "Continue (Dismiss)"
   },
-
-  // === DEPLOYMENT PHASE ===
   {
     phase: "ui_overview",
-    title: "Battle Interface Overview",
+    title: "Battlefield Controls",
     content:
-      "Welcome to the battlefield! Let's familiarize you with the interface. The sidebar on the left provides quick access to HQ, your commander profile, recon, air support, logistics, and your Army Roster.",
+      "The left rail is your command access. From here you can review recon, task air support, inspect logistics, and open the roster without leaving the map.",
     highlightSelector: ".control-sidebar",
     position: "right",
     arrowDirection: "left",
@@ -118,9 +123,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "mission_briefing",
-    title: "Mission Information",
+    title: "Mission Board",
     content:
-      "The top bar shows your mission objective, current turn/phase, and key actions like Begin Battle and End Turn. Keep an eye on your objectives!",
+      "The header tracks objective, turn state, air activity, and the buttons that move the battle forward. Check it whenever you need to confirm tempo or mission state.",
     highlightSelector: ".battle-map-header",
     position: "bottom",
     arrowDirection: "up",
@@ -128,9 +133,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "deployment_panel_intro",
-    title: "Unit Deployment Panel",
+    title: "Deployment Board",
     content:
-      "This panel on the right shows your available units and deployment zones. You can manually place each unit, or use auto-deploy buttons for quick setup.",
+      "This panel is where you assign base camp and place your battalions. It shows what is still staged, which zones are open, and the formations waiting for a hex.",
     highlightSelector: "#deploymentPanel",
     position: "left",
     arrowDirection: "right",
@@ -140,7 +145,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "deployment_intro",
     title: "Deployment Options",
     content:
-      "You have three deployment options: Assign Base Camp first, then Deploy Evenly (spread across zones), Deploy Grouped (concentrate forces), or manually place each unit.",
+      "Base camp comes first. After that you can deploy evenly, group the force, or place formations manually. Put engineers where they can shape terrain and keep flak where it can shield the rear and likely air approach lanes.",
     highlightSelector: "#deploymentPanel .deployment-header-actions",
     position: "left",
     arrowDirection: "right",
@@ -150,7 +155,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "base_camp",
     title: "Establish Base Camp",
     content:
-      "Your base camp is your supply hub. Select a deployment hex, then click Assign Base Camp to lock in your staging area.",
+      "Choose a safe deployment hex and assign Base Camp. Reserves arrive here, convoys route from here, and rear-area pressure on this hex will ripple through the whole force.",
     highlightSelector: "#assignBaseCamp, #baseCampStatus",
     position: "left",
     arrowDirection: "right",
@@ -159,10 +164,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "place_units",
-    title: "Placing Units",
+    title: "Place the Opening Line",
     content:
-      "Now deploy your units. You can click a unit in the roster then click a hex, or use Deploy Evenly/Grouped. " +
-      "Deploy multiple units to see how terrain affects positioning - forests provide cover, hills offer visibility. You can also open the Army Roster (sidebar) to see all your forces.",
+      "Deploy the battalions. Keep engineers useful, armor mobile, and flak able to cover the rear. Forests help conceal infantry, hills improve observation, and open ground speeds vehicles but exposes them.",
     highlightSelector: "#deploymentPanel .deployment-header-actions, #deploymentUnitList",
     position: "left",
     arrowDirection: "right",
@@ -170,103 +174,146 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Deploy Units"
   },
   {
-    phase: "air_support_intro",
-    title: "Air Support",
+    phase: "roster_intro",
+    title: "Army Roster",
     content:
-      "Air units work differently - they don't deploy to the map during the deployment phase. Instead, they remain at airbases and can be tasked with missions during battle. " +
-      "Open the Air Support panel (sidebar) or click the Air widget (top bar) to schedule reconnaissance, air cover, or strike missions.",
-    highlightSelector: ".control-sidebar [data-popup='airSupport'], #airHudWidget",
+      "The roster is your full order of battle. Use it to review frontline units, reserves, and attached support. During battle, reserve call-ups arrive at base camp automatically rather than being hand-placed.",
+    highlightSelector: "#armyRosterContent",
     position: "left",
     arrowDirection: "right",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "air_support_intro",
+    title: "Air Support Board",
+    content:
+      "Air wings stay off-map. Use this board to review ready squadrons and mission tabs before combat begins. Later, you will return here to post a live sortie to a patrol zone or strike target.",
+    highlightSelector: "[data-air-panel]",
+    position: "left",
+    arrowDirection: "right",
+    waitForAction: true,
     actionLabel: "Continue"
   },
   {
     phase: "begin_battle",
     title: "Commence Operations",
     content:
-      "With your forces deployed, you're ready to begin combat operations. Click 'Begin Battle' to start your first turn.",
+      "Once the line is set, begin the battle. The tutorial will then walk you through movement, attacks, engineers, artillery, flak, air missions, and logistics in the live fight.",
     highlightSelector: "#beginBattle",
     position: "bottom",
     arrowDirection: "up",
     waitForAction: true,
     actionLabel: "Begin Battle"
   },
-
-  // === COMBAT PHASE ===
   {
     phase: "movement_intro",
-    title: "Movement & Action",
+    title: "Movement and Threat Range",
     content:
-      "Each turn, you can move and attack with your units. Click a friendly unit to select it - you'll see its movement range (blue) and attack range (red). " +
-      "Try selecting different units to see how their ranges vary by type and terrain.",
+      "Select a friendly unit. Blue hexes show where it can move this activation and red hexes show valid attack targets. Terrain, suppression, towing state, and fuel all affect what the unit can actually do.",
     position: "center",
     waitForAction: true,
     actionLabel: "Select Units"
   },
   {
     phase: "attack_intro",
-    title: "Engaging the Enemy",
+    title: "Attack with Intent",
     content:
-      "When an enemy is within range (red hexes), click them to attack. A detailed preview shows expected damage, accuracy, and armor penetration. " +
-      "Flanking attacks and combined arms (infantry + tanks + artillery) are far more effective than single-unit assaults.",
+      "When a red target is in range, click it to attack. Read the preview before committing: armor, suppression, expected damage, and retaliation all matter. Combined arms are safer and more decisive than isolated attacks.",
     position: "center",
     actionLabel: "Continue"
   },
   {
-    phase: "air_missions",
-    title: "Air Mission Execution",
+    phase: "engineer_intro",
+    title: "Select Your Engineers",
     content:
-      "During battle, your air units execute scheduled missions. Bombers strike ground targets, fighters provide air cover (CAP) to intercept enemy bombers, and scouts reveal enemy positions. " +
-      "Check the Air Support panel or Air widget to see mission status and schedule new sorties.",
-    highlightSelector: "#airHudWidget",
+      "Find and select an Engineering Corps. Engineers are your terrain-control unit: they can dig in, fortify edges, lay tank traps, and clear lanes for the battalions behind them.",
+    position: "center",
+    waitForAction: true,
+    actionLabel: "Select Engineers"
+  },
+  {
+    phase: "engineer_orders",
+    title: "Use Engineer Orders",
+    content:
+      "With engineers selected, use the unit card to issue an engineer order. Dig In, Fortify, Lay Tank Traps, or Clear Path all count for this step and show how engineers shape the battlefield without leaving the map view.",
+    highlightSelector: "#battleIntelOverlay",
     position: "left",
     arrowDirection: "right",
+    waitForAction: true,
+    actionLabel: "Issue Engineer Order"
+  },
+  {
+    phase: "artillery_intro",
+    title: "Call Off-Map Artillery",
+    content:
+      "Select an infantry or recon spotter that can observe an enemy hex, then use Call Artillery and click an observed enemy position. The heavy battery is off-map, so the fire mission is queued rather than fired by a gun on the map.",
+    position: "center",
+    waitForAction: true,
+    actionLabel: "Queue Fire Mission"
+  },
+  {
+    phase: "flak_intro",
+    title: "Inspect Flak Coverage",
+    content:
+      "Select your Flak Battery. Flak works mainly as an automatic air-defense umbrella, so its job is position and coverage. Keep it shielding base camp, artillery, reserves, or exposed approach routes.",
+    position: "center",
+    waitForAction: true,
+    actionLabel: "Select Flak"
+  },
+  {
+    phase: "air_missions",
+    title: "Post a Live Sortie",
+    content:
+      "Open the Air Support board and issue one mission. Fighters can patrol or escort, strike aircraft attack marked hexes, and transport wings support airborne drops. Each squadron is tasked from its own row.",
+    highlightSelector: "[data-air-panel]",
+    position: "left",
+    arrowDirection: "right",
+    waitForAction: true,
+    actionLabel: "Issue Sortie"
+  },
+  {
+    phase: "logistics_intro",
+    title: "Check Logistics",
+    content:
+      "Use Logistics to inspect depot stock, convoy status, and the resupply queue. Convoys route automatically; your job is to watch shortages, delays, and battalion priority so the right formations get serviced first.",
+    highlightSelector: "#logisticsPanel",
+    position: "left",
+    arrowDirection: "right",
+    waitForAction: true,
     actionLabel: "Continue"
   },
   {
     phase: "turn_end",
-    title: "Ending Your Turn",
+    title: "End the Turn Deliberately",
     content:
-      "When you've moved and attacked with your units, click 'End Turn' to let the enemy respond. " +
-      "Units that haven't acted will be highlighted - don't leave them idle!",
+      "When you have moved the formations you want, fired what matters, and checked support systems, end the turn. The idle warning will help catch units that still have actions available.",
     highlightSelector: "#endTurn",
     position: "left",
     arrowDirection: "right",
     waitForAction: true,
     actionLabel: "End Turn"
   },
-
-  // === COMPLETION ===
   {
     phase: "complete",
     title: "Training Complete",
     content:
-      "Congratulations, Commander! You've completed basic training. " +
-      "Remember: combined arms, terrain advantage, and supply lines are the keys to victory. Good luck!",
+      "You have now worked through the core command loop: requisitioning, deployment, reserves, engineers, off-map artillery, flak cover, air missions, and logistics. Keep combining those systems instead of treating them as separate menus.",
     position: "center",
     actionLabel: "Dismiss"
   }
 ];
 
-/**
- * Maps phases to their corresponding step index.
- */
 const PHASE_INDEX_MAP = new Map<TutorialPhase, number>(
   TUTORIAL_STEPS.map((step, index) => [step.phase, index])
 );
 
-/**
- * Gets the tutorial step for a given phase.
- */
 export function getTutorialStep(phase: TutorialPhase): TutorialStep | null {
   const index = PHASE_INDEX_MAP.get(phase);
   if (index === undefined) return null;
   return TUTORIAL_STEPS[index];
 }
 
-/**
- * Gets the next phase after the current one.
- */
 export function getNextPhase(currentPhase: TutorialPhase): TutorialPhase | null {
   const currentIndex = PHASE_INDEX_MAP.get(currentPhase);
   if (currentIndex === undefined) return null;
@@ -277,9 +324,6 @@ export function getNextPhase(currentPhase: TutorialPhase): TutorialPhase | null 
   return TUTORIAL_STEPS[nextIndex].phase;
 }
 
-/**
- * Gets the previous phase before the current one.
- */
 export function getPreviousPhase(currentPhase: TutorialPhase): TutorialPhase | null {
   const currentIndex = PHASE_INDEX_MAP.get(currentPhase);
   if (currentIndex === undefined || currentIndex <= 0) return null;
@@ -287,16 +331,10 @@ export function getPreviousPhase(currentPhase: TutorialPhase): TutorialPhase | n
   return TUTORIAL_STEPS[currentIndex - 1].phase;
 }
 
-/**
- * Checks if this is the first phase (no back available).
- */
 export function isFirstPhase(phase: TutorialPhase): boolean {
   return phase === "welcome";
 }
 
-/**
- * Gets the ordered list of phases for precombat.
- */
 export function getPrecombatPhases(): TutorialPhase[] {
   return [
     "welcome",
@@ -305,21 +343,38 @@ export function getPrecombatPhases(): TutorialPhase[] {
     "select_infantry",
     "adjust_quantity",
     "select_tanks",
-    "select_support",
+    "select_engineers",
+    "select_flak",
+    "select_air_wing",
     "review_allocation"
   ];
 }
 
-/**
- * Gets the ordered list of phases for deployment.
- */
 export function getDeploymentPhases(): TutorialPhase[] {
-  return ["ui_overview", "mission_briefing", "deployment_panel_intro", "deployment_intro", "base_camp", "place_units", "air_support_intro", "begin_battle"];
+  return [
+    "ui_overview",
+    "mission_briefing",
+    "deployment_panel_intro",
+    "deployment_intro",
+    "base_camp",
+    "place_units",
+    "roster_intro",
+    "air_support_intro",
+    "begin_battle"
+  ];
 }
 
-/**
- * Gets the ordered list of phases for combat.
- */
 export function getCombatPhases(): TutorialPhase[] {
-  return ["movement_intro", "attack_intro", "air_missions", "turn_end", "complete"];
+  return [
+    "movement_intro",
+    "attack_intro",
+    "engineer_intro",
+    "engineer_orders",
+    "artillery_intro",
+    "flak_intro",
+    "air_missions",
+    "logistics_intro",
+    "turn_end",
+    "complete"
+  ];
 }

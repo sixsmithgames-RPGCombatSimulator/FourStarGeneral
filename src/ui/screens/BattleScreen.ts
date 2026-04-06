@@ -69,6 +69,7 @@ import {
   findGeneralById,
   updateGeneral,
   saveRosterToLocalStorage,
+  type AirOperationsSummary,
   type MissionRecord,
   type UnitTypeCount,
   type AmmunitionExpenditure,
@@ -208,6 +209,7 @@ export class BattleScreen {
   private deploymentPrimed = false;
   private panelEventsBound = false;
   private battleUpdateUnsubscribe: (() => void) | null = null;
+  private tutorialUpdateUnsubscribe: (() => void) | null = null;
   private missionRulesController: MissionRulesController | null = null;
   private missionStatus: MissionStatus | null = null;
   private lastMissionPhaseId: MissionPhaseStatus["id"] | null = null;
@@ -243,6 +245,7 @@ export class BattleScreen {
   private airPreviewListener: ((e: Event) => void) | null = null;
   private airClearPreviewListener: ((e: Event) => void) | null = null;
   private targetMarkerClickListener: ((e: Event) => void) | null = null;
+  private readonly tutorialAirMissionQueuedListener: (event: Event) => void;
   private seenAirReportIds: Set<string> = new Set();
   private artilleryPreviewKeys: Set<string> = new Set();
   private readonly queuedTargetMarkerActions = new Map<string, QueuedTargetMarkerAction>();
@@ -1111,6 +1114,7 @@ export class BattleScreen {
       type: "log",
       summary
     });
+    this.completeTutorialPhase("artillery_intro");
     this.battleState.emitBattleUpdate("manual");
   }
 
@@ -1266,13 +1270,13 @@ export class BattleScreen {
 
           if (r.kind === "strike") {
             if (bomberAttrition > 0) {
-              detailFragments.push(`strike package losses ${bomberAttrition}%`);
+              detailFragments.push(`strike package took ${bomberAttrition} air damage`);
             }
             if (interceptorAttrition > 0) {
-              detailFragments.push(`interceptors lost ${interceptorAttrition}%`);
+              detailFragments.push(`interceptors took ${interceptorAttrition} air damage`);
             }
             if (escortAttrition > 0) {
-              detailFragments.push(`escorts lost ${escortAttrition}%`);
+              detailFragments.push(`escorts took ${escortAttrition} air damage`);
             }
             if (interceptorKills > 0) {
               detailFragments.push(`${interceptorKills} interceptor flight${interceptorKills === 1 ? "" : "s"} destroyed`);
@@ -1288,7 +1292,7 @@ export class BattleScreen {
               detailFragments.push(`${interceptorKills} interceptor${interceptorKills === 1 ? "" : "s"} destroyed`);
             }
             if (escortAttrition > 0) {
-              detailFragments.push(`escort losses ${escortAttrition}%`);
+              detailFragments.push(`escort took ${escortAttrition} air damage`);
             }
             if (escortKills > 0) {
               detailFragments.push(`${escortKills} escort flight${escortKills === 1 ? "" : "s"} lost`);
@@ -1301,10 +1305,10 @@ export class BattleScreen {
               detailFragments.push("strike package destroyed");
             }
             if (escortAttrition > 0) {
-              detailFragments.push(`escorts lost ${escortAttrition}%`);
+              detailFragments.push(`escorts took ${escortAttrition} air damage`);
             }
             if (interceptorAttrition > 0) {
-              detailFragments.push(`patrol losses ${interceptorAttrition}%`);
+              detailFragments.push(`patrol took ${interceptorAttrition} air damage`);
             }
           }
 
@@ -2151,6 +2155,7 @@ export class BattleScreen {
       type: "log",
       summary
     });
+    this.completeTutorialPhase("engineer_orders");
     this.battleState.emitBattleUpdate("manual");
   }
 
@@ -2169,6 +2174,9 @@ export class BattleScreen {
     if (tutorialState.getCurrentPhase() !== phase) {
       return;
     }
+    if (tutorialState.getProgress().canProceed) {
+      return;
+    }
     tutorialState.setCanProceed(true);
     if (!shouldAdvance) {
       return;
@@ -2179,6 +2187,37 @@ export class BattleScreen {
         tutorialState.advancePhase(nextPhase);
       }
     }, 800);
+  }
+
+  private syncTutorialPhaseWithCurrentContext(phase: TutorialPhase): void {
+    const tutorialState = ensureTutorialState();
+    const progress = tutorialState.getProgress();
+    if (!progress.isActive || progress.currentPhase !== phase || progress.canProceed) {
+      return;
+    }
+
+    if ((phase === "engineer_intro" || phase === "flak_intro") && this.selectedHexKey) {
+      const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
+      if (!selectedMember || selectedMember.isAutomated) {
+        return;
+      }
+      if (phase === "engineer_intro" && this.isEngineerBattleUnit(selectedMember.unit)) {
+        this.completeTutorialPhase("engineer_intro");
+        return;
+      }
+      if (phase === "flak_intro" && this.isFlakBattleUnit(selectedMember.unit)) {
+        this.completeTutorialPhase("flak_intro");
+        return;
+      }
+    }
+
+    if (phase === "air_missions") {
+      const summary = this.battleState.ensureGameEngine().getAirSupportSummary();
+      const sortiesFlown = summary.queued + summary.inFlight + summary.resolving + summary.completed + summary.refit;
+      if (sortiesFlown > 0) {
+        this.completeTutorialPhase("air_missions");
+      }
+    }
   }
 
   /**
@@ -3665,13 +3704,13 @@ export class BattleScreen {
         : "";
     const interceptorNote =
       interceptorAttrition > 0
-        ? ` Interceptors took ${interceptorAttrition}% damage${interceptorKills > 0 ? ` and lost ${interceptorKills} flight${interceptorKills === 1 ? "" : "s"}` : ""}.`
+        ? ` Interceptors took ${interceptorAttrition} air damage${interceptorKills > 0 ? ` and lost ${interceptorKills} flight${interceptorKills === 1 ? "" : "s"}` : ""}.`
         : interceptorKills > 0
           ? ` ${interceptorKills} interceptor flight${interceptorKills === 1 ? "" : "s"} lost.`
           : "";
     const escortDamageNote =
       escortAttrition > 0
-        ? ` Escorts took ${escortAttrition}% damage${escortKills > 0 ? ` and lost ${escortKills} flight${escortKills === 1 ? "" : "s"}` : ""}.`
+        ? ` Escorts took ${escortAttrition} air damage${escortKills > 0 ? ` and lost ${escortKills} flight${escortKills === 1 ? "" : "s"}` : ""}.`
         : escortKills > 0
           ? ` Escorts lost ${escortKills} flight${escortKills === 1 ? "" : "s"}.`
           : "";
@@ -4626,6 +4665,7 @@ export class BattleScreen {
     this.screenShownHandler = (event) => this.handleScreenShown(event);
     this.attackDialogKeydownHandler = (event) => this.handleAttackDialogKeydown(event);
     this.fortificationDialogKeydownHandler = (event) => this.handleFortificationDialogKeydown(event);
+    this.tutorialAirMissionQueuedListener = () => this.completeTutorialPhase("air_missions");
     this.defaultSelectionKey = null;
 
     const battleScreen = document.getElementById("battleScreen");
@@ -4689,6 +4729,17 @@ export class BattleScreen {
     this.battleActivityLog?.registerCollapsedChangeListener((collapsed) => this.reflectActivityLogState(collapsed));
     this.battleActivityLog?.sync(this.activityEvents);
 
+    if (!this.tutorialUpdateUnsubscribe) {
+      this.tutorialUpdateUnsubscribe = ensureTutorialState().subscribe((progress) => {
+        if (!progress.isActive) {
+          return;
+        }
+        this.syncTutorialPhaseWithCurrentContext(progress.currentPhase);
+      });
+    }
+    document.addEventListener("tutorial:airMissionQueued", this.tutorialAirMissionQueuedListener);
+    this.syncTutorialPhaseWithCurrentContext(ensureTutorialState().getCurrentPhase());
+
     document.addEventListener("screen:shown", this.screenShownHandler);
 
     // Keyboard navigation wiring.
@@ -4714,6 +4765,11 @@ export class BattleScreen {
     }
     if (this.targetMarkerClickListener) {
       document.removeEventListener("battle:targetMarkerClicked", this.targetMarkerClickListener);
+    }
+    document.removeEventListener("tutorial:airMissionQueued", this.tutorialAirMissionQueuedListener);
+    if (this.tutorialUpdateUnsubscribe) {
+      this.tutorialUpdateUnsubscribe();
+      this.tutorialUpdateUnsubscribe = null;
     }
     this.queuedTargetMarkerActions.clear();
     this.hexMapRenderer?.syncQueuedTargetMarkers([]);
@@ -5740,6 +5796,9 @@ export class BattleScreen {
       // Parse objectives by tier
       const objectives = this.parseObjectivesByTier();
 
+      // Capture sortie-level losses separately so reserve-launched aircraft are represented in the mission record.
+      const airOperations = this.collectAirOperationsSummary(engine);
+
       // Determine mission success
       const success = this.missionStatus.outcome.state === "playerVictory";
 
@@ -5756,7 +5815,8 @@ export class BattleScreen {
         enemiesDestroyed,
         unitsDeployed,
         ammunition,
-        objectives
+        objectives,
+        airOperations
       };
     } catch (error) {
       console.error("[BattleScreen] Error collecting mission statistics:", error);
@@ -6870,6 +6930,7 @@ export class BattleScreen {
       this.announceBattleUpdate(statusMessage);
 
       this.completeTutorialPhase("movement_intro");
+      this.syncTutorialPhaseWithCurrentContext(ensureTutorialState().getCurrentPhase());
 
       this.publishSelectionIntel(
         this.buildBattleSelectionIntel(
@@ -7209,7 +7270,61 @@ export class BattleScreen {
       type: "log",
       summary
     });
+    if ((actionId === "digIn" && this.isEngineerBattleUnit(unit)) || actionId === "clearedPath") {
+      this.completeTutorialPhase("engineer_orders");
+    }
     this.battleState.emitBattleUpdate("manual");
+  }
+
+  private collectAirOperationsSummary(engine: GameEngine): AirOperationsSummary | undefined {
+    const reports = engine.getAirMissionReports().filter(
+      (entry) => entry.faction === "Player" && entry.event !== "refitStarted" && entry.event !== "refitCompleted"
+    );
+    if (reports.length === 0) {
+      return undefined;
+    }
+
+    const livePlayerAirUnits = new Set<string>();
+    [...(engine.playerUnits ?? []), ...(engine.reserveUnits ?? []).map((entry) => entry.unit)].forEach((unit) => {
+      if (unit.unitId) {
+        livePlayerAirUnits.add(unit.unitId);
+      }
+    });
+
+    let airCombatDamageInflicted = 0;
+    let airCombatDamageTaken = 0;
+    let hostileFlightsDestroyed = 0;
+    const participatingPlayerFlights = new Set<string>();
+
+    for (const report of reports) {
+      participatingPlayerFlights.add(report.unitKey);
+      hostileFlightsDestroyed += Math.max(0, report.kills?.escorts ?? 0) + Math.max(0, report.kills?.cap ?? 0);
+
+      if (report.kind === "strike") {
+        airCombatDamageTaken += Math.max(0, report.bomberAttrition ?? 0);
+        airCombatDamageInflicted += Math.max(0, report.interceptorAttrition ?? 0) + Math.max(0, report.escortAttrition ?? 0);
+      } else if (report.kind === "escort") {
+        airCombatDamageTaken += Math.max(0, report.escortAttrition ?? 0);
+        airCombatDamageInflicted += Math.max(0, report.interceptorAttrition ?? 0);
+      } else if (report.kind === "airCover") {
+        airCombatDamageTaken += Math.max(0, report.interceptorAttrition ?? 0);
+        airCombatDamageInflicted += Math.max(0, report.bomberAttrition ?? 0) + Math.max(0, report.escortAttrition ?? 0);
+      }
+    }
+
+    const playerFlightsLost = Array.from(participatingPlayerFlights).filter((unitKey) => !livePlayerAirUnits.has(unitKey)).length;
+
+    return {
+      sortiesFlown: reports.length,
+      strikeSorties: reports.filter((entry) => entry.kind === "strike").length,
+      escortSorties: reports.filter((entry) => entry.kind === "escort").length,
+      patrolSorties: reports.filter((entry) => entry.kind === "airCover").length,
+      transportSorties: reports.filter((entry) => entry.kind === "airTransport").length,
+      airCombatDamageInflicted,
+      airCombatDamageTaken,
+      hostileFlightsDestroyed,
+      playerFlightsLost
+    };
   }
 
   /**
@@ -8050,6 +8165,13 @@ export class BattleScreen {
     const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
     const traits = (definition?.traits ?? []) as readonly string[];
     return unit.type.toLowerCase().includes("engineer") || traits.includes("engineer");
+  }
+
+  private isFlakBattleUnit(unit: ScenarioUnit): boolean {
+    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
+    const traits = (definition?.traits ?? []) as readonly string[];
+    return unit.type.toLowerCase().includes("flak")
+      || (traits.includes("intercept") && definition?.moveType !== "air");
   }
 
   private describeHexModification(type: HexModificationType): string {

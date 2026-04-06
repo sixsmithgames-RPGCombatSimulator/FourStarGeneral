@@ -113,7 +113,7 @@ registerTest("BATTLESCREEN_DEFENSIVE_AIR_EVENTS_LOG_PLAYER_REACTIONS", async ({ 
       throw new Error(`Expected interception damage summary in activity log, saw ${published[1].summary}.`);
     }
 
-    if (!published[1].summary.includes("Interceptors took 17% damage and lost 1 flight.")) {
+    if (!published[1].summary.includes("Interceptors took 17 air damage and lost 1 flight.")) {
       throw new Error(`Expected interceptor attrition summary in activity log, saw ${published[1].summary}.`);
     }
 
@@ -223,7 +223,7 @@ registerTest("BATTLESCREEN_AIR_MISSION_LOGS_SURFACE_ESCORT_AND_CAP_ATTRITION", a
       throw new Error(`Expected escort summary to include interceptor kill count, saw ${published[0]!.summary}.`);
     }
 
-    if (!published[0]!.summary.includes("escort losses 6%")) {
+    if (!published[0]!.summary.includes("escort took 6 air damage")) {
       throw new Error(`Expected escort summary to include escort losses, saw ${published[0]!.summary}.`);
     }
 
@@ -235,7 +235,7 @@ registerTest("BATTLESCREEN_AIR_MISSION_LOGS_SURFACE_ESCORT_AND_CAP_ATTRITION", a
       throw new Error(`Expected CAP summary to include strike-package kill, saw ${published[1]!.summary}.`);
     }
 
-    if (!published[1]!.summary.includes("patrol losses 9%")) {
+    if (!published[1]!.summary.includes("patrol took 9 air damage")) {
       throw new Error(`Expected CAP summary to include patrol losses, saw ${published[1]!.summary}.`);
     }
 
@@ -358,17 +358,140 @@ registerTest("BATTLESCREEN_STRIKE_LOGS_INCLUDE_AIR_COMBAT_DAMAGE_ON_BOTH_SIDES",
     if (!summary.includes("3 damage dealt")) {
       throw new Error(`Expected target damage in strike summary, saw ${summary}.`);
     }
-    if (!summary.includes("strike package losses 19%")) {
+    if (!summary.includes("strike package took 19 air damage")) {
       throw new Error(`Expected strike-package attrition in strike summary, saw ${summary}.`);
     }
-    if (!summary.includes("interceptors lost 27%")) {
+    if (!summary.includes("interceptors took 27 air damage")) {
       throw new Error(`Expected interceptor attrition in strike summary, saw ${summary}.`);
     }
-    if (!summary.includes("escorts lost 8%")) {
+    if (!summary.includes("escorts took 8 air damage")) {
       throw new Error(`Expected escort attrition in strike summary, saw ${summary}.`);
     }
     if (!summary.includes("1 interceptor flight destroyed")) {
       throw new Error(`Expected interceptor kill count in strike summary, saw ${summary}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_MISSION_STATS_CAPTURE_PLAYER_AIR_LOSSES", async ({ When, Then }) => {
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+  const reports: AirMissionReportEntry[] = [
+    {
+      id: "player-strike-1",
+      missionId: "strike-1",
+      turnResolved: 5,
+      timestamp: "2026-04-05T23:31:00.000Z",
+      faction: "Player",
+      unitType: "Bomber",
+      unitKey: "bomber-flight-1",
+      kind: "strike",
+      bomberAttrition: 19,
+      interceptorAttrition: 27,
+      escortAttrition: 8,
+      kills: { cap: 1 },
+      outcome: {
+        type: "strike",
+        result: "partial",
+        details: "Strike damaged the target.",
+        refitRequired: true,
+        damageInflicted: 9,
+        meta: {
+          bomberAttrition: 19,
+          interceptorAttrition: 27,
+          escortAttrition: 8,
+          interceptorKills: 1
+        }
+      }
+    },
+    {
+      id: "player-cap-1",
+      missionId: "cap-1",
+      turnResolved: 5,
+      timestamp: "2026-04-05T23:31:00.000Z",
+      faction: "Player",
+      unitType: "Interceptor",
+      unitKey: "cap-flight-1",
+      kind: "airCover",
+      bomberAttrition: 24,
+      interceptorAttrition: 9,
+      kills: { cap: 1 },
+      outcome: {
+        type: "airCover",
+        result: "success",
+        details: "Patrol broke up the raid.",
+        refitRequired: true,
+        meta: {
+          bomberAttrition: 24,
+          capKills: 1,
+          interceptorAttrition: 9
+        }
+      }
+    }
+  ];
+
+  (screen as any).battleState = {
+    hasEngine: () => true,
+    ensureGameEngine: () => ({
+      playerUnits: [],
+      botUnits: [],
+      reserveUnits: [{ unit: { unitId: "bomber-flight-1", type: "Bomber", hex: { q: 0, r: 0 }, strength: 81 } }],
+      getAirMissionReports: () => reports
+    }),
+    getPrecombatMissionInfo: () => ({ missionKey: "town_defense" })
+  };
+  (screen as any).scenario = {
+    sides: {
+      Player: { units: [] },
+      Bot: { units: [] }
+    }
+  };
+  (screen as any).missionStatus = {
+    outcome: { state: "playerVictory" },
+    turn: 5
+  };
+  (screen as any).uiState = {
+    getSelectedMissionTitle: () => "Town Defense"
+  };
+  (screen as any).calculateAmmunitionExpenditure = () => ({
+    bombsDropped: 0,
+    artilleryShellsFired: 0,
+    rocketsFired: 0,
+    smallArmsRounds: 0
+  });
+  (screen as any).parseObjectivesByTier = () => ({
+    primaryCompleted: 1,
+    primaryTotal: 1,
+    secondaryCompleted: 0,
+    secondaryTotal: 0,
+    tertiaryCompleted: 0,
+    tertiaryTotal: 0
+  });
+  (screen as any).getInitialEnemyUnits = () => [];
+
+  let record: any = null;
+
+  await When("mission statistics are collected after air combat", async () => {
+    record = (screen as any).collectMissionStatistics();
+  });
+
+  await Then("the mission record should retain sortie damage and lost player flights", async () => {
+    if (!record?.airOperations) {
+      throw new Error("Expected mission statistics to include an airOperations summary.");
+    }
+    if (record.airOperations.sortiesFlown !== 2) {
+      throw new Error(`Expected 2 resolved player sorties, saw ${record.airOperations.sortiesFlown}.`);
+    }
+    if (record.airOperations.airCombatDamageTaken !== 28) {
+      throw new Error(`Expected 28 air damage taken, saw ${record.airOperations.airCombatDamageTaken}.`);
+    }
+    if (record.airOperations.airCombatDamageInflicted !== 59) {
+      throw new Error(`Expected 59 air damage inflicted, saw ${record.airOperations.airCombatDamageInflicted}.`);
+    }
+    if (record.airOperations.hostileFlightsDestroyed !== 2) {
+      throw new Error(`Expected 2 hostile flights destroyed, saw ${record.airOperations.hostileFlightsDestroyed}.`);
+    }
+    if (record.airOperations.playerFlightsLost !== 1) {
+      throw new Error(`Expected 1 lost player flight, saw ${record.airOperations.playerFlightsLost}.`);
     }
   });
 });

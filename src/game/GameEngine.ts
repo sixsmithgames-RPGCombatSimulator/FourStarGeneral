@@ -723,13 +723,13 @@ export interface AirMissionReportEntry {
   readonly interceptions?: number;
   /** Optional event tag for non-resolution entries (e.g., refit start/finish). Defaults to 'resolved' when undefined. */
   readonly event?: "resolved" | "refitStarted" | "refitCompleted";
-  /** Tally of aircraft destroyed during this mission's engagements. */
+  /** Tally of hostile aircraft destroyed during this mission's engagements. */
   readonly kills?: { escorts?: number; cap?: number };
-  /** Total percentage strength lost by the bomber due to interceptions (strike missions). */
+  /** Total strength damage sustained by the strike package during air combat. */
   readonly bomberAttrition?: number;
-  /** Total percentage strength lost by hostile interceptors during escort / air-combat exchanges. */
+  /** Total strength damage sustained by hostile interceptors during escort / air-combat exchanges. */
   readonly interceptorAttrition?: number;
-  /** Total percentage strength lost by escort flights during air-combat exchanges. */
+  /** Total strength damage sustained by escort flights during air-combat exchanges. */
   readonly escortAttrition?: number;
   /** Freeform notes for UI log rendering. */
   readonly notes?: string[];
@@ -1913,30 +1913,23 @@ export class GameEngine implements GameEngineAPI {
           };
         }
 
-        const suffered = Math.max(0, Math.round(flakResult.expectedDamage));
+        const suffered = Math.max(0, Math.min(currentBomber.strength, Math.round(flakResult.expectedDamage)));
         const updatedBomber = structuredClone(currentBomber);
         updatedBomber.strength = Math.max(0, updatedBomber.strength - suffered);
 
         // Record engagement and consume ammo
         this.recordFlakEngagement(opponentFaction, flakEntry.unit, flakEntry.hexKey);
 
-        attackerPlacements.set(attackerHexKey, updatedBomber);
-        if (mission.faction === "Player") {
-          this.syncPlayerStrength(updatedBomber.hex, updatedBomber.strength);
-        } else {
-          this.syncBotStrength(updatedBomber.hex, updatedBomber.strength);
-        }
+        this.replaceUnitInFactionHex(mission.faction, updatedBomber);
+        this.syncStrengthForFaction(mission.faction, updatedBomber.hex, updatedBomber.strength, mission.unitKey);
 
         currentBomber = updatedBomber;
         flakAttrition += suffered;
 
         if (updatedBomber.strength <= 0) {
-          attackerPlacements.delete(attackerHexKey);
-          if (mission.faction === "Player") {
-            this.removeSupplyEntryFor(attacker.hex);
-          } else {
-            this.removeBotSupplyEntryFor(attacker.hex);
-          }
+          this.removeUnitFromFactionHex(mission.faction, attacker.hex, mission.unitKey);
+          this.removeSupplyEntryForFaction(mission.faction, attacker.hex, mission.unitKey);
+          this.deleteUnitActionFlags(mission.faction, attacker);
           this.invalidateRosterCache();
           bomberDestroyedByFlak = true;
           break;
@@ -2046,25 +2039,13 @@ export class GameEngine implements GameEngineAPI {
         this.addMissionAirCombatTaken(delta.mission, delta.taken);
         this.spendAircraftAmmo(mission.faction, delta.mission.unitKey, true);
         delta.mission.interceptions += 1;
-        const liveEscort = this.lookupUnitBySquadronId(delta.mission.unitKey, mission.faction);
-        if (!liveEscort) {
-          return;
-        }
-        const { hexKey } = liveEscort;
         if (delta.unitAfter.strength <= 0) {
-          attackerPlacements.delete(hexKey);
-          if (mission.faction === "Player") {
-            this.removeSupplyEntryFor(delta.unitBefore.hex);
-          } else {
-            this.removeBotSupplyEntryFor(delta.unitBefore.hex);
-          }
+          this.removeUnitFromFactionHex(mission.faction, delta.unitBefore.hex, delta.mission.unitKey);
+          this.removeSupplyEntryForFaction(mission.faction, delta.unitBefore.hex, delta.mission.unitKey);
+          this.deleteUnitActionFlags(mission.faction, delta.unitBefore);
         } else {
-          attackerPlacements.set(hexKey, delta.unitAfter);
-          if (mission.faction === "Player") {
-            this.syncPlayerStrength(delta.unitAfter.hex, delta.unitAfter.strength);
-          } else {
-            this.syncBotStrength(delta.unitAfter.hex, delta.unitAfter.strength);
-          }
+          this.replaceUnitInFactionHex(mission.faction, delta.unitAfter);
+          this.syncStrengthForFaction(mission.faction, delta.unitAfter.hex, delta.unitAfter.strength, delta.mission.unitKey);
         }
       });
 
@@ -2076,43 +2057,24 @@ export class GameEngine implements GameEngineAPI {
         this.addMissionAirCombatTaken(delta.mission, delta.taken);
         this.spendAircraftAmmo(opponentFaction, delta.mission.unitKey, true);
         delta.mission.interceptions += 1;
-        const liveInterceptor = this.lookupUnitBySquadronId(delta.mission.unitKey, opponentFaction);
-        if (!liveInterceptor) {
-          return;
-        }
-        const { hexKey } = liveInterceptor;
         if (delta.unitAfter.strength <= 0) {
-          if (opponentFaction === "Player") {
-            this.playerPlacements.delete(hexKey);
-            this.removeSupplyEntryFor(delta.unitBefore.hex);
-          } else {
-            this.botPlacements.delete(hexKey);
-            this.removeBotSupplyEntryFor(delta.unitBefore.hex);
-          }
-        } else if (opponentFaction === "Player") {
-          this.playerPlacements.set(hexKey, delta.unitAfter);
-          this.syncPlayerStrength(delta.unitAfter.hex, delta.unitAfter.strength);
+          this.removeUnitFromFactionHex(opponentFaction, delta.unitBefore.hex, delta.mission.unitKey);
+          this.removeSupplyEntryForFaction(opponentFaction, delta.unitBefore.hex, delta.mission.unitKey);
+          this.deleteUnitActionFlags(opponentFaction, delta.unitBefore);
         } else {
-          this.botPlacements.set(hexKey, delta.unitAfter);
-          this.syncBotStrength(delta.unitAfter.hex, delta.unitAfter.strength);
+          this.replaceUnitInFactionHex(opponentFaction, delta.unitAfter);
+          this.syncStrengthForFaction(opponentFaction, delta.unitAfter.hex, delta.unitAfter.strength, delta.mission.unitKey);
         }
       });
 
       if (interception.bomberDestroyed) {
-        attackerPlacements.delete(attackerHexKey);
-        if (mission.faction === "Player") {
-          this.removeSupplyEntryFor(attacker.hex);
-        } else {
-          this.removeBotSupplyEntryFor(attacker.hex);
-        }
+        this.removeUnitFromFactionHex(mission.faction, attacker.hex, mission.unitKey);
+        this.removeSupplyEntryForFaction(mission.faction, attacker.hex, mission.unitKey);
+        this.deleteUnitActionFlags(mission.faction, attacker);
         this.invalidateRosterCache();
       } else {
-        attackerPlacements.set(attackerHexKey, interception.bomberAfter);
-        if (mission.faction === "Player") {
-          this.syncPlayerStrength(interception.bomberAfter.hex, interception.bomberAfter.strength);
-        } else {
-          this.syncBotStrength(interception.bomberAfter.hex, interception.bomberAfter.strength);
-        }
+        this.replaceUnitInFactionHex(mission.faction, interception.bomberAfter);
+        this.syncStrengthForFaction(mission.faction, interception.bomberAfter.hex, interception.bomberAfter.strength, mission.unitKey);
       }
 
       this.pendingAirEngagements.push({
@@ -2213,12 +2175,13 @@ export class GameEngine implements GameEngineAPI {
     if (typeof updatedAttacker.ammo === "number") {
       updatedAttacker.ammo = Math.max(0, updatedAttacker.ammo - 1);
     }
-    attackerPlacements.set(attackerHexKey, updatedAttacker);
-    if (mission.faction === "Player") {
-      this.syncPlayerAmmo(updatedAttacker.hex, typeof updatedAttacker.ammo === "number" ? updatedAttacker.ammo : 0);
-    } else {
-      this.syncBotAmmo(updatedAttacker.hex, typeof updatedAttacker.ammo === "number" ? updatedAttacker.ammo : 0);
-    }
+    this.replaceUnitInFactionHex(mission.faction, updatedAttacker);
+    this.syncAmmoForFaction(
+      mission.faction,
+      updatedAttacker.hex,
+      typeof updatedAttacker.ammo === "number" ? updatedAttacker.ammo : 0,
+      mission.unitKey
+    );
 
     if (defenderDestroyed) {
       defenderPlacements.delete(defenderKey);
@@ -2712,7 +2675,7 @@ export class GameEngine implements GameEngineAPI {
       defenderDefinition
     );
     const result = this.scaleAirCombatResult(resolveAttack(request), weaponProfile);
-    return Math.max(0, Math.round(result.expectedDamage));
+    return Math.max(0, Math.min(defender.strength, Math.round(result.expectedDamage)));
   }
 
   private resolveAirInterception(
@@ -4853,28 +4816,45 @@ private automateSupplyConvoys(
     const unitId = this.getSquadronId(unit);
     const units = this.getUnitsAtHexForFaction(unit.hex, faction);
     const index = units.findIndex((candidate) => this.getSquadronId(candidate) === unitId);
-    if (index < 0) {
-      return false;
+    if (index >= 0) {
+      units[index] = structuredClone(unit);
+      this.setUnitsAtHexForFaction(unit.hex, faction, units);
+      return true;
     }
-    units[index] = structuredClone(unit);
-    this.setUnitsAtHexForFaction(unit.hex, faction, units);
-    return true;
+    if (faction === "Player") {
+      const reserveIndex = this.reserves.findIndex((entry) => this.getSquadronId(entry.unit) === unitId);
+      if (reserveIndex >= 0) {
+        const reserve = this.reserves[reserveIndex]!;
+        this.reserves[reserveIndex] = {
+          ...reserve,
+          unit: structuredClone(unit)
+        };
+        return true;
+      }
+    }
+    return false;
   }
 
   private removeUnitFromFactionHex(faction: TurnFaction, hex: Axial, unitId?: string | null): ScenarioUnit | null {
     const units = this.getUnitsAtHexForFaction(hex, faction);
-    if (units.length === 0) {
-      return null;
+    if (units.length > 0) {
+      const removalIndex = unitId
+        ? units.findIndex((candidate) => this.getSquadronId(candidate) === unitId)
+        : 0;
+      if (removalIndex >= 0) {
+        const [removed] = units.splice(removalIndex, 1);
+        this.setUnitsAtHexForFaction(hex, faction, units);
+        return removed ? structuredClone(removed) : null;
+      }
     }
-    const removalIndex = unitId
-      ? units.findIndex((candidate) => this.getSquadronId(candidate) === unitId)
-      : 0;
-    if (removalIndex < 0) {
-      return null;
+    if (faction === "Player" && unitId) {
+      const reserveIndex = this.reserves.findIndex((entry) => this.getSquadronId(entry.unit) === unitId);
+      if (reserveIndex >= 0) {
+        const [removed] = this.reserves.splice(reserveIndex, 1);
+        return removed ? structuredClone(removed.unit) : null;
+      }
     }
-    const [removed] = units.splice(removalIndex, 1);
-    this.setUnitsAtHexForFaction(hex, faction, units);
-    return removed ? structuredClone(removed) : null;
+    return null;
   }
 
   private updateIdleRegistryFor(hexKey: string): void {
@@ -11897,16 +11877,13 @@ private automateSupplyConvoys(
           this.addMissionAirCombatTaken(delta.mission, delta.taken);
           this.spendAircraftAmmo("Bot", delta.mission.unitKey, true);
           delta.mission.interceptions += 1;
-          const liveEscort = this.lookupUnitBySquadronId(delta.mission.unitKey, "Bot");
-          if (!liveEscort) {
-            return;
-          }
           if (delta.unitAfter.strength <= 0) {
-            this.botPlacements.delete(liveEscort.hexKey);
-            this.removeBotSupplyEntryFor(delta.unitBefore.hex);
+            this.removeUnitFromFactionHex("Bot", delta.unitBefore.hex, delta.mission.unitKey);
+            this.removeSupplyEntryForFaction("Bot", delta.unitBefore.hex, delta.mission.unitKey);
+            this.deleteUnitActionFlags("Bot", delta.unitBefore);
           } else {
-            this.botPlacements.set(liveEscort.hexKey, delta.unitAfter);
-            this.syncBotStrength(delta.unitAfter.hex, delta.unitAfter.strength);
+            this.replaceUnitInFactionHex("Bot", delta.unitAfter);
+            this.syncStrengthForFaction("Bot", delta.unitAfter.hex, delta.unitAfter.strength, delta.mission.unitKey);
           }
         });
 
@@ -11918,16 +11895,13 @@ private automateSupplyConvoys(
           this.addMissionAirCombatTaken(delta.mission, delta.taken);
           this.spendAircraftAmmo("Player", delta.mission.unitKey, true);
           delta.mission.interceptions += 1;
-          const liveInterceptor = this.lookupUnitBySquadronId(delta.mission.unitKey, "Player");
-          if (!liveInterceptor) {
-            return;
-          }
           if (delta.unitAfter.strength <= 0) {
-            this.playerPlacements.delete(liveInterceptor.hexKey);
-            this.removeSupplyEntryFor(delta.unitBefore.hex);
+            this.removeUnitFromFactionHex("Player", delta.unitBefore.hex, delta.mission.unitKey);
+            this.removeSupplyEntryForFaction("Player", delta.unitBefore.hex, delta.mission.unitKey);
+            this.deleteUnitActionFlags("Player", delta.unitBefore);
           } else {
-            this.playerPlacements.set(liveInterceptor.hexKey, delta.unitAfter);
-            this.syncPlayerStrength(delta.unitAfter.hex, delta.unitAfter.strength);
+            this.replaceUnitInFactionHex("Player", delta.unitAfter);
+            this.syncStrengthForFaction("Player", delta.unitAfter.hex, delta.unitAfter.strength, delta.mission.unitKey);
           }
         });
 

@@ -472,11 +472,19 @@ export class TutorialOverlay {
       this.clickIfPresent(".control-sidebar [data-popup=\"armyRoster\"]");
       return;
     }
+    if (selector.includes("logisticsPanel") || selector.includes("data-popup='logistics'") || selector.includes("data-popup=\"logistics\"")) {
+      this.clickIfPresent(".control-sidebar [data-popup=\"logistics\"]");
+      return;
+    }
     if (selector.includes("airSupport") || selector.includes("airHudWidget") || selector.includes("data-popup='airSupport'") || selector.includes("data-popup=\"airSupport\"")) {
       // Prefer the Air HUD widget if present (it exists in the battle header), otherwise fall back to sidebar popup.
       this.clickIfPresent("[data-airhud-open]");
       this.clickIfPresent(".control-sidebar [data-popup=\"airSupport\"]");
       return;
+    }
+    if (selector.includes("data-air-panel")) {
+      this.clickIfPresent("[data-airhud-open]");
+      this.clickIfPresent(".control-sidebar [data-popup=\"airSupport\"]");
     }
   }
 

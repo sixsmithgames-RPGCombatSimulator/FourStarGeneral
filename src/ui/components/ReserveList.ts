@@ -1048,7 +1048,7 @@ export class PopupManager implements IPopupManager {
 
   /** Renders the mission roster with cancel actions for queued sorties. */
   private renderAirMissionList(list: HTMLUListElement, engine: GameEngineAPI): void {
-    const missions = engine.getScheduledAirMissions();
+    const missions = engine.getScheduledAirMissions().filter((mission) => mission.status !== "completed");
     if (!missions || missions.length === 0) {
       list.innerHTML = '<li class="air-mission-item">No air missions scheduled.</li>';
       return;

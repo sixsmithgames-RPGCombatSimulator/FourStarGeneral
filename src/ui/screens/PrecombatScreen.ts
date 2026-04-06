@@ -300,17 +300,14 @@ export class PrecombatScreen {
       tutorialState.setCanProceed(true);
     }
 
-    // Check if user has added infantry (for select_infantry phase)
     if (currentPhase === "select_infantry" && optionKey === "infantry" && newQuantity > 0) {
       tutorialState.setCanProceed(true);
-      // Auto-advance after a brief delay so user sees the feedback
       setTimeout(() => {
         const nextPhase = getNextPhase("select_infantry");
         if (nextPhase) tutorialState.advancePhase(nextPhase);
       }, 800);
     }
 
-    // Check if user has added tanks (for select_tanks phase)
     if (currentPhase === "select_tanks" && optionKey === "tank" && newQuantity > 0) {
       tutorialState.setCanProceed(true);
       setTimeout(() => {
@@ -319,10 +316,26 @@ export class PrecombatScreen {
       }, 800);
     }
 
-    if (currentPhase === "select_support" && optionKey === "howitzer" && newQuantity > 0) {
+    if (currentPhase === "select_engineers" && optionKey === "engineer" && newQuantity > 0) {
       tutorialState.setCanProceed(true);
       setTimeout(() => {
-        const nextPhase = getNextPhase("select_support");
+        const nextPhase = getNextPhase("select_engineers");
+        if (nextPhase) tutorialState.advancePhase(nextPhase);
+      }, 800);
+    }
+
+    if (currentPhase === "select_flak" && optionKey === "flakBattery" && newQuantity > 0) {
+      tutorialState.setCanProceed(true);
+      setTimeout(() => {
+        const nextPhase = getNextPhase("select_flak");
+        if (nextPhase) tutorialState.advancePhase(nextPhase);
+      }, 800);
+    }
+
+    if (currentPhase === "select_air_wing" && optionKey === "fighter" && newQuantity > 0) {
+      tutorialState.setCanProceed(true);
+      setTimeout(() => {
+        const nextPhase = getNextPhase("select_air_wing");
         if (nextPhase) tutorialState.advancePhase(nextPhase);
       }, 800);
     }

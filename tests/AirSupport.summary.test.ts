@@ -122,3 +122,63 @@ registerTest("AIR_SUPPORT_HUD_SUMMARY_AND_CANCEL", async ({ Given, When, Then })
     }
   });
 });
+
+registerTest("AIR_SUPPORT_RESERVE_HELPERS_UPDATE_AND_REMOVE_PLAYER_SQUADRONS", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let updatedStrength = 0;
+  let remainingReserves = 0;
+
+  await Given("a player aircraft sitting in reserves", async () => {
+    const cfg: GameEngineConfig = {
+      scenario: scenario(),
+      unitTypes,
+      terrain,
+      playerSide: side(),
+      botSide: side()
+    };
+    engine = new GameEngine(cfg);
+    engine.beginDeployment();
+    const fighter: ScenarioUnit = {
+      type: "Fighter" as unknown as ScenarioUnit["type"],
+      hex: { q: 0, r: 0 },
+      strength: 100,
+      experience: 0,
+      ammo: 6,
+      fuel: 50,
+      entrench: 0,
+      facing: "NW",
+      unitId: "reserve-flight-1"
+    } as ScenarioUnit;
+    engine.initializeFromAllocations([fighter]);
+    engine.setBaseCamp({ q: 0, r: 0 });
+    engine.finalizeDeployment();
+    engine.startPlayerTurnPhase();
+  });
+
+  await When("reserve-aware roster helpers update and remove the flight", async () => {
+    const damagedFlight: ScenarioUnit = {
+      ...(engine.getReserveSnapshot()[0]!.unit as ScenarioUnit),
+      strength: 73
+    };
+    const replaced = (engine as any).replaceUnitInFactionHex("Player", damagedFlight);
+    if (!replaced) {
+      throw new Error("Expected reserve aircraft replacement helper to succeed.");
+    }
+    updatedStrength = engine.getReserveSnapshot().find((entry) => entry.unit.unitId === "reserve-flight-1")?.unit.strength ?? 0;
+
+    const removed = (engine as any).removeUnitFromFactionHex("Player", damagedFlight.hex, "reserve-flight-1");
+    if (!removed) {
+      throw new Error("Expected reserve aircraft removal helper to succeed.");
+    }
+    remainingReserves = engine.getReserveSnapshot().length;
+  });
+
+  await Then("reserve aircraft changes should be visible through the live reserve snapshot", async () => {
+    if (updatedStrength !== 73) {
+      throw new Error(`Expected updated reserve strength of 73, saw ${updatedStrength}.`);
+    }
+    if (remainingReserves !== 0) {
+      throw new Error(`Expected destroyed reserve flight to be removed from live reserves, saw ${remainingReserves} remaining.`);
+    }
+  });
+});

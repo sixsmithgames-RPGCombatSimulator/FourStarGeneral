@@ -79,6 +79,18 @@ export interface ObjectiveCompletion {
   tertiaryTotal: number;
 }
 
+export interface AirOperationsSummary {
+  sortiesFlown: number;
+  strikeSorties: number;
+  escortSorties: number;
+  patrolSorties: number;
+  transportSorties: number;
+  airCombatDamageInflicted: number;
+  airCombatDamageTaken: number;
+  hostileFlightsDestroyed: number;
+  playerFlightsLost: number;
+}
+
 /**
  * Comprehensive statistics for a single mission.
  */
@@ -93,6 +105,7 @@ export interface MissionRecord {
   unitsDeployed: UnitTypeCount[];
   ammunition: AmmunitionExpenditure;
   objectives: ObjectiveCompletion;
+  airOperations?: AirOperationsSummary;
 }
 
 export interface GeneralIdentity {

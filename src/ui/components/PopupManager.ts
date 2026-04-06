@@ -44,6 +44,7 @@ import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { supply as supplyBalance } from "../../core/balance";
 import { axialKey } from "../../core/Hex";
 import type { AirMissionTemplate, AirMissionKind, ScenarioUnit } from "../../core/types";
+import { ensureTutorialState, type TutorialPhase } from "../../state/TutorialState";
 import unitTypesSource from "../../data/unitTypes.json";
 import { getSpriteForScenarioType } from "../../data/unitSpriteCatalog";
 
@@ -152,6 +153,7 @@ export class PopupManager implements IPopupManager {
   private readonly warRoomOverlay: WarRoomOverlay | null;
   private readonly battleState = ensureBattleState();
   private readonly unsubscribeBattleUpdates: () => void;
+  private readonly unsubscribeTutorialUpdates: () => void;
 
   // DOM element references
   private readonly popupLayer: HTMLElement;
@@ -243,7 +245,33 @@ export class PopupManager implements IPopupManager {
         this.renderAirSupportPanel();
       }
     });
-    window.addEventListener("beforeunload", () => this.unsubscribeBattleUpdates());
+    this.unsubscribeTutorialUpdates = ensureTutorialState().subscribe((progress) => {
+      if (!progress.isActive) {
+        return;
+      }
+      this.syncTutorialProgressForActivePopup(progress.currentPhase);
+    });
+    window.addEventListener("beforeunload", () => {
+      this.unsubscribeBattleUpdates();
+      this.unsubscribeTutorialUpdates();
+    });
+  }
+
+  private syncTutorialProgressForActivePopup(phase: TutorialPhase): void {
+    const tutorialState = ensureTutorialState();
+    const progress = tutorialState.getProgress();
+    if (!progress.isActive || progress.currentPhase !== phase || progress.canProceed) {
+      return;
+    }
+
+    const popupMatchesPhase =
+      (phase === "roster_intro" && this.activePopup === "armyRoster")
+      || (phase === "air_support_intro" && this.activePopup === "airSupport")
+      || (phase === "logistics_intro" && this.activePopup === "logistics");
+
+    if (popupMatchesPhase) {
+      tutorialState.setCanProceed(true);
+    }
   }
 
   /**
@@ -1012,6 +1040,7 @@ export class PopupManager implements IPopupManager {
     }
 
     this.renderAirSupportOrderBoard(panel, engine);
+    this.syncTutorialProgressForActivePopup(ensureTutorialState().getCurrentPhase());
   }
 
   /** Populates the mission-kind select from engine templates. */
@@ -1995,6 +2024,12 @@ export class PopupManager implements IPopupManager {
     this.clearAirPlannerTargetValue(mission.kind, squadron.squadronId);
     this.airPlannerState.targetValue = "";
     this.setAirPlannerFeedback(`${this.formatAirMissionKindLabel(mission.kind)} posted to the operations log.`, "success");
+    document.dispatchEvent(new CustomEvent("tutorial:airMissionQueued", {
+      detail: {
+        missionKind: mission.kind,
+        squadronId: squadron.squadronId
+      }
+    }));
     this.renderAirSupportPanel();
     this.battleState.emitBattleUpdate("missionUpdated");
   }
@@ -2135,7 +2170,7 @@ export class PopupManager implements IPopupManager {
 
   /** Renders the mission roster with cancel actions for queued sorties. */
   private renderAirMissionList(list: HTMLUListElement, engine: GameEngineAPI): void {
-    const missions = engine.getScheduledAirMissions();
+    const missions = engine.getScheduledAirMissions().filter((mission) => mission.status !== "completed");
     if (!missions || missions.length === 0) {
       list.innerHTML = '<li class="air-mission-empty">No sorties queued. Air wings remain on standby until new orders are issued.</li>';
       return;
@@ -2514,6 +2549,7 @@ export class PopupManager implements IPopupManager {
     this.renderRosterSection(rosterContainer, "reserves", snapshot.reserves);
     this.renderRosterSection(rosterContainer, "support", snapshot.support);
     this.renderRosterSection(rosterContainer, "exhausted", snapshot.exhausted);
+    this.syncTutorialProgressForActivePopup(ensureTutorialState().getCurrentPhase());
   }
 
   private renderRosterSection(container: HTMLElement, listKey: "frontline" | "reserves" | "support" | "exhausted", entries: RosterSnapshotEntry[]): void {
@@ -3455,6 +3491,7 @@ export class PopupManager implements IPopupManager {
     }
 
     this.bindLogisticsPriorityControls(panel);
+    this.syncTutorialProgressForActivePopup(ensureTutorialState().getCurrentPhase());
   }
 
   /**

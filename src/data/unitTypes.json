@@ -465,7 +465,7 @@
         "rangeMax": 2,
         "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "medium" },
         "shotsScalar": 1.1,
-        "damageScalar": 8.0,
+        "damageScalar": 2.6,
         "suppressionScalar": 2.6
       }
     }
@@ -505,7 +505,7 @@
         "rangeMax": 2,
         "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "small" },
         "shotsScalar": 1.15,
-        "damageScalar": 10.0,
+        "damageScalar": 2.9,
         "suppressionScalar": 2.9
       }
     }
@@ -544,7 +544,7 @@
         "rangeMin": 1,
         "rangeMax": 2,
         "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "medium" },
-        "shotsScalar": 10.0,
+        "shotsScalar": 0.65,
         "damageScalar": 0.7,
         "suppressionScalar": 0.4
       }
@@ -585,9 +585,9 @@
         "rangeMin": 1,
         "rangeMax": 2,
         "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "large" },
-        "shotsScalar": 10.0,
-        "damageScalar": 0.7,
-        "suppressionScalar": 0.4
+        "shotsScalar": 0.95,
+        "damageScalar": 0.9,
+        "suppressionScalar": 0.6
       }
     }
   },
