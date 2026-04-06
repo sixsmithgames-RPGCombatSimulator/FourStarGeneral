@@ -176,7 +176,4 @@ const townDefenseScenario = {
   }
 };
 
-console.log("[scenario_town_defense] Ally units count:", townDefenseScenario.sides.Ally.units.length);
-console.log("[scenario_town_defense] Ally units:", townDefenseScenario.sides.Ally.units.map((u: any) => `${u.type} at [${u.hex[0]},${u.hex[1]}]`));
-
 export default townDefenseScenario;

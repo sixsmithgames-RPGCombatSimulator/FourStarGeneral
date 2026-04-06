@@ -1108,7 +1108,7 @@ export class BattleScreen {
       this.announceBattleUpdate("Heavy artillery could not be queued. Keep the caller uncommitted and select an observed enemy hex.");
       return;
     }
-    this.applySelectedHex(targetingState.callerHexKey);
+    this.clearSelectedHexAfterAction();
     this.syncQueuedTargetMarkers();
     const summary = `${targetingState.callerLabel} requested heavy artillery on ${targetHexKey}. Impact scheduled for turn transition. Click the red crosshair to cancel and reposition.`;
     this.announceBattleUpdate(summary);
@@ -1521,8 +1521,8 @@ export class BattleScreen {
       }
 
       this.renderEngineUnits();
-      this.applySelectedHex(attackerHex);
       if (resolution) {
+        this.clearSelectedHexAfterAction();
         // Compose battle update lines summarizing attack outcome and any counter-fire so commanders get full context.
         const announcements: string[] = [];
         const inflicted = this.clampDisplayedDamageRounded(resolution.result.expectedDamage);
@@ -1588,6 +1588,7 @@ export class BattleScreen {
 
         this.battleState.emitBattleUpdate("manual");
       } else {
+        this.applySelectedHex(attackerHex);
         this.announceBattleUpdate("No valid attack (LOS or range).");
         this.publishActivityEvent({
           category: "system",
@@ -2149,7 +2150,7 @@ export class BattleScreen {
 
     this.hideFortificationFacingDialog();
     this.renderEngineUnits();
-    this.applySelectedHex(hexKey);
+    this.clearSelectedHexAfterAction();
 
     const summary = `${unitLabel} established ${this.describeHexModification(modificationType)} on the ${facing} edge at ${hexKey}.`;
     this.announceBattleUpdate(summary);
@@ -6846,6 +6847,26 @@ export class BattleScreen {
   }
 
   /**
+   * Clears the active battle selection after a successful order without announcing a generic
+   * "selection cleared" update that would overwrite the order result in the live region.
+   */
+  private clearSelectedHexAfterAction(): void {
+    if (this.hexMapRenderer) {
+      this.hexMapRenderer.applyHexSelection(null, true);
+      this.hexMapRenderer.clearTacticalHighlights();
+    }
+    this.selectedHexKey = null;
+    this.selectedPlayerUnitId = null;
+    this.playerMoveHexes.clear();
+    this.playerAttackHexes.clear();
+    this.syncBaseCampAssignButton(this.battleState.ensureGameEngine().getTurnSummary().phase, false);
+    if (this.baseCampStatus) {
+      this.baseCampStatus.textContent = "Select a unit to move or attack.";
+    }
+    this.publishSelectionIntel(null);
+  }
+
+  /**
    * Receives renderer selection notifications and propagates the new state to UI affordances while
    * avoiding redundant work when the key is unchanged.
    */
@@ -7109,7 +7130,7 @@ export class BattleScreen {
       // Render the final state and update selection
       this.renderEngineUnits();
       this.selectedPlayerUnitId = unitId ?? this.selectedPlayerUnitId;
-      this.applySelectedHex(toKey);
+      this.clearSelectedHexAfterAction();
       this.announceBattleUpdate(`Moved unit to ${toKey}.`);
       this.publishActivityEvent({
         category: "player",
@@ -7354,7 +7375,7 @@ export class BattleScreen {
     }
 
     this.renderEngineUnits();
-    this.applySelectedHex(this.selectedHexKey);
+    this.clearSelectedHexAfterAction();
     this.announceBattleUpdate(summary);
     this.publishActivityEvent({
       category: "player",

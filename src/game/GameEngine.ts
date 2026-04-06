@@ -2327,26 +2327,24 @@ export class GameEngine implements GameEngineAPI {
 
   /** Resolves an air cover patrol by validating the zone and logging the sortie. */
   private resolveAirCoverMission(mission: ScheduledAirMission): AirMissionOutcome {
-    // If no target hex was provided, use the squadron's origin hex (base CAP).
-    // This allows interceptors to be assigned to air cover without selecting a specific hex.
-    let patrolHex = mission.targetHex;
-    if (!patrolHex && mission.originHexKey) {
-      patrolHex = GameEngine.parseAxialKey(mission.originHexKey);
-    }
-    if (!patrolHex) {
-      // Fall back to looking up the squadron's current hex if originHexKey is also missing.
-      const squadronLookup = this.lookupUnitBySquadronId(mission.unitKey, mission.faction);
-      if (squadronLookup) {
-        patrolHex = squadronLookup.unit.hex;
+    // Determine patrol hex: use target if specified, otherwise use faction HQ (base camp)
+    let patrolHex: Axial;
+    if (mission.targetHex) {
+      patrolHex = structuredClone(mission.targetHex);
+    } else {
+      // No target specified - CAP is protecting base camp (faction HQ)
+      const factionSide = mission.faction === "Player" ? this.playerSide
+                        : mission.faction === "Bot" ? this.botSide
+                        : this.allySide;
+      if (!factionSide?.hq) {
+        return {
+          type: "airCover",
+          result: "aborted",
+          details: "Air cover patrol was cancelled because no patrol zone could be determined.",
+          refitRequired: false
+        };
       }
-    }
-    if (!patrolHex) {
-      return {
-        type: "airCover",
-        result: "aborted",
-        details: "Air cover patrol was cancelled because no patrol zone could be determined.",
-        refitRequired: false
-      };
+      patrolHex = structuredClone(factionSide.hq);
     }
 
     // CAP is valid even if the patrol zone has no friendly units - it protects the airspace.
@@ -2883,23 +2881,24 @@ export class GameEngine implements GameEngineAPI {
         continue;
       }
 
-      let patrolCenter: Axial | null = mission.targetHex ? structuredClone(mission.targetHex) : null;
-      if (!patrolCenter && mission.originHexKey) {
-        try {
-          patrolCenter = GameEngine.parseAxialKey(mission.originHexKey);
-        } catch {
-          patrolCenter = null;
+      // Determine patrol center: use target hex if specified, otherwise use faction HQ (base camp)
+      let patrolCenter: Axial;
+      if (mission.targetHex) {
+        patrolCenter = structuredClone(mission.targetHex);
+      } else {
+        // No target specified - CAP is protecting base camp (faction HQ)
+        const factionSide = faction === "Player" ? this.playerSide
+                          : faction === "Bot" ? this.botSide
+                          : this.allySide;
+        if (!factionSide?.hq) {
+          console.warn("[GameEngine] CAP mission has no target hex and faction has no HQ - skipping", { missionId: mission.id, faction });
+          continue;
         }
+        patrolCenter = structuredClone(factionSide.hq);
       }
 
       const capLookup = this.lookupUnitBySquadronId(mission.unitKey, faction);
       const capUnit = capLookup?.unit ?? null;
-      if (!patrolCenter && capUnit) {
-        patrolCenter = structuredClone(capUnit.hex);
-      }
-      if (!patrolCenter) {
-        continue;
-      }
 
       if (hexDistance(patrolCenter, interceptHex) > GameEngine.AIR_COVER_PATROL_RADIUS_HEX) {
         continue;
@@ -5028,10 +5027,6 @@ private automateSupplyConvoys(
     });
     // Seed ally placements if ally side is present. Ally units are always predeployed.
     if (this.allySide) {
-      console.log("[GameEngine] Ally units from config:", this.allySide.units.length);
-      this.allySide.units.forEach((unit, index) => {
-        console.log(`[GameEngine] Ally unit ${index}:`, unit.type, "at", unit.hex);
-      });
       (this.allySide.units ?? []).forEach((unit) => {
         const clone = structuredClone(unit);
         this.ensureUnitId(clone);
