@@ -249,10 +249,11 @@ export class BattleScreen {
   private static readonly BOT_MOVE_ANIMATION_MS = 500;
   private static readonly BOT_CAMERA_PADDING = 96;
   private static readonly ACTIVITY_EVENT_LIMIT = 120;
-  private static readonly AIR_SEQUENCE_TIME_SCALE = 1.5;
+  private static readonly AIR_SEQUENCE_TIME_SCALE = 3;
   private static readonly AIR_BOMBER_SPEED_MULTIPLIER = 0.8;
   private static readonly AIR_FIGHTER_SPEED_MULTIPLIER = 1.85;
   private static readonly AIR_DOGFIGHT_ORBIT_BASE_MS = 1280;
+  private static readonly AIR_FORMATION_SPACING_PX = 27;
   private static readonly AIR_PLAYBACK_CLUSTER_LINK_DISTANCE_HEX = 8;
 
   // DOM element references
@@ -1312,11 +1313,7 @@ export class BattleScreen {
             detailFragments.push(`${outcome.damageInflicted} damage dealt`);
           }
 
-          if (r.kind === "strike") {
-            if (bomberAttrition > 0) {
-              detailFragments.push(`strike package took ${bomberAttrition} air damage`);
-            }
-          } else if (r.kind === "escort") {
+          if (r.kind === "escort") {
             if (interceptorAttrition > 0) {
               detailFragments.push(`${interceptorAttrition} damage to interceptors`);
             }
@@ -3602,7 +3599,7 @@ export class BattleScreen {
       if (typeof (renderer as any).animateAircraftOrbitAt !== "function" || strength <= 0 || durationMs <= 0) {
         return Promise.resolve();
       }
-      const radius = 18 + (participant.orbitIndex % 3) * 5 + Math.min(8, Math.abs(participant.laneOffsetPx) * 0.18);
+      const radius = 27 + (participant.orbitIndex % 3) * 7 + Math.min(12, Math.abs(participant.laneOffsetPx) * 0.22);
       const startAngleRad = (participant.orbitIndex / Math.max(1, participants.length)) * Math.PI * 2;
       return (renderer as any).animateAircraftOrbitAt(
         locKey,
@@ -3749,7 +3746,7 @@ export class BattleScreen {
       await playOrbitStage(
         participants.map((participant) => ({ ...participant, stageStrength: participant.initialStrength })),
         escortOrbitDurationMs,
-        1.22,
+        0.72,
         escortOpeningDelayMs
       );
     }
@@ -3759,6 +3756,9 @@ export class BattleScreen {
     }
 
     const continuingParticipants = participants.filter((participant) => participant.strengthAfterEscortPhase > 0);
+    if (continuingParticipants.length === 0) {
+      return;
+    }
 
     const holdingOrbitDurationMs = Math.max(
       continuingParticipants.length > 0 ? this.scaleAirSequenceMs(220) : 0,
@@ -3768,14 +3768,14 @@ export class BattleScreen {
       await playOrbitStage(
         continuingParticipants.map((participant) => ({ ...participant, stageStrength: participant.strengthAfterEscortPhase })),
         holdingOrbitDurationMs,
-        0.84
+        0.42
       );
     }
 
     await playOrbitStage(
       continuingParticipants.map((participant) => ({ ...participant, stageStrength: participant.strengthAfterEscortPhase })),
       this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 0.84)),
-      0.96
+      0.56
     );
 
     if (typeof (renderer as any).playBomberDefensePass === "function") {
@@ -3882,6 +3882,8 @@ export class BattleScreen {
         ? Math.max(0, strengthBefore - strengthAfter)
         : null;
     const interceptorAttrition = Math.max(0, Math.round(event.interceptorAttrition ?? 0));
+    const escortPhaseInterceptorAttrition = Math.max(0, Math.round(event.escortPhaseInterceptorAttrition ?? 0));
+    const bomberDefenseInterceptorAttrition = Math.max(0, Math.round(event.bomberDefenseInterceptorAttrition ?? 0));
     const interceptorKills = Math.max(0, Math.round(event.interceptorKills ?? 0));
     const escortAttrition = Math.max(0, Math.round(event.escortAttrition ?? 0));
     const escortKills = Math.max(0, Math.round(event.escortKills ?? 0));
@@ -3889,11 +3891,21 @@ export class BattleScreen {
       interceptDamage !== null && strengthAfter !== null
         ? ` Interception damage: ${interceptDamage}%. Bomber strength now ${strengthAfter}.`
         : "";
+    const escortClashNote =
+      escortPhaseInterceptorAttrition > 0
+        ? ` Escort clash dealt ${escortPhaseInterceptorAttrition} air damage to the patrol.`
+        : "";
+    const bomberDefenseNote =
+      bomberDefenseInterceptorAttrition > 0
+        ? ` Bomber defensive fire dealt ${bomberDefenseInterceptorAttrition} air damage to the patrol.`
+        : "";
     const interceptorNote =
       interceptorAttrition > 0
-        ? ` Interceptors took ${interceptorAttrition} air damage${interceptorKills > 0 ? ` and lost ${interceptorKills} flight${interceptorKills === 1 ? "" : "s"}` : ""}.`
+        ? escortClashNote || bomberDefenseNote
+          ? `${escortClashNote}${bomberDefenseNote}${interceptorKills > 0 ? ` Patrol lost ${interceptorKills} flight${interceptorKills === 1 ? "" : "s"}.` : ""}`
+          : ` Patrol took ${interceptorAttrition} air damage${interceptorKills > 0 ? ` and lost ${interceptorKills} flight${interceptorKills === 1 ? "" : "s"}` : ""}.`
         : interceptorKills > 0
-          ? ` ${interceptorKills} interceptor flight${interceptorKills === 1 ? "" : "s"} lost.`
+          ? ` Patrol lost ${interceptorKills} flight${interceptorKills === 1 ? "" : "s"}.`
           : "";
     const escortDamageNote =
       escortAttrition > 0
@@ -3910,6 +3922,12 @@ export class BattleScreen {
     }
     if (interceptorAttrition > 0) {
       details.interceptorAttrition = interceptorAttrition;
+    }
+    if (escortPhaseInterceptorAttrition > 0) {
+      details.escortPhaseInterceptorAttrition = escortPhaseInterceptorAttrition;
+    }
+    if (bomberDefenseInterceptorAttrition > 0) {
+      details.bomberDefenseInterceptorAttrition = bomberDefenseInterceptorAttrition;
     }
     if (interceptorKills > 0) {
       details.interceptorKills = interceptorKills;
@@ -4128,7 +4146,7 @@ export class BattleScreen {
     if (count <= 1) {
       return [0];
     }
-    const spacing = 18;
+    const spacing = BattleScreen.AIR_FORMATION_SPACING_PX;
     const mid = (count - 1) / 2;
     return Array.from({ length: count }, (_, index) => Math.round((index - mid) * spacing));
   }

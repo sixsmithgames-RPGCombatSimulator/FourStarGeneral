@@ -760,6 +760,9 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BO
     },
     async playDogfight(hexKey: string): Promise<void> {
       callOrder.push(`dogfight:${hexKey}`);
+    },
+    async playBomberDefensePass(hexKey: string): Promise<void> {
+      callOrder.push(`bomber-defense:${hexKey}`);
     }
   } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
 

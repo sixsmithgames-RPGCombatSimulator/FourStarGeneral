@@ -789,6 +789,8 @@ interface AirMissionOutcomeBase {
     readonly escortsWins?: number;
     readonly bomberAttrition?: number;
     readonly interceptorAttrition?: number;
+    readonly escortPhaseInterceptorAttrition?: number;
+    readonly bomberDefenseInterceptorAttrition?: number;
     readonly interceptorKills?: number;
     readonly escortAttrition?: number;
     readonly escortKills?: number;
@@ -872,6 +874,8 @@ export interface AirEngagementEvent {
   readonly bomberStrengthAfter?: number;
   readonly bomberDestroyed?: boolean;
   readonly interceptorAttrition?: number;
+  readonly escortPhaseInterceptorAttrition?: number;
+  readonly bomberDefenseInterceptorAttrition?: number;
   readonly interceptorKills?: number;
   readonly escortAttrition?: number;
   readonly escortKills?: number;
@@ -948,6 +952,8 @@ interface AirInterceptionResolution {
   bomberAttrition: number;
   bomberDestroyed: boolean;
   interceptorAttrition: number;
+  escortPhaseInterceptorAttrition: number;
+  bomberDefenseInterceptorAttrition: number;
   interceptorKills: number;
   escortAttrition: number;
   escortKills: number;
@@ -1991,6 +1997,8 @@ export class GameEngine implements GameEngineAPI {
     let capIntercepts = 0;
     let bomberAttrition = 0;
     let interceptorAttrition = 0;
+    let escortPhaseInterceptorAttrition = 0;
+    let bomberDefenseInterceptorAttrition = 0;
     let escortAttrition = 0;
     let interceptorKills = 0;
     let escortKills = 0;
@@ -2032,6 +2040,8 @@ export class GameEngine implements GameEngineAPI {
       const interception = this.resolveAirInterception(currentBomber, mission.faction, interceptorParticipants, escortParticipants);
       bomberAttrition = interception.bomberAttrition;
       interceptorAttrition = interception.interceptorAttrition;
+      escortPhaseInterceptorAttrition = interception.escortPhaseInterceptorAttrition;
+      bomberDefenseInterceptorAttrition = interception.bomberDefenseInterceptorAttrition;
       interceptorKills = interception.interceptorKills;
       escortAttrition = interception.escortAttrition;
       escortKills = interception.escortKills;
@@ -2101,6 +2111,8 @@ export class GameEngine implements GameEngineAPI {
         bomberStrengthAfter: interception.bomberAfter.strength,
         bomberDestroyed: interception.bomberDestroyed,
         interceptorAttrition,
+        escortPhaseInterceptorAttrition: interception.escortPhaseInterceptorAttrition,
+        bomberDefenseInterceptorAttrition: interception.bomberDefenseInterceptorAttrition,
         interceptorKills,
         escortAttrition,
         escortKills,
@@ -2126,6 +2138,8 @@ export class GameEngine implements GameEngineAPI {
             escortsWins,
             bomberAttrition: attackerBefore.strength,
             interceptorAttrition,
+            escortPhaseInterceptorAttrition: interception.escortPhaseInterceptorAttrition,
+            bomberDefenseInterceptorAttrition: interception.bomberDefenseInterceptorAttrition,
             interceptorKills,
             escortAttrition,
             escortKills
@@ -2305,6 +2319,8 @@ export class GameEngine implements GameEngineAPI {
         escortsWins,
         bomberAttrition,
         interceptorAttrition,
+        escortPhaseInterceptorAttrition,
+        bomberDefenseInterceptorAttrition,
         interceptorKills,
         escortAttrition,
         escortKills
@@ -2763,6 +2779,8 @@ export class GameEngine implements GameEngineAPI {
     let bomberAfter = structuredClone(bomber);
     let bomberAttrition = 0;
     let interceptorAttrition = 0;
+    let escortPhaseInterceptorAttrition = 0;
+    let bomberDefenseInterceptorAttrition = 0;
     let interceptorKills = 0;
     let escortAttrition = 0;
     let escortKills = 0;
@@ -2806,6 +2824,7 @@ export class GameEngine implements GameEngineAPI {
         strength: Math.max(0, escortDelta.unitAfter.strength - damageToEscort)
       };
       interceptorAttrition += damageToInterceptor;
+      escortPhaseInterceptorAttrition += damageToInterceptor;
       escortAttrition += damageToEscort;
 
       if (damageToInterceptor > 0) {
@@ -2862,6 +2881,7 @@ export class GameEngine implements GameEngineAPI {
         strength: Math.max(0, bomberAfter.strength - damageToBomber)
       };
       interceptorAttrition += damageToInterceptor;
+      bomberDefenseInterceptorAttrition += damageToInterceptor;
       interceptorDelta.taken += damageToInterceptor;
       interceptorDelta.inflicted += damageToBomber;
       interceptorDelta.unitAfter = {
@@ -2883,6 +2903,8 @@ export class GameEngine implements GameEngineAPI {
       bomberAttrition,
       bomberDestroyed: bomberAfter.strength <= 0,
       interceptorAttrition,
+      escortPhaseInterceptorAttrition,
+      bomberDefenseInterceptorAttrition,
       interceptorKills,
       escortAttrition,
       escortKills,
@@ -8715,6 +8737,8 @@ private automateSupplyConvoys(
           bomberStrengthAfter: attackingSnapshot.strength,
           bomberDestroyed: interception.bomberDestroyed,
           interceptorAttrition,
+          escortPhaseInterceptorAttrition: interception.escortPhaseInterceptorAttrition,
+          bomberDefenseInterceptorAttrition: interception.bomberDefenseInterceptorAttrition,
           interceptorKills,
           escortAttrition,
           escortKills,
@@ -12310,6 +12334,8 @@ private automateSupplyConvoys(
           bomberStrengthAfter: attackingSnapshot.strength,
           bomberDestroyed: interception.bomberDestroyed,
           interceptorAttrition,
+          escortPhaseInterceptorAttrition: interception.escortPhaseInterceptorAttrition,
+          bomberDefenseInterceptorAttrition: interception.bomberDefenseInterceptorAttrition,
           interceptorKills,
           escortAttrition,
           escortKills,

@@ -537,12 +537,12 @@ registerTest("AIR_INTERCEPTION_AIR_SUPERIORITY_CLASHES_CAP_AT_ROUGHLY_HALF_STREN
     );
   });
 
-  await Then("fighter-versus-fighter attrition should be capped while attacks on the bomber remain heavy", async () => {
-    if (escortVsInterceptorDamage <= 0 || escortVsInterceptorDamage > 55) {
-      throw new Error(`Expected the escort-vs-interceptor exchange to cap near half strength, saw ${escortVsInterceptorDamage}.`);
+  await Then("fighter-versus-fighter attrition should follow raw combat math instead of an arbitrary cap", async () => {
+    if (escortVsInterceptorDamage < 95) {
+      throw new Error(`Expected the escort-vs-interceptor exchange to stay effectively lethal with these authored stats, saw ${escortVsInterceptorDamage}.`);
     }
-    if (interceptorVsBomberDamage <= 55) {
-      throw new Error(`Expected interceptors to still hit the bomber harder than the capped dogfight exchange, saw ${interceptorVsBomberDamage}.`);
+    if (interceptorVsBomberDamage <= 0) {
+      throw new Error(`Expected the interceptor-vs-bomber attack to still resolve meaningful damage, saw ${interceptorVsBomberDamage}.`);
     }
   });
 });

@@ -113,7 +113,7 @@ registerTest("BATTLESCREEN_DEFENSIVE_AIR_EVENTS_LOG_PLAYER_REACTIONS", async ({ 
       throw new Error(`Expected interception damage summary in activity log, saw ${published[1].summary}.`);
     }
 
-    if (!published[1].summary.includes("Interceptors took 17 air damage and lost 1 flight.")) {
+    if (!published[1].summary.includes("Patrol took 17 air damage and lost 1 flight.")) {
       throw new Error(`Expected interceptor attrition summary in activity log, saw ${published[1].summary}.`);
     }
 
@@ -349,7 +349,7 @@ registerTest("BATTLESCREEN_STRIKE_LOGS_FOCUS_ON_TARGET_DAMAGE_AND_STRIKE_PACKAGE
     (screen as any).syncAirMissionLogs();
   });
 
-  await Then("the strike summary should include the target hit and strike-package losses without replaying the entire dogfight", async () => {
+  await Then("the strike summary should include the target hit without replaying the air-combat attrition", async () => {
     if (published.length !== 1) {
       throw new Error(`Expected 1 strike activity entry, received ${published.length}.`);
     }
@@ -358,8 +358,8 @@ registerTest("BATTLESCREEN_STRIKE_LOGS_FOCUS_ON_TARGET_DAMAGE_AND_STRIKE_PACKAGE
     if (!summary.includes("3 damage dealt")) {
       throw new Error(`Expected target damage in strike summary, saw ${summary}.`);
     }
-    if (!summary.includes("strike package took 19 air damage")) {
-      throw new Error(`Expected strike-package attrition in strike summary, saw ${summary}.`);
+    if (summary.includes("strike package took 19 air damage")) {
+      throw new Error(`Did not expect the strike summary to repeat strike-package attrition, saw ${summary}.`);
     }
     if (summary.includes("interceptors took 27 air damage")) {
       throw new Error(`Did not expect the strike summary to replay interceptor attrition, saw ${summary}.`);

@@ -114,6 +114,9 @@ export interface RenderedUnitStackMember {
  * Coordinates terrain rendering, road overlays, and hex element management.
  */
 export class HexMapRenderer implements IMapRenderer {
+  private static readonly AIRCRAFT_GHOST_ICON_SIZE = 60;
+  private static readonly AIRCRAFT_FORMATION_SPACING = 33;
+  private static readonly AIRCRAFT_ORBIT_HEADING_BLEND = 0.28;
   private hexElementMap = new Map<string, SVGGElement>();
   private hexPolygonMap = new Map<string, SVGPolygonElement>();
   private hexLabelMap = new Map<string, SVGTextElement>();
@@ -356,7 +359,7 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const iconSize = 40;
+    const iconSize = HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE;
     const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, strength);
     const isFormation = ghost instanceof SVGGElement;
 
@@ -485,7 +488,7 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const iconSize = 40;
+    const iconSize = HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE;
     const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, strength);
     const isFormation = ghost instanceof SVGGElement;
 
@@ -605,7 +608,7 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const iconSize = 40;
+    const iconSize = HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE;
     const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, strength);
     const isFormation = ghost instanceof SVGGElement;
     const layer = this.ensureCombatEffectsLayer();
@@ -619,6 +622,10 @@ export class HexMapRenderer implements IMapRenderer {
     const startAngleRad = options.startAngleRad ?? 0;
     const direction = options.clockwise === false ? -1 : 1;
     const verticalScale = Math.max(0.4, options.verticalScale ?? 0.7);
+    let lastHeadingDegrees = this.resolveAircraftHeadingDegrees(
+      -Math.sin(startAngleRad) * orbitRadiusPx * direction,
+      Math.cos(startAngleRad) * orbitRadiusPx * verticalScale * direction
+    );
 
     const stepOrbit = (progress: number): void => {
       const angle = startAngleRad + direction * progress * turns * Math.PI * 2;
@@ -626,8 +633,13 @@ export class HexMapRenderer implements IMapRenderer {
       const centerY = center.cy + Math.sin(angle) * orbitRadiusPx * verticalScale;
       const tangentX = -Math.sin(angle) * orbitRadiusPx * direction;
       const tangentY = Math.cos(angle) * orbitRadiusPx * verticalScale * direction;
-      const headingDegrees = this.resolveAircraftHeadingDegrees(tangentX, tangentY);
-      this.positionAircraftGhost(ghost, isFormation, iconSize, centerX, centerY, headingDegrees);
+      const targetHeadingDegrees = this.resolveAircraftHeadingDegrees(tangentX, tangentY, lastHeadingDegrees);
+      lastHeadingDegrees = this.interpolateAircraftHeadingDegrees(
+        lastHeadingDegrees,
+        targetHeadingDegrees,
+        HexMapRenderer.AIRCRAFT_ORBIT_HEADING_BLEND
+      );
+      this.positionAircraftGhost(ghost, isFormation, iconSize, centerX, centerY, lastHeadingDegrees);
       options.onProgress?.(progress, centerX, centerY);
     };
 
@@ -742,7 +754,7 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const iconSize = 40;
+    const iconSize = HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE;
     const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, options.strength);
     const isFormation = ghost instanceof SVGGElement;
     const layer = this.ensureCombatEffectsLayer();
@@ -3968,7 +3980,7 @@ export class HexMapRenderer implements IMapRenderer {
     strength: number
   ): Array<{ ox: number; oy: number; scale: number }> {
     const stackCount = this.resolveUnitStackCount(strength);
-    const spacing = 22; // pixels between aircraft in formation
+    const spacing = HexMapRenderer.AIRCRAFT_FORMATION_SPACING; // pixels between aircraft in formation
 
     // Scale decreases as formation size increases to maintain visual cohesion
     const scaleByCount: Record<number, number> = {
@@ -4074,6 +4086,12 @@ export class HexMapRenderer implements IMapRenderer {
       return fallbackDegrees;
     }
     return Math.atan2(dy, dx) * (180 / Math.PI) + 90;
+  }
+
+  private interpolateAircraftHeadingDegrees(currentDegrees: number, targetDegrees: number, blend = 1): number {
+    const normalizedBlend = this.clamp(blend, 0, 1);
+    const delta = ((((targetDegrees - currentDegrees) % 360) + 540) % 360) - 180;
+    return currentDegrees + delta * normalizedBlend;
   }
 
   private resolveAircraftSortieTurnVector(
