@@ -110,7 +110,7 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
 
     // During battle, show reserve units available for call-up as requisitions
     snapshot.requisitions = reserves.slice(0, 8).map((reserve) => ({
-      item: reserve.unitType,
+      item: reserve.unit.type,
       quantity: 1,
       status: reserveRatio > 0.25 ? "approved" : "pending",
       requestedBy: "Reserve Pool",
