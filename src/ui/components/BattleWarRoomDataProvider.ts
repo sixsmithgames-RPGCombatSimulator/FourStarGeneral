@@ -24,18 +24,31 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
     return `${col},${row}`;
   }
 
-  private formatTurnNarrative(turn: { phase: string; activeFaction: string }): string {
+  private formatTurnNarrative(turn: { phase: string; activeFaction: string; turnNumber: number }): string {
     const isPlayerPhase = turn.phase === "playerTurn" || turn.phase === "deployment";
     const isEnemyPhase = turn.phase === "botTurn";
+    const isAllyPhase = turn.phase === "allyTurn";
 
     if (isPlayerPhase) {
-      return "Our forces assessing positions and coordinating next moves.";
+      const narratives = [
+        "Our forces consolidating positions and planning next phase of operations.",
+        "Command assessing tactical situation. All units standing by for orders.",
+        "Frontline units reporting readiness. Awaiting movement and engagement directives."
+      ];
+      return narratives[turn.turnNumber % narratives.length] ?? narratives[0];
     } else if (isEnemyPhase) {
-      return "Enemy forces maneuvering. Reconnaissance reports incoming.";
+      const narratives = [
+        "Enemy forces repositioning. All units maintain heightened alert status.",
+        "Hostile activity detected. Intelligence officers monitoring enemy movements.",
+        "Enemy conducting tactical maneuvers. Forward observers tracking hostile positions."
+      ];
+      return narratives[turn.turnNumber % narratives.length] ?? narratives[0];
+    } else if (isAllyPhase) {
+      return "Allied forces coordinating movements. Maintaining communication with allied command.";
     } else if (turn.phase === "completed") {
-      return "Operations concluded. Battle assessment in progress.";
+      return "Operations concluded. Battle assessment in progress. Casualty reports being compiled.";
     } else {
-      return "Operations transition in progress.";
+      return "Operations transition in progress. Units preparing for next phase.";
     }
   }
 
@@ -95,16 +108,14 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
       consumptionRate: Math.max(1, roster.metrics.frontline)
     };
 
-    // Mirror remaining deployment pool entries as requisitions awaiting fulfillment.
-    snapshot.requisitions = deploymentState.pool
-      .filter((entry) => entry.remaining > 0)
-      .map((entry) => ({
-        item: entry.label,
-        quantity: entry.remaining,
-        status: reserveRatio > 0.25 ? "approved" : "pending",
-        requestedBy: "Theater Logistics",
-        updatedAt: new Date().toISOString()
-      }));
+    // During battle, show reserve units available for call-up as requisitions
+    snapshot.requisitions = reserves.slice(0, 8).map((reserve) => ({
+      item: reserve.unitType,
+      quantity: 1,
+      status: reserveRatio > 0.25 ? "approved" : "pending",
+      requestedBy: "Reserve Pool",
+      updatedAt: new Date().toISOString()
+    }));
 
     // Translate roster casualty summaries into ledger figures.
     const casualtyCount = roster.casualties.length;
@@ -178,42 +189,81 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
       timestamp?: string;
     }> = [];
 
-    const playerUnits = engine.playerUnits;
+    // Get enemy contact reports from recon system
+    const enemyContacts = engine.getEnemyContactSnapshot();
+    const recentContacts = enemyContacts.slice(0, 5);
 
-    // Find recon and air units
-    const reconUnits = playerUnits.filter((u) => {
-      const unitType = u.type.toLowerCase();
-      return unitType.includes("recon") || unitType.includes("scout") ||
-             unitType.includes("fighter") || unitType.includes("interceptor");
-    });
+    for (const contact of recentContacts) {
+      const sector = this.formatDisplayHex(contact.hex);
+      const currentTurn = engine.getTurnSummary().turnNumber;
+      const turnsAgo = currentTurn - contact.lastSeenTurn;
+      const isFresh = turnsAgo === 0;
 
-    // Generate reports from recon units
-    for (const recon of reconUnits.slice(0, 3)) {
-      const sector = this.formatDisplayHex(recon.hex);
-      const isAir = recon.type.toLowerCase().includes("fighter") ||
-                    recon.type.toLowerCase().includes("interceptor");
-      const confidence = recon.strength > 75 ? "High" : recon.strength > 50 ? "Medium" : "Low";
+      let finding = "";
+      let confidence = "Medium";
+
+      if (contact.state === "visible" || contact.state === "identified") {
+        if (contact.unitType && contact.strengthEstimate !== undefined) {
+          finding = `Enemy ${contact.unitType} identified at sector ${sector}. Estimated strength: ${Math.round(contact.strengthEstimate)}%.`;
+          confidence = "High";
+        } else if (contact.unitType) {
+          finding = `Enemy ${contact.unitType} spotted at sector ${sector}.`;
+          confidence = "High";
+        } else {
+          finding = `Enemy unit detected at sector ${sector}.`;
+          confidence = "Medium";
+        }
+      } else {
+        // spotted but not identified
+        finding = `Unidentified enemy contact at sector ${sector}. Requires closer reconnaissance.`;
+        confidence = "Low";
+      }
+
+      if (!isFresh && turnsAgo <= 2) {
+        finding += ` Last observed ${turnsAgo} turn${turnsAgo > 1 ? 's' : ''} ago.`;
+      }
 
       reports.push({
         sector: `Sector ${sector}`,
-        finding: isAir
-          ? `Aerial reconnaissance sweep conducted. Area under observation from altitude.`
-          : `Ground reconnaissance patrol active. Monitoring enemy movement patterns.`,
+        finding,
         confidence,
-        reportedBy: recon.type,
+        reportedBy: contact.source,
         timestamp: new Date().toISOString()
       });
     }
 
-    // If no recon units, provide generic situational awareness
+    // If no enemy contacts, show recon unit patrol status
     if (reports.length === 0) {
-      const frontlineUnits = playerUnits.slice(0, 2);
-      for (const unit of frontlineUnits) {
+      const playerUnits = engine.playerUnits;
+      const reconUnits = playerUnits.filter((u) => {
+        const unitType = u.type.toLowerCase();
+        return unitType.includes("recon") || unitType.includes("scout") ||
+               unitType.includes("fighter") || unitType.includes("interceptor");
+      });
+
+      for (const recon of reconUnits.slice(0, 3)) {
+        const sector = this.formatDisplayHex(recon.hex);
+        const isAir = recon.type.toLowerCase().includes("fighter") ||
+                      recon.type.toLowerCase().includes("interceptor");
+
         reports.push({
-          sector: `Sector ${this.formatDisplayHex(unit.hex)}`,
-          finding: `Forward observers maintaining watch. No enemy contact reported.`,
+          sector: `Sector ${sector}`,
+          finding: isAir
+            ? `Aerial reconnaissance patrol active. No enemy contacts in this sector.`
+            : `Ground reconnaissance patrol maintaining observation. Area clear of enemy forces.`,
           confidence: "Medium",
-          reportedBy: "Forward Observer",
+          reportedBy: recon.type,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Final fallback if no recon units at all
+      if (reports.length === 0) {
+        reports.push({
+          sector: "All Sectors",
+          finding: "No dedicated reconnaissance assets deployed. Relying on frontline unit observations.",
+          confidence: "Low",
+          reportedBy: "Frontline Command",
           timestamp: new Date().toISOString()
         });
       }
@@ -241,12 +291,58 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
       timestamp?: string;
     }> = [];
 
-    // Get air mission reports
+    // Get ground combat reports
+    const combatReports = engine.getCombatReports();
+    const recentCombat = combatReports.slice(-5); // Last 5 ground engagements
+
+    for (const combat of recentCombat) {
+      const sector = `Sector ${this.formatDisplayHex(combat.defender.position)}`;
+      const isPlayerOrAllyAttack = combat.attacker.faction === "Player" || combat.attacker.faction === "Ally";
+      const isPlayerOrAllyDefender = combat.defender.faction === "Player" || combat.defender.faction === "Ally";
+
+      let result: "victory" | "defeat" | "stalemate" | "ongoing" = "ongoing";
+      let note = "";
+
+      if (combat.defender.destroyed) {
+        result = isPlayerOrAllyAttack ? "victory" : "defeat";
+        const damage = Math.round(combat.attackResult.damage);
+
+        if (isPlayerOrAllyAttack) {
+          note = `Our ${combat.attacker.unitType} destroyed hostile ${combat.defender.unitType} in sector ${this.formatDisplayHex(combat.defender.position)}. Enemy strength eliminated with ${damage} damage dealt.`;
+        } else {
+          note = `Enemy ${combat.attacker.unitType} destroyed our ${combat.defender.unitType} in sector ${this.formatDisplayHex(combat.defender.position)}. Unit lost. Replacement requested from reserves.`;
+        }
+      } else {
+        // Unit survived
+        const damage = Math.round(combat.attackResult.damage);
+        const strengthLoss = combat.defender.strengthBefore - combat.defender.strengthAfter;
+
+        if (isPlayerOrAllyAttack) {
+          note = `Our ${combat.attacker.unitType} engaged hostile ${combat.defender.unitType}. ${damage} damage inflicted, enemy strength reduced ${Math.round(strengthLoss)}%.`;
+        } else if (isPlayerOrAllyDefender) {
+          const retaliation = combat.retaliation;
+          note = `Enemy ${combat.attacker.unitType} attacked our ${combat.defender.unitType}. We sustained ${damage} damage${retaliation ? `, returned ${Math.round(retaliation.damage)} damage` : ''}.`;
+        } else {
+          note = `Hostile engagement observed: ${combat.attacker.unitType} vs ${combat.defender.unitType}. ${damage} damage recorded.`;
+        }
+      }
+
+      engagements.push({
+        theater: `Ground Combat - ${sector}`,
+        result,
+        note,
+        casualties: combat.defender.destroyed ? 1 : undefined,
+        timestamp: combat.timestamp
+      });
+    }
+
+    // Get air mission reports - event defaults to "resolved" when undefined
     const airReports = engine.getAirMissionReports();
     const recentAirMissions = airReports.slice(-3); // Last 3 missions
 
     for (const airMission of recentAirMissions) {
-      if (airMission.event === "resolved" && airMission.outcome) {
+      // Skip refit events, include all resolved missions (undefined event defaults to resolved)
+      if (airMission.event !== "refitStarted" && airMission.event !== "refitCompleted" && airMission.outcome) {
         const sector = airMission.targetHex
           ? `Sector ${this.formatDisplayHex(airMission.targetHex)}`
           : "Designated target area";
@@ -261,7 +357,7 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
           theater: `Air Operations - ${sector}`,
           result,
           note: airMission.outcome.details,
-          timestamp: new Date().toISOString()
+          timestamp: airMission.timestamp
         });
       }
     }
@@ -280,7 +376,14 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
       });
     }
 
-    return engagements;
+    // Sort by timestamp descending (most recent first) and limit to 8 engagements
+    return engagements
+      .sort((a, b) => {
+        const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return timeB - timeA;
+      })
+      .slice(0, 8);
   }
 
   private composeFieldReports(
@@ -299,12 +402,50 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
       deadline?: string;
     }> = [];
 
-    // Get air mission reports for recent activity
+    // Get ground combat activity reports - separate player attacks from enemy attacks
+    const combatReports = engine.getCombatReports();
+    const playerAttacks = combatReports.filter(c => c.attacker.faction === "Player").slice(-2);
+    const enemyAttacks = combatReports.filter(c => c.attacker.faction === "Bot").slice(-2);
+
+    // Report player offensive actions
+    for (const combat of playerAttacks) {
+      const sector = this.formatDisplayHex(combat.defender.position);
+      const priority = combat.defender.destroyed ? "medium" : "low";
+
+      const objective = combat.defender.destroyed
+        ? `Sector ${sector}: ${combat.attacker.unitType} destroyed hostile ${combat.defender.unitType}.`
+        : `Sector ${sector}: ${combat.attacker.unitType} engaged ${combat.defender.unitType}, ${Math.round(combat.attackResult.damage)} damage inflicted.`;
+
+      reports.push({
+        title: "Offensive Action Report",
+        objective,
+        priority: priority as "low" | "medium" | "high" | "critical"
+      });
+    }
+
+    // Report enemy offensive actions
+    for (const combat of enemyAttacks) {
+      const sector = this.formatDisplayHex(combat.attacker.position);
+      const priority = combat.defender.destroyed ? "critical" : "high";
+
+      const objective = combat.defender.destroyed
+        ? `Sector ${sector}: Enemy ${combat.attacker.unitType} destroyed our ${combat.defender.unitType}. Immediate response required.`
+        : `Sector ${sector}: Enemy ${combat.attacker.unitType} attacked our ${combat.defender.unitType}, ${Math.round(combat.attackResult.damage)} damage sustained.`;
+
+      reports.push({
+        title: "Enemy Attack Report",
+        objective,
+        priority: priority as "low" | "medium" | "high" | "critical"
+      });
+    }
+
+    // Get air mission reports for recent activity - event defaults to "resolved" when undefined
     const airReports = engine.getAirMissionReports();
-    const recentAir = airReports.slice(-4); // Last 4 missions
+    const recentAir = airReports.slice(-3); // Last 3 missions
 
     for (const airMission of recentAir) {
-      if (airMission.event === "resolved") {
+      // Skip refit events, include resolved missions
+      if (airMission.event !== "refitStarted" && airMission.event !== "refitCompleted") {
         const priority = airMission.outcome?.result === "success"
           ? "medium"
           : airMission.outcome?.result === "destroyed"
@@ -352,7 +493,7 @@ export class BattleWarRoomDataProvider implements WarRoomDataProvider {
       });
     }
 
-    return reports.slice(0, 6); // Max 6 reports
+    return reports.slice(0, 12); // Max 12 reports - prioritize mission objectives + recent activity
   }
 
   /**
