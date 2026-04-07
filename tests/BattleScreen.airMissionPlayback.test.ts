@@ -916,3 +916,130 @@ registerTest("BATTLESCREEN_LINKED_CAP_SORTIES_ARE_NOT_REPLAYED_AS_STANDALONE_PAT
     }
   });
 });
+
+registerTest("BATTLESCREEN_AIR_PLAYBACK_CLUSTERS_CHAINED_NEARBY_SORTIES_BEFORE_MOVING_THE_CAMERA", async ({ Given, When, Then }) => {
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const callOrder: string[] = [];
+  const fakeEngine = {
+    playerUnits: [] as ScenarioUnit[],
+    botUnits: [] as ScenarioUnit[],
+    reserveUnits: [],
+    allyUnits: [],
+    getScheduledAirMissions() {
+      return [];
+    }
+  } as const;
+
+  const fakeBattleState = {
+    hasEngine: () => true,
+    ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine
+  } as unknown as import("../src/state/BattleState").BattleState;
+
+  let screen: BattleScreen;
+
+  await Given("three sorties that chain together within eight hexes and one distant sortie", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      {} as any,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).focusCameraOnHex = async (hexKey: string): Promise<void> => {
+      callOrder.push(`focus:${hexKey}`);
+    };
+    (screen as any).waitForNextFrame = async (): Promise<void> => {};
+    (screen as any).waitMs = async (): Promise<void> => {};
+    (screen as any).closeSelectionIntelForAnimation = () => {};
+    (screen as any).collectAirMissionFlights = async () => [
+      {
+        missionId: "near-1",
+        faction: "Bot",
+        kind: "airCover",
+        unitKey: "near-1",
+        originKey: "0,0",
+        destKey: "0,0",
+        unitType: "Fighter",
+        strength: 100,
+        laneOffsetPx: 0
+      },
+      {
+        missionId: "near-2",
+        faction: "Bot",
+        kind: "airCover",
+        unitKey: "near-2",
+        originKey: "1,1",
+        destKey: "6,3",
+        unitType: "Fighter",
+        strength: 100,
+        laneOffsetPx: 0
+      },
+      {
+        missionId: "near-3",
+        faction: "Bot",
+        kind: "airCover",
+        unitKey: "near-3",
+        originKey: "2,1",
+        destKey: "12,6",
+        unitType: "Fighter",
+        strength: 100,
+        laneOffsetPx: 0
+      },
+      {
+        missionId: "far-1",
+        faction: "Bot",
+        kind: "airCover",
+        unitKey: "far-1",
+        originKey: "4,2",
+        destKey: "24,12",
+        unitType: "Fighter",
+        strength: 100,
+        laneOffsetPx: 0
+      }
+    ];
+    (screen as any).playMissionStrikeOperation = async () => {
+      callOrder.push("linkedStrike");
+    };
+    (screen as any).playStandaloneAirMissionFlight = async (flight: { missionId: string }, _renderer: unknown, _engine: unknown, preFocused: boolean) => {
+      callOrder.push(`flight:${flight.missionId}:${preFocused ? "prefocused" : "self-focus"}`);
+    };
+    (screen as any).playStandaloneAirEngagementEvent = async () => {
+      callOrder.push("event");
+    };
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+  });
+
+  await When("the clustered air playback sequence runs", async () => {
+    await (screen as any).playAirOperations([] as AirMissionArrival[], [] as AirEngagementEvent[]);
+  });
+
+  await Then("the camera should stay on the chained nearby sorties and only move again for the distant cluster", async () => {
+    const focusCalls = callOrder.filter((entry) => entry.startsWith("focus:"));
+    if (focusCalls.length !== 2) {
+      throw new Error(`Expected exactly two camera focuses for two playback clusters, saw ${JSON.stringify(callOrder)}.`);
+    }
+    if (focusCalls[0] !== "focus:0,0" || focusCalls[1] !== "focus:24,12") {
+      throw new Error(`Expected chained sorties to keep a shared camera cluster before the distant sortie, saw ${JSON.stringify(focusCalls)}.`);
+    }
+
+    const farFocusIndex = callOrder.indexOf("focus:24,12");
+    const chainedFlights = ["flight:near-1:prefocused", "flight:near-2:prefocused", "flight:near-3:prefocused"];
+    chainedFlights.forEach((entry) => {
+      const index = callOrder.indexOf(entry);
+      if (index < 0 || index > farFocusIndex) {
+        throw new Error(`Expected chained sortie ${entry} to play before the distant cluster focus, saw ${JSON.stringify(callOrder)}.`);
+      }
+    });
+  });
+});

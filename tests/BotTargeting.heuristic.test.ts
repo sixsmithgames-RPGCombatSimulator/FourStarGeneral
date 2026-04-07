@@ -828,6 +828,83 @@ registerTest("BOT_PLANNER_RECON_PREFERS_A_SCREENING_LANE_OVER_A_SUICIDAL_FRONTLI
   });
 });
 
+registerTest("BOT_PLANNER_RECON_HOLDS_A_DEEP_SCREEN_INSTEAD_OF_DIVING_INTO_A_SUPPORTED_KILL_ZONE", async ({ Given, When, Then }) => {
+  let plannedDestination = "";
+  let plannedAttackTarget = "";
+
+  await Given("a recon bike choosing between a close contact poke and a deeper covered screen under artillery and player recon support", async () => {
+    const botRecon = createPlannerSnapshot("BotRecon", reconBikeDef, { q: 0, r: 2 });
+    const botTank = createPlannerSnapshot("BotTank", playerTankDef, { q: 0, r: 4 });
+    const playerFrontInfantry = createPlannerSnapshot("PlayerFrontInfantry", playerInfantryDef, { q: 3, r: 2 });
+    const playerRecon = createPlannerSnapshot("PlayerRecon", reconBikeDef, { q: 4, r: 1 });
+    const playerArtillery = createPlannerSnapshot("PlayerArtillery", playerArtilleryDef, { q: 5, r: 2 });
+    const playerBomber = createPlannerSnapshot("PlayerBomber", bomberDef, { q: 6, r: 1 });
+
+    const input: BotPlannerInput = {
+      botUnits: [botRecon, botTank],
+      playerUnits: [playerFrontInfantry, playerRecon, playerArtillery, playerBomber],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(botRecon.unit.hex), "bot"],
+        [axialKey(botTank.unit.hex), "bot"],
+        [axialKey(playerFrontInfantry.unit.hex), "player"],
+        [axialKey(playerRecon.unit.hex), "player"],
+        [axialKey(playerArtillery.unit.hex), "player"],
+        [axialKey(playerBomber.unit.hex), "player"]
+      ]),
+      map: {
+        inBounds: (hex) => hex.q >= 0 && hex.q <= 6 && hex.r >= 0 && hex.r <= 6,
+        terrainAt: (hex) => axialKey(hex) === "0,3" ? woods : plains,
+        movementCost: () => 1
+      },
+      losAllows: (attackerHex, targetHex) => {
+        const attackerKey = axialKey(attackerHex);
+        const targetKey = axialKey(targetHex);
+        const visiblePairs = new Set([
+          "1,2->3,2",
+          "1,2->4,1",
+          "1,2->5,2",
+          "0,3->3,2",
+          "0,3->5,2",
+          "4,1->1,2",
+          "4,1->0,3"
+        ]);
+        return visiblePairs.has(`${attackerKey}->${targetKey}`);
+      },
+      movementAllowance: () => 1,
+      attackEstimator: (_attacker, attackerHex, defender, defenderHex) => {
+        if (axialKey(attackerHex) === "1,2"
+          && axialKey(defenderHex) === "3,2"
+          && (defender.unit.type as string) === "PlayerFrontInfantry") {
+          return {
+            expectedDamage: 7,
+            expectedRetaliation: 4
+          };
+        }
+        return null;
+      },
+      difficulty: "Normal"
+    };
+
+    const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "0,2");
+    plannedDestination = plan ? axialKey(plan.destination) : "";
+    plannedAttackTarget = plan?.attackTarget ? axialKey(plan.attackTarget) : "";
+  });
+
+  await When("the planner weighs the observer role against the kill zone at the front edge", async () => {
+    // Result captured during Given.
+  });
+
+  await Then("the recon should hold the deeper screen and avoid the closer attack hex", async () => {
+    if (plannedDestination !== "0,3") {
+      throw new Error(`Expected recon to hold deeper screen 0,3, but planner chose ${plannedDestination || "no move"}.`);
+    }
+    if (plannedAttackTarget) {
+      throw new Error(`Expected recon to skip the close-contact attack, but it planned an attack on ${plannedAttackTarget}.`);
+    }
+  });
+});
+
 registerTest("BOT_PLANNER_RECON_SPREADS_INTO_A_SECOND_SPOTTING_LANE_INSTEAD_OF_CLUSTERING", async ({ Given, When, Then }) => {
   let plannedDestination = "";
 
@@ -879,6 +956,71 @@ registerTest("BOT_PLANNER_RECON_SPREADS_INTO_A_SECOND_SPOTTING_LANE_INSTEAD_OF_C
   await Then("the moving recon should peel into the second lane instead of piling up beside the first scout", async () => {
     if (plannedDestination !== "2,3") {
       throw new Error(`Expected moving recon to spread to 2,3, but planner chose ${plannedDestination || "no move"}.`);
+    }
+  });
+});
+
+registerTest("BOT_PLANNER_PRIORITIZES_KILLING_A_PLAYER_RECON_OBSERVER_THAT_IS_SPOTTING_FOR_ARTILLERY", async ({ Given, When, Then }) => {
+  let plannedAttackTarget = "";
+
+  await Given("a bot tank choosing between a player recon observer and a nearby infantry unit with the observer enabling artillery fire", async () => {
+    const botTank = createPlannerSnapshot("BotTank", playerTankDef, { q: 0, r: 0 });
+    const botGun = createPlannerSnapshot("BotGun", antiTankGunDef, { q: 0, r: 1 });
+    const playerRecon = createPlannerSnapshot("PlayerRecon", reconBikeDef, { q: 1, r: 0 });
+    const playerInfantry = createPlannerSnapshot("PlayerInfantry", playerInfantryDef, { q: 1, r: 1 });
+    const playerArtillery = createPlannerSnapshot("PlayerArtillery", playerArtilleryDef, { q: 3, r: 0 });
+
+    const input: BotPlannerInput = {
+      botUnits: [botTank, botGun],
+      playerUnits: [playerRecon, playerInfantry, playerArtillery],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(botTank.unit.hex), "bot"],
+        [axialKey(botGun.unit.hex), "bot"],
+        [axialKey(playerRecon.unit.hex), "player"],
+        [axialKey(playerInfantry.unit.hex), "player"],
+        [axialKey(playerArtillery.unit.hex), "player"]
+      ]),
+      map: {
+        inBounds: (hex) => hex.q >= 0 && hex.q <= 4 && hex.r >= 0 && hex.r <= 4,
+        terrainAt: () => plains,
+        movementCost: () => 1
+      },
+      losAllows: (attackerHex, targetHex) => {
+        const attackerKey = axialKey(attackerHex);
+        const targetKey = axialKey(targetHex);
+        const visiblePairs = new Set([
+          "1,0->0,0",
+          "1,0->0,1",
+          "0,0->1,0",
+          "0,0->1,1"
+        ]);
+        return visiblePairs.has(`${attackerKey}->${targetKey}`);
+      },
+      movementAllowance: () => 1,
+      attackEstimator: (_attacker, attackerHex, _defender, defenderHex) => {
+        if (axialKey(attackerHex) === "0,0" && (axialKey(defenderHex) === "1,0" || axialKey(defenderHex) === "1,1")) {
+          return {
+            expectedDamage: 12,
+            expectedRetaliation: 4
+          };
+        }
+        return null;
+      },
+      difficulty: "Normal"
+    };
+
+    const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "0,0");
+    plannedAttackTarget = plan?.attackTarget ? axialKey(plan.attackTarget) : "";
+  });
+
+  await When("the planner ranks attack targets with observer-enabled artillery pressure in mind", async () => {
+    // Result captured during Given.
+  });
+
+  await Then("the recon observer should be attacked before the equally available infantry target", async () => {
+    if (plannedAttackTarget !== "1,0") {
+      throw new Error(`Expected bot tank to attack recon observer at 1,0, but planner targeted ${plannedAttackTarget || "nothing"}.`);
     }
   });
 });

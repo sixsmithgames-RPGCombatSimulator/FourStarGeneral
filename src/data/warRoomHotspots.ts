@@ -101,8 +101,8 @@ export const warRoomHotspotDefinitions: WarRoomHotspotDefinition[] = [
   },
   {
     id: "command-orders",
-    label: "Command Orders",
-    ariaDescription: "Read current command directives and mission orders",
+    label: "Field Reports",
+    ariaDescription: "Review recent activity reports from deployed units",
     // Orders paperwork on lower-right desk
     coords: { x: 62, y: 70, width: 22, height: 14 },
     focusOrder: 8,

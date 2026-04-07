@@ -154,6 +154,26 @@ const flakDef: UnitTypeDefinition = {
   cost: 220
 };
 
+const reconDef: UnitTypeDefinition = {
+  class: "recon",
+  combat: { category: "recon", weight: "light", role: "normal", signature: "small" },
+  movement: 4,
+  moveType: "wheel",
+  vision: 4,
+  ammo: 4,
+  fuel: 50,
+  rangeMin: 1,
+  rangeMax: 1,
+  initiative: 5,
+  armor: { front: 2, side: 1, top: 1 },
+  hardAttack: 4,
+  softAttack: 8,
+  ap: 1,
+  accuracyBase: 58,
+  traits: [],
+  cost: 95
+};
+
 const groundAttackDef: UnitTypeDefinition = {
   class: "air",
   combat: { category: "air", weight: "light", role: "antiVehicle", signature: "medium" },
@@ -187,6 +207,7 @@ const unitTypes: UnitTypeDictionary = {
   Howitzer_105: artilleryDef,
   Panzer_IV: tankDef,
   Flak_88: flakDef,
+  Recon_Bike: reconDef,
   GroundAttack: groundAttackDef
 } as unknown as UnitTypeDictionary;
 
@@ -226,14 +247,15 @@ function scenario(): ScenarioData {
   } as unknown as ScenarioData;
 }
 
-function make(type: keyof typeof unitTypes, hex: Axial): ScenarioUnit {
+function make(type: string, hex: Axial): ScenarioUnit {
+  const definition = (unitTypes as Record<string, UnitTypeDefinition>)[type];
   return {
     type: type as unknown as ScenarioUnit["type"],
     hex,
     strength: 100,
     experience: 0,
-    ammo: unitTypes[type].ammo ?? 6,
-    fuel: unitTypes[type].fuel ?? 50,
+    ammo: definition?.ammo ?? 6,
+    fuel: definition?.fuel ?? 50,
     entrench: 0,
     facing: "NW"
   };
@@ -378,7 +400,7 @@ registerTest("BOT_AIR_HEURISTIC_GROUND_ATTACK_PREFERS_ARMOR_OVER_CLOSER_INFANTRY
   await Given("an anti-vehicle strike aircraft with a closer infantry target and a farther tank", async () => {
     engine = createBotTurnEngine();
 
-    const attacker = make("Ground_Attack", { q: 0, r: 0 });
+    const attacker = make("GroundAttack", { q: 0, r: 0 });
     (attacker as any).unitId = "bot-ground-attack";
     (engine as any).botPlacements.set("0,0", attacker);
 
@@ -473,6 +495,68 @@ registerTest("BOT_AIR_HEURISTIC_SPLITS_MULTIPLE_BOMBERS_ACROSS_VALUABLE_TARGETS"
     const expected = ["4,0", "4,1"];
     if (strikeTargets.length !== expected.length || strikeTargets.some((target, index) => target !== expected[index])) {
       throw new Error(`Expected bomber targets ${expected.join(", ")}, saw ${strikeTargets.join(", ")}.`);
+    }
+  });
+});
+
+registerTest("BOT_AIR_HEURISTIC_ESCORTED_STRIKES_ACCEPT_LOSSES_TO_KILL_A_RECON_OBSERVER", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+
+  await Given("an escorted bomber package facing a player recon unit that is spotting bot armor for artillery and CAP", async () => {
+    engine = createBotTurnEngine();
+
+    const botBomber = make("Bomber", { q: 0, r: 0 });
+    (botBomber as any).unitId = "bot-bomber";
+    (engine as any).botPlacements.set("0,0", botBomber);
+
+    const botEscort = make("Fighter", { q: 1, r: 0 });
+    (botEscort as any).unitId = "bot-escort";
+    (engine as any).botPlacements.set("1,0", botEscort);
+
+    const botTank = make("Panzer_IV", { q: 5, r: 1 });
+    (botTank as any).unitId = "bot-tank";
+    (engine as any).botPlacements.set("5,1", botTank);
+
+    const secondBotTank = make("Panzer_IV", { q: 5, r: 2 });
+    (secondBotTank as any).unitId = "bot-tank-b";
+    (engine as any).botPlacements.set("5,2", secondBotTank);
+
+    const playerObserver = make("Recon_Bike", { q: 4, r: 1 });
+    (playerObserver as any).unitId = "player-observer";
+    (engine as any).playerPlacements.set("4,1", playerObserver);
+
+    const playerArtillery = make("Howitzer_105", { q: 6, r: 1 });
+    (playerArtillery as any).unitId = "player-artillery";
+    (engine as any).playerPlacements.set("6,1", playerArtillery);
+
+    const playerInterceptor = make("Fighter", { q: 6, r: 0 });
+    (playerInterceptor as any).unitId = "player-cap";
+    (engine as any).playerPlacements.set("6,0", playerInterceptor);
+
+  });
+
+  await When("the bot evaluates whether the observer kill is worth an escorted strike", async () => {
+    (engine as any).maybeScheduleHeuristicAirOps();
+  });
+
+  await Then("it should queue a strike on the observer and reserve the fighter as escort", async () => {
+    const missions = Array.from((engine as any).scheduledAirMissions.values()) as Array<{
+      template: { kind: string };
+      targetHex?: Axial;
+      unitKey: string;
+      escortTargetUnitKey?: string;
+    }>;
+    const strike = missions.find((mission) => mission.template.kind === "strike") ?? null;
+    const escort = missions.find((mission) => mission.template.kind === "escort") ?? null;
+
+    if (!strike?.targetHex || `${strike.targetHex.q},${strike.targetHex.r}` !== "4,1") {
+      throw new Error(`Expected the escorted strike to target recon observer 4,1, saw ${strike?.targetHex ? `${strike.targetHex.q},${strike.targetHex.r}` : "no strike"}.`);
+    }
+    if (!escort) {
+      throw new Error("Expected an escort mission to be queued for the observer strike.");
+    }
+    if (escort.escortTargetUnitKey !== strike.unitKey) {
+      throw new Error(`Expected escort to protect ${strike.unitKey}, saw ${escort.escortTargetUnitKey ?? "<missing>"}.`);
     }
   });
 });

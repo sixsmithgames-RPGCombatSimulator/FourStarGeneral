@@ -126,7 +126,8 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
   },
   patrol: {
     objectives: [
-      "Primary: Repel the enemy assault and keep the town in friendly hands."
+      "Primary: Repel the enemy assault and keep the town in friendly hands.",
+      "Secondary: Destroy all enemy forces."
     ],
     turnLimit: 25,
     doctrine: "Anchor the defense on the town perimeter, use the road lattice to shift reserves, and let artillery and anti-tank screens break up enemy armor before it reaches the center.",

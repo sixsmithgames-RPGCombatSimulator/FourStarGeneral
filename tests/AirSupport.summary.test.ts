@@ -182,3 +182,71 @@ registerTest("AIR_SUPPORT_RESERVE_HELPERS_UPDATE_AND_REMOVE_PLAYER_SQUADRONS", a
     }
   });
 });
+
+registerTest("AIR_SUPPORT_CAP_REPORTS_COMBAT_WHEN_THE_PATROL_INTERCEPTS_A_STRIKE", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let outcome: {
+    result?: string;
+    details?: string;
+    interceptions?: number;
+    meta?: { bomberAttrition?: number; interceptorAttrition?: number; capKills?: number };
+  } | null = null;
+
+  await Given("a valid air support engine", async () => {
+    const cfg: GameEngineConfig = {
+      scenario: scenario(),
+      unitTypes,
+      terrain,
+      playerSide: side(),
+      botSide: side()
+    };
+    engine = new GameEngine(cfg);
+  });
+
+  await When("a CAP mission resolves after logging an interception", async () => {
+    outcome = (engine as any).resolveAirCoverMission({
+      id: "cap-report",
+      template: {
+        kind: "airCover",
+        label: "CAP",
+        description: "",
+        allowedRoles: ["cap"],
+        requiresTarget: true,
+        requiresFriendlyEscortTarget: false,
+        durationTurns: 1
+      },
+      faction: "Player",
+      unitKey: "cap-1",
+      unitType: "Fighter",
+      status: "resolving",
+      launchTurn: 1,
+      turnsRemaining: 0,
+      targetHex: { q: 1, r: 0 },
+      interceptions: 1,
+      airCombatDamageInflicted: 18,
+      airCombatDamageTaken: 6,
+      airCombatKills: 1
+    });
+  });
+
+  await Then("the CAP report should describe the interception instead of claiming no hostile bombers arrived", async () => {
+    if (!outcome) {
+      throw new Error("Expected CAP outcome to be produced.");
+    }
+    if (outcome.result !== "success") {
+      throw new Error(`Expected CAP resolution to succeed, saw ${outcome.result ?? "<missing>"}.`);
+    }
+    if (!(outcome.details ?? "").includes("engaged")) {
+      throw new Error(`Expected CAP details to mention the interception, saw ${outcome.details ?? "<missing>"}.`);
+    }
+    if ((outcome.details ?? "").includes("no hostile bombers entered the area")) {
+      throw new Error(`Did not expect the no-contact CAP text after an interception, saw ${outcome.details}.`);
+    }
+    if (outcome.interceptions !== 1) {
+      throw new Error(`Expected CAP interception count to be preserved, saw ${outcome.interceptions ?? "<missing>"}.`);
+    }
+    if (outcome.meta?.bomberAttrition !== 18 || outcome.meta?.interceptorAttrition !== 6 || outcome.meta?.capKills !== 1) {
+      throw new Error(`Expected CAP attrition metadata to be preserved, saw ${JSON.stringify(outcome.meta)}.`);
+    }
+  });
+});

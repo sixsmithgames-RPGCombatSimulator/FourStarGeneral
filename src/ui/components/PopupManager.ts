@@ -2731,7 +2731,7 @@ export class PopupManager implements IPopupManager {
     statsElement && (statsElement.innerHTML = this.composeGeneralStatMarkup(profile, commanderBenefits));
     traitsElement && (traitsElement.innerHTML = this.composeGeneralTraitMarkup(profile));
     directivesElement && (directivesElement.innerHTML = this.composeGeneralDirectiveMarkup(profile));
-    historyElement && (historyElement.textContent = this.composeGeneralHistory(profile));
+    historyElement && (historyElement.innerHTML = this.composeGeneralHistory(profile));
   }
 
   private resolvePrimaryGeneral(): GeneralRosterEntry | null {

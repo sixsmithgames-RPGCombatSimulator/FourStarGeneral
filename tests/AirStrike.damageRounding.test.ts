@@ -163,3 +163,147 @@ registerTest("AIR_STRIKE_BOMBER_DAMAGE_NEVER_ROUNDS_TO_ZERO", async ({ Given, Wh
     }
   });
 });
+
+registerTest("AIR_STRIKE_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_DEFENDER_BUT_SPENDS_ONE_AMMO", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  const targetHex: Axial = { q: 1, r: 0 };
+  const originHex: Axial = { q: 0, r: 0 };
+
+  await Given("a bomber striking two stacked defenders on the same hex", async () => {
+    const config: GameEngineConfig = {
+      scenario: buildScenario(),
+      unitTypes,
+      terrain,
+      playerSide: baseSide(),
+      botSide: baseSide()
+    };
+
+    engine = new GameEngine(config);
+
+    engine.beginDeployment();
+    engine.initializeFromAllocations([]);
+    engine.setBaseCamp({ q: 0, r: 0 });
+    engine.finalizeDeployment();
+    engine.startPlayerTurnPhase();
+
+    const defenderAlpha = { ...makeUnit("Infantry_42", targetHex), unitId: "stack-alpha" } as ScenarioUnit;
+    const defenderBravo = { ...makeUnit("Infantry_42", targetHex), unitId: "stack-bravo" } as ScenarioUnit;
+    (engine as any).addUnitToFactionHex("Player", defenderAlpha);
+    (engine as any).addUnitToFactionHex("Player", defenderBravo);
+
+    const bomber = { ...makeUnit("Bomber", originHex), unitId: "u_bomber" } as ScenarioUnit;
+    bomber.strength = 13;
+    (engine as any).botPlacements.set("0,0", bomber);
+
+    (engine as any)._activeFaction = "Bot";
+  });
+
+  await When("the bomber strike mission resolves against the stack", async () => {
+    const result = engine.tryScheduleAirMission({ kind: "strike", faction: "Bot", unitHex: originHex, targetHex });
+    if (!result.ok) {
+      throw new Error(`Failed to schedule strike: ${result.code} ${result.reason}`);
+    }
+
+    (engine as any).stepAirMissionsForFaction("Bot");
+    (engine as any).stepAirMissionsForFaction("Bot");
+  });
+
+  await Then("both defenders should be damaged while the bomber only spends one ammo salvo", async () => {
+    const defenders = engine.getHexStackMembers(targetHex, "Player");
+    if (defenders.length !== 2) {
+      throw new Error(`Expected both stacked defenders to remain addressable after the strike, saw ${defenders.length}.`);
+    }
+
+    const alpha = defenders.find((entry) => entry.unitId === "stack-alpha")?.unit ?? null;
+    const bravo = defenders.find((entry) => entry.unitId === "stack-bravo")?.unit ?? null;
+    if (!alpha || !bravo) {
+      throw new Error(`Expected both stacked defenders to still be identifiable, saw ${JSON.stringify(defenders)}.`);
+    }
+    if (alpha.strength >= 100 || bravo.strength >= 100) {
+      throw new Error(`Expected both stacked defenders to take full strike damage, saw alpha=${alpha.strength}, bravo=${bravo.strength}.`);
+    }
+
+    const bomberAfter = (engine as any).botPlacements.get("0,0") as ScenarioUnit | undefined;
+    if (!bomberAfter) {
+      throw new Error("Expected the bomber to survive this deterministic strike.");
+    }
+    if (bomberAfter.ammo !== 3) {
+      throw new Error(`Expected the bomber to spend exactly one ammo on the target-rich strike, saw ${bomberAfter.ammo}.`);
+    }
+  });
+});
+
+registerTest("BOT_DIRECT_AIR_STRIKE_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_DEFENDER_BUT_SPENDS_ONE_AMMO", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let attack: { inflictedDamage?: number; defenderDestroyed?: boolean } | null = null;
+  const targetHex: Axial = { q: 1, r: 0 };
+  const originHex: Axial = { q: 0, r: 0 };
+
+  await Given("a bot bomber directly attacks two stacked ground defenders", async () => {
+    const config: GameEngineConfig = {
+      scenario: buildScenario(),
+      unitTypes,
+      terrain,
+      playerSide: baseSide(),
+      botSide: baseSide()
+    };
+
+    engine = new GameEngine(config);
+
+    engine.beginDeployment();
+    engine.initializeFromAllocations([]);
+    engine.setBaseCamp({ q: 0, r: 0 });
+    engine.finalizeDeployment();
+    engine.startPlayerTurnPhase();
+
+    const defenderAlpha = { ...makeUnit("Infantry_42", targetHex), unitId: "bot-stack-alpha" } as ScenarioUnit;
+    const defenderBravo = { ...makeUnit("Infantry_42", targetHex), unitId: "bot-stack-bravo" } as ScenarioUnit;
+    (engine as any).addUnitToFactionHex("Player", defenderAlpha);
+    (engine as any).addUnitToFactionHex("Player", defenderBravo);
+
+    const bomber = { ...makeUnit("Bomber", originHex), unitId: "bot-bomber-direct" } as ScenarioUnit;
+    bomber.strength = 13;
+    (engine as any).addUnitToFactionHex("Bot", bomber);
+  });
+
+  await When("the bot attack resolver executes the strike directly", async () => {
+    const bomber = (engine as any).findUnitInFactionAtHex(originHex, "Bot", "bot-bomber-direct") as ScenarioUnit | null;
+    if (!bomber) {
+      throw new Error("Bot bomber missing before direct attack.");
+    }
+    attack = (engine as any).resolveBotAttack(bomber, originHex, targetHex);
+  });
+
+  await Then("both defenders should take damage while the bomber spends one ammo salvo", async () => {
+    if (!attack) {
+      throw new Error("Expected bot direct air strike to resolve.");
+    }
+    const defenders = engine.getHexStackMembers(targetHex, "Player");
+    if (defenders.length !== 2) {
+      throw new Error(`Expected both stacked defenders to remain after the direct strike, saw ${defenders.length}.`);
+    }
+
+    const alpha = defenders.find((entry) => entry.unitId === "bot-stack-alpha")?.unit ?? null;
+    const bravo = defenders.find((entry) => entry.unitId === "bot-stack-bravo")?.unit ?? null;
+    if (!alpha || !bravo) {
+      throw new Error(`Expected both defenders to remain identifiable, saw ${JSON.stringify(defenders)}.`);
+    }
+    if (alpha.strength >= 100 || bravo.strength >= 100) {
+      throw new Error(`Expected both stacked defenders to take direct bot strike damage, saw alpha=${alpha.strength}, bravo=${bravo.strength}.`);
+    }
+
+    const bomberAfter = (engine as any).findUnitInFactionAtHex(originHex, "Bot", "bot-bomber-direct") as ScenarioUnit | null;
+    if (!bomberAfter) {
+      throw new Error("Expected the bot bomber to survive the direct strike.");
+    }
+    if (bomberAfter.ammo !== 3) {
+      throw new Error(`Expected the bot bomber to spend exactly one ammo on the target-rich direct strike, saw ${bomberAfter.ammo}.`);
+    }
+    if ((attack.inflictedDamage ?? 0) <= 0) {
+      throw new Error(`Expected the bot direct strike summary to report aggregate damage, saw ${JSON.stringify(attack)}.`);
+    }
+    if (attack.defenderDestroyed) {
+      throw new Error("Expected the stacked defenders to survive this deterministic direct strike test.");
+    }
+  });
+});

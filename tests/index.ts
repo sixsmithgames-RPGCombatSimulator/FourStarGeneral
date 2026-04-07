@@ -20,6 +20,7 @@ import "./BattleScreen.animations.test.js";
 import "./BattleScreen.airMissionPlayback.test.js";
 import "./BattleScreen.activityLog.test.js";
 import "./BattleScreen.attackPreview.test.js";
+import "./BattleScreen.turnAdvance.test.js";
 import "./BattleScreen.selectionIntel.test.js";
 import "./BattleScreen.objectiveMarkers.test.js";
 import "./BattleScreen.missionFlow.test.js";

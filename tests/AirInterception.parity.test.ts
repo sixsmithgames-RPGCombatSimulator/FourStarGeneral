@@ -267,3 +267,143 @@ registerTest("INTERCEPTION_CAP_STOPS_BOMBER_BOTH_SIDES", async ({ Given, When, T
     }
   });
 });
+
+registerTest("BOT_FLAK_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_AIR_DEFENDER_BUT_SPENDS_ONE_AMMO", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let attack: { inflictedDamage?: number } | null = null;
+  const originHex: Axial = { q: 0, r: 0 };
+  const targetHex: Axial = { q: 1, r: 0 };
+
+  await Given("a bot flak battery firing on two stacked player fighters", async () => {
+    const config: GameEngineConfig = {
+      scenario: buildScenario(),
+      unitTypes,
+      terrain,
+      playerSide: baseSide(),
+      botSide: baseSide()
+    };
+
+    engine = new GameEngine(config);
+    engine.beginDeployment();
+    engine.initializeFromAllocations([]);
+    engine.setBaseCamp({ q: 0, r: 0 });
+    engine.finalizeDeployment();
+    engine.startPlayerTurnPhase();
+
+    const fighterAlpha = { ...makeUnit("Fighter", targetHex), unitId: "player-fighter-alpha" } as ScenarioUnit;
+    const fighterBravo = { ...makeUnit("Fighter", targetHex), unitId: "player-fighter-bravo" } as ScenarioUnit;
+    const flak = { ...makeUnit("Flak_88", originHex), unitId: "bot-flak-direct" } as ScenarioUnit;
+
+    (engine as any).addUnitToFactionHex("Player", fighterAlpha);
+    (engine as any).addUnitToFactionHex("Player", fighterBravo);
+    (engine as any).addUnitToFactionHex("Bot", flak);
+  });
+
+  await When("the bot flak battery attacks the stacked air defenders", async () => {
+    const flak = (engine as any).findUnitInFactionAtHex(originHex, "Bot", "bot-flak-direct") as ScenarioUnit | null;
+    if (!flak) {
+      throw new Error("Bot flak battery missing before direct attack.");
+    }
+    attack = (engine as any).resolveBotAttack(flak, originHex, targetHex);
+  });
+
+  await Then("both air defenders should take damage and the flak should spend one ammo", async () => {
+    if (!attack) {
+      throw new Error("Expected the bot flak attack to resolve.");
+    }
+    const defenders = engine.getHexStackMembers(targetHex, "Player");
+    if (defenders.length !== 2) {
+      throw new Error(`Expected both stacked fighters to remain after flak fire, saw ${defenders.length}.`);
+    }
+
+    const alpha = defenders.find((entry) => entry.unitId === "player-fighter-alpha")?.unit ?? null;
+    const bravo = defenders.find((entry) => entry.unitId === "player-fighter-bravo")?.unit ?? null;
+    if (!alpha || !bravo) {
+      throw new Error(`Expected both stacked fighters to remain identifiable, saw ${JSON.stringify(defenders)}.`);
+    }
+    if (alpha.strength >= 100 || bravo.strength >= 100) {
+      throw new Error(`Expected both stacked fighters to take flak damage, saw alpha=${alpha.strength}, bravo=${bravo.strength}.`);
+    }
+
+    const flakAfter = (engine as any).findUnitInFactionAtHex(originHex, "Bot", "bot-flak-direct") as ScenarioUnit | null;
+    if (!flakAfter) {
+      throw new Error("Expected the bot flak battery to survive the exchange.");
+    }
+    if (flakAfter.ammo !== 5) {
+      throw new Error(`Expected the bot flak battery to spend exactly one ammo on the target-rich attack, saw ${flakAfter.ammo}.`);
+    }
+    if ((attack.inflictedDamage ?? 0) <= 0) {
+      throw new Error(`Expected aggregate flak damage in the bot attack summary, saw ${JSON.stringify(attack)}.`);
+    }
+  });
+});
+
+registerTest("BOT_FIGHTER_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_AIR_DEFENDER_BUT_SPENDS_ONE_AIR_SALVO", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let attack: { inflictedDamage?: number } | null = null;
+  const originHex: Axial = { q: 0, r: 0 };
+  const targetHex: Axial = { q: 1, r: 0 };
+
+  await Given("a bot fighter attacking two stacked player fighters", async () => {
+    const config: GameEngineConfig = {
+      scenario: buildScenario(),
+      unitTypes,
+      terrain,
+      playerSide: baseSide(),
+      botSide: baseSide()
+    };
+
+    engine = new GameEngine(config);
+    engine.beginDeployment();
+    engine.initializeFromAllocations([]);
+    engine.setBaseCamp({ q: 0, r: 0 });
+    engine.finalizeDeployment();
+    engine.startPlayerTurnPhase();
+
+    const fighterAlpha = { ...makeUnit("Fighter", targetHex), unitId: "player-air-alpha" } as ScenarioUnit;
+    const fighterBravo = { ...makeUnit("Fighter", targetHex), unitId: "player-air-bravo" } as ScenarioUnit;
+    const botFighter = { ...makeUnit("Fighter", originHex), unitId: "bot-air-direct" } as ScenarioUnit;
+
+    (engine as any).addUnitToFactionHex("Player", fighterAlpha);
+    (engine as any).addUnitToFactionHex("Player", fighterBravo);
+    (engine as any).addUnitToFactionHex("Bot", botFighter);
+  });
+
+  await When("the bot fighter attacks the stacked air defenders", async () => {
+    const botFighter = (engine as any).findUnitInFactionAtHex(originHex, "Bot", "bot-air-direct") as ScenarioUnit | null;
+    if (!botFighter) {
+      throw new Error("Bot fighter missing before direct attack.");
+    }
+    attack = (engine as any).resolveBotAttack(botFighter, originHex, targetHex);
+  });
+
+  await Then("both defenders should take dogfight damage and the attacker should spend one air salvo", async () => {
+    if (!attack) {
+      throw new Error("Expected the bot fighter attack to resolve.");
+    }
+    const defenders = engine.getHexStackMembers(targetHex, "Player");
+    if (defenders.length !== 2) {
+      throw new Error(`Expected both stacked fighters to remain after the dogfight, saw ${defenders.length}.`);
+    }
+
+    const alpha = defenders.find((entry) => entry.unitId === "player-air-alpha")?.unit ?? null;
+    const bravo = defenders.find((entry) => entry.unitId === "player-air-bravo")?.unit ?? null;
+    if (!alpha || !bravo) {
+      throw new Error(`Expected both stacked fighters to remain identifiable after the dogfight, saw ${JSON.stringify(defenders)}.`);
+    }
+    if (alpha.strength >= 100 || bravo.strength >= 100) {
+      throw new Error(`Expected both stacked fighters to take air-to-air damage, saw alpha=${alpha.strength}, bravo=${bravo.strength}.`);
+    }
+
+    const botFighterAfter = (engine as any).findUnitInFactionAtHex(originHex, "Bot", "bot-air-direct") as ScenarioUnit | null;
+    if (!botFighterAfter) {
+      throw new Error("Expected the bot fighter to survive this deterministic dogfight.");
+    }
+    if (botFighterAfter.ammo !== 5) {
+      throw new Error(`Expected the bot fighter to spend exactly one ammo on the target-rich dogfight, saw ${botFighterAfter.ammo}.`);
+    }
+    if ((attack.inflictedDamage ?? 0) <= 0) {
+      throw new Error(`Expected aggregate dogfight damage in the bot attack summary, saw ${JSON.stringify(attack)}.`);
+    }
+  });
+});

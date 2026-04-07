@@ -129,6 +129,37 @@ interface PreparedAirMissionFlight {
   readonly escortTargetUnitKey?: string;
 }
 
+interface LinkedStrikePlaybackOperation {
+  readonly kind: "linkedStrike";
+  readonly index: number;
+  readonly focusHex: Axial | null;
+  readonly focusKey: string | null;
+  readonly flight: PreparedAirMissionFlight;
+  readonly linkedEvents: readonly AirEngagementEvent[];
+  readonly escorts: readonly PreparedAirMissionFlight[];
+}
+
+interface StandaloneFlightPlaybackOperation {
+  readonly kind: "flight";
+  readonly index: number;
+  readonly focusHex: Axial | null;
+  readonly focusKey: string | null;
+  readonly flight: PreparedAirMissionFlight;
+}
+
+interface StandaloneEventPlaybackOperation {
+  readonly kind: "event";
+  readonly index: number;
+  readonly focusHex: Axial;
+  readonly focusKey: string;
+  readonly event: AirEngagementEvent;
+}
+
+type AirPlaybackOperation =
+  | LinkedStrikePlaybackOperation
+  | StandaloneFlightPlaybackOperation
+  | StandaloneEventPlaybackOperation;
+
 interface BattleSelectionStackMember {
   readonly unitId: string;
   readonly unit: ScenarioUnit;
@@ -222,6 +253,7 @@ export class BattleScreen {
   private static readonly AIR_BOMBER_SPEED_MULTIPLIER = 1;
   private static readonly AIR_FIGHTER_SPEED_MULTIPLIER = 1.5;
   private static readonly AIR_DOGFIGHT_ORBIT_BASE_MS = 760;
+  private static readonly AIR_PLAYBACK_CLUSTER_LINK_DISTANCE_HEX = 8;
 
   // DOM element references
   private battleAnnouncements: HTMLElement | null = null;
@@ -3013,46 +3045,19 @@ export class BattleScreen {
         )
       );
 
-      if (linkedStrikeFlights.length > 0) {
-        const firstStrikeFocusKey =
-          this.resolvePreparedAirMissionDestKey(linkedStrikeFlights[0]!.flight, engine) ?? linkedStrikeFlights[0]!.flight.destKey;
-        await this.focusCameraOnHex(firstStrikeFocusKey);
-        await this.waitForNextFrame();
-        await this.waitMs(this.scaleAirSequenceMs(220));
-        await Promise.all(
-          linkedStrikeFlights.map(({ flight, linkedEvents, escorts }) =>
-            this.playMissionStrikeOperation(flight, linkedEvents, escorts, renderer, engine, true)
-          )
-        );
-      }
-
-      if (standaloneFlights.length > 0) {
-        const firstStandaloneFocusKey =
-          this.resolvePreparedAirMissionDestKey(standaloneFlights[0]!, engine) ?? standaloneFlights[0]!.destKey;
-        await this.focusCameraOnHex(firstStandaloneFocusKey);
-        await this.waitForNextFrame();
-        await this.waitMs(this.scaleAirSequenceMs(180));
-        await Promise.all(
-          standaloneFlights.map((flight) => this.playStandaloneAirMissionFlight(flight, renderer, engine, true))
-        );
-      }
-
       for (const linkedEvents of linkedEventsByMissionId.values()) {
         standaloneEvents.push(...linkedEvents);
       }
 
-      if (standaloneEvents.length > 0) {
-        const firstEvent = standaloneEvents[0]!;
-        const firstEventOffset = CoordinateSystem.axialToOffset(firstEvent.location.q, firstEvent.location.r);
-        await this.focusCameraOnHex(CoordinateSystem.makeHexKey(firstEventOffset.col, firstEventOffset.row));
-        await this.waitForNextFrame();
-        await this.waitMs(this.scaleAirSequenceMs(180));
-        const laneOffsets = this.buildAirLaneOffsets(standaloneEvents.length);
-        await Promise.all(
-          standaloneEvents.map((event, index) =>
-            this.playStandaloneAirEngagementEvent(event, renderer, engine, true, laneOffsets[index] ?? 0)
-          )
-        );
+      const playbackOperations = this.buildAirPlaybackOperations(
+        linkedStrikeFlights,
+        standaloneFlights,
+        standaloneEvents,
+        engine
+      );
+      const playbackClusters = this.clusterAirPlaybackOperations(playbackOperations);
+      for (const cluster of playbackClusters) {
+        await this.playAirPlaybackCluster(cluster, renderer, engine);
       }
     } catch (error) {
       hadAnimationError = true;
@@ -3851,6 +3856,17 @@ export class BattleScreen {
     return CoordinateSystem.makeHexKey(offset.col, offset.row);
   }
 
+  private offsetHexKeyToAxial(hexKey: string | null | undefined): Axial | null {
+    if (!hexKey) {
+      return null;
+    }
+    const parsed = CoordinateSystem.parseHexKey(hexKey);
+    if (!parsed) {
+      return null;
+    }
+    return CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+  }
+
   private findScheduledAirMissionById(
     missionId: string,
     faction: TurnFaction,
@@ -3895,6 +3911,13 @@ export class BattleScreen {
     }
 
     return flight.targetHex ?? null;
+  }
+
+  private resolveAirPlaybackFocusHexForFlight(
+    flight: PreparedAirMissionFlight,
+    engine: GameEngine
+  ): Axial | null {
+    return this.resolvePreparedAirMissionTargetHex(flight, engine) ?? this.offsetHexKeyToAxial(flight.destKey);
   }
 
   private resolvePreparedAirMissionDestKey(
@@ -4351,6 +4374,169 @@ export class BattleScreen {
       await renderer.playDogfight(locKey);
       await this.waitMs(followThroughDelayMs);
     }
+  }
+
+  private buildAirPlaybackOperations(
+    linkedStrikeFlights: Array<{
+      flight: PreparedAirMissionFlight;
+      linkedEvents: AirEngagementEvent[];
+      escorts: PreparedAirMissionFlight[];
+    }>,
+    standaloneFlights: PreparedAirMissionFlight[],
+    standaloneEvents: AirEngagementEvent[],
+    engine: GameEngine
+  ): AirPlaybackOperation[] {
+    const operations: AirPlaybackOperation[] = [];
+    let index = 0;
+
+    linkedStrikeFlights.forEach(({ flight, linkedEvents, escorts }) => {
+      const focusHex = this.resolveAirPlaybackFocusHexForFlight(flight, engine);
+      operations.push({
+        kind: "linkedStrike",
+        index,
+        focusHex,
+        focusKey: this.resolvePreparedAirMissionDestKey(flight, engine) ?? flight.destKey ?? this.toOffsetHexKey(focusHex),
+        flight,
+        linkedEvents,
+        escorts
+      });
+      index += 1;
+    });
+
+    standaloneFlights.forEach((flight) => {
+      const focusHex = this.resolveAirPlaybackFocusHexForFlight(flight, engine);
+      operations.push({
+        kind: "flight",
+        index,
+        focusHex,
+        focusKey: this.resolvePreparedAirMissionDestKey(flight, engine) ?? flight.destKey ?? this.toOffsetHexKey(focusHex),
+        flight
+      });
+      index += 1;
+    });
+
+    standaloneEvents.forEach((event) => {
+      operations.push({
+        kind: "event",
+        index,
+        focusHex: structuredClone(event.location),
+        focusKey: this.toOffsetHexKey(event.location) ?? CoordinateSystem.makeHexKey(event.location.q, event.location.r),
+        event
+      });
+      index += 1;
+    });
+
+    return operations;
+  }
+
+  private clusterAirPlaybackOperations(operations: AirPlaybackOperation[]): AirPlaybackOperation[][] {
+    if (operations.length <= 1) {
+      return operations.length > 0 ? [operations] : [];
+    }
+
+    const clusters: AirPlaybackOperation[][] = [];
+    const visited = new Set<number>();
+
+    for (let startIndex = 0; startIndex < operations.length; startIndex += 1) {
+      if (visited.has(startIndex)) {
+        continue;
+      }
+
+      const cluster: AirPlaybackOperation[] = [];
+      const queue = [startIndex];
+      visited.add(startIndex);
+
+      while (queue.length > 0) {
+        const currentIndex = queue.shift();
+        if (currentIndex === undefined) {
+          continue;
+        }
+
+        const current = operations[currentIndex]!;
+        cluster.push(current);
+
+        for (let candidateIndex = 0; candidateIndex < operations.length; candidateIndex += 1) {
+          if (visited.has(candidateIndex)) {
+            continue;
+          }
+          if (!this.airPlaybackOperationsShareCluster(current, operations[candidateIndex]!)) {
+            continue;
+          }
+          visited.add(candidateIndex);
+          queue.push(candidateIndex);
+        }
+      }
+
+      cluster.sort((a, b) => a.index - b.index);
+      clusters.push(cluster);
+    }
+
+    return clusters;
+  }
+
+  private airPlaybackOperationsShareCluster(a: AirPlaybackOperation, b: AirPlaybackOperation): boolean {
+    if (a.focusKey && b.focusKey && a.focusKey === b.focusKey) {
+      return true;
+    }
+    if (!a.focusHex || !b.focusHex) {
+      return false;
+    }
+    return hexDistance(a.focusHex, b.focusHex) <= BattleScreen.AIR_PLAYBACK_CLUSTER_LINK_DISTANCE_HEX;
+  }
+
+  private async playAirPlaybackCluster(
+    cluster: AirPlaybackOperation[],
+    renderer: HexMapRenderer,
+    engine: GameEngine
+  ): Promise<void> {
+    if (cluster.length === 0) {
+      return;
+    }
+
+    const focusKey = cluster.find((operation) => operation.focusKey)?.focusKey ?? null;
+    const focusDelay = cluster.some((operation) => operation.kind === "linkedStrike")
+      ? this.scaleAirSequenceMs(220)
+      : this.scaleAirSequenceMs(180);
+
+    if (focusKey) {
+      await this.focusCameraOnHex(focusKey);
+      await this.waitForNextFrame();
+      await this.waitMs(focusDelay);
+    }
+
+    const eventOperations = cluster.filter(
+      (operation): operation is StandaloneEventPlaybackOperation => operation.kind === "event"
+    );
+    const eventLaneOffsets = this.buildAirLaneOffsets(eventOperations.length);
+    const laneOffsetsByIndex = new Map<number, number>();
+    eventOperations.forEach((operation, index) => {
+      laneOffsetsByIndex.set(operation.index, eventLaneOffsets[index] ?? 0);
+    });
+
+    await Promise.all(
+      cluster.map((operation) => {
+        if (operation.kind === "linkedStrike") {
+          return this.playMissionStrikeOperation(
+            operation.flight,
+            [...operation.linkedEvents],
+            operation.escorts,
+            renderer,
+            engine,
+            Boolean(focusKey)
+          );
+        }
+        if (operation.kind === "flight") {
+          return this.playStandaloneAirMissionFlight(operation.flight, renderer, engine, Boolean(focusKey));
+        }
+        return this.playStandaloneAirEngagementEvent(
+          operation.event,
+          renderer,
+          engine,
+          Boolean(focusKey),
+          laneOffsetsByIndex.get(operation.index) ?? 0
+        );
+      })
+    );
   }
 
   /**
@@ -5548,10 +5734,19 @@ export class BattleScreen {
       const parsed = axialKey.split(",").map((s) => Number(s));
       if (parsed.length === 2) {
         const axial = { q: parsed[0]!, r: parsed[1]! };
-        const succeeded = engine.enterSentry(axial);
-        if (succeeded) {
-          autoSentryCount++;
+        const stackMembers = engine.playerUnits.filter((unit) => unit.hex.q === axial.q && unit.hex.r === axial.r);
+        if (stackMembers.length === 0) {
+          return;
         }
+
+        stackMembers.forEach((unit) => {
+          const succeeded = unit.unitId
+            ? engine.enterSentry(axial, unit.unitId)
+            : engine.enterSentry(axial);
+          if (succeeded) {
+            autoSentryCount++;
+          }
+        });
       }
     });
 
