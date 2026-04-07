@@ -76,6 +76,14 @@ type AircraftOrbitOptions = {
   verticalScale?: number;
   onProgress?: AircraftAnimationProgressCallback;
 };
+type AirShowFlightSpec = {
+  id: string;
+  scenarioType: string;
+  faction?: SpriteRenderFaction;
+  strength?: number;
+  laneOffsetPx?: number;
+  team: "interceptor" | "escort" | "bomber";
+};
 
 /**
  * Handle returned when staging a unit move so callers can delay playback until the camera settles.
@@ -666,6 +674,314 @@ export class HexMapRenderer implements IMapRenderer {
     });
 
     ghost.remove();
+  }
+
+  async animateAirDogfightShowAt(
+    hexKey: string,
+    flights: ReadonlyArray<AirShowFlightSpec>,
+    durationMs = 3200
+  ): Promise<void> {
+    if (!this.svgElement) {
+      return;
+    }
+
+    const cell = this.hexElementMap.get(hexKey);
+    const center = cell ? this.extractHexCenter(cell) : null;
+    const layer = this.ensureCombatEffectsLayer();
+    if (!center || !layer) {
+      return;
+    }
+
+    const combatFlights = flights.filter(
+      (flight): flight is AirShowFlightSpec & { team: "interceptor" | "escort" } =>
+        flight.team === "interceptor" || flight.team === "escort"
+    );
+    if (combatFlights.length === 0) {
+      return;
+    }
+
+    const spriteStates: Array<{
+      team: "interceptor" | "escort";
+      image: SVGImageElement;
+      size: number;
+      path: Array<{ cx: number; cy: number }>;
+      lastHeadingDegrees: number;
+      position: { cx: number; cy: number };
+    }> = [];
+
+    const buildDogfightPath = (
+      team: "interceptor" | "escort",
+      flightIndex: number,
+      spriteIndex: number,
+      laneOffsetPx: number,
+      biasX: number,
+      biasY: number
+    ): Array<{ cx: number; cy: number }> => {
+      const teamSign = team === "interceptor" ? -1 : 1;
+      const lateral = 68 + flightIndex * 10 + Math.min(18, Math.abs(laneOffsetPx) * 0.4) + Math.abs(biasX) * 0.18;
+      const vertical = 26 + (spriteIndex % 3) * 8 + Math.abs(biasY) * 0.12;
+      const centerSkew = biasX * 0.2;
+      const altitudeSkew = biasY * 0.3;
+      return [
+        { cx: center.cx + teamSign * lateral, cy: center.cy + altitudeSkew },
+        { cx: center.cx + teamSign * 24 + centerSkew, cy: center.cy - vertical + altitudeSkew * 0.35 },
+        { cx: center.cx - teamSign * 6 + centerSkew, cy: center.cy - 12 + altitudeSkew * 0.2 },
+        { cx: center.cx - teamSign * (lateral * 0.72), cy: center.cy + vertical * 0.28 + altitudeSkew * 0.4 },
+        { cx: center.cx - teamSign * 16 + centerSkew, cy: center.cy + vertical + altitudeSkew * 0.25 },
+        { cx: center.cx + teamSign * (lateral * 0.56), cy: center.cy - vertical * 0.2 + altitudeSkew * 0.3 }
+      ];
+    };
+
+    combatFlights.forEach((flight, flightIndex) => {
+      const spriteHref = getSpriteForScenarioType(flight.scenarioType, flight.faction);
+      if (!spriteHref) {
+        return;
+      }
+      const ghosts = this.createAircraftSpriteGhosts(spriteHref, HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE, flight.strength);
+      ghosts.forEach((ghostSpec, spriteIndex) => {
+        layer.appendChild(ghostSpec.image);
+        const path = buildDogfightPath(
+          flight.team,
+          flightIndex,
+          spriteIndex,
+          flight.laneOffsetPx ?? 0,
+          ghostSpec.biasX,
+          ghostSpec.biasY
+        );
+        const initialSample = this.sampleAircraftWaypointPath(path, 0);
+        const heading = this.resolveAircraftHeadingDegrees(initialSample.derivative.dx, initialSample.derivative.dy);
+        this.positionAircraftImageGhost(ghostSpec.image, ghostSpec.size, initialSample.point.cx, initialSample.point.cy, heading);
+        spriteStates.push({
+          team: flight.team,
+          image: ghostSpec.image,
+          size: ghostSpec.size,
+          path,
+          lastHeadingDegrees: heading,
+          position: initialSample.point
+        });
+      });
+    });
+
+    if (spriteStates.length === 0) {
+      return;
+    }
+
+    const tracerWindows = [0.14, 0.28, 0.42, 0.58, 0.74, 0.88];
+    let nextTracerWindow = 0;
+
+    try {
+      await new Promise<void>((resolve) => {
+        const startTime = performance.now();
+        const step: FrameRequestCallback = (now) => {
+          const elapsed = now - startTime;
+          const rawProgress = Math.min(1, elapsed / Math.max(1, durationMs));
+          const easedProgress = this.easeInOut(rawProgress);
+          const interceptorPositions: Array<{ cx: number; cy: number }> = [];
+          const escortPositions: Array<{ cx: number; cy: number }> = [];
+
+          spriteStates.forEach((sprite, spriteIndex) => {
+            const spriteProgress = this.clamp(easedProgress + spriteIndex * 0.012, 0, 1);
+            const sample = this.sampleAircraftWaypointPath(sprite.path, spriteProgress);
+            sprite.lastHeadingDegrees = this.interpolateAircraftHeadingDegrees(
+              sprite.lastHeadingDegrees,
+              this.resolveAircraftHeadingDegrees(sample.derivative.dx, sample.derivative.dy, sprite.lastHeadingDegrees),
+              0.34
+            );
+            sprite.position = sample.point;
+            this.positionAircraftImageGhost(
+              sprite.image,
+              sprite.size,
+              sample.point.cx,
+              sample.point.cy,
+              sprite.lastHeadingDegrees
+            );
+            if (sprite.team === "interceptor") {
+              interceptorPositions.push(sample.point);
+            } else {
+              escortPositions.push(sample.point);
+            }
+          });
+
+          while (
+            nextTracerWindow < tracerWindows.length &&
+            easedProgress >= tracerWindows[nextTracerWindow]! &&
+            interceptorPositions.length > 0 &&
+            escortPositions.length > 0
+          ) {
+            const tracerIndex = nextTracerWindow;
+            const interceptorPoint = interceptorPositions[tracerIndex % interceptorPositions.length]!;
+            const escortPoint = escortPositions[(tracerIndex * 2) % escortPositions.length]!;
+            this.playAirTracerExchange(interceptorPoint, escortPoint);
+            this.playAirTracerExchange(escortPoint, interceptorPoint, { reverse: true, color: "#fff1c8", width: 1.05 });
+            nextTracerWindow += 1;
+          }
+
+          if (rawProgress >= 1) {
+            resolve();
+            return;
+          }
+          this.scheduleAnimationFrame(step);
+        };
+        this.scheduleAnimationFrame(step);
+      });
+    } finally {
+      spriteStates.forEach((sprite) => sprite.image.remove());
+    }
+  }
+
+  async animateBomberInterceptionShowAt(
+    hexKey: string,
+    bomber: AirShowFlightSpec | null,
+    interceptors: ReadonlyArray<AirShowFlightSpec>,
+    durationMs = 3600
+  ): Promise<void> {
+    if (!this.svgElement || !bomber || interceptors.length === 0) {
+      return;
+    }
+
+    const cell = this.hexElementMap.get(hexKey);
+    const center = cell ? this.extractHexCenter(cell) : null;
+    const layer = this.ensureCombatEffectsLayer();
+    if (!center || !layer) {
+      return;
+    }
+
+    const bomberHref = getSpriteForScenarioType(bomber.scenarioType, bomber.faction);
+    if (!bomberHref) {
+      return;
+    }
+
+    const bomberSprites = this.createAircraftSpriteGhosts(
+      bomberHref,
+      HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE,
+      bomber.strength
+    ).map((sprite, index) => {
+      layer.appendChild(sprite.image);
+      const entry = {
+        image: sprite.image,
+        size: sprite.size,
+        path: [
+          { cx: center.cx - 76 + sprite.biasX * 0.18, cy: center.cy + 10 + sprite.biasY * 0.2 },
+          { cx: center.cx - 22 + sprite.biasX * 0.12, cy: center.cy - 6 + sprite.biasY * 0.15 },
+          { cx: center.cx + 18 + sprite.biasX * 0.08, cy: center.cy + 3 + sprite.biasY * 0.12 },
+          { cx: center.cx + 72 + sprite.biasX * 0.16, cy: center.cy - 10 + sprite.biasY * 0.14 }
+        ],
+        lastHeadingDegrees: 0,
+        position: { cx: center.cx, cy: center.cy },
+        index
+      };
+      const sample = this.sampleAircraftWaypointPath(entry.path, 0);
+      entry.lastHeadingDegrees = this.resolveAircraftHeadingDegrees(sample.derivative.dx, sample.derivative.dy);
+      entry.position = sample.point;
+      this.positionAircraftImageGhost(entry.image, entry.size, sample.point.cx, sample.point.cy, entry.lastHeadingDegrees);
+      return entry;
+    });
+
+    const interceptorSprites: Array<{
+      image: SVGImageElement;
+      size: number;
+      path: Array<{ cx: number; cy: number }>;
+      lastHeadingDegrees: number;
+      position: { cx: number; cy: number };
+    }> = [];
+
+    interceptors.forEach((flight, flightIndex) => {
+      const spriteHref = getSpriteForScenarioType(flight.scenarioType, flight.faction);
+      if (!spriteHref) {
+        return;
+      }
+      const ghosts = this.createAircraftSpriteGhosts(spriteHref, HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE, flight.strength);
+      ghosts.forEach((ghostSpec, spriteIndex) => {
+        layer.appendChild(ghostSpec.image);
+        const flankSign = (flightIndex + spriteIndex) % 2 === 0 ? -1 : 1;
+        const entry = {
+          image: ghostSpec.image,
+          size: ghostSpec.size,
+          path: [
+            { cx: center.cx - 86 + ghostSpec.biasX * 0.18, cy: center.cy + flankSign * (30 + ghostSpec.biasY * 0.15) },
+            { cx: center.cx - 34 + ghostSpec.biasX * 0.1, cy: center.cy + flankSign * (18 + ghostSpec.biasY * 0.12) },
+            { cx: center.cx + 6 + ghostSpec.biasX * 0.06, cy: center.cy + flankSign * 3 + ghostSpec.biasY * 0.08 },
+            { cx: center.cx + 54 + ghostSpec.biasX * 0.12, cy: center.cy - flankSign * (24 + ghostSpec.biasY * 0.1) },
+            { cx: center.cx + 30 + ghostSpec.biasX * 0.08, cy: center.cy - flankSign * (34 + ghostSpec.biasY * 0.12) },
+            { cx: center.cx - 4 + ghostSpec.biasX * 0.05, cy: center.cy - flankSign * (8 + ghostSpec.biasY * 0.08) },
+            { cx: center.cx - 38 + ghostSpec.biasX * 0.1, cy: center.cy + flankSign * (18 + ghostSpec.biasY * 0.1) },
+            { cx: center.cx - 74 + ghostSpec.biasX * 0.14, cy: center.cy + flankSign * (34 + ghostSpec.biasY * 0.12) }
+          ],
+          lastHeadingDegrees: 0,
+          position: { cx: center.cx, cy: center.cy }
+        };
+        const sample = this.sampleAircraftWaypointPath(entry.path, 0);
+        entry.lastHeadingDegrees = this.resolveAircraftHeadingDegrees(sample.derivative.dx, sample.derivative.dy);
+        entry.position = sample.point;
+        this.positionAircraftImageGhost(entry.image, entry.size, sample.point.cx, sample.point.cy, entry.lastHeadingDegrees);
+        interceptorSprites.push(entry);
+      });
+    });
+
+    if (interceptorSprites.length === 0) {
+      bomberSprites.forEach((sprite) => sprite.image.remove());
+      return;
+    }
+
+    const tracerWindows = [0.2, 0.3, 0.4, 0.62, 0.72, 0.82];
+    let nextTracerWindow = 0;
+
+    try {
+      await new Promise<void>((resolve) => {
+        const startTime = performance.now();
+        const step: FrameRequestCallback = (now) => {
+          const elapsed = now - startTime;
+          const rawProgress = Math.min(1, elapsed / Math.max(1, durationMs));
+          const easedProgress = this.easeInOut(rawProgress);
+
+          bomberSprites.forEach((sprite, index) => {
+            const sample = this.sampleAircraftWaypointPath(sprite.path, this.clamp(easedProgress + index * 0.01, 0, 1));
+            sprite.lastHeadingDegrees = this.interpolateAircraftHeadingDegrees(
+              sprite.lastHeadingDegrees,
+              this.resolveAircraftHeadingDegrees(sample.derivative.dx, sample.derivative.dy, sprite.lastHeadingDegrees),
+              0.22
+            );
+            sprite.position = sample.point;
+            this.positionAircraftImageGhost(sprite.image, sprite.size, sample.point.cx, sample.point.cy, sprite.lastHeadingDegrees);
+          });
+
+          interceptorSprites.forEach((sprite, index) => {
+            const sample = this.sampleAircraftWaypointPath(sprite.path, this.clamp(easedProgress + index * 0.008, 0, 1));
+            sprite.lastHeadingDegrees = this.interpolateAircraftHeadingDegrees(
+              sprite.lastHeadingDegrees,
+              this.resolveAircraftHeadingDegrees(sample.derivative.dx, sample.derivative.dy, sprite.lastHeadingDegrees),
+              0.38
+            );
+            sprite.position = sample.point;
+            this.positionAircraftImageGhost(sprite.image, sprite.size, sample.point.cx, sample.point.cy, sprite.lastHeadingDegrees);
+          });
+
+          while (
+            nextTracerWindow < tracerWindows.length &&
+            easedProgress >= tracerWindows[nextTracerWindow]! &&
+            bomberSprites.length > 0 &&
+            interceptorSprites.length > 0
+          ) {
+            const tracerIndex = nextTracerWindow;
+            const interceptorPoint = interceptorSprites[tracerIndex % interceptorSprites.length]!.position;
+            const bomberPoint = bomberSprites[(tracerIndex * 2) % bomberSprites.length]!.position;
+            this.playAirTracerExchange(interceptorPoint, bomberPoint, { lifetimeMs: 280 });
+            this.playAirTracerExchange(bomberPoint, interceptorPoint, { reverse: true, color: "#fff1c8", width: 1.05, lifetimeMs: 260 });
+            nextTracerWindow += 1;
+          }
+
+          if (rawProgress >= 1) {
+            resolve();
+            return;
+          }
+          this.scheduleAnimationFrame(step);
+        };
+        this.scheduleAnimationFrame(step);
+      });
+    } finally {
+      bomberSprites.forEach((sprite) => sprite.image.remove());
+      interceptorSprites.forEach((sprite) => sprite.image.remove());
+    }
   }
 
   /**
@@ -4063,6 +4379,30 @@ export class HexMapRenderer implements IMapRenderer {
     return formationGroup;
   }
 
+  private createAircraftSpriteGhosts(
+    spriteHref: string,
+    iconSize: number,
+    strength?: number
+  ): Array<{ image: SVGImageElement; size: number; biasX: number; biasY: number; formationIndex: number }> {
+    const layout =
+      strength === undefined || strength === null
+        ? [{ ox: 0, oy: 0, scale: 1 }]
+        : this.resolveAircraftFormationLayout(strength);
+
+    return layout.map((spec, index) => {
+      const spriteSize = iconSize * spec.scale;
+      const image = this.createMoveGhost(spriteHref, spriteSize, spriteSize);
+      image.classList.add("aircraft-show-sprite", `aircraft-show-sprite-${index}`);
+      return {
+        image,
+        size: spriteSize,
+        biasX: spec.ox * 0.48,
+        biasY: spec.oy * 0.48,
+        formationIndex: index
+      };
+    });
+  }
+
   private normalizeAircraftVector(
     dx: number,
     dy: number,
@@ -4092,6 +4432,91 @@ export class HexMapRenderer implements IMapRenderer {
     const normalizedBlend = this.clamp(blend, 0, 1);
     const delta = ((((targetDegrees - currentDegrees) % 360) + 540) % 360) - 180;
     return currentDegrees + delta * normalizedBlend;
+  }
+
+  private sampleAircraftWaypointPath(
+    points: ReadonlyArray<{ cx: number; cy: number }>,
+    progress: number
+  ): { point: { cx: number; cy: number }; derivative: { dx: number; dy: number } } {
+    if (points.length <= 1) {
+      const point = points[0] ?? { cx: 0, cy: 0 };
+      return {
+        point,
+        derivative: { dx: 0, dy: 0 }
+      };
+    }
+
+    const clampedProgress = this.clamp(progress, 0, 1);
+    const segmentCount = points.length - 1;
+    const scaled = clampedProgress >= 1 ? segmentCount : clampedProgress * segmentCount;
+    const segmentIndex = Math.min(segmentCount - 1, Math.max(0, Math.floor(scaled)));
+    const localProgress = clampedProgress >= 1 ? 1 : scaled - segmentIndex;
+    const p0 = points[Math.max(0, segmentIndex - 1)] ?? points[0]!;
+    const p1 = points[segmentIndex]!;
+    const p2 = points[segmentIndex + 1]!;
+    const p3 = points[Math.min(points.length - 1, segmentIndex + 2)] ?? points[points.length - 1]!;
+    const startTangent = {
+      dx: (p2.cx - p0.cx) * 0.5,
+      dy: (p2.cy - p0.cy) * 0.5
+    };
+    const endTangent = {
+      dx: (p3.cx - p1.cx) * 0.5,
+      dy: (p3.cy - p1.cy) * 0.5
+    };
+
+    return {
+      point: this.interpolateAircraftHermitePoint(p1, p2, startTangent, endTangent, localProgress),
+      derivative: this.interpolateAircraftHermiteDerivative(p1, p2, startTangent, endTangent, localProgress)
+    };
+  }
+
+  private positionAircraftImageGhost(
+    ghost: SVGImageElement,
+    size: number,
+    centerX: number,
+    centerY: number,
+    headingDegrees = 0
+  ): void {
+    ghost.setAttribute("x", String(centerX - size / 2));
+    ghost.setAttribute("y", String(centerY - size / 2));
+    ghost.setAttribute("transform", `rotate(${headingDegrees} ${centerX} ${centerY})`);
+  }
+
+  private playAirTracerExchange(
+    start: { cx: number; cy: number },
+    end: { cx: number; cy: number },
+    options: { lifetimeMs?: number; reverse?: boolean; color?: string; width?: number } = {}
+  ): void {
+    const effectsLayer = this.ensureCombatEffectsLayer();
+    if (!effectsLayer) {
+      return;
+    }
+
+    const lifetimeMs = Math.max(120, options.lifetimeMs ?? 240);
+    const tracer = document.createElementNS(SVG_NS, "line");
+    tracer.setAttribute("x1", String(start.cx));
+    tracer.setAttribute("y1", String(start.cy));
+    tracer.setAttribute("x2", String(end.cx));
+    tracer.setAttribute("y2", String(end.cy));
+    tracer.setAttribute("stroke", options.color ?? (options.reverse ? "#ffe7a6" : "#ffc45a"));
+    tracer.setAttribute("stroke-width", String(options.width ?? (options.reverse ? 1.15 : 1.45)));
+    tracer.setAttribute("stroke-linecap", "round");
+    tracer.style.opacity = "0";
+    tracer.style.strokeDasharray = "10 24";
+    tracer.style.strokeDashoffset = options.reverse ? "-24" : "24";
+    effectsLayer.appendChild(tracer);
+
+    window.requestAnimationFrame(() => {
+      tracer.style.transition = `stroke-dashoffset ${lifetimeMs}ms linear, opacity ${Math.max(90, lifetimeMs - 40)}ms ease-out`;
+      tracer.style.opacity = "0.98";
+      tracer.style.strokeDashoffset = "0";
+    });
+    window.setTimeout(() => {
+      tracer.style.opacity = "0";
+    }, Math.max(90, lifetimeMs - 50));
+    window.setTimeout(() => {
+      tracer.remove();
+    }, lifetimeMs + 80);
   }
 
   private resolveAircraftSortieTurnVector(

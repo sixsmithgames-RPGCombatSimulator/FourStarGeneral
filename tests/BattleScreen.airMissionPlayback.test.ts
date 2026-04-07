@@ -1221,3 +1221,195 @@ registerTest("BATTLESCREEN_AIR_PLAYBACK_CLUSTERS_CHAINED_NEARBY_SORTIES_BEFORE_M
     });
   });
 });
+
+registerTest("BATTLESCREEN_AIR_INTERCEPTS_USE_CHOREOGRAPHED_SHOW_PATHS_WHEN_AVAILABLE", async ({ Given, When, Then }) => {
+  const callOrder: string[] = [];
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const fakeEngine = {
+    playerUnits: [
+      {
+        type: "Interceptor" as unknown as ScenarioUnit["type"],
+        hex: { q: 0, r: 2 },
+        strength: 100,
+        experience: 0,
+        ammo: 5,
+        fuel: 40,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "cap-1"
+      },
+      {
+        type: "Interceptor" as unknown as ScenarioUnit["type"],
+        hex: { q: 1, r: 2 },
+        strength: 100,
+        experience: 0,
+        ammo: 5,
+        fuel: 40,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "cap-2"
+      }
+    ] as ScenarioUnit[],
+    botUnits: [
+      {
+        type: "Bomber" as unknown as ScenarioUnit["type"],
+        hex: { q: -1, r: -1 },
+        strength: 100,
+        experience: 0,
+        ammo: 4,
+        fuel: 50,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "bomber-1"
+      },
+      {
+        type: "Fighter" as unknown as ScenarioUnit["type"],
+        hex: { q: 1, r: -2 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 50,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "escort-1"
+      }
+    ] as ScenarioUnit[],
+    reserveUnits: [],
+    allyUnits: [],
+    getScheduledAirMissions() {
+      return [];
+    }
+  } as const;
+
+  const fakeBattleState = {
+    hasEngine: () => true,
+    ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine
+  } as unknown as import("../src/state/BattleState").BattleState;
+
+  const fakeRenderer = {
+    async animateAircraftFlyover(
+      fromKey: string,
+      toKey: string,
+      unitType: string,
+      _durationMs: number,
+      _onProgress?: unknown,
+      _endProgress?: number,
+      _strength?: number,
+      _laneOffsetPx?: number,
+      faction?: string
+    ): Promise<void> {
+      callOrder.push(`fly:${faction ?? "unknown"}:${unitType}:${fromKey}->${toKey}`);
+    },
+    async animateAirDogfightShowAt(
+      hexKey: string,
+      flights: Array<{ team: string; id: string }>
+    ): Promise<void> {
+      callOrder.push(`show-dogfight:${hexKey}:${flights.map((flight) => flight.team).join("|")}`);
+    },
+    async animateBomberInterceptionShowAt(
+      hexKey: string,
+      bomber: { id: string },
+      interceptors: Array<{ id: string }>
+    ): Promise<void> {
+      callOrder.push(`show-bomber:${hexKey}:${bomber.id}:${interceptors.map((entry) => entry.id).join("|")}`);
+    },
+    async playDogfight(hexKey: string): Promise<void> {
+      callOrder.push(`fallback-dogfight:${hexKey}`);
+    },
+    async playBomberDefensePass(hexKey: string): Promise<void> {
+      callOrder.push(`fallback-bomber:${hexKey}`);
+    }
+  } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+
+  let screen: BattleScreen;
+
+  await Given("a renderer that supports the new air-show choreography hooks", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      fakeRenderer,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+    (screen as any).waitMs = async (): Promise<void> => {};
+  });
+
+  const event: AirEngagementEvent = {
+    type: "airToAir",
+    location: { q: 0, r: 0 },
+    bomber: {
+      faction: "Bot",
+      unitKey: "bomber-1",
+      unitType: "Bomber",
+      strength: 100
+    },
+    interceptors: [
+      {
+        faction: "Player",
+        unitKey: "cap-1",
+        unitType: "Interceptor",
+        strength: 100
+      },
+      {
+        faction: "Player",
+        unitKey: "cap-2",
+        unitType: "Interceptor",
+        strength: 100
+      }
+    ],
+    escorts: [
+      {
+        faction: "Bot",
+        unitKey: "escort-1",
+        unitType: "Fighter",
+        strength: 100
+      }
+    ],
+    bomberStrengthBefore: 100,
+    bomberStrengthAfter: 44,
+    bomberDestroyed: false,
+    interceptorAttrition: 24,
+    interceptorKills: 0,
+    escortAttrition: 57,
+    escortKills: 1,
+    escortsEngaged: 1,
+    interceptorsAfterEscortPhase: 2,
+    escortsAfterEscortPhase: 0,
+    interceptorStrengthsAfterEscortPhase: [76, 100],
+    escortStrengthsAfterEscortPhase: [0],
+    interceptorFinalStrengths: [63, 88],
+    escortFinalStrengths: [0]
+  };
+
+  await When("the mission air intercept event is played", async () => {
+    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, 900, true);
+  });
+
+  await Then("the screen should use the new choreographed show methods instead of the fallback bursts", async () => {
+    if (!callOrder.some((entry) => entry.startsWith("show-dogfight:0,0:"))) {
+      throw new Error(`Expected the choreographed dogfight show to run, saw ${JSON.stringify(callOrder)}.`);
+    }
+    if (!callOrder.some((entry) => entry.startsWith("show-bomber:0,0:bomber:bomber-1:"))) {
+      throw new Error(`Expected the choreographed bomber interception show to run, saw ${JSON.stringify(callOrder)}.`);
+    }
+    if (callOrder.some((entry) => entry.startsWith("fallback-dogfight:")) || callOrder.some((entry) => entry.startsWith("fallback-bomber:"))) {
+      throw new Error(`Did not expect fallback burst animations when the show hooks exist, saw ${JSON.stringify(callOrder)}.`);
+    }
+    const bomberShow = callOrder.find((entry) => entry.startsWith("show-bomber:0,0:"));
+    if (!bomberShow?.includes("interceptor:0:Player:Interceptor|interceptor:1:Player:Interceptor")) {
+      throw new Error(`Expected both surviving interceptors to continue into the bomber pass, saw ${JSON.stringify(callOrder)}.`);
+    }
+  });
+});

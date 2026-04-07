@@ -736,6 +736,39 @@ export interface AirMissionReportEntry {
   readonly notes?: string[];
 }
 
+export interface AirCombatExchangeEntry {
+  readonly phase: "escortClash" | "bomberPass";
+  readonly attackerFaction: TurnFaction;
+  readonly attackerUnitKey: string;
+  readonly attackerUnitType: string;
+  readonly defenderFaction: TurnFaction;
+  readonly defenderUnitKey: string;
+  readonly defenderUnitType: string;
+  readonly attackerStrengthBefore: number;
+  readonly attackerStrengthAfter: number;
+  readonly defenderStrengthBefore: number;
+  readonly defenderStrengthAfter: number;
+  readonly damageToDefender: number;
+  readonly retaliationDamage: number;
+  readonly attackerDestroyed: boolean;
+  readonly defenderDestroyed: boolean;
+  readonly visualPasses?: number;
+}
+
+export interface FlakEngagementEntry {
+  readonly batteryFaction: TurnFaction;
+  readonly batteryUnitKey: string;
+  readonly batteryUnitType: string;
+  readonly batteryHex?: Axial;
+  readonly bomberFaction: TurnFaction;
+  readonly bomberUnitKey: string;
+  readonly bomberUnitType: string;
+  readonly bomberStrengthBefore: number;
+  readonly bomberStrengthAfter: number;
+  readonly damageToBomber: number;
+  readonly bomberDestroyed: boolean;
+}
+
 /** Describes a single bot movement so UI layers can narrate progress. */
 export interface BotMoveSummary {
   readonly unitType: string;
@@ -870,6 +903,7 @@ export interface AirEngagementEvent {
   readonly interceptors: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly strength?: number; readonly hex?: Axial }>;
   readonly escorts: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly strength?: number }>;
   readonly flakDamage?: number;
+  readonly flakEngagements?: ReadonlyArray<FlakEngagementEntry>;
   readonly bomberStrengthBefore?: number;
   readonly bomberStrengthAfter?: number;
   readonly bomberDestroyed?: boolean;
@@ -879,6 +913,8 @@ export interface AirEngagementEvent {
   readonly interceptorKills?: number;
   readonly escortAttrition?: number;
   readonly escortKills?: number;
+  readonly escortExchanges?: ReadonlyArray<AirCombatExchangeEntry>;
+  readonly bomberPassExchanges?: ReadonlyArray<AirCombatExchangeEntry>;
   readonly escortsEngaged?: number;
   readonly interceptorsAfterEscortPhase?: number;
   readonly escortsAfterEscortPhase?: number;
@@ -957,6 +993,8 @@ interface AirInterceptionResolution {
   interceptorKills: number;
   escortAttrition: number;
   escortKills: number;
+  escortExchanges: AirCombatExchangeEntry[];
+  bomberPassExchanges: AirCombatExchangeEntry[];
   escortsEngaged: number;
   capIntercepts: number;
   interceptorsAfterEscortPhase: number;
@@ -1901,9 +1939,11 @@ export class GameEngine implements GameEngineAPI {
       const bomberStrengthBeforeFlak = attackerBefore.strength;
       let currentBomber = attackerPlacements.get(attackerHexKey) ?? attacker;
       let bomberDestroyedByFlak = false;
+      const flakEngagements: FlakEngagementEntry[] = [];
 
       for (const flakEntry of flakUnits) {
         if (currentBomber.strength <= 0) break;  // Already destroyed
+        const bomberStrengthBeforeBattery = currentBomber.strength;
 
         const flakReq = this.buildMissionAttackRequest(
           opponentFaction,
@@ -1939,6 +1979,19 @@ export class GameEngine implements GameEngineAPI {
 
         currentBomber = updatedBomber;
         flakAttrition += suffered;
+        flakEngagements.push({
+          batteryFaction: opponentFaction,
+          batteryUnitKey: this.getSquadronId(flakEntry.unit),
+          batteryUnitType: flakEntry.unit.type as string,
+          batteryHex: structuredClone(flakEntry.unit.hex),
+          bomberFaction: mission.faction,
+          bomberUnitKey: mission.unitKey,
+          bomberUnitType: mission.unitType as string,
+          bomberStrengthBefore: bomberStrengthBeforeBattery,
+          bomberStrengthAfter: updatedBomber.strength,
+          damageToBomber: suffered,
+          bomberDestroyed: updatedBomber.strength <= 0
+        });
 
         if (updatedBomber.strength <= 0) {
           this.removeUnitFromFactionHex(mission.faction, attacker.hex, mission.unitKey);
@@ -1963,6 +2016,7 @@ export class GameEngine implements GameEngineAPI {
         interceptors: flakInterceptorsForEvent,
         escorts: [],
         flakDamage: flakAttrition,
+        flakEngagements,
         bomberStrengthBefore: bomberStrengthBeforeFlak,
         bomberStrengthAfter: Math.max(0, currentBomber.strength),
         bomberDestroyed: bomberDestroyedByFlak
@@ -2122,7 +2176,9 @@ export class GameEngine implements GameEngineAPI {
         interceptorStrengthsAfterEscortPhase: interception.interceptorDeltas.map((delta) => delta.strengthAfterEscortPhase),
         escortStrengthsAfterEscortPhase: interception.escortDeltas.map((delta) => delta.strengthAfterEscortPhase),
         interceptorFinalStrengths: interception.interceptorDeltas.map((delta) => delta.unitAfter.strength),
-        escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength)
+        escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength),
+        escortExchanges: interception.escortExchanges,
+        bomberPassExchanges: interception.bomberPassExchanges
       });
 
       if (interception.bomberDestroyed) {
@@ -2784,6 +2840,8 @@ export class GameEngine implements GameEngineAPI {
     let interceptorKills = 0;
     let escortAttrition = 0;
     let escortKills = 0;
+    const escortExchanges: AirCombatExchangeEntry[] = [];
+    const bomberPassExchanges: AirCombatExchangeEntry[] = [];
     let escortsEngaged = 0;
     let capIntercepts = 0;
 
@@ -2799,6 +2857,8 @@ export class GameEngine implements GameEngineAPI {
       escortsEngaged += 1;
       interceptorDelta.engaged = true;
       escortDelta.engaged = true;
+      const interceptorStrengthBefore = interceptorDelta.unitAfter.strength;
+      const escortStrengthBefore = escortDelta.unitAfter.strength;
 
       const damageToInterceptor = this.resolveAirCombatDamage(
         bomberFaction,
@@ -2842,6 +2902,25 @@ export class GameEngine implements GameEngineAPI {
         interceptorDelta.kills += 1;
         escortKills += 1;
       }
+
+      escortExchanges.push({
+        phase: "escortClash",
+        attackerFaction: bomberFaction,
+        attackerUnitKey: escortDelta.mission.unitKey,
+        attackerUnitType: escortDelta.unitBefore.type as string,
+        defenderFaction: interceptorFaction,
+        defenderUnitKey: interceptorDelta.mission.unitKey,
+        defenderUnitType: interceptorDelta.unitBefore.type as string,
+        attackerStrengthBefore: escortStrengthBefore,
+        attackerStrengthAfter: escortDelta.unitAfter.strength,
+        defenderStrengthBefore: interceptorStrengthBefore,
+        defenderStrengthAfter: interceptorDelta.unitAfter.strength,
+        damageToDefender: damageToInterceptor,
+        retaliationDamage: damageToEscort,
+        attackerDestroyed: escortDelta.unitAfter.strength <= 0,
+        defenderDestroyed: interceptorDelta.unitAfter.strength <= 0,
+        visualPasses: 1
+      });
     }
 
     interceptorDeltas.forEach((delta) => {
@@ -2861,6 +2940,8 @@ export class GameEngine implements GameEngineAPI {
 
       interceptorDelta.engaged = true;
       capIntercepts += 1;
+      const interceptorStrengthBefore = interceptorDelta.unitAfter.strength;
+      const bomberStrengthBefore = bomberAfter.strength;
 
       const damageToBomber = this.resolveAirCombatDamage(
         interceptorFaction,
@@ -2892,6 +2973,26 @@ export class GameEngine implements GameEngineAPI {
       if (interceptorDelta.unitAfter.strength <= 0) {
         interceptorKills += 1;
       }
+
+      bomberPassExchanges.push({
+        phase: "bomberPass",
+        attackerFaction: interceptorFaction,
+        attackerUnitKey: interceptorDelta.mission.unitKey,
+        attackerUnitType: interceptorDelta.unitBefore.type as string,
+        defenderFaction: bomberFaction,
+        defenderUnitKey: bomber.unitId ?? bomberAfter.unitId ?? bomberBefore.unitId ?? bomber.hex.q.toString(),
+        defenderUnitType: bomberBefore.type as string,
+        attackerStrengthBefore: interceptorStrengthBefore,
+        attackerStrengthAfter: interceptorDelta.unitAfter.strength,
+        defenderStrengthBefore: bomberStrengthBefore,
+        defenderStrengthAfter: bomberAfter.strength,
+        damageToDefender: damageToBomber,
+        retaliationDamage: damageToInterceptor,
+        attackerDestroyed: interceptorDelta.unitAfter.strength <= 0,
+        defenderDestroyed: bomberAfter.strength <= 0,
+        visualPasses: 2
+      });
+
       if (bomberAfter.strength <= 0) {
         break;
       }
@@ -2908,6 +3009,8 @@ export class GameEngine implements GameEngineAPI {
       interceptorKills,
       escortAttrition,
       escortKills,
+      escortExchanges,
+      bomberPassExchanges,
       escortsEngaged,
       capIntercepts,
       interceptorsAfterEscortPhase,
@@ -8555,8 +8658,10 @@ private automateSupplyConvoys(
         const bomberStrengthBeforeFlak = attackingSnapshot.strength;
         let flakDamage = 0;
         let bomberDestroyedByFlak = false;
+        const flakEngagements: FlakEngagementEntry[] = [];
         for (const flakEntry of flakUnits) {
           if (attackingSnapshot.strength <= 0) break;
+          const bomberStrengthBeforeBattery = attackingSnapshot.strength;
 
           const flakReq = this.buildMissionAttackRequest(
             opponentFaction,
@@ -8584,6 +8689,19 @@ private automateSupplyConvoys(
           attackingSnapshot = structuredClone(attackingSnapshot);
           attackingSnapshot.strength = Math.max(0, attackingSnapshot.strength - suffered);
           flakDamage += suffered;
+          flakEngagements.push({
+            batteryFaction: opponentFaction,
+            batteryUnitKey: this.getSquadronId(flakEntry.unit),
+            batteryUnitType: flakEntry.unit.type as string,
+            batteryHex: structuredClone(flakEntry.unit.hex),
+            bomberFaction: "Player",
+            bomberUnitKey: attackerKey,
+            bomberUnitType: attacker.type as string,
+            bomberStrengthBefore: bomberStrengthBeforeBattery,
+            bomberStrengthAfter: attackingSnapshot.strength,
+            damageToBomber: suffered,
+            bomberDestroyed: attackingSnapshot.strength <= 0
+          });
 
           this.recordFlakEngagement(opponentFaction, flakEntry.unit, flakEntry.hexKey);
 
@@ -8612,6 +8730,7 @@ private automateSupplyConvoys(
           interceptors: flakInterceptorsForEvent,
           escorts: [],
           flakDamage,
+          flakEngagements,
           bomberStrengthBefore: bomberStrengthBeforeFlak,
           bomberStrengthAfter: attackingSnapshot.strength,
           bomberDestroyed: bomberDestroyedByFlak
@@ -8748,7 +8867,9 @@ private automateSupplyConvoys(
           interceptorStrengthsAfterEscortPhase: interception.interceptorDeltas.map((delta) => delta.strengthAfterEscortPhase),
           escortStrengthsAfterEscortPhase: interception.escortDeltas.map((delta) => delta.strengthAfterEscortPhase),
           interceptorFinalStrengths: interception.interceptorDeltas.map((delta) => delta.unitAfter.strength),
-          escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength)
+          escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength),
+          escortExchanges: interception.escortExchanges,
+          bomberPassExchanges: interception.bomberPassExchanges
         });
 
         if (interception.bomberDestroyed) {
@@ -12185,6 +12306,7 @@ private automateSupplyConvoys(
         const bomberStrengthBeforeFlak = attackingSnapshot.strength;
         let flakDamage = 0;
         let bomberDestroyedByFlak = false;
+        const flakEngagements: FlakEngagementEntry[] = [];
         for (const flakEntry of flakUnits) {
           this.ensureUnitId(flakEntry.unit);
           flakInterceptorsForEvent.push({
@@ -12198,6 +12320,7 @@ private automateSupplyConvoys(
           if (attackingSnapshot.strength <= 0) {
             break;
           }
+          const bomberStrengthBeforeBattery = attackingSnapshot.strength;
           const flakReq = this.buildMissionAttackRequest("Player", flakEntry.unit, attackingSnapshot, { defenderHex: targetHex });
           if (!flakReq) {
             continue;
@@ -12217,6 +12340,19 @@ private automateSupplyConvoys(
           attackingSnapshot = structuredClone(attackingSnapshot);
           attackingSnapshot.strength = Math.max(0, attackingSnapshot.strength - suffered);
           flakDamage += suffered;
+          flakEngagements.push({
+            batteryFaction: "Player",
+            batteryUnitKey: this.getSquadronId(flakEntry.unit),
+            batteryUnitType: flakEntry.unit.type as string,
+            batteryHex: structuredClone(flakEntry.unit.hex),
+            bomberFaction: "Bot",
+            bomberUnitKey: attackerKey,
+            bomberUnitType: attackingUnit.type as string,
+            bomberStrengthBefore: bomberStrengthBeforeBattery,
+            bomberStrengthAfter: attackingSnapshot.strength,
+            damageToBomber: suffered,
+            bomberDestroyed: attackingSnapshot.strength <= 0
+          });
           this.recordFlakEngagement("Player", flakEntry.unit, flakEntry.hexKey);
           if (attackingSnapshot.strength <= 0) {
             this.removeUnitFromFactionHex("Bot", attackerHex, attackerKey);
@@ -12237,6 +12373,7 @@ private automateSupplyConvoys(
           interceptors: flakInterceptorsForEvent,
           escorts: [],
           flakDamage,
+          flakEngagements,
           bomberStrengthBefore: bomberStrengthBeforeFlak,
           bomberStrengthAfter: attackingSnapshot.strength,
           bomberDestroyed: bomberDestroyedByFlak
@@ -12345,7 +12482,9 @@ private automateSupplyConvoys(
           interceptorStrengthsAfterEscortPhase: interception.interceptorDeltas.map((delta) => delta.strengthAfterEscortPhase),
           escortStrengthsAfterEscortPhase: interception.escortDeltas.map((delta) => delta.strengthAfterEscortPhase),
           interceptorFinalStrengths: interception.interceptorDeltas.map((delta) => delta.unitAfter.strength),
-          escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength)
+          escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength),
+          escortExchanges: interception.escortExchanges,
+          bomberPassExchanges: interception.bomberPassExchanges
         });
         if (interception.bomberDestroyed) {
           return null;

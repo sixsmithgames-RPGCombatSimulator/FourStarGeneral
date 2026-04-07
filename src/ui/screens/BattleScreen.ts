@@ -1267,6 +1267,17 @@ export class BattleScreen {
           this.seenAirReportIds.add(r.id);
           continue;
         }
+        if (
+          r.event === "resolved" &&
+          (r.kind === "airCover" || r.kind === "escort") &&
+          ((typeof r.interceptions === "number" && r.interceptions > 0) ||
+            (typeof r.bomberAttrition === "number" && r.bomberAttrition > 0) ||
+            (typeof r.interceptorAttrition === "number" && r.interceptorAttrition > 0) ||
+            (typeof r.escortAttrition === "number" && r.escortAttrition > 0))
+        ) {
+          this.seenAirReportIds.add(r.id);
+          continue;
+        }
         this.seenAirReportIds.add(r.id);
         let target = "-";
         if (r.targetHex) {
@@ -3737,6 +3748,72 @@ export class BattleScreen {
 
     await Promise.all(participants.map((participant) => participant.ingress));
 
+    const canPlayDogfightShow = typeof (renderer as any).animateAirDogfightShowAt === "function";
+    const canPlayBomberInterceptionShow = typeof (renderer as any).animateBomberInterceptionShowAt === "function";
+    if (canPlayDogfightShow || canPlayBomberInterceptionShow) {
+      const dogfightShowDurationMs =
+        event.escorts.length > 0
+          ? this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 2.05))
+          : 0;
+      if (event.escorts.length > 0 && canPlayDogfightShow) {
+        await (renderer as any).animateAirDogfightShowAt(
+          locKey,
+          participants.map((participant) => ({
+            id: `${participant.role}:${participant.phaseIndex}:${participant.faction}:${participant.unitType}`,
+            scenarioType: participant.unitType,
+            faction: participant.faction,
+            strength: participant.initialStrength,
+            laneOffsetPx: participant.laneOffsetPx,
+            team: participant.role
+          })),
+          dogfightShowDurationMs
+        );
+      }
+
+      if (!allowBomberDefensePass || !this.shouldPlayBomberDefensePass(event)) {
+        return;
+      }
+
+      const continuingInterceptors = participants.filter(
+        (participant) => participant.role === "interceptor" && participant.strengthAfterEscortPhase > 0
+      );
+      if (continuingInterceptors.length === 0) {
+        return;
+      }
+
+      const remainingArrivalDelayMs = Math.max(0, bomberArrivalDelayMs - dogfightShowDurationMs);
+      if (remainingArrivalDelayMs > 0) {
+        await this.waitMs(remainingArrivalDelayMs);
+      }
+
+      if (canPlayBomberInterceptionShow) {
+        await (renderer as any).animateBomberInterceptionShowAt(
+          locKey,
+          {
+            id: `bomber:${event.bomber.unitKey}`,
+            scenarioType: event.bomber.unitType,
+            faction: event.bomber.faction,
+            strength:
+              typeof event.bomberStrengthBefore === "number"
+                ? Math.max(0, Math.round(event.bomberStrengthBefore))
+                : event.bomber.strength,
+            laneOffsetPx: fallbackLaneOffsetPx,
+            team: "bomber"
+          },
+          continuingInterceptors.map((participant) => ({
+            id: `interceptor:${participant.phaseIndex}:${participant.faction}:${participant.unitType}`,
+            scenarioType: participant.unitType,
+            faction: participant.faction,
+            strength: participant.strengthAfterEscortPhase,
+            laneOffsetPx: participant.laneOffsetPx,
+            team: "interceptor"
+          })),
+          this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 2.4))
+        );
+        return;
+      }
+    }
+
     const escortOpeningDelayMs = this.scaleAirSequenceMs(180);
     const escortOrbitDurationMs =
       event.escorts.length > 0
@@ -3846,6 +3923,31 @@ export class BattleScreen {
   }
 
   private announceFlakEngagement(event: AirEngagementEvent): void {
+    const flakEngagements = Array.isArray(event.flakEngagements) ? event.flakEngagements : null;
+    if (flakEngagements && flakEngagements.length > 0) {
+      flakEngagements.forEach((engagement, index) => {
+        const batteryHex = engagement.batteryHex ? this.formatAxialHexForDisplay(engagement.batteryHex) : "unknown";
+        const summary =
+          `${this.toTitleCase(engagement.batteryUnitType)} at ${batteryHex} fired on incoming ${this.toTitleCase(engagement.bomberUnitType)}. ` +
+          `${Math.max(0, Math.round(engagement.damageToBomber))} air damage; bomber strength now ${Math.max(0, Math.round(engagement.bomberStrengthAfter))}.` +
+          (engagement.bomberDestroyed && index === flakEngagements.length - 1 ? " Strike package broken up before release." : "");
+        this.announceBattleUpdate(summary);
+        this.publishActivityEvent({
+          category: engagement.batteryFaction === "Player" ? "player" : "enemy",
+          type: "log",
+          summary,
+          details: {
+            batteryUnitKey: engagement.batteryUnitKey,
+            batteryUnitType: engagement.batteryUnitType,
+            damageToBomber: Math.max(0, Math.round(engagement.damageToBomber)),
+            bomberStrengthAfter: Math.max(0, Math.round(engagement.bomberStrengthAfter)),
+            bomberDestroyed: engagement.bomberDestroyed
+          }
+        });
+      });
+      return;
+    }
+
     const batteryCount = event.interceptors.length;
     const batteryLabel = batteryCount === 1 ? "battery" : "batteries";
     const bomberLabel = this.toTitleCase(event.bomber.unitType);
@@ -3862,6 +3964,66 @@ export class BattleScreen {
   }
 
   private announceAirInterceptEngagement(event: AirEngagementEvent): void {
+    if (
+      (Array.isArray(event.escortExchanges) && event.escortExchanges.length > 0) ||
+      (Array.isArray(event.bomberPassExchanges) && event.bomberPassExchanges.length > 0)
+    ) {
+      const location = this.formatAxialHexForDisplay(event.location);
+      const publishExchange = (
+        summary: string,
+        category: "player" | "enemy",
+        details: Record<string, unknown>
+      ): void => {
+        this.announceBattleUpdate(summary);
+        this.publishActivityEvent({
+          category,
+          type: "log",
+          summary,
+          details
+        });
+      };
+
+      (event.escortExchanges ?? []).forEach((exchange, index) => {
+        const category = exchange.defenderFaction === "Player" ? "player" : "enemy";
+        const summary =
+          `${exchange.defenderFaction === "Player" ? "Player patrol flight" : "Enemy patrol flight"} engaged ` +
+          `${exchange.attackerFaction === "Player" ? "friendly" : "enemy"} ${this.toTitleCase(exchange.attackerUnitType)} over ${location}. ` +
+          `Patrol took ${Math.max(0, Math.round(exchange.damageToDefender))} air damage; ` +
+          `${this.toTitleCase(exchange.attackerUnitType)} took ${Math.max(0, Math.round(exchange.retaliationDamage))}.` +
+          (exchange.defenderDestroyed ? " Patrol flight destroyed." : "") +
+          (exchange.attackerDestroyed ? ` ${this.toTitleCase(exchange.attackerUnitType)} destroyed.` : "");
+        publishExchange(summary, category, {
+          phase: exchange.phase,
+          exchangeIndex: index,
+          attackerUnitKey: exchange.attackerUnitKey,
+          defenderUnitKey: exchange.defenderUnitKey,
+          damageToPatrol: Math.max(0, Math.round(exchange.damageToDefender)),
+          retaliationDamage: Math.max(0, Math.round(exchange.retaliationDamage))
+        });
+      });
+
+      (event.bomberPassExchanges ?? []).forEach((exchange, index) => {
+        const category = exchange.attackerFaction === "Player" ? "player" : "enemy";
+        const summary =
+          `${exchange.attackerFaction === "Player" ? "Player patrol flight" : "Enemy patrol flight"} attacked ` +
+          `${exchange.defenderFaction === "Player" ? "friendly" : "enemy"} ${this.toTitleCase(exchange.defenderUnitType)} over ${location}. ` +
+          `${Math.max(0, Math.round(exchange.damageToDefender))} air damage dealt; bomber defensive fire dealt ${Math.max(0, Math.round(exchange.retaliationDamage))} air damage. ` +
+          `Bomber strength now ${Math.max(0, Math.round(exchange.defenderStrengthAfter))}.` +
+          (exchange.defenderDestroyed && index === (event.bomberPassExchanges?.length ?? 1) - 1 ? " Strike package destroyed before target." : "") +
+          (exchange.attackerDestroyed ? " Patrol flight lost on the attack run." : "");
+        publishExchange(summary, category, {
+          phase: exchange.phase,
+          exchangeIndex: index,
+          attackerUnitKey: exchange.attackerUnitKey,
+          defenderUnitKey: exchange.defenderUnitKey,
+          damageToBomber: Math.max(0, Math.round(exchange.damageToDefender)),
+          retaliationDamage: Math.max(0, Math.round(exchange.retaliationDamage)),
+          bomberStrengthAfter: Math.max(0, Math.round(exchange.defenderStrengthAfter))
+        });
+      });
+      return;
+    }
+
     const interceptorFaction = event.interceptors[0]?.faction ?? "Player";
     const interceptorLabel = interceptorFaction === "Player" ? "Player air patrol" : "Enemy air patrol";
     const bomberFaction = event.bomber.faction === "Player" ? "player" : "enemy";

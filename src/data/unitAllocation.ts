@@ -299,7 +299,7 @@ export const allocationOptions = [
   },
   {
     key: "shoreFireControlParty",
-    label: "Shore Fire Control Party",
+    label: "Naval Gunfire Support (NGFS)",
     category: "support",
     costPerUnit: 210,
     description: "Naval gunfire liaison team coordinating destroyer and cruiser bombardment from offshore stations.",

@@ -602,3 +602,202 @@ registerTest("BATTLESCREEN_MISSION_STATS_CAPTURE_PLAYER_AIR_LOSSES", async ({ Wh
     }
   });
 });
+
+registerTest("BATTLESCREEN_DETAILED_FLAK_LOGS_PUBLISH_ONE_ENTRY_PER_BATTERY", async ({ When, Then }) => {
+  const published: Array<{ category: string; summary: string; details?: Record<string, unknown> }> = [];
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+
+  (screen as any).publishActivityEvent = (event: { category: string; summary: string; details?: Record<string, unknown> }) => {
+    published.push(event);
+  };
+  (screen as any).announceBattleUpdate = () => {};
+  (screen as any).toTitleCase = (value: string) => value.replace(/_/g, " ");
+
+  const flakEvent: AirEngagementEvent = {
+    type: "flak",
+    location: { q: 12, r: -6 },
+    bomber: { faction: "Bot", unitKey: "bomber-1", unitType: "Bomber", strength: 100 },
+    interceptors: [
+      { faction: "Player", unitKey: "flak-1", unitType: "Flak_88", strength: 100, hex: { q: 11, r: -5 } },
+      { faction: "Player", unitKey: "flak-2", unitType: "Flak_88", strength: 100, hex: { q: 12, r: -5 } }
+    ],
+    escorts: [],
+    flakDamage: 39,
+    flakEngagements: [
+      {
+        batteryFaction: "Player",
+        batteryUnitKey: "flak-1",
+        batteryUnitType: "Flak_88",
+        batteryHex: { q: 11, r: -5 },
+        bomberFaction: "Bot",
+        bomberUnitKey: "bomber-1",
+        bomberUnitType: "Bomber",
+        bomberStrengthBefore: 100,
+        bomberStrengthAfter: 82,
+        damageToBomber: 18,
+        bomberDestroyed: false
+      },
+      {
+        batteryFaction: "Player",
+        batteryUnitKey: "flak-2",
+        batteryUnitType: "Flak_88",
+        batteryHex: { q: 12, r: -5 },
+        bomberFaction: "Bot",
+        bomberUnitKey: "bomber-1",
+        bomberUnitType: "Bomber",
+        bomberStrengthBefore: 82,
+        bomberStrengthAfter: 61,
+        damageToBomber: 21,
+        bomberDestroyed: false
+      }
+    ],
+    bomberStrengthBefore: 100,
+    bomberStrengthAfter: 61,
+    bomberDestroyed: false
+  };
+
+  await When("detailed flak exchange data is mirrored into the activity log", async () => {
+    (screen as any).announceFlakEngagement(flakEvent);
+  });
+
+  await Then("each battery should publish its own activity entry instead of an aggregate count", async () => {
+    if (published.length !== 2) {
+      throw new Error(`Expected 2 detailed flak entries, received ${published.length}.`);
+    }
+    if (!published.every((entry) => entry.category === "player")) {
+      throw new Error(`Expected all detailed flak entries to be player events, saw ${JSON.stringify(published)}.`);
+    }
+    if (!published[0]!.summary.includes("Flak 88 at") || !published[0]!.summary.includes("18 air damage")) {
+      throw new Error(`Expected the first battery summary to show its own shot, saw ${published[0]!.summary}.`);
+    }
+    if (!published[1]!.summary.includes("21 air damage") || !published[1]!.summary.includes("bomber strength now 61")) {
+      throw new Error(`Expected the second battery summary to show the updated bomber state, saw ${published[1]!.summary}.`);
+    }
+    if ((published[0]!.details?.batteryUnitKey as string | undefined) !== "flak-1") {
+      throw new Error(`Expected the first detailed flak entry to retain battery metadata, saw ${JSON.stringify(published[0]!.details)}.`);
+    }
+    if ((published[1]!.details?.batteryUnitKey as string | undefined) !== "flak-2") {
+      throw new Error(`Expected the second detailed flak entry to retain battery metadata, saw ${JSON.stringify(published[1]!.details)}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_DETAILED_AIR_INTERCEPT_LOGS_PUBLISH_ONE_ENTRY_PER_EXCHANGE", async ({ When, Then }) => {
+  const published: Array<{ category: string; summary: string; details?: Record<string, unknown> }> = [];
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+
+  (screen as any).publishActivityEvent = (event: { category: string; summary: string; details?: Record<string, unknown> }) => {
+    published.push(event);
+  };
+  (screen as any).announceBattleUpdate = () => {};
+  (screen as any).toTitleCase = (value: string) => value.replace(/_/g, " ");
+
+  const interceptEvent: AirEngagementEvent = {
+    type: "airToAir",
+    location: { q: 13, r: -1 },
+    bomber: { faction: "Bot", unitKey: "bomber-1", unitType: "Bomber", strength: 100 },
+    interceptors: [
+      { faction: "Player", unitKey: "cap-1", unitType: "Interceptor", strength: 100 },
+      { faction: "Player", unitKey: "cap-2", unitType: "Interceptor", strength: 100 }
+    ],
+    escorts: [
+      { faction: "Bot", unitKey: "escort-1", unitType: "Fighter", strength: 100 }
+    ],
+    bomberStrengthBefore: 100,
+    bomberStrengthAfter: 28,
+    bomberDestroyed: false,
+    interceptorAttrition: 26,
+    interceptorKills: 0,
+    escortAttrition: 39,
+    escortKills: 1,
+    escortsEngaged: 1,
+    interceptorsAfterEscortPhase: 2,
+    escortsAfterEscortPhase: 0,
+    escortExchanges: [
+      {
+        phase: "escortClash",
+        attackerFaction: "Bot",
+        attackerUnitKey: "escort-1",
+        attackerUnitType: "Fighter",
+        defenderFaction: "Player",
+        defenderUnitKey: "cap-1",
+        defenderUnitType: "Interceptor",
+        attackerStrengthBefore: 100,
+        attackerStrengthAfter: 61,
+        defenderStrengthBefore: 100,
+        defenderStrengthAfter: 84,
+        damageToDefender: 16,
+        retaliationDamage: 39,
+        attackerDestroyed: false,
+        defenderDestroyed: false,
+        visualPasses: 1
+      }
+    ],
+    bomberPassExchanges: [
+      {
+        phase: "bomberPass",
+        attackerFaction: "Player",
+        attackerUnitKey: "cap-1",
+        attackerUnitType: "Interceptor",
+        defenderFaction: "Bot",
+        defenderUnitKey: "bomber-1",
+        defenderUnitType: "Bomber",
+        attackerStrengthBefore: 84,
+        attackerStrengthAfter: 71,
+        defenderStrengthBefore: 100,
+        defenderStrengthAfter: 58,
+        damageToDefender: 42,
+        retaliationDamage: 13,
+        attackerDestroyed: false,
+        defenderDestroyed: false,
+        visualPasses: 2
+      },
+      {
+        phase: "bomberPass",
+        attackerFaction: "Player",
+        attackerUnitKey: "cap-2",
+        attackerUnitType: "Interceptor",
+        defenderFaction: "Bot",
+        defenderUnitKey: "bomber-1",
+        defenderUnitType: "Bomber",
+        attackerStrengthBefore: 100,
+        attackerStrengthAfter: 87,
+        defenderStrengthBefore: 58,
+        defenderStrengthAfter: 28,
+        damageToDefender: 30,
+        retaliationDamage: 13,
+        attackerDestroyed: false,
+        defenderDestroyed: false,
+        visualPasses: 2
+      }
+    ]
+  };
+
+  await When("resolved escort clashes and bomber passes are mirrored into the activity log", async () => {
+    (screen as any).announceAirInterceptEngagement(interceptEvent);
+  });
+
+  await Then("each resolved exchange should publish its own detailed activity entry", async () => {
+    if (published.length !== 3) {
+      throw new Error(`Expected 3 detailed air-combat entries, received ${published.length}.`);
+    }
+    if (!published.every((entry) => entry.category === "player")) {
+      throw new Error(`Expected the resolved interceptions to publish player-side entries, saw ${JSON.stringify(published)}.`);
+    }
+    if (!published[0]!.summary.includes("Player patrol flight engaged enemy Fighter")) {
+      throw new Error(`Expected the escort clash to be logged separately, saw ${published[0]!.summary}.`);
+    }
+    if (!published[1]!.summary.includes("Player patrol flight attacked enemy Bomber") || !published[1]!.summary.includes("42 air damage dealt")) {
+      throw new Error(`Expected the first bomber pass to be logged separately, saw ${published[1]!.summary}.`);
+    }
+    if (!published[2]!.summary.includes("30 air damage dealt") || !published[2]!.summary.includes("Bomber strength now 28")) {
+      throw new Error(`Expected the second bomber pass to retain its own bomber state, saw ${published[2]!.summary}.`);
+    }
+    if ((published[1]!.details?.attackerUnitKey as string | undefined) !== "cap-1") {
+      throw new Error(`Expected the first bomber pass to retain its interceptor key, saw ${JSON.stringify(published[1]!.details)}.`);
+    }
+    if ((published[2]!.details?.attackerUnitKey as string | undefined) !== "cap-2") {
+      throw new Error(`Expected the second bomber pass to retain its interceptor key, saw ${JSON.stringify(published[2]!.details)}.`);
+    }
+  });
+});
