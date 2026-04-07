@@ -300,7 +300,7 @@ registerTest("BATTLESCREEN_AIR_MISSION_LOGS_FORMAT_STRIKE_TARGETS_IN_OFFSET_COOR
   });
 });
 
-registerTest("BATTLESCREEN_STRIKE_LOGS_INCLUDE_AIR_COMBAT_DAMAGE_ON_BOTH_SIDES", async ({ When, Then }) => {
+registerTest("BATTLESCREEN_STRIKE_LOGS_FOCUS_ON_TARGET_DAMAGE_AND_STRIKE_PACKAGE_LOSSES", async ({ When, Then }) => {
   const published: Array<{ category: string; summary: string; details?: Record<string, unknown> }> = [];
   const screen = Object.create(BattleScreen.prototype) as BattleScreen;
 
@@ -349,7 +349,7 @@ registerTest("BATTLESCREEN_STRIKE_LOGS_INCLUDE_AIR_COMBAT_DAMAGE_ON_BOTH_SIDES",
     (screen as any).syncAirMissionLogs();
   });
 
-  await Then("the strike summary should include target damage plus strike, interceptor, and escort losses", async () => {
+  await Then("the strike summary should include the target hit and strike-package losses without replaying the entire dogfight", async () => {
     if (published.length !== 1) {
       throw new Error(`Expected 1 strike activity entry, received ${published.length}.`);
     }
@@ -361,14 +361,121 @@ registerTest("BATTLESCREEN_STRIKE_LOGS_INCLUDE_AIR_COMBAT_DAMAGE_ON_BOTH_SIDES",
     if (!summary.includes("strike package took 19 air damage")) {
       throw new Error(`Expected strike-package attrition in strike summary, saw ${summary}.`);
     }
-    if (!summary.includes("interceptors took 27 air damage")) {
-      throw new Error(`Expected interceptor attrition in strike summary, saw ${summary}.`);
+    if (summary.includes("interceptors took 27 air damage")) {
+      throw new Error(`Did not expect the strike summary to replay interceptor attrition, saw ${summary}.`);
     }
-    if (!summary.includes("escorts took 8 air damage")) {
-      throw new Error(`Expected escort attrition in strike summary, saw ${summary}.`);
+    if (summary.includes("escorts took 8 air damage")) {
+      throw new Error(`Did not expect the strike summary to replay escort attrition, saw ${summary}.`);
     }
-    if (!summary.includes("1 interceptor flight destroyed")) {
-      throw new Error(`Expected interceptor kill count in strike summary, saw ${summary}.`);
+    if (summary.includes("1 interceptor flight destroyed")) {
+      throw new Error(`Did not expect the strike summary to replay escort-clash kills, saw ${summary}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_LINKED_ESCORT_REPORTS_ARE_SUPPRESSED_WHEN_THE_STRIKE_AND_CAP_ALREADY_COVER_THE_DOGFIGHT", async ({ When, Then }) => {
+  const published: Array<{ category: string; summary: string; details?: Record<string, unknown> }> = [];
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+
+  const reports: AirMissionReportEntry[] = [
+    {
+      id: "strike-report-3",
+      missionId: "strike-3",
+      turnResolved: 8,
+      timestamp: "2026-04-05T22:52:00.000Z",
+      faction: "Bot",
+      unitType: "Bomber",
+      unitKey: "bomber-3",
+      kind: "strike",
+      targetHex: { q: 4, r: 3 },
+      bomberAttrition: 22,
+      outcome: {
+        type: "strike",
+        result: "partial",
+        details: "Strike package damaged the target.",
+        refitRequired: true,
+        damageInflicted: 4,
+        defenderType: "Artillery_105",
+        meta: {
+          bomberAttrition: 22,
+          interceptorAttrition: 18,
+          escortAttrition: 7
+        }
+      }
+    },
+    {
+      id: "escort-report-3",
+      missionId: "escort-3",
+      turnResolved: 8,
+      timestamp: "2026-04-05T22:52:00.000Z",
+      faction: "Bot",
+      unitType: "Fighter",
+      unitKey: "escort-3",
+      kind: "escort",
+      escortTargetUnitKey: "bomber-3",
+      interceptorAttrition: 18,
+      outcome: {
+        type: "escort",
+        result: "success",
+        details: "Escort engaged hostile interceptors while covering the linked strike package.",
+        refitRequired: true,
+        interceptions: 1,
+        protectedUnitKey: "bomber-3",
+        meta: {
+          interceptorAttrition: 18,
+          interceptorKills: 1,
+          escortAttrition: 7
+        }
+      }
+    },
+    {
+      id: "cap-report-3",
+      missionId: "cap-3",
+      turnResolved: 8,
+      timestamp: "2026-04-05T22:52:00.000Z",
+      faction: "Player",
+      unitType: "Interceptor",
+      unitKey: "cap-3",
+      kind: "airCover",
+      targetHex: { q: 4, r: 3 },
+      bomberAttrition: 22,
+      interceptorAttrition: 9,
+      outcome: {
+        type: "airCover",
+        result: "success",
+        details: "Combat air patrol disrupted the strike package.",
+        refitRequired: true,
+        interceptions: 1,
+        protectedHex: { q: 4, r: 3 },
+        meta: {
+          bomberAttrition: 22,
+          interceptorAttrition: 9
+        }
+      }
+    }
+  ];
+
+  (screen as any).seenAirReportIds = new Set<string>();
+  (screen as any).battleState = {
+    ensureGameEngine: () => ({
+      getAirMissionReports: () => reports
+    })
+  };
+  (screen as any).publishActivityEvent = (event: { category: string; summary: string; details?: Record<string, unknown> }) => {
+    published.push(event);
+  };
+
+  await When("linked strike, escort, and CAP reports are mirrored into the activity log together", async () => {
+    (screen as any).syncAirMissionLogs();
+  });
+
+  await Then("the linked escort report should be suppressed so the dogfight is not narrated twice", async () => {
+    if (published.length !== 2) {
+      throw new Error(`Expected only strike and CAP entries after suppressing the linked escort report, received ${published.length}.`);
+    }
+
+    if (published.some((entry) => entry.summary.includes("Air mission escort resolved"))) {
+      throw new Error(`Did not expect a linked escort entry once the strike and CAP reports already covered the battle, saw ${JSON.stringify(published)}.`);
     }
   });
 });

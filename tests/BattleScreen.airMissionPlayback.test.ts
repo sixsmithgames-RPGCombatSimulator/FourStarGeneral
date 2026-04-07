@@ -290,6 +290,9 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_PLAY_ESCORT_CLASH_BEFORE_BOMBER_DEFENS
     },
     async playDogfight(hexKey: string): Promise<void> {
       callOrder.push(`dogfight:${hexKey}`);
+    },
+    async playBomberDefensePass(hexKey: string): Promise<void> {
+      callOrder.push(`bomber-defense:${hexKey}`);
     }
   } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
 
@@ -355,8 +358,9 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_PLAY_ESCORT_CLASH_BEFORE_BOMBER_DEFENS
 
   await Then("the escorts and interceptors should fly in before two separate gun passes are shown", async () => {
     const dogfightCalls = callOrder.filter((entry) => entry.startsWith("dogfight:"));
-    if (dogfightCalls.length !== 2) {
-      throw new Error(`Expected two dogfight passes, saw ${JSON.stringify(callOrder)}.`);
+    const bomberDefenseCalls = callOrder.filter((entry) => entry.startsWith("bomber-defense:"));
+    if (dogfightCalls.length !== 1 || bomberDefenseCalls.length !== 1) {
+      throw new Error(`Expected one escort dogfight and one bomber-defense pass, saw ${JSON.stringify(callOrder)}.`);
     }
 
     const firstDogfightIndex = callOrder.findIndex((entry) => entry.startsWith("dogfight:"));
@@ -366,6 +370,172 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_PLAY_ESCORT_CLASH_BEFORE_BOMBER_DEFENS
 
     if (!callOrder.some((entry) => entry.startsWith("fly:Player:Interceptor:")) || !callOrder.some((entry) => entry.startsWith("fly:Bot:Fighter:"))) {
       throw new Error(`Expected both interceptors and escorts to fly into the engagement, saw ${JSON.stringify(callOrder)}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_AIR_INTERCEPTS_STOP_DESTROYED_ESCORTS_FROM_CONTINUING_INTO_THE_BOMBER_PASS", async ({ Given, When, Then }) => {
+  const callOrder: string[] = [];
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const fakeEngine = {
+    playerUnits: [
+      {
+        type: "Interceptor" as unknown as ScenarioUnit["type"],
+        hex: { q: 0, r: 2 },
+        strength: 100,
+        experience: 0,
+        ammo: 5,
+        fuel: 40,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "cap-1"
+      }
+    ] as ScenarioUnit[],
+    botUnits: [
+      {
+        type: "Bomber" as unknown as ScenarioUnit["type"],
+        hex: { q: -1, r: -1 },
+        strength: 100,
+        experience: 0,
+        ammo: 4,
+        fuel: 50,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "bomber-1"
+      },
+      {
+        type: "Fighter" as unknown as ScenarioUnit["type"],
+        hex: { q: 1, r: -2 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 50,
+        entrench: 0,
+        facing: "NW" as ScenarioUnit["facing"],
+        unitId: "escort-1"
+      }
+    ] as ScenarioUnit[],
+    reserveUnits: [],
+    allyUnits: [],
+    getScheduledAirMissions() {
+      return [];
+    }
+  } as const;
+
+  const fakeBattleState = {
+    hasEngine: () => true,
+    ensureGameEngine: () => fakeEngine,
+    tryGetGameEngine: () => fakeEngine
+  } as unknown as import("../src/state/BattleState").BattleState;
+
+  const fakeRenderer = {
+    async animateAircraftFlyover(
+      fromKey: string,
+      toKey: string,
+      unitType: string,
+      _durationMs: number,
+      _onProgress?: unknown,
+      _endProgress?: number,
+      strength?: number,
+      _laneOffsetPx?: number,
+      faction?: string
+    ): Promise<void> {
+      callOrder.push(`fly:${faction ?? "unknown"}:${unitType}:${fromKey}->${toKey}:${strength ?? "?"}`);
+    },
+    async animateAircraftOrbitAt(
+      _hexKey: string,
+      unitType: string,
+      _durationMs: number,
+      strength?: number
+    ): Promise<void> {
+      callOrder.push(`orbit:${unitType}:${strength ?? "?"}`);
+    },
+    async playDogfight(hexKey: string): Promise<void> {
+      callOrder.push(`dogfight:${hexKey}`);
+    },
+    async playBomberDefensePass(hexKey: string): Promise<void> {
+      callOrder.push(`bomber-defense:${hexKey}`);
+    }
+  } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
+
+  let screen: BattleScreen;
+
+  await Given("an escort that is destroyed during the opening dogfight", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      fakeRenderer,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+    (screen as any).waitMs = async (): Promise<void> => {};
+  });
+
+  const event: AirEngagementEvent = {
+    type: "airToAir",
+    location: { q: 0, r: 0 },
+    bomber: {
+      faction: "Bot",
+      unitKey: "bomber-1",
+      unitType: "Bomber",
+      strength: 100
+    },
+    interceptors: [
+      {
+        faction: "Player",
+        unitKey: "cap-1",
+        unitType: "Interceptor",
+        strength: 100
+      }
+    ],
+    escorts: [
+      {
+        faction: "Bot",
+        unitKey: "escort-1",
+        unitType: "Fighter",
+        strength: 100
+      }
+    ],
+    bomberStrengthBefore: 100,
+    bomberStrengthAfter: 74,
+    bomberDestroyed: false,
+    interceptorAttrition: 18,
+    interceptorKills: 0,
+    escortAttrition: 100,
+    escortKills: 1,
+    escortsEngaged: 1,
+    interceptorsAfterEscortPhase: 1,
+    escortsAfterEscortPhase: 0,
+    interceptorStrengthsAfterEscortPhase: [82],
+    escortStrengthsAfterEscortPhase: [0],
+    interceptorFinalStrengths: [61],
+    escortFinalStrengths: [0]
+  };
+
+  await When("the mission air intercept event is played through both phases", async () => {
+    await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, 900, true);
+  });
+
+  await Then("the destroyed escort should orbit in the opening clash only and not continue into the bomber pass", async () => {
+    const escortOrbits = callOrder.filter((entry) => entry.startsWith("orbit:Fighter:"));
+    const interceptorOrbits = callOrder.filter((entry) => entry.startsWith("orbit:Interceptor:"));
+
+    if (escortOrbits.length !== 1) {
+      throw new Error(`Expected the destroyed escort to disappear after the first dogfight stage, saw ${JSON.stringify(callOrder)}.`);
+    }
+    if (interceptorOrbits.length < 2) {
+      throw new Error(`Expected the surviving interceptor to keep orbiting into the bomber pass, saw ${JSON.stringify(callOrder)}.`);
     }
   });
 });
@@ -657,8 +827,9 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BO
 
   await Then("the bomber-defense pass should wait substantially longer than the escort opening burst", async () => {
     const dogfightCalls = callOrder.filter((entry) => entry.startsWith("dogfight:"));
-    if (dogfightCalls.length !== 2) {
-      throw new Error(`Expected escort and bomber-defense dogfight passes, saw ${JSON.stringify(callOrder)}.`);
+    const bomberDefenseCalls = callOrder.filter((entry) => entry.startsWith("bomber-defense:"));
+    if (dogfightCalls.length !== 1 || bomberDefenseCalls.length !== 1) {
+      throw new Error(`Expected one escort dogfight and one bomber-defense pass, saw ${JSON.stringify(callOrder)}.`);
     }
 
     if (!waits.some((durationMs) => durationMs >= 700)) {
@@ -719,6 +890,9 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_SKIP_THE_BOMBER_PASS_WHEN_FLAK_ALREADY
     async animateAircraftFlyover(): Promise<void> {},
     async playDogfight(hexKey: string): Promise<void> {
       callOrder.push(`dogfight:${hexKey}`);
+    },
+    async playBomberDefensePass(hexKey: string): Promise<void> {
+      callOrder.push(`bomber-defense:${hexKey}`);
     }
   } as unknown as import("../src/rendering/HexMapRenderer").HexMapRenderer;
 
@@ -784,7 +958,8 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_SKIP_THE_BOMBER_PASS_WHEN_FLAK_ALREADY
 
   await Then("only the escort clash should be shown", async () => {
     const dogfightCalls = callOrder.filter((entry) => entry.startsWith("dogfight:"));
-    if (dogfightCalls.length !== 1) {
+    const bomberDefenseCalls = callOrder.filter((entry) => entry.startsWith("bomber-defense:"));
+    if (dogfightCalls.length !== 1 || bomberDefenseCalls.length !== 0) {
       throw new Error(`Expected only one escort clash pass when flak already broke up the strike, saw ${JSON.stringify(callOrder)}.`);
     }
   });

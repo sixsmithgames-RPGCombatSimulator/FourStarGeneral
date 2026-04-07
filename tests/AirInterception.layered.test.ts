@@ -426,3 +426,123 @@ registerTest("AIR_INTERCEPTION_BOMBER_TURRETS_RETURN_FIRE_WITHOUT_REUSING_GROUND
     }
   });
 });
+
+registerTest("AIR_INTERCEPTION_AIR_SUPERIORITY_CLASHES_CAP_AT_ROUGHLY_HALF_STRENGTH_WHILE_BOMBER_ATTACKS_STAY_LETHAL", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let escortVsInterceptorDamage = 0;
+  let interceptorVsBomberDamage = 0;
+
+  await Given("an escort/interceptor matchup with extreme dogfight values plus a bomber target", async () => {
+    const airSuperiorityDef: UnitTypeDefinition = {
+      ...fighterDef,
+      accuracyBase: 78,
+      hardAttack: 28,
+      softAttack: 28,
+      airSupport: { roles: ["escort", "cap"], cruiseSpeedKph: 560, combatRadiusKm: 250, refitTurns: 1 },
+      airCombat: {
+        attack: {
+          accuracyBase: 88,
+          hardAttack: 36,
+          softAttack: 36,
+          ap: 10,
+          rangeMin: 1,
+          rangeMax: 2,
+          combat: { category: "air", weight: "light", role: "normal", signature: "small" },
+          shotsScalar: 1.8,
+          damageScalar: 3.6,
+          suppressionScalar: 3.6
+        }
+      }
+    };
+    const strikerDef: UnitTypeDefinition = {
+      ...bomberDef,
+      airCombat: {
+        turret: {
+          accuracyBase: 10,
+          hardAttack: 1,
+          softAttack: 1,
+          ap: 0,
+          rangeMin: 1,
+          rangeMax: 2,
+          combat: { category: "air", weight: "light", role: "normal", signature: "large" },
+          shotsScalar: 0,
+          damageScalar: 0,
+          suppressionScalar: 0
+        }
+      }
+    };
+    const config: GameEngineConfig = {
+      scenario: scenario(),
+      unitTypes: {
+        Fighter: airSuperiorityDef,
+        Interceptor: airSuperiorityDef,
+        Bomber: strikerDef,
+        Infantry_42: infantryDef
+      } as unknown as UnitTypeDictionary,
+      terrain,
+      playerSide: side(),
+      botSide: side()
+    };
+    engine = new GameEngine(config);
+  });
+
+  await When("air-superiority flights and strike aircraft resolve their direct air-combat rolls", async () => {
+    escortVsInterceptorDamage = (engine as any).resolveAirCombatDamage(
+      "Bot",
+      {
+        type: "Fighter" as unknown as ScenarioUnit["type"],
+        hex: { q: 0, r: 0 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 50,
+        entrench: 0,
+        facing: "NW"
+      },
+      {
+        type: "Interceptor" as unknown as ScenarioUnit["type"],
+        hex: { q: 0, r: 1 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 50,
+        entrench: 0,
+        facing: "NW"
+      },
+      "attack"
+    );
+    interceptorVsBomberDamage = (engine as any).resolveAirCombatDamage(
+      "Player",
+      {
+        type: "Interceptor" as unknown as ScenarioUnit["type"],
+        hex: { q: 0, r: 0 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 50,
+        entrench: 0,
+        facing: "NW"
+      },
+      {
+        type: "Bomber" as unknown as ScenarioUnit["type"],
+        hex: { q: 0, r: 1 },
+        strength: 100,
+        experience: 0,
+        ammo: 4,
+        fuel: 60,
+        entrench: 0,
+        facing: "NW"
+      },
+      "attack"
+    );
+  });
+
+  await Then("fighter-versus-fighter attrition should be capped while attacks on the bomber remain heavy", async () => {
+    if (escortVsInterceptorDamage <= 0 || escortVsInterceptorDamage > 55) {
+      throw new Error(`Expected the escort-vs-interceptor exchange to cap near half strength, saw ${escortVsInterceptorDamage}.`);
+    }
+    if (interceptorVsBomberDamage <= 55) {
+      throw new Error(`Expected interceptors to still hit the bomber harder than the capped dogfight exchange, saw ${interceptorVsBomberDamage}.`);
+    }
+  });
+});

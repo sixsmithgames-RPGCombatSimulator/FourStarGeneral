@@ -878,6 +878,10 @@ export interface AirEngagementEvent {
   readonly escortsEngaged?: number;
   readonly interceptorsAfterEscortPhase?: number;
   readonly escortsAfterEscortPhase?: number;
+  readonly interceptorStrengthsAfterEscortPhase?: ReadonlyArray<number>;
+  readonly escortStrengthsAfterEscortPhase?: ReadonlyArray<number>;
+  readonly interceptorFinalStrengths?: ReadonlyArray<number>;
+  readonly escortFinalStrengths?: ReadonlyArray<number>;
 }
 
 /** Captures ongoing refit timers so hydration can restore readiness cycles after sorties. */
@@ -931,6 +935,7 @@ interface AirInterceptionParticipantDelta {
   readonly mission: ScheduledAirMission;
   readonly unitBefore: ScenarioUnit;
   unitAfter: ScenarioUnit;
+  strengthAfterEscortPhase: number;
   engaged: boolean;
   inflicted: number;
   taken: number;
@@ -2101,7 +2106,11 @@ export class GameEngine implements GameEngineAPI {
         escortKills,
         escortsEngaged: interception.escortsEngaged,
         interceptorsAfterEscortPhase: interception.interceptorsAfterEscortPhase,
-        escortsAfterEscortPhase: interception.escortsAfterEscortPhase
+        escortsAfterEscortPhase: interception.escortsAfterEscortPhase,
+        interceptorStrengthsAfterEscortPhase: interception.interceptorDeltas.map((delta) => delta.strengthAfterEscortPhase),
+        escortStrengthsAfterEscortPhase: interception.escortDeltas.map((delta) => delta.strengthAfterEscortPhase),
+        interceptorFinalStrengths: interception.interceptorDeltas.map((delta) => delta.unitAfter.strength),
+        escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength)
       });
 
       if (interception.bomberDestroyed) {
@@ -2734,6 +2743,7 @@ export class GameEngine implements GameEngineAPI {
       mission: participant.mission,
       unitBefore: structuredClone(participant.unit),
       unitAfter: structuredClone(participant.unit),
+      strengthAfterEscortPhase: participant.unit.strength,
       engaged: false,
       inflicted: 0,
       taken: 0,
@@ -2743,6 +2753,7 @@ export class GameEngine implements GameEngineAPI {
       mission: participant.mission,
       unitBefore: structuredClone(participant.unit),
       unitAfter: structuredClone(participant.unit),
+      strengthAfterEscortPhase: participant.unit.strength,
       engaged: false,
       inflicted: 0,
       taken: 0,
@@ -2813,6 +2824,13 @@ export class GameEngine implements GameEngineAPI {
         escortKills += 1;
       }
     }
+
+    interceptorDeltas.forEach((delta) => {
+      delta.strengthAfterEscortPhase = delta.unitAfter.strength;
+    });
+    escortDeltas.forEach((delta) => {
+      delta.strengthAfterEscortPhase = delta.unitAfter.strength;
+    });
 
     const interceptorsAfterEscortPhase = interceptorDeltas.filter((entry) => entry.unitAfter.strength > 0).length;
     const escortsAfterEscortPhase = escortDeltas.filter((entry) => entry.unitAfter.strength > 0).length;
@@ -8702,7 +8720,11 @@ private automateSupplyConvoys(
           escortKills,
           escortsEngaged: interception.escortsEngaged,
           interceptorsAfterEscortPhase: interception.interceptorsAfterEscortPhase,
-          escortsAfterEscortPhase: interception.escortsAfterEscortPhase
+          escortsAfterEscortPhase: interception.escortsAfterEscortPhase,
+          interceptorStrengthsAfterEscortPhase: interception.interceptorDeltas.map((delta) => delta.strengthAfterEscortPhase),
+          escortStrengthsAfterEscortPhase: interception.escortDeltas.map((delta) => delta.strengthAfterEscortPhase),
+          interceptorFinalStrengths: interception.interceptorDeltas.map((delta) => delta.unitAfter.strength),
+          escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength)
         });
 
         if (interception.bomberDestroyed) {
@@ -12293,7 +12315,11 @@ private automateSupplyConvoys(
           escortKills,
           escortsEngaged: interception.escortsEngaged,
           interceptorsAfterEscortPhase: interception.interceptorsAfterEscortPhase,
-          escortsAfterEscortPhase: interception.escortsAfterEscortPhase
+          escortsAfterEscortPhase: interception.escortsAfterEscortPhase,
+          interceptorStrengthsAfterEscortPhase: interception.interceptorDeltas.map((delta) => delta.strengthAfterEscortPhase),
+          escortStrengthsAfterEscortPhase: interception.escortDeltas.map((delta) => delta.strengthAfterEscortPhase),
+          interceptorFinalStrengths: interception.interceptorDeltas.map((delta) => delta.unitAfter.strength),
+          escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength)
         });
         if (interception.bomberDestroyed) {
           return null;

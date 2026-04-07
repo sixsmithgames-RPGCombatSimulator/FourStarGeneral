@@ -929,10 +929,10 @@ export class HexMapRenderer implements IMapRenderer {
     burstGroup.style.pointerEvents = "none";
     effectsLayer.appendChild(burstGroup);
 
-    const tracerCount = 12;
-    const burstCount = 12;
-    const tracerLifetimeMs = 220;
-    const burstLifetimeMs = 260;
+    const tracerCount = 18;
+    const burstCount = 16;
+    const tracerLifetimeMs = 420;
+    const burstLifetimeMs = 460;
 
     const scheduleCleanup = (node: SVGElement, delayMs: number) => {
       window.setTimeout(() => node.remove(), delayMs);
@@ -950,7 +950,7 @@ export class HexMapRenderer implements IMapRenderer {
       const x2 = cx + Math.cos(tracerAngle) * tracerLength * 0.5;
       const y2 = cy + Math.sin(tracerAngle) * tracerLength * 0.5;
       const dashGap = tracerLength + 8;
-      const tracerDelayMs = index * 10;
+      const tracerDelayMs = index * 16;
 
       const line = document.createElementNS(SVG_NS, "line");
       line.setAttribute("x1", String(x1));
@@ -983,7 +983,7 @@ export class HexMapRenderer implements IMapRenderer {
       const radius = 8 + Math.random() * 16;
       const x = center.cx + Math.cos(angle) * radius;
       const y = center.cy + Math.sin(angle) * radius * 0.74;
-      const flashDelayMs = 12 + index * 9;
+      const flashDelayMs = 18 + index * 14;
 
       const cluster = document.createElementNS(SVG_NS, "g");
       cluster.setAttribute("transform", `translate(${x},${y})`);
@@ -1023,7 +1023,96 @@ export class HexMapRenderer implements IMapRenderer {
       window.setTimeout(() => {
         burstGroup.remove();
         resolve();
-      }, 320);
+      }, 620);
+    });
+  }
+
+  /** Plays a distinct defensive-gunner burst so bomber return fire reads separately from a dogfight. */
+  async playBomberDefensePass(hexKey: string): Promise<void> {
+    const effectsLayer = this.ensureCombatEffectsLayer();
+    const hexElement = this.hexElementMap.get(hexKey);
+    const center = hexElement ? this.extractHexCenter(hexElement) : null;
+    if (!effectsLayer || !center) {
+      return;
+    }
+
+    const burstGroup = document.createElementNS(SVG_NS, "g");
+    burstGroup.classList.add("air-bomber-defense-burst");
+    burstGroup.style.pointerEvents = "none";
+    effectsLayer.appendChild(burstGroup);
+
+    const tracerCount = 12;
+    const flashCount = 10;
+    const tracerLifetimeMs = 520;
+    const flashLifetimeMs = 420;
+
+    const scheduleCleanup = (node: SVGElement, delayMs: number) => {
+      window.setTimeout(() => node.remove(), delayMs);
+    };
+
+    for (let index = 0; index < tracerCount; index += 1) {
+      const laneBias = (index / Math.max(1, tracerCount - 1) - 0.5) * 20;
+      const startX = center.cx - 12 + Math.random() * 8;
+      const startY = center.cy + laneBias * 0.35;
+      const endX = center.cx + 24 + Math.random() * 18;
+      const endY = center.cy + laneBias * 0.9 + (Math.random() - 0.5) * 8;
+      const tracerDelayMs = index * 22;
+
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", String(startX));
+      line.setAttribute("y1", String(startY));
+      line.setAttribute("x2", String(endX));
+      line.setAttribute("y2", String(endY));
+      line.setAttribute("stroke", index % 2 === 0 ? "#ffd68c" : "#fff5cf");
+      line.setAttribute("stroke-width", index % 3 === 0 ? "1.4" : "1.05");
+      line.setAttribute("stroke-linecap", "round");
+      line.style.opacity = "0.12";
+      line.style.strokeDasharray = "10 28";
+      line.style.strokeDashoffset = "28";
+      burstGroup.appendChild(line);
+
+      window.setTimeout(() => {
+        window.requestAnimationFrame(() => {
+          line.style.transition = `stroke-dashoffset ${tracerLifetimeMs}ms linear, opacity ${Math.max(120, tracerLifetimeMs - 80)}ms ease-out`;
+          line.style.opacity = "0.96";
+          line.style.strokeDashoffset = "0";
+        });
+      }, tracerDelayMs);
+      window.setTimeout(() => {
+        line.style.opacity = "0";
+      }, tracerDelayMs + Math.max(120, tracerLifetimeMs - 90));
+      scheduleCleanup(line, tracerDelayMs + tracerLifetimeMs + 70);
+    }
+
+    for (let index = 0; index < flashCount; index += 1) {
+      const flashDelayMs = 12 + index * 24;
+      const x = center.cx - 6 + Math.random() * 14;
+      const y = center.cy - 10 + Math.random() * 20;
+
+      const flash = document.createElementNS(SVG_NS, "circle");
+      flash.setAttribute("cx", String(x));
+      flash.setAttribute("cy", String(y));
+      flash.setAttribute("r", String(1.2 + Math.random() * 1.6));
+      flash.setAttribute("fill", index % 2 === 0 ? "#fff4c1" : "#ffc76c");
+      flash.style.opacity = "0";
+      burstGroup.appendChild(flash);
+
+      window.setTimeout(() => {
+        flash.style.transition = "opacity 90ms ease-out";
+        flash.style.opacity = "0.95";
+      }, flashDelayMs);
+      window.setTimeout(() => {
+        flash.style.transition = `opacity ${flashLifetimeMs}ms ease-out`;
+        flash.style.opacity = "0";
+      }, flashDelayMs + 90);
+      scheduleCleanup(flash, flashDelayMs + flashLifetimeMs + 120);
+    }
+
+    await new Promise<void>((resolve) => {
+      window.setTimeout(() => {
+        burstGroup.remove();
+        resolve();
+      }, 760);
     });
   }
 
