@@ -117,8 +117,18 @@ type ResolvedAirShowScene = {
   bomberPassDurationMs?: number;
   egressDurationMs?: number;
   bomberArrivalDelayMs?: number;
+  bomberTargetHexKey?: string | null;
 };
 type AirShowPoint = { cx: number; cy: number };
+type AirShowCorridor = {
+  center: AirShowPoint;
+  axis: { x: number; y: number };
+  normal: { x: number; y: number };
+  entry: AirShowPoint;
+  merge: AirShowPoint;
+  strike: AirShowPoint;
+  exit: AirShowPoint;
+};
 type AirShowRuntimeActor = {
   id: string;
   flightId: string;
@@ -1101,6 +1111,14 @@ export class HexMapRenderer implements IMapRenderer {
     );
     const stageRandom = (label: string): (() => number) =>
       this.seededRandom(this.seedFromHexKey(`${sceneSeed}:${label}`));
+    const bomberTargetCenter = scene.bomberTargetHexKey ? this.resolveHexCenterByKey(scene.bomberTargetHexKey) : null;
+    const corridor = this.resolveAirShowCorridor(
+      center,
+      bomberFlight ? this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor : null,
+      bomberTargetCenter
+    );
+    const corridorPoint = (alongPx: number, lateralPx = 0): AirShowPoint =>
+      this.projectAirShowCorridorPoint(corridor, alongPx, lateralPx);
     const updateFlightAnchors = (flights: ReadonlyArray<AirShowRuntimeFlight>): void => {
       flights.forEach((flight) => {
         flight.anchor = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
@@ -1108,82 +1126,69 @@ export class HexMapRenderer implements IMapRenderer {
     };
     const activeFlights = (flights: ReadonlyArray<AirShowRuntimeFlight>): AirShowRuntimeFlight[] =>
       flights.filter((flight) => flight.actors.some((actor) => actor.active));
-    const buildHoldingAssignments = (
+    const buildBandAssignments = (
       flights: ReadonlyArray<AirShowRuntimeFlight>,
-      stageSeed: number,
-      amplitude = 26
+      label: string,
+      options: {
+        alongPx: number;
+        lateralPx: number;
+        alongStepPx?: number;
+        lateralStepPx?: number;
+        jitterAlongPx?: number;
+        jitterLateralPx?: number;
+        arcPx?: number;
+        driftPx?: number;
+        headingBlend?: number;
+      }
     ): AirShowPhaseAssignment[] =>
       flights.flatMap((flight, index) => {
-        const rand = stageRandom(`hold:${stageSeed}:${flight.spec.id}:${index}`);
+        const rand = stageRandom(`band:${label}:${flight.spec.id}:${index}`);
         const current = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
-        const holdAnchor = this.resolveAirShowSceneAnchor(
-          center,
-          flight.spec.role,
-          index,
-          Math.max(1, flights.length),
-          rand() > 0.5 ? 1 : -1
+        const lane = flights.length <= 1 ? 0 : index - (flights.length - 1) / 2;
+        const holdTarget = corridorPoint(
+          options.alongPx +
+            lane * (options.alongStepPx ?? 34) +
+            (rand() - 0.5) * (options.jitterAlongPx ?? 28),
+          options.lateralPx +
+            lane * (options.lateralStepPx ?? 48) +
+            (rand() - 0.5) * (options.jitterLateralPx ?? 24)
         );
-        const holdTarget = {
-          cx: holdAnchor.cx + (rand() - 0.5) * 64,
-          cy:
-            holdAnchor.cy +
-            (rand() - 0.5) * 48 +
-            ((stageSeed + index) % 2 === 0 ? -amplitude : amplitude)
-        };
         return this.buildAirShowFlightAssignments(
           flight,
           this.buildAirShowCurvedPath(
             current,
             holdTarget,
-            ((stageSeed + index) % 2 === 0 ? 1 : -1) * (48 + rand() * 34),
-            28 + rand() * 24
+            (lane >= 0 ? 1 : -1) * ((options.arcPx ?? 76) + rand() * 26),
+            (rand() - 0.5) * (options.driftPx ?? 34)
           ),
-          0.24
+          options.headingBlend ?? 0.26
         );
       });
 
     try {
       const ingressAssignments: AirShowPhaseAssignment[] = [
-        ...interceptorFlights.flatMap((flight, index) =>
-          (() => {
-            const rand = stageRandom(`ingress:interceptor:${flight.spec.id}:${index}`);
-            const ingressAnchor = this.offsetAirShowPoint(
-              this.resolveAirShowSceneAnchor(center, "interceptor", index, Math.max(1, interceptorFlights.length), -1),
-              (rand() - 0.5) * 58,
-              (rand() - 0.5) * 42
-            );
-            return this.buildAirShowFlightAssignments(
-              flight,
-              this.buildAirShowCurvedPath(
-                this.averageAirShowPosition(flight.actors) ?? flight.anchor,
-                ingressAnchor,
-                -92 - rand() * 42,
-                56 + rand() * 30
-              ),
-              0.28
-            );
-          })()
-        ),
-        ...escortFlights.flatMap((flight, index) =>
-          (() => {
-            const rand = stageRandom(`ingress:escort:${flight.spec.id}:${index}`);
-            const ingressAnchor = this.offsetAirShowPoint(
-              this.resolveAirShowSceneAnchor(center, "escort", index, Math.max(1, escortFlights.length), 1),
-              (rand() - 0.5) * 58,
-              (rand() - 0.5) * 42
-            );
-            return this.buildAirShowFlightAssignments(
-              flight,
-              this.buildAirShowCurvedPath(
-                this.averageAirShowPosition(flight.actors) ?? flight.anchor,
-                ingressAnchor,
-                92 + rand() * 42,
-                56 + rand() * 30
-              ),
-              0.28
-            );
-          })()
-        )
+        ...buildBandAssignments(interceptorFlights, "ingress:interceptors", {
+          alongPx: -86,
+          lateralPx: -184,
+          alongStepPx: 42,
+          lateralStepPx: 58,
+          jitterAlongPx: 34,
+          jitterLateralPx: 28,
+          arcPx: 118,
+          driftPx: 42,
+          headingBlend: 0.28
+        }),
+        ...buildBandAssignments(escortFlights, "ingress:escorts", {
+          alongPx: -18,
+          lateralPx: 158,
+          alongStepPx: 30,
+          lateralStepPx: 54,
+          jitterAlongPx: 30,
+          jitterLateralPx: 24,
+          arcPx: 108,
+          driftPx: 40,
+          headingBlend: 0.28
+        })
       ];
       await this.runAirShowPhase(ingressAssignments, Math.max(900, scene.fighterIngressDurationMs ?? 1480));
       updateFlightAnchors([...interceptorFlights, ...escortFlights]);
@@ -1209,78 +1214,93 @@ export class HexMapRenderer implements IMapRenderer {
             const direction = rand() > 0.5 ? 1 : -1;
             const interceptorCurrent = this.averageAirShowPosition(interceptorFlight.actors) ?? interceptorFlight.anchor;
             const escortCurrent = this.averageAirShowPosition(escortFlight.actors) ?? escortFlight.anchor;
-            const duelCenter = {
-              cx:
-                center.cx +
-                (exchangeIndex - (escortExchanges.length - 1) / 2) * 122 +
-                (rand() - 0.5) * 44,
-              cy: center.cy + (beat === 0 ? -42 : 42) + (rand() - 0.5) * 34
-            };
-            const mergePoint = this.interpolateAirShowPoint(interceptorCurrent, escortCurrent, 0.56);
+            const duelCenter = corridorPoint(
+              -28 + (exchangeIndex - (escortExchanges.length - 1) / 2) * 64 + (rand() - 0.5) * 26,
+              (beat === 0 ? -138 : 138) + (rand() - 0.5) * 32
+            );
+            const mergePoint = this.interpolateAirShowPoint(interceptorCurrent, escortCurrent, 0.52);
             const escortAim = this.offsetAirShowPoint(
-              this.interpolateAirShowPoint(mergePoint, duelCenter, 0.72),
-              direction * (18 + rand() * 16),
-              (rand() - 0.5) * 22
+              this.interpolateAirShowPoint(mergePoint, duelCenter, 0.76),
+              direction * (18 + rand() * 14),
+              (rand() - 0.5) * 20
             );
             const interceptorAim = this.offsetAirShowPoint(
-              this.interpolateAirShowPoint(duelCenter, escortAim, 0.42),
-              -direction * (8 + rand() * 12),
-              (rand() - 0.5) * 18
+              this.interpolateAirShowPoint(duelCenter, escortAim, 0.38),
+              -direction * (14 + rand() * 14),
+              (rand() - 0.5) * 20
             );
 
             const escortPath = interceptorOnAttack
               ? this.buildAirShowBreakTurnPath(escortCurrent, escortAim, {
                   lateralSign: -direction,
-                  entryLateralPx: 46 + rand() * 18,
-                  guardLateralPx: 82 + rand() * 22,
-                  exitLateralPx: 128 + rand() * 26,
-                  exitForwardPx: 72 + rand() * 22,
-                  trailForwardPx: 34 + rand() * 12
+                  entryLateralPx: 74 + rand() * 24,
+                  guardLateralPx: 132 + rand() * 26,
+                  exitLateralPx: 184 + rand() * 30,
+                  exitForwardPx: 96 + rand() * 26,
+                  trailForwardPx: 44 + rand() * 16
                 })
               : this.buildAirShowPursuitPath(escortCurrent, interceptorAim, {
                   lateralSign: -direction,
-                  entryLateralPx: 92 + rand() * 24,
-                  mergeLateralPx: 36 + rand() * 18,
-                  attackOffsetPx: 8 + rand() * 8,
-                  closeInPx: 16 + rand() * 10,
-                  overshootPx: 104 + rand() * 28,
-                  breakLateralPx: 84 + rand() * 24,
-                  breakForwardPx: 62 + rand() * 18,
-                  driftPx: (rand() - 0.5) * 48
+                  entryLateralPx: 132 + rand() * 30,
+                  mergeLateralPx: 54 + rand() * 20,
+                  attackOffsetPx: 10 + rand() * 8,
+                  closeInPx: 14 + rand() * 10,
+                  overshootPx: 146 + rand() * 34,
+                  breakLateralPx: 118 + rand() * 30,
+                  breakForwardPx: 86 + rand() * 22,
+                  driftPx: (rand() - 0.5) * 62
                 });
             const interceptorPath = interceptorOnAttack
               ? this.buildAirShowPursuitPath(interceptorCurrent, escortAim, {
                   lateralSign: direction,
-                  entryLateralPx: 102 + rand() * 28,
-                  mergeLateralPx: 34 + rand() * 14,
-                  attackOffsetPx: 8 + rand() * 6,
-                  closeInPx: 12 + rand() * 10,
-                  overshootPx: 118 + rand() * 34,
-                  breakLateralPx: 96 + rand() * 28,
-                  breakForwardPx: 74 + rand() * 24,
-                  driftPx: (rand() - 0.5) * 52
+                  entryLateralPx: 148 + rand() * 34,
+                  mergeLateralPx: 48 + rand() * 18,
+                  attackOffsetPx: 8 + rand() * 8,
+                  closeInPx: 10 + rand() * 10,
+                  overshootPx: 172 + rand() * 38,
+                  breakLateralPx: 132 + rand() * 34,
+                  breakForwardPx: 94 + rand() * 26,
+                  driftPx: (rand() - 0.5) * 68
                 })
               : this.buildAirShowBreakTurnPath(interceptorCurrent, interceptorAim, {
                   lateralSign: direction,
-                  entryLateralPx: 44 + rand() * 16,
-                  guardLateralPx: 76 + rand() * 20,
-                  exitLateralPx: 120 + rand() * 24,
-                  exitForwardPx: 70 + rand() * 18,
-                  trailForwardPx: 32 + rand() * 12
+                  entryLateralPx: 66 + rand() * 20,
+                  guardLateralPx: 124 + rand() * 24,
+                  exitLateralPx: 176 + rand() * 28,
+                  exitForwardPx: 94 + rand() * 22,
+                  trailForwardPx: 42 + rand() * 14
                 });
 
             const phaseAssignments: AirShowPhaseAssignment[] = [
               ...this.buildAirShowFlightAssignments(escortFlight, escortPath, 0.36),
               ...this.buildAirShowFlightAssignments(interceptorFlight, interceptorPath, 0.38),
-              ...buildHoldingAssignments(
+              ...buildBandAssignments(
                 activeFlights(interceptorFlights.filter((flight) => flight !== interceptorFlight)),
-                exchangeIndex + beat,
-                32
+                `escort-stack:interceptors:${exchangeIndex}:${beat}`,
+                {
+                  alongPx: -104,
+                  lateralPx: -212,
+                  alongStepPx: 24,
+                  lateralStepPx: 40,
+                  jitterAlongPx: 20,
+                  jitterLateralPx: 18,
+                  arcPx: 54,
+                  driftPx: 20
+                }
               ),
-              ...buildHoldingAssignments(
+              ...buildBandAssignments(
                 activeFlights(escortFlights.filter((flight) => flight !== escortFlight)),
-                exchangeIndex + beat + 1,
-                30
+                `escort-stack:escorts:${exchangeIndex}:${beat}`,
+                {
+                  alongPx: 24,
+                  lateralPx: 188,
+                  alongStepPx: 22,
+                  lateralStepPx: 38,
+                  jitterAlongPx: 18,
+                  jitterLateralPx: 18,
+                  arcPx: 48,
+                  driftPx: 18
+                }
               )
             ];
 
@@ -1365,8 +1385,26 @@ export class HexMapRenderer implements IMapRenderer {
       } else if (interceptorFlights.length + escortFlights.length > 1) {
         await this.runAirShowPhase(
           [
-            ...buildHoldingAssignments(activeFlights(interceptorFlights), 0, 28),
-            ...buildHoldingAssignments(activeFlights(escortFlights), 1, 26)
+            ...buildBandAssignments(activeFlights(interceptorFlights), "escort-idle:interceptors", {
+              alongPx: -92,
+              lateralPx: -196,
+              alongStepPx: 28,
+              lateralStepPx: 42,
+              jitterAlongPx: 20,
+              jitterLateralPx: 18,
+              arcPx: 52,
+              driftPx: 18
+            }),
+            ...buildBandAssignments(activeFlights(escortFlights), "escort-idle:escorts", {
+              alongPx: 12,
+              lateralPx: 172,
+              alongStepPx: 24,
+              lateralStepPx: 38,
+              jitterAlongPx: 18,
+              jitterLateralPx: 18,
+              arcPx: 48,
+              driftPx: 18
+            })
           ],
           Math.max(520, Math.round((scene.escortClashDurationMs ?? 1500) * 0.55))
         );
@@ -1380,8 +1418,26 @@ export class HexMapRenderer implements IMapRenderer {
         if ((scene.bomberArrivalDelayMs ?? 0) > 0) {
           await this.runAirShowPhase(
             [
-              ...buildHoldingAssignments(survivingInterceptors, 4, 22),
-              ...buildHoldingAssignments(survivingEscorts, 5, 20)
+              ...buildBandAssignments(survivingInterceptors, "bomber-window:interceptors", {
+                alongPx: -76,
+                lateralPx: -168,
+                alongStepPx: 28,
+                lateralStepPx: 36,
+                jitterAlongPx: 18,
+                jitterLateralPx: 14,
+                arcPx: 42,
+                driftPx: 14
+              }),
+              ...buildBandAssignments(survivingEscorts, "bomber-window:escorts", {
+                alongPx: -18,
+                lateralPx: 140,
+                alongStepPx: 24,
+                lateralStepPx: 34,
+                jitterAlongPx: 16,
+                jitterLateralPx: 14,
+                arcPx: 40,
+                driftPx: 14
+              })
             ],
             Math.max(180, Math.min(620, Math.round((scene.bomberArrivalDelayMs ?? 0) * 0.42)))
           );
@@ -1396,11 +1452,7 @@ export class HexMapRenderer implements IMapRenderer {
         const bomberIngressAssignments: AirShowPhaseAssignment[] = [
           ...(() => {
             const rand = stageRandom(`ingress:bomber:${bomberFlight.spec.id}`);
-            const ingressTarget = this.offsetAirShowPoint(
-              this.resolveAirShowSceneAnchor(center, "bomber", 0, 1, -1),
-              (rand() - 0.5) * 26,
-              (rand() - 0.5) * 22
-            );
+            const ingressTarget = corridorPoint(-58, (rand() - 0.5) * 12);
             return this.buildAirShowFlightAssignments(
               bomberFlight,
               this.buildAirShowBomberRunPath(
@@ -1408,49 +1460,33 @@ export class HexMapRenderer implements IMapRenderer {
                 ingressTarget,
                 {
                   lateralSign: rand() > 0.5 ? 1 : -1,
-                  corridorWidthPx: 24 + rand() * 8,
-                  driftPx: 48 + rand() * 18
+                  corridorWidthPx: 20 + rand() * 6,
+                  driftPx: 28 + rand() * 12
                 }
               ),
               0.22
             );
           })(),
-          ...survivingInterceptors.flatMap((flight, index) =>
-            (() => {
-              const rand = stageRandom(`bomber-stack:interceptor:${flight.spec.id}:${index}`);
-              return this.buildAirShowFlightAssignments(
-                flight,
-                this.buildAirShowCurvedPath(
-                  this.averageAirShowPosition(flight.actors) ?? flight.anchor,
-                  {
-                    cx: center.cx - 124 + index * 32 + (rand() - 0.5) * 20,
-                    cy: center.cy - 66 + index * 34 + (rand() - 0.5) * 24
-                  },
-                  -42 - rand() * 18,
-                  34 + rand() * 18
-                ),
-                0.26
-              );
-            })()
-          ),
-          ...survivingEscorts.flatMap((flight, index) =>
-            (() => {
-              const rand = stageRandom(`bomber-stack:escort:${flight.spec.id}:${index}`);
-              return this.buildAirShowFlightAssignments(
-                flight,
-                this.buildAirShowCurvedPath(
-                  this.averageAirShowPosition(flight.actors) ?? flight.anchor,
-                  {
-                    cx: center.cx + 144 + index * 28 + (rand() - 0.5) * 20,
-                    cy: center.cy - 96 + index * 28 + (rand() - 0.5) * 24
-                  },
-                  46 + rand() * 20,
-                  36 + rand() * 20
-                ),
-                0.26
-              );
-            })()
-          )
+          ...buildBandAssignments(survivingInterceptors, "bomber-stack:interceptors", {
+            alongPx: -132,
+            lateralPx: -142,
+            alongStepPx: 28,
+            lateralStepPx: 34,
+            jitterAlongPx: 18,
+            jitterLateralPx: 16,
+            arcPx: 46,
+            driftPx: 18
+          }),
+          ...buildBandAssignments(survivingEscorts, "bomber-stack:escorts", {
+            alongPx: -34,
+            lateralPx: 114,
+            alongStepPx: 24,
+            lateralStepPx: 32,
+            jitterAlongPx: 18,
+            jitterLateralPx: 16,
+            arcPx: 44,
+            driftPx: 18
+          })
         ];
         await this.runAirShowPhase(
           bomberIngressAssignments,
@@ -1459,6 +1495,11 @@ export class HexMapRenderer implements IMapRenderer {
         updateFlightAnchors([bomberFlight, ...survivingInterceptors, ...survivingEscorts]);
 
         const bomberPassExchanges = scene.bomberPassExchanges ?? [];
+        const totalBomberVisualPasses = bomberPassExchanges.reduce(
+          (sum, entry) => sum + Math.max(2, entry.visualPasses ?? 2),
+          0
+        );
+        let completedBomberPasses = 0;
         for (let exchangeIndex = 0; exchangeIndex < bomberPassExchanges.length; exchangeIndex += 1) {
           const exchange = bomberPassExchanges[exchangeIndex]!;
           const interceptorFlight = flightMap.get(exchange.attackerUnitKey);
@@ -1470,56 +1511,78 @@ export class HexMapRenderer implements IMapRenderer {
           for (let passIndex = 0; passIndex < visualPasses; passIndex += 1) {
             const rand = stageRandom(`bomber-pass:${exchangeIndex}:${passIndex}:${interceptorFlight.spec.id}`);
             const direction = rand() > 0.5 ? 1 : -1;
-            const passCenter = {
-              cx: center.cx + exchangeIndex * 26 + (rand() - 0.5) * 20,
-              cy:
-                center.cy +
-                (exchangeIndex - (bomberPassExchanges.length - 1) / 2) * 24 +
-                (passIndex % 2 === 0 ? -18 : 18) +
-                (rand() - 0.5) * 22
-            };
             const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
             const interceptorCurrent = this.averageAirShowPosition(interceptorFlight.actors) ?? interceptorFlight.anchor;
-            const bomberExit = this.offsetAirShowPoint(
-              passCenter,
-              direction * (132 + rand() * 22),
-              (rand() - 0.5) * 24
-            );
-            const bomberAim = this.interpolateAirShowPoint(bomberCurrent, bomberExit, 0.54);
+            const passProgressStart =
+              totalBomberVisualPasses <= 0
+                ? -38
+                : -42 + (completedBomberPasses / Math.max(1, totalBomberVisualPasses)) * 92;
+            const passProgressEnd =
+              totalBomberVisualPasses <= 0
+                ? 20
+                : -8 + ((completedBomberPasses + 1) / Math.max(1, totalBomberVisualPasses)) * 106;
+            const bomberLateral =
+              (exchangeIndex - (bomberPassExchanges.length - 1) / 2) * 10 +
+              (passIndex % 2 === 0 ? -8 : 8) +
+              (rand() - 0.5) * 8;
+            const bomberExit = corridorPoint(passProgressEnd, bomberLateral);
+            const bomberAim = corridorPoint((passProgressStart + passProgressEnd) * 0.5, bomberLateral);
             const bomberPath = this.buildAirShowBomberRunPath(bomberCurrent, bomberExit, {
-              lateralSign: passIndex % 2 === 0 ? 1 : -1,
-              corridorWidthPx: 18 + rand() * 10,
-              driftPx: 36 + rand() * 18
+              lateralSign: bomberLateral >= 0 ? 1 : -1,
+              corridorWidthPx: 12 + rand() * 4,
+              driftPx: 12 + rand() * 8
             });
             const interceptorPath = this.buildAirShowPursuitPath(
               interceptorCurrent,
               this.offsetAirShowPoint(
                 bomberAim,
-                -direction * (6 + rand() * 10),
-                (passIndex % 2 === 0 ? -1 : 1) * (8 + rand() * 14)
+                -direction * (8 + rand() * 10),
+                (passIndex % 2 === 0 ? -1 : 1) * (18 + rand() * 18)
               ),
               {
                 lateralSign: passIndex % 2 === 0 ? -direction : direction,
-                entryLateralPx: 118 + rand() * 34,
-                mergeLateralPx: 30 + rand() * 16,
+                entryLateralPx: 156 + rand() * 34,
+                mergeLateralPx: 48 + rand() * 20,
                 attackOffsetPx: 6 + rand() * 6,
                 closeInPx: 10 + rand() * 10,
-                overshootPx: 136 + rand() * 28,
-                breakLateralPx: 88 + rand() * 24,
-                breakForwardPx: 78 + rand() * 20,
-                driftPx: (rand() - 0.5) * 42
+                overshootPx: 164 + rand() * 32,
+                breakLateralPx: 126 + rand() * 28,
+                breakForwardPx: 88 + rand() * 22,
+                driftPx: (rand() - 0.5) * 52
               }
             );
 
             const phaseAssignments: AirShowPhaseAssignment[] = [
               ...this.buildAirShowFlightAssignments(bomberFlight, bomberPath, 0.22),
               ...this.buildAirShowFlightAssignments(interceptorFlight, interceptorPath, 0.4),
-              ...buildHoldingAssignments(
+              ...buildBandAssignments(
                 activeFlights(interceptorFlights.filter((flight) => flight !== interceptorFlight)),
-                exchangeIndex + passIndex + 8,
-                24
+                `bomber-stack:other-interceptors:${exchangeIndex}:${passIndex}`,
+                {
+                  alongPx: passProgressStart - 34,
+                  lateralPx: -154,
+                  alongStepPx: 22,
+                  lateralStepPx: 28,
+                  jitterAlongPx: 16,
+                  jitterLateralPx: 12,
+                  arcPx: 34,
+                  driftPx: 12
+                }
               ),
-              ...buildHoldingAssignments(activeFlights(escortFlights), exchangeIndex + passIndex + 10, 22)
+              ...buildBandAssignments(
+                activeFlights(escortFlights),
+                `bomber-stack:screening-escorts:${exchangeIndex}:${passIndex}`,
+                {
+                  alongPx: passProgressStart + 12,
+                  lateralPx: 108,
+                  alongStepPx: 18,
+                  lateralStepPx: 26,
+                  jitterAlongPx: 14,
+                  jitterLateralPx: 12,
+                  arcPx: 30,
+                  driftPx: 10
+                }
+              )
             ];
 
             const attackingActor = this.selectAirShowActor(interceptorFlight, passIndex, true);
@@ -1595,6 +1658,7 @@ export class HexMapRenderer implements IMapRenderer {
               tracerBursts
             );
             updateFlightAnchors([bomberFlight, interceptorFlight, ...interceptorFlights, ...escortFlights]);
+            completedBomberPasses += 1;
           }
 
           await this.syncAirShowFlightStrength(
@@ -1611,7 +1675,11 @@ export class HexMapRenderer implements IMapRenderer {
         }
       }
 
-      const egressFlights = activeFlights([...interceptorFlights, ...escortFlights, ...(bomberFlight ? [bomberFlight] : [])]);
+      const egressFlights = activeFlights([
+        ...interceptorFlights,
+        ...escortFlights,
+        ...(bomberFlight && !scene.bomberTargetHexKey ? [bomberFlight] : [])
+      ]);
       if (egressFlights.length > 0) {
         await this.runAirShowPhase(
           egressFlights.flatMap((flight, index) => {
@@ -1619,19 +1687,10 @@ export class HexMapRenderer implements IMapRenderer {
             const rand = stageRandom(`egress:${flight.spec.id}:${index}`);
             const egressPoint =
               flight.spec.role === "bomber"
-                ? {
-                    cx: center.cx + 196 + rand() * 30,
-                    cy: center.cy + 18 + (rand() - 0.5) * 28
-                  }
+                ? corridorPoint(126 + rand() * 20, (rand() - 0.5) * 12)
                 : flight.spec.role === "escort"
-                  ? {
-                      cx: center.cx + 214 + index * 20 + rand() * 18,
-                      cy: center.cy - 132 + index * 26 + (rand() - 0.5) * 28
-                    }
-                  : {
-                      cx: center.cx - 214 - index * 20 - rand() * 18,
-                      cy: center.cy + 124 - index * 24 + (rand() - 0.5) * 28
-                    };
+                  ? corridorPoint(108 + index * 18 + rand() * 16, 138 + index * 18 + (rand() - 0.5) * 24)
+                  : corridorPoint(-146 - index * 18 - rand() * 16, -156 - index * 20 + (rand() - 0.5) * 24);
             return this.buildAirShowFlightAssignments(
               flight,
               flight.spec.role === "bomber"
@@ -5296,6 +5355,50 @@ export class HexMapRenderer implements IMapRenderer {
     return {
       cx: start.cx + (end.cx - start.cx) * t,
       cy: start.cy + (end.cy - start.cy) * t
+    };
+  }
+
+  private resolveAirShowCorridor(
+    center: AirShowPoint,
+    origin: AirShowPoint | null,
+    target: AirShowPoint | null
+  ): AirShowCorridor {
+    const approach = origin ?? { cx: center.cx - 220, cy: center.cy + 110 };
+    const egress = target ?? { cx: center.cx + 220, cy: center.cy - 24 };
+    const axis = this.normalizeAircraftVector(
+      egress.cx - approach.cx,
+      egress.cy - approach.cy,
+      1,
+      0
+    );
+    const normal = { x: -axis.y, y: axis.x };
+    return {
+      center,
+      axis,
+      normal,
+      entry: {
+        cx: center.cx - axis.x * 126,
+        cy: center.cy - axis.y * 126
+      },
+      merge: {
+        cx: center.cx - axis.x * 44,
+        cy: center.cy - axis.y * 44
+      },
+      strike: {
+        cx: center.cx + axis.x * 52,
+        cy: center.cy + axis.y * 52
+      },
+      exit: {
+        cx: center.cx + axis.x * 118,
+        cy: center.cy + axis.y * 118
+      }
+    };
+  }
+
+  private projectAirShowCorridorPoint(corridor: AirShowCorridor, alongPx: number, lateralPx = 0): AirShowPoint {
+    return {
+      cx: corridor.center.cx + corridor.axis.x * alongPx + corridor.normal.x * lateralPx,
+      cy: corridor.center.cy + corridor.axis.y * alongPx + corridor.normal.y * lateralPx
     };
   }
 

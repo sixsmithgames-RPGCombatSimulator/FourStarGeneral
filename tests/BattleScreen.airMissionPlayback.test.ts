@@ -1465,3 +1465,285 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_USE_CHOREOGRAPHED_SHOW_PATHS_WHEN_AVAI
     }
   });
 });
+
+registerTest("BATTLESCREEN_LINKED_STRIKES_KEEP_ESCORT_SORTIES_INSIDE_INTERCEPTED_PACKAGE_PLAYBACK", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  const callOrder: string[] = [];
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const fakeRenderer = {
+    async playDustCloud(): Promise<void> {}
+  };
+  const fakeBattleState = {
+    ensureGameEngine: () => ({
+      getScheduledAirMissions: () => []
+    })
+  } as any;
+
+  await Given("a linked strike whose interception event can only be matched by bomber squadron id", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      fakeBattleState,
+      {} as any,
+      fakeRenderer as any,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).focusCameraOnHex = async (): Promise<void> => {};
+    (screen as any).waitForNextFrame = async (): Promise<void> => {};
+    (screen as any).waitMs = async (): Promise<void> => {};
+    (screen as any).closeSelectionIntelForAnimation = () => {};
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+    (screen as any).renderEngineUnits = () => {};
+    (screen as any).resolvePreparedAirMissionDestKey = () => "2,0";
+    (screen as any).playMissionStrikeOperation = async (
+      flight: { unitKey: string },
+      linkedEvents: Array<{ type: string }>,
+      escorts: Array<{ unitKey: string }>
+    ): Promise<void> => {
+      callOrder.push(`linkedStrike:${flight.unitKey}:${linkedEvents.map((entry) => entry.type).join("|")}:${escorts.map((escort) => escort.unitKey).join("|")}`);
+    };
+    (screen as any).playStandaloneAirMissionFlight = async (flight: { kind: string; unitKey: string }): Promise<void> => {
+      callOrder.push(`standaloneFlight:${flight.kind}:${flight.unitKey}`);
+    };
+    (screen as any).playStandaloneAirEngagementEvent = async (event: { type: string; bomber: { unitKey: string } }): Promise<void> => {
+      callOrder.push(`standaloneEvent:${event.type}:${event.bomber.unitKey}`);
+    };
+  });
+
+  const arrivals: AirMissionArrival[] = [
+    {
+      missionId: "strike-live-2",
+      faction: "Bot",
+      unitKey: "bomber-1",
+      originHexKey: "0,0",
+      unitType: "Bomber",
+      unitStrength: 100,
+      kind: "strike",
+      targetHex: { q: 2, r: 0 }
+    },
+    {
+      missionId: "escort-live-2",
+      faction: "Bot",
+      unitKey: "escort-1",
+      originHexKey: "1,0",
+      unitType: "Fighter",
+      unitStrength: 100,
+      kind: "escort",
+      escortTargetUnitKey: "bomber-1"
+    }
+  ];
+  const events: AirEngagementEvent[] = [
+    {
+      type: "airToAir",
+      missionId: "detached-air-event",
+      location: { q: 2, r: 0 },
+      bomber: {
+        faction: "Bot",
+        unitKey: "bomber-1",
+        unitType: "Bomber",
+        strength: 100
+      },
+      interceptors: [
+        {
+          faction: "Player",
+          unitKey: "cap-1",
+          unitType: "Interceptor",
+          strength: 100
+        }
+      ],
+      escorts: [],
+      bomberStrengthBefore: 100,
+      bomberStrengthAfter: 74,
+      bomberDestroyed: false,
+      interceptorAttrition: 0,
+      escortAttrition: 0,
+      escortsEngaged: 0,
+      interceptorsAfterEscortPhase: 1,
+      escortsAfterEscortPhase: 0,
+      bomberPassExchanges: [
+        {
+          phase: "bomberPass",
+          attackerFaction: "Player",
+          attackerUnitKey: "cap-1",
+          attackerUnitType: "Interceptor",
+          defenderFaction: "Bot",
+          defenderUnitKey: "bomber-1",
+          defenderUnitType: "Bomber",
+          attackerStrengthBefore: 100,
+          attackerStrengthAfter: 92,
+          defenderStrengthBefore: 100,
+          defenderStrengthAfter: 74,
+          damageToDefender: 26,
+          retaliationDamage: 8,
+          attackerDestroyed: false,
+          defenderDestroyed: false,
+          visualPasses: 2
+        }
+      ]
+    }
+  ];
+
+  await When("the battle screen links arrivals and resolved air events into playback operations", async () => {
+    await (screen as any).playAirOperations(arrivals, events);
+  });
+
+  await Then("the linked strike should keep its escort inside the package and avoid standalone escort or event playback", async () => {
+    const linkedStrike = callOrder.find((entry) => entry.startsWith("linkedStrike:bomber-1:"));
+    if (!linkedStrike) {
+      throw new Error(`Expected the strike package to absorb the air interception event, saw ${JSON.stringify(callOrder)}.`);
+    }
+    if (!linkedStrike.endsWith(":escort-1")) {
+      throw new Error(`Expected the linked strike playback to retain escort-1 inside the package, saw ${linkedStrike}.`);
+    }
+    if (callOrder.some((entry) => entry === "standaloneFlight:escort:escort-1" || entry.startsWith("standaloneEvent:airToAir:bomber-1"))) {
+      throw new Error(`Did not expect detached escort or bomber interception playback, saw ${JSON.stringify(callOrder)}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_SUPPLEMENTS_LINKED_ESCORTS_AND_BOMBER_CORRIDOR_CONTEXT", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let resolvedScene: any = null;
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const fakeRenderer = {
+    async animateResolvedAirCombatShow(scene: unknown): Promise<void> {
+      resolvedScene = scene;
+    }
+  };
+
+  await Given("a mission air intercept event with a linked escort flight and a downstream strike target", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      { ensureGameEngine: () => ({}) } as any,
+      {} as any,
+      fakeRenderer as any,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).announceAirInterceptEngagement = () => {};
+    (screen as any).waitMs = async (): Promise<void> => {};
+    (screen as any).resolveAirEngagementOffsetKey = (unitKey: string) => {
+      const origins: Record<string, string> = {
+        "cap-1": "0,2",
+        "bomber-1": "-1,-2",
+        "escort-1": "1,-2"
+      };
+      return origins[unitKey] ?? null;
+    };
+    (screen as any).resolveAirSquadronStrength = () => 100;
+  });
+
+  const event: AirEngagementEvent = {
+    type: "airToAir",
+    missionId: "strike-live-3",
+    location: { q: 0, r: 0 },
+    bomber: {
+      faction: "Bot",
+      unitKey: "bomber-1",
+      unitType: "Bomber",
+      strength: 100
+    },
+    interceptors: [
+      {
+        faction: "Player",
+        unitKey: "cap-1",
+        unitType: "Interceptor",
+        strength: 100
+      }
+    ],
+    escorts: [],
+    bomberStrengthBefore: 100,
+    bomberStrengthAfter: 72,
+    bomberDestroyed: false,
+    interceptorAttrition: 12,
+    escortAttrition: 0,
+    escortsEngaged: 0,
+    interceptorsAfterEscortPhase: 1,
+    escortsAfterEscortPhase: 0,
+    bomberPassExchanges: [
+      {
+        phase: "bomberPass",
+        attackerFaction: "Player",
+        attackerUnitKey: "cap-1",
+        attackerUnitType: "Interceptor",
+        defenderFaction: "Bot",
+        defenderUnitKey: "bomber-1",
+        defenderUnitType: "Bomber",
+        attackerStrengthBefore: 100,
+        attackerStrengthAfter: 88,
+        defenderStrengthBefore: 100,
+        defenderStrengthAfter: 72,
+        damageToDefender: 28,
+        retaliationDamage: 12,
+        attackerDestroyed: false,
+        defenderDestroyed: false,
+        visualPasses: 2
+      }
+    ]
+  };
+  const linkedEscortFlights = [
+    {
+      missionId: "escort-live-3",
+      faction: "Bot" as const,
+      kind: "escort",
+      unitKey: "escort-1",
+      originKey: "1,-2",
+      destKey: "0,0",
+      unitType: "Fighter",
+      strength: 100,
+      laneOffsetPx: 0,
+      escortTargetUnitKey: "bomber-1"
+    }
+  ];
+
+  await When("the resolved airshow scene is built for playback", async () => {
+    await (screen as any).playMissionAirInterceptEvent(
+      event,
+      "0,0",
+      fakeRenderer,
+      {} as any,
+      0,
+      false,
+      false,
+      900,
+      true,
+      "-1,-2",
+      linkedEscortFlights,
+      "3,0"
+    );
+  });
+
+  await Then("the scene should include the linked escort and the bomber corridor target", async () => {
+    if (!resolvedScene) {
+      throw new Error("Expected the resolved airshow scene to be handed to the renderer.");
+    }
+    const escortIds = Array.isArray(resolvedScene.escorts) ? resolvedScene.escorts.map((entry: { id: string }) => entry.id) : [];
+    if (!escortIds.includes("escort-1")) {
+      throw new Error(`Expected escort-1 to be carried into the resolved scene, saw ${JSON.stringify(resolvedScene)}.`);
+    }
+    const escortOrigin = resolvedScene.escorts.find((entry: { id: string }) => entry.id === "escort-1")?.originHexKey;
+    if (escortOrigin !== "1,-2") {
+      throw new Error(`Expected escort-1 to keep its linked origin for the airshow, saw ${escortOrigin ?? "<missing>"}.`);
+    }
+    if (resolvedScene.bomberTargetHexKey !== "3,0") {
+      throw new Error(`Expected bomber corridor target 3,0 to reach the renderer, saw ${resolvedScene.bomberTargetHexKey ?? "<missing>"}.`);
+    }
+  });
+});
