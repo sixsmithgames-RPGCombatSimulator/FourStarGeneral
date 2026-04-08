@@ -3335,35 +3335,19 @@ export class BattleScreen {
       return;
     }
 
-    this.announceAirInterceptEngagement(event);
     const bomberFrom = this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
-    const bomberIngressPromise = bomberFrom
-      ? this.animateAircraftLeg(
-          renderer,
-          bomberFrom,
-          locKey,
-          event.bomber.unitType,
-          this.resolveBomberInterceptIngressDurationMs(),
-          undefined,
-          1,
-          event.bomber.strength ?? this.resolveAirSquadronStrength(event.bomber.unitKey, event.bomber.faction, engine),
-          laneOffsetPx,
-          event.bomber.faction
-        )
-      : Promise.resolve();
-    await Promise.all([
-      bomberIngressPromise,
-      this.playMissionAirInterceptEvent(
-        event,
-        locKey,
-        renderer,
-        engine,
-        laneOffsetPx,
-        false,
-        true,
-        this.resolveAirInterceptBomberArrivalDelayMs()
-      )
-    ]);
+    await this.playMissionAirInterceptEvent(
+      event,
+      locKey,
+      renderer,
+      engine,
+      laneOffsetPx,
+      false,
+      true,
+      this.resolveAirInterceptBomberArrivalDelayMs(),
+      true,
+      bomberFrom
+    );
   }
 
   private async playMissionStrikeOperation(
@@ -3404,40 +3388,18 @@ export class BattleScreen {
     const remainingStrength = Math.max(1, Math.round((bomberStrength ?? 100) - totalAttrition));
 
     if (airToAirEvent) {
-      const bomberIngressPromise = this.animateAircraftLeg(
-        renderer,
-        flight.originKey,
+      await this.playMissionAirInterceptEvent(
+        airToAirEvent,
         interceptLocKey,
-        flight.unitType,
-        this.resolveBomberInterceptIngressDurationMs(),
-        (progress, centerX, centerY) => {
-          if (!flakEvent) {
-            return;
-          }
-          while (progress >= nextBurstProgress && nextBurstProgress <= flakWindowEnd) {
-            void renderer.playFlakBurstAt(centerX, centerY, flakEvent.interceptors.length, 1.08);
-            nextBurstProgress += 0.08;
-          }
-        },
-        flakEvent?.bomberDestroyed ? 0.84 : 1,
-        bomberStrength,
+        renderer,
+        engine,
         flight.laneOffsetPx,
-        flight.faction
+        false,
+        true,
+        this.resolveAirInterceptBomberArrivalDelayMs(),
+        flakEvent?.bomberDestroyed !== true,
+        flight.originKey
       );
-      await Promise.all([
-        bomberIngressPromise,
-        this.playMissionAirInterceptEvent(
-          airToAirEvent,
-          interceptLocKey,
-          renderer,
-          engine,
-          flight.laneOffsetPx,
-          false,
-          true,
-          this.resolveAirInterceptBomberArrivalDelayMs(),
-          flakEvent?.bomberDestroyed !== true
-        )
-      ]);
 
       if (bomberDestroyedBeforeImpact) {
         return;
@@ -3574,7 +3536,8 @@ export class BattleScreen {
     skipEscortFlights = false,
     announceEvent = true,
     bomberArrivalDelayMs = 0,
-    allowBomberDefensePass = true
+    allowBomberDefensePass = true,
+    bomberOriginKey: string | null = null
   ): Promise<void> {
     if (announceEvent) {
       this.announceAirInterceptEngagement(event);
@@ -3585,13 +3548,13 @@ export class BattleScreen {
       phaseIndex: number;
       unitType: string;
       faction: TurnFaction;
+      originKey: string;
       laneOffsetPx: number;
       orbitIndex: number;
       clockwise: boolean;
       initialStrength: number;
       strengthAfterEscortPhase: number;
       finalStrength: number;
-      ingress: Promise<void>;
     }> = [];
     let participantIndex = 0;
 
@@ -3675,28 +3638,17 @@ export class BattleScreen {
           phaseIndex: index,
           unitType: interceptor.unitType,
           faction: interceptor.faction,
+          originKey: from,
           laneOffsetPx: laneOffset,
           orbitIndex: participantIndex,
           clockwise: false,
           initialStrength,
           strengthAfterEscortPhase: this.resolveAirEngagementPhaseStrength(
             event.interceptorStrengthsAfterEscortPhase,
-            index,
-            initialStrength
-          ),
-          finalStrength: this.resolveAirEngagementPhaseStrength(event.interceptorFinalStrengths, index, initialStrength),
-          ingress: this.animateAircraftLeg(
-            renderer,
-            from,
-            locKey,
-            interceptor.unitType,
-            this.resolveFighterInterceptIngressDurationMs(),
-            undefined,
-            1,
-            initialStrength,
-            laneOffset,
-            interceptor.faction
-          )
+              index,
+              initialStrength
+            ),
+          finalStrength: this.resolveAirEngagementPhaseStrength(event.interceptorFinalStrengths, index, initialStrength)
         });
       }
       participantIndex += 1;
@@ -3714,28 +3666,17 @@ export class BattleScreen {
             phaseIndex: index,
             unitType: escort.unitType,
             faction: escort.faction,
+            originKey: from,
             laneOffsetPx: laneOffset,
             orbitIndex: participantIndex,
             clockwise: true,
             initialStrength,
             strengthAfterEscortPhase: this.resolveAirEngagementPhaseStrength(
               event.escortStrengthsAfterEscortPhase,
-              index,
-              initialStrength
-            ),
-            finalStrength: this.resolveAirEngagementPhaseStrength(event.escortFinalStrengths, index, initialStrength),
-            ingress: this.animateAircraftLeg(
-              renderer,
-              from,
-              locKey,
-              escort.unitType,
-              this.resolveFighterInterceptIngressDurationMs(),
-              undefined,
-              1,
-              initialStrength,
-              laneOffset,
-              escort.faction
-            )
+                index,
+                initialStrength
+              ),
+            finalStrength: this.resolveAirEngagementPhaseStrength(event.escortFinalStrengths, index, initialStrength)
           });
         }
       }
@@ -3746,7 +3687,107 @@ export class BattleScreen {
       return;
     }
 
-    await Promise.all(participants.map((participant) => participant.ingress));
+    const canPlayResolvedAirShow = typeof (renderer as any).animateResolvedAirCombatShow === "function";
+    if (canPlayResolvedAirShow) {
+      const bomberPassAvailable = allowBomberDefensePass && this.shouldPlayBomberDefensePass(event);
+      const resolvedBomberOriginKey =
+        bomberOriginKey ?? this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
+      await (renderer as any).animateResolvedAirCombatShow({
+        hexKey: locKey,
+        interceptors: participants
+          .filter((participant) => participant.role === "interceptor")
+          .map((participant) => ({
+            id: event.interceptors[participant.phaseIndex]?.unitKey ?? participant.originKey,
+            scenarioType: participant.unitType,
+            faction: participant.faction,
+            originHexKey: participant.originKey,
+            strengthBefore: participant.initialStrength,
+            strengthAfterEscortPhase: participant.strengthAfterEscortPhase,
+            finalStrength: participant.finalStrength,
+            laneOffsetPx: participant.laneOffsetPx,
+            role: participant.role
+          })),
+        escorts: participants
+          .filter((participant) => participant.role === "escort")
+          .map((participant) => ({
+            id: event.escorts[participant.phaseIndex]?.unitKey ?? participant.originKey,
+            scenarioType: participant.unitType,
+            faction: participant.faction,
+            originHexKey: participant.originKey,
+            strengthBefore: participant.initialStrength,
+            strengthAfterEscortPhase: participant.strengthAfterEscortPhase,
+            finalStrength: participant.finalStrength,
+            laneOffsetPx: participant.laneOffsetPx,
+            role: participant.role
+          })),
+        bomber: bomberPassAvailable
+          ? {
+              id: event.bomber.unitKey,
+              scenarioType: event.bomber.unitType,
+              faction: event.bomber.faction,
+              originHexKey: resolvedBomberOriginKey,
+              strengthBefore:
+                typeof event.bomberStrengthBefore === "number"
+                  ? Math.max(0, Math.round(event.bomberStrengthBefore))
+                  : event.bomber.strength ?? this.resolveAirSquadronStrength(event.bomber.unitKey, event.bomber.faction, engine),
+              strengthAfterEscortPhase:
+                typeof event.bomberStrengthAfter === "number"
+                  ? Math.max(0, Math.round(event.bomberStrengthAfter))
+                  : event.bomber.strength,
+              finalStrength:
+                typeof event.bomberStrengthAfter === "number"
+                  ? Math.max(0, Math.round(event.bomberStrengthAfter))
+                  : event.bomber.strength,
+              laneOffsetPx: fallbackLaneOffsetPx,
+              role: "bomber"
+            }
+          : null,
+        escortExchanges: (event.escortExchanges ?? []).map((exchange) => ({
+          attackerUnitKey: exchange.attackerUnitKey,
+          defenderUnitKey: exchange.defenderUnitKey,
+          attackerStrengthAfter: exchange.attackerStrengthAfter,
+          defenderStrengthAfter: exchange.defenderStrengthAfter,
+          attackerDestroyed: exchange.attackerDestroyed,
+          defenderDestroyed: exchange.defenderDestroyed,
+          visualPasses: exchange.visualPasses
+        })),
+        bomberPassExchanges: bomberPassAvailable
+          ? (event.bomberPassExchanges ?? []).map((exchange) => ({
+              attackerUnitKey: exchange.attackerUnitKey,
+              defenderUnitKey: exchange.defenderUnitKey,
+              attackerStrengthAfter: exchange.attackerStrengthAfter,
+              defenderStrengthAfter: exchange.defenderStrengthAfter,
+              attackerDestroyed: exchange.attackerDestroyed,
+              defenderDestroyed: exchange.defenderDestroyed,
+              visualPasses: exchange.visualPasses
+            }))
+          : [],
+        fighterIngressDurationMs: this.resolveFighterInterceptIngressDurationMs(),
+        escortClashDurationMs: this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 2.6)),
+        bomberIngressDurationMs: this.resolveBomberInterceptIngressDurationMs(),
+        bomberPassDurationMs: this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 3.2)),
+        egressDurationMs: this.scaleAirSequenceMs(1080),
+        bomberArrivalDelayMs
+      });
+      return;
+    }
+
+    await Promise.all(
+      participants.map((participant) =>
+        this.animateAircraftLeg(
+          renderer,
+          participant.originKey,
+          locKey,
+          participant.unitType,
+          this.resolveFighterInterceptIngressDurationMs(),
+          undefined,
+          1,
+          participant.initialStrength,
+          participant.laneOffsetPx,
+          participant.faction
+        )
+      )
+    );
 
     const canPlayDogfightShow = typeof (renderer as any).animateAirDogfightShowAt === "function";
     const canPlayBomberInterceptionShow = typeof (renderer as any).animateBomberInterceptionShowAt === "function";

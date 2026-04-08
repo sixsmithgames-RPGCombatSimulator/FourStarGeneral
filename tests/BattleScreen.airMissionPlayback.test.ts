@@ -1293,31 +1293,24 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_USE_CHOREOGRAPHED_SHOW_PATHS_WHEN_AVAI
   } as unknown as import("../src/state/BattleState").BattleState;
 
   const fakeRenderer = {
-    async animateAircraftFlyover(
-      fromKey: string,
-      toKey: string,
-      unitType: string,
-      _durationMs: number,
-      _onProgress?: unknown,
-      _endProgress?: number,
-      _strength?: number,
-      _laneOffsetPx?: number,
-      faction?: string
-    ): Promise<void> {
-      callOrder.push(`fly:${faction ?? "unknown"}:${unitType}:${fromKey}->${toKey}`);
-    },
-    async animateAirDogfightShowAt(
-      hexKey: string,
-      flights: Array<{ team: string; id: string }>
-    ): Promise<void> {
-      callOrder.push(`show-dogfight:${hexKey}:${flights.map((flight) => flight.team).join("|")}`);
-    },
-    async animateBomberInterceptionShowAt(
-      hexKey: string,
-      bomber: { id: string },
-      interceptors: Array<{ id: string }>
-    ): Promise<void> {
-      callOrder.push(`show-bomber:${hexKey}:${bomber.id}:${interceptors.map((entry) => entry.id).join("|")}`);
+    async animateResolvedAirCombatShow(scene: {
+      hexKey: string;
+      interceptors: Array<{ id: string; originHexKey?: string | null }>;
+      escorts: Array<{ id: string; originHexKey?: string | null }>;
+      bomber: { id: string; originHexKey?: string | null } | null;
+      escortExchanges: Array<{ attackerUnitKey: string; defenderUnitKey: string }>;
+      bomberPassExchanges: Array<{ attackerUnitKey: string; defenderUnitKey: string }>;
+    }): Promise<void> {
+      callOrder.push(
+        `resolved-scene:${scene.hexKey}:` +
+          `${scene.interceptors.map((flight) => `${flight.id}@${flight.originHexKey ?? "-"}`).join("|")}:` +
+          `${scene.escorts.map((flight) => `${flight.id}@${flight.originHexKey ?? "-"}`).join("|")}:` +
+          `${scene.bomber?.id ?? "none"}@${scene.bomber?.originHexKey ?? "-"}`
+      );
+      callOrder.push(
+        `resolved-exchanges:${scene.escortExchanges.map((entry) => `${entry.attackerUnitKey}>${entry.defenderUnitKey}`).join("|")}:` +
+          `${scene.bomberPassExchanges.map((entry) => `${entry.attackerUnitKey}>${entry.defenderUnitKey}`).join("|")}`
+      );
     },
     async playDogfight(hexKey: string): Promise<void> {
       callOrder.push(`fallback-dogfight:${hexKey}`);
@@ -1387,6 +1380,64 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_USE_CHOREOGRAPHED_SHOW_PATHS_WHEN_AVAI
     escortsEngaged: 1,
     interceptorsAfterEscortPhase: 2,
     escortsAfterEscortPhase: 0,
+    escortExchanges: [
+      {
+        phase: "escortClash",
+        attackerFaction: "Bot",
+        attackerUnitKey: "escort-1",
+        attackerUnitType: "Fighter",
+        defenderFaction: "Player",
+        defenderUnitKey: "cap-1",
+        defenderUnitType: "Interceptor",
+        attackerStrengthBefore: 100,
+        attackerStrengthAfter: 43,
+        defenderStrengthBefore: 100,
+        defenderStrengthAfter: 76,
+        damageToDefender: 24,
+        retaliationDamage: 57,
+        attackerDestroyed: true,
+        defenderDestroyed: false,
+        visualPasses: 1
+      }
+    ],
+    bomberPassExchanges: [
+      {
+        phase: "bomberPass",
+        attackerFaction: "Player",
+        attackerUnitKey: "cap-1",
+        attackerUnitType: "Interceptor",
+        defenderFaction: "Bot",
+        defenderUnitKey: "bomber-1",
+        defenderUnitType: "Bomber",
+        attackerStrengthBefore: 76,
+        attackerStrengthAfter: 63,
+        defenderStrengthBefore: 100,
+        defenderStrengthAfter: 72,
+        damageToDefender: 28,
+        retaliationDamage: 13,
+        attackerDestroyed: false,
+        defenderDestroyed: false,
+        visualPasses: 2
+      },
+      {
+        phase: "bomberPass",
+        attackerFaction: "Player",
+        attackerUnitKey: "cap-2",
+        attackerUnitType: "Interceptor",
+        defenderFaction: "Bot",
+        defenderUnitKey: "bomber-1",
+        defenderUnitType: "Bomber",
+        attackerStrengthBefore: 100,
+        attackerStrengthAfter: 88,
+        defenderStrengthBefore: 72,
+        defenderStrengthAfter: 44,
+        damageToDefender: 28,
+        retaliationDamage: 12,
+        attackerDestroyed: false,
+        defenderDestroyed: false,
+        visualPasses: 2
+      }
+    ],
     interceptorStrengthsAfterEscortPhase: [76, 100],
     escortStrengthsAfterEscortPhase: [0],
     interceptorFinalStrengths: [63, 88],
@@ -1397,19 +1448,23 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_USE_CHOREOGRAPHED_SHOW_PATHS_WHEN_AVAI
     await (screen as any).playMissionAirInterceptEvent(event, "0,0", fakeRenderer, fakeEngine, 0, false, false, 900, true);
   });
 
-  await Then("the screen should use the new choreographed show methods instead of the fallback bursts", async () => {
-    if (!callOrder.some((entry) => entry.startsWith("show-dogfight:0,0:"))) {
-      throw new Error(`Expected the choreographed dogfight show to run, saw ${JSON.stringify(callOrder)}.`);
+  await Then("the screen should use the resolved-scene airshow path instead of the fallback bursts", async () => {
+    const resolvedSceneEntry = callOrder.find((entry) => entry.startsWith("resolved-scene:0,0:"));
+    if (!resolvedSceneEntry) {
+      throw new Error(`Expected the resolved airshow scene to run, saw ${JSON.stringify(callOrder)}.`);
     }
-    if (!callOrder.some((entry) => entry.startsWith("show-bomber:0,0:bomber:bomber-1:"))) {
-      throw new Error(`Expected the choreographed bomber interception show to run, saw ${JSON.stringify(callOrder)}.`);
+    if (!resolvedSceneEntry.includes("cap-1@0,2") || !resolvedSceneEntry.includes("cap-2@1,2")) {
+      throw new Error(`Expected interceptor origins to be handed into the resolved airshow scene, saw ${resolvedSceneEntry}.`);
+    }
+    if (!resolvedSceneEntry.includes("escort-1@1,-2") || !resolvedSceneEntry.includes("bomber-1@-1,-2")) {
+      throw new Error(`Expected escort and bomber origins to be handed into the resolved airshow scene, saw ${resolvedSceneEntry}.`);
+    }
+    const resolvedExchangeEntry = callOrder.find((entry) => entry.startsWith("resolved-exchanges:"));
+    if (!resolvedExchangeEntry?.includes("escort-1>cap-1") || !resolvedExchangeEntry.includes("cap-1>bomber-1")) {
+      throw new Error(`Expected resolved escort and bomber-pass exchanges to be handed into the airshow scene, saw ${JSON.stringify(callOrder)}.`);
     }
     if (callOrder.some((entry) => entry.startsWith("fallback-dogfight:")) || callOrder.some((entry) => entry.startsWith("fallback-bomber:"))) {
       throw new Error(`Did not expect fallback burst animations when the show hooks exist, saw ${JSON.stringify(callOrder)}.`);
-    }
-    const bomberShow = callOrder.find((entry) => entry.startsWith("show-bomber:0,0:"));
-    if (!bomberShow?.includes("interceptor:0:Player:Interceptor|interceptor:1:Player:Interceptor")) {
-      throw new Error(`Expected both surviving interceptors to continue into the bomber pass, saw ${JSON.stringify(callOrder)}.`);
     }
   });
 });
