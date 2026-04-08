@@ -1085,10 +1085,15 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
+    console.log(`[AirSprite] ============ AIR COMBAT SCENE START ============`);
+    console.log(`[AirSprite] Scene at ${scene.hexKey}: ${interceptorFlights.length} interceptor flights, ${escortFlights.length} escort flights, ${bomberFlight ? '1' : '0'} bomber flight`);
+    console.log(`[AirSprite] Combat center: (${Math.round(center.cx)}, ${Math.round(center.cy)})`);
+
     if (bomberFlight) {
       bomberFlight.actors.forEach((actor) => {
         actor.image.style.opacity = "0";
       });
+      console.log(`[AirSprite] Bomber flight ${bomberFlight.spec.id} initially hidden`);
     }
 
     const flightMap = new Map(allFlights.map((flight) => [flight.spec.id, flight] as const));
@@ -1176,11 +1181,13 @@ export class HexMapRenderer implements IMapRenderer {
           headingBlend: 0.28
         })
       ];
+      console.log(`[AirSprite] ──── INGRESS PHASE: Fighters approaching ────`);
       await this.runAirShowPhase(ingressAssignments, Math.max(900, scene.fighterIngressDurationMs ?? 1480));
       updateFlightAnchors([...interceptorFlights, ...escortFlights]);
 
       const escortExchanges = scene.escortExchanges ?? [];
       if (escortExchanges.length > 0) {
+        console.log(`[AirSprite] ──── ESCORT CLASH PHASE: ${escortExchanges.length} dogfight exchanges ────`);
         interface ExchangeBeatData {
           phaseAssignments: AirShowPhaseAssignment[];
           tracerBursts: AirShowTracerBurst[];
@@ -1458,13 +1465,16 @@ export class HexMapRenderer implements IMapRenderer {
 
       const survivingInterceptors = activeFlights(interceptorFlights);
       const survivingEscorts = activeFlights(escortFlights);
+      console.log(`[AirSprite] Post-escort status: ${survivingInterceptors.length} interceptors, ${survivingEscorts.length} escorts remaining`);
 
       if (bomberFlight && bomberFlight.actors.some((actor) => actor.active)) {
+        console.log(`[AirSprite] ──── BOMBER INGRESS PHASE ────`);
         await Promise.all(
           bomberFlight.actors
             .filter((actor) => actor.active)
             .map((actor) => this.fadeInActor(actor, 400))
         );
+        console.log(`[AirSprite] Bomber ${bomberFlight.spec.id} faded in, ${bomberFlight.actors.filter(a => a.active).length} aircraft visible`);
         const bomberIngressAssignments: AirShowPhaseAssignment[] = [
           ...(() => {
             const rand = stageRandom(`ingress:bomber:${bomberFlight.spec.id}`);
@@ -1515,6 +1525,7 @@ export class HexMapRenderer implements IMapRenderer {
           (sum, entry) => sum + Math.max(2, entry.visualPasses ?? 2),
           0
         );
+        console.log(`[AirSprite] ──── BOMBER PASS PHASE: ${bomberPassExchanges.length} interceptor attacks, ${totalBomberVisualPasses} total passes ────`);
         let completedBomberPasses = 0;
         for (let exchangeIndex = 0; exchangeIndex < bomberPassExchanges.length; exchangeIndex += 1) {
           const exchange = bomberPassExchanges[exchangeIndex]!;
@@ -1524,7 +1535,9 @@ export class HexMapRenderer implements IMapRenderer {
           }
 
           const visualPasses = Math.max(2, exchange.visualPasses ?? 2);
+          console.log(`[AirSprite] Interceptor ${interceptorFlight.spec.id} attacking bomber ${bomberFlight.spec.id}: ${visualPasses} attack passes`);
           for (let passIndex = 0; passIndex < visualPasses; passIndex += 1) {
+            console.log(`[AirSprite]   Pass ${passIndex + 1}/${visualPasses}`);
             const rand = stageRandom(`bomber-pass:${exchangeIndex}:${passIndex}:${interceptorFlight.spec.id}`);
             const direction = rand() > 0.5 ? 1 : -1;
             const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
@@ -1695,6 +1708,7 @@ export class HexMapRenderer implements IMapRenderer {
         ...escortFlights,
         ...(bomberFlight && !scene.bomberTargetHexKey ? [bomberFlight] : [])
       ]);
+      console.log(`[AirSprite] ──── EGRESS PHASE: ${egressFlights.length} surviving flights departing ────`);
       if (egressFlights.length > 0) {
         await this.runAirShowPhase(
           egressFlights.flatMap((flight, index) => {
@@ -1730,7 +1744,9 @@ export class HexMapRenderer implements IMapRenderer {
           egressFlights.flatMap((flight) => flight.actors.map((actor) => this.fadeOutActor(actor, 300)))
         );
       }
+      console.log(`[AirSprite] ============ AIR COMBAT SCENE END ============`);
     } finally {
+      console.log(`[AirSprite] Cleanup: Removing ${allFlights.length} flights (${allFlights.reduce((sum, f) => sum + f.actors.length, 0)} total sprites)`);
       allFlights.forEach((flight) => {
         flight.actors.forEach((actor) => actor.image.remove());
       });
@@ -5393,6 +5409,14 @@ export class HexMapRenderer implements IMapRenderer {
       };
     });
 
+    const activeCount = actors.filter(a => a.active).length;
+    console.log(`[AirSprite] Created flight ${spec.id} (${spec.role}): ${activeCount}/${actors.length} aircraft at (${Math.round(origin.cx)}, ${Math.round(origin.cy)}) heading ${Math.round(defaultHeadingDegrees)}°`);
+    actors.forEach((actor, i) => {
+      if (actor.active) {
+        console.log(`  [AirSprite] ${actor.id}: pos(${Math.round(actor.position.cx)}, ${Math.round(actor.position.cy)}) heading ${Math.round(actor.headingDegrees)}° formation#${actor.formationIndex}`);
+      }
+    });
+
     return {
       spec,
       actors,
@@ -5926,8 +5950,16 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
+    console.log(`[AirSprite] Phase starting: ${assignments.length} aircraft moving over ${durationMs}ms, ${tracerBursts.length} tracer bursts scheduled`);
+    assignments.forEach(assignment => {
+      const start = assignment.points[0];
+      const end = assignment.points[assignment.points.length - 1];
+      console.log(`  [AirSprite] ${assignment.actor.id}: path from (${Math.round(start?.cx ?? 0)}, ${Math.round(start?.cy ?? 0)}) to (${Math.round(end?.cx ?? 0)}, ${Math.round(end?.cy ?? 0)}) [${assignment.points.length} waypoints]`);
+    });
+
     const sortedBursts = [...tracerBursts].sort((left, right) => left.progress - right.progress);
     let nextBurstIndex = 0;
+    let lastLoggedProgress = -1;
 
     await new Promise<void>((resolve) => {
       const startTime = performance.now();
@@ -5935,6 +5967,19 @@ export class HexMapRenderer implements IMapRenderer {
         const elapsed = now - startTime;
         const rawProgress = Math.min(1, elapsed / Math.max(1, durationMs));
         const easedProgress = this.easeInOut(rawProgress);
+
+        // Log progress at 25%, 50%, 75%, 100%
+        const progressCheckpoint = Math.floor(rawProgress * 4) * 25;
+        if (progressCheckpoint > lastLoggedProgress && progressCheckpoint > 0) {
+          lastLoggedProgress = progressCheckpoint;
+          console.log(`[AirSprite] Phase progress: ${progressCheckpoint}% (${Math.round(elapsed)}ms)`);
+          assignments.slice(0, 3).forEach(assignment => {
+            console.log(`  [AirSprite] ${assignment.actor.id}: at (${Math.round(assignment.actor.position.cx)}, ${Math.round(assignment.actor.position.cy)}) heading ${Math.round(assignment.actor.headingDegrees)}°`);
+          });
+          if (assignments.length > 3) {
+            console.log(`  [AirSprite] ... and ${assignments.length - 3} more aircraft`);
+          }
+        }
 
         assignments.forEach((assignment, assignmentIndex) => {
           const sample = this.sampleAircraftWaypointPath(
@@ -5957,11 +6002,16 @@ export class HexMapRenderer implements IMapRenderer {
         });
 
         while (nextBurstIndex < sortedBursts.length && easedProgress >= sortedBursts[nextBurstIndex]!.progress) {
-          this.playAirShowTracerBurst(sortedBursts[nextBurstIndex]!);
+          const burst = sortedBursts[nextBurstIndex]!;
+          const sourceId = burst.source.id;
+          const targetId = 'id' in burst.target ? burst.target.id : `point(${Math.round(burst.target.cx)},${Math.round(burst.target.cy)})`;
+          console.log(`[AirSprite] Tracer burst @ ${Math.round(easedProgress * 100)}%: ${sourceId} → ${targetId} from ${burst.emitter}`);
+          this.playAirShowTracerBurst(burst);
           nextBurstIndex += 1;
         }
 
         if (rawProgress >= 1) {
+          console.log(`[AirSprite] Phase complete (${Math.round(now - startTime)}ms)`);
           resolve();
           return;
         }
@@ -5976,9 +6026,13 @@ export class HexMapRenderer implements IMapRenderer {
     targetStrength: number,
     escapeVector: { x: number; y: number }
   ): Promise<void> {
+    const previousStrength = flight.currentStrength;
     flight.currentStrength = Math.max(0, targetStrength);
     const targetVisibleCount = this.resolveAirShowVisibleActorCount(flight.currentStrength);
     const activeActors = flight.actors.filter((actor) => actor.active);
+
+    console.log(`[AirSprite] Strength sync for ${flight.spec.id}: ${previousStrength} → ${targetStrength} (${activeActors.length} → ${targetVisibleCount} visible aircraft)`);
+
     if (activeActors.length <= targetVisibleCount) {
       return;
     }
@@ -5986,6 +6040,12 @@ export class HexMapRenderer implements IMapRenderer {
     const removedActors = [...activeActors]
       .sort((left, right) => right.formationIndex - left.formationIndex)
       .slice(0, activeActors.length - targetVisibleCount);
+
+    console.log(`[AirSprite] Removing ${removedActors.length} aircraft from ${flight.spec.id}:`);
+    removedActors.forEach(actor => {
+      console.log(`  [AirSprite] ${actor.id} diving out from (${Math.round(actor.position.cx)}, ${Math.round(actor.position.cy)})`);
+    });
+
     const assignments: AirShowPhaseAssignment[] = removedActors.map((actor, index) => {
       const diveEnd = {
         cx: actor.position.cx + escapeVector.x * (28 + index * 10),
@@ -6003,6 +6063,7 @@ export class HexMapRenderer implements IMapRenderer {
     removedActors.forEach((actor) => {
       actor.active = false;
     });
+    console.log(`[AirSprite] ${flight.spec.id} now has ${flight.actors.filter(a => a.active).length} active aircraft`);
   }
 
   private resolveAircraftSortieTurnVector(
