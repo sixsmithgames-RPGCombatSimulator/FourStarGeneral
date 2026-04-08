@@ -13868,6 +13868,9 @@ private automateSupplyConvoys(
     if (this.resolveUnitSuppressionState(unit).state === "pinned") {
       return { available: false, reason: "Pinned formations cannot deploy their guns." };
     }
+    if (flags.movementPointsUsed > 0) {
+      return { available: false, reason: "This formation has already moved and must wait until next turn to deploy the guns." };
+    }
     if (flags.attacksUsed > 0) {
       return { available: false, reason: "This formation has already attacked this turn." };
     }

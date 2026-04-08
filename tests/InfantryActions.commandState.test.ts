@@ -879,7 +879,7 @@ registerTest("SENTRY_DEFENDERS_RETURN_FIRE_SIMULTANEOUSLY_DURING_BOT_ATTACKS", a
   await Then("sentry preserves simultaneous return fire on lethal bot attacks", () => {});
 });
 
-registerTest("TOWED_GUNS_MUST_MOVE_OUT_BEFORE_TOWING_AND_DEPLOY_AFTER_MOVEMENT_ENDS_THE_TURN", async ({ Then }) => {
+registerTest("TOWED_GUNS_MUST_MOVE_OUT_BEFORE_TOWING_AND_CANNOT_DEPLOY_AFTER_MOVING", async ({ Then }) => {
   const gun: ScenarioUnit = {
     type: "AT_Gun_50mm" as unknown as ScenarioUnit["type"],
     hex: { q: 0, r: 0 },
@@ -927,23 +927,27 @@ registerTest("TOWED_GUNS_MUST_MOVE_OUT_BEFORE_TOWING_AND_DEPLOY_AFTER_MOVEMENT_E
   const moveResolution = engine.moveUnit(gun.hex, { q: 1, r: 0 });
   const movedHex = moveResolution.to;
   const movedCommand = engine.getUnitCommandState(movedHex);
-  if (movedCommand?.towState !== "towed" || !movedCommand.canDeployTow) {
-    throw new Error(`Expected moved gun to remain towed and eligible to deploy, received ${JSON.stringify(movedCommand)}`);
+  if (movedCommand?.towState !== "towed") {
+    throw new Error(`Expected moved gun to remain towed after relocation, received ${JSON.stringify(movedCommand)}`);
   }
-
-  if (!engine.deployTowableUnit(movedHex)) {
-    throw new Error("Expected towed gun to deploy after movement.");
+  if (movedCommand?.canDeployTow) {
+    throw new Error(`Expected moved gun to be blocked from deploying until next turn, received ${JSON.stringify(movedCommand)}`);
   }
-
-  const deployedAfterMove = engine.getUnitCommandState(movedHex);
-  if (deployedAfterMove?.towState !== "deployed") {
-    throw new Error(`Expected gun to return to deployed status after unlimbering, received ${JSON.stringify(deployedAfterMove)}`);
+  if (!movedCommand?.deployTowReason?.includes("already moved")) {
+    throw new Error(`Expected move-then-deploy command state to explain the turn lockout, received ${JSON.stringify(movedCommand)}`);
+  }
+  if (engine.deployTowableUnit(movedHex)) {
+    throw new Error("Did not expect a towed gun to deploy after moving in the same turn.");
+  }
+  const blockedAfterMove = engine.getUnitCommandState(movedHex);
+  if (blockedAfterMove?.towState !== "towed") {
+    throw new Error(`Expected move-locked gun to remain towed, received ${JSON.stringify(blockedAfterMove)}`);
   }
   if (engine.getAttackableTargets(movedHex).length !== 0) {
-    throw new Error("Expected move-then-deploy to consume the rest of the turn and prevent firing.");
+    throw new Error("Expected moved tow gun to remain unable to fire before next-turn deployment.");
   }
 
-  await Then("deployed-start guns must Move Out first, and deploying after movement ends their turn", () => {});
+  await Then("deployed-start guns must Move Out first, and movement prevents same-turn tow deployment", () => {});
 });
 
 registerTest("TOWED_GUNS_CAN_DEPLOY_AND_FIRE_IF_THEY_HAVE_NOT_MOVED", async ({ Then }) => {

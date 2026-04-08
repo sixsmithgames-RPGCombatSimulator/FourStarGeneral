@@ -42,7 +42,14 @@ import type {
   CombatStance,
   HexModificationType
 } from "../../core/types";
-import { HexMapRenderer, type BattleTargetMarker } from "../../rendering/HexMapRenderer";
+import {
+  HexMapRenderer,
+  type BattleTargetMarker,
+  type LinkedStrikePackageScene,
+  type LinkedStrikePackageBeat,
+  type LinkedStrikePackageBeatAction,
+  type AirShowRuntimeFlight
+} from "../../rendering/HexMapRenderer";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { MapViewport } from "../controls/MapViewport";
 import { ZoomPanControls } from "../controls/ZoomPanControls";
@@ -3290,6 +3297,336 @@ export class BattleScreen {
     );
   }
 
+  /**
+   * Unified package builder - replaces split animation ownership between BattleScreen and HexMapRenderer.
+   * Constructs timeline beats with overlapping phases for continuous flight animation.
+   *
+   * Scenarios supported:
+   *   1. Escorts + strike, no interceptors
+   *   2. Strike only (no escorts, no interceptors)
+   *   3. Strike + interceptors, no escorts
+   *   4. Interceptors only (CAP patrol) - NOT YET IMPLEMENTED
+   *   5. Full engagement (escorts + strike + interceptors)
+   */
+  private buildLinkedStrikePackageScene(
+    flight: PreparedAirMissionFlight,
+    linkedEvents: AirEngagementEvent[],
+    escortFlights: readonly PreparedAirMissionFlight[],
+    renderer: HexMapRenderer,
+    engine: GameEngine
+  ): LinkedStrikePackageScene {
+    const destKey = this.resolvePreparedAirMissionDestKey(flight, engine) ?? flight.destKey;
+    const flakEvent = linkedEvents.find((event) => event.type === "flak") ?? null;
+    const airToAirEvent = linkedEvents.find((event) => event.type === "airToAir") ?? null;
+    const interceptLocKey = airToAirEvent ? this.toOffsetHexKey(airToAirEvent.location) ?? destKey : destKey;
+
+    // Get target position for spatial calculations
+    const destCoords = renderer.getCoordinateSystem().axialToPixel(engine.parseHexKey(destKey));
+    const combatVolumeCenterX = destCoords.x;
+    const combatVolumeCenterY = destCoords.y - 100; // Offset combat volume slightly above target
+
+    // Collect bomber participants
+    const bomberStrength = flakEvent?.bomberStrengthBefore ?? airToAirEvent?.bomber.strength ?? flight.strength;
+    const bombers: AirShowRuntimeFlight[] = [{
+      id: `bomber-${flight.unitKey}`,
+      unitKey: flight.unitKey,
+      unitType: flight.unitType,
+      faction: flight.faction as "allied" | "axis",
+      role: "bomber",
+      strength: bomberStrength ?? 100,
+      laneOffsetPx: flight.laneOffsetPx,
+      originHexKey: flight.originKey
+    }];
+
+    // Collect escort participants
+    const escorts: AirShowRuntimeFlight[] = escortFlights.map((escort, index) => ({
+      id: `escort-${escort.unitKey}-${index}`,
+      unitKey: escort.unitKey,
+      unitType: escort.unitType,
+      faction: escort.faction as "allied" | "axis",
+      role: "escort",
+      strength: escort.strength ?? 100,
+      laneOffsetPx: escort.laneOffsetPx,
+      originHexKey: escort.originKey
+    }));
+
+    // Collect interceptor participants
+    const interceptors: AirShowRuntimeFlight[] = airToAirEvent
+      ? airToAirEvent.interceptors.map((interceptor, index) => ({
+          id: `interceptor-${interceptor.unitKey}-${index}`,
+          unitKey: interceptor.unitKey,
+          unitType: interceptor.unitType,
+          faction: interceptor.faction as "allied" | "axis",
+          role: "interceptor",
+          strength: interceptor.strength ?? 100,
+          laneOffsetPx: this.buildAirLaneOffsets(airToAirEvent.interceptors.length)[index] ?? 0,
+          originHexKey: undefined
+        }))
+      : [];
+
+    // Build timeline beats based on scenario
+    const beats: LinkedStrikePackageBeat[] = [];
+    let currentTime = 0;
+
+    // Scenario detection
+    const hasEscorts = escorts.length > 0;
+    const hasInterceptors = interceptors.length > 0;
+    const hasStrike = bombers.length > 0;
+
+    if (hasStrike && (hasEscorts || hasInterceptors)) {
+      // Scenarios 1, 3, or 5 - strike package with potential opposition
+
+      // Beat 1: Fighter ingress (escorts and/or interceptors arrive first)
+      if (hasEscorts || hasInterceptors) {
+        const fighters = [...escorts, ...interceptors];
+        beats.push({
+          startMs: currentTime,
+          durationMs: 1200,
+          type: "ingress",
+          participants: { fighters },
+          actions: {}
+        });
+        currentTime += 800; // Overlap with bomber ingress
+      }
+
+      // Beat 2: Bomber ingress (bombers arrive during fighter positioning)
+      beats.push({
+        startMs: currentTime,
+        durationMs: 2000,
+        type: "ingress",
+        participants: { bombers },
+        actions: {
+          flakBursts: flakEvent
+            ? Array.from({ length: 3 }, (_, i) => ({
+                targetId: bombers[0].id,
+                progressTrigger: 0.68 + i * 0.08,
+                intensity: flakEvent.interceptors.length
+              }))
+            : undefined
+        }
+      });
+      currentTime += 400; // Start combat before bombers finish ingress
+
+      // Beat 3: Combat (if escorts and interceptors present)
+      if (hasEscorts && hasInterceptors) {
+        beats.push({
+          startMs: currentTime,
+          durationMs: 1200,
+          type: "combat",
+          participants: { fighters: [...escorts, ...interceptors] },
+          actions: {
+            tracers: this.buildCombatTracers(escorts, interceptors, airToAirEvent),
+            destroyed: this.buildDestroyedList(escorts, interceptors, airToAirEvent)
+          }
+        });
+        currentTime += 800; // Overlap with bombing
+      }
+
+      // Beat 4: Bombing + interceptor passes (overlapping)
+      const bomberDestroyedBeforeImpact = flakEvent?.bomberDestroyed === true || airToAirEvent?.bomberDestroyed === true;
+      if (!bomberDestroyedBeforeImpact) {
+        beats.push({
+          startMs: currentTime,
+          durationMs: 1400,
+          type: "bombing",
+          participants: {
+            bombers,
+            fighters: hasInterceptors ? interceptors : undefined
+          },
+          actions: {
+            bombDrop: {
+              bomberIds: bombers.map((b) => b.id),
+              targetHexKey: destKey,
+              progressTrigger: 0.65
+            },
+            tracers: hasInterceptors
+              ? interceptors.flatMap((interceptor, i) => ({
+                  sourceId: interceptor.id,
+                  targetId: bombers[0].id,
+                  progressTrigger: 0.4 + i * 0.15,
+                  emitter: "nose" as const
+                }))
+              : undefined
+          }
+        });
+        currentTime += 600; // Start egress before bombing completes
+      }
+
+      // Beat 5: Egress (all surviving aircraft exit)
+      const survivors = [
+        ...bombers.filter((b) => !bomberDestroyedBeforeImpact),
+        ...escorts.filter((e, i) => {
+          const finalStrength = airToAirEvent?.escortFinalStrengths?.[i] ?? e.strength;
+          return finalStrength > 0;
+        }),
+        ...interceptors.filter((int, i) => {
+          const finalStrength = airToAirEvent?.interceptorFinalStrengths?.[i] ?? int.strength;
+          return finalStrength > 0;
+        })
+      ];
+
+      if (survivors.length > 0) {
+        beats.push({
+          startMs: currentTime,
+          durationMs: 1600,
+          type: "egress",
+          participants: {
+            fighters: survivors.filter((s) => s.role !== "bomber"),
+            bombers: survivors.filter((s) => s.role === "bomber")
+          },
+          actions: {}
+        });
+      }
+    } else if (hasStrike && !hasEscorts && !hasInterceptors) {
+      // Scenario 2: Strike only (no opposition)
+
+      // Bomber ingress
+      beats.push({
+        startMs: 0,
+        durationMs: this.resolveBomberSortieIngressDurationMs(),
+        type: "ingress",
+        participants: { bombers },
+        actions: {
+          flakBursts: flakEvent
+            ? Array.from({ length: 3 }, (_, i) => ({
+                targetId: bombers[0].id,
+                progressTrigger: 0.68 + i * 0.08,
+                intensity: flakEvent.interceptors.length
+              }))
+            : undefined
+        }
+      });
+
+      // Bombing
+      const bomberDestroyedByFlak = flakEvent?.bomberDestroyed === true;
+      if (!bomberDestroyedByFlak) {
+        beats.push({
+          startMs: this.resolveBomberSortieIngressDurationMs(),
+          durationMs: 800,
+          type: "bombing",
+          participants: { bombers },
+          actions: {
+            bombDrop: {
+              bomberIds: bombers.map((b) => b.id),
+              targetHexKey: destKey,
+              progressTrigger: 0.5
+            }
+          }
+        });
+
+        // Egress
+        beats.push({
+          startMs: this.resolveBomberSortieIngressDurationMs() + 800,
+          durationMs: this.resolveBomberSortieEgressDurationMs(),
+          type: "egress",
+          participants: { bombers },
+          actions: {}
+        });
+      }
+    }
+
+    // Calculate total duration
+    const totalDurationMs = beats.reduce((max, beat) => Math.max(max, beat.startMs + beat.durationMs), 0);
+
+    return {
+      beats,
+      combatVolume: {
+        centerX: combatVolumeCenterX,
+        centerY: combatVolumeCenterY,
+        radiusPx: 150
+      },
+      bomberCorridor: {
+        startX: combatVolumeCenterX - 400,
+        startY: combatVolumeCenterY - 200,
+        targetX: destCoords.x,
+        targetY: destCoords.y
+      },
+      totalDurationMs,
+      targetHexKey: destKey
+    };
+  }
+
+  /**
+   * Helper to build tracer actions from combat exchanges
+   */
+  private buildCombatTracers(
+    escorts: AirShowRuntimeFlight[],
+    interceptors: AirShowRuntimeFlight[],
+    airToAirEvent: AirEngagementEvent | null
+  ): Array<{ readonly sourceId: string; readonly targetId: string; readonly progressTrigger: number; readonly emitter: "nose" | "center" }> {
+    if (!airToAirEvent?.escortExchanges) return [];
+
+    const tracers: Array<{
+      readonly sourceId: string;
+      readonly targetId: string;
+      readonly progressTrigger: number;
+      readonly emitter: "nose" | "center";
+    }> = [];
+
+    // Build tracers from escort exchanges
+    airToAirEvent.escortExchanges.forEach((exchange, index) => {
+      const escortIndex = exchange.escortIndex ?? index;
+      const interceptorIndex = exchange.interceptorIndex ?? index;
+
+      if (escorts[escortIndex] && interceptors[interceptorIndex]) {
+        // Escort shoots at interceptor
+        tracers.push({
+          sourceId: escorts[escortIndex].id,
+          targetId: interceptors[interceptorIndex].id,
+          progressTrigger: 0.3 + index * 0.15,
+          emitter: "nose"
+        });
+
+        // Interceptor shoots back
+        tracers.push({
+          sourceId: interceptors[interceptorIndex].id,
+          targetId: escorts[escortIndex].id,
+          progressTrigger: 0.45 + index * 0.15,
+          emitter: "nose"
+        });
+      }
+    });
+
+    return tracers;
+  }
+
+  /**
+   * Helper to build destroyed aircraft list from combat results
+   */
+  private buildDestroyedList(
+    escorts: AirShowRuntimeFlight[],
+    interceptors: AirShowRuntimeFlight[],
+    airToAirEvent: AirEngagementEvent | null
+  ): Array<{ readonly unitId: string; readonly progressTrigger: number }> {
+    if (!airToAirEvent) return [];
+
+    const destroyed: Array<{ readonly unitId: string; readonly progressTrigger: number }> = [];
+
+    // Check escorts
+    escorts.forEach((escort, index) => {
+      const finalStrength = airToAirEvent.escortFinalStrengths?.[index] ?? escort.strength;
+      if (finalStrength <= 0) {
+        destroyed.push({
+          unitId: escort.id,
+          progressTrigger: 0.6 + index * 0.1
+        });
+      }
+    });
+
+    // Check interceptors
+    interceptors.forEach((interceptor, index) => {
+      const finalStrength = airToAirEvent.interceptorFinalStrengths?.[index] ?? interceptor.strength;
+      if (finalStrength <= 0) {
+        destroyed.push({
+          unitId: interceptor.id,
+          progressTrigger: 0.65 + index * 0.1
+        });
+      }
+    });
+
+    return destroyed;
+  }
+
   private async playMissionStrikeOperation(
     flight: PreparedAirMissionFlight,
     linkedEvents: AirEngagementEvent[],
@@ -3304,6 +3641,21 @@ export class BattleScreen {
       await this.waitForNextFrame();
       await this.waitMs(this.scaleAirSequenceMs(220));
     }
+
+    // ===== PHASE 0.5: Test new unified package architecture =====
+    // Build timeline-based package scene (validates architecture with console logging)
+    const packageScene = this.buildLinkedStrikePackageScene(
+      flight,
+      linkedEvents,
+      escortFlights,
+      renderer,
+      engine
+    );
+
+    // Execute package with Phase 0 stub (logs timeline structure, no rendering yet)
+    // This runs in parallel with old animation code for Phase 0 validation
+    void renderer.playLinkedStrikePackage(packageScene);
+    // ===== End Phase 0.5 integration =====
 
     const flakEvent = linkedEvents.find((event) => event.type === "flak") ?? null;
     const airToAirEvent = linkedEvents.find((event) => event.type === "airToAir") ?? null;
@@ -3482,75 +3834,6 @@ export class BattleScreen {
     }> = [];
     let participantIndex = 0;
 
-    const orbitParticipant = (
-      participant: {
-        unitType: string;
-        faction: TurnFaction;
-        laneOffsetPx: number;
-        orbitIndex: number;
-        clockwise: boolean;
-      },
-      strength: number,
-      durationMs: number,
-      turns: number
-    ): Promise<void> => {
-      if (typeof (renderer as any).animateAircraftOrbitAt !== "function" || strength <= 0 || durationMs <= 0) {
-        return Promise.resolve();
-      }
-      const radius = 27 + (participant.orbitIndex % 3) * 7 + Math.min(12, Math.abs(participant.laneOffsetPx) * 0.22);
-      const startAngleRad = (participant.orbitIndex / Math.max(1, participants.length)) * Math.PI * 2;
-      return (renderer as any).animateAircraftOrbitAt(
-        locKey,
-        participant.unitType,
-        durationMs,
-        strength,
-        participant.laneOffsetPx,
-        participant.faction,
-        {
-          orbitRadiusPx: radius,
-          turns,
-          startAngleRad,
-          clockwise: participant.clockwise,
-          verticalScale: 0.66
-        }
-      );
-    };
-
-    const playOrbitStage = async (
-      stageParticipants: ReadonlyArray<{
-        unitType: string;
-        faction: TurnFaction;
-        laneOffsetPx: number;
-        orbitIndex: number;
-        clockwise: boolean;
-        stageStrength: number;
-      }>,
-      durationMs: number,
-      turns: number,
-      dogfightDelayMs?: number
-    ): Promise<void> => {
-      const canOrbit = typeof (renderer as any).animateAircraftOrbitAt === "function";
-      const orbitPromises = canOrbit
-        ? stageParticipants
-            .filter((participant) => participant.stageStrength > 0)
-            .map((participant) => orbitParticipant(participant, participant.stageStrength, durationMs, turns))
-        : [];
-      const holdingPatternPromise =
-        durationMs > 0 && (!canOrbit || orbitPromises.length === 0)
-          ? this.waitMs(durationMs)
-          : Promise.resolve();
-      const dogfightPromise =
-        typeof dogfightDelayMs === "number"
-          ? (async () => {
-              if (dogfightDelayMs > 0) {
-                await this.waitMs(dogfightDelayMs);
-              }
-              await renderer.playDogfight(locKey);
-            })()
-          : Promise.resolve();
-      await Promise.all([...orbitPromises, holdingPatternPromise, dogfightPromise]);
-    };
-
     event.interceptors.forEach((interceptor, index) => {
       const from = this.resolveAirEngagementOffsetKey(interceptor.unitKey, interceptor.faction, engine);
       if (from) {
@@ -3619,12 +3902,10 @@ export class BattleScreen {
       return;
     }
 
-    const canPlayResolvedAirShow = typeof (renderer as any).animateResolvedAirCombatShow === "function";
-    if (canPlayResolvedAirShow) {
-      const bomberPassAvailable = allowBomberDefensePass && this.shouldPlayBomberDefensePass(event);
-      const resolvedBomberOriginKey =
-        bomberOriginKey ?? this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
-      await (renderer as any).animateResolvedAirCombatShow({
+    const bomberPassAvailable = allowBomberDefensePass && this.shouldPlayBomberDefensePass(event);
+    const resolvedBomberOriginKey =
+      bomberOriginKey ?? this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
+    await (renderer as any).animateResolvedAirCombatShow({
         hexKey: locKey,
         interceptors: participants
           .filter((participant) => participant.role === "interceptor")
@@ -3702,138 +3983,6 @@ export class BattleScreen {
         bomberArrivalDelayMs,
         bomberTargetHexKey: bomberTargetKey
       });
-      return;
-    }
-
-    await Promise.all(
-      participants.map((participant) =>
-        this.animateAircraftLeg(
-          renderer,
-          participant.originKey,
-          locKey,
-          participant.unitType,
-          this.resolveFighterInterceptIngressDurationMs(),
-          undefined,
-          1,
-          participant.initialStrength,
-          participant.laneOffsetPx,
-          participant.faction
-        )
-      )
-    );
-
-    const canPlayDogfightShow = typeof (renderer as any).animateAirDogfightShowAt === "function";
-    const canPlayBomberInterceptionShow = typeof (renderer as any).animateBomberInterceptionShowAt === "function";
-    if (canPlayDogfightShow || canPlayBomberInterceptionShow) {
-      const dogfightShowDurationMs =
-        event.escorts.length > 0
-          ? this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 2.05))
-          : 0;
-      if (event.escorts.length > 0 && canPlayDogfightShow) {
-        await (renderer as any).animateAirDogfightShowAt(
-          locKey,
-          participants.map((participant) => ({
-            id: `${participant.role}:${participant.phaseIndex}:${participant.faction}:${participant.unitType}`,
-            scenarioType: participant.unitType,
-            faction: participant.faction,
-            strength: participant.initialStrength,
-            laneOffsetPx: participant.laneOffsetPx,
-            team: participant.role
-          })),
-          dogfightShowDurationMs
-        );
-      }
-
-      if (!allowBomberDefensePass || !this.shouldPlayBomberDefensePass(event)) {
-        return;
-      }
-
-      const continuingInterceptors = participants.filter(
-        (participant) => participant.role === "interceptor" && participant.strengthAfterEscortPhase > 0
-      );
-      if (continuingInterceptors.length === 0) {
-        return;
-      }
-
-      const remainingArrivalDelayMs = Math.max(0, bomberArrivalDelayMs - dogfightShowDurationMs);
-      if (remainingArrivalDelayMs > 0) {
-        await this.waitMs(remainingArrivalDelayMs);
-      }
-
-      if (canPlayBomberInterceptionShow) {
-        await (renderer as any).animateBomberInterceptionShowAt(
-          locKey,
-          {
-            id: `bomber:${event.bomber.unitKey}`,
-            scenarioType: event.bomber.unitType,
-            faction: event.bomber.faction,
-            strength:
-              typeof event.bomberStrengthBefore === "number"
-                ? Math.max(0, Math.round(event.bomberStrengthBefore))
-                : event.bomber.strength,
-            laneOffsetPx: fallbackLaneOffsetPx,
-            team: "bomber"
-          },
-          continuingInterceptors.map((participant) => ({
-            id: `interceptor:${participant.phaseIndex}:${participant.faction}:${participant.unitType}`,
-            scenarioType: participant.unitType,
-            faction: participant.faction,
-            strength: participant.strengthAfterEscortPhase,
-            laneOffsetPx: participant.laneOffsetPx,
-            team: "interceptor"
-          })),
-          this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 2.4))
-        );
-        return;
-      }
-    }
-
-    const escortOpeningDelayMs = this.scaleAirSequenceMs(180);
-    const escortOrbitDurationMs =
-      event.escorts.length > 0
-        ? this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 0.72))
-        : 0;
-    if (event.escorts.length > 0) {
-      await playOrbitStage(
-        participants.map((participant) => ({ ...participant, stageStrength: participant.initialStrength })),
-        escortOrbitDurationMs,
-        0.72,
-        escortOpeningDelayMs
-      );
-    }
-
-    if (!allowBomberDefensePass || !this.shouldPlayBomberDefensePass(event)) {
-      return;
-    }
-
-    const continuingParticipants = participants.filter((participant) => participant.strengthAfterEscortPhase > 0);
-    if (continuingParticipants.length === 0) {
-      return;
-    }
-
-    const holdingOrbitDurationMs = Math.max(
-      continuingParticipants.length > 0 ? this.scaleAirSequenceMs(220) : 0,
-      bomberArrivalDelayMs - escortOrbitDurationMs
-    );
-    if (holdingOrbitDurationMs > 0) {
-      await playOrbitStage(
-        continuingParticipants.map((participant) => ({ ...participant, stageStrength: participant.strengthAfterEscortPhase })),
-        holdingOrbitDurationMs,
-        0.42
-      );
-    }
-
-    await playOrbitStage(
-      continuingParticipants.map((participant) => ({ ...participant, stageStrength: participant.strengthAfterEscortPhase })),
-      this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 0.84)),
-      0.56
-    );
-
-    if (typeof (renderer as any).playBomberDefensePass === "function") {
-      await (renderer as any).playBomberDefensePass(locKey);
-    } else {
-      await renderer.playDogfight(locKey);
-    }
   }
 
   private async playResolvedAirStrikeImpact(
