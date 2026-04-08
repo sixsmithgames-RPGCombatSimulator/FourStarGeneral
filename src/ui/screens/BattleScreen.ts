@@ -1266,6 +1266,17 @@ export class BattleScreen {
           .filter((entry) => entry.kind === "strike" && entry.event !== "refitStarted" && entry.event !== "refitCompleted")
           .map((entry) => entry.unitKey)
       );
+
+      // Collect escort information for each strike
+      const linkedEscortsByBomberKey = new Map<string, Array<(typeof reports)[number]>>();
+      for (const report of reports) {
+        if (report.kind === "escort" && report.escortTargetUnitKey && linkedStrikeUnitKeys.has(report.escortTargetUnitKey)) {
+          const escorts = linkedEscortsByBomberKey.get(report.escortTargetUnitKey) ?? [];
+          escorts.push(report);
+          linkedEscortsByBomberKey.set(report.escortTargetUnitKey, escorts);
+        }
+      }
+
       for (const r of reports) {
         if (this.seenAirReportIds.has(r.id)) {
           continue;
@@ -1384,10 +1395,21 @@ export class BattleScreen {
         if (r.outcome) {
           details.outcomeDetails = (r.outcome as { details?: string }).details;
         }
+
+        // Add escort information for strike missions
+        let escortNote = "";
+        if (r.kind === "strike") {
+          const linkedEscorts = linkedEscortsByBomberKey.get(r.unitKey) ?? [];
+          if (linkedEscorts.length > 0) {
+            escortNote = ` with ${linkedEscorts.length} escort${linkedEscorts.length === 1 ? "" : "s"}`;
+            details.escortCount = linkedEscorts.length;
+          }
+        }
+
         this.publishActivityEvent({
           category: r.faction === "Player" ? "player" : "enemy",
           type: "log",
-          summary: `Air mission ${r.kind} ${action} — target ${target}${outcomeSummary}`,
+          summary: `Air mission ${r.kind} ${action}${escortNote} — target ${target}${outcomeSummary}`,
           details
         });
       }
