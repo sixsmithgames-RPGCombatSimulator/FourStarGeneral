@@ -753,6 +753,8 @@ export interface AirCombatExchangeEntry {
   readonly attackerDestroyed: boolean;
   readonly defenderDestroyed: boolean;
   readonly visualPasses?: number;
+  readonly escortIndex?: number;        // Array index for escort pairing
+  readonly interceptorIndex?: number;   // Array index for interceptor pairing
 }
 
 export interface FlakEngagementEntry {
@@ -2845,14 +2847,16 @@ export class GameEngine implements GameEngineAPI {
     let escortsEngaged = 0;
     let capIntercepts = 0;
 
-    for (const interceptorDelta of interceptorDeltas) {
+    for (let interceptorIndex = 0; interceptorIndex < interceptorDeltas.length; interceptorIndex++) {
+      const interceptorDelta = interceptorDeltas[interceptorIndex]!;
       if (interceptorDelta.unitAfter.strength <= 0) {
         continue;
       }
-      const escortDelta = escortDeltas.find((entry) => entry.unitAfter.strength > 0 && !entry.engaged);
-      if (!escortDelta) {
+      const escortIndex = escortDeltas.findIndex((entry) => entry.unitAfter.strength > 0 && !entry.engaged);
+      if (escortIndex === -1) {
         continue;
       }
+      const escortDelta = escortDeltas[escortIndex]!;
 
       escortsEngaged += 1;
       interceptorDelta.engaged = true;
@@ -2919,7 +2923,9 @@ export class GameEngine implements GameEngineAPI {
         retaliationDamage: damageToEscort,
         attackerDestroyed: escortDelta.unitAfter.strength <= 0,
         defenderDestroyed: interceptorDelta.unitAfter.strength <= 0,
-        visualPasses: 1
+        visualPasses: 1,
+        escortIndex,
+        interceptorIndex
       });
     }
 
@@ -2933,7 +2939,8 @@ export class GameEngine implements GameEngineAPI {
     const interceptorsAfterEscortPhase = interceptorDeltas.filter((entry) => entry.unitAfter.strength > 0).length;
     const escortsAfterEscortPhase = escortDeltas.filter((entry) => entry.unitAfter.strength > 0).length;
 
-    for (const interceptorDelta of interceptorDeltas) {
+    for (let interceptorIndex = 0; interceptorIndex < interceptorDeltas.length; interceptorIndex++) {
+      const interceptorDelta = interceptorDeltas[interceptorIndex]!;
       if (interceptorDelta.unitAfter.strength <= 0 || bomberAfter.strength <= 0) {
         continue;
       }
@@ -2990,7 +2997,8 @@ export class GameEngine implements GameEngineAPI {
         retaliationDamage: damageToInterceptor,
         attackerDestroyed: interceptorDelta.unitAfter.strength <= 0,
         defenderDestroyed: bomberAfter.strength <= 0,
-        visualPasses: 2
+        visualPasses: 2,
+        interceptorIndex
       });
 
       if (bomberAfter.strength <= 0) {

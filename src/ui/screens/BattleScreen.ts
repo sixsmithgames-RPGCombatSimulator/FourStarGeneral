@@ -3321,7 +3321,10 @@ export class BattleScreen {
     const interceptLocKey = airToAirEvent ? this.toOffsetHexKey(airToAirEvent.location) ?? destKey : destKey;
 
     // Get target position for spatial calculations
-    const destCoords = renderer.getCoordinateSystem().axialToPixel(engine.parseHexKey(destKey));
+    const destOffset = CoordinateSystem.parseHexKey(destKey);
+    if (!destOffset) throw new Error(`Invalid hex key: ${destKey}`);
+    const destAxial = CoordinateSystem.offsetToAxial(destOffset.col, destOffset.row);
+    const destCoords = CoordinateSystem.axialToPixel(destAxial.q, destAxial.r);
     const combatVolumeCenterX = destCoords.x;
     const combatVolumeCenterY = destCoords.y - 100; // Offset combat volume slightly above target
 

@@ -142,7 +142,7 @@ type AirShowRuntimeActor = {
   biasY: number;
   active: boolean;
 };
-type AirShowRuntimeFlight = {
+type AirShowRuntimeFlightInternal = {
   spec: ResolvedAirShowFlightSpec;
   actors: AirShowRuntimeActor[];
   currentStrength: number;
@@ -1071,10 +1071,10 @@ export class HexMapRenderer implements IMapRenderer {
 
     const interceptorFlights = scene.interceptors
       .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, interceptorFallbackOrigin, defaultHeadingFor(interceptorFallbackOrigin)))
-      .filter((flight): flight is AirShowRuntimeFlight => !!flight);
+      .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
     const escortFlights = scene.escorts
       .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, escortFallbackOrigin, defaultHeadingFor(escortFallbackOrigin)))
-      .filter((flight): flight is AirShowRuntimeFlight => !!flight);
+      .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
     const bomberFlight =
       scene.bomber
         ? this.buildAirShowRuntimeFlight(layer, scene.bomber, bomberFallbackOrigin, defaultHeadingFor(bomberFallbackOrigin))
@@ -1105,15 +1105,15 @@ export class HexMapRenderer implements IMapRenderer {
     );
     const corridorPoint = (alongPx: number, lateralPx = 0): AirShowPoint =>
       this.projectAirShowCorridorPoint(corridor, alongPx, lateralPx);
-    const updateFlightAnchors = (flights: ReadonlyArray<AirShowRuntimeFlight>): void => {
+    const updateFlightAnchors = (flights: ReadonlyArray<AirShowRuntimeFlightInternal>): void => {
       flights.forEach((flight) => {
         flight.anchor = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
       });
     };
-    const activeFlights = (flights: ReadonlyArray<AirShowRuntimeFlight>): AirShowRuntimeFlight[] =>
+    const activeFlights = (flights: ReadonlyArray<AirShowRuntimeFlightInternal>): AirShowRuntimeFlightInternal[] =>
       flights.filter((flight) => flight.actors.some((actor) => actor.active));
     const buildBandAssignments = (
-      flights: ReadonlyArray<AirShowRuntimeFlight>,
+      flights: ReadonlyArray<AirShowRuntimeFlightInternal>,
       label: string,
       options: {
         alongPx: number;
@@ -1189,8 +1189,8 @@ export class HexMapRenderer implements IMapRenderer {
 
         interface ExchangeData {
           exchange: (typeof escortExchanges)[number];
-          interceptorFlight: AirShowRuntimeFlight;
-          escortFlight: AirShowRuntimeFlight;
+          interceptorFlight: AirShowRuntimeFlightInternal;
+          escortFlight: AirShowRuntimeFlightInternal;
           exchangeIndex: number;
           beats: ExchangeBeatData[];
         }
@@ -5357,7 +5357,7 @@ export class HexMapRenderer implements IMapRenderer {
     spec: ResolvedAirShowFlightSpec,
     fallbackOrigin: AirShowPoint,
     defaultHeadingDegrees: number
-  ): AirShowRuntimeFlight | null {
+  ): AirShowRuntimeFlightInternal | null {
     const spriteHref = getSpriteForScenarioType(spec.scenarioType, spec.faction);
     if (!spriteHref) {
       return null;
@@ -5712,7 +5712,7 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   private buildAirShowFlightAssignments(
-    flight: AirShowRuntimeFlight,
+    flight: AirShowRuntimeFlightInternal,
     basePath: AirShowPoint[],
     headingBlend = 0.34
   ): AirShowPhaseAssignment[] {
@@ -5900,7 +5900,7 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   private selectAirShowActor(
-    flight: AirShowRuntimeFlight | null | undefined,
+    flight: AirShowRuntimeFlightInternal | null | undefined,
     index: number,
     preferTail = false
   ): AirShowRuntimeActor | null {
@@ -5972,7 +5972,7 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   private async syncAirShowFlightStrength(
-    flight: AirShowRuntimeFlight,
+    flight: AirShowRuntimeFlightInternal,
     targetStrength: number,
     escapeVector: { x: number; y: number }
   ): Promise<void> {
