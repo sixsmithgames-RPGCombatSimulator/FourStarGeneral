@@ -80,15 +80,12 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_USE_LIVE_STRIKE_TARGETS_AND_RENDER_LIN
     } as unknown as import("../src/state/BattleState").BattleState;
 
     const fakeRenderer = {
-      async animateAircraftSortie(
+      async animateAircraftFlyover(
         fromKey: string,
         toKey: string,
-        _returnKey: string,
-        unitType: string,
-        options?: { onTargetPass?: () => Promise<void> | void }
+        unitType: string
       ): Promise<void> {
-        callOrder.push(`sortie:${unitType}:${fromKey}->${toKey}`);
-        await options?.onTargetPass?.();
+        callOrder.push(`flyover:${unitType}:${fromKey}->${toKey}`);
       },
       async playFlakBurstAt(): Promise<void> {},
       async playExplosion(hexKey: string): Promise<void> {
@@ -198,12 +195,12 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_USE_LIVE_STRIKE_TARGETS_AND_RENDER_LIN
         throw new Error(`Did not expect stale launch coordinates to be used, saw ${JSON.stringify(callOrder)}.`);
       }
 
-      if (!callOrder.includes("sortie:Bomber:0,0->2,0")) {
-        throw new Error(`Expected bomber sortie to use live target 2,0, saw ${JSON.stringify(callOrder)}.`);
+      if (!callOrder.includes("flyover:Bomber:0,0->2,0")) {
+        throw new Error(`Expected bomber ingress to use live target 2,0, saw ${JSON.stringify(callOrder)}.`);
       }
 
-      if (!callOrder.includes("sortie:Fighter:1,0->2,0")) {
-        throw new Error(`Expected linked escort sortie to be painted toward the same target, saw ${JSON.stringify(callOrder)}.`);
+      if (!callOrder.includes("flyover:Fighter:1,0->2,0")) {
+        throw new Error(`Expected linked escort ingress to be painted toward the same target, saw ${JSON.stringify(callOrder)}.`);
       }
 
       if (!callOrder.includes("impact:2,0") || !callOrder.includes("markDamaged:2,0")) {
