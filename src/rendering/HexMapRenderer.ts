@@ -115,9 +115,16 @@ type ResolvedAirShowScene = {
   escortClashDurationMs?: number;
   bomberIngressDurationMs?: number;
   bomberPassDurationMs?: number;
+  strikeRunDurationMs?: number;
   egressDurationMs?: number;
   bomberArrivalDelayMs?: number;
   bomberTargetHexKey?: string | null;
+  bombReleaseProgress?: number;
+  flakBursts?: ReadonlyArray<{
+    progress: number;
+    count: number;
+    scale?: number;
+  }>;
 };
 type AirShowPoint = { cx: number; cy: number };
 type AirShowCorridor = {
@@ -1117,6 +1124,40 @@ export class HexMapRenderer implements IMapRenderer {
     };
     const activeFlights = (flights: ReadonlyArray<AirShowRuntimeFlightInternal>): AirShowRuntimeFlightInternal[] =>
       flights.filter((flight) => flight.actors.some((actor) => actor.active));
+    const scheduleTimedFlakBursts = (
+      flight: AirShowRuntimeFlightInternal | null,
+      durationMs: number,
+      bursts: ReadonlyArray<{ progress: number; count: number; scale?: number }>
+    ): (() => void) => {
+      if (!flight || bursts.length === 0) {
+        return () => {};
+      }
+      const handles = bursts.map((burst) =>
+        window.setTimeout(() => {
+          const centerPoint = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
+          void this.playFlakBurstAt(centerPoint.cx, centerPoint.cy, Math.max(1, burst.count), burst.scale ?? 1.08);
+        }, Math.max(0, Math.round(durationMs * this.clamp(burst.progress, 0, 1))))
+      );
+      return () => {
+        handles.forEach((handle) => window.clearTimeout(handle));
+      };
+    };
+    const scheduleBombRelease = (
+      durationMs: number,
+      targetHexKey: string | null | undefined,
+      progress: number
+    ): (() => void) => {
+      if (!targetHexKey) {
+        return () => {};
+      }
+      const handle = window.setTimeout(() => {
+        void this.playExplosion(targetHexKey, true);
+        void this.playDustCloud(targetHexKey);
+      }, Math.max(0, Math.round(durationMs * this.clamp(progress, 0, 1))));
+      return () => {
+        window.clearTimeout(handle);
+      };
+    };
     const buildBandAssignments = (
       flights: ReadonlyArray<AirShowRuntimeFlightInternal>,
       label: string,
@@ -1514,10 +1555,17 @@ export class HexMapRenderer implements IMapRenderer {
             driftPx: 18
           })
         ];
+        const bomberIngressDurationMs = Math.max(760, scene.bomberIngressDurationMs ?? 1320);
+        const cancelIngressFlak = scheduleTimedFlakBursts(
+          bomberFlight,
+          bomberIngressDurationMs,
+          scene.flakBursts ?? []
+        );
         await this.runAirShowPhase(
           bomberIngressAssignments,
-          Math.max(760, scene.bomberIngressDurationMs ?? 1320)
+          bomberIngressDurationMs
         );
+        cancelIngressFlak();
         updateFlightAnchors([bomberFlight, ...survivingInterceptors, ...survivingEscorts]);
 
         const bomberPassExchanges = scene.bomberPassExchanges ?? [];
@@ -1703,10 +1751,63 @@ export class HexMapRenderer implements IMapRenderer {
         }
       }
 
+      const postPassInterceptors = activeFlights(interceptorFlights);
+      const postPassEscorts = activeFlights(escortFlights);
+      if (bomberFlight && bomberTargetCenter && bomberFlight.actors.some((actor) => actor.active)) {
+        console.log(`[AirSprite] ──── TARGET RUN PHASE ────`);
+        const rand = stageRandom(`target-run:${bomberFlight.spec.id}`);
+        const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
+        const targetApproach = this.offsetAirShowPoint(
+          bomberTargetCenter,
+          -corridor.axis.x * 14 + corridor.normal.x * ((rand() - 0.5) * 8),
+          -corridor.axis.y * 14 + corridor.normal.y * ((rand() - 0.5) * 8)
+        );
+        const strikeRunAssignments: AirShowPhaseAssignment[] = [
+          ...this.buildAirShowFlightAssignments(
+            bomberFlight,
+            this.buildAirShowBomberRunPath(bomberCurrent, targetApproach, {
+              lateralSign: rand() > 0.5 ? 1 : -1,
+              corridorWidthPx: 10,
+              driftPx: 8
+            }),
+            0.2
+          ),
+          ...buildBandAssignments(postPassEscorts, "target-run:escorts", {
+            alongPx: 44,
+            lateralPx: 124,
+            alongStepPx: 18,
+            lateralStepPx: 26,
+            jitterAlongPx: 0,
+            jitterLateralPx: 0,
+            arcPx: 12,
+            driftPx: 12
+          }),
+          ...buildBandAssignments(postPassInterceptors, "target-run:interceptors", {
+            alongPx: -74,
+            lateralPx: -136,
+            alongStepPx: 20,
+            lateralStepPx: 26,
+            jitterAlongPx: 0,
+            jitterLateralPx: 0,
+            arcPx: 12,
+            driftPx: 12
+          })
+        ];
+        const strikeRunDurationMs = Math.max(640, scene.strikeRunDurationMs ?? 980);
+        const cancelBombRelease = scheduleBombRelease(
+          strikeRunDurationMs,
+          scene.bomberTargetHexKey,
+          scene.bombReleaseProgress ?? 0.74
+        );
+        await this.runAirShowPhase(strikeRunAssignments, strikeRunDurationMs);
+        cancelBombRelease();
+        updateFlightAnchors([bomberFlight, ...postPassInterceptors, ...postPassEscorts]);
+      }
+
       const egressFlights = activeFlights([
         ...interceptorFlights,
         ...escortFlights,
-        ...(bomberFlight && !scene.bomberTargetHexKey ? [bomberFlight] : [])
+        ...(bomberFlight ? [bomberFlight] : [])
       ]);
       console.log(`[AirSprite] ──── EGRESS PHASE: ${egressFlights.length} surviving flights departing ────`);
       if (egressFlights.length > 0) {
@@ -1716,7 +1817,17 @@ export class HexMapRenderer implements IMapRenderer {
             const rand = stageRandom(`egress:${flight.spec.id}:${index}`);
             const egressPoint =
               flight.spec.role === "bomber"
-                ? corridorPoint(126 + rand() * 20, (rand() - 0.5) * 12)
+                ? (() => {
+                    const originCenter = this.resolveHexCenterByKey(flight.spec.originHexKey);
+                    if (originCenter) {
+                      return this.offsetAirShowPoint(
+                        originCenter,
+                        (rand() - 0.5) * 22,
+                        (rand() - 0.5) * 18
+                      );
+                    }
+                    return corridorPoint(126 + rand() * 20, (rand() - 0.5) * 12);
+                  })()
                 : flight.spec.role === "escort"
                   ? corridorPoint(108 + index * 18 + rand() * 16, 138 + index * 18 + (rand() - 0.5) * 24)
                   : corridorPoint(-146 - index * 18 - rand() * 16, -156 - index * 20 + (rand() - 0.5) * 24);

@@ -25,6 +25,36 @@
 ### Symptom Fixes (Phases 1-9 - AFTER Phase 0)
 Parameter tuning, jitter removal, viewport clamping - these are still needed but **only work if Phase 0 architecture is in place first**.
 
+### Latest Confirmed Debug-Pass Findings (April 8)
+The latest console traces added one more root cause on top of split ownership:
+
+1. **Cluster-level parallel playback is corrupting the show.**
+   - `BattleScreen.playAirPlaybackCluster()` was still running every nearby operation with `Promise.all(...)`.
+   - Result: multiple linked strike packages in the same camera cluster were animating at once.
+   - This explains why one resolved scene could honestly log `0 escort flights` while escort aircraft were still visible on screen: those escorts belonged to a different package running at the same time.
+
+2. **The Phase 0 package stub was still being launched in parallel with the real animation path.**
+   - `playMissionStrikeOperation()` was calling `renderer.playLinkedStrikePackage(...)` only as a logging stub while also running the old bomber/intercept flow.
+   - Even though the stub was not rendering, it proved the cutover had not actually happened.
+
+3. **Intercepted linked strikes still had split bomber ownership.**
+   - `playMissionAirInterceptEvent(...)` owned the dogfight and bomber-pass portion.
+   - `playMissionStrikeOperation(...)` then separately owned bomber leg-to-target, bomb impact, and return.
+   - This is the direct source of bomber disappearance/reappearance and the “late random bomber” effect.
+
+4. **The escort problem is not primarily escort discovery.**
+   - Engine debug confirmed escort missions were found, looked up, and used to generate escort exchanges for the affected strike packages.
+   - The bigger issue was that playback composition let one package's escorts fly on the legacy path while another package's resolved event drove the visible combat scene.
+
+### Confirmed Correction Path
+The correction path is now concrete:
+
+1. Remove the Phase 0 parallel stub entirely.
+2. For linked strikes with air-to-air combat, let the resolved airshow own bomber ingress, escort clash, bomber passes, target run, bomb release, and egress.
+3. Stop using legacy escort companion flights or separate bomber return legs inside intercepted packages.
+4. Serialize only the **complex** playback clusters that contain linked air-to-air strike packages, so nearby simple flyovers can still overlap but dogfight packages do not visually corrupt each other.
+5. Keep documenting remaining visual-tuning work separately from these structural fixes.
+
 ---
 
 ## User's Complete Observed Scenario

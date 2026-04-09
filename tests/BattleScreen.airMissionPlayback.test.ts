@@ -1747,3 +1747,244 @@ registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_SUPPLEMENTS_LINKED_ESCORTS_AND_BOMBE
     }
   });
 });
+
+registerTest("BATTLESCREEN_INTERCEPTED_LINKED_STRIKES_KEEP_BOMBER_RUN_INSIDE_THE_RESOLVED_AIRSHOW", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  const callOrder: string[] = [];
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const fakeRenderer = {} as any;
+  const fakeEngine = {
+    getScheduledAirMissions() {
+      return [];
+    }
+  } as any;
+
+  await Given("a linked strike that is intercepted before reaching the target", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      { ensureGameEngine: () => fakeEngine } as any,
+      {} as any,
+      fakeRenderer,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).focusCameraOnHex = async (): Promise<void> => {};
+    (screen as any).waitForNextFrame = async (): Promise<void> => {};
+    (screen as any).waitMs = async (): Promise<void> => {};
+    (screen as any).announceFlakEngagement = () => {};
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+    (screen as any).playMissionAirInterceptEvent = async (...args: unknown[]) => {
+      callOrder.push(`intercept:${(args[12] as { type?: string } | null)?.type ?? "none"}`);
+    };
+    (screen as any).animateAircraftLeg = async () => {
+      callOrder.push("legacyLeg");
+    };
+    (screen as any).playDamagedAircraftReturn = async () => {
+      callOrder.push("legacyReturn");
+    };
+    (screen as any).playResolvedAirStrikeImpact = async (
+      _flight: unknown,
+      _renderer: unknown,
+      _engine: unknown,
+      playEffects: boolean = true
+    ) => {
+      callOrder.push(`impact:${playEffects ? "fx" : "state"}`);
+    };
+  });
+
+  await When("the linked strike playback runs", async () => {
+    await (screen as any).playMissionStrikeOperation(
+      {
+        missionId: "strike-live-5",
+        faction: "Bot",
+        kind: "strike",
+        unitKey: "bomber-1",
+        originKey: "0,0",
+        destKey: "3,0",
+        unitType: "Bomber",
+        strength: 100,
+        laneOffsetPx: 0
+      },
+      [
+        {
+          type: "flak",
+          missionId: "strike-live-5",
+          location: { q: 2, r: 0 },
+          bomber: { faction: "Bot", unitKey: "bomber-1", unitType: "Bomber", strength: 100 },
+          interceptors: [
+            { faction: "Player", unitKey: "flak-1", unitType: "Flak_88", strength: 100, hex: { q: 2, r: 1 } }
+          ],
+          escorts: [],
+          flakDamage: 12,
+          bomberStrengthBefore: 100,
+          bomberStrengthAfter: 88,
+          bomberDestroyed: false
+        },
+        {
+          type: "airToAir",
+          missionId: "strike-live-5",
+          location: { q: 2, r: 0 },
+          bomber: { faction: "Bot", unitKey: "bomber-1", unitType: "Bomber", strength: 88 },
+          interceptors: [
+            { faction: "Player", unitKey: "cap-1", unitType: "Interceptor", strength: 100 }
+          ],
+          escorts: [
+            { faction: "Bot", unitKey: "escort-1", unitType: "Fighter", strength: 100 }
+          ],
+          bomberStrengthBefore: 88,
+          bomberStrengthAfter: 61,
+          bomberDestroyed: false,
+          interceptorAttrition: 11,
+          escortAttrition: 19,
+          escortsEngaged: 1,
+          interceptorsAfterEscortPhase: 1,
+          escortsAfterEscortPhase: 1,
+          bomberPassExchanges: [
+            {
+              phase: "bomberPass",
+              attackerFaction: "Player",
+              attackerUnitKey: "cap-1",
+              attackerUnitType: "Interceptor",
+              defenderFaction: "Bot",
+              defenderUnitKey: "bomber-1",
+              defenderUnitType: "Bomber",
+              attackerStrengthBefore: 100,
+              attackerStrengthAfter: 89,
+              defenderStrengthBefore: 88,
+              defenderStrengthAfter: 61,
+              damageToDefender: 27,
+              retaliationDamage: 11,
+              attackerDestroyed: false,
+              defenderDestroyed: false,
+              visualPasses: 2
+            }
+          ]
+        }
+      ],
+      [
+        {
+          missionId: "escort-live-5",
+          faction: "Bot",
+          kind: "escort",
+          unitKey: "escort-1",
+          originKey: "1,-1",
+          destKey: "3,0",
+          unitType: "Fighter",
+          strength: 100,
+          laneOffsetPx: 12,
+          escortTargetUnitKey: "bomber-1"
+        }
+      ],
+      fakeRenderer,
+      fakeEngine,
+      true
+    );
+  });
+
+  await Then("the bomber run should stay inside the resolved airshow without legacy strike legs or returns", async () => {
+    if (!callOrder.includes("intercept:flak")) {
+      throw new Error(`Expected the interception handoff to receive the linked flak context, saw ${JSON.stringify(callOrder)}.`);
+    }
+    if (!callOrder.includes("impact:state")) {
+      throw new Error(`Expected the post-strike state sync without replaying impact FX, saw ${JSON.stringify(callOrder)}.`);
+    }
+    if (callOrder.includes("legacyLeg") || callOrder.includes("legacyReturn") || callOrder.includes("impact:fx")) {
+      throw new Error(`Did not expect legacy bomber leg/return playback once the resolved airshow owns the package, saw ${JSON.stringify(callOrder)}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_SERIALIZES_COMPLEX_AIR_COMBAT_CLUSTERS_BEFORE_STARTING_ANOTHER_PACKAGE", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  const callOrder: string[] = [];
+  let releaseLinkedStrike: (() => void) | null = null;
+  const linkedStrikeDone = new Promise<void>((resolve) => {
+    releaseLinkedStrike = resolve;
+  });
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  await Given("a playback cluster that contains an intercepted linked strike and another nearby sortie", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      { ensureGameEngine: () => ({}) } as any,
+      {} as any,
+      {} as any,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).focusCameraOnHex = async (): Promise<void> => {
+      callOrder.push("focus");
+    };
+    (screen as any).waitForNextFrame = async (): Promise<void> => {};
+    (screen as any).waitMs = async (): Promise<void> => {};
+    (screen as any).playMissionStrikeOperation = async (flight: { unitKey: string }) => {
+      callOrder.push(`linked:start:${flight.unitKey}`);
+      await linkedStrikeDone;
+      callOrder.push(`linked:end:${flight.unitKey}`);
+    };
+    (screen as any).playStandaloneAirMissionFlight = async (flight: { unitKey: string }) => {
+      callOrder.push(`flight:${flight.unitKey}`);
+    };
+    (screen as any).playStandaloneAirEngagementEvent = async (event: { bomber: { unitKey: string } }) => {
+      callOrder.push(`event:${event.bomber.unitKey}`);
+    };
+  });
+
+  let playback: Promise<void> | null = null;
+
+  await When("the complex playback cluster starts", async () => {
+    playback = (screen as any).playAirPlaybackCluster(
+      [
+        {
+          kind: "linkedStrike",
+          index: 0,
+          focusHex: { q: 0, r: 0 },
+          focusKey: "0,0",
+          flight: { unitKey: "bomber-1" },
+          linkedEvents: [{ type: "airToAir" }],
+          escorts: []
+        },
+        {
+          kind: "flight",
+          index: 1,
+          focusHex: { q: 0, r: 1 },
+          focusKey: "0,1",
+          flight: { unitKey: "bomber-2" }
+        }
+      ],
+      {} as any,
+      {} as any
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  await Then("the second sortie should wait until the intercepted package finishes", async () => {
+    if (callOrder.includes("flight:bomber-2")) {
+      throw new Error(`Expected the nearby sortie to wait for the active air-combat package, saw ${JSON.stringify(callOrder)}.`);
+    }
+    releaseLinkedStrike?.();
+    await playback;
+    const linkedEndIndex = callOrder.indexOf("linked:end:bomber-1");
+    const secondFlightIndex = callOrder.indexOf("flight:bomber-2");
+    if (linkedEndIndex < 0 || secondFlightIndex < 0 || secondFlightIndex < linkedEndIndex) {
+      throw new Error(`Expected the second sortie to begin only after the intercepted package finished, saw ${JSON.stringify(callOrder)}.`);
+    }
+  });
+});
