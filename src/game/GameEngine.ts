@@ -2047,6 +2047,11 @@ export class GameEngine implements GameEngineAPI {
     // Collect all eligible friendly escorts protecting this bomber (limit: 1 engagement per escort per resolution).
     const escortMissions = this.findAllActiveEscortsForUnit(mission.faction, mission.unitKey).filter((m) => m.interceptions < 1);
 
+    console.log(`[ESCORT DEBUG] Strike mission ${mission.unitKey} (${mission.faction}): Found ${escortMissions.length} escort missions, ${capMissions.length} CAP missions`);
+    escortMissions.forEach(em => {
+      console.log(`  - Escort ${em.unitKey}, status: ${em.status}, targetKey: ${em.escortTargetUnitKey}, interceptions: ${em.interceptions}`);
+    });
+
     // Engagement metrics for reporting
     let escortsEngaged = 0;
     let escortsWins = 0;
@@ -2080,6 +2085,7 @@ export class GameEngine implements GameEngineAPI {
       }
       for (const em of escortMissions) {
         const escortLookup = this.lookupUnitBySquadronId(em.unitKey, mission.faction);
+        console.log(`[ESCORT DEBUG] Looking up escort ${em.unitKey}: ${escortLookup ? `FOUND (${escortLookup.unit.type}, strength ${escortLookup.unit.strength})` : 'NOT FOUND'}`);
         if (escortLookup) {
           escortsForEvent.push({
             faction: mission.faction,
@@ -2090,6 +2096,8 @@ export class GameEngine implements GameEngineAPI {
           escortParticipants.push({ mission: em, unit: escortLookup.unit });
         }
       }
+
+      console.log(`[ESCORT DEBUG] Final participant counts: ${escortParticipants.length} escorts, ${interceptorParticipants.length} interceptors`);
 
       const bomberStrengthBeforeCap = attackerPlacements.get(attackerHexKey)?.strength ?? attackerBefore.strength;
       const currentBomber = attackerPlacements.get(attackerHexKey) ?? attacker;
@@ -2927,7 +2935,11 @@ export class GameEngine implements GameEngineAPI {
         escortIndex,
         interceptorIndex
       });
+
+      console.log(`[ESCORT DEBUG] Escort exchange #${escortExchanges.length}: ${escortDelta.unitBefore.type} vs ${interceptorDelta.unitBefore.type}, dmg ${damageToInterceptor}/${damageToEscort}`);
     }
+
+    console.log(`[ESCORT DEBUG] Combat resolution complete: ${escortExchanges.length} escort exchanges, ${bomberPassExchanges.length} bomber pass exchanges`);
 
     interceptorDeltas.forEach((delta) => {
       delta.strengthAfterEscortPhase = delta.unitAfter.strength;

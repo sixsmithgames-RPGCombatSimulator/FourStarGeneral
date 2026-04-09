@@ -4112,6 +4112,7 @@ export class BattleScreen {
   }
 
   private announceAirInterceptEngagement(event: AirEngagementEvent): void {
+    console.log(`[ESCORT DEBUG] announceAirInterceptEngagement called: ${event.escortExchanges?.length ?? 0} escort exchanges, ${event.bomberPassExchanges?.length ?? 0} bomber exchanges`);
     if (
       (Array.isArray(event.escortExchanges) && event.escortExchanges.length > 0) ||
       (Array.isArray(event.bomberPassExchanges) && event.bomberPassExchanges.length > 0)
@@ -4132,6 +4133,7 @@ export class BattleScreen {
       };
 
       (event.escortExchanges ?? []).forEach((exchange, index) => {
+        console.log(`[ESCORT DEBUG] Logging escort exchange ${index}: ${exchange.attackerUnitType} (${exchange.attackerFaction}) vs ${exchange.defenderUnitType} (${exchange.defenderFaction})`);
         const category = exchange.defenderFaction === "Player" ? "player" : "enemy";
         const summary =
           `${exchange.defenderFaction === "Player" ? "Player patrol flight" : "Enemy patrol flight"} engaged ` +
@@ -4140,6 +4142,7 @@ export class BattleScreen {
           `${this.toTitleCase(exchange.attackerUnitType)} took ${Math.max(0, Math.round(exchange.retaliationDamage))}.` +
           (exchange.defenderDestroyed ? " Patrol flight destroyed." : "") +
           (exchange.attackerDestroyed ? ` ${this.toTitleCase(exchange.attackerUnitType)} destroyed.` : "");
+        console.log(`[ESCORT DEBUG] Publishing: ${summary}`);
         publishExchange(summary, category, {
           phase: exchange.phase,
           exchangeIndex: index,
