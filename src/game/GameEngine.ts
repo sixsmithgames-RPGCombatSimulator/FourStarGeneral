@@ -737,7 +737,7 @@ export interface AirMissionReportEntry {
 }
 
 export interface AirCombatExchangeEntry {
-  readonly phase: "escortClash" | "bomberPass";
+  readonly phase: "capClash" | "escortClash" | "bomberPass";
   readonly attackerFaction: TurnFaction;
   readonly attackerUnitKey: string;
   readonly attackerUnitType: string;
@@ -898,7 +898,7 @@ export interface AirMissionArrival {
  * Allows the battle screen to animate bombers continuing to target while fighters/interceptors converge and engage.
  */
 export interface AirEngagementEvent {
-  readonly type: "airToAir" | "flak";
+  readonly type: "airToAir" | "capClash" | "flak";
   readonly location: Axial;
   readonly missionId?: string;
   readonly bomber: { readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly strength?: number };
@@ -1003,6 +1003,17 @@ interface AirInterceptionResolution {
   escortsAfterEscortPhase: number;
   interceptorDeltas: AirInterceptionParticipantDelta[];
   escortDeltas: AirInterceptionParticipantDelta[];
+}
+
+type AirCoalition = "allied" | "axis";
+
+interface ResolvedMissionAirPhaseState {
+  readonly airToAirEvent: AirEngagementEvent | null;
+  readonly flakEvent: AirEngagementEvent | null;
+  readonly bomberDestroyedBeforeTarget: boolean;
+  readonly bomberStrengthBeforeAirPhase: number;
+  readonly bomberStrengthAfterAirPhase: number;
+  readonly meta: NonNullable<AirMissionOutcomeBase["meta"]>;
 }
 
 /** Arguments provided to the interception helper so we can reuse it across player, bot, and mission-driven attacks. */
@@ -1385,7 +1396,7 @@ export class GameEngine implements GameEngineAPI {
   /** Conversion factor mapping a single hex (250m) into kilometers for range validation. */
   private static readonly KILOMETERS_PER_HEX = 0.25;
   private static readonly TOWABLE_UNIT_TYPES = new Set<string>(TOWED_ARTILLERY_UNITS);
-  private static readonly AIR_COVER_PATROL_RADIUS_HEX = 12;
+  private static readonly AIR_COVER_PATROL_RADIUS_HEX = 100;
   private static readonly ENEMY_CONTACT_MEMORY_TURNS = 2;
   private static readonly RECON_SPOTTING_RANGE_BONUS = 2;
   private static readonly AIR_SPOTTING_RANGE_BONUS = 2;
@@ -1738,27 +1749,57 @@ export class GameEngine implements GameEngineAPI {
       }
     }
 
-    // Phase 3: Resolve missions in deterministic order so escort missions remain available while strikes resolve.
-    const order: AirMissionKind[] = ["strike", "escort", "airTransport", "airCover"];
-    for (const kind of order) {
-      for (const mission of active) {
-        if (mission.template.kind !== kind || mission.status === "completed") {
-          continue;
-        }
-        if (mission.status === "resolving") {
-          this.resolveAirMission(mission);
-          continue;
-        }
-        if (mission.status !== "inFlight") {
-          continue;
-        }
-        if (mission.turnsRemaining > 0) {
-          continue;
-        }
+    // Phase 3: Mark ready non-CAP missions for round-level resolution. CAP remains inFlight so the global
+    // air-phase pass can see every active patrol before any air combat is applied.
+    for (const mission of active) {
+      if (mission.status !== "inFlight" || mission.turnsRemaining > 0) {
+        continue;
+      }
+      if (mission.template.kind === "strike") {
         this.refreshStrikeTargetHex(mission, 6);
-        mission.status = "resolving";
+      }
+      if (mission.template.kind === "airCover") {
+        continue;
+      }
+      mission.status = "resolving";
+    }
+  }
+
+  private resolveReadyAirMissionsForRound(): void {
+    if (this.scheduledAirMissions.size === 0) {
+      return;
+    }
+
+    this.resolvedMissionAirPhaseByMissionId.clear();
+    this.resolveInflightAirPhase();
+
+    const order: AirMissionKind[] = ["strike", "escort", "airTransport"];
+    for (const kind of order) {
+      for (const mission of this.scheduledAirMissions.values()) {
+        if (mission.template.kind !== kind || mission.status !== "resolving") {
+          continue;
+        }
         this.resolveAirMission(mission);
       }
+    }
+
+    this.finalizeReadyAirCoverMissions();
+    this.resolvedMissionAirPhaseByMissionId.clear();
+  }
+
+  private finalizeReadyAirCoverMissions(): void {
+    for (const mission of this.scheduledAirMissions.values()) {
+      if (mission.template.kind !== "airCover") {
+        continue;
+      }
+      if (mission.status !== "inFlight") {
+        continue;
+      }
+      if (mission.turnsRemaining > 0) {
+        continue;
+      }
+      mission.status = "resolving";
+      this.resolveAirMission(mission);
     }
   }
 
@@ -1869,11 +1910,15 @@ export class GameEngine implements GameEngineAPI {
     }
 
     const attackerPlacements = mission.faction === "Player" ? this.playerPlacements : this.botPlacements;
+    const preResolvedAirPhase = this.resolvedMissionAirPhaseByMissionId.get(mission.id) ?? null;
 
     // Look up the attacker by its stable squadronId (unitId) instead of hex key.
     // This allows multiple squadrons at the same base to each have active missions.
     const attackerLookup = this.lookupUnitBySquadronId(mission.unitKey, mission.faction);
     if (!attackerLookup) {
+      if (preResolvedAirPhase?.bomberDestroyedBeforeTarget) {
+        return this.buildDestroyedStrikeOutcomeFromAirPhase(preResolvedAirPhase);
+      }
       return {
         type: "strike",
         result: "aborted",
@@ -1915,11 +1960,27 @@ export class GameEngine implements GameEngineAPI {
 
     const opponentFaction: TurnFaction = mission.faction === "Player" ? "Bot" : "Player";
 
-    // === FLAK ENGAGEMENT: Ground AA intercepts before CAP ===
-    const flakUnits = this.findAllActiveFlakUnitsForHex(opponentFaction, mission.targetHex);
-    let flakAttrition = 0;
+    let flakAttrition = Math.max(0, Math.round(preResolvedAirPhase?.meta.flakAttrition ?? 0));
+    let escortsEngaged = Math.max(0, Math.round(preResolvedAirPhase?.meta.escortsEngaged ?? 0));
+    let escortsWins = Math.max(0, Math.round(preResolvedAirPhase?.meta.escortsWins ?? 0));
+    let capIntercepts = Math.max(0, Math.round(preResolvedAirPhase?.meta.capIntercepts ?? 0));
+    let bomberAttrition = Math.max(0, Math.round(preResolvedAirPhase?.meta.bomberAttrition ?? 0));
+    let interceptorAttrition = Math.max(0, Math.round(preResolvedAirPhase?.meta.interceptorAttrition ?? 0));
+    let escortPhaseInterceptorAttrition = Math.max(0, Math.round(preResolvedAirPhase?.meta.escortPhaseInterceptorAttrition ?? 0));
+    let bomberDefenseInterceptorAttrition = Math.max(0, Math.round(preResolvedAirPhase?.meta.bomberDefenseInterceptorAttrition ?? 0));
+    let escortAttrition = Math.max(0, Math.round(preResolvedAirPhase?.meta.escortAttrition ?? 0));
+    let interceptorKills = Math.max(0, Math.round(preResolvedAirPhase?.meta.interceptorKills ?? 0));
+    let escortKills = Math.max(0, Math.round(preResolvedAirPhase?.meta.escortKills ?? 0));
 
-    if (flakUnits.length > 0) {
+    if (preResolvedAirPhase?.bomberDestroyedBeforeTarget) {
+      return this.buildDestroyedStrikeOutcomeFromAirPhase(preResolvedAirPhase);
+    }
+
+    if (!preResolvedAirPhase) {
+      // === Legacy fallback: only used if the round-level air phase did not pre-resolve this strike. ===
+      const flakUnits = this.findAllActiveFlakUnitsForHex(opponentFaction, mission.targetHex);
+
+      if (flakUnits.length > 0) {
       const flakInterceptorsForEvent: Array<{
         faction: TurnFaction;
         unitKey: string;
@@ -2024,47 +2085,30 @@ export class GameEngine implements GameEngineAPI {
         bomberDestroyed: bomberDestroyedByFlak
       });
 
-      if (bomberDestroyedByFlak) {
-        return {
-          type: "strike",
-          result: "destroyed",
-          details: "Strike package was destroyed by ground-based anti-aircraft fire before reaching the target.",
-          refitRequired: true,
-          meta: {
-            flakAttrition: attackerBefore.strength,
-            capIntercepts: 0,
-            escortsEngaged: 0,
-            escortsWins: 0,
-            bomberAttrition: 0
-          }
-        };
+        if (bomberDestroyedByFlak) {
+          return {
+            type: "strike",
+            result: "destroyed",
+            details: "Strike package was destroyed by ground-based anti-aircraft fire before reaching the target.",
+            refitRequired: true,
+            meta: {
+              flakAttrition: attackerBefore.strength,
+              capIntercepts: 0,
+              escortsEngaged: 0,
+              escortsWins: 0,
+              bomberAttrition: 0
+            }
+          };
+        }
       }
-    }
 
-    // Interception: hostile air cover over the objective may engage the strike package before ordnance release.
-    // Collect all eligible CAP flights covering the target hex (limit: 1 interception per CAP per resolution).
-    const capMissions = this.findAllActiveAirCoverForHex(opponentFaction, defenderKey).filter((m) => m.interceptions < 1);
-    // Collect all eligible friendly escorts protecting this bomber (limit: 1 engagement per escort per resolution).
-    const escortMissions = this.findAllActiveEscortsForUnit(mission.faction, mission.unitKey).filter((m) => m.interceptions < 1);
+      // Interception: hostile air cover over the objective may engage the strike package before ordnance release.
+      // Collect all eligible CAP flights covering the target hex (limit: 1 interception per CAP per resolution).
+      const capMissions = this.findAllActiveAirCoverForHex(opponentFaction, defenderKey).filter((m) => m.interceptions < 1);
+      // Collect all eligible friendly escorts protecting this bomber (limit: 1 engagement per escort per resolution).
+      const escortMissions = this.findAllActiveEscortsForUnit(mission.faction, mission.unitKey).filter((m) => m.interceptions < 1);
 
-    console.log(`[ESCORT DEBUG] Strike mission ${mission.unitKey} (${mission.faction}): Found ${escortMissions.length} escort missions, ${capMissions.length} CAP missions`);
-    escortMissions.forEach(em => {
-      console.log(`  - Escort ${em.unitKey}, status: ${em.status}, targetKey: ${em.escortTargetUnitKey}, interceptions: ${em.interceptions}`);
-    });
-
-    // Engagement metrics for reporting
-    let escortsEngaged = 0;
-    let escortsWins = 0;
-    let capIntercepts = 0;
-    let bomberAttrition = 0;
-    let interceptorAttrition = 0;
-    let escortPhaseInterceptorAttrition = 0;
-    let bomberDefenseInterceptorAttrition = 0;
-    let escortAttrition = 0;
-    let interceptorKills = 0;
-    let escortKills = 0;
-
-    if (capMissions.length > 0) {
+      if (capMissions.length > 0) {
       const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
       const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
       const interceptorParticipants: AirInterceptionParticipant[] = [];
@@ -2085,7 +2129,6 @@ export class GameEngine implements GameEngineAPI {
       }
       for (const em of escortMissions) {
         const escortLookup = this.lookupUnitBySquadronId(em.unitKey, mission.faction);
-        console.log(`[ESCORT DEBUG] Looking up escort ${em.unitKey}: ${escortLookup ? `FOUND (${escortLookup.unit.type}, strength ${escortLookup.unit.strength})` : 'NOT FOUND'}`);
         if (escortLookup) {
           escortsForEvent.push({
             faction: mission.faction,
@@ -2096,8 +2139,6 @@ export class GameEngine implements GameEngineAPI {
           escortParticipants.push({ mission: em, unit: escortLookup.unit });
         }
       }
-
-      console.log(`[ESCORT DEBUG] Final participant counts: ${escortParticipants.length} escorts, ${interceptorParticipants.length} interceptors`);
 
       const bomberStrengthBeforeCap = attackerPlacements.get(attackerHexKey)?.strength ?? attackerBefore.strength;
       const currentBomber = attackerPlacements.get(attackerHexKey) ?? attacker;
@@ -2120,7 +2161,7 @@ export class GameEngine implements GameEngineAPI {
         this.addMissionAirCombatInflicted(delta.mission, delta.inflicted, delta.kills);
         this.addMissionAirCombatTaken(delta.mission, delta.taken);
         this.spendAircraftAmmo(mission.faction, delta.mission.unitKey, true);
-        delta.mission.interceptions += 1;
+        delta.mission.interceptions = Math.max(0, Math.round(delta.mission.interceptions ?? 0)) + 1;
         if (delta.unitAfter.strength <= 0) {
           this.removeUnitFromFactionHex(mission.faction, delta.unitBefore.hex, delta.mission.unitKey);
           this.removeSupplyEntryForFaction(mission.faction, delta.unitBefore.hex, delta.mission.unitKey);
@@ -2138,7 +2179,7 @@ export class GameEngine implements GameEngineAPI {
         this.addMissionAirCombatInflicted(delta.mission, delta.inflicted, delta.kills);
         this.addMissionAirCombatTaken(delta.mission, delta.taken);
         this.spendAircraftAmmo(opponentFaction, delta.mission.unitKey, true);
-        delta.mission.interceptions += 1;
+        delta.mission.interceptions = Math.max(0, Math.round(delta.mission.interceptions ?? 0)) + 1;
         if (delta.unitAfter.strength <= 0) {
           this.removeUnitFromFactionHex(opponentFaction, delta.unitBefore.hex, delta.mission.unitKey);
           this.removeSupplyEntryForFaction(opponentFaction, delta.unitBefore.hex, delta.mission.unitKey);
@@ -2191,26 +2232,27 @@ export class GameEngine implements GameEngineAPI {
         bomberPassExchanges: interception.bomberPassExchanges
       });
 
-      if (interception.bomberDestroyed) {
-        return {
-          type: "strike",
-          result: "destroyed",
-          details: "Strike package was intercepted and destroyed before reaching the target.",
-          refitRequired: true,
-          meta: {
-            capIntercepts,
-            capKills: 1,
-            escortsEngaged,
-            escortsWins,
-            bomberAttrition: attackerBefore.strength,
-            interceptorAttrition,
-            escortPhaseInterceptorAttrition: interception.escortPhaseInterceptorAttrition,
-            bomberDefenseInterceptorAttrition: interception.bomberDefenseInterceptorAttrition,
-            interceptorKills,
-            escortAttrition,
-            escortKills
-          }
-        };
+        if (interception.bomberDestroyed) {
+          return {
+            type: "strike",
+            result: "destroyed",
+            details: "Strike package was intercepted and destroyed before reaching the target.",
+            refitRequired: true,
+            meta: {
+              capIntercepts,
+              capKills: 1,
+              escortsEngaged,
+              escortsWins,
+              bomberAttrition: attackerBefore.strength,
+              interceptorAttrition,
+              escortPhaseInterceptorAttrition: interception.escortPhaseInterceptorAttrition,
+              bomberDefenseInterceptorAttrition: interception.bomberDefenseInterceptorAttrition,
+              interceptorKills,
+              escortAttrition,
+              escortKills
+            }
+          };
+        }
       }
     }
 
@@ -2585,6 +2627,554 @@ export class GameEngine implements GameEngineAPI {
     };
   }
 
+  private buildDestroyedStrikeOutcomeFromAirPhase(phaseState: ResolvedMissionAirPhaseState): AirMissionOutcome {
+    const destroyedByFlak = phaseState.flakEvent?.bomberDestroyed === true;
+    return {
+      type: "strike",
+      result: "destroyed",
+      details: destroyedByFlak
+        ? "Strike package was destroyed by ground-based anti-aircraft fire before reaching the target."
+        : "Strike package was intercepted and destroyed before reaching the target.",
+      refitRequired: true,
+      meta: { ...phaseState.meta }
+    };
+  }
+
+  private getAirCoalitionForFaction(faction: TurnFaction): AirCoalition {
+    return faction === "Bot" ? "axis" : "allied";
+  }
+
+  private isMissionActiveInAirspace(mission: ScheduledAirMission): boolean {
+    return mission.status === "inFlight" || mission.status === "resolving";
+  }
+
+  private getCapPatrolCenterForMission(mission: ScheduledAirMission): Axial | null {
+    if (mission.targetHex) {
+      return structuredClone(mission.targetHex);
+    }
+    const factionSide = mission.faction === "Player" ? this.playerSide
+      : mission.faction === "Bot" ? this.botSide
+      : this.allySide;
+    return factionSide?.hq ? structuredClone(factionSide.hq) : null;
+  }
+
+  private canCapMissionContestHex(mission: ScheduledAirMission, targetHex: Axial): boolean {
+    if (mission.template.kind !== "airCover" || !this.isMissionActiveInAirspace(mission)) {
+      return false;
+    }
+
+    const patrolCenter = this.getCapPatrolCenterForMission(mission);
+    if (!patrolCenter) {
+      return false;
+    }
+    if (hexDistance(patrolCenter, targetHex) > GameEngine.AIR_COVER_PATROL_RADIUS_HEX) {
+      return false;
+    }
+
+    const capLookup = this.lookupUnitBySquadronId(mission.unitKey, mission.faction);
+    const capUnit = capLookup?.unit ?? null;
+    if (!capUnit) {
+      return false;
+    }
+    const capDef = this.getUnitDefinition(capUnit.type);
+    if (!this.isAircraft(capDef) || !capDef.airSupport) {
+      return false;
+    }
+
+    let originHex: Axial | null = null;
+    if (mission.originHexKey) {
+      try {
+        originHex = GameEngine.parseAxialKey(mission.originHexKey);
+      } catch {
+        originHex = null;
+      }
+    }
+    if (!originHex) {
+      originHex = structuredClone(capUnit.hex);
+    }
+
+    try {
+      this.assertAirMissionRange(capDef.airSupport, originHex, targetHex);
+    } catch {
+      return false;
+    }
+
+    return true;
+  }
+
+  private collectActiveCapMissionDeltas(): AirInterceptionParticipantDelta[] {
+    const deltas: AirInterceptionParticipantDelta[] = [];
+    for (const mission of this.scheduledAirMissions.values()) {
+      if (mission.template.kind !== "airCover" || !this.isMissionActiveInAirspace(mission)) {
+        continue;
+      }
+      const capLookup = this.lookupUnitBySquadronId(mission.unitKey, mission.faction);
+      if (!capLookup) {
+        continue;
+      }
+      deltas.push({
+        mission,
+        unitBefore: structuredClone(capLookup.unit),
+        unitAfter: structuredClone(capLookup.unit),
+        strengthAfterEscortPhase: capLookup.unit.strength,
+        engaged: false,
+        inflicted: 0,
+        taken: 0,
+        kills: 0
+      });
+    }
+    return deltas;
+  }
+
+  private resolveInflightAirPhase(): void {
+    const readyStrikeMissions = Array.from(this.scheduledAirMissions.values())
+      .filter((mission) => mission.template.kind === "strike" && mission.status === "resolving" && mission.targetHex)
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const capDeltas = this.collectActiveCapMissionDeltas();
+    const alliedCaps = capDeltas.filter((delta) => this.getAirCoalitionForFaction(delta.mission.faction) === "allied");
+    const axisCaps = capDeltas.filter((delta) => this.getAirCoalitionForFaction(delta.mission.faction) === "axis");
+
+    const capClashExchanges = this.resolveCapSuperiorityClash(alliedCaps, axisCaps);
+    if (capClashExchanges.length > 0) {
+      this.pendingAirEngagements.push(this.buildCapClashAirEngagementEvent(alliedCaps, axisCaps, capClashExchanges, readyStrikeMissions));
+    }
+
+    const assignedInterceptorsByStrikeId = new Map<string, AirInterceptionParticipantDelta[]>();
+    const assignmentCounts = new Map<string, number>();
+    const assignCapsToStrikes = (
+      capPool: readonly AirInterceptionParticipantDelta[],
+      hostileStrikes: readonly ScheduledAirMission[]
+    ): void => {
+      const sortedCaps = [...capPool]
+        .filter((delta) => delta.unitAfter.strength > 0)
+        .sort((a, b) => a.mission.id.localeCompare(b.mission.id));
+      for (const delta of sortedCaps) {
+        const protectedHexKey = this.getCapPatrolCenterForMission(delta.mission)
+          ? axialKey(this.getCapPatrolCenterForMission(delta.mission)!)
+          : null;
+        const candidates = hostileStrikes
+          .filter((mission) => mission.targetHex && this.canCapMissionContestHex(delta.mission, mission.targetHex))
+          .sort((a, b) => {
+            const aPriority = protectedHexKey && a.targetHex && axialKey(a.targetHex) === protectedHexKey ? 0 : 1;
+            const bPriority = protectedHexKey && b.targetHex && axialKey(b.targetHex) === protectedHexKey ? 0 : 1;
+            if (aPriority !== bPriority) {
+              return aPriority - bPriority;
+            }
+            const aAssigned = assignmentCounts.get(a.id) ?? 0;
+            const bAssigned = assignmentCounts.get(b.id) ?? 0;
+            if (aAssigned !== bAssigned) {
+              return aAssigned - bAssigned;
+            }
+            const aStrength = this.lookupUnitBySquadronId(a.unitKey, a.faction)?.unit.strength ?? 0;
+            const bStrength = this.lookupUnitBySquadronId(b.unitKey, b.faction)?.unit.strength ?? 0;
+            if (aStrength !== bStrength) {
+              return bStrength - aStrength;
+            }
+            return a.id.localeCompare(b.id);
+          });
+        const assigned = candidates[0];
+        if (!assigned) {
+          continue;
+        }
+        const pool = assignedInterceptorsByStrikeId.get(assigned.id) ?? [];
+        pool.push(delta);
+        assignedInterceptorsByStrikeId.set(assigned.id, pool);
+        assignmentCounts.set(assigned.id, (assignmentCounts.get(assigned.id) ?? 0) + 1);
+      }
+    };
+
+    assignCapsToStrikes(
+      alliedCaps,
+      readyStrikeMissions.filter((mission) => this.getAirCoalitionForFaction(mission.faction) === "axis")
+    );
+    assignCapsToStrikes(
+      axisCaps,
+      readyStrikeMissions.filter((mission) => this.getAirCoalitionForFaction(mission.faction) === "allied")
+    );
+
+    for (const mission of readyStrikeMissions) {
+      this.resolveStrikeMissionAirPhase(mission, assignedInterceptorsByStrikeId.get(mission.id) ?? []);
+    }
+
+    capDeltas.forEach((delta) => this.applyAirCombatDeltaOutcome(delta));
+    if (capDeltas.some((delta) => delta.engaged)) {
+      this.invalidateRosterCache();
+    }
+  }
+
+  private resolveCapSuperiorityClash(
+    alliedCaps: AirInterceptionParticipantDelta[],
+    axisCaps: AirInterceptionParticipantDelta[]
+  ): AirCombatExchangeEntry[] {
+    const exchanges: AirCombatExchangeEntry[] = [];
+    while (
+      alliedCaps.some((delta) => delta.unitAfter.strength > 0) &&
+      axisCaps.some((delta) => delta.unitAfter.strength > 0)
+    ) {
+      const roundExchanges = this.resolveSimultaneousFighterClash(alliedCaps, axisCaps, "capClash");
+      if (roundExchanges.length <= 0) {
+        break;
+      }
+      exchanges.push(...roundExchanges);
+    }
+    return exchanges;
+  }
+
+  private buildCapClashAirEngagementEvent(
+    alliedCaps: readonly AirInterceptionParticipantDelta[],
+    axisCaps: readonly AirInterceptionParticipantDelta[],
+    exchanges: readonly AirCombatExchangeEntry[],
+    readyStrikeMissions: readonly ScheduledAirMission[]
+  ): AirEngagementEvent {
+    const placeholder = axisCaps[0] ?? alliedCaps[0];
+    return {
+      type: "capClash",
+      missionId: placeholder?.mission.id,
+      location: this.resolveCapClashFocusHex(alliedCaps, axisCaps, readyStrikeMissions),
+      bomber: {
+        faction: placeholder?.mission.faction ?? "Bot",
+        unitKey: placeholder?.mission.unitKey ?? "cap-clash",
+        unitType: placeholder?.unitBefore.type ?? "Fighter",
+        strength: placeholder?.unitBefore.strength ?? 100
+      },
+      interceptors: alliedCaps.map((delta) => ({
+        faction: delta.mission.faction,
+        unitKey: delta.mission.unitKey,
+        unitType: delta.unitBefore.type as string,
+        strength: delta.unitBefore.strength
+      })),
+      escorts: axisCaps.map((delta) => ({
+        faction: delta.mission.faction,
+        unitKey: delta.mission.unitKey,
+        unitType: delta.unitBefore.type as string,
+        strength: delta.unitBefore.strength
+      })),
+      bomberStrengthBefore: placeholder?.unitBefore.strength ?? 100,
+      bomberStrengthAfter: placeholder?.unitAfter.strength ?? 100,
+      bomberDestroyed: false,
+      escortExchanges: exchanges,
+      bomberPassExchanges: [],
+      interceptorsAfterEscortPhase: alliedCaps.filter((delta) => delta.unitAfter.strength > 0).length,
+      escortsAfterEscortPhase: axisCaps.filter((delta) => delta.unitAfter.strength > 0).length,
+      interceptorStrengthsAfterEscortPhase: alliedCaps.map((delta) => delta.unitAfter.strength),
+      escortStrengthsAfterEscortPhase: axisCaps.map((delta) => delta.unitAfter.strength),
+      interceptorFinalStrengths: alliedCaps.map((delta) => delta.unitAfter.strength),
+      escortFinalStrengths: axisCaps.map((delta) => delta.unitAfter.strength)
+    };
+  }
+
+  private resolveCapClashFocusHex(
+    alliedCaps: readonly AirInterceptionParticipantDelta[],
+    axisCaps: readonly AirInterceptionParticipantDelta[],
+    readyStrikeMissions: readonly ScheduledAirMission[]
+  ): Axial {
+    const candidateCenters: Axial[] = [];
+    readyStrikeMissions.forEach((mission) => {
+      if (mission.targetHex) {
+        candidateCenters.push(structuredClone(mission.targetHex));
+      }
+    });
+    [...alliedCaps, ...axisCaps].forEach((delta) => {
+      const patrolCenter = this.getCapPatrolCenterForMission(delta.mission);
+      if (patrolCenter) {
+        candidateCenters.push(patrolCenter);
+      }
+    });
+    if (candidateCenters.length <= 0) {
+      const fallback = alliedCaps[0]?.unitAfter.hex ?? axisCaps[0]?.unitAfter.hex ?? { q: 0, r: 0 };
+      return structuredClone(fallback);
+    }
+    const sum = candidateCenters.reduce(
+      (acc, hex) => ({ q: acc.q + hex.q, r: acc.r + hex.r }),
+      { q: 0, r: 0 }
+    );
+    return {
+      q: Math.round(sum.q / candidateCenters.length),
+      r: Math.round(sum.r / candidateCenters.length)
+    };
+  }
+
+  private resolveStrikeMissionAirPhase(
+    mission: ScheduledAirMission,
+    assignedInterceptors: readonly AirInterceptionParticipantDelta[]
+  ): void {
+    const attackerLookup = this.lookupUnitBySquadronId(mission.unitKey, mission.faction);
+    if (!attackerLookup || !mission.targetHex) {
+      return;
+    }
+
+    const bomberBeforeAirPhase = structuredClone(attackerLookup.unit);
+    const interceptorParticipants = assignedInterceptors
+      .filter((delta) => delta.unitAfter.strength > 0)
+      .map((delta) => ({
+        mission: delta.mission,
+        unit: structuredClone(delta.unitAfter)
+      }));
+    const escortParticipants = this.findAllActiveEscortsForUnit(mission.faction, mission.unitKey)
+      .filter((escortMission) => this.isMissionActiveInAirspace(escortMission))
+      .map((escortMission) => {
+        const escortLookup = this.lookupUnitBySquadronId(escortMission.unitKey, mission.faction);
+        return escortLookup ? { mission: escortMission, unit: escortLookup.unit } : null;
+      })
+      .filter((entry): entry is AirInterceptionParticipant => !!entry);
+
+    let bomberAfterAirPhase = structuredClone(bomberBeforeAirPhase);
+    let airToAirEvent: AirEngagementEvent | null = null;
+    let flakEvent: AirEngagementEvent | null = null;
+    let flakAttrition = 0;
+    let capIntercepts = 0;
+    let escortsEngaged = 0;
+    let escortsWins = 0;
+    let bomberAttrition = 0;
+    let interceptorAttrition = 0;
+    let escortPhaseInterceptorAttrition = 0;
+    let bomberDefenseInterceptorAttrition = 0;
+    let interceptorKills = 0;
+    let escortAttrition = 0;
+    let escortKills = 0;
+
+    if (interceptorParticipants.length > 0) {
+      const interception = this.resolveAirInterception(
+        bomberAfterAirPhase,
+        mission.faction,
+        interceptorParticipants,
+        escortParticipants
+      );
+      bomberAfterAirPhase = structuredClone(interception.bomberAfter);
+      capIntercepts = interception.capIntercepts;
+      escortsEngaged = interception.escortsEngaged;
+      escortsWins = interception.escortDeltas.reduce((sum, delta) => sum + delta.kills, 0);
+      bomberAttrition = interception.bomberAttrition;
+      interceptorAttrition = interception.interceptorAttrition;
+      escortPhaseInterceptorAttrition = interception.escortPhaseInterceptorAttrition;
+      bomberDefenseInterceptorAttrition = interception.bomberDefenseInterceptorAttrition;
+      interceptorKills = interception.interceptorKills;
+      escortAttrition = interception.escortAttrition;
+      escortKills = interception.escortKills;
+
+      const interceptorDeltaByMissionId = new Map(interception.interceptorDeltas.map((delta) => [delta.mission.id, delta] as const));
+      assignedInterceptors.forEach((delta) => {
+        const resolved = interceptorDeltaByMissionId.get(delta.mission.id);
+        if (!resolved) {
+          return;
+        }
+        this.mergeAirCombatDeltaOutcome(delta, resolved);
+      });
+      interception.escortDeltas.forEach((delta) => this.applyAirCombatDeltaOutcome(delta));
+
+      airToAirEvent = {
+        type: "airToAir",
+        missionId: mission.id,
+        location: structuredClone(mission.targetHex),
+        bomber: {
+          faction: mission.faction,
+          unitKey: mission.unitKey,
+          unitType: mission.unitType as string,
+          strength: bomberBeforeAirPhase.strength
+        },
+        interceptors: interceptorParticipants.map((entry) => ({
+          faction: entry.mission.faction,
+          unitKey: entry.mission.unitKey,
+          unitType: entry.unit.type as string,
+          strength: entry.unit.strength
+        })),
+        escorts: escortParticipants.map((entry) => ({
+          faction: entry.mission.faction,
+          unitKey: entry.mission.unitKey,
+          unitType: entry.unit.type as string,
+          strength: entry.unit.strength
+        })),
+        bomberStrengthBefore: bomberBeforeAirPhase.strength,
+        bomberStrengthAfter: interception.bomberAfter.strength,
+        bomberDestroyed: interception.bomberDestroyed,
+        interceptorAttrition: interception.interceptorAttrition,
+        escortPhaseInterceptorAttrition: interception.escortPhaseInterceptorAttrition,
+        bomberDefenseInterceptorAttrition: interception.bomberDefenseInterceptorAttrition,
+        interceptorKills: interception.interceptorKills,
+        escortAttrition: interception.escortAttrition,
+        escortKills: interception.escortKills,
+        escortsEngaged: interception.escortsEngaged,
+        interceptorsAfterEscortPhase: interception.interceptorsAfterEscortPhase,
+        escortsAfterEscortPhase: interception.escortsAfterEscortPhase,
+        interceptorStrengthsAfterEscortPhase: interception.interceptorDeltas.map((delta) => delta.strengthAfterEscortPhase),
+        escortStrengthsAfterEscortPhase: interception.escortDeltas.map((delta) => delta.strengthAfterEscortPhase),
+        interceptorFinalStrengths: interception.interceptorDeltas.map((delta) => delta.unitAfter.strength),
+        escortFinalStrengths: interception.escortDeltas.map((delta) => delta.unitAfter.strength),
+        escortExchanges: interception.escortExchanges,
+        bomberPassExchanges: interception.bomberPassExchanges
+      };
+      this.pendingAirEngagements.push(airToAirEvent);
+    }
+
+    if (bomberAfterAirPhase.strength > 0) {
+      const flakResolution = this.resolveFlakAgainstBomberAtTarget(mission, bomberAfterAirPhase);
+      bomberAfterAirPhase = structuredClone(flakResolution.bomberAfter);
+      flakAttrition = flakResolution.totalDamage;
+      flakEvent = flakResolution.event;
+      if (flakEvent) {
+        this.pendingAirEngagements.push(flakEvent);
+      }
+    }
+
+    if (bomberAfterAirPhase.strength <= 0) {
+      this.removeUnitFromFactionHex(mission.faction, attackerLookup.unit.hex, mission.unitKey);
+      this.removeSupplyEntryForFaction(mission.faction, attackerLookup.unit.hex, mission.unitKey);
+      this.deleteUnitActionFlags(mission.faction, attackerLookup.unit);
+    } else {
+      this.replaceUnitInFactionHex(mission.faction, bomberAfterAirPhase);
+      this.syncStrengthForFaction(mission.faction, bomberAfterAirPhase.hex, bomberAfterAirPhase.strength, mission.unitKey);
+    }
+
+    this.resolvedMissionAirPhaseByMissionId.set(mission.id, {
+      airToAirEvent,
+      flakEvent,
+      bomberDestroyedBeforeTarget: bomberAfterAirPhase.strength <= 0,
+      bomberStrengthBeforeAirPhase: bomberBeforeAirPhase.strength,
+      bomberStrengthAfterAirPhase: bomberAfterAirPhase.strength,
+      meta: {
+        flakAttrition,
+        capIntercepts,
+        escortsEngaged,
+        escortsWins,
+        bomberAttrition,
+        interceptorAttrition,
+        escortPhaseInterceptorAttrition,
+        bomberDefenseInterceptorAttrition,
+        interceptorKills,
+        escortAttrition,
+        escortKills
+      }
+    });
+  }
+
+  private resolveFlakAgainstBomberAtTarget(
+    mission: ScheduledAirMission,
+    bomber: ScenarioUnit
+  ): { bomberAfter: ScenarioUnit; totalDamage: number; event: AirEngagementEvent | null } {
+    if (!mission.targetHex) {
+      return { bomberAfter: structuredClone(bomber), totalDamage: 0, event: null };
+    }
+
+    const bomberDefinition = this.getUnitDefinition(bomber.type);
+    const opponentFaction: TurnFaction = mission.faction === "Player" ? "Bot" : "Player";
+    const flakUnits = this.findAllActiveFlakUnitsForHex(opponentFaction, mission.targetHex);
+    if (flakUnits.length <= 0) {
+      return { bomberAfter: structuredClone(bomber), totalDamage: 0, event: null };
+    }
+
+    const flakInterceptorsForEvent = flakUnits.map((flakEntry) => ({
+      faction: opponentFaction,
+      unitKey: this.getSquadronId(flakEntry.unit),
+      unitType: flakEntry.unit.type as string,
+      hex: structuredClone(flakEntry.unit.hex)
+    }));
+    let totalDamage = 0;
+    let currentBomber = structuredClone(bomber);
+    const flakEngagements: FlakEngagementEntry[] = [];
+
+    for (const flakEntry of flakUnits) {
+      if (currentBomber.strength <= 0) {
+        break;
+      }
+      const bomberStrengthBeforeBattery = currentBomber.strength;
+      const flakReq = this.buildMissionAttackRequest(
+        opponentFaction,
+        flakEntry.unit,
+        currentBomber,
+        { defenderHex: mission.targetHex }
+      );
+      if (!flakReq) {
+        continue;
+      }
+
+      let flakResult = resolveAttack(flakReq);
+      const flakDef = this.getUnitDefinition(flakEntry.unit.type);
+      if (this.hasAntiAirCapability(flakDef) && this.isAircraft(bomberDefinition)) {
+        flakResult = {
+          ...flakResult,
+          accuracy: flakResult.accuracy * 0.25,
+          expectedHits: flakResult.expectedHits * 0.25,
+          expectedDamage: flakResult.expectedDamage * 0.25,
+          expectedSuppression: flakResult.expectedSuppression * 0.25
+        };
+      }
+
+      const suffered = Math.max(0, Math.min(currentBomber.strength, Math.round(flakResult.expectedDamage)));
+      currentBomber = {
+        ...structuredClone(currentBomber),
+        strength: Math.max(0, currentBomber.strength - suffered)
+      };
+      totalDamage += suffered;
+      this.recordFlakEngagement(opponentFaction, flakEntry.unit, flakEntry.hexKey);
+      flakEngagements.push({
+        batteryFaction: opponentFaction,
+        batteryUnitKey: this.getSquadronId(flakEntry.unit),
+        batteryUnitType: flakEntry.unit.type as string,
+        batteryHex: structuredClone(flakEntry.unit.hex),
+        bomberFaction: mission.faction,
+        bomberUnitKey: mission.unitKey,
+        bomberUnitType: mission.unitType as string,
+        bomberStrengthBefore: bomberStrengthBeforeBattery,
+        bomberStrengthAfter: currentBomber.strength,
+        damageToBomber: suffered,
+        bomberDestroyed: currentBomber.strength <= 0
+      });
+    }
+
+    return {
+      bomberAfter: currentBomber,
+      totalDamage,
+      event: {
+        type: "flak",
+        missionId: mission.id,
+        location: structuredClone(mission.targetHex),
+        bomber: {
+          faction: mission.faction,
+          unitKey: mission.unitKey,
+          unitType: mission.unitType as string,
+          strength: bomber.strength
+        },
+        interceptors: flakInterceptorsForEvent,
+        escorts: [],
+        flakDamage: totalDamage,
+        flakEngagements,
+        bomberStrengthBefore: bomber.strength,
+        bomberStrengthAfter: currentBomber.strength,
+        bomberDestroyed: currentBomber.strength <= 0
+      }
+    };
+  }
+
+  private mergeAirCombatDeltaOutcome(
+    target: AirInterceptionParticipantDelta,
+    resolved: AirInterceptionParticipantDelta
+  ): void {
+    target.unitAfter = structuredClone(resolved.unitAfter);
+    target.strengthAfterEscortPhase = resolved.strengthAfterEscortPhase;
+    target.engaged = target.engaged || resolved.engaged;
+    target.inflicted += resolved.inflicted;
+    target.taken += resolved.taken;
+    target.kills += resolved.kills;
+  }
+
+  private applyAirCombatDeltaOutcome(delta: AirInterceptionParticipantDelta): void {
+    if (!delta.engaged) {
+      return;
+    }
+    this.addMissionAirCombatInflicted(delta.mission, delta.inflicted, delta.kills);
+    this.addMissionAirCombatTaken(delta.mission, delta.taken);
+    this.spendAircraftAmmo(delta.mission.faction, delta.mission.unitKey, true);
+    delta.mission.interceptions = Math.max(0, Math.round(delta.mission.interceptions ?? 0)) + 1;
+    if (delta.unitAfter.strength <= 0) {
+      this.removeUnitFromFactionHex(delta.mission.faction, delta.unitBefore.hex, delta.mission.unitKey);
+      this.removeSupplyEntryForFaction(delta.mission.faction, delta.unitBefore.hex, delta.mission.unitKey);
+      this.deleteUnitActionFlags(delta.mission.faction, delta.unitBefore);
+    } else {
+      this.replaceUnitInFactionHex(delta.mission.faction, delta.unitAfter);
+      this.syncStrengthForFaction(delta.mission.faction, delta.unitAfter.hex, delta.unitAfter.strength, delta.mission.unitKey);
+    }
+  }
+
   /**
    * Finds the nearest unoccupied hex within a given radius of the target hex.
    * Used for scattering airborne drops when the target is occupied.
@@ -2813,13 +3403,208 @@ export class GameEngine implements GameEngineAPI {
     return Math.max(0, Math.min(defender.strength, Math.round(result.expectedDamage)));
   }
 
+  private distributeAirDamageContributions(
+    attacks: ReadonlyArray<{ rawDamage: number }>,
+    maxTotalDamage: number
+  ): number[] {
+    if (attacks.length <= 0 || maxTotalDamage <= 0) {
+      return attacks.map(() => 0);
+    }
+
+    const totalRawDamage = attacks.reduce((sum, attack) => sum + Math.max(0, attack.rawDamage), 0);
+    if (totalRawDamage <= 0) {
+      return attacks.map(() => 0);
+    }
+    if (totalRawDamage <= maxTotalDamage) {
+      return attacks.map((attack) => Math.max(0, attack.rawDamage));
+    }
+
+    const scaled = attacks.map((attack, index) => {
+      const exact = (Math.max(0, attack.rawDamage) / totalRawDamage) * maxTotalDamage;
+      const floored = Math.floor(exact);
+      return {
+        index,
+        floored,
+        remainder: exact - floored
+      };
+    });
+    let assigned = scaled.reduce((sum, entry) => sum + entry.floored, 0);
+    const orderedRemainders = [...scaled].sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+    for (let i = 0; assigned < maxTotalDamage && i < orderedRemainders.length; i += 1) {
+      orderedRemainders[i]!.floored += 1;
+      assigned += 1;
+    }
+
+    const result = attacks.map(() => 0);
+    scaled.forEach((entry) => {
+      result[entry.index] = entry.floored;
+    });
+    return result;
+  }
+
+  private resolveSimultaneousFighterClash(
+    interceptors: AirInterceptionParticipantDelta[],
+    escorts: AirInterceptionParticipantDelta[],
+    phase: "capClash" | "escortClash"
+  ): AirCombatExchangeEntry[] {
+    const liveInterceptors = interceptors.filter((delta) => delta.unitAfter.strength > 0);
+    const liveEscorts = escorts.filter((delta) => delta.unitAfter.strength > 0);
+    if (liveInterceptors.length <= 0 || liveEscorts.length <= 0) {
+      return [];
+    }
+
+    const selectTarget = (
+      candidates: readonly AirInterceptionParticipantDelta[]
+    ): AirInterceptionParticipantDelta | null =>
+      [...candidates]
+        .filter((delta) => delta.unitAfter.strength > 0)
+        .sort((a, b) => b.unitAfter.strength - a.unitAfter.strength || a.mission.id.localeCompare(b.mission.id))[0] ?? null;
+
+    type AttackAssignment = {
+      readonly attacker: AirInterceptionParticipantDelta;
+      readonly target: AirInterceptionParticipantDelta;
+      readonly attackerStrengthBefore: number;
+      readonly defenderStrengthBefore: number;
+      readonly rawDamage: number;
+      effectiveDamage: number;
+    };
+
+    const escortAssignments: AttackAssignment[] = liveEscorts
+      .map((escort) => {
+        const target = selectTarget(liveInterceptors);
+        if (!target) {
+          return null;
+        }
+        return {
+          attacker: escort,
+          target,
+          attackerStrengthBefore: escort.unitAfter.strength,
+          defenderStrengthBefore: target.unitAfter.strength,
+          rawDamage: this.resolveAirCombatDamage(escort.mission.faction, escort.unitAfter, target.unitAfter, "attack"),
+          effectiveDamage: 0
+        } satisfies AttackAssignment;
+      })
+      .filter((assignment): assignment is AttackAssignment => !!assignment);
+    const interceptorAssignments: AttackAssignment[] = liveInterceptors
+      .map((interceptor) => {
+        const target = selectTarget(liveEscorts);
+        if (!target) {
+          return null;
+        }
+        return {
+          attacker: interceptor,
+          target,
+          attackerStrengthBefore: interceptor.unitAfter.strength,
+          defenderStrengthBefore: target.unitAfter.strength,
+          rawDamage: this.resolveAirCombatDamage(interceptor.mission.faction, interceptor.unitAfter, target.unitAfter, "attack"),
+          effectiveDamage: 0
+        } satisfies AttackAssignment;
+      })
+      .filter((assignment): assignment is AttackAssignment => !!assignment);
+
+    if (escortAssignments.length <= 0 && interceptorAssignments.length <= 0) {
+      return [];
+    }
+
+    const assignmentsByTargetId = new Map<string, AttackAssignment[]>();
+    [...escortAssignments, ...interceptorAssignments].forEach((assignment) => {
+      const entries = assignmentsByTargetId.get(assignment.target.mission.id) ?? [];
+      entries.push(assignment);
+      assignmentsByTargetId.set(assignment.target.mission.id, entries);
+      assignment.attacker.engaged = true;
+      assignment.target.engaged = true;
+    });
+
+    assignmentsByTargetId.forEach((assignments, targetId) => {
+      const target = assignments[0]?.target;
+      if (!target || target.mission.id !== targetId) {
+        return;
+      }
+      const effectiveDamages = this.distributeAirDamageContributions(assignments, target.unitAfter.strength);
+      assignments.forEach((assignment, index) => {
+        assignment.effectiveDamage = effectiveDamages[index] ?? 0;
+        assignment.attacker.inflicted += assignment.effectiveDamage;
+      });
+      const totalDamage = effectiveDamages.reduce((sum, value) => sum + value, 0);
+      target.taken += totalDamage;
+      target.unitAfter = {
+        ...target.unitAfter,
+        strength: Math.max(0, target.unitAfter.strength - totalDamage)
+      };
+      if (target.unitAfter.strength <= 0 && totalDamage > 0) {
+        const killCredit = [...assignments].sort(
+          (a, b) => b.effectiveDamage - a.effectiveDamage || a.attacker.mission.id.localeCompare(b.attacker.mission.id)
+        )[0];
+        if (killCredit) {
+          killCredit.attacker.kills += 1;
+        }
+      }
+    });
+
+    const escortTargetsByMissionId = new Map<string, string>();
+    escortAssignments.forEach((assignment) => {
+      escortTargetsByMissionId.set(assignment.attacker.mission.id, assignment.target.mission.id);
+    });
+    const interceptorAssignmentsByPair = new Map<string, AttackAssignment>();
+    interceptorAssignments.forEach((assignment) => {
+      interceptorAssignmentsByPair.set(`${assignment.attacker.mission.id}:${assignment.target.mission.id}`, assignment);
+    });
+
+    const exchanges: AirCombatExchangeEntry[] = escortAssignments.map((assignment) => {
+      const counter = interceptorAssignmentsByPair.get(`${assignment.target.mission.id}:${assignment.attacker.mission.id}`);
+      return {
+        phase,
+        attackerFaction: assignment.attacker.mission.faction,
+        attackerUnitKey: assignment.attacker.mission.unitKey,
+        attackerUnitType: assignment.attacker.unitBefore.type as string,
+        defenderFaction: assignment.target.mission.faction,
+        defenderUnitKey: assignment.target.mission.unitKey,
+        defenderUnitType: assignment.target.unitBefore.type as string,
+        attackerStrengthBefore: assignment.attackerStrengthBefore,
+        attackerStrengthAfter: assignment.attacker.unitAfter.strength,
+        defenderStrengthBefore: assignment.defenderStrengthBefore,
+        defenderStrengthAfter: assignment.target.unitAfter.strength,
+        damageToDefender: assignment.effectiveDamage,
+        retaliationDamage: counter?.effectiveDamage ?? 0,
+        attackerDestroyed: assignment.attacker.unitAfter.strength <= 0,
+        defenderDestroyed: assignment.target.unitAfter.strength <= 0,
+        visualPasses: 1
+      };
+    });
+
+    interceptorAssignments.forEach((assignment) => {
+      if (escortTargetsByMissionId.get(assignment.target.mission.id) === assignment.attacker.mission.id) {
+        return;
+      }
+      exchanges.push({
+        phase,
+        attackerFaction: assignment.target.mission.faction,
+        attackerUnitKey: assignment.target.mission.unitKey,
+        attackerUnitType: assignment.target.unitBefore.type as string,
+        defenderFaction: assignment.attacker.mission.faction,
+        defenderUnitKey: assignment.attacker.mission.unitKey,
+        defenderUnitType: assignment.attacker.unitBefore.type as string,
+        attackerStrengthBefore: assignment.defenderStrengthBefore,
+        attackerStrengthAfter: assignment.target.unitAfter.strength,
+        defenderStrengthBefore: assignment.attackerStrengthBefore,
+        defenderStrengthAfter: assignment.attacker.unitAfter.strength,
+        damageToDefender: 0,
+        retaliationDamage: assignment.effectiveDamage,
+        attackerDestroyed: assignment.target.unitAfter.strength <= 0,
+        defenderDestroyed: assignment.attacker.unitAfter.strength <= 0,
+        visualPasses: 1
+      });
+    });
+
+    return exchanges;
+  }
+
   private resolveAirInterception(
     bomber: ScenarioUnit,
     bomberFaction: TurnFaction,
     interceptors: readonly AirInterceptionParticipant[],
     escorts: readonly AirInterceptionParticipant[]
   ): AirInterceptionResolution {
-    const interceptorFaction: TurnFaction = bomberFaction === "Bot" ? "Player" : "Bot";
     const bomberBefore = structuredClone(bomber);
     const interceptorDeltas: AirInterceptionParticipantDelta[] = interceptors.map((participant) => ({
       mission: participant.mission,
@@ -2844,102 +3629,7 @@ export class GameEngine implements GameEngineAPI {
 
     let bomberAfter = structuredClone(bomber);
     let bomberAttrition = 0;
-    let interceptorAttrition = 0;
-    let escortPhaseInterceptorAttrition = 0;
-    let bomberDefenseInterceptorAttrition = 0;
-    let interceptorKills = 0;
-    let escortAttrition = 0;
-    let escortKills = 0;
-    const escortExchanges: AirCombatExchangeEntry[] = [];
-    const bomberPassExchanges: AirCombatExchangeEntry[] = [];
-    let escortsEngaged = 0;
-    let capIntercepts = 0;
-
-    for (let interceptorIndex = 0; interceptorIndex < interceptorDeltas.length; interceptorIndex++) {
-      const interceptorDelta = interceptorDeltas[interceptorIndex]!;
-      if (interceptorDelta.unitAfter.strength <= 0) {
-        continue;
-      }
-      const escortIndex = escortDeltas.findIndex((entry) => entry.unitAfter.strength > 0 && !entry.engaged);
-      if (escortIndex === -1) {
-        continue;
-      }
-      const escortDelta = escortDeltas[escortIndex]!;
-
-      escortsEngaged += 1;
-      interceptorDelta.engaged = true;
-      escortDelta.engaged = true;
-      const interceptorStrengthBefore = interceptorDelta.unitAfter.strength;
-      const escortStrengthBefore = escortDelta.unitAfter.strength;
-
-      const damageToInterceptor = this.resolveAirCombatDamage(
-        bomberFaction,
-        escortDelta.unitAfter,
-        interceptorDelta.unitAfter,
-        "attack"
-      );
-      const damageToEscort = this.resolveAirCombatDamage(
-        interceptorFaction,
-        interceptorDelta.unitAfter,
-        escortDelta.unitAfter,
-        "attack"
-      );
-
-      interceptorDelta.taken += damageToInterceptor;
-      interceptorDelta.unitAfter = {
-        ...interceptorDelta.unitAfter,
-        strength: Math.max(0, interceptorDelta.unitAfter.strength - damageToInterceptor)
-      };
-      escortDelta.taken += damageToEscort;
-      escortDelta.unitAfter = {
-        ...escortDelta.unitAfter,
-        strength: Math.max(0, escortDelta.unitAfter.strength - damageToEscort)
-      };
-      interceptorAttrition += damageToInterceptor;
-      escortPhaseInterceptorAttrition += damageToInterceptor;
-      escortAttrition += damageToEscort;
-
-      if (damageToInterceptor > 0) {
-        escortDelta.inflicted += damageToInterceptor;
-      }
-      if (damageToEscort > 0) {
-        interceptorDelta.inflicted += damageToEscort;
-      }
-
-      if (interceptorDelta.unitAfter.strength <= 0) {
-        escortDelta.kills += 1;
-        interceptorKills += 1;
-      }
-      if (escortDelta.unitAfter.strength <= 0) {
-        interceptorDelta.kills += 1;
-        escortKills += 1;
-      }
-
-      escortExchanges.push({
-        phase: "escortClash",
-        attackerFaction: bomberFaction,
-        attackerUnitKey: escortDelta.mission.unitKey,
-        attackerUnitType: escortDelta.unitBefore.type as string,
-        defenderFaction: interceptorFaction,
-        defenderUnitKey: interceptorDelta.mission.unitKey,
-        defenderUnitType: interceptorDelta.unitBefore.type as string,
-        attackerStrengthBefore: escortStrengthBefore,
-        attackerStrengthAfter: escortDelta.unitAfter.strength,
-        defenderStrengthBefore: interceptorStrengthBefore,
-        defenderStrengthAfter: interceptorDelta.unitAfter.strength,
-        damageToDefender: damageToInterceptor,
-        retaliationDamage: damageToEscort,
-        attackerDestroyed: escortDelta.unitAfter.strength <= 0,
-        defenderDestroyed: interceptorDelta.unitAfter.strength <= 0,
-        visualPasses: 1,
-        escortIndex,
-        interceptorIndex
-      });
-
-      console.log(`[ESCORT DEBUG] Escort exchange #${escortExchanges.length}: ${escortDelta.unitBefore.type} vs ${interceptorDelta.unitBefore.type}, dmg ${damageToInterceptor}/${damageToEscort}`);
-    }
-
-    console.log(`[ESCORT DEBUG] Combat resolution complete: ${escortExchanges.length} escort exchanges, ${bomberPassExchanges.length} bomber pass exchanges`);
+    const escortExchanges = this.resolveSimultaneousFighterClash(interceptorDeltas, escortDeltas, "escortClash");
 
     interceptorDeltas.forEach((delta) => {
       delta.strengthAfterEscortPhase = delta.unitAfter.strength;
@@ -2950,73 +3640,96 @@ export class GameEngine implements GameEngineAPI {
 
     const interceptorsAfterEscortPhase = interceptorDeltas.filter((entry) => entry.unitAfter.strength > 0).length;
     const escortsAfterEscortPhase = escortDeltas.filter((entry) => entry.unitAfter.strength > 0).length;
+    const escortPhaseInterceptorAttrition = interceptorDeltas.reduce((sum, delta) => sum + delta.taken, 0);
+    const escortAttrition = escortDeltas.reduce((sum, delta) => sum + delta.taken, 0);
+    let interceptorKills = escortDeltas.reduce((sum, delta) => sum + delta.kills, 0);
+    const escortKills = interceptorDeltas.reduce((sum, delta) => sum + delta.kills, 0);
+    const escortsEngaged = escortDeltas.filter((delta) => delta.engaged).length;
+    let bomberDefenseInterceptorAttrition = 0;
+    const bomberPassExchanges: AirCombatExchangeEntry[] = [];
+    let capIntercepts = 0;
 
-    for (let interceptorIndex = 0; interceptorIndex < interceptorDeltas.length; interceptorIndex++) {
-      const interceptorDelta = interceptorDeltas[interceptorIndex]!;
-      if (interceptorDelta.unitAfter.strength <= 0 || bomberAfter.strength <= 0) {
-        continue;
-      }
+    const survivingInterceptors = interceptorDeltas.filter((entry) => entry.unitAfter.strength > 0);
+    if (survivingInterceptors.length > 0 && bomberAfter.strength > 0) {
+      capIntercepts = survivingInterceptors.length;
+      const bomberStrengthBeforePass = bomberAfter.strength;
+      const interceptorAssignments = survivingInterceptors
+        .map((interceptorDelta) => ({
+          delta: interceptorDelta,
+          strengthBefore: interceptorDelta.unitAfter.strength,
+          rawDamage: this.resolveAirCombatDamage(
+            interceptorDelta.mission.faction,
+            interceptorDelta.unitAfter,
+            bomberAfter,
+            "attack"
+          )
+        }))
+        .sort((a, b) => a.delta.mission.id.localeCompare(b.delta.mission.id));
+      const effectiveDamages = this.distributeAirDamageContributions(interceptorAssignments, bomberStrengthBeforePass);
+      const turretTarget = [...survivingInterceptors].sort(
+        (a, b) => b.unitAfter.strength - a.unitAfter.strength || a.mission.id.localeCompare(b.mission.id)
+      )[0] ?? null;
+      const turretDamage =
+        turretTarget
+          ? Math.max(
+              0,
+              Math.min(
+                turretTarget.unitAfter.strength,
+                this.resolveAirCombatDamage(bomberFaction, bomberAfter, turretTarget.unitAfter, "turret")
+              )
+            )
+          : 0;
 
-      interceptorDelta.engaged = true;
-      capIntercepts += 1;
-      const interceptorStrengthBefore = interceptorDelta.unitAfter.strength;
-      const bomberStrengthBefore = bomberAfter.strength;
-
-      const damageToBomber = this.resolveAirCombatDamage(
-        interceptorFaction,
-        interceptorDelta.unitAfter,
-        bomberAfter,
-        "attack"
-      );
-      const damageToInterceptor = this.resolveAirCombatDamage(
-        bomberFaction,
-        bomberAfter,
-        interceptorDelta.unitAfter,
-        "turret"
-      );
-
-      bomberAttrition += damageToBomber;
+      interceptorAssignments.forEach((assignment, index) => {
+        const effectiveDamage = effectiveDamages[index] ?? 0;
+        assignment.delta.engaged = true;
+        assignment.delta.inflicted += effectiveDamage;
+        bomberAttrition += effectiveDamage;
+      });
       bomberAfter = {
         ...bomberAfter,
-        strength: Math.max(0, bomberAfter.strength - damageToBomber)
-      };
-      interceptorAttrition += damageToInterceptor;
-      bomberDefenseInterceptorAttrition += damageToInterceptor;
-      interceptorDelta.taken += damageToInterceptor;
-      interceptorDelta.inflicted += damageToBomber;
-      interceptorDelta.unitAfter = {
-        ...interceptorDelta.unitAfter,
-        strength: Math.max(0, interceptorDelta.unitAfter.strength - damageToInterceptor)
+        strength: Math.max(0, bomberAfter.strength - bomberAttrition)
       };
 
-      if (interceptorDelta.unitAfter.strength <= 0) {
-        interceptorKills += 1;
+      if (turretTarget && turretDamage > 0) {
+        bomberDefenseInterceptorAttrition = turretDamage;
+        turretTarget.taken += turretDamage;
+        turretTarget.unitAfter = {
+          ...turretTarget.unitAfter,
+          strength: Math.max(0, turretTarget.unitAfter.strength - turretDamage)
+        };
+        if (turretTarget.unitAfter.strength <= 0) {
+          interceptorKills += 1;
+        }
       }
 
-      bomberPassExchanges.push({
-        phase: "bomberPass",
-        attackerFaction: interceptorFaction,
-        attackerUnitKey: interceptorDelta.mission.unitKey,
-        attackerUnitType: interceptorDelta.unitBefore.type as string,
-        defenderFaction: bomberFaction,
-        defenderUnitKey: bomber.unitId ?? bomberAfter.unitId ?? bomberBefore.unitId ?? bomber.hex.q.toString(),
-        defenderUnitType: bomberBefore.type as string,
-        attackerStrengthBefore: interceptorStrengthBefore,
-        attackerStrengthAfter: interceptorDelta.unitAfter.strength,
-        defenderStrengthBefore: bomberStrengthBefore,
-        defenderStrengthAfter: bomberAfter.strength,
-        damageToDefender: damageToBomber,
-        retaliationDamage: damageToInterceptor,
-        attackerDestroyed: interceptorDelta.unitAfter.strength <= 0,
-        defenderDestroyed: bomberAfter.strength <= 0,
-        visualPasses: 2,
-        interceptorIndex
+      let cumulativeBomberDamage = 0;
+      interceptorAssignments.forEach((assignment, index) => {
+        const effectiveDamage = effectiveDamages[index] ?? 0;
+        cumulativeBomberDamage += effectiveDamage;
+        bomberPassExchanges.push({
+          phase: "bomberPass",
+          attackerFaction: assignment.delta.mission.faction,
+          attackerUnitKey: assignment.delta.mission.unitKey,
+          attackerUnitType: assignment.delta.unitBefore.type as string,
+          defenderFaction: bomberFaction,
+          defenderUnitKey: bomber.unitId ?? bomberAfter.unitId ?? bomberBefore.unitId ?? bomber.hex.q.toString(),
+          defenderUnitType: bomberBefore.type as string,
+          attackerStrengthBefore: assignment.strengthBefore,
+          attackerStrengthAfter: assignment.delta.unitAfter.strength,
+          defenderStrengthBefore: bomberStrengthBeforePass,
+          defenderStrengthAfter: Math.max(0, bomberStrengthBeforePass - cumulativeBomberDamage),
+          damageToDefender: effectiveDamage,
+          retaliationDamage: turretTarget?.mission.id === assignment.delta.mission.id ? turretDamage : 0,
+          attackerDestroyed: assignment.delta.unitAfter.strength <= 0,
+          defenderDestroyed: bomberAfter.strength <= 0,
+          visualPasses: 2,
+          interceptorIndex: index
+        });
       });
-
-      if (bomberAfter.strength <= 0) {
-        break;
-      }
     }
+
+    const interceptorAttrition = interceptorDeltas.reduce((sum, delta) => sum + delta.taken, 0);
 
     return {
       bomberBefore,
@@ -3086,59 +3799,12 @@ export class GameEngine implements GameEngineAPI {
       if (mission.faction !== faction) {
         continue;
       }
-      if (mission.template.kind !== "airCover" || mission.status !== "inFlight") {
+      if (mission.template.kind !== "airCover" || !this.isMissionActiveInAirspace(mission)) {
         continue;
       }
-
-      // Determine patrol center: use target hex if specified, otherwise use faction HQ (base camp)
-      let patrolCenter: Axial;
-      if (mission.targetHex) {
-        patrolCenter = structuredClone(mission.targetHex);
-      } else {
-        // No target specified - CAP is protecting base camp (faction HQ)
-        const factionSide = faction === "Player" ? this.playerSide
-                          : faction === "Bot" ? this.botSide
-                          : this.allySide;
-        if (!factionSide?.hq) {
-          console.warn("[GameEngine] CAP mission has no target hex and faction has no HQ - skipping", { missionId: mission.id, faction });
-          continue;
-        }
-        patrolCenter = structuredClone(factionSide.hq);
-      }
-
-      const capLookup = this.lookupUnitBySquadronId(mission.unitKey, faction);
-      const capUnit = capLookup?.unit ?? null;
-
-      if (hexDistance(patrolCenter, interceptHex) > GameEngine.AIR_COVER_PATROL_RADIUS_HEX) {
+      if (!this.canCapMissionContestHex(mission, interceptHex)) {
         continue;
       }
-
-      if (!capUnit) {
-        continue;
-      }
-      const capDef = this.getUnitDefinition(capUnit.type);
-      if (!this.isAircraft(capDef) || !capDef.airSupport) {
-        continue;
-      }
-
-      let originHex: Axial | null = null;
-      if (mission.originHexKey) {
-        try {
-          originHex = GameEngine.parseAxialKey(mission.originHexKey);
-        } catch {
-          originHex = null;
-        }
-      }
-      if (!originHex) {
-        originHex = structuredClone(capUnit.hex);
-      }
-
-      try {
-        this.assertAirMissionRange(capDef.airSupport, originHex, interceptHex);
-      } catch {
-        continue;
-      }
-
       results.push(mission);
     }
     return results;
@@ -4750,6 +5416,8 @@ private automateSupplyConvoys(
   private readonly pendingAirMissionArrivals: AirMissionArrival[] = [];
   /** One-shot queue of air-to-air engagements so UI can animate fighter interceptions. */
   private readonly pendingAirEngagements: AirEngagementEvent[] = [];
+  /** Pre-resolved air-phase outcomes keyed by strike mission so strike resolution can consume the global ledger. */
+  private readonly resolvedMissionAirPhaseByMissionId = new Map<string, ResolvedMissionAirPhaseState>();
   private readonly pendingSupportImpactEvents: SupportImpactEvent[] = [];
   private airMissionIdCounter = 0;
   /** Refitting squadrons keyed by squadron id so planners know when they return to Ready status. */
@@ -7454,6 +8122,7 @@ private automateSupplyConvoys(
       this.pendingBotTurnSummary = botSummary;
       this.stepAirMissionsForFaction("Bot");
       this.advanceAirMissionRefits("Bot");
+      this.resolveReadyAirMissionsForRound();
 
       // After the bot finishes, advance back to player turn to keep UI interactive.
       this._phase = "playerTurn";
@@ -7471,6 +8140,7 @@ private automateSupplyConvoys(
 
     // Bot turn was already resolved, so simply advance to the player's next turn.
     if (this._phase === "botTurn" || this._phase === "allyTurn") {
+      this.resolveReadyAirMissionsForRound();
       this._phase = "playerTurn";
       this._activeFaction = "Player";
       this._turnNumber += 1;
@@ -8811,7 +9481,7 @@ private automateSupplyConvoys(
           this.addMissionAirCombatInflicted(delta.mission, delta.inflicted, delta.kills);
           this.addMissionAirCombatTaken(delta.mission, delta.taken);
           this.spendAircraftAmmo("Player", delta.mission.unitKey, true);
-          delta.mission.interceptions += 1;
+        delta.mission.interceptions = Math.max(0, Math.round(delta.mission.interceptions ?? 0)) + 1;
           const liveEscort = this.lookupUnitBySquadronId(delta.mission.unitKey, "Player");
           if (!liveEscort) {
             return;
@@ -8834,7 +9504,7 @@ private automateSupplyConvoys(
           this.addMissionAirCombatInflicted(delta.mission, delta.inflicted, delta.kills);
           this.addMissionAirCombatTaken(delta.mission, delta.taken);
           this.spendAircraftAmmo("Bot", delta.mission.unitKey, true);
-          delta.mission.interceptions += 1;
+        delta.mission.interceptions = Math.max(0, Math.round(delta.mission.interceptions ?? 0)) + 1;
           if (delta.unitAfter.strength <= 0) {
             this.removeUnitFromFactionHex("Bot", delta.unitBefore.hex, delta.mission.unitKey);
             this.deleteUnitActionFlags("Bot", delta.unitBefore);
@@ -12441,7 +13111,7 @@ private automateSupplyConvoys(
           this.addMissionAirCombatInflicted(delta.mission, delta.inflicted, delta.kills);
           this.addMissionAirCombatTaken(delta.mission, delta.taken);
           this.spendAircraftAmmo("Bot", delta.mission.unitKey, true);
-          delta.mission.interceptions += 1;
+        delta.mission.interceptions = Math.max(0, Math.round(delta.mission.interceptions ?? 0)) + 1;
           if (delta.unitAfter.strength <= 0) {
             this.removeUnitFromFactionHex("Bot", delta.unitBefore.hex, delta.mission.unitKey);
             this.removeSupplyEntryForFaction("Bot", delta.unitBefore.hex, delta.mission.unitKey);
@@ -12459,7 +13129,7 @@ private automateSupplyConvoys(
           this.addMissionAirCombatInflicted(delta.mission, delta.inflicted, delta.kills);
           this.addMissionAirCombatTaken(delta.mission, delta.taken);
           this.spendAircraftAmmo("Player", delta.mission.unitKey, true);
-          delta.mission.interceptions += 1;
+        delta.mission.interceptions = Math.max(0, Math.round(delta.mission.interceptions ?? 0)) + 1;
           if (delta.unitAfter.strength <= 0) {
             this.removeUnitFromFactionHex("Player", delta.unitBefore.hex, delta.mission.unitKey);
             this.removeSupplyEntryForFaction("Player", delta.unitBefore.hex, delta.mission.unitKey);
@@ -13592,15 +14262,15 @@ private automateSupplyConvoys(
     if (!mission) {
       return;
     }
-    mission.airCombatDamageInflicted += Math.max(0, Math.round(damage));
-    mission.airCombatKills += Math.max(0, Math.round(kills));
+    mission.airCombatDamageInflicted = Math.max(0, Math.round(mission.airCombatDamageInflicted ?? 0)) + Math.max(0, Math.round(damage));
+    mission.airCombatKills = Math.max(0, Math.round(mission.airCombatKills ?? 0)) + Math.max(0, Math.round(kills));
   }
 
   private addMissionAirCombatTaken(mission: ScheduledAirMission | undefined, damage: number): void {
     if (!mission) {
       return;
     }
-    mission.airCombatDamageTaken += Math.max(0, Math.round(damage));
+    mission.airCombatDamageTaken = Math.max(0, Math.round(mission.airCombatDamageTaken ?? 0)) + Math.max(0, Math.round(damage));
   }
 
   /**

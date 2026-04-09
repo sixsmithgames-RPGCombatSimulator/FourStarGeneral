@@ -3071,6 +3071,13 @@ export class BattleScreen {
           linkedEscortFlights.delete(flight.unitKey);
         }
       }
+      events.forEach((event) => {
+        if (event.type !== "capClash") {
+          return;
+        }
+        event.interceptors.forEach((participant) => claimedAirBattleUnitKeys.add(participant.unitKey));
+        event.escorts.forEach((participant) => claimedAirBattleUnitKeys.add(participant.unitKey));
+      });
 
       const standaloneFlights: PreparedAirMissionFlight[] = [];
       for (const flight of nonEscortFlights) {
@@ -3313,8 +3320,8 @@ export class BattleScreen {
       laneOffsetPx,
       false,
       true,
-      this.resolveAirInterceptBomberArrivalDelayMs(),
-      true,
+      event.type === "capClash" ? 0 : this.resolveAirInterceptBomberArrivalDelayMs(),
+      event.type !== "capClash",
       bomberFrom
     );
   }
@@ -3671,10 +3678,6 @@ export class BattleScreen {
     const airToAirEvent = linkedEvents.find((event) => event.type === "airToAir") ?? null;
     const interceptLocKey = airToAirEvent ? this.toOffsetHexKey(airToAirEvent.location) ?? destKey : destKey;
 
-    if (flakEvent) {
-      this.announceFlakEngagement(flakEvent);
-    }
-
     let nextBurstProgress = 0.68;
     const flakWindowEnd = flakEvent?.bomberDestroyed ? 0.84 : 0.92;
 
@@ -3705,6 +3708,10 @@ export class BattleScreen {
         destKey,
         flakEvent
       );
+
+      if (flakEvent) {
+        this.announceFlakEngagement(flakEvent);
+      }
 
       if (bomberDestroyedBeforeImpact) {
         return;
@@ -4114,12 +4121,13 @@ export class BattleScreen {
   }
 
   private announceAirInterceptEngagement(event: AirEngagementEvent): void {
-    console.log(`[ESCORT DEBUG] announceAirInterceptEngagement called: ${event.escortExchanges?.length ?? 0} escort exchanges, ${event.bomberPassExchanges?.length ?? 0} bomber exchanges`);
     if (
       (Array.isArray(event.escortExchanges) && event.escortExchanges.length > 0) ||
       (Array.isArray(event.bomberPassExchanges) && event.bomberPassExchanges.length > 0)
     ) {
       const location = this.formatAxialHexForDisplay(event.location);
+      const factionLabel = (faction: TurnFaction): string =>
+        faction === "Player" ? "Player" : faction === "Ally" ? "Allied" : "Enemy";
       const publishExchange = (
         summary: string,
         category: "player" | "enemy",
@@ -4135,16 +4143,14 @@ export class BattleScreen {
       };
 
       (event.escortExchanges ?? []).forEach((exchange, index) => {
-        console.log(`[ESCORT DEBUG] Logging escort exchange ${index}: ${exchange.attackerUnitType} (${exchange.attackerFaction}) vs ${exchange.defenderUnitType} (${exchange.defenderFaction})`);
-        const category = exchange.defenderFaction === "Player" ? "player" : "enemy";
+        const category = exchange.attackerFaction === "Bot" && exchange.defenderFaction === "Bot" ? "enemy" : "player";
         const summary =
-          `${exchange.defenderFaction === "Player" ? "Player patrol flight" : "Enemy patrol flight"} engaged ` +
-          `${exchange.attackerFaction === "Player" ? "friendly" : "enemy"} ${this.toTitleCase(exchange.attackerUnitType)} over ${location}. ` +
-          `Patrol took ${Math.max(0, Math.round(exchange.damageToDefender))} air damage; ` +
+          `${factionLabel(exchange.attackerFaction)} ${this.toTitleCase(exchange.attackerUnitType)} engaged ` +
+          `${factionLabel(exchange.defenderFaction).toLowerCase()} ${this.toTitleCase(exchange.defenderUnitType)} over ${location}. ` +
+          `${this.toTitleCase(exchange.defenderUnitType)} took ${Math.max(0, Math.round(exchange.damageToDefender))} air damage; ` +
           `${this.toTitleCase(exchange.attackerUnitType)} took ${Math.max(0, Math.round(exchange.retaliationDamage))}.` +
-          (exchange.defenderDestroyed ? " Patrol flight destroyed." : "") +
+          (exchange.defenderDestroyed ? ` ${this.toTitleCase(exchange.defenderUnitType)} destroyed.` : "") +
           (exchange.attackerDestroyed ? ` ${this.toTitleCase(exchange.attackerUnitType)} destroyed.` : "");
-        console.log(`[ESCORT DEBUG] Publishing: ${summary}`);
         publishExchange(summary, category, {
           phase: exchange.phase,
           exchangeIndex: index,
@@ -4156,10 +4162,10 @@ export class BattleScreen {
       });
 
       (event.bomberPassExchanges ?? []).forEach((exchange, index) => {
-        const category = exchange.attackerFaction === "Player" ? "player" : "enemy";
+        const category = exchange.attackerFaction === "Bot" ? "enemy" : "player";
         const summary =
-          `${exchange.attackerFaction === "Player" ? "Player patrol flight" : "Enemy patrol flight"} attacked ` +
-          `${exchange.defenderFaction === "Player" ? "friendly" : "enemy"} ${this.toTitleCase(exchange.defenderUnitType)} over ${location}. ` +
+          `${factionLabel(exchange.attackerFaction)} ${this.toTitleCase(exchange.attackerUnitType)} attacked ` +
+          `${factionLabel(exchange.defenderFaction).toLowerCase()} ${this.toTitleCase(exchange.defenderUnitType)} over ${location}. ` +
           `${Math.max(0, Math.round(exchange.damageToDefender))} air damage dealt; bomber defensive fire dealt ${Math.max(0, Math.round(exchange.retaliationDamage))} air damage. ` +
           `Bomber strength now ${Math.max(0, Math.round(exchange.defenderStrengthAfter))}.` +
           (exchange.defenderDestroyed && index === (event.bomberPassExchanges?.length ?? 1) - 1 ? " Strike package destroyed before target." : "") +
@@ -4906,6 +4912,19 @@ export class BattleScreen {
   ): AirPlaybackOperation[] {
     const operations: AirPlaybackOperation[] = [];
     let index = 0;
+    const capClashEvents = standaloneEvents.filter((event) => event.type === "capClash");
+    const otherStandaloneEvents = standaloneEvents.filter((event) => event.type !== "capClash");
+
+    capClashEvents.forEach((event) => {
+      operations.push({
+        kind: "event",
+        index,
+        focusHex: structuredClone(event.location),
+        focusKey: this.toOffsetHexKey(event.location) ?? CoordinateSystem.makeHexKey(event.location.q, event.location.r),
+        event
+      });
+      index += 1;
+    });
 
     linkedStrikeFlights.forEach(({ flight, linkedEvents, escorts }) => {
       const focusHex = this.resolveAirPlaybackFocusHexForFlight(flight, engine);
@@ -4933,7 +4952,7 @@ export class BattleScreen {
       index += 1;
     });
 
-    standaloneEvents.forEach((event) => {
+    otherStandaloneEvents.forEach((event) => {
       operations.push({
         kind: "event",
         index,
@@ -5033,8 +5052,9 @@ export class BattleScreen {
 
     const serializeComplexCluster = cluster.some(
       (operation) =>
-        operation.kind === "linkedStrike" &&
-        operation.linkedEvents.some((event) => event.type === "airToAir")
+        (operation.kind === "linkedStrike" &&
+          operation.linkedEvents.some((event) => event.type === "airToAir")) ||
+        (operation.kind === "event" && operation.event.type !== "flak")
     );
 
     if (!serializeComplexCluster) {

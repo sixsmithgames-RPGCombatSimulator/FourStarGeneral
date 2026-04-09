@@ -1556,16 +1556,10 @@ export class HexMapRenderer implements IMapRenderer {
           })
         ];
         const bomberIngressDurationMs = Math.max(760, scene.bomberIngressDurationMs ?? 1320);
-        const cancelIngressFlak = scheduleTimedFlakBursts(
-          bomberFlight,
-          bomberIngressDurationMs,
-          scene.flakBursts ?? []
-        );
         await this.runAirShowPhase(
           bomberIngressAssignments,
           bomberIngressDurationMs
         );
-        cancelIngressFlak();
         updateFlightAnchors([bomberFlight, ...survivingInterceptors, ...survivingEscorts]);
 
         const bomberPassExchanges = scene.bomberPassExchanges ?? [];
@@ -1794,6 +1788,11 @@ export class HexMapRenderer implements IMapRenderer {
           })
         ];
         const strikeRunDurationMs = Math.max(640, scene.strikeRunDurationMs ?? 980);
+        const cancelStrikeRunFlak = scheduleTimedFlakBursts(
+          bomberFlight,
+          strikeRunDurationMs,
+          scene.flakBursts ?? []
+        );
         const cancelBombRelease = scheduleBombRelease(
           strikeRunDurationMs,
           scene.bomberTargetHexKey,
@@ -1801,6 +1800,7 @@ export class HexMapRenderer implements IMapRenderer {
         );
         await this.runAirShowPhase(strikeRunAssignments, strikeRunDurationMs);
         cancelBombRelease();
+        cancelStrikeRunFlak();
         updateFlightAnchors([bomberFlight, ...postPassInterceptors, ...postPassEscorts]);
       }
 

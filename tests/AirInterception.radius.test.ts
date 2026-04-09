@@ -191,12 +191,12 @@ registerTest("AIR_INTERCEPTION_CAP_PATROL_RADIUS_INTERCEPTS_NEARBY", async ({ Gi
   });
 });
 
-registerTest("AIR_INTERCEPTION_CAP_PATROL_RADIUS_IGNORES_DISTANT", async ({ Given, When, Then }) => {
+registerTest("AIR_INTERCEPTION_CAP_PATROL_RADIUS_IGNORES_ONLY_TRULY_DISTANT_SORTIES", async ({ Given, When, Then }) => {
   let engine: GameEngine;
 
-  await Given("a CAP mission protecting a hex, and a bomber attacking outside the patrol radius", async () => {
+  await Given("a CAP mission protecting a hex, and a bomber attacking beyond the 100-hex practical interception envelope", async () => {
     const config: GameEngineConfig = {
-      scenario: scenario(40),
+      scenario: scenario(140),
       unitTypes,
       terrain,
       playerSide: side(),
@@ -205,8 +205,8 @@ registerTest("AIR_INTERCEPTION_CAP_PATROL_RADIUS_IGNORES_DISTANT", async ({ Give
     engine = new GameEngine(config);
 
     engine.beginDeployment();
-    const bomber = make("Bomber", { q: 0, r: 19 });
-    const playerSpotter = make("Infantry_42", { q: 0, r: 18 });
+    const bomber = make("Bomber", { q: 0, r: 119 });
+    const playerSpotter = make("Infantry_42", { q: 0, r: 118 });
     (bomber as any).unitId = "u_bomber";
     (bomber as any).preDeployed = true;
     (playerSpotter as any).preDeployed = true;
@@ -215,8 +215,8 @@ registerTest("AIR_INTERCEPTION_CAP_PATROL_RADIUS_IGNORES_DISTANT", async ({ Give
     engine.finalizeDeployment();
     engine.startPlayerTurnPhase();
 
-    const defended = make("Infantry_42", { q: 0, r: 20 });
-    (engine as any).botPlacements.set("0,20", defended);
+    const defended = make("Infantry_42", { q: 0, r: 120 });
+    (engine as any).botPlacements.set("0,120", defended);
 
     const cap = make("Fighter", { q: 0, r: 2 });
     (cap as any).unitId = "u_cap";
@@ -245,8 +245,8 @@ registerTest("AIR_INTERCEPTION_CAP_PATROL_RADIUS_IGNORES_DISTANT", async ({ Give
     });
   });
 
-  await When("the bomber attacks the distant hex", async () => {
-    engine.attackUnit({ q: 0, r: 19 }, { q: 0, r: 20 });
+  await When("the bomber attacks the far-off hex", async () => {
+    engine.attackUnit({ q: 0, r: 119 }, { q: 0, r: 120 });
   });
 
   await Then("the CAP mission does not intercept", async () => {

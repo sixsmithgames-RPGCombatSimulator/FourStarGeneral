@@ -55,6 +55,117 @@ The correction path is now concrete:
 4. Serialize only the **complex** playback clusters that contain linked air-to-air strike packages, so nearby simple flyovers can still overlap but dogfight packages do not visually corrupt each other.
 5. Keep documenting remaining visual-tuning work separately from these structural fixes.
 
+### April 9 Architectural Reset: Global Inflight Air Phase
+The next architectural step is larger than playback. The current engine still resolves air combat from the perspective of a single strike mission:
+
+1. flak fires first
+2. target-local CAP is discovered
+3. escorts linked to that bomber are discovered
+4. one strike-owned interception routine resolves
+5. the bomber, if alive, attacks the ground target
+
+That is deterministic, but it is not the right mental model for realistic air combat. The replacement architecture should be a **global inflight air phase** built from all missions already marked `inFlight` before any combat is applied.
+
+#### New engine center of gravity
+- Build a complete roster of all inflight air sorties on both sides first.
+- Split that roster into:
+  - CAP pool
+  - strike packages
+  - escorts linked to each strike package
+  - non-combat missions such as transport
+- Resolve air combat by theater phase, not by asking one strike mission what happens to it.
+
+#### New engagement sequence
+1. **CAP vs CAP phase**
+   - All inflight CAP sorties from both factions enter one air-superiority pool.
+   - If the map is effectively smaller than the CAP interception range, both sides commit all CAP at once.
+   - Combat resolves in simultaneous rounds.
+   - Every surviving CAP sortie attacks one enemy CAP sortie using round-start state.
+   - Damage is applied after the whole round is computed.
+   - Repeat until one side has no surviving CAP sorties left.
+   - CAP vs CAP is therefore "to the death."
+
+2. **CAP assignment to strike packages**
+   - Surviving CAP is assigned to hostile strike packages.
+   - CAP with an explicit protected hex prioritizes strike packages targeting that hex.
+   - CAP without a matching protected strike can still intercept other hostile inflight strike packages.
+
+3. **CAP vs escort screen**
+   - For each strike package, surviving hostile CAP engages the package's escorts.
+   - Escorts gang up on CAP; CAP gangs up on escorts.
+   - This is one simultaneous exchange, not a repeated fight-to-the-death.
+   - Surviving CAP continues through the screen even if some escorts survive.
+
+4. **CAP vs strike craft**
+   - Surviving CAP then attacks the surviving strike craft.
+   - Strike craft return turret fire simultaneously.
+   - This phase is recorded as bomber-pass exchanges for playback and logging.
+
+5. **Flak**
+   - Surviving strike craft that reached the target area are then engaged by flak.
+   - Flak still resolves sequentially battery-by-battery for ammo tracking, deterministic bomber strength changes, and per-battery logging.
+
+6. **Strike release**
+   - Only surviving strike craft release ordnance.
+
+#### CAP range rule change
+- CAP interception should no longer be modeled as a narrow local-hex query.
+- The practical design rule for this game is that CAP can contest the whole relevant map.
+- The CAP patrol radius constant should therefore move from `12` hexes to `100` hexes.
+- More importantly, CAP discovery should stop being driven primarily by `findAllActiveAirCoverForHex(...)`.
+- CAP should be collected globally first, then assigned by target priority.
+
+#### New data model
+The next refactor should introduce:
+
+- `AirPhaseFlight`
+  - one inflight sortie
+  - keyed by `missionId` and stable `unitKey`
+  - role: `cap | escort | strike | transport`
+  - faction, origin, current target, protected hex, protected unit, strength, ammo
+
+- `AirStrikePackage`
+  - bomber sortie plus linked escorts
+  - assembled through `escortTargetUnitKey`
+
+- `AirPhaseLedger`
+  - authoritative resolved sequence for the turn
+  - ordered beats such as:
+    - `capCapRound`
+    - `escortScreenExchange`
+    - `bomberPassExchange`
+    - `flakBatteryShot`
+    - `bombRelease`
+
+- `AirPhaseOutcome`
+  - mission-level summaries derived *after* the ledger is complete
+
+#### Core rule for simultaneous rounds
+- target selection is made from round-start state
+- each sortie attacks exactly one enemy sortie per round/exchange
+- multiple friendlies may gang up on the same target
+- no aircraft is removed mid-round
+- round damage is committed only after all attacks in that round are calculated
+
+This is the key rule that allows `2 CAP vs 1 CAP` to behave correctly:
+- both friendly CAP sorties can damage the same enemy CAP in the same round
+- the outnumbered CAP still gets its own simultaneous shot before post-round removal
+
+#### Migration plan
+1. Add a new `resolveInflightAirPhase()` engine pass that runs before individual mission outcomes are finalized.
+2. Move CAP vs CAP, CAP assignment, escort screen exchange, bomber pass exchange, and flak resolution into that pass.
+3. Reduce `resolveAirStrikeMission()` so it consumes already-resolved package state instead of owning interception discovery.
+4. Derive mission reports and playback events from the completed ledger.
+5. Update playback to consume the new beat ordering directly instead of inferring sequence from strike-local events.
+
+#### Why this matters
+This change aligns the engine with the desired show:
+- CAP fights first
+- escorts screen second
+- bombers trail the fighters
+- flak is terminal approach defense, not opening contact
+- playback becomes a faithful replay of resolved airspace events rather than an interpretation of strike-local side effects
+
 ---
 
 ## User's Complete Observed Scenario
