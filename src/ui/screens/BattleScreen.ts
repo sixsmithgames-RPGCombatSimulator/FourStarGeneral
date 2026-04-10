@@ -1282,6 +1282,7 @@ export class BattleScreen {
           continue;
         }
         this.seenAirReportIds.add(r.id);
+        const missionLabel = this.formatAirCombatantSummary(r.unitKey, r.unitType, r.faction, engine);
         let target = "-";
         if (r.targetHex) {
           target = this.formatAxialHexForDisplay(r.targetHex);
@@ -1386,15 +1387,22 @@ export class BattleScreen {
         if (r.kind === "strike") {
           const linkedEscorts = linkedEscortsByBomberKey.get(r.unitKey) ?? [];
           if (linkedEscorts.length > 0) {
-            escortNote = ` with ${linkedEscorts.length} escort${linkedEscorts.length === 1 ? "" : "s"}`;
+            const escortLabels = linkedEscorts.map((escortReport) =>
+              this.formatAirCombatantSummary(escortReport.unitKey, escortReport.unitType, escortReport.faction, engine)
+            );
+            escortNote =
+              escortLabels.length > 0
+                ? ` with escort${escortLabels.length === 1 ? "" : "s"} ${escortLabels.join(", ")}`
+                : ` with ${linkedEscorts.length} escort${linkedEscorts.length === 1 ? "" : "s"}`;
             details.escortCount = linkedEscorts.length;
+            details.escortLabels = escortLabels;
           }
         }
 
         this.publishActivityEvent({
           category: r.faction === "Player" ? "player" : "enemy",
           type: "log",
-          summary: `Air mission ${r.kind} ${action}${escortNote} — target ${target}${outcomeSummary}`,
+          summary: `Air mission ${r.kind} ${missionLabel} ${action}${escortNote} — target ${target}${outcomeSummary}`,
           details
         });
       }
@@ -4110,6 +4118,12 @@ export class BattleScreen {
   }
 
   private announceAirInterceptEngagement(event: AirEngagementEvent): void {
+    let engine: GameEngine | null = null;
+    try {
+      engine = this.battleState.ensureGameEngine();
+    } catch {
+      engine = null;
+    }
     if (
       (Array.isArray(event.escortExchanges) && event.escortExchanges.length > 0) ||
       (Array.isArray(event.bomberPassExchanges) && event.bomberPassExchanges.length > 0)
@@ -4121,11 +4135,11 @@ export class BattleScreen {
         faction === "Player" ? "player" : faction === "Ally" ? "allied" : "enemy";
       const formatFighterPhaseLabel = (
         faction: TurnFaction,
-        unitType: string,
+        combatantLabel: string,
         phase: "capClash" | "escortClash" | "bomberPass"
       ): string => {
         const phasePrefix = phase === "capClash" ? "CAP " : "";
-        return `${factionLabel(faction)} ${phasePrefix}${this.toTitleCase(unitType)}`;
+        return `${factionLabel(faction)} ${phasePrefix}${combatantLabel}`;
       };
       const publishExchange = (
         summary: string,
@@ -4144,21 +4158,33 @@ export class BattleScreen {
       (event.escortExchanges ?? []).forEach((exchange, index) => {
         const category = exchange.attackerFaction === "Bot" && exchange.defenderFaction === "Bot" ? "enemy" : "player";
         const phaseLabel = exchange.phase === "capClash" ? "CAP clash" : "escort clash";
+        const attackerCombatant = this.formatAirCombatantSummary(
+          exchange.attackerUnitKey,
+          exchange.attackerUnitType,
+          exchange.attackerFaction,
+          engine
+        );
+        const defenderCombatant = this.formatAirCombatantSummary(
+          exchange.defenderUnitKey,
+          exchange.defenderUnitType,
+          exchange.defenderFaction,
+          engine
+        );
         const attackerLabel = formatFighterPhaseLabel(
           exchange.attackerFaction,
-          exchange.attackerUnitType,
+          attackerCombatant,
           exchange.phase
         );
         const defenderLabel = formatFighterPhaseLabel(
           exchange.defenderFaction,
-          exchange.defenderUnitType,
+          defenderCombatant,
           exchange.phase
         );
         const summary =
-          `${attackerLabel} and ${lowerFactionLabel(exchange.defenderFaction)} ${exchange.phase === "capClash" ? "CAP " : ""}${this.toTitleCase(exchange.defenderUnitType)} ` +
+          `${attackerLabel} and ${lowerFactionLabel(exchange.defenderFaction)} ${exchange.phase === "capClash" ? "CAP " : ""}${defenderCombatant} ` +
           `traded fire in ${phaseLabel} over ${location}. ` +
-          `${this.toTitleCase(exchange.defenderUnitType)} took ${Math.max(0, Math.round(exchange.damageToDefender))} air damage; ` +
-          `${this.toTitleCase(exchange.attackerUnitType)} took ${Math.max(0, Math.round(exchange.retaliationDamage))}.` +
+          `${defenderCombatant} took ${Math.max(0, Math.round(exchange.damageToDefender))} air damage; ` +
+          `${attackerCombatant} took ${Math.max(0, Math.round(exchange.retaliationDamage))}.` +
           (exchange.defenderDestroyed ? ` ${defenderLabel} destroyed.` : "") +
           (exchange.attackerDestroyed ? ` ${attackerLabel} destroyed.` : "");
         publishExchange(summary, category, {
@@ -4174,9 +4200,21 @@ export class BattleScreen {
 
       (event.bomberPassExchanges ?? []).forEach((exchange, index) => {
         const category = exchange.attackerFaction === "Bot" ? "enemy" : "player";
+        const attackerCombatant = this.formatAirCombatantSummary(
+          exchange.attackerUnitKey,
+          exchange.attackerUnitType,
+          exchange.attackerFaction,
+          engine
+        );
+        const defenderCombatant = this.formatAirCombatantSummary(
+          exchange.defenderUnitKey,
+          exchange.defenderUnitType,
+          exchange.defenderFaction,
+          engine
+        );
         const summary =
-          `${factionLabel(exchange.attackerFaction)} ${this.toTitleCase(exchange.attackerUnitType)} attacked ` +
-          `${factionLabel(exchange.defenderFaction).toLowerCase()} ${this.toTitleCase(exchange.defenderUnitType)} over ${location}. ` +
+          `${factionLabel(exchange.attackerFaction)} ${attackerCombatant} attacked ` +
+          `${factionLabel(exchange.defenderFaction).toLowerCase()} ${defenderCombatant} over ${location}. ` +
           `${Math.max(0, Math.round(exchange.damageToDefender))} air damage dealt; bomber defensive fire dealt ${Math.max(0, Math.round(exchange.retaliationDamage))} air damage. ` +
           `Bomber strength now ${Math.max(0, Math.round(exchange.defenderStrengthAfter))}.` +
           (exchange.defenderDestroyed && index === (event.bomberPassExchanges?.length ?? 1) - 1 ? " Strike package destroyed before target." : "") +
@@ -4311,6 +4349,30 @@ export class BattleScreen {
       return "Linked strike package";
     }
     return `${this.toTitleCase(String(match.type))} @ ${this.formatAxialHexForDisplay(match.hex)}`;
+  }
+
+  private formatAirCombatantSummary(
+    squadronId: string | undefined | null,
+    unitType: string,
+    faction: TurnFaction,
+    engine: GameEngine | null
+  ): string {
+    const fallbackType = this.toTitleCase(unitType);
+    if (!squadronId) {
+      return fallbackType;
+    }
+    if (!engine) {
+      return `${fallbackType} [${squadronId}]`;
+    }
+    try {
+      const resolved = this.resolveAirSquadronLabel(squadronId, faction, engine);
+      if (resolved && resolved !== "-" && resolved !== "Linked strike package") {
+        return `${resolved} [${squadronId}]`;
+      }
+    } catch {
+      /* no-op */
+    }
+    return `${fallbackType} [${squadronId}]`;
   }
 
   private formatAxialHexForDisplay(hex: Axial | null | undefined): string {

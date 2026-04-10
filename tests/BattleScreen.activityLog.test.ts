@@ -474,7 +474,11 @@ registerTest("BATTLESCREEN_LINKED_ESCORT_REPORTS_REMAIN_VISIBLE_WHEN_PLAYERS_NEE
       throw new Error(`Expected strike, escort, and CAP entries so the full air-combat chain stays visible, received ${published.length}.`);
     }
 
-    if (!published.some((entry) => entry.summary.includes("Air mission escort resolved"))) {
+    if (
+      !published.some(
+        (entry) => entry.summary.includes("Air mission escort ") && entry.summary.includes(" resolved")
+      )
+    ) {
       throw new Error(`Expected the linked escort report to remain visible, saw ${JSON.stringify(published)}.`);
     }
   });
