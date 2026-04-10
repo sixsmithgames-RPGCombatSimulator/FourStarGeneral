@@ -4362,17 +4362,20 @@ export class BattleScreen {
       return fallbackType;
     }
     if (!engine) {
-      return `${fallbackType} [${squadronId}]`;
+      return fallbackType;
     }
     try {
       const resolved = this.resolveAirSquadronLabel(squadronId, faction, engine);
       if (resolved && resolved !== "-" && resolved !== "Linked strike package") {
-        return `${resolved} [${squadronId}]`;
+        return resolved;
+      }
+      if (resolved === "Linked strike package") {
+        return resolved;
       }
     } catch {
       /* no-op */
     }
-    return `${fallbackType} [${squadronId}]`;
+    return fallbackType;
   }
 
   private formatAxialHexForDisplay(hex: Axial | null | undefined): string {

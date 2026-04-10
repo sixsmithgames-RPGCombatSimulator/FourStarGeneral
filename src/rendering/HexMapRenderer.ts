@@ -5387,9 +5387,28 @@ export class HexMapRenderer implements IMapRenderer {
 
     const clampedProgress = this.clamp(progress, 0, 1);
     const segmentCount = points.length - 1;
-    const scaled = clampedProgress >= 1 ? segmentCount : clampedProgress * segmentCount;
-    const segmentIndex = Math.min(segmentCount - 1, Math.max(0, Math.floor(scaled)));
-    const localProgress = clampedProgress >= 1 ? 1 : scaled - segmentIndex;
+    const segmentLengths: number[] = [];
+    let totalLength = 0;
+    for (let index = 0; index < segmentCount; index += 1) {
+      const left = points[index]!;
+      const right = points[index + 1]!;
+      const length = Math.max(0.0001, Math.hypot(right.cx - left.cx, right.cy - left.cy));
+      segmentLengths.push(length);
+      totalLength += length;
+    }
+
+    const targetDistance = clampedProgress >= 1 ? totalLength : totalLength * clampedProgress;
+    let traversed = 0;
+    let segmentIndex = 0;
+    for (; segmentIndex < segmentCount - 1; segmentIndex += 1) {
+      const nextTraversed = traversed + (segmentLengths[segmentIndex] ?? 0);
+      if (targetDistance <= nextTraversed) {
+        break;
+      }
+      traversed = nextTraversed;
+    }
+    const activeSegmentLength = segmentLengths[segmentIndex] ?? 1;
+    const localProgress = clampedProgress >= 1 ? 1 : this.clamp((targetDistance - traversed) / activeSegmentLength, 0, 1);
     const p0 = points[Math.max(0, segmentIndex - 1)] ?? points[0]!;
     const p1 = points[segmentIndex]!;
     const p2 = points[segmentIndex + 1]!;
