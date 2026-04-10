@@ -1281,21 +1281,6 @@ export class BattleScreen {
         if (this.seenAirReportIds.has(r.id)) {
           continue;
         }
-        if (r.kind === "escort" && r.escortTargetUnitKey && linkedStrikeUnitKeys.has(r.escortTargetUnitKey)) {
-          this.seenAirReportIds.add(r.id);
-          continue;
-        }
-        if (
-          r.event === "resolved" &&
-          (r.kind === "airCover" || r.kind === "escort") &&
-          ((typeof r.interceptions === "number" && r.interceptions > 0) ||
-            (typeof r.bomberAttrition === "number" && r.bomberAttrition > 0) ||
-            (typeof r.interceptorAttrition === "number" && r.interceptorAttrition > 0) ||
-            (typeof r.escortAttrition === "number" && r.escortAttrition > 0))
-        ) {
-          this.seenAirReportIds.add(r.id);
-          continue;
-        }
         this.seenAirReportIds.add(r.id);
         let target = "-";
         if (r.targetHex) {
@@ -3988,6 +3973,8 @@ export class BattleScreen {
           defenderUnitKey: exchange.defenderUnitKey,
           attackerStrengthAfter: exchange.attackerStrengthAfter,
           defenderStrengthAfter: exchange.defenderStrengthAfter,
+          damageToDefender: exchange.damageToDefender,
+          retaliationDamage: exchange.retaliationDamage,
           attackerDestroyed: exchange.attackerDestroyed,
           defenderDestroyed: exchange.defenderDestroyed,
           visualPasses: exchange.visualPasses
@@ -3998,6 +3985,8 @@ export class BattleScreen {
               defenderUnitKey: exchange.defenderUnitKey,
               attackerStrengthAfter: exchange.attackerStrengthAfter,
               defenderStrengthAfter: exchange.defenderStrengthAfter,
+              damageToDefender: exchange.damageToDefender,
+              retaliationDamage: exchange.retaliationDamage,
               attackerDestroyed: exchange.attackerDestroyed,
               defenderDestroyed: exchange.defenderDestroyed,
               visualPasses: exchange.visualPasses
@@ -4128,6 +4117,16 @@ export class BattleScreen {
       const location = this.formatAxialHexForDisplay(event.location);
       const factionLabel = (faction: TurnFaction): string =>
         faction === "Player" ? "Player" : faction === "Ally" ? "Allied" : "Enemy";
+      const lowerFactionLabel = (faction: TurnFaction): string =>
+        faction === "Player" ? "player" : faction === "Ally" ? "allied" : "enemy";
+      const formatFighterPhaseLabel = (
+        faction: TurnFaction,
+        unitType: string,
+        phase: "capClash" | "escortClash" | "bomberPass"
+      ): string => {
+        const phasePrefix = phase === "capClash" ? "CAP " : "";
+        return `${factionLabel(faction)} ${phasePrefix}${this.toTitleCase(unitType)}`;
+      };
       const publishExchange = (
         summary: string,
         category: "player" | "enemy",
@@ -4144,15 +4143,27 @@ export class BattleScreen {
 
       (event.escortExchanges ?? []).forEach((exchange, index) => {
         const category = exchange.attackerFaction === "Bot" && exchange.defenderFaction === "Bot" ? "enemy" : "player";
+        const phaseLabel = exchange.phase === "capClash" ? "CAP clash" : "escort clash";
+        const attackerLabel = formatFighterPhaseLabel(
+          exchange.attackerFaction,
+          exchange.attackerUnitType,
+          exchange.phase
+        );
+        const defenderLabel = formatFighterPhaseLabel(
+          exchange.defenderFaction,
+          exchange.defenderUnitType,
+          exchange.phase
+        );
         const summary =
-          `${factionLabel(exchange.attackerFaction)} ${this.toTitleCase(exchange.attackerUnitType)} engaged ` +
-          `${factionLabel(exchange.defenderFaction).toLowerCase()} ${this.toTitleCase(exchange.defenderUnitType)} over ${location}. ` +
+          `${attackerLabel} and ${lowerFactionLabel(exchange.defenderFaction)} ${exchange.phase === "capClash" ? "CAP " : ""}${this.toTitleCase(exchange.defenderUnitType)} ` +
+          `traded fire in ${phaseLabel} over ${location}. ` +
           `${this.toTitleCase(exchange.defenderUnitType)} took ${Math.max(0, Math.round(exchange.damageToDefender))} air damage; ` +
           `${this.toTitleCase(exchange.attackerUnitType)} took ${Math.max(0, Math.round(exchange.retaliationDamage))}.` +
-          (exchange.defenderDestroyed ? ` ${this.toTitleCase(exchange.defenderUnitType)} destroyed.` : "") +
-          (exchange.attackerDestroyed ? ` ${this.toTitleCase(exchange.attackerUnitType)} destroyed.` : "");
+          (exchange.defenderDestroyed ? ` ${defenderLabel} destroyed.` : "") +
+          (exchange.attackerDestroyed ? ` ${attackerLabel} destroyed.` : "");
         publishExchange(summary, category, {
           phase: exchange.phase,
+          phaseLabel,
           exchangeIndex: index,
           attackerUnitKey: exchange.attackerUnitKey,
           defenderUnitKey: exchange.defenderUnitKey,
@@ -5050,57 +5061,15 @@ export class BattleScreen {
       laneOffsetsByIndex.set(operation.index, eventLaneOffsets[index] ?? 0);
     });
 
-    const serializeComplexCluster = cluster.some(
-      (operation) =>
-        (operation.kind === "linkedStrike" &&
-          operation.linkedEvents.some((event) => event.type === "airToAir")) ||
-        (operation.kind === "event" && operation.event.type !== "flak")
+    const capClashOperations = cluster.filter(
+      (operation): operation is StandaloneEventPlaybackOperation =>
+        operation.kind === "event" && operation.event.type === "capClash"
+    );
+    const concurrentOperations = cluster.filter(
+      (operation) => !(operation.kind === "event" && operation.event.type === "capClash")
     );
 
-    if (!serializeComplexCluster) {
-      await Promise.all(
-        cluster.map((operation) => {
-          if (operation.kind === "linkedStrike") {
-            return this.playMissionStrikeOperation(
-              operation.flight,
-              [...operation.linkedEvents],
-              operation.escorts,
-              renderer,
-              engine,
-              Boolean(focusKey)
-            );
-          }
-          if (operation.kind === "flight") {
-            return this.playStandaloneAirMissionFlight(operation.flight, renderer, engine, Boolean(focusKey));
-          }
-          return this.playStandaloneAirEngagementEvent(
-            operation.event,
-            renderer,
-            engine,
-            Boolean(focusKey),
-            laneOffsetsByIndex.get(operation.index) ?? 0
-          );
-        })
-      );
-      return;
-    }
-
-    for (const operation of cluster) {
-      if (operation.kind === "linkedStrike") {
-        await this.playMissionStrikeOperation(
-          operation.flight,
-          [...operation.linkedEvents],
-          operation.escorts,
-          renderer,
-          engine,
-          Boolean(focusKey)
-        );
-        continue;
-      }
-      if (operation.kind === "flight") {
-        await this.playStandaloneAirMissionFlight(operation.flight, renderer, engine, Boolean(focusKey));
-        continue;
-      }
+    for (const operation of capClashOperations) {
       await this.playStandaloneAirEngagementEvent(
         operation.event,
         renderer,
@@ -5109,6 +5078,35 @@ export class BattleScreen {
         laneOffsetsByIndex.get(operation.index) ?? 0
       );
     }
+
+    if (concurrentOperations.length <= 0) {
+      return;
+    }
+
+    await Promise.all(
+      concurrentOperations.map((operation) => {
+        if (operation.kind === "linkedStrike") {
+          return this.playMissionStrikeOperation(
+            operation.flight,
+            [...operation.linkedEvents],
+            operation.escorts,
+            renderer,
+            engine,
+            Boolean(focusKey)
+          );
+        }
+        if (operation.kind === "flight") {
+          return this.playStandaloneAirMissionFlight(operation.flight, renderer, engine, Boolean(focusKey));
+        }
+        return this.playStandaloneAirEngagementEvent(
+          operation.event,
+          renderer,
+          engine,
+          Boolean(focusKey),
+          laneOffsetsByIndex.get(operation.index) ?? 0
+        );
+      })
+    );
   }
 
   /**

@@ -1903,7 +1903,7 @@ registerTest("BATTLESCREEN_INTERCEPTED_LINKED_STRIKES_KEEP_BOMBER_RUN_INSIDE_THE
   });
 });
 
-registerTest("BATTLESCREEN_SERIALIZES_COMPLEX_AIR_COMBAT_CLUSTERS_BEFORE_STARTING_ANOTHER_PACKAGE", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_COMPLEX_AIR_COMBAT_CLUSTERS_OVERLAP_NEARBY_PACKAGES_AFTER_THE_SHARED_CAMERA_FOCUS", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   const callOrder: string[] = [];
   let releaseLinkedStrike: (() => void) | null = null;
@@ -1975,16 +1975,16 @@ registerTest("BATTLESCREEN_SERIALIZES_COMPLEX_AIR_COMBAT_CLUSTERS_BEFORE_STARTIN
     await Promise.resolve();
   });
 
-  await Then("the second sortie should wait until the intercepted package finishes", async () => {
-    if (callOrder.includes("flight:bomber-2")) {
-      throw new Error(`Expected the nearby sortie to wait for the active air-combat package, saw ${JSON.stringify(callOrder)}.`);
+  await Then("the nearby sortie should begin while the intercepted package is still in progress", async () => {
+    if (!callOrder.includes("flight:bomber-2")) {
+      throw new Error(`Expected the nearby sortie to begin inside the same playback bucket, saw ${JSON.stringify(callOrder)}.`);
     }
     releaseLinkedStrike?.();
     await playback;
     const linkedEndIndex = callOrder.indexOf("linked:end:bomber-1");
     const secondFlightIndex = callOrder.indexOf("flight:bomber-2");
-    if (linkedEndIndex < 0 || secondFlightIndex < 0 || secondFlightIndex < linkedEndIndex) {
-      throw new Error(`Expected the second sortie to begin only after the intercepted package finished, saw ${JSON.stringify(callOrder)}.`);
+    if (linkedEndIndex < 0 || secondFlightIndex < 0 || secondFlightIndex > linkedEndIndex) {
+      throw new Error(`Expected the nearby sortie to start before the intercepted package finished, saw ${JSON.stringify(callOrder)}.`);
     }
   });
 });

@@ -373,7 +373,7 @@ registerTest("BATTLESCREEN_STRIKE_LOGS_FOCUS_ON_TARGET_DAMAGE_AND_STRIKE_PACKAGE
   });
 });
 
-registerTest("BATTLESCREEN_LINKED_ESCORT_REPORTS_ARE_SUPPRESSED_WHEN_THE_STRIKE_AND_CAP_ALREADY_COVER_THE_DOGFIGHT", async ({ When, Then }) => {
+registerTest("BATTLESCREEN_LINKED_ESCORT_REPORTS_REMAIN_VISIBLE_WHEN_PLAYERS_NEED_THE_FULL_AIR_COMBAT_CHAIN", async ({ When, Then }) => {
   const published: Array<{ category: string; summary: string; details?: Record<string, unknown> }> = [];
   const screen = Object.create(BattleScreen.prototype) as BattleScreen;
 
@@ -469,13 +469,13 @@ registerTest("BATTLESCREEN_LINKED_ESCORT_REPORTS_ARE_SUPPRESSED_WHEN_THE_STRIKE_
     (screen as any).syncAirMissionLogs();
   });
 
-  await Then("the linked escort report should be suppressed so the dogfight is not narrated twice", async () => {
-    if (published.length !== 2) {
-      throw new Error(`Expected only strike and CAP entries after suppressing the linked escort report, received ${published.length}.`);
+  await Then("the linked escort report should remain in the activity log alongside the strike and CAP summaries", async () => {
+    if (published.length !== 3) {
+      throw new Error(`Expected strike, escort, and CAP entries so the full air-combat chain stays visible, received ${published.length}.`);
     }
 
-    if (published.some((entry) => entry.summary.includes("Air mission escort resolved"))) {
-      throw new Error(`Did not expect a linked escort entry once the strike and CAP reports already covered the battle, saw ${JSON.stringify(published)}.`);
+    if (!published.some((entry) => entry.summary.includes("Air mission escort resolved"))) {
+      throw new Error(`Expected the linked escort report to remain visible, saw ${JSON.stringify(published)}.`);
     }
   });
 });
@@ -784,10 +784,10 @@ registerTest("BATTLESCREEN_DETAILED_AIR_INTERCEPT_LOGS_PUBLISH_ONE_ENTRY_PER_EXC
     if (!published.every((entry) => entry.category === "player")) {
       throw new Error(`Expected the resolved interceptions to publish player-side entries, saw ${JSON.stringify(published)}.`);
     }
-    if (!published[0]!.summary.includes("Player patrol flight engaged enemy Fighter")) {
+    if (!published[0]!.summary.includes("traded fire in escort clash")) {
       throw new Error(`Expected the escort clash to be logged separately, saw ${published[0]!.summary}.`);
     }
-    if (!published[1]!.summary.includes("Player patrol flight attacked enemy Bomber") || !published[1]!.summary.includes("42 air damage dealt")) {
+    if (!published[1]!.summary.includes("attacked enemy Bomber") || !published[1]!.summary.includes("42 air damage dealt")) {
       throw new Error(`Expected the first bomber pass to be logged separately, saw ${published[1]!.summary}.`);
     }
     if (!published[2]!.summary.includes("30 air damage dealt") || !published[2]!.summary.includes("Bomber strength now 28")) {
