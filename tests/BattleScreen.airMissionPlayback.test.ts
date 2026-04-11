@@ -1610,7 +1610,7 @@ registerTest("BATTLESCREEN_LINKED_STRIKES_KEEP_ESCORT_SORTIES_INSIDE_INTERCEPTED
   });
 });
 
-registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_SUPPLEMENTS_LINKED_ESCORTS_AND_BOMBER_CORRIDOR_CONTEXT", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_USES_RESOLVED_EVENT_ESCORTS_AND_KEEPS_BOMBER_CORRIDOR_CONTEXT", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let resolvedScene: any = null;
   const root = document.getElementById("battleScreen") ?? document.createElement("div");
@@ -1730,17 +1730,13 @@ registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_SUPPLEMENTS_LINKED_ESCORTS_AND_BOMBE
     );
   });
 
-  await Then("the scene should include the linked escort and the bomber corridor target", async () => {
+  await Then("the scene should not invent escorts that are absent from the resolved event, but should keep bomber corridor context", async () => {
     if (!resolvedScene) {
       throw new Error("Expected the resolved airshow scene to be handed to the renderer.");
     }
     const escortIds = Array.isArray(resolvedScene.escorts) ? resolvedScene.escorts.map((entry: { id: string }) => entry.id) : [];
-    if (!escortIds.includes("escort-1")) {
-      throw new Error(`Expected escort-1 to be carried into the resolved scene, saw ${JSON.stringify(resolvedScene)}.`);
-    }
-    const escortOrigin = resolvedScene.escorts.find((entry: { id: string }) => entry.id === "escort-1")?.originHexKey;
-    if (escortOrigin !== "1,-2") {
-      throw new Error(`Expected escort-1 to keep its linked origin for the airshow, saw ${escortOrigin ?? "<missing>"}.`);
+    if (escortIds.includes("escort-1")) {
+      throw new Error(`Did not expect playback to invent escort-1 when the resolved event omitted it, saw ${JSON.stringify(resolvedScene)}.`);
     }
     if (resolvedScene.bomberTargetHexKey !== "3,0") {
       throw new Error(`Expected bomber corridor target 3,0 to reach the renderer, saw ${resolvedScene.bomberTargetHexKey ?? "<missing>"}.`);

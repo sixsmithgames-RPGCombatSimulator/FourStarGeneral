@@ -310,6 +310,81 @@ registerTest("AIR_INTERCEPTION_ESCORT_REPORTS_SUCCESS_AFTER_ENGAGING_INTERCEPTOR
   });
 });
 
+registerTest("AIR_INTERCEPTION_ESCORT_REPORTS_SUCCESS_FROM_RESOLVED_PACKAGE_STATE_WHEN_FLAK_KILLS_THE_BOMBER", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let outcome: unknown = null;
+
+  await Given("an escort mission whose linked strike package was already resolved and destroyed by flak", async () => {
+    const config: GameEngineConfig = {
+      scenario: scenario(),
+      unitTypes,
+      terrain,
+      playerSide: side(),
+      botSide: side()
+    };
+    engine = new GameEngine(config);
+    (engine as any).resolvedEscortMissionStateByMissionId.set("esc-report-flak", {
+      missionId: "esc-report-flak",
+      unitKey: "u_esc1",
+      unitType: "Fighter",
+      unitLabel: "Fighter @ 1,4",
+      protectedUnitKey: "u_bomber",
+      protectedUnitLabel: "Bomber @ 0,4",
+      engaged: false,
+      interceptions: 0,
+      interceptorAttrition: 0,
+      escortAttrition: 0,
+      interceptorKills: 0,
+      escortDestroyed: false,
+      packageDestroyedBeforeTarget: true,
+      packageDestroyedCause: "flak"
+    });
+  });
+
+  await When("the escort mission resolves after the package was lost before release", async () => {
+    outcome = (engine as any).resolveEscortMission({
+      id: "esc-report-flak",
+      template: {
+        kind: "escort",
+        label: "Escort",
+        description: "",
+        allowedRoles: ["escort"],
+        requiresTarget: false,
+        requiresFriendlyEscortTarget: true,
+        durationTurns: 1
+      },
+      faction: "Bot",
+      unitKey: "u_esc1",
+      unitType: "Fighter",
+      status: "resolving",
+      launchTurn: 1,
+      turnsRemaining: 0,
+      escortTargetUnitKey: "u_bomber",
+      interceptions: 0,
+      airCombatDamageInflicted: 0,
+      airCombatDamageTaken: 0,
+      airCombatKills: 0
+    });
+  });
+
+  await Then("the escort should still resolve successfully instead of aborting", async () => {
+    const escortOutcome = outcome as {
+      result?: string;
+      details?: string;
+      interceptions?: number;
+    };
+    if (escortOutcome.result !== "success") {
+      throw new Error(`Expected escort mission to resolve successfully from package state, saw ${escortOutcome.result ?? "<missing>"}.`);
+    }
+    if (escortOutcome.interceptions !== 0) {
+      throw new Error(`Expected escort mission to preserve zero direct interceptions, saw ${escortOutcome.interceptions ?? "<missing>"}.`);
+    }
+    if (!String(escortOutcome.details ?? "").includes("destroyed by anti-aircraft fire")) {
+      throw new Error(`Expected escort details to explain the flak loss, saw ${escortOutcome.details ?? "<missing>"}.`);
+    }
+  });
+});
+
 registerTest("AIR_INTERCEPTION_BOMBER_TURRETS_RETURN_FIRE_WITHOUT_REUSING_GROUND_ORDNANCE", async ({ Given, When, Then }) => {
   let engine: GameEngine;
   let engagements: ReturnType<GameEngine["consumeAirEngagements"]> = [];

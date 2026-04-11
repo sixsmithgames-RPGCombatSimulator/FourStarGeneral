@@ -484,6 +484,72 @@ registerTest("BATTLESCREEN_LINKED_ESCORT_REPORTS_REMAIN_VISIBLE_WHEN_PLAYERS_NEE
   });
 });
 
+registerTest("BATTLESCREEN_STRIKE_SUMMARIES_DO_NOT_ADVERTISE_ABORTED_LINKED_ESCORTS", async ({ When, Then }) => {
+  const published: Array<{ category: string; summary: string; details?: Record<string, unknown> }> = [];
+  const screen = Object.create(BattleScreen.prototype) as BattleScreen;
+
+  const reports: AirMissionReportEntry[] = [
+    {
+      id: "strike-report-escort-filter",
+      missionId: "strike-escort-filter",
+      turnResolved: 9,
+      timestamp: "2026-04-11T04:10:00.000Z",
+      faction: "Bot",
+      unitType: "Bomber",
+      unitKey: "bomber-escort-filter",
+      kind: "strike",
+      targetHex: { q: 4, r: 3 },
+      outcome: {
+        type: "strike",
+        result: "destroyed",
+        details: "Strike package was destroyed by ground-based anti-aircraft fire before reaching the target.",
+        refitRequired: true
+      }
+    },
+    {
+      id: "escort-report-escort-filter",
+      missionId: "escort-escort-filter",
+      turnResolved: 9,
+      timestamp: "2026-04-11T04:10:00.000Z",
+      faction: "Bot",
+      unitType: "Fighter",
+      unitKey: "escort-escort-filter",
+      kind: "escort",
+      escortTargetUnitKey: "bomber-escort-filter",
+      outcome: {
+        type: "escort",
+        result: "aborted",
+        details: "Assigned strike package was no longer present, so the escort returned to base.",
+        refitRequired: false
+      }
+    }
+  ];
+
+  (screen as any).seenAirReportIds = new Set<string>();
+  (screen as any).battleState = {
+    ensureGameEngine: () => ({
+      getAirMissionReports: () => reports
+    })
+  };
+  (screen as any).publishActivityEvent = (event: { category: string; summary: string; details?: Record<string, unknown> }) => {
+    published.push(event);
+  };
+
+  await When("strike and aborted escort reports are mirrored into the activity log", async () => {
+    (screen as any).syncAirMissionLogs();
+  });
+
+  await Then("the strike summary should not claim that the package had an escort in play", async () => {
+    const strikeEntry = published.find((entry) => entry.summary.includes("Air mission strike "));
+    if (!strikeEntry) {
+      throw new Error(`Expected a strike summary, saw ${JSON.stringify(published)}.`);
+    }
+    if (strikeEntry.summary.includes("with escort")) {
+      throw new Error(`Did not expect an aborted linked escort to appear in the strike summary, saw ${strikeEntry.summary}.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_MISSION_STATS_CAPTURE_PLAYER_AIR_LOSSES", async ({ When, Then }) => {
   const screen = Object.create(BattleScreen.prototype) as BattleScreen;
   const reports: AirMissionReportEntry[] = [

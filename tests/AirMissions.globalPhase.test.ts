@@ -246,3 +246,105 @@ registerTest("AIR_GLOBAL_PHASE_RESOLVES_CAP_CLASH_BEFORE_STRIKE_PACKAGES", async
     }
   });
 });
+
+registerTest("AIR_GLOBAL_PHASE_INCLUDES_RESOLVING_ESCORTS_IN_STRIKE_PACKAGE_INTERCEPTIONS", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  let engagements: ReturnType<GameEngine["consumeAirEngagements"]> = [];
+  let escortReport: ReturnType<GameEngine["getAirMissionReports"]>[number] | undefined;
+
+  await Given("a resolving escort linked to a resolving strike package opposed by player CAP", async () => {
+    const config: GameEngineConfig = {
+      scenario: scenario(),
+      unitTypes,
+      terrain,
+      playerSide: side(),
+      botSide: side()
+    };
+    engine = new GameEngine(config);
+
+    engine.beginDeployment();
+    engine.initializeFromAllocations([
+      make("Fighter", { q: 0, r: 0 }, "u_pcap"),
+      make("Infantry_42", { q: 2, r: 2 }, "u_target")
+    ]);
+    engine.setBaseCamp({ q: 0, r: 0 });
+    engine.finalizeDeployment();
+    engine.startPlayerTurnPhase();
+
+    (engine as any).botPlacements.set("0,4", make("Bomber", { q: 0, r: 4 }, "u_bomber"));
+    (engine as any).botPlacements.set("1,4", make("Fighter", { q: 1, r: 4 }, "u_escort"));
+
+    const missions = (engine as any).scheduledAirMissions;
+    missions.set("player-cap", {
+      id: "player-cap",
+      template: { kind: "airCover", label: "CAP", description: "", allowedRoles: ["cap"], requiresTarget: false, requiresFriendlyEscortTarget: false, durationTurns: 1 },
+      faction: "Player",
+      unitKey: "u_pcap",
+      originHexKey: "0,0",
+      unitType: "Fighter",
+      status: "inFlight",
+      launchTurn: 1,
+      turnsRemaining: 0,
+      targetHex: { q: 2, r: 2 },
+      interceptions: 0,
+      airCombatDamageInflicted: 0,
+      airCombatDamageTaken: 0,
+      airCombatKills: 0
+    });
+    missions.set("bot-strike", {
+      id: "bot-strike",
+      template: { kind: "strike", label: "Strike", description: "", allowedRoles: ["strike"], requiresTarget: true, requiresFriendlyEscortTarget: false, durationTurns: 0 },
+      faction: "Bot",
+      unitKey: "u_bomber",
+      originHexKey: "0,4",
+      unitType: "Bomber",
+      status: "resolving",
+      launchTurn: 1,
+      turnsRemaining: 0,
+      targetHex: { q: 2, r: 2 },
+      targetUnitKey: "u_target",
+      interceptions: 0,
+      airCombatDamageInflicted: 0,
+      airCombatDamageTaken: 0,
+      airCombatKills: 0
+    });
+    missions.set("bot-escort", {
+      id: "bot-escort",
+      template: { kind: "escort", label: "Escort", description: "", allowedRoles: ["escort"], requiresTarget: false, requiresFriendlyEscortTarget: true, durationTurns: 1 },
+      faction: "Bot",
+      unitKey: "u_escort",
+      originHexKey: "1,4",
+      unitType: "Fighter",
+      status: "resolving",
+      launchTurn: 1,
+      turnsRemaining: 0,
+      escortTargetUnitKey: "u_bomber",
+      interceptions: 0,
+      airCombatDamageInflicted: 0,
+      airCombatDamageTaken: 0,
+      airCombatKills: 0
+    });
+  });
+
+  await When("the round-level air phase and mission resolution run", async () => {
+    (engine as any).resolveReadyAirMissionsForRound();
+    engagements = engine.consumeAirEngagements();
+    escortReport = engine.getAirMissionReports().find((entry) => entry.missionId === "bot-escort");
+  });
+
+  await Then("the escort should be part of the package interception and should not resolve as aborted", async () => {
+    const strikeEvent = engagements.find((event) => event.type === "airToAir" && event.missionId === "bot-strike");
+    if (!strikeEvent) {
+      throw new Error(`Expected an airToAir event for bot-strike, saw ${engagements.map((event) => `${event.type}:${event.missionId ?? "none"}`).join(", ")}`);
+    }
+    if ((strikeEvent.escorts?.length ?? 0) !== 1) {
+      throw new Error(`Expected the resolving escort to be included in the strike package, saw ${strikeEvent.escorts?.length ?? 0} escorts.`);
+    }
+    if (!escortReport) {
+      throw new Error("Expected a resolved escort air mission report.");
+    }
+    if (escortReport.outcome?.result === "aborted") {
+      throw new Error(`Expected escort report to resolve from package state, saw ${escortReport.outcome?.result}.`);
+    }
+  });
+});

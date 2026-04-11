@@ -1017,9 +1017,29 @@ interface ResolvedMissionAirPhaseState {
   readonly airToAirEvent: AirEngagementEvent | null;
   readonly flakEvent: AirEngagementEvent | null;
   readonly bomberDestroyedBeforeTarget: boolean;
+  readonly bomberDestroyedCause: "airToAir" | "flak" | null;
   readonly bomberStrengthBeforeAirPhase: number;
   readonly bomberStrengthAfterAirPhase: number;
+  readonly bomberLabel: string;
+  readonly escortStates: readonly ResolvedEscortMissionState[];
   readonly meta: NonNullable<AirMissionOutcomeBase["meta"]>;
+}
+
+interface ResolvedEscortMissionState {
+  readonly missionId: string;
+  readonly unitKey: string;
+  readonly unitType: string;
+  readonly unitLabel: string;
+  readonly protectedUnitKey: string;
+  readonly protectedUnitLabel: string;
+  readonly engaged: boolean;
+  readonly interceptions: number;
+  readonly interceptorAttrition: number;
+  readonly escortAttrition: number;
+  readonly interceptorKills: number;
+  readonly escortDestroyed: boolean;
+  readonly packageDestroyedBeforeTarget: boolean;
+  readonly packageDestroyedCause: "airToAir" | "flak" | null;
 }
 
 /** Arguments provided to the interception helper so we can reuse it across player, bot, and mission-driven attacks. */
@@ -1045,7 +1065,11 @@ interface _AirInterceptionResult {
 
 /** Returns the scheduled mission entries providing direct escort for the specified protected unit. */
 const missionIsProtectingUnit = (mission: ScheduledAirMission, unitKey: string): boolean => {
-  return mission.template.kind === "escort" && mission.escortTargetUnitKey === unitKey && mission.status === "inFlight";
+  return (
+    mission.template.kind === "escort"
+    && mission.escortTargetUnitKey === unitKey
+    && (mission.status === "inFlight" || mission.status === "resolving")
+  );
 };
 
 /** Returns active air cover missions guarding the provided hex key.
@@ -1777,6 +1801,7 @@ export class GameEngine implements GameEngineAPI {
     }
 
     this.resolvedMissionAirPhaseByMissionId.clear();
+    this.resolvedEscortMissionStateByMissionId.clear();
     this.resolveInflightAirPhase();
 
     const order: AirMissionKind[] = ["strike", "escort", "airTransport"];
@@ -1791,6 +1816,7 @@ export class GameEngine implements GameEngineAPI {
 
     this.finalizeReadyAirCoverMissions();
     this.resolvedMissionAirPhaseByMissionId.clear();
+    this.resolvedEscortMissionStateByMissionId.clear();
   }
 
   private finalizeReadyAirCoverMissions(): void {
@@ -2462,6 +2488,11 @@ export class GameEngine implements GameEngineAPI {
       };
     }
 
+    const resolvedEscortState = this.resolvedEscortMissionStateByMissionId.get(mission.id) ?? null;
+    if (resolvedEscortState) {
+      return this.buildEscortOutcomeFromResolvedState(mission, resolvedEscortState);
+    }
+
     // Look up the protected unit by its stable squadronId instead of hex key.
     const protectedLookup = this.lookupUnitBySquadronId(mission.escortTargetUnitKey, mission.faction);
     if (!protectedLookup) {
@@ -2640,7 +2671,7 @@ export class GameEngine implements GameEngineAPI {
   }
 
   private buildDestroyedStrikeOutcomeFromAirPhase(phaseState: ResolvedMissionAirPhaseState): AirMissionOutcome {
-    const destroyedByFlak = phaseState.flakEvent?.bomberDestroyed === true;
+    const destroyedByFlak = phaseState.bomberDestroyedCause === "flak";
     return {
       type: "strike",
       result: "destroyed",
@@ -2925,8 +2956,9 @@ export class GameEngine implements GameEngineAPI {
         mission: delta.mission,
         unit: structuredClone(delta.unitAfter)
       }));
-    const escortParticipants = this.findAllActiveEscortsForUnit(mission.faction, mission.unitKey)
-      .filter((escortMission) => this.isMissionActiveInAirspace(escortMission))
+    const linkedEscortMissions = this.findAllActiveEscortsForUnit(mission.faction, mission.unitKey)
+      .filter((escortMission) => this.isMissionActiveInAirspace(escortMission));
+    const escortParticipants = linkedEscortMissions
       .map((escortMission) => {
         const escortLookup = this.lookupUnitBySquadronId(escortMission.unitKey, mission.faction);
         return escortLookup ? { mission: escortMission, unit: escortLookup.unit } : null;
@@ -2947,6 +2979,8 @@ export class GameEngine implements GameEngineAPI {
     let interceptorKills = 0;
     let escortAttrition = 0;
     let escortKills = 0;
+    let bomberDestroyedCause: "airToAir" | "flak" | null = null;
+    let escortStates: ResolvedEscortMissionState[] = [];
 
     if (interceptorParticipants.length > 0) {
       const interception = this.resolveAirInterception(
@@ -2976,6 +3010,30 @@ export class GameEngine implements GameEngineAPI {
         this.mergeAirCombatDeltaOutcome(delta, resolved);
       });
       interception.escortDeltas.forEach((delta) => this.applyAirCombatDeltaOutcome(delta));
+
+      escortStates = linkedEscortMissions.map((escortMission) => {
+        const delta = interception.escortDeltas.find((entry) => entry.mission.id === escortMission.id) ?? null;
+        const escortLabel =
+          delta
+            ? this.describeAirUnit(delta.unitBefore)
+            : this.describeAirMissionUnit(escortMission, this.lookupUnitBySquadronId(escortMission.unitKey, mission.faction)?.unit ?? null);
+        return {
+          missionId: escortMission.id,
+          unitKey: escortMission.unitKey,
+          unitType: escortMission.unitType,
+          unitLabel: escortLabel,
+          protectedUnitKey: mission.unitKey,
+          protectedUnitLabel: this.describeAirUnit(bomberBeforeAirPhase),
+          engaged: delta?.engaged ?? false,
+          interceptions: delta?.engaged ? 1 : 0,
+          interceptorAttrition: Math.max(0, Math.round(delta?.inflicted ?? 0)),
+          escortAttrition: Math.max(0, Math.round(delta?.taken ?? 0)),
+          interceptorKills: Math.max(0, Math.round(delta?.kills ?? 0)),
+          escortDestroyed: (delta?.unitAfter.strength ?? 1) <= 0,
+          packageDestroyedBeforeTarget: false,
+          packageDestroyedCause: null
+        };
+      });
 
       airToAirEvent = {
         type: "airToAir",
@@ -3022,6 +3080,9 @@ export class GameEngine implements GameEngineAPI {
         bomberPassExchanges: interception.bomberPassExchanges
       };
       this.pendingAirEngagements.push(airToAirEvent);
+      if (interception.bomberDestroyed) {
+        bomberDestroyedCause = "airToAir";
+      }
     }
 
     if (bomberAfterAirPhase.strength > 0) {
@@ -3032,6 +3093,42 @@ export class GameEngine implements GameEngineAPI {
       if (flakEvent) {
         this.pendingAirEngagements.push(flakEvent);
       }
+      if (bomberAfterAirPhase.strength <= 0) {
+        bomberDestroyedCause = "flak";
+      }
+    }
+
+    if (escortStates.length <= 0 && linkedEscortMissions.length > 0) {
+      escortStates = linkedEscortMissions.map((escortMission) => ({
+        missionId: escortMission.id,
+        unitKey: escortMission.unitKey,
+        unitType: escortMission.unitType,
+        unitLabel: this.describeAirMissionUnit(
+          escortMission,
+          this.lookupUnitBySquadronId(escortMission.unitKey, mission.faction)?.unit ?? null
+        ),
+        protectedUnitKey: mission.unitKey,
+        protectedUnitLabel: this.describeAirUnit(bomberBeforeAirPhase),
+        engaged: false,
+        interceptions: 0,
+        interceptorAttrition: 0,
+        escortAttrition: 0,
+        interceptorKills: 0,
+        escortDestroyed: false,
+        packageDestroyedBeforeTarget: false,
+        packageDestroyedCause: null
+      }));
+    }
+
+    if (escortStates.length > 0) {
+      escortStates = escortStates.map((state) => ({
+        ...state,
+        packageDestroyedBeforeTarget: bomberAfterAirPhase.strength <= 0,
+        packageDestroyedCause: bomberDestroyedCause
+      }));
+      escortStates.forEach((state) => {
+        this.resolvedEscortMissionStateByMissionId.set(state.missionId, structuredClone(state));
+      });
     }
 
     if (bomberAfterAirPhase.strength <= 0) {
@@ -3047,8 +3144,11 @@ export class GameEngine implements GameEngineAPI {
       airToAirEvent,
       flakEvent,
       bomberDestroyedBeforeTarget: bomberAfterAirPhase.strength <= 0,
+      bomberDestroyedCause,
       bomberStrengthBeforeAirPhase: bomberBeforeAirPhase.strength,
       bomberStrengthAfterAirPhase: bomberAfterAirPhase.strength,
+      bomberLabel: this.describeAirUnit(bomberBeforeAirPhase),
+      escortStates,
       meta: {
         flakAttrition,
         capIntercepts,
@@ -3163,6 +3263,35 @@ export class GameEngine implements GameEngineAPI {
         bomberStrengthBefore: bomber.strength,
         bomberStrengthAfter: currentBomber.strength,
         bomberDestroyed: currentBomber.strength <= 0
+      }
+    };
+  }
+
+  private buildEscortOutcomeFromResolvedState(
+    mission: ScheduledAirMission,
+    escortState: ResolvedEscortMissionState
+  ): AirMissionOutcome {
+    const interceptions = Math.max(0, escortState.interceptions);
+    const details =
+      escortState.engaged
+        ? `Escort engaged hostile interceptors while covering ${escortState.protectedUnitLabel}.`
+        : escortState.packageDestroyedBeforeTarget
+          ? escortState.packageDestroyedCause === "flak"
+            ? `Escort maintained air cover for ${escortState.protectedUnitLabel}, but the strike package was destroyed by anti-aircraft fire before release.`
+            : `Escort maintained air cover for ${escortState.protectedUnitLabel}, but the strike package was intercepted and destroyed before release.`
+          : `Escort maintained air cover for ${escortState.protectedUnitLabel}; no enemy interceptors challenged the route.`;
+
+    return {
+      type: "escort",
+      result: "success",
+      details,
+      refitRequired: true,
+      interceptions,
+      protectedUnitKey: mission.escortTargetUnitKey,
+      meta: {
+        interceptorAttrition: escortState.interceptorAttrition,
+        interceptorKills: escortState.interceptorKills,
+        escortAttrition: escortState.escortAttrition
       }
     };
   }
@@ -5467,6 +5596,8 @@ private automateSupplyConvoys(
   private readonly pendingAirEngagements: AirEngagementEvent[] = [];
   /** Pre-resolved air-phase outcomes keyed by strike mission so strike resolution can consume the global ledger. */
   private readonly resolvedMissionAirPhaseByMissionId = new Map<string, ResolvedMissionAirPhaseState>();
+  /** Direct escort-to-package index so escort outcomes do not have to be reconstructed from live unit state later. */
+  private readonly resolvedEscortMissionStateByMissionId = new Map<string, ResolvedEscortMissionState>();
   private readonly pendingSupportImpactEvents: SupportImpactEvent[] = [];
   private airMissionIdCounter = 0;
   /** Refitting squadrons keyed by squadron id so planners know when they return to Ready status. */
