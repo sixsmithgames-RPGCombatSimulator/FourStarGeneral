@@ -347,9 +347,18 @@ export interface AirShowPhaseMetric {
   readonly meanDisplacementPx: number;
   readonly meanEfficiency: number;
   readonly tracerCount: number;
+  readonly meanTracerLengthPx: number;
+  readonly meanTracerFanSpanPx: number;
+  readonly flakBurstCount: number;
+  readonly flakPuffCount: number;
+  readonly meanFlakWidthPx: number;
+  readonly meanFlakHeightPx: number;
+  readonly meanEntryTurnAngleDeg: number;
+  readonly maxEntryTurnAngleDeg: number;
   readonly groupMetrics: readonly AirShowPhaseGroupMetric[];
   readonly relationMetrics: readonly AirShowPhaseRelationMetric[];
   readonly tracerMetrics: readonly AirShowPhaseTracerMetric[];
+  readonly flakMetrics: readonly AirShowPhaseFlakMetric[];
 }
 
 export interface AirShowPhaseGroupMetric {
@@ -372,6 +381,7 @@ export interface AirShowPhaseRelationMetric {
   readonly separationMidPx: number;
   readonly separationEndPx: number;
   readonly minMidPairSeparationPx: number;
+  readonly approachAngleDeg: number;
 }
 
 export interface AirShowPhaseTracerMetric {
@@ -379,6 +389,8 @@ export interface AirShowPhaseTracerMetric {
   readonly sourceActorId: string;
   readonly emitter: "nose" | "center";
   readonly sourceHeadingDegrees: number;
+  readonly width?: number;
+  readonly lifetimeMs?: number;
   readonly streakLengthPx: number;
   readonly fanHalfAngleDeg: number;
   readonly emitterPoint: { readonly cx: number; readonly cy: number };
@@ -386,6 +398,15 @@ export interface AirShowPhaseTracerMetric {
   readonly leftFanEndPoint?: { readonly cx: number; readonly cy: number };
   readonly rightFanEndPoint?: { readonly cx: number; readonly cy: number };
   readonly targetPoint?: { readonly cx: number; readonly cy: number };
+}
+
+export interface AirShowPhaseFlakMetric {
+  readonly progress: number;
+  readonly burstCenter: { readonly cx: number; readonly cy: number };
+  readonly puffCount: number;
+  readonly smokePuffCount: number;
+  readonly widthPx: number;
+  readonly heightPx: number;
 }
 
 export interface AirScenarioResult {
@@ -568,7 +589,9 @@ function buildAirshowInspections(engine: GameEngine, engagements: readonly AirEn
       if (!report) {
         return [];
       }
-      const phaseMetrics = report.phases.map((phase) => measurePhase(report, phase));
+      const phaseMetrics = report.phases.map((phase, phaseIndex) =>
+        measurePhase(report, phase, phaseIndex > 0 ? report.phases[phaseIndex - 1] : undefined)
+      );
       const findings = detectAirshowFindings(event, scene.diagnostics, phaseMetrics);
       return [{ eventType: event.type, missionId: event.missionId, diagnostics: scene.diagnostics, report, phaseMetrics, findings }];
     });
@@ -637,9 +660,23 @@ function sampleInspectionPathPoint(
   return points[points.length - 1] ?? { cx: 0, cy: 0 };
 }
 
+function angleBetweenVectors(
+  left: { readonly x: number; readonly y: number },
+  right: { readonly x: number; readonly y: number }
+): number {
+  const leftLength = Math.hypot(left.x, left.y);
+  const rightLength = Math.hypot(right.x, right.y);
+  if (leftLength < 0.001 || rightLength < 0.001) {
+    return 0;
+  }
+  const dot = (left.x * right.x + left.y * right.y) / (leftLength * rightLength);
+  return Math.acos(Math.max(-1, Math.min(1, dot))) * (180 / Math.PI);
+}
+
 function measurePhase(
   report: AirShowInspectionReport,
-  phase: AirShowInspectionReport["phases"][number]
+  phase: AirShowInspectionReport["phases"][number],
+  previousPhase?: AirShowInspectionReport["phases"][number]
 ): AirShowPhaseMetric {
   const allPoints = phase.assignments.flatMap((assignment) => assignment.points);
   const xs = allPoints.map((point) => point.cx);
@@ -665,6 +702,33 @@ function measurePhase(
   const meanDisplacementPx =
     displacements.length > 0 ? displacements.reduce((sum, value) => sum + value, 0) / displacements.length : 0;
   const meanEfficiency = meanPathLengthPx > 0 ? meanDisplacementPx / meanPathLengthPx : 0;
+  const tracerLengths = phase.tracers.map((tracer) => tracer.streakLengthPx);
+  const tracerFanSpans = phase.tracers.map((tracer) =>
+    tracer.leftFanEndPoint && tracer.rightFanEndPoint
+      ? distanceBetween(tracer.leftFanEndPoint, tracer.rightFanEndPoint)
+      : 0
+  );
+  const flakWidths = phase.flakBursts.map((burst) => burst.widthPx);
+  const flakHeights = phase.flakBursts.map((burst) => burst.heightPx);
+
+  const entryTurnAngles = previousPhase
+    ? phase.assignments
+        .map((assignment) => {
+          const previousAssignment = previousPhase.assignments.find((candidate) => candidate.actorId === assignment.actorId);
+          if (!previousAssignment || previousAssignment.points.length < 2 || assignment.points.length < 2) {
+            return null;
+          }
+          const previousTail = previousAssignment.points[previousAssignment.points.length - 1]!;
+          const previousBeforeTail = previousAssignment.points[previousAssignment.points.length - 2]!;
+          const currentStart = assignment.points[0]!;
+          const currentNext = assignment.points[1]!;
+          return angleBetweenVectors(
+            { x: previousTail.cx - previousBeforeTail.cx, y: previousTail.cy - previousBeforeTail.cy },
+            { x: currentNext.cx - currentStart.cx, y: currentNext.cy - currentStart.cy }
+          );
+        })
+        .filter((angle): angle is number => typeof angle === "number")
+    : [];
 
   const flightsById = new Map(report.flights.map((flight) => [flight.id, flight] as const));
   const groupedAssignments = new Map<string, Array<(typeof phase.assignments)[number]>>();
@@ -733,13 +797,22 @@ function measurePhase(
               )
             )
           : 0;
+      const leftDirection = {
+        x: leftGroup.centroidMid.cx - leftGroup.centroidStart.cx,
+        y: leftGroup.centroidMid.cy - leftGroup.centroidStart.cy
+      };
+      const rightDirection = {
+        x: rightGroup.centroidMid.cx - rightGroup.centroidStart.cx,
+        y: rightGroup.centroidMid.cy - rightGroup.centroidStart.cy
+      };
       relationMetrics.push({
         fromLabel: leftGroup.label,
         toLabel: rightGroup.label,
         separationStartPx: distanceBetween(leftGroup.centroidStart, rightGroup.centroidStart),
         separationMidPx: distanceBetween(leftGroup.centroidMid, rightGroup.centroidMid),
         separationEndPx: distanceBetween(leftGroup.centroidEnd, rightGroup.centroidEnd),
-        minMidPairSeparationPx
+        minMidPairSeparationPx,
+        approachAngleDeg: angleBetweenVectors(leftDirection, rightDirection)
       });
     }
   }
@@ -752,6 +825,17 @@ function measurePhase(
     meanDisplacementPx,
     meanEfficiency,
     tracerCount: phase.tracers.length,
+    meanTracerLengthPx:
+      tracerLengths.length > 0 ? tracerLengths.reduce((sum, value) => sum + value, 0) / tracerLengths.length : 0,
+    meanTracerFanSpanPx:
+      tracerFanSpans.length > 0 ? tracerFanSpans.reduce((sum, value) => sum + value, 0) / tracerFanSpans.length : 0,
+    flakBurstCount: phase.flakBursts.length,
+    flakPuffCount: phase.flakBursts.reduce((sum, burst) => sum + burst.puffCount, 0),
+    meanFlakWidthPx: flakWidths.length > 0 ? flakWidths.reduce((sum, value) => sum + value, 0) / flakWidths.length : 0,
+    meanFlakHeightPx: flakHeights.length > 0 ? flakHeights.reduce((sum, value) => sum + value, 0) / flakHeights.length : 0,
+    meanEntryTurnAngleDeg:
+      entryTurnAngles.length > 0 ? entryTurnAngles.reduce((sum, value) => sum + value, 0) / entryTurnAngles.length : 0,
+    maxEntryTurnAngleDeg: entryTurnAngles.length > 0 ? Math.max(...entryTurnAngles) : 0,
     groupMetrics,
     relationMetrics,
     tracerMetrics: phase.tracers.map((tracer) => ({
@@ -759,6 +843,8 @@ function measurePhase(
       sourceActorId: tracer.sourceActorId,
       emitter: tracer.emitter,
       sourceHeadingDegrees: tracer.sourceHeadingDegrees,
+      width: tracer.width,
+      lifetimeMs: tracer.lifetimeMs,
       streakLengthPx: tracer.streakLengthPx,
       fanHalfAngleDeg: tracer.fanHalfAngleDeg,
       emitterPoint: tracer.emitterPoint,
@@ -766,6 +852,14 @@ function measurePhase(
       leftFanEndPoint: tracer.leftFanEndPoint,
       rightFanEndPoint: tracer.rightFanEndPoint,
       targetPoint: tracer.targetPoint
+    })),
+    flakMetrics: phase.flakBursts.map((burst) => ({
+      progress: burst.progress,
+      burstCenter: burst.burstCenter,
+      puffCount: burst.puffCount,
+      smokePuffCount: burst.smokePuffCount,
+      widthPx: burst.widthPx,
+      heightPx: burst.heightPx
     }))
   };
 }
@@ -862,6 +956,68 @@ function detectAirshowFindings(
         code: "missing-tracer-phase",
         message: `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} scheduled no tracers.`
       });
+    }
+    if (metric.meanEntryTurnAngleDeg > 110 || metric.maxEntryTurnAngleDeg > 145) {
+      findings.push({
+        code: "hard-phase-reversal",
+        message:
+          `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} enters with mean/max turn ` +
+          `${Math.round(metric.meanEntryTurnAngleDeg)}/${Math.round(metric.maxEntryTurnAngleDeg)} degrees.`
+      });
+    }
+    if (metric.label.includes("clash")) {
+      metric.relationMetrics.forEach((relation) => {
+        if (relation.approachAngleDeg < 40 && relation.separationMidPx > 80) {
+          findings.push({
+            code: "parallel-dogfight-approach",
+            message:
+              `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} keeps ${relation.fromLabel} and ${relation.toLabel} ` +
+              `moving only ${Math.round(relation.approachAngleDeg)} degrees apart while still ${Math.round(relation.separationMidPx)}px apart.`
+          });
+        }
+      });
+    }
+    if ((metric.label.includes("clash") || metric.label.includes("pass")) && metric.tracerCount > 0) {
+      if (metric.meanTracerLengthPx < 180) {
+        findings.push({
+          code: "short-tracers",
+          message:
+            `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} only paints ` +
+            `${Math.round(metric.meanTracerLengthPx)}px tracer streaks on average.`
+        });
+      }
+      if (metric.meanTracerFanSpanPx < 26) {
+        findings.push({
+          code: "narrow-tracer-fan",
+          message:
+            `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} only fans tracers ` +
+            `${Math.round(metric.meanTracerFanSpanPx)}px wide on average.`
+        });
+      }
+    }
+    if (metric.label === "target-run" && metric.flakBurstCount > 0) {
+      if (metric.flakMetrics.some((flak) => flak.progress < 0.6)) {
+        findings.push({
+          code: "early-flak-window",
+          message: `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} schedules flak before the final approach window.`
+        });
+      }
+      if (metric.meanFlakWidthPx < 120) {
+        findings.push({
+          code: "narrow-flak-belt",
+          message:
+            `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} only spreads flak ` +
+            `${Math.round(metric.meanFlakWidthPx)}px wide on average.`
+        });
+      }
+      if (metric.flakPuffCount < 18) {
+        findings.push({
+          code: "sparse-flak-belt",
+          message:
+            `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} only schedules ` +
+            `${metric.flakPuffCount} flak puffs total.`
+        });
+      }
     }
   });
   return findings;
@@ -980,7 +1136,11 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
         lines.push(
           `  phase ${phase.label} ${phase.durationMs}ms assignments=${phase.assignments.length} tracers=${phase.tracers.length}` +
           (metrics
-            ? ` box=${Math.round(metrics.widthPx)}x${Math.round(metrics.heightPx)} path=${Math.round(metrics.meanPathLengthPx)} disp=${Math.round(metrics.meanDisplacementPx)} eff=${Math.round(metrics.meanEfficiency * 100)}%`
+            ? ` box=${Math.round(metrics.widthPx)}x${Math.round(metrics.heightPx)} path=${Math.round(metrics.meanPathLengthPx)} disp=${Math.round(metrics.meanDisplacementPx)} eff=${Math.round(metrics.meanEfficiency * 100)}%` +
+              ` turn=${Math.round(metrics.meanEntryTurnAngleDeg)}/${Math.round(metrics.maxEntryTurnAngleDeg)} tracerLen=${Math.round(metrics.meanTracerLengthPx)} tracerFan=${Math.round(metrics.meanTracerFanSpanPx)}` +
+              (metrics.flakBurstCount > 0
+                ? ` flak=${metrics.flakBurstCount}x${metrics.flakPuffCount} belt=${Math.round(metrics.meanFlakWidthPx)}x${Math.round(metrics.meanFlakHeightPx)}`
+                : "")
             : "")
         );
         metrics?.groupMetrics.forEach((group) => {
@@ -994,7 +1154,7 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
           lines.push(
             `    relation ${relation.fromLabel} -> ${relation.toLabel}: ` +
             `sep(start=${Math.round(relation.separationStartPx)}, mid=${Math.round(relation.separationMidPx)}, end=${Math.round(relation.separationEndPx)}) ` +
-            `closestMid=${Math.round(relation.minMidPairSeparationPx)}`
+            `closestMid=${Math.round(relation.minMidPairSeparationPx)} angle=${Math.round(relation.approachAngleDeg)}`
           );
         });
         phase.assignments.slice(0, 6).forEach((assignment) => {
@@ -1011,8 +1171,15 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
           lines.push(
             `    tracer ${Math.round(tracer.progress * 100)}% ${tracer.sourceActorId} ${tracer.emitter} ` +
             `heading=${Math.round(tracer.sourceHeadingDegrees)} len=${Math.round(tracer.streakLengthPx)} fanHalf=${Math.round(tracer.fanHalfAngleDeg)} ` +
+            `width=${tracer.width?.toFixed(2) ?? "?"} life=${Math.round(tracer.lifetimeMs ?? 0)} ` +
             `emit=${formatPoint(tracer.emitterPoint)}${fanLabel}` +
             (tracer.targetPoint ? ` targetRef=${formatPoint(tracer.targetPoint)}` : "")
+          );
+        });
+        metrics?.flakMetrics.slice(0, 3).forEach((flak) => {
+          lines.push(
+            `    flak ${Math.round(flak.progress * 100)}% center=${formatPoint(flak.burstCenter)} ` +
+            `puffs=${flak.puffCount}/${flak.smokePuffCount} belt=${Math.round(flak.widthPx)}x${Math.round(flak.heightPx)}`
           );
         });
       });

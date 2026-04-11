@@ -3927,23 +3927,6 @@ export class BattleScreen {
       await this.playAirInterceptPasses(event, locKey, renderer, bomberArrivalDelayMs, allowBomberDefensePass);
       return;
     }
-    const flakBursts = (() => {
-      if (!flakEvent) {
-        return [];
-      }
-      const engagementCount =
-        Array.isArray(flakEvent.flakEngagements) && flakEvent.flakEngagements.length > 0
-          ? flakEvent.flakEngagements.length
-          : Math.max(0, flakEvent.interceptors.length);
-      if (engagementCount <= 0) {
-        return [];
-      }
-      return Array.from({ length: engagementCount }, (_, index) => ({
-        progress: 0.24 + index * 0.14,
-        count: 1,
-        scale: 1.08
-      }));
-    })();
     const interceptorSceneParticipants = participants.filter((participant) => participant.role === "interceptor");
     const escortSceneParticipants = participants.filter((participant) => participant.role === "escort");
     const { scene, diagnostics } = buildResolvedAirCombatScene(event, {
@@ -3965,15 +3948,14 @@ export class BattleScreen {
         `[AirSprite] Linked escort flights missing from resolved event ${event.missionId ?? event.type}: ${diagnostics.linkedEscortMissingFromEventUnitKeys.join(", ")}`
       );
     }
-    scene.fighterIngressDurationMs = this.resolveFighterInterceptIngressDurationMs();
-    scene.escortClashDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 2.6));
-    scene.bomberIngressDurationMs = this.resolveBomberInterceptIngressDurationMs();
-    scene.bomberPassDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 3.2));
-    scene.strikeRunDurationMs = this.scaleAirSequenceMs(980);
+    scene.fighterIngressDurationMs = Math.round(this.resolveFighterInterceptIngressDurationMs() * 1.08);
+    scene.escortClashDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 3.0));
+    scene.bomberIngressDurationMs = Math.round(this.resolveBomberInterceptIngressDurationMs() * 1.5);
+    scene.bomberPassDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 3.5));
+    scene.strikeRunDurationMs = this.scaleAirSequenceMs(1460);
     scene.egressDurationMs = this.scaleAirSequenceMs(1080);
-    scene.bomberArrivalDelayMs = bomberArrivalDelayMs;
-    scene.bombReleaseProgress = 0.74;
-    scene.flakBursts = flakBursts;
+    scene.bomberArrivalDelayMs = bomberArrivalDelayMs + Math.round(scene.escortClashDurationMs * 0.12);
+    scene.bombReleaseProgress = 0.86;
     await (renderer as any).animateResolvedAirCombatShow(scene);
   }
 

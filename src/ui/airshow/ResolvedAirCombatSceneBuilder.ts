@@ -190,14 +190,22 @@ export function buildResolvedAirCombatScene(
       flakBursts:
         options.flakEvent && includeBomber
           ? (() => {
-              const count =
+              const engagementCount =
                 Array.isArray(options.flakEvent.flakEngagements) && options.flakEvent.flakEngagements.length > 0
                   ? options.flakEvent.flakEngagements.length
                   : Math.max(0, options.flakEvent.interceptors.length);
-              return Array.from({ length: count }, (_, index) => ({
-                progress: 0.24 + index * 0.14,
-                count: 1,
-                scale: 1.08
+              const waveCount = Math.max(3, Math.min(5, engagementCount + 2));
+              return Array.from({ length: waveCount }, (_, index) => ({
+                progress: 0.68 + index * 0.08,
+                count: engagementCount,
+                scale: 1.04 + index * 0.05,
+                alongOffsetPx: -44 + index * 12,
+                lateralOffsetPx: (index % 2 === 0 ? -1 : 1) * Math.min(16, engagementCount * 5),
+                alongSpreadPx: 42 + engagementCount * 12,
+                lateralSpreadPx: 88 + engagementCount * 16,
+                puffCount: 12 + engagementCount * 8,
+                smokePuffCount: 8 + engagementCount * 5,
+                smokeScale: 0.88 + index * 0.04
               }));
             })()
           : []
