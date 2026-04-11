@@ -1282,14 +1282,14 @@ export class BattleScreen {
           continue;
         }
         this.seenAirReportIds.add(r.id);
-        const missionLabel = this.formatAirCombatantSummary(r.unitKey, r.unitType, r.faction, engine);
+        const missionLabel = this.formatAirCombatantSummary(r.unitLabel, r.unitKey, r.unitType, r.faction, engine);
         let target = "-";
         if (r.targetHex) {
           target = this.formatAxialHexForDisplay(r.targetHex);
         } else if (r.kind === "airCover") {
           target = "Base CAP";
         } else if (r.escortTargetUnitKey) {
-          target = this.resolveAirSquadronLabel(r.escortTargetUnitKey, r.faction, engine);
+          target = r.escortTargetLabel ?? this.resolveAirSquadronLabel(r.escortTargetUnitKey, r.faction, engine);
         }
         let action = "resolved";
         if (r.event === "refitStarted") action = "refit started";
@@ -1319,7 +1319,17 @@ export class BattleScreen {
           const escortAttrition = Math.max(0, Math.round(outcomeMeta.escortAttrition ?? r.escortAttrition ?? 0));
           const escortKills = Math.max(0, Math.round(outcomeMeta.escortKills ?? 0));
           const strikePackageKills = Math.max(0, Math.round(outcomeMeta.capKills ?? (r.kind === "airCover" ? r.kills?.cap ?? 0 : 0)));
-          outcomeSummary = outcome.result ? ` [${outcome.result.toUpperCase()}]` : "";
+          const destroyedBeforeTarget =
+            r.kind === "strike"
+              && outcome.result === "destroyed"
+              && !outcome.defenderDestroyed
+              && !(typeof outcome.damageInflicted === "number" && outcome.damageInflicted > 0);
+          if (destroyedBeforeTarget) {
+            action = "destroyed before target";
+            outcomeSummary = "";
+          } else {
+            outcomeSummary = outcome.result ? ` [${outcome.result.toUpperCase()}]` : "";
+          }
           const detailFragments: string[] = [];
 
           if (outcome.defenderDestroyed) {
@@ -1388,7 +1398,13 @@ export class BattleScreen {
           const linkedEscorts = linkedEscortsByBomberKey.get(r.unitKey) ?? [];
           if (linkedEscorts.length > 0) {
             const escortLabels = linkedEscorts.map((escortReport) =>
-              this.formatAirCombatantSummary(escortReport.unitKey, escortReport.unitType, escortReport.faction, engine)
+              this.formatAirCombatantSummary(
+                escortReport.unitLabel,
+                escortReport.unitKey,
+                escortReport.unitType,
+                escortReport.faction,
+                engine
+              )
             );
             escortNote =
               escortLabels.length > 0
@@ -4081,8 +4097,9 @@ export class BattleScreen {
     if (flakEngagements && flakEngagements.length > 0) {
       flakEngagements.forEach((engagement, index) => {
         const batteryHex = engagement.batteryHex ? this.formatAxialHexForDisplay(engagement.batteryHex) : "unknown";
+        const bomberLabel = engagement.bomberLabel ?? this.toTitleCase(engagement.bomberUnitType);
         const summary =
-          `${this.toTitleCase(engagement.batteryUnitType)} at ${batteryHex} fired on incoming ${this.toTitleCase(engagement.bomberUnitType)}. ` +
+          `${this.toTitleCase(engagement.batteryUnitType)} at ${batteryHex} fired on incoming ${bomberLabel}. ` +
           `${Math.max(0, Math.round(engagement.damageToBomber))} air damage; bomber strength now ${Math.max(0, Math.round(engagement.bomberStrengthAfter))}.` +
           (engagement.bomberDestroyed && index === flakEngagements.length - 1 ? " Strike package broken up before release." : "");
         this.announceBattleUpdate(summary);
@@ -4104,7 +4121,7 @@ export class BattleScreen {
 
     const batteryCount = event.interceptors.length;
     const batteryLabel = batteryCount === 1 ? "battery" : "batteries";
-    const bomberLabel = this.toTitleCase(event.bomber.unitType);
+    const bomberLabel = event.bomber.label ?? this.toTitleCase(event.bomber.unitType);
     const flakDamage = Math.max(0, Math.round(event.flakDamage ?? 0));
     const strengthAfter = Math.max(0, Math.round(event.bomberStrengthAfter ?? 0));
     const destructionSuffix = event.bomberDestroyed ? " Strike package broken up before release." : "";
@@ -4159,12 +4176,14 @@ export class BattleScreen {
         const category = exchange.attackerFaction === "Bot" && exchange.defenderFaction === "Bot" ? "enemy" : "player";
         const phaseLabel = exchange.phase === "capClash" ? "CAP clash" : "escort clash";
         const attackerCombatant = this.formatAirCombatantSummary(
+          exchange.attackerLabel,
           exchange.attackerUnitKey,
           exchange.attackerUnitType,
           exchange.attackerFaction,
           engine
         );
         const defenderCombatant = this.formatAirCombatantSummary(
+          exchange.defenderLabel,
           exchange.defenderUnitKey,
           exchange.defenderUnitType,
           exchange.defenderFaction,
@@ -4201,12 +4220,14 @@ export class BattleScreen {
       (event.bomberPassExchanges ?? []).forEach((exchange, index) => {
         const category = exchange.attackerFaction === "Bot" ? "enemy" : "player";
         const attackerCombatant = this.formatAirCombatantSummary(
+          exchange.attackerLabel,
           exchange.attackerUnitKey,
           exchange.attackerUnitType,
           exchange.attackerFaction,
           engine
         );
         const defenderCombatant = this.formatAirCombatantSummary(
+          exchange.defenderLabel,
           exchange.defenderUnitKey,
           exchange.defenderUnitType,
           exchange.defenderFaction,
@@ -4346,18 +4367,22 @@ export class BattleScreen {
     }
     const match = this.resolveAirSquadronUnit(squadronId, faction, engine);
     if (!match) {
-      return "Linked strike package";
+      return "-";
     }
     return `${this.toTitleCase(String(match.type))} @ ${this.formatAxialHexForDisplay(match.hex)}`;
   }
 
   private formatAirCombatantSummary(
+    snapshotLabel: string | undefined | null,
     squadronId: string | undefined | null,
     unitType: string,
     faction: TurnFaction,
     engine: GameEngine | null
   ): string {
     const fallbackType = this.toTitleCase(unitType);
+    if (snapshotLabel && snapshotLabel.trim().length > 0) {
+      return snapshotLabel;
+    }
     if (!squadronId) {
       return fallbackType;
     }
@@ -4366,10 +4391,7 @@ export class BattleScreen {
     }
     try {
       const resolved = this.resolveAirSquadronLabel(squadronId, faction, engine);
-      if (resolved && resolved !== "-" && resolved !== "Linked strike package") {
-        return resolved;
-      }
-      if (resolved === "Linked strike package") {
+      if (resolved && resolved !== "-") {
         return resolved;
       }
     } catch {

@@ -716,10 +716,12 @@ export interface AirMissionReportEntry {
   readonly faction: TurnFaction;
   readonly unitType: string;
   readonly unitKey: string;
+  readonly unitLabel?: string;
   readonly kind: AirMissionKind;
   readonly outcome?: AirMissionOutcome;
   readonly targetHex?: Axial;
   readonly escortTargetUnitKey?: string;
+  readonly escortTargetLabel?: string;
   /** Number of hostile sorties intercepted during this mission's coverage window. */
   readonly interceptions?: number;
   /** Optional event tag for non-resolution entries (e.g., refit start/finish). Defaults to 'resolved' when undefined. */
@@ -741,9 +743,11 @@ export interface AirCombatExchangeEntry {
   readonly attackerFaction: TurnFaction;
   readonly attackerUnitKey: string;
   readonly attackerUnitType: string;
+  readonly attackerLabel?: string;
   readonly defenderFaction: TurnFaction;
   readonly defenderUnitKey: string;
   readonly defenderUnitType: string;
+  readonly defenderLabel?: string;
   readonly attackerStrengthBefore: number;
   readonly attackerStrengthAfter: number;
   readonly defenderStrengthBefore: number;
@@ -761,10 +765,12 @@ export interface FlakEngagementEntry {
   readonly batteryFaction: TurnFaction;
   readonly batteryUnitKey: string;
   readonly batteryUnitType: string;
+  readonly batteryLabel?: string;
   readonly batteryHex?: Axial;
   readonly bomberFaction: TurnFaction;
   readonly bomberUnitKey: string;
   readonly bomberUnitType: string;
+  readonly bomberLabel?: string;
   readonly bomberStrengthBefore: number;
   readonly bomberStrengthAfter: number;
   readonly damageToBomber: number;
@@ -901,9 +907,9 @@ export interface AirEngagementEvent {
   readonly type: "airToAir" | "capClash" | "flak";
   readonly location: Axial;
   readonly missionId?: string;
-  readonly bomber: { readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly strength?: number };
-  readonly interceptors: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly strength?: number; readonly hex?: Axial }>;
-  readonly escorts: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly strength?: number }>;
+  readonly bomber: { readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly label?: string; readonly strength?: number };
+  readonly interceptors: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly label?: string; readonly strength?: number; readonly hex?: Axial }>;
+  readonly escorts: ReadonlyArray<{ readonly faction: TurnFaction; readonly unitKey: string; readonly unitType: string; readonly label?: string; readonly strength?: number }>;
   readonly flakDamage?: number;
   readonly flakEngagements?: ReadonlyArray<FlakEngagementEntry>;
   readonly bomberStrengthBefore?: number;
@@ -2046,10 +2052,12 @@ export class GameEngine implements GameEngineAPI {
           batteryFaction: opponentFaction,
           batteryUnitKey: this.getSquadronId(flakEntry.unit),
           batteryUnitType: flakEntry.unit.type as string,
+          batteryLabel: this.describeAirUnit(flakEntry.unit),
           batteryHex: structuredClone(flakEntry.unit.hex),
           bomberFaction: mission.faction,
           bomberUnitKey: mission.unitKey,
           bomberUnitType: mission.unitType as string,
+          bomberLabel: this.describeAirUnit(currentBomber),
           bomberStrengthBefore: bomberStrengthBeforeBattery,
           bomberStrengthAfter: updatedBomber.strength,
           damageToBomber: suffered,
@@ -2074,6 +2082,7 @@ export class GameEngine implements GameEngineAPI {
           faction: mission.faction,
           unitKey: mission.unitKey,
           unitType: mission.unitType as string,
+          label: this.describeAirUnit(attackerBefore),
           strength: bomberStrengthBeforeFlak
         },
         interceptors: flakInterceptorsForEvent,
@@ -2109,8 +2118,8 @@ export class GameEngine implements GameEngineAPI {
       const escortMissions = this.findAllActiveEscortsForUnit(mission.faction, mission.unitKey).filter((m) => m.interceptions < 1);
 
       if (capMissions.length > 0) {
-      const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
-      const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; strength?: number }> = [];
+      const interceptorsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; label?: string; strength?: number }> = [];
+      const escortsForEvent: Array<{ faction: TurnFaction; unitKey: string; unitType: string; label?: string; strength?: number }> = [];
       const interceptorParticipants: AirInterceptionParticipant[] = [];
       const escortParticipants: AirInterceptionParticipant[] = [];
 
@@ -2122,6 +2131,7 @@ export class GameEngine implements GameEngineAPI {
             faction: opponentFaction,
             unitKey: cap.unitKey,
             unitType: capLookup.unit.type as string,
+            label: this.describeAirUnit(capLookup.unit),
             strength: capLookup.unit.strength
           });
           interceptorParticipants.push({ mission: cap, unit: capLookup.unit });
@@ -2134,6 +2144,7 @@ export class GameEngine implements GameEngineAPI {
             faction: mission.faction,
             unitKey: em.unitKey,
             unitType: escortLookup.unit.type as string,
+            label: this.describeAirUnit(escortLookup.unit),
             strength: escortLookup.unit.strength
           });
           escortParticipants.push({ mission: em, unit: escortLookup.unit });
@@ -2208,6 +2219,7 @@ export class GameEngine implements GameEngineAPI {
           faction: mission.faction,
           unitKey: mission.unitKey,
           unitType: mission.unitType as string,
+          label: this.describeAirUnit(attackerBefore),
           strength: bomberStrengthBeforeCap
         },
         interceptors: interceptorsForEvent,
@@ -2835,18 +2847,21 @@ export class GameEngine implements GameEngineAPI {
         faction: placeholder?.mission.faction ?? "Bot",
         unitKey: placeholder?.mission.unitKey ?? "cap-clash",
         unitType: placeholder?.unitBefore.type ?? "Fighter",
+        label: placeholder ? this.describeAirUnit(placeholder.unitBefore) : "CAP Flight",
         strength: placeholder?.unitBefore.strength ?? 100
       },
       interceptors: alliedCaps.map((delta) => ({
         faction: delta.mission.faction,
         unitKey: delta.mission.unitKey,
         unitType: delta.unitBefore.type as string,
+        label: this.describeAirUnit(delta.unitBefore),
         strength: delta.unitBefore.strength
       })),
       escorts: axisCaps.map((delta) => ({
         faction: delta.mission.faction,
         unitKey: delta.mission.unitKey,
         unitType: delta.unitBefore.type as string,
+        label: this.describeAirUnit(delta.unitBefore),
         strength: delta.unitBefore.strength
       })),
       bomberStrengthBefore: placeholder?.unitBefore.strength ?? 100,
@@ -2970,18 +2985,21 @@ export class GameEngine implements GameEngineAPI {
           faction: mission.faction,
           unitKey: mission.unitKey,
           unitType: mission.unitType as string,
+          label: this.describeAirUnit(bomberBeforeAirPhase),
           strength: bomberBeforeAirPhase.strength
         },
         interceptors: interceptorParticipants.map((entry) => ({
           faction: entry.mission.faction,
           unitKey: entry.mission.unitKey,
           unitType: entry.unit.type as string,
+          label: this.describeAirUnit(entry.unit),
           strength: entry.unit.strength
         })),
         escorts: escortParticipants.map((entry) => ({
           faction: entry.mission.faction,
           unitKey: entry.mission.unitKey,
           unitType: entry.unit.type as string,
+          label: this.describeAirUnit(entry.unit),
           strength: entry.unit.strength
         })),
         bomberStrengthBefore: bomberBeforeAirPhase.strength,
@@ -3066,6 +3084,7 @@ export class GameEngine implements GameEngineAPI {
       faction: opponentFaction,
       unitKey: this.getSquadronId(flakEntry.unit),
       unitType: flakEntry.unit.type as string,
+      label: this.describeAirUnit(flakEntry.unit),
       hex: structuredClone(flakEntry.unit.hex)
     }));
     let totalDamage = 0;
@@ -3110,10 +3129,12 @@ export class GameEngine implements GameEngineAPI {
         batteryFaction: opponentFaction,
         batteryUnitKey: this.getSquadronId(flakEntry.unit),
         batteryUnitType: flakEntry.unit.type as string,
+        batteryLabel: this.describeAirUnit(flakEntry.unit),
         batteryHex: structuredClone(flakEntry.unit.hex),
         bomberFaction: mission.faction,
         bomberUnitKey: mission.unitKey,
         bomberUnitType: mission.unitType as string,
+        bomberLabel: this.describeAirUnit(bomber),
         bomberStrengthBefore: bomberStrengthBeforeBattery,
         bomberStrengthAfter: currentBomber.strength,
         damageToBomber: suffered,
@@ -3132,6 +3153,7 @@ export class GameEngine implements GameEngineAPI {
           faction: mission.faction,
           unitKey: mission.unitKey,
           unitType: mission.unitType as string,
+          label: this.describeAirUnit(bomber),
           strength: bomber.strength
         },
         interceptors: flakInterceptorsForEvent,
@@ -3557,9 +3579,11 @@ export class GameEngine implements GameEngineAPI {
         attackerFaction: assignment.attacker.mission.faction,
         attackerUnitKey: assignment.attacker.mission.unitKey,
         attackerUnitType: assignment.attacker.unitBefore.type as string,
+        attackerLabel: this.describeAirUnit(assignment.attacker.unitBefore),
         defenderFaction: assignment.target.mission.faction,
         defenderUnitKey: assignment.target.mission.unitKey,
         defenderUnitType: assignment.target.unitBefore.type as string,
+        defenderLabel: this.describeAirUnit(assignment.target.unitBefore),
         attackerStrengthBefore: assignment.attackerStrengthBefore,
         attackerStrengthAfter: assignment.attacker.unitAfter.strength,
         defenderStrengthBefore: assignment.defenderStrengthBefore,
@@ -3581,9 +3605,11 @@ export class GameEngine implements GameEngineAPI {
         attackerFaction: assignment.target.mission.faction,
         attackerUnitKey: assignment.target.mission.unitKey,
         attackerUnitType: assignment.target.unitBefore.type as string,
+        attackerLabel: this.describeAirUnit(assignment.target.unitBefore),
         defenderFaction: assignment.attacker.mission.faction,
         defenderUnitKey: assignment.attacker.mission.unitKey,
         defenderUnitType: assignment.attacker.unitBefore.type as string,
+        defenderLabel: this.describeAirUnit(assignment.attacker.unitBefore),
         attackerStrengthBefore: assignment.defenderStrengthBefore,
         attackerStrengthAfter: assignment.target.unitAfter.strength,
         defenderStrengthBefore: assignment.attackerStrengthBefore,
@@ -3712,9 +3738,11 @@ export class GameEngine implements GameEngineAPI {
           attackerFaction: assignment.delta.mission.faction,
           attackerUnitKey: assignment.delta.mission.unitKey,
           attackerUnitType: assignment.delta.unitBefore.type as string,
+          attackerLabel: this.describeAirUnit(assignment.delta.unitBefore),
           defenderFaction: bomberFaction,
           defenderUnitKey: bomber.unitId ?? bomberAfter.unitId ?? bomberBefore.unitId ?? bomber.hex.q.toString(),
           defenderUnitType: bomberBefore.type as string,
+          defenderLabel: this.describeAirUnit(bomberBefore),
           attackerStrengthBefore: assignment.strengthBefore,
           attackerStrengthAfter: assignment.delta.unitAfter.strength,
           defenderStrengthBefore: bomberStrengthBeforePass,
@@ -4067,6 +4095,27 @@ export class GameEngine implements GameEngineAPI {
       return "Supply Convoy";
     }
     return String(unit.type).replace(/_/g, " ");
+  }
+
+  private describeAirUnit(unit: ScenarioUnit): string {
+    return `${this.getDisplayUnitLabel(unit)} @ ${this.formatAxial(unit.hex)}`;
+  }
+
+  private describeAirMissionUnit(
+    mission: Pick<ScheduledAirMission, "unitType" | "originHexKey">,
+    liveUnit?: ScenarioUnit | null
+  ): string {
+    if (liveUnit) {
+      return this.describeAirUnit(liveUnit);
+    }
+    if (mission.originHexKey) {
+      try {
+        return `${String(mission.unitType).replace(/_/g, " ")} @ ${this.formatAxial(GameEngine.parseAxialKey(mission.originHexKey))}`;
+      } catch {
+        /* no-op */
+      }
+    }
+    return String(mission.unitType).replace(/_/g, " ");
   }
 
   private getDefaultSupplyPriority(definition: UnitTypeDefinition): SupplyPriority {
@@ -14219,6 +14268,26 @@ private automateSupplyConvoys(
     } = {}
   ): void {
     const { outcome, event, kills, bomberAttrition, interceptorAttrition, escortAttrition, notes } = options;
+    const liveUnit = this.lookupUnitBySquadronId(mission.unitKey, mission.faction)?.unit ?? null;
+    const linkedEscortTargetMission =
+      mission.escortTargetUnitKey
+        ? Array.from(this.scheduledAirMissions.values()).find(
+            (entry) => entry.faction === mission.faction && entry.unitKey === mission.escortTargetUnitKey
+          ) ?? null
+        : null;
+    const escortTargetLiveUnit =
+      mission.escortTargetUnitKey
+        ? this.lookupUnitBySquadronId(mission.escortTargetUnitKey, mission.faction)?.unit ?? null
+        : null;
+    const unitLabel = this.describeAirMissionUnit(mission, liveUnit);
+    const escortTargetLabel =
+      mission.escortTargetUnitKey
+        ? escortTargetLiveUnit
+          ? this.describeAirUnit(escortTargetLiveUnit)
+          : linkedEscortTargetMission
+            ? this.describeAirMissionUnit(linkedEscortTargetMission, null)
+            : String(mission.unitType).replace(/_/g, " ")
+        : undefined;
     // Derive metrics from outcome meta if not explicitly provided
     const derivedKills = kills ?? (
       outcome?.meta
@@ -14239,10 +14308,12 @@ private automateSupplyConvoys(
       faction: mission.faction,
       unitType: mission.unitType,
       unitKey: mission.unitKey,
+      unitLabel,
       kind: mission.template.kind,
       outcome: outcome ? structuredClone(outcome) : undefined,
       targetHex: mission.targetHex ? structuredClone(mission.targetHex) : undefined,
       escortTargetUnitKey: mission.escortTargetUnitKey,
+      escortTargetLabel,
       interceptions: mission.interceptions,
       event: event ?? (outcome ? "resolved" : undefined),
       kills: derivedKills,
