@@ -3948,13 +3948,13 @@ export class BattleScreen {
         `[AirSprite] Linked escort flights missing from resolved event ${event.missionId ?? event.type}: ${diagnostics.linkedEscortMissingFromEventUnitKeys.join(", ")}`
       );
     }
-    scene.fighterIngressDurationMs = Math.round(this.resolveFighterInterceptIngressDurationMs() * 1.08);
-    scene.escortClashDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 3.0));
-    scene.bomberIngressDurationMs = Math.round(this.resolveBomberInterceptIngressDurationMs() * 1.5);
-    scene.bomberPassDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 3.5));
-    scene.strikeRunDurationMs = this.scaleAirSequenceMs(1460);
+    scene.fighterIngressDurationMs = Math.round(this.resolveFighterInterceptIngressDurationMs() * 0.9);
+    scene.escortClashDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 1.84));
+    scene.bomberIngressDurationMs = Math.round(this.resolveBomberInterceptIngressDurationMs() * 4.1);
+    scene.bomberPassDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 2.56));
+    scene.strikeRunDurationMs = this.scaleAirSequenceMs(4280);
     scene.egressDurationMs = this.scaleAirSequenceMs(1080);
-    scene.bomberArrivalDelayMs = bomberArrivalDelayMs + Math.round(scene.escortClashDurationMs * 0.12);
+    scene.bomberArrivalDelayMs = bomberArrivalDelayMs + Math.round(scene.escortClashDurationMs * 0.6);
     scene.bombReleaseProgress = 0.86;
     await (renderer as any).animateResolvedAirCombatShow(scene);
   }
