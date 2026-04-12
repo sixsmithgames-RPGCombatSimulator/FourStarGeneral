@@ -292,6 +292,8 @@ export class BattleScreen {
   private readonly tutorialAirMissionQueuedListener: (event: Event) => void;
   private seenAirReportIds: Set<string> = new Set();
   private detailedAirCombatTurnUnitKeys: Set<string> = new Set();
+  private deferMissionLogSync = false;
+  private pendingMissionLogSync = false;
   private artilleryPreviewKeys: Set<string> = new Set();
   private readonly queuedTargetMarkerActions = new Map<string, QueuedTargetMarkerAction>();
   private artilleryTargetingState: {
@@ -1491,6 +1493,15 @@ export class BattleScreen {
     } catch {
       /* no-op */
     }
+  }
+
+  private flushDeferredMissionLogSync(): void {
+    this.deferMissionLogSync = false;
+    if (!this.pendingMissionLogSync) {
+      return;
+    }
+    this.pendingMissionLogSync = false;
+    this.syncAirMissionLogs();
   }
 
   /**
@@ -3220,6 +3231,14 @@ export class BattleScreen {
         const destOffsetKey = this.resolvePreparedAirMissionDestKey(candidateFlight, engine);
 
         if (!originOffsetKey || !destOffsetKey) {
+          const silentPatrolStationing =
+            arrival.kind === "airCover"
+            && !arrival.targetHex
+            && !arrival.targetUnitKey
+            && !arrival.escortTargetUnitKey;
+          if (silentPatrolStationing) {
+            continue;
+          }
           console.warn("[BattleScreen] Air mission arrival animation skipped: unable to resolve geometry", {
             arrival,
             originOffsetKey,
@@ -3786,7 +3805,7 @@ export class BattleScreen {
         false,
         true,
         this.resolveAirInterceptBomberArrivalDelayMs(),
-        flakEvent?.bomberDestroyed !== true,
+        true,
         flight.originKey,
         escortFlights,
         destKey,
@@ -3963,7 +3982,8 @@ export class BattleScreen {
       return;
     }
 
-    const bomberPassAvailable = allowBomberDefensePass && this.shouldPlayBomberDefensePass(event);
+    const includeBomberFlight = event.type !== "capClash";
+    const bomberPassAvailable = includeBomberFlight && allowBomberDefensePass && this.shouldPlayBomberDefensePass(event);
     const resolvedBomberOriginKey =
       bomberOriginKey ?? this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
     if (typeof (renderer as any).animateResolvedAirCombatShow !== "function") {
@@ -4001,8 +4021,11 @@ export class BattleScreen {
       bomberOriginKey: resolvedBomberOriginKey,
       bomberTargetKey,
       flakEvent,
-      includeBomber: bomberPassAvailable
+      includeBomber: includeBomberFlight
     });
+    if (!bomberPassAvailable) {
+      scene.bomberPassExchanges = [];
+    }
     if (diagnostics.linkedEscortMissingFromEventUnitKeys.length > 0) {
       console.warn(
         `[AirSprite] Linked escort flights missing from resolved event ${event.missionId ?? event.type}: ${diagnostics.linkedEscortMissingFromEventUnitKeys.join(", ")}`
@@ -5212,33 +5235,32 @@ export class BattleScreen {
       return;
     }
 
-    // Keep nearby air actions on the same camera, but resolve their playback in sequence.
-    // Concurrent scene playback was causing dogfights, bomber runs, and impact effects to
-    // overlap in the same view volume and read as one incoherent airshow.
-    for (const operation of concurrentOperations) {
-      if (operation.kind === "linkedStrike") {
-        await this.playMissionStrikeOperation(
-          operation.flight,
-          [...operation.linkedEvents],
-          operation.escorts,
+    await Promise.all(
+      concurrentOperations.map(async (operation) => {
+        if (operation.kind === "linkedStrike") {
+          await this.playMissionStrikeOperation(
+            operation.flight,
+            [...operation.linkedEvents],
+            operation.escorts,
+            renderer,
+            engine,
+            Boolean(focusKey)
+          );
+          return;
+        }
+        if (operation.kind === "flight") {
+          await this.playStandaloneAirMissionFlight(operation.flight, renderer, engine, Boolean(focusKey));
+          return;
+        }
+        await this.playStandaloneAirEngagementEvent(
+          operation.event,
           renderer,
           engine,
-          Boolean(focusKey)
+          Boolean(focusKey),
+          laneOffsetsByIndex.get(operation.index) ?? 0
         );
-        continue;
-      }
-      if (operation.kind === "flight") {
-        await this.playStandaloneAirMissionFlight(operation.flight, renderer, engine, Boolean(focusKey));
-        continue;
-      }
-      await this.playStandaloneAirEngagementEvent(
-        operation.event,
-        renderer,
-        engine,
-        Boolean(focusKey),
-        laneOffsetsByIndex.get(operation.index) ?? 0
-      );
-    }
+      })
+    );
   }
 
   /**
@@ -5595,7 +5617,11 @@ export class BattleScreen {
         }
         case "missionUpdated": {
           this.updateAirHudWidget();
-          this.syncAirMissionLogs();
+          if (this.deferMissionLogSync) {
+            this.pendingMissionLogSync = true;
+          } else {
+            this.syncAirMissionLogs();
+          }
           break;
         }
         default:
@@ -6463,49 +6489,58 @@ export class BattleScreen {
 
   /** Executes the actual turn advance and downstream updates. */
   private async executeTurnAdvance(_preflightSummary: TurnSummary): Promise<void> {
-    const report = this.battleState.endPlayerTurn();
-    const summary = this.battleState.getCurrentTurnSummary();
-    this.publishSelectionIntel(null);
+    this.deferMissionLogSync = true;
+    this.pendingMissionLogSync = false;
+    try {
+      const report = this.battleState.endPlayerTurn();
+      const summary = this.battleState.getCurrentTurnSummary();
+      this.publishSelectionIntel(null);
 
-    await this.triggerSupportImpacts();
-    await this.triggerAirOperations(summary);
+      await this.triggerSupportImpacts();
+      await this.triggerAirOperations(summary);
+      this.flushDeferredMissionLogSync();
 
-    // Consume and announce bot turn actions
-    const botSummary = this.battleState.consumeBotTurnSummary();
-    if (botSummary) {
-      // WAIT for animations to complete before continuing
-      try {
-        await this.playBotTurnAnimations(botSummary);
-      } catch (error) {
-        console.error("Failed to play bot turn animations:", error);
-        this.renderEngineUnits();
-      }
-      this.logBotTurnActivity(botSummary);
-      this.announceBotTurnActions(botSummary);
-    }
-
-    // Clear selection so player must reselect units with fresh action flags
-    this.clearSelectedHex();
-
-    this.refreshDeploymentMirrors("sync");
-    this.updateTurnStatusDisplay(summary);
-    this.updateTurnControls(summary);
-    // Keep idle outlines aligned with the new phase so highlights disappear during bot actions and repopulate on the next player turn.
-    this.refreshIdleUnitHighlights(summary);
-
-    this.announceBattleUpdate(
-      `Turn ${summary.turnNumber} begins. Active faction: ${summary.activeFaction}. Phase: ${summary.phase}.`
-    );
-    this.announceSupplyAttrition(report);
-
-    // Auto-open the roster at the start of the player's turn when reserves are available.
-    if (summary.activeFaction === "Player" && summary.phase === "playerTurn") {
-      try {
-        const engineReserves = this.battleState.ensureGameEngine().getReserveSnapshot();
-        if (engineReserves.length > 0 && this.popupManager.getActivePopup() !== "armyRoster") {
-          this.popupManager.openPopup("armyRoster");
+      // Consume and announce bot turn actions
+      const botSummary = this.battleState.consumeBotTurnSummary();
+      if (botSummary) {
+        // WAIT for animations to complete before continuing
+        try {
+          await this.playBotTurnAnimations(botSummary);
+        } catch (error) {
+          console.error("Failed to play bot turn animations:", error);
+          this.renderEngineUnits();
         }
-      } catch { }
+        this.logBotTurnActivity(botSummary);
+        this.announceBotTurnActions(botSummary);
+      }
+
+      // Clear selection so player must reselect units with fresh action flags
+      this.clearSelectedHex();
+
+      this.refreshDeploymentMirrors("sync");
+      this.updateTurnStatusDisplay(summary);
+      this.updateTurnControls(summary);
+      // Keep idle outlines aligned with the new phase so highlights disappear during bot actions and repopulate on the next player turn.
+      this.refreshIdleUnitHighlights(summary);
+
+      this.announceBattleUpdate(
+        `Turn ${summary.turnNumber} begins. Active faction: ${summary.activeFaction}. Phase: ${summary.phase}.`
+      );
+      this.announceSupplyAttrition(report);
+
+      // Auto-open the roster at the start of the player's turn when reserves are available.
+      if (summary.activeFaction === "Player" && summary.phase === "playerTurn") {
+        try {
+          const engineReserves = this.battleState.ensureGameEngine().getReserveSnapshot();
+          if (engineReserves.length > 0 && this.popupManager.getActivePopup() !== "armyRoster") {
+            this.popupManager.openPopup("armyRoster");
+          }
+        } catch { }
+      }
+    } finally {
+      this.flushDeferredMissionLogSync();
+      this.deferMissionLogSync = false;
+      this.pendingMissionLogSync = false;
     }
   }
 

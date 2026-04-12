@@ -1744,6 +1744,121 @@ registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_USES_RESOLVED_EVENT_ESCORTS_AND_KEEP
   });
 });
 
+registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_KEEPS_BOMBER_VISIBLE_EVEN_WITHOUT_A_BOMBER_DEFENSE_PASS", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let resolvedScene: any = null;
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const fakeRenderer = {
+    async animateResolvedAirCombatShow(scene: unknown): Promise<void> {
+      resolvedScene = scene;
+    }
+  };
+
+  await Given("an intercepted strike package whose bomber reaches the strike run without a bomber-pass exchange", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      { ensureGameEngine: () => ({}) } as any,
+      {} as any,
+      fakeRenderer as any,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).announceAirInterceptEngagement = () => {};
+    (screen as any).waitMs = async (): Promise<void> => {};
+    (screen as any).resolveAirEngagementOffsetKey = (unitKey: string) => {
+      const origins: Record<string, string> = {
+        "cap-1": "0,2",
+        "bomber-1": "-1,-2",
+        "escort-1": "1,-2"
+      };
+      return origins[unitKey] ?? null;
+    };
+    (screen as any).resolveAirSquadronStrength = () => 100;
+  });
+
+  const event: AirEngagementEvent = {
+    type: "airToAir",
+    missionId: "strike-live-4",
+    location: { q: 0, r: 0 },
+    bomber: {
+      faction: "Bot",
+      unitKey: "bomber-1",
+      unitType: "Bomber",
+      strength: 100
+    },
+    interceptors: [
+      {
+        faction: "Player",
+        unitKey: "cap-1",
+        unitType: "Interceptor",
+        strength: 100
+      }
+    ],
+    escorts: [
+      {
+        faction: "Bot",
+        unitKey: "escort-1",
+        unitType: "Fighter",
+        strength: 100
+      }
+    ],
+    bomberStrengthBefore: 100,
+    bomberStrengthAfter: 100,
+    bomberDestroyed: false,
+    interceptorAttrition: 0,
+    escortAttrition: 0,
+    escortsEngaged: 1,
+    interceptorsAfterEscortPhase: 0,
+    escortsAfterEscortPhase: 1,
+    bomberPassExchanges: [],
+    escortExchanges: [],
+    interceptorStrengthsAfterEscortPhase: [0],
+    escortStrengthsAfterEscortPhase: [100],
+    interceptorFinalStrengths: [0],
+    escortFinalStrengths: [100]
+  };
+
+  await When("the resolved airshow scene is built without a bomber-defense pass", async () => {
+    await (screen as any).playMissionAirInterceptEvent(
+      event,
+      "0,0",
+      fakeRenderer,
+      {} as any,
+      0,
+      false,
+      false,
+      0,
+      false,
+      "-1,-2",
+      [],
+      "3,0"
+    );
+  });
+
+  await Then("the bomber should still be present in the resolved scene so the strike run and flak phase can render", async () => {
+    if (!resolvedScene) {
+      throw new Error("Expected the resolved airshow scene to be handed to the renderer.");
+    }
+    if (!resolvedScene.bomber || resolvedScene.bomber.id !== "bomber-1") {
+      throw new Error(`Expected bomber-1 to remain in the resolved scene, saw ${JSON.stringify(resolvedScene)}.`);
+    }
+    if ((resolvedScene.bomberPassExchanges ?? []).length !== 0) {
+      throw new Error(`Did not expect bomber-pass exchanges when the defense pass is disabled, saw ${JSON.stringify(resolvedScene.bomberPassExchanges)}.`);
+    }
+    if (resolvedScene.bomberTargetHexKey !== "3,0") {
+      throw new Error(`Expected the strike corridor target to remain available for the target run, saw ${resolvedScene.bomberTargetHexKey ?? "<missing>"}.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_INTERCEPTED_LINKED_STRIKES_KEEP_BOMBER_RUN_INSIDE_THE_RESOLVED_AIRSHOW", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   const callOrder: string[] = [];
