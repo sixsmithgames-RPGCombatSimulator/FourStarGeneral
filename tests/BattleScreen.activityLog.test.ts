@@ -101,7 +101,7 @@ registerTest("BATTLESCREEN_DEFENSIVE_AIR_EVENTS_LOG_PLAYER_REACTIONS", async ({ 
       throw new Error(`Expected 2 defensive air log entries, received ${published.length}.`);
     }
 
-    if (published[0]?.category !== "player" || !published[0].summary.includes("Flak battery engaged incoming Bomber")) {
+    if (published[0]?.category !== "player" || !published[0].summary.includes("Flak battery engaged Bomber on final approach")) {
       throw new Error(`Expected player flak activity entry, saw ${JSON.stringify(published[0])}.`);
     }
 
@@ -239,7 +239,7 @@ registerTest("BATTLESCREEN_AIR_MISSION_LOGS_SURFACE_ESCORT_AND_CAP_ATTRITION", a
       throw new Error(`Expected CAP summary to include patrol losses, saw ${published[1]!.summary}.`);
     }
 
-    if (!published[1]!.summary.includes("target 14,0")) {
+    if (!published[1]!.summary.includes("station 14,0")) {
       throw new Error(`Expected CAP summary to use player-facing offset coordinates, saw ${published[1]!.summary}.`);
     }
   });
@@ -290,7 +290,7 @@ registerTest("BATTLESCREEN_AIR_MISSION_LOGS_FORMAT_STRIKE_TARGETS_IN_OFFSET_COOR
       throw new Error(`Expected 1 strike activity entry, received ${published.length}.`);
     }
 
-    if (!published[0]!.summary.includes("target 14,0")) {
+    if (!published[0]!.summary.includes("14,0")) {
       throw new Error(`Expected strike summary to use offset coordinates, saw ${published[0]!.summary}.`);
     }
 
@@ -355,7 +355,7 @@ registerTest("BATTLESCREEN_STRIKE_LOGS_FOCUS_ON_TARGET_DAMAGE_AND_STRIKE_PACKAGE
     }
 
     const summary = published[0]!.summary;
-    if (!summary.includes("3 damage dealt")) {
+    if (!summary.includes("for 3 damage")) {
       throw new Error(`Expected target damage in strike summary, saw ${summary}.`);
     }
     if (summary.includes("strike package took 19 air damage")) {
@@ -373,7 +373,7 @@ registerTest("BATTLESCREEN_STRIKE_LOGS_FOCUS_ON_TARGET_DAMAGE_AND_STRIKE_PACKAGE
   });
 });
 
-registerTest("BATTLESCREEN_LINKED_ESCORT_REPORTS_REMAIN_VISIBLE_WHEN_PLAYERS_NEED_THE_FULL_AIR_COMBAT_CHAIN", async ({ When, Then }) => {
+registerTest("BATTLESCREEN_LINKED_ESCORT_REPORTS_ARE_FOLDED_INTO_THE_STRIKE_OUTCOME", async ({ When, Then }) => {
   const published: Array<{ category: string; summary: string; details?: Record<string, unknown> }> = [];
   const screen = Object.create(BattleScreen.prototype) as BattleScreen;
 
@@ -469,17 +469,20 @@ registerTest("BATTLESCREEN_LINKED_ESCORT_REPORTS_REMAIN_VISIBLE_WHEN_PLAYERS_NEE
     (screen as any).syncAirMissionLogs();
   });
 
-  await Then("the linked escort report should remain in the activity log alongside the strike and CAP summaries", async () => {
-    if (published.length !== 3) {
-      throw new Error(`Expected strike, escort, and CAP entries so the full air-combat chain stays visible, received ${published.length}.`);
+  await Then("the linked escort report should be folded into the strike outcome while the CAP report stays visible", async () => {
+    if (published.length !== 2) {
+      throw new Error(`Expected strike and CAP entries after folding the linked escort report into the strike outcome, received ${published.length}.`);
     }
 
-    if (
-      !published.some(
-        (entry) => entry.summary.includes("Air mission escort ") && entry.summary.includes(" resolved")
-      )
-    ) {
-      throw new Error(`Expected the linked escort report to remain visible, saw ${JSON.stringify(published)}.`);
+    const strikeEntry = published.find((entry) => entry.summary.startsWith("Strike outcome:"));
+    if (!strikeEntry) {
+      throw new Error(`Expected a folded strike outcome entry, saw ${JSON.stringify(published)}.`);
+    }
+    if (!strikeEntry.summary.includes("escorted by")) {
+      throw new Error(`Expected the strike outcome to retain escort context, saw ${strikeEntry.summary}.`);
+    }
+    if (published.some((entry) => entry.summary.includes("escort mission"))) {
+      throw new Error(`Did not expect a separate linked escort mission entry, saw ${JSON.stringify(published)}.`);
     }
   });
 });
@@ -540,11 +543,11 @@ registerTest("BATTLESCREEN_STRIKE_SUMMARIES_DO_NOT_ADVERTISE_ABORTED_LINKED_ESCO
   });
 
   await Then("the strike summary should not claim that the package had an escort in play", async () => {
-    const strikeEntry = published.find((entry) => entry.summary.includes("Air mission strike "));
+    const strikeEntry = published.find((entry) => entry.summary.startsWith("Strike outcome:"));
     if (!strikeEntry) {
       throw new Error(`Expected a strike summary, saw ${JSON.stringify(published)}.`);
     }
-    if (strikeEntry.summary.includes("with escort")) {
+    if (strikeEntry.summary.includes("escorted by")) {
       throw new Error(`Did not expect an aborted linked escort to appear in the strike summary, saw ${strikeEntry.summary}.`);
     }
   });
@@ -854,13 +857,13 @@ registerTest("BATTLESCREEN_DETAILED_AIR_INTERCEPT_LOGS_PUBLISH_ONE_ENTRY_PER_EXC
     if (!published.every((entry) => entry.category === "player")) {
       throw new Error(`Expected the resolved interceptions to publish player-side entries, saw ${JSON.stringify(published)}.`);
     }
-    if (!published[0]!.summary.includes("traded fire in escort clash")) {
+    if (!published[0]!.summary.includes("escort clash over")) {
       throw new Error(`Expected the escort clash to be logged separately, saw ${published[0]!.summary}.`);
     }
-    if (!published[1]!.summary.includes("attacked enemy Bomber") || !published[1]!.summary.includes("42 air damage dealt")) {
+    if (!published[1]!.summary.includes("Bomber pass over") || !published[1]!.summary.includes("for 42 air damage")) {
       throw new Error(`Expected the first bomber pass to be logged separately, saw ${published[1]!.summary}.`);
     }
-    if (!published[2]!.summary.includes("30 air damage dealt") || !published[2]!.summary.includes("Bomber strength now 28")) {
+    if (!published[2]!.summary.includes("for 30 air damage") || !published[2]!.summary.includes("Bomber strength now 28")) {
       throw new Error(`Expected the second bomber pass to retain its own bomber state, saw ${published[2]!.summary}.`);
     }
     if ((published[1]!.details?.attackerUnitKey as string | undefined) !== "cap-1") {

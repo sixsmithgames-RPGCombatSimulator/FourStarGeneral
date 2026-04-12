@@ -291,6 +291,7 @@ export class BattleScreen {
   private targetMarkerClickListener: ((e: Event) => void) | null = null;
   private readonly tutorialAirMissionQueuedListener: (event: Event) => void;
   private seenAirReportIds: Set<string> = new Set();
+  private detailedAirCombatTurnUnitKeys: Set<string> = new Set();
   private artilleryPreviewKeys: Set<string> = new Set();
   private readonly queuedTargetMarkerActions = new Map<string, QueuedTargetMarkerAction>();
   private artilleryTargetingState: {
@@ -1288,7 +1289,29 @@ export class BattleScreen {
           continue;
         }
         this.seenAirReportIds.add(r.id);
+        const outcomeMeta = r.outcome?.meta ?? {};
+        const reportShowsCombatDetails =
+          (r.interceptions ?? 0) > 0
+          || Math.max(0, Math.round(outcomeMeta.bomberAttrition ?? r.bomberAttrition ?? 0)) > 0
+          || Math.max(0, Math.round(outcomeMeta.interceptorAttrition ?? r.interceptorAttrition ?? 0)) > 0
+          || Math.max(0, Math.round(outcomeMeta.escortAttrition ?? r.escortAttrition ?? 0)) > 0
+          || Math.max(0, Math.round(outcomeMeta.interceptorKills ?? outcomeMeta.capKills ?? 0)) > 0
+          || Math.max(0, Math.round(outcomeMeta.escortKills ?? 0)) > 0;
+        const isLinkedEscortReport =
+          r.kind === "escort"
+          && !!r.escortTargetUnitKey
+          && linkedStrikeUnitKeys.has(r.escortTargetUnitKey);
+        const shouldFoldIntoDetailedCombatLog =
+          r.event !== "refitStarted"
+          && r.event !== "refitCompleted"
+          && (r.kind === "escort" || r.kind === "airCover")
+          && reportShowsCombatDetails
+          && this.hasDetailedAirCombatPublished(r.turnResolved, r.unitKey);
+        if (isLinkedEscortReport || shouldFoldIntoDetailedCombatLog) {
+          continue;
+        }
         const missionLabel = this.formatAirCombatantSummary(r.unitLabel, r.unitKey, r.unitType, r.faction, engine);
+        const factionLabel = this.formatAirFactionLabel(r.faction);
         let target = "-";
         if (r.targetHex) {
           target = this.formatAxialHexForDisplay(r.targetHex);
@@ -1316,15 +1339,15 @@ export class BattleScreen {
               escortAttrition?: number;
               escortKills?: number;
               capKills?: number;
-            };
+              };
           };
-          const outcomeMeta = outcome.meta ?? {};
-          const bomberAttrition = Math.max(0, Math.round(outcomeMeta.bomberAttrition ?? r.bomberAttrition ?? 0));
-          const interceptorAttrition = Math.max(0, Math.round(outcomeMeta.interceptorAttrition ?? r.interceptorAttrition ?? 0));
-          const interceptorKills = Math.max(0, Math.round(outcomeMeta.interceptorKills ?? 0));
-          const escortAttrition = Math.max(0, Math.round(outcomeMeta.escortAttrition ?? r.escortAttrition ?? 0));
-          const escortKills = Math.max(0, Math.round(outcomeMeta.escortKills ?? 0));
-          const strikePackageKills = Math.max(0, Math.round(outcomeMeta.capKills ?? (r.kind === "airCover" ? r.kills?.cap ?? 0 : 0)));
+          const localOutcomeMeta = outcome.meta ?? {};
+          const bomberAttrition = Math.max(0, Math.round(localOutcomeMeta.bomberAttrition ?? r.bomberAttrition ?? 0));
+          const interceptorAttrition = Math.max(0, Math.round(localOutcomeMeta.interceptorAttrition ?? r.interceptorAttrition ?? 0));
+          const interceptorKills = Math.max(0, Math.round(localOutcomeMeta.interceptorKills ?? 0));
+          const escortAttrition = Math.max(0, Math.round(localOutcomeMeta.escortAttrition ?? r.escortAttrition ?? 0));
+          const escortKills = Math.max(0, Math.round(localOutcomeMeta.escortKills ?? 0));
+          const strikePackageKills = Math.max(0, Math.round(localOutcomeMeta.capKills ?? (r.kind === "airCover" ? r.kills?.cap ?? 0 : 0)));
           const destroyedBeforeTarget =
             r.kind === "strike"
               && outcome.result === "destroyed"
@@ -1414,17 +1437,54 @@ export class BattleScreen {
             );
             escortNote =
               escortLabels.length > 0
-                ? ` with escort${escortLabels.length === 1 ? "" : "s"} ${escortLabels.join(", ")}`
-                : ` with ${linkedEscorts.length} escort${linkedEscorts.length === 1 ? "" : "s"}`;
+                ? ` escorted by ${escortLabels.join(", ")}`
+                : ` escorted by ${linkedEscorts.length} fighter${linkedEscorts.length === 1 ? "" : "s"}`;
             details.escortCount = linkedEscorts.length;
             details.escortLabels = escortLabels;
           }
         }
 
+        const summary =
+          r.kind === "strike"
+            ? (() => {
+                const outcome = r.outcome as { details?: string; result?: string; damageInflicted?: number; defenderDestroyed?: boolean } | undefined;
+                const strikeCause = this.inferStrikeOutcomeCause(outcome?.details);
+                const resultSuffix =
+                  action === "destroyed before target"
+                    ? ""
+                    : outcome?.result
+                      ? ` [${outcome.result.toUpperCase()}]`
+                      : "";
+                if (action === "destroyed before target") {
+                  const causeText =
+                    strikeCause === "flak"
+                      ? `was destroyed by flak before reaching ${target}`
+                      : strikeCause === "intercepted"
+                        ? `was intercepted before reaching ${target}`
+                        : `was destroyed before reaching ${target}`;
+                  return `Strike outcome: ${factionLabel} strike package ${missionLabel}${escortNote} ${causeText}.`;
+                }
+                if (outcome?.defenderDestroyed) {
+                  return `Strike outcome: ${factionLabel} strike package ${missionLabel}${escortNote} destroyed the target at ${target}${resultSuffix}.`;
+                }
+                if (typeof outcome?.damageInflicted === "number" && outcome.damageInflicted > 0) {
+                  return `Strike outcome: ${factionLabel} strike package ${missionLabel}${escortNote} hit ${target} for ${outcome.damageInflicted} damage${resultSuffix}.`;
+                }
+                if (action === "resolved") {
+                  return `Strike outcome: ${factionLabel} strike package ${missionLabel}${escortNote} reached ${target}${resultSuffix}.`;
+                }
+                return `Strike outcome: ${factionLabel} strike package ${missionLabel}${escortNote} ${action} ${target}${resultSuffix}.`;
+              })()
+            : r.kind === "airCover"
+              ? `${factionLabel} CAP mission ${missionLabel} ${action} — station ${target}${outcomeSummary}`
+              : r.kind === "escort"
+                ? `${factionLabel} escort mission ${missionLabel} ${action} — covering ${target}${outcomeSummary}`
+                : `${factionLabel} air mission ${r.kind} ${missionLabel} ${action}${escortNote} — target ${target}${outcomeSummary}`;
+
         this.publishActivityEvent({
           category: r.faction === "Player" ? "player" : "enemy",
           type: "log",
-          summary: `Air mission ${r.kind} ${missionLabel} ${action}${escortNote} — target ${target}${outcomeSummary}`,
+          summary,
           details
         });
       }
@@ -3948,14 +4008,17 @@ export class BattleScreen {
         `[AirSprite] Linked escort flights missing from resolved event ${event.missionId ?? event.type}: ${diagnostics.linkedEscortMissingFromEventUnitKeys.join(", ")}`
       );
     }
-    scene.fighterIngressDurationMs = Math.round(this.resolveFighterInterceptIngressDurationMs() * 0.9);
-    scene.escortClashDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 1.84));
-    scene.bomberIngressDurationMs = Math.round(this.resolveBomberInterceptIngressDurationMs() * 4.1);
-    scene.bomberPassDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 2.56));
-    scene.strikeRunDurationMs = this.scaleAirSequenceMs(4280);
-    scene.egressDurationMs = this.scaleAirSequenceMs(1080);
-    scene.bomberArrivalDelayMs = bomberArrivalDelayMs + Math.round(scene.escortClashDurationMs * 0.6);
-    scene.bombReleaseProgress = 0.86;
+    scene.fighterIngressDurationMs = Math.round(this.resolveFighterInterceptIngressDurationMs() * 0.96);
+    scene.escortClashDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 1.24));
+    scene.bomberIngressDurationMs = Math.round(this.resolveBomberInterceptIngressDurationMs() * 5.2);
+    scene.bomberPassDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 2.18));
+    scene.strikeRunDurationMs = this.scaleAirSequenceMs(5120);
+    scene.egressDurationMs = this.scaleAirSequenceMs(920);
+    scene.bomberArrivalDelayMs =
+      bomberArrivalDelayMs +
+      scene.escortClashDurationMs +
+      this.scaleAirSequenceMs(260);
+    scene.bombReleaseProgress = 0.91;
     await (renderer as any).animateResolvedAirCombatShow(scene);
   }
 
@@ -4023,13 +4086,20 @@ export class BattleScreen {
   }
 
   private announceFlakEngagement(event: AirEngagementEvent): void {
+    let engine: GameEngine | null = null;
+    try {
+      engine = this.battleState.ensureGameEngine();
+    } catch {
+      engine = null;
+    }
+    this.markDetailedAirCombatPublished(engine?.turnNumber ?? null, [event.bomber.unitKey]);
     const flakEngagements = Array.isArray(event.flakEngagements) ? event.flakEngagements : null;
     if (flakEngagements && flakEngagements.length > 0) {
       flakEngagements.forEach((engagement, index) => {
         const batteryHex = engagement.batteryHex ? this.formatAxialHexForDisplay(engagement.batteryHex) : "unknown";
         const bomberLabel = engagement.bomberLabel ?? this.toTitleCase(engagement.bomberUnitType);
         const summary =
-          `${this.toTitleCase(engagement.batteryUnitType)} at ${batteryHex} fired on incoming ${bomberLabel}. ` +
+          `${this.toTitleCase(engagement.batteryUnitType)} at ${batteryHex} opened fire on ${bomberLabel} during final approach. ` +
           `${Math.max(0, Math.round(engagement.damageToBomber))} air damage; bomber strength now ${Math.max(0, Math.round(engagement.bomberStrengthAfter))}.` +
           (engagement.bomberDestroyed && index === flakEngagements.length - 1 ? " Strike package broken up before release." : "");
         this.announceBattleUpdate(summary);
@@ -4055,7 +4125,7 @@ export class BattleScreen {
     const flakDamage = Math.max(0, Math.round(event.flakDamage ?? 0));
     const strengthAfter = Math.max(0, Math.round(event.bomberStrengthAfter ?? 0));
     const destructionSuffix = event.bomberDestroyed ? " Strike package broken up before release." : "";
-    const summary = `${batteryCount} Flak ${batteryLabel} engaged incoming ${bomberLabel}. AA damage: ${flakDamage}%. Bomber strength now ${strengthAfter}.${destructionSuffix}`;
+    const summary = `${batteryCount} Flak ${batteryLabel} engaged ${bomberLabel} on final approach. AA damage: ${flakDamage}%. Bomber strength now ${strengthAfter}.${destructionSuffix}`;
     this.announceBattleUpdate(summary);
     this.publishActivityEvent({
       category: event.interceptors[0]?.faction === "Player" ? "player" : "enemy",
@@ -4071,23 +4141,20 @@ export class BattleScreen {
     } catch {
       engine = null;
     }
+    this.markDetailedAirCombatPublished(
+      engine?.turnNumber ?? null,
+      [
+        ...event.interceptors.map((interceptor) => interceptor.unitKey),
+        ...event.escorts.map((escort) => escort.unitKey)
+      ]
+    );
     if (
       (Array.isArray(event.escortExchanges) && event.escortExchanges.length > 0) ||
       (Array.isArray(event.bomberPassExchanges) && event.bomberPassExchanges.length > 0)
     ) {
       const location = this.formatAxialHexForDisplay(event.location);
-      const factionLabel = (faction: TurnFaction): string =>
-        faction === "Player" ? "Player" : faction === "Ally" ? "Allied" : "Enemy";
       const lowerFactionLabel = (faction: TurnFaction): string =>
         faction === "Player" ? "player" : faction === "Ally" ? "allied" : "enemy";
-      const formatFighterPhaseLabel = (
-        faction: TurnFaction,
-        combatantLabel: string,
-        phase: "capClash" | "escortClash" | "bomberPass"
-      ): string => {
-        const phasePrefix = phase === "capClash" ? "CAP " : "";
-        return `${factionLabel(faction)} ${phasePrefix}${combatantLabel}`;
-      };
       const publishExchange = (
         summary: string,
         category: "player" | "enemy",
@@ -4119,21 +4186,11 @@ export class BattleScreen {
           exchange.defenderFaction,
           engine
         );
-        const attackerLabel = formatFighterPhaseLabel(
-          exchange.attackerFaction,
-          attackerCombatant,
-          exchange.phase
-        );
-        const defenderLabel = formatFighterPhaseLabel(
-          exchange.defenderFaction,
-          defenderCombatant,
-          exchange.phase
-        );
+        const attackerLabel = `${this.formatAirFactionLabel(exchange.attackerFaction)} ${attackerCombatant}`;
+        const defenderLabel = `${this.formatAirFactionLabel(exchange.defenderFaction)} ${defenderCombatant}`;
         const summary =
-          `${attackerLabel} and ${lowerFactionLabel(exchange.defenderFaction)} ${exchange.phase === "capClash" ? "CAP " : ""}${defenderCombatant} ` +
-          `traded fire in ${phaseLabel} over ${location}. ` +
-          `${defenderCombatant} took ${Math.max(0, Math.round(exchange.damageToDefender))} air damage; ` +
-          `${attackerCombatant} took ${Math.max(0, Math.round(exchange.retaliationDamage))}.` +
+          `${phaseLabel} over ${location}: ${attackerLabel} hit ${lowerFactionLabel(exchange.defenderFaction)} ${defenderCombatant} ` +
+          `for ${Math.max(0, Math.round(exchange.damageToDefender))} air damage and took ${Math.max(0, Math.round(exchange.retaliationDamage))} in return.` +
           (exchange.defenderDestroyed ? ` ${defenderLabel} destroyed.` : "") +
           (exchange.attackerDestroyed ? ` ${attackerLabel} destroyed.` : "");
         publishExchange(summary, category, {
@@ -4164,9 +4221,9 @@ export class BattleScreen {
           engine
         );
         const summary =
-          `${factionLabel(exchange.attackerFaction)} ${attackerCombatant} attacked ` +
-          `${factionLabel(exchange.defenderFaction).toLowerCase()} ${defenderCombatant} over ${location}. ` +
-          `${Math.max(0, Math.round(exchange.damageToDefender))} air damage dealt; bomber defensive fire dealt ${Math.max(0, Math.round(exchange.retaliationDamage))} air damage. ` +
+          `Bomber pass over ${location}: ${this.formatAirFactionLabel(exchange.attackerFaction)} ${attackerCombatant} hit ` +
+          `${lowerFactionLabel(exchange.defenderFaction)} ${defenderCombatant} ` +
+          `for ${Math.max(0, Math.round(exchange.damageToDefender))} air damage; bomber defensive fire dealt ${Math.max(0, Math.round(exchange.retaliationDamage))} air damage. ` +
           `Bomber strength now ${Math.max(0, Math.round(exchange.defenderStrengthAfter))}.` +
           (exchange.defenderDestroyed && index === (event.bomberPassExchanges?.length ?? 1) - 1 ? " Strike package destroyed before target." : "") +
           (exchange.attackerDestroyed ? " Patrol flight lost on the attack run." : "");
@@ -4328,6 +4385,61 @@ export class BattleScreen {
       /* no-op */
     }
     return fallbackType;
+  }
+
+  private formatAirFactionLabel(faction: TurnFaction): string {
+    return faction === "Player" ? "Player" : faction === "Ally" ? "Allied" : "Enemy";
+  }
+
+  private buildDetailedAirCombatTurnUnitKey(turnResolved: number, unitKey: string | undefined | null): string | null {
+    if (!unitKey) {
+      return null;
+    }
+    return `${turnResolved}:${unitKey}`;
+  }
+
+  private ensureDetailedAirCombatTurnUnitKeys(): Set<string> {
+    if (!(this.detailedAirCombatTurnUnitKeys instanceof Set)) {
+      this.detailedAirCombatTurnUnitKeys = new Set();
+    }
+    return this.detailedAirCombatTurnUnitKeys;
+  }
+
+  private markDetailedAirCombatPublished(
+    turnResolved: number | null | undefined,
+    unitKeys: ReadonlyArray<string | undefined | null>
+  ): void {
+    if (typeof turnResolved !== "number" || !Number.isFinite(turnResolved)) {
+      return;
+    }
+    const markers = this.ensureDetailedAirCombatTurnUnitKeys();
+    unitKeys.forEach((unitKey) => {
+      const marker = this.buildDetailedAirCombatTurnUnitKey(turnResolved, unitKey);
+      if (marker) {
+        markers.add(marker);
+      }
+    });
+  }
+
+  private hasDetailedAirCombatPublished(turnResolved: number | null | undefined, unitKey: string | undefined | null): boolean {
+    const marker = typeof turnResolved === "number"
+      ? this.buildDetailedAirCombatTurnUnitKey(turnResolved, unitKey)
+      : null;
+    return marker ? this.ensureDetailedAirCombatTurnUnitKeys().has(marker) : false;
+  }
+
+  private inferStrikeOutcomeCause(details: string | undefined): "flak" | "intercepted" | null {
+    const normalized = details?.toLowerCase() ?? "";
+    if (!normalized) {
+      return null;
+    }
+    if (normalized.includes("anti-aircraft") || normalized.includes("flak")) {
+      return "flak";
+    }
+    if (normalized.includes("intercept")) {
+      return "intercepted";
+    }
+    return null;
   }
 
   private formatAxialHexForDisplay(hex: Axial | null | undefined): string {
@@ -5100,30 +5212,33 @@ export class BattleScreen {
       return;
     }
 
-    await Promise.all(
-      concurrentOperations.map((operation) => {
-        if (operation.kind === "linkedStrike") {
-          return this.playMissionStrikeOperation(
-            operation.flight,
-            [...operation.linkedEvents],
-            operation.escorts,
-            renderer,
-            engine,
-            Boolean(focusKey)
-          );
-        }
-        if (operation.kind === "flight") {
-          return this.playStandaloneAirMissionFlight(operation.flight, renderer, engine, Boolean(focusKey));
-        }
-        return this.playStandaloneAirEngagementEvent(
-          operation.event,
+    // Keep nearby air actions on the same camera, but resolve their playback in sequence.
+    // Concurrent scene playback was causing dogfights, bomber runs, and impact effects to
+    // overlap in the same view volume and read as one incoherent airshow.
+    for (const operation of concurrentOperations) {
+      if (operation.kind === "linkedStrike") {
+        await this.playMissionStrikeOperation(
+          operation.flight,
+          [...operation.linkedEvents],
+          operation.escorts,
           renderer,
           engine,
-          Boolean(focusKey),
-          laneOffsetsByIndex.get(operation.index) ?? 0
+          Boolean(focusKey)
         );
-      })
-    );
+        continue;
+      }
+      if (operation.kind === "flight") {
+        await this.playStandaloneAirMissionFlight(operation.flight, renderer, engine, Boolean(focusKey));
+        continue;
+      }
+      await this.playStandaloneAirEngagementEvent(
+        operation.event,
+        renderer,
+        engine,
+        Boolean(focusKey),
+        laneOffsetsByIndex.get(operation.index) ?? 0
+      );
+    }
   }
 
   /**
@@ -9583,6 +9698,7 @@ export class BattleScreen {
     this.lastFocusedHexKey = null;
     this.lastViewportTransform = null;
     this.lastAnnouncement = null;
+    this.ensureDetailedAirCombatTurnUnitKeys().clear();
     this.publishSelectionIntel(null);
     this.activityEvents.length = 0;
     this.activityEventSequence = 0;

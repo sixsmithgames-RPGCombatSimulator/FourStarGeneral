@@ -999,7 +999,7 @@ function detectAirshowFindings(
     }
     if (metric.label.includes("ingress")) {
       metric.groupMetrics.forEach((group) => {
-        if (group.meanDisplacementPx < 90) {
+        if (group.meanDisplacementPx < 50) {
           findings.push({
             code: "compressed-ingress-group",
             message:
@@ -1067,7 +1067,16 @@ function detectAirshowFindings(
           `${Math.round(metric.meanEntryTurnAngleDeg)}/${Math.round(metric.maxEntryTurnAngleDeg)} degrees.`
       });
     }
-    if (metric.meanWaypointTurnAngleDeg > 38 || metric.maxWaypointTurnAngleDeg > 70) {
+    const isScramblePhase = metric.label.includes("scramble");
+    const isEgressPhase = metric.label === "egress";
+    const isBomberManeuverPhase = metric.label.includes("pass") || metric.label === "target-run";
+    const waypointMeanThreshold = isScramblePhase ? 56 : isEgressPhase ? 34 : isBomberManeuverPhase ? 30 : 26;
+    const waypointMaxThreshold = isScramblePhase ? 180 : isEgressPhase ? 180 : isBomberManeuverPhase ? 176 : 160;
+    if (
+      metric.meanWaypointTurnAngleDeg > waypointMeanThreshold ||
+      (metric.maxWaypointTurnAngleDeg > waypointMaxThreshold
+        && metric.meanWaypointTurnAngleDeg > waypointMeanThreshold * 0.92)
+    ) {
       findings.push({
         code: "sharp-waypoint-turn",
         message:
@@ -1075,7 +1084,12 @@ function detectAirshowFindings(
           `${Math.round(metric.meanWaypointTurnAngleDeg)}/${Math.round(metric.maxWaypointTurnAngleDeg)} degrees.`
       });
     }
-    if (metric.meanFirstWaypointTurnAngleDeg > 34 || metric.maxFirstWaypointTurnAngleDeg > 60) {
+    const firstTurnMeanThreshold = isScramblePhase ? 52 : isEgressPhase ? 42 : 34;
+    const firstTurnMaxThreshold = isScramblePhase ? 105 : isEgressPhase ? 75 : 60;
+    if (
+      metric.meanFirstWaypointTurnAngleDeg > firstTurnMeanThreshold ||
+      metric.maxFirstWaypointTurnAngleDeg > firstTurnMaxThreshold
+    ) {
       findings.push({
         code: "jerky-phase-entry",
         message:

@@ -194,18 +194,18 @@ export function buildResolvedAirCombatScene(
                 Array.isArray(options.flakEvent.flakEngagements) && options.flakEvent.flakEngagements.length > 0
                   ? options.flakEvent.flakEngagements.length
                   : Math.max(0, options.flakEvent.interceptors.length);
-              const waveCount = Math.max(12, Math.min(16, engagementCount * 2 + 10));
+              const waveCount = Math.max(18, Math.min(26, engagementCount * 3 + 14));
               return Array.from({ length: waveCount }, (_, index) => ({
-                progress: Math.min(0.985, 0.72 + index * 0.02),
+                progress: Math.min(0.992, 0.82 + index * 0.012),
                 count: engagementCount,
-                scale: 0.48 + index * 0.014,
-                alongOffsetPx: -58 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI) * 18,
-                lateralOffsetPx: (index - (waveCount - 1) / 2) * Math.min(18, 10 + engagementCount * 2),
-                alongSpreadPx: 30 + engagementCount * 8,
-                lateralSpreadPx: 34 + engagementCount * 10,
-                puffCount: 10 + engagementCount * 4,
-                smokePuffCount: 12 + engagementCount * 5,
-                smokeScale: 1.22 + index * 0.04
+                scale: 0.34 + index * 0.01,
+                alongOffsetPx: -24 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI) * 12,
+                lateralOffsetPx: (index - (waveCount - 1) / 2) * Math.min(22, 14 + engagementCount * 3),
+                alongSpreadPx: 54 + engagementCount * 12,
+                lateralSpreadPx: 84 + engagementCount * 14,
+                puffCount: 18 + engagementCount * 8,
+                smokePuffCount: 24 + engagementCount * 10,
+                smokeScale: 1.36 + index * 0.028
               }));
             })()
           : []
