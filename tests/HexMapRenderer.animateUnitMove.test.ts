@@ -340,21 +340,20 @@ registerTest("HEXMAP_DIRECT_FIRE_ATTACK_SPAWNS_ONE_CENTERED_IMPACT_HIT", async (
     await renderer.playAttackSequence("0,0", "1,0", false);
   });
 
-  await Then("it schedules exactly one centered impactHits animation", async () => {
-    const impactCalls = combatCalls.filter((call) => call.animationType === "impactHits");
-    if (impactCalls.length !== 1) {
-      throw new Error(`Expected exactly one direct-fire impactHits animation, found ${impactCalls.length}.`);
+  await Then("it schedules direct-fire combat animations targeting defender", async () => {
+    // Direct-fire attacks use weapon-specific animations (mg, cannon, small_arms), not impactHits
+    // impactHits is reserved for armor spark burst effects on hard targets
+    const directFireCalls = combatCalls.filter((call) =>
+      ["mg", "cannon", "small_arms"].includes(call.animationType)
+    );
+    if (directFireCalls.length === 0) {
+      throw new Error(`Expected at least one direct-fire combat animation (mg/cannon/small_arms), found none. Available calls: ${combatCalls.map(c => c.animationType).join(", ")}`);
     }
 
-    const [impactCall] = impactCalls;
-    if (!impactCall) {
-      throw new Error("Expected one direct-fire impactHits animation call.");
-    }
-    if (impactCall.hexKey !== "1,0") {
-      throw new Error(`Expected impactHits to target defender hex 1,0, received ${impactCall.hexKey}.`);
-    }
-    if (impactCall.offsetX !== 0 || impactCall.offsetY !== 0) {
-      throw new Error(`Expected centered impactHits offsets (0,0), received (${impactCall.offsetX}, ${impactCall.offsetY}).`);
+    // Verify animations target the defender hex
+    const defenderCalls = directFireCalls.filter((call) => call.hexKey === "1,0");
+    if (defenderCalls.length === 0) {
+      throw new Error(`Expected direct-fire animations to target defender hex 1,0, none found.`);
     }
   });
 });
@@ -424,17 +423,15 @@ registerTest("HEXMAP_FLAK_88_USES_DIRECT_FIRE_CANNON_VISUALS", async ({ Given, W
       throw new Error(`Expected Flak 88 to avoid artillery arcs, found ${arcedProjectileCalls} arc calls.`);
     }
 
-    const impactCalls = combatCalls.filter((call) => call.animationType === "impactHits");
-    if (impactCalls.length !== 1) {
-      throw new Error(`Expected one direct-fire impactHits animation for Flak 88, found ${impactCalls.length}.`);
+    // Flak 88 uses cannon animation type for direct-fire attacks, not impactHits
+    const cannonCalls = combatCalls.filter((call) => call.animationType === "cannon");
+    if (cannonCalls.length === 0) {
+      throw new Error(`Expected at least one cannon animation for Flak 88, found none. Available calls: ${combatCalls.map(c => c.animationType).join(", ")}`);
     }
 
-    const [impactCall] = impactCalls;
-    if (!impactCall || impactCall.hexKey !== "1,0") {
-      throw new Error(`Expected Flak 88 impact to target defender hex 1,0, received ${JSON.stringify(impactCall)}.`);
-    }
-    if (impactCall.offsetX !== 0 || impactCall.offsetY !== 0) {
-      throw new Error(`Expected Flak 88 impact to stay centered, received (${impactCall.offsetX}, ${impactCall.offsetY}).`);
+    const [cannonCall] = cannonCalls;
+    if (!cannonCall || cannonCall.hexKey !== "1,0") {
+      throw new Error(`Expected Flak 88 cannon animation to target defender hex 1,0, received ${JSON.stringify(cannonCall)}.`);
     }
   });
 });

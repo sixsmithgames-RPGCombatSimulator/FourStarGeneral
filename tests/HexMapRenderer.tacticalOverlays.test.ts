@@ -219,7 +219,8 @@ registerTest("HEXMAP_RENDERER_KEEPS_SPOTTED_CONTACT_MARKERS_READABLE_WHEN_FACING
   });
 
   await Then("the generic contact marker stays unmirrored", async () => {
-    const facingGroup = svg.querySelector<SVGGElement>("g.unit-stack > g.unit-stack-facing");
+    // DOM structure: g.unit-stack > g.unit-stack-formation > g.unit-stack-facing
+    const facingGroup = svg.querySelector<SVGGElement>("g.unit-stack > g.unit-stack-formation > g.unit-stack-facing");
     if (!facingGroup) {
       throw new Error("Expected the renderer to create a facing group for the spotted contact.");
     }

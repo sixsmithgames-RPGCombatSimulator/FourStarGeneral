@@ -75,7 +75,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
     await Promise.resolve();
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    const initialSurface = overlay.querySelector<HTMLDivElement>("div[data-frame-sequence-surface='true']");
+    const initialSurface = overlay.querySelector<SVGForeignObjectElement>("foreignObject[data-frame-sequence-surface='true']");
     const initialCanvas = overlay.querySelector<HTMLCanvasElement>("canvas");
     if (!initialSurface || !initialCanvas) {
       throw new Error("Expected one active frame canvas immediately after playback starts.");
@@ -114,7 +114,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
       if ((canvas.dataset.frameSource ?? "") !== expectedFrames[index]) {
         throw new Error(`Expected frame source ${expectedFrames[index]}, received ${canvas.dataset.frameSource ?? "<missing>"}.`);
       }
-      const surface = overlay.querySelector<HTMLDivElement>("div[data-frame-sequence-surface='true']");
+      const surface = overlay.querySelector<SVGForeignObjectElement>("foreignObject[data-frame-sequence-surface='true']");
       if (!surface) {
         throw new Error("Expected active HTML frame surface during playback.");
       }
@@ -194,7 +194,7 @@ registerTest("FRAME_SEQUENCE_ANIMATOR_THROWS_IF_LAYOUT_CHANGES_DURING_FRAME_ADVA
   });
 
   await When("the image layout is mutated before the next frame tick", async () => {
-    const surface = overlay.querySelector<HTMLDivElement>("div[data-frame-sequence-surface='true']");
+    const surface = overlay.querySelector<SVGForeignObjectElement>("foreignObject[data-frame-sequence-surface='true']");
     if (!surface) {
       throw new Error("Expected active frame surface before mutating layout.");
     }

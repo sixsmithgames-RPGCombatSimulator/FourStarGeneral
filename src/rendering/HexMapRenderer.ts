@@ -4650,17 +4650,14 @@ export class HexMapRenderer implements IMapRenderer {
         "statusPips will include:", suppressionState);
     }
 
-    group.classList.remove("unit-stack--suppressed", "unit-stack--pinned");
-    group.dataset.suppressionState = suppressionState;
-    group.dataset.sentryState = unit.onSentry ? "on" : "off";
-    group.dataset.entrenchLevel = String(entrenchment);
+    // Note: suppression/sentry/entrench state is set on the main unit-stack group in renderUnitStack
+    // This method only renders visual decorations
 
     const statusPips: Array<"sentry" | "suppressed" | "pinned"> = [];
     if (unit.onSentry) {
       statusPips.push("sentry");
     }
     if (suppressionState === "suppressed" || suppressionState === "pinned") {
-      group.classList.add(suppressionState === "pinned" ? "unit-stack--pinned" : "unit-stack--suppressed");
       statusPips.push(suppressionState);
     }
 
@@ -5475,6 +5472,18 @@ export class HexMapRenderer implements IMapRenderer {
         this.resolveFacingAngleDeg(this.normalizeFacing(member.unit.facing))
       );
     });
+
+    // Calculate and set suppression/sentry state on main unit-stack group
+    const primaryUnit = primaryMember.unit;
+    const suppressorCount = primaryUnit.suppressedBy?.length ?? 0;
+    const suppressionState = suppressorCount >= 2 ? "pinned" : suppressorCount === 1 ? "suppressed" : "clear";
+    group.dataset.suppressionState = suppressionState;
+    group.dataset.sentryState = primaryUnit.onSentry ? "on" : "off";
+    group.dataset.entrenchLevel = String(Math.max(0, Math.min(2, Math.round(primaryUnit.entrench ?? 0))));
+
+    if (suppressionState === "suppressed" || suppressionState === "pinned") {
+      group.classList.add(suppressionState === "pinned" ? "unit-stack--pinned" : "unit-stack--suppressed");
+    }
 
     this.positionUnitStack(group, cx, cy);
     const storedAngle = this.hexUnitFacingAngleMap.get(hexKey) ?? null;
