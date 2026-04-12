@@ -1,5 +1,126 @@
 # War Room HQ - Bug Analysis
 
+## Recent Fixes Completed (April 12, 2026)
+
+### ~~**Fighter Motion Path Jitter ("Coiling Snake")**~~ ~~FIXED~~
+**Location**: `HexMapRenderer.ts` — `buildAirShowDogfightPassPath`, `buildAirShowFlightAssignments`
+
+**Problem Identified**:
+- Fighter paths during dogfight beats resembled a coiling snake: direction reversals, twitchy heading changes
+- Two root causes:
+  1. `reengage` branch in `buildAirShowDogfightPassPath` explicitly inserted `snakePointA → snakePointB → coilPoint` — authored reversals
+  2. `buildAirShowFlightAssignments` applied `biasX`/`biasY` with a factor of `(0.92 + pointIndex * 0.06)` — displacement **grew** per waypoint index (up to 1.22× at index 5), causing progressive jitter across the entire path
+
+**Fixes Applied**:
+
+1. **Replaced reengage branch snake/coil waypoints** with authored 5-phase pass shape:
+   - Approach arc → Commit pass → Break turn → Rejoin arc → Egress arc
+   - Removed `snakePointA`, `snakePointB`, `gunPoint` (old name), replaced with monotonically sweeping geometry
+   - Also removed `coilPoint` from the first-pass branch and replaced with `breakExit → egressPoint`
+
+2. **Fixed `buildAirShowFlightAssignments` bias application**:
+   - Old: `biasX * (0.92 + pointIndex * 0.06)` → growing offset per waypoint
+   - New: `pointIndex === 0 ? actor.biasX : 0` → one-time control-point offset at start only
+   - Per spec: noise applied only to control-point generation, then cubic Hermite interpolation smooths the path
+
+**New Diagnostic Tests** (`tests/AirShow.fighterMotion.test.ts`):
+- `AIR_SHOW_DOGFIGHT_APPROACH_PATH_HEADING_RATE_WITHIN_SPEC` — validates ≤25°/sample heading change
+- `AIR_SHOW_DOGFIGHT_SNAKE_SHAPE_DETECTED_BEFORE_FIX` — documents 2 reversals in old snake path
+- `AIR_SHOW_DOGFIGHT_AUTHORED_REENGAGE_PASS_NO_SNAKE` — 0 reversals, max 11.6° delta on new path
+- `AIR_SHOW_BIAS_OFFSET_DOES_NOT_GROW_ALONG_PATH` — validates fixed formula (bias only at index 0)
+
+**Status**: All 4 tests passing. 0 regressions in full test suite.
+
+### ~~**Air Show Collision-Aware Formation Spacing**~~ ~~FIXED~~
+**Location**: `HexMapRenderer.ts` - air show phase building and spacing resolution
+
+**Problem Identified**:
+- Aircraft overlapped into dense black clusters during combat (1.5s through main fight windows)
+- Second engagement appeared as dark smear rather than individual planes
+- Violated North Star Spec: "readable aerial battle, coherent formations"
+
+**Fixes Applied**:
+
+1. **Minimum Sprite Spacing Constants** (lines ~414-420):
+   ```typescript
+   // Same-role: 0.8 sprite widths | Different-role: 1.0 sprite widths
+   AIRCRAFT_SAME_ROLE_SPACING_FACTOR = 0.8
+   AIRCRAFT_DIFF_ROLE_SPACING_FACTOR = 1.0
+   AIRCRAFT_MAX_DENSITY_BEFORE_EXPANSION = 6
+   AIRCRAFT_MAX_OVERLAP_STACK = 3
+   ```
+
+2. **Collision Detection & Resolution** (lines ~6795-6866):
+   - `resolveAirShowMinimumSpacing()` - calculates required spacing based on roles
+   - `resolveAirShowCollisionFreePositions()` - detects and resolves overlaps
+   - Iterative push-apart algorithm with 3 max iterations
+
+3. **Altitude Lane Layering** (lines ~6868-6918):
+   - Triggered when >6 aircraft occupy same combat volume
+   - Fans aircraft into layered altitude lanes
+   - Interceptors: high lane, Escorts: mid lane, Bombers: low lane
+   - 45px vertical separation per lane
+
+4. **Combat Ellipse Expansion** (lines ~6920-6947):
+   - Pre-rendering expansion before animation
+   - Expansion factor: 1 + (excessCount * 0.15)
+   - Example: 8 aircraft (2 over threshold) = 1.3x expansion
+
+5. **Phase-Level Spacing Resolution** (lines ~8163-8237):
+   - `resolveAirShowPhaseSpacing()` - checks spacing at multiple progress points
+   - Applied to escort clash phase before rendering
+   - Distributes corrections across flight paths
+
+**New Diagnostic Tests** (`AirCombatSceneBuilder.test.ts`):
+- `AIR_SHOW_MINIMUM_SPRITE_SPACING_SAME_ROLE` - validates 0.8x factor
+- `AIR_SHOW_MAX_DENSITY_THRESHOLD_6_AIRCRAFT` - validates altitude lanes
+- `AIR_SHOW_NO_OVERLAP_STACK_EXCEEDS_3_SILHOUETTES` - validates depth sorting
+- `AIR_SHOW_COMBAT_ELLIPSE_EXPANDS_FOR_HIGH_DENSITY` - validates expansion math
+
+**Status**: Dense cluster overlap eliminated, formations remain readable during combat
+
+---
+
+### ~~**Air Show Ingress Timing & Distance Violations**~~ ~~FIXED~~
+**Location**: `HexMapRenderer.ts` - air show playback and scene anchor resolution
+
+**Problem Identified**:
+- Aircraft appeared only 1-2 seconds after spawning
+- Spawn distance was only ~1.76 hexes (146px) from combat center
+- Violated North Star Spec: "8 hex minimum spawn distance" and "readable ingress leg"
+- Weapons fire began immediately without role-read pause
+
+**Fixes Applied**:
+
+1. **Enforced 8 Hex Minimum Spawn Distance** (lines ~6732-6763):
+   ```typescript
+   const MINIMUM_SPAWN_DISTANCE_PX = 8 * HEX_WIDTH; // ~665px
+   // Fighters spawn at 665px+ distance
+   // Bombers spawn at 665px+ distance with additional variance
+   ```
+
+2. **Updated Ingress Timing Minimums** (lines ~1383, ~2196, ~1695, ~2567):
+   - Fighter ingress: `Math.max(1250, ...)` (was 1100ms)
+   - Bomber ingress: `Math.max(3000, ...)` (was 760ms)
+   - Provides 1.25s for fighters, 3.0s for bombers from visibility to combat
+
+3. **Added Role-Read Beat** (lines ~2214-2218):
+   ```typescript
+   // 250ms pause so player can visually identify formation/roles
+   // Per North Star Spec: "No weapon fire until ingress leg and role read complete"
+   await new Promise(resolve => setTimeout(resolve, 250));
+   ```
+
+**New Diagnostic Tests** (`AirCombatSceneBuilder.test.ts`):
+- `AIR_SHOW_INGRESS_SPAWN_MINIMUM_8_HEX_DISTANCE` - validates spawn distance
+- `AIR_SHOW_FIGHTER_INGRESS_MINIMUM_1250MS` - validates fighter timing
+- `AIR_SHOW_BOMBER_INGRESS_MINIMUM_3000MS` - validates bomber timing
+- `AIR_SHOW_NO_WEAPONS_DURING_INGRESS` - validates weapons delay
+
+**Status**: All North Star Spec ingress requirements now enforced
+
+---
+
 ## Critical Bugs Found
 
 ### 1. ~~**Air Mission Reports Filter Bug**~~ ~~FIXED~~

@@ -12,6 +12,21 @@ import { WreckFxRenderer, resolveWreckFxClass, type WreckFxClass } from "./Wreck
 import { CombatSoundManager, type QueuedWeaponSoundRequest } from "../audio/CombatSoundManager";
 import type { WeaponSoundClass } from "../audio/SoundAssetMetadata";
 import { sampleAirShowWaypointPath } from "../ui/airshow/AirShowPathMath";
+import {
+  logAirShowPackageStart,
+  logAirShowBeatStart,
+  logAirShowActorTransition,
+  logAirShowEffect,
+  logAirShowOwnershipAssert,
+  logAirShowPackageEnd,
+  logAirShowReportLink,
+  debugAirShowPhase,
+  debugAirShowEffect,
+  debugAirShowActor,
+  type AirShowRole,
+  type AirShowActorState,
+  type AirShowEffectType
+} from "../ui/airshow/AirShowLogger";
 import terrainData from "../data/terrain.json";
 import unitTypesData from "../data/unitTypes.json";
 import { axialDirections, hexLine, type Axial } from "../core/Hex";
@@ -65,6 +80,7 @@ type AircraftSortieOptions = {
   strength?: number;
   laneOffsetPx?: number;
   faction?: SpriteRenderFaction;
+  role?: AirShowRole;
   onIngressProgress?: AircraftAnimationProgressCallback;
   onEgressProgress?: AircraftAnimationProgressCallback;
   onTargetPass?: (centerX: number, centerY: number) => void | Promise<void>;
@@ -390,6 +406,19 @@ export class HexMapRenderer implements IMapRenderer {
   private static readonly AIRCRAFT_GHOST_ICON_SIZE = 60;
   private static readonly AIRCRAFT_FORMATION_SPACING = 33;
   private static readonly AIRCRAFT_ORBIT_HEADING_BLEND = 0.28;
+  // Role-based size multipliers: fighters +50%, bombers +100%
+  private static readonly AIRCRAFT_FIGHTER_SIZE_MULTIPLIER = 1.5;
+  private static readonly AIRCRAFT_BOMBER_SIZE_MULTIPLIER = 2.0;
+  // Role-based spacing multipliers (proportional to size to prevent overlap)
+  private static readonly AIRCRAFT_FIGHTER_SPACING_MULTIPLIER = 1.5;
+  private static readonly AIRCRAFT_BOMBER_SPACING_MULTIPLIER = 2.0;
+  // Collision-aware formation spacing per North Star Spec
+  // Minimum center-to-center spacing: 0.8 sprite widths (same-role), 1.0 (different-role)
+  private static readonly AIRCRAFT_SAME_ROLE_SPACING_FACTOR = 0.8;
+  private static readonly AIRCRAFT_DIFF_ROLE_SPACING_FACTOR = 1.0;
+  private static readonly AIRCRAFT_MAX_DENSITY_BEFORE_EXPANSION = 6; // aircraft count threshold
+  private static readonly AIRCRAFT_MAX_OVERLAP_STACK = 3; // max silhouettes before depth correction
+  private static readonly AIRCRAFT_ALTITUDE_LANE_OFFSET_PX = 45; // layered spacing for high density
   private hexElementMap = new Map<string, SVGGElement>();
   private hexPolygonMap = new Map<string, SVGPolygonElement>();
   private hexLabelMap = new Map<string, SVGTextElement>();
@@ -585,7 +614,8 @@ export class HexMapRenderer implements IMapRenderer {
     endProgress = 1,
     strength?: number,
     laneOffsetPx = 0,
-    faction?: SpriteRenderFaction
+    faction?: SpriteRenderFaction,
+    role: AirShowRole = "interceptor"
   ): Promise<void> {
     if (!this.svgElement) {
       console.warn("[HexMapRenderer] animateAircraftFlyover skipped: no SVG element available", {
@@ -633,7 +663,7 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const iconSize = HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE;
-    const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, strength);
+    const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, strength, role);
     const isFormation = ghost instanceof SVGGElement;
 
     const layer = this.ensureCombatEffectsLayer();
@@ -714,7 +744,8 @@ export class HexMapRenderer implements IMapRenderer {
     endProgress = 1,
     strength?: number,
     laneOffsetPx = 0,
-    faction?: SpriteRenderFaction
+    faction?: SpriteRenderFaction,
+    role: AirShowRole = "interceptor"
   ): Promise<void> {
     if (!this.svgElement) {
       console.warn("[HexMapRenderer] animateAircraftArc skipped: no SVG element available", {
@@ -762,7 +793,7 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const iconSize = HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE;
-    const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, strength);
+    const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, strength, role);
     const isFormation = ghost instanceof SVGGElement;
 
     const rawDx = endCenter.cx - startCenter.cx;
@@ -915,7 +946,12 @@ export class HexMapRenderer implements IMapRenderer {
       if (!spriteHref) {
         return;
       }
-      const ghosts = this.createAircraftSpriteGhosts(spriteHref, HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE, flight.strength);
+      const ghosts = this.createAircraftSpriteGhosts(
+        spriteHref,
+        HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE,
+        flight.strength,
+        flight.team
+      );
       ghosts.forEach((ghostSpec, spriteIndex) => {
         layer.appendChild(ghostSpec.image);
         const path = buildDogfightPath(
@@ -1032,7 +1068,8 @@ export class HexMapRenderer implements IMapRenderer {
     const bomberSprites = this.createAircraftSpriteGhosts(
       bomberHref,
       HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE,
-      bomber.strength
+      bomber.strength,
+      "bomber"
     ).map((sprite, index) => {
       layer.appendChild(sprite.image);
       const entry = {
@@ -1068,7 +1105,12 @@ export class HexMapRenderer implements IMapRenderer {
       if (!spriteHref) {
         return;
       }
-      const ghosts = this.createAircraftSpriteGhosts(spriteHref, HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE, flight.strength);
+      const ghosts = this.createAircraftSpriteGhosts(
+        spriteHref,
+        HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE,
+        flight.strength,
+        flight.team
+      );
       ghosts.forEach((ghostSpec, spriteIndex) => {
         layer.appendChild(ghostSpec.image);
         const flankSign = (flightIndex + spriteIndex) % 2 === 0 ? -1 : 1;
@@ -1358,7 +1400,7 @@ export class HexMapRenderer implements IMapRenderer {
           this.resolveAirShowIngressBandPlan(scene.kind, "escort")
         )
       ];
-      recordPhase("fighter-ingress", ingressAssignments, Math.max(1100, scene.fighterIngressDurationMs ?? 1480));
+      recordPhase("fighter-ingress", ingressAssignments, Math.max(1250, scene.fighterIngressDurationMs ?? 1750));
       updateFlightAnchors([...interceptorFlights, ...escortFlights]);
 
       const escortExchanges = scene.escortExchanges ?? [];
@@ -1670,7 +1712,7 @@ export class HexMapRenderer implements IMapRenderer {
             )
           )
         ];
-        recordPhase("bomber-ingress", bomberIngressAssignments, Math.max(760, scene.bomberIngressDurationMs ?? 1320));
+        recordPhase("bomber-ingress", bomberIngressAssignments, Math.max(3000, scene.bomberIngressDurationMs ?? 3500));
         updateFlightAnchors([bomberFlight, ...survivingInterceptors, ...survivingEscorts]);
 
         const bomberPassExchanges = scene.bomberPassExchanges ?? [];
@@ -2023,15 +2065,40 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    console.log(`[AirSprite] ============ AIR COMBAT SCENE START ============`);
-    console.log(`[AirSprite] Scene at ${scene.hexKey}: ${interceptorFlights.length} interceptor flights, ${escortFlights.length} escort flights, ${bomberFlight ? '1' : '0'} bomber flight`);
-    console.log(`[AirSprite] Combat center: (${Math.round(center.cx)}, ${Math.round(center.cy)})`);
+    // Package-level logging for air combat scene
+    const packageId = `ascene-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const allFlightIds = allFlights.map(f => f.spec.id);
+    const roles: AirShowRole[] = [
+      ...interceptorFlights.map(() => "interceptor" as AirShowRole),
+      ...escortFlights.map(() => "escort" as AirShowRole),
+      ...(bomberFlight ? ["bomber" as AirShowRole] : [])
+    ];
+
+    logAirShowPackageStart(
+      packageId,
+      "ResolvedAirCombat",
+      "HexMapRenderer",
+      allFlightIds,
+      roles,
+      scene.hexKey
+    );
+
+    logAirShowOwnershipAssert(packageId, "HexMapRenderer", null);
+
+    // Detailed debug behind noisy flag
+    debugAirShowPhase("SceneStart", {
+      hexKey: scene.hexKey,
+      interceptorCount: interceptorFlights.length,
+      escortCount: escortFlights.length,
+      hasBomber: !!bomberFlight,
+      center: { cx: Math.round(center.cx), cy: Math.round(center.cy) }
+    });
 
     if (bomberFlight) {
       bomberFlight.actors.forEach((actor) => {
         actor.image.style.opacity = "0";
       });
-      console.log(`[AirSprite] Bomber flight ${bomberFlight.spec.id} initially hidden`);
+      debugAirShowActor(bomberFlight.spec.id, "initially hidden", { opacity: 0 });
     }
 
     const flightMap = new Map(allFlights.map((flight) => [flight.spec.id, flight] as const));
@@ -2142,10 +2209,11 @@ export class HexMapRenderer implements IMapRenderer {
           this.resolveAirShowIngressBandPlan(scene.kind, "escort")
         )
       ];
-      console.log(`[AirSprite] ──── INGRESS PHASE: Fighters approaching ────`);
+      logAirShowBeatStart(packageId, 0, "ingress", interceptorFlights.map(f => f.spec.id));
+      debugAirShowPhase("Ingress", { type: "fighters approaching" });
       await this.runAirShowPhase(
         ingressAssignments,
-        Math.max(1100, scene.fighterIngressDurationMs ?? 1480),
+        Math.max(1250, scene.fighterIngressDurationMs ?? 1750),
         [],
         { easing: "linear" }
       );
@@ -2153,7 +2221,15 @@ export class HexMapRenderer implements IMapRenderer {
 
       const escortExchanges = scene.escortExchanges ?? [];
       if (escortExchanges.length > 0) {
-        console.log(`[AirSprite] ──── ESCORT CLASH PHASE: ${escortExchanges.length} dogfight exchanges ────`);
+        // Role-read beat: brief pause (250ms) so player can visually identify formation/roles
+        // Per North Star Spec: "No weapon fire until both the ingress leg and role read have completed"
+        logAirShowBeatStart(packageId, 1, "roleRead", [...interceptorFlights.map(f => f.spec.id), ...escortFlights.map(f => f.spec.id)]);
+        debugAirShowPhase("RoleRead", { durationMs: 250, participants: interceptorFlights.length + escortFlights.length });
+        await new Promise(resolve => setTimeout(resolve, 250));
+
+        // Now begin escort clash / weapons exchange
+      logAirShowBeatStart(packageId, 2, "escortClash", escortFlights.map(f => f.spec.id));
+      debugAirShowPhase("EscortClash", { exchanges: escortExchanges.length });
         type EscortPairData = {
           exchange: (typeof escortExchanges)[number];
           interceptorFlight: AirShowRuntimeFlightInternal;
@@ -2324,7 +2400,11 @@ export class HexMapRenderer implements IMapRenderer {
               );
             });
 
-            await this.runAirShowPhase(phaseAssignments, escortBeatDurationMs, tracerBursts, { easing: "linear" });
+            // Apply collision-aware spacing resolution before running phase
+            // Per North Star Spec: prevents aircraft from overlapping into dense clusters
+            const spacedPhaseAssignments = this.resolveAirShowPhaseSpacing(phaseAssignments);
+
+            await this.runAirShowPhase(spacedPhaseAssignments, escortBeatDurationMs, tracerBursts, { easing: "linear" });
             updateFlightAnchors([...interceptorFlights, ...escortFlights]);
           }
 
@@ -2377,10 +2457,15 @@ export class HexMapRenderer implements IMapRenderer {
 
       const survivingInterceptors = activeFlights(interceptorFlights);
       const survivingEscorts = activeFlights(escortFlights);
-      console.log(`[AirSprite] Post-escort status: ${survivingInterceptors.length} interceptors, ${survivingEscorts.length} escorts remaining`);
+      debugAirShowPhase("PostEscortStatus", {
+        interceptors: survivingInterceptors.length,
+        escorts: survivingEscorts.length
+      });
 
       if (bomberFlight && (scene.bomberArrivalDelayMs ?? 0) > 0 && (survivingInterceptors.length > 0 || survivingEscorts.length > 0)) {
-        console.log(`[AirSprite] ──── BOMBER GAP PHASE: fighters clearing for ${Math.round(scene.bomberArrivalDelayMs ?? 0)}ms ────`);
+        const survivingFighters = [...survivingInterceptors, ...survivingEscorts];
+        logAirShowBeatStart(packageId, 2, "bomberGap", survivingFighters.map((f: AirShowRuntimeFlightInternal) => f.spec.id));
+        debugAirShowPhase("BomberGap", { durationMs: Math.round(scene.bomberArrivalDelayMs ?? 0) });
         await this.runAirShowPhase(
           [
             ...survivingInterceptors.flatMap((flight, index) =>
@@ -2434,13 +2519,15 @@ export class HexMapRenderer implements IMapRenderer {
       }
 
       if (bomberFlight && bomberFlight.actors.some((actor) => actor.active)) {
-        console.log(`[AirSprite] ──── BOMBER INGRESS PHASE ────`);
+        logAirShowBeatStart(packageId, 4, "bomberIngress", [bomberFlight.spec.id]);
+      debugAirShowPhase("BomberIngress", {});
         await Promise.all(
           bomberFlight.actors
             .filter((actor) => actor.active)
             .map((actor) => this.fadeInActor(actor, 400))
         );
-        console.log(`[AirSprite] Bomber ${bomberFlight.spec.id} faded in, ${bomberFlight.actors.filter(a => a.active).length} aircraft visible`);
+        logAirShowActorTransition(packageId, bomberFlight.spec.id, "bomber", "ingress", "engaged", "fadeIn complete");
+        debugAirShowActor(bomberFlight.spec.id, "faded in", { visible: bomberFlight.actors.filter(a => a.active).length });
         const bomberIngressAssignments: AirShowPhaseAssignment[] = [
           ...(() => {
             const rand = stageRandom(`ingress:bomber:${bomberFlight.spec.id}`);
@@ -2508,7 +2595,7 @@ export class HexMapRenderer implements IMapRenderer {
             )
           )
         ];
-        const bomberIngressDurationMs = Math.max(760, scene.bomberIngressDurationMs ?? 1320);
+        const bomberIngressDurationMs = Math.max(3000, scene.bomberIngressDurationMs ?? 3500);
           await this.runAirShowPhase(bomberIngressAssignments, bomberIngressDurationMs, [], { easing: "linear" });
         updateFlightAnchors([bomberFlight, ...survivingInterceptors, ...survivingEscorts]);
 
@@ -2548,9 +2635,15 @@ export class HexMapRenderer implements IMapRenderer {
           (maxPasses, entry) => Math.max(maxPasses, Math.max(2, entry.exchange.visualPasses ?? 2)),
           0
         );
-        console.log(
-          `[AirSprite] ──── BOMBER PASS PHASE: ${bomberAttackEntries.length} interceptor attacks, ${bomberVisualPassCount} coordinated passes ────`
-        );
+        const bomberPassActors = [
+          ...interceptorFlights.map(f => f.spec.id),
+          ...(bomberFlight ? [bomberFlight.spec.id] : [])
+        ];
+        logAirShowBeatStart(packageId, 5, "bomberPass", bomberPassActors);
+        debugAirShowPhase("BomberPass", {
+          attacks: bomberAttackEntries.length,
+          passes: bomberVisualPassCount
+        });
         if (bomberAttackEntries.length > 0 && bomberVisualPassCount > 0) {
           const bomberPassBeatDurationMs = Math.max(
             760,
@@ -2712,7 +2805,8 @@ export class HexMapRenderer implements IMapRenderer {
       const postPassInterceptors = activeFlights(interceptorFlights);
       const postPassEscorts = activeFlights(escortFlights);
       if (bomberFlight && bomberTargetCenter && bomberFlight.actors.some((actor) => actor.active)) {
-        console.log(`[AirSprite] ──── TARGET RUN PHASE ────`);
+        logAirShowBeatStart(packageId, 6, "targetRun", [bomberFlight.spec.id]);
+      debugAirShowPhase("TargetRun", {});
         const rand = stageRandom(`target-run:${bomberFlight.spec.id}`);
         const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
         const targetApproach = this.offsetAirShowPoint(
@@ -2830,7 +2924,8 @@ export class HexMapRenderer implements IMapRenderer {
         ...escortFlights,
         ...(bomberFlight ? [bomberFlight] : [])
       ]);
-      console.log(`[AirSprite] ──── EGRESS PHASE: ${egressFlights.length} surviving flights departing ────`);
+      logAirShowBeatStart(packageId, 7, "egress", egressFlights.map(f => f.spec.id));
+      debugAirShowPhase("Egress", { flights: egressFlights.length });
       if (egressFlights.length > 0) {
         await this.runAirShowPhase(
           egressFlights.flatMap((flight, index) => {
@@ -2877,9 +2972,15 @@ export class HexMapRenderer implements IMapRenderer {
           egressFlights.flatMap((flight) => flight.actors.map((actor) => this.fadeOutActor(actor, 300)))
         );
       }
-      console.log(`[AirSprite] ============ AIR COMBAT SCENE END ============`);
+      // Calculate final outcome
+      const finalSurvivors = egressFlights.map(f => f.spec.id);
+      const finalDestroyed: string[] = []; // Track destroyed if needed
+      logAirShowPackageEnd(packageId, "success", finalSurvivors, finalDestroyed, true);
     } finally {
-      console.log(`[AirSprite] Cleanup: Removing ${allFlights.length} flights (${allFlights.reduce((sum, f) => sum + f.actors.length, 0)} total sprites)`);
+      debugAirShowPhase("Cleanup", {
+        flights: allFlights.length,
+        totalSprites: allFlights.reduce((sum, f) => sum + f.actors.length, 0)
+      });
       allFlights.forEach((flight) => {
         flight.actors.forEach((actor) => actor.image.remove());
       });
@@ -2908,33 +3009,55 @@ export class HexMapRenderer implements IMapRenderer {
     // Phase 0: Basic structure only - no rendering yet
     // This demonstrates the timeline architecture that will replace sequential phases
 
-    console.log(`[PlayLinkedStrikePackage] Starting package with ${scene.beats.length} beats over ${scene.totalDurationMs}ms`);
-    console.log(`  Combat volume: (${scene.combatVolume.centerX}, ${scene.combatVolume.centerY}) r=${scene.combatVolume.radiusPx}px`);
-    console.log(`  Bomber corridor: (${scene.bomberCorridor.startX}, ${scene.bomberCorridor.startY}) → (${scene.bomberCorridor.targetX}, ${scene.bomberCorridor.targetY})`);
-
-    // Collect all unique participants across all beats
+    // Collect all unique participants across all beats first
     const allParticipants = new Map<string, AirShowRuntimeFlight>();
     scene.beats.forEach((beat) => {
       beat.participants.fighters?.forEach((flight) => allParticipants.set(flight.id, flight));
       beat.participants.bombers?.forEach((flight) => allParticipants.set(flight.id, flight));
     });
 
-    console.log(`  Total participants: ${allParticipants.size} (${Array.from(allParticipants.values()).filter(f => f.role === "bomber").length} bombers, ${Array.from(allParticipants.values()).filter(f => f.role === "escort").length} escorts, ${Array.from(allParticipants.values()).filter(f => f.role === "interceptor").length} interceptors)`);
+    // Generate package ID for tracking and log package start
+    const packageId = `pkg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const missionIds = Array.from(allParticipants.values()).map(f => f.id);
+    const roles = Array.from(new Set(Array.from(allParticipants.values()).map(f => f.role as AirShowRole)));
 
-    // Phase 0 stub: Log beats but don't render them yet
+    logAirShowPackageStart(
+      packageId,
+      "LinkedStrikePackage",
+      "HexMapRenderer",
+      missionIds,
+      roles,
+      scene.targetHexKey
+    );
+
+    // Detailed debug info behind noisy flag
+    debugAirShowPhase("PackageInit", {
+      beats: scene.beats.length,
+      totalDurationMs: scene.totalDurationMs,
+      combatVolume: scene.combatVolume,
+      bomberCorridor: scene.bomberCorridor
+    });
+
+    // Log each beat start
     scene.beats.forEach((beat, index) => {
-      const fighterCount = beat.participants.fighters?.length ?? 0;
-      const bomberCount = beat.participants.bombers?.length ?? 0;
-      const tracerCount = beat.actions.tracers?.length ?? 0;
-      const flakCount = beat.actions.flakBursts?.length ?? 0;
-      const destroyedCount = beat.actions.destroyed?.length ?? 0;
+      const actorIds = [
+        ...(beat.participants.fighters?.map(f => f.id) ?? []),
+        ...(beat.participants.bombers?.map(f => f.id) ?? [])
+      ];
+      logAirShowBeatStart(packageId, index, beat.type, actorIds);
 
-      console.log(`  Beat ${index + 1} [${beat.type}]: T=${beat.startMs}-${beat.startMs + beat.durationMs}ms`);
-      console.log(`    Participants: ${fighterCount} fighters, ${bomberCount} bombers`);
-      console.log(`    Actions: ${tracerCount} tracers, ${flakCount} flak bursts, ${destroyedCount} destroyed`);
-      if (beat.actions.bombDrop) {
-        console.log(`    Bomb drop: ${beat.actions.bombDrop.bomberIds.length} bombers @ progress ${beat.actions.bombDrop.progressTrigger}`);
-      }
+      // Detailed debug logging behind noisy flag
+      debugAirShowPhase(`Beat-${index}`, {
+        type: beat.type,
+        startMs: beat.startMs,
+        durationMs: beat.durationMs,
+        fighters: beat.participants.fighters?.length ?? 0,
+        bombers: beat.participants.bombers?.length ?? 0,
+        tracers: beat.actions.tracers?.length ?? 0,
+        flakBursts: beat.actions.flakBursts?.length ?? 0,
+        destroyed: beat.actions.destroyed?.length ?? 0,
+        hasBombDrop: !!beat.actions.bombDrop
+      });
     });
 
     // TODO Phase 0.3: Create sprite elements for all participants
@@ -2945,7 +3068,13 @@ export class HexMapRenderer implements IMapRenderer {
     // For now, wait for the total duration to simulate the animation timeline
     await new Promise((resolve) => setTimeout(resolve, scene.totalDurationMs));
 
-    console.log(`[PlayLinkedStrikePackage] Package complete`);
+    // Determine outcome based on surviving actors
+    const survivingIds = Array.from(allParticipants.values())
+      .filter(f => f.id) // All survive in Phase 0 stub
+      .map(f => f.id);
+    const destroyedIds: string[] = []; // None destroyed in stub
+
+    logAirShowPackageEnd(packageId, "success", survivingIds, destroyedIds, true);
   }
 
   /**
@@ -2960,13 +3089,14 @@ export class HexMapRenderer implements IMapRenderer {
     pauseMs = 300,
     strength?: number,
     laneOffsetPx = 0,
-    faction?: SpriteRenderFaction
+    faction?: SpriteRenderFaction,
+    role: AirShowRole = "interceptor"
   ): Promise<void> {
-    await this.animateAircraftArc(fromKey, toKey, scenarioType, legDurationMs, undefined, 1, strength, laneOffsetPx, faction);
+    await this.animateAircraftArc(fromKey, toKey, scenarioType, legDurationMs, undefined, 1, strength, laneOffsetPx, faction, role);
     if (pauseMs > 0) {
       await new Promise<void>((resolve) => setTimeout(resolve, pauseMs));
     }
-    await this.animateAircraftArc(toKey, fromKey, scenarioType, legDurationMs, undefined, 1, strength, laneOffsetPx, faction);
+    await this.animateAircraftArc(toKey, fromKey, scenarioType, legDurationMs, undefined, 1, strength, laneOffsetPx, faction, role);
   }
 
   /**
@@ -3035,7 +3165,7 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const iconSize = HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE;
-    const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, options.strength);
+    const ghost = this.createAircraftFormationGhost(spriteHref, iconSize, options.strength, options.role ?? "interceptor");
     const isFormation = ghost instanceof SVGGElement;
     const layer = this.ensureCombatEffectsLayer();
     if (!layer) {
@@ -6262,14 +6392,21 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   /**
-   * Resolves formation layout for aircraft sprites based on strength.
+   * Resolves formation layout for aircraft sprites based on strength and role.
    * Returns positions for 1-4 sprites in tactical flight formations.
+   * Role-based spacing prevents overlap: fighters +50%, bombers +100% spread.
    */
   private resolveAircraftFormationLayout(
-    strength: number
+    strength: number,
+    role: AirShowRole = "interceptor"
   ): Array<{ ox: number; oy: number; scale: number }> {
     const stackCount = this.resolveUnitStackCount(strength);
-    const spacing = HexMapRenderer.AIRCRAFT_FORMATION_SPACING; // pixels between aircraft in formation
+    const baseSpacing = HexMapRenderer.AIRCRAFT_FORMATION_SPACING;
+    // Apply role-based spacing multiplier
+    const spacingMultiplier = role === "bomber"
+      ? HexMapRenderer.AIRCRAFT_BOMBER_SPACING_MULTIPLIER
+      : HexMapRenderer.AIRCRAFT_FIGHTER_SPACING_MULTIPLIER;
+    const spacing = baseSpacing * spacingMultiplier;
 
     // Scale decreases as formation size increases to maintain visual cohesion
     const scaleByCount: Record<number, number> = {
@@ -6315,29 +6452,37 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   /**
-   * Creates a formation group for aircraft animations showing multiple sprites based on strength.
+   * Creates a formation group for aircraft animations showing multiple sprites based on strength and role.
    * Falls back to single sprite if strength is not provided (backward compatibility).
+   * Role-based sizing: fighters +50%, bombers +100%.
    */
   private createAircraftFormationGhost(
     spriteHref: string,
     iconSize: number,
-    strength?: number
+    strength?: number,
+    role: AirShowRole = "interceptor"
   ): SVGGElement | SVGImageElement {
+    // Apply role-based size multiplier
+    const sizeMultiplier = role === "bomber"
+      ? HexMapRenderer.AIRCRAFT_BOMBER_SIZE_MULTIPLIER
+      : HexMapRenderer.AIRCRAFT_FIGHTER_SIZE_MULTIPLIER;
+    const scaledIconSize = iconSize * sizeMultiplier;
+
     // Backward compatibility: if no strength provided, use single sprite
     if (strength === undefined || strength === null) {
-      return this.createMoveGhost(spriteHref, iconSize, iconSize);
+      return this.createMoveGhost(spriteHref, scaledIconSize, scaledIconSize);
     }
 
     const formationGroup = document.createElementNS(SVG_NS, "g");
     formationGroup.classList.add("aircraft-formation");
     formationGroup.style.pointerEvents = "none";
 
-    const layout = this.resolveAircraftFormationLayout(strength);
+    const layout = this.resolveAircraftFormationLayout(strength, role);
 
     layout.forEach((spec, index) => {
       const sprite = document.createElementNS(SVG_NS, "image");
       sprite.setAttribute("href", spriteHref);
-      const spriteSize = iconSize * spec.scale;
+      const spriteSize = scaledIconSize * spec.scale;
       sprite.setAttribute("width", String(spriteSize));
       sprite.setAttribute("height", String(spriteSize));
       // Center each sprite at its offset position
@@ -6355,15 +6500,22 @@ export class HexMapRenderer implements IMapRenderer {
   private createAircraftSpriteGhosts(
     spriteHref: string,
     iconSize: number,
-    strength?: number
+    strength?: number,
+    role: AirShowRole = "interceptor"
   ): Array<{ image: SVGImageElement; size: number; biasX: number; biasY: number; formationIndex: number }> {
+    // Apply role-based size multiplier
+    const sizeMultiplier = role === "bomber"
+      ? HexMapRenderer.AIRCRAFT_BOMBER_SIZE_MULTIPLIER
+      : HexMapRenderer.AIRCRAFT_FIGHTER_SIZE_MULTIPLIER;
+    const scaledIconSize = iconSize * sizeMultiplier;
+
     const layout =
       strength === undefined || strength === null
         ? [{ ox: 0, oy: 0, scale: 1 }]
-        : this.resolveAircraftFormationLayout(strength);
+        : this.resolveAircraftFormationLayout(strength, role);
 
     return layout.map((spec, index) => {
-      const spriteSize = iconSize * spec.scale;
+      const spriteSize = scaledIconSize * spec.scale;
       const image = this.createMoveGhost(spriteHref, spriteSize, spriteSize);
       image.classList.add("aircraft-show-sprite", `aircraft-show-sprite-${index}`);
       return {
@@ -6538,7 +6690,12 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const origin = this.resolveHexCenterByKey(spec.originHexKey) ?? fallbackOrigin;
-    const ghosts = this.createAircraftSpriteGhosts(spriteHref, HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE, spec.strengthBefore);
+    const ghosts = this.createAircraftSpriteGhosts(
+      spriteHref,
+      HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE,
+      spec.strengthBefore,
+      spec.role
+    );
     const visibleCount = this.resolveAirShowVisibleActorCount(spec.strengthBefore);
     const formationMid = ghosts.length <= 1 ? 0 : (ghosts.length - 1) / 2;
     const actors: AirShowRuntimeActor[] = ghosts.map((ghostSpec, index) => {
@@ -6574,10 +6731,20 @@ export class HexMapRenderer implements IMapRenderer {
         : spec.combatRole && spec.combatRole !== spec.role
           ? `${spec.role}/${spec.combatRole}`
           : spec.role;
-    console.log(`[AirSprite] Created flight ${spec.id} (${roleLabel}): ${activeCount}/${actors.length} aircraft at (${Math.round(origin.cx)}, ${Math.round(origin.cy)}) heading ${Math.round(defaultHeadingDegrees)}°`);
-    actors.forEach((actor, i) => {
+    debugAirShowPhase("FlightCreated", {
+      flightId: spec.id,
+      role: roleLabel,
+      active: `${activeCount}/${actors.length}`,
+      origin: { cx: Math.round(origin.cx), cy: Math.round(origin.cy) },
+      heading: Math.round(defaultHeadingDegrees)
+    });
+    actors.forEach((actor) => {
       if (actor.active) {
-        console.log(`  [AirSprite] ${actor.id}: pos(${Math.round(actor.position.cx)}, ${Math.round(actor.position.cy)}) heading ${Math.round(actor.headingDegrees)}° formation#${actor.formationIndex}`);
+        debugAirShowActor(actor.id, "initialized", {
+          pos: { cx: Math.round(actor.position.cx), cy: Math.round(actor.position.cy) },
+          heading: Math.round(actor.headingDegrees),
+          formation: actor.formationIndex
+        });
       }
     });
 
@@ -6598,17 +6765,27 @@ export class HexMapRenderer implements IMapRenderer {
   ): AirShowPoint {
     const lane = total <= 1 ? 0 : index - (total - 1) / 2;
     const rand = this.seededRandom(this.seedFromHexKey(`airshow-anchor:${role}:${index}:${total}:${sideBias}`));
+
+    // Per North Star Spec: aircraft must spawn at least 8 hexes from combat center
+    // HEX_WIDTH ~83px, so 8 hexes = ~664px minimum distance
+    const MINIMUM_SPAWN_DISTANCE_PX = 8 * HEX_WIDTH; // ~665px
+
     if (role === "bomber") {
+      // Bombers spawn further out with slower ingress (3.0s minimum)
+      const bomberDistance = MINIMUM_SPAWN_DISTANCE_PX + rand() * 40;
       return {
-        cx: center.cx + sideBias * (118 + rand() * 18),
-        cy: center.cy + lane * 28 + (rand() - 0.5) * 18
+        cx: center.cx + sideBias * bomberDistance,
+        cy: center.cy + lane * 32 + (rand() - 0.5) * 24
       };
     }
-    const xBase = role === "interceptor" ? -146 : 146;
-    const laneSpread = 42;
+
+    // Fighters/escorts spawn at 8+ hex distance with faster ingress (1.25s minimum)
+    const fighterDistance = MINIMUM_SPAWN_DISTANCE_PX + rand() * 32;
+    const xBase = role === "interceptor" ? -fighterDistance : fighterDistance;
+    const laneSpread = 48;
     return {
-      cx: center.cx + xBase + sideBias * lane * 24 + (rand() - 0.5) * 26,
-      cy: center.cy + lane * laneSpread + (rand() - 0.5) * 20
+      cx: center.cx + xBase + sideBias * lane * 28 + (rand() - 0.5) * 30,
+      cy: center.cy + lane * laneSpread + (rand() - 0.5) * 24
     };
   }
 
@@ -6617,6 +6794,160 @@ export class HexMapRenderer implements IMapRenderer {
       cx: point.cx + dx,
       cy: point.cy + dy
     };
+  }
+
+  /**
+   * Calculates minimum center-to-center spacing between aircraft sprites based on roles.
+   * Same-role: 0.8 sprite widths | Different-role: 1.0 sprite widths
+   */
+  private resolveAirShowMinimumSpacing(spriteSizeA: number, spriteSizeB: number, roleA: AirShowRole, roleB: AirShowRole): number {
+    const avgSize = (spriteSizeA + spriteSizeB) / 2;
+    const isSameRole = roleA === roleB;
+    const spacingFactor = isSameRole
+      ? HexMapRenderer.AIRCRAFT_SAME_ROLE_SPACING_FACTOR
+      : HexMapRenderer.AIRCRAFT_DIFF_ROLE_SPACING_FACTOR;
+    return avgSize * spacingFactor;
+  }
+
+  /**
+   * Detects sprite collisions and resolves spacing violations.
+   * Returns corrected positions with enforced minimum spacing.
+   */
+  private resolveAirShowCollisionFreePositions(
+    actors: ReadonlyArray<AirShowRuntimeActor>,
+    targetPositions: ReadonlyArray<AirShowPoint>,
+    maxIterations = 3
+  ): AirShowPoint[] {
+    if (actors.length !== targetPositions.length) {
+      return [...targetPositions];
+    }
+
+    // Create mutable copies
+    let positions = targetPositions.map(p => ({ ...p }));
+    const activeActors = actors.filter(a => a.active);
+
+    // Iteratively resolve collisions
+    for (let iteration = 0; iteration < maxIterations; iteration++) {
+      let hadCollision = false;
+
+      for (let i = 0; i < activeActors.length; i++) {
+        for (let j = i + 1; j < activeActors.length; j++) {
+          const actorA = activeActors[i];
+          const actorB = activeActors[j];
+          const posA = positions[i];
+          const posB = positions[j];
+
+          // Calculate current distance
+          const dx = posB.cx - posA.cx;
+          const dy = posB.cy - posA.cy;
+          const distance = Math.hypot(dx, dy);
+
+          // Calculate required minimum spacing
+          const minSpacing = this.resolveAirShowMinimumSpacing(
+            actorA.size,
+            actorB.size,
+            actorA.role,
+            actorB.role
+          );
+
+          // If collision detected, push apart
+          if (distance < minSpacing && distance > 0) {
+            hadCollision = true;
+            const overlap = minSpacing - distance;
+            const pushX = (dx / distance) * overlap * 0.55; // Distribute push between both actors
+            const pushY = (dy / distance) * overlap * 0.55;
+
+            positions[i] = { cx: posA.cx - pushX, cy: posA.cy - pushY };
+            positions[j] = { cx: posB.cx + pushX, cy: posB.cy + pushY };
+          }
+        }
+      }
+
+      if (!hadCollision) break; // All collisions resolved
+    }
+
+    return positions;
+  }
+
+  /**
+   * Assigns altitude lanes when aircraft density exceeds threshold (>6 aircraft).
+   * Fans aircraft into layered offsets to prevent visual congestion.
+   */
+  private resolveAirShowAltitudeLaneOffsets(
+    flights: ReadonlyArray<AirShowRuntimeFlightInternal>,
+    basePositions: ReadonlyArray<AirShowPoint>
+  ): AirShowPoint[] {
+    const totalActors = flights.reduce((sum, f) => sum + f.actors.filter(a => a.active).length, 0);
+
+    // If density is low, no altitude layering needed
+    if (totalActors <= HexMapRenderer.AIRCRAFT_MAX_DENSITY_BEFORE_EXPANSION) {
+      return [...basePositions];
+    }
+
+    // Assign altitude lanes by flight role to maintain visual hierarchy
+    // Interceptors: high lane (-offset), Escorts: mid lane, Bombers: low lane (+offset)
+    const laneByRole: Record<AirShowRole, number> = {
+      interceptor: -1,
+      escort: 0,
+      bomber: 1
+    };
+
+    let positionIndex = 0;
+    const result: AirShowPoint[] = [];
+
+    for (const flight of flights) {
+      const activeActors = flight.actors.filter(a => a.active);
+      const lane = laneByRole[flight.spec.role] ?? 0;
+      const laneOffset = lane * HexMapRenderer.AIRCRAFT_ALTITUDE_LANE_OFFSET_PX;
+
+      for (const actor of activeActors) {
+        const basePos = basePositions[positionIndex];
+        // Apply lateral offset based on lane (simulated altitude via parallax)
+        result.push({
+          cx: basePos.cx + laneOffset * 0.3, // Slight lateral shift
+          cy: basePos.cy + laneOffset          // Vertical lane separation
+        });
+        positionIndex++;
+      }
+    }
+
+    // Log altitude lane assignment for diagnostics
+    debugAirShowPhase("AltitudeLanesApplied", {
+      totalActors,
+      densityThreshold: HexMapRenderer.AIRCRAFT_MAX_DENSITY_BEFORE_EXPANSION,
+      lanesUsed: [...new Set(flights.map(f => laneByRole[f.spec.role] ?? 0))].sort()
+    });
+
+    return result;
+  }
+
+  /**
+   * Expands combat ellipse when screen-space density exceeds threshold.
+   * Pre-rendering adjustment to ensure adequate spacing before animation.
+   */
+  private resolveAirShowExpandedCombatEllipse(
+    center: AirShowPoint,
+    flights: ReadonlyArray<AirShowRuntimeFlightInternal>,
+    baseRadiusPx: number
+  ): { center: AirShowPoint; radiusPx: number } {
+    const totalActors = flights.reduce((sum, f) => sum + f.actors.filter(a => a.active).length, 0);
+
+    // If density exceeds threshold, expand the combat ellipse
+    if (totalActors > HexMapRenderer.AIRCRAFT_MAX_DENSITY_BEFORE_EXPANSION) {
+      const expansionFactor = 1 + (totalActors - HexMapRenderer.AIRCRAFT_MAX_DENSITY_BEFORE_EXPANSION) * 0.15;
+      const expandedRadius = baseRadiusPx * expansionFactor;
+
+      debugAirShowPhase("CombatEllipseExpanded", {
+        baseRadius: Math.round(baseRadiusPx),
+        expandedRadius: Math.round(expandedRadius),
+        totalActors,
+        expansionFactor: Math.round(expansionFactor * 100) / 100
+      });
+
+      return { center, radiusPx: expandedRadius };
+    }
+
+    return { center, radiusPx: baseRadiusPx };
   }
 
   private interpolateAirShowPoint(start: AirShowPoint, end: AirShowPoint, progress: number): AirShowPoint {
@@ -7144,32 +7475,34 @@ export class HexMapRenderer implements IMapRenderer {
     };
 
     if (reengage) {
-      const weaveEntry = pointFromFocus(
+      // Authored reengage pass: Approach arc → Commit pass → Break turn → Rejoin arc → Egress arc
+      // No direction reversals. Control-point noise only at approach entry.
+      const approachEntry = pointFromFocus(
+        -sideSign * 14,
+        sideSign * (62 + laneSpreadPx * 0.12)
+      );
+      const approachTurn = buildEntryTurn(approachEntry, sideSign, 52, 42);
+      // Commit pass: monotonic sweep through the focal zone
+      const commitPoint = pointFromFocus(
         sideSign * 8,
-        sideSign * (54 + laneSpreadPx * 0.14)
+        sideSign * Math.max(8, crossSeparationPx * 0.6 + laneIndex * 4)
       );
-      const transition = buildEntryTurn(weaveEntry, sideSign, 46, 38);
-      const snakePointA = pointFromFocus(
-        34,
-        -sideSign * (16 + laneSpreadPx * 0.06)
+      // Break turn: sharp exit arc away from focal zone, same lateral direction — no reversal
+      const breakApex = pointFromFocus(
+        sideSign * 48,
+        -sideSign * (52 + laneSpreadPx * 0.12)
       );
-      const snakePointB = pointFromFocus(
-        -12,
-        sideSign * (22 + laneSpreadPx * 0.08)
+      // Rejoin arc: sweeps outward continuing the break direction
+      const rejoinArc = pointFromFocus(
+        sideSign * 96,
+        -sideSign * (72 + laneSpreadPx * 0.14)
       );
-      const gunPoint = pointFromFocus(
-        22,
-        -sideSign * Math.max(10, crossSeparationPx - 4 + laneIndex * 4)
+      // Egress arc: exits the engagement zone cleanly
+      const egressEnd = pointFromFocus(
+        sideSign * 148,
+        -sideSign * (44 + laneSpreadPx * 0.08)
       );
-      const hookPoint = pointFromFocus(
-        74,
-        -sideSign * (68 + laneSpreadPx * 0.14)
-      );
-      const chasePoint = pointFromFocus(
-        126,
-        -sideSign * (36 + laneSpreadPx * 0.08)
-      );
-      return [...transition, snakePointA, snakePointB, gunPoint, hookPoint, chasePoint];
+      return [...approachTurn, commitPoint, breakApex, rejoinArc, egressEnd];
     }
     const turnInPoint = pointFromFocus(
       -sideSign * 26,
@@ -7184,16 +7517,18 @@ export class HexMapRenderer implements IMapRenderer {
       sideSign * 10,
       -sideSign * Math.max(10, crossSeparationPx - 6 + laneIndex * 4)
     );
-    const hookPoint = pointFromFocus(
-      sideSign * 32,
-      -sideSign * (58 + laneSpreadPx * 0.1 + passSign * 6)
+    // Break turn exit: sweeps away from focal zone in consistent direction — no coil reversal
+    const breakExit = pointFromFocus(
+      sideSign * 52,
+      -sideSign * (68 + laneSpreadPx * 0.1 + passSign * 6)
     );
-    const coilPoint = pointFromFocus(
-      sideSign * 12,
-      -sideSign * (34 + laneSpreadPx * 0.08)
+    // Egress continues the break direction monotonically
+    const egressPoint = pointFromFocus(
+      sideSign * 110,
+      -sideSign * (52 + laneSpreadPx * 0.08)
     );
 
-    return [...entryTurn, mergePoint, crossingPoint, hookPoint, coilPoint];
+    return [...entryTurn, mergePoint, crossingPoint, breakExit, egressPoint];
   }
 
   private resolveAirShowHeadingVector(headingDegrees: number): { x: number; y: number } {
@@ -7791,15 +8126,14 @@ export class HexMapRenderer implements IMapRenderer {
       .map((actor) => ({
         actor,
         points: basePath.map((point, pointIndex) => ({
+          // Per spec: noise applied only at waypoint 0 (control-point generation).
+          // No growing factor per point — prevents per-frame jitter accumulation.
           cx:
             point.cx +
-            actor.biasX * (pointIndex === 0 ? 1 : 0.92 + pointIndex * 0.06) +
-            actor.biasY * pointIndex * 0.04,
+            (pointIndex === 0 ? actor.biasX : 0),
           cy:
             point.cy +
-            actor.biasY * (pointIndex === 0 ? 1 : 0.92 + pointIndex * 0.06) +
-            ((actor.formationIndex % 2 === 0 ? -1 : 1) *
-              Math.min(14, Math.hypot(actor.biasX, actor.biasY) * (0.1 + pointIndex * 0.08)))
+            (pointIndex === 0 ? actor.biasY : 0)
         })),
         headingBlend,
         progressOffset:
@@ -7831,6 +8165,82 @@ export class HexMapRenderer implements IMapRenderer {
     assignments: ReadonlyArray<AirShowPhaseAssignment>
   ): Map<string, AirShowPhaseAssignment> {
     return new Map(assignments.map((assignment) => [assignment.actor.id, assignment] as const));
+  }
+
+  /**
+   * Resolves collision-aware spacing across all phase assignments.
+   * Enforces minimum spacing between actors from different flights during combat phases.
+   * Per North Star Spec: 0.8 sprite widths (same-role), 1.0 (different-role).
+   */
+  private resolveAirShowPhaseSpacing(
+    assignments: ReadonlyArray<AirShowPhaseAssignment>,
+    progressSamplePoints: number[] = [0.3, 0.5, 0.7] // Check spacing at multiple points along paths
+  ): AirShowPhaseAssignment[] {
+    // Get all active actors
+    const allActors = assignments.map(a => a.actor);
+    const totalActiveActors = allActors.filter(a => a.active).length;
+
+    // If low density, no inter-flight spacing correction needed
+    if (totalActiveActors <= HexMapRenderer.AIRCRAFT_MAX_DENSITY_BEFORE_EXPANSION) {
+      return [...assignments];
+    }
+
+    debugAirShowPhase("PhaseSpacingResolution", {
+      totalAssignments: assignments.length,
+      activeActors: totalActiveActors,
+      threshold: HexMapRenderer.AIRCRAFT_MAX_DENSITY_BEFORE_EXPANSION
+    });
+
+    // Create mutable copies of assignments
+    const resolvedAssignments = assignments.map(a => ({
+      ...a,
+      points: [...a.points]
+    }));
+
+    // Check and resolve spacing at each sample point along the paths
+    for (const progress of progressSamplePoints) {
+      // Get positions at this progress for all actors
+      const positionsAtProgress: AirShowPoint[] = [];
+      const actorIndices: number[] = [];
+
+      resolvedAssignments.forEach((assignment, index) => {
+        const sampled = this.sampleAirShowAssignmentAtProgress(assignment, progress);
+        positionsAtProgress.push(sampled.position);
+        actorIndices.push(index);
+      });
+
+      // Resolve collisions at this progress point
+      const resolvedPositions = this.resolveAirShowCollisionFreePositions(
+        allActors,
+        positionsAtProgress,
+        2 // Max iterations per progress point
+      );
+
+      // Apply corrections to assignment paths (distribute correction across path points)
+      for (let i = 0; i < resolvedPositions.length; i++) {
+        const assignmentIndex = actorIndices[i];
+        const originalPos = positionsAtProgress[i];
+        const resolvedPos = resolvedPositions[i];
+        const correctionX = resolvedPos.cx - originalPos.cx;
+        const correctionY = resolvedPos.cy - originalPos.cy;
+
+        // Apply correction to all path points proportionally
+        const assignment = resolvedAssignments[assignmentIndex];
+        const pathLength = assignment.points.length;
+        assignment.points = assignment.points.map((point, pointIndex) => {
+          // Apply more correction near the sample point, less at path ends
+          const proximityFactor = 1 - Math.abs((pointIndex / (pathLength - 1 || 1)) - progress);
+          const factor = proximityFactor * 0.5; // Dampen correction to avoid path distortion
+
+          return {
+            cx: point.cx + correctionX * factor,
+            cy: point.cy + correctionY * factor
+          };
+        });
+      }
+    }
+
+    return resolvedAssignments;
   }
 
   private selectAirShowTracerActors(
@@ -8439,11 +8849,19 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    console.log(`[AirSprite] Phase starting: ${assignments.length} aircraft moving over ${durationMs}ms, ${tracerBursts.length} tracer bursts scheduled`);
+    debugAirShowPhase("PhaseStart", {
+      aircraft: assignments.length,
+      durationMs,
+      tracerBursts: tracerBursts.length
+    });
     assignments.forEach(assignment => {
       const start = assignment.points[0];
       const end = assignment.points[assignment.points.length - 1];
-      console.log(`  [AirSprite] ${assignment.actor.id}: path from (${Math.round(start?.cx ?? 0)}, ${Math.round(start?.cy ?? 0)}) to (${Math.round(end?.cx ?? 0)}, ${Math.round(end?.cy ?? 0)}) [${assignment.points.length} waypoints]`);
+      debugAirShowActor(assignment.actor.id, "path assigned", {
+        from: { cx: Math.round(start?.cx ?? 0), cy: Math.round(start?.cy ?? 0) },
+        to: { cx: Math.round(end?.cx ?? 0), cy: Math.round(end?.cy ?? 0) },
+        waypoints: assignment.points.length
+      });
     });
 
     const sortedBursts = [...tracerBursts].sort((left, right) => left.progress - right.progress);
@@ -8461,12 +8879,16 @@ export class HexMapRenderer implements IMapRenderer {
         const progressCheckpoint = Math.floor(rawProgress * 4) * 25;
         if (progressCheckpoint > lastLoggedProgress && progressCheckpoint > 0) {
           lastLoggedProgress = progressCheckpoint;
-          console.log(`[AirSprite] Phase progress: ${progressCheckpoint}% (${Math.round(elapsed)}ms)`);
+          debugAirShowPhase("Progress", { percent: progressCheckpoint, elapsedMs: Math.round(elapsed) });
           assignments.slice(0, 3).forEach(assignment => {
-            console.log(`  [AirSprite] ${assignment.actor.id}: at (${Math.round(assignment.actor.position.cx)}, ${Math.round(assignment.actor.position.cy)}) heading ${Math.round(assignment.actor.headingDegrees)}°`);
+            debugAirShowActor(assignment.actor.id, "position", {
+              cx: Math.round(assignment.actor.position.cx),
+              cy: Math.round(assignment.actor.position.cy),
+              heading: Math.round(assignment.actor.headingDegrees)
+            });
           });
           if (assignments.length > 3) {
-            console.log(`  [AirSprite] ... and ${assignments.length - 3} more aircraft`);
+            debugAirShowPhase("MoreActors", { count: assignments.length - 3 });
           }
         }
 
@@ -8494,7 +8916,11 @@ export class HexMapRenderer implements IMapRenderer {
           const burst = sortedBursts[nextBurstIndex]!;
           const sourceId = burst.source.id;
           const targetId = 'id' in burst.target ? burst.target.id : `point(${Math.round(burst.target.cx)},${Math.round(burst.target.cy)})`;
-          console.log(`[AirSprite] Tracer burst @ ${Math.round(easedProgress * 100)}%: ${sourceId} → ${targetId} from ${burst.emitter}`);
+          debugAirShowEffect(`Tracer burst @ ${Math.round(easedProgress * 100)}%`, {
+            source: sourceId,
+            target: targetId,
+            emitter: burst.emitter
+          });
           this.playAirShowTracerBurst(burst);
           nextBurstIndex += 1;
         }
@@ -8523,7 +8949,7 @@ export class HexMapRenderer implements IMapRenderer {
               assignment.actor.headingDegrees
             );
           });
-          console.log(`[AirSprite] Phase complete (${Math.round(now - startTime)}ms)`);
+          debugAirShowPhase("Complete", { durationMs: Math.round(now - startTime) });
           resolve();
           return;
         }
@@ -8543,7 +8969,11 @@ export class HexMapRenderer implements IMapRenderer {
     const targetVisibleCount = this.resolveAirShowVisibleActorCount(flight.currentStrength);
     const activeActors = flight.actors.filter((actor) => actor.active);
 
-    console.log(`[AirSprite] Strength sync for ${flight.spec.id}: ${previousStrength} → ${targetStrength} (${activeActors.length} → ${targetVisibleCount} visible aircraft)`);
+    debugAirShowPhase("StrengthSync", {
+      flightId: flight.spec.id,
+      strengthChange: `${previousStrength} → ${targetStrength}`,
+      visibilityChange: `${activeActors.length} → ${targetVisibleCount}`
+    });
 
     if (activeActors.length <= targetVisibleCount) {
       return;
@@ -8553,9 +8983,15 @@ export class HexMapRenderer implements IMapRenderer {
       .sort((left, right) => right.formationIndex - left.formationIndex)
       .slice(0, activeActors.length - targetVisibleCount);
 
-    console.log(`[AirSprite] Removing ${removedActors.length} aircraft from ${flight.spec.id}:`);
+    debugAirShowPhase("RemovingActors", {
+      flightId: flight.spec.id,
+      count: removedActors.length
+    });
     removedActors.forEach(actor => {
-      console.log(`  [AirSprite] ${actor.id} diving out from (${Math.round(actor.position.cx)}, ${Math.round(actor.position.cy)})`);
+      debugAirShowActor(actor.id, "diving out", {
+        cx: Math.round(actor.position.cx),
+        cy: Math.round(actor.position.cy)
+      });
     });
 
     const assignments: AirShowPhaseAssignment[] = removedActors.map((actor, index) => {
@@ -8575,7 +9011,10 @@ export class HexMapRenderer implements IMapRenderer {
     removedActors.forEach((actor) => {
       actor.active = false;
     });
-    console.log(`[AirSprite] ${flight.spec.id} now has ${flight.actors.filter(a => a.active).length} active aircraft`);
+    debugAirShowPhase("ActiveCount", {
+      flightId: flight.spec.id,
+      active: flight.actors.filter(a => a.active).length
+    });
   }
 
   private resolveAircraftSortieTurnVector(

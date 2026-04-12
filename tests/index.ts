@@ -53,6 +53,7 @@ import "./ReconBike.balance.test.js";
 import "./ATGun.combatMath.test.js";
 import "./BotTargeting.heuristic.test.js";
 import "./precombatLogisticsMinimum.test.js";
+import "./AirShow.fighterMotion.test.js";
 
 // Execute the registered tests sequentially.
 (async () => {

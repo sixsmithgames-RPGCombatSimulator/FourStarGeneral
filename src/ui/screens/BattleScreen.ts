@@ -98,7 +98,20 @@ import unitTypesSource from "../../data/unitTypes.json";
 import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { setMissionStartedUI } from "../utils/missionUi";
-import { buildResolvedAirCombatScene } from "../airshow/ResolvedAirCombatSceneBuilder";
+import { buildResolvedAirCombatScene, type BuildResolvedAirCombatSceneOptions } from "../airshow/ResolvedAirCombatSceneBuilder";
+import {
+  logAirShowPackageStart,
+  logAirShowBeatStart,
+  logAirShowActorTransition,
+  logAirShowEffect,
+  logAirShowOwnershipAssert,
+  logAirShowPackageEnd,
+  logAirShowReportLink,
+  debugAirShowPhase,
+  debugAirShowEffect,
+  type AirShowRole,
+  type AirShowActorState
+} from "../airshow/AirShowLogger";
 
 type ActivityCategory = "player" | "enemy" | "system";
 type ActivityType = "attack" | "move" | "deployment" | "supply" | "turn" | "log";
