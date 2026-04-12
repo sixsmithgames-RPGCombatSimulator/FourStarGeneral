@@ -5,6 +5,7 @@ import { hexDistance } from "../../core/Hex";
 import { CampaignMapRenderer } from "../../rendering/CampaignMapRenderer";
 import { MapViewport } from "../controls/MapViewport";
 import { ensureCampaignState } from "../../state/CampaignState";
+import { ensureUnlockState } from "../../state/UnlockState";
 
 interface CampaignScreenStatusMessage {
   title: string;
@@ -17,6 +18,7 @@ export class CampaignScreen {
   private readonly screenManager: IScreenManager;
   private readonly campaignState = ensureCampaignState();
   private readonly renderer: CampaignMapRenderer;
+  private readonly unlockState = ensureUnlockState();
   private element: HTMLElement;
   private economyContainer: HTMLElement | null = null;
   private selectionContainer: HTMLElement | null = null;
@@ -265,7 +267,32 @@ export class CampaignScreen {
     };
   }
 
+  /**
+   * Displays a locked message when campaign mode is not unlocked.
+   * Redirects user to pricing page for full-game subscription.
+   */
+  private showCampaignLockedMessage(): void {
+    const purchaseUrl = this.unlockState.buildPurchaseUrlForSku("campaign");
+    this.element.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100%;padding:4rem;text-align:center;">
+        <div style="font-size:3rem;margin-bottom:1rem;">🔒</div>
+        <h1 style="font-size:2rem;font-weight:800;margin-bottom:0.5rem;letter-spacing:0.08em;text-transform:uppercase;">Campaign Locked</h1>
+        <p style="color:#f5c46d;margin-bottom:2rem;max-width:500px;line-height:1.6;">
+          Campaign mode requires a full-game subscription. Unlock the Western Europe offensive by subscribing to Four Star General or the All-Access Bundle.
+        </p>
+        <a href="${purchaseUrl}" style="background:linear-gradient(135deg,#b45309,#f5c46d);color:#080a11;padding:0.875rem 2rem;border-radius:50px;text-decoration:none;font-weight:700;font-size:1rem;">View Plans →</a>
+        <button type="button" class="secondary-button" style="margin-top:1rem;color:#6b7280;font-size:0.875rem;background:none;border:none;cursor:pointer;text-decoration:underline;" onclick="window.location.reload()">Return to Landing Screen</button>
+      </div>
+    `;
+  }
+
   initialize(): void {
+    // Guard: Prevent campaign access if not unlocked
+    if (this.unlockState.isCampaignLocked("campaign")) {
+      this.showCampaignLockedMessage();
+      return;
+    }
+
     // Capture sidebar hooks if present. These may be null in minimal DOMs (e.g. tests)
     this.economyContainer = this.element.querySelector<HTMLElement>("#campaignEconomySummary");
     this.selectionContainer = this.element.querySelector<HTMLElement>("#campaignSelectionInfo");

@@ -14,6 +14,8 @@ export interface UnlockCatalog {
   readonly unlockSchools: readonly string[];
   /** Unit allocation keys that require an unlock purchase (aligns with allocationOptions). */
   readonly unlockUnits: readonly string[];
+  /** Campaign keys that require full-game access (no individual campaign purchase). */
+  readonly unlockCampaigns: readonly string[];
   /** Subscription plans that unlock the full Four Star General roster. */
   readonly fullAccessPlanIds: readonly string[];
   /** Base URL for purchase redirects handled on the main site. */
@@ -69,6 +71,14 @@ export const UNLOCK_UNIT_KEYS: readonly string[] = [
   "apcTruckColumn"
 ] as const;
 
+/**
+ * Campaign keys that require full-game access (no individual campaign purchase).
+ * Campaign mode is gated behind subscription to fourstargeneral or bundle.
+ */
+export const UNLOCK_CAMPAIGN_KEYS: readonly string[] = [
+  "campaign"
+] as const;
+
 export const FULL_GAME_PLAN_IDS: readonly string[] = [
   "fourstargeneral",
   "bundle"
@@ -89,6 +99,7 @@ export const UNLOCK_CATALOG: UnlockCatalog = {
   unlockRegions: UNLOCK_REGION_KEYS,
   unlockSchools: UNLOCK_SCHOOL_KEYS,
   unlockUnits: UNLOCK_UNIT_KEYS,
+  unlockCampaigns: UNLOCK_CAMPAIGN_KEYS,
   fullAccessPlanIds: FULL_GAME_PLAN_IDS,
   purchaseBaseUrl: PURCHASE_BASE_URL
 };
@@ -139,6 +150,14 @@ export function isUnitUnlock(unitKey: string | null | undefined): boolean {
 export function isFullGamePlan(planId: string | null | undefined): boolean {
   if (!planId) return false;
   return FULL_GAME_PLAN_IDS.includes(planId);
+}
+
+/**
+ * Returns true when a campaign key requires full-game access (no individual campaign purchase).
+ */
+export function isCampaignUnlock(campaignKey: string | null | undefined): boolean {
+  if (!campaignKey) return false;
+  return UNLOCK_CAMPAIGN_KEYS.includes(campaignKey);
 }
 
 /**

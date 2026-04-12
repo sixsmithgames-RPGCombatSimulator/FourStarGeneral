@@ -11,6 +11,7 @@ Keep development focused, incremental, and reversible. Prevent scope creep, cros
 Every change must:
 
 - **Actually look in the files** — no assumptions
+- **Realign before every iteration** — reopen the authoritative spec, restate the full architecture, and confirm the next step serves the north star instead of a narrow symptom
 - **Trace the logic** — understand before modifying
 - **Fully document the change** — comments, design notes, changelog
 - **Make it easy to roll back** — small, isolated changes
@@ -18,6 +19,8 @@ Every change must:
 ### Core Principles
 
 - **Use existing patterns.** Do not create new architectures, libraries, or patterns. Use the existing stack and patterns already present.
+- **Respect source-of-truth hierarchy.** Work from one canonical spec per feature area. Historical plans, evaluations, and TODOs are supporting context, not peer authorities.
+- **Follow governed iteration.** For recursive spec-driven work, use `docs/ITERATION_GOVERNANCE.md`. The loop is test -> report -> evaluate -> analyze -> plan -> review against spec -> realign plan if needed -> implement -> update test if needed -> repeat.
 
 - **Check impact.** Verify your change impact on other modules and files. If a needed file isn't listed, add a follow-up task.
 

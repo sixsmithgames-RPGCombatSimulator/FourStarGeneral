@@ -378,9 +378,15 @@ export function getMissionUnlockRequirement(mission: MissionKey): MissionUnlockR
   return missionUnlockRequirements[mission];
 }
 
-export function isMissionUnlocked(mission: MissionKey, missionsCompleted: number, victories: number): boolean {
+export function isMissionUnlocked(mission: MissionKey, missionsCompleted: number, victories: number, hasCampaignUnlock?: boolean): boolean {
   const requirement = missionUnlockRequirements[mission];
-  return missionsCompleted >= requirement.missionsCompleted && victories >= requirement.victories;
+  const meetsExperienceRequirements = missionsCompleted >= requirement.missionsCompleted && victories >= requirement.victories;
+
+  if (mission === "campaign") {
+    return meetsExperienceRequirements && (hasCampaignUnlock !== false);
+  }
+
+  return meetsExperienceRequirements;
 }
 
 export function getMissionDeploymentProfile(mission: MissionKey): MissionDeploymentProfile {

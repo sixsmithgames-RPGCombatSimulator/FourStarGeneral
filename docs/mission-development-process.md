@@ -7,6 +7,8 @@ Use it with:
 - `docs/MISSION_DESIGN_GUIDE.md` for the exact architecture and file responsibilities
 - `docs/four_star_general_mission_creation_agent_spec.md` for the required Mission Package contents
 
+For recursive implementation work that must repeatedly realign to a canonical specification, follow `docs/ITERATION_GOVERNANCE.md` alongside this file.
+
 ## Prerequisite
 Do not start coding until the mission has a complete Mission Package.
 

@@ -5,7 +5,8 @@ import {
   isFullGamePlan,
   isRegionUnlock,
   isSchoolUnlock,
-  isUnitUnlock
+  isUnitUnlock,
+  isCampaignUnlock
 } from "../data/unlocks";
 
 export type UnlockSubscriptionStatus = "active" | "inactive" | "trialing" | "past_due" | null;
@@ -176,6 +177,20 @@ export class UnlockState {
       return false;
     }
     return isUnitUnlock(unitKey) && !this.hasUnitAccess(unitKey);
+  }
+
+  hasCampaignAccess(campaignKey: string | null | undefined): boolean {
+    if (!campaignKey) {
+      return false;
+    }
+    return this.hasFullGameAccess();
+  }
+
+  isCampaignLocked(campaignKey: string | null | undefined): boolean {
+    if (!campaignKey) {
+      return false;
+    }
+    return isCampaignUnlock(campaignKey) && !this.hasCampaignAccess(campaignKey);
   }
 
   buildPurchaseUrlForSku(sku: string): string {

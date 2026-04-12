@@ -871,10 +871,15 @@ export class LandingScreen {
         } else {
           const missionsCompleted = selectedGeneral.serviceRecord?.missionsCompleted ?? 0;
           const victories = selectedGeneral.serviceRecord?.victoriesAchieved ?? 0;
-          isLocked = !isMissionUnlocked(missionKey, missionsCompleted, victories);
+          const hasCampaignUnlock = missionKey === "campaign" ? !this.unlockState.isCampaignLocked("campaign") : undefined;
+          isLocked = !isMissionUnlocked(missionKey, missionsCompleted, victories, hasCampaignUnlock);
 
           if (isLocked) {
-            lockReason = `Locked: ${unlockReq.description}. Current progress: ${missionsCompleted} missions, ${victories} victories`;
+            if (missionKey === "campaign" && this.unlockState.isCampaignLocked("campaign")) {
+              lockReason = "Campaign mode requires a full-game subscription. Unlock to access the Western Europe offensive.";
+            } else {
+              lockReason = `Locked: ${unlockReq.description}. Current progress: ${missionsCompleted} missions, ${victories} victories`;
+            }
           }
         }
 
@@ -906,7 +911,8 @@ export class LandingScreen {
     const victories = general.serviceRecord?.victoriesAchieved ?? 0;
 
     return UIState.getMissionKeys().filter((missionKey) => {
-      return isMissionUnlocked(missionKey, missionsCompleted, victories);
+      const hasCampaignUnlock = missionKey === "campaign" ? !this.unlockState.isCampaignLocked("campaign") : undefined;
+      return isMissionUnlocked(missionKey, missionsCompleted, victories, hasCampaignUnlock);
     });
   }
 
