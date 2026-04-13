@@ -9077,8 +9077,8 @@ export class HexMapRenderer implements IMapRenderer {
         return;
       }
       assignment.actor.position = {
-        cx: finalPoint.cx,
-        cy: finalPoint.cy
+        cx: finalPoint.cx - assignment.actor.biasX,
+        cy: finalPoint.cy - assignment.actor.biasY
       };
       if (assignment.points.length >= 2) {
         const previousPoint = assignment.points[assignment.points.length - 2]!;

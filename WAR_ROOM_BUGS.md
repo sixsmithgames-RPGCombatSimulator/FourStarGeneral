@@ -1,5 +1,22 @@
 # War Room HQ - Bug Analysis
 
+## Recent Fixes Completed (April 13, 2026)
+
+### ~~**Air Show Phase Handoff Continuity Gap (Double-Bias)**~~ ~~FIXED~~
+**Location**: `HexMapRenderer.ts` — `applyInspectionAirShowAssignments`
+
+**Problem Identified**:
+- 7.2px positional gap between `escort-clash-scramble` → `bomber-ingress` phase boundaries
+- Root cause: `applyInspectionAirShowAssignments` stored the biased endpoint (`finalPoint.cx/cy`) into `actor.position`. The next phase's path builder reads `actor.position` as the path start, then `buildAirShowFlightAssignments` adds `actor.biasX/biasY` again → double-bias at every inter-phase handoff.
+
+**Fix Applied**:
+- `applyInspectionAirShowAssignments` now stores `finalPoint - bias` as `actor.position` (unbiased endpoint), so the next phase's `buildAirShowFlightAssignments` can correctly apply bias once.
+
+**New Diagnostic Tests** (`tests/AirShow.fighterMotion.test.ts`):
+- `AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY` — validates ≤2px gap at all phase boundaries
+
+**Status**: All 9 airshow tests passing. 0 regressions.
+
 ## Recent Fixes Completed (April 12, 2026)
 
 ### ~~**Fighter Motion Path Jitter ("Coiling Snake")**~~ ~~FIXED~~
