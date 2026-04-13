@@ -686,6 +686,23 @@ The air show is not done until all of these are true:
 - Samples every ~250ms with `{timeMs, progress, cx, cy, headingDegrees}`
 - Enables animation verification and collision detection
 
+### April 13, 2026 — User Reported Fixes
+
+**Fixed: Flak Timing Misplaced**
+- **Issue**: Flak fired at 82-99% of strike run (after sprites gone), not during approach
+- **Fix**: Changed progress window to 25-55% — flak now fires during bomber approach to target
+- **Files**: `ResolvedAirCombatSceneBuilder.ts`, `airScenarioSupport.ts`
+
+**Fixed: Aircraft Disappear at Target / Reappear for Egress**
+- **Issue**: Combat damage set `actor.active = false`, excluding actors from subsequent phase assignments
+- **Fix**: Removed `actor.active` filter from `buildAirShowFlightAssignments` — all actors get phase assignments, visibility controlled by opacity only
+- **Result**: Aircraft maintain formation continuity through all phases; damaged aircraft fade out visually but continue pathing
+
+**Fixed: Fighters Linger During Next Bomber Approach**
+- **Issue**: `escort-hold` phase (825ms drift) ran while bomber was approaching, creating "linger and drift" effect
+- **Fix**: Skip `escort-hold` when `bomberFlight` is present — fighters immediately reposition for defense
+- **Files**: `HexMapRenderer.ts` (inspection and runtime branches)
+
 ### April 12, 2026 — Fighter Motion Path Jitter
 
 **Fixed: "Coiling Snake" Path Shape**
@@ -713,8 +730,8 @@ The air show is not done until all of these are true:
 | Issue | Severity | Status | Notes |
 |-------|----------|--------|-------|
 | ~~**Flak timing misplaced**~~ | ~~High~~ | ✅ **FIXED** | Progress changed from 82-99% to 25-55% of strike run — flak now fires during bomber approach |
-| **Aircraft disappear/reappear at target** | Critical | 🔍 **Investigating** | Bombers/fighters fly ingress, disappear at target hex, then reappear for egress — violates continuity |
-| **Fighters linger during next bomber approach** | High | ⏳ Pending | After bomber strike, fighters drift slowly while next bomber approaches — should egress cleanly |
+| ~~**Aircraft disappear/reappear at target**~~ | ~~Critical~~ | ✅ **FIXED** | Removed `actor.active` filter from `buildAirShowFlightAssignments` — all actors now get phase assignments, visibility controlled by opacity only |
+| ~~**Fighters linger during next bomber approach**~~ | ~~High~~ | ✅ **FIXED** | Skip `escort-hold` phase when bomber is present — fighters now reposition immediately for defense instead of drifting |
 
 ### Known Issues (Non-Critical)
 

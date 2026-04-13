@@ -1619,7 +1619,10 @@ export class HexMapRenderer implements IMapRenderer {
           ));
           updateFlightAnchors([...interceptorFlights, ...escortFlights]);
         }
-      } else if (interceptorFlights.length + escortFlights.length > 1) {
+      } else if (interceptorFlights.length + escortFlights.length > 1 && !bomberFlight) {
+        // Only hold/drift when no bomber is present. If a bomber is approaching,
+        // skip straight to defense positioning to avoid "linger and drift" effect
+        // while the next bomber arrives.
         const idleAssignments = [
           ...buildBandAssignments(activeFlights(interceptorFlights), "escort-idle:interceptors", {
             alongPx: -92, lateralPx: -196, alongStepPx: 28, lateralStepPx: 42, jitterAlongPx: 0, jitterLateralPx: 0, arcPx: 15, driftPx: 18
@@ -2488,7 +2491,9 @@ export class HexMapRenderer implements IMapRenderer {
           ]);
           updateFlightAnchors([...interceptorFlights, ...escortFlights]);
         }
-      } else if (interceptorFlights.length + escortFlights.length > 1) {
+      } else if (interceptorFlights.length + escortFlights.length > 1 && !bomberFlight) {
+        // Only hold/drift when no bomber is present. Skip to defense positioning
+        // when a bomber is approaching to prevent "linger and drift" effect.
         await this.runAirShowPhase(
           [
             ...buildBandAssignments(activeFlights(interceptorFlights), "escort-idle:interceptors", {
@@ -8553,8 +8558,10 @@ export class HexMapRenderer implements IMapRenderer {
     const multiFlightOffsetPx = totalFlights > 1
       ? (flightIndex - (totalFlights - 1) / 2) * 80
       : 0;
+    // Include ALL actors in phase assignments to maintain formation continuity.
+    // Visual visibility (opacity) is controlled separately by syncAirShowFlightStrengthForInspection.
+    // This prevents aircraft from "disappearing" at target hex between phases.
     return flight.actors
-      .filter((actor) => actor.active)
       .map((actor) => ({
         actor,
         points: basePath.map((point, pointIndex) => ({
