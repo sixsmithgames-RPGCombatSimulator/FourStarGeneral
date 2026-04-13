@@ -187,6 +187,7 @@ type AirShowPhaseAssignment = {
   actor: AirShowRuntimeActor;
   points: AirShowPoint[];
   headingBlend?: number;
+  multiFlightOffsetPx?: number;
   progressOffset?: number;
 };
 type AirShowPhaseOptions = {
@@ -1501,7 +1502,7 @@ export class HexMapRenderer implements IMapRenderer {
               const current = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
               const focusPoint =
                 this.averageAirShowPoints(pairFocusesByFlightId.get(flight.spec.id) ?? []) ??
-                corridorPoint(-10, -128 + (index - (activeInterceptorFlights.length - 1) / 2) * 52);
+                corridorPoint(-10, -148 + (index - (activeInterceptorFlights.length - 1) / 2) * 90);
               const sideSign = this.resolveAirShowCorridorSideSign(
                 current,
                 corridor,
@@ -1518,7 +1519,7 @@ export class HexMapRenderer implements IMapRenderer {
                 overshootPx: 184,
                 turnRadiusPx: 162
               });
-              phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.26));
+              phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.26, index, activeInterceptorFlights.length));
             });
 
             activeEscortFlights.forEach((flight, index) => {
@@ -1542,7 +1543,7 @@ export class HexMapRenderer implements IMapRenderer {
                 overshootPx: 176,
                 turnRadiusPx: 154
               });
-              phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.24));
+              phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.24, index, activeEscortFlights.length));
             });
 
             const useCloseScrambleTracerProfile =
@@ -2360,7 +2361,7 @@ export class HexMapRenderer implements IMapRenderer {
                 this.averageAirShowPoints(pairFocusesByFlightId.get(flight.spec.id) ?? []) ??
                 corridorPoint(
                   -10,
-                  -128 + (index - (activeInterceptorFlights.length - 1) / 2) * 52
+                  -148 + (index - (activeInterceptorFlights.length - 1) / 2) * 90
                 );
               const sideSign = this.resolveAirShowCorridorSideSign(
                 current,
@@ -2378,7 +2379,7 @@ export class HexMapRenderer implements IMapRenderer {
                 overshootPx: 184,
                 turnRadiusPx: 162
               });
-              phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.26));
+              phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.26, index, activeInterceptorFlights.length));
             });
 
             activeEscortFlights.forEach((flight, index) => {
@@ -2405,7 +2406,7 @@ export class HexMapRenderer implements IMapRenderer {
                 overshootPx: 176,
                 turnRadiusPx: 154
               });
-              phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.24));
+              phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.24, index, activeEscortFlights.length));
             });
 
             const useCloseScrambleTracerProfile =
@@ -7725,7 +7726,7 @@ export class HexMapRenderer implements IMapRenderer {
     const crossSeparationPx = options.crossSeparationPx ?? 24;
     const overshootPx = options.overshootPx ?? 184;
     const turnRadiusPx = options.turnRadiusPx ?? 162;
-    const laneSpreadPx = laneIndex * 30;
+    const laneSpreadPx = laneIndex * 45;
     const clampPoint = (point: AirShowPoint): AirShowPoint =>
       this.clampPointToViewportBounds(point, corridor.center, 430, 300);
     const focusPoint = clampPoint(focus);
@@ -7856,11 +7857,11 @@ export class HexMapRenderer implements IMapRenderer {
     const entryTurn = buildEntryTurn(turnInPoint, sideSign, 58, 48);
     const mergePoint = pointFromFocus(
       -sideSign * Math.max(6, crossSeparationPx * 0.3),
-      sideSign * Math.max(22, crossSeparationPx * 1.4 + laneIndex * 6)
+      sideSign * Math.max(22, crossSeparationPx * 1.4 + laneIndex * 22)
     );
     const crossingPoint = pointFromFocus(
       sideSign * Math.max(10, crossSeparationPx * 0.52),
-      -sideSign * Math.max(10, crossSeparationPx * 0.92 - 6 + laneIndex * 4)
+      -sideSign * Math.max(10, crossSeparationPx * 0.92 - 6 + laneIndex * 18)
     );
     // Break turn exit: sweeps away from focal zone in consistent direction — no coil reversal
     const breakExit = pointFromFocus(
@@ -8541,8 +8542,17 @@ export class HexMapRenderer implements IMapRenderer {
   private buildAirShowFlightAssignments(
     flight: AirShowRuntimeFlightInternal,
     basePath: AirShowPoint[],
-    headingBlend = 0.34
+    headingBlend = 0.34,
+    flightIndex = 0,
+    totalFlights = 1
   ): AirShowPhaseAssignment[] {
+    // Multi-flight separation: when multiple flights share a phase, add lateral offset
+    // per flight to prevent formation overlap. 80px per flight index ensures readable separation.
+    // This offset is stored in the assignment but NOT added to the path points (to preserve
+    // phase handoff continuity). It is applied during sampling/rendering only.
+    const multiFlightOffsetPx = totalFlights > 1
+      ? (flightIndex - (totalFlights - 1) / 2) * 80
+      : 0;
     return flight.actors
       .filter((actor) => actor.active)
       .map((actor) => ({
@@ -8550,13 +8560,15 @@ export class HexMapRenderer implements IMapRenderer {
         points: basePath.map((point, pointIndex) => ({
           // Preserve each actor's formation lane through the full phase so the
           // next beat begins from the true prior endpoint instead of re-staging.
+          // Store unbiased path points; multi-flight offset applied during sampling.
           cx: point.cx + actor.biasX,
           cy: point.cy + actor.biasY
         })),
         headingBlend,
         progressOffset:
           (actor.formationIndex - (flight.actors.length - 1) / 2) * 0.018 +
-          (actor.role === "bomber" ? 0.008 : actor.role === "escort" ? 0.004 : -0.004)
+          (actor.role === "bomber" ? 0.008 : actor.role === "escort" ? 0.004 : -0.004),
+        multiFlightOffsetPx
       }));
   }
 
@@ -8568,8 +8580,13 @@ export class HexMapRenderer implements IMapRenderer {
       assignment.points,
       this.clamp(progress + (assignment.progressOffset ?? 0), 0, 1)
     );
+    // Apply multi-flight offset for visual separation without breaking phase continuity
+    const offsetPx = assignment.multiFlightOffsetPx ?? 0;
     return {
-      position: sample.point,
+      position: {
+        cx: sample.point.cx + offsetPx,
+        cy: sample.point.cy
+      },
       headingDegrees: this.resolveAircraftHeadingDegrees(
         sample.derivative.dx,
         sample.derivative.dy,

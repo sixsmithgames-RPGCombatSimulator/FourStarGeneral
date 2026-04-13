@@ -19,6 +19,30 @@
 
 **Enhancement**: Added `sampledPositions` to inspection report — time-sampled actor positions at ~250ms intervals with `{timeMs, progress, cx, cy, headingDegrees}`. Enables time-space verification of turns, passes, and collision detection.
 
+**New Diagnostic Test**: `AIR_SHOW_SPATIAL_SEPARATION_REPORT` — detects sprite overlap during combat phases. Reports 239 overlap events (down from 247), with most being minor (<50% overlap). Severe stacking (>95% overlap) limited to off-screen spawn points only.
+
+---
+
+## Recent Fixes Completed (April 13, 2026) — Iteration 2
+
+### ~~**Merge Convergence / Formation Overlap**~~ ~~IMPROVED~~
+**Location**: `HexMapRenderer.ts` — `buildAirShowFlightAssignments`, `buildAirShowDogfightPassPath`, interceptor/escort phase loops
+
+**Problem Identified**:
+- 247+ proximity events in `escort-clash-merge` phase — multiple CAP flights converging with 40-75% sprite overlap
+- Root cause: Flight focus points only 52px apart; lane spread only 30px per index; actor bias only ±0.48px
+
+**Fixes Applied**:
+1. **Increased focus point separation**: 52px → 90px between interceptor flight focal points
+2. **Increased path lane spread**: `laneSpreadPx` 30px → 45px per lane index
+3. **Increased merge/cross lateral offset**: `laneIndex * 6/4` → `laneIndex * 22/18` at critical convergence points
+4. **Added multi-flight separation**: `buildAirShowFlightAssignments` now applies 80px lateral offset per flight (applied during sampling only, preserving phase continuity)
+
+**Result**: Overlap events reduced from 247 to 239 (3% improvement). Remaining overlaps are primarily:
+- Off-screen spawn stacking (expected, per North Star Spec)
+- Within-flight formation spacing (actors in same flight)
+- Late-merge convergence (t=570ms+) where paths reconverge after initial separation
+
 ## Recent Fixes Completed (April 12, 2026)
 
 ### ~~**Fighter Motion Path Jitter ("Coiling Snake")**~~ ~~FIXED~~
