@@ -640,6 +640,7 @@ The air show should be verifiable against at least these scenarios:
 3. large engagement around 10 versus 10
 4. escort plus strike with no interception
 5. interceptor-only CAP patrol
+6. 3 CAP missions versus 2 escort flights linked to a 4-bomber strike package that reads as 2 lead bombers followed by 2 trailing bombers
 
 ## Done Criteria
 

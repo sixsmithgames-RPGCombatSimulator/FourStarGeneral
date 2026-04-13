@@ -1,5 +1,6 @@
 import { registerTest } from "./harness.js";
 import { sampleAirShowWaypointPath } from "../src/ui/airshow/AirShowPathMath";
+import { runAirScenario } from "./airScenarioSupport.js";
 
 // Per North Star Spec: heading change must not exceed 25 degrees per 0.25 seconds
 // outside of a designated break turn.
@@ -208,5 +209,197 @@ registerTest("AIR_SHOW_BIAS_OFFSET_DOES_NOT_GROW_ALONG_PATH", async ({ Given, Wh
       throw new Error(`Expected bias factor 1.0 at index 0, got ${growthFactors[0]}.`);
     }
     console.log(`[DIAGNOSTIC] Bias formula: index 0 = ${growthFactors[0]}, all others = 0. PASS.`);
+  });
+});
+
+registerTest("AIR_SHOW_FULL_ENGAGEMENT_KEEPS_FIGHTERS_OUT_OF_TARGET_RUN_AND_COLLAPSES_BOMBER_DEFENSE_TO_ONE_BEAT", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the air automation scenario includes a full engagement strike package", async () => {});
+
+  await When("the scenario is resolved and the inspected airshow report is generated", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("the full engagement target run should contain only strike craft and only one bomber-defense pass beat", async () => {
+    const inspection = result?.airshowInspections.find(
+      (entry) => entry.eventType === "airToAir" && entry.missionId === "bot-strike-1"
+    );
+    if (!inspection) {
+      throw new Error("Expected an inspected airshow for bot-strike-1.");
+    }
+
+    const passPhases = inspection.report.phases.filter((phase) => phase.label.includes("pass"));
+    if (passPhases.length !== 1 || passPhases[0]?.label !== "bomber-defense-pass") {
+      throw new Error(
+        `Expected exactly one bomber-defense pass phase, saw ${passPhases.map((phase) => phase.label).join(", ") || "<none>"}.`
+      );
+    }
+
+    const targetRunMetric = inspection.phaseMetrics.find((metric) => metric.label === "target-run");
+    if (!targetRunMetric) {
+      throw new Error("Expected a target-run phase metric for bot-strike-1.");
+    }
+
+    const nonStrikeGroups = targetRunMetric.groupMetrics.filter((group) => group.combatRole !== "strike");
+    if (nonStrikeGroups.length > 0) {
+      throw new Error(
+        `Expected target-run to keep only strike craft, saw ${nonStrikeGroups.map((group) => `${group.label}:${group.combatRole}`).join(", ")}.`
+      );
+    }
+  });
+});
+
+registerTest("AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the inspected full-engagement airshow is available", async () => {});
+
+  await When("the scenario report is generated", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("actors should begin each later phase where their previous phase ended", async () => {
+    const inspection = result?.airshowInspections.find(
+      (entry) => entry.eventType === "airToAir" && entry.missionId === "bot-strike-1"
+    );
+    if (!inspection) {
+      throw new Error("Expected inspected airToAir report for bot-strike-1.");
+    }
+
+    const phases = inspection.report.phases;
+    let largestGapPx = 0;
+    let worstTransition = "<none>";
+    for (let phaseIndex = 1; phaseIndex < phases.length; phaseIndex += 1) {
+      const previousPhase = phases[phaseIndex - 1];
+      const currentPhase = phases[phaseIndex];
+      const previousByActorId = new Map(
+        previousPhase.assignments.map((assignment) => [assignment.actorId, assignment] as const)
+      );
+      currentPhase.assignments.forEach((assignment) => {
+        const previousAssignment = previousByActorId.get(assignment.actorId);
+        const previousEnd = previousAssignment?.points[previousAssignment.points.length - 1];
+        const currentStart = assignment.points[0];
+        if (!previousEnd || !currentStart) {
+          return;
+        }
+        const gapPx = Math.hypot(currentStart.cx - previousEnd.cx, currentStart.cy - previousEnd.cy);
+        if (gapPx > largestGapPx) {
+          largestGapPx = gapPx;
+          worstTransition = `${assignment.actorId} ${previousPhase.label} -> ${currentPhase.label}`;
+        }
+      });
+    }
+
+    if (largestGapPx > 2) {
+      throw new Error(
+        `Expected phase handoff continuity within 2px, saw ${largestGapPx.toFixed(1)}px at ${worstTransition}.`
+      );
+    }
+  });
+});
+
+registerTest("AIR_SHOW_DIAGNOSTIC_MATRIX_COVERS_ALL_SCENARIO_FAMILIES", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the air scenario matrix is available", async () => {});
+
+  await When("the diagnostic matrix is generated", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("the inspections should cover all five north-star scenario families", async () => {
+    const missionIds = new Set(result?.airshowInspections.map((entry) => entry.missionId).filter(Boolean));
+    const requiredMissionIds = [
+      "synthetic-scenario-1-escort-strike-no-interceptors",
+      "synthetic-scenario-2-strike-only",
+      "synthetic-scenario-3-strike-plus-interceptors-no-escorts",
+      "synthetic-scenario-5-three-cap-two-escort-four-bomber-stack",
+      "bot-cap-1",
+      "bot-strike-1"
+    ];
+    const missing = requiredMissionIds.filter((missionId) => !missionIds.has(missionId));
+    if (missing.length > 0) {
+      throw new Error(`Expected diagnostic coverage for all scenario families, missing: ${missing.join(", ")}.`);
+    }
+  });
+});
+
+registerTest("AIR_SHOW_DIAGNOSTIC_MATRIX_INCLUDES_THREE_CAP_TWO_ESCORT_FOUR_BOMBER_PACKAGE", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the governed diagnostic matrix includes synthetic contested packages", async () => {});
+
+  await When("the air scenario report is generated", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("the matrix should include the three-cap versus two-escort four-bomber package in current app-path form", async () => {
+    const inspection = result?.airshowInspections.find(
+      (entry) => entry.eventType === "airToAir" && entry.missionId === "synthetic-scenario-5-three-cap-two-escort-four-bomber-stack"
+    );
+    if (!inspection) {
+      throw new Error("Expected the diagnostic matrix to include synthetic-scenario-5-three-cap-two-escort-four-bomber-stack.");
+    }
+
+    const interceptorCount = inspection.diagnostics.participants.filter((participant) => participant.renderRole === "interceptor").length;
+    const escortCount = inspection.diagnostics.participants.filter((participant) => participant.renderRole === "escort").length;
+    const fighterIngress = inspection.report.phases.find((phase) => phase.label === "fighter-ingress");
+    const bomberIngress = inspection.report.phases.find((phase) => phase.label === "bomber-ingress");
+    const fighterIngressEscortActors = fighterIngress?.assignments.filter((assignment) => assignment.role === "escort").length ?? 0;
+    const fighterIngressInterceptorActors = fighterIngress?.assignments.filter((assignment) => assignment.role === "interceptor").length ?? 0;
+    const bomberIngressBomberActors = bomberIngress?.assignments.filter((assignment) => assignment.role === "bomber").length ?? 0;
+
+    if (interceptorCount !== 3 || escortCount !== 2) {
+      throw new Error(
+        `Expected scenario 5 diagnostic participants to include 3 interceptors and 2 escorts, saw ${interceptorCount} interceptors and ${escortCount} escorts.`
+      );
+    }
+    if (fighterIngressInterceptorActors !== 3 || fighterIngressEscortActors !== 2) {
+      throw new Error(
+        `Expected fighter-ingress to stage 3 interceptor actors and 2 escort actors, saw ${fighterIngressInterceptorActors} interceptors and ${fighterIngressEscortActors} escorts.`
+      );
+    }
+    if (bomberIngressBomberActors !== 4) {
+      throw new Error(
+        `Expected bomber-ingress to render the current four-bomber stack representation, saw ${bomberIngressBomberActors} bomber actors.`
+      );
+    }
+  });
+});
+
+registerTest("AIR_SHOW_SCRAMBLE_TRACER_PROFILE_STAYS_BOUND_TO_CONTESTED_BOMBER_PACKAGES", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the governed diagnostic matrix includes CAP-only and contested bomber scenarios", async () => {});
+
+  await When("the air scenario report is generated", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("CAP clash scramble tracers should stay nose-fired while the contested bomber package may still use the close scramble profile", async () => {
+    const capClashInspection = result?.airshowInspections.find(
+      (entry) => entry.eventType === "capClash" && entry.missionId === "bot-cap-1"
+    );
+    const contestedPackageInspection = result?.airshowInspections.find(
+      (entry) => entry.eventType === "airToAir" && entry.missionId === "synthetic-scenario-5-three-cap-two-escort-four-bomber-stack"
+    );
+    const capClashScramble = capClashInspection?.report.phases.find((phase) => phase.label === "escort-clash-scramble");
+    const contestedPackageScramble = contestedPackageInspection?.report.phases.find((phase) => phase.label === "escort-clash-scramble");
+    const capClashCenterTracerCount = capClashScramble?.tracers.filter((tracer) => tracer.emitter === "center").length ?? 0;
+    const contestedPackageCenterTracerCount =
+      contestedPackageScramble?.tracers.filter((tracer) => tracer.emitter === "center").length ?? 0;
+
+    if (!capClashScramble || !contestedPackageScramble) {
+      throw new Error("Expected both CAP clash and contested package scramble phases to be present in diagnostics.");
+    }
+    if (capClashCenterTracerCount !== 0) {
+      throw new Error(
+        `Expected CAP clash scramble tracers to stay on nose emitters, saw ${capClashCenterTracerCount} center-emitter tracers.`
+      );
+    }
+    if (contestedPackageCenterTracerCount <= 0) {
+      throw new Error("Expected the contested bomber package scramble phase to retain at least one center-emitter tracer.");
+    }
   });
 });

@@ -11,7 +11,9 @@ import type {
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem.js";
 import {
   HexMapRenderer,
-  type AirShowInspectionReport
+  type AirShowInspectionReport,
+  type ResolvedAirShowFlightSpec,
+  type ResolvedAirShowScene
 } from "../src/rendering/HexMapRenderer.js";
 import {
   GameEngine,
@@ -552,6 +554,254 @@ function buildInspectableScene(
   });
 }
 
+function buildSyntheticInspectableCases(): Array<{
+  readonly event: AirEngagementEvent;
+  readonly diagnostics: ResolvedAirCombatSceneDiagnostic;
+  readonly scene: ResolvedAirShowScene;
+}> {
+  const makeFlight = (
+    id: string,
+    role: ResolvedAirShowFlightSpec["role"],
+    combatRole: NonNullable<ResolvedAirShowFlightSpec["combatRole"]>,
+    originHexKey: string,
+    laneOffsetPx: number,
+    scenarioType: string,
+    faction: "Player" | "Bot",
+    strengthBefore: number,
+    strengthAfterEscortPhase = strengthBefore,
+    finalStrength = strengthBefore
+  ): ResolvedAirShowFlightSpec => ({
+    id,
+    scenarioType,
+    faction,
+    originHexKey,
+    strengthBefore,
+    strengthAfterEscortPhase,
+    finalStrength,
+    laneOffsetPx,
+    role,
+    combatRole
+  });
+  const makeParticipant = (
+    unitKey: string,
+    renderRole: "interceptor" | "escort" | "bomber",
+    combatRole: "cap" | "escort" | "strike",
+    originHexKey: string
+  ): ResolvedAirCombatSceneDiagnostic["participants"][number] => ({
+    unitKey,
+    renderRole,
+    combatRole,
+    source: "event",
+    originHexKey
+  });
+  const makeBomber = (unitKey: string, faction: "Player" | "Bot") => ({
+    unitKey,
+    unitType: "Bomber",
+    label: unitKey,
+    faction,
+    strength: 100
+  });
+  const makeFighter = (unitKey: string, faction: "Player" | "Bot", unitType = "Fighter", strength = 100) => ({
+    unitKey,
+    unitType,
+    label: unitKey,
+    faction,
+    strength
+  });
+  const makeDiagnostics = (
+    eventType: "airToAir" | "capClash",
+    participants: ResolvedAirCombatSceneDiagnostic["participants"]
+  ): ResolvedAirCombatSceneDiagnostic => ({
+    eventType,
+    bomberIncluded: participants.some((participant) => participant.renderRole === "bomber"),
+    participants,
+    linkedEscortUnitKeys: participants
+      .filter((participant) => participant.renderRole === "escort" && participant.combatRole === "escort")
+      .map((participant) => participant.unitKey),
+    eventEscortUnitKeys: participants
+      .filter((participant) => participant.renderRole === "escort")
+      .map((participant) => participant.unitKey),
+    linkedEscortMissingFromEventUnitKeys: [],
+    oppositionCapFlightUnitKeys: participants
+      .filter((participant) => participant.renderRole === "escort" && participant.combatRole === "cap")
+      .map((participant) => participant.unitKey),
+    unresolvedOriginUnitKeys: []
+  });
+  const makeFlakBursts = (count: number): NonNullable<ResolvedAirShowScene["flakBursts"]> =>
+    Array.from({ length: count }, (_, index) => ({
+      progress: Math.min(0.992, 0.82 + index * 0.012),
+      count: 1,
+      scale: 0.34 + index * 0.01,
+      alongOffsetPx: -20 + Math.sin((index / Math.max(1, count - 1)) * Math.PI) * 10,
+      lateralOffsetPx: (index - (count - 1) / 2) * 14,
+      alongSpreadPx: 62,
+      lateralSpreadPx: 98,
+      puffCount: 22,
+      smokePuffCount: 28,
+      smokeScale: 1.28 + index * 0.018
+    }));
+
+  const scenario1Participants = [
+    makeParticipant("synthetic-s1-escort", "escort", "escort", "1,6"),
+    makeParticipant("synthetic-s1-bomber", "bomber", "strike", "1,7")
+  ] as const;
+  const scenario2Participants = [makeParticipant("synthetic-s2-bomber", "bomber", "strike", "1,7")] as const;
+  const scenario3Participants = [
+    makeParticipant("synthetic-s3-interceptor-a", "interceptor", "cap", "6,2"),
+    makeParticipant("synthetic-s3-interceptor-b", "interceptor", "cap", "6,3"),
+    makeParticipant("synthetic-s3-bomber", "bomber", "strike", "1,7")
+  ] as const;
+  const scenario5Participants = [
+    makeParticipant("synthetic-s5-interceptor-a", "interceptor", "cap", "6,1"),
+    makeParticipant("synthetic-s5-interceptor-b", "interceptor", "cap", "6,2"),
+    makeParticipant("synthetic-s5-interceptor-c", "interceptor", "cap", "6,3"),
+    makeParticipant("synthetic-s5-escort-a", "escort", "escort", "1,5"),
+    makeParticipant("synthetic-s5-escort-b", "escort", "escort", "1,6"),
+    makeParticipant("synthetic-s5-bomber", "bomber", "strike", "1,7")
+  ] as const;
+
+  return [
+    {
+      event: {
+        type: "airToAir",
+        missionId: "synthetic-scenario-1-escort-strike-no-interceptors",
+        location: { q: 4, r: 4 },
+        interceptors: [],
+        escorts: [makeFighter("synthetic-s1-escort", "Player")],
+        bomber: makeBomber("synthetic-s1-bomber", "Player"),
+        escortExchanges: [],
+        bomberPassExchanges: []
+      } as unknown as AirEngagementEvent,
+      diagnostics: makeDiagnostics("airToAir", [...scenario1Participants]),
+      scene: {
+        kind: "airToAir",
+        hexKey: "4,4",
+        interceptors: [],
+        escorts: [makeFlight("synthetic-s1-escort", "escort", "escort", "1,6", 42, "Fighter", "Player", 100)],
+        bomber: makeFlight("synthetic-s1-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100),
+        escortExchanges: [],
+        bomberPassExchanges: [],
+        bomberTargetHexKey: "5,5",
+        bomberArrivalDelayMs: 260,
+        flakBursts: makeFlakBursts(18)
+      }
+    },
+    {
+      event: {
+        type: "airToAir",
+        missionId: "synthetic-scenario-2-strike-only",
+        location: { q: 4, r: 4 },
+        interceptors: [],
+        escorts: [],
+        bomber: makeBomber("synthetic-s2-bomber", "Player"),
+        escortExchanges: [],
+        bomberPassExchanges: []
+      } as unknown as AirEngagementEvent,
+      diagnostics: makeDiagnostics("airToAir", [...scenario2Participants]),
+      scene: {
+        kind: "airToAir",
+        hexKey: "4,4",
+        interceptors: [],
+        escorts: [],
+        bomber: makeFlight("synthetic-s2-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100),
+        escortExchanges: [],
+        bomberPassExchanges: [],
+        bomberTargetHexKey: "5,5",
+        flakBursts: makeFlakBursts(18)
+      }
+    },
+    {
+      event: {
+        type: "airToAir",
+        missionId: "synthetic-scenario-3-strike-plus-interceptors-no-escorts",
+        location: { q: 4, r: 4 },
+        interceptors: [
+          makeFighter("synthetic-s3-interceptor-a", "Bot"),
+          makeFighter("synthetic-s3-interceptor-b", "Bot", "Interceptor")
+        ],
+        escorts: [],
+        bomber: makeBomber("synthetic-s3-bomber", "Player"),
+        escortExchanges: [],
+        bomberPassExchanges: [
+          { attackerUnitKey: "synthetic-s3-interceptor-a", defenderUnitKey: "synthetic-s3-bomber", defenderStrengthAfter: 82 },
+          { attackerUnitKey: "synthetic-s3-interceptor-b", defenderUnitKey: "synthetic-s3-bomber", defenderStrengthAfter: 82 }
+        ]
+      } as unknown as AirEngagementEvent,
+      diagnostics: makeDiagnostics("airToAir", [...scenario3Participants]),
+      scene: {
+        kind: "airToAir",
+        hexKey: "4,4",
+        interceptors: [
+          makeFlight("synthetic-s3-interceptor-a", "interceptor", "cap", "6,2", -30, "Fighter", "Bot", 100, 100, 92),
+          makeFlight("synthetic-s3-interceptor-b", "interceptor", "cap", "6,3", 30, "Interceptor", "Bot", 100, 100, 88)
+        ],
+        escorts: [],
+        bomber: makeFlight("synthetic-s3-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100, 82, 82),
+        escortExchanges: [],
+        bomberPassExchanges: [
+          { attackerUnitKey: "synthetic-s3-interceptor-a", defenderUnitKey: "synthetic-s3-bomber", defenderStrengthAfter: 82 },
+          { attackerUnitKey: "synthetic-s3-interceptor-b", defenderUnitKey: "synthetic-s3-bomber", defenderStrengthAfter: 82 }
+        ],
+        bomberTargetHexKey: "5,5",
+        flakBursts: makeFlakBursts(18)
+      }
+    },
+    {
+      event: {
+        type: "airToAir",
+        missionId: "synthetic-scenario-5-three-cap-two-escort-four-bomber-stack",
+        location: { q: 4, r: 4 },
+        interceptors: [
+          makeFighter("synthetic-s5-interceptor-a", "Bot", "Fighter", 25),
+          makeFighter("synthetic-s5-interceptor-b", "Bot", "Interceptor", 25),
+          makeFighter("synthetic-s5-interceptor-c", "Bot", "Fighter", 25)
+        ],
+        escorts: [
+          makeFighter("synthetic-s5-escort-a", "Player", "Fighter", 25),
+          makeFighter("synthetic-s5-escort-b", "Player", "Interceptor", 25)
+        ],
+        bomber: makeBomber("synthetic-s5-bomber", "Player"),
+        escortExchanges: [
+          { attackerUnitKey: "synthetic-s5-interceptor-a", defenderUnitKey: "synthetic-s5-escort-a", defenderStrengthAfter: 25 },
+          { attackerUnitKey: "synthetic-s5-interceptor-b", defenderUnitKey: "synthetic-s5-escort-b", defenderStrengthAfter: 25 }
+        ],
+        bomberPassExchanges: [
+          { attackerUnitKey: "synthetic-s5-interceptor-a", defenderUnitKey: "synthetic-s5-bomber", defenderStrengthAfter: 78 },
+          { attackerUnitKey: "synthetic-s5-interceptor-b", defenderUnitKey: "synthetic-s5-bomber", defenderStrengthAfter: 78 },
+          { attackerUnitKey: "synthetic-s5-interceptor-c", defenderUnitKey: "synthetic-s5-bomber", defenderStrengthAfter: 78 }
+        ]
+      } as unknown as AirEngagementEvent,
+      diagnostics: makeDiagnostics("airToAir", [...scenario5Participants]),
+      scene: {
+        kind: "airToAir",
+        hexKey: "4,4",
+        interceptors: [
+          makeFlight("synthetic-s5-interceptor-a", "interceptor", "cap", "6,1", -54, "Fighter", "Bot", 25, 25, 25),
+          makeFlight("synthetic-s5-interceptor-b", "interceptor", "cap", "6,2", 0, "Interceptor", "Bot", 25, 25, 25),
+          makeFlight("synthetic-s5-interceptor-c", "interceptor", "cap", "6,3", 54, "Fighter", "Bot", 25, 25, 25)
+        ],
+        escorts: [
+          makeFlight("synthetic-s5-escort-a", "escort", "escort", "1,5", -36, "Fighter", "Player", 25, 25, 25),
+          makeFlight("synthetic-s5-escort-b", "escort", "escort", "1,6", 36, "Interceptor", "Player", 25, 25, 25)
+        ],
+        bomber: makeFlight("synthetic-s5-bomber", "bomber", "strike", "1,7", 0, "Bomber", "Player", 100, 100, 78),
+        escortExchanges: [
+          { attackerUnitKey: "synthetic-s5-interceptor-a", defenderUnitKey: "synthetic-s5-escort-a", defenderStrengthAfter: 25 },
+          { attackerUnitKey: "synthetic-s5-interceptor-b", defenderUnitKey: "synthetic-s5-escort-b", defenderStrengthAfter: 25 }
+        ],
+        bomberPassExchanges: [
+          { attackerUnitKey: "synthetic-s5-interceptor-a", defenderUnitKey: "synthetic-s5-bomber", defenderStrengthAfter: 78 },
+          { attackerUnitKey: "synthetic-s5-interceptor-b", defenderUnitKey: "synthetic-s5-bomber", defenderStrengthAfter: 78 },
+          { attackerUnitKey: "synthetic-s5-interceptor-c", defenderUnitKey: "synthetic-s5-bomber", defenderStrengthAfter: 78 }
+        ],
+        bomberTargetHexKey: "5,5",
+        bomberArrivalDelayMs: 220,
+        flakBursts: makeFlakBursts(20)
+      }
+    }
+  ];
+}
+
 function buildAirshowInspections(engine: GameEngine, engagements: readonly AirEngagementEvent[]): Array<{
   readonly eventType: AirEngagementEvent["type"];
   readonly missionId?: string;
@@ -594,7 +844,32 @@ function buildAirshowInspections(engine: GameEngine, engagements: readonly AirEn
   renderer.render(svg, canvas, scenario());
 
   try {
-    return engagements.flatMap((event) => {
+    const inspect = (
+      event: AirEngagementEvent,
+      scene: ResolvedAirShowScene,
+      diagnostics: ResolvedAirCombatSceneDiagnostic
+    ): {
+      readonly eventType: AirEngagementEvent["type"];
+      readonly missionId?: string;
+      readonly diagnostics: ResolvedAirCombatSceneDiagnostic;
+      readonly report: AirShowInspectionReport;
+      readonly phaseMetrics: readonly AirShowPhaseMetric[];
+      readonly findings: readonly AirScenarioFinding[];
+    } | null => {
+      const report = (renderer as unknown as {
+        inspectResolvedAirCombatShow: (scene: Record<string, unknown>) => AirShowInspectionReport | null;
+      }).inspectResolvedAirCombatShow(scene as unknown as Record<string, unknown>);
+      if (!report) {
+        return null;
+      }
+      const phaseMetrics = report.phases.map((phase, phaseIndex) =>
+        measurePhase(report, phase, phaseIndex > 0 ? report.phases[phaseIndex - 1] : undefined)
+      );
+      const findings = detectAirshowFindings(event, diagnostics, phaseMetrics);
+      return { eventType: event.type, missionId: event.missionId, diagnostics, report, phaseMetrics, findings };
+    };
+
+    const engineCases = engagements.flatMap((event) => {
       const linkedFlak =
         event.type === "airToAir" && event.missionId
           ? engagements.find((candidate) => candidate.type === "flak" && candidate.missionId === event.missionId) ?? null
@@ -603,18 +878,16 @@ function buildAirshowInspections(engine: GameEngine, engagements: readonly AirEn
       if (!scene) {
         return [];
       }
-      const report = (renderer as unknown as {
-        inspectResolvedAirCombatShow: (scene: Record<string, unknown>) => AirShowInspectionReport | null;
-      }).inspectResolvedAirCombatShow(scene.scene as unknown as Record<string, unknown>);
-      if (!report) {
-        return [];
-      }
-      const phaseMetrics = report.phases.map((phase, phaseIndex) =>
-        measurePhase(report, phase, phaseIndex > 0 ? report.phases[phaseIndex - 1] : undefined)
-      );
-      const findings = detectAirshowFindings(event, scene.diagnostics, phaseMetrics);
-      return [{ eventType: event.type, missionId: event.missionId, diagnostics: scene.diagnostics, report, phaseMetrics, findings }];
+      const inspection = inspect(event, scene.scene, scene.diagnostics);
+      return inspection ? [inspection] : [];
     });
+
+    const syntheticCases = buildSyntheticInspectableCases().flatMap((entry) => {
+      const inspection = inspect(entry.event, entry.scene, entry.diagnostics);
+      return inspection ? [inspection] : [];
+    });
+
+    return [...engineCases, ...syntheticCases];
   } finally {
     if (hostFetch) {
       globalThis.fetch = hostFetch;

@@ -1,0 +1,409 @@
+Generated: 2026-04-13T00:42:30.682Z
+
+Scenario: Air Combat Automation Scenario
+Mission reports: 7
+Engagement events: 3
+
+Mission results:
+- Player strike Bomber @ 0,1 -> 5,5 [PARTIAL]
+- Bot strike Bomber @ 7,9 -> 2,2 [PARTIAL]
+- Player escort Fighter @ 1,1 -> Bomber @ 0,1 [SUCCESS]
+- Bot escort Fighter @ 6,10 -> Bomber @ 7,9 [SUCCESS]
+- Player airCover Fighter @ 0,0 -> 2,2 [SUCCESS]
+- Player airCover Interceptor @ 1,0 -> 2,2 [SUCCESS]
+- Bot airCover Fighter @ 6,9 -> 5,5 [SUCCESS]
+
+Engagement timeline:
+- capClash @ 3,3: 2 allied vs 1 axis CAP
+- airToAir @ 2,2: 2 interceptors, 1 escorts, bomber Bomber @ 7,9
+- flak @ 5,5: 1 battery/batteries vs Bomber @ 0,1
+
+Airshow geometry:
+- capClash (bot-cap-1) center=(470,528) phases=4
+  diagnostics escorts(event=1, linked=0) bomberIncluded=false unresolvedOrigins=0
+    oppositionLaneCAP: u_bcap
+  phase fighter-ingress 1750ms assignments=12 tracers=0 box=660x410 path=309 disp=307 eff=99% speed=176 turn=0/0 pathTurn=1/11 firstTurn=1/2 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Player cap: n=8 start=(138,314) mid=(266,326) end=(398,339) path=265 disp=263 eff=99% speed=152
+    group Bot cap: n=4 start=(718,404) mid=(574,539) end=(441,685) path=396 disp=395 eff=100% speed=226
+    relation Player cap -> Bot cap: sep(start=587, mid=374, end=349) closestMid=291 angle=132
+    u_pcap1:0: (77,301) -> (123,289) -> (170,289) -> (218,290) -> (265,292) -> (312,293) -> (360,296)
+    u_pcap1:1: (115,301) -> (161,289) -> (208,289) -> (256,290) -> (303,292) -> (350,293) -> (398,296)
+    u_pcap1:2: (77,327) -> (123,315) -> (170,315) -> (218,317) -> (265,318) -> (312,320) -> (360,322)
+    u_pcap1:3: (115,327) -> (161,315) -> (208,315) -> (256,317) -> (303,318) -> (350,320) -> (398,322)
+    u_pcap2:0: (160,301) -> (196,321) -> (236,329) -> (276,336) -> (317,343) -> (357,349) -> (397,357)
+    u_pcap2:1: (198,301) -> (234,321) -> (274,329) -> (314,336) -> (355,343) -> (395,349) -> (435,357)
+  phase escort-clash-merge 760ms assignments=12 tracers=10 box=264x403 path=358 disp=239 eff=67% speed=471 turn=37/78 pathTurn=16/132 firstTurn=42/132 tracerLen=720/16 tracerFan=0 tracerAlign=4/6 tracerRange=121/161
+    group Player cap: n=8 start=(398,341) mid=(479,484) end=(348,575) path=378 disp=240 eff=64% speed=498
+    group Bot cap: n=4 start=(441,687) mid=(455,561) end=(571,490) path=317 disp=236 eff=74% speed=417
+    relation Player cap -> Bot cap: sep(start=349, mid=80, end=239) closestMid=18 angle=144
+    u_pcap1:0: (360,297) -> (418,321) -> (460,366) -> (461,427) -> (429,481) -> (391,529) -> (332,522)
+    u_pcap1:1: (398,297) -> (457,321) -> (502,364) -> (506,425) -> (472,478) -> (431,525) -> (370,522)
+    u_pcap1:2: (360,323) -> (417,348) -> (460,393) -> (462,454) -> (429,508) -> (391,555) -> (332,548)
+    u_pcap1:3: (398,323) -> (458,348) -> (503,395) -> (505,457) -> (473,514) -> (430,561) -> (370,549)
+    u_pcap2:0: (397,358) -> (443,398) -> (462,454) -> (445,512) -> (422,567) -> (382,610) -> (326,601)
+    u_pcap2:1: (436,358) -> (485,399) -> (514,456) -> (500,518) -> (473,576) -> (424,615) -> (364,601)
+    tracer 42% u_pcap1:2 nose heading=179 len=720/16 fanHalf=0 width=0.14 life=22 emit=(468,444) centerline=(476,1164) targetRef=(460,587) align=4 range=144
+    tracer 54% u_pcap1:1 nose heading=206 len=720/16 fanHalf=0 width=0.14 life=22 emit=(494,450) centerline=(176,1096) targetRef=(443,561) align=2 range=122
+    tracer 39% u_bcap:0 nose heading=24 len=720/16 fanHalf=0 width=0.14 life=22 emit=(417,564) centerline=(707,-95) targetRef=(467,415) align=5 range=157
+    tracer 45% u_bcap:0 nose heading=25 len=720/16 fanHalf=0 width=0.14 life=22 emit=(425,546) centerline=(732,-105) targetRef=(467,438) align=4 range=116
+  phase escort-clash-scramble 1228ms assignments=12 tracers=7 box=334x247 path=349 disp=270 eff=77% speed=284 turn=156/167 pathTurn=21/89 firstTurn=68/89 tracerLen=720/16 tracerFan=0 tracerAlign=4/9 tracerRange=93/124
+    group Player cap: n=8 start=(348,576) mid=(472,539) end=(611,502) path=356 disp=274 eff=77% speed=290
+    group Bot cap: n=4 start=(571,491) mid=(451,524) end=(318,561) path=336 disp=262 eff=78% speed=273
+    relation Player cap -> Bot cap: sep(start=239, mid=26, end=299) closestMid=23 angle=179
+    u_pcap1:0: (332,523) -> (373,527) -> (425,525) -> (456,476) -> (494,433) -> (548,419) -> (595,450)
+    u_pcap1:1: (370,523) -> (413,534) -> (467,529) -> (495,478) -> (531,434) -> (585,419) -> (633,450)
+    u_pcap1:2: (332,549) -> (375,581) -> (432,581) -> (454,523) -> (488,470) -> (542,446) -> (595,476)
+    u_pcap1:3: (370,549) -> (413,571) -> (469,567) -> (496,514) -> (531,467) -> (584,447) -> (633,476)
+    u_pcap2:0: (326,602) -> (356,634) -> (414,619) -> (444,564) -> (482,513) -> (538,492) -> (589,527)
+    u_pcap2:1: (364,602) -> (408,621) -> (463,612) -> (490,559) -> (524,510) -> (579,493) -> (627,527)
+    tracer 21% u_bcap:2 nose heading=255 len=720/16 fanHalf=0 width=0.14 life=22 emit=(474,488) centerline=(-221,675) targetRef=(377,528) align=7 range=105
+    tracer 29% u_bcap:3 nose heading=244 len=720/16 fanHalf=0 width=0.14 life=22 emit=(488,497) centerline=(-161,809) targetRef=(403,536) align=1 range=93
+    tracer 37% u_bcap:1 nose heading=206 len=720/16 fanHalf=0 width=0.14 life=22 emit=(487,480) centerline=(177,1130) targetRef=(438,567) align=4 range=99
+    tracer 42% u_pcap2:0 nose heading=27 len=720/16 fanHalf=0 width=0.14 life=22 emit=(432,585) centerline=(754,-59) targetRef=(487,481) align=1 range=118
+  phase egress 1080ms assignments=8 tracers=0 box=338x215 path=352 disp=328 eff=93% speed=326 turn=163/176 pathTurn=13/87 firstTurn=3/3 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Player cap: n=8 start=(611,503) mid=(481,424) end=(319,359) path=352 disp=328 eff=93% speed=326
+    u_pcap1:0: (595,451) -> (539,446) -> (523,402) -> (468,395) -> (412,392) -> (358,373) -> (305,353)
+    u_pcap1:1: (633,451) -> (577,446) -> (561,402) -> (506,395) -> (450,392) -> (396,373) -> (343,353)
+    u_pcap1:2: (595,478) -> (539,472) -> (523,428) -> (468,421) -> (412,418) -> (358,399) -> (305,379)
+    u_pcap1:3: (633,478) -> (577,472) -> (561,428) -> (506,421) -> (450,418) -> (396,399) -> (343,379)
+    u_pcap2:0: (589,528) -> (539,492) -> (516,445) -> (457,427) -> (399,406) -> (347,373) -> (295,339)
+    u_pcap2:1: (627,528) -> (577,492) -> (554,445) -> (495,427) -> (437,406) -> (385,373) -> (333,339)
+- airToAir (bot-strike-1) center=(345,456) phases=7
+  diagnostics escorts(event=1, linked=1) bomberIncluded=true unresolvedOrigins=0
+  phase fighter-ingress 1750ms assignments=12 tracers=0 box=703x328 path=132 disp=121 eff=92% speed=75 turn=0/0 pathTurn=8/108 firstTurn=1/2 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Player cap: n=8 start=(138,314) mid=(157,322) end=(184,334) path=67 disp=54 eff=80% speed=39
+    group Bot escort: n=4 start=(761,602) mid=(635,583) end=(505,586) path=260 disp=256 eff=99% speed=148
+    relation Player cap -> Bot escort: sep(start=687, mid=545, end=408) closestMid=465 angle=168
+    u_pcap1:0: (77,301) -> (86,292) -> (97,288) -> (110,290) -> (122,295) -> (134,299) -> (135,305)
+    u_pcap1:1: (115,301) -> (124,292) -> (135,288) -> (148,290) -> (160,295) -> (172,299) -> (173,305)
+    u_pcap1:2: (77,327) -> (86,318) -> (97,314) -> (110,317) -> (122,321) -> (134,325) -> (135,331)
+    u_pcap1:3: (115,327) -> (124,318) -> (135,314) -> (148,317) -> (160,321) -> (172,325) -> (173,331)
+    u_pcap2:0: (160,301) -> (158,311) -> (160,321) -> (167,327) -> (176,330) -> (186,333) -> (195,337)
+    u_pcap2:1: (198,301) -> (196,311) -> (198,321) -> (205,327) -> (214,330) -> (224,333) -> (233,337)
+  phase escort-clash-merge 760ms assignments=12 tracers=10 box=389x299 path=386 disp=240 eff=62% speed=507 turn=37/90 pathTurn=17/70 firstTurn=25/52 tracerLen=720/16 tracerFan=0 tracerAlign=5/8 tracerRange=123/175
+    group Player cap: n=8 start=(184,335) mid=(329,406) end=(272,559) path=395 disp=241 eff=61% speed=519
+    group Bot escort: n=4 start=(505,587) mid=(353,508) end=(416,369) path=367 disp=236 eff=64% speed=483
+    relation Player cap -> Bot escort: sep(start=408, mid=104, end=239) closestMid=74 angle=178
+    u_pcap1:0: (135,306) -> (188,322) -> (254,354) -> (311,402) -> (333,473) -> (331,547) -> (267,579)
+    u_pcap1:1: (173,306) -> (227,323) -> (301,346) -> (365,392) -> (385,468) -> (373,546) -> (306,578)
+    u_pcap1:2: (135,332) -> (185,351) -> (253,372) -> (311,422) -> (330,495) -> (330,571) -> (267,605)
+    u_pcap1:3: (173,332) -> (226,352) -> (299,370) -> (361,418) -> (380,493) -> (372,571) -> (306,605)
+    u_pcap2:0: (195,338) -> (241,319) -> (282,331) -> (287,386) -> (292,441) -> (285,493) -> (237,513)
+    u_pcap2:1: (233,338) -> (288,322) -> (343,328) -> (359,385) -> (358,446) -> (333,499) -> (276,513)
+    tracer 36% u_pcap2:3 nose heading=170 len=720/16 fanHalf=0 width=0.14 life=22 emit=(342,397) centerline=(467,1106) targetRef=(370,534) align=1 range=139
+    tracer 42% u_pcap2:3 nose heading=172 len=720/16 fanHalf=0 width=0.14 life=22 emit=(345,417) centerline=(443,1131) targetRef=(350,525) align=5 range=108
+    tracer 48% u_pcap2:1 nose heading=172 len=720/16 fanHalf=0 width=0.14 life=22 emit=(360,390) centerline=(462,1103) targetRef=(371,518) align=3 range=128
+    tracer 45% u_bescort:3 nose heading=348 len=720/16 fanHalf=0 width=0.14 life=22 emit=(369,512) centerline=(216,-191) targetRef=(356,362) align=7 range=150
+  phase escort-clash-scramble 1228ms assignments=12 tracers=8 box=272x316 path=358 disp=270 eff=76% speed=291 turn=150/165 pathTurn=22/96 firstTurn=77/96 tracerLen=720/18 tracerFan=0 tracerAlign=4/7 tracerRange=78/156
+    group Player cap: n=8 start=(272,560) mid=(358,466) end=(457,358) path=363 disp=274 eff=76% speed=295
+    group Bot escort: n=4 start=(416,370) mid=(333,455) end=(239,562) path=347 disp=261 eff=75% speed=283
+    relation Player cap -> Bot escort: sep(start=239, mid=28, end=299) closestMid=12 angle=178
+    u_pcap1:0: (268,580) -> (311,594) -> (354,555) -> (351,492) -> (356,429) -> (392,380) -> (454,379)
+    u_pcap1:1: (306,580) -> (356,573) -> (401,539) -> (395,481) -> (399,422) -> (434,378) -> (492,378)
+    u_pcap1:2: (268,606) -> (308,616) -> (355,579) -> (354,518) -> (360,456) -> (393,407) -> (454,405)
+    u_pcap1:3: (306,606) -> (354,613) -> (401,578) -> (396,517) -> (399,456) -> (432,407) -> (492,405)
+    u_pcap2:0: (237,514) -> (277,486) -> (324,462) -> (321,404) -> (327,346) -> (365,306) -> (423,311)
+    u_pcap2:1: (276,514) -> (326,501) -> (371,468) -> (365,409) -> (367,350) -> (403,307) -> (461,311)
+    tracer 18% u_pcap2:0 center heading=45 len=720/18 fanHalf=0 width=0.15 life=22 emit=(272,490) centerline=(777,-24) targetRef=(378,376) align=1 range=156
+    tracer 34% u_pcap2:0 center heading=28 len=720/18 fanHalf=0 width=0.15 life=22 emit=(321,470) centerline=(659,-166) targetRef=(349,423) align=3 range=54
+    tracer 42% u_pcap2:2 center heading=353 len=720/18 fanHalf=0 width=0.15 life=22 emit=(325,487) centerline=(232,-227) targetRef=(306,404) align=5 range=84
+    tracer 45% u_bescort:0 center heading=170 len=720/18 fanHalf=0 width=0.15 life=22 emit=(308,415) centerline=(429,1125) targetRef=(323,475) align=4 range=62
+  phase bomber-ingress 3500ms assignments=15 tracers=0 box=458x317 path=195 disp=166 eff=85% speed=56 turn=130/165 pathTurn=20/136 firstTurn=48/112 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Bot strike: n=4 start=(59,607) mid=(178,549) end=(293,482) path=265 disp=265 eff=100% speed=76
+    group Player cap: n=7 start=(454,360) mid=(400,363) end=(320,367) path=177 disp=144 eff=81% speed=51
+    group Bot escort: n=4 start=(239,563) mid=(278,560) end=(338,530) path=155 disp=105 eff=68% speed=44
+    relation Bot strike -> Player cap: sep(start=466, mid=290, end=118) closestMid=228 angle=157
+    relation Player cap -> Bot escort: sep(start=296, mid=232, end=163) closestMid=176 angle=178
+    u_bbomber:0: (34,590) -> (75,573) -> (114,554) -> (153,531) -> (191,509) -> (230,487) -> (267,464)
+    u_bbomber:1: (85,590) -> (125,573) -> (165,554) -> (203,531) -> (242,509) -> (280,487) -> (318,464)
+    u_bbomber:2: (34,625) -> (75,608) -> (114,589) -> (153,566) -> (191,544) -> (230,522) -> (267,499)
+    u_bbomber:3: (85,625) -> (125,608) -> (165,589) -> (203,566) -> (242,544) -> (280,522) -> (318,499)
+    u_pcap1:0: (454,380) -> (431,394) -> (401,386) -> (386,369) -> (354,362) -> (322,355) -> (290,347)
+    u_pcap1:1: (492,380) -> (469,394) -> (439,386) -> (424,369) -> (392,362) -> (360,355) -> (328,347)
+  phase bomber-defense-pass 2360ms assignments=15 tracers=11 box=449x196 path=343 disp=221 eff=64% speed=145 turn=7/22 pathTurn=8/115 firstTurn=11/28 tracerLen=684/24 tracerFan=0 tracerAlign=3/9 tracerRange=60/105
+    group Bot strike: n=4 start=(293,483) mid=(361,444) end=(431,406) path=159 disp=159 eff=100% speed=67
+    group Player cap: n=7 start=(317,367) mid=(318,452) end=(595,429) path=547 disp=285 eff=52% speed=232
+    group Bot escort: n=4 start=(338,531) mid=(418,502) end=(495,467) path=170 disp=169 eff=100% speed=72
+    relation Bot strike -> Player cap: sep(start=119, mid=44, end=166) closestMid=6 angle=119
+    relation Player cap -> Bot escort: sep(start=166, mid=111, end=107) closestMid=62 angle=110
+    u_bbomber:0: (267,466) -> (290,452) -> (313,439) -> (336,426) -> (359,414) -> (383,401) -> (406,388)
+    u_bbomber:1: (318,466) -> (341,452) -> (363,439) -> (387,426) -> (410,414) -> (433,401) -> (457,388)
+    u_bbomber:2: (267,501) -> (290,487) -> (313,474) -> (336,461) -> (359,448) -> (383,436) -> (406,423)
+    u_bbomber:3: (318,501) -> (341,487) -> (363,474) -> (387,461) -> (410,448) -> (433,436) -> (457,423)
+    u_pcap1:0: (290,348) -> (211,390) -> (209,433) -> (303,438) -> (395,419) -> (490,416) -> (584,427)
+    u_pcap1:1: (328,348) -> (249,390) -> (247,433) -> (341,438) -> (433,419) -> (528,416) -> (622,427)
+    tracer 36% u_pcap1:2 nose heading=97 len=684/24 fanHalf=0 width=0.18 life=30 emit=(244,464) centerline=(922,548) targetRef=(319,470) align=2 range=75
+    tracer 42% u_pcap1:2 nose heading=92 len=684/24 fanHalf=0 width=0.18 life=30 emit=(278,465) centerline=(961,487) targetRef=(327,466) align=1 range=50
+    tracer 48% u_pcap1:3 nose heading=85 len=684/24 fanHalf=0 width=0.18 life=30 emit=(360,463) centerline=(1041,403) targetRef=(389,460) align=1 range=29
+    tracer 54% u_pcap1:0 nose heading=83 len=684/24 fanHalf=0 width=0.18 life=30 emit=(325,436) centerline=(1004,352) targetRef=(392,423) align=3 range=68
+  phase target-run 980ms assignments=4 tracers=0 box=150x92 path=141 disp=115 eff=82% speed=143 turn=152/152 pathTurn=30/116 firstTurn=6/6 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Bot strike: n=4 start=(431,408) mid=(385,448) end=(332,464) path=141 disp=115 eff=82% speed=143
+    u_bbomber:0: (406,390) -> (391,409) -> (381,422) -> (359,431) -> (344,430) -> (327,435) -> (306,447)
+    u_bbomber:1: (457,390) -> (442,409) -> (432,422) -> (410,431) -> (395,430) -> (378,435) -> (357,447)
+    u_bbomber:2: (406,425) -> (391,444) -> (381,456) -> (359,466) -> (344,465) -> (327,470) -> (306,482)
+    u_bbomber:3: (457,425) -> (442,444) -> (432,456) -> (410,466) -> (395,465) -> (378,470) -> (357,482)
+  phase egress 1080ms assignments=15 tracers=0 box=535x183 path=315 disp=286 eff=91% speed=291 turn=163/163 pathTurn=24/170 firstTurn=15/46 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Player cap: n=7 start=(593,428) mid=(360,447) end=(119,391) path=493 disp=475 eff=96% speed=457
+    group Bot escort: n=4 start=(495,468) mid=(542,515) end=(560,532) path=146 disp=91 eff=62% speed=135
+    group Bot strike: n=4 start=(332,466) mid=(397,410) end=(463,395) path=171 disp=149 eff=87% speed=159
+    relation Player cap -> Bot escort: sep(start=105, mid=194, end=463) closestMid=136 angle=130
+    relation Player cap -> Bot strike: sep(start=264, mid=52, end=343) closestMid=4 angle=144
+    u_pcap1:0: (584,428) -> (503,441) -> (434,454) -> (353,445) -> (272,434) -> (194,411) -> (115,387)
+    u_pcap1:1: (622,428) -> (541,441) -> (472,454) -> (391,445) -> (310,434) -> (232,411) -> (153,387)
+    u_pcap1:2: (584,454) -> (503,467) -> (434,481) -> (353,471) -> (272,461) -> (194,437) -> (115,413)
+    u_pcap1:3: (622,454) -> (541,467) -> (472,481) -> (391,471) -> (310,461) -> (232,437) -> (153,413)
+    u_pcap2:0: (566,402) -> (483,410) -> (415,433) -> (331,424) -> (249,415) -> (168,393) -> (87,371)
+    u_pcap2:1: (604,402) -> (521,410) -> (453,433) -> (369,424) -> (287,415) -> (206,393) -> (125,371)
+- airToAir (synthetic-scenario-1-escort-strike-no-interceptors) center=(512,456) phases=4
+  diagnostics escorts(event=1, linked=1) bomberIncluded=true unresolvedOrigins=0
+  phase fighter-ingress 1750ms assignments=4 tracers=0 box=325x293 path=394 disp=392 eff=99% speed=225 turn=0/0 pathTurn=1/9 firstTurn=1/1 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Player escort: n=4 start=(429,746) mid=(579,621) end=(716,480) path=394 disp=392 eff=99% speed=225
+    synthetic-s1-escort:0: (410,733) -> (467,701) -> (514,655) -> (560,608) -> (605,561) -> (651,514) -> (697,467)
+    synthetic-s1-escort:1: (448,733) -> (505,701) -> (552,655) -> (598,608) -> (643,561) -> (689,514) -> (735,467)
+    synthetic-s1-escort:2: (410,759) -> (467,727) -> (514,681) -> (560,635) -> (605,587) -> (651,540) -> (697,493)
+    synthetic-s1-escort:3: (448,759) -> (505,727) -> (552,681) -> (598,635) -> (643,587) -> (689,540) -> (735,493)
+  phase bomber-ingress 3500ms assignments=8 tracers=0 box=290x376 path=238 disp=211 eff=89% speed=68 turn=92/92 pathTurn=19/141 firstTurn=77/136 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Player strike: n=4 start=(470,819) mid=(480,664) end=(481,507) path=316 disp=313 eff=99% speed=90
+    group Player escort: n=4 start=(716,481) mid=(681,488) end=(612,515) path=160 disp=109 eff=68% speed=46
+    synthetic-s1-bomber:0: (445,802) -> (458,752) -> (455,700) -> (455,647) -> (455,594) -> (456,542) -> (455,489)
+    synthetic-s1-bomber:1: (495,802) -> (509,752) -> (506,700) -> (506,647) -> (506,594) -> (507,542) -> (506,489)
+    synthetic-s1-bomber:2: (445,837) -> (458,787) -> (455,735) -> (455,682) -> (455,629) -> (456,577) -> (455,524)
+    synthetic-s1-bomber:3: (495,837) -> (509,787) -> (506,735) -> (506,682) -> (506,629) -> (507,577) -> (506,524)
+    synthetic-s1-escort:0: (697,468) -> (685,477) -> (657,488) -> (662,475) -> (637,483) -> (609,494) -> (593,502)
+    synthetic-s1-escort:1: (735,468) -> (723,477) -> (695,488) -> (700,475) -> (675,483) -> (647,494) -> (631,502)
+  phase target-run 980ms assignments=8 tracers=0 box=318x84 path=177 disp=148 eff=84% speed=181 turn=64/78 pathTurn=24/121 firstTurn=71/120 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0 flak=18x36/396 belt=168x115
+    group Player strike: n=4 start=(481,508) mid=(541,532) end=(627,540) path=173 disp=150 eff=87% speed=176
+    group Player escort: n=4 start=(612,516) mid=(660,534) end=(755,551) path=181 disp=147 eff=81% speed=185
+    synthetic-s1-bomber:0: (455,491) -> (481,481) -> (493,501) -> (516,515) -> (545,511) -> (573,516) -> (602,523)
+    synthetic-s1-bomber:1: (506,491) -> (531,481) -> (543,501) -> (566,515) -> (595,511) -> (624,516) -> (652,523)
+    synthetic-s1-bomber:2: (455,526) -> (481,515) -> (493,536) -> (516,549) -> (545,546) -> (573,551) -> (602,557)
+    synthetic-s1-bomber:3: (506,526) -> (531,515) -> (543,536) -> (566,549) -> (595,546) -> (624,551) -> (652,557)
+    synthetic-s1-escort:0: (593,503) -> (608,503) -> (639,505) -> (641,521) -> (673,526) -> (704,532) -> (736,537)
+    synthetic-s1-escort:1: (631,503) -> (646,503) -> (677,505) -> (679,521) -> (711,526) -> (742,532) -> (774,537)
+    flak 82% center=(523,486) flash/puffs=2/22/28 belt=168x115
+    flak 83% center=(536,491) flash/puffs=2/22/28 belt=168x115
+    flak 84% center=(549,497) flash/puffs=2/22/28 belt=168x115
+  phase egress 1080ms assignments=8 tracers=0 box=336x428 path=268 disp=229 eff=86% speed=248 turn=72/79 pathTurn=27/166 firstTurn=20/22 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Player escort: n=4 start=(755,552) mid=(718,490) end=(691,432) path=187 disp=135 eff=72% speed=173
+    group Player strike: n=4 start=(627,542) mid=(550,669) end=(467,822) path=349 disp=323 eff=93% speed=323
+    synthetic-s1-escort:0: (736,539) -> (738,506) -> (706,508) -> (699,477) -> (696,445) -> (676,418) -> (672,419)
+    synthetic-s1-escort:1: (774,539) -> (776,506) -> (744,508) -> (737,477) -> (734,445) -> (714,418) -> (710,419)
+    synthetic-s1-escort:2: (736,565) -> (738,532) -> (706,535) -> (699,503) -> (696,471) -> (676,445) -> (672,445)
+    synthetic-s1-escort:3: (774,565) -> (776,532) -> (744,535) -> (737,503) -> (734,471) -> (714,445) -> (710,445)
+    synthetic-s1-bomber:0: (602,524) -> (596,580) -> (544,598) -> (525,651) -> (501,704) -> (472,755) -> (442,805)
+    synthetic-s1-bomber:1: (652,524) -> (646,580) -> (595,598) -> (575,651) -> (552,704) -> (522,755) -> (492,805)
+- airToAir (synthetic-scenario-2-strike-only) center=(512,456) phases=3
+  diagnostics escorts(event=0, linked=0) bomberIncluded=true unresolvedOrigins=0
+  phase bomber-ingress 3500ms assignments=4 tracers=0 box=64x348 path=316 disp=314 eff=99% speed=90 turn=0/0 pathTurn=3/19 firstTurn=19/19 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Player strike: n=4 start=(470,819) mid=(480,664) end=(479,506) path=316 disp=314 eff=99% speed=90
+    synthetic-s2-bomber:0: (445,802) -> (458,752) -> (455,699) -> (454,647) -> (454,594) -> (455,541) -> (454,488)
+    synthetic-s2-bomber:1: (495,802) -> (509,752) -> (505,699) -> (505,647) -> (505,594) -> (505,541) -> (505,488)
+    synthetic-s2-bomber:2: (445,837) -> (458,787) -> (455,734) -> (454,681) -> (454,629) -> (455,576) -> (454,523)
+    synthetic-s2-bomber:3: (495,837) -> (509,787) -> (505,734) -> (505,681) -> (505,629) -> (505,576) -> (505,523)
+  phase target-run 980ms assignments=4 tracers=0 box=200x80 path=176 disp=154 eff=87% speed=180 turn=53/53 pathTurn=17/52 firstTurn=22/22 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0 flak=18x36/396 belt=168x115
+    group Player strike: n=4 start=(479,507) mid=(541,532) end=(629,542) path=176 disp=154 eff=87% speed=180
+    synthetic-s2-bomber:0: (454,490) -> (480,480) -> (492,501) -> (516,515) -> (545,512) -> (574,518) -> (603,525)
+    synthetic-s2-bomber:1: (505,490) -> (531,480) -> (543,501) -> (566,515) -> (596,512) -> (625,518) -> (654,525)
+    synthetic-s2-bomber:2: (454,525) -> (480,515) -> (492,536) -> (516,550) -> (545,547) -> (574,553) -> (603,560)
+    synthetic-s2-bomber:3: (505,525) -> (531,515) -> (543,536) -> (566,550) -> (596,547) -> (625,553) -> (654,560)
+    flak 82% center=(523,486) flash/puffs=2/22/28 belt=168x115
+    flak 83% center=(536,491) flash/puffs=2/22/28 belt=168x115
+    flak 84% center=(549,497) flash/puffs=2/22/28 belt=168x115
+  phase egress 1080ms assignments=4 tracers=0 box=203x305 path=332 disp=309 eff=93% speed=308 turn=65/65 pathTurn=14/45 firstTurn=22/22 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Player strike: n=4 start=(629,544) mid=(558,667) end=(480,814) path=332 disp=309 eff=93% speed=308
+    synthetic-s2-bomber:0: (603,526) -> (598,580) -> (549,598) -> (532,650) -> (511,701) -> (483,749) -> (455,797)
+    synthetic-s2-bomber:1: (654,526) -> (648,580) -> (600,598) -> (583,650) -> (562,701) -> (534,749) -> (505,797)
+    synthetic-s2-bomber:2: (603,561) -> (598,615) -> (549,633) -> (532,684) -> (511,735) -> (483,784) -> (455,832)
+    synthetic-s2-bomber:3: (654,561) -> (648,615) -> (600,633) -> (583,684) -> (562,735) -> (534,784) -> (505,832)
+- airToAir (synthetic-scenario-3-strike-plus-interceptors-no-escorts) center=(512,456) phases=6
+  diagnostics escorts(event=0, linked=0) bomberIncluded=true unresolvedOrigins=0
+  phase fighter-ingress 1750ms assignments=8 tracers=0 box=357x226 path=315 disp=311 eff=99% speed=180 turn=0/0 pathTurn=2/14 firstTurn=1/2 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Bot cap: n=8 start=(574,278) mid=(444,358) end=(309,440) path=315 disp=311 eff=99% speed=180
+    synthetic-s3-interceptor-a:0: (534,229) -> (500,275) -> (452,308) -> (403,339) -> (355,369) -> (306,399) -> (257,430)
+    synthetic-s3-interceptor-a:1: (572,229) -> (538,275) -> (490,308) -> (442,339) -> (393,369) -> (344,399) -> (295,430)
+    synthetic-s3-interceptor-a:2: (534,255) -> (500,301) -> (452,334) -> (403,365) -> (355,395) -> (306,426) -> (257,456)
+    synthetic-s3-interceptor-a:3: (572,255) -> (538,301) -> (490,334) -> (442,365) -> (393,395) -> (344,426) -> (295,456)
+    synthetic-s3-interceptor-b:0: (576,301) -> (529,306) -> (487,328) -> (446,352) -> (406,377) -> (366,402) -> (324,425)
+    synthetic-s3-interceptor-b:1: (614,301) -> (567,306) -> (525,328) -> (484,352) -> (444,377) -> (404,402) -> (362,425)
+  phase escort-hold 825ms assignments=8 tracers=0 box=110x41 path=24 disp=14 eff=58% speed=29 turn=56/80 pathTurn=16/94 firstTurn=1/2 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Bot cap: n=8 start=(309,441) mid=(300,440) end=(296,439) path=24 disp=14 eff=58% speed=29
+    synthetic-s3-interceptor-a:0: (257,431) -> (255,433) -> (254,434) -> (253,434) -> (254,432) -> (253,430) -> (252,428)
+    synthetic-s3-interceptor-a:1: (295,431) -> (293,433) -> (292,434) -> (291,434) -> (292,432) -> (291,430) -> (290,428)
+    synthetic-s3-interceptor-a:2: (257,457) -> (255,459) -> (254,461) -> (253,460) -> (254,458) -> (253,456) -> (252,454)
+    synthetic-s3-interceptor-a:3: (295,457) -> (293,459) -> (292,461) -> (291,460) -> (292,458) -> (291,456) -> (290,454)
+    synthetic-s3-interceptor-b:0: (324,426) -> (320,421) -> (315,420) -> (309,421) -> (303,422) -> (297,423) -> (302,425)
+    synthetic-s3-interceptor-b:1: (362,426) -> (358,421) -> (353,420) -> (347,421) -> (341,422) -> (335,423) -> (340,425)
+  phase bomber-ingress 3500ms assignments=12 tracers=0 box=259x455 path=220 disp=210 eff=96% speed=63 turn=31/48 pathTurn=10/91 firstTurn=35/65 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Player strike: n=4 start=(470,819) mid=(482,665) end=(482,507) path=315 disp=312 eff=99% speed=90
+    group Bot cap: n=8 start=(296,441) mid=(361,417) end=(448,395) path=172 disp=159 eff=92% speed=49
+    relation Player strike -> Bot cap: sep(start=417, mid=275, end=117) closestMid=224 angle=66
+    synthetic-s3-bomber:0: (445,802) -> (460,752) -> (456,700) -> (456,647) -> (457,595) -> (457,542) -> (456,490)
+    synthetic-s3-bomber:1: (495,802) -> (510,752) -> (507,700) -> (507,647) -> (507,595) -> (508,542) -> (507,490)
+    synthetic-s3-bomber:2: (445,837) -> (460,787) -> (456,735) -> (456,682) -> (457,630) -> (457,577) -> (456,525)
+    synthetic-s3-bomber:3: (495,837) -> (510,787) -> (507,735) -> (507,682) -> (507,630) -> (508,577) -> (507,525)
+    synthetic-s3-interceptor-a:0: (252,429) -> (267,418) -> (299,422) -> (311,407) -> (344,399) -> (377,390) -> (410,382)
+    synthetic-s3-interceptor-a:1: (290,429) -> (305,418) -> (338,422) -> (349,407) -> (382,399) -> (415,390) -> (448,382)
+  phase bomber-defense-pass 2360ms assignments=12 tracers=10 box=382x260 path=436 disp=239 eff=55% speed=185 turn=75/105 pathTurn=17/136 firstTurn=59/93 tracerLen=684/24 tracerFan=0 tracerAlign=4/9 tracerRange=64/132
+    group Player strike: n=4 start=(482,509) mid=(518,438) end=(556,368) path=161 disp=159 eff=99% speed=68
+    group Bot cap: n=8 start=(448,396) mid=(477,477) end=(709,298) path=573 disp=279 eff=49% speed=243
+    relation Player strike -> Bot cap: sep(start=117, mid=56, end=168) closestMid=5 angle=133
+    synthetic-s3-bomber:0: (456,491) -> (463,465) -> (477,443) -> (492,421) -> (505,397) -> (518,374) -> (531,350)
+    synthetic-s3-bomber:1: (507,491) -> (514,465) -> (528,443) -> (543,421) -> (556,397) -> (569,374) -> (582,350)
+    synthetic-s3-bomber:2: (456,526) -> (463,500) -> (477,478) -> (492,456) -> (505,432) -> (518,409) -> (531,385)
+    synthetic-s3-bomber:3: (507,526) -> (514,500) -> (528,478) -> (543,456) -> (556,432) -> (569,409) -> (582,385)
+    synthetic-s3-interceptor-a:0: (410,383) -> (369,441) -> (369,506) -> (458,460) -> (530,393) -> (611,335) -> (700,291)
+    synthetic-s3-interceptor-a:1: (448,383) -> (407,441) -> (407,506) -> (496,460) -> (569,393) -> (649,335) -> (738,291)
+    tracer 36% synthetic-s3-interceptor-a:1 nose heading=67 len=684/24 fanHalf=0 width=0.18 life=30 emit=(431,496) centerline=(1061,230) targetRef=(482,472) align=2 range=56
+    tracer 42% synthetic-s3-interceptor-a:3 nose heading=60 len=684/24 fanHalf=0 width=0.18 life=30 emit=(482,496) centerline=(1075,155) targetRef=(540,462) align=0 range=67
+    tracer 48% synthetic-s3-interceptor-a:3 nose heading=59 len=684/24 fanHalf=0 width=0.18 life=30 emit=(512,476) centerline=(1096,121) targetRef=(544,454) align=3 range=40
+    tracer 54% synthetic-s3-interceptor-a:2 nose heading=45 len=684/24 fanHalf=0 width=0.18 life=30 emit=(491,458) centerline=(976,-25) targetRef=(546,416) align=7 range=69
+  phase target-run 980ms assignments=12 tracers=5 box=226x372 path=516 disp=186 eff=36% speed=527 turn=108/123 pathTurn=21/132 firstTurn=18/23 tracerLen=612/23 tracerFan=0 tracerAlign=3/9 tracerRange=52/68 flak=18x36/396 belt=168x115
+    group Player strike: n=4 start=(556,369) mid=(578,450) end=(628,543) path=211 disp=188 eff=89% speed=216
+    group Bot cap: n=8 start=(709,300) mid=(552,546) end=(547,210) path=669 disp=185 eff=28% speed=682
+    relation Player strike -> Bot cap: sep(start=168, mid=100, end=342) closestMid=65 angle=48
+    synthetic-s3-bomber:0: (531,352) -> (558,373) -> (545,401) -> (553,432) -> (575,460) -> (590,492) -> (603,526)
+    synthetic-s3-bomber:1: (582,352) -> (609,373) -> (596,401) -> (604,432) -> (626,460) -> (640,492) -> (653,526)
+    synthetic-s3-bomber:2: (531,387) -> (558,408) -> (545,436) -> (553,467) -> (575,495) -> (590,527) -> (603,560)
+    synthetic-s3-bomber:3: (582,387) -> (609,408) -> (596,436) -> (604,467) -> (626,495) -> (640,527) -> (653,560)
+    synthetic-s3-interceptor-a:0: (700,292) -> (656,359) -> (576,424) -> (531,529) -> (517,430) -> (536,317) -> (539,203)
+    synthetic-s3-interceptor-a:1: (738,292) -> (694,359) -> (614,424) -> (569,529) -> (555,430) -> (574,317) -> (577,203)
+    tracer 58% synthetic-s3-interceptor-a:3 nose heading=3 len=660/24 fanHalf=0 width=0.18 life=30 emit=(552,483) centerline=(584,-176) targetRef=(560,443) align=9 range=41
+    tracer 48% synthetic-s3-bomber:2 center heading=150 len=540/22 fanHalf=0 width=0.17 life=28 emit=(553,466) centerline=(826,932) targetRef=(579,509) align=1 range=50
+    tracer 50% synthetic-s3-interceptor-b:3 nose heading=350 len=660/24 fanHalf=0 width=0.18 life=30 emit=(562,535) centerline=(443,-115) targetRef=(555,470) align=4 range=65
+    tracer 58% synthetic-s3-interceptor-b:3 nose heading=0 len=660/24 fanHalf=0 width=0.18 life=30 emit=(561,478) centerline=(562,-182) targetRef=(560,443) align=2 range=35
+    flak 82% center=(523,486) flash/puffs=2/22/28 belt=168x115
+    flak 83% center=(536,491) flash/puffs=2/22/28 belt=168x115
+    flak 84% center=(549,497) flash/puffs=2/22/28 belt=168x115
+  phase egress 1080ms assignments=12 tracers=0 box=401x637 path=404 disp=368 eff=91% speed=374 turn=77/100 pathTurn=10/73 firstTurn=9/14 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Bot cap: n=8 start=(547,211) mid=(445,352) end=(283,511) path=452 disp=400 eff=88% speed=418
+    group Player strike: n=4 start=(628,545) mid=(572,688) end=(480,812) path=309 disp=306 eff=99% speed=286
+    relation Bot cap -> Player strike: sep(start=343, mid=358, end=360) closestMid=313 angle=14
+    synthetic-s3-interceptor-a:0: (539,204) -> (470,228) -> (480,291) -> (438,339) -> (378,383) -> (327,437) -> (276,491)
+    synthetic-s3-interceptor-a:1: (577,204) -> (508,228) -> (518,291) -> (476,339) -> (416,383) -> (365,437) -> (314,491)
+    synthetic-s3-interceptor-a:2: (539,230) -> (470,254) -> (480,317) -> (438,366) -> (378,409) -> (327,463) -> (276,517)
+    synthetic-s3-interceptor-a:3: (577,230) -> (508,254) -> (518,317) -> (476,366) -> (416,409) -> (365,463) -> (314,517)
+    synthetic-s3-interceptor-b:0: (518,192) -> (446,220) -> (459,287) -> (415,339) -> (353,386) -> (303,445) -> (252,505)
+    synthetic-s3-interceptor-b:1: (556,192) -> (484,220) -> (497,287) -> (453,339) -> (391,386) -> (341,445) -> (290,505)
+- airToAir (synthetic-scenario-5-three-cap-two-escort-four-bomber-stack) center=(512,456) phases=8
+  diagnostics escorts(event=2, linked=2) bomberIncluded=true unresolvedOrigins=0
+  phase fighter-ingress 1750ms assignments=5 tracers=0 box=506x576 path=347 disp=344 eff=99% speed=198 turn=0/0 pathTurn=2/15 firstTurn=1/2 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Bot cap: n=3 start=(553,240) mid=(431,335) end=(309,439) path=320 disp=317 eff=99% speed=183
+    group Player escort: n=2 start=(408,708) mid=(562,593) end=(716,479) path=387 disp=385 eff=99% speed=221
+    relation Bot cap -> Player escort: sep(start=490, mid=290, end=408) closestMid=210 angle=179
+    synthetic-s5-interceptor-a:0: (512,168) -> (480,224) -> (434,270) -> (386,314) -> (338,358) -> (290,401) -> (242,444)
+    synthetic-s5-interceptor-b:0: (553,240) -> (504,259) -> (463,293) -> (424,329) -> (386,365) -> (347,402) -> (309,439)
+    synthetic-s5-interceptor-c:0: (595,312) -> (553,317) -> (517,338) -> (482,362) -> (447,386) -> (412,411) -> (377,434)
+    synthetic-s5-escort-a:0: (387,672) -> (427,628) -> (477,597) -> (528,567) -> (579,537) -> (631,508) -> (683,479)
+    synthetic-s5-escort-b:0: (429,744) -> (490,712) -> (543,667) -> (595,620) -> (646,573) -> (698,526) -> (748,478)
+  phase escort-clash-merge 760ms assignments=5 tracers=6 box=506x279 path=383 disp=227 eff=59% speed=503 turn=135/150 pathTurn=19/159 firstTurn=41/56 tracerLen=720/16 tracerFan=0 tracerAlign=4/7 tracerRange=72/108
+    group Bot cap: n=3 start=(309,439) mid=(446,406) end=(476,567) path=385 disp=217 eff=56% speed=507
+    group Player escort: n=2 start=(716,479) mid=(552,500) end=(519,339) path=379 disp=241 eff=64% speed=498
+    relation Bot cap -> Player escort: sep(start=408, mid=141, end=232) closestMid=64 angle=174
+    synthetic-s5-interceptor-a:0: (242,444) -> (286,408) -> (350,379) -> (420,381) -> (467,433) -> (496,497) -> (460,554)
+    synthetic-s5-interceptor-b:0: (309,439) -> (356,422) -> (423,404) -> (493,421) -> (540,475) -> (572,539) -> (536,598)
+    synthetic-s5-interceptor-c:0: (377,434) -> (387,382) -> (390,376) -> (426,416) -> (457,460) -> (466,510) -> (433,550)
+    synthetic-s5-escort-a:0: (683,479) -> (641,496) -> (578,488) -> (516,480) -> (474,430) -> (449,370) -> (483,318)
+    synthetic-s5-escort-b:0: (748,478) -> (713,510) -> (649,519) -> (588,520) -> (546,469) -> (521,411) -> (555,359)
+    tracer 54% synthetic-s5-escort-a:0 nose heading=319 len=720/16 fanHalf=0 width=0.14 life=22 emit=(489,452) centerline=(13,-88) targetRef=(432,389) align=1 range=85
+    tracer 60% synthetic-s5-escort-a:0 nose heading=321 len=720/16 fanHalf=0 width=0.14 life=22 emit=(475,433) centerline=(19,-124) targetRef=(449,409) align=7 range=35
+    tracer 57% synthetic-s5-interceptor-a:0 nose heading=139 len=720/16 fanHalf=0 width=0.14 life=22 emit=(455,415) centerline=(926,959) targetRef=(496,459) align=2 range=60
+    tracer 54% synthetic-s5-escort-b:0 nose heading=320 len=720/16 fanHalf=0 width=0.14 life=22 emit=(562,491) centerline=(97,-59) targetRef=(504,431) align=4 range=83
+  phase escort-clash-scramble 1228ms assignments=5 tracers=2 box=194x332 path=354 disp=222 eff=63% speed=288 turn=137/156 pathTurn=24/125 firstTurn=73/84 tracerLen=720/18 tracerFan=0 tracerAlign=12/13 tracerRange=92/93
+    group Bot cap: n=3 start=(476,567) mid=(485,438) end=(500,397) path=366 disp=195 eff=53% speed=298
+    group Player escort: n=2 start=(519,339) mid=(501,463) end=(474,597) path=335 disp=262 eff=78% speed=273
+    relation Bot cap -> Player escort: sep(start=232, mid=29, end=202) closestMid=22 angle=175
+    synthetic-s5-interceptor-a:0: (460,554) -> (498,527) -> (516,475) -> (482,428) -> (456,375) -> (463,319) -> (511,286)
+    synthetic-s5-interceptor-b:0: (536,598) -> (574,570) -> (591,517) -> (556,469) -> (528,416) -> (534,359) -> (585,329)
+    synthetic-s5-interceptor-c:0: (433,550) -> (427,502) -> (404,443) -> (418,418) -> (454,476) -> (459,540) -> (403,575)
+    synthetic-s5-escort-a:0: (483,318) -> (448,342) -> (434,395) -> (464,442) -> (490,492) -> (483,545) -> (437,576)
+    synthetic-s5-escort-b:0: (555,359) -> (518,384) -> (505,438) -> (537,485) -> (565,534) -> (559,589) -> (511,618)
+    tracer 37% synthetic-s5-interceptor-a:0 center heading=322 len=720/18 fanHalf=0 width=0.15 life=22 emit=(510,465) centerline=(62,-98) targetRef=(440,407) align=12 range=91
+    tracer 37% synthetic-s5-interceptor-b:0 center heading=321 len=720/18 fanHalf=0 width=0.15 life=22 emit=(585,508) centerline=(133,-53) targetRef=(512,450) align=13 range=93
+  phase bomber-gap 220ms assignments=5 tracers=0 box=305x344 path=216 disp=189 eff=88% speed=981 turn=128/174 pathTurn=25/177 firstTurn=66/86 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Bot cap: n=3 start=(500,397) mid=(436,441) end=(362,480) path=236 disp=210 eff=89% speed=1075
+    group Player escort: n=2 start=(474,597) mid=(532,579) end=(617,537) path=185 disp=158 eff=85% speed=839
+    relation Bot cap -> Player escort: sep(start=202, mid=167, end=262) closestMid=110 angle=162
+    synthetic-s5-interceptor-a:0: (511,286) -> (478,303) -> (463,346) -> (429,380) -> (396,413) -> (363,447) -> (329,480)
+    synthetic-s5-interceptor-b:0: (585,329) -> (548,339) -> (523,378) -> (483,404) -> (442,429) -> (402,455) -> (362,480)
+    synthetic-s5-interceptor-c:0: (403,575) -> (393,561) -> (400,533) -> (397,541) -> (394,523) -> (393,493) -> (394,481)
+    synthetic-s5-escort-a:0: (437,576) -> (455,559) -> (487,557) -> (505,565) -> (537,556) -> (568,547) -> (600,538)
+    synthetic-s5-escort-b:0: (511,618) -> (533,625) -> (561,610) -> (560,592) -> (585,574) -> (610,556) -> (635,537)
+  phase bomber-ingress 3500ms assignments=9 tracers=0 box=305x444 path=223 disp=196 eff=88% speed=64 turn=91/165 pathTurn=17/166 firstTurn=51/136 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Player strike: n=4 start=(470,819) mid=(481,664) end=(480,507) path=316 disp=313 eff=99% speed=90
+    group Bot cap: n=3 start=(362,480) mid=(391,447) end=(448,394) path=153 disp=122 eff=80% speed=44
+    group Player escort: n=2 start=(617,537) mid=(578,529) end=(545,521) path=142 disp=74 eff=53% speed=40
+    relation Player strike -> Bot cap: sep(start=356, mid=236, end=117) closestMid=208 angle=37
+    relation Bot cap -> Player escort: sep(start=262, mid=204, end=160) closestMid=151 angle=119
+    synthetic-s5-bomber:0: (445,802) -> (459,752) -> (455,700) -> (455,647) -> (456,594) -> (456,542) -> (455,489)
+    synthetic-s5-bomber:1: (495,802) -> (510,752) -> (506,700) -> (506,647) -> (506,594) -> (507,542) -> (506,489)
+    synthetic-s5-bomber:2: (445,837) -> (459,787) -> (455,735) -> (455,682) -> (456,629) -> (456,577) -> (455,524)
+    synthetic-s5-bomber:3: (495,837) -> (510,787) -> (506,735) -> (506,682) -> (506,629) -> (507,577) -> (506,524)
+    synthetic-s5-interceptor-a:0: (329,480) -> (352,478) -> (367,453) -> (352,452) -> (369,433) -> (389,413) -> (410,393)
+    synthetic-s5-interceptor-b:0: (362,480) -> (382,477) -> (400,455) -> (384,452) -> (405,433) -> (426,413) -> (448,394)
+  phase bomber-defense-pass 2360ms assignments=9 tracers=13 box=369x243 path=306 disp=202 eff=66% speed=130 turn=68/147 pathTurn=14/131 firstTurn=47/104 tracerLen=684/24 tracerFan=0 tracerAlign=4/8 tracerRange=72/116
+    group Player strike: n=4 start=(480,508) mid=(517,438) end=(556,368) path=161 disp=159 eff=99% speed=68
+    group Bot cap: n=3 start=(448,394) mid=(478,475) end=(709,297) path=574 disp=280 eff=49% speed=243
+    group Player escort: n=2 start=(545,521) mid=(585,470) end=(643,384) path=196 disp=169 eff=86% speed=83
+    relation Player strike -> Bot cap: sep(start=119, mid=54, end=168) closestMid=22 angle=132
+    relation Bot cap -> Player escort: sep(start=160, mid=108, end=109) closestMid=95 angle=121
+    synthetic-s5-bomber:0: (455,491) -> (462,465) -> (477,443) -> (492,421) -> (505,397) -> (518,374) -> (531,350)
+    synthetic-s5-bomber:1: (506,491) -> (513,465) -> (527,443) -> (543,421) -> (556,397) -> (569,374) -> (582,350)
+    synthetic-s5-bomber:2: (455,526) -> (462,500) -> (477,477) -> (492,456) -> (505,432) -> (518,409) -> (531,385)
+    synthetic-s5-bomber:3: (506,526) -> (513,500) -> (527,477) -> (543,456) -> (556,432) -> (569,409) -> (582,385)
+    synthetic-s5-interceptor-a:0: (410,393) -> (372,451) -> (383,513) -> (474,469) -> (552,404) -> (637,350) -> (730,309)
+    synthetic-s5-interceptor-b:0: (448,394) -> (402,453) -> (392,523) -> (478,475) -> (546,405) -> (623,344) -> (709,297)
+    tracer 36% synthetic-s5-interceptor-a:0 nose heading=69 len=684/24 fanHalf=0 width=0.18 life=30 emit=(416,500) centerline=(1054,254) targetRef=(481,472) align=2 range=71
+    tracer 42% synthetic-s5-interceptor-a:0 nose heading=66 len=684/24 fanHalf=0 width=0.18 life=30 emit=(449,485) centerline=(1075,210) targetRef=(487,464) align=6 range=43
+    tracer 48% synthetic-s5-interceptor-a:0 nose heading=60 len=684/24 fanHalf=0 width=0.18 life=30 emit=(480,466) centerline=(1071,122) targetRef=(541,424) align=5 range=74
+    tracer 54% synthetic-s5-interceptor-a:0 nose heading=51 len=684/24 fanHalf=0 width=0.18 life=30 emit=(510,444) centerline=(1045,18) targetRef=(546,415) align=0 range=46
+  phase target-run 980ms assignments=4 tracers=0 box=121x208 path=210 disp=187 eff=89% speed=214 turn=83/83 pathTurn=15/60 firstTurn=17/17 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0 flak=20x40/440 belt=168x115
+    group Player strike: n=4 start=(556,369) mid=(578,449) end=(627,542) path=210 disp=187 eff=89% speed=214
+    synthetic-s5-bomber:0: (531,352) -> (558,373) -> (545,401) -> (552,432) -> (574,459) -> (588,492) -> (601,525)
+    synthetic-s5-bomber:1: (582,352) -> (609,373) -> (595,401) -> (603,432) -> (625,459) -> (639,492) -> (652,525)
+    synthetic-s5-bomber:2: (531,387) -> (558,408) -> (545,436) -> (552,467) -> (574,494) -> (588,527) -> (601,560)
+    synthetic-s5-bomber:3: (582,387) -> (609,408) -> (595,436) -> (603,467) -> (625,494) -> (639,527) -> (652,560)
+    flak 82% center=(511,479) flash/puffs=2/22/28 belt=168x115
+    flak 83% center=(524,485) flash/puffs=2/22/28 belt=168x115
+    flak 84% center=(537,490) flash/puffs=2/22/28 belt=168x115
+  phase egress 1080ms assignments=9 tracers=0 box=535x544 path=342 disp=326 eff=95% speed=317 turn=37/37 pathTurn=12/166 firstTurn=11/45 tracerLen=0/0 tracerFan=0 tracerAlign=0/0 tracerRange=0/0
+    group Bot cap: n=3 start=(709,297) mid=(517,433) end=(281,518) path=501 disp=482 eff=96% speed=464
+    group Player escort: n=2 start=(643,384) mid=(724,392) end=(773,405) path=169 disp=132 eff=78% speed=157
+    group Player strike: n=4 start=(627,544) mid=(569,687) end=(478,812) path=310 disp=307 eff=99% speed=287
+    relation Bot cap -> Player escort: sep(start=109, mid=211, end=504) closestMid=180 angle=139
+    relation Bot cap -> Player strike: sep(start=260, mid=260, end=354) closestMid=228 angle=33
+    synthetic-s5-interceptor-a:0: (730,309) -> (669,363) -> (615,408) -> (542,441) -> (468,473) -> (389,493) -> (311,513)
+    synthetic-s5-interceptor-b:0: (709,297) -> (642,349) -> (593,403) -> (517,439) -> (441,474) -> (359,497) -> (277,520)
+    synthetic-s5-interceptor-c:0: (688,285) -> (616,333) -> (575,395) -> (492,418) -> (410,444) -> (332,483) -> (254,522)
+    synthetic-s5-escort-a:0: (633,378) -> (661,374) -> (684,396) -> (715,392) -> (745,397) -> (774,409) -> (763,409)
+    synthetic-s5-escort-b:0: (653,390) -> (679,383) -> (704,399) -> (733,393) -> (761,394) -> (790,400) -> (783,402)
+    synthetic-s5-bomber:0: (601,527) -> (587,576) -> (567,624) -> (544,670) -> (513,711) -> (483,753) -> (453,795)
+
+Diagnostics:
+- [jerky-phase-entry] capClash bot-cap-1 phase escort-clash-merge turns too sharply at its first waypoint (42/132 degrees).
+- [hard-phase-reversal] capClash bot-cap-1 phase escort-clash-scramble enters with mean/max turn 156/167 degrees.
+- [jerky-phase-entry] capClash bot-cap-1 phase escort-clash-scramble turns too sharply at its first waypoint (68/89 degrees).
+- [hard-phase-reversal] capClash bot-cap-1 phase egress enters with mean/max turn 163/176 degrees.
+- [hard-phase-reversal] airToAir bot-strike-1 phase escort-clash-scramble enters with mean/max turn 150/165 degrees.
+- [jerky-phase-entry] airToAir bot-strike-1 phase escort-clash-scramble turns too sharply at its first waypoint (77/96 degrees).
+- [hard-phase-reversal] airToAir bot-strike-1 phase bomber-ingress enters with mean/max turn 130/165 degrees.
+- [jerky-phase-entry] airToAir bot-strike-1 phase bomber-ingress turns too sharply at its first waypoint (48/112 degrees).
+- [hard-phase-reversal] airToAir bot-strike-1 phase target-run enters with mean/max turn 152/152 degrees.
+- [hard-phase-reversal] airToAir bot-strike-1 phase egress enters with mean/max turn 163/163 degrees.
+- [jerky-phase-entry] airToAir synthetic-scenario-1-escort-strike-no-interceptors phase bomber-ingress turns too sharply at its first waypoint (77/136 degrees).
+- [jerky-phase-entry] airToAir synthetic-scenario-1-escort-strike-no-interceptors phase target-run turns too sharply at its first waypoint (71/120 degrees).
+- [jerky-phase-entry] airToAir synthetic-scenario-3-strike-plus-interceptors-no-escorts phase bomber-ingress turns too sharply at its first waypoint (35/65 degrees).
+- [jerky-phase-entry] airToAir synthetic-scenario-3-strike-plus-interceptors-no-escorts phase bomber-defense-pass turns too sharply at its first waypoint (59/93 degrees).
+- [hard-phase-reversal] airToAir synthetic-scenario-5-three-cap-two-escort-four-bomber-stack phase escort-clash-merge enters with mean/max turn 135/150 degrees.
+- [jerky-phase-entry] airToAir synthetic-scenario-5-three-cap-two-escort-four-bomber-stack phase escort-clash-merge turns too sharply at its first waypoint (41/56 degrees).
+- [hard-phase-reversal] airToAir synthetic-scenario-5-three-cap-two-escort-four-bomber-stack phase escort-clash-scramble enters with mean/max turn 137/156 degrees.
+- [jerky-phase-entry] airToAir synthetic-scenario-5-three-cap-two-escort-four-bomber-stack phase escort-clash-scramble turns too sharply at its first waypoint (73/84 degrees).
+- [hard-phase-reversal] airToAir synthetic-scenario-5-three-cap-two-escort-four-bomber-stack phase bomber-gap enters with mean/max turn 128/174 degrees.
+- [sharp-waypoint-turn] airToAir synthetic-scenario-5-three-cap-two-escort-four-bomber-stack phase bomber-gap bends within the path at 25/177 degrees.
+- [jerky-phase-entry] airToAir synthetic-scenario-5-three-cap-two-escort-four-bomber-stack phase bomber-gap turns too sharply at its first waypoint (66/86 degrees).
+- [hard-phase-reversal] airToAir synthetic-scenario-5-three-cap-two-escort-four-bomber-stack phase bomber-ingress enters with mean/max turn 91/165 degrees.
+- [jerky-phase-entry] airToAir synthetic-scenario-5-three-cap-two-escort-four-bomber-stack phase bomber-ingress turns too sharply at its first waypoint (51/136 degrees).
+- [hard-phase-reversal] airToAir synthetic-scenario-5-three-cap-two-escort-four-bomber-stack phase bomber-defense-pass enters with mean/max turn 68/147 degrees.
+- [jerky-phase-entry] airToAir synthetic-scenario-5-three-cap-two-escort-four-bomber-stack phase bomber-defense-pass turns too sharply at its first waypoint (47/104 degrees).
+
+Anomalies:
+- none

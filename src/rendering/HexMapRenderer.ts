@@ -1400,8 +1400,10 @@ export class HexMapRenderer implements IMapRenderer {
           this.resolveAirShowIngressBandPlan(scene.kind, "escort")
         )
       ];
-      recordPhase("fighter-ingress", ingressAssignments, Math.max(1250, scene.fighterIngressDurationMs ?? 1750));
-      updateFlightAnchors([...interceptorFlights, ...escortFlights]);
+      if (ingressAssignments.length > 0) {
+        recordPhase("fighter-ingress", ingressAssignments, Math.max(1250, scene.fighterIngressDurationMs ?? 1750));
+        updateFlightAnchors([...interceptorFlights, ...escortFlights]);
+      }
 
       const escortExchanges = scene.escortExchanges ?? [];
       if (escortExchanges.length > 0) {
@@ -1517,6 +1519,13 @@ export class HexMapRenderer implements IMapRenderer {
               phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.24));
             });
 
+            const useCloseScrambleTracerProfile =
+              scene.kind === "airToAir"
+              && !!bomberFlight
+              && beat > 0
+              && uniqueEscortPairs.length <= 2
+              && activeInterceptorFlights.length <= 3
+              && activeEscortFlights.length <= 2;
             uniqueEscortPairs.forEach((pair) => {
               const baseTimings = beat === 0
                 ? [0.24, 0.3, 0.36, 0.42, 0.48, 0.54, 0.6]
@@ -1527,17 +1536,17 @@ export class HexMapRenderer implements IMapRenderer {
                   pair.interceptorFlight,
                   pair.escortFlight,
                   {
-                    emitter: "nose",
+                    emitter: useCloseScrambleTracerProfile ? "center" : "nose",
                     color: "#fff5cf",
-                    width: 0.14,
+                    width: useCloseScrambleTracerProfile ? 0.15 : 0.14,
                     lifetimeMs: 22,
                     spreadPx: 0,
                     streakLengthPx: 720,
-                    visibleLengthPx: 16,
+                    visibleLengthPx: useCloseScrambleTracerProfile ? 18 : 16,
                     fanHalfAngleDeg: 0,
                     burstCount: (pair.exchange.damageToDefender ?? 0) > 0 ? 9 : 8,
-                    maxAlignmentDeg: beat === 0 ? 16 : 14,
-                    maxRangePx: beat === 0 ? 176 : 162,
+                    maxAlignmentDeg: beat === 0 ? 16 : useCloseScrambleTracerProfile ? 30 : 18,
+                    maxRangePx: beat === 0 ? 176 : useCloseScrambleTracerProfile ? 260 : 220,
                     timings: baseTimings
                   }
                 ),
@@ -1546,24 +1555,30 @@ export class HexMapRenderer implements IMapRenderer {
                   pair.escortFlight,
                   pair.interceptorFlight,
                   {
-                    emitter: "nose",
+                    emitter: useCloseScrambleTracerProfile ? "center" : "nose",
                     color: "#ffd98a",
-                    width: 0.14,
+                    width: useCloseScrambleTracerProfile ? 0.15 : 0.14,
                     lifetimeMs: 22,
                     spreadPx: 0,
                     streakLengthPx: 720,
-                    visibleLengthPx: 16,
+                    visibleLengthPx: useCloseScrambleTracerProfile ? 18 : 16,
                     fanHalfAngleDeg: 0,
                     burstCount: (pair.exchange.retaliationDamage ?? 0) > 0 ? 9 : 8,
-                    maxAlignmentDeg: beat === 0 ? 16 : 14,
-                    maxRangePx: beat === 0 ? 176 : 162,
+                    maxAlignmentDeg: beat === 0 ? 16 : useCloseScrambleTracerProfile ? 30 : 18,
+                    maxRangePx: beat === 0 ? 176 : useCloseScrambleTracerProfile ? 260 : 220,
                     timings: baseTimings.map((timing) => Math.min(0.84, timing + 0.03))
                   }
                 )
               );
             });
 
-            recordPhase(beat === 0 ? "escort-clash-merge" : "escort-clash-scramble", phaseAssignments, escortBeatDurationMs, tracerBursts);
+            const spacedPhaseAssignments = this.resolveAirShowPhaseSpacing(phaseAssignments);
+            recordPhase(
+              beat === 0 ? "escort-clash-merge" : "escort-clash-scramble",
+              spacedPhaseAssignments,
+              escortBeatDurationMs,
+              tracerBursts
+            );
             updateFlightAnchors([...interceptorFlights, ...escortFlights]);
           }
 
@@ -1593,7 +1608,12 @@ export class HexMapRenderer implements IMapRenderer {
       const survivingInterceptors = activeFlights(interceptorFlights);
       const survivingEscorts = activeFlights(escortFlights);
 
-      if (bomberFlight && (scene.bomberArrivalDelayMs ?? 0) > 0 && (survivingInterceptors.length > 0 || survivingEscorts.length > 0)) {
+      if (
+        bomberFlight
+        && (scene.bomberArrivalDelayMs ?? 0) > 0
+        && (scene.escortExchanges?.length ?? 0) > 0
+        && (survivingInterceptors.length > 0 || survivingEscorts.length > 0)
+      ) {
         const bomberGapAssignments: AirShowPhaseAssignment[] = [
           ...survivingInterceptors.flatMap((flight, index) =>
             this.buildAirShowFlightAssignments(
@@ -1676,14 +1696,14 @@ export class HexMapRenderer implements IMapRenderer {
                 this.averageAirShowPosition(flight.actors) ?? flight.anchor,
                 corridor,
                 {
-                  endAlongPx: -88,
-                  baseLateralPx: -126,
+                  endAlongPx: 22,
+                  baseLateralPx: -86,
                   laneIndex: index - (survivingInterceptors.length - 1) / 2,
                   sideSign: -1,
-                  alongStepPx: 24,
-                  lateralStepPx: 30,
-                  corridorWidthPx: 18,
-                  driftPx: 18,
+                  alongStepPx: 18,
+                  lateralStepPx: 34,
+                  corridorWidthPx: 14,
+                  driftPx: 12,
                   startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight)
                 }
               ),
@@ -1693,18 +1713,18 @@ export class HexMapRenderer implements IMapRenderer {
           ...survivingEscorts.flatMap((flight, index) =>
             this.buildAirShowFlightAssignments(
               flight,
-              this.buildAirShowScreenRunPath(
+              this.buildAirShowTargetRunEscortPath(
                 this.averageAirShowPosition(flight.actors) ?? flight.anchor,
+                ingressTarget,
                 corridor,
                 {
-                  endAlongPx: -28,
-                  baseLateralPx: 116,
                   laneIndex: index - (survivingEscorts.length - 1) / 2,
                   sideSign: 1,
-                  alongStepPx: 20,
-                  lateralStepPx: 28,
-                  corridorWidthPx: 18,
-                  driftPx: 18,
+                  alongOffsetPx: survivingInterceptors.length > 0 ? 18 : 58,
+                  lateralBasePx: survivingInterceptors.length > 0 ? 64 : 118,
+                  lateralStepPx: survivingInterceptors.length > 0 ? 24 : 34,
+                  corridorWidthPx: survivingInterceptors.length > 0 ? 14 : 18,
+                  driftPx: survivingInterceptors.length > 0 ? 10 : 18,
                   startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight)
                 }
               ),
@@ -1727,10 +1747,7 @@ export class HexMapRenderer implements IMapRenderer {
               .filter((entry): entry is readonly [string, { exchange: (typeof bomberPassExchanges)[number]; interceptorFlight: AirShowRuntimeFlightInternal; exchangeIndex: number }] => !!entry)
           ).values()
         );
-        const bomberVisualPassCount = bomberAttackEntries.reduce(
-          (maxPasses, entry) => Math.max(maxPasses, Math.max(2, entry.exchange.visualPasses ?? 2)),
-          0
-        );
+        const bomberVisualPassCount = bomberAttackEntries.length > 0 ? 1 : 0;
         if (bomberAttackEntries.length > 0 && bomberVisualPassCount > 0) {
           const bomberPassBeatDurationMs = Math.max(
             760,
@@ -1745,10 +1762,10 @@ export class HexMapRenderer implements IMapRenderer {
             const phaseAssignments: AirShowPhaseAssignment[] = [
               ...this.buildAirShowFlightAssignments(
                 bomberFlight,
-                this.buildAirShowBomberRunPath(bomberCurrent, corridorPoint(passEnd, bomberLateral), {
+                this.buildAirShowBomberContinuationPath(bomberCurrent, corridorPoint(passEnd, bomberLateral), {
                   lateralSign: bomberLateral >= 0 ? 1 : -1,
                   corridorWidthPx: 14,
-                  driftPx: 14,
+                  driftPx: 8,
                   startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(bomberFlight)
                 }),
                 0.22
@@ -1762,7 +1779,11 @@ export class HexMapRenderer implements IMapRenderer {
             activeAttackEntries.forEach((entry, attackIndex) => {
               const interceptorCurrent = this.averageAirShowPosition(entry.interceptorFlight.actors) ?? entry.interceptorFlight.anchor;
               const lane = activeAttackEntries.length <= 1 ? 0 : attackIndex - (activeAttackEntries.length - 1) / 2;
-              const direction = (passIndex + attackIndex) % 2 === 0 ? -1 : 1;
+              const direction = this.resolveAirShowCorridorSideSign(
+                interceptorCurrent,
+                corridor,
+                attackIndex % 2 === 0 ? -1 : 1
+              );
               const interceptorPath = this.buildAirShowBomberInterceptPassPath(interceptorCurrent, corridor, {
                 passStartAlongPx: passStart,
                 passEndAlongPx: passEnd,
@@ -1829,18 +1850,18 @@ export class HexMapRenderer implements IMapRenderer {
               ...activeScreeningEscorts.flatMap((flight, escortIndex) =>
                 this.buildAirShowFlightAssignments(
                   flight,
-                  this.buildAirShowScreenRunPath(
+                  this.buildAirShowTargetRunEscortPath(
                     this.averageAirShowPosition(flight.actors) ?? flight.anchor,
+                    corridorPoint(passEnd, bomberLateral),
                     corridor,
                     {
-                      endAlongPx: passEnd + 72,
-                      baseLateralPx: 122,
                       laneIndex: escortIndex - (activeScreeningEscorts.length - 1) / 2,
                       sideSign: 1,
-                      alongStepPx: 16,
-                      lateralStepPx: 28,
-                      corridorWidthPx: 16,
-                      driftPx: 14,
+                      alongOffsetPx: 28,
+                      lateralBasePx: 84,
+                      lateralStepPx: 24,
+                      corridorWidthPx: 14,
+                      driftPx: 10,
                       startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight)
                     }
                   ),
@@ -1848,7 +1869,7 @@ export class HexMapRenderer implements IMapRenderer {
                 )
               )
             );
-            recordPhase(`bomber-pass-${passIndex + 1}`, phaseAssignments, bomberPassBeatDurationMs, tracerBursts);
+            recordPhase("bomber-defense-pass", phaseAssignments, bomberPassBeatDurationMs, tracerBursts);
             updateFlightAnchors([bomberFlight, ...interceptorFlights, ...escortFlights]);
           }
 
@@ -1869,6 +1890,8 @@ export class HexMapRenderer implements IMapRenderer {
       const postPassInterceptors = activeFlights(interceptorFlights);
       const postPassEscorts = activeFlights(escortFlights);
       if (bomberFlight && bomberTargetCenter && bomberFlight.actors.some((actor) => actor.active)) {
+        const keepInterceptorsOnTargetRun = postPassInterceptors.length > 0 && escortFlights.length === 0;
+        const keepEscortsOnTargetRun = postPassEscorts.length > 0 && interceptorFlights.length === 0;
         const rand = stageRandom(`target-run:${bomberFlight.spec.id}`);
         const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
         const targetApproach = this.offsetAirShowPoint(
@@ -1879,7 +1902,7 @@ export class HexMapRenderer implements IMapRenderer {
         const strikeRunAssignments: AirShowPhaseAssignment[] = [
           ...this.buildAirShowFlightAssignments(
             bomberFlight,
-            this.buildAirShowBomberRunPath(bomberCurrent, targetApproach, {
+            this.buildAirShowBomberTargetRunPath(bomberCurrent, targetApproach, {
               lateralSign: this.resolveAirShowRouteSideSign(
                 bomberCurrent,
                 targetApproach,
@@ -1887,12 +1910,11 @@ export class HexMapRenderer implements IMapRenderer {
                 rand() > 0.5 ? 1 : -1
               ),
               corridorWidthPx: 10,
-              driftPx: 8,
               startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(bomberFlight)
             }),
             0.2
           ),
-          ...postPassEscorts.flatMap((flight, index) =>
+          ...(keepEscortsOnTargetRun ? postPassEscorts.flatMap((flight, index) =>
             this.buildAirShowFlightAssignments(
               flight,
               this.buildAirShowTargetRunEscortPath(
@@ -1912,8 +1934,8 @@ export class HexMapRenderer implements IMapRenderer {
               ),
               0.24
             )
-          ),
-          ...postPassInterceptors.flatMap((flight, index) =>
+          ) : []),
+          ...(keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight, index) =>
             this.buildAirShowFlightAssignments(
               flight,
               this.buildAirShowBomberInterceptPassPath(
@@ -1933,9 +1955,9 @@ export class HexMapRenderer implements IMapRenderer {
               ),
               0.34
             )
-          )
+          ) : [])
         ];
-        const strikeRunTracerBursts = postPassInterceptors.flatMap((flight) => [
+        const strikeRunTracerBursts = keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight) => [
           ...this.buildAirShowDynamicTracerVolley(strikeRunAssignments, flight, bomberFlight, {
             emitter: "nose",
             width: 0.18,
@@ -1963,7 +1985,7 @@ export class HexMapRenderer implements IMapRenderer {
             maxRangePx: 156,
             timings: [0.48, 0.56, 0.64, 0.72]
           })
-        ]);
+        ]) : [];
         recordPhase(
           "target-run",
           strikeRunAssignments,
@@ -1971,7 +1993,11 @@ export class HexMapRenderer implements IMapRenderer {
           strikeRunTracerBursts,
           scene.flakBursts ?? []
         );
-        updateFlightAnchors([bomberFlight, ...postPassInterceptors, ...postPassEscorts]);
+        updateFlightAnchors([
+          bomberFlight,
+          ...(keepInterceptorsOnTargetRun ? postPassInterceptors : []),
+          ...(keepEscortsOnTargetRun ? postPassEscorts : [])
+        ]);
       }
 
       const egressFlights = activeFlights([...interceptorFlights, ...escortFlights, ...(bomberFlight ? [bomberFlight] : [])]);
@@ -2209,15 +2235,17 @@ export class HexMapRenderer implements IMapRenderer {
           this.resolveAirShowIngressBandPlan(scene.kind, "escort")
         )
       ];
-      logAirShowBeatStart(packageId, 0, "ingress", interceptorFlights.map(f => f.spec.id));
-      debugAirShowPhase("Ingress", { type: "fighters approaching" });
-      await this.runAirShowPhase(
-        ingressAssignments,
-        Math.max(1250, scene.fighterIngressDurationMs ?? 1750),
-        [],
-        { easing: "linear" }
-      );
-      updateFlightAnchors([...interceptorFlights, ...escortFlights]);
+      if (ingressAssignments.length > 0) {
+        logAirShowBeatStart(packageId, 0, "ingress", interceptorFlights.map(f => f.spec.id));
+        debugAirShowPhase("Ingress", { type: "fighters approaching" });
+        await this.runAirShowPhase(
+          ingressAssignments,
+          Math.max(1250, scene.fighterIngressDurationMs ?? 1750),
+          [],
+          { easing: "linear" }
+        );
+        updateFlightAnchors([...interceptorFlights, ...escortFlights]);
+      }
 
       const escortExchanges = scene.escortExchanges ?? [];
       if (escortExchanges.length > 0) {
@@ -2354,6 +2382,13 @@ export class HexMapRenderer implements IMapRenderer {
               phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.24));
             });
 
+            const useCloseScrambleTracerProfile =
+              scene.kind === "airToAir"
+              && !!bomberFlight
+              && beat > 0
+              && uniqueEscortPairs.length <= 2
+              && activeInterceptorFlights.length <= 3
+              && activeEscortFlights.length <= 2;
             uniqueEscortPairs.forEach((pair) => {
               const baseTimings = beat === 0
                 ? [0.24, 0.3, 0.36, 0.42, 0.48, 0.54, 0.6]
@@ -2364,17 +2399,17 @@ export class HexMapRenderer implements IMapRenderer {
                   pair.interceptorFlight,
                   pair.escortFlight,
                   {
-                    emitter: "nose",
+                    emitter: useCloseScrambleTracerProfile ? "center" : "nose",
                     color: "#fff5cf",
-                    width: 0.14,
+                    width: useCloseScrambleTracerProfile ? 0.15 : 0.14,
                     lifetimeMs: 22,
                     spreadPx: 0,
                     streakLengthPx: 720,
-                    visibleLengthPx: 16,
+                    visibleLengthPx: useCloseScrambleTracerProfile ? 18 : 16,
                     fanHalfAngleDeg: 0,
                     burstCount: (pair.exchange.damageToDefender ?? 0) > 0 ? 9 : 8,
-                    maxAlignmentDeg: beat === 0 ? 16 : 14,
-                    maxRangePx: beat === 0 ? 176 : 162,
+                    maxAlignmentDeg: beat === 0 ? 16 : useCloseScrambleTracerProfile ? 30 : 18,
+                    maxRangePx: beat === 0 ? 176 : useCloseScrambleTracerProfile ? 260 : 220,
                     timings: baseTimings
                   }
                 ),
@@ -2383,17 +2418,17 @@ export class HexMapRenderer implements IMapRenderer {
                   pair.escortFlight,
                   pair.interceptorFlight,
                   {
-                    emitter: "nose",
+                    emitter: useCloseScrambleTracerProfile ? "center" : "nose",
                     color: "#ffd98a",
-                    width: 0.14,
+                    width: useCloseScrambleTracerProfile ? 0.15 : 0.14,
                     lifetimeMs: 22,
                     spreadPx: 0,
                     streakLengthPx: 720,
-                    visibleLengthPx: 16,
+                    visibleLengthPx: useCloseScrambleTracerProfile ? 18 : 16,
                     fanHalfAngleDeg: 0,
                     burstCount: (pair.exchange.retaliationDamage ?? 0) > 0 ? 9 : 8,
-                    maxAlignmentDeg: beat === 0 ? 16 : 14,
-                    maxRangePx: beat === 0 ? 176 : 162,
+                    maxAlignmentDeg: beat === 0 ? 16 : useCloseScrambleTracerProfile ? 30 : 18,
+                    maxRangePx: beat === 0 ? 176 : useCloseScrambleTracerProfile ? 260 : 220,
                     timings: baseTimings.map((timing) => Math.min(0.84, timing + 0.03))
                   }
                 )
@@ -2462,7 +2497,12 @@ export class HexMapRenderer implements IMapRenderer {
         escorts: survivingEscorts.length
       });
 
-      if (bomberFlight && (scene.bomberArrivalDelayMs ?? 0) > 0 && (survivingInterceptors.length > 0 || survivingEscorts.length > 0)) {
+      if (
+        bomberFlight
+        && (scene.bomberArrivalDelayMs ?? 0) > 0
+        && (scene.escortExchanges?.length ?? 0) > 0
+        && (survivingInterceptors.length > 0 || survivingEscorts.length > 0)
+      ) {
         const survivingFighters = [...survivingInterceptors, ...survivingEscorts];
         logAirShowBeatStart(packageId, 2, "bomberGap", survivingFighters.map((f: AirShowRuntimeFlightInternal) => f.spec.id));
         debugAirShowPhase("BomberGap", { durationMs: Math.round(scene.bomberArrivalDelayMs ?? 0) });
@@ -2528,30 +2568,28 @@ export class HexMapRenderer implements IMapRenderer {
         );
         logAirShowActorTransition(packageId, bomberFlight.spec.id, "bomber", "ingress", "engaged", "fadeIn complete");
         debugAirShowActor(bomberFlight.spec.id, "faded in", { visible: bomberFlight.actors.filter(a => a.active).length });
+        const rand = stageRandom(`ingress:bomber:${bomberFlight.spec.id}`);
+        const ingressTarget = corridorPoint(-58, (rand() - 0.5) * 12);
         const bomberIngressAssignments: AirShowPhaseAssignment[] = [
-          ...(() => {
-            const rand = stageRandom(`ingress:bomber:${bomberFlight.spec.id}`);
-            const ingressTarget = corridorPoint(-58, (rand() - 0.5) * 12);
-            return this.buildAirShowFlightAssignments(
-              bomberFlight,
-              this.buildAirShowBomberRunPath(
-                this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor,
-                ingressTarget,
-                {
-                  lateralSign: this.resolveAirShowRouteSideSign(
-                    this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor,
-                    ingressTarget,
-                    this.resolveAirShowFlightHeadingDegrees(bomberFlight),
-                    rand() > 0.5 ? 1 : -1
-                  ),
-                  corridorWidthPx: 20 + rand() * 6,
-                  driftPx: 28 + rand() * 12,
-                  startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(bomberFlight)
-                }
-              ),
-              0.22
-            );
-          })(),
+          ...this.buildAirShowFlightAssignments(
+            bomberFlight,
+            this.buildAirShowBomberRunPath(
+              this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor,
+              ingressTarget,
+              {
+                lateralSign: this.resolveAirShowRouteSideSign(
+                  this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor,
+                  ingressTarget,
+                  this.resolveAirShowFlightHeadingDegrees(bomberFlight),
+                  rand() > 0.5 ? 1 : -1
+                ),
+                corridorWidthPx: 20 + rand() * 6,
+                driftPx: 28 + rand() * 12,
+                startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(bomberFlight)
+              }
+            ),
+            0.22
+          ),
           ...survivingInterceptors.flatMap((flight, index) =>
             this.buildAirShowFlightAssignments(
               flight,
@@ -2559,14 +2597,14 @@ export class HexMapRenderer implements IMapRenderer {
                 this.averageAirShowPosition(flight.actors) ?? flight.anchor,
                 corridor,
                 {
-                  endAlongPx: -88,
-                  baseLateralPx: -126,
+                  endAlongPx: 22,
+                  baseLateralPx: -86,
                   laneIndex: index - (survivingInterceptors.length - 1) / 2,
                   sideSign: -1,
-                  alongStepPx: 24,
-                  lateralStepPx: 30,
-                  corridorWidthPx: 18,
-                  driftPx: 18,
+                  alongStepPx: 18,
+                  lateralStepPx: 34,
+                  corridorWidthPx: 14,
+                  driftPx: 12,
                   startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight)
                 }
               ),
@@ -2576,18 +2614,18 @@ export class HexMapRenderer implements IMapRenderer {
           ...survivingEscorts.flatMap((flight, index) =>
             this.buildAirShowFlightAssignments(
               flight,
-              this.buildAirShowScreenRunPath(
+              this.buildAirShowTargetRunEscortPath(
                 this.averageAirShowPosition(flight.actors) ?? flight.anchor,
+                ingressTarget,
                 corridor,
                 {
-                  endAlongPx: -28,
-                  baseLateralPx: 116,
                   laneIndex: index - (survivingEscorts.length - 1) / 2,
                   sideSign: 1,
-                  alongStepPx: 20,
-                  lateralStepPx: 28,
-                  corridorWidthPx: 18,
-                  driftPx: 18,
+                  alongOffsetPx: survivingInterceptors.length > 0 ? 18 : 58,
+                  lateralBasePx: survivingInterceptors.length > 0 ? 64 : 118,
+                  lateralStepPx: survivingInterceptors.length > 0 ? 24 : 34,
+                  corridorWidthPx: survivingInterceptors.length > 0 ? 14 : 18,
+                  driftPx: survivingInterceptors.length > 0 ? 10 : 18,
                   startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight)
                 }
               ),
@@ -2631,10 +2669,7 @@ export class HexMapRenderer implements IMapRenderer {
               )
           ).values()
         );
-        const bomberVisualPassCount = bomberAttackEntries.reduce(
-          (maxPasses, entry) => Math.max(maxPasses, Math.max(2, entry.exchange.visualPasses ?? 2)),
-          0
-        );
+        const bomberVisualPassCount = bomberAttackEntries.length > 0 ? 1 : 0;
         const bomberPassActors = [
           ...interceptorFlights.map(f => f.spec.id),
           ...(bomberFlight ? [bomberFlight.spec.id] : [])
@@ -2659,13 +2694,13 @@ export class HexMapRenderer implements IMapRenderer {
             const phaseAssignments: AirShowPhaseAssignment[] = [
               ...this.buildAirShowFlightAssignments(
                 bomberFlight,
-                this.buildAirShowBomberRunPath(
+                this.buildAirShowBomberContinuationPath(
                   bomberCurrent,
                   corridorPoint(passEnd, bomberLateral),
                   {
                     lateralSign: bomberLateral >= 0 ? 1 : -1,
                     corridorWidthPx: 14,
-                    driftPx: 14,
+                    driftPx: 8,
                     startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(bomberFlight)
                   }
                 ),
@@ -2680,7 +2715,11 @@ export class HexMapRenderer implements IMapRenderer {
             activeAttackEntries.forEach((entry, attackIndex) => {
               const interceptorCurrent = this.averageAirShowPosition(entry.interceptorFlight.actors) ?? entry.interceptorFlight.anchor;
               const lane = activeAttackEntries.length <= 1 ? 0 : attackIndex - (activeAttackEntries.length - 1) / 2;
-              const direction = (passIndex + attackIndex) % 2 === 0 ? -1 : 1;
+              const direction = this.resolveAirShowCorridorSideSign(
+                interceptorCurrent,
+                corridor,
+                attackIndex % 2 === 0 ? -1 : 1
+              );
               const interceptorPath = this.buildAirShowBomberInterceptPassPath(interceptorCurrent, corridor, {
                 passStartAlongPx: passStart,
                 passEndAlongPx: passEnd,
@@ -2760,18 +2799,18 @@ export class HexMapRenderer implements IMapRenderer {
               ...activeScreeningEscorts.flatMap((flight, escortIndex) =>
                 this.buildAirShowFlightAssignments(
                   flight,
-                  this.buildAirShowScreenRunPath(
+                  this.buildAirShowTargetRunEscortPath(
                     this.averageAirShowPosition(flight.actors) ?? flight.anchor,
+                    corridorPoint(passEnd, bomberLateral),
                     corridor,
                     {
-                      endAlongPx: passEnd + 72,
-                      baseLateralPx: 122,
                       laneIndex: escortIndex - (activeScreeningEscorts.length - 1) / 2,
                       sideSign: 1,
-                      alongStepPx: 16,
-                      lateralStepPx: 28,
-                      corridorWidthPx: 16,
-                      driftPx: 14,
+                      alongOffsetPx: 28,
+                      lateralBasePx: 84,
+                      lateralStepPx: 24,
+                      corridorWidthPx: 14,
+                      driftPx: 10,
                       startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight)
                     }
                   ),
@@ -2807,6 +2846,8 @@ export class HexMapRenderer implements IMapRenderer {
       if (bomberFlight && bomberTargetCenter && bomberFlight.actors.some((actor) => actor.active)) {
         logAirShowBeatStart(packageId, 6, "targetRun", [bomberFlight.spec.id]);
       debugAirShowPhase("TargetRun", {});
+        const keepInterceptorsOnTargetRun = postPassInterceptors.length > 0 && escortFlights.length === 0;
+        const keepEscortsOnTargetRun = postPassEscorts.length > 0 && interceptorFlights.length === 0;
         const rand = stageRandom(`target-run:${bomberFlight.spec.id}`);
         const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
         const targetApproach = this.offsetAirShowPoint(
@@ -2817,7 +2858,7 @@ export class HexMapRenderer implements IMapRenderer {
         const strikeRunAssignments: AirShowPhaseAssignment[] = [
           ...this.buildAirShowFlightAssignments(
             bomberFlight,
-            this.buildAirShowBomberRunPath(bomberCurrent, targetApproach, {
+            this.buildAirShowBomberTargetRunPath(bomberCurrent, targetApproach, {
               lateralSign: this.resolveAirShowRouteSideSign(
                 bomberCurrent,
                 targetApproach,
@@ -2825,12 +2866,11 @@ export class HexMapRenderer implements IMapRenderer {
                 rand() > 0.5 ? 1 : -1
               ),
               corridorWidthPx: 10,
-              driftPx: 8,
               startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(bomberFlight)
             }),
             0.2
           ),
-          ...postPassEscorts.flatMap((flight, index) =>
+          ...(keepEscortsOnTargetRun ? postPassEscorts.flatMap((flight, index) =>
             this.buildAirShowFlightAssignments(
               flight,
               this.buildAirShowTargetRunEscortPath(
@@ -2850,8 +2890,8 @@ export class HexMapRenderer implements IMapRenderer {
               ),
               0.24
             )
-          ),
-          ...postPassInterceptors.flatMap((flight, index) =>
+          ) : []),
+          ...(keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight, index) =>
             this.buildAirShowFlightAssignments(
               flight,
               this.buildAirShowBomberInterceptPassPath(
@@ -2871,9 +2911,9 @@ export class HexMapRenderer implements IMapRenderer {
               ),
               0.34
             )
-          )
+          ) : [])
         ];
-        const strikeRunTracerBursts = postPassInterceptors.flatMap((flight) => [
+        const strikeRunTracerBursts = keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight) => [
           ...this.buildAirShowDynamicTracerVolley(strikeRunAssignments, flight, bomberFlight, {
             emitter: "nose",
             width: 0.18,
@@ -2901,7 +2941,7 @@ export class HexMapRenderer implements IMapRenderer {
             maxRangePx: 156,
             timings: [0.48, 0.56, 0.64, 0.72]
           })
-        ]);
+        ]) : [];
         const strikeRunDurationMs = Math.max(640, scene.strikeRunDurationMs ?? 980);
         const cancelStrikeRunFlak = scheduleTimedFlakBursts(
           bomberFlight,
@@ -2916,7 +2956,11 @@ export class HexMapRenderer implements IMapRenderer {
         await this.runAirShowPhase(strikeRunAssignments, strikeRunDurationMs, strikeRunTracerBursts, { easing: "linear" });
         cancelBombRelease();
         cancelStrikeRunFlak();
-        updateFlightAnchors([bomberFlight, ...postPassInterceptors, ...postPassEscorts]);
+        updateFlightAnchors([
+          bomberFlight,
+          ...(keepInterceptorsOnTargetRun ? postPassInterceptors : []),
+          ...(keepEscortsOnTargetRun ? postPassEscorts : [])
+        ]);
       }
 
       const egressFlights = activeFlights([
@@ -7083,6 +7127,72 @@ export class HexMapRenderer implements IMapRenderer {
     return [start, leadPoint, setupPoint, midB, midC, end];
   }
 
+  private resolveAirShowWaypointTurnDegrees(
+    previous: AirShowPoint,
+    current: AirShowPoint,
+    next: AirShowPoint
+  ): number {
+    return this.resolveAirShowVectorAngleDegrees(
+      { x: current.cx - previous.cx, y: current.cy - previous.cy },
+      { x: next.cx - current.cx, y: next.cy - current.cy }
+    );
+  }
+
+  private pruneAirShowTurnWaypoint(
+    path: ReadonlyArray<AirShowPoint>,
+    waypointIndex: number,
+    maxTurnDeg: number
+  ): AirShowPoint[] {
+    if (waypointIndex <= 0 || waypointIndex >= path.length - 1) {
+      return [...path];
+    }
+    const previous = path[waypointIndex - 1];
+    const current = path[waypointIndex];
+    const next = path[waypointIndex + 1];
+    if (!previous || !current || !next) {
+      return [...path];
+    }
+    const turnDeg = this.resolveAirShowWaypointTurnDegrees(previous, current, next);
+    const directDistancePx = Math.hypot(next.cx - previous.cx, next.cy - previous.cy);
+    if (turnDeg <= maxTurnDeg || directDistancePx < 12) {
+      return [...path];
+    }
+    return path.filter((_, index) => index !== waypointIndex);
+  }
+
+  private pruneAirShowEarlyTurnWaypoints(
+    path: ReadonlyArray<AirShowPoint>,
+    options: {
+      maxTurnDeg?: number;
+      strongTurnDeg?: number;
+      maxFirstSegmentPx?: number;
+      maxWaypointsToRemove?: number;
+    } = {}
+  ): AirShowPoint[] {
+    const prunedPath = [...path];
+    const maxTurnDeg = options.maxTurnDeg ?? 52;
+    const strongTurnDeg = options.strongTurnDeg ?? 120;
+    const maxFirstSegmentPx = options.maxFirstSegmentPx ?? 56;
+    const maxWaypointsToRemove = options.maxWaypointsToRemove ?? 2;
+    let removedWaypoints = 0;
+    while (prunedPath.length >= 3 && removedWaypoints < maxWaypointsToRemove) {
+      const start = prunedPath[0];
+      const firstWaypoint = prunedPath[1];
+      const secondWaypoint = prunedPath[2];
+      if (!start || !firstWaypoint || !secondWaypoint) {
+        break;
+      }
+      const firstTurnDeg = this.resolveAirShowWaypointTurnDegrees(start, firstWaypoint, secondWaypoint);
+      const firstSegmentPx = Math.hypot(firstWaypoint.cx - start.cx, firstWaypoint.cy - start.cy);
+      if (firstTurnDeg <= maxTurnDeg || (firstTurnDeg < strongTurnDeg && firstSegmentPx > maxFirstSegmentPx)) {
+        break;
+      }
+      prunedPath.splice(1, 1);
+      removedWaypoints += 1;
+    }
+    return prunedPath;
+  }
+
   /**
    * Clamps a point to remain within viewport bounds.
    * Prevents aircraft from flying off-screen during maneuvers.
@@ -7351,7 +7461,167 @@ export class HexMapRenderer implements IMapRenderer {
       maxHorizontalPx: 430,
       maxVerticalPx: 300
     });
-    return [start, ...entryBridgePoints, entryLeadPoint, setupPoint, cruisePoint, settlePoint, finalApproach, end];
+    const entryLeadIndex = 1 + entryBridgePoints.length;
+    const path = [start, ...entryBridgePoints, entryLeadPoint, setupPoint, cruisePoint, settlePoint, finalApproach, end];
+    const prunedLeadPath = this.pruneAirShowTurnWaypoint(path, entryLeadIndex, 56);
+    return this.pruneAirShowEarlyTurnWaypoints(prunedLeadPath, {
+      maxTurnDeg: 52,
+      strongTurnDeg: 116,
+      maxFirstSegmentPx: 60,
+      maxWaypointsToRemove: 2
+    }).filter((point, index, points) => {
+      const previous = index === 0 ? null : points[index - 1];
+      if (!previous) {
+        return true;
+      }
+      return Math.hypot(point.cx - previous.cx, point.cy - previous.cy) >= 2;
+    });
+  }
+
+  private buildAirShowBomberContinuationPath(
+    start: AirShowPoint,
+    end: AirShowPoint,
+    options: {
+      lateralSign?: number;
+      corridorWidthPx?: number;
+      driftPx?: number;
+      startHeadingDegrees?: number;
+    } = {}
+  ): AirShowPoint[] {
+    const dx = end.cx - start.cx;
+    const dy = end.cy - start.cy;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const fx = dx / length;
+    const fy = dy / length;
+    const nx = -fy;
+    const ny = fx;
+    const lateralSign = options.lateralSign ?? 1;
+    const corridorWidthPx = options.corridorWidthPx ?? 16;
+    const driftPx = options.driftPx ?? 10;
+    const clampCenter = {
+      cx: (start.cx + end.cx) * 0.5,
+      cy: (start.cy + end.cy) * 0.5
+    };
+    const clampPoint = (point: AirShowPoint): AirShowPoint =>
+      this.clampPointToViewportBounds(point, clampCenter, 430, 300);
+    const entryBridgePoints = this.buildAirShowPhaseEntryBridge(start, end, {
+      startHeadingDegrees: options.startHeadingDegrees,
+      sideSign: lateralSign,
+      carryForwardPx: Math.min(Math.max(20, length * 0.1), Math.max(34, length * 0.18)),
+      clampCenter,
+      maxHorizontalPx: 430,
+      maxVerticalPx: 300
+    });
+    const bridgeExitPoint = entryBridgePoints[entryBridgePoints.length - 1] ?? start;
+    const bridgeExitHeadingDegrees = this.resolveAirShowPathHeadingDegrees(
+      [start, ...entryBridgePoints],
+      options.startHeadingDegrees
+    );
+    const settlePoint = clampPoint({
+      cx:
+        start.cx +
+        fx * (length * 0.46) +
+        nx * lateralSign * (corridorWidthPx * 0.08) +
+        fx * driftPx * 0.2,
+      cy:
+        start.cy +
+        fy * (length * 0.46) +
+        ny * lateralSign * (corridorWidthPx * 0.08) +
+        fy * driftPx * 0.2
+    });
+    const leadPoint = this.buildAirShowHeadingLeadPoint(bridgeExitPoint, settlePoint, {
+      startHeadingDegrees: bridgeExitHeadingDegrees,
+      lateralSign,
+      leadForwardPx: Math.min(Math.max(18, length * 0.1), Math.max(28, length * 0.16)),
+      leadLateralPx: corridorWidthPx * 0.06,
+      clampCenter,
+      maxHorizontalPx: 430,
+      maxVerticalPx: 300
+    });
+    const finalApproach = clampPoint({
+      cx: end.cx - fx * Math.min(8, Math.max(4, length * 0.08)) + nx * lateralSign * (corridorWidthPx * 0.02),
+      cy: end.cy - fy * Math.min(8, Math.max(4, length * 0.08)) + ny * lateralSign * (corridorWidthPx * 0.02)
+    });
+    const path = [start, ...entryBridgePoints, leadPoint, settlePoint, finalApproach, end];
+    return path.filter((point, index) => {
+      const previous = index === 0 ? null : path[index - 1];
+      if (!previous) {
+        return true;
+      }
+      return Math.hypot(point.cx - previous.cx, point.cy - previous.cy) >= 2;
+    });
+  }
+
+  private buildAirShowBomberTargetRunPath(
+    start: AirShowPoint,
+    end: AirShowPoint,
+    options: {
+      lateralSign?: number;
+      corridorWidthPx?: number;
+      startHeadingDegrees?: number;
+    } = {}
+  ): AirShowPoint[] {
+    const dx = end.cx - start.cx;
+    const dy = end.cy - start.cy;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const fx = dx / length;
+    const fy = dy / length;
+    const nx = -fy;
+    const ny = fx;
+    const lateralSign = options.lateralSign ?? 1;
+    const corridorWidthPx = options.corridorWidthPx ?? 10;
+    const clampCenter = {
+      cx: (start.cx + end.cx) * 0.5,
+      cy: (start.cy + end.cy) * 0.5
+    };
+    const bridgePoints = this.buildAirShowPhaseEntryBridge(start, end, {
+      startHeadingDegrees: options.startHeadingDegrees,
+      sideSign: lateralSign,
+      carryForwardPx: Math.min(Math.max(42, length * 0.22), Math.max(60, length * 0.3)),
+      clampCenter,
+      maxHorizontalPx: 430,
+      maxVerticalPx: 300
+    });
+    const bridgeExitPoint = bridgePoints[bridgePoints.length - 1] ?? start;
+    const bridgeExitHeadingDegrees = this.resolveAirShowPathHeadingDegrees(
+      [start, ...bridgePoints],
+      options.startHeadingDegrees
+    );
+    const turnSettlePoint = this.buildAirShowHeadingLeadPoint(bridgeExitPoint, end, {
+      startHeadingDegrees: bridgeExitHeadingDegrees,
+      lateralSign,
+      leadForwardPx: Math.min(Math.max(26, length * 0.18), Math.max(40, length * 0.24)),
+      leadLateralPx: corridorWidthPx * 0.08,
+      clampCenter,
+      maxHorizontalPx: 430,
+      maxVerticalPx: 300
+    });
+    const releasePoint = this.clampPointToViewportBounds(
+      {
+        cx: start.cx + fx * (length * 0.62) + nx * lateralSign * (corridorWidthPx * 0.04),
+        cy: start.cy + fy * (length * 0.62) + ny * lateralSign * (corridorWidthPx * 0.04)
+      },
+      clampCenter,
+      430,
+      300
+    );
+    const finalApproach = this.clampPointToViewportBounds(
+      {
+        cx: end.cx - fx * Math.min(10, Math.max(6, length * 0.12)) + nx * lateralSign * (corridorWidthPx * 0.02),
+        cy: end.cy - fy * Math.min(10, Math.max(6, length * 0.12)) + ny * lateralSign * (corridorWidthPx * 0.02)
+      },
+      clampCenter,
+      430,
+      300
+    );
+    const path = [start, ...bridgePoints, turnSettlePoint, releasePoint, finalApproach, end];
+    return path.filter((point, index) => {
+      const previous = index === 0 ? null : path[index - 1];
+      if (!previous) {
+        return true;
+      }
+      return Math.hypot(point.cx - previous.cx, point.cy - previous.cy) >= 2;
+    });
   }
 
   private buildAirShowDisengagePath(
@@ -7367,51 +7637,43 @@ export class HexMapRenderer implements IMapRenderer {
     const dx = end.cx - start.cx;
     const dy = end.cy - start.cy;
     const length = Math.max(1, Math.hypot(dx, dy));
-    const routeForward = this.normalizeAircraftVector(dx, dy, 1, 0);
-    const routeNormal = { x: -routeForward.y, y: routeForward.x };
-    const headingForward =
-      typeof options.startHeadingDegrees === "number"
-        ? this.resolveAirShowHeadingVector(options.startHeadingDegrees)
-        : routeForward;
-    const headingNormal = { x: -headingForward.y, y: headingForward.x };
     const lateralSign = options.lateralSign ?? 1;
     const clampCenter = {
       cx: (start.cx + end.cx) * 0.5,
       cy: (start.cy + end.cy) * 0.5
     };
-    const clampPoint = (point: AirShowPoint): AirShowPoint =>
-      this.clampPointToViewportBounds(point, clampCenter, 430, 300);
-    const carryPointA = clampPoint({
-      cx:
-        start.cx +
-        headingForward.x * Math.max(34, length * 0.1) +
-        headingNormal.x * lateralSign * Math.max(6, length * 0.02),
-      cy:
-        start.cy +
-        headingForward.y * Math.max(34, length * 0.1) +
-        headingNormal.y * lateralSign * Math.max(6, length * 0.02)
+    const entryBridgePoints = this.buildAirShowPhaseEntryBridge(start, end, {
+      startHeadingDegrees: options.startHeadingDegrees,
+      sideSign: lateralSign,
+      carryForwardPx: Math.min(Math.max(30, length * 0.12), Math.max(48, length * 0.2)),
+      clampCenter,
+      maxHorizontalPx: 430,
+      maxVerticalPx: 300
     });
-    const carryPointB = clampPoint({
-      cx:
-        start.cx +
-        headingForward.x * Math.max(66, length * 0.18) +
-        routeNormal.x * lateralSign * Math.max(24, length * 0.08),
-      cy:
-        start.cy +
-        headingForward.y * Math.max(66, length * 0.18) +
-        routeNormal.y * lateralSign * Math.max(24, length * 0.08)
+    const bridgeExitPoint = entryBridgePoints[entryBridgePoints.length - 1] ?? start;
+    const breakawayLead = this.buildAirShowHeadingLeadPoint(bridgeExitPoint, end, {
+      startHeadingDegrees: this.resolveAirShowPathHeadingDegrees(
+        [start, ...entryBridgePoints],
+        options.startHeadingDegrees
+      ),
+      lateralSign,
+      leadForwardPx: Math.min(Math.max(28, length * 0.14), Math.max(42, length * 0.2)),
+      leadLateralPx: Math.max(8, (options.corridorWidthPx ?? 20) * 0.16),
+      clampCenter,
+      maxHorizontalPx: 430,
+      maxVerticalPx: 300
     });
     const breakawayHeading = this.resolveAirShowPathHeadingDegrees(
-      [start, carryPointA, carryPointB],
+      [start, ...entryBridgePoints, breakawayLead],
       options.startHeadingDegrees
     );
-    const continuation = this.buildAirShowBomberRunPath(carryPointB, end, {
+    const continuation = this.buildAirShowBomberRunPath(breakawayLead, end, {
       lateralSign,
       corridorWidthPx: options.corridorWidthPx,
       driftPx: options.driftPx,
       startHeadingDegrees: breakawayHeading
     });
-    return [start, carryPointA, carryPointB, ...continuation.slice(1)];
+    return [start, ...entryBridgePoints, breakawayLead, ...continuation.slice(1)];
   }
 
   private buildAirShowDogfightPassPath(
@@ -7433,7 +7695,10 @@ export class HexMapRenderer implements IMapRenderer {
     const sideSign = options.sideSign >= 0 ? 1 : -1;
     const passSign = (options.passSign ?? 1) >= 0 ? 1 : -1;
     const reengage = passSign < 0;
+    const entrySeparationPx = options.entrySeparationPx ?? 176;
     const crossSeparationPx = options.crossSeparationPx ?? 24;
+    const overshootPx = options.overshootPx ?? 184;
+    const turnRadiusPx = options.turnRadiusPx ?? 162;
     const laneSpreadPx = laneIndex * 30;
     const clampPoint = (point: AirShowPoint): AirShowPoint =>
       this.clampPointToViewportBounds(point, corridor.center, 430, 300);
@@ -7449,7 +7714,7 @@ export class HexMapRenderer implements IMapRenderer {
       carryForwardPx: number,
       leadForwardPx: number
     ): AirShowPoint[] => {
-      const entryBridgePoints = this.buildAirShowPhaseEntryBridge(start, target, {
+      const rawEntryBridgePoints = this.buildAirShowPhaseEntryBridge(start, target, {
         startHeadingDegrees: options.startHeadingDegrees,
         sideSign: lateralSign,
         clampCenter: corridor.center,
@@ -7457,12 +7722,59 @@ export class HexMapRenderer implements IMapRenderer {
         maxHorizontalPx: 430,
         maxVerticalPx: 300
       });
+      const entryBridgePoints = [...rawEntryBridgePoints];
+      while (entryBridgePoints.length > 1) {
+        const firstPoint = entryBridgePoints[0];
+        const secondPoint = entryBridgePoints[1];
+        if (!firstPoint || !secondPoint) {
+          break;
+        }
+        const firstTurnDeg = this.resolveAirShowWaypointTurnDegrees(start, firstPoint, secondPoint);
+        const firstSegmentPx = Math.hypot(firstPoint.cx - start.cx, firstPoint.cy - start.cy);
+        if (firstTurnDeg <= 96 || firstSegmentPx >= 36) {
+          break;
+        }
+        entryBridgePoints.shift();
+      }
+      const buildLeadPoint = (bridgePoints: ReadonlyArray<AirShowPoint>): AirShowPoint => {
+        const bridgeExitPoint = bridgePoints[bridgePoints.length - 1] ?? start;
+        const bridgeExitHeadingDegrees = this.resolveAirShowPathHeadingDegrees(
+          [start, ...bridgePoints],
+          options.startHeadingDegrees
+        );
+        return this.buildAirShowHeadingLeadPoint(bridgeExitPoint, target, {
+          startHeadingDegrees: bridgeExitHeadingDegrees,
+          lateralSign,
+          leadForwardPx,
+          leadLateralPx: 10,
+          clampCenter: corridor.center,
+          maxHorizontalPx: 430,
+          maxVerticalPx: 300
+        });
+      };
+      let leadPoint = buildLeadPoint(entryBridgePoints);
+      while (entryBridgePoints.length > 0) {
+        const previous =
+          entryBridgePoints.length >= 2 ? entryBridgePoints[entryBridgePoints.length - 2] : start;
+        const current = entryBridgePoints[entryBridgePoints.length - 1];
+        if (!previous || !current) {
+          break;
+        }
+        const exitTurnDeg = this.resolveAirShowWaypointTurnDegrees(previous, current, leadPoint);
+        const exitSegmentPx = Math.hypot(current.cx - previous.cx, current.cy - previous.cy);
+        if (exitTurnDeg <= 104 || exitSegmentPx >= 42) {
+          break;
+        }
+        entryBridgePoints.pop();
+        leadPoint = buildLeadPoint(entryBridgePoints);
+      }
+      leadPoint = buildLeadPoint(entryBridgePoints);
       const bridgeExitPoint = entryBridgePoints[entryBridgePoints.length - 1] ?? start;
       const bridgeExitHeadingDegrees = this.resolveAirShowPathHeadingDegrees(
         [start, ...entryBridgePoints],
         options.startHeadingDegrees
       );
-      const leadPoint = this.buildAirShowHeadingLeadPoint(bridgeExitPoint, target, {
+      const finalLeadPoint = this.buildAirShowHeadingLeadPoint(bridgeExitPoint, target, {
         startHeadingDegrees: bridgeExitHeadingDegrees,
         lateralSign,
         leadForwardPx,
@@ -7471,61 +7783,68 @@ export class HexMapRenderer implements IMapRenderer {
         maxHorizontalPx: 430,
         maxVerticalPx: 300
       });
-      return [start, ...entryBridgePoints, leadPoint, target];
+      const entryPath = [start, ...entryBridgePoints, finalLeadPoint, target];
+      const smoothedEntryPath = this.pruneAirShowEarlyTurnWaypoints(entryPath, {
+        maxTurnDeg: 52,
+        strongTurnDeg: 116,
+        maxFirstSegmentPx: 58,
+        maxWaypointsToRemove: 2
+      });
+      return this.pruneAirShowTurnWaypoint(smoothedEntryPath, smoothedEntryPath.length - 2, 56);
     };
 
     if (reengage) {
       // Authored reengage pass: Approach arc → Commit pass → Break turn → Rejoin arc → Egress arc
       // No direction reversals. Control-point noise only at approach entry.
       const approachEntry = pointFromFocus(
-        -sideSign * 14,
-        sideSign * (62 + laneSpreadPx * 0.12)
+        -sideSign * Math.max(14, entrySeparationPx * 0.08),
+        sideSign * Math.max(54, entrySeparationPx * 0.36 + laneSpreadPx * 0.12)
       );
       const approachTurn = buildEntryTurn(approachEntry, sideSign, 52, 42);
       // Commit pass: monotonic sweep through the focal zone
       const commitPoint = pointFromFocus(
-        sideSign * 8,
+        sideSign * Math.max(8, crossSeparationPx * 0.45),
         sideSign * Math.max(8, crossSeparationPx * 0.6 + laneIndex * 4)
       );
       // Break turn: sharp exit arc away from focal zone, same lateral direction — no reversal
       const breakApex = pointFromFocus(
-        sideSign * 48,
-        -sideSign * (52 + laneSpreadPx * 0.12)
+        sideSign * Math.max(44, turnRadiusPx * 0.3),
+        -sideSign * Math.max(52, turnRadiusPx * 0.34 + laneSpreadPx * 0.12)
       );
       // Rejoin arc: sweeps outward continuing the break direction
       const rejoinArc = pointFromFocus(
-        sideSign * 96,
-        -sideSign * (72 + laneSpreadPx * 0.14)
+        sideSign * Math.max(92, overshootPx * 0.52),
+        -sideSign * Math.max(70, turnRadiusPx * 0.46 + laneSpreadPx * 0.14)
       );
       // Egress arc: exits the engagement zone cleanly
       const egressEnd = pointFromFocus(
-        sideSign * 148,
-        -sideSign * (44 + laneSpreadPx * 0.08)
+        sideSign * Math.max(138, overshootPx * 0.8),
+        -sideSign * Math.max(40, turnRadiusPx * 0.24 + laneSpreadPx * 0.08)
       );
       return [...approachTurn, commitPoint, breakApex, rejoinArc, egressEnd];
     }
     const turnInPoint = pointFromFocus(
-      -sideSign * 26,
-      sideSign * (88 + laneSpreadPx * 0.14 + passSign * 4)
+      -sideSign * Math.max(24, entrySeparationPx * 0.15),
+      sideSign * Math.max(74, entrySeparationPx * 0.48 + laneSpreadPx * 0.14 + passSign * 4)
     );
     const entryTurn = buildEntryTurn(turnInPoint, sideSign, 58, 48);
     const mergePoint = pointFromFocus(
-      -sideSign * 6,
-      sideSign * (26 + laneIndex * 6)
+      -sideSign * Math.max(6, crossSeparationPx * 0.3),
+      sideSign * Math.max(22, crossSeparationPx * 1.4 + laneIndex * 6)
     );
     const crossingPoint = pointFromFocus(
-      sideSign * 10,
-      -sideSign * Math.max(10, crossSeparationPx - 6 + laneIndex * 4)
+      sideSign * Math.max(10, crossSeparationPx * 0.52),
+      -sideSign * Math.max(10, crossSeparationPx * 0.92 - 6 + laneIndex * 4)
     );
     // Break turn exit: sweeps away from focal zone in consistent direction — no coil reversal
     const breakExit = pointFromFocus(
-      sideSign * 52,
-      -sideSign * (68 + laneSpreadPx * 0.1 + passSign * 6)
+      sideSign * Math.max(50, overshootPx * 0.28),
+      -sideSign * Math.max(62, turnRadiusPx * 0.42 + laneSpreadPx * 0.1 + passSign * 6)
     );
     // Egress continues the break direction monotonically
     const egressPoint = pointFromFocus(
-      sideSign * 110,
-      -sideSign * (52 + laneSpreadPx * 0.08)
+      sideSign * Math.max(104, overshootPx * 0.6),
+      -sideSign * Math.max(46, turnRadiusPx * 0.32 + laneSpreadPx * 0.08)
     );
 
     return [...entryTurn, mergePoint, crossingPoint, breakExit, egressPoint];
@@ -7795,7 +8114,8 @@ export class HexMapRenderer implements IMapRenderer {
       maxHorizontalPx: 420,
       maxVerticalPx: 280
     });
-    return [
+    const headingLeadIndex = 1 + entryBridgePoints.length;
+    const path = [
       start,
       ...entryBridgePoints,
       headingLead,
@@ -7806,6 +8126,15 @@ export class HexMapRenderer implements IMapRenderer {
       extendPoint,
       exitPoint
     ];
+    return this.pruneAirShowEarlyTurnWaypoints(
+      this.pruneAirShowTurnWaypoint(path, headingLeadIndex, 52),
+      {
+        maxTurnDeg: 52,
+        strongTurnDeg: 116,
+        maxFirstSegmentPx: 60,
+        maxWaypointsToRemove: 2
+      }
+    );
   }
 
   private resolveAirShowPathForwardVector(
@@ -7983,32 +8312,31 @@ export class HexMapRenderer implements IMapRenderer {
             options.maxVerticalPx ?? 300
           )
         : point;
+    const buildCarryOnlyBridge = (): AirShowPoint[] => {
+      const carryPoint = this.buildAirShowHeadingCarryPoint(start, {
+        startHeadingDegrees: options.startHeadingDegrees,
+        toward,
+        carryForwardPx: options.carryForwardPx,
+        clampCenter: options.clampCenter,
+        maxHorizontalPx: options.maxHorizontalPx,
+        maxVerticalPx: options.maxVerticalPx
+      });
+      if (
+        typeof options.startHeadingDegrees === "number"
+        && this.resolveAirShowWaypointTurnDegrees(start, carryPoint, toward) > 52
+      ) {
+        return [];
+      }
+      return [carryPoint];
+    };
     if (typeof options.startHeadingDegrees !== "number") {
-      return [
-        this.buildAirShowHeadingCarryPoint(start, {
-          startHeadingDegrees: options.startHeadingDegrees,
-          toward,
-          carryForwardPx: options.carryForwardPx,
-          clampCenter: options.clampCenter,
-          maxHorizontalPx: options.maxHorizontalPx,
-          maxVerticalPx: options.maxVerticalPx
-        })
-      ];
+      return buildCarryOnlyBridge();
     }
 
     const headingForward = this.resolveAirShowHeadingVector(options.startHeadingDegrees);
     const dot = headingForward.x * routeForward.x + headingForward.y * routeForward.y;
     if (dot >= 0.48) {
-      return [
-        this.buildAirShowHeadingCarryPoint(start, {
-          startHeadingDegrees: options.startHeadingDegrees,
-          toward,
-          carryForwardPx: options.carryForwardPx,
-          clampCenter: options.clampCenter,
-          maxHorizontalPx: options.maxHorizontalPx,
-          maxVerticalPx: options.maxVerticalPx
-        })
-      ];
+      return buildCarryOnlyBridge();
     }
 
     const routeNormal = { x: -routeForward.y, y: routeForward.x };
@@ -8110,8 +8438,76 @@ export class HexMapRenderer implements IMapRenderer {
         cubicPointAt((index + 1) / stepCount)
       )
     ];
-    return samples.filter((point, index) => {
-      const previous = index === 0 ? start : samples[index - 1];
+    const prunedSamples = [...samples];
+    while (prunedSamples.length > 1) {
+      const firstPoint = prunedSamples[0];
+      const secondPoint = prunedSamples[1];
+      if (!firstPoint || !secondPoint) {
+        break;
+      }
+      const firstTurnDeg = this.resolveAirShowWaypointTurnDegrees(start, firstPoint, secondPoint);
+      const firstSegmentPx = Math.hypot(firstPoint.cx - start.cx, firstPoint.cy - start.cy);
+      if (firstTurnDeg <= 52 || (firstTurnDeg < 120 && firstSegmentPx > 56)) {
+        break;
+      }
+      prunedSamples.shift();
+    }
+    const simplifiedSamples = [...prunedSamples];
+    let simplifiedIndex = 1;
+    while (simplifiedIndex < simplifiedSamples.length - 1) {
+      const previous = simplifiedSamples[simplifiedIndex - 1];
+      const current = simplifiedSamples[simplifiedIndex];
+      const next = simplifiedSamples[simplifiedIndex + 1];
+      if (!previous || !current || !next) {
+        break;
+      }
+      const turnDeg = this.resolveAirShowWaypointTurnDegrees(previous, current, next);
+      const previousSegmentPx = Math.hypot(current.cx - previous.cx, current.cy - previous.cy);
+      const nextSegmentPx = Math.hypot(next.cx - current.cx, next.cy - current.cy);
+      if (turnDeg <= 124 || (previousSegmentPx >= 10 && nextSegmentPx >= 10)) {
+        simplifiedIndex += 1;
+        continue;
+      }
+      simplifiedSamples.splice(simplifiedIndex, 1);
+      simplifiedIndex = Math.max(1, simplifiedIndex - 1);
+    }
+    while (simplifiedSamples.length > 1) {
+      const previous =
+        simplifiedSamples.length >= 2
+          ? simplifiedSamples[simplifiedSamples.length - 2]
+          : start;
+      const current = simplifiedSamples[simplifiedSamples.length - 1];
+      if (!previous || !current) {
+        break;
+      }
+      const exitTurnDeg = this.resolveAirShowWaypointTurnDegrees(previous, current, toward);
+      const exitSegmentPx = Math.hypot(current.cx - previous.cx, current.cy - previous.cy);
+      if (exitTurnDeg <= 120 || exitSegmentPx >= 44) {
+        break;
+      }
+      simplifiedSamples.pop();
+    }
+    while (simplifiedSamples.length > 1) {
+      const firstPoint = simplifiedSamples[0];
+      const secondPoint = simplifiedSamples[1];
+      if (!firstPoint || !secondPoint) {
+        break;
+      }
+      const firstTurnDeg = this.resolveAirShowWaypointTurnDegrees(start, firstPoint, secondPoint);
+      const firstSegmentPx = Math.hypot(firstPoint.cx - start.cx, firstPoint.cy - start.cy);
+      if (firstTurnDeg <= 52 || (firstTurnDeg < 120 && firstSegmentPx > 56)) {
+        break;
+      }
+      simplifiedSamples.shift();
+    }
+    if (simplifiedSamples.length === 1) {
+      const onlyPoint = simplifiedSamples[0];
+      if (onlyPoint && this.resolveAirShowWaypointTurnDegrees(start, onlyPoint, toward) > 52) {
+        return [];
+      }
+    }
+    return simplifiedSamples.filter((point, index) => {
+      const previous = index === 0 ? start : simplifiedSamples[index - 1];
       return !!previous && Math.hypot(point.cx - previous.cx, point.cy - previous.cy) >= 2;
     });
   }
@@ -8126,14 +8522,10 @@ export class HexMapRenderer implements IMapRenderer {
       .map((actor) => ({
         actor,
         points: basePath.map((point, pointIndex) => ({
-          // Per spec: noise applied only at waypoint 0 (control-point generation).
-          // No growing factor per point — prevents per-frame jitter accumulation.
-          cx:
-            point.cx +
-            (pointIndex === 0 ? actor.biasX : 0),
-          cy:
-            point.cy +
-            (pointIndex === 0 ? actor.biasY : 0)
+          // Preserve each actor's formation lane through the full phase so the
+          // next beat begins from the true prior endpoint instead of re-staging.
+          cx: point.cx + actor.biasX,
+          cy: point.cy + actor.biasY
         })),
         headingBlend,
         progressOffset:
@@ -8228,9 +8620,11 @@ export class HexMapRenderer implements IMapRenderer {
         const assignment = resolvedAssignments[assignmentIndex];
         const pathLength = assignment.points.length;
         assignment.points = assignment.points.map((point, pointIndex) => {
-          // Apply more correction near the sample point, less at path ends
-          const proximityFactor = 1 - Math.abs((pointIndex / (pathLength - 1 || 1)) - progress);
-          const factor = proximityFactor * 0.5; // Dampen correction to avoid path distortion
+          // Keep spacing corrections centered in the active combat window so phase entry/exit geometry
+          // stays aligned with authored paths while the mid-phase still gets density relief.
+          const pointProgress = pointIndex / (pathLength - 1 || 1);
+          const proximityFactor = Math.max(0, 1 - Math.abs(pointProgress - progress) / 0.35);
+          const factor = proximityFactor * proximityFactor * 0.42;
 
           return {
             cx: point.cx + correctionX * factor,
