@@ -1,0 +1,185 @@
+(node:812084) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tools/resolve-js-extension-loader.mjs", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+[TEST PASS] AIR_SHOW_DOGFIGHT_APPROACH_PATH_HEADING_RATE_WITHIN_SPEC
+  Given an approach-arc + commit-pass dogfight path shape
+  When the heading rate is sampled across the full path
+  Then no adjacent sample pair should exceed 25 degrees heading change
+[DIAGNOSTIC] Snake path has 2 direction reversals ΓÇö bug confirmed pre-fix.
+[TEST PASS] AIR_SHOW_DOGFIGHT_SNAKE_SHAPE_DETECTED_BEFORE_FIX
+  Given a path with the old snake/coil waypoints
+  When direction reversals are counted along the path
+  Then the snake path should have at least 2 direction reversals (documents the bug)
+[DIAGNOSTIC] Authored reengage pass: 0 reversals, max delta 11.6┬░. PASS.
+[TEST PASS] AIR_SHOW_DOGFIGHT_AUTHORED_REENGAGE_PASS_NO_SNAKE
+  Given an authored 5-phase reengage pass path
+  When the path is analysed for reversals and heading rate
+  Then the path should have zero direction reversals and heading rate within spec
+[DIAGNOSTIC] Bias formula: index 0 = 1, all others = 0. PASS.
+[TEST PASS] AIR_SHOW_BIAS_OFFSET_DOES_NOT_GROW_ALONG_PATH
+  Given a flight actor with non-zero biasX and biasY offsets
+  When the bias growth factor is computed per waypoint index using the fixed formula
+  Then the growth factor must be 1.0 at index 0 and 0 for all subsequent indices
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 65, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[EffectSpecifications] Loaded 0 effect specifications
+[TerrainResponseSystem] Loaded 0 terrain tint configurations
+[CombatSoundManager] Loaded sound catalog v1 with 0 assets
+[TEST PASS] AIR_SHOW_FULL_ENGAGEMENT_KEEPS_FIGHTERS_OUT_OF_TARGET_RUN_AND_COLLAPSES_BOMBER_DEFENSE_TO_ONE_BEAT
+  Given the air automation scenario includes a full engagement strike package
+  When the scenario is resolved and the inspected airshow report is generated
+  Then the full engagement target run should contain only strike craft and only one bomber-defense pass beat
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 65, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Loaded sound catalog v1 with 0 assets
+[TEST PASS] AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY
+  Given the inspected full-engagement airshow is available
+  When the scenario report is generated
+  Then actors should begin each later phase where their previous phase ended
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 65, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Loaded sound catalog v1 with 0 assets
+[TEST PASS] AIR_SHOW_DIAGNOSTIC_MATRIX_COVERS_ALL_SCENARIO_FAMILIES
+  Given the air scenario matrix is available
+  When the diagnostic matrix is generated
+  Then the inspections should cover all five north-star scenario families
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 65, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Loaded sound catalog v1 with 0 assets
+[TEST PASS] AIR_SHOW_DIAGNOSTIC_MATRIX_INCLUDES_THREE_CAP_TWO_ESCORT_FOUR_BOMBER_PACKAGE
+  Given the governed diagnostic matrix includes synthetic contested packages
+  When the air scenario report is generated
+  Then the matrix should include the three-cap versus two-escort four-bomber package in current app-path form
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 65, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Loaded sound catalog v1 with 0 assets
+[TEST PASS] AIR_SHOW_SCRAMBLE_TRACER_PROFILE_STAYS_BOUND_TO_CONTESTED_BOMBER_PACKAGES
+  Given the governed diagnostic matrix includes CAP-only and contested bomber scenarios
+  When the air scenario report is generated
+  Then CAP clash scramble tracers should stay nose-fired while the contested bomber package may still use the close scramble profile
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 65, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+
+[OVERLAP REPORT]
+[CRITICAL] Near-complete sprite stacking: 98% overlap
+  - synthetic-s3-interceptor-a:1(interceptor) vs synthetic-s3-interceptor-b:0(interceptor)
+  - Distance: 1.4px at t=0ms in bomber-defense-pass
+
+[FAILURE] Severe sprite stacking detected:
+  - synthetic-s3-interceptor-a:1(interceptor) vs synthetic-s3-interceptor-b:0(interceptor)
+  - 98% overlap (1.4px distance)
+  - At t=0ms in phase bomber-defense-pass
+[WARNINGS] 256 proximity events detected:
+  High overlap (40-75%): 256 instances
+    - u_bescort:0(escort) vs u_bescort:2(escort): 65% at t=380ms (escort-clash-merge)
+    - u_bescort:1(escort) vs u_bescort:3(escort): 65% at t=380ms (escort-clash-merge)
+    - u_pcap1:1(interceptor) vs u_pcap2:2(interceptor): 51% at t=570ms (escort-clash-merge)
+    ... and 253 more
+
+[SUMMARY] 257 total overlap events reported.
+[CombatSoundManager] Loaded sound catalog v1 with 0 assets
+[TEST PASS] AIR_SHOW_SPATIAL_SEPARATION_REPORT
+  Given the airshow includes contested packages with multiple actors in proximity
+  When the diagnostic report with time-sampled positions is generated
+  Then actor overlap analysis should report separation distances and flag severe stacking
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 65, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[FLAK TIMING] 18 bursts from 25.0% to 52.2% ΓÇö correctly during bomber approach
+[CombatSoundManager] Loaded sound catalog v1 with 0 assets
+[TEST PASS] AIR_SHOW_FLAK_TIMING_DURING_STRIKE_RUN_NOT_AT_END
+  Given the air scenario includes bomber strike with flak
+  When the scenario report is generated
+  Then flak bursts should fire during the strike run (25-55% progress), not at the very end
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[DeploymentState] toReserveBlueprints { source: 'pool', entries: [], blueprintCount: 0 }
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 65, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[BOMB DEBUG] Target run assignments:
+[BOMB DEBUG] u_bbomber:0: 11 path points
+  point[0]: cx=405.9, cy=388.5
+  point[1]: cx=423.8, cy=384.1
+  point[2]: cx=447.8, cy=377.2
+  point[3]: cx=456.2, cy=383.9
+  point[4]: cx=434.9, cy=400.6
+  point[5]: cx=400.5, cy=418.7
+  point[6]: cx=369.4, cy=429.1
+  point[7]: cx=344.6, cy=436.9
+  point[8]: cx=344.3, cy=425.1
+  point[9]: cx=314.9, cy=442.0
+  point[10]: cx=306.2, cy=446.9
+[BOMB DEBUG] u_bbomber:1: 11 path points
+  point[0]: cx=456.6, cy=388.5
+  point[1]: cx=474.4, cy=384.1
+  point[2]: cx=498.5, cy=377.2
+  point[3]: cx=506.9, cy=383.9
+  point[4]: cx=485.6, cy=400.6
+  point[5]: cx=451.2, cy=418.7
+  point[6]: cx=420.1, cy=429.1
+  point[7]: cx=395.3, cy=436.9
+  point[8]: cx=395.0, cy=425.1
+  point[9]: cx=365.6, cy=442.0
+  point[10]: cx=356.9, cy=446.9
+[BOMB DEBUG] u_bbomber:2: 11 path points
+  point[0]: cx=405.9, cy=423.3
+  point[1]: cx=423.8, cy=419.0
+  point[2]: cx=447.8, cy=412.0
+  point[3]: cx=456.2, cy=418.7
+  point[4]: cx=434.9, cy=435.5
+  point[5]: cx=400.5, cy=453.5
+  point[6]: cx=369.4, cy=463.9
+  point[7]: cx=344.6, cy=471.7
+  point[8]: cx=344.3, cy=459.9
+  point[9]: cx=314.9, cy=476.9
+  point[10]: cx=306.2, cy=481.8
+[BOMB DEBUG] u_bbomber:3: 11 path points
+  point[0]: cx=456.6, cy=423.3
+  point[1]: cx=474.4, cy=419.0
+  point[2]: cx=498.5, cy=412.0
+  point[3]: cx=506.9, cy=418.7
+  point[4]: cx=485.6, cy=435.5
+  point[5]: cx=451.2, cy=453.5
+  point[6]: cx=420.1, cy=463.9
+  point[7]: cx=395.3, cy=471.7
+  point[8]: cx=395.0, cy=459.9
+  point[9]: cx=365.6, cy=476.9
+  point[10]: cx=356.9, cy=481.8
+[BOMB DEBUG] u_bbomber:0: gap 58.7px from 0.50 to 0.75
+[BOMB DEBUG] u_bbomber:1: gap 58.8px from 0.50 to 0.75
+[BOMB DEBUG] u_bbomber:2: gap 57.5px from 0.50 to 0.75
+[BOMB DEBUG] u_bbomber:3: gap 52.2px from 0.50 to 0.75
+[BOMB RELEASE CONTINUITY] All 4 actors maintained position continuity through bomb release at ~74% progress
+[CombatSoundManager] Loaded sound catalog v1 with 0 assets
+[TEST PASS] AIR_SHOW_BOMB_RELEASE_MAINTAINS_ACTOR_CONTINUITY
+  Given the air scenario includes a bomber strike with bomb release
+  When the scenario report is generated with sampled positions
+  Then actors should maintain position continuity during bomb release (no disappear/reappear)

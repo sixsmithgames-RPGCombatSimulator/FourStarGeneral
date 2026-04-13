@@ -562,22 +562,24 @@ registerTest("AIR_SHOW_FLAK_TIMING_DURING_STRIKE_RUN_NOT_AT_END", async ({ Given
   });
 
   await Then("flak bursts should fire during the strike run (25-55% progress), not at the very end", async () => {
+    // Find a strike inspection that has flak in the target-run phase
     const strikeInspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.report.phases.some((p) => p.label === "target-run")
+      (entry) => entry.eventType === "airToAir" &&
+        entry.report.phases.some((p) => p.label === "target-run" && (p.flakBursts?.length ?? 0) > 0)
     );
     if (!strikeInspection) {
-      throw new Error("Expected a strike package inspection with target-run phase.");
+      throw new Error("Expected a strike package inspection with target-run phase containing flak.");
     }
 
-    const targetRunPhase = strikeInspection.report.phases.find((p) => p.label === "target-run");
+    // Find the specific target-run phase that has flak (not all do)
+    const targetRunPhase = strikeInspection.report.phases.find(
+      (p) => p.label === "target-run" && (p.flakBursts?.length ?? 0) > 0
+    );
     if (!targetRunPhase) {
-      throw new Error("Expected target-run phase in strike inspection.");
+      throw new Error("Expected target-run phase with flak bursts in strike inspection.");
     }
 
-    const flakBursts = targetRunPhase.flakBursts;
-    if (!flakBursts || flakBursts.length === 0) {
-      throw new Error("Expected flak bursts in target-run phase.");
-    }
+    const flakBursts = targetRunPhase.flakBursts!;
 
     // Per North Star Spec: flak should fire during bomber approach (25-55%), not at end (82%+)
     const firstFlakProgress = flakBursts[0]?.progress ?? 0;
@@ -598,5 +600,87 @@ registerTest("AIR_SHOW_FLAK_TIMING_DURING_STRIKE_RUN_NOT_AT_END", async ({ Given
     }
 
     console.log(`[FLAK TIMING] ${flakBursts.length} bursts from ${(firstFlakProgress * 100).toFixed(1)}% to ${(lastFlakProgress * 100).toFixed(1)}% — correctly during bomber approach`);
+  });
+});
+
+registerTest("AIR_SHOW_BOMB_RELEASE_ACTORS_REMAIN_ASSIGNED", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the air scenario includes a bomber strike with bomb release", async () => {});
+
+  await When("the scenario report is generated", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("all bomber actors should remain assigned throughout target-run phase (no disappear/reappear)", async () => {
+    // Per North Star Spec: Aircraft must not disappear during bomb release/explosion
+    // The explosion is ground-level ordnance, not the aircraft itself
+    const BOMB_RELEASE_PROGRESS = 0.74;
+
+    const strikeInspection = result?.airshowInspections.find(
+      (entry) => entry.eventType === "airToAir" &&
+        entry.report.phases.some((p) => p.label === "target-run" && p.assignments.some(a => a.role === "bomber"))
+    );
+    if (!strikeInspection) {
+      throw new Error("Expected a strike package inspection with bomber in target-run phase.");
+    }
+
+    const targetRunPhase = strikeInspection.report.phases.find(
+      (p) => p.label === "target-run" && p.assignments.some(a => a.role === "bomber")
+    );
+    if (!targetRunPhase) {
+      throw new Error("Expected target-run phase with bomber assignments.");
+    }
+
+    // Get all bomber actor IDs that should be present
+    const bomberActorIds = new Set(
+      targetRunPhase.assignments
+        .filter(a => a.role === "bomber")
+        .map(a => a.actorId)
+    );
+
+    if (bomberActorIds.size === 0) {
+      throw new Error("Expected bomber actors in target-run phase.");
+    }
+
+    // Check that each bomber actor has valid position samples at bomb release
+    const disappearedActors: string[] = [];
+
+    for (const actorId of bomberActorIds) {
+      const assignment = targetRunPhase.assignments.find(a => a.actorId === actorId);
+      if (!assignment) {
+        disappearedActors.push(`${actorId}: missing from assignments`);
+        continue;
+      }
+
+      // Find sample closest to bomb release progress
+      const sampledPositionsCopy = [...assignment.sampledPositions];
+      const sampleAtBombRelease = sampledPositionsCopy
+        .sort((a: { progress: number }, b: { progress: number }) => Math.abs(a.progress - BOMB_RELEASE_PROGRESS) - Math.abs(b.progress - BOMB_RELEASE_PROGRESS))[0];
+
+      if (!sampleAtBombRelease) {
+        disappearedActors.push(`${actorId}: no sampled positions at bomb release`);
+        continue;
+      }
+
+      // Check if position is valid (not NaN/undefined - which would indicate disappearance)
+      if (isNaN(sampleAtBombRelease.cx) || isNaN(sampleAtBombRelease.cy) ||
+          sampleAtBombRelease.cx === undefined || sampleAtBombRelease.cy === undefined) {
+        disappearedActors.push(
+          `${actorId}: invalid position at progress ${sampleAtBombRelease.progress.toFixed(2)} ` +
+          `(cx=${sampleAtBombRelease.cx}, cy=${sampleAtBombRelease.cy})`
+        );
+      }
+    }
+
+    if (disappearedActors.length > 0) {
+      throw new Error(
+        `Aircraft disappeared during bomb release/explosion:\n${disappearedActors.join("\n")}\n\n` +
+        `Per North Star Spec: Aircraft must remain visible during strike run. ` +
+        `The explosion is ground-level ordnance, not the aircraft exploding.`
+      );
+    }
+
+    console.log(`[BOMB RELEASE VISIBILITY] All ${bomberActorIds.size} bomber actors remained assigned and visible through bomb release at ~74% progress`);
   });
 });

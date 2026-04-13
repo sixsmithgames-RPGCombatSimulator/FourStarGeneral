@@ -2885,6 +2885,13 @@ export class HexMapRenderer implements IMapRenderer {
         const keepInterceptorsOnTargetRun = postPassInterceptors.length > 0 && escortFlights.length === 0;
         const keepEscortsOnTargetRun = postPassEscorts.length > 0 && interceptorFlights.length === 0;
         const rand = stageRandom(`target-run:${bomberFlight.spec.id}`);
+        // Per North Star Spec: Aircraft must remain visible during bomb release/explosion
+        // The explosion is ground-level ordnance, not the aircraft itself
+        // Re-activate all bomber actors for the strike run phase
+        bomberFlight.actors.forEach(actor => {
+          actor.active = true;
+          actor.image.style.opacity = "1";
+        });
         const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
         const targetApproach = this.offsetAirShowPoint(
           bomberTargetCenter,
@@ -9066,11 +9073,12 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   private averageAirShowPosition(actors: ReadonlyArray<AirShowRuntimeActor>): AirShowPoint | null {
-    const activeActors = actors.filter((actor) => actor.active);
-    if (activeActors.length === 0) {
+    // Use ALL actors for position calculation, not just active ones.
+    // The active flag controls visual opacity only; position must remain continuous.
+    if (actors.length === 0) {
       return null;
     }
-    const totals = activeActors.reduce(
+    const totals = actors.reduce(
       (acc, actor) => {
         acc.cx += actor.position.cx;
         acc.cy += actor.position.cy;
@@ -9079,8 +9087,8 @@ export class HexMapRenderer implements IMapRenderer {
       { cx: 0, cy: 0 }
     );
     return {
-      cx: totals.cx / activeActors.length,
-      cy: totals.cy / activeActors.length
+      cx: totals.cx / actors.length,
+      cy: totals.cy / actors.length
     };
   }
 
