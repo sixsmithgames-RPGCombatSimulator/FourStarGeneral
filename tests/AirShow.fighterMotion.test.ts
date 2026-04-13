@@ -1,3 +1,12 @@
+/**
+ * Air Show Fighter Motion Tests
+ *
+ * Specification: docs/AIR_SHOW_NORTH_STAR_SPEC.md
+ * Implementation Status: See "Implementation Status & Recent Fixes" section in spec
+ *
+ * These tests validate air show choreography, path continuity, and spatial separation.
+ */
+
 import { registerTest } from "./harness.js";
 import { sampleAirShowWaypointPath } from "../src/ui/airshow/AirShowPathMath";
 import { runAirScenario } from "./airScenarioSupport.js";
@@ -540,5 +549,54 @@ registerTest("AIR_SHOW_SPATIAL_SEPARATION_REPORT", async ({ Given, When, Then })
 
     // Never fail - this is a diagnostic report, not a pass/fail test
     console.log(`\n[SUMMARY] ${warnings.length + (worstFailure ? 1 : 0)} total overlap events reported.`);
+  });
+});
+
+registerTest("AIR_SHOW_FLAK_TIMING_DURING_STRIKE_RUN_NOT_AT_END", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the air scenario includes bomber strike with flak", async () => {});
+
+  await When("the scenario report is generated", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("flak bursts should fire during the strike run (25-55% progress), not at the very end", async () => {
+    const strikeInspection = result?.airshowInspections.find(
+      (entry) => entry.eventType === "airToAir" && entry.report.phases.some((p) => p.label === "target-run")
+    );
+    if (!strikeInspection) {
+      throw new Error("Expected a strike package inspection with target-run phase.");
+    }
+
+    const targetRunPhase = strikeInspection.report.phases.find((p) => p.label === "target-run");
+    if (!targetRunPhase) {
+      throw new Error("Expected target-run phase in strike inspection.");
+    }
+
+    const flakBursts = targetRunPhase.flakBursts;
+    if (!flakBursts || flakBursts.length === 0) {
+      throw new Error("Expected flak bursts in target-run phase.");
+    }
+
+    // Per North Star Spec: flak should fire during bomber approach (25-55%), not at end (82%+)
+    const firstFlakProgress = flakBursts[0]?.progress ?? 0;
+    const lastFlakProgress = flakBursts[flakBursts.length - 1]?.progress ?? 0;
+
+    if (firstFlakProgress > 0.6) {
+      throw new Error(
+        `Flak starts too late in strike run: first burst at ${(firstFlakProgress * 100).toFixed(1)}% ` +
+        `(should be 25-55% during bomber approach, not >60%)`
+      );
+    }
+
+    if (lastFlakProgress > 0.7) {
+      throw new Error(
+        `Flak ends too late in strike run: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
+        `(should end by 55-70%, not at very end)`
+      );
+    }
+
+    console.log(`[FLAK TIMING] ${flakBursts.length} bursts from ${(firstFlakProgress * 100).toFixed(1)}% to ${(lastFlakProgress * 100).toFixed(1)}% — correctly during bomber approach`);
   });
 });

@@ -1,3 +1,12 @@
+/**
+ * Air Combat Scene Builder Tests
+ *
+ * Specification: docs/AIR_SHOW_NORTH_STAR_SPEC.md
+ * Implementation Status: See "Implementation Status & Recent Fixes" section in spec
+ *
+ * These tests validate scene building, ingress timing, and formation spacing.
+ */
+
 import { registerTest } from "./harness.js";
 import { buildResolvedAirCombatScene } from "../src/ui/airshow/ResolvedAirCombatSceneBuilder";
 import type { AirEngagementEvent } from "../src/game/GameEngine";

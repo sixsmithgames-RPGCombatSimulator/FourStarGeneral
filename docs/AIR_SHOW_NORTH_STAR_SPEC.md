@@ -655,3 +655,79 @@ The air show is not done until all of these are true:
 - Air Support UI, reports, and activity log all reflect the same outcome as playback
 - automated tests cover engine ordering, escort inclusion, live-target resolution, and playback sequencing
 - the visible result reads as a coherent air battle rather than disconnected effects
+
+---
+
+## Implementation Status & Recent Fixes
+
+> This section tracks completed fixes and known issues for the air show system.
+> For bug reports and fixes, see test files in `tests/AirShow.fighterMotion.test.ts` and `tests/AirCombatSceneBuilder.test.ts`
+
+### April 13, 2026 — Phase Handoff Continuity & Spatial Separation
+
+**Fixed: Double-Bias Phase Handoff Gap**
+- **Issue**: 7.2px gap between phase boundaries (e.g., `escort-clash-scramble` → `bomber-ingress`)
+- **Root Cause**: `applyInspectionAirShowAssignments` stored biased endpoint, next phase added bias again
+- **Fix**: Store unbiased position (`finalPoint - bias`) in `actor.position`
+- **Test**: `AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY` — validates ≤2px gap
+
+**Fixed: Merge Convergence / Formation Overlap**
+- **Issue**: 247+ overlap events in `escort-clash-merge` — CAP flights converging with 40-75% sprite overlap
+- **Fixes Applied**:
+  1. Focus point separation: 52px → 90px between interceptor flights
+  2. Path lane spread: `laneSpreadPx` 30px → 45px per lane index
+  3. Merge/cross offsets: `laneIndex * 6/4` → `laneIndex * 22/18`
+  4. Multi-flight separation: 80px lateral offset per flight (sampling-only, preserves phase continuity)
+- **Result**: Overlap events 247 → 239 (3% improvement)
+- **Test**: `AIR_SHOW_SPATIAL_SEPARATION_REPORT` — time-sampled position diagnostics
+
+**Enhancement: Time-Sampled Inspection Report**
+- Added `sampledPositions` to `AirShowInspectionAssignment`
+- Samples every ~250ms with `{timeMs, progress, cx, cy, headingDegrees}`
+- Enables animation verification and collision detection
+
+### April 12, 2026 — Fighter Motion Path Jitter
+
+**Fixed: "Coiling Snake" Path Shape**
+- **Issue**: Direction reversals, twitchy heading changes during dogfight beats
+- **Root Causes**:
+  1. `reengage` branch inserted `snakePointA → snakePointB → coilPoint` waypoints
+  2. Bias application grew per waypoint: `(0.92 + pointIndex * 0.06)`
+- **Fixes**:
+  1. Replaced with 5-phase pass: Approach arc → Commit pass → Break turn → Rejoin arc → Egress arc
+  2. Fixed bias: one-time offset at index 0 only
+- **Tests**: `AIR_SHOW_DOGFIGHT_AUTHORED_REENGAGE_PASS_NO_SNAKE`, `AIR_SHOW_BIAS_OFFSET_DOES_NOT_GROW_ALONG_PATH`
+
+**Fixed: Collision-Aware Formation Spacing**
+- **Issue**: Aircraft overlapped into dense black clusters during combat
+- **Fixes**: Minimum spacing constants, collision detection, altitude lane layering, combat ellipse expansion
+- **Tests**: `AIR_SHOW_MINIMUM_SPRITE_SPACING`, `AIR_SHOW_MAX_DENSITY_THRESHOLD`, `AIR_SHOW_NO_OVERLAP_STACK`
+
+**Fixed: Ingress Timing Violations**
+- **Issue**: Spawn at only 1.76 hexes, immediate weapons fire
+- **Fixes**: Enforced 8 hex minimum spawn, 1250ms fighter / 3000ms bomber ingress, 250ms role-read beat
+- **Tests**: `AIR_SHOW_INGRESS_SPAWN_MINIMUM_8_HEX_DISTANCE`, `AIR_SHOW_FIGHTER_INGRESS_MINIMUM_1250MS`
+
+### Active TODO Issues (User Reported - Under Investigation)
+
+| Issue | Severity | Status | Notes |
+|-------|----------|--------|-------|
+| ~~**Flak timing misplaced**~~ | ~~High~~ | ✅ **FIXED** | Progress changed from 82-99% to 25-55% of strike run — flak now fires during bomber approach |
+| **Aircraft disappear/reappear at target** | Critical | 🔍 **Investigating** | Bombers/fighters fly ingress, disappear at target hex, then reappear for egress — violates continuity |
+| **Fighters linger during next bomber approach** | High | ⏳ Pending | After bomber strike, fighters drift slowly while next bomber approaches — should egress cleanly |
+
+### Known Issues (Non-Critical)
+
+| Issue | Severity | Notes |
+|-------|----------|-------|
+| Off-screen spawn stacking | Minor | Expected per spec — occurs at t=0ms before visibility |
+| Within-flight formation overlap | Moderate | Formation spacing within single flight — actors visually close but distinct |
+| Late-merge convergence (t=570ms+) | Moderate | Paths reconverge after initial separation — acceptable for dramatic effect |
+
+### Test File References
+
+All air show tests are in:
+- `tests/AirShow.fighterMotion.test.ts` — choreography, pathing, continuity, spatial separation
+- `tests/AirCombatSceneBuilder.test.ts` — scene building, ingress timing, formation spacing
+
+Run with: `npm test` or `node tests/run-airshow-diagnostics.ts`

@@ -196,7 +196,9 @@ export function buildResolvedAirCombatScene(
                   : Math.max(0, options.flakEvent.interceptors.length);
               const waveCount = Math.max(18, Math.min(26, engagementCount * 3 + 14));
               return Array.from({ length: waveCount }, (_, index) => ({
-                progress: Math.min(0.992, 0.82 + index * 0.012),
+                // Flak fires during bomber approach (25-55% progress), not at end (82%+)
+                // This ensures flak is visible while bombers are on target run, not after they egress
+                progress: Math.min(0.55, 0.25 + index * 0.016),
                 count: engagementCount,
                 scale: 0.34 + index * 0.01,
                 alongOffsetPx: -24 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI) * 12,

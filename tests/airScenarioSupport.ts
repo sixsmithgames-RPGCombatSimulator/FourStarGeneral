@@ -629,7 +629,8 @@ function buildSyntheticInspectableCases(): Array<{
   });
   const makeFlakBursts = (count: number): NonNullable<ResolvedAirShowScene["flakBursts"]> =>
     Array.from({ length: count }, (_, index) => ({
-      progress: Math.min(0.992, 0.82 + index * 0.012),
+      // Flak fires during bomber approach (25-55% progress), not at end (82%+)
+      progress: Math.min(0.55, 0.25 + index * 0.016),
       count: 1,
       scale: 0.34 + index * 0.01,
       alongOffsetPx: -20 + Math.sin((index / Math.max(1, count - 1)) * Math.PI) * 10,
