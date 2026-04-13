@@ -2464,7 +2464,12 @@ export class BattleScreen {
             this.deploymentPanel?.setCriticalError(null);
             this.announceBattleUpdate(`Deployed ${label} to ${hexKey}.`);
             this.refreshDeploymentMirrors("deploy", { unitKey, hexKey, label });
-            this.completeTutorialPhase("place_units");
+            // Only unlock the place_units tutorial step once every reserve has been placed.
+            // Advancing after the first deploy would skip the step before the player has
+            // had a chance to deploy their full force.
+            if (engine.getReserveSnapshot().length === 0) {
+              this.completeTutorialPhase("place_units");
+            }
           } catch (error) {
             console.error("Failed to deploy unit via key", unitKey, error);
             this.reportDeploymentPanelError({
@@ -3301,7 +3306,8 @@ export class BattleScreen {
         1,
         flight.strength,
         flight.laneOffsetPx,
-        flight.faction
+        flight.faction,
+        "bomber"
       );
       await this.playResolvedAirStrikeImpact(flight, renderer, engine);
       await this.playDamagedAircraftReturn(
@@ -3314,7 +3320,8 @@ export class BattleScreen {
         flight.laneOffsetPx,
         0,
         flight.faction,
-        this.resolveBomberSortieEgressDurationMs()
+        this.resolveBomberSortieEgressDurationMs(),
+        "bomber"
       );
       return;
     }
@@ -3329,7 +3336,8 @@ export class BattleScreen {
       1,
       flight.strength,
       flight.laneOffsetPx,
-      flight.faction
+      flight.faction,
+      "interceptor"
     );
     await this.playDamagedAircraftReturn(
       renderer,
@@ -3341,7 +3349,8 @@ export class BattleScreen {
       flight.laneOffsetPx,
       0,
       flight.faction,
-      this.resolveFighterSortieEgressDurationMs()
+      this.resolveFighterSortieEgressDurationMs(),
+      "interceptor"
     );
   }
 
@@ -3407,7 +3416,8 @@ export class BattleScreen {
         event.bomberDestroyed ? 0.84 : 1,
         visibleStrength,
         laneOffsetPx,
-        event.bomber.faction
+        event.bomber.faction,
+        "bomber"
       );
 
       if (!event.bomberDestroyed) {
@@ -3421,7 +3431,8 @@ export class BattleScreen {
           laneOffsetPx,
           0,
           event.bomber.faction,
-          this.resolveBomberSortieEgressDurationMs()
+          this.resolveBomberSortieEgressDurationMs(),
+          "bomber"
         );
       }
       return;
@@ -3859,7 +3870,8 @@ export class BattleScreen {
           flakEvent?.bomberDestroyed ? 0.84 : 1,
           bomberStrength,
           flight.laneOffsetPx,
-          flight.faction
+          flight.faction,
+          "bomber"
         );
 
         if (!bomberDestroyedBeforeImpact) {
@@ -3874,7 +3886,8 @@ export class BattleScreen {
             flight.laneOffsetPx,
             0,
             flight.faction,
-            this.resolveBomberSortieEgressDurationMs()
+            this.resolveBomberSortieEgressDurationMs(),
+            "bomber"
           );
         }
       })(),
@@ -4013,7 +4026,8 @@ export class BattleScreen {
           1,
           participant.initialStrength,
           participant.laneOffsetPx,
-          participant.faction
+          participant.faction,
+          participant.role
         )
       );
       await Promise.all(ingressFlights);
@@ -4101,7 +4115,8 @@ export class BattleScreen {
     laneOffsetPx = 0,
     initialDelayMs = 120,
     faction?: TurnFaction,
-    durationMs?: number
+    durationMs?: number,
+    role: AirShowRole = "interceptor"
   ): Promise<void> {
     const smokeScale = damage >= 36 ? 0.82 : damage >= 18 ? 0.7 : 0.58;
     const smokeInterval = damage >= 36 ? 0.12 : damage >= 18 ? 0.16 : 0.22;
@@ -4118,7 +4133,7 @@ export class BattleScreen {
         void renderer.playAirDamageSmokeTrailAt(centerX - 4, centerY + 2, smokeScale);
         nextSmokeProgress += smokeInterval;
       }
-    }, 1, strength, laneOffsetPx, faction);
+    }, 1, strength, laneOffsetPx, faction, role);
   }
 
   private announceFlakEngagement(event: AirEngagementEvent): void {
@@ -4580,7 +4595,8 @@ export class BattleScreen {
       1,
       flight.strength,
       flight.laneOffsetPx,
-      flight.faction
+      flight.faction,
+      "interceptor"
     );
     await this.playDamagedAircraftReturn(
       renderer,
@@ -4592,7 +4608,8 @@ export class BattleScreen {
       flight.laneOffsetPx,
       this.scaleAirSequenceMs(120),
       flight.faction,
-      this.resolveFighterSortieEgressDurationMs()
+      this.resolveFighterSortieEgressDurationMs(),
+      "interceptor"
     );
   }
 
@@ -4647,7 +4664,8 @@ export class BattleScreen {
     endProgress = 1,
     strength?: number,
     laneOffsetPx = 0,
-    faction?: TurnFaction
+    faction?: TurnFaction,
+    role: AirShowRole = "interceptor"
   ): Promise<void> {
     if (typeof (renderer as any).animateAircraftArc === "function") {
       await (renderer as any).animateAircraftArc(
@@ -4659,7 +4677,8 @@ export class BattleScreen {
         endProgress,
         strength,
         laneOffsetPx,
-        faction
+        faction,
+        role
       );
       return;
     }
@@ -4674,7 +4693,8 @@ export class BattleScreen {
         endProgress,
         strength,
         laneOffsetPx,
-        faction
+        faction,
+        role
       );
     }
   }

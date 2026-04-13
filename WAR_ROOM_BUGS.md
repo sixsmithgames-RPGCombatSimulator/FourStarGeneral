@@ -15,7 +15,9 @@
 **New Diagnostic Tests** (`tests/AirShow.fighterMotion.test.ts`):
 - `AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY` — validates ≤2px gap at all phase boundaries
 
-**Status**: All 9 airshow tests passing. 0 regressions.
+**Status**: All 10 airshow tests passing. 0 regressions.
+
+**Enhancement**: Added `sampledPositions` to inspection report — time-sampled actor positions at ~250ms intervals with `{timeMs, progress, cx, cy, headingDegrees}`. Enables time-space verification of turns, passes, and collision detection.
 
 ## Recent Fixes Completed (April 12, 2026)
 

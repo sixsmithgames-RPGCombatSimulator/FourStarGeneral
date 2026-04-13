@@ -45,7 +45,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
-    actionLabel: "Add Infantry"
+    actionLabel: "Continue"
   },
   {
     phase: "adjust_quantity",
@@ -67,7 +67,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
-    actionLabel: "Add Tanks"
+    actionLabel: "Continue"
   },
   {
     phase: "select_engineers",
@@ -78,7 +78,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
-    actionLabel: "Add Engineers"
+    actionLabel: "Continue"
   },
   {
     phase: "select_flak",
@@ -89,7 +89,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
-    actionLabel: "Add Flak"
+    actionLabel: "Continue"
   },
   {
     phase: "select_air_wing",
@@ -100,7 +100,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
-    actionLabel: "Add Fighters"
+    actionLabel: "Continue"
   },
   {
     phase: "review_allocation",
@@ -160,7 +160,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "left",
     arrowDirection: "right",
     waitForAction: true,
-    actionLabel: "Set Base Camp"
+    actionLabel: "Continue"
   },
   {
     phase: "place_units",
@@ -171,7 +171,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "left",
     arrowDirection: "right",
     waitForAction: true,
-    actionLabel: "Deploy Units"
+    actionLabel: "Continue"
   },
   {
     phase: "roster_intro",
@@ -204,7 +204,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "bottom",
     arrowDirection: "up",
     waitForAction: true,
-    actionLabel: "Begin Battle"
+    actionLabel: "Continue"
   },
   {
     phase: "movement_intro",
@@ -213,7 +213,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
       "Select a friendly unit. Blue hexes show where it can move this activation and red hexes show valid attack targets. Terrain, suppression, towing state, and fuel all affect what the unit can actually do.",
     position: "center",
     waitForAction: true,
-    actionLabel: "Select Units"
+    actionLabel: "Continue"
   },
   {
     phase: "attack_intro",
@@ -230,7 +230,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
       "Find and select an Engineering Corps. Engineers are your terrain-control unit: they can dig in, fortify edges, lay tank traps, and clear lanes for the battalions behind them.",
     position: "center",
     waitForAction: true,
-    actionLabel: "Select Engineers"
+    actionLabel: "Continue"
   },
   {
     phase: "engineer_orders",
@@ -241,7 +241,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "left",
     arrowDirection: "right",
     waitForAction: true,
-    actionLabel: "Issue Engineer Order"
+    actionLabel: "Continue"
   },
   {
     phase: "artillery_intro",
@@ -250,7 +250,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
       "Select an infantry or recon spotter that can observe an enemy hex, then use Call Artillery and click an observed enemy position. The heavy battery is off-map, so the fire mission is queued rather than fired by a gun on the map.",
     position: "center",
     waitForAction: true,
-    actionLabel: "Queue Fire Mission"
+    actionLabel: "Continue"
   },
   {
     phase: "flak_intro",
@@ -259,7 +259,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
       "Select your Flak Battery. Flak works mainly as an automatic air-defense umbrella, so its job is position and coverage. Keep it shielding base camp, artillery, reserves, or exposed approach routes.",
     position: "center",
     waitForAction: true,
-    actionLabel: "Select Flak"
+    actionLabel: "Continue"
   },
   {
     phase: "air_missions",
@@ -270,7 +270,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "left",
     arrowDirection: "right",
     waitForAction: true,
-    actionLabel: "Issue Sortie"
+    actionLabel: "Continue"
   },
   {
     phase: "logistics_intro",
@@ -292,7 +292,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "left",
     arrowDirection: "right",
     waitForAction: true,
-    actionLabel: "End Turn"
+    actionLabel: "Continue"
   },
   {
     phase: "complete",

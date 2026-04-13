@@ -339,15 +339,6 @@ export class PrecombatScreen {
         if (nextPhase) tutorialState.advancePhase(nextPhase);
       }, 800);
     }
-
-    // Check budget status for proceed_to_battle phase
-    if (currentPhase === "proceed_to_battle") {
-      const totalAllocated = Array.from(this.allocationCounts.values()).reduce((sum, v) => sum + v, 0);
-      const totalPredeployed = Array.from(this.predeployedCounts.values()).reduce((sum, v) => sum + v, 0);
-      const hasNewAllocations = totalAllocated > totalPredeployed;
-      const remainingBudget = this.allocationBudget - this.calculateSpend();
-      tutorialState.setCanProceed(hasNewAllocations && remainingBudget >= 0);
-    }
   }
 
   /**
@@ -410,11 +401,6 @@ export class PrecombatScreen {
     this.battleState.setPrecombatAllocationSummary(summary);
 
     this.allocationDirty = false;
-
-    // Advance tutorial to deployment phase if active
-    if (tutorialState.isTutorialActive() && tutorialState.getCurrentPhase() === "proceed_to_battle") {
-      tutorialState.advancePhase("ui_overview");
-    }
 
     this.screenManager.showScreenById("battle");
     if (this.allocationFeedbackElement) {

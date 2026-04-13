@@ -234,11 +234,20 @@ export interface AirShowInspectionFlight {
   readonly actors: ReadonlyArray<AirShowInspectionFlightActor>;
 }
 
+export interface AirShowInspectionSampledPosition {
+  readonly timeMs: number;
+  readonly progress: number;
+  readonly cx: number;
+  readonly cy: number;
+  readonly headingDegrees: number;
+}
+
 export interface AirShowInspectionAssignment {
   readonly actorId: string;
   readonly flightId: string;
   readonly role: "interceptor" | "escort" | "bomber";
   readonly points: ReadonlyArray<AirShowInspectionPoint>;
+  readonly sampledPositions: ReadonlyArray<AirShowInspectionSampledPosition>;
 }
 
 export interface AirShowInspectionTracer {
@@ -1311,12 +1320,29 @@ export class HexMapRenderer implements IMapRenderer {
       phases.push({
         label,
         durationMs,
-        assignments: assignments.map((assignment) => ({
-          actorId: assignment.actor.id,
-          flightId: assignment.actor.flightId,
-          role: assignment.actor.role,
-          points: assignment.points.map((point) => ({ cx: point.cx, cy: point.cy }))
-        })),
+        assignments: assignments.map((assignment) => {
+          const sampledPositions: AirShowInspectionSampledPosition[] = [];
+          const sampleCount = Math.max(4, Math.ceil(durationMs / 250));
+          for (let i = 0; i <= sampleCount; i += 1) {
+            const progress = i / sampleCount;
+            const timeMs = Math.round(progress * durationMs);
+            const sample = this.sampleAirShowAssignmentAtProgress(assignment, progress);
+            sampledPositions.push({
+              timeMs,
+              progress,
+              cx: Math.round(sample.position.cx * 10) / 10,
+              cy: Math.round(sample.position.cy * 10) / 10,
+              headingDegrees: Math.round(sample.headingDegrees * 10) / 10
+            });
+          }
+          return {
+            actorId: assignment.actor.id,
+            flightId: assignment.actor.flightId,
+            role: assignment.actor.role,
+            points: assignment.points.map((point) => ({ cx: point.cx, cy: point.cy })),
+            sampledPositions
+          };
+        }),
         tracers: tracerBursts.flatMap<AirShowInspectionPhase["tracers"][number]>((burst) => {
           const sourceAssignment = assignmentsByActorId.get(burst.source.id);
           const sampledSource = sourceAssignment
