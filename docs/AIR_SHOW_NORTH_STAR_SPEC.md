@@ -694,9 +694,13 @@ The air show is not done until all of these are true:
 - **Files**: `ResolvedAirCombatSceneBuilder.ts`, `airScenarioSupport.ts`
 
 **Fixed: Aircraft Disappear at Target / Reappear for Egress**
-- **Issue**: Combat damage set `actor.active = false`, excluding actors from subsequent phase assignments
-- **Fix**: Removed `actor.active` filter from `buildAirShowFlightAssignments` — all actors get phase assignments, visibility controlled by opacity only
-- **Result**: Aircraft maintain formation continuity through all phases; damaged aircraft fade out visually but continue pathing
+- **Issue**: Phase existence checks used `actor.active` (per-actor visibility), causing phases to be skipped when individual actors were visually hidden
+- **Root Cause**: `actor.active` conflated two concerns — visual opacity AND phase existence
+- **Fix**: 
+  1. Phase existence now checks `flight.currentStrength > 0` (flight-level)
+  2. `actor.active` now controls ONLY visual opacity (per-actor)
+  3. All actors receive phase assignments regardless of active status (for continuity)
+- **Result**: Phases record even with visually hidden actors; aircraft maintain position continuity through all beats
 
 **Fixed: Fighters Linger During Next Bomber Approach**
 - **Issue**: `escort-hold` phase (825ms drift) ran while bomber was approaching, creating "linger and drift" effect

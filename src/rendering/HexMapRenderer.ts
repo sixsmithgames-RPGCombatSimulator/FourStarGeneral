@@ -1696,7 +1696,8 @@ export class HexMapRenderer implements IMapRenderer {
         updateFlightAnchors([...survivingInterceptors, ...survivingEscorts]);
       }
 
-      if (bomberFlight && bomberFlight.actors.some((actor) => actor.active)) {
+      // Phase existence based on flight strength, not individual actor visibility
+      if (bomberFlight && (bomberFlight.currentStrength ?? 0) > 0) {
         const rand = stageRandom(`ingress:bomber:${bomberFlight.spec.id}`);
         const ingressTarget = corridorPoint(-58, (rand() - 0.5) * 12);
         const bomberIngressAssignments: AirShowPhaseAssignment[] = [
@@ -1919,7 +1920,8 @@ export class HexMapRenderer implements IMapRenderer {
 
       const postPassInterceptors = activeFlights(interceptorFlights);
       const postPassEscorts = activeFlights(escortFlights);
-      if (bomberFlight && bomberTargetCenter && bomberFlight.actors.some((actor) => actor.active)) {
+      // Phase existence based on flight strength, not individual actor visibility
+      if (bomberFlight && bomberTargetCenter && (bomberFlight.currentStrength ?? 0) > 0) {
         const keepInterceptorsOnTargetRun = postPassInterceptors.length > 0 && escortFlights.length === 0;
         const keepEscortsOnTargetRun = postPassEscorts.length > 0 && interceptorFlights.length === 0;
         const rand = stageRandom(`target-run:${bomberFlight.spec.id}`);
@@ -2590,7 +2592,8 @@ export class HexMapRenderer implements IMapRenderer {
         updateFlightAnchors([...survivingInterceptors, ...survivingEscorts]);
       }
 
-      if (bomberFlight && bomberFlight.actors.some((actor) => actor.active)) {
+      // Phase existence based on flight strength, not individual actor visibility
+      if (bomberFlight && (bomberFlight.currentStrength ?? 0) > 0) {
         logAirShowBeatStart(packageId, 4, "bomberIngress", [bomberFlight.spec.id]);
       debugAirShowPhase("BomberIngress", {});
         await Promise.all(
@@ -2875,7 +2878,8 @@ export class HexMapRenderer implements IMapRenderer {
 
       const postPassInterceptors = activeFlights(interceptorFlights);
       const postPassEscorts = activeFlights(escortFlights);
-      if (bomberFlight && bomberTargetCenter && bomberFlight.actors.some((actor) => actor.active)) {
+      // Phase existence based on flight strength, not individual actor visibility
+      if (bomberFlight && bomberTargetCenter && (bomberFlight.currentStrength ?? 0) > 0) {
         logAirShowBeatStart(packageId, 6, "targetRun", [bomberFlight.spec.id]);
       debugAirShowPhase("TargetRun", {});
         const keepInterceptorsOnTargetRun = postPassInterceptors.length > 0 && escortFlights.length === 0;
@@ -8559,7 +8563,7 @@ export class HexMapRenderer implements IMapRenderer {
       ? (flightIndex - (totalFlights - 1) / 2) * 80
       : 0;
     // Include ALL actors in phase assignments to maintain formation continuity.
-    // Visual visibility (opacity) is controlled separately by syncAirShowFlightStrengthForInspection.
+    // Visual visibility is controlled per-actor via opacity in syncAirShowFlightStrengthForInspection.
     // This prevents aircraft from "disappearing" at target hex between phases.
     return flight.actors
       .map((actor) => ({
