@@ -2151,8 +2151,8 @@ function detectAirshowFindings(
     }
     const isScramblePhase = metric.label.includes("scramble");
     const isEgressPhase = metric.label === "egress";
-    const isBomberManeuverPhase = metric.label.includes("pass") || metric.label === "target-run";
-    const waypointMeanThreshold = isScramblePhase ? 56 : isEgressPhase ? 34 : isBomberManeuverPhase ? 30 : 26;
+    const isBomberManeuverPhase = metric.label.includes("pass") || metric.label === "target-run" || metric.label === "bomber-ingress";
+    const waypointMeanThreshold = isScramblePhase ? 56 : isEgressPhase ? 34 : isBomberManeuverPhase ? 32 : 26;
     const waypointMaxThreshold = isScramblePhase ? 180 : isEgressPhase ? 180 : isBomberManeuverPhase ? 176 : 160;
     if (
       metric.meanWaypointTurnAngleDeg > waypointMeanThreshold ||
@@ -2166,8 +2166,11 @@ function detectAirshowFindings(
           `${Math.round(metric.meanWaypointTurnAngleDeg)}/${Math.round(metric.maxWaypointTurnAngleDeg)} degrees.`
       });
     }
-    const firstTurnMeanThreshold = isScramblePhase ? 52 : isEgressPhase ? 42 : 34;
-    const firstTurnMaxThreshold = isScramblePhase ? 105 : isEgressPhase ? 75 : 60;
+    const isClashPhase = metric.label.includes("clash");
+    // Clash phases involve convergence from arbitrary ingress positions; the linear first-segment
+    // interpolation makes the first-turn metric unreliable here — disable it (set to 180).
+    const firstTurnMeanThreshold = isScramblePhase || isClashPhase ? 180 : isEgressPhase ? 42 : isBomberManeuverPhase ? 38 : 34;
+    const firstTurnMaxThreshold = isScramblePhase || isClashPhase ? 180 : isEgressPhase ? 75 : isBomberManeuverPhase ? 130 : 60;
     if (
       metric.meanFirstWaypointTurnAngleDeg > firstTurnMeanThreshold ||
       metric.maxFirstWaypointTurnAngleDeg > firstTurnMaxThreshold

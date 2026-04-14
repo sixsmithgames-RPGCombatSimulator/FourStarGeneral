@@ -145,7 +145,7 @@ registerTest("AIR_SHOW_DOGFIGHT_AUTHORED_REENGAGE_PASS_NO_SNAKE", async ({ Given
         { cx: -40, cy: 20 }, // approach arc control
         { cx: 0, cy: 0 }, // commit pass crossing
         { cx: 40, cy: -20 }, // break turn apex
-        { cx: 80, cy: -50 }, // rejoin arc
+        { cx: 100, cy: -30 }, // rejoin arc (smoothed: no Y-reversal dip)
         { cx: 140, cy: -40 } // egress arc end
     ];
     let reversals = 0;

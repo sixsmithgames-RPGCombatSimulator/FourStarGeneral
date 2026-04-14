@@ -827,13 +827,26 @@ export class HexMapRenderer {
             this.applyInspectionAirShowAssignments(assignments);
         };
         try {
+            // Inspection path mirrors runtime: bombers ingress with fighters in trailing band.
+            const inspBomberIngressBandAssignments = bomberFlights.flatMap((bomberFlight, bomberIndex) => {
+                const rand = stageRandom(`ingress:bomber-band:${bomberFlight.spec.id}`);
+                const laneIndex = bomberFlights.length <= 1 ? 0 : bomberIndex - (bomberFlights.length - 1) / 2;
+                const bandPlan = this.resolveAirShowIngressBandPlan(scene.kind, "escort");
+                const trailingAlongPx = bandPlan.alongPx - 72;
+                const trailingLateralPx = laneIndex * 52 + (rand() - 0.5) * 14;
+                const current = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
+                const holdTarget = corridorPoint(trailingAlongPx + laneIndex * (bandPlan.alongStepPx ?? 22) + (rand() - 0.5) * 12, trailingLateralPx);
+                return this.buildAirShowFlightAssignments(bomberFlight, this.buildAirShowCurvedPath(current, holdTarget, (laneIndex >= 0 ? 1 : -1) * 52, (rand() - 0.5) * 22, this.resolveAirShowFlightHeadingDegrees(bomberFlight)), 0.18);
+            });
             const ingressAssignments = [
                 ...buildBandAssignments(interceptorFlights, "ingress:interceptors", this.resolveAirShowIngressBandPlan(scene.kind, "interceptor")),
-                ...buildBandAssignments(escortFlights, "ingress:escorts", this.resolveAirShowIngressBandPlan(scene.kind, "escort"))
+                ...buildBandAssignments(escortFlights, "ingress:escorts", this.resolveAirShowIngressBandPlan(scene.kind, "escort")),
+                ...inspBomberIngressBandAssignments
             ];
             if (ingressAssignments.length > 0) {
-                recordPhase("fighter-ingress", ingressAssignments, Math.max(1250, scene.fighterIngressDurationMs ?? 1750));
-                updateFlightAnchors([...interceptorFlights, ...escortFlights]);
+                const inspCombinedIngressDurationMs = Math.max(2800, scene.bomberIngressDurationMs ?? 3200);
+                recordPhase("fighter-ingress", ingressAssignments, inspCombinedIngressDurationMs);
+                updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
             }
             const escortExchanges = scene.escortExchanges ?? [];
             if (escortExchanges.length > 0) {
@@ -933,8 +946,8 @@ export class HexMapRenderer {
                                 visibleLengthPx: useCloseScrambleTracerProfile ? 18 : 16,
                                 fanHalfAngleDeg: 0,
                                 burstCount: (pair.exchange.damageToDefender ?? 0) > 0 ? 9 : 8,
-                                maxAlignmentDeg: beat === 0 ? 16 : useCloseScrambleTracerProfile ? 30 : 18,
-                                maxRangePx: beat === 0 ? 176 : useCloseScrambleTracerProfile ? 260 : 220,
+                                maxAlignmentDeg: beat === 0 ? 28 : useCloseScrambleTracerProfile ? 30 : 22,
+                                maxRangePx: beat === 0 ? 210 : useCloseScrambleTracerProfile ? 260 : 230,
                                 timings: baseTimings
                             }), ...this.buildAirShowDynamicTracerVolley(phaseAssignments, pair.escortFlight, pair.interceptorFlight, {
                                 emitter: useCloseScrambleTracerProfile ? "center" : "nose",
@@ -946,8 +959,8 @@ export class HexMapRenderer {
                                 visibleLengthPx: useCloseScrambleTracerProfile ? 18 : 16,
                                 fanHalfAngleDeg: 0,
                                 burstCount: (pair.exchange.retaliationDamage ?? 0) > 0 ? 9 : 8,
-                                maxAlignmentDeg: beat === 0 ? 16 : useCloseScrambleTracerProfile ? 30 : 18,
-                                maxRangePx: beat === 0 ? 176 : useCloseScrambleTracerProfile ? 260 : 220,
+                                maxAlignmentDeg: beat === 0 ? 28 : useCloseScrambleTracerProfile ? 30 : 22,
+                                maxRangePx: beat === 0 ? 210 : useCloseScrambleTracerProfile ? 260 : 230,
                                 timings: baseTimings.map((timing) => Math.min(0.84, timing + 0.03))
                             }));
                         });
@@ -978,7 +991,8 @@ export class HexMapRenderer {
             const survivingInterceptors = activeFlights(interceptorFlights);
             const survivingEscorts = activeFlights(escortFlights);
             const survivingBombers = activeFlights(bomberFlights).filter((flight) => (flight.currentStrength ?? flight.spec.finalStrength ?? 0) > 0);
-            if (survivingBombers.length > 0
+            // Inspection path: BomberGap suppressed when bombers are present (mirrors runtime fix).
+            if (survivingBombers.length === 0
                 && (scene.bomberArrivalDelayMs ?? 0) > 0
                 && (scene.escortExchanges?.length ?? 0) > 0
                 && (survivingInterceptors.length > 0 || survivingEscorts.length > 0)) {
@@ -1014,7 +1028,7 @@ export class HexMapRenderer {
                     ...survivingBombers.flatMap((flight, index) => {
                         const rand = stageRandom(`ingress:bomber:${flight.spec.id}`);
                         const laneIndex = survivingBombers.length <= 1 ? 0 : index - (survivingBombers.length - 1) / 2;
-                        const ingressTarget = corridorPoint(-58 + laneIndex * 26 + (rand() - 0.5) * 10, laneIndex * 22 + (rand() - 0.5) * 12);
+                        const ingressTarget = corridorPoint(-58 + laneIndex * 26 + (rand() - 0.5) * 10, laneIndex * 52 + (rand() - 0.5) * 12);
                         return this.buildAirShowFlightAssignments(flight, this.buildAirShowBomberRunPath(this.averageAirShowPosition(flight.actors) ?? flight.anchor, ingressTarget, {
                             lateralSign: this.resolveAirShowRouteSideSign(this.averageAirShowPosition(flight.actors) ?? flight.anchor, ingressTarget, this.resolveAirShowFlightHeadingDegrees(flight), rand() > 0.5 ? 1 : -1),
                             corridorWidthPx: 20 + rand() * 6,
@@ -1327,12 +1341,9 @@ export class HexMapRenderer {
             bomberCount: bomberFlights.length,
             center: { cx: Math.round(center.cx), cy: Math.round(center.cy) }
         });
-        bomberFlights.forEach((bomberFlight) => {
-            bomberFlight.actors.forEach((actor) => {
-                actor.image.style.opacity = "0";
-            });
-            debugAirShowActor(bomberFlight.spec.id, "initially hidden", { opacity: 0 });
-        });
+        // Per North Star Spec §5: escorts fly with bombers at bomber speed during ingress.
+        // Bombers are visible from the start — they are NOT hidden here.
+        // The fighter ingress phase includes a bomber sub-band flying behind the escort screen.
         const flightMap = new Map(allFlights.map((flight) => [flight.spec.id, flight]));
         const sceneActors = allFlights.flatMap((flight) => flight.actors);
         const sceneSeed = this.seedFromHexKey(`${scene.hexKey}:airshow:${scene.interceptors.length}:${scene.escorts.length}:${bomberSpecs.map((spec) => spec.id).join(",") || "none"}`);
@@ -1386,15 +1397,34 @@ export class HexMapRenderer {
             return this.buildAirShowFlightAssignments(flight, this.buildAirShowCurvedPath(current, holdTarget, (lane >= 0 ? 1 : -1) * (options.arcPx ?? 76), (rand() - 0.5) * (options.driftPx ?? 34), this.resolveAirShowFlightHeadingDegrees(flight)), options.headingBlend ?? 0.26);
         });
         try {
+            // Per North Star Spec §5: escorts and bombers ingress together.
+            // Fighters (interceptors + escorts) fly ahead; bombers fly in a trailing band behind the escort screen.
+            // All use the bomber ingress duration so bombers do not rush ahead of their escort.
+            const bomberIngressBandAssignments = bomberFlights.flatMap((bomberFlight, bomberIndex) => {
+                const rand = stageRandom(`ingress:bomber-band:${bomberFlight.spec.id}`);
+                const laneIndex = bomberFlights.length <= 1 ? 0 : bomberIndex - (bomberFlights.length - 1) / 2;
+                const bandPlan = this.resolveAirShowIngressBandPlan(scene.kind, "escort");
+                // Bombers trail the escorts: pull back along the corridor and spread wider laterally
+                const trailingAlongPx = bandPlan.alongPx - 72;
+                const trailingLateralPx = laneIndex * 52 + (rand() - 0.5) * 14;
+                const current = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
+                const holdTarget = corridorPoint(trailingAlongPx + laneIndex * (bandPlan.alongStepPx ?? 22) + (rand() - 0.5) * 12, trailingLateralPx);
+                return this.buildAirShowFlightAssignments(bomberFlight, this.buildAirShowCurvedPath(current, holdTarget, (laneIndex >= 0 ? 1 : -1) * 52, (rand() - 0.5) * 22, this.resolveAirShowFlightHeadingDegrees(bomberFlight)), 0.18);
+            });
             const ingressAssignments = [
                 ...buildBandAssignments(interceptorFlights, "ingress:interceptors", this.resolveAirShowIngressBandPlan(scene.kind, "interceptor")),
-                ...buildBandAssignments(escortFlights, "ingress:escorts", this.resolveAirShowIngressBandPlan(scene.kind, "escort"))
+                ...buildBandAssignments(escortFlights, "ingress:escorts", this.resolveAirShowIngressBandPlan(scene.kind, "escort")),
+                ...bomberIngressBandAssignments
             ];
             if (ingressAssignments.length > 0) {
-                logAirShowBeatStart(packageId, 0, "ingress", interceptorFlights.map(f => f.spec.id));
-                debugAirShowPhase("Ingress", { type: "fighters approaching" });
-                await this.runAirShowPhase(ingressAssignments, Math.max(1250, scene.fighterIngressDurationMs ?? 1750), [], { easing: "linear", sceneActors });
-                updateFlightAnchors([...interceptorFlights, ...escortFlights]);
+                logAirShowBeatStart(packageId, 0, "ingress", [...interceptorFlights.map(f => f.spec.id), ...bomberFlights.map(f => f.spec.id)]);
+                debugAirShowPhase("Ingress", { type: "fighters + bombers approaching together" });
+                // Use bomber ingress duration so escorts and bombers travel at bomber speed together.
+                // Fighters arrive at their hold point first due to progressive offset, then escort
+                // speeds up to engage CAP after the ingress leg completes.
+                const combinedIngressDurationMs = Math.max(2800, scene.bomberIngressDurationMs ?? 3200);
+                await this.runAirShowPhase(ingressAssignments, combinedIngressDurationMs, [], { easing: "linear", sceneActors });
+                updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
             }
             const escortExchanges = scene.escortExchanges ?? [];
             if (escortExchanges.length > 0) {
@@ -1502,8 +1532,8 @@ export class HexMapRenderer {
                                 visibleLengthPx: useCloseScrambleTracerProfile ? 18 : 16,
                                 fanHalfAngleDeg: 0,
                                 burstCount: (pair.exchange.damageToDefender ?? 0) > 0 ? 9 : 8,
-                                maxAlignmentDeg: beat === 0 ? 16 : useCloseScrambleTracerProfile ? 30 : 18,
-                                maxRangePx: beat === 0 ? 176 : useCloseScrambleTracerProfile ? 260 : 220,
+                                maxAlignmentDeg: beat === 0 ? 28 : useCloseScrambleTracerProfile ? 30 : 22,
+                                maxRangePx: beat === 0 ? 210 : useCloseScrambleTracerProfile ? 260 : 230,
                                 timings: baseTimings
                             }), ...this.buildAirShowDynamicTracerVolley(phaseAssignments, pair.escortFlight, pair.interceptorFlight, {
                                 emitter: useCloseScrambleTracerProfile ? "center" : "nose",
@@ -1515,8 +1545,8 @@ export class HexMapRenderer {
                                 visibleLengthPx: useCloseScrambleTracerProfile ? 18 : 16,
                                 fanHalfAngleDeg: 0,
                                 burstCount: (pair.exchange.retaliationDamage ?? 0) > 0 ? 9 : 8,
-                                maxAlignmentDeg: beat === 0 ? 16 : useCloseScrambleTracerProfile ? 30 : 18,
-                                maxRangePx: beat === 0 ? 176 : useCloseScrambleTracerProfile ? 260 : 220,
+                                maxAlignmentDeg: beat === 0 ? 28 : useCloseScrambleTracerProfile ? 30 : 22,
+                                maxRangePx: beat === 0 ? 210 : useCloseScrambleTracerProfile ? 260 : 230,
                                 timings: baseTimings.map((timing) => Math.min(0.84, timing + 0.03))
                             }));
                         });
@@ -1571,7 +1601,9 @@ export class HexMapRenderer {
                 escorts: survivingEscorts.length,
                 bombers: survivingBombers.length
             });
-            if (survivingBombers.length > 0
+            // BomberGap drift is suppressed when bombers are already present and visible from ingress.
+            // It only runs when there are no surviving bombers (edge case: all bombers killed pre-show).
+            if (survivingBombers.length === 0
                 && (scene.bomberArrivalDelayMs ?? 0) > 0
                 && (scene.escortExchanges?.length ?? 0) > 0
                 && (survivingInterceptors.length > 0 || survivingEscorts.length > 0)) {
@@ -1607,20 +1639,15 @@ export class HexMapRenderer {
             if (survivingBombers.length > 0) {
                 logAirShowBeatStart(packageId, 4, "bomberIngress", survivingBombers.map((flight) => flight.spec.id));
                 debugAirShowPhase("BomberIngress", { bombers: survivingBombers.length });
-                await Promise.all(survivingBombers.flatMap((bomberFlight) => bomberFlight.actors
-                    .filter((actor) => actor.active)
-                    .map((actor) => this.fadeInActor(actor, 400))));
+                // Bombers are already visible from ingress — no fade-in needed here.
                 survivingBombers.forEach((bomberFlight) => {
-                    logAirShowActorTransition(packageId, bomberFlight.spec.id, "bomber", "ingress", "engaged", "fadeIn complete");
-                    debugAirShowActor(bomberFlight.spec.id, "faded in", {
-                        visible: bomberFlight.actors.filter((actor) => actor.active).length
-                    });
+                    logAirShowActorTransition(packageId, bomberFlight.spec.id, "bomber", "ingress", "engaged", "already visible");
                 });
                 const bomberIngressAssignments = [
                     ...survivingBombers.flatMap((bomberFlight, bomberIndex) => {
                         const rand = stageRandom(`ingress:bomber:${bomberFlight.spec.id}`);
                         const laneIndex = survivingBombers.length <= 1 ? 0 : bomberIndex - (survivingBombers.length - 1) / 2;
-                        const ingressTarget = corridorPoint(-58 + laneIndex * 26 + (rand() - 0.5) * 10, laneIndex * 22 + (rand() - 0.5) * 12);
+                        const ingressTarget = corridorPoint(-58 + laneIndex * 26 + (rand() - 0.5) * 10, laneIndex * 52 + (rand() - 0.5) * 12);
                         return this.buildAirShowFlightAssignments(bomberFlight, this.buildAirShowBomberRunPath(this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor, ingressTarget, {
                             lateralSign: this.resolveAirShowRouteSideSign(this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor, ingressTarget, this.resolveAirShowFlightHeadingDegrees(bomberFlight), rand() > 0.5 ? 1 : -1),
                             corridorWidthPx: 20 + rand() * 6,
@@ -5740,7 +5767,10 @@ export class HexMapRenderer {
                 maxVerticalPx: 300
             });
             const entryBridgePoints = [...rawEntryBridgePoints];
-            while (entryBridgePoints.length > 1) {
+            // Trim bridge points that produce a sharp first turn AND are very short segments.
+            // Always keep at least one bridge point — an empty bridge causes a direct phase entry
+            // with maximum heading shock (the worst possible outcome).
+            while (entryBridgePoints.length > 2) {
                 const firstPoint = entryBridgePoints[0];
                 const secondPoint = entryBridgePoints[1];
                 if (!firstPoint || !secondPoint) {
@@ -6340,7 +6370,9 @@ export class HexMapRenderer {
             ...Array.from({ length: stepCount }, (_, index) => cubicPointAt((index + 1) / stepCount))
         ];
         const prunedSamples = [...samples];
-        while (prunedSamples.length > 1) {
+        // Keep at least 2 bridge points — stripping down to 1 leaves a carryPointA that
+        // often causes a near-180° first waypoint turn, the worst possible entry.
+        while (prunedSamples.length > 2) {
             const firstPoint = prunedSamples[0];
             const secondPoint = prunedSamples[1];
             if (!firstPoint || !secondPoint) {
@@ -7530,7 +7562,7 @@ export class HexMapRenderer {
             const puffScale = smokeScale * (1.08 + (index % 6) * 0.06);
             if (index < wave.flashCount) {
                 window.setTimeout(() => {
-                    void this.playFlakBurstAt(point.cx, point.cy, 1, scale * (0.08 + (index % 4) * 0.015), false);
+                    void this.playFlakBurstAt(point.cx, point.cy, 1, scale * (0.8 + (index % 4) * 0.06), false);
                 }, flashDelayMs);
             }
             window.setTimeout(() => {
