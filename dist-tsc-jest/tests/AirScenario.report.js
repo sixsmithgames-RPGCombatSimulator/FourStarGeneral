@@ -1,0 +1,35 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { formatAirScenarioReport, runAirScenario } from "./airScenarioSupport.js";
+const args = new Set(process.argv.slice(2));
+const result = runAirScenario();
+const now = new Date();
+const timestamp = [
+    now.getFullYear().toString().padStart(4, "0"),
+    (now.getMonth() + 1).toString().padStart(2, "0"),
+    now.getDate().toString().padStart(2, "0")
+].join("")
+    + "-"
+    + [
+        now.getHours().toString().padStart(2, "0"),
+        now.getMinutes().toString().padStart(2, "0"),
+        now.getSeconds().toString().padStart(2, "0")
+    ].join("");
+const outputDir = join(process.cwd(), "diagnostics", "air-scenario");
+mkdirSync(outputDir, { recursive: true });
+const textPath = join(outputDir, `air-scenario-${timestamp}.txt`);
+const jsonPath = join(outputDir, `air-scenario-${timestamp}.json`);
+const reportText = [`Generated: ${now.toISOString()}`, "", formatAirScenarioReport(result)].join("\n");
+writeFileSync(textPath, reportText, "utf8");
+writeFileSync(jsonPath, JSON.stringify(result, null, 2), "utf8");
+if (args.has("--json")) {
+    console.log(JSON.stringify(result, null, 2));
+}
+else {
+    console.log(reportText);
+}
+console.log(`Report file: ${textPath}`);
+console.log(`JSON file: ${jsonPath}`);
+if (args.has("--fail-on-anomalies") && result.anomalies.length > 0) {
+    process.exitCode = 1;
+}

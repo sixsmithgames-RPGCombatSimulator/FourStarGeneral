@@ -76,10 +76,28 @@ Do NOT proceed with testing if the complaint is ambiguous. Ask clarifying questi
 Start each iteration by testing the real system or the closest deterministic harness available.
 
 **Test Design Principles:**
-1. Test should reproduce the EXACT complaint, not a related symptom
+1. Test must reproduce the EXACT complaint, not a related symptom
 2. Test failure mode should clearly indicate the specific issue
 3. Test output should provide diagnostic information, not just pass/fail
 4. If test passes but user still sees issue, the test is wrong - not the code
+
+## Visual/DOM Testing Requirements (when applicable)
+
+When testing visual bugs (disappearance, visibility, rendering issues):
+- Test what is ACTUALLY SHOWN, not internal data structures
+- Assert on DOM element state (opacity, display, visibility, existence)
+- Assert on computed styles using `getComputedStyle()`
+- Verify actual element presence in DOM, not just assignment data
+- Test at the same layer the user observes (visual output)
+
+**Example - Good vs Bad Testing:**
+- ❌ BAD: `expect(actor.active).toBe(true)` - tests internal flag
+- ❌ BAD: `expect(report.assignments).toContain(actor)` - tests data structure
+- ✅ GOOD: `expect(actor.image.style.opacity).toBe('1')` - tests actual visual opacity
+- ✅ GOOD: `expect(document.querySelector('.aircraft')).toBeVisible()` - tests DOM visibility
+
+**When Internal State ≠ Visual State:**
+Internal state (flags, assignments, data structures) may differ from what's rendered. Always verify the actual rendered output matches user expectations.
 
 Testing may include:
 
@@ -234,3 +252,183 @@ An iteration can close only when one of these is true:
 - work is blocked and the blocking conflict is stated clearly
 
 Anything else is partial progress, not completion.
+
+---
+
+## Testing Infrastructure
+
+This project provides three test harnesses for different testing needs. Choose the right tool for the complaint being investigated.
+
+### Test Harness Overview
+
+| Harness | Command | Use Case | What It Tests |
+|---------|---------|----------|---------------|
+| **Original** | `npm test` | Logic, data structures, integration | Internal state, report data |
+| **JEST** | `npm run test:jest` | DOM state, computed styles | Actual visual properties |
+| **Playwright** | `npm run test:e2e` | Full browser, visual regression | True rendered pixels |
+
+### When to Use Each Harness
+
+**Use Original Custom Harness (`npm test`) when:**
+- Testing business logic
+- Verifying data transformations
+- Checking report structures
+- Testing state machines
+- Fast feedback during development
+
+**Use JEST (`npm run test:jest`) when:**
+- Testing **what is actually shown** in the DOM
+- Verifying `opacity`, `display`, `visibility` properties
+- Testing computed styles
+- Checking element existence/attributes
+- User reports visual disappearance/appearance issues
+
+**Use Playwright (`npm run test:e2e`) when:**
+- Testing actual browser rendering
+- Visual regression testing (comparing screenshots)
+- Complex user interactions
+- Cross-browser compatibility
+- Pixel-perfect verification required
+- User reports rendering issues at specific moments
+
+### Testing by Complaint Type
+
+| User Complaint | Primary Harness | What to Assert |
+|----------------|-----------------|----------------|
+| "Sprites disappear" | JEST or Playwright | `expect(element).toBeVisible()`, `opacity: 1` |
+| "Animation jumps" | JEST | Position continuity, no teleporting |
+| "Wrong colors/styles" | Playwright | Screenshots, computed styles |
+| "Button doesn't work" | Playwright | Click interactions, navigation |
+| "Wrong data shown" | Original or JEST | DOM text content, element attributes |
+| "Timing issues" | Playwright | Real-time animation capture |
+
+### JEST Testing Guide
+
+**Location:** `tests/*.jest.test.ts`
+
+**Key Utilities:**
+```typescript
+import { isElementVisible, getElementOpacity, captureVisualState } from './jest.setup';
+
+// Test actual visual opacity (not internal flag)
+expect(actor.image.style.opacity).toBe('1');
+expect(getElementOpacity(element)).toBe(1);
+
+// Test visibility in DOM
+expect(isElementVisible(element)).toBe(true);
+
+// Capture full state for debugging
+const state = captureVisualState(element);
+// Returns: { exists: true, opacity: '1', display: 'block', position: {...} }
+```
+
+**Critical Rule:**
+- ❌ BAD: `expect(actor.active).toBe(true)` - tests internal data structure
+- ✅ GOOD: `expect(actor.image.style.opacity).toBe('1')` - tests actual visual state
+
+**Run:**
+```bash
+npm run test:jest        # Run once
+npm run test:jest:watch  # Run in watch mode
+```
+
+### Playwright Testing Guide
+
+**Location:** `tests/e2e/*.spec.ts`
+
+**Key Features:**
+- Real browser automation (Chromium, Firefox, WebKit)
+- Screenshot capture on failure
+- Video recording of test runs
+- Visual regression testing
+
+**Example:**
+```typescript
+test('aircraft remain visible', async ({ page }) => {
+  await page.goto('/');
+  await page.click('[data-testid="play-airshow"]');
+  
+  // Test actual rendered state
+  const bomber = page.locator('[data-role="bomber"]');
+  await expect(bomber).toHaveCSS('opacity', '1');
+  await expect(bomber).toBeVisible();
+  
+  // Screenshot for verification
+  await page.screenshot({ path: 'test-results/visible.png' });
+});
+```
+
+**Run:**
+```bash
+npm run test:e2e        # Run all E2E tests
+npm run test:e2e:ui     # Run with visual debugger
+npm run test:e2e:debug  # Debug mode
+```
+
+**Installation (one-time):**
+```bash
+npm install
+npx playwright install
+```
+
+### Visual Regression Testing
+
+Playwright supports comparing to baseline screenshots:
+
+```typescript
+test('layout matches baseline', async ({ page }) => {
+  await page.goto('/');
+  await expect(page).toHaveScreenshot('baseline.png');
+});
+```
+
+Update baselines after intentional visual changes:
+```bash
+npx playwright test --update-snapshots
+```
+
+### Test Selection Decision Tree
+
+When investigating a user complaint, ask:
+
+1. **Is it a visual/rendering issue?**
+   - YES → Use JEST or Playwright
+   - NO → Use Original harness
+
+2. **Does it involve DOM visibility or computed styles?**
+   - YES → Use JEST
+   - NO → Continue...
+
+3. **Does it require actual browser rendering or screenshots?**
+   - YES → Use Playwright
+   - NO → Use Original harness
+
+4. **Is the bug intermittent or timing-dependent?**
+   - YES → Use Playwright (more reliable than jsdom)
+   - NO → Any harness
+
+### Governance Rule: Test What Is Actually Shown
+
+**MANDATORY:** When the user reports a visual issue, the test must verify the actual visual output, not internal state.
+
+**Violation Examples:**
+- ❌ User: "Aircraft disappear" → Test: `expect(actor.active).toBe(true)`
+- ✅ User: "Aircraft disappear" → Test: `expect(actor.image.style.opacity).toBe('1')`
+
+**Why:** Internal state (`active` flag) and visual state (`opacity`) can diverge. The bug was that actors had `active=true` but `opacity=0`. Only testing visual state catches this.
+
+### Continuous Integration
+
+All three test suites should run in CI:
+
+```bash
+# Full test suite
+npm test              # Original harness
+npm run test:jest     # JEST DOM tests
+npm run test:e2e      # Playwright E2E tests
+```
+
+**Failure Priority:**
+1. Playwright failures (real user experience)
+2. JEST failures (DOM state)
+3. Original harness failures (logic)

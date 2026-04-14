@@ -3,6 +3,16 @@
  * without depending on a real browser. The helper sets globals once and reuses them for
  * subsequent imports to keep test execution deterministic.
  */
+
+// Polyfill TextEncoder/TextDecoder for jsdom compatibility
+import { TextEncoder, TextDecoder } from "util";
+if (!globalThis.TextEncoder) {
+  (globalThis as { TextEncoder: typeof TextEncoder }).TextEncoder = TextEncoder;
+}
+if (!globalThis.TextDecoder) {
+  (globalThis as { TextDecoder: typeof TextDecoder }).TextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder;
+}
+
 import { JSDOM } from "jsdom";
 
 let domInitialized = false;

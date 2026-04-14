@@ -1,0 +1,14 @@
+FAIL dist-tsc-jest/tests/AirShow.visual.jest.test.js
+  ΓùÅ Test suite failed to run
+
+    ReferenceError: expect is not defined
+
+      at node_modules/@testing-library/jest-dom/dist/index.mjs:9:1
+
+Test Suites: 1 failed, 1 total
+Tests:       0 total
+Snapshots:   0 total
+Time:        1.18 s
+Ran all test suites matching /AirShow.visual/i.
+(node:621556) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)

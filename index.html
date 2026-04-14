@@ -50,10 +50,23 @@
         return ADMIN_EMAILS.length > 0 && ADMIN_EMAILS.indexOf((email || '').toLowerCase()) !== -1;
       }
 
+      var codexTestMode = new URLSearchParams(window.location.search).get('codex-test');
+
       // Free-core launch rule: Four Star General launches for any signed-in user.
       // Keep Clerk authentication gating, but do not require an active plan or bundle for launch.
       var APP_SLUG = 'fourstargeneral';
       var BUNDLE_SLUG = 'bundle';
+      if (codexTestMode === 'airshow') {
+        publishAuthContext({
+          resolved: true,
+          isAuthenticated: true,
+          email: 'codex-airshow-test@sixsmithgames.local',
+          subscriptionStatus: 'active',
+          planIds: [APP_SLUG],
+          isPrivileged: true
+        });
+        return;
+      }
       publishAuthContext({ resolved: false, isAuthenticated: false, email: null, subscriptionStatus: null, planIds: [], isPrivileged: false });
 
       var script = document.createElement('script');

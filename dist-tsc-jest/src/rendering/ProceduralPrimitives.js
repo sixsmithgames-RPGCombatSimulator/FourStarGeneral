@@ -1,0 +1,406 @@
+/**
+ * Procedural SVG Primitives for Combat Effects
+ *
+ * Provides 8 reusable primitive renderers that compose to create weapon-specific effects.
+ * All primitives use bottom-center anchor point (128, 220) in 256×256 frame and support
+ * deterministic seed-based variation.
+ */
+const SVG_NS = "http://www.w3.org/2000/svg";
+/**
+ * Seeded pseudo-random number generator for deterministic variation.
+ */
+export class SeededRandom {
+    constructor(seed) {
+        this.seed = seed;
+    }
+    /**
+     * Returns next random number in range [0, 1).
+     */
+    next() {
+        // Simple LCG (Linear Congruential Generator)
+        this.seed = (this.seed * 1664525 + 1013904223) % 4294967296;
+        return this.seed / 4294967296;
+    }
+    /**
+     * Returns random number in range [min, max).
+     */
+    range(min, max) {
+        return min + this.next() * (max - min);
+    }
+    /**
+     * Returns random integer in range [min, max].
+     */
+    int(min, max) {
+        return Math.floor(this.range(min, max + 1));
+    }
+}
+/**
+ * Easing function for smooth animations.
+ */
+function easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
+}
+function easeInCubic(t) {
+    return t * t * t;
+}
+function easeInOutQuad(t) {
+    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+function zoomScaledCount(baseCount, zoomTier, farScale, midScale) {
+    if (zoomTier === "far") {
+        return Math.max(1, Math.round(baseCount * farScale));
+    }
+    if (zoomTier === "mid") {
+        return Math.max(1, Math.round(baseCount * midScale));
+    }
+    return Math.max(1, baseCount);
+}
+function hexToRgb(hex) {
+    const normalized = hex.trim().replace(/^#/, "");
+    if (!/^[0-9a-fA-F]{3}$/.test(normalized) && !/^[0-9a-fA-F]{6}$/.test(normalized)) {
+        return null;
+    }
+    const expanded = normalized.length === 3
+        ? normalized.split("").map((char) => `${char}${char}`).join("")
+        : normalized;
+    return {
+        r: parseInt(expanded.slice(0, 2), 16),
+        g: parseInt(expanded.slice(2, 4), 16),
+        b: parseInt(expanded.slice(4, 6), 16)
+    };
+}
+function rgbToHex(r, g, b) {
+    const toChannel = (value) => clamp(Math.round(value), 0, 255).toString(16).padStart(2, "0");
+    return `#${toChannel(r)}${toChannel(g)}${toChannel(b)}`;
+}
+function mixHexColors(baseColor, targetColor, amount) {
+    const base = hexToRgb(baseColor);
+    const target = hexToRgb(targetColor);
+    if (!base || !target) {
+        return baseColor;
+    }
+    const blend = clamp(amount, 0, 1);
+    return rgbToHex(base.r + (target.r - base.r) * blend, base.g + (target.g - base.g) * blend, base.b + (target.b - base.b) * blend);
+}
+function createEllipse(cx, cy, rx, ry, fill, opacity, rotationDeg = 0) {
+    const ellipse = document.createElementNS(SVG_NS, "ellipse");
+    ellipse.setAttribute("cx", cx.toString());
+    ellipse.setAttribute("cy", cy.toString());
+    ellipse.setAttribute("rx", rx.toString());
+    ellipse.setAttribute("ry", ry.toString());
+    ellipse.setAttribute("fill", fill);
+    ellipse.setAttribute("opacity", opacity.toString());
+    if (Math.abs(rotationDeg) > 0.01) {
+        ellipse.setAttribute("transform", `rotate(${rotationDeg} ${cx} ${cy})`);
+    }
+    return ellipse;
+}
+/**
+ * PRIMITIVE 1: Flash Core
+ * Radial gradient circle expanding from anchor, white-hot center to yellow edge.
+ */
+export function renderFlashCore(ctx, config) {
+    const params = config.params;
+    const progress = ctx.phaseProgress;
+    const { maxRadius, peakProgress, fadeProgress } = params;
+    // Grow to peak, then fade
+    const radius = progress < peakProgress
+        ? (progress / peakProgress) * maxRadius
+        : maxRadius;
+    const opacity = progress < fadeProgress
+        ? 1.0
+        : 1.0 - ((progress - fadeProgress) / (1 - fadeProgress));
+    // Create radial gradient
+    const gradientId = `flash-core-${ctx.seed}-${Date.now()}`;
+    const defs = document.createElementNS(SVG_NS, "defs");
+    const gradient = document.createElementNS(SVG_NS, "radialGradient");
+    gradient.setAttribute("id", gradientId);
+    const stop1 = document.createElementNS(SVG_NS, "stop");
+    stop1.setAttribute("offset", "0%");
+    stop1.setAttribute("stop-color", "#fff6da");
+    gradient.appendChild(stop1);
+    const stop2 = document.createElementNS(SVG_NS, "stop");
+    stop2.setAttribute("offset", "100%");
+    stop2.setAttribute("stop-color", "#ffd76a");
+    gradient.appendChild(stop2);
+    defs.appendChild(gradient);
+    const circle = document.createElementNS(SVG_NS, "circle");
+    circle.setAttribute("cx", ctx.anchorX.toString());
+    circle.setAttribute("cy", ctx.anchorY.toString());
+    circle.setAttribute("r", radius.toString());
+    circle.setAttribute("fill", `url(#${gradientId})`);
+    circle.setAttribute("opacity", opacity.toString());
+    return [defs, circle];
+}
+/**
+ * PRIMITIVE 2: Shock Ring
+ * Expanding concentric circles, orange to transparent.
+ */
+export function renderShockRing(ctx, config) {
+    const params = config.params;
+    const progress = easeOutCubic(ctx.phaseProgress);
+    const { minRadius, maxRadius, strokeWidth, ringCount } = params;
+    const elements = [];
+    const rng = new SeededRandom(ctx.seed);
+    const zoomAdjustedRingCount = zoomScaledCount(ringCount, ctx.zoomTier, 0.5, 0.75);
+    for (let i = 0; i < zoomAdjustedRingCount; i++) {
+        const ringProgress = Math.max(0, Math.min(1, progress - i * 0.15));
+        if (ringProgress <= 0)
+            continue;
+        const radius = minRadius + ringProgress * (maxRadius - minRadius);
+        const opacity = 1.0 - ringProgress;
+        const circle = document.createElementNS(SVG_NS, "circle");
+        circle.setAttribute("cx", ctx.anchorX.toString());
+        circle.setAttribute("cy", ctx.anchorY.toString());
+        circle.setAttribute("r", radius.toString());
+        circle.setAttribute("stroke", "#ff8d2a");
+        circle.setAttribute("stroke-width", strokeWidth.toString());
+        circle.setAttribute("fill", "none");
+        circle.setAttribute("opacity", opacity.toString());
+        elements.push(circle);
+    }
+    return elements;
+}
+/**
+ * PRIMITIVE 3: Sparks
+ * Radial line burst with length animation.
+ */
+export function renderSparks(ctx, config) {
+    const params = config.params;
+    const { sparkCount, minLength, maxLength, strokeWidth } = params;
+    const rng = new SeededRandom(ctx.seed);
+    const elements = [];
+    const nodeCount = ctx.zoomTier === 'far' ? Math.floor(sparkCount * 0.5) :
+        ctx.zoomTier === 'near' ? sparkCount :
+            Math.floor(sparkCount * 0.75);
+    for (let i = 0; i < nodeCount; i++) {
+        const angle = rng.range(0, Math.PI * 2);
+        const length = rng.range(minLength, maxLength);
+        const sparkProgress = easeOutCubic(ctx.phaseProgress);
+        const currentLength = length * sparkProgress;
+        const x2 = ctx.anchorX + Math.cos(angle) * currentLength;
+        const y2 = ctx.anchorY + Math.sin(angle) * currentLength;
+        const opacity = 1.0 - sparkProgress;
+        const line = document.createElementNS(SVG_NS, "line");
+        line.setAttribute("x1", ctx.anchorX.toString());
+        line.setAttribute("y1", ctx.anchorY.toString());
+        line.setAttribute("x2", x2.toString());
+        line.setAttribute("y2", y2.toString());
+        line.setAttribute("stroke", "#ffd76a");
+        line.setAttribute("stroke-width", strokeWidth.toString());
+        line.setAttribute("opacity", opacity.toString());
+        line.setAttribute("stroke-linecap", "round");
+        elements.push(line);
+    }
+    return elements;
+}
+/**
+ * PRIMITIVE 4: Debris
+ * Ballistic particles with curved trajectory, terrain-colored.
+ */
+export function renderDebris(ctx, config) {
+    const params = config.params;
+    const { particleCount, minVelocity, maxVelocity, particleSize } = params;
+    const rng = new SeededRandom(ctx.seed);
+    const elements = [];
+    const nodeCount = ctx.zoomTier === 'far' ? Math.floor(particleCount * 0.3) :
+        ctx.zoomTier === 'near' ? particleCount :
+            Math.floor(particleCount * 0.6);
+    const baseColor = ctx.terrainTint ?? "#4a3c28";
+    for (let i = 0; i < nodeCount; i++) {
+        const angle = rng.range(-Math.PI / 3, -Math.PI * 2 / 3);
+        const velocity = rng.range(minVelocity, maxVelocity);
+        const progress = easeInCubic(ctx.phaseProgress);
+        // Ballistic trajectory
+        const distance = velocity * progress;
+        const gravity = 0.5;
+        const x = ctx.anchorX + Math.cos(angle) * distance;
+        const y = ctx.anchorY + Math.sin(angle) * distance + gravity * progress * progress * 50;
+        const opacity = 1.0 - progress;
+        const particle = document.createElementNS(SVG_NS, "circle");
+        particle.setAttribute("cx", x.toString());
+        particle.setAttribute("cy", y.toString());
+        particle.setAttribute("r", particleSize.toString());
+        particle.setAttribute("fill", baseColor);
+        particle.setAttribute("opacity", opacity.toString());
+        elements.push(particle);
+    }
+    return elements;
+}
+/**
+ * PRIMITIVE 5: Dust Puff
+ * Ground-hugging dust cloud built from layered asymmetric lobes.
+ */
+export function renderDustPuff(ctx, config) {
+    const params = config.params;
+    const progress = easeOutCubic(ctx.phaseProgress);
+    const { maxRadiusX, maxRadiusY } = params;
+    const detail = clamp(params.detail ?? 1, 0.7, 1.5);
+    const radiusX = Math.max(3, (0.18 + progress * 0.82) * maxRadiusX);
+    const radiusY = Math.max(2, (0.22 + progress * 0.78) * maxRadiusY);
+    const opacity = 0.44 * (1.0 - progress * 0.88) * clamp(0.85 + detail * 0.1, 0.8, 1.1);
+    const baseColor = ctx.terrainTint ?? "#b89968";
+    const shadowColor = mixHexColors(baseColor, "#5b4a34", 0.35);
+    const highlightColor = mixHexColors(baseColor, "#efe0b8", 0.24);
+    const midColor = mixHexColors(baseColor, "#d6be92", 0.18);
+    const rng = new SeededRandom(ctx.seed + 101);
+    const elements = [];
+    const driftDistance = (params.driftX ?? maxRadiusX * 0.18) * progress;
+    const verticalLift = (params.lift ?? maxRadiusY * 0.28) * (0.2 + progress * 0.8);
+    const centerX = ctx.anchorX + rng.range(-driftDistance, driftDistance) * 0.45;
+    const centerY = ctx.anchorY - verticalLift;
+    elements.push(createEllipse(centerX, ctx.anchorY - radiusY * 0.08, radiusX * 0.94, radiusY * 0.42, shadowColor, opacity * 0.34, rng.range(-4, 4)));
+    const lobeCount = zoomScaledCount(Math.max(4, Math.round(6 * detail)), ctx.zoomTier, 0.55, 0.85);
+    for (let i = 0; i < lobeCount; i++) {
+        const lane = lobeCount === 1 ? 0 : (i / (lobeCount - 1)) - 0.5;
+        const x = centerX
+            + lane * radiusX * rng.range(0.55, 0.9)
+            + rng.range(-radiusX * 0.08, radiusX * 0.08);
+        const y = centerY
+            - radiusY * rng.range(0.08, 0.55)
+            + rng.range(-radiusY * 0.05, radiusY * 0.05);
+        const rx = Math.max(3, radiusX * rng.range(0.16, 0.3) * (0.92 + detail * 0.08));
+        const ry = Math.max(2, radiusY * rng.range(0.15, 0.28) * (0.88 + detail * 0.12));
+        const fill = i === Math.floor(lobeCount / 2)
+            ? baseColor
+            : lane < -0.08
+                ? mixHexColors(baseColor, shadowColor, 0.45)
+                : lane > 0.15
+                    ? mixHexColors(baseColor, highlightColor, 0.45)
+                    : midColor;
+        const lobeOpacity = opacity * rng.range(0.36, 0.62) * (1 - i / (lobeCount * 1.4));
+        elements.push(createEllipse(x, y, rx, ry, fill, lobeOpacity, rng.range(-10, 10)));
+    }
+    if (ctx.zoomTier !== "far") {
+        const wispCount = ctx.zoomTier === "near" ? 3 : 2;
+        for (let i = 0; i < wispCount; i++) {
+            const x = centerX + rng.range(-radiusX * 0.55, radiusX * 0.55);
+            const y = centerY - radiusY * rng.range(0.4, 0.9);
+            elements.push(createEllipse(x, y, radiusX * rng.range(0.08, 0.14), radiusY * rng.range(0.08, 0.14), highlightColor, opacity * rng.range(0.12, 0.18), rng.range(-18, 18)));
+        }
+    }
+    elements.push(createEllipse(centerX + radiusX * 0.1, centerY - radiusY * 0.18, radiusX * 0.34, radiusY * 0.18, highlightColor, opacity * 0.16, rng.range(-12, 12)));
+    return elements;
+}
+/**
+ * PRIMITIVE 6: Smoke Puff
+ * Rising smoke plume built from layered lobes and wisps.
+ */
+export function renderSmokePuff(ctx, config) {
+    const params = config.params;
+    const progress = easeInOutQuad(ctx.phaseProgress);
+    const { maxRadius, riseDistance } = params;
+    const detail = clamp(params.detail ?? 1, 0.7, 1.5);
+    const plumeWidth = clamp(params.plumeWidth ?? 1, 0.75, 1.5);
+    const radius = Math.max(3, (0.22 + progress * 0.78) * maxRadius);
+    const offsetY = -progress * riseDistance;
+    const opacity = 0.42 * (1.0 - progress * 0.55);
+    const baseColor = "#2b2424";
+    const shadowColor = mixHexColors(baseColor, "#181313", 0.45);
+    const midColor = mixHexColors(baseColor, "#5e5653", 0.35);
+    const highlightColor = mixHexColors(baseColor, "#90847e", 0.18);
+    const rng = new SeededRandom(ctx.seed + 211);
+    const elements = [];
+    const lateralDrift = (params.driftX ?? maxRadius * 0.2) * progress;
+    const centerX = ctx.anchorX + rng.range(-lateralDrift, lateralDrift) * 0.4;
+    const centerY = ctx.anchorY + offsetY;
+    elements.push(createEllipse(centerX, centerY + radius * 0.14, radius * 0.58 * plumeWidth, radius * 0.28, shadowColor, opacity * 0.26, rng.range(-10, 10)));
+    const lobeCount = zoomScaledCount(Math.max(4, Math.round(6 * detail)), ctx.zoomTier, 0.55, 0.82);
+    for (let i = 0; i < lobeCount; i++) {
+        const t = lobeCount === 1 ? 0.5 : i / (lobeCount - 1);
+        const sway = Math.sin(t * Math.PI * 1.4 + (ctx.seed % 17)) * radius * 0.22 * plumeWidth;
+        const x = centerX + sway + rng.range(-radius * 0.1, radius * 0.1);
+        const y = centerY - radius * (0.1 + t * 0.58) + rng.range(-radius * 0.06, radius * 0.05);
+        const rx = Math.max(3, radius * plumeWidth * rng.range(0.18, 0.3) * (0.9 + t * 0.25));
+        const ry = Math.max(3, radius * rng.range(0.16, 0.28) * (0.95 + t * 0.35));
+        const fill = t < 0.25 ? shadowColor : t > 0.7 ? highlightColor : midColor;
+        const lobeOpacity = opacity * (0.72 - t * 0.18) * rng.range(0.9, 1.05);
+        elements.push(createEllipse(x, y, rx, ry, fill, lobeOpacity, rng.range(-18, 18)));
+    }
+    const wispCount = ctx.zoomTier === "far" ? 1 : ctx.zoomTier === "mid" ? 2 : 3;
+    for (let i = 0; i < wispCount; i++) {
+        const x = centerX + rng.range(-radius * 0.4, radius * 0.4);
+        const y = centerY - radius * rng.range(0.55, 1.05);
+        elements.push(createEllipse(x, y, radius * plumeWidth * rng.range(0.09, 0.14), radius * rng.range(0.08, 0.13), highlightColor, opacity * rng.range(0.12, 0.18), rng.range(-25, 25)));
+    }
+    return elements;
+}
+/**
+ * PRIMITIVE 7: Embers
+ * Glowing circles with flicker, ember red→orange.
+ */
+export function renderEmbers(ctx, config) {
+    const params = config.params;
+    const { emberCount, minRadius, maxRadius, spreadDistance } = params;
+    const rng = new SeededRandom(ctx.seed);
+    const elements = [];
+    const nodeCount = ctx.zoomTier === 'far' ? Math.floor(emberCount * 0.4) :
+        ctx.zoomTier === 'near' ? emberCount :
+            Math.floor(emberCount * 0.7);
+    for (let i = 0; i < nodeCount; i++) {
+        const angle = rng.range(0, Math.PI * 2);
+        const distance = rng.range(0, spreadDistance) * ctx.phaseProgress;
+        const x = ctx.anchorX + Math.cos(angle) * distance;
+        const y = ctx.anchorY + Math.sin(angle) * distance;
+        const radius = rng.range(minRadius, maxRadius);
+        const flicker = 0.8 + 0.2 * Math.sin(ctx.elapsedMs * 0.02 + i);
+        const opacity = flicker * (1.0 - ctx.phaseProgress);
+        const color = rng.next() > 0.5 ? "#8b2a1e" : "#ff8d2a";
+        const circle = document.createElementNS(SVG_NS, "circle");
+        circle.setAttribute("cx", x.toString());
+        circle.setAttribute("cy", y.toString());
+        circle.setAttribute("r", radius.toString());
+        circle.setAttribute("fill", color);
+        circle.setAttribute("opacity", opacity.toString());
+        elements.push(circle);
+    }
+    return elements;
+}
+/**
+ * PRIMITIVE 8: Scorch
+ * Ground burn mark ellipse with charcoal gradient.
+ */
+export function renderScorch(ctx, config) {
+    const params = config.params;
+    const { radiusX, radiusY, fadeInProgress } = params;
+    const opacity = ctx.phaseProgress < fadeInProgress
+        ? (ctx.phaseProgress / fadeInProgress) * 0.4
+        : 0.4;
+    const gradientId = `scorch-${ctx.seed}-${Date.now()}`;
+    const defs = document.createElementNS(SVG_NS, "defs");
+    const gradient = document.createElementNS(SVG_NS, "radialGradient");
+    gradient.setAttribute("id", gradientId);
+    const stop1 = document.createElementNS(SVG_NS, "stop");
+    stop1.setAttribute("offset", "0%");
+    stop1.setAttribute("stop-color", "#1a1414");
+    gradient.appendChild(stop1);
+    const stop2 = document.createElementNS(SVG_NS, "stop");
+    stop2.setAttribute("offset", "100%");
+    stop2.setAttribute("stop-color", "#2b2424");
+    gradient.appendChild(stop2);
+    defs.appendChild(gradient);
+    const ellipse = document.createElementNS(SVG_NS, "ellipse");
+    ellipse.setAttribute("cx", ctx.anchorX.toString());
+    ellipse.setAttribute("cy", ctx.anchorY.toString());
+    ellipse.setAttribute("rx", radiusX.toString());
+    ellipse.setAttribute("ry", radiusY.toString());
+    ellipse.setAttribute("fill", `url(#${gradientId})`);
+    ellipse.setAttribute("opacity", opacity.toString());
+    return [defs, ellipse];
+}
+/**
+ * Registry of all available primitive renderers.
+ */
+export const PRIMITIVE_RENDERERS = {
+    flash_core: renderFlashCore,
+    shock_ring: renderShockRing,
+    sparks: renderSparks,
+    debris: renderDebris,
+    dust_puff: renderDustPuff,
+    smoke_puff: renderSmokePuff,
+    embers: renderEmbers,
+    scorch: renderScorch
+};

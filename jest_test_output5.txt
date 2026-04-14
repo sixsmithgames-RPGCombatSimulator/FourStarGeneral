@@ -1,0 +1,52 @@
+FAIL dist-tsc-jest/tests/AirShow.visual.jest.test.js
+  ΓùÅ Test suite failed to run
+
+    ReferenceError: TextEncoder is not defined
+
+      at Object.<anonymous> (node_modules/whatwg-url/lib/encoding.js:2:21)
+      at Object.<anonymous> (node_modules/whatwg-url/lib/url-state-machine.js:5:34)
+      at Object.<anonymous> (node_modules/whatwg-url/lib/URL-impl.js:2:13)
+      at Object.<anonymous> (node_modules/whatwg-url/lib/URL.js:499:14)
+      at Object.<anonymous> (node_modules/whatwg-url/webidl2js-wrapper.js:3:13)
+      at Object.<anonymous> (node_modules/whatwg-url/index.js:3:34)
+      at Object.<anonymous> (node_modules/jsdom/lib/api.js:7:19)
+
+
+ReferenceError: You are trying to `import` a file after the Jest environment has been torn down. From dist-tsc-jest/tests/AirShow.visual.jest.test.js.
+
+
+
+ReferenceError: You are trying to `import` a file after the Jest environment has been torn down. From dist-tsc-jest/tests/AirShow.visual.jest.test.js.
+
+
+
+ReferenceError: You are trying to `import` a file after the Jest environment has been torn down. From dist-tsc-jest/tests/AirShow.visual.jest.test.js.
+
+
+Test Suites: 1 failed, 1 total
+Tests:       0 total
+Snapshots:   0 total
+Time:        2.464 s
+Ran all test suites matching /AirShow.visual/i.
+
+ReferenceError: You are trying to `import` a file after the Jest environment has been torn down. From dist-tsc-jest/tests/AirShow.visual.jest.test.js.
+
+
+
+ReferenceError: You are trying to `import` a file after the Jest environment has been torn down. From dist-tsc-jest/tests/AirShow.visual.jest.test.js.
+
+
+
+ReferenceError: You are trying to `import` a file after the Jest environment has been torn down. From dist-tsc-jest/tests/AirShow.visual.jest.test.js.
+
+
+
+ReferenceError: You are trying to `import` a file after the Jest environment has been torn down. From dist-tsc-jest/tests/AirShow.visual.jest.test.js.
+
+
+
+ReferenceError: You are trying to `import` a file after the Jest environment has been torn down. From dist-tsc-jest/tests/AirShow.visual.jest.test.js.
+
+
+(node:525740) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)

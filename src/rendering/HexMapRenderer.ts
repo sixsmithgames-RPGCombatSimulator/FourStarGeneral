@@ -192,6 +192,7 @@ type AirShowPhaseAssignment = {
 };
 type AirShowPhaseOptions = {
   easing?: "easeInOut" | "linear";
+  sceneActors?: ReadonlyArray<AirShowRuntimeActor>;
 };
 type AirShowTracerBurst = {
   progress: number;
@@ -1249,6 +1250,7 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const flightMap = new Map(allFlights.map((flight) => [flight.spec.id, flight] as const));
+    const sceneActors = allFlights.flatMap((flight) => flight.actors);
     const sceneSeed = this.seedFromHexKey(
       `${scene.hexKey}:airshow:${scene.interceptors.length}:${scene.escorts.length}:${scene.bomber?.id ?? "none"}`
     );
@@ -2160,6 +2162,7 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const flightMap = new Map(allFlights.map((flight) => [flight.spec.id, flight] as const));
+    const sceneActors = allFlights.flatMap((flight) => flight.actors);
     const sceneSeed = this.seedFromHexKey(
       `${scene.hexKey}:airshow:${scene.interceptors.length}:${scene.escorts.length}:${scene.bomber?.id ?? "none"}`
     );
@@ -2274,7 +2277,7 @@ export class HexMapRenderer implements IMapRenderer {
           ingressAssignments,
           Math.max(1250, scene.fighterIngressDurationMs ?? 1750),
           [],
-          { easing: "linear" }
+          { easing: "linear", sceneActors }
         );
         updateFlightAnchors([...interceptorFlights, ...escortFlights]);
       }
@@ -2471,7 +2474,10 @@ export class HexMapRenderer implements IMapRenderer {
             // Per North Star Spec: prevents aircraft from overlapping into dense clusters
             const spacedPhaseAssignments = this.resolveAirShowPhaseSpacing(phaseAssignments);
 
-            await this.runAirShowPhase(spacedPhaseAssignments, escortBeatDurationMs, tracerBursts, { easing: "linear" });
+            await this.runAirShowPhase(spacedPhaseAssignments, escortBeatDurationMs, tracerBursts, {
+              easing: "linear",
+              sceneActors
+            });
             updateFlightAnchors([...interceptorFlights, ...escortFlights]);
           }
 
@@ -2519,7 +2525,9 @@ export class HexMapRenderer implements IMapRenderer {
               driftPx: 18
             })
           ],
-          Math.max(520, Math.round((scene.escortClashDurationMs ?? 1500) * 0.55))
+          Math.max(520, Math.round((scene.escortClashDurationMs ?? 1500) * 0.55)),
+          [],
+          { easing: "linear", sceneActors }
         );
         updateFlightAnchors([...interceptorFlights, ...escortFlights]);
       }
@@ -2587,7 +2595,7 @@ export class HexMapRenderer implements IMapRenderer {
           ],
           Math.max(180, scene.bomberArrivalDelayMs ?? 0),
           [],
-          { easing: "linear" }
+          { easing: "linear", sceneActors }
         );
         updateFlightAnchors([...survivingInterceptors, ...survivingEscorts]);
       }
@@ -2669,7 +2677,10 @@ export class HexMapRenderer implements IMapRenderer {
           )
         ];
         const bomberIngressDurationMs = Math.max(3000, scene.bomberIngressDurationMs ?? 3500);
-          await this.runAirShowPhase(bomberIngressAssignments, bomberIngressDurationMs, [], { easing: "linear" });
+          await this.runAirShowPhase(bomberIngressAssignments, bomberIngressDurationMs, [], {
+            easing: "linear",
+            sceneActors
+          });
         updateFlightAnchors([bomberFlight, ...survivingInterceptors, ...survivingEscorts]);
 
         const bomberPassExchanges = scene.bomberPassExchanges ?? [];
@@ -2854,7 +2865,10 @@ export class HexMapRenderer implements IMapRenderer {
               )
             );
 
-            await this.runAirShowPhase(phaseAssignments, bomberPassBeatDurationMs, tracerBursts, { easing: "linear" });
+            await this.runAirShowPhase(phaseAssignments, bomberPassBeatDurationMs, tracerBursts, {
+              easing: "linear",
+              sceneActors
+            });
             updateFlightAnchors([bomberFlight, ...interceptorFlights, ...escortFlights]);
           }
 
@@ -2888,9 +2902,10 @@ export class HexMapRenderer implements IMapRenderer {
         // Per North Star Spec: Aircraft must remain visible during bomb release/explosion
         // The explosion is ground-level ordnance, not the aircraft itself
         // Re-activate all bomber actors for the strike run phase
-        bomberFlight.actors.forEach(actor => {
+        bomberFlight.actors.forEach((actor) => {
           actor.active = true;
           actor.image.style.opacity = "1";
+          actor.image.setAttribute("data-airshow-active", "true");
         });
         const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
         const targetApproach = this.offsetAirShowPoint(
@@ -2996,7 +3011,10 @@ export class HexMapRenderer implements IMapRenderer {
           scene.bomberTargetHexKey,
           scene.bombReleaseProgress ?? 0.74
         );
-        await this.runAirShowPhase(strikeRunAssignments, strikeRunDurationMs, strikeRunTracerBursts, { easing: "linear" });
+        await this.runAirShowPhase(strikeRunAssignments, strikeRunDurationMs, strikeRunTracerBursts, {
+          easing: "linear",
+          sceneActors
+        });
         cancelBombRelease();
         cancelStrikeRunFlak();
         updateFlightAnchors([
@@ -3052,7 +3070,7 @@ export class HexMapRenderer implements IMapRenderer {
           }),
           Math.max(560, scene.egressDurationMs ?? 980),
           [],
-          { easing: "linear" }
+          { easing: "linear", sceneActors }
         );
 
         await Promise.all(
@@ -6787,6 +6805,11 @@ export class HexMapRenderer implements IMapRenderer {
     const formationMid = ghosts.length <= 1 ? 0 : (ghosts.length - 1) / 2;
     const actors: AirShowRuntimeActor[] = ghosts.map((ghostSpec, index) => {
       layer.appendChild(ghostSpec.image);
+      ghostSpec.image.setAttribute("data-testid", "airshow-actor");
+      ghostSpec.image.setAttribute("data-airshow-role", spec.role);
+      ghostSpec.image.setAttribute("data-airshow-flight-id", spec.id);
+      ghostSpec.image.setAttribute("data-airshow-actor-id", `${spec.id}:${index}`);
+      ghostSpec.image.setAttribute("data-airshow-combat-role", spec.combatRole ?? spec.role);
       const position = {
         cx: origin.cx + ghostSpec.biasX,
         cy: origin.cy + ghostSpec.biasY
@@ -6796,6 +6819,7 @@ export class HexMapRenderer implements IMapRenderer {
         (ghostSpec.formationIndex - formationMid) * (spec.role === "bomber" ? 5 : 8);
       this.positionAircraftImageGhost(ghostSpec.image, ghostSpec.size, position.cx, position.cy, headingDegrees);
       ghostSpec.image.style.opacity = index < visibleCount ? "1" : "0";
+      ghostSpec.image.setAttribute("data-airshow-active", index < visibleCount ? "true" : "false");
       return {
         id: `${spec.id}:${index}`,
         flightId: spec.id,
@@ -9168,6 +9192,7 @@ export class HexMapRenderer implements IMapRenderer {
     flight.actors.forEach((actor, index) => {
       actor.active = index < targetVisibleCount;
       actor.image.style.opacity = actor.active ? "1" : "0";
+      actor.image.setAttribute("data-airshow-active", actor.active ? "true" : "false");
     });
   }
 
@@ -9320,6 +9345,8 @@ export class HexMapRenderer implements IMapRenderer {
       });
     });
 
+    this.syncAirShowPhaseVisibility(assignments, options.sceneActors);
+
     const sortedBursts = [...tracerBursts].sort((left, right) => left.progress - right.progress);
     let nextBurstIndex = 0;
     let lastLoggedProgress = -1;
@@ -9415,6 +9442,23 @@ export class HexMapRenderer implements IMapRenderer {
     });
   }
 
+  private syncAirShowPhaseVisibility(
+    assignments: ReadonlyArray<AirShowPhaseAssignment>,
+    sceneActors: ReadonlyArray<AirShowRuntimeActor> = []
+  ): void {
+    const assignedActorIds = new Set(assignments.map((assignment) => assignment.actor.id));
+    const actorsToSync =
+      sceneActors.length > 0
+        ? sceneActors
+        : Array.from(new Map(assignments.map((assignment) => [assignment.actor.id, assignment.actor] as const)).values());
+
+    actorsToSync.forEach((actor) => {
+      const shouldDisplay = assignedActorIds.has(actor.id) && actor.active;
+      actor.image.style.opacity = shouldDisplay ? "1" : "0";
+      actor.image.setAttribute("data-airshow-active", shouldDisplay ? "true" : "false");
+    });
+  }
+
   private async syncAirShowFlightStrength(
     flight: AirShowRuntimeFlightInternal,
     targetStrength: number,
@@ -9466,6 +9510,7 @@ export class HexMapRenderer implements IMapRenderer {
     await Promise.all(removedActors.map((actor) => this.fadeOutActor(actor, 200)));
     removedActors.forEach((actor) => {
       actor.active = false;
+      actor.image.setAttribute("data-airshow-active", "false");
     });
     debugAirShowPhase("ActiveCount", {
       flightId: flight.spec.id,

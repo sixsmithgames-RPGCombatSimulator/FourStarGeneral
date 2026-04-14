@@ -1,0 +1,106 @@
+[
+    {
+        "Field": "effective_range_m",
+        "Meaning": "Historically cited effective/combat/intended range where a source offered one. Use this as the default gameplay range band before steep drop-off."
+    },
+    {
+        "Field": "max_direct_range_m",
+        "Meaning": "Direct-fire range or sight-scale value when available. This is not the same as ballistic maximum."
+    },
+    {
+        "Field": "max_ballistic_range_m",
+        "Meaning": "Physical maximum projectile range when a source offered one. This should not be used as normal hit range without a special low-probability rule."
+    },
+    {
+        "Field": "min_range_m",
+        "Meaning": "Historical minimum safe/usable range where relevant. Most direct-fire guns are set to 0 because they can fire at point-blank range."
+    },
+    {
+        "Field": "accuracy_profile_id",
+        "Meaning": "Links each weapon to a recommended gameplay accuracy curve for average crews/personnel."
+    },
+    {
+        "Field": "blank cells",
+        "Meaning": "Intentionally left blank where I did not have a clean historical figure and did not want to invent one."
+    },
+    {
+        "Field": "Postwar row",
+        "Meaning": "The Claymore is included because you asked for it, but it is flagged as postwar rather than WWII."
+    },
+    {
+        "Field": "Seed rows",
+        "Meaning": "Some mortar and Soviet/British gun rows are seed entries that should be tightened later with better primary-source tables if you want a fully exhaustive canon database."
+    },
+    {
+        "Field": "Metric",
+        "Meaning": "Value"
+    },
+    {
+        "Field": "Weapons rows",
+        "Meaning": "77"
+    },
+    {
+        "Field": "Ammo rows",
+        "Meaning": "124"
+    },
+    {
+        "Field": "Accuracy rows",
+        "Meaning": "139"
+    },
+    {
+        "Field": "Design intent",
+        "Meaning": "Normalize weapon data separately from unit data so each unit references a weapon_id and one or more ammo_id values."
+    },
+    {
+        "Field": "Source group",
+        "Meaning": "Representative source"
+    },
+    {
+        "Field": "US gun ballistic data",
+        "Meaning": "https://www.theshermantank.com/wp-content/uploads/75mm-M3-spec-booklet-MK-VI.pdf"
+    },
+    {
+        "Field": "German direct-fire sight scales",
+        "Meaning": "https://www.ibiblio.org/hyperwar/Germany/HB/HB-8.html"
+    },
+    {
+        "Field": "88mm Flak reference",
+        "Meaning": "https://www.ibiblio.org/hyperwar/USA/ref/TM/PDFs/TME9-369A_Germ88.pdf"
+    },
+    {
+        "Field": "Infantry weapon references",
+        "Meaning": "https://www.fulton-armory.com/faqs/M1G-FAQs/tea/intro.htm"
+    },
+    {
+        "Field": "AT launcher references",
+        "Meaning": "https://www.lonesentry.com/manuals/bazooka/bazooka-ammunition-rocket-m6a1.html"
+    },
+    {
+        "Field": "Gunnery doctrine",
+        "Meaning": "https://www.ibiblio.org/hyperwar/USA/ref/FM/PDFs/FM17-12.PDF"
+    },
+    {
+        "Field": "v2 Canon Extension",
+        "Meaning": null
+    },
+    {
+        "Field": "Added normalized platform-layer sheets: Sources_Log, Platforms, Platform_Armor, Platform_Mobility, Platform_Sensors, Weapon_Mounts, Platform_Loadouts.",
+        "Meaning": null
+    },
+    {
+        "Field": "These sheets preserve canon facts separately from gameplay translation and presentation/progression layers.",
+        "Meaning": null
+    },
+    {
+        "Field": "Starter coverage currently includes selected US, UK, and German WWII AFVs, guns, and support vehicles with explicit confidence and provenance fields.",
+        "Meaning": null
+    },
+    {
+        "Field": "Added sheet",
+        "Meaning": "Platform_Presentation"
+    },
+    {
+        "Field": "Purpose",
+        "Meaning": "Game-friendly display names plus short and long descriptions derived from platform canon rows for use in UI, cards, and in-game encyclopedia text."
+    }
+]

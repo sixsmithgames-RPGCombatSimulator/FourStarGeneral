@@ -1,0 +1,128 @@
+[
+    {
+        "platform_id": "US_M4A3_75W_LATE",
+        "display_name": "Sherman 75mm (Late)",
+        "short_name": "Sherman 75",
+        "ui_group": "Medium Tank",
+        "nation_label": "United States",
+        "short_description": "Balanced late-war Sherman with a 75 mm gun, wet stowage, and strong machine-gun support. Reliable, flexible, and well suited to infantry support and general armored combat.",
+        "long_description": "A dependable American medium tank that trades raw anti-armor power for versatility. Its 75 mm gun handles soft targets well, the MG suite is strong, and its armor and mobility are solid without being exceptional."
+    },
+    {
+        "platform_id": "US_M4A3E8_76W_HVSS",
+        "display_name": "Sherman Easy Eight",
+        "short_name": "Easy Eight",
+        "ui_group": "Medium Tank",
+        "nation_label": "United States",
+        "short_description": "Late-war Sherman with HVSS suspension and a 76 mm gun. Smoother ride, better anti-tank punch, and good all-around handling make it a strong general-purpose armor unit.",
+        "long_description": "The Easy Eight keeps the Sherman formula but sharpens it for late-war combat. Better suspension helps mobility over rough ground, while the 76 mm gun gives it a much better chance against heavier armor."
+    },
+    {
+        "platform_id": "US_M10_GMC_EARLY",
+        "display_name": "M10 Wolverine",
+        "short_name": "M10",
+        "ui_group": "Tank Destroyer",
+        "nation_label": "United States",
+        "short_description": "Open-topped tank destroyer armed with a hard-hitting 3-inch gun. Good reach and mobility, but thin armor and exposed crew make it vulnerable in a close fight.",
+        "long_description": "Built to hunt enemy armor rather than trade blows like a tank. The M10 is effective when positioned well, but its open turret and lighter protection punish careless play."
+    },
+    {
+        "platform_id": "US_M18_GMC",
+        "display_name": "M18 Hellcat",
+        "short_name": "Hellcat",
+        "ui_group": "Tank Destroyer",
+        "nation_label": "United States",
+        "short_description": "Extremely fast open-topped tank destroyer with a 76 mm gun. Best used for flanking, rapid redeployment, and ambushes rather than standing toe to toe with heavier vehicles.",
+        "long_description": "One of the fastest armored vehicles of the war. The Hellcat lives on speed and initiative, striking from favorable angles before its light armor and exposed turret can be punished."
+    },
+    {
+        "platform_id": "US_M36_GMC",
+        "display_name": "M36 Jackson",
+        "short_name": "M36",
+        "ui_group": "Tank Destroyer",
+        "nation_label": "United States",
+        "short_description": "Open-topped tank destroyer mounting a powerful 90 mm gun. Strong anti-armor reach with decent mobility, but still vulnerable to artillery, MG fire, and close assault.",
+        "long_description": "The M36 brings heavyweight gun power to the American tank destroyer line. It can threaten dangerous targets at range, but its open fighting compartment keeps it from being a true heavy brawler."
+    },
+    {
+        "platform_id": "UK_SHERMAN_VC_FIREFLY",
+        "display_name": "Sherman Firefly",
+        "short_name": "Firefly",
+        "ui_group": "Medium Tank",
+        "nation_label": "United Kingdom",
+        "short_description": "British Sherman conversion carrying the fearsome 17-pounder. Excellent anti-tank performance on a familiar chassis, with the usual Sherman strengths and compromises.",
+        "long_description": "A practical answer to heavier German armor. The Firefly keeps the Sherman\u2019s mobility and usability while replacing the main gun with a much more dangerous anti-tank weapon."
+    },
+    {
+        "platform_id": "DE_PZIV_H",
+        "display_name": "Panzer IV H",
+        "short_name": "Panzer IV",
+        "ui_group": "Medium Tank",
+        "nation_label": "Germany",
+        "short_description": "Workhorse German medium tank with the long 75 mm gun. Good anti-tank performance, decent frontal protection, and broad utility across many battlefield roles.",
+        "long_description": "The Panzer IV H is a solid, flexible battlefield tank rather than a specialist. Its gun remains dangerous, but side armor and overall survivability are less forgiving than heavier German designs."
+    },
+    {
+        "platform_id": "DE_PANTHER_G",
+        "display_name": "Panther G",
+        "short_name": "Panther",
+        "ui_group": "Medium Tank",
+        "nation_label": "Germany",
+        "short_description": "Fast, hard-hitting German tank with excellent frontal armor and a superb long 75 mm gun. Strong at range, but less comfortable when flanked or forced into awkward close terrain.",
+        "long_description": "The Panther combines high velocity firepower with dangerous frontal protection. It excels in open fights and long sight lines, but side shots and mechanical strain remain real concerns."
+    },
+    {
+        "platform_id": "DE_TIGER_I_E",
+        "display_name": "Tiger I",
+        "short_name": "Tiger I",
+        "ui_group": "Heavy Tank",
+        "nation_label": "Germany",
+        "short_description": "Heavy tank with thick armor and the famous 88 mm gun. A dominant direct-fire threat, especially from prepared positions, though size and cost make every loss painful.",
+        "long_description": "The Tiger is built to win head-on engagements through armor and gun power. It can overmatch many opponents, but it is expensive, conspicuous, and never easy to replace."
+    },
+    {
+        "platform_id": "DE_STUG_III_G",
+        "display_name": "StuG III G",
+        "short_name": "StuG III",
+        "ui_group": "Assault Gun",
+        "nation_label": "Germany",
+        "short_description": "Low-profile assault gun with a strong long 75 mm and solid frontal armor. Efficient, dangerous, and best when fighting from cover or prepared lines rather than scouting ahead.",
+        "long_description": "The StuG III G is a compact gun platform that rewards disciplined positioning. It lacks a full turret, but its low silhouette and efficient firepower make it deadly in defensive combat."
+    },
+    {
+        "platform_id": "DE_PAK40_TOWED",
+        "display_name": "Pak 40 AT Gun",
+        "short_name": "Pak 40",
+        "ui_group": "Anti-Tank Gun",
+        "nation_label": "Germany",
+        "short_description": "Towed 75 mm anti-tank gun with strong penetration and a very low profile. Excellent in ambushes and defensive lines, but vulnerable once spotted or forced to move.",
+        "long_description": "The Pak 40 is one of the core German anti-tank weapons of the war. It is dangerous and efficient when dug in, but towing, setup, and crew exposure make mobility its weak point."
+    },
+    {
+        "platform_id": "DE_FLAK36_88_TOWED",
+        "display_name": "Flak 36 88mm",
+        "short_name": "88mm Flak",
+        "ui_group": "Heavy AA / AT Gun",
+        "nation_label": "Germany",
+        "short_description": "Heavy dual-purpose gun effective against aircraft and armored targets. Powerful, long-ranged, and deadly with support, but large, visible, and dependent on crew and setup.",
+        "long_description": "The 88 is as much a battlefield system as a single gun. It reaches high and hits hard, serving as both flak and anti-tank weapon, but its size and deployment demands make concealment harder."
+    },
+    {
+        "platform_id": "DE_SDKFZ_251_1",
+        "display_name": "Sd.Kfz. 251 Half-track",
+        "short_name": "Sd.Kfz. 251",
+        "ui_group": "Armored Transport",
+        "nation_label": "Germany",
+        "short_description": "Armored half-track for moving infantry under light protection, usually backed by MG 34 fire. Useful for mobility and escort work, but not a front-line dueling vehicle.",
+        "long_description": "The Sd.Kfz. 251 gets troops and support weapons forward faster than foot movement alone. It can contribute suppressive fire, but thin armor means it should avoid serious anti-armor threats."
+    },
+    {
+        "platform_id": "DE_OPEL_BLITZ_36S",
+        "display_name": "Opel Blitz Truck",
+        "short_name": "Opel Blitz",
+        "ui_group": "Truck",
+        "nation_label": "Germany",
+        "short_description": "Standard cargo truck for transport, towing, and general logistics. Fast on roads and useful for support work, but completely unsuited to direct combat once enemy fire starts.",
+        "long_description": "The Opel Blitz is a backbone logistics vehicle rather than a fighting platform. It moves men and supplies efficiently, but even light battlefield threats can disable or destroy it quickly."
+    }
+]

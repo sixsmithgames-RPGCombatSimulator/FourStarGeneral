@@ -169,6 +169,17 @@ function initializeApplication(): void {
   console.log("  - Components: PopupManager, WarRoomOverlay, BattleLoadout, DeploymentPanel");
   console.log("  - Controls: MapViewport, ZoomPanControls");
   console.log("  - Rendering: HexMapRenderer, TerrainRenderer, RoadOverlayRenderer, CoordinateSystem");
+
+  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  if (searchParams?.get("codex-test") === "airshow") {
+    void import("./testing/airshowE2eHarness")
+      .then(({ installAirshowE2EHarness }) => {
+        installAirshowE2EHarness();
+      })
+      .catch((error) => {
+        console.error("[AirshowE2E] Failed to install browser harness", error);
+      });
+  }
 }
 
 // Start the application when DOM is ready

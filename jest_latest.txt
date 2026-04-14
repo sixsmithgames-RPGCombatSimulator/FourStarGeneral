@@ -1,0 +1,100 @@
+  console.log
+    [CombatSoundManager] Initialized with Web Audio API
+
+      at new log (dist-tsc-jest/src/audio/CombatSoundManager.js:26:17)
+
+  console.log
+    [HexMapRenderer] viewportRoot created for first time
+
+      at HexMapRenderer.log [as render] (dist-tsc-jest/src/rendering/HexMapRenderer.js:2709:21)
+
+  console.log
+    [HexMapRenderer] viewportRoot updated with children: { childCount: 101, hexCount: 0, preserved: false }
+
+      at HexMapRenderer.log [as render] (dist-tsc-jest/src/rendering/HexMapRenderer.js:2729:17)
+
+  console.log
+    [HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+
+      at HexMapRenderer.log [as render] (dist-tsc-jest/src/rendering/HexMapRenderer.js:2762:21)
+
+  console.log
+    [EffectSpecifications] Loaded 0 effect specifications
+
+      at EffectSpecificationCatalog.log [as load] (dist-tsc-jest/src/rendering/EffectSpecifications.js:23:17)
+          at async Promise.all (index 0)
+
+  console.log
+    [TerrainResponseSystem] Loaded 0 terrain tint configurations
+
+      at TerrainTintCatalog.log [as load] (dist-tsc-jest/src/rendering/TerrainResponseSystem.js:27:17)
+          at async Promise.all (index 1)
+
+  console.log
+    [CombatSoundManager] Loaded sound catalog v1 with 0 assets
+
+      at CombatSoundManager.log [as loadSoundCatalog] (dist-tsc-jest/src/audio/CombatSoundManager.js:40:21)
+
+  console.log
+    [CombatSoundManager] Initialized with Web Audio API
+
+      at new log (dist-tsc-jest/src/audio/CombatSoundManager.js:26:17)
+
+  console.log
+    [HexMapRenderer] viewportRoot created for first time
+
+      at HexMapRenderer.log [as render] (dist-tsc-jest/src/rendering/HexMapRenderer.js:2709:21)
+
+  console.log
+    [HexMapRenderer] viewportRoot updated with children: { childCount: 101, hexCount: 0, preserved: false }
+
+      at HexMapRenderer.log [as render] (dist-tsc-jest/src/rendering/HexMapRenderer.js:2729:17)
+
+  console.log
+    [HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+
+      at HexMapRenderer.log [as render] (dist-tsc-jest/src/rendering/HexMapRenderer.js:2762:21)
+
+  console.log
+    [CombatSoundManager] Loaded sound catalog v1 with 0 assets
+
+      at CombatSoundManager.log [as loadSoundCatalog] (dist-tsc-jest/src/audio/CombatSoundManager.js:40:21)
+
+  console.log
+    [CombatSoundManager] Initialized with Web Audio API
+
+      at new log (dist-tsc-jest/src/audio/CombatSoundManager.js:26:17)
+
+  console.log
+    [HexMapRenderer] viewportRoot created for first time
+
+      at HexMapRenderer.log [as render] (dist-tsc-jest/src/rendering/HexMapRenderer.js:2709:21)
+
+  console.log
+    [HexMapRenderer] viewportRoot updated with children: { childCount: 101, hexCount: 0, preserved: false }
+
+      at HexMapRenderer.log [as render] (dist-tsc-jest/src/rendering/HexMapRenderer.js:2729:17)
+
+  console.log
+    [HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+
+      at HexMapRenderer.log [as render] (dist-tsc-jest/src/rendering/HexMapRenderer.js:2762:21)
+
+  console.log
+    [CombatSoundManager] Loaded sound catalog v1 with 0 assets
+
+      at CombatSoundManager.log [as loadSoundCatalog] (dist-tsc-jest/src/audio/CombatSoundManager.js:40:21)
+
+(node:1222224) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+PASS dist-tsc-jest/tests/AirShow.visual.jest.test.js (10.46 s)
+  AirShow JEST Harness
+    ΓêÜ resolved airshow scene builder reflects the contested package the app is meant to render (1092 ms)
+    ΓêÜ target-run keeps bomber actors assigned through bomb release and removes fighters from the strike lane (474 ms)
+    ΓêÜ fighter beats stay separate from bomber ingress so the harness catches drift and arrival-order regressions (314 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       3 passed, 3 total
+Snapshots:   0 total
+Time:        11.483 s
+Ran all test suites matching /AirShow.visual/i.

@@ -1,0 +1,7 @@
+ΓùÅ Validation Error:
+
+  Option: extensionsToTreatAsEsm: ['.js'] includes '.js' which is always inferred based on type in its nearest package.json.
+
+  Configuration Documentation:
+  https://jestjs.io/docs/configuration
+
