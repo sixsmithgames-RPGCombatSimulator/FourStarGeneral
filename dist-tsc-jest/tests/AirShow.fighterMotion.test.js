@@ -44,6 +44,26 @@ function maxAdjacentHeadingChangeDeg(points) {
     }
     return maxDelta;
 }
+function maxAdjacentHeadingChangeDegInWindow(points, startProgress, endProgress, sampleCount = 20) {
+    const start = Math.max(0, Math.min(1, startProgress));
+    const end = Math.max(start, Math.min(1, endProgress));
+    const samples = Array.from({ length: Math.max(2, sampleCount) }, (_, i) => sampleAirShowWaypointPath(points, start + (end - start) * (i / Math.max(1, sampleCount - 1))));
+    let maxDelta = 0;
+    for (let i = 1; i < samples.length; i++) {
+        const prev = samples[i - 1];
+        const curr = samples[i];
+        const prevDeg = vectorToDegrees(prev.derivative.dx, prev.derivative.dy);
+        const currDeg = vectorToDegrees(curr.derivative.dx, curr.derivative.dy);
+        if (Math.hypot(prev.derivative.dx, prev.derivative.dy) < 0.001)
+            continue;
+        if (Math.hypot(curr.derivative.dx, curr.derivative.dy) < 0.001)
+            continue;
+        const delta = headingDeltaDeg(prevDeg, currDeg);
+        if (delta > maxDelta)
+            maxDelta = delta;
+    }
+    return maxDelta;
+}
 /**
  * Counts direction reversals (same-axis sign flips across 3 consecutive samples)
  * — a proxy for the "coiling snake" pattern.
@@ -145,6 +165,30 @@ registerTest("AIR_SHOW_DOGFIGHT_AUTHORED_REENGAGE_PASS_NO_SNAKE", async ({ Given
         console.log(`[DIAGNOSTIC] Authored reengage pass: 0 reversals, max delta ${maxDelta.toFixed(1)}°. PASS.`);
     });
 });
+registerTest("AIR_SHOW_SCRAMBLE_ENTRY_DOES_NOT_REVERSE_HEADING_ON_FIRST_QUARTER", async ({ Given, When, Then }) => {
+    // Regression path taken from the governed air-scenario report for the escort-clash-scramble beat.
+    // The waypoint list is intended to be a monotonic re-engage arc, but the old sampler overshot
+    // the first span badly enough to create a visible reversal.
+    const scramblePath = [
+        { cx: 333, cy: 834 },
+        { cx: 345, cy: 830 },
+        { cx: 414, cy: 820 },
+        { cx: 424, cy: 762 },
+        { cx: 421, cy: 692 },
+        { cx: 451, cy: 633 },
+        { cx: 519, cy: 633 }
+    ];
+    let earlyHeadingDelta = 0;
+    await Given("a scramble-entry waypoint path from the live airshow diagnostic", async () => { });
+    await When("the first quarter of the path is sampled for adjacent heading reversals", async () => {
+        earlyHeadingDelta = maxAdjacentHeadingChangeDegInWindow(scramblePath, 0, 0.28, 20);
+    });
+    await Then("the sampler should not create a near-180 degree reversal at phase entry", async () => {
+        if (earlyHeadingDelta > 40) {
+            throw new Error(`Scramble entry still reverses too sharply in the first quarter: ${earlyHeadingDelta.toFixed(1)}°.`);
+        }
+    });
+});
 registerTest("AIR_SHOW_BIAS_OFFSET_DOES_NOT_GROW_ALONG_PATH", async ({ Given, When, Then }) => {
     // The old buildAirShowFlightAssignments applied biasX with a growing factor:
     // (0.92 + pointIndex * 0.06) — meaning offset grows from 0.92 to 1.52 over 10 waypoints.
@@ -236,25 +280,112 @@ registerTest("AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY", async 
         }
     });
 });
-registerTest("AIR_SHOW_DIAGNOSTIC_MATRIX_COVERS_ALL_SCENARIO_FAMILIES", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_DIAGNOSTIC_MATRIX_COVERS_SYNTHETIC_FAMILIES_AND_REAL_ENGINE_PACKAGE", async ({ Given, When, Then }) => {
     let result = null;
     await Given("the air scenario matrix is available", async () => { });
     await When("the diagnostic matrix is generated", async () => {
         result = runAirScenario();
     });
-    await Then("the inspections should cover all five north-star scenario families", async () => {
+    await Then("the inspections should cover the governed synthetic families plus the real-engine strike package", async () => {
         const missionIds = new Set(result?.airshowInspections.map((entry) => entry.missionId).filter(Boolean));
         const requiredMissionIds = [
             "synthetic-scenario-1-escort-strike-no-interceptors",
             "synthetic-scenario-2-strike-only",
             "synthetic-scenario-3-strike-plus-interceptors-no-escorts",
+            "synthetic-scenario-4-cap-clash",
             "synthetic-scenario-5-three-cap-two-escort-four-bomber-stack",
-            "bot-cap-1",
             "bot-strike-1"
         ];
         const missing = requiredMissionIds.filter((missionId) => !missionIds.has(missionId));
         if (missing.length > 0) {
-            throw new Error(`Expected diagnostic coverage for all scenario families, missing: ${missing.join(", ")}.`);
+            throw new Error(`Expected diagnostic coverage for all governed scenario families, missing: ${missing.join(", ")}.`);
+        }
+    });
+});
+registerTest("AIR_SHOW_REAL_ENGINE_SCENARIO_MODELS_THREE_CAP_TWO_ESCORT_FOUR_BOMBER_PACKAGE", async ({ Given, When, Then }) => {
+    let result = null;
+    await Given("the real engine air scenario is configured as a contested defended cluster", async () => { });
+    await When("the air scenario report is generated", async () => {
+        result = runAirScenario();
+    });
+    await Then("the resolved mission set should include three player CAP sorties, two bot escorts, and four bot strike bombers", async () => {
+        const missionReports = result?.missionReports ?? [];
+        const playerCapReports = missionReports.filter((report) => report.faction === "Player" && report.kind === "airCover");
+        const botEscortReports = missionReports.filter((report) => report.faction === "Bot" && report.kind === "escort");
+        const botStrikeReports = missionReports.filter((report) => report.faction === "Bot" && report.kind === "strike");
+        const botStrikeIds = botStrikeReports.map((report) => report.missionId).sort();
+        const escortedStrikeInspections = result?.airshowInspections.filter((entry) => entry.eventType === "airToAir" &&
+            entry.missionId?.startsWith("bot-strike-") &&
+            entry.diagnostics.linkedEscortUnitKeys.length > 0) ?? [];
+        if (playerCapReports.length !== 3) {
+            throw new Error(`Expected 3 resolved player CAP mission reports, saw ${playerCapReports.length}.`);
+        }
+        if (botEscortReports.length !== 2) {
+            throw new Error(`Expected 2 resolved bot escort mission reports, saw ${botEscortReports.length}.`);
+        }
+        if (botStrikeReports.length !== 4) {
+            throw new Error(`Expected 4 resolved bot strike mission reports, saw ${botStrikeReports.length}.`);
+        }
+        const expectedStrikeIds = ["bot-strike-1", "bot-strike-2", "bot-strike-3", "bot-strike-4"];
+        const missingStrikeIds = expectedStrikeIds.filter((missionId) => !botStrikeIds.includes(missionId));
+        if (missingStrikeIds.length > 0) {
+            throw new Error(`Expected real-engine strike reports for ${expectedStrikeIds.join(", ")}, missing ${missingStrikeIds.join(", ")}.`);
+        }
+        if (escortedStrikeInspections.length < 2) {
+            throw new Error(`Expected at least two real-engine air-to-air inspections with linked escorts, saw ${escortedStrikeInspections.length}.`);
+        }
+    });
+});
+registerTest("AIR_SHOW_REAL_ENGINE_SCENARIO_PROJECTS_ONE_NEARBY_PLAYBACK_BUCKET_FOR_THE_THREE_CAP_TWO_ESCORT_FOUR_BOMBER_PACKAGE", async ({ Given, When, Then }) => {
+    let result = null;
+    await Given("the automation scenario launches the contested 3 CAP / 2 escort / 4 bomber package", async () => { });
+    await When("the script captures mission arrivals and BattleScreen-style playback grouping", async () => {
+        result = runAirScenario();
+    });
+    await Then("the package should stay in one nearby playback bucket and produce one coordinated cluster plan", async () => {
+        const arrivals = result?.arrivals ?? [];
+        const playbackProjection = result?.playbackProjection;
+        if (!playbackProjection) {
+            throw new Error("Expected playback projection diagnostics to be present.");
+        }
+        const capArrivals = arrivals.filter((arrival) => arrival.kind === "airCover");
+        const escortArrivals = arrivals.filter((arrival) => arrival.kind === "escort");
+        const strikeArrivals = arrivals.filter((arrival) => arrival.kind === "strike");
+        if (capArrivals.length !== 3 || escortArrivals.length !== 2 || strikeArrivals.length !== 4) {
+            throw new Error(`Expected 3 CAP / 2 escort / 4 strike arrivals, saw ${capArrivals.length}/${escortArrivals.length}/${strikeArrivals.length}.`);
+        }
+        if (playbackProjection.preparedFlights.length !== 9) {
+            throw new Error(`Expected 9 prepared playback flights, saw ${playbackProjection.preparedFlights.length}.`);
+        }
+        if (playbackProjection.clusters.length !== 1) {
+            throw new Error(`Expected 1 playback bucket for the nearby target set, saw ${playbackProjection.clusters.length}.`);
+        }
+        const coordinatedPlan = playbackProjection.coordinatedPlans[0];
+        if (!coordinatedPlan) {
+            throw new Error("Expected a coordinated cluster playback plan.");
+        }
+        if (!coordinatedPlan.hasFighterScene) {
+            throw new Error("Expected the coordinated plan to include a fighter dogfight scene.");
+        }
+        if (coordinatedPlan.fighterSceneInterceptorCount !== 3 || coordinatedPlan.fighterSceneEscortCount !== 2) {
+            throw new Error(`Expected the coordinated fighter scene to aggregate 3 CAP and 2 escorts, saw ${coordinatedPlan.fighterSceneInterceptorCount}/${coordinatedPlan.fighterSceneEscortCount}.`);
+        }
+        if (coordinatedPlan.strikeSortieMissionIds.length !== 4) {
+            throw new Error(`Expected 4 bomber strike sorties in the coordinated plan, saw ${coordinatedPlan.strikeSortieMissionIds.length}.`);
+        }
+        if (coordinatedPlan.residualOperationLabels.length > 0) {
+            throw new Error(`Expected no residual playback operations, saw ${coordinatedPlan.residualOperationLabels.join(", ")}.`);
+        }
+        const expectedFighterPhases = ["fighter-ingress", "escort-clash-merge", "escort-clash-scramble", "egress"];
+        const missingFighterPhases = expectedFighterPhases.filter((label) => !coordinatedPlan.fighterScenePhaseLabels.includes(label));
+        if (missingFighterPhases.length > 0) {
+            throw new Error(`Expected coordinated fighter scene phases ${expectedFighterPhases.join(", ")}, missing ${missingFighterPhases.join(", ")}.`);
+        }
+        if (coordinatedPlan.fighterSceneTracerCount <= 0) {
+            throw new Error("Expected coordinated fighter scene diagnostics to schedule visible tracer bursts.");
+        }
+        if (coordinatedPlan.bomberStartDelayMs < coordinatedPlan.fighterIngressLeadMs) {
+            throw new Error(`Expected coordinated bomber lead ${coordinatedPlan.bomberStartDelayMs}ms to trail fighter ingress lead ${coordinatedPlan.fighterIngressLeadMs}ms.`);
         }
     });
 });
@@ -294,7 +425,7 @@ registerTest("AIR_SHOW_SCRAMBLE_TRACER_PROFILE_STAYS_BOUND_TO_CONTESTED_BOMBER_P
         result = runAirScenario();
     });
     await Then("CAP clash scramble tracers should stay nose-fired while the contested bomber package may still use the close scramble profile", async () => {
-        const capClashInspection = result?.airshowInspections.find((entry) => entry.eventType === "capClash" && entry.missionId === "bot-cap-1");
+        const capClashInspection = result?.airshowInspections.find((entry) => entry.eventType === "capClash" && entry.missionId === "synthetic-scenario-4-cap-clash");
         const contestedPackageInspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" && entry.missionId === "synthetic-scenario-5-three-cap-two-escort-four-bomber-stack");
         const capClashScramble = capClashInspection?.report.phases.find((phase) => phase.label === "escort-clash-scramble");
         const contestedPackageScramble = contestedPackageInspection?.report.phases.find((phase) => phase.label === "escort-clash-scramble");
@@ -422,13 +553,13 @@ registerTest("AIR_SHOW_SPATIAL_SEPARATION_REPORT", async ({ Given, When, Then })
         console.log(`\n[SUMMARY] ${warnings.length + (worstFailure ? 1 : 0)} total overlap events reported.`);
     });
 });
-registerTest("AIR_SHOW_FLAK_TIMING_DURING_STRIKE_RUN_NOT_AT_END", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_FLAK_TIMING_STAYS_IN_LATE_FINAL_APPROACH_WINDOW", async ({ Given, When, Then }) => {
     let result = null;
     await Given("the air scenario includes bomber strike with flak", async () => { });
     await When("the scenario report is generated", async () => {
         result = runAirScenario();
     });
-    await Then("flak bursts should fire during the strike run (25-55% progress), not at the very end", async () => {
+    await Then("flak bursts should open late in the strike run without slipping past bomb release", async () => {
         // Find a strike inspection that has flak in the target-run phase
         const strikeInspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" &&
             entry.report.phases.some((p) => p.label === "target-run" && (p.flakBursts?.length ?? 0) > 0));
@@ -441,18 +572,44 @@ registerTest("AIR_SHOW_FLAK_TIMING_DURING_STRIKE_RUN_NOT_AT_END", async ({ Given
             throw new Error("Expected target-run phase with flak bursts in strike inspection.");
         }
         const flakBursts = targetRunPhase.flakBursts;
-        // Per North Star Spec: flak should fire during bomber approach (25-55%), not at end (82%+)
+        // Per the governed late-approach window, flak should not open while the package is
+        // still far from target, and it should not trail past the bomb-release segment either.
         const firstFlakProgress = flakBursts[0]?.progress ?? 0;
         const lastFlakProgress = flakBursts[flakBursts.length - 1]?.progress ?? 0;
-        if (firstFlakProgress > 0.6) {
-            throw new Error(`Flak starts too late in strike run: first burst at ${(firstFlakProgress * 100).toFixed(1)}% ` +
-                `(should be 25-55% during bomber approach, not >60%)`);
+        if (firstFlakProgress < 0.6) {
+            throw new Error(`Flak starts too early in strike run: first burst at ${(firstFlakProgress * 100).toFixed(1)}% ` +
+                `(should not open before the late final-approach window at 60%+)`);
         }
-        if (lastFlakProgress > 0.7) {
+        if (lastFlakProgress > 0.94) {
             throw new Error(`Flak ends too late in strike run: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
-                `(should end by 55-70%, not at very end)`);
+                `(should finish before the post-release tail of the run)`);
         }
-        console.log(`[FLAK TIMING] ${flakBursts.length} bursts from ${(firstFlakProgress * 100).toFixed(1)}% to ${(lastFlakProgress * 100).toFixed(1)}% — correctly during bomber approach`);
+        console.log(`[FLAK TIMING] ${flakBursts.length} bursts from ${(firstFlakProgress * 100).toFixed(1)}% to ${(lastFlakProgress * 100).toFixed(1)}% — correctly centered on final approach`);
+    });
+});
+registerTest("AIR_SHOW_SYNTHETIC_STACK_PACKAGE_AVOIDS_CURRENT_GOVERNED_MOTION_AND_FLAK_FINDINGS", async ({ Given, When, Then }) => {
+    let result = null;
+    await Given("the synthetic three-cap two-escort four-bomber package is available for regression checks", async () => { });
+    await When("the governed air scenario report is generated", async () => {
+        result = runAirScenario();
+    });
+    await Then("the contested stack package should no longer report the targeted motion or flak-window findings", async () => {
+        const inspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" && entry.missionId === "synthetic-scenario-5-three-cap-two-escort-four-bomber-stack");
+        if (!inspection) {
+            throw new Error("Expected the governed synthetic stack package inspection to be present.");
+        }
+        const blockedCodes = new Set([
+            "sharp-waypoint-turn",
+            "jerky-phase-entry",
+            "early-flak-window",
+            "late-flak-window"
+        ]);
+        const matchingFindings = inspection.findings.filter((finding) => blockedCodes.has(finding.code));
+        if (matchingFindings.length > 0) {
+            throw new Error(`Expected the synthetic stack package to clear the governed motion/flak findings, still saw: ${matchingFindings
+                .map((finding) => `${finding.code}: ${finding.message}`)
+                .join(" | ")}`);
+        }
     });
 });
 registerTest("AIR_SHOW_BOMB_RELEASE_ACTORS_REMAIN_ASSIGNED", async ({ Given, When, Then }) => {

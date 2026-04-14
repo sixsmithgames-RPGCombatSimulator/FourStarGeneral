@@ -32,8 +32,20 @@ function stabilizeHermiteTangent(start, end, tangent) {
     const lateral = { x: -forward.y, y: forward.x };
     const rawForward = tangent.dx * forward.x + tangent.dy * forward.y;
     const rawLateral = tangent.dx * lateral.x + tangent.dy * lateral.y;
-    const forwardMagnitude = clamp(rawForward, segmentLength * 0.34, segmentLength * 0.94);
-    const lateralMagnitude = clamp(rawLateral, -segmentLength * 0.18, segmentLength * 0.18);
+    const tangentDirection = normalizeVector(tangent.dx, tangent.dy, forward.x, forward.y);
+    const alignment = clamp((tangentDirection.x * forward.x + tangentDirection.y * forward.y + 1) * 0.5, 0, 1);
+    const reversalRisk = 1 - alignment;
+    const forwardMagnitude = rawForward <= segmentLength * 0.04
+        ? segmentLength * 0.12
+        : clamp(rawForward, segmentLength * (0.1 + alignment * 0.12), segmentLength * (0.42 + alignment * 0.3));
+    const lateralCap = segmentLength * (0.04 + alignment * 0.08);
+    const lateralMagnitude = clamp(rawLateral, -lateralCap, lateralCap) * (0.78 + alignment * 0.22);
+    if (reversalRisk > 0.72) {
+        return {
+            dx: forward.x * forwardMagnitude,
+            dy: forward.y * forwardMagnitude
+        };
+    }
     return {
         dx: forward.x * forwardMagnitude + lateral.x * lateralMagnitude,
         dy: forward.y * forwardMagnitude + lateral.y * lateralMagnitude
@@ -53,12 +65,20 @@ function buildRoundedWaypointPath(points) {
         const incomingLength = distanceBetween(previous, current);
         const outgoingLength = distanceBetween(current, next);
         const turnAngleDeg = angleBetweenVectors(incoming, outgoing);
+        const isEdgeWaypoint = index === 1 || index === points.length - 2;
+        const shortestLegPx = Math.min(incomingLength, outgoingLength);
         if (incomingLength < 18 || outgoingLength < 18 || turnAngleDeg < 12) {
             expanded.push(current);
             continue;
         }
-        const turnRatio = clamp(turnAngleDeg / 180, 0.22, 0.46);
-        const radiusPx = Math.min(132, incomingLength * turnRatio, outgoingLength * turnRatio);
+        if (isEdgeWaypoint
+            || shortestLegPx < 42
+            || (turnAngleDeg > 146 && shortestLegPx < 96)) {
+            expanded.push(current);
+            continue;
+        }
+        const turnRatio = clamp(turnAngleDeg / 180, 0.16, isEdgeWaypoint ? 0.24 : 0.3);
+        const radiusPx = Math.min(isEdgeWaypoint ? 88 : 104, incomingLength * turnRatio, outgoingLength * turnRatio);
         const entryPoint = {
             cx: current.cx - incoming.x * radiusPx,
             cy: current.cy - incoming.y * radiusPx
@@ -67,6 +87,12 @@ function buildRoundedWaypointPath(points) {
             cx: current.cx + outgoing.x * radiusPx,
             cy: current.cy + outgoing.y * radiusPx
         };
+        if (distanceBetween(expanded[expanded.length - 1], entryPoint) < 10
+            || distanceBetween(entryPoint, exitPoint) < 14
+            || distanceBetween(exitPoint, next) < 10) {
+            expanded.push(current);
+            continue;
+        }
         if (distanceBetween(expanded[expanded.length - 1], entryPoint) > 2) {
             expanded.push(entryPoint);
         }
@@ -105,6 +131,19 @@ function interpolateHermiteDerivative(start, end, startTangent, endTangent, prog
         dy: dh00 * start.cy + dh10 * startTangent.dy + dh01 * end.cy + dh11 * endTangent.dy
     };
 }
+function interpolateLinearPoint(start, end, progress) {
+    const t = clamp(progress, 0, 1);
+    return {
+        cx: start.cx + (end.cx - start.cx) * t,
+        cy: start.cy + (end.cy - start.cy) * t
+    };
+}
+function interpolateLinearDerivative(start, end) {
+    return {
+        dx: end.cx - start.cx,
+        dy: end.cy - start.cy
+    };
+}
 export function sampleAirShowWaypointPath(points, progress) {
     const effectivePoints = buildRoundedWaypointPath(points);
     if (effectivePoints.length <= 1) {
@@ -121,6 +160,7 @@ export function sampleAirShowWaypointPath(points, progress) {
         const p1 = effectivePoints[segmentIndex];
         const p2 = effectivePoints[segmentIndex + 1];
         const p3 = effectivePoints[Math.min(effectivePoints.length - 1, segmentIndex + 2)] ?? effectivePoints[effectivePoints.length - 1];
+        const isBoundarySegment = segmentIndex === 0 || segmentIndex === segmentCount - 1;
         const rawStartTangent = {
             dx: (p2.cx - p0.cx) * 0.5,
             dy: (p2.cy - p0.cy) * 0.5
@@ -133,12 +173,15 @@ export function sampleAirShowWaypointPath(points, progress) {
         const endTangent = stabilizeHermiteTangent(p1, p2, rawEndTangent);
         const sampleCount = 10;
         const samplePoints = [];
-        let previousPoint = interpolateHermitePoint(p1, p2, startTangent, endTangent, 0);
+        const samplePointAt = (t) => isBoundarySegment
+            ? interpolateLinearPoint(p1, p2, t)
+            : interpolateHermitePoint(p1, p2, startTangent, endTangent, t);
+        let previousPoint = samplePointAt(0);
         let cumulative = 0;
         samplePoints.push({ t: 0, point: previousPoint, cumulative });
         for (let sampleIndex = 1; sampleIndex <= sampleCount; sampleIndex += 1) {
             const t = sampleIndex / sampleCount;
-            const point = interpolateHermitePoint(p1, p2, startTangent, endTangent, t);
+            const point = samplePointAt(t);
             cumulative += distanceBetween(previousPoint, point);
             samplePoints.push({ t, point, cumulative });
             previousPoint = point;
@@ -148,6 +191,7 @@ export function sampleAirShowWaypointPath(points, progress) {
             p2,
             startTangent,
             endTangent,
+            isBoundarySegment,
             samples: samplePoints,
             approxLength: Math.max(0.0001, cumulative)
         };
@@ -185,8 +229,12 @@ export function sampleAirShowWaypointPath(points, progress) {
         }
     }
     return {
-        point: interpolateHermitePoint(activeSegment.p1, activeSegment.p2, activeSegment.startTangent, activeSegment.endTangent, localProgress),
-        derivative: interpolateHermiteDerivative(activeSegment.p1, activeSegment.p2, activeSegment.startTangent, activeSegment.endTangent, localProgress)
+        point: activeSegment.isBoundarySegment
+            ? interpolateLinearPoint(activeSegment.p1, activeSegment.p2, localProgress)
+            : interpolateHermitePoint(activeSegment.p1, activeSegment.p2, activeSegment.startTangent, activeSegment.endTangent, localProgress),
+        derivative: activeSegment.isBoundarySegment
+            ? interpolateLinearDerivative(activeSegment.p1, activeSegment.p2)
+            : interpolateHermiteDerivative(activeSegment.p1, activeSegment.p2, activeSegment.startTangent, activeSegment.endTangent, localProgress)
     };
 }
 export function sampleAirShowWaypointPoints(points, sampleCount = 13) {

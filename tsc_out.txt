@@ -1,0 +1,6 @@
+tests/airScenarioSupport.ts(1103,74): error TS2339: Property 'fighterScene' does not exist on type 'CoordinatedAirClusterPlaybackPlan'.
+tests/airScenarioSupport.ts(1107,33): error TS2339: Property 'fighterScene' does not exist on type 'CoordinatedAirClusterPlaybackPlan'.
+tests/airScenarioSupport.ts(1108,44): error TS2339: Property 'fighterScene' does not exist on type 'CoordinatedAirClusterPlaybackPlan'.
+tests/airScenarioSupport.ts(1109,39): error TS2339: Property 'fighterScene' does not exist on type 'CoordinatedAirClusterPlaybackPlan'.
+tests/airScenarioSupport.ts(1113,49): error TS2339: Property 'strikePlans' does not exist on type 'CoordinatedAirClusterPlaybackPlan'.
+tests/airScenarioSupport.ts(1113,66): error TS7006: Parameter 'entry' implicitly has an 'any' type.

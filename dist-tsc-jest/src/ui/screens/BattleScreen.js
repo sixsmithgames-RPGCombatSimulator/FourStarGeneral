@@ -17,6 +17,7 @@ import { createMissionRulesController } from "../../state/missionRules";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { setMissionStartedUI } from "../utils/missionUi";
 import { buildResolvedAirCombatScene } from "../airshow/ResolvedAirCombatSceneBuilder";
+import { buildCoordinatedAirClusterPlaybackPlan } from "../airshow/ClusterAirPlaybackPlanner";
 /**
  * Manages the battle screen where combat takes place.
  * Handles turn management, deployment finalization, and mission completion.
@@ -3956,12 +3957,13 @@ export class BattleScreen {
         eventOperations.forEach((operation, index) => {
             laneOffsetsByIndex.set(operation.index, eventLaneOffsets[index] ?? 0);
         });
-        const capClashOperations = cluster.filter((operation) => operation.kind === "event" && operation.event.type === "capClash");
-        const concurrentOperations = cluster.filter((operation) => !(operation.kind === "event" && operation.event.type === "capClash"));
-        for (const operation of capClashOperations) {
-            await this.playStandaloneAirEngagementEvent(operation.event, renderer, engine, Boolean(focusKey), laneOffsetsByIndex.get(operation.index) ?? 0);
-        }
+        const concurrentOperations = [...cluster];
         if (concurrentOperations.length <= 0) {
+            return;
+        }
+        const coordinatedPlan = this.buildCoordinatedAirPlaybackPlanForCluster(concurrentOperations, engine);
+        if (coordinatedPlan) {
+            await this.playCoordinatedAirPlaybackPlan(coordinatedPlan, renderer, engine, laneOffsetsByIndex);
             return;
         }
         await Promise.all(concurrentOperations.map(async (operation) => {
@@ -3975,6 +3977,35 @@ export class BattleScreen {
             }
             await this.playStandaloneAirEngagementEvent(operation.event, renderer, engine, Boolean(focusKey), laneOffsetsByIndex.get(operation.index) ?? 0);
         }));
+    }
+    buildCoordinatedAirPlaybackPlanForCluster(cluster, engine) {
+        return buildCoordinatedAirClusterPlaybackPlan(cluster, {
+            resolveOriginKey: (unitKey, faction) => this.resolveAirEngagementOffsetKey(unitKey, faction, engine),
+            resolveStrength: (unitKey, faction) => this.resolveAirSquadronStrength(unitKey, faction, engine),
+            fighterIngressDurationMs: Math.round(this.resolveFighterInterceptIngressDurationMs() * 0.96),
+            escortClashDurationMs: this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 1.24)),
+            fighterEgressDurationMs: this.scaleAirSequenceMs(920),
+            bomberStartDelayMs: this.scaleAirSequenceMs(880)
+        });
+    }
+    async playCoordinatedAirPlaybackPlan(plan, renderer, engine, laneOffsetsByIndex) {
+        if (plan.scene && typeof renderer.animateResolvedAirCombatShow === "function") {
+            plan.announcementEvents.forEach((event) => this.announceAirInterceptEngagement(event));
+            plan.flakAnnouncementEvents.forEach((event) => this.announceFlakEngagement(event));
+            await renderer.animateResolvedAirCombatShow(plan.scene);
+        }
+        const residualPromises = plan.residualOperations.map(async (operation) => {
+            if (operation.kind === "linkedStrike") {
+                await this.playMissionStrikeOperation(operation.flight, [...operation.linkedEvents], operation.escorts, renderer, engine, true);
+                return;
+            }
+            if (operation.kind === "flight") {
+                await this.playStandaloneAirMissionFlight(operation.flight, renderer, engine, true);
+                return;
+            }
+            await this.playStandaloneAirEngagementEvent(operation.event, renderer, engine, true, laneOffsetsByIndex.get(operation.index) ?? 0);
+        });
+        await Promise.all(residualPromises);
     }
     /**
      * Encourages the commander to assign a base camp before starting battle by spotlighting the relevant controls.

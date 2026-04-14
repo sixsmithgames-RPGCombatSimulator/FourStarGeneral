@@ -100,6 +100,10 @@ import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { setMissionStartedUI } from "../utils/missionUi";
 import { buildResolvedAirCombatScene, type BuildResolvedAirCombatSceneOptions } from "../airshow/ResolvedAirCombatSceneBuilder";
 import {
+  buildCoordinatedAirClusterPlaybackPlan,
+  type CoordinatedAirClusterPlaybackPlan
+} from "../airshow/ClusterAirPlaybackPlanner";
+import {
   logAirShowPackageStart,
   logAirShowBeatStart,
   logAirShowActorTransition,
@@ -5246,25 +5250,19 @@ export class BattleScreen {
       laneOffsetsByIndex.set(operation.index, eventLaneOffsets[index] ?? 0);
     });
 
-    const capClashOperations = cluster.filter(
-      (operation): operation is StandaloneEventPlaybackOperation =>
-        operation.kind === "event" && operation.event.type === "capClash"
-    );
-    const concurrentOperations = cluster.filter(
-      (operation) => !(operation.kind === "event" && operation.event.type === "capClash")
-    );
-
-    for (const operation of capClashOperations) {
-      await this.playStandaloneAirEngagementEvent(
-        operation.event,
-        renderer,
-        engine,
-        Boolean(focusKey),
-        laneOffsetsByIndex.get(operation.index) ?? 0
-      );
+    const concurrentOperations = [...cluster];
+    if (concurrentOperations.length <= 0) {
+      return;
     }
 
-    if (concurrentOperations.length <= 0) {
+    const coordinatedPlan = this.buildCoordinatedAirPlaybackPlanForCluster(concurrentOperations, engine);
+    if (coordinatedPlan) {
+      await this.playCoordinatedAirPlaybackPlan(
+        coordinatedPlan,
+        renderer,
+        engine,
+        laneOffsetsByIndex
+      );
       return;
     }
 
@@ -5294,6 +5292,62 @@ export class BattleScreen {
         );
       })
     );
+  }
+
+  private buildCoordinatedAirPlaybackPlanForCluster(
+    cluster: AirPlaybackOperation[],
+    engine: GameEngine
+  ): CoordinatedAirClusterPlaybackPlan | null {
+    return buildCoordinatedAirClusterPlaybackPlan(cluster, {
+      resolveOriginKey: (unitKey, faction) => this.resolveAirEngagementOffsetKey(unitKey, faction, engine),
+      resolveStrength: (unitKey, faction) => this.resolveAirSquadronStrength(unitKey, faction, engine),
+      fighterIngressDurationMs: Math.round(this.resolveFighterInterceptIngressDurationMs() * 0.96),
+      escortClashDurationMs: this.scaleAirSequenceMs(
+        Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 1.24)
+      ),
+      fighterEgressDurationMs: this.scaleAirSequenceMs(920),
+      bomberStartDelayMs: this.scaleAirSequenceMs(880)
+    });
+  }
+
+  private async playCoordinatedAirPlaybackPlan(
+    plan: CoordinatedAirClusterPlaybackPlan,
+    renderer: HexMapRenderer,
+    engine: GameEngine,
+    laneOffsetsByIndex: ReadonlyMap<number, number>
+  ): Promise<void> {
+    if (plan.scene && typeof (renderer as any).animateResolvedAirCombatShow === "function") {
+      plan.announcementEvents.forEach((event) => this.announceAirInterceptEngagement(event));
+      plan.flakAnnouncementEvents.forEach((event) => this.announceFlakEngagement(event));
+      await (renderer as any).animateResolvedAirCombatShow(plan.scene);
+    }
+
+    const residualPromises = plan.residualOperations.map(async (operation) => {
+      if (operation.kind === "linkedStrike") {
+        await this.playMissionStrikeOperation(
+          operation.flight,
+          [...operation.linkedEvents],
+          operation.escorts,
+          renderer,
+          engine,
+          true
+        );
+        return;
+      }
+      if (operation.kind === "flight") {
+        await this.playStandaloneAirMissionFlight(operation.flight, renderer, engine, true);
+        return;
+      }
+      await this.playStandaloneAirEngagementEvent(
+        operation.event,
+        renderer,
+        engine,
+        true,
+        laneOffsetsByIndex.get(operation.index) ?? 0
+      );
+    });
+
+    await Promise.all(residualPromises);
   }
 
   /**

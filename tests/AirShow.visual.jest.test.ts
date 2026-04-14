@@ -170,4 +170,26 @@ describe("AirShow JEST Harness", () => {
     expect(scramblePhase?.assignments.some((assignment) => assignment.role === "interceptor")).toBe(true);
     expect(scramblePhase?.assignments.some((assignment) => assignment.role === "escort")).toBe(true);
   });
+
+  test("dogfight phases paint tracer bursts before bomber ingress in the 3 CAP / 2 escort package", async () => {
+    const report = inspectScene(await captureScene());
+    const bomberIngressIndex = report.phases.findIndex((phase) => phase.label === "bomber-ingress");
+    const mergePhase = report.phases.find((phase) => phase.label === "escort-clash-merge");
+    const scramblePhase = report.phases.find((phase) => phase.label === "escort-clash-scramble");
+
+    expect(bomberIngressIndex).toBeGreaterThan(0);
+    expect(mergePhase).toBeDefined();
+    expect(scramblePhase).toBeDefined();
+    expect(mergePhase?.tracers.length ?? 0).toBeGreaterThan(0);
+    expect(scramblePhase?.tracers.length ?? 0).toBeGreaterThan(0);
+  });
+
+  test("target-run keeps four bomber actors visible and schedules flak bursts in the visual harness", async () => {
+    const report = inspectScene(await captureScene());
+    const targetRun = report.phases.find((phase) => phase.label === "target-run");
+
+    expect(targetRun).toBeDefined();
+    expect(targetRun?.assignments.filter((assignment) => assignment.role === "bomber")).toHaveLength(4);
+    expect(targetRun?.flakBursts.length ?? 0).toBeGreaterThan(0);
+  });
 });

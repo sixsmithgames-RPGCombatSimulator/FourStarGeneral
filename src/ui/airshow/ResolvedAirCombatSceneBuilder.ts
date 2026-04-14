@@ -1,5 +1,8 @@
 import type { AirEngagementEvent, TurnFaction } from "../../game/GameEngine";
-import type { ResolvedAirShowScene } from "../../rendering/HexMapRenderer";
+import type {
+  ResolvedAirShowFlakBurst,
+  ResolvedAirShowScene
+} from "../../rendering/HexMapRenderer";
 
 export interface LinkedEscortFlightContext {
   readonly unitKey: string;
@@ -47,6 +50,43 @@ export interface BuildResolvedAirCombatSceneOptions {
 export interface BuildResolvedAirCombatSceneResult {
   readonly scene: ResolvedAirShowScene;
   readonly diagnostics: ResolvedAirCombatSceneDiagnostic;
+}
+
+export interface BuildResolvedAirShowFlakBurstOptions {
+  readonly bomberUnitKey?: string | null;
+  readonly targetHexKey?: string | null;
+}
+
+export function buildResolvedAirShowFlakBursts(
+  flakEvent: AirEngagementEvent | null | undefined,
+  options: BuildResolvedAirShowFlakBurstOptions = {}
+): ReadonlyArray<ResolvedAirShowFlakBurst> {
+  if (!flakEvent) {
+    return [];
+  }
+
+  const engagementCount =
+    Array.isArray(flakEvent.flakEngagements) && flakEvent.flakEngagements.length > 0
+      ? flakEvent.flakEngagements.length
+      : Math.max(0, flakEvent.interceptors.length);
+  const waveCount = Math.max(18, Math.min(26, engagementCount * 3 + 14));
+  return Array.from({ length: waveCount }, (_, index) => ({
+    // Flak should open late in the strike run, once the bombers are committed to
+    // the target lane but before release, so the barrage reads as "target defense"
+    // rather than a mid-map fireworks belt.
+    progress: Math.min(0.9, 0.66 + index * 0.013),
+    count: engagementCount,
+    scale: 0.34 + index * 0.01,
+    alongOffsetPx: -14 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI) * 10,
+    lateralOffsetPx: (index - (waveCount - 1) / 2) * Math.min(22, 14 + engagementCount * 3),
+    alongSpreadPx: 54 + engagementCount * 12,
+    lateralSpreadPx: 84 + engagementCount * 14,
+    puffCount: 18 + engagementCount * 8,
+    smokePuffCount: 24 + engagementCount * 10,
+    smokeScale: 1.36 + index * 0.028,
+    bomberUnitKey: options.bomberUnitKey ?? null,
+    targetHexKey: options.targetHexKey ?? null
+  }));
 }
 
 export function buildResolvedAirCombatScene(
@@ -188,28 +228,11 @@ export function buildResolvedAirCombatScene(
       bomberPassExchanges: includeBomber ? (event.bomberPassExchanges ?? []) : [],
       bomberTargetHexKey: options.bomberTargetKey,
       flakBursts:
-        options.flakEvent && includeBomber
-          ? (() => {
-              const engagementCount =
-                Array.isArray(options.flakEvent.flakEngagements) && options.flakEvent.flakEngagements.length > 0
-                  ? options.flakEvent.flakEngagements.length
-                  : Math.max(0, options.flakEvent.interceptors.length);
-              const waveCount = Math.max(18, Math.min(26, engagementCount * 3 + 14));
-              return Array.from({ length: waveCount }, (_, index) => ({
-                // Flak fires during bomber approach (25-55% progress), not at end (82%+)
-                // This ensures flak is visible while bombers are on target run, not after they egress
-                progress: Math.min(0.55, 0.25 + index * 0.016),
-                count: engagementCount,
-                scale: 0.34 + index * 0.01,
-                alongOffsetPx: -24 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI) * 12,
-                lateralOffsetPx: (index - (waveCount - 1) / 2) * Math.min(22, 14 + engagementCount * 3),
-                alongSpreadPx: 54 + engagementCount * 12,
-                lateralSpreadPx: 84 + engagementCount * 14,
-                puffCount: 18 + engagementCount * 8,
-                smokePuffCount: 24 + engagementCount * 10,
-                smokeScale: 1.36 + index * 0.028
-              }));
-            })()
+        includeBomber
+          ? buildResolvedAirShowFlakBursts(options.flakEvent, {
+              bomberUnitKey: event.bomber.unitKey,
+              targetHexKey: options.bomberTargetKey ?? null
+            })
           : []
     },
     diagnostics: {

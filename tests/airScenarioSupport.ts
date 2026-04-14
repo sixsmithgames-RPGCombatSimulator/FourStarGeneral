@@ -18,14 +18,17 @@ import {
 import {
   GameEngine,
   type AirEngagementEvent,
+  type AirMissionArrival,
   type AirMissionReportEntry,
-  type GameEngineConfig
+  type GameEngineConfig,
+  type SerializedAirMission
 } from "../src/game/GameEngine.js";
 import { ensureDomEnvironment } from "./domEnvironment.js";
 import {
   buildResolvedAirCombatScene,
   type ResolvedAirCombatSceneDiagnostic
 } from "../src/ui/airshow/ResolvedAirCombatSceneBuilder.js";
+import { buildCoordinatedAirClusterPlaybackPlan } from "../src/ui/airshow/ClusterAirPlaybackPlanner.js";
 import {
   sampleAirShowWaypointPath,
   sampleAirShowWaypointPoints
@@ -152,17 +155,17 @@ function side(hq: Axial): ScenarioSide {
 
 function scenario(): ScenarioData {
   const tileKey = "plains";
-  const row = Array.from({ length: 8 }, () => ({ tile: tileKey }));
+  const row = Array.from({ length: 16 }, () => ({ tile: tileKey }));
   return {
     name: "Air Combat Automation Scenario",
-    size: { cols: 8, rows: 8 },
+    size: { cols: 16, rows: 16 },
     tilePalette: {
       [tileKey]: { terrain: "plains", terrainType: "grass", density: "average", features: [], recon: "intel" }
     },
-    tiles: Array.from({ length: 8 }, () => row),
+    tiles: Array.from({ length: 16 }, () => row),
     objectives: [],
     turnLimit: 6,
-    sides: { Player: side({ q: 0, r: 0 }), Bot: side({ q: 7, r: 7 }) }
+    sides: { Player: side({ q: 0, r: 2 }), Bot: side({ q: 14, r: 14 }) }
   } as unknown as ScenarioData;
 }
 
@@ -185,13 +188,43 @@ function setMission(engine: GameEngine, mission: Record<string, unknown>): void 
   ((engine as unknown as { scheduledAirMissions: Map<string, unknown> }).scheduledAirMissions).set(String(mission.id), mission);
 }
 
+const airCoverTemplate = {
+  kind: "airCover",
+  label: "CAP",
+  description: "",
+  allowedRoles: ["cap"],
+  requiresTarget: false,
+  requiresFriendlyEscortTarget: false,
+  durationTurns: 1
+} as const;
+
+const strikeTemplate = {
+  kind: "strike",
+  label: "Strike",
+  description: "",
+  allowedRoles: ["strike"],
+  requiresTarget: true,
+  requiresFriendlyEscortTarget: false,
+  durationTurns: 0
+} as const;
+
+const escortTemplate = {
+  kind: "escort",
+  label: "Escort",
+  description: "",
+  allowedRoles: ["escort"],
+  requiresTarget: false,
+  requiresFriendlyEscortTarget: true,
+  durationTurns: 1
+} as const;
+
 function buildEngine(): GameEngine {
   const config: GameEngineConfig = {
     scenario: scenario(),
     unitTypes,
     terrain,
-    playerSide: side({ q: 0, r: 0 }),
-    botSide: side({ q: 7, r: 7 })
+    playerSide: side({ q: 0, r: 2 }),
+    botSide: side({ q: 14, r: 14 })
   };
   const engine = new GameEngine(config);
 
@@ -199,137 +232,143 @@ function buildEngine(): GameEngine {
   engine.initializeFromAllocations([
     make("Fighter", { q: 0, r: 0 }, "u_pcap1"),
     make("Interceptor", { q: 1, r: 0 }, "u_pcap2"),
-    make("Bomber", { q: 0, r: 1 }, "u_pbomber"),
-    make("Fighter", { q: 1, r: 1 }, "u_pescort"),
-    make("Infantry_42", { q: 5, r: 5 }, "u_btarget"),
-    make("Infantry_42", { q: 2, r: 2 }, "u_ptarget"),
-    make("Flak_88", { q: 2, r: 3 }, "u_pflak", { onSentry: true })
+    make("Fighter", { q: 0, r: 1 }, "u_pcap3"),
+    make("Infantry_42", { q: 3, r: 2 }, "u_ptarget1"),
+    make("Infantry_42", { q: 4, r: 2 }, "u_ptarget2"),
+    make("Infantry_42", { q: 3, r: 3 }, "u_ptarget3"),
+    make("Infantry_42", { q: 4, r: 3 }, "u_ptarget4"),
+    make("Flak_88", { q: 2, r: 2 }, "u_pflak1", { onSentry: true }),
+    make("Flak_88", { q: 5, r: 2 }, "u_pflak2", { onSentry: true }),
+    make("Flak_88", { q: 2, r: 4 }, "u_pflak3", { onSentry: true }),
+    make("Flak_88", { q: 5, r: 4 }, "u_pflak4", { onSentry: true })
   ]);
-  engine.setBaseCamp({ q: 0, r: 0 });
+  engine.setBaseCamp({ q: 0, r: 2 });
   engine.finalizeDeployment();
   engine.startPlayerTurnPhase();
 
   const internals = engine as unknown as {
     botPlacements: Map<string, ScenarioUnit>;
   };
-  internals.botPlacements.set("6,6", make("Fighter", { q: 6, r: 6 }, "u_bcap"));
-  internals.botPlacements.set("7,6", make("Bomber", { q: 7, r: 6 }, "u_bbomber"));
-  internals.botPlacements.set("6,7", make("Fighter", { q: 6, r: 7 }, "u_bescort"));
-  internals.botPlacements.set("5,6", make("Flak_88", { q: 5, r: 6 }, "u_bflak", { onSentry: true }));
+  [
+    make("Bomber", { q: 13, r: 14 }, "u_bbomber1"),
+    make("Bomber", { q: 14, r: 14 }, "u_bbomber2"),
+    make("Bomber", { q: 13, r: 13 }, "u_bbomber3"),
+    make("Bomber", { q: 14, r: 13 }, "u_bbomber4"),
+    make("Fighter", { q: 12, r: 14 }, "u_bescort1"),
+    make("Fighter", { q: 12, r: 13 }, "u_bescort2")
+  ].forEach((unit) => {
+    internals.botPlacements.set(`${unit.hex.q},${unit.hex.r}`, unit);
+  });
 
-  setMission(engine, {
-    id: "player-cap-1",
-    template: { kind: "airCover", label: "CAP", description: "", allowedRoles: ["cap"], requiresTarget: false, requiresFriendlyEscortTarget: false, durationTurns: 1 },
-    faction: "Player",
-    unitKey: "u_pcap1",
-    originHexKey: "0,0",
-    unitType: "Fighter",
-    status: "inFlight",
-    launchTurn: 1,
-    turnsRemaining: 0,
-    targetHex: { q: 2, r: 2 },
-    interceptions: 0,
-    airCombatDamageInflicted: 0,
-    airCombatDamageTaken: 0,
-    airCombatKills: 0
+  [
+    {
+      id: "player-cap-1",
+      unitKey: "u_pcap1",
+      originHexKey: "0,0",
+      unitType: "Fighter",
+      targetHex: { q: 3, r: 2 }
+    },
+    {
+      id: "player-cap-2",
+      unitKey: "u_pcap2",
+      originHexKey: "1,0",
+      unitType: "Interceptor",
+      targetHex: { q: 4, r: 2 }
+    },
+    {
+      id: "player-cap-3",
+      unitKey: "u_pcap3",
+      originHexKey: "0,1",
+      unitType: "Fighter",
+      targetHex: { q: 3, r: 3 }
+    }
+  ].forEach((mission) => {
+    setMission(engine, {
+      ...mission,
+      template: airCoverTemplate,
+      faction: "Player",
+      status: "inFlight",
+      launchTurn: 1,
+      turnsRemaining: 0,
+      interceptions: 0,
+      airCombatDamageInflicted: 0,
+      airCombatDamageTaken: 0,
+      airCombatKills: 0
+    });
   });
-  setMission(engine, {
-    id: "player-cap-2",
-    template: { kind: "airCover", label: "CAP", description: "", allowedRoles: ["cap"], requiresTarget: false, requiresFriendlyEscortTarget: false, durationTurns: 1 },
-    faction: "Player",
-    unitKey: "u_pcap2",
-    originHexKey: "1,0",
-    unitType: "Interceptor",
-    status: "inFlight",
-    launchTurn: 1,
-    turnsRemaining: 0,
-    targetHex: { q: 2, r: 2 },
-    interceptions: 0,
-    airCombatDamageInflicted: 0,
-    airCombatDamageTaken: 0,
-    airCombatKills: 0
+
+  [
+    {
+      id: "bot-strike-1",
+      unitKey: "u_bbomber1",
+      originHexKey: "13,14",
+      targetHex: { q: 3, r: 2 },
+      targetUnitKey: "u_ptarget1"
+    },
+    {
+      id: "bot-strike-2",
+      unitKey: "u_bbomber2",
+      originHexKey: "14,14",
+      targetHex: { q: 4, r: 2 },
+      targetUnitKey: "u_ptarget2"
+    },
+    {
+      id: "bot-strike-3",
+      unitKey: "u_bbomber3",
+      originHexKey: "13,13",
+      targetHex: { q: 3, r: 3 },
+      targetUnitKey: "u_ptarget3"
+    },
+    {
+      id: "bot-strike-4",
+      unitKey: "u_bbomber4",
+      originHexKey: "14,13",
+      targetHex: { q: 4, r: 3 },
+      targetUnitKey: "u_ptarget4"
+    }
+  ].forEach((mission) => {
+    setMission(engine, {
+      ...mission,
+      template: strikeTemplate,
+      faction: "Bot",
+      unitType: "Bomber",
+      status: "resolving",
+      launchTurn: 1,
+      turnsRemaining: 0,
+      interceptions: 0,
+      airCombatDamageInflicted: 0,
+      airCombatDamageTaken: 0,
+      airCombatKills: 0
+    });
   });
-  setMission(engine, {
-    id: "bot-cap-1",
-    template: { kind: "airCover", label: "CAP", description: "", allowedRoles: ["cap"], requiresTarget: false, requiresFriendlyEscortTarget: false, durationTurns: 1 },
-    faction: "Bot",
-    unitKey: "u_bcap",
-    originHexKey: "6,6",
-    unitType: "Fighter",
-    status: "inFlight",
-    launchTurn: 1,
-    turnsRemaining: 0,
-    targetHex: { q: 5, r: 5 },
-    interceptions: 0,
-    airCombatDamageInflicted: 0,
-    airCombatDamageTaken: 0,
-    airCombatKills: 0
-  });
-  setMission(engine, {
-    id: "player-strike-1",
-    template: { kind: "strike", label: "Strike", description: "", allowedRoles: ["strike"], requiresTarget: true, requiresFriendlyEscortTarget: false, durationTurns: 0 },
-    faction: "Player",
-    unitKey: "u_pbomber",
-    originHexKey: "0,1",
-    unitType: "Bomber",
-    status: "resolving",
-    launchTurn: 1,
-    turnsRemaining: 0,
-    targetHex: { q: 5, r: 5 },
-    targetUnitKey: "u_btarget",
-    interceptions: 0,
-    airCombatDamageInflicted: 0,
-    airCombatDamageTaken: 0,
-    airCombatKills: 0
-  });
-  setMission(engine, {
-    id: "player-escort-1",
-    template: { kind: "escort", label: "Escort", description: "", allowedRoles: ["escort"], requiresTarget: false, requiresFriendlyEscortTarget: true, durationTurns: 1 },
-    faction: "Player",
-    unitKey: "u_pescort",
-    originHexKey: "1,1",
-    unitType: "Fighter",
-    status: "resolving",
-    launchTurn: 1,
-    turnsRemaining: 0,
-    escortTargetUnitKey: "u_pbomber",
-    interceptions: 0,
-    airCombatDamageInflicted: 0,
-    airCombatDamageTaken: 0,
-    airCombatKills: 0
-  });
-  setMission(engine, {
-    id: "bot-strike-1",
-    template: { kind: "strike", label: "Strike", description: "", allowedRoles: ["strike"], requiresTarget: true, requiresFriendlyEscortTarget: false, durationTurns: 0 },
-    faction: "Bot",
-    unitKey: "u_bbomber",
-    originHexKey: "7,6",
-    unitType: "Bomber",
-    status: "resolving",
-    launchTurn: 1,
-    turnsRemaining: 0,
-    targetHex: { q: 2, r: 2 },
-    targetUnitKey: "u_ptarget",
-    interceptions: 0,
-    airCombatDamageInflicted: 0,
-    airCombatDamageTaken: 0,
-    airCombatKills: 0
-  });
-  setMission(engine, {
-    id: "bot-escort-1",
-    template: { kind: "escort", label: "Escort", description: "", allowedRoles: ["escort"], requiresTarget: false, requiresFriendlyEscortTarget: true, durationTurns: 1 },
-    faction: "Bot",
-    unitKey: "u_bescort",
-    originHexKey: "6,7",
-    unitType: "Fighter",
-    status: "resolving",
-    launchTurn: 1,
-    turnsRemaining: 0,
-    escortTargetUnitKey: "u_bbomber",
-    interceptions: 0,
-    airCombatDamageInflicted: 0,
-    airCombatDamageTaken: 0,
-    airCombatKills: 0
+
+  [
+    {
+      id: "bot-escort-1",
+      unitKey: "u_bescort1",
+      originHexKey: "12,14",
+      escortTargetUnitKey: "u_bbomber1"
+    },
+    {
+      id: "bot-escort-2",
+      unitKey: "u_bescort2",
+      originHexKey: "12,13",
+      escortTargetUnitKey: "u_bbomber2"
+    }
+  ].forEach((mission) => {
+    setMission(engine, {
+      ...mission,
+      template: escortTemplate,
+      faction: "Bot",
+      unitType: "Fighter",
+      status: "resolving",
+      launchTurn: 1,
+      turnsRemaining: 0,
+      interceptions: 0,
+      airCombatDamageInflicted: 0,
+      airCombatDamageTaken: 0,
+      airCombatKills: 0
+    });
   });
 
   return engine;
@@ -433,8 +472,10 @@ export interface AirShowPhaseFlakMetric {
 
 export interface AirScenarioResult {
   readonly scenarioName: string;
+  readonly arrivals: readonly AirMissionArrival[];
   readonly missionReports: readonly AirMissionReportEntry[];
   readonly engagements: readonly AirEngagementEvent[];
+  readonly playbackProjection: AirScenarioPlaybackProjection;
   readonly airshowInspections: readonly {
     readonly eventType: AirEngagementEvent["type"];
     readonly missionId?: string;
@@ -445,6 +486,123 @@ export interface AirScenarioResult {
   }[];
   readonly anomalies: readonly AirScenarioAnomaly[];
   readonly findings: readonly AirScenarioFinding[];
+}
+
+export interface AirScenarioPlaybackFlight {
+  readonly missionId: string;
+  readonly faction: "Player" | "Bot" | "Ally";
+  readonly kind: string;
+  readonly unitKey: string;
+  readonly originKey: string;
+  readonly destKey: string;
+  readonly unitType: string;
+  readonly strength: number;
+  readonly laneOffsetPx: number;
+  readonly targetHexKey: string | null;
+  readonly escortTargetUnitKey?: string;
+}
+
+export interface AirScenarioPlaybackOperationSummary {
+  readonly kind: "linkedStrike" | "flight" | "event";
+  readonly missionId?: string;
+  readonly unitKey?: string;
+  readonly focusKey: string | null;
+  readonly label: string;
+  readonly linkedEventTypes?: readonly AirEngagementEvent["type"][];
+  readonly escortUnitKeys?: readonly string[];
+}
+
+export interface AirScenarioPlaybackClusterSummary {
+  readonly index: number;
+  readonly focusKeys: readonly string[];
+  readonly operationSummaries: readonly AirScenarioPlaybackOperationSummary[];
+}
+
+export interface AirScenarioCoordinatedPlanSummary {
+  readonly clusterIndex: number;
+  readonly focusKey: string | null;
+  readonly hasFighterScene: boolean;
+  readonly fighterSceneInterceptorCount: number;
+  readonly fighterSceneEscortCount: number;
+  readonly fighterScenePhaseLabels: readonly string[];
+  readonly fighterSceneTracerCount: number;
+  readonly fighterSceneDurationMs: number;
+  readonly strikeSortieMissionIds: readonly string[];
+  readonly residualOperationLabels: readonly string[];
+  readonly bomberStartDelayMs: number;
+  readonly fighterIngressLeadMs: number;
+}
+
+export interface AirScenarioPlaybackProjection {
+  readonly preparedFlights: readonly AirScenarioPlaybackFlight[];
+  readonly linkedStrikeMissionIds: readonly string[];
+  readonly standaloneFlightMissionIds: readonly string[];
+  readonly standaloneEventMissionIds: readonly string[];
+  readonly clusters: readonly AirScenarioPlaybackClusterSummary[];
+  readonly coordinatedPlans: readonly AirScenarioCoordinatedPlanSummary[];
+}
+
+function inspectCoordinatedFighterScene(scene: ResolvedAirShowScene | null): {
+  readonly phaseLabels: readonly string[];
+  readonly tracerCount: number;
+  readonly durationMs: number;
+} | null {
+  if (!scene) {
+    return null;
+  }
+
+  ensureDomEnvironment();
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "1600");
+  svg.setAttribute("height", "1200");
+  const canvas = document.createElement("div");
+  document.body.appendChild(svg);
+  document.body.appendChild(canvas);
+
+  const renderer = new HexMapRenderer();
+  const hostFetch = globalThis.fetch?.bind(globalThis);
+  const mockJsonResponse = (payload: unknown): Response =>
+    ({
+      ok: true,
+      status: 200,
+      json: async () => payload
+    } as Response);
+
+  if (hostFetch) {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("data/effectSpecs.json")) {
+        return mockJsonResponse([]);
+      }
+      if (url.endsWith("data/terrainTints.json")) {
+        return mockJsonResponse([]);
+      }
+      if (url.endsWith("data/soundCatalog.json")) {
+        return mockJsonResponse({ version: 1, assets: {} });
+      }
+      return hostFetch(input as RequestInfo, init);
+    }) as typeof fetch;
+  }
+
+  renderer.render(svg, canvas, scenario());
+
+  try {
+    const report = renderer.inspectResolvedAirCombatShow(scene);
+    if (!report) {
+      return null;
+    }
+    return {
+      phaseLabels: report.phases.map((phase) => phase.label),
+      tracerCount: report.phases.reduce((sum, phase) => sum + phase.tracers.length, 0),
+      durationMs: report.phases.reduce((sum, phase) => sum + phase.durationMs, 0)
+    };
+  } finally {
+    if (hostFetch) {
+      globalThis.fetch = hostFetch;
+    }
+    svg.remove();
+    canvas.remove();
+  }
 }
 
 function isResolvedMissionReport(report: AirMissionReportEntry): boolean {
@@ -476,6 +634,72 @@ function toOffsetHexKey(hex: Axial): string {
   return `${offset.col},${offset.row}`;
 }
 
+function offsetHexKeyToAxial(hexKey: string | null | undefined): Axial | null {
+  if (!hexKey) {
+    return null;
+  }
+  const parsed = CoordinateSystem.parseHexKey(hexKey);
+  if (!parsed) {
+    return null;
+  }
+  return CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+}
+
+function lookupUnitHex(engine: GameEngine, unitKey: string, faction: "Player" | "Bot" | "Ally"): Axial | null {
+  const lookup = (engine as unknown as {
+    lookupUnitBySquadronId: (candidate: string, side: "Player" | "Bot" | "Ally") => { unit: ScenarioUnit } | null;
+  }).lookupUnitBySquadronId(unitKey, faction);
+  return lookup?.unit?.hex ? structuredClone(lookup.unit.hex) : null;
+}
+
+function findScheduledMissionById(
+  engine: GameEngine,
+  missionId: string,
+  faction: "Player" | "Bot" | "Ally"
+): SerializedAirMission | null {
+  return engine.getScheduledAirMissions(faction).find((entry) => entry.id === missionId) ?? null;
+}
+
+function findLinkedStrikeMissionForEscort(
+  engine: GameEngine,
+  protectedSquadronId: string | undefined | null,
+  faction: "Player" | "Bot" | "Ally"
+): SerializedAirMission | null {
+  if (!protectedSquadronId) {
+    return null;
+  }
+  const matches = engine
+    .getScheduledAirMissions(faction)
+    .filter((entry) => entry.kind === "strike" && entry.unitKey === protectedSquadronId);
+  return matches.find((entry) => entry.status !== "completed") ?? matches[0] ?? null;
+}
+
+function resolvePlaybackTargetHex(
+  engine: GameEngine,
+  flight: {
+    readonly missionId: string;
+    readonly faction: "Player" | "Bot" | "Ally";
+    readonly targetHex?: Axial;
+    readonly escortTargetUnitKey?: string;
+  }
+): Axial | null {
+  const mission = findScheduledMissionById(engine, flight.missionId, flight.faction);
+  if (mission?.targetHex) {
+    return structuredClone(mission.targetHex);
+  }
+
+  const escortedSquadronId = mission?.escortTargetUnitKey ?? flight.escortTargetUnitKey;
+  if (escortedSquadronId) {
+    const linkedStrike = findLinkedStrikeMissionForEscort(engine, escortedSquadronId, flight.faction);
+    if (linkedStrike?.targetHex) {
+      return structuredClone(linkedStrike.targetHex);
+    }
+    return lookupUnitHex(engine, escortedSquadronId, flight.faction);
+  }
+
+  return flight.targetHex ? structuredClone(flight.targetHex) : null;
+}
+
 function buildLaneOffsets(count: number): number[] {
   if (count <= 1) {
     return [0];
@@ -483,6 +707,433 @@ function buildLaneOffsets(count: number): number[] {
   const spacing = 27;
   const mid = (count - 1) / 2;
   return Array.from({ length: count }, (_, index) => Math.round((index - mid) * spacing));
+}
+
+function buildPreparedPlaybackFlights(
+  engine: GameEngine,
+  arrivals: readonly AirMissionArrival[]
+): AirScenarioPlaybackFlight[] {
+  const unresolved: Array<Omit<AirScenarioPlaybackFlight, "laneOffsetPx">> = [];
+
+  arrivals.forEach((arrival) => {
+    const originKey = arrival.originHexKey ? CoordinateSystem.axialKeyToOffsetKey(arrival.originHexKey) : null;
+    const targetHex = resolvePlaybackTargetHex(engine, {
+      missionId: arrival.missionId,
+      faction: arrival.faction,
+      targetHex: arrival.targetHex,
+      escortTargetUnitKey: arrival.escortTargetUnitKey
+    });
+    const destKey = targetHex ? toOffsetHexKey(targetHex) : null;
+    const silentPatrolStationing =
+      arrival.kind === "airCover"
+      && !arrival.targetHex
+      && !arrival.targetUnitKey
+      && !arrival.escortTargetUnitKey;
+
+    if ((!originKey || !destKey) && !silentPatrolStationing) {
+      return;
+    }
+
+    if (!originKey || !destKey) {
+      return;
+    }
+
+    unresolved.push({
+      missionId: arrival.missionId,
+      faction: arrival.faction,
+      kind: arrival.kind,
+      unitKey: arrival.unitKey,
+      originKey,
+      destKey,
+      unitType: arrival.unitType,
+      strength: arrival.unitStrength ?? lookupUnitStrength(engine, arrival.unitKey, arrival.faction),
+      targetHexKey: targetHex ? toOffsetHexKey(targetHex) : null,
+      escortTargetUnitKey: arrival.escortTargetUnitKey
+    });
+  });
+
+  const grouped = new Map<string, Array<Omit<AirScenarioPlaybackFlight, "laneOffsetPx">>>();
+  unresolved.forEach((flight) => {
+    const groupKey = `${flight.originKey}->${flight.destKey}`;
+    const group = grouped.get(groupKey) ?? [];
+    group.push(flight);
+    grouped.set(groupKey, group);
+  });
+
+  const preparedFlights: AirScenarioPlaybackFlight[] = [];
+  grouped.forEach((group) => {
+    const offsets = buildLaneOffsets(group.length);
+    group.forEach((flight, index) => {
+      preparedFlights.push({
+        ...flight,
+        laneOffsetPx: offsets[index] ?? 0
+      });
+    });
+  });
+
+  return preparedFlights;
+}
+
+function buildFallbackPlaybackArrivals(engine: GameEngine): AirMissionArrival[] {
+  const factions: Array<"Player" | "Bot" | "Ally"> = ["Player", "Bot", "Ally"];
+  const seenMissionIds = new Set<string>();
+  const arrivals: AirMissionArrival[] = [];
+
+  factions.forEach((faction) => {
+    engine.getScheduledAirMissions(faction).forEach((mission) => {
+      if (seenMissionIds.has(mission.id)) {
+        return;
+      }
+      seenMissionIds.add(mission.id);
+      arrivals.push({
+        missionId: mission.id,
+        faction: mission.faction,
+        unitKey: mission.unitKey,
+        originHexKey: mission.originHexKey,
+        unitType: mission.unitType,
+        unitStrength: lookupUnitStrength(engine, mission.unitKey, mission.faction),
+        kind: mission.kind,
+        targetHex: mission.targetHex ? structuredClone(mission.targetHex) : undefined,
+        targetUnitKey: mission.targetUnitKey,
+        escortTargetUnitKey: mission.escortTargetUnitKey
+      });
+    });
+  });
+
+  return arrivals;
+}
+
+function buildPlaybackProjection(
+  engine: GameEngine,
+  arrivals: readonly AirMissionArrival[],
+  engagements: readonly AirEngagementEvent[]
+): AirScenarioPlaybackProjection {
+  const preparedFlights = buildPreparedPlaybackFlights(engine, arrivals);
+  const linkedEventsByMissionId = new Map<string, AirEngagementEvent[]>();
+  const linkedEventsByBomberUnitKey = new Map<string, AirEngagementEvent[]>();
+
+  engagements.forEach((event) => {
+    if (event.missionId) {
+      const linked = linkedEventsByMissionId.get(event.missionId) ?? [];
+      linked.push(event);
+      linkedEventsByMissionId.set(event.missionId, linked);
+    }
+    const linkedToBomber = linkedEventsByBomberUnitKey.get(event.bomber.unitKey) ?? [];
+    linkedToBomber.push(event);
+    linkedEventsByBomberUnitKey.set(event.bomber.unitKey, linkedToBomber);
+  });
+
+  const linkedEscortFlights = new Map<string, AirScenarioPlaybackFlight[]>();
+  const nonEscortFlights: AirScenarioPlaybackFlight[] = [];
+  preparedFlights.forEach((flight) => {
+    if (flight.kind === "escort" && flight.escortTargetUnitKey) {
+      const escorts = linkedEscortFlights.get(flight.escortTargetUnitKey) ?? [];
+      escorts.push(flight);
+      linkedEscortFlights.set(flight.escortTargetUnitKey, escorts);
+      return;
+    }
+    nonEscortFlights.push(flight);
+  });
+
+  const linkedStrikeFlights: Array<{
+    readonly flight: AirScenarioPlaybackFlight;
+    readonly linkedEvents: readonly AirEngagementEvent[];
+    readonly escorts: readonly AirScenarioPlaybackFlight[];
+  }> = [];
+  const linkedStrikeMissionIds = new Set<string>();
+  const claimedAirBattleUnitKeys = new Set<string>();
+  const claimedLinkedEvents = new Set<AirEngagementEvent>();
+
+  nonEscortFlights.forEach((flight) => {
+    const linkedEvents = Array.from(
+      new Set([
+        ...(linkedEventsByMissionId.get(flight.missionId) ?? []),
+        ...(linkedEventsByBomberUnitKey.get(flight.unitKey) ?? [])
+      ])
+    );
+    if (flight.kind !== "strike" || linkedEvents.length <= 0) {
+      return;
+    }
+    linkedStrikeMissionIds.add(flight.missionId);
+    linkedEvents.forEach((event) => claimedLinkedEvents.add(event));
+    const linkedEscorts = linkedEscortFlights.get(flight.unitKey) ?? [];
+    linkedEvents.forEach((event) => {
+      if (event.type !== "airToAir") {
+        return;
+      }
+      event.interceptors.forEach((participant) => claimedAirBattleUnitKeys.add(participant.unitKey));
+      event.escorts.forEach((participant) => claimedAirBattleUnitKeys.add(participant.unitKey));
+      linkedEscorts.forEach((escortFlight) => claimedAirBattleUnitKeys.add(escortFlight.unitKey));
+    });
+    linkedStrikeFlights.push({
+      flight,
+      linkedEvents,
+      escorts: linkedEscorts
+    });
+    linkedEscortFlights.delete(flight.unitKey);
+  });
+
+  engagements.forEach((event) => {
+    if (event.type !== "capClash") {
+      return;
+    }
+    event.interceptors.forEach((participant) => claimedAirBattleUnitKeys.add(participant.unitKey));
+    event.escorts.forEach((participant) => claimedAirBattleUnitKeys.add(participant.unitKey));
+  });
+
+  const standaloneFlights: AirScenarioPlaybackFlight[] = [];
+  nonEscortFlights.forEach((flight) => {
+    if (linkedStrikeMissionIds.has(flight.missionId)) {
+      return;
+    }
+    if ((flight.kind === "airCover" || flight.kind === "escort") && claimedAirBattleUnitKeys.has(flight.unitKey)) {
+      return;
+    }
+    standaloneFlights.push(flight);
+  });
+
+  linkedEscortFlights.forEach((escorts) => {
+    escorts
+      .filter((flight) => !claimedAirBattleUnitKeys.has(flight.unitKey))
+      .forEach((flight) => standaloneFlights.push(flight));
+  });
+
+  const standaloneEvents = engagements.filter((event) => !claimedLinkedEvents.has(event));
+  const operations: Array<{
+    readonly kind: "linkedStrike" | "flight" | "event";
+    readonly index: number;
+    readonly focusHex: Axial | null;
+    readonly focusKey: string | null;
+    readonly summary: AirScenarioPlaybackOperationSummary;
+  }> = [];
+  let index = 0;
+
+  standaloneEvents
+    .filter((event) => event.type === "capClash")
+    .forEach((event) => {
+      const focusKey = toOffsetHexKey(event.location);
+      operations.push({
+        kind: "event",
+        index,
+        focusHex: structuredClone(event.location),
+        focusKey,
+        summary: {
+          kind: "event",
+          missionId: event.missionId,
+          unitKey: event.bomber.unitKey,
+          focusKey,
+          label: `${event.type}:${event.missionId ?? event.bomber.unitKey}`
+        }
+      });
+      index += 1;
+    });
+
+  linkedStrikeFlights.forEach(({ flight, linkedEvents, escorts }) => {
+    const focusHex = resolvePlaybackTargetHex(engine, flight) ?? offsetHexKeyToAxial(flight.destKey);
+    const focusKey = focusHex ? toOffsetHexKey(focusHex) : flight.destKey;
+    operations.push({
+      kind: "linkedStrike",
+      index,
+      focusHex,
+      focusKey,
+      summary: {
+        kind: "linkedStrike",
+        missionId: flight.missionId,
+        unitKey: flight.unitKey,
+        focusKey,
+        label: `linkedStrike:${flight.missionId}:${flight.unitKey}`,
+        linkedEventTypes: linkedEvents.map((event) => event.type),
+        escortUnitKeys: escorts.map((escort) => escort.unitKey)
+      }
+    });
+    index += 1;
+  });
+
+  standaloneFlights.forEach((flight) => {
+    const focusHex = resolvePlaybackTargetHex(engine, flight) ?? offsetHexKeyToAxial(flight.destKey);
+    const focusKey = focusHex ? toOffsetHexKey(focusHex) : flight.destKey;
+    operations.push({
+      kind: "flight",
+      index,
+      focusHex,
+      focusKey,
+      summary: {
+        kind: "flight",
+        missionId: flight.missionId,
+        unitKey: flight.unitKey,
+        focusKey,
+        label: `flight:${flight.missionId}:${flight.kind}:${flight.unitKey}`
+      }
+    });
+    index += 1;
+  });
+
+  standaloneEvents
+    .filter((event) => event.type !== "capClash")
+    .forEach((event) => {
+      const focusKey = toOffsetHexKey(event.location);
+      operations.push({
+        kind: "event",
+        index,
+        focusHex: structuredClone(event.location),
+        focusKey,
+        summary: {
+          kind: "event",
+          missionId: event.missionId,
+          unitKey: event.bomber.unitKey,
+          focusKey,
+          label: `${event.type}:${event.missionId ?? event.bomber.unitKey}`
+        }
+      });
+      index += 1;
+    });
+
+  const clusters: AirScenarioPlaybackClusterSummary[] = [];
+  const clusterOperationGroups: typeof operations[] = [];
+  const visited = new Set<number>();
+  for (let startIndex = 0; startIndex < operations.length; startIndex += 1) {
+    if (visited.has(startIndex)) {
+      continue;
+    }
+    const clusterOperations: typeof operations = [];
+    const queue = [startIndex];
+    visited.add(startIndex);
+    while (queue.length > 0) {
+      const currentIndex = queue.shift();
+      if (currentIndex === undefined) {
+        continue;
+      }
+      const current = operations[currentIndex]!;
+      clusterOperations.push(current);
+      for (let candidateIndex = 0; candidateIndex < operations.length; candidateIndex += 1) {
+        if (visited.has(candidateIndex)) {
+          continue;
+        }
+        const candidate = operations[candidateIndex]!;
+        const sameFocus = current.focusKey && candidate.focusKey && current.focusKey === candidate.focusKey;
+        const nearbyFocus =
+          current.focusHex
+          && candidate.focusHex
+          && axialDistance(current.focusHex, candidate.focusHex) <= 8;
+        if (!sameFocus && !nearbyFocus) {
+          continue;
+        }
+        visited.add(candidateIndex);
+        queue.push(candidateIndex);
+      }
+    }
+    clusterOperations.sort((left, right) => left.index - right.index);
+    clusterOperationGroups.push(clusterOperations);
+    const focusKeys = Array.from(
+      new Set(clusterOperations.map((operation) => operation.focusKey).filter((focusKey): focusKey is string => Boolean(focusKey)))
+    );
+    clusters.push({
+      index: clusters.length,
+      focusKeys,
+      operationSummaries: clusterOperations.map((operation) => operation.summary)
+    });
+  }
+
+  const coordinatedPlans = clusterOperationGroups
+    .map((clusterOperations, clusterIndex) => {
+      const plan = buildCoordinatedAirClusterPlaybackPlan(
+        clusterOperations
+          .map((operation) => {
+            if (operation.kind === "linkedStrike") {
+              const linkedStrike = linkedStrikeFlights.find(
+                (entry) => entry.flight.missionId === operation.summary.missionId
+              );
+              if (!linkedStrike) {
+                return null;
+              }
+              return {
+                kind: "linkedStrike" as const,
+                index: operation.index,
+                focusHex: operation.focusHex,
+                focusKey: operation.focusKey,
+                flight: linkedStrike.flight,
+                linkedEvents: linkedStrike.linkedEvents,
+                escorts: linkedStrike.escorts
+              };
+            }
+            if (operation.kind === "flight") {
+              const standaloneFlight = standaloneFlights.find(
+                (entry) => entry.missionId === operation.summary.missionId
+              );
+              if (!standaloneFlight) {
+                return null;
+              }
+              return {
+                kind: "flight" as const,
+                index: operation.index,
+                focusHex: operation.focusHex,
+                focusKey: operation.focusKey,
+                flight: standaloneFlight
+              };
+            }
+            const standaloneEvent = standaloneEvents.find(
+              (event) =>
+                event.type === operation.summary.label.split(":")[0]
+                && (event.missionId ?? event.bomber.unitKey) === (operation.summary.missionId ?? operation.summary.unitKey)
+            );
+            if (!standaloneEvent) {
+              return null;
+            }
+            return {
+              kind: "event" as const,
+              index: operation.index,
+              focusHex: operation.focusHex ?? structuredClone(standaloneEvent.location),
+              focusKey: operation.focusKey ?? toOffsetHexKey(standaloneEvent.location),
+              event: standaloneEvent
+            };
+          })
+          .filter((entry): entry is NonNullable<typeof entry> => !!entry),
+        {
+          resolveOriginKey: (unitKey, faction) => lookupUnitOriginKey(engine, unitKey, faction) ?? null,
+          resolveStrength: (unitKey, faction) => lookupUnitStrength(engine, unitKey, faction),
+          fighterIngressDurationMs: 1680,
+          escortClashDurationMs: 2120,
+          fighterEgressDurationMs: 920,
+          bomberStartDelayMs: 880
+        }
+      );
+      if (!plan) {
+        return null;
+      }
+      const fighterSceneInspection = inspectCoordinatedFighterScene(plan.scene);
+      return {
+        clusterIndex,
+        focusKey: plan.focusKey,
+        hasFighterScene: !!plan.scene,
+        fighterSceneInterceptorCount: plan.scene?.interceptors.length ?? 0,
+        fighterSceneEscortCount: plan.scene?.escorts.length ?? 0,
+        fighterScenePhaseLabels: fighterSceneInspection?.phaseLabels ?? [],
+        fighterSceneTracerCount: fighterSceneInspection?.tracerCount ?? 0,
+        fighterSceneDurationMs: fighterSceneInspection?.durationMs ?? 0,
+        strikeSortieMissionIds: Array.from(plan.strikeMissionIds),
+        residualOperationLabels: Array.from(plan.residualOperations.map((entry) => {
+          if (entry.kind === "linkedStrike") {
+            return `linkedStrike:${entry.flight.missionId}`;
+          }
+          if (entry.kind === "flight") {
+            return `flight:${entry.flight.missionId}`;
+          }
+          return `event:${entry.event.type}:${entry.event.missionId ?? entry.event.bomber.unitKey}`;
+        })),
+        bomberStartDelayMs: plan.bomberStartDelayMs,
+        fighterIngressLeadMs: plan.fighterIngressLeadMs
+      } satisfies AirScenarioCoordinatedPlanSummary;
+    })
+    .filter(Boolean) as AirScenarioCoordinatedPlanSummary[];
+
+  return {
+    preparedFlights,
+    linkedStrikeMissionIds: linkedStrikeFlights.map((entry) => entry.flight.missionId),
+    standaloneFlightMissionIds: standaloneFlights.map((flight) => flight.missionId),
+    standaloneEventMissionIds: standaloneEvents.map((event) => event.missionId ?? event.type),
+    clusters,
+    coordinatedPlans
+  };
 }
 
 function lookupUnitOriginKey(engine: GameEngine, unitKey: string, faction: "Player" | "Bot" | "Ally"): string | undefined {
@@ -629,11 +1280,13 @@ function buildSyntheticInspectableCases(): Array<{
   });
   const makeFlakBursts = (count: number): NonNullable<ResolvedAirShowScene["flakBursts"]> =>
     Array.from({ length: count }, (_, index) => ({
-      // Flak fires during bomber approach (25-55% progress), not at end (82%+)
-      progress: Math.min(0.55, 0.25 + index * 0.016),
+      // Keep the barrage in the late final-approach window so diagnostics catch
+      // regressions where flak starts bursting while the strike package is still far
+      // from the target hex.
+      progress: Math.min(0.9, 0.66 + index * 0.013),
       count: 1,
       scale: 0.34 + index * 0.01,
-      alongOffsetPx: -20 + Math.sin((index / Math.max(1, count - 1)) * Math.PI) * 10,
+      alongOffsetPx: -12 + Math.sin((index / Math.max(1, count - 1)) * Math.PI) * 8,
       lateralOffsetPx: (index - (count - 1) / 2) * 14,
       alongSpreadPx: 62,
       lateralSpreadPx: 98,
@@ -651,6 +1304,11 @@ function buildSyntheticInspectableCases(): Array<{
     makeParticipant("synthetic-s3-interceptor-a", "interceptor", "cap", "6,2"),
     makeParticipant("synthetic-s3-interceptor-b", "interceptor", "cap", "6,3"),
     makeParticipant("synthetic-s3-bomber", "bomber", "strike", "1,7")
+  ] as const;
+  const scenario4Participants = [
+    makeParticipant("synthetic-s4-player-cap-a", "interceptor", "cap", "0,1"),
+    makeParticipant("synthetic-s4-player-cap-b", "interceptor", "cap", "0,2"),
+    makeParticipant("synthetic-s4-axis-cap", "escort", "cap", "7,6")
   ] as const;
   const scenario5Participants = [
     makeParticipant("synthetic-s5-interceptor-a", "interceptor", "cap", "6,1"),
@@ -745,6 +1403,34 @@ function buildSyntheticInspectableCases(): Array<{
         ],
         bomberTargetHexKey: "5,5",
         flakBursts: makeFlakBursts(18)
+      }
+    },
+    {
+      event: {
+        type: "capClash",
+        missionId: "synthetic-scenario-4-cap-clash",
+        location: { q: 4, r: 4 },
+        interceptors: [
+          makeFighter("synthetic-s4-player-cap-a", "Player", "Fighter", 58),
+          makeFighter("synthetic-s4-player-cap-b", "Player", "Interceptor", 63)
+        ],
+        escorts: [makeFighter("synthetic-s4-axis-cap", "Bot", "Fighter", 42)]
+      } as unknown as AirEngagementEvent,
+      diagnostics: makeDiagnostics("capClash", [...scenario4Participants]),
+      scene: {
+        kind: "capClash",
+        hexKey: "4,4",
+        interceptors: [
+          makeFlight("synthetic-s4-player-cap-a", "interceptor", "cap", "0,1", -24, "Fighter", "Player", 100, 58, 58),
+          makeFlight("synthetic-s4-player-cap-b", "interceptor", "cap", "0,2", 24, "Interceptor", "Player", 100, 63, 63)
+        ],
+        escorts: [makeFlight("synthetic-s4-axis-cap", "escort", "cap", "7,6", 0, "Fighter", "Bot", 100, 42, 42)],
+        bomber: null,
+        escortExchanges: [
+          { attackerUnitKey: "synthetic-s4-player-cap-a", defenderUnitKey: "synthetic-s4-axis-cap", defenderStrengthAfter: 71 },
+          { attackerUnitKey: "synthetic-s4-player-cap-b", defenderUnitKey: "synthetic-s4-axis-cap", defenderStrengthAfter: 42 }
+        ],
+        bomberPassExchanges: []
       }
     },
     {
@@ -866,7 +1552,13 @@ function buildAirshowInspections(engine: GameEngine, engagements: readonly AirEn
       const phaseMetrics = report.phases.map((phase, phaseIndex) =>
         measurePhase(report, phase, phaseIndex > 0 ? report.phases[phaseIndex - 1] : undefined)
       );
-      const findings = detectAirshowFindings(event, diagnostics, phaseMetrics);
+      const findings = detectAirshowFindings(
+        event,
+        diagnostics,
+        report,
+        phaseMetrics,
+        (scene.flakBursts?.length ?? 0) > 0
+      );
       return { eventType: event.type, missionId: event.missionId, diagnostics, report, phaseMetrics, findings };
     };
 
@@ -935,6 +1627,23 @@ function sampleInspectionPath(
   sampleCount = 15
 ): readonly { point: { cx: number; cy: number }; derivative: { dx: number; dy: number } }[] {
   return sampleAirShowWaypointPoints(points, sampleCount);
+}
+
+function axialDistance(left: Axial, right: Axial): number {
+  const dq = left.q - right.q;
+  const dr = left.r - right.r;
+  const ds = (-left.q - left.r) - (-right.q - right.r);
+  return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(ds));
+}
+
+function unitDefinitionHasTrait(
+  definition: { readonly traits?: readonly string[] | string[] } | undefined,
+  trait: string
+): boolean {
+  if (!definition || !Array.isArray(definition.traits)) {
+    return false;
+  }
+  return (definition.traits as readonly string[]).includes(trait);
 }
 
 function angleBetweenVectors(
@@ -1240,10 +1949,47 @@ function measurePhase(
   };
 }
 
+interface AirShowPhaseContinuityGap {
+  readonly actorId: string;
+  readonly role: AirShowInspectionReport["phases"][number]["assignments"][number]["role"];
+  readonly fromLabel: string;
+  readonly toLabel: string;
+  readonly gapPx: number;
+}
+
+function collectPhaseContinuityGaps(report: AirShowInspectionReport): AirShowPhaseContinuityGap[] {
+  const gaps: AirShowPhaseContinuityGap[] = [];
+  for (let phaseIndex = 1; phaseIndex < report.phases.length; phaseIndex += 1) {
+    const previousPhase = report.phases[phaseIndex - 1];
+    const currentPhase = report.phases[phaseIndex];
+    const previousAssignmentsByActor = new Map(
+      previousPhase.assignments.map((assignment) => [assignment.actorId, assignment] as const)
+    );
+    currentPhase.assignments.forEach((assignment) => {
+      const previousAssignment = previousAssignmentsByActor.get(assignment.actorId);
+      const previousEnd = previousAssignment?.points[previousAssignment.points.length - 1];
+      const currentStart = assignment.points[0];
+      if (!previousEnd || !currentStart) {
+        return;
+      }
+      gaps.push({
+        actorId: assignment.actorId,
+        role: assignment.role,
+        fromLabel: previousPhase.label,
+        toLabel: currentPhase.label,
+        gapPx: distanceBetween(previousEnd, currentStart)
+      });
+    });
+  }
+  return gaps;
+}
+
 function detectAirshowFindings(
   event: AirEngagementEvent,
   diagnostics: ResolvedAirCombatSceneDiagnostic,
-  phaseMetrics: readonly AirShowPhaseMetric[]
+  report: AirShowInspectionReport,
+  phaseMetrics: readonly AirShowPhaseMetric[],
+  expectedFlakOnTargetRun: boolean
 ): AirScenarioFinding[] {
   const findings: AirScenarioFinding[] = [];
   if (diagnostics.linkedEscortMissingFromEventUnitKeys.length > 0) {
@@ -1260,6 +2006,61 @@ function detectAirshowFindings(
       message:
         `${event.type} ${event.missionId ?? "<no-mission>"} could not resolve origin hexes for: ` +
         diagnostics.unresolvedOriginUnitKeys.join(", ")
+    });
+  }
+  const fighterIngressMetric = phaseMetrics.find((metric) => metric.label === "fighter-ingress");
+  if (fighterIngressMetric) {
+    const capGroups = fighterIngressMetric.groupMetrics.filter((group) => group.combatRole === "cap");
+    const escortGroups = fighterIngressMetric.groupMetrics.filter((group) => group.combatRole === "escort");
+    if (capGroups.length > 0 && escortGroups.length > 0) {
+      const capEndDistancePx =
+        capGroups.reduce((sum, group) => sum + distanceBetween(group.centroidEnd, report.center), 0) / capGroups.length;
+      const escortEndDistancePx =
+        escortGroups.reduce((sum, group) => sum + distanceBetween(group.centroidEnd, report.center), 0) / escortGroups.length;
+      if (escortEndDistancePx + 28 < capEndDistancePx) {
+        findings.push({
+          code: "escort-ingress-overreach",
+          message:
+            `${event.type} ${event.missionId ?? "<no-mission>"} fighter ingress places escorts ${Math.round(capEndDistancePx - escortEndDistancePx)}px ` +
+            `deeper into the contested center than the defending CAP.`
+        });
+      }
+    }
+  }
+  const bomberGapPhase = report.phases.find((phase) => phase.label === "bomber-gap");
+  if (bomberGapPhase && bomberGapPhase.durationMs > 1400) {
+    findings.push({
+      code: "long-bomber-gap",
+      message:
+        `${event.type} ${event.missionId ?? "<no-mission>"} inserts a ${bomberGapPhase.durationMs}ms bomber-gap drift window ` +
+        `between the dogfight and strike run.`
+    });
+  }
+  const bomberGapMetric = phaseMetrics.find((metric) => metric.label === "bomber-gap");
+  if (bomberGapMetric) {
+    bomberGapMetric.groupMetrics
+      .filter((group) => group.combatRole !== "strike")
+      .forEach((group) => {
+        if (group.meanDisplacementPx < 90 || group.meanSpeedPxPerSec < 110) {
+          findings.push({
+            code: "static-bomber-gap-screen",
+            message:
+              `${event.type} ${event.missionId ?? "<no-mission>"} keeps ${group.label} drifting only ` +
+              `${Math.round(group.meanDisplacementPx)}px at ${Math.round(group.meanSpeedPxPerSec)}px/s during bomber-gap.`
+          });
+        }
+      });
+  }
+  const continuityGaps = collectPhaseContinuityGaps(report);
+  const worstBomberGap = continuityGaps
+    .filter((gap) => gap.role === "bomber")
+    .sort((left, right) => right.gapPx - left.gapPx)[0];
+  if (worstBomberGap && worstBomberGap.gapPx > 8) {
+    findings.push({
+      code: "bomber-phase-pop",
+      message:
+        `${event.type} ${event.missionId ?? "<no-mission>"} moves bomber actor ${worstBomberGap.actorId} ` +
+        `${Math.round(worstBomberGap.gapPx)}px between ${worstBomberGap.fromLabel} and ${worstBomberGap.toLabel}.`
     });
   }
   phaseMetrics.forEach((metric) => {
@@ -1300,6 +2101,13 @@ function detectAirshowFindings(
       });
     }
     if (metric.label === "target-run") {
+      if (expectedFlakOnTargetRun && metric.flakBurstCount <= 0) {
+        findings.push({
+          code: "missing-flak-target-run",
+          message:
+            `${event.type} ${event.missionId ?? "<no-mission>"} expected flak coverage on target-run but scheduled no flak bursts.`
+        });
+      }
       metric.groupMetrics
         .filter((group) => group.combatRole === "escort")
         .forEach((group) => {
@@ -1424,6 +2232,12 @@ function detectAirshowFindings(
           message: `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} schedules flak before the final approach window.`
         });
       }
+      if (metric.flakMetrics.some((flak) => flak.progress > 0.94)) {
+        findings.push({
+          code: "late-flak-window",
+          message: `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} lets flak slip past the target approach and into bomb-release timing.`
+        });
+      }
       if (metric.meanFlakWidthPx < 120) {
         findings.push({
           code: "narrow-flak-belt",
@@ -1454,10 +2268,28 @@ function detectAirshowFindings(
 }
 
 function detectAnomalies(
+  engine: GameEngine,
   missionReports: readonly AirMissionReportEntry[],
   engagements: readonly AirEngagementEvent[]
 ): AirScenarioAnomaly[] {
   const anomalies: AirScenarioAnomaly[] = [];
+  const internals = engine as unknown as {
+    playerPlacements: Map<string, ScenarioUnit>;
+    botPlacements: Map<string, ScenarioUnit>;
+  };
+  const hasDefendingFlakCoverage = (report: AirMissionReportEntry): boolean => {
+    if (!report.targetHex) {
+      return false;
+    }
+    const defendingPlacements = report.faction === "Bot" ? internals.playerPlacements : internals.botPlacements;
+    return Array.from(defendingPlacements.values()).some((unit) => {
+      const definition = unitTypes[unit.type as keyof typeof unitTypes];
+      if (!unitDefinitionHasTrait(definition, "intercept")) {
+        return false;
+      }
+      return axialDistance(unit.hex, report.targetHex!) <= 2;
+    });
+  };
 
   missionReports
     .filter(isResolvedMissionReport)
@@ -1507,6 +2339,14 @@ function detectAnomalies(
           message: `${describeMission(report)} had ${activeEscorts.length} resolved escort report(s), but its air-to-air event showed no escorts.`
         });
       }
+      const hasFlakEvent = engagements.some((event) => event.type === "flak" && event.missionId === report.missionId);
+      if (report.outcome?.result !== "destroyed" && hasDefendingFlakCoverage(report) && !hasFlakEvent) {
+        anomalies.push({
+          code: "missing-flak-engagement",
+          message:
+            `${describeMission(report)} entered a target hex covered by sentry flak, but no flak engagement event was recorded.`
+        });
+      }
     });
 
   return anomalies;
@@ -1515,16 +2355,23 @@ function detectAnomalies(
 export function runAirScenario(): AirScenarioResult {
   const engine = buildEngine();
   (engine as unknown as { resolveReadyAirMissionsForRound: () => void }).resolveReadyAirMissionsForRound();
+  const arrivals = (() => {
+    const consumed = engine.consumeAirMissionArrivals();
+    return consumed.length > 0 ? consumed : buildFallbackPlaybackArrivals(engine);
+  })();
   const missionReports = engine.getAirMissionReports().filter(isResolvedMissionReport);
   const engagements = engine.consumeAirEngagements();
+  const playbackProjection = buildPlaybackProjection(engine, arrivals, engagements);
   const airshowInspections = buildAirshowInspections(engine, engagements);
   const findings = airshowInspections.flatMap((entry) => entry.findings);
   return {
     scenarioName: "Air Combat Automation Scenario",
+    arrivals,
     missionReports,
     engagements,
+    playbackProjection,
     airshowInspections,
-    anomalies: detectAnomalies(missionReports, engagements),
+    anomalies: detectAnomalies(engine, missionReports, engagements),
     findings
   };
 }
@@ -1534,8 +2381,15 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
     point ? `(${Math.round(point.cx)},${Math.round(point.cy)})` : "(n/a)";
   const lines: string[] = [];
   lines.push(`Scenario: ${result.scenarioName}`);
+  lines.push(`Mission arrivals: ${result.arrivals.length}`);
   lines.push(`Mission reports: ${result.missionReports.length}`);
   lines.push(`Engagement events: ${result.engagements.length}`);
+  lines.push("");
+  lines.push("Mission arrivals:");
+  result.arrivals.forEach((arrival) => {
+    const targetHex = arrival.targetHex ? `${arrival.targetHex.q},${arrival.targetHex.r}` : arrival.escortTargetUnitKey ?? "none";
+    lines.push(`- ${arrival.faction} ${arrival.kind} ${arrival.unitType} ${arrival.unitKey} -> ${targetHex}`);
+  });
   lines.push("");
   lines.push("Mission results:");
   result.missionReports.forEach((report) => {
@@ -1545,6 +2399,49 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
   lines.push("Engagement timeline:");
   result.engagements.forEach((event) => {
     lines.push(`- ${describeEngagement(event)}`);
+  });
+  lines.push("");
+  lines.push("Playback projection:");
+  lines.push(
+    `- prepared=${result.playbackProjection.preparedFlights.length} linkedStrikeOps=${result.playbackProjection.linkedStrikeMissionIds.length} ` +
+    `standaloneFlights=${result.playbackProjection.standaloneFlightMissionIds.length} standaloneEvents=${result.playbackProjection.standaloneEventMissionIds.length} ` +
+    `clusters=${result.playbackProjection.clusters.length} coordinatedPlans=${result.playbackProjection.coordinatedPlans.length}`
+  );
+  result.playbackProjection.preparedFlights.forEach((flight) => {
+    lines.push(
+      `  flight ${flight.missionId} ${flight.kind} ${flight.unitKey} ${flight.originKey}->${flight.destKey} lane=${flight.laneOffsetPx}`
+      + (flight.escortTargetUnitKey ? ` escortTarget=${flight.escortTargetUnitKey}` : "")
+    );
+  });
+  result.playbackProjection.clusters.forEach((cluster) => {
+    lines.push(
+      `  cluster #${cluster.index + 1} focus=${cluster.focusKeys.join(" | ") || "<none>"} ops=${cluster.operationSummaries.length}`
+    );
+    cluster.operationSummaries.forEach((operation) => {
+      lines.push(
+        `    ${operation.label} focus=${operation.focusKey ?? "<none>"}`
+        + (operation.linkedEventTypes && operation.linkedEventTypes.length > 0
+          ? ` events=${operation.linkedEventTypes.join("|")}`
+          : "")
+        + (operation.escortUnitKeys && operation.escortUnitKeys.length > 0
+          ? ` escorts=${operation.escortUnitKeys.join("|")}`
+          : "")
+      );
+    });
+  });
+  result.playbackProjection.coordinatedPlans.forEach((plan) => {
+    lines.push(
+      `  coordinated cluster #${plan.clusterIndex + 1} focus=${plan.focusKey ?? "<none>"} ` +
+      `fighterScene=${plan.hasFighterScene} interceptors=${plan.fighterSceneInterceptorCount} escorts=${plan.fighterSceneEscortCount} ` +
+      `strikeSorties=${plan.strikeSortieMissionIds.join("|") || "<none>"} bomberDelayMs=${plan.bomberStartDelayMs} ` +
+      `fighterLeadMs=${plan.fighterIngressLeadMs} fighterSceneDurationMs=${plan.fighterSceneDurationMs} tracers=${plan.fighterSceneTracerCount}`
+    );
+    if (plan.fighterScenePhaseLabels.length > 0) {
+      lines.push(`    fighterScenePhases=${plan.fighterScenePhaseLabels.join(" -> ")}`);
+    }
+    if (plan.residualOperationLabels.length > 0) {
+      lines.push(`    residual=${plan.residualOperationLabels.join(" | ")}`);
+    }
   });
   lines.push("");
   if (result.airshowInspections.length > 0) {
