@@ -15,6 +15,45 @@ This document absorbs the intent that had previously been spread across older ai
 - The governing implementation procedure lives in `docs/ITERATION_GOVERNANCE.md`.
 - If implementation, tests, or historical notes disagree with this document, this document is the north star until it is deliberately revised.
 
+## Technical Foundation
+
+### 1. Coordinate System and Measurement Authority
+
+All choreography, animation, timing, and combat resolution operate in **pixel space**.
+
+**Authoritative Definitions**
+- `AirShowPoint = { cx: number, cy: number }` → pixel coordinates on SVG canvas
+- All aircraft positions, tracers, flak, and effects are resolved in pixel coordinates
+- All motion occurs along pixel-defined paths
+
+**Pathing Model**
+Each aircraft follows a parametric path:
+- `progress ∈ [0.0 → 1.0]`
+- Progress is measured along pixel path length, not time directly
+- Derived: `positionPx = samplePath(progress)`, `speedPxPerMs = pathLengthPx / durationMs`
+
+### 2. Hex → Pixel Boundary Rule
+
+Hexes are used only for strategic anchoring, never for runtime movement.
+
+**Allowed Hex Usage**
+- Spawn constraints (e.g., min 8 hex distance)
+- Target identification via hex keys
+- Corridor endpoints via: `resolveHexCenterByKey(hexKey)` → pixel center
+
+**Conversion Rule**
+Once converted, **ALL** movement, timing, spacing, and collision operate exclusively in pixel space. No hex-based stepping, counting, or distance checks are used after conversion.
+
+### 3. Speed Model
+
+**Base Speeds**
+- Fighter speed = V
+- Bomber speed = V / 2
+
+**Behavior**
+- **Initial Ingress**: Bombers at V/2, Escorts at V/2 (matching bombers), CAP at V
+- **Escort Acceleration**: At `bomberProgress = 0.15`, escorts instantly transition to speed V
+
 ## Product Goal
 
 The air show must present the turn's air combat as a coherent replay of resolved airspace events.
@@ -88,53 +127,65 @@ Participants:
 
 Required choreography:
 
-- escorts arrive first or slightly ahead on fast ingress
-- strike craft arrive on slower overlapping ingress
+- escorts and bombers ingress together at bomber speed (V/2)
+- at 15% progress, escorts may accelerate to fighter speed (V) to establish screen position ahead
 - escorts maintain protective formation with the strike craft
 - no dogfight phase occurs because no hostile interceptors are present
-- strike craft perform their bombing run
+- strike craft perform their bombing run with arc turn at 2 hexes before target
 - escorts and strike craft egress together
 
 ### Scenario 2: Strike Only
 
 Participants:
 
-- strike craft only
+- strike craft (bombers) only — no CAP, no escorts
 
-Required choreography:
+Required choreography (progress-based):
 
-- strike craft ingress on a smooth readable path
-- strike craft perform a smooth bombing run over the target area
-- ordnance release is visible
-- strike craft continue into clear egress
+- bomber ingress at bomber speed (V/2)
+- no fighter combat phases occur
+- flak engagement: progress 0.80 → 1.00
+- bombers reach stand-off point (2 hexes before target) at progress 1.0
+- execute smooth 160° arc turn (diameter = 3 hexes in pixels)
+- bomb release at `turnProgress = 0.50`
+- flak continues through arc turn
+- flak stops scheduling at `egressProgress = 0.20`
+- surviving bombers egress clearly
 
 ### Scenario 3: Strike Plus Interceptors, No Escorts
 
 Participants:
 
-- interceptors
-- strike craft
+- interceptors (CAP)
+- strike craft (bombers)
 
 Required choreography:
 
-- interceptors arrive first or establish contact first
-- strike craft continue visible ingress rather than freezing for a separate combat stage
-- no escort dogfight phase occurs
-- interceptor passes happen against the bombers during the bomber run window
+- simultaneous ingress: CAP at fighter speed (V), bombers at bomber speed (V/2)
+- strike craft continue visible ingress while interceptors close from ahead/side
+- no escort dogfight phase occurs (no escorts present)
+- interceptor passes happen against the bombers during the bomber run window (progress 0.50-0.80)
 - survivors egress clearly
 
 ### Scenario 4: CAP Patrol / CAP Clash
 
 Participants:
 
-- opposing CAP / interceptor packages
+- opposing CAP / interceptor packages only — no bombers
 
 Required choreography:
 
-- interceptors ingress or appear as a patrol package
-- they execute a readable CAP/patrol pattern over the relevant protected area
-- they engage in a dogfight with enemy CAP missions
-- they egress after the patrol beat or show duration
+- opposing CAP flights ingress toward the map center (meeting point)
+- dogfight occurs at the center, repeating with variations for "fight to the death"
+- engagement continues until one side eliminated or forced to withdraw
+- continuous movement — no static combat staging
+- destroyed aircraft removed immediately
+- survivors egress on readable return arcs
+
+**Timing Model**: Since no bomber progress exists, timing is driven by:
+- Distance-based triggers (approach center, enter combat radius)
+- Combat rounds repeating until resolution
+- Total duration scales with force sizes (typical: 1500-3000ms per combat round)
 
 ### Scenario 5: Full Engagement
 
@@ -144,15 +195,59 @@ Participants:
 - escorts
 - strike craft
 
-Required choreography:
+Required choreography (progress-based, all times relative to bomber ingress path):
 
-- escorts and interceptors enter the contested area first
-- strike craft begin slower overlapping ingress behind the fighter screen
-- escort and interceptor combat happens as a simultaneous melee, not as serial one-pair turns
-- surviving hostile fighters transition into bomber interception
-- bombers continue their target run if they survive
-- surviving escorts remain tied to bomber protection
-- surviving aircraft egress clearly
+1. **Ingress (0.0 → 0.15)**
+   - CAP ingress at fighter speed (V)
+   - Bombers and escorts ingress together at bomber speed (V/2)
+   - Escorts fly with bombers as protective screen
+
+2. **Escort Acceleration (0.15)**
+   - Escorts accelerate to fighter speed (V)
+   - Continue screening ahead of bombers
+
+3. **Fighter Clash / Dogfight (0.20 → 0.50)**
+   - CAP vs Escort combat occurs spatially between bomber formation and target
+   - Continuous movement — no freezing for combat
+   - Destroyed CAP → immediately removed
+   - Destroyed Escorts → immediately removed
+
+4. **CAP vs Bombers (0.50 → 0.80)**
+   - Surviving CAP attack bombers with coordination:
+     - **Attack Priority**: Strongest CAP formation vs Strongest Bomber formation first
+     - **Re-calculation**: After each engagement pair resolves, re-evaluate: next strongest CAP vs next strongest bomber
+     - CAP flights coordinate and gang up on target bombers
+   - Surviving escorts chase CAP at fighter speed (V) — purely visual, tracers for show
+   - Escorts pursue CAP until CAP egress begins (≥ 0.80), or egress immediately if all CAP destroyed
+   - Fighters at speed V, bombers continue at V/2
+   - Destroyed bombers and CAP removed immediately
+
+5. **Fighter Egress (≥ 0.80)**
+   - Surviving CAP begin egress
+   - Surviving escorts begin egress (or egress immediately if all CAP destroyed earlier)
+   - No further fighter engagements occur
+
+6. **Flak Engagement (0.80 → 1.00 + arc turn)**
+   - Flak activates at bomberProgress 0.80
+   - Continues through straight ingress and entire arc turn
+   - Each flak unit targets a bomber formation; animation spread across zone around formation
+   - Visual: persistent black puffs fade slowly over entire flak sequence
+   - Stops scheduling new bursts at egressProgress 0.20
+   - **Early Destruction Rule**: If all bombers destroyed before progress 0.80, flak does not fire
+
+7. **Arc Turn & Bomb Release**
+   - Bombers reach stand-off point (2 hexes before target) at ingressProgress 1.0
+   - Each bomber executes smooth 160° arc turn across circular path (diameter = 3 hexes in pixels)
+   - Bomb release at `turnProgress = 0.50`
+   - Flak continues during turn (each flak unit targets its assigned bomber formation)
+   - Destroyed bombers removed immediately
+   - Destroyed ground targets removed immediately
+
+**Multiple Bomber Flights Rule**: When bombers have different target hexes, each bomber flight maintains separate ingress progress track. Flak units target their assigned bomber formation independently.
+
+8. **Bomber Egress**
+   - Surviving bombers complete arc turn and begin egress
+   - Flak stops scheduling new bursts at egressProgress 0.20
 
 ## Canonical Per-Package Timelines
 
@@ -162,9 +257,9 @@ The renderer must select the canonical package timeline that matches the resolve
 
 ### Scenario 1 Package Timeline: Escort Plus Strike, No Interceptors
 
-1. Escort-led ingress
-   - escorts depart first or appear slightly ahead of the bomber corridor
-   - bomber package departs on slower overlapping ingress
+1. Coordinated ingress
+   - escorts and bombers depart together at bomber speed (V/2)
+   - escorts may accelerate to fighter speed (V) at 15% progress to establish forward screen position
    - escorts are visually legible as the protective screen for the bomber package
 2. Protected transit
    - escorts hold readable forward and wing positions while the bomber package continues toward the target
@@ -183,85 +278,138 @@ The renderer must select the canonical package timeline that matches the resolve
    - surviving bombers and escorts exit on readable return arcs
    - the package still reads as one formation even if escorts are wider than the bomber corridor
 
-### Scenario 2 Package Timeline: Strike Only
+### Scenario 2 Package Timeline: Strike Only (Progress-Based)
 
-1. Bomber ingress
-   - strike craft depart origin on a smooth readable approach
-   - there is no fighter beat and no screen beat
-2. Terminal approach
-   - bomber package lines up on the target without freezing or artificial repositioning
-3. Flak
-   - surviving strike craft take flak on terminal approach if flak is present
-4. Strike release
-   - only surviving strike craft release ordnance
-   - the attack path remains smooth, with a visible target pass and release moment
-5. Bomber egress
-   - surviving strike craft continue away from the target on a clear exit path
+**Phase 1: Ingress (0.0 → 0.80)**
+- Bomber ingress at bomber speed (V/2)
+- No fighter combat phases
+
+**Phase 2: Terminal Approach & Flak (0.80 → 1.00)**
+- Flak activates at bomberProgress 0.80
+- Flak targets bomber real-time pixel position
+- Flak animation: spread across zone around formation, persistent black puffs fade slowly over sequence
+- Bombers reach stand-off point (2 hexes before target) at progress 1.0
+
+**Phase 3: Arc Turn & Strike Release**
+- Bomber executes smooth 160° arc turn (circular path, diameter = 3 hexes in pixels)
+- Bomb release at `turnProgress = 0.50`
+- Flak continues throughout turn
+- Destroyed bombers and ground targets removed immediately
+
+**Phase 4: Bomber Egress**
+- Surviving bombers complete turn and exit
+- Flak stops scheduling at `egressProgress = 0.20`
+- Existing bursts complete their animation
 
 ### Scenario 3 Package Timeline: Strike Plus Interceptors, No Escorts
 
-1. Interceptor-first contact
-   - interceptors depart CAP or scramble origin and orient toward the bomber approach lane
-   - they establish contact before or ahead of the bombers
-2. Bomber ingress under threat
-   - strike craft continue visible ingress while interceptors close
-   - the bombers do not freeze for a separate combat stage
-3. Direct bomber interception
-   - hostile fighters attack the strike craft directly because no escort screen exists
-   - fighter passes are simultaneous within the beat
-   - bomber defensive fire occurs during these passes where applicable
-4. Fighter break and separation
-   - surviving interceptors break away on readable return arcs rather than drifting randomly
-   - surviving strike craft continue toward the target from their actual post-combat positions
-5. Flak
-   - surviving strike craft that still reach the target lane take flak on terminal approach
-6. Strike release
-   - only surviving strike craft release ordnance
-7. Bomber egress
-   - surviving bombers exit clearly after the attack run
+**Phase 1: Simultaneous Ingress (0.0 → 0.50)**
+- CAP ingress at fighter speed (V)
+- Bombers ingress at bomber speed (V/2)
+- CAP establishes contact from ahead/side of bomber approach lane
 
-### Scenario 4 Package Timeline: CAP Patrol / CAP Clash
+**Phase 2: Direct Bomber Interception (0.50 → 0.80)**
+- Hostile fighters attack strike craft directly (no escort screen)
+- Fighter passes simultaneous within beat
+- Bomber defensive fire occurs during passes
+- Speed differential: fighters at V, bombers at V/2
+- Destroyed bombers and CAP removed immediately
 
-1. CAP ingress or establish-on-station beat
-   - opposing CAP packages enter from their own patrol origins or protected sectors
-   - both sides establish a readable patrol presence over the contested airspace
-2. Patrol read
-   - each CAP package traces a readable holding arc or patrol loop over the protected area
-   - this beat must make the airspace ownership contest visually clear before the merge
-3. CAP merge
-   - opposing CAP packages tighten their arcs and commit toward a common engagement space
-   - there is no bomber corridor in this scenario
-4. CAP dogfight
-   - fighter combat occurs as a simultaneous melee between the CAP packages
-   - the show should read as air-superiority combat, not bomber interception
-5. Air-superiority resolution beat
-   - the surviving side briefly owns the patrol center or sweeps through it to signal control of the airspace
-6. CAP egress
-   - surviving CAP aircraft exit on readable return arcs after the patrol or clash beat completes
+**Phase 3: Fighter Egress (≥ 0.80)**
+- Surviving CAP begin egress
+- No escorts present to pursue
 
-### Scenario 5 Package Timeline: Full Engagement
+**Phase 4: Terminal Approach & Flak (0.80 → 1.00)**
+- Flak activates at bomberProgress 0.80
+- Flak targets bomber real-time pixel position
+- Bombers reach stand-off point at progress 1.0
 
-1. Ingress
-   - interceptors depart origin and orient from player position toward enemy position
-   - bomber package departs origin toward the first contested point or target area with escorts
-   - escorts stay close to the bomber package during approach
-   - interceptors/CAP approach the bomber package from their own patrol origin
-2. Escort screen exchange
-   - escorts move ahead of the bomber package and engage hostile fighters first
-   - fighter combat is simultaneous within the beat
-3. Bomber defense pass
-   - surviving hostile fighters press through escorts toward the strike craft
-   - interceptors make a pass at the bomber package while bomber defensive turret fire occurs
-   - interceptors and escorts egress and return to their origins as bombers approach target and reach flak range
-4. Flak
-   - surviving strike craft that will reach the target area are engaged by flak on terminal approach
-   - flak impacts and explosions occur
-5. Strike release
-   - only surviving strike craft release ordnance
-   - bombers make a wide turn one hex before target as ordnance falls
-   - ordnance impacts and explodes
-6. Bomber egress
-   - surviving bomber aircraft continue away from the combat area and exit the scene clearly
+**Phase 5: Arc Turn & Strike Release**
+- Bomber executes smooth 160° arc turn
+- Bomb release at `turnProgress = 0.50`
+- Flak continues throughout turn
+- Destroyed bombers and ground targets removed immediately
+
+**Phase 6: Bomber Egress**
+- Surviving bombers complete turn and exit
+- Flak stops scheduling at `egressProgress = 0.20`
+
+### Scenario 4 Package Timeline: CAP Patrol / CAP Clash (Distance-Based)
+
+**Phase 1: Ingress to Center**
+- Opposing CAP packages ingress toward map center (meeting point) at fighter speed (V)
+- Each package approaches from their respective origins/protected sectors
+- No bomber corridor exists in this scenario
+
+**Phase 2: CAP Merge & Initial Clash**
+- CAP packages meet at center and engage
+- Dogfight begins with simultaneous fighter combat
+- Continuous movement — no static staging
+
+**Phase 3: Sustained Combat (Fight to the Death)**
+- Combat repeats with variations until resolution:
+  - Multiple passes and re-engagements
+  - Surviving fighters arc back into combat
+  - Destroyed aircraft removed immediately
+- Engagement continues until:
+  - One side completely eliminated, OR
+  - Surviving force withdraws (determined by resolution logic)
+- Typical: 1500-3000ms per combat round
+
+**Phase 4: Air-Superiority Resolution**
+- Surviving side briefly signals control of center airspace
+- Visual sweep or holding pattern to show dominance
+
+**Phase 5: CAP Egress**
+- Surviving CAP aircraft exit on readable return arcs
+- Defeated side (if any survivors) egress separately
+
+### Scenario 5 Package Timeline: Full Engagement (Progress-Based)
+
+All timing is driven by bomber progress along ingress path.
+
+**Phase 1: Ingress (0.0 → 0.15)**
+- CAP ingress at fighter speed (V)
+- Bombers and escorts ingress at bomber speed (V/2), flying together
+- Escorts screen ahead of bomber package
+
+**Phase 2: Escort Acceleration (at 0.15)**
+- Escorts accelerate to fighter speed (V)
+- Escorts reposition to engage CAP while maintaining bomber association
+
+**Phase 3: Fighter Clash — CAP vs Escorts (0.20 → 0.50)**
+- Dogfight occurs spatially between bomber formation and target
+- Continuous movement — no static combat staging
+- Destroyed aircraft removed immediately (fade optional)
+- Resolution: surviving CAP proceed to bomber interception; surviving escorts pursue CAP
+
+**Phase 4: CAP vs Bombers (0.50 → 0.80)**
+- Surviving CAP press attack on bombers
+- Surviving escorts chase CAP at fighter speed (V) — purely visual, tracers for show
+- Escorts pursue CAP until CAP egress begins (≥ 0.80)
+- Speed differential: fighters at V, bombers at V/2
+- Destroyed bombers and CAP removed immediately
+
+**Phase 5: Fighter Egress (≥ 0.80)**
+- Surviving CAP begin egress
+- Surviving escorts begin egress (or egress immediately if all CAP destroyed in Phase 3)
+- No further fighter combat
+
+**Phase 6: Terminal Approach & Flak (0.80 → 1.00)**
+- Flak activates at bomberProgress 0.80
+- Flak targets bomber real-time pixel position
+- Bombers reach stand-off point (2 hexes before target) at progress 1.0
+
+**Phase 7: Arc Turn & Strike Release**
+- Bomber executes smooth 160° arc turn (circular path, diameter = 3 hexes in pixels)
+- Bomb release at `turnProgress = 0.50`
+- Flak continues throughout turn
+- Destroyed bombers and ground targets removed immediately
+
+**Phase 8: Bomber Egress**
+- Surviving bombers complete turn and exit
+- Flak stops scheduling new bursts at `egressProgress = 0.20`
+- Existing bursts complete their animation
 
 ### Timeline Truncation Rule
 
@@ -453,32 +601,60 @@ This baseline is important because the air show should evolve by tightening arch
 
 ## Timing And Choreography Targets
 
-These are target behavior rules for readability, not excuses for brittle hard-coding.
+These are target behavior rules for readability. The authoritative timing model is **progress-based** tied to bomber ingress path.
 
-### Timing Principles
+### Speed Principles
 
-- fighters arrive first or establish contact first
-- bombers arrive more slowly and may overlap with the fighter battle
-- dogfight survivors should transition into bomber interception with effectively no visible dead stop
-- bombing runs and interception passes may overlap when the package demands it
-- total duration should feel brisk and readable rather than dragging
+- Fighter base speed = V
+- Bomber base speed = V / 2
+- CAP ingress at fighter speed
+- Bombers and escorts ingress together at bomber speed
+- Escorts accelerate to fighter speed at 15% bomber progress
+
+### Progress-Based Phase Triggers
+
+All combat timing is driven by bomber progress along its ingress path:
+
+| Progress | Event |
+|----------|-------|
+| 0.00 | Spawn — CAP at V, Bombers/Escorts at V/2 |
+| 0.15 | Escort acceleration to V |
+| 0.20 | Fighter clash (dogfight) begins |
+| 0.50 | Dogfight ends / CAP engages bombers |
+| 0.80 | Fighters disengage / Flak begins |
+| 1.00 | Reach stand-off point (2 hexes before target) |
+
+**Turn Phase (separate progress)**
+| Turn Progress | Event |
+|---------------|-------|
+| 0.00 | Arc turn begins |
+| 0.50 | Bomb release |
+| 1.00 | Arc turn complete / Egress begins |
+
+**Egress Phase**
+| Egress Progress | Event |
+|-----------------|-------|
+| 0.00 | Egress begins |
+| 0.20 | Flak stops scheduling new bursts |
+| 1.00 | Egress complete |
 
 ### Typical Contested Package Shape
 
-A typical contested package should read approximately like this:
+A typical contested package reads as:
 
-1. fighter ingress begins
-2. bomber ingress begins while fighters are still arriving
-3. escort screen combat starts as bombers continue approach
-4. survivors arc into bomber defense or bomber interception
-5. bombing run and intercept passes overlap where appropriate
-6. egress begins immediately after the strike window closes
+1. CAP ingress (fast) and bomber/escort ingress (slow) begin simultaneously
+2. Escorts accelerate and clash with CAP while bombers continue approach
+3. Surviving CAP press through to bomber interception
+4. Surviving escorts pursue CAP
+5. Fighters egress; flak engages bombers on terminal approach
+6. Arc turn with bomb release; flak continues
+7. Egress begins; flak tapers off
 
 ### Continuity Requirement
 
 Every phase transition must be seamless.
 
-The next phase begins from the aircraft's actual end position from the previous phase, not from a preselected staging point that creates teleporting or jerky redirection.
+The next phase begins from the aircraft's actual end position from the previous phase. Progress is measured along pixel path length, not time directly.
 
 ## Visual Design Constraints
 
@@ -690,8 +866,8 @@ The air show is not done until all of these are true:
 
 **Fixed: Flak Timing Misplaced**
 - **Issue**: Flak fired at 82-99% of strike run (after sprites gone), not during approach
-- **Fix**: Changed progress window to 25-55% — flak now fires during bomber approach to target
-- **Files**: `ResolvedAirCombatSceneBuilder.ts`, `airScenarioSupport.ts`
+- **Fix**: Flak now fires during terminal approach (bomberProgress 0.80-1.00) and continues through arc turn, stopping at egressProgress 0.20
+- **Files**: `ResolvedAirCombatSceneBuilder.ts`, `airScenarioSupport.ts`, `HexMapRenderer.ts`
 
 **Fixed: Aircraft Disappear at Target / Reappear for Egress**
 - **Issue**: Phase existence checks used `actor.active` (per-actor visibility), causing phases to be skipped when individual actors were visually hidden
@@ -736,6 +912,37 @@ The air show is not done until all of these are true:
 | ~~**Flak timing misplaced**~~ | ~~High~~ | ✅ **FIXED** | Progress changed from 82-99% to 25-55% of strike run — flak now fires during bomber approach |
 | ~~**Aircraft disappear/reappear at target**~~ | ~~Critical~~ | ✅ **FIXED** | Removed `actor.active` filter from `buildAirShowFlightAssignments` — all actors now get phase assignments, visibility controlled by opacity only |
 | ~~**Fighters linger during next bomber approach**~~ | ~~High~~ | ✅ **FIXED** | Skip `escort-hold` phase when bomber is present — fighters now reposition immediately for defense instead of drifting |
+| ~~**Bombers fly at same speed as escorts during ingress**~~ | ~~High~~ | ✅ **FIXED** | Increased combined ingress duration to max(3200, bomberIngressDurationMs ?? 3600)ms. Fighters travel shorter hold-band path in same duration as slower-pathed bombers, making fighters visibly faster. |
+| **Bombers reach target simultaneous with fighter clash start** | High | 🔴 **OPEN** | Spec §Typical Contested Package: bombers must still be mid-approach when escort-CAP dogfight begins (step 2 before step 3). `bomberArrivalDelayMs` / ingress lead timing needs increase so fighters engage well ahead of bomber arrival. |
+| ~~**Bombers disappear for entire dogfighting scene**~~ | ~~Critical~~ | ✅ **FIXED** | Root cause: `syncAirShowPhaseVisibility` hid any actor not in current phase assignments. Added bomber hold-in-place assignments to every escort clash beat so bombers remain in `phaseAssignments` and stay visible. |
+| **Escorts snap near-180° turn at dogfight start** | High | 🔴 **OPEN** | Spec §Continuity Requirement: "next phase begins from aircraft's actual end position, not a preselected staging point". Sharp heading reversal at `escort-clash-merge` entry — ingress end heading is nearly opposite the clash approach vector. |
+| ~~**Bombers reappear after dogfighting scene**~~ | ~~Critical~~ | ✅ **FIXED** | Paired with disappearance fix. Removed the force `actor.active=true / opacity="1"` block at target-run start — bombers are never hidden so the restore was never needed, and it was incorrectly reactivating destroyed actors. |
+| ~~**All sprites slow down when bombers reappear**~~ | ~~High~~ | ✅ **FIXED** | Resolved as a consequence of the bomber disappear/reappear fix — the stall was caused by the `await Promise.all(fadeInActor...)` that preceded the old force-show block. With bombers never hidden, no fade-in await occurs. |
+| **Bombers and fighters perform mutual dogfight instead of interception pass** | High | 🔴 **OPEN** | Spec §Scenario 5 Phase 4: "Surviving CAP attack bombers / Surviving escorts intercept/chase CAP". Should be one-sided interception passes against the bomber package, not a symmetrical dogfight involving bombers as aggressors. |
+| **Surviving bombers briefly disappear and reappear facing opposite direction after ordnance** | Critical | 🔴 **OPEN** | Spec §Visual Continuity Rules: "aircraft must not disappear during bomb release/explosion"; §Transition Rules: "instant opacity jumps not acceptable". Egress despawns/respawns bombers for heading flip — must be continuous from arc-turn exit. |
+| ~~**Destroyed escorts remain visible until CAP egress finishes**~~ | ~~Medium~~ | ✅ **FIXED** | The old `actor.active=true` force-show block at target-run start was reactivating all bomber actors including destroyed ones, pulling destroyed escorts back into `egressFlights`. Removing that block means only genuinely active actors enter egress. |}
+
+### Progress Anchor Reference
+
+```
+Bomber Ingress (pixel path progress)
+0.00 → spawn
+0.15 → escort acceleration
+0.20 → dogfight begins (CAP vs Escorts)
+0.50 → dogfight ends / CAP engages bombers
+0.80 → fighters disengage / flak begins
+1.00 → reach stand-off point (2 hex equivalent before target)
+
+Arc Turn (separate turnProgress)
+0.00 → turn begins
+0.50 → bomb release
+1.00 → turn complete / egress begins
+
+Egress (egressProgress)
+0.00 → egress begins
+0.20 → flak stops scheduling
+1.00 → egress complete
+```
 
 ### Known Issues (Non-Critical)
 

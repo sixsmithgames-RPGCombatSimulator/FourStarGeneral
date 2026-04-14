@@ -2412,10 +2412,13 @@ export class HexMapRenderer implements IMapRenderer {
       if (ingressAssignments.length > 0) {
         logAirShowBeatStart(packageId, 0, "ingress", [...interceptorFlights.map(f => f.spec.id), ...bomberFlights.map(f => f.spec.id)]);
         debugAirShowPhase("Ingress", { type: "fighters + bombers approaching together" });
-        // Use bomber ingress duration so escorts and bombers travel at bomber speed together.
-        // Fighters arrive at their hold point first due to progressive offset, then escort
-        // speeds up to engage CAP after the ingress leg completes.
-        const combinedIngressDurationMs = Math.max(2800, scene.bomberIngressDurationMs ?? 3200);
+        // Per North Star Spec §Speed Principles: fighters at V, bombers at V/2.
+        // Fighters and bombers share the same phase but fighters travel their (shorter)
+        // path in less time — this is achieved by giving all actors the bomber duration
+        // while fighters have a shorter path, making them visibly faster.
+        // The fighter paths end at their hold band; bombers trail further back.
+        // Both use the same duration so the phase ends when the slowest (bombers) arrive.
+        const combinedIngressDurationMs = Math.max(3200, scene.bomberIngressDurationMs ?? 3600);
         await this.runAirShowPhase(
           ingressAssignments,
           combinedIngressDurationMs,
@@ -2611,6 +2614,19 @@ export class HexMapRenderer implements IMapRenderer {
                   }
                 )
               );
+            });
+
+            // Add bomber hold-in-place assignments so syncAirShowPhaseVisibility keeps
+            // bombers visible throughout the escort clash. Without these, bombers are absent
+            // from phaseAssignments and get hidden (opacity=0) by the visibility sync.
+            // Per North Star Spec §Visual Continuity: "Bombers do not despawn at interception".
+            activeFlights(bomberFlights).forEach((bomberFlight) => {
+              const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
+              phaseAssignments.push(...this.buildAirShowFlightAssignments(
+                bomberFlight,
+                [bomberCurrent, bomberCurrent],
+                0.0
+              ));
             });
 
             // Apply collision-aware spacing resolution before running phase
@@ -3035,13 +3051,10 @@ export class HexMapRenderer implements IMapRenderer {
         });
         const keepInterceptorsOnTargetRun = postPassInterceptors.length > 0 && escortFlights.length === 0;
         const keepEscortsOnTargetRun = postPassEscorts.length > 0 && interceptorFlights.length === 0;
-        postPassBombers.forEach((bomberFlight) => {
-          bomberFlight.actors.forEach((actor) => {
-            actor.active = true;
-            actor.image.style.opacity = "1";
-            actor.image.setAttribute("data-airshow-active", "true");
-          });
-        });
+        // Bombers were never hidden — they held their ingress positions visibly through all
+        // prior phases via hold-in-place assignments. No force-show needed here.
+        // (Removed: explicit actor.active=true / opacity="1" block that was reactivating
+        // destroyed actors and causing the disappear/reappear/slowdown cascade.)
         const bomberTargetRuns = postPassBombers.map((bomberFlight, index) => {
           const rand = stageRandom(`target-run:${bomberFlight.spec.id}`);
           const targetCenter =
