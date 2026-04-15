@@ -217,6 +217,69 @@ export function buildResolvedAirCombatScene(
     (unitKey) => !eventEscortUnitKeys.includes(unitKey)
   );
 
+  // Per North Star Spec §Speed Principles: fighter speed = V, bomber speed = V/2.
+  // Derive ingress durations from hex distance so the scene is self-contained for
+  // progress-based choreography without requiring BattleScreen runtime values.
+  const parseHexKey = (key: string): { q: number; r: number } | null => {
+    const parts = key.split(",");
+    if (parts.length !== 2) return null;
+    const q = parseInt(parts[0] ?? "", 10);
+    const r = parseInt(parts[1] ?? "", 10);
+    return isNaN(q) || isNaN(r) ? null : { q, r };
+  };
+  const hexDistance = (a: { q: number; r: number }, b: { q: number; r: number }): number => {
+    const dq = b.q - a.q;
+    const dr = b.r - a.r;
+    return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+  };
+  const locCoord = parseHexKey(options.locKey);
+  const HEX_WIDTH_PX = Math.sqrt(3) * 48;
+  const BASE_FIGHTER_PX_PER_MS = 0.12; // fighter pixel speed
+  const MINIMUM_FIGHTER_INGRESS_MS = 1250;
+  const MINIMUM_BOMBER_INGRESS_MS = 3000;
+
+  // Fighter ingress: use nearest interceptor or escort origin distance to location hex.
+  const fighterOriginKeys = [
+    ...event.interceptors.map((i) => options.resolveOriginKey(i.unitKey, i.faction)),
+    ...event.escorts.map((e) => options.resolveOriginKey(e.unitKey, e.faction))
+  ].filter((k): k is string => !!k);
+  const fighterDistances = locCoord
+    ? fighterOriginKeys
+        .map(parseHexKey)
+        .filter((c): c is { q: number; r: number } => !!c)
+        .map((c) => hexDistance(c, locCoord) * HEX_WIDTH_PX)
+    : [];
+  const fighterDistancePx = fighterDistances.length > 0
+    ? Math.min(...fighterDistances)
+    : 8 * HEX_WIDTH_PX;
+  const fighterIngressDurationMs = Math.max(
+    MINIMUM_FIGHTER_INGRESS_MS,
+    Math.round(fighterDistancePx / BASE_FIGHTER_PX_PER_MS)
+  );
+
+  // Bomber ingress: per spec §Speed Principles bomber travels at V/2, so duration = 2× fighter.
+  // Also factor in bomber's own hex distance vs fighter distance, but cap the ratio at 2.5
+  // so the combined ingress phase remains visually coherent.
+  const bomberOriginHex = options.bomberOriginKey ?? (includeBomber
+    ? options.resolveOriginKey(event.bomber.unitKey, event.bomber.faction)
+    : null);
+  const bomberDistancePx = locCoord && bomberOriginHex
+    ? (() => {
+        const c = parseHexKey(bomberOriginHex);
+        return c ? hexDistance(c, locCoord) * HEX_WIDTH_PX : fighterDistancePx;
+      })()
+    : fighterDistancePx;
+  // Speed ratio: bomber at V/2 needs 2× the time a fighter would need for the same distance.
+  // Use the longer of (bomber distance at V/2) vs (2 × fighter duration), capped at 2.5× fighter.
+  const bomberDistanceDurationMs = Math.round((bomberDistancePx / BASE_FIGHTER_PX_PER_MS) * 2);
+  const bomberIngressDurationMs = Math.max(
+    MINIMUM_BOMBER_INGRESS_MS,
+    Math.min(
+      Math.round(fighterIngressDurationMs * 2.5),
+      Math.max(bomberDistanceDurationMs, fighterIngressDurationMs * 2)
+    )
+  );
+
   return {
     scene: {
       kind: sceneKind,
@@ -227,6 +290,8 @@ export function buildResolvedAirCombatScene(
       escortExchanges: event.escortExchanges ?? [],
       bomberPassExchanges: includeBomber ? (event.bomberPassExchanges ?? []) : [],
       bomberTargetHexKey: options.bomberTargetKey,
+      fighterIngressDurationMs,
+      bomberIngressDurationMs,
       flakBursts:
         includeBomber
           ? buildResolvedAirShowFlakBursts(options.flakEvent, {
