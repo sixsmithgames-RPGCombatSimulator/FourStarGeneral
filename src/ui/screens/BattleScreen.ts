@@ -3121,7 +3121,7 @@ export class BattleScreen {
     let hadAnimationError = false;
 
     try {
-      const preparedFlights = await this.collectAirMissionFlights(arrivals, renderer);
+      const preparedFlights = await this.collectAirMissionFlights(arrivals);
       const linkedEventsByMissionId = new Map<string, AirEngagementEvent[]>();
       const linkedEventsByBomberUnitKey = new Map<string, AirEngagementEvent[]>();
 
@@ -3229,7 +3229,7 @@ export class BattleScreen {
     }
   }
 
-  private async collectAirMissionFlights(arrivals: AirMissionArrival[], renderer: HexMapRenderer): Promise<PreparedAirMissionFlight[]> {
+  private async collectAirMissionFlights(arrivals: AirMissionArrival[]): Promise<PreparedAirMissionFlight[]> {
     const flights: PreparedAirMissionFlight[] = [];
     const engine = this.battleState.ensureGameEngine();
 
@@ -3266,10 +3266,6 @@ export class BattleScreen {
             originOffsetKey,
             destOffsetKey
           });
-          const fallback = originOffsetKey ?? destOffsetKey;
-          if (fallback) {
-            await renderer.playDustCloud(fallback);
-          }
           continue;
         }
 

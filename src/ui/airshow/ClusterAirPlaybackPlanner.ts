@@ -92,6 +92,18 @@ function dedupeEvents(events: readonly AirEngagementEvent[]): AirEngagementEvent
   return Array.from(new Set(events));
 }
 
+function getEventInterceptors(event: AirEngagementEvent): readonly AirEngagementEvent["interceptors"][number][] {
+  return Array.isArray((event as { interceptors?: readonly AirEngagementEvent["interceptors"][number][] }).interceptors)
+    ? ((event as { interceptors: readonly AirEngagementEvent["interceptors"][number][] }).interceptors)
+    : [];
+}
+
+function getEventEscorts(event: AirEngagementEvent): readonly AirEngagementEvent["escorts"][number][] {
+  return Array.isArray((event as { escorts?: readonly AirEngagementEvent["escorts"][number][] }).escorts)
+    ? ((event as { escorts: readonly AirEngagementEvent["escorts"][number][] }).escorts)
+    : [];
+}
+
 function updateStrengthFloor(current: number, candidate: number | null | undefined): number {
   if (typeof candidate !== "number" || !Number.isFinite(candidate)) {
     return current;
@@ -270,7 +282,7 @@ export function buildCoordinatedAirClusterPlaybackPlan(
   ]);
 
   const hasEscortFighterBattle = candidateCombatEvents.some(
-    (event) => event.interceptors.length > 0 && event.escorts.length > 0
+    (event) => getEventInterceptors(event).length > 0 && getEventEscorts(event).length > 0
   );
   const shouldCoordinate =
     strikeOperationCount > 1
@@ -355,7 +367,7 @@ export function buildCoordinatedAirClusterPlaybackPlan(
       claimedOperationIndices.add(ownerOperation.index);
     }
 
-    event.interceptors.forEach((participant, index) => {
+    getEventInterceptors(event).forEach((participant, index) => {
       const linkedFlight = flightsByUnitKey.get(participant.unitKey);
       const strengthBefore =
         participant.strength
@@ -379,7 +391,7 @@ export function buildCoordinatedAirClusterPlaybackPlan(
       });
     });
 
-    event.escorts.forEach((participant, index) => {
+    getEventEscorts(event).forEach((participant, index) => {
       const linkedFlight = flightsByUnitKey.get(participant.unitKey);
       const combatRole = event.type === "capClash" ? "cap" : "escort";
       const strengthBefore =

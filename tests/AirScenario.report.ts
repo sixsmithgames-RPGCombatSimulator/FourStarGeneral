@@ -34,6 +34,10 @@ if (args.has("--json")) {
 console.log(`Report file: ${textPath}`);
 console.log(`JSON file: ${jsonPath}`);
 
+if ((args.has("--fail-on-anomalies") || args.has("--fail-on-findings")) && result.findings.length > 0) {
+  process.exitCode = 1;
+}
+
 if (args.has("--fail-on-anomalies") && result.anomalies.length > 0) {
   process.exitCode = 1;
 }

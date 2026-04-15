@@ -909,18 +909,18 @@ The air show is not done until all of these are true:
 
 | Issue | Severity | Status | Notes |
 |-------|----------|--------|-------|
-| ~~**Flak timing misplaced**~~ | ~~High~~ | ✅ **FIXED** | Progress changed from 82-99% to 25-55% of strike run — flak now fires during bomber approach |
+| ~~**Flak timing misplaced**~~ | ~~High~~ | **OPEN** |  |
 | ~~**Aircraft disappear/reappear at target**~~ | ~~Critical~~ | ✅ **FIXED** | Removed `actor.active` filter from `buildAirShowFlightAssignments` — all actors now get phase assignments, visibility controlled by opacity only |
 | ~~**Fighters linger during next bomber approach**~~ | ~~High~~ | ✅ **FIXED** | Skip `escort-hold` phase when bomber is present — fighters now reposition immediately for defense instead of drifting |
-| ~~**Bombers fly at same speed as escorts during ingress**~~ | ~~High~~ | ✅ **FIXED** | Increased combined ingress duration to max(3200, bomberIngressDurationMs ?? 3600)ms. Fighters travel shorter hold-band path in same duration as slower-pathed bombers, making fighters visibly faster. |
+| ~~**Bombers fly at same speed as escorts during ingress**~~ | ~~High~~ | **OPEN** |  |
 | **Bombers reach target simultaneous with fighter clash start** | High | 🔴 **OPEN** | Spec §Typical Contested Package: bombers must still be mid-approach when escort-CAP dogfight begins (step 2 before step 3). `bomberArrivalDelayMs` / ingress lead timing needs increase so fighters engage well ahead of bomber arrival. |
 | ~~**Bombers disappear for entire dogfighting scene**~~ | ~~Critical~~ | ✅ **FIXED** | Root cause: `syncAirShowPhaseVisibility` hid any actor not in current phase assignments. Added bomber hold-in-place assignments to every escort clash beat so bombers remain in `phaseAssignments` and stay visible. |
 | **Escorts snap near-180° turn at dogfight start** | High | 🔴 **OPEN** | Spec §Continuity Requirement: "next phase begins from aircraft's actual end position, not a preselected staging point". Sharp heading reversal at `escort-clash-merge` entry — ingress end heading is nearly opposite the clash approach vector. |
 | ~~**Bombers reappear after dogfighting scene**~~ | ~~Critical~~ | ✅ **FIXED** | Paired with disappearance fix. Removed the force `actor.active=true / opacity="1"` block at target-run start — bombers are never hidden so the restore was never needed, and it was incorrectly reactivating destroyed actors. |
-| ~~**All sprites slow down when bombers reappear**~~ | ~~High~~ | ✅ **FIXED** | Resolved as a consequence of the bomber disappear/reappear fix — the stall was caused by the `await Promise.all(fadeInActor...)` that preceded the old force-show block. With bombers never hidden, no fade-in await occurs. |
+| ~~**All sprites slow down when bombers reappear**~~ | ~~High~~ | **OPEN** | . |
 | **Bombers and fighters perform mutual dogfight instead of interception pass** | High | 🔴 **OPEN** | Spec §Scenario 5 Phase 4: "Surviving CAP attack bombers / Surviving escorts intercept/chase CAP". Should be one-sided interception passes against the bomber package, not a symmetrical dogfight involving bombers as aggressors. |
 | **Surviving bombers briefly disappear and reappear facing opposite direction after ordnance** | Critical | 🔴 **OPEN** | Spec §Visual Continuity Rules: "aircraft must not disappear during bomb release/explosion"; §Transition Rules: "instant opacity jumps not acceptable". Egress despawns/respawns bombers for heading flip — must be continuous from arc-turn exit. |
-| ~~**Destroyed escorts remain visible until CAP egress finishes**~~ | ~~Medium~~ | ✅ **FIXED** | The old `actor.active=true` force-show block at target-run start was reactivating all bomber actors including destroyed ones, pulling destroyed escorts back into `egressFlights`. Removing that block means only genuinely active actors enter egress. |}
+| ~~**Destroyed escorts remain visible until CAP egress finishes**~~ | ~~Medium~~ | ✅ **OPEN** | The old `actor.active=true` force-show block at target-run start was reactivating all bomber actors including destroyed ones, pulling destroyed escorts back into `egressFlights`. Removing that block means only genuinely active actors enter egress. |}
 
 ### Progress Anchor Reference
 

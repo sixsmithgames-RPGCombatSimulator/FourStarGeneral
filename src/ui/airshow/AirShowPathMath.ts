@@ -116,17 +116,16 @@ function buildRoundedWaypointPath(points: ReadonlyArray<AirShowPathPoint>): Read
       continue;
     }
     if (
-      isEdgeWaypoint
-      || shortestLegPx < 42
+      shortestLegPx < (isEdgeWaypoint ? 56 : 42)
       || (turnAngleDeg > 146 && shortestLegPx < 96)
     ) {
       expanded.push(current);
       continue;
     }
 
-    const turnRatio = clamp(turnAngleDeg / 180, 0.16, isEdgeWaypoint ? 0.24 : 0.3);
+    const turnRatio = clamp(turnAngleDeg / 180, 0.14, isEdgeWaypoint ? 0.2 : 0.3);
     const radiusPx = Math.min(
-      isEdgeWaypoint ? 88 : 104,
+      isEdgeWaypoint ? 64 : 104,
       incomingLength * turnRatio,
       outgoingLength * turnRatio
     );
@@ -239,12 +238,12 @@ export function sampleAirShowWaypointPath(
 
   const clampedProgress = clamp(progress, 0, 1);
   const segmentCount = effectivePoints.length - 1;
+  const useLinearSegments = segmentCount <= 1;
   const segmentSamples = Array.from({ length: segmentCount }, (_, segmentIndex) => {
     const p0 = effectivePoints[Math.max(0, segmentIndex - 1)] ?? effectivePoints[0]!;
     const p1 = effectivePoints[segmentIndex]!;
     const p2 = effectivePoints[segmentIndex + 1]!;
     const p3 = effectivePoints[Math.min(effectivePoints.length - 1, segmentIndex + 2)] ?? effectivePoints[effectivePoints.length - 1]!;
-    const isBoundarySegment = segmentIndex === 0 || segmentIndex === segmentCount - 1;
     const rawStartTangent = {
       dx: (p2.cx - p0.cx) * 0.5,
       dy: (p2.cy - p0.cy) * 0.5
@@ -258,7 +257,7 @@ export function sampleAirShowWaypointPath(
     const sampleCount = 10;
     const samplePoints: Array<{ t: number; point: AirShowPathPoint; cumulative: number }> = [];
     const samplePointAt = (t: number): AirShowPathPoint =>
-      isBoundarySegment
+      useLinearSegments
         ? interpolateLinearPoint(p1, p2, t)
         : interpolateHermitePoint(p1, p2, startTangent, endTangent, t);
     let previousPoint = samplePointAt(0);
@@ -276,7 +275,7 @@ export function sampleAirShowWaypointPath(
       p2,
       startTangent,
       endTangent,
-      isBoundarySegment,
+      isBoundarySegment: useLinearSegments,
       samples: samplePoints,
       approxLength: Math.max(0.0001, cumulative)
     };

@@ -74,7 +74,10 @@ export function buildResolvedAirShowFlakBursts(
     // Flak should open late in the strike run, once the bombers are committed to
     // the target lane but before release, so the barrage reads as "target defense"
     // rather than a mid-map fireworks belt.
-    progress: Math.min(0.9, 0.66 + index * 0.013),
+    // Keep the barrage concentrated in the last committed approach segment.
+    // It should open late, build rapidly, and finish before the post-release tail
+    // so the effect reads as "target area flak" instead of lingering after the drop.
+    progress: Math.min(0.93, 0.8 + index * 0.005),
     count: engagementCount,
     scale: 0.34 + index * 0.01,
     alongOffsetPx: -14 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI) * 10,

@@ -1444,8 +1444,8 @@ export class HexMapRenderer implements IMapRenderer {
       const inspBomberIngressBandAssignments: AirShowPhaseAssignment[] = bomberFlights.flatMap((bomberFlight, bomberIndex) => {
         const rand = stageRandom(`ingress:bomber-band:${bomberFlight.spec.id}`);
         const laneIndex = bomberFlights.length <= 1 ? 0 : bomberIndex - (bomberFlights.length - 1) / 2;
-        const bandPlan = this.resolveAirShowIngressBandPlan(scene.kind, "escort");
-        const trailingAlongPx = bandPlan.alongPx - 72;
+        const bandPlan = this.resolveAirShowBomberIngressBandPlan(scene.kind);
+        const trailingAlongPx = bandPlan.alongPx;
         const trailingLateralPx = laneIndex * 52 + (rand() - 0.5) * 14;
         const current = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
         const holdTarget = corridorPoint(
@@ -1465,19 +1465,22 @@ export class HexMapRenderer implements IMapRenderer {
         );
       });
 
-      const ingressAssignments: AirShowPhaseAssignment[] = [
-        ...buildBandAssignments(
-          interceptorFlights,
-          "ingress:interceptors",
-          this.resolveAirShowIngressBandPlan(scene.kind, "interceptor")
-        ),
-        ...buildBandAssignments(
-          escortFlights,
-          "ingress:escorts",
-          this.resolveAirShowIngressBandPlan(scene.kind, "escort")
-        ),
-        ...inspBomberIngressBandAssignments
-      ];
+      const hasFighterIngressParticipants = interceptorFlights.length > 0 || escortFlights.length > 0;
+      const ingressAssignments: AirShowPhaseAssignment[] = hasFighterIngressParticipants
+        ? [
+            ...buildBandAssignments(
+              interceptorFlights,
+              "ingress:interceptors",
+              this.resolveAirShowIngressBandPlan(scene.kind, "interceptor")
+            ),
+            ...buildBandAssignments(
+              escortFlights,
+              "ingress:escorts",
+              this.resolveAirShowIngressBandPlan(scene.kind, "escort")
+            ),
+            ...inspBomberIngressBandAssignments
+          ]
+        : [];
       if (ingressAssignments.length > 0) {
         const inspCombinedIngressDurationMs = Math.max(2800, scene.bomberIngressDurationMs ?? 3200);
         recordPhase("fighter-ingress", ingressAssignments, inspCombinedIngressDurationMs);
@@ -1651,6 +1654,38 @@ export class HexMapRenderer implements IMapRenderer {
               );
             });
 
+            const activeBomberFlights = activeFlights(bomberFlights);
+            if (activeBomberFlights.length > 0) {
+              const bomberClashAlongPx = beat === 0 ? 156 : 68;
+              phaseAssignments.push(
+                ...activeBomberFlights.flatMap((bomberFlight, bomberIndex) => {
+                  const rand = stageRandom(`escort:bomber-transit:${beat}:${bomberFlight.spec.id}`);
+                  const laneIndex =
+                    activeBomberFlights.length <= 1 ? 0 : bomberIndex - (activeBomberFlights.length - 1) / 2;
+                  const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
+                  const transitTarget = corridorPoint(
+                    bomberClashAlongPx + laneIndex * 20 + (rand() - 0.5) * 8,
+                    laneIndex * 48 + (rand() - 0.5) * 10
+                  );
+                  return this.buildAirShowFlightAssignments(
+                    bomberFlight,
+                    this.buildAirShowBomberRunPath(bomberCurrent, transitTarget, {
+                      lateralSign: this.resolveAirShowRouteSideSign(
+                        bomberCurrent,
+                        transitTarget,
+                        this.resolveAirShowFlightHeadingDegrees(bomberFlight),
+                        rand() > 0.5 ? 1 : -1
+                      ),
+                      corridorWidthPx: 18 + rand() * 4,
+                      driftPx: 18 + rand() * 8,
+                      startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(bomberFlight)
+                    }),
+                    0.22
+                  );
+                })
+              );
+            }
+
             const spacedPhaseAssignments = this.resolveAirShowPhaseSpacing(phaseAssignments);
             recordPhase(
               beat === 0 ? "escort-clash-merge" : "escort-clash-scramble",
@@ -1658,7 +1693,7 @@ export class HexMapRenderer implements IMapRenderer {
               escortBeatDurationMs,
               tracerBursts
             );
-            updateFlightAnchors([...interceptorFlights, ...escortFlights]);
+            updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
           }
 
           interceptorFlights.forEach((flight) => this.syncAirShowFlightStrengthForInspection(
@@ -1669,7 +1704,7 @@ export class HexMapRenderer implements IMapRenderer {
             flight,
             Math.max(0, flight.spec.strengthAfterEscortPhase ?? flight.currentStrength)
           ));
-          updateFlightAnchors([...interceptorFlights, ...escortFlights]);
+          updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
         }
       } else if (interceptorFlights.length + escortFlights.length > 1 && bomberFlights.length === 0) {
         // Only hold/drift when no bomber is present. If a bomber is approaching,
@@ -2374,9 +2409,9 @@ export class HexMapRenderer implements IMapRenderer {
       const bomberIngressBandAssignments: AirShowPhaseAssignment[] = bomberFlights.flatMap((bomberFlight, bomberIndex) => {
         const rand = stageRandom(`ingress:bomber-band:${bomberFlight.spec.id}`);
         const laneIndex = bomberFlights.length <= 1 ? 0 : bomberIndex - (bomberFlights.length - 1) / 2;
-        const bandPlan = this.resolveAirShowIngressBandPlan(scene.kind, "escort");
-        // Bombers trail the escorts: pull back along the corridor and spread wider laterally
-        const trailingAlongPx = bandPlan.alongPx - 72;
+        const bandPlan = this.resolveAirShowBomberIngressBandPlan(scene.kind);
+        // Bombers trail the fighter screen in a dedicated band instead of collapsing toward center.
+        const trailingAlongPx = bandPlan.alongPx;
         const trailingLateralPx = laneIndex * 52 + (rand() - 0.5) * 14;
         const current = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
         const holdTarget = corridorPoint(
@@ -2396,19 +2431,22 @@ export class HexMapRenderer implements IMapRenderer {
         );
       });
 
-      const ingressAssignments: AirShowPhaseAssignment[] = [
-        ...buildBandAssignments(
-          interceptorFlights,
-          "ingress:interceptors",
-          this.resolveAirShowIngressBandPlan(scene.kind, "interceptor")
-        ),
-        ...buildBandAssignments(
-          escortFlights,
-          "ingress:escorts",
-          this.resolveAirShowIngressBandPlan(scene.kind, "escort")
-        ),
-        ...bomberIngressBandAssignments
-      ];
+      const hasFighterIngressParticipants = interceptorFlights.length > 0 || escortFlights.length > 0;
+      const ingressAssignments: AirShowPhaseAssignment[] = hasFighterIngressParticipants
+        ? [
+            ...buildBandAssignments(
+              interceptorFlights,
+              "ingress:interceptors",
+              this.resolveAirShowIngressBandPlan(scene.kind, "interceptor")
+            ),
+            ...buildBandAssignments(
+              escortFlights,
+              "ingress:escorts",
+              this.resolveAirShowIngressBandPlan(scene.kind, "escort")
+            ),
+            ...bomberIngressBandAssignments
+          ]
+        : [];
       if (ingressAssignments.length > 0) {
         logAirShowBeatStart(packageId, 0, "ingress", [...interceptorFlights.map(f => f.spec.id), ...bomberFlights.map(f => f.spec.id)]);
         debugAirShowPhase("Ingress", { type: "fighters + bombers approaching together" });
@@ -2616,18 +2654,37 @@ export class HexMapRenderer implements IMapRenderer {
               );
             });
 
-            // Add bomber hold-in-place assignments so syncAirShowPhaseVisibility keeps
-            // bombers visible throughout the escort clash. Without these, bombers are absent
-            // from phaseAssignments and get hidden (opacity=0) by the visibility sync.
-            // Per North Star Spec §Visual Continuity: "Bombers do not despawn at interception".
-            activeFlights(bomberFlights).forEach((bomberFlight) => {
-              const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
-              phaseAssignments.push(...this.buildAirShowFlightAssignments(
-                bomberFlight,
-                [bomberCurrent, bomberCurrent],
-                0.0
-              ));
-            });
+            const activeBomberFlights = activeFlights(bomberFlights);
+            if (activeBomberFlights.length > 0) {
+              const bomberClashAlongPx = beat === 0 ? 156 : 68;
+              phaseAssignments.push(
+                ...activeBomberFlights.flatMap((bomberFlight, bomberIndex) => {
+                  const rand = stageRandom(`escort:bomber-transit:${beat}:${bomberFlight.spec.id}`);
+                  const laneIndex =
+                    activeBomberFlights.length <= 1 ? 0 : bomberIndex - (activeBomberFlights.length - 1) / 2;
+                  const bomberCurrent = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
+                  const transitTarget = corridorPoint(
+                    bomberClashAlongPx + laneIndex * 20 + (rand() - 0.5) * 8,
+                    laneIndex * 48 + (rand() - 0.5) * 10
+                  );
+                  return this.buildAirShowFlightAssignments(
+                    bomberFlight,
+                    this.buildAirShowBomberRunPath(bomberCurrent, transitTarget, {
+                      lateralSign: this.resolveAirShowRouteSideSign(
+                        bomberCurrent,
+                        transitTarget,
+                        this.resolveAirShowFlightHeadingDegrees(bomberFlight),
+                        rand() > 0.5 ? 1 : -1
+                      ),
+                      corridorWidthPx: 18 + rand() * 4,
+                      driftPx: 18 + rand() * 8,
+                      startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(bomberFlight)
+                    }),
+                    0.22
+                  );
+                })
+              );
+            }
 
             // Apply collision-aware spacing resolution before running phase
             // Per North Star Spec: prevents aircraft from overlapping into dense clusters
@@ -2637,7 +2694,7 @@ export class HexMapRenderer implements IMapRenderer {
               easing: "linear",
               sceneActors
             });
-            updateFlightAnchors([...interceptorFlights, ...escortFlights]);
+            updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
           }
 
           await Promise.all([
@@ -2656,7 +2713,7 @@ export class HexMapRenderer implements IMapRenderer {
               )
             )
           ]);
-          updateFlightAnchors([...interceptorFlights, ...escortFlights]);
+          updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
         }
       } else if (interceptorFlights.length + escortFlights.length > 1 && bomberFlights.length === 0) {
         // Only hold/drift when no bomber is present. Skip to defense positioning
@@ -8536,6 +8593,24 @@ export class HexMapRenderer implements IMapRenderer {
       arcPx: 28,
       driftPx: 40,
       headingBlend: 0.28
+    };
+  }
+
+  private resolveAirShowBomberIngressBandPlan(
+    sceneKind: ResolvedAirShowScene["kind"] | undefined
+  ): {
+    alongPx: number;
+    alongStepPx: number;
+  } {
+    if (sceneKind === "airToAir") {
+      return {
+        alongPx: 236,
+        alongStepPx: 34
+      };
+    }
+    return {
+      alongPx: 168,
+      alongStepPx: 30
     };
   }
 

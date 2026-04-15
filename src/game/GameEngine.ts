@@ -777,6 +777,19 @@ export interface FlakEngagementEntry {
   readonly bomberDestroyed: boolean;
 }
 
+interface AirPhaseFlakLedgerEntry {
+  readonly faction: TurnFaction;
+  readonly unitId: string;
+  readonly hexKey: string;
+  readonly unitSnapshot: ScenarioUnit;
+  remainingShots: number;
+  shotsFired: number;
+}
+
+interface AirPhaseFlakState {
+  readonly entriesByUnitId: Map<string, AirPhaseFlakLedgerEntry>;
+}
+
 /** Describes a single bot movement so UI layers can narrate progress. */
 export interface BotMoveSummary {
   readonly unitType: string;
@@ -2773,6 +2786,7 @@ export class GameEngine implements GameEngineAPI {
     const readyStrikeMissions = Array.from(this.scheduledAirMissions.values())
       .filter((mission) => mission.template.kind === "strike" && mission.status === "resolving" && mission.targetHex)
       .sort((a, b) => a.id.localeCompare(b.id));
+    const airPhaseFlakState = this.captureAirPhaseFlakState();
     const capDeltas = this.collectActiveCapMissionDeltas();
     const alliedCaps = capDeltas.filter((delta) => this.getAirCoalitionForFaction(delta.mission.faction) === "allied");
     const axisCaps = capDeltas.filter((delta) => this.getAirCoalitionForFaction(delta.mission.faction) === "axis");
@@ -2836,9 +2850,14 @@ export class GameEngine implements GameEngineAPI {
     );
 
     for (const mission of readyStrikeMissions) {
-      this.resolveStrikeMissionAirPhase(mission, assignedInterceptorsByStrikeId.get(mission.id) ?? []);
+      this.resolveStrikeMissionAirPhase(
+        mission,
+        assignedInterceptorsByStrikeId.get(mission.id) ?? [],
+        airPhaseFlakState
+      );
     }
 
+    this.commitAirPhaseFlakState(airPhaseFlakState);
     capDeltas.forEach((delta) => this.applyAirCombatDeltaOutcome(delta));
     if (capDeltas.some((delta) => delta.engaged)) {
       this.invalidateRosterCache();
@@ -2942,7 +2961,8 @@ export class GameEngine implements GameEngineAPI {
 
   private resolveStrikeMissionAirPhase(
     mission: ScheduledAirMission,
-    assignedInterceptors: readonly AirInterceptionParticipantDelta[]
+    assignedInterceptors: readonly AirInterceptionParticipantDelta[],
+    airPhaseFlakState: AirPhaseFlakState | null = null
   ): void {
     const attackerLookup = this.lookupUnitBySquadronId(mission.unitKey, mission.faction);
     if (!attackerLookup || !mission.targetHex) {
@@ -3086,7 +3106,11 @@ export class GameEngine implements GameEngineAPI {
     }
 
     if (bomberAfterAirPhase.strength > 0) {
-      const flakResolution = this.resolveFlakAgainstBomberAtTarget(mission, bomberAfterAirPhase);
+      const flakResolution = this.resolveFlakAgainstBomberAtTarget(
+        mission,
+        bomberAfterAirPhase,
+        airPhaseFlakState
+      );
       bomberAfterAirPhase = structuredClone(flakResolution.bomberAfter);
       flakAttrition = flakResolution.totalDamage;
       flakEvent = flakResolution.event;
@@ -3167,7 +3191,8 @@ export class GameEngine implements GameEngineAPI {
 
   private resolveFlakAgainstBomberAtTarget(
     mission: ScheduledAirMission,
-    bomber: ScenarioUnit
+    bomber: ScenarioUnit,
+    airPhaseFlakState: AirPhaseFlakState | null = null
   ): { bomberAfter: ScenarioUnit; totalDamage: number; event: AirEngagementEvent | null } {
     if (!mission.targetHex) {
       return { bomberAfter: structuredClone(bomber), totalDamage: 0, event: null };
@@ -3175,7 +3200,10 @@ export class GameEngine implements GameEngineAPI {
 
     const bomberDefinition = this.getUnitDefinition(bomber.type);
     const opponentFaction: TurnFaction = mission.faction === "Player" ? "Bot" : "Player";
-    const flakUnits = this.findAllActiveFlakUnitsForHex(opponentFaction, mission.targetHex);
+    const flakUnits =
+      airPhaseFlakState
+        ? this.findAvailableAirPhaseFlakUnitsForHex(airPhaseFlakState, opponentFaction, mission.targetHex)
+        : this.findAllActiveFlakUnitsForHex(opponentFaction, mission.targetHex);
     if (flakUnits.length <= 0) {
       return { bomberAfter: structuredClone(bomber), totalDamage: 0, event: null };
     }
@@ -3224,7 +3252,11 @@ export class GameEngine implements GameEngineAPI {
         strength: Math.max(0, currentBomber.strength - suffered)
       };
       totalDamage += suffered;
-      this.recordFlakEngagement(opponentFaction, flakEntry.unit, flakEntry.hexKey);
+      if (airPhaseFlakState) {
+        this.recordAirPhaseFlakEngagement(airPhaseFlakState, opponentFaction, flakEntry.unit);
+      } else {
+        this.recordFlakEngagement(opponentFaction, flakEntry.unit, flakEntry.hexKey);
+      }
       flakEngagements.push({
         batteryFaction: opponentFaction,
         batteryUnitKey: this.getSquadronId(flakEntry.unit),
@@ -3265,6 +3297,117 @@ export class GameEngine implements GameEngineAPI {
         bomberDestroyed: currentBomber.strength <= 0
       }
     };
+  }
+
+  private captureAirPhaseFlakState(): AirPhaseFlakState {
+    const entriesByUnitId = new Map<string, AirPhaseFlakLedgerEntry>();
+    const factions: TurnFaction[] = ["Player", "Bot", "Ally"];
+
+    factions.forEach((faction) => {
+      this.getAllUnitsForFaction(faction).forEach((unit) => {
+        if (!unit.onSentry) {
+          return;
+        }
+        const definition = this.getUnitDefinition(unit.type);
+        if (!this.hasAntiAirCapability(definition)) {
+          return;
+        }
+        const unitId = this.getSquadronId(unit);
+        const priorEngagements = this.aaEngagementsByUnitId.get(unitId) ?? 0;
+        const remainingShots = Math.max(0, unit.ammo - priorEngagements);
+        if (remainingShots <= 0) {
+          return;
+        }
+        entriesByUnitId.set(unitId, {
+          faction,
+          unitId,
+          hexKey: axialKey(unit.hex),
+          unitSnapshot: structuredClone(unit),
+          remainingShots,
+          shotsFired: 0
+        });
+      });
+    });
+
+    return { entriesByUnitId };
+  }
+
+  private findAvailableAirPhaseFlakUnitsForHex(
+    airPhaseFlakState: AirPhaseFlakState,
+    faction: TurnFaction,
+    targetHex: Axial
+  ): Array<{ unit: ScenarioUnit; hexKey: string }> {
+    const results: Array<{ unit: ScenarioUnit; hexKey: string }> = [];
+
+    airPhaseFlakState.entriesByUnitId.forEach((entry) => {
+      if (entry.faction !== faction || entry.remainingShots <= 0) {
+        return;
+      }
+      const definition = this.getUnitDefinition(entry.unitSnapshot.type);
+      if (!definition) {
+        return;
+      }
+      const distance = hexDistance(entry.unitSnapshot.hex, targetHex);
+      if (distance > definition.rangeMax || distance < definition.rangeMin) {
+        return;
+      }
+      results.push({
+        unit: structuredClone(entry.unitSnapshot),
+        hexKey: entry.hexKey
+      });
+    });
+
+    return results;
+  }
+
+  private recordAirPhaseFlakEngagement(
+    airPhaseFlakState: AirPhaseFlakState,
+    faction: TurnFaction,
+    unit: ScenarioUnit
+  ): void {
+    const unitId = this.getSquadronId(unit);
+    const entry = airPhaseFlakState.entriesByUnitId.get(unitId);
+    if (!entry || entry.faction !== faction || entry.remainingShots <= 0) {
+      return;
+    }
+    entry.remainingShots = Math.max(0, entry.remainingShots - 1);
+    entry.shotsFired += 1;
+  }
+
+  private commitAirPhaseFlakState(airPhaseFlakState: AirPhaseFlakState): void {
+    let mutated = false;
+
+    airPhaseFlakState.entriesByUnitId.forEach((entry) => {
+      if (entry.shotsFired <= 0) {
+        return;
+      }
+
+      const liveLookup = this.lookupUnitBySquadronId(entry.unitId, entry.faction);
+      const liveUnit = liveLookup?.unit ?? entry.unitSnapshot;
+      const liveHexKey = liveLookup?.hexKey ?? entry.hexKey;
+      const updatedUnit = structuredClone(liveUnit);
+      updatedUnit.onSentry = false;
+      updatedUnit.ammo = Math.max(0, updatedUnit.ammo - entry.shotsFired);
+
+      if (!this.replaceUnitInFactionHex(entry.faction, updatedUnit)) {
+        if (entry.faction === "Player") {
+          this.playerPlacements.set(liveHexKey, updatedUnit);
+        } else if (entry.faction === "Bot") {
+          this.botPlacements.set(liveHexKey, updatedUnit);
+        } else {
+          this.allyPlacements.set(liveHexKey, updatedUnit);
+        }
+      }
+
+      const prior = this.aaEngagementsByUnitId.get(entry.unitId) ?? 0;
+      this.aaEngagementsByUnitId.set(entry.unitId, prior + entry.shotsFired);
+      this.syncAmmoForFaction(entry.faction, updatedUnit.hex, updatedUnit.ammo, entry.unitId);
+      mutated = true;
+    });
+
+    if (mutated) {
+      this.invalidateRosterCache();
+    }
   }
 
   private buildEscortOutcomeFromResolvedState(

@@ -154,19 +154,33 @@ describe("AirShow JEST Harness", () => {
     });
   });
 
-  test("fighter beats stay separate from bomber ingress so the harness catches drift and arrival-order regressions", async () => {
+  test("fighter ingress keeps bombers trailing the screen instead of stripping them from the coordinated package", async () => {
     const report = inspectScene(await captureScene());
-    const bomberIngressIndex = report.phases.findIndex((phase) => phase.label === "bomber-ingress");
-
-    expect(bomberIngressIndex).toBeGreaterThan(0);
-
-    const fighterOnlyPhases = report.phases.slice(0, bomberIngressIndex);
-    fighterOnlyPhases.forEach((phase) => {
-      expect(phase.assignments.some((assignment) => assignment.role === "bomber")).toBe(false);
-    });
-
+    const fighterIngress = report.phases.find((phase) => phase.label === "fighter-ingress");
     const scramblePhase = report.phases.find((phase) => phase.label === "escort-clash-scramble");
+
+    expect(fighterIngress).toBeDefined();
     expect(scramblePhase).toBeDefined();
+
+    const bomberAssignments = fighterIngress?.assignments.filter((assignment) => assignment.role === "bomber") ?? [];
+    const fighterAssignments =
+      fighterIngress?.assignments.filter(
+        (assignment) => assignment.role === "interceptor" || assignment.role === "escort"
+      ) ?? [];
+
+    expect(bomberAssignments.length).toBeGreaterThan(0);
+    expect(fighterAssignments.length).toBeGreaterThan(0);
+
+    const ingressAssignments = fighterIngress?.assignments ?? [];
+    const averageDistanceToCenter = (
+      assignments: ReadonlyArray<(typeof ingressAssignments)[number]>
+    ): number =>
+      assignments.reduce((sum, assignment) => {
+        const lastSample = assignment.sampledPositions[assignment.sampledPositions.length - 1];
+        return sum + Math.hypot(lastSample.cx - report.center.cx, lastSample.cy - report.center.cy);
+      }, 0) / assignments.length;
+
+    expect(averageDistanceToCenter(bomberAssignments)).toBeGreaterThan(averageDistanceToCenter(fighterAssignments));
     expect(scramblePhase?.assignments.some((assignment) => assignment.role === "interceptor")).toBe(true);
     expect(scramblePhase?.assignments.some((assignment) => assignment.role === "escort")).toBe(true);
   });

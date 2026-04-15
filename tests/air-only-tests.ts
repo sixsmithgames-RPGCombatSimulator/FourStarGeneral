@@ -12,6 +12,12 @@ import "./AirStrike.damageRounding.test.js";
 import "./AirSupport.summary.test.js";
 import "./BotAirHeuristic.test.js";
 import "./AirCombatSceneBuilder.test.js";
+import "./AirShow.fighterMotion.test.js";
+import "./AirShow.progressTiming.test.js";
+import "./AirShow.speedModel.test.js";
+import "./AirShow.bomberSpeed.validation.test.js";
+import "./AirShow.coordinatedPackage.test.js";
+import "./AirShow.regression.test.js";
 
 // Execute only air-related tests
 (async () => {

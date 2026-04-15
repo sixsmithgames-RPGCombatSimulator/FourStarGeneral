@@ -227,9 +227,7 @@ function buildEngine(): GameEngine {
     botSide: side({ q: 14, r: 14 })
   };
   const engine = new GameEngine(config);
-
-  engine.beginDeployment();
-  engine.initializeFromAllocations([
+  const playerUnits: ScenarioUnit[] = [
     make("Fighter", { q: 0, r: 0 }, "u_pcap1"),
     make("Interceptor", { q: 1, r: 0 }, "u_pcap2"),
     make("Fighter", { q: 0, r: 1 }, "u_pcap3"),
@@ -241,24 +239,35 @@ function buildEngine(): GameEngine {
     make("Flak_88", { q: 5, r: 2 }, "u_pflak2", { onSentry: true }),
     make("Flak_88", { q: 2, r: 4 }, "u_pflak3", { onSentry: true }),
     make("Flak_88", { q: 5, r: 4 }, "u_pflak4", { onSentry: true })
-  ]);
-  engine.setBaseCamp({ q: 0, r: 2 });
-  engine.finalizeDeployment();
-  engine.startPlayerTurnPhase();
-
-  const internals = engine as unknown as {
-    botPlacements: Map<string, ScenarioUnit>;
-  };
-  [
+  ];
+  const botUnits: ScenarioUnit[] = [
     make("Bomber", { q: 13, r: 14 }, "u_bbomber1"),
     make("Bomber", { q: 14, r: 14 }, "u_bbomber2"),
     make("Bomber", { q: 13, r: 13 }, "u_bbomber3"),
     make("Bomber", { q: 14, r: 13 }, "u_bbomber4"),
     make("Fighter", { q: 12, r: 14 }, "u_bescort1"),
     make("Fighter", { q: 12, r: 13 }, "u_bescort2")
-  ].forEach((unit) => {
+  ];
+
+  engine.beginDeployment();
+  engine.setBaseCamp({ q: 0, r: 2 });
+  engine.finalizeDeployment();
+  engine.startPlayerTurnPhase();
+
+  const internals = engine as unknown as {
+    playerPlacements: Map<string, ScenarioUnit>;
+    botPlacements: Map<string, ScenarioUnit>;
+    invalidateRosterCache: () => void;
+    rebuildPlayerIdleUnitSet: () => void;
+  };
+  playerUnits.forEach((unit) => {
+    internals.playerPlacements.set(`${unit.hex.q},${unit.hex.r}`, structuredClone(unit));
+  });
+  botUnits.forEach((unit) => {
     internals.botPlacements.set(`${unit.hex.q},${unit.hex.r}`, unit);
   });
+  internals.invalidateRosterCache();
+  internals.rebuildPlayerIdleUnitSet();
 
   [
     {
@@ -475,6 +484,7 @@ export interface AirScenarioResult {
   readonly arrivals: readonly AirMissionArrival[];
   readonly missionReports: readonly AirMissionReportEntry[];
   readonly engagements: readonly AirEngagementEvent[];
+  readonly expectedFlakCoverageByMissionId: Readonly<Record<string, readonly string[]>>;
   readonly playbackProjection: AirScenarioPlaybackProjection;
   readonly airshowInspections: readonly {
     readonly eventType: AirEngagementEvent["type"];
@@ -527,10 +537,14 @@ export interface AirScenarioCoordinatedPlanSummary {
   readonly fighterScenePhaseLabels: readonly string[];
   readonly fighterSceneTracerCount: number;
   readonly fighterSceneDurationMs: number;
+  readonly fighterSceneFlakBurstCount: number;
   readonly strikeSortieMissionIds: readonly string[];
   readonly residualOperationLabels: readonly string[];
   readonly bomberStartDelayMs: number;
   readonly fighterIngressLeadMs: number;
+  readonly sceneReport: AirShowInspectionReport | null;
+  readonly scenePhaseMetrics: readonly AirShowPhaseMetric[];
+  readonly sceneFindings: readonly AirScenarioFinding[];
 }
 
 export interface AirScenarioPlaybackProjection {
@@ -542,10 +556,48 @@ export interface AirScenarioPlaybackProjection {
   readonly coordinatedPlans: readonly AirScenarioCoordinatedPlanSummary[];
 }
 
-function inspectCoordinatedFighterScene(scene: ResolvedAirShowScene | null): {
+function snapshotExpectedFlakCoverage(
+  engine: GameEngine
+): Readonly<Record<string, readonly string[]>> {
+  const getAllUnitsForFaction = (engine as unknown as {
+    getAllUnitsForFaction: (faction: "Player" | "Bot" | "Ally") => ScenarioUnit[];
+  }).getAllUnitsForFaction.bind(engine);
+  const coverage: Record<string, readonly string[]> = {};
+  const factions: Array<"Player" | "Bot" | "Ally"> = ["Player", "Bot", "Ally"];
+
+  factions.forEach((faction) => {
+    engine
+      .getScheduledAirMissions(faction)
+      .filter((mission) => mission.kind === "strike" && mission.targetHex)
+      .forEach((mission) => {
+        const opponentFaction: "Player" | "Bot" | "Ally" =
+          mission.faction === "Player" ? "Bot" : "Player";
+        coverage[mission.id] = getAllUnitsForFaction(opponentFaction)
+          .filter((unit) => {
+            const definition = unitTypes[unit.type as keyof typeof unitTypes];
+            return unit.onSentry === true
+              && unitDefinitionHasTrait(definition, "intercept")
+              && axialDistance(unit.hex, mission.targetHex!) <= 2;
+          })
+          .map((unit) => `${unit.type} ${unit.unitId ?? `${unit.hex.q},${unit.hex.r}`}`);
+      });
+  });
+
+  return coverage;
+}
+
+function inspectCoordinatedScene(
+  scene: ResolvedAirShowScene | null,
+  subjectLabel: string,
+  strikeSortieMissionIds: readonly string[]
+): {
+  readonly report: AirShowInspectionReport;
   readonly phaseLabels: readonly string[];
   readonly tracerCount: number;
+  readonly flakBurstCount: number;
   readonly durationMs: number;
+  readonly phaseMetrics: readonly AirShowPhaseMetric[];
+  readonly findings: readonly AirScenarioFinding[];
 } | null {
   if (!scene) {
     return null;
@@ -591,10 +643,73 @@ function inspectCoordinatedFighterScene(scene: ResolvedAirShowScene | null): {
     if (!report) {
       return null;
     }
+    const phaseMetrics = report.phases.map((phase, phaseIndex) =>
+      measurePhase(report, phase, phaseIndex > 0 ? report.phases[phaseIndex - 1] : undefined)
+    );
+    const findings: AirScenarioFinding[] = [];
+    const fighterIngress = report.phases.find((phase) => phase.label === "fighter-ingress");
+    const targetRunMetric = phaseMetrics.find((phase) => phase.label === "target-run");
+
+    if (fighterIngress) {
+      const bomberAssignments = fighterIngress.assignments.filter((assignment) => assignment.role === "bomber");
+      const fighterAssignments = fighterIngress.assignments.filter(
+        (assignment) => assignment.role === "interceptor" || assignment.role === "escort"
+      );
+
+      if (strikeSortieMissionIds.length > 0 && bomberAssignments.length === 0) {
+        findings.push({
+          code: "coordinated-missing-bomber-ingress",
+          message: `${subjectLabel} has strike sorties but fighter-ingress renders no bomber assignments.`
+        });
+      }
+
+      if (bomberAssignments.length > 0 && fighterAssignments.length > 0) {
+        const averageDistance = (
+          assignments: ReadonlyArray<(typeof fighterIngress.assignments)[number]>,
+          progress: number
+        ): number =>
+          assignments.reduce((sum, assignment) => {
+            const nearest = assignment.sampledPositions.reduce((closest, sample) =>
+              Math.abs(sample.progress - progress) < Math.abs(closest.progress - progress) ? sample : closest
+            );
+            return sum + distanceBetween(nearest, report.center);
+          }, 0) / assignments.length;
+
+        const fighterMeanDistance = averageDistance(fighterAssignments, 1);
+        const bomberMeanDistance = averageDistance(bomberAssignments, 1);
+        if (bomberMeanDistance + 20 < fighterMeanDistance) {
+          findings.push({
+            code: "coordinated-bombers-leading-fighters",
+            message:
+              `${subjectLabel} places bombers ${Math.round(fighterMeanDistance - bomberMeanDistance)}px deeper than fighters ` +
+              `by the end of fighter-ingress.`
+          });
+        }
+      }
+    }
+
+    if (strikeSortieMissionIds.length > 0 && !targetRunMetric) {
+      findings.push({
+        code: "coordinated-missing-target-run",
+        message: `${subjectLabel} has strike sorties but no target-run phase in the coordinated scene.`
+      });
+    }
+
+    if (targetRunMetric && strikeSortieMissionIds.length > 0 && targetRunMetric.flakBurstCount <= 0) {
+      findings.push({
+        code: "coordinated-missing-flak",
+        message: `${subjectLabel} target-run scheduled no flak bursts for the coordinated strike package.`
+      });
+    }
+
     return {
+      report,
       phaseLabels: report.phases.map((phase) => phase.label),
       tracerCount: report.phases.reduce((sum, phase) => sum + phase.tracers.length, 0),
-      durationMs: report.phases.reduce((sum, phase) => sum + phase.durationMs, 0)
+      flakBurstCount: report.phases.reduce((sum, phase) => sum + phase.flakBursts.length, 0),
+      durationMs: report.phases.reduce((sum, phase) => sum + phase.durationMs, 0),
+      phaseMetrics,
+      findings
     };
   } finally {
     if (hostFetch) {
@@ -1100,7 +1215,11 @@ function buildPlaybackProjection(
       if (!plan) {
         return null;
       }
-      const fighterSceneInspection = inspectCoordinatedFighterScene(plan.scene);
+      const fighterSceneInspection = inspectCoordinatedScene(
+        plan.scene,
+        `coordinated cluster #${clusterIndex + 1}`,
+        Array.from(plan.strikeMissionIds)
+      );
       return {
         clusterIndex,
         focusKey: plan.focusKey,
@@ -1110,6 +1229,7 @@ function buildPlaybackProjection(
         fighterScenePhaseLabels: fighterSceneInspection?.phaseLabels ?? [],
         fighterSceneTracerCount: fighterSceneInspection?.tracerCount ?? 0,
         fighterSceneDurationMs: fighterSceneInspection?.durationMs ?? 0,
+        fighterSceneFlakBurstCount: fighterSceneInspection?.flakBurstCount ?? 0,
         strikeSortieMissionIds: Array.from(plan.strikeMissionIds),
         residualOperationLabels: Array.from(plan.residualOperations.map((entry) => {
           if (entry.kind === "linkedStrike") {
@@ -1121,7 +1241,10 @@ function buildPlaybackProjection(
           return `event:${entry.event.type}:${entry.event.missionId ?? entry.event.bomber.unitKey}`;
         })),
         bomberStartDelayMs: plan.bomberStartDelayMs,
-        fighterIngressLeadMs: plan.fighterIngressLeadMs
+        fighterIngressLeadMs: plan.fighterIngressLeadMs,
+        sceneReport: fighterSceneInspection?.report ?? null,
+        scenePhaseMetrics: fighterSceneInspection?.phaseMetrics ?? [],
+        sceneFindings: fighterSceneInspection?.findings ?? []
       } satisfies AirScenarioCoordinatedPlanSummary;
     })
     .filter(Boolean) as AirScenarioCoordinatedPlanSummary[];
@@ -1283,7 +1406,7 @@ function buildSyntheticInspectableCases(): Array<{
       // Keep the barrage in the late final-approach window so diagnostics catch
       // regressions where flak starts bursting while the strike package is still far
       // from the target hex.
-      progress: Math.min(0.9, 0.66 + index * 0.013),
+      progress: Math.min(0.94, 0.82 + index * 0.006),
       count: 1,
       scale: 0.34 + index * 0.01,
       alongOffsetPx: -12 + Math.sin((index / Math.max(1, count - 1)) * Math.PI) * 8,
@@ -2273,7 +2396,8 @@ function detectAirshowFindings(
 function detectAnomalies(
   engine: GameEngine,
   missionReports: readonly AirMissionReportEntry[],
-  engagements: readonly AirEngagementEvent[]
+  engagements: readonly AirEngagementEvent[],
+  expectedFlakCoverageByMissionId: Readonly<Record<string, readonly string[]>>
 ): AirScenarioAnomaly[] {
   const anomalies: AirScenarioAnomaly[] = [];
   const internals = engine as unknown as {
@@ -2343,11 +2467,18 @@ function detectAnomalies(
         });
       }
       const hasFlakEvent = engagements.some((event) => event.type === "flak" && event.missionId === report.missionId);
-      if (report.outcome?.result !== "destroyed" && hasDefendingFlakCoverage(report) && !hasFlakEvent) {
+      const expectedCoverage = expectedFlakCoverageByMissionId[report.missionId] ?? [];
+      if (report.outcome?.result !== "destroyed" && expectedCoverage.length > 0 && !hasFlakEvent) {
         anomalies.push({
           code: "missing-flak-engagement",
           message:
-            `${describeMission(report)} entered a target hex covered by sentry flak, but no flak engagement event was recorded.`
+            `${describeMission(report)} entered a target hex covered by sentry flak (${expectedCoverage.join(", ")}), but no flak engagement event was recorded.`
+        });
+      } else if (report.outcome?.result !== "destroyed" && hasDefendingFlakCoverage(report) && !hasFlakEvent) {
+        anomalies.push({
+          code: "missing-flak-engagement-live-state",
+          message:
+            `${describeMission(report)} appears to have defending flak coverage in the resolved state, but no flak engagement event was recorded.`
         });
       }
     });
@@ -2357,6 +2488,7 @@ function detectAnomalies(
 
 export function runAirScenario(): AirScenarioResult {
   const engine = buildEngine();
+  const expectedFlakCoverageByMissionId = snapshotExpectedFlakCoverage(engine);
   (engine as unknown as { resolveReadyAirMissionsForRound: () => void }).resolveReadyAirMissionsForRound();
   const arrivals = (() => {
     const consumed = engine.consumeAirMissionArrivals();
@@ -2372,9 +2504,10 @@ export function runAirScenario(): AirScenarioResult {
     arrivals,
     missionReports,
     engagements,
+    expectedFlakCoverageByMissionId,
     playbackProjection,
     airshowInspections,
-    anomalies: detectAnomalies(engine, missionReports, engagements),
+    anomalies: detectAnomalies(engine, missionReports, engagements, expectedFlakCoverageByMissionId),
     findings
   };
 }
@@ -2398,6 +2531,17 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
   result.missionReports.forEach((report) => {
     lines.push(`- ${describeMission(report)}`);
   });
+  lines.push("");
+  lines.push("Expected flak coverage snapshot:");
+  const flakMissionIds = Object.keys(result.expectedFlakCoverageByMissionId).sort();
+  if (flakMissionIds.length > 0) {
+    flakMissionIds.forEach((missionId) => {
+      const batteries = result.expectedFlakCoverageByMissionId[missionId] ?? [];
+      lines.push(`- ${missionId}: ${batteries.length > 0 ? batteries.join(", ") : "none"}`);
+    });
+  } else {
+    lines.push("- none");
+  }
   lines.push("");
   lines.push("Engagement timeline:");
   result.engagements.forEach((event) => {
@@ -2437,7 +2581,7 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
       `  coordinated cluster #${plan.clusterIndex + 1} focus=${plan.focusKey ?? "<none>"} ` +
       `fighterScene=${plan.hasFighterScene} interceptors=${plan.fighterSceneInterceptorCount} escorts=${plan.fighterSceneEscortCount} ` +
       `strikeSorties=${plan.strikeSortieMissionIds.join("|") || "<none>"} bomberDelayMs=${plan.bomberStartDelayMs} ` +
-      `fighterLeadMs=${plan.fighterIngressLeadMs} fighterSceneDurationMs=${plan.fighterSceneDurationMs} tracers=${plan.fighterSceneTracerCount}`
+      `fighterLeadMs=${plan.fighterIngressLeadMs} fighterSceneDurationMs=${plan.fighterSceneDurationMs} tracers=${plan.fighterSceneTracerCount} flak=${plan.fighterSceneFlakBurstCount}`
     );
     if (plan.fighterScenePhaseLabels.length > 0) {
       lines.push(`    fighterScenePhases=${plan.fighterScenePhaseLabels.join(" -> ")}`);
@@ -2445,10 +2589,91 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
     if (plan.residualOperationLabels.length > 0) {
       lines.push(`    residual=${plan.residualOperationLabels.join(" | ")}`);
     }
+    if (plan.sceneFindings.length > 0) {
+      plan.sceneFindings.forEach((finding) => {
+        lines.push(`    finding ${finding.code}: ${finding.message}`);
+      });
+    }
   });
   lines.push("");
+  const coordinatedGeometryPlans = result.playbackProjection.coordinatedPlans.filter((plan) => plan.sceneReport);
+  if (coordinatedGeometryPlans.length > 0) {
+    lines.push("Coordinated airshow geometry:");
+    coordinatedGeometryPlans.forEach((plan) => {
+      const report = plan.sceneReport;
+      if (!report) {
+        return;
+      }
+      lines.push(
+        `- coordinated cluster #${plan.clusterIndex + 1} focus=${plan.focusKey ?? "<none>"} center=(${Math.round(report.center.cx)},${Math.round(report.center.cy)}) phases=${report.phases.length} sorties=${plan.strikeSortieMissionIds.join("|") || "<none>"}`
+      );
+      report.phases.forEach((phase) => {
+        const metrics = plan.scenePhaseMetrics.find((entry) => entry.label === phase.label);
+        lines.push(
+          `  phase ${phase.label} ${phase.durationMs}ms assignments=${phase.assignments.length} tracers=${phase.tracers.length}` +
+          (metrics
+            ? ` box=${Math.round(metrics.widthPx)}x${Math.round(metrics.heightPx)} path=${Math.round(metrics.meanPathLengthPx)} disp=${Math.round(metrics.meanDisplacementPx)} eff=${Math.round(metrics.meanEfficiency * 100)}%` +
+              ` speed=${Math.round(metrics.meanSpeedPxPerSec)}` +
+              ` turn=${Math.round(metrics.meanEntryTurnAngleDeg)}/${Math.round(metrics.maxEntryTurnAngleDeg)}` +
+              ` pathTurn=${Math.round(metrics.meanWaypointTurnAngleDeg)}/${Math.round(metrics.maxWaypointTurnAngleDeg)}` +
+              ` firstTurn=${Math.round(metrics.meanFirstWaypointTurnAngleDeg)}/${Math.round(metrics.maxFirstWaypointTurnAngleDeg)}` +
+              ` tracerLen=${Math.round(metrics.meanTracerLengthPx)}/${Math.round(metrics.meanVisibleTracerLengthPx)} tracerFan=${Math.round(metrics.meanTracerFanSpanPx)}` +
+              ` tracerAlign=${Math.round(metrics.meanTracerAlignmentDeg)}/${Math.round(metrics.maxTracerAlignmentDeg)}` +
+              ` tracerRange=${Math.round(metrics.meanTracerRangePx)}/${Math.round(metrics.maxTracerRangePx)}` +
+              (metrics.flakBurstCount > 0
+                ? ` flak=${metrics.flakBurstCount}x${metrics.flakFlashCount}/${metrics.flakPuffCount} belt=${Math.round(metrics.meanFlakWidthPx)}x${Math.round(metrics.meanFlakHeightPx)}`
+                : "")
+            : "")
+        );
+        metrics?.groupMetrics.forEach((group) => {
+          lines.push(
+            `    group ${group.label}: n=${group.assignmentCount} start=${formatPoint(group.centroidStart)} ` +
+            `mid=${formatPoint(group.centroidMid)} end=${formatPoint(group.centroidEnd)} ` +
+            `path=${Math.round(group.meanPathLengthPx)} disp=${Math.round(group.meanDisplacementPx)} eff=${Math.round(group.meanEfficiency * 100)}% speed=${Math.round(group.meanSpeedPxPerSec)}`
+          );
+        });
+        metrics?.relationMetrics.forEach((relation) => {
+          lines.push(
+            `    relation ${relation.fromLabel} -> ${relation.toLabel}: ` +
+            `sep(start=${Math.round(relation.separationStartPx)}, mid=${Math.round(relation.separationMidPx)}, end=${Math.round(relation.separationEndPx)}) ` +
+            `closestMid=${Math.round(relation.minMidPairSeparationPx)} angle=${Math.round(relation.approachAngleDeg)}`
+          );
+        });
+        phase.assignments.slice(0, 8).forEach((assignment) => {
+          const compactPoints = sampleInspectionPath(assignment.points, 7)
+            .map((sample) => sample.point)
+            .map((point) => `(${Math.round(point.cx)},${Math.round(point.cy)})`)
+            .join(" -> ");
+          lines.push(`    ${assignment.actorId}: ${compactPoints}`);
+        });
+        metrics?.tracerMetrics.slice(0, 6).forEach((tracer) => {
+          const fanLabel =
+            tracer.leftFanEndPoint && tracer.rightFanEndPoint
+              ? ` fan=${formatPoint(tracer.leftFanEndPoint)} | ${formatPoint(tracer.centerlineEndPoint)} | ${formatPoint(tracer.rightFanEndPoint)}`
+              : ` centerline=${formatPoint(tracer.centerlineEndPoint)}`;
+          lines.push(
+            `    tracer ${Math.round(tracer.progress * 100)}% ${tracer.sourceActorId} ${tracer.emitter} ` +
+            `heading=${Math.round(tracer.sourceHeadingDegrees)} len=${Math.round(tracer.streakLengthPx)}/${Math.round(tracer.visibleLengthPx)} fanHalf=${Math.round(tracer.fanHalfAngleDeg)} ` +
+            `width=${tracer.width?.toFixed(2) ?? "?"} life=${Math.round(tracer.lifetimeMs ?? 0)} ` +
+            `emit=${formatPoint(tracer.emitterPoint)}${fanLabel}` +
+            (tracer.targetPoint ? ` targetRef=${formatPoint(tracer.targetPoint)}` : "") +
+            (typeof tracer.targetAlignmentDeg === "number" ? ` align=${Math.round(tracer.targetAlignmentDeg)}` : "") +
+            (typeof tracer.targetRangePx === "number" ? ` range=${Math.round(tracer.targetRangePx)}` : "")
+          );
+        });
+        metrics?.flakMetrics.slice(0, 6).forEach((flak) => {
+          lines.push(
+            `    flak ${Math.round(flak.progress * 100)}% center=${formatPoint(flak.burstCenter)} ` +
+            `flash/puffs=${flak.flashCount}/${flak.puffCount}/${flak.smokePuffCount} ` +
+            `belt=${Math.round(flak.widthPx)}x${Math.round(flak.heightPx)}`
+          );
+        });
+      });
+    });
+    lines.push("");
+  }
   if (result.airshowInspections.length > 0) {
-    lines.push("Airshow geometry:");
+    lines.push("Legacy per-event airshow geometry:");
     result.airshowInspections.forEach((inspectionEntry) => {
       lines.push(`- ${inspectionEntry.eventType}${inspectionEntry.missionId ? ` (${inspectionEntry.missionId})` : ""} center=(${Math.round(inspectionEntry.report.center.cx)},${Math.round(inspectionEntry.report.center.cy)}) phases=${inspectionEntry.report.phases.length}`);
       lines.push(

@@ -4,13 +4,18 @@
  * These tests validate fixes for recently identified bugs per the
  * "Active TODO Issues" section of AIR_SHOW_NORTH_STAR_SPEC.md
  *
- * Bug fixes covered:
- * - Bombers fly at same speed as escorts during ingress (FIXED)
+ * Bug fix STATUS (per user 2026-04-14):
+ * - Bombers fly at same speed as escorts during ingress (OPEN - NOT FIXED)
  * - Bombers disappear for entire dogfighting scene (FIXED)
+ * - Bombers visible but FROZEN during dogfight (OPEN - NOT FIXED, bombers don't move)
  * - Bombers reappear after dogfighting scene (FIXED)
- * - All sprites slow down when bombers reappear (FIXED)
- * - Destroyed escorts remain visible until CAP egress finishes (FIXED)
- * - Flak timing misplaced (FIXED)
+ * - All sprites slow down when bombers reappear (OPEN - NOT FIXED)
+ * - Destroyed escorts remain visible until CAP egress finishes (OPEN - NOT FIXED)
+ * - Flak timing misplaced (OPEN - NOT FIXED)
+ * - Bombers reach target simultaneous with fighter clash start (OPEN)
+ * - Escorts snap near-180 turn at dogfight start (OPEN)
+ * - Bombers and fighters perform mutual dogfight (OPEN)
+ * - Surviving bombers disappear/reappear after ordnance (OPEN)
  */
 
 import { registerTest } from "./harness.js";
@@ -19,13 +24,13 @@ import { runAirScenario } from "./airScenarioSupport.js";
 registerTest("AIR_SHOW_REGRESSION_BOMBER_SPEED_DIFFERENTIATION", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
-  await Given("the fixed combined ingress duration (max 3200ms, default 3600ms)", async () => {});
+  await Given("the combined ingress duration fix attempt (max 3200ms, default 3600ms)", async () => {});
 
-  await When("the contested package scenario is run", async () => {
+  await When("the contested package scenario is run with ACTUAL speed measurement", async () => {
     result = runAirScenario();
   });
 
-  await Then("bombers should appear visibly slower than fighters/escorts during ingress", async () => {
+  await Then("bombers must actually fly at V/2 speed, not just have longer duration", async () => {
     const inspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
     );
@@ -34,37 +39,73 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_SPEED_DIFFERENTIATION", async ({ Given,
       return;
     }
 
-    // Find ingress phase
-    const ingressPhase = inspection.report.phases.find(p =>
-      p.label === "fighter-ingress" || p.label.includes("ingress")
+    // Find ingress phases
+    const fighterIngress = inspection.report.phases.find(p =>
+      p.label === "fighter-ingress" && p.assignments.some(a => a.role === "interceptor")
+    );
+    const bomberIngress = inspection.report.phases.find(p =>
+      p.label === "bomber-ingress" && p.assignments.some(a => a.role === "bomber")
     );
 
-    if (!ingressPhase) {
-      throw new Error("Expected ingress phase.");
+    if (!fighterIngress || !bomberIngress) {
+      throw new Error("Expected separate fighter and bomber ingress phases.");
     }
 
-    // Validate duration is sufficient for speed differentiation
-    const MIN_DURATION_MS = 3200;
-    if (ingressPhase.durationMs < MIN_DURATION_MS * 0.9) {
+    const fighterAssignment = fighterIngress.assignments.find(a => a.role === "interceptor");
+    const bomberAssignment = bomberIngress.assignments.find(a => a.role === "bomber");
+
+    if (!fighterAssignment || !bomberAssignment) {
+      throw new Error("Expected fighter and bomber assignments.");
+    }
+
+    // Calculate ACTUAL observed speeds from position samples
+    function calcAvgSpeed(samples: ReadonlyArray<{ cx: number; cy: number; timeMs: number }>): number {
+      if (samples.length < 3) return 0;
+      let totalDistance = 0;
+      let totalTime = 0;
+      for (let i = 1; i < samples.length; i++) {
+        const dx = samples[i].cx - samples[i - 1].cx;
+        const dy = samples[i].cy - samples[i - 1].cy;
+        const dt = samples[i].timeMs - samples[i - 1].timeMs;
+        if (dt > 0) {
+          totalDistance += Math.hypot(dx, dy);
+          totalTime += dt;
+        }
+      }
+      return totalTime > 0 ? totalDistance / totalTime : 0;
+    }
+
+    const fighterSpeed = calcAvgSpeed(fighterAssignment.sampledPositions);
+    const bomberSpeed = calcAvgSpeed(bomberAssignment.sampledPositions);
+
+    console.log(`[REGRESSION: SPEED] Fighter actual speed: ${fighterSpeed.toFixed(3)} px/ms`);
+    console.log(`[REGRESSION: SPEED] Bomber actual speed: ${bomberSpeed.toFixed(3)} px/ms`);
+
+    // Per spec: bomber speed should be V/2 (where V is fighter speed)
+    const expectedBomberSpeed = fighterSpeed / 2;
+    const tolerance = expectedBomberSpeed * 0.2; // 20% tolerance
+
+    // STRICT CHECK: Bomber must actually be slower, not just have longer phase
+    if (bomberSpeed > expectedBomberSpeed + tolerance) {
       throw new Error(
-        `Ingress duration ${ingressPhase.durationMs}ms too short for speed differentiation ` +
-        `(expected >= ${MIN_DURATION_MS}ms)`
+        `REGRESSION NOT FIXED: Bombers flying too fast!\n` +
+        `  Actual bomber speed: ${bomberSpeed.toFixed(3)} px/ms\n` +
+        `  Expected (V/2): ${expectedBomberSpeed.toFixed(3)} px/ms\n` +
+        `  Fighter speed: ${fighterSpeed.toFixed(3)} px/ms\n\n` +
+        `The duration fix alone is insufficient. Bombers must actually move at half speed.`
       );
     }
 
-    // Check both fighters and bombers are present
-    const hasFighters = ingressPhase.assignments.some(a =>
-      a.role === "interceptor" || a.role === "escort"
-    );
-    const hasBombers = ingressPhase.assignments.some(a => a.role === "bomber");
-
-    if (!hasFighters || !hasBombers) {
-      throw new Error("Expected both fighters and bombers in ingress for speed comparison.");
+    // Also check speed ratio
+    const ratio = fighterSpeed / bomberSpeed;
+    if (ratio < 1.5) {
+      throw new Error(
+        `REGRESSION NOT FIXED: Speed ratio ${ratio.toFixed(2)}:1 insufficient. ` +
+        `Expected ~2:1 per North Star Spec §Speed Model.`
+      );
     }
 
-    console.log(`[REGRESSION: SPEED] ✓ FIXED: Ingress duration ${ingressPhase.durationMs}ms >= ${MIN_DURATION_MS}ms`);
-    console.log(`  - Both fighters and bombers visible: ✓`);
-    console.log(`  - Speed differentiation visible: ✓`);
+    console.log(`[REGRESSION: SPEED] ✓ FIXED: Bombers at V/2 (${bomberSpeed.toFixed(3)} px/ms vs ${fighterSpeed.toFixed(3)} px/ms)`);
   });
 });
 
@@ -77,7 +118,7 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_VISIBILITY_DURING_DOGFIGHT", async ({ G
     result = runAirScenario();
   });
 
-  await Then("bombers should remain visible (not hidden) during entire dogfighting scene", async () => {
+  await Then("bombers should remain visible AND MOVING during entire dogfighting scene", async () => {
     const inspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
     );
@@ -96,20 +137,21 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_VISIBILITY_DURING_DOGFIGHT", async ({ G
       return;
     }
 
-    // Check each dogfight phase for bomber presence
-    const violations: string[] = [];
+    // Check each dogfight phase for bomber presence AND MOVEMENT
+    const visibilityViolations: string[] = [];
+    const movementViolations: string[] = [];
 
     for (const phase of dogfightPhases) {
       const bomberAssignments = phase.assignments.filter(a => a.role === "bomber");
 
       for (const assignment of bomberAssignments) {
-        // Check that bomber has valid positions throughout the phase
+        // Check visibility: valid positions throughout
         const invalidSamples = assignment.sampledPositions.filter(
           s => !Number.isFinite(s.cx) || !Number.isFinite(s.cy)
         );
 
         if (invalidSamples.length > 0) {
-          violations.push(`${phase.label}/${assignment.actorId}: ${invalidSamples.length} invalid positions`);
+          visibilityViolations.push(`${phase.label}/${assignment.actorId}: ${invalidSamples.length} invalid positions`);
         }
 
         // Check for total disappearance (no samples at all mid-phase)
@@ -118,20 +160,61 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_VISIBILITY_DURING_DOGFIGHT", async ({ G
         );
 
         if (!midPhaseSample) {
-          violations.push(`${phase.label}/${assignment.actorId}: missing mid-phase samples`);
+          visibilityViolations.push(`${phase.label}/${assignment.actorId}: missing mid-phase samples`);
+        }
+
+        // CHECK MOVEMENT: Calculate if bomber is actually moving forward
+        if (assignment.sampledPositions.length >= 3) {
+          let totalDistance = 0;
+          let movingSamples = 0;
+
+          for (let i = 1; i < assignment.sampledPositions.length; i++) {
+            const dx = assignment.sampledPositions[i].cx - assignment.sampledPositions[i - 1].cx;
+            const dy = assignment.sampledPositions[i].cy - assignment.sampledPositions[i - 1].cy;
+            const distance = Math.hypot(dx, dy);
+            totalDistance += distance;
+
+            // Count as "moving" if distance > 2 pixels between samples
+            if (distance > 2) {
+              movingSamples++;
+            }
+          }
+
+          const movementRatio = movingSamples / (assignment.sampledPositions.length - 1);
+          const avgSpeed = totalDistance / phase.durationMs;
+
+          // Must be moving in at least 50% of samples AND have measurable speed
+          if (movementRatio < 0.5 || avgSpeed < 0.05) {
+            movementViolations.push(
+              `${phase.label}/${assignment.actorId}: ` +
+              `FROZEN (movementRatio=${movementRatio.toFixed(2)}, ` +
+              `avgSpeed=${avgSpeed.toFixed(3)} px/ms)`
+            );
+          }
+
+          console.log(`[REGRESSION: MOVEMENT] ${phase.label}/${assignment.actorId}: ` +
+            `ratio=${movementRatio.toFixed(2)}, speed=${avgSpeed.toFixed(3)} px/ms, ` +
+            `totalDist=${totalDistance.toFixed(1)}px`);
         }
       }
     }
 
-    if (violations.length > 0) {
+    if (visibilityViolations.length > 0) {
       throw new Error(
-        `Bomber visibility violations (bombers disappeared during dogfight):\n${violations.join("\n")}`
+        `Bomber visibility violations:\n${visibilityViolations.join("\n")}`
+      );
+    }
+
+    if (movementViolations.length > 0) {
+      throw new Error(
+        `REGRESSION NOT FIXED: Bombers visible but FROZEN during dogfight:\n${movementViolations.join("\n")}\n\n` +
+        `Bombers have hold-in-place assignments but are not moving forward. ` +
+        `They should continue their ingress path while dogfight plays.`
       );
     }
 
     console.log(`[REGRESSION: VISIBILITY] ✓ FIXED: Bombers visible through ${dogfightPhases.length} dogfight phases`);
-    console.log(`  - Hold-in-place assignments working: ✓`);
-    console.log(`  - No opacity=0 hiding: ✓`);
+    console.log(`[REGRESSION: MOVEMENT] ✓ FIXED: Bombers actively moving during dogfight`);
   });
 });
 
@@ -471,35 +554,40 @@ registerTest("AIR_SHOW_REGRESSION_EARLY_DESTRUCTION_NO_FLAK", async ({ Given, Wh
 });
 
 registerTest("AIR_SHOW_REGRESSION_ALL_OPEN_BUGS_DOCUMENTED", async ({ Given, When, Then }) => {
-  await Given("the North Star Spec 'Active TODO Issues' list", async () => {});
+  await Given("the North Star Spec 'Active TODO Issues' list per 2026-04-14", async () => {});
 
   await When("regression test suite is run", async () => {});
 
-  await Then("all FIXED bugs should have regression tests, all OPEN bugs should be documented", async () => {
-    const fixedBugs = [
-      "Flak timing misplaced",
+  await Then("tests should accurately reflect FIXED vs OPEN status", async () => {
+    // Per user update 2026-04-14 - these are ACTUALLY FIXED
+    const trulyFixedBugs = [
       "Aircraft disappear/reappear at target",
       "Fighters linger during next bomber approach",
-      "Bombers fly at same speed as escorts during ingress",
       "Bombers disappear for entire dogfighting scene",
-      "Bombers reappear after dogfighting scene",
-      "All sprites slow down when bombers reappear",
-      "Destroyed escorts remain visible until CAP egress finishes"
+      "Bombers reappear after dogfighting scene"
     ];
 
-    const openBugs = [
+    // Per user update 2026-04-14 - these are STILL OPEN / NOT FIXED
+    const notFixedBugs = [
+      "Flak timing misplaced",
+      "Bombers fly at same speed as escorts during ingress",
+      "Bombers visible but FROZEN during dogfight",
+      "All sprites slow down when bombers reappear",
+      "Destroyed escorts remain visible until CAP egress finishes",
       "Bombers reach target simultaneous with fighter clash start",
       "Escorts snap near-180° turn at dogfight start",
       "Bombers and fighters perform mutual dogfight instead of interception pass",
       "Surviving bombers briefly disappear and reappear facing opposite direction after ordnance"
     ];
 
-    console.log(`[REGRESSION SUMMARY] Fixed bugs with regression tests: ${fixedBugs.length}`);
-    fixedBugs.forEach(bug => console.log(`  ✓ ${bug}`));
+    console.log(`[REGRESSION SUMMARY] ACTUALLY FIXED (2026-04-14): ${trulyFixedBugs.length}`);
+    trulyFixedBugs.forEach(bug => console.log(`  ✓ ${bug}`));
 
-    console.log(`\n[REGRESSION SUMMARY] Open bugs requiring future work: ${openBugs.length}`);
-    openBugs.forEach(bug => console.log(`  🔴 ${bug}`));
+    console.log(`\n[REGRESSION SUMMARY] STILL OPEN / NOT FIXED (2026-04-14): ${notFixedBugs.length}`);
+    notFixedBugs.forEach(bug => console.log(`  🔴 ${bug}`));
 
-    console.log(`\n  All fixed bugs covered by regression tests in this file: ✓`);
+    console.log(`\n  Tests now measure ACTUAL speed (px/ms) - not just duration`);
+    console.log(`  Tests now validate MOVEMENT - not just visibility`);
+    console.log(`  Tests will FAIL when issues are present - not just log`);
   });
 });
