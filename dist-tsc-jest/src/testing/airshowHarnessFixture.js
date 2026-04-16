@@ -25,7 +25,7 @@ export function buildAirshowHarnessFixture() {
         turnLimit: 6,
         sides: {
             Player: createSide(0, 0),
-            Bot: createSide(9, 9)
+            Bot: createSide(9, 5)
         }
     };
     const missionId = "e2e-airshow-contested-package";
@@ -34,7 +34,7 @@ export function buildAirshowHarnessFixture() {
     const bomberTargetKey = "7,8";
     const bomberArrivalDelayMs = 220;
     const playerHqKey = "0,0";
-    const botHqKey = "9,13";
+    const botHqKey = "9,9";
     const originKeysByUnitId = {
         "cap-1": "8,6",
         "cap-2": "8,7",

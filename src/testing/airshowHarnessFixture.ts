@@ -45,7 +45,7 @@ export function buildAirshowHarnessFixture(): AirshowHarnessFixture {
     turnLimit: 6,
     sides: {
       Player: createSide(0, 0),
-      Bot: createSide(9, 9)
+      Bot: createSide(9, 5)
     }
   } as unknown as ScenarioData;
 
@@ -55,7 +55,7 @@ export function buildAirshowHarnessFixture(): AirshowHarnessFixture {
   const bomberTargetKey = "7,8";
   const bomberArrivalDelayMs = 220;
   const playerHqKey = "0,0";
-  const botHqKey = "9,13";
+  const botHqKey = "9,9";
 
   const originKeysByUnitId = {
     "cap-1": "8,6",

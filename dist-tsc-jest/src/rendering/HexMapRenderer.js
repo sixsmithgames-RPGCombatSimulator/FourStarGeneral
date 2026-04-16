@@ -713,7 +713,7 @@ export class HexMapRenderer {
         const averageBomberAnchor = this.averageAirShowPoints(bomberFlights.map((flight) => this.averageAirShowPosition(flight.actors) ?? flight.anchor)) ?? null;
         const averageBomberTargetCenter = this.averageAirShowPoints(Array.from(bomberTargetCentersById.values())) ?? null;
         const corridor = this.resolveAirShowCorridor(center, averageBomberAnchor, averageBomberTargetCenter, hqAxis);
-        this.normalizeAirShowSceneFlightAnchors(corridor, scene.kind, interceptorFlights, escortFlights, bomberFlights);
+        this.normalizeAirShowSceneFlightAnchors(corridor, scene.kind, interceptorFlights, escortFlights, bomberFlights, hqAxis);
         const corridorPoint = (alongPx, lateralPx = 0) => this.projectAirShowCorridorPoint(corridor, alongPx, lateralPx);
         const updateFlightAnchors = (flights) => {
             flights.forEach((flight) => {
@@ -1435,7 +1435,7 @@ export class HexMapRenderer {
         const averageBomberAnchor = this.averageAirShowPoints(bomberFlights.map((flight) => this.averageAirShowPosition(flight.actors) ?? flight.anchor)) ?? null;
         const averageBomberTargetCenter = this.averageAirShowPoints(Array.from(bomberTargetCentersById.values())) ?? null;
         const corridor = this.resolveAirShowCorridor(center, averageBomberAnchor, averageBomberTargetCenter, hqAxis);
-        this.normalizeAirShowSceneFlightAnchors(corridor, scene.kind, interceptorFlights, escortFlights, bomberFlights);
+        this.normalizeAirShowSceneFlightAnchors(corridor, scene.kind, interceptorFlights, escortFlights, bomberFlights, hqAxis);
         const corridorPoint = (alongPx, lateralPx = 0) => this.projectAirShowCorridorPoint(corridor, alongPx, lateralPx);
         const updateFlightAnchors = (flights) => {
             flights.forEach((flight) => {
@@ -5334,7 +5334,12 @@ export class HexMapRenderer {
         });
         flight.anchor = this.averageAirShowPosition(flight.actors) ?? anchor;
     }
-    normalizeAirShowSceneFlightAnchors(corridor, sceneKind, interceptorFlights, escortFlights, bomberFlights) {
+    normalizeAirShowSceneFlightAnchors(corridor, sceneKind, interceptorFlights, escortFlights, bomberFlights, hqAxis) {
+        const factionAlongSign = (flight) => {
+            if (!hqAxis)
+                return null;
+            return flight.spec.faction === "Bot" ? -1 : 1;
+        };
         const positionFlights = (flights, role, fallbackAlongSign) => {
             const orderedFlights = flights
                 .map((flight, originalIndex) => ({
@@ -5352,9 +5357,10 @@ export class HexMapRenderer {
                 const laneIndex = orderedFlights.length <= 1
                     ? 0
                     : orderedIndex - (orderedFlights.length - 1) / 2;
-                const alongSign = Math.abs(entry.projection.alongPx) > 24
-                    ? (entry.projection.alongPx >= 0 ? 1 : -1)
-                    : fallbackAlongSign;
+                const alongSign = factionAlongSign(entry.flight)
+                    ?? (Math.abs(entry.projection.alongPx) > 24
+                        ? (entry.projection.alongPx >= 0 ? 1 : -1)
+                        : fallbackAlongSign);
                 const anchor = this.resolveAirShowSceneCorridorAnchor(corridor, role, orderedIndex, orderedFlights.length, alongSign);
                 const headingTarget = role === "bomber"
                     ? this.resolveAirShowBomberIngressBandHoldTarget(corridor, anchor, sceneKind, laneIndex, orderedFlights.length)

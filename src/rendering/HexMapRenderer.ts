@@ -1292,7 +1292,8 @@ export class HexMapRenderer implements IMapRenderer {
       scene.kind,
       interceptorFlights,
       escortFlights,
-      bomberFlights
+      bomberFlights,
+      hqAxis
     );
     const corridorPoint = (alongPx: number, lateralPx = 0): AirShowPoint =>
       this.projectAirShowCorridorPoint(corridor, alongPx, lateralPx);
@@ -2516,7 +2517,8 @@ export class HexMapRenderer implements IMapRenderer {
       scene.kind,
       interceptorFlights,
       escortFlights,
-      bomberFlights
+      bomberFlights,
+      hqAxis
     );
     const corridorPoint = (alongPx: number, lateralPx = 0): AirShowPoint =>
       this.projectAirShowCorridorPoint(corridor, alongPx, lateralPx);
@@ -7604,8 +7606,14 @@ export class HexMapRenderer implements IMapRenderer {
     sceneKind: ResolvedAirShowScene["kind"] | undefined,
     interceptorFlights: ReadonlyArray<AirShowRuntimeFlightInternal>,
     escortFlights: ReadonlyArray<AirShowRuntimeFlightInternal>,
-    bomberFlights: ReadonlyArray<AirShowRuntimeFlightInternal>
+    bomberFlights: ReadonlyArray<AirShowRuntimeFlightInternal>,
+    hqAxis?: { playerOrigin: AirShowPoint; botOrigin: AirShowPoint; axis: { x: number; y: number } } | null
   ): void {
+    const factionAlongSign = (flight: AirShowRuntimeFlightInternal): number | null => {
+      if (!hqAxis) return null;
+      return flight.spec.faction === "Bot" ? -1 : 1;
+    };
+
     const positionFlights = (
       flights: ReadonlyArray<AirShowRuntimeFlightInternal>,
       role: "interceptor" | "escort" | "bomber",
@@ -7633,9 +7641,10 @@ export class HexMapRenderer implements IMapRenderer {
             ? 0
             : orderedIndex - (orderedFlights.length - 1) / 2;
         const alongSign =
-          Math.abs(entry.projection.alongPx) > 24
+          factionAlongSign(entry.flight)
+          ?? (Math.abs(entry.projection.alongPx) > 24
             ? (entry.projection.alongPx >= 0 ? 1 : -1)
-            : fallbackAlongSign;
+            : fallbackAlongSign);
         const anchor = this.resolveAirShowSceneCorridorAnchor(
           corridor,
           role,
