@@ -3061,7 +3061,9 @@ export class BattleScreen {
             bomberOriginKey: resolvedBomberOriginKey,
             bomberTargetKey,
             flakEvent,
-            includeBomber: includeBomberFlight
+            includeBomber: includeBomberFlight,
+            playerHqKey: this.toOffsetHexKey(engine.getPlayerHq()),
+            botHqKey: this.toOffsetHexKey(engine.getBotHq())
         });
         if (!bomberPassAvailable) {
             scene.bomberPassExchanges = [];
@@ -3981,7 +3983,9 @@ export class BattleScreen {
             fighterIngressDurationMs: Math.round(this.resolveFighterInterceptIngressDurationMs() * 0.96),
             escortClashDurationMs: this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 1.24)),
             fighterEgressDurationMs: this.scaleAirSequenceMs(920),
-            bomberStartDelayMs: this.scaleAirSequenceMs(880)
+            bomberStartDelayMs: this.scaleAirSequenceMs(880),
+            playerHqKey: this.toOffsetHexKey(engine.getPlayerHq()),
+            botHqKey: this.toOffsetHexKey(engine.getBotHq())
         });
     }
     async playCoordinatedAirPlaybackPlan(plan, renderer, engine, laneOffsetsByIndex) {

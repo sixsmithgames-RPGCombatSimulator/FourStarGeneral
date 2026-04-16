@@ -681,20 +681,23 @@ export class HexMapRenderer {
         if (!layer || !center) {
             return null;
         }
-        const interceptorFallbackOrigin = { cx: center.cx - 248, cy: center.cy + 126 };
-        const escortFallbackOrigin = { cx: center.cx + 248, cy: center.cy - 126 };
-        const bomberFallbackOrigin = { cx: center.cx - 286, cy: center.cy + 148 };
+        const hqAxis = this.resolveHqAxis(scene.playerHqKey, scene.botHqKey);
+        const hardcodedPlayerOrigin = { cx: center.cx + 248, cy: center.cy - 126 };
+        const hardcodedBotOrigin = { cx: center.cx - 248, cy: center.cy + 126 };
+        const fallbackOriginFor = (spec) => spec.faction === "Bot"
+            ? (hqAxis?.botOrigin ?? hardcodedBotOrigin)
+            : (hqAxis?.playerOrigin ?? hardcodedPlayerOrigin);
         const defaultHeadingFor = (origin) => this.resolveAircraftHeadingDegrees(center.cx - origin.cx, center.cy - origin.cy);
         const interceptorFlights = scene.interceptors
-            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, interceptorFallbackOrigin, defaultHeadingFor(interceptorFallbackOrigin)))
+            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
             .filter((flight) => !!flight);
         const escortFlights = scene.escorts
-            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, escortFallbackOrigin, defaultHeadingFor(escortFallbackOrigin)))
+            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
             .filter((flight) => !!flight);
         const bomberSpecs = this.resolveSceneBomberSpecs(scene);
         const bomberSpecsById = new Map(bomberSpecs.map((spec) => [spec.id, spec]));
         const bomberFlights = bomberSpecs
-            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, bomberFallbackOrigin, defaultHeadingFor(bomberFallbackOrigin)))
+            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
             .filter((flight) => !!flight);
         const allFlights = [...interceptorFlights, ...escortFlights, ...bomberFlights];
         if (allFlights.length === 0) {
@@ -709,7 +712,7 @@ export class HexMapRenderer {
             .filter((entry) => !!entry[1]));
         const averageBomberAnchor = this.averageAirShowPoints(bomberFlights.map((flight) => this.averageAirShowPosition(flight.actors) ?? flight.anchor)) ?? null;
         const averageBomberTargetCenter = this.averageAirShowPoints(Array.from(bomberTargetCentersById.values())) ?? null;
-        const corridor = this.resolveAirShowCorridor(center, averageBomberAnchor, averageBomberTargetCenter);
+        const corridor = this.resolveAirShowCorridor(center, averageBomberAnchor, averageBomberTargetCenter, hqAxis);
         this.normalizeAirShowSceneFlightAnchors(corridor, scene.kind, interceptorFlights, escortFlights, bomberFlights);
         const corridorPoint = (alongPx, lateralPx = 0) => this.projectAirShowCorridorPoint(corridor, alongPx, lateralPx);
         const updateFlightAnchors = (flights) => {
@@ -1380,26 +1383,28 @@ export class HexMapRenderer {
         if (!layer || !center) {
             return;
         }
-        const interceptorFallbackOrigin = { cx: center.cx - 248, cy: center.cy + 126 };
-        const escortFallbackOrigin = { cx: center.cx + 248, cy: center.cy - 126 };
-        const bomberFallbackOrigin = { cx: center.cx - 286, cy: center.cy + 148 };
+        const hqAxis = this.resolveHqAxis(scene.playerHqKey, scene.botHqKey);
+        const hardcodedPlayerOrigin = { cx: center.cx + 248, cy: center.cy - 126 };
+        const hardcodedBotOrigin = { cx: center.cx - 248, cy: center.cy + 126 };
+        const fallbackOriginFor = (spec) => spec.faction === "Bot"
+            ? (hqAxis?.botOrigin ?? hardcodedBotOrigin)
+            : (hqAxis?.playerOrigin ?? hardcodedPlayerOrigin);
         const defaultHeadingFor = (origin) => this.resolveAircraftHeadingDegrees(center.cx - origin.cx, center.cy - origin.cy);
         const interceptorFlights = scene.interceptors
-            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, interceptorFallbackOrigin, defaultHeadingFor(interceptorFallbackOrigin)))
+            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
             .filter((flight) => !!flight);
         const escortFlights = scene.escorts
-            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, escortFallbackOrigin, defaultHeadingFor(escortFallbackOrigin)))
+            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
             .filter((flight) => !!flight);
         const bomberSpecs = this.resolveSceneBomberSpecs(scene);
         const bomberSpecsById = new Map(bomberSpecs.map((spec) => [spec.id, spec]));
         const bomberFlights = bomberSpecs
-            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, bomberFallbackOrigin, defaultHeadingFor(bomberFallbackOrigin)))
+            .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
             .filter((flight) => !!flight);
         const allFlights = [...interceptorFlights, ...escortFlights, ...bomberFlights];
         if (allFlights.length === 0) {
             return;
         }
-        // Package-level logging for air combat scene
         const packageId = `ascene-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const allFlightIds = allFlights.map(f => f.spec.id);
         const roles = [
@@ -1429,7 +1434,7 @@ export class HexMapRenderer {
             .filter((entry) => !!entry[1]));
         const averageBomberAnchor = this.averageAirShowPoints(bomberFlights.map((flight) => this.averageAirShowPosition(flight.actors) ?? flight.anchor)) ?? null;
         const averageBomberTargetCenter = this.averageAirShowPoints(Array.from(bomberTargetCentersById.values())) ?? null;
-        const corridor = this.resolveAirShowCorridor(center, averageBomberAnchor, averageBomberTargetCenter);
+        const corridor = this.resolveAirShowCorridor(center, averageBomberAnchor, averageBomberTargetCenter, hqAxis);
         this.normalizeAirShowSceneFlightAnchors(corridor, scene.kind, interceptorFlights, escortFlights, bomberFlights);
         const corridorPoint = (alongPx, lateralPx = 0) => this.projectAirShowCorridorPoint(corridor, alongPx, lateralPx);
         const updateFlightAnchors = (flights) => {
@@ -5186,6 +5191,20 @@ export class HexMapRenderer {
         }
         return this.extractHexCenter(cell);
     }
+    resolveHqAxis(playerHqKey, botHqKey) {
+        const playerHq = this.resolveHexCenterByKey(playerHqKey);
+        const botHq = this.resolveHexCenterByKey(botHqKey);
+        if (!playerHq || !botHq) {
+            return null;
+        }
+        const axis = this.normalizeAircraftVector(playerHq.cx - botHq.cx, playerHq.cy - botHq.cy, 1, 0);
+        const d = HexMapRenderer.OFF_MAP_DISTANCE_PX;
+        return {
+            axis,
+            playerOrigin: { cx: playerHq.cx + axis.x * d, cy: playerHq.cy + axis.y * d },
+            botOrigin: { cx: botHq.cx - axis.x * d, cy: botHq.cy - axis.y * d }
+        };
+    }
     buildAirShowRuntimeFlight(layer, spec, fallbackOrigin, defaultHeadingDegrees) {
         const spriteHref = getSpriteForScenarioType(spec.scenarioType, spec.faction);
         if (!spriteHref) {
@@ -5475,9 +5494,9 @@ export class HexMapRenderer {
             cy: start.cy + (end.cy - start.cy) * t
         };
     }
-    resolveAirShowCorridor(center, origin, target) {
-        const approach = origin ?? { cx: center.cx - 220, cy: center.cy + 110 };
-        const egress = target ?? { cx: center.cx + 220, cy: center.cy - 24 };
+    resolveAirShowCorridor(center, origin, target, hqAxis) {
+        const approach = origin ?? hqAxis?.botOrigin ?? { cx: center.cx - 220, cy: center.cy + 110 };
+        const egress = target ?? hqAxis?.playerOrigin ?? { cx: center.cx + 220, cy: center.cy - 24 };
         const axis = this.normalizeAircraftVector(egress.cx - approach.cx, egress.cy - approach.cy, 1, 0);
         const normal = { x: -axis.y, y: axis.x };
         return {
@@ -9220,3 +9239,4 @@ HexMapRenderer.AIRCRAFT_MAX_DENSITY_BEFORE_EXPANSION = 6; // aircraft count thre
 HexMapRenderer.AIRCRAFT_MAX_OVERLAP_STACK = 3; // max silhouettes before depth correction
 HexMapRenderer.AIRCRAFT_ALTITUDE_LANE_OFFSET_PX = 45; // layered spacing for high density
 HexMapRenderer.effectSpecsLoaded = false;
+HexMapRenderer.OFF_MAP_DISTANCE_PX = 2000;

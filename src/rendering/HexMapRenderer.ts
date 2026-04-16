@@ -160,6 +160,8 @@ export type ResolvedAirShowScene = {
   bomberTargetHexKey?: string | null;
   bombReleaseProgress?: number;
   flakBursts?: ReadonlyArray<ResolvedAirShowFlakBurst>;
+  playerHqKey?: string | null;
+  botHqKey?: string | null;
 };
 type AirShowPoint = { cx: number; cy: number };
 type AirShowCorridor = {
@@ -1233,23 +1235,27 @@ export class HexMapRenderer implements IMapRenderer {
       return null;
     }
 
-    const interceptorFallbackOrigin = { cx: center.cx - 248, cy: center.cy + 126 };
-    const escortFallbackOrigin = { cx: center.cx + 248, cy: center.cy - 126 };
-    const bomberFallbackOrigin = { cx: center.cx - 286, cy: center.cy + 148 };
+    const hqAxis = this.resolveHqAxis(scene.playerHqKey, scene.botHqKey);
+    const hardcodedPlayerOrigin = { cx: center.cx + 248, cy: center.cy - 126 };
+    const hardcodedBotOrigin = { cx: center.cx - 248, cy: center.cy + 126 };
+    const fallbackOriginFor = (spec: ResolvedAirShowFlightSpec): AirShowPoint =>
+      spec.faction === "Bot"
+        ? (hqAxis?.botOrigin ?? hardcodedBotOrigin)
+        : (hqAxis?.playerOrigin ?? hardcodedPlayerOrigin);
 
     const defaultHeadingFor = (origin: AirShowPoint): number =>
       this.resolveAircraftHeadingDegrees(center.cx - origin.cx, center.cy - origin.cy);
 
     const interceptorFlights = scene.interceptors
-      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, interceptorFallbackOrigin, defaultHeadingFor(interceptorFallbackOrigin)))
+      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
       .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
     const escortFlights = scene.escorts
-      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, escortFallbackOrigin, defaultHeadingFor(escortFallbackOrigin)))
+      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
       .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
     const bomberSpecs = this.resolveSceneBomberSpecs(scene);
     const bomberSpecsById = new Map(bomberSpecs.map((spec) => [spec.id, spec] as const));
     const bomberFlights = bomberSpecs
-      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, bomberFallbackOrigin, defaultHeadingFor(bomberFallbackOrigin)))
+      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
       .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
 
     const allFlights = [...interceptorFlights, ...escortFlights, ...bomberFlights];
@@ -1278,7 +1284,8 @@ export class HexMapRenderer implements IMapRenderer {
     const corridor = this.resolveAirShowCorridor(
       center,
       averageBomberAnchor,
-      averageBomberTargetCenter
+      averageBomberTargetCenter,
+      hqAxis
     );
     this.normalizeAirShowSceneFlightAnchors(
       corridor,
@@ -2420,23 +2427,27 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const interceptorFallbackOrigin = { cx: center.cx - 248, cy: center.cy + 126 };
-    const escortFallbackOrigin = { cx: center.cx + 248, cy: center.cy - 126 };
-    const bomberFallbackOrigin = { cx: center.cx - 286, cy: center.cy + 148 };
+    const hqAxis = this.resolveHqAxis(scene.playerHqKey, scene.botHqKey);
+    const hardcodedPlayerOrigin = { cx: center.cx + 248, cy: center.cy - 126 };
+    const hardcodedBotOrigin = { cx: center.cx - 248, cy: center.cy + 126 };
+    const fallbackOriginFor = (spec: ResolvedAirShowFlightSpec): AirShowPoint =>
+      spec.faction === "Bot"
+        ? (hqAxis?.botOrigin ?? hardcodedBotOrigin)
+        : (hqAxis?.playerOrigin ?? hardcodedPlayerOrigin);
 
     const defaultHeadingFor = (origin: AirShowPoint): number =>
       this.resolveAircraftHeadingDegrees(center.cx - origin.cx, center.cy - origin.cy);
 
     const interceptorFlights = scene.interceptors
-      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, interceptorFallbackOrigin, defaultHeadingFor(interceptorFallbackOrigin)))
+      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
       .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
     const escortFlights = scene.escorts
-      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, escortFallbackOrigin, defaultHeadingFor(escortFallbackOrigin)))
+      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
       .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
     const bomberSpecs = this.resolveSceneBomberSpecs(scene);
     const bomberSpecsById = new Map(bomberSpecs.map((spec) => [spec.id, spec] as const));
     const bomberFlights = bomberSpecs
-      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, bomberFallbackOrigin, defaultHeadingFor(bomberFallbackOrigin)))
+      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
       .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
 
     const allFlights = [...interceptorFlights, ...escortFlights, ...bomberFlights];
@@ -2444,7 +2455,6 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    // Package-level logging for air combat scene
     const packageId = `ascene-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const allFlightIds = allFlights.map(f => f.spec.id);
     const roles: AirShowRole[] = [
@@ -2498,7 +2508,8 @@ export class HexMapRenderer implements IMapRenderer {
     const corridor = this.resolveAirShowCorridor(
       center,
       averageBomberAnchor,
-      averageBomberTargetCenter
+      averageBomberTargetCenter,
+      hqAxis
     );
     this.normalizeAirShowSceneFlightAnchors(
       corridor,
@@ -7373,6 +7384,31 @@ export class HexMapRenderer implements IMapRenderer {
     return this.extractHexCenter(cell);
   }
 
+  private static readonly OFF_MAP_DISTANCE_PX = 2000;
+
+  private resolveHqAxis(
+    playerHqKey: string | null | undefined,
+    botHqKey: string | null | undefined
+  ): { playerOrigin: AirShowPoint; botOrigin: AirShowPoint; axis: { x: number; y: number } } | null {
+    const playerHq = this.resolveHexCenterByKey(playerHqKey);
+    const botHq = this.resolveHexCenterByKey(botHqKey);
+    if (!playerHq || !botHq) {
+      return null;
+    }
+    const axis = this.normalizeAircraftVector(
+      playerHq.cx - botHq.cx,
+      playerHq.cy - botHq.cy,
+      1,
+      0
+    );
+    const d = HexMapRenderer.OFF_MAP_DISTANCE_PX;
+    return {
+      axis,
+      playerOrigin: { cx: playerHq.cx + axis.x * d, cy: playerHq.cy + axis.y * d },
+      botOrigin: { cx: botHq.cx - axis.x * d, cy: botHq.cy - axis.y * d }
+    };
+  }
+
   private buildAirShowRuntimeFlight(
     layer: SVGGElement,
     spec: ResolvedAirShowFlightSpec,
@@ -7803,10 +7839,11 @@ export class HexMapRenderer implements IMapRenderer {
   private resolveAirShowCorridor(
     center: AirShowPoint,
     origin: AirShowPoint | null,
-    target: AirShowPoint | null
+    target: AirShowPoint | null,
+    hqAxis?: { botOrigin: AirShowPoint; playerOrigin: AirShowPoint } | null
   ): AirShowCorridor {
-    const approach = origin ?? { cx: center.cx - 220, cy: center.cy + 110 };
-    const egress = target ?? { cx: center.cx + 220, cy: center.cy - 24 };
+    const approach = origin ?? hqAxis?.botOrigin ?? { cx: center.cx - 220, cy: center.cy + 110 };
+    const egress = target ?? hqAxis?.playerOrigin ?? { cx: center.cx + 220, cy: center.cy - 24 };
     const axis = this.normalizeAircraftVector(
       egress.cx - approach.cx,
       egress.cy - approach.cy,

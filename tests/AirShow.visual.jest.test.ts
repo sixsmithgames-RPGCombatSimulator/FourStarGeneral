@@ -28,7 +28,9 @@ async function captureScene(): Promise<ResolvedAirShowScene> {
       bomberOriginKey: fixture.bomberOriginKey,
       bomberTargetKey: fixture.bomberTargetKey,
       flakEvent: fixture.flakEvent,
-      includeBomber: true
+      includeBomber: true,
+      playerHqKey: fixture.playerHqKey,
+      botHqKey: fixture.botHqKey
     }
   );
   return scene;

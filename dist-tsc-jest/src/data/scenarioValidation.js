@@ -62,6 +62,7 @@ export function validateScenarioSource(source, missionKey) {
     validateObjectives(record, issues, missionKey, scenarioName, size, profile);
     validateDeploymentZones(record, issues, missionKey, scenarioName, size, tilePalette, tiles);
     validateRangeEnvelope(record, issues, missionKey, scenarioName, size, profile);
+    validateSides(record, issues, missionKey, scenarioName, size);
     return {
         missionKey,
         scenarioName,
@@ -263,6 +264,34 @@ function validateDeploymentZones(record, issues, missionKey, scenarioName, size,
     }
     if (maxPlayerDepth < deploymentProfile.validation.minimumPlayerZoneDepth) {
         issues.push(`Scenario ${scenarioName ?? missionKey} exposes player deployment depth ${maxPlayerDepth}; require at least ${deploymentProfile.validation.minimumPlayerZoneDepth}.`);
+    }
+}
+function validateSides(record, issues, missionKey, scenarioName, size) {
+    const sidesRecord = asRecord(record?.sides);
+    if (!sidesRecord) {
+        issues.push(`Scenario ${scenarioName ?? missionKey} must declare a sides object with Player and Bot entries.`);
+        return;
+    }
+    for (const faction of ["Player", "Bot"]) {
+        const side = asRecord(sidesRecord[faction]);
+        if (!side) {
+            issues.push(`Scenario ${scenarioName ?? missionKey} must declare a ${faction} side.`);
+            continue;
+        }
+        const hq = side["hq"];
+        if (!Array.isArray(hq) || hq.length < 2) {
+            issues.push(`Scenario ${scenarioName ?? missionKey} ${faction} side must declare an hq as a [col, row] array.`);
+            continue;
+        }
+        const col = readInteger(hq[0]);
+        const row = readInteger(hq[1]);
+        if (col === null || row === null) {
+            issues.push(`Scenario ${scenarioName ?? missionKey} ${faction} hq must use integer coordinates.`);
+            continue;
+        }
+        if (size && !isWithinBounds(col, row, size)) {
+            issues.push(`Scenario ${scenarioName ?? missionKey} ${faction} hq [${col},${row}] lies outside the ${size.cols}x${size.rows} map bounds.`);
+        }
     }
 }
 function validateRangeEnvelope(record, issues, missionKey, scenarioName, size, profile) {

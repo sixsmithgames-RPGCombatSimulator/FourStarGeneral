@@ -45,6 +45,8 @@ export interface BuildResolvedAirCombatSceneOptions {
   readonly bomberTargetKey?: string | null;
   readonly flakEvent?: AirEngagementEvent | null;
   readonly includeBomber?: boolean;
+  readonly playerHqKey?: string | null;
+  readonly botHqKey?: string | null;
 }
 
 export interface BuildResolvedAirCombatSceneResult {
@@ -295,6 +297,8 @@ export function buildResolvedAirCombatScene(
       bomberTargetHexKey: options.bomberTargetKey,
       fighterIngressDurationMs,
       bomberIngressDurationMs,
+      playerHqKey: options.playerHqKey ?? null,
+      botHqKey: options.botHqKey ?? null,
       flakBursts:
         includeBomber
           ? buildResolvedAirShowFlakBursts(options.flakEvent, {

@@ -4791,6 +4791,8 @@ export class GameEngine {
         }
         return def.airSupport.refitTurns ?? null;
     }
+    getPlayerHq() { return structuredClone(this.playerSide.hq); }
+    getBotHq() { return structuredClone(this.botSide.hq); }
     /** Returns serialized mission snapshots, optionally filtered to a specific faction for UI convenience. */
     getScheduledAirMissions(faction = this._activeFaction) {
         const missions = Array.from(this.scheduledAirMissions.values()).filter((mission) => mission.faction === faction);

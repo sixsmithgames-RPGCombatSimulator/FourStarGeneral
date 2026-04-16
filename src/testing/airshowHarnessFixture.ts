@@ -13,6 +13,8 @@ export interface AirshowHarnessFixture {
   readonly linkedEscortFlights: readonly Record<string, unknown>[];
   readonly originKeysByUnitId: Readonly<Record<string, string>>;
   readonly strengthByUnitId: Readonly<Record<string, number>>;
+  readonly playerHqKey: string;
+  readonly botHqKey: string;
 }
 
 function createSide(hqQ: number, hqR: number): ScenarioSide {
@@ -52,6 +54,8 @@ export function buildAirshowHarnessFixture(): AirshowHarnessFixture {
   const bomberOriginKey = "1,7";
   const bomberTargetKey = "7,8";
   const bomberArrivalDelayMs = 220;
+  const playerHqKey = "0,0";
+  const botHqKey = "9,13";
 
   const originKeysByUnitId = {
     "cap-1": "8,6",
@@ -271,6 +275,8 @@ export function buildAirshowHarnessFixture(): AirshowHarnessFixture {
     flakEvent,
     linkedEscortFlights,
     originKeysByUnitId,
-    strengthByUnitId
+    strengthByUnitId,
+    playerHqKey,
+    botHqKey
   };
 }

@@ -33,6 +33,8 @@ export function buildAirshowHarnessFixture() {
     const bomberOriginKey = "1,7";
     const bomberTargetKey = "7,8";
     const bomberArrivalDelayMs = 220;
+    const playerHqKey = "0,0";
+    const botHqKey = "9,13";
     const originKeysByUnitId = {
         "cap-1": "8,6",
         "cap-2": "8,7",
@@ -246,6 +248,8 @@ export function buildAirshowHarnessFixture() {
         flakEvent,
         linkedEscortFlights,
         originKeysByUnitId,
-        strengthByUnitId
+        strengthByUnitId,
+        playerHqKey,
+        botHqKey
     };
 }

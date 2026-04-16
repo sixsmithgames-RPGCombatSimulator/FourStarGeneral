@@ -191,6 +191,8 @@ export function buildResolvedAirCombatScene(event, options) {
             bomberTargetHexKey: options.bomberTargetKey,
             fighterIngressDurationMs,
             bomberIngressDurationMs,
+            playerHqKey: options.playerHqKey ?? null,
+            botHqKey: options.botHqKey ?? null,
             flakBursts: includeBomber
                 ? buildResolvedAirShowFlakBursts(options.flakEvent, {
                     bomberUnitKey: event.bomber.unitKey,

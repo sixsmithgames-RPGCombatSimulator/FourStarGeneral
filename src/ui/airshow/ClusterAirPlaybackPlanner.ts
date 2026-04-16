@@ -73,6 +73,8 @@ export interface BuildCoordinatedAirClusterPlaybackPlanOptions {
   readonly escortClashDurationMs: number;
   readonly fighterEgressDurationMs: number;
   readonly bomberStartDelayMs?: number;
+  readonly playerHqKey?: string | null;
+  readonly botHqKey?: string | null;
 }
 
 type MutableFlightSpec = {
@@ -542,7 +544,9 @@ export function buildCoordinatedAirClusterPlaybackPlan(
           escortClashDurationMs: options.escortClashDurationMs,
           egressDurationMs: options.fighterEgressDurationMs,
           bomberArrivalDelayMs: 0,
-          flakBursts: combinedFlakBursts
+          flakBursts: combinedFlakBursts,
+          playerHqKey: options.playerHqKey ?? null,
+          botHqKey: options.botHqKey ?? null
         } satisfies ResolvedAirShowScene
       : null;
 

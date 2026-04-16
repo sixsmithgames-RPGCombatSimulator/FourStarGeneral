@@ -314,7 +314,9 @@ export function buildCoordinatedAirClusterPlaybackPlan(cluster, options) {
             escortClashDurationMs: options.escortClashDurationMs,
             egressDurationMs: options.fighterEgressDurationMs,
             bomberArrivalDelayMs: 0,
-            flakBursts: combinedFlakBursts
+            flakBursts: combinedFlakBursts,
+            playerHqKey: options.playerHqKey ?? null,
+            botHqKey: options.botHqKey ?? null
         }
         : null;
     standaloneEventOperations.forEach((operation) => {

@@ -1383,6 +1383,8 @@ export interface GameEngineAPI {
   getHexModifications(hex: Axial): HexModification[];
   getHexModificationSnapshots(): HexModification[];
   getUnitCommandState(hex: Axial, unitId?: string): UnitCommandState | null;
+  getPlayerHq(): Axial;
+  getBotHq(): Axial;
 }
 
 /**
@@ -7126,6 +7128,9 @@ private automateSupplyConvoys(
     }
     return def.airSupport.refitTurns ?? null;
   }
+
+  getPlayerHq(): Axial { return structuredClone(this.playerSide.hq); }
+  getBotHq(): Axial { return structuredClone(this.botSide.hq); }
 
   /** Returns serialized mission snapshots, optionally filtered to a specific faction for UI convenience. */
   getScheduledAirMissions(faction: TurnFaction = this._activeFaction): readonly SerializedAirMission[] {
