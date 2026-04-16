@@ -48,17 +48,17 @@ export function buildAirshowHarnessFixture(): AirshowHarnessFixture {
   } as unknown as ScenarioData;
 
   const missionId = "e2e-airshow-contested-package";
-  const locKey = "5,5";
+  const locKey = "5,7";
   const bomberOriginKey = "1,7";
-  const bomberTargetKey = "7,5";
+  const bomberTargetKey = "7,8";
   const bomberArrivalDelayMs = 220;
 
   const originKeysByUnitId = {
-    "cap-1": "8,2",
-    "cap-2": "8,3",
-    "cap-3": "8,4",
-    "escort-1": "2,5",
-    "escort-2": "2,6",
+    "cap-1": "8,6",
+    "cap-2": "8,7",
+    "cap-3": "8,8",
+    "escort-1": "2,6",
+    "escort-2": "2,7",
     "bomber-1": bomberOriginKey
   } as const;
 
