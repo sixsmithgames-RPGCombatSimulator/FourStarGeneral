@@ -496,6 +496,7 @@ export interface AirScenarioResult {
   }[];
   readonly anomalies: readonly AirScenarioAnomaly[];
   readonly findings: readonly AirScenarioFinding[];
+  readonly legacyDiagnosticFindings: readonly AirScenarioFinding[];
 }
 
 export interface AirScenarioPlaybackFlight {
@@ -531,6 +532,7 @@ export interface AirScenarioPlaybackClusterSummary {
 export interface AirScenarioCoordinatedPlanSummary {
   readonly clusterIndex: number;
   readonly focusKey: string | null;
+  readonly coveredMissionIds: readonly string[];
   readonly hasFighterScene: boolean;
   readonly fighterSceneInterceptorCount: number;
   readonly fighterSceneEscortCount: number;
@@ -554,6 +556,59 @@ export interface AirScenarioPlaybackProjection {
   readonly standaloneEventMissionIds: readonly string[];
   readonly clusters: readonly AirScenarioPlaybackClusterSummary[];
   readonly coordinatedPlans: readonly AirScenarioCoordinatedPlanSummary[];
+}
+
+const SYNTHETIC_SCENARIO_MISSION_PREFIX = "synthetic-scenario-";
+
+function dedupeFindings(findings: readonly AirScenarioFinding[]): AirScenarioFinding[] {
+  const seen = new Set<string>();
+  const deduped: AirScenarioFinding[] = [];
+  findings.forEach((finding) => {
+    const key = `${finding.code}::${finding.message}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    deduped.push(finding);
+  });
+  return deduped;
+}
+
+function collectAuthoritativeAirScenarioFindings(
+  playbackProjection: AirScenarioPlaybackProjection,
+  airshowInspections: readonly {
+    readonly eventType: AirEngagementEvent["type"];
+    readonly missionId?: string;
+    readonly diagnostics: ResolvedAirCombatSceneDiagnostic;
+    readonly report: AirShowInspectionReport;
+    readonly phaseMetrics: readonly AirShowPhaseMetric[];
+    readonly findings: readonly AirScenarioFinding[];
+  }[]
+): {
+  readonly findings: readonly AirScenarioFinding[];
+  readonly legacyDiagnosticFindings: readonly AirScenarioFinding[];
+} {
+  const coordinatedMissionIds = new Set(
+    playbackProjection.coordinatedPlans.flatMap((plan) => plan.coveredMissionIds)
+  );
+  const blockingFindings: AirScenarioFinding[] = playbackProjection.coordinatedPlans.flatMap((plan) => plan.sceneFindings);
+  const legacyDiagnosticFindings: AirScenarioFinding[] = [];
+
+  airshowInspections.forEach((inspection) => {
+    const missionId = inspection.missionId ?? null;
+    const isSyntheticScenario = missionId?.startsWith(SYNTHETIC_SCENARIO_MISSION_PREFIX) ?? false;
+    const coveredByCoordinatedPlayback = missionId ? coordinatedMissionIds.has(missionId) : false;
+    if (coveredByCoordinatedPlayback && !isSyntheticScenario) {
+      legacyDiagnosticFindings.push(...inspection.findings);
+      return;
+    }
+    blockingFindings.push(...inspection.findings);
+  });
+
+  return {
+    findings: dedupeFindings(blockingFindings),
+    legacyDiagnosticFindings: dedupeFindings(legacyDiagnosticFindings)
+  };
 }
 
 function snapshotExpectedFlakCoverage(
@@ -1223,6 +1278,9 @@ function buildPlaybackProjection(
       return {
         clusterIndex,
         focusKey: plan.focusKey,
+        coveredMissionIds: clusterOperations
+          .map((operation) => operation.summary.missionId)
+          .filter((missionId): missionId is string => typeof missionId === "string" && missionId.length > 0),
         hasFighterScene: !!plan.scene,
         fighterSceneInterceptorCount: plan.scene?.interceptors.length ?? 0,
         fighterSceneEscortCount: plan.scene?.escorts.length ?? 0,
@@ -2498,7 +2556,10 @@ export function runAirScenario(): AirScenarioResult {
   const engagements = engine.consumeAirEngagements();
   const playbackProjection = buildPlaybackProjection(engine, arrivals, engagements);
   const airshowInspections = buildAirshowInspections(engine, engagements);
-  const findings = airshowInspections.flatMap((entry) => entry.findings);
+  const { findings, legacyDiagnosticFindings } = collectAuthoritativeAirScenarioFindings(
+    playbackProjection,
+    airshowInspections
+  );
   return {
     scenarioName: "Air Combat Automation Scenario",
     arrivals,
@@ -2508,7 +2569,8 @@ export function runAirScenario(): AirScenarioResult {
     playbackProjection,
     airshowInspections,
     anomalies: detectAnomalies(engine, missionReports, engagements, expectedFlakCoverageByMissionId),
-    findings
+    findings,
+    legacyDiagnosticFindings
   };
 }
 
@@ -2579,6 +2641,7 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
   result.playbackProjection.coordinatedPlans.forEach((plan) => {
     lines.push(
       `  coordinated cluster #${plan.clusterIndex + 1} focus=${plan.focusKey ?? "<none>"} ` +
+      `coveredMissionIds=${plan.coveredMissionIds.join("|") || "<none>"} ` +
       `fighterScene=${plan.hasFighterScene} interceptors=${plan.fighterSceneInterceptorCount} escorts=${plan.fighterSceneEscortCount} ` +
       `strikeSorties=${plan.strikeSortieMissionIds.join("|") || "<none>"} bomberDelayMs=${plan.bomberStartDelayMs} ` +
       `fighterLeadMs=${plan.fighterIngressLeadMs} fighterSceneDurationMs=${plan.fighterSceneDurationMs} tracers=${plan.fighterSceneTracerCount} flak=${plan.fighterSceneFlakBurstCount}`
@@ -2674,8 +2737,18 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
   }
   if (result.airshowInspections.length > 0) {
     lines.push("Legacy per-event airshow geometry:");
+    const coordinatedMissionIds = new Set(
+      result.playbackProjection.coordinatedPlans.flatMap((plan) => plan.coveredMissionIds)
+    );
     result.airshowInspections.forEach((inspectionEntry) => {
-      lines.push(`- ${inspectionEntry.eventType}${inspectionEntry.missionId ? ` (${inspectionEntry.missionId})` : ""} center=(${Math.round(inspectionEntry.report.center.cx)},${Math.round(inspectionEntry.report.center.cy)}) phases=${inspectionEntry.report.phases.length}`);
+      const coveredByCoordinatedPlayback = inspectionEntry.missionId
+        ? coordinatedMissionIds.has(inspectionEntry.missionId)
+        : false;
+      lines.push(
+        `- ${inspectionEntry.eventType}${inspectionEntry.missionId ? ` (${inspectionEntry.missionId})` : ""} ` +
+        `center=(${Math.round(inspectionEntry.report.center.cx)},${Math.round(inspectionEntry.report.center.cy)}) phases=${inspectionEntry.report.phases.length}` +
+        ` authoritative=${coveredByCoordinatedPlayback ? "no" : "yes"}`
+      );
       lines.push(
         `  diagnostics escorts(event=${inspectionEntry.diagnostics.eventEscortUnitKeys.length}, linked=${inspectionEntry.diagnostics.linkedEscortUnitKeys.length}) ` +
         `bomberIncluded=${inspectionEntry.diagnostics.bomberIncluded} unresolvedOrigins=${inspectionEntry.diagnostics.unresolvedOriginUnitKeys.length}`
@@ -2754,6 +2827,15 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
   lines.push("Diagnostics:");
   if (result.findings.length > 0) {
     result.findings.forEach((finding) => {
+      lines.push(`- [${finding.code}] ${finding.message}`);
+    });
+  } else {
+    lines.push("- none");
+  }
+  lines.push("");
+  lines.push("Legacy diagnostics:");
+  if (result.legacyDiagnosticFindings.length > 0) {
+    result.legacyDiagnosticFindings.forEach((finding) => {
       lines.push(`- [${finding.code}] ${finding.message}`);
     });
   } else {

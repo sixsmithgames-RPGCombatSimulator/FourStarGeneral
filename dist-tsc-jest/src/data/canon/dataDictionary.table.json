@@ -1,0 +1,787 @@
+[
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "weapon_id",
+        "Description": "Stable primary key for each weapon platform."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "weapon_name",
+        "Description": "Human-readable display name."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "era",
+        "Description": "WWII, Postwar, or other era tag."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "nation_or_family",
+        "Description": "Nation or generic family."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "category",
+        "Description": "Broad class: Infantry, Vehicle Weapon, Support Weapon, Explosive."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "subcategory",
+        "Description": "More specific class such as Rifle, Tank Gun, AT Gun, Mortar, Fragmentation Grenade."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "platform",
+        "Description": "Mount or employment mode."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "caliber_mm",
+        "Description": "Nominal caliber in millimeters. 0 for non-projectile explosives."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "ammo_group",
+        "Description": "Reference family used to link to Ammo_DB."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "crew",
+        "Description": "Typical crew count needed to operate effectively."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "min_range_m",
+        "Description": "Minimum practical/safe use range."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "effective_range_m",
+        "Description": "Practical effective/combat/intended range."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "max_direct_range_m",
+        "Description": "Direct-fire or sight-scale range."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "max_ballistic_range_m",
+        "Description": "Ballistic maximum range."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "rate_of_fire_rpm",
+        "Description": "Cyclic or practical rpm where useful."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "mount",
+        "Description": "How weapon is mounted."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "accuracy_profile_id",
+        "Description": "Links to Accuracy_Curves."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "source_url",
+        "Description": "Representative source used for the row."
+    },
+    {
+        "Sheet": "Weapons_DB",
+        "Column": "notes",
+        "Description": "Caveats or special remarks."
+    },
+    {
+        "Sheet": "Ammo_DB",
+        "Column": "ammo_id",
+        "Description": "Stable primary key for each ammo row."
+    },
+    {
+        "Sheet": "Ammo_DB",
+        "Column": "ammo_family",
+        "Description": "Family key matching weapon ammo_group."
+    },
+    {
+        "Sheet": "Ammo_DB",
+        "Column": "ammo_name",
+        "Description": "Display name of ammunition."
+    },
+    {
+        "Sheet": "Ammo_DB",
+        "Column": "ammo_type",
+        "Description": "General type such as AP, APCBC, APCR, HVAP, HE, HEAT, Smoke, FRAG."
+    },
+    {
+        "Sheet": "Ammo_DB",
+        "Column": "typical_weapons",
+        "Description": "Representative weapons that use the round."
+    },
+    {
+        "Sheet": "Ammo_DB",
+        "Column": "anti_armor_role",
+        "Description": "High-level anti-armor purpose."
+    },
+    {
+        "Sheet": "Ammo_DB",
+        "Column": "anti_personnel_role",
+        "Description": "High-level anti-personnel/soft-target purpose."
+    },
+    {
+        "Sheet": "Ammo_DB",
+        "Column": "smoke_role",
+        "Description": "Use for screening/marking if applicable."
+    },
+    {
+        "Sheet": "Ammo_DB",
+        "Column": "indirect_capable",
+        "Description": "True/False for mortar-like indirect ammunition."
+    },
+    {
+        "Sheet": "Accuracy_Curves",
+        "Column": "profile_id",
+        "Description": "Stable key used by weapons."
+    },
+    {
+        "Sheet": "Accuracy_Curves",
+        "Column": "band_min_m / band_max_m",
+        "Description": "Range band boundaries in meters."
+    },
+    {
+        "Sheet": "Accuracy_Curves",
+        "Column": "base_hit_probability",
+        "Description": "Recommended base hit probability for average crews/personnel."
+    },
+    {
+        "Sheet": "Accuracy_Curves",
+        "Column": "shooter_moving_mult",
+        "Description": "Multiplier to apply when the shooter moved."
+    },
+    {
+        "Sheet": "Accuracy_Curves",
+        "Column": "target_moving_mult",
+        "Description": "Multiplier to apply when the target is moving."
+    },
+    {
+        "Sheet": "Accuracy_Curves",
+        "Column": "obscured_mult",
+        "Description": "Multiplier to apply for partial cover, smoke, hull-down, or other obscuration."
+    },
+    {
+        "Sheet": "Sources_Log",
+        "Column": "(sheet)",
+        "Description": "Sheet purpose: Central provenance registry for canon sources used by the workbook."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "(sheet)",
+        "Description": "Sheet purpose: Normalized physical platform/chassis records for vehicles, guns, transports, and kit carriers."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "(sheet)",
+        "Description": "Sheet purpose: Protection records by platform zone/facing."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "(sheet)",
+        "Description": "Sheet purpose: Mobility, range, fuel, and towing facts by platform."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "(sheet)",
+        "Description": "Sheet purpose: Observation, radio, and fire-control quality layer by platform."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "(sheet)",
+        "Description": "Sheet purpose: Join table linking platforms to mounted weapons and their arcs/limits."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "(sheet)",
+        "Description": "Sheet purpose: Ammo carried by a platform for each mounted weapon."
+    },
+    {
+        "Sheet": "Sources_Log",
+        "Column": "source_id",
+        "Description": "Stable primary key for each source entry."
+    },
+    {
+        "Sheet": "Sources_Log",
+        "Column": "source_title",
+        "Description": "Human-readable source title."
+    },
+    {
+        "Sheet": "Sources_Log",
+        "Column": "source_url",
+        "Description": "Canonical URL for the source."
+    },
+    {
+        "Sheet": "Sources_Log",
+        "Column": "source_type",
+        "Description": "High-level source type such as pdf or web."
+    },
+    {
+        "Sheet": "Sources_Log",
+        "Column": "publisher_or_author",
+        "Description": "Publisher, archive, author, or site owner."
+    },
+    {
+        "Sheet": "Sources_Log",
+        "Column": "publication_date_if_known",
+        "Description": "Publication date when known."
+    },
+    {
+        "Sheet": "Sources_Log",
+        "Column": "accessed_date",
+        "Description": "Date the source was last checked for this workbook."
+    },
+    {
+        "Sheet": "Sources_Log",
+        "Column": "credibility_tier",
+        "Description": "Trust tier for quick triage of source quality."
+    },
+    {
+        "Sheet": "Sources_Log",
+        "Column": "citation_short",
+        "Description": "Compact citation label used in notes."
+    },
+    {
+        "Sheet": "Sources_Log",
+        "Column": "notes",
+        "Description": "Notes on why the source was used or how to replace it."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "platform_id",
+        "Description": "Stable primary key for each platform/chassis or physical carrier."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "platform_name",
+        "Description": "Human-readable platform name."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "platform_class",
+        "Description": "Broad class such as tank, tank_destroyer, anti_tank_gun, truck, or halftrack."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "nation",
+        "Description": "Nation associated with the platform."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "service_branch",
+        "Description": "Army, Air Force, Navy, or equivalent branch tag."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "era",
+        "Description": "Era tag such as WWII."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "service_start_date",
+        "Description": "Start of service period for this entry."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "service_end_date",
+        "Description": "End of service period for this entry."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "crew_count",
+        "Description": "Typical crew needed to operate the platform."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "open_top_flag",
+        "Description": "True when the fighting compartment or passenger area is open overhead."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "shielded_flag",
+        "Description": "True when a gun shield or shielded position is part of the platform."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "silhouette_class",
+        "Description": "Relative visual target size category."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "signature_class",
+        "Description": "Relative detection/engagement signature category."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "weight_tons_or_class",
+        "Description": "Combat weight in metric tons or string class when only rated class is known."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "notes",
+        "Description": "Canon caveats or dependency notes."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "source_id_primary",
+        "Description": "Primary source_log reference used for the row."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "confidence_level",
+        "Description": "confirmed / strong / moderate / estimated / speculative."
+    },
+    {
+        "Sheet": "Platforms",
+        "Column": "last_reviewed_date",
+        "Description": "Last review date for the row."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "armor_id",
+        "Description": "Stable primary key for each armor row."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "platform_id",
+        "Description": "Foreign key to Platforms."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "zone_key",
+        "Description": "Zone or location such as HULL_FRONT or TURRET_SIDE."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "facing",
+        "Description": "Facing bucket such as front, side, rear, or top."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "thickness_mm",
+        "Description": "Nominal armor thickness in millimeters."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "slope_if_known",
+        "Description": "Armor slope or descriptive orientation when known."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "construction_type",
+        "Description": "Rolled, cast, shield plate, skirt, or similar construction tag."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "spaced_flag",
+        "Description": "True when the row represents spaced armor or skirts."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "shield_only_flag",
+        "Description": "True when the row is only a shield rather than full hull/turret armor."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "crew_exposure_notes",
+        "Description": "Crew survivability note tied to the protection scheme."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "notes",
+        "Description": "Armor caveats and variation notes."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "source_id_primary",
+        "Description": "Primary source_log reference used for the row."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "confidence_level",
+        "Description": "confirmed / strong / moderate / estimated / speculative."
+    },
+    {
+        "Sheet": "Platform_Armor",
+        "Column": "last_reviewed_date",
+        "Description": "Last review date for the row."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "mobility_id",
+        "Description": "Stable primary key for each mobility row."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "platform_id",
+        "Description": "Foreign key to Platforms."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "move_type",
+        "Description": "Tracked, wheeled_truck, halftrack, towed_gun, or similar move class."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "road_speed_kph",
+        "Description": "Primary road speed in kilometers per hour."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "offroad_speed_kph",
+        "Description": "Representative off-road speed in kilometers per hour."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "reverse_speed_kph_if_known",
+        "Description": "Reverse speed if known."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "operational_range_km",
+        "Description": "Representative operational road range in kilometers."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "fuel_type",
+        "Description": "Fuel type or propulsion source."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "fuel_capacity_l_if_known",
+        "Description": "Fuel capacity in liters if known."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "towing_capable_flag",
+        "Description": "True when the platform can tow other equipment."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "towed_by_default_flag",
+        "Description": "True when the platform itself is normally towed."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "amphibious_flag",
+        "Description": "True when the platform is amphibious without scenario special handling."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "bridge_class_or_weight_limit",
+        "Description": "Bridge classification or relevant crossing limit when known."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "traction_notes",
+        "Description": "Short note on suspension, track, halftrack, or road dependence."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "notes",
+        "Description": "Mobility caveats including when speed/range belongs to a separate prime mover."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "source_id_primary",
+        "Description": "Primary source_log reference used for the row."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "confidence_level",
+        "Description": "confirmed / strong / moderate / estimated / speculative."
+    },
+    {
+        "Sheet": "Platform_Mobility",
+        "Column": "last_reviewed_date",
+        "Description": "Last review date for the row."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "sensors_id",
+        "Description": "Stable primary key for each sensors row."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "platform_id",
+        "Description": "Foreign key to Platforms."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "vision_class",
+        "Description": "Qualitative observation quality bucket."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "recon_quality",
+        "Description": "Qualitative scouting value bucket."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "radio_quality",
+        "Description": "Qualitative radio/command connectivity bucket."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "fire_control_quality",
+        "Description": "Qualitative gunnery/fire-control bucket."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "rangefinding_quality",
+        "Description": "Qualitative rangefinding bucket."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "air_ground_spotting_flag",
+        "Description": "True when the platform can materially contribute to air-ground spotting behavior."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "night_capability_notes",
+        "Description": "Night-operations note."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "commander_overwatch_notes",
+        "Description": "Commander observation or coordination note."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "notes",
+        "Description": "Translation note explaining how qualitative sensor values were derived."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "source_id_primary",
+        "Description": "Primary source_log reference used for the row."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "confidence_level",
+        "Description": "confirmed / strong / moderate / estimated / speculative."
+    },
+    {
+        "Sheet": "Platform_Sensors",
+        "Column": "last_reviewed_date",
+        "Description": "Last review date for the row."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "mount_id",
+        "Description": "Stable primary key for each mount row."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "platform_id",
+        "Description": "Foreign key to Platforms."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "weapon_id",
+        "Description": "Foreign key to Weapons_DB."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "mount_position",
+        "Description": "Position on the platform such as turret, hull_front, or roof."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "mount_type",
+        "Description": "Main gun, coax_mg, ball_mg, shield_mg, and similar mount role tag."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "turret_flag",
+        "Description": "True when mounted in a rotating turret."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "coax_flag",
+        "Description": "True when coaxial with a main gun."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "hull_flag",
+        "Description": "True when mounted in the hull or casemate."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "pintle_flag",
+        "Description": "True when on a pintle/ring/AA style external mounting."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "traverse_arc_deg",
+        "Description": "Horizontal traverse arc in degrees."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "elevation_min_deg",
+        "Description": "Minimum depression/elevation angle in degrees."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "elevation_max_deg",
+        "Description": "Maximum elevation angle in degrees."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "stabilization_class",
+        "Description": "None, single_plane, slave_to_main, or other stabilization/relationship tag."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "reload_access_notes",
+        "Description": "Reload handling note."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "notes",
+        "Description": "Mount caveats including when values are normalized or estimated."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "source_id_primary",
+        "Description": "Primary source_log reference used for the row."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "confidence_level",
+        "Description": "confirmed / strong / moderate / estimated / speculative."
+    },
+    {
+        "Sheet": "Weapon_Mounts",
+        "Column": "last_reviewed_date",
+        "Description": "Last review date for the row."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "loadout_id",
+        "Description": "Stable primary key for each loadout row."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "platform_id",
+        "Description": "Foreign key to Platforms."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "weapon_id",
+        "Description": "Foreign key to Weapons_DB."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "ammo_id",
+        "Description": "Foreign key to Ammo_DB."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "carried_quantity",
+        "Description": "How many rounds/items of that ammo are carried by default."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "default_mix_priority",
+        "Description": "Relative ordering for default mix construction."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "optional_mix_flag",
+        "Description": "True when the mix is flexible or mission-dependent."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "smoke_qty",
+        "Description": "How many of the carried quantity are smoke-role rounds when relevant."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "illumination_qty",
+        "Description": "How many are illumination rounds when relevant."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "special_round_qty",
+        "Description": "How many are scarce/special rounds such as HVAP, APDS, or APCR."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "ready_rack_qty_if_known",
+        "Description": "Ready-rack quantity when known."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "reload_notes",
+        "Description": "Reload or stowage note."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "notes",
+        "Description": "Caveats on estimated ammo mix or where source only gives total stowage."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "source_id_primary",
+        "Description": "Primary source_log reference used for the row."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "confidence_level",
+        "Description": "confirmed / strong / moderate / estimated / speculative."
+    },
+    {
+        "Sheet": "Platform_Loadouts",
+        "Column": "last_reviewed_date",
+        "Description": "Last review date for the row."
+    },
+    {
+        "Sheet": "Platform_Presentation",
+        "Column": "presentation sheet",
+        "Description": "Player-facing display names and in-game descriptions derived from canon platform rows."
+    },
+    {
+        "Sheet": "Platform_Presentation.platform_id",
+        "Column": "text / FK",
+        "Description": "Stable foreign key to Platforms.platform_id."
+    },
+    {
+        "Sheet": "Platform_Presentation.display_name",
+        "Column": "text",
+        "Description": "Game-friendly full display name for UI cards and rosters."
+    },
+    {
+        "Sheet": "Platform_Presentation.short_name",
+        "Column": "text",
+        "Description": "Compact label for counters, tags, and tight UI spaces."
+    },
+    {
+        "Sheet": "Platform_Presentation.ui_group",
+        "Column": "text",
+        "Description": "Presentation grouping such as Medium Tank, Heavy Tank, or Transport."
+    },
+    {
+        "Sheet": "Platform_Presentation.nation_label",
+        "Column": "text",
+        "Description": "Player-facing nation label."
+    },
+    {
+        "Sheet": "Platform_Presentation.short_description",
+        "Column": "text",
+        "Description": "Concise in-game description for tooltips or unit cards."
+    },
+    {
+        "Sheet": "Platform_Presentation.long_description",
+        "Column": "text",
+        "Description": "Longer in-game description for detail panes or encyclopedias."
+    }
+]

@@ -1,0 +1,294 @@
+import { registerTest } from "./harness";
+import { losClearAdvanced } from "../src/core/LOS";
+import { GameEngine } from "../src/game/GameEngine";
+const plains = {
+    moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
+    defense: 0,
+    accMod: 0,
+    blocksLOS: false
+};
+const hill = {
+    moveCost: { leg: 2, wheel: 3, track: 2, air: 1 },
+    defense: 3,
+    accMod: -16,
+    blocksLOS: true
+};
+const terrain = {
+    plains,
+    hill
+};
+const reconCarDef = {
+    class: "recon",
+    combat: { category: "vehicle", weight: "light", role: "support", signature: "medium" },
+    movement: 4,
+    moveType: "wheel",
+    vision: 4,
+    ammo: 6,
+    fuel: 40,
+    rangeMin: 1,
+    rangeMax: 2,
+    initiative: 4,
+    armor: { front: 2, side: 1, top: 1 },
+    hardAttack: 4,
+    softAttack: 8,
+    ap: 2,
+    accuracyBase: 55,
+    traits: [],
+    cost: 90
+};
+const spotterInfantryDef = {
+    class: "infantry",
+    combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
+    movement: 3,
+    moveType: "leg",
+    vision: 3,
+    ammo: 6,
+    fuel: 0,
+    rangeMin: 1,
+    rangeMax: 1,
+    initiative: 3,
+    armor: { front: 1, side: 1, top: 1 },
+    hardAttack: 2,
+    softAttack: 8,
+    ap: 1,
+    accuracyBase: 55,
+    traits: [],
+    cost: 60
+};
+const enemyInfantryDef = {
+    class: "infantry",
+    combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
+    movement: 3,
+    moveType: "leg",
+    vision: 2,
+    ammo: 6,
+    fuel: 0,
+    rangeMin: 1,
+    rangeMax: 1,
+    initiative: 3,
+    armor: { front: 1, side: 1, top: 1 },
+    hardAttack: 2,
+    softAttack: 8,
+    ap: 1,
+    accuracyBase: 50,
+    traits: [],
+    cost: 60
+};
+const supplyTruckDef = {
+    class: "vehicle",
+    combat: { category: "vehicle", weight: "medium", role: "support", signature: "large" },
+    movement: 2,
+    moveType: "wheel",
+    vision: 2,
+    ammo: 0,
+    fuel: 70,
+    rangeMin: 0,
+    rangeMax: 0,
+    initiative: 1,
+    armor: { front: 2, side: 1, top: 1 },
+    hardAttack: 1,
+    softAttack: 1,
+    ap: 0,
+    accuracyBase: 0,
+    traits: [],
+    cost: 50
+};
+const unitTypes = {
+    TestReconCar: reconCarDef,
+    TestSpotterInfantry: spotterInfantryDef,
+    TestEnemyInfantry: enemyInfantryDef,
+    Supply_Truck: supplyTruckDef
+};
+function side(hq = { q: 0, r: 0 }, units = []) {
+    return {
+        hq,
+        general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 },
+        units
+    };
+}
+function scenario() {
+    const plainsTile = "plains";
+    const hillTile = "hill";
+    return {
+        name: "Recon LOS Regression",
+        size: { cols: 4, rows: 4 },
+        tilePalette: {
+            [plainsTile]: {
+                terrain: "plains",
+                terrainType: "grass",
+                density: "average",
+                features: [],
+                recon: "intel"
+            },
+            [hillTile]: {
+                terrain: "hill",
+                terrainType: "highland",
+                density: "average",
+                features: [],
+                recon: "watch"
+            }
+        },
+        tiles: [
+            [{ tile: plainsTile }, { tile: plainsTile }, { tile: plainsTile }, { tile: plainsTile }],
+            [{ tile: hillTile }, { tile: plainsTile }, { tile: plainsTile }, { tile: plainsTile }],
+            [{ tile: plainsTile }, { tile: plainsTile }, { tile: plainsTile }, { tile: plainsTile }],
+            [{ tile: plainsTile }, { tile: plainsTile }, { tile: plainsTile }, { tile: plainsTile }]
+        ],
+        objectives: [],
+        turnLimit: 4,
+        sides: {
+            Player: side({ q: 0, r: 0 }),
+            Bot: side({ q: 3, r: 0 })
+        }
+    };
+}
+function createEngine(playerUnits, botUnits) {
+    const preDeployedPlayers = playerUnits.map((unit) => ({ ...unit, preDeployed: true }));
+    const cfg = {
+        scenario: scenario(),
+        unitTypes,
+        terrain,
+        playerSide: side({ q: 0, r: 0 }, preDeployedPlayers),
+        botSide: side({ q: 3, r: 0 }, botUnits),
+        botStrategyMode: "Simple"
+    };
+    const engine = new GameEngine(cfg);
+    engine.beginDeployment();
+    engine.setBaseCamp({ q: 0, r: 0 });
+    engine.finalizeDeployment();
+    engine.startPlayerTurnPhase();
+    return engine;
+}
+registerTest("RECON_SPOTTING_CAN_PEEK_BUT_DIRECT_FIRE_CANNOT_SHOOT_THROUGH_SINGLE_BLOCKER", async ({ Given, When, Then }) => {
+    const attackerHex = { q: 0, r: 0 };
+    const targetHex = { q: 0, r: 2 };
+    const lister = {
+        terrainAt(hex) {
+            if (hex.q === 0 && hex.r === 1) {
+                return hill;
+            }
+            return plains;
+        }
+    };
+    let spottingLOS = false;
+    let directFireLOS = false;
+    await Given("a recon vehicle looking through a single blocking hill hex", async () => {
+        spottingLOS = losClearAdvanced({
+            attackerClass: "recon",
+            attackerHex,
+            targetHex,
+            isAttackerAir: false,
+            lister,
+            purpose: "spotting"
+        });
+        directFireLOS = losClearAdvanced({
+            attackerClass: "recon",
+            attackerHex,
+            targetHex,
+            isAttackerAir: false,
+            lister,
+            purpose: "direct-fire"
+        });
+    });
+    await When("the engine evaluates observation versus a direct attack lane", async () => {
+        // Values already captured above.
+    });
+    await Then("recon can still spot past the first blocker, but cannot fire through it directly", async () => {
+        if (!spottingLOS) {
+            throw new Error("Expected recon spotting LOS to remain available across a single blocking hex.");
+        }
+        if (directFireLOS) {
+            throw new Error("Expected direct-fire LOS to fail when a single blocking hill sits between recon and target.");
+        }
+    });
+});
+registerTest("PLAYER_RECON_ATTACK_TARGETS_RESPECT_SELECTED_UNIT_DIRECT_FIRE_LOS", async ({ Given, When, Then }) => {
+    let engine;
+    let attackableTargets = [];
+    let contactState = null;
+    await Given("a recon car whose target is globally spotted by a nearby infantry observer", async () => {
+        const reconCar = {
+            type: "TestReconCar",
+            hex: { q: 0, r: 0 },
+            strength: 10,
+            experience: 0,
+            ammo: 6,
+            fuel: 40,
+            entrench: 0,
+            facing: "NW"
+        };
+        const playerSpotter = {
+            type: "TestSpotterInfantry",
+            hex: { q: 1, r: 1 },
+            strength: 10,
+            experience: 0,
+            ammo: 6,
+            fuel: 0,
+            entrench: 0,
+            facing: "NW"
+        };
+        const defender = {
+            type: "TestEnemyInfantry",
+            hex: { q: 0, r: 2 },
+            strength: 10,
+            experience: 0,
+            ammo: 6,
+            fuel: 0,
+            entrench: 0,
+            facing: "SE"
+        };
+        engine = createEngine([reconCar, playerSpotter], [defender]);
+    });
+    await When("the selected recon car asks for its attackable targets", async () => {
+        contactState = engine.getPlayerEnemyContactStateAtHex({ q: 0, r: 2 });
+        attackableTargets = engine.getAttackableTargets({ q: 0, r: 0 });
+    });
+    await Then("the enemy can remain visible without becoming a legal direct-fire target through the hill", async () => {
+        if (!contactState) {
+            throw new Error("Expected the enemy to remain visible thanks to the nearby spotter.");
+        }
+        if (attackableTargets.some((hex) => hex.q === 0 && hex.r === 2)) {
+            throw new Error("Expected the selected recon car to lose the shot because its own direct-fire LOS is blocked by the hill.");
+        }
+    });
+});
+registerTest("RECON_SPOTTING_AND_DIRECT_FIRE_WORK_AGAINST_AN_ADJACENT_HILL_OCCUPANT", async ({ Given, When, Then }) => {
+    let engine;
+    let contactState = null;
+    let attackableTargets = [];
+    await Given("a recon car next to an enemy standing on a hill", async () => {
+        const reconCar = {
+            type: "TestReconCar",
+            hex: { q: 0, r: 0 },
+            strength: 10,
+            experience: 0,
+            ammo: 6,
+            fuel: 40,
+            entrench: 0,
+            facing: "NW"
+        };
+        const defender = {
+            type: "TestEnemyInfantry",
+            hex: { q: 0, r: 1 },
+            strength: 10,
+            experience: 0,
+            ammo: 6,
+            fuel: 0,
+            entrench: 0,
+            facing: "SE"
+        };
+        engine = createEngine([reconCar], [defender]);
+    });
+    await When("the recon car refreshes contact state and legal attack targets", async () => {
+        contactState = engine.getPlayerEnemyContactStateAtHex({ q: 0, r: 1 });
+        attackableTargets = engine.getAttackableTargets({ q: 0, r: 0 });
+    });
+    await Then("the adjacent hill occupant stays visible and directly attackable", async () => {
+        if (!contactState) {
+            throw new Error("Expected the adjacent hill occupant to remain visible to the recon car.");
+        }
+        if (!attackableTargets.some((hex) => hex.q === 0 && hex.r === 1)) {
+            throw new Error(`Expected adjacent hill occupant to remain a legal target, received ${JSON.stringify(attackableTargets)}`);
+        }
+    });
+});

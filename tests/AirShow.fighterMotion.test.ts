@@ -570,7 +570,7 @@ registerTest("AIR_SHOW_SCRAMBLE_TRACER_PROFILE_STAYS_BOUND_TO_CONTESTED_BOMBER_P
     result = runAirScenario();
   });
 
-  await Then("CAP clash scramble tracers should stay nose-fired while the contested bomber package may still use the close scramble profile", async () => {
+  await Then("CAP clash scramble tracers should stay nose-fired and the contested bomber package scramble should retain fighter nose-fire", async () => {
     const capClashInspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "capClash" && entry.missionId === "synthetic-scenario-4-cap-clash"
     );
@@ -580,8 +580,8 @@ registerTest("AIR_SHOW_SCRAMBLE_TRACER_PROFILE_STAYS_BOUND_TO_CONTESTED_BOMBER_P
     const capClashScramble = capClashInspection?.report.phases.find((phase) => phase.label === "escort-clash-scramble");
     const contestedPackageScramble = contestedPackageInspection?.report.phases.find((phase) => phase.label === "escort-clash-scramble");
     const capClashCenterTracerCount = capClashScramble?.tracers.filter((tracer) => tracer.emitter === "center").length ?? 0;
-    const contestedPackageCenterTracerCount =
-      contestedPackageScramble?.tracers.filter((tracer) => tracer.emitter === "center").length ?? 0;
+    const contestedPackageNoseTracerCount =
+      contestedPackageScramble?.tracers.filter((tracer) => tracer.emitter === "nose").length ?? 0;
 
     if (!capClashScramble || !contestedPackageScramble) {
       throw new Error("Expected both CAP clash and contested package scramble phases to be present in diagnostics.");
@@ -591,8 +591,8 @@ registerTest("AIR_SHOW_SCRAMBLE_TRACER_PROFILE_STAYS_BOUND_TO_CONTESTED_BOMBER_P
         `Expected CAP clash scramble tracers to stay on nose emitters, saw ${capClashCenterTracerCount} center-emitter tracers.`
       );
     }
-    if (contestedPackageCenterTracerCount <= 0) {
-      throw new Error("Expected the contested bomber package scramble phase to retain at least one center-emitter tracer.");
+    if (contestedPackageNoseTracerCount <= 0) {
+      throw new Error("Expected the contested bomber package scramble phase to retain at least one nose-emitter tracer.");
     }
   });
 });
@@ -818,6 +818,64 @@ registerTest("AIR_SHOW_SYNTHETIC_STACK_PACKAGE_AVOIDS_CURRENT_GOVERNED_MOTION_AN
         `Expected the synthetic stack package to clear the governed motion/flak findings, still saw: ${matchingFindings
           .map((finding) => `${finding.code}: ${finding.message}`)
           .join(" | ")}`
+      );
+    }
+  });
+});
+
+registerTest("AIR_SHOW_SYNTHETIC_BOMBER_DEFENSE_PASS_STARTS_WITH_INTERCEPTORS_SEPARATED", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the synthetic interceptor-versus-bomber package is available for spacing regression checks", async () => {});
+
+  await When("the governed air scenario report is generated", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("the bomber-defense pass should not begin with different interceptor flights stacked on top of each other", async () => {
+    const inspection = result?.airshowInspections.find(
+      (entry) => entry.eventType === "airToAir" && entry.missionId === "synthetic-scenario-3-strike-plus-interceptors-no-escorts"
+    );
+    if (!inspection) {
+      throw new Error("Expected the governed synthetic interceptor-versus-bomber inspection to be present.");
+    }
+
+    const bomberDefensePass = inspection.report.phases.find((phase) => phase.label === "bomber-defense-pass");
+    if (!bomberDefensePass) {
+      throw new Error("Expected the synthetic interceptor-versus-bomber inspection to include bomber-defense-pass.");
+    }
+
+    const interceptors = bomberDefensePass.assignments.filter((assignment) => assignment.role === "interceptor");
+    let minDistancePx = Number.POSITIVE_INFINITY;
+    let closestPair = "<none>";
+
+    for (let index = 0; index < interceptors.length; index += 1) {
+      for (let compareIndex = index + 1; compareIndex < interceptors.length; compareIndex += 1) {
+        const left = interceptors[index]!;
+        const right = interceptors[compareIndex]!;
+        if (left.flightId === right.flightId) {
+          continue;
+        }
+        const leftStart = left.points[0];
+        const rightStart = right.points[0];
+        if (!leftStart || !rightStart) {
+          continue;
+        }
+        const distancePx = Math.hypot(leftStart.cx - rightStart.cx, leftStart.cy - rightStart.cy);
+        if (distancePx < minDistancePx) {
+          minDistancePx = distancePx;
+          closestPair = `${left.actorId} vs ${right.actorId}`;
+        }
+      }
+    }
+
+    if (!Number.isFinite(minDistancePx)) {
+      throw new Error("Expected at least two interceptor flights to compare at bomber-defense-pass start.");
+    }
+
+    if (minDistancePx < 18) {
+      throw new Error(
+        `Expected bomber-defense pass start separation >= 18px, got ${minDistancePx.toFixed(1)}px for ${closestPair}.`
       );
     }
   });

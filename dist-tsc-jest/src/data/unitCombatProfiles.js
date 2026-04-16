@@ -1,0 +1,89 @@
+// Pull in the canonical unit stat definitions so we can annotate each allocation entry with combat metrics.
+import unitTypes from "./unitTypes.json";
+import { getCombatProfile } from "./combatProfiles";
+/**
+ * Canonical armor fallback used when an allocation entry has no matching combat unit definition.
+ */
+const EMPTY_ARMOR = Object.freeze({ front: 0, side: 0, top: 0 });
+/**
+ * We map allocation keys to the underlying combat unit so the documentation can surface a single
+ * authoritative source of soft/hard attack, armor, and mobility values. Logistics-only entries do
+ * not have combat stats, so we zero them out while still emitting a profile for completeness.
+ */
+const COMBAT_MAPPING = [
+    ["infantry", "Infantry_42"],
+    ["airborneDetachment", "Paratrooper"],
+    ["engineer", "Engineer"],
+    ["tank", "Panzer_IV"],
+    ["heavyTankCompany", "Heavy_Tank"],
+    ["tankDestroyerCompany", "Tank_Destroyer"],
+    ["assaultGunBattalion", "Assault_Gun"],
+    ["howitzer", "Howitzer_105"],
+    ["rocketArtilleryBattalion", "Rocket_Artillery"],
+    ["spArtilleryGroup", "SP_Artillery"],
+    ["antiTankBattery", "AT_Gun_50mm"],
+    ["flakBattery", "Flak_88"],
+    ["recon", "Recon_ArmoredCar"],
+    ["reconBike", "Recon_Bike"],
+    ["scoutPlaneWing", "Scout_Plane"],
+    ["fighter", "Fighter"],
+    ["interceptorWing", "Interceptor"],
+    ["groundAttackWing", "Ground_Attack"],
+    ["bomber", "Bomber"],
+    ["transportWing", "Transport_Plane"],
+    ["corpsArtilleryGroup", null],
+    ["shoreFireControlParty", null],
+    ["apcTruckColumn", "APC_Truck"],
+    ["apcHalftrackCompany", "APC_Halftrack"],
+    ["supplyConvoy", "Supply_Truck"],
+    ["ammo", null],
+    ["fuel", null],
+    ["medic", null],
+    ["transport", null],
+    ["maintenance", null]
+];
+/**
+ * Derives lightweight sustainment estimates from fuel/ammo pool sizes. The constants favor clarity
+ * over simulation precision so designers can quickly compare formations during iteration.
+ */
+function estimateConsumption(stats) {
+    const fuelPerTurn = stats.fuel > 0 ? Math.max(1, Math.round(stats.fuel / 12)) : 0;
+    const ammoPerEngagement = stats.ammo > 0 ? Math.max(1, Math.round(stats.ammo / 2)) : 0;
+    return { fuelPerTurn, ammoPerEngagement };
+}
+export const unitCombatProfiles = COMBAT_MAPPING.map(([key, unitType]) => {
+    if (!unitType) {
+        return {
+            key,
+            unitType: null,
+            combatProfileLabel: null,
+            softAttack: 0,
+            hardAttack: 0,
+            armor: EMPTY_ARMOR,
+            movement: 0,
+            fuel: 0,
+            ammo: 0,
+            fuelConsumptionPerTurn: 0,
+            ammoConsumptionPerEngagement: 0,
+            shotsPerTurn: 0
+        };
+    }
+    const stats = unitTypes[unitType];
+    const combatProfile = getCombatProfile(stats.combat); // JSON import loses literal types
+    const shotsPerTurn = combatProfile.shotsPerTurn;
+    const { fuelPerTurn, ammoPerEngagement } = estimateConsumption(stats);
+    return {
+        key,
+        unitType,
+        combatProfileLabel: combatProfile.label,
+        softAttack: stats.softAttack,
+        hardAttack: stats.hardAttack,
+        armor: stats.armor,
+        movement: stats.movement,
+        fuel: stats.fuel,
+        ammo: stats.ammo,
+        fuelConsumptionPerTurn: fuelPerTurn,
+        ammoConsumptionPerEngagement: ammoPerEngagement,
+        shotsPerTurn
+    };
+});

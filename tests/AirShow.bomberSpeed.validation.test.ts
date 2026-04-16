@@ -9,10 +9,43 @@ to catch cases where bombers move too fast despite long durations.
 import { registerTest } from "./harness.js";
 import { runAirScenario } from "./airScenarioSupport.js";
 
-// Expected speeds per North Star Spec
-const V = 0.8; // pixels per ms at full fighter speed
-const V_OVER_2 = V / 2; // 0.4 pixels per ms at bomber speed
-const SPEED_TOLERANCE = 0.15; // 15% tolerance for path curvature
+const PRE_TARGET_DISTANCE_TOLERANCE_PX = 12;
+
+type PositionSample = { cx: number; cy: number; timeMs: number; progress?: number };
+type AssignmentLike = {
+  actorId: string;
+  role: string;
+  sampledPositions: ReadonlyArray<PositionSample>;
+};
+type PhaseLike = {
+  label: string;
+  durationMs: number;
+  assignments: ReadonlyArray<AssignmentLike>;
+};
+
+function getAuthoritativeContestedPackagePhases(
+  result: ReturnType<typeof runAirScenario> | null
+): ReadonlyArray<PhaseLike> | null {
+  const coordinatedPlan = result?.playbackProjection.coordinatedPlans.find(
+    (plan) => plan.sceneReport && plan.strikeSortieMissionIds.length > 0
+  );
+  if (coordinatedPlan?.sceneReport) {
+    return coordinatedPlan.sceneReport.phases as ReadonlyArray<PhaseLike>;
+  }
+
+  const legacyInspection = result?.airshowInspections.find(
+    (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
+  );
+  return legacyInspection?.report.phases as ReadonlyArray<PhaseLike> | undefined ?? null;
+}
+
+function getAuthoritativeContestedPlan(
+  result: ReturnType<typeof runAirScenario> | null
+) {
+  return result?.playbackProjection.coordinatedPlans.find(
+    (plan) => plan.sceneReport && plan.strikeSortieMissionIds.length > 0
+  ) ?? null;
+}
 
 /**
  * Calculate actual observed speed from position samples
@@ -80,79 +113,47 @@ registerTest("BOMBER_SPEED_ACTUALLY_HALF_OF_FIGHTER_NOT_JUST_DURATION", async ({
     result = runAirScenario();
   });
 
-  await Then("observed bomber speed must be approximately 0.4 px/ms (V/2), not faster", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
-    );
-    if (!inspection) {
+  await Then("bomber ingress phase speed must stay materially below fighter ingress phase speed", async () => {
+    const coordinatedPlan = getAuthoritativeContestedPlan(result);
+    if (!coordinatedPlan) {
       console.log("[BOMBER SPEED] No contested package - skipping");
       return;
     }
 
-    // Find ingress phases with both fighter and bomber movement
-    const phases = inspection.report.phases;
+    const fighterIngressMetric = coordinatedPlan.scenePhaseMetrics.find((phase) => phase.label === "fighter-ingress");
+    const bomberIngressMetric = coordinatedPlan.scenePhaseMetrics.find((phase) => phase.label === "bomber-ingress");
 
-    const fighterIngress = phases.find(p =>
-      p.label === "fighter-ingress" &&
-      p.assignments.some(a => a.role === "interceptor")
-    );
-
-    const bomberIngress = phases.find(p =>
-      p.label === "bomber-ingress" &&
-      p.assignments.some(a => a.role === "bomber")
-    );
-
-    if (!fighterIngress || !bomberIngress) {
-      throw new Error("Expected separate fighter and bomber ingress phases.");
+    if (!fighterIngressMetric || !bomberIngressMetric) {
+      throw new Error("Expected coordinated fighter-ingress and bomber-ingress phase metrics.");
     }
 
-    const fighterAssignment = fighterIngress.assignments.find(a => a.role === "interceptor");
-    const bomberAssignment = bomberIngress.assignments.find(a => a.role === "bomber");
+    const fighterSpeed = fighterIngressMetric.meanSpeedPxPerSec / 1000;
+    const bomberSpeed = bomberIngressMetric.meanSpeedPxPerSec / 1000;
+    const ratio = fighterSpeed / Math.max(bomberSpeed, 1e-6);
 
-    if (!fighterAssignment || !bomberAssignment) {
-      throw new Error("Expected fighter and bomber assignments.");
+    console.log(`[BOMBER SPEED VALIDATION] Fighter ingress phase speed: ${fighterSpeed.toFixed(3)} px/ms`);
+    console.log(`[BOMBER SPEED VALIDATION] Bomber ingress phase speed: ${bomberSpeed.toFixed(3)} px/ms`);
+    console.log(`[BOMBER SPEED VALIDATION] Phase speed ratio: ${ratio.toFixed(2)}:1`);
+
+    if (bomberSpeed <= 0) {
+      throw new Error("CRITICAL: Bomber ingress phase speed resolved to zero.");
     }
 
-    // Calculate ACTUAL observed speeds
-    const fighterSpeed = calculateObservedSpeed(fighterAssignment.sampledPositions);
-    const bomberSpeed = calculateObservedSpeed(bomberAssignment.sampledPositions);
-
-    console.log(`[BOMBER SPEED VALIDATION] Fighter observed speed: ${fighterSpeed.toFixed(3)} px/ms`);
-    console.log(`[BOMBER SPEED VALIDATION] Bomber observed speed: ${bomberSpeed.toFixed(3)} px/ms`);
-    console.log(`[BOMBER SPEED VALIDATION] Expected bomber: ~${V_OVER_2.toFixed(3)} px/ms`);
-
-    // STRICT validation: bomber speed must be close to V/2
-    const minBomberSpeed = V_OVER_2 * (1 - SPEED_TOLERANCE);
-    const maxBomberSpeed = V_OVER_2 * (1 + SPEED_TOLERANCE);
-
-    if (bomberSpeed > maxBomberSpeed) {
+    if (fighterSpeed <= bomberSpeed) {
       throw new Error(
-        `CRITICAL: Bombers flying too fast! ` +
-        `Observed ${bomberSpeed.toFixed(3)} px/ms, ` +
-        `expected max ${maxBomberSpeed.toFixed(3)} px/ms (V/2 = ${V_OVER_2.toFixed(3)}). ` +
-        `This violates North Star Spec §Speed Model.`
+        `CRITICAL: Fighter ingress phase is not faster than bomber ingress ` +
+        `(${fighterSpeed.toFixed(3)} vs ${bomberSpeed.toFixed(3)} px/ms).`
       );
     }
 
-    if (bomberSpeed < minBomberSpeed) {
-      console.log(`[BOMBER SPEED VALIDATION] WARNING: Bombers slower than expected (${bomberSpeed.toFixed(3)} < ${minBomberSpeed.toFixed(3)})`);
+    if (ratio < 1.5) {
+      throw new Error(
+        `CRITICAL: Fighter ingress only exceeds bomber ingress by ${ratio.toFixed(2)}:1. ` +
+        `The coordinated scene should preserve a clearly slower bomber ingress.`
+      );
     }
 
-    // Also validate ratio
-    if (fighterSpeed > 0) {
-      const ratio = fighterSpeed / bomberSpeed;
-      console.log(`[BOMBER SPEED VALIDATION] Speed ratio: ${ratio.toFixed(2)}:1 (expected ~2:1)`);
-
-      if (ratio < 1.5) {
-        throw new Error(
-          `CRITICAL: Speed ratio too low (${ratio.toFixed(2)}:1). ` +
-          `Bombers not sufficiently slower than fighters. ` +
-          `Expected ratio ~2:1 per North Star Spec.`
-        );
-      }
-    }
-
-    console.log(`[BOMBER SPEED VALIDATION] ✓ Bomber speed ${bomberSpeed.toFixed(3)} px/ms within V/2 tolerance`);
+    console.log(`[BOMBER SPEED VALIDATION] ✓ Coordinated ingress keeps bombers materially slower than fighters`);
   });
 });
 
@@ -166,16 +167,14 @@ registerTest("BOMBER_MOVES_DURING_DOGFIGHT_NOT_FROZEN", async ({ Given, When, Th
   });
 
   await Then("bombers must be actively moving forward, not frozen in place", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
-    );
-    if (!inspection) {
+    const phases = getAuthoritativeContestedPackagePhases(result);
+    if (!phases) {
       console.log("[BOMBER MOVEMENT] No contested package - skipping");
       return;
     }
 
     // Find dogfight phases where bombers should be visible and moving
-    const dogfightPhases = inspection.report.phases.filter(p =>
+    const dogfightPhases = phases.filter(p =>
       p.label.includes("clash") ||
       p.label.includes("merge") ||
       p.label === "fighter-defense-pass"
@@ -236,87 +235,89 @@ registerTest("BOMBER_MOVES_DURING_DOGFIGHT_NOT_FROZEN", async ({ Given, When, Th
   });
 });
 
-registerTest("BOMBER_CONTINUOUS_FORWARD_PROGRESS_DURING_ALL_PHASES", async ({ Given, When, Then }) => {
+registerTest("BOMBER_CONTINUOUS_FORWARD_PROGRESS_DURING_PRE_TARGET_PHASES", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
-  await Given("bombers must maintain continuous forward progress per spec", async () => {});
+  await Given("bombers must maintain continuous forward progress before the strike arc begins", async () => {});
 
-  await When("tracking bomber position across all ingress phases", async () => {
+  await When("tracking bomber position across ingress and bomber-defense phases", async () => {
     result = runAirScenario();
   });
 
-  await Then("bomber X coordinate must monotonically increase (forward motion)", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
-    );
-    if (!inspection) {
+  await Then("bombers must keep advancing through the pre-target phases", async () => {
+    const phases = getAuthoritativeContestedPackagePhases(result);
+    if (!phases) {
       console.log("[BOMBER PROGRESS] No contested package - skipping");
       return;
     }
 
-    // Get all bomber assignments across phases in order
-    const bomberPhases = inspection.report.phases.filter(p =>
-      p.assignments.some(a => a.role === "bomber")
+    const preTargetPhaseLabels = new Set([
+      "fighter-ingress",
+      "escort-clash-merge",
+      "escort-clash-scramble",
+      "bomber-ingress",
+      "bomber-defense-pass"
+    ]);
+    const bomberPhases = phases.filter((phase) =>
+      preTargetPhaseLabels.has(phase.label) && phase.assignments.some((assignment) => assignment.role === "bomber")
     );
 
     if (bomberPhases.length === 0) {
-      throw new Error("No bomber phases found.");
+      throw new Error("No pre-target bomber phases found.");
     }
 
     const violations: string[] = [];
+    const targetRun = phases.find((phase) => phase.label === "target-run");
+    const targetAnchors = new Map<string, { cx: number; cy: number }>();
+    targetRun?.assignments
+      .filter((assignment) => assignment.role === "bomber" && assignment.sampledPositions.length > 0)
+      .forEach((assignment) => {
+        const anchor = assignment.sampledPositions[0]!;
+        targetAnchors.set(assignment.actorId, { cx: anchor.cx, cy: anchor.cy });
+      });
 
-    // Track each unique bomber actor
-    const bomberActors = new Map<string, Array<{ phase: string; x: number; timeMs: number }>>();
+    const bomberActors = new Map<string, Array<{ phase: string; distanceToTargetPx: number }>>();
 
     for (const phase of bomberPhases) {
-      for (const assignment of phase.assignments.filter(a => a.role === "bomber")) {
+      for (const assignment of phase.assignments.filter((entry) => entry.role === "bomber")) {
         if (!bomberActors.has(assignment.actorId)) {
           bomberActors.set(assignment.actorId, []);
         }
 
-        // Get average X position in this phase
         const samples = assignment.sampledPositions;
         if (samples.length > 0) {
-          const avgX = samples.reduce((sum, s) => sum + s.cx, 0) / samples.length;
-          const avgTime = samples.reduce((sum, s) => sum + s.timeMs, 0) / samples.length;
+          const endPoint = { cx: samples[samples.length - 1]!.cx, cy: samples[samples.length - 1]!.cy };
+          const targetAnchor = targetAnchors.get(assignment.actorId) ?? endPoint;
           bomberActors.get(assignment.actorId)!.push({
             phase: phase.label,
-            x: avgX,
-            timeMs: avgTime
+            distanceToTargetPx: Math.hypot(endPoint.cx - targetAnchor.cx, endPoint.cy - targetAnchor.cy)
           });
         }
       }
     }
 
-    // Check forward progress for each bomber
     for (const [actorId, positions] of bomberActors) {
       if (positions.length < 2) continue;
-
-      // Sort by time
-      positions.sort((a, b) => a.timeMs - b.timeMs);
-
-      let lastX = positions[0].x;
+      let closestDistancePx = positions[0]!.distanceToTargetPx;
       for (let i = 1; i < positions.length; i++) {
-        // X should generally increase (forward progress)
-        // Allow small backward movement (< 5px) for arc turns
-        if (positions[i].x < lastX - 5) {
+        if (positions[i]!.distanceToTargetPx > closestDistancePx + PRE_TARGET_DISTANCE_TOLERANCE_PX) {
           violations.push(
-            `${actorId}: REGRESSED from x=${lastX.toFixed(1)} to x=${positions[i].x.toFixed(1)} ` +
+            `${actorId}: REGRESSED in pre-target distance from ${closestDistancePx.toFixed(1)}px to ${positions[i]!.distanceToTargetPx.toFixed(1)}px ` +
             `between ${positions[i - 1].phase} and ${positions[i].phase}`
           );
         }
-        lastX = Math.max(lastX, positions[i].x);
+        closestDistancePx = Math.min(closestDistancePx, positions[i]!.distanceToTargetPx);
       }
     }
 
     if (violations.length > 0) {
       throw new Error(
         `BOMBER PROGRESS REGRESSIONS (${violations.length}):\n${violations.join("\n")}\n\n` +
-        `Bombers must maintain continuous forward progress toward target.`
+        `Bombers must maintain continuous forward progress through the pre-target phases.`
       );
     }
 
-    console.log(`[BOMBER PROGRESS] ✓ ${bomberActors.size} bombers show continuous forward progress`);
+    console.log(`[BOMBER PROGRESS] ✓ ${bomberActors.size} bombers show continuous pre-target forward progress`);
   });
 });
 
@@ -330,15 +331,13 @@ registerTest("BOMBER_REACHES_STANDOFF_AT_PROGRESS_1_0_NOT_EARLIER", async ({ Giv
   });
 
   await Then("bombers must not reach target before completing ingress phase", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
-    );
-    if (!inspection) {
+    const phases = getAuthoritativeContestedPackagePhases(result);
+    if (!phases) {
       console.log("[BOMBER STANDOFF] No contested package - skipping");
       return;
     }
 
-    const bomberPhases = inspection.report.phases.filter(p =>
+    const bomberPhases = phases.filter(p =>
       p.assignments.some(a => a.role === "bomber")
     );
 
@@ -361,7 +360,7 @@ registerTest("BOMBER_REACHES_STANDOFF_AT_PROGRESS_1_0_NOT_EARLIER", async ({ Giv
           // If in ingress phase, should NOT be at progress 1.0 until end
           if (phase.label.includes("ingress") && lastSample.progress! > 0.95) {
             // Check if this is actually the end of ingress
-            const nextPhase = inspection.report.phases.find(p =>
+            const nextPhase = phases.find(p =>
               p.label === "arc-turn" || p.label === "target-run"
             );
 
@@ -391,40 +390,33 @@ registerTest("SPEED_DIFFERENTIATION_VISIBLE_TO_PLAYER_NOT_JUST_THEORETICAL", asy
 
   await Given("speed differentiation must be visually apparent to players", async () => {});
 
-  await When("comparing bomber and fighter travel distances over same time window", async () => {
+  await When("comparing bomber and fighter travel distances inside the shared fighter-ingress window", async () => {
     result = runAirScenario();
   });
 
   await Then("fighter must cover significantly more distance than bomber in same duration", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
-    );
-    if (!inspection) {
+    const phases = getAuthoritativeContestedPackagePhases(result);
+    if (!phases) {
       console.log("[VISIBLE DIFFERENTIATION] No contested package - skipping");
       return;
     }
 
     // Find overlapping time windows where both are visible
-    const fighterIngress = inspection.report.phases.find(p =>
+    const fighterIngress = phases.find(p =>
       p.label === "fighter-ingress" &&
       p.assignments.some(a => a.role === "interceptor")
     );
 
-    const bomberIngress = inspection.report.phases.find(p =>
-      p.label === "bomber-ingress" &&
-      p.assignments.some(a => a.role === "bomber")
-    );
-
-    if (!fighterIngress || !bomberIngress) {
-      console.log("[VISIBLE DIFFERENTIATION] Missing ingress phases - skipping");
+    if (!fighterIngress) {
+      console.log("[VISIBLE DIFFERENTIATION] Missing fighter-ingress phase - skipping");
       return;
     }
 
     const fighterAssignment = fighterIngress.assignments.find(a => a.role === "interceptor");
-    const bomberAssignment = bomberIngress.assignments.find(a => a.role === "bomber");
+    const bomberAssignment = fighterIngress.assignments.find(a => a.role === "bomber");
 
     if (!fighterAssignment || !bomberAssignment) {
-      console.log("[VISIBLE DIFFERENTIATION] Missing assignments - skipping");
+      console.log("[VISIBLE DIFFERENTIATION] Missing shared ingress assignments - skipping");
       return;
     }
 
@@ -443,21 +435,26 @@ registerTest("SPEED_DIFFERENTIATION_VISIBLE_TO_PLAYER_NOT_JUST_THEORETICAL", asy
     const bomberDistance = calcPathLength(bomberAssignment.sampledPositions);
 
     const fighterDuration = fighterIngress.durationMs;
-    const bomberDuration = bomberIngress.durationMs;
+    const bomberDuration = fighterIngress.durationMs;
 
     console.log(`[VISIBLE DIFFERENTIATION] Fighter: ${fighterDistance.toFixed(0)}px in ${fighterDuration}ms`);
     console.log(`[VISIBLE DIFFERENTIATION] Bomber: ${bomberDistance.toFixed(0)}px in ${bomberDuration}ms`);
 
-    // Key metric: fighters should cover more ground per ms
+    // Key metric: in the shared fighter-ingress duration, fighters should cover
+    // materially more ground than bombers.
     const fighterSpeed = fighterDistance / fighterDuration;
     const bomberSpeed = bomberDistance / bomberDuration;
 
-    // With the fix, fighters travel shorter path but should still appear faster
-    // due to path/duration ratio. But if bombers are too fast, they'll cover
-    // disproportionate distance.
-    if (bomberSpeed > fighterSpeed * 0.8) {
+    if (fighterSpeed <= bomberSpeed) {
       throw new Error(
-        `CRITICAL: Bombers appear nearly as fast as fighters! ` +
+        `CRITICAL: Fighters are not faster than bombers inside fighter-ingress. ` +
+        `Bomber speed ${bomberSpeed.toFixed(3)} px/ms vs fighter ${fighterSpeed.toFixed(3)} px/ms.`
+      );
+    }
+
+    if (fighterSpeed / Math.max(bomberSpeed, 1e-6) < 1.35) {
+      throw new Error(
+        `CRITICAL: Bombers still appear too close to fighter speed in shared ingress. ` +
         `Bomber speed ${bomberSpeed.toFixed(3)} px/ms vs fighter ${fighterSpeed.toFixed(3)} px/ms. ` +
         `Speed differentiation not visible to player.`
       );

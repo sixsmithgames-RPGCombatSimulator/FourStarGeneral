@@ -1,0 +1,1181 @@
+[
+    {
+        "ammo_id": "30-06_BALL_M2",
+        "display_name": "M2 Ball",
+        "short_name": "M2 Ball",
+        "ui_group": "Ball",
+        "ammo_family_label": "30-06_US",
+        "short_description": "M2 Ball is standard ball ammunition for routine combat fire.",
+        "long_description": "M2 Ball is standard ball ammunition for routine combat fire. Against armor it rates as low. Against personnel it is standard lethal ball ammunition. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "30-06_AP_M2",
+        "display_name": "M2 AP",
+        "short_name": "M2 AP",
+        "ui_group": "AP",
+        "ammo_family_label": "30-06_US",
+        "short_description": "M2 AP is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "M2 AP is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light armor penetration. Against personnel it is limited. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "30-06_TRACER_M25",
+        "display_name": "M25 Tracer",
+        "short_name": "M25 Tracer",
+        "ui_group": "Tracer",
+        "ammo_family_label": "30-06_US",
+        "short_description": "M25 Tracer is tracer ammunition that helps track and adjust fire.",
+        "long_description": "M25 Tracer is tracer ammunition that helps track and adjust fire. Against armor it rates as low. Against personnel it is fire adjustment and target indication. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "30_CARBINE_BALL",
+        "display_name": "M1 Ball",
+        "short_name": "M1 Ball",
+        "ui_group": "Ball",
+        "ammo_family_label": "30_CARBINE_US",
+        "short_description": "M1 Ball is standard ball ammunition for routine combat fire.",
+        "long_description": "M1 Ball is standard ball ammunition for routine combat fire. Against armor it rates as very low. Against personnel it is close-range anti-personnel. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "50_BMG_BALL",
+        "display_name": "Ball",
+        "short_name": "Ball",
+        "ui_group": "Ball",
+        "ammo_family_label": "50_BMG_US",
+        "short_description": "Ball is standard ball ammunition for routine combat fire.",
+        "long_description": "Ball is standard ball ammunition for routine combat fire. Against armor it rates as low vs armor. Against personnel it is long-range anti-personnel/material. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "50_BMG_AP",
+        "display_name": "AP",
+        "short_name": "AP",
+        "ui_group": "AP",
+        "ammo_family_label": "50_BMG_US",
+        "short_description": "AP is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "AP is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light armor penetration. Against personnel it is moderate. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "50_BMG_API",
+        "display_name": "API",
+        "short_name": "API",
+        "ui_group": "API",
+        "ammo_family_label": "50_BMG_US",
+        "short_description": "API is armor-piercing incendiary ammunition for light vehicles and vulnerable equipment.",
+        "long_description": "API is armor-piercing incendiary ammunition for light vehicles and vulnerable equipment. Against armor it rates as light armor plus incendiary. Against personnel it is moderate. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "50_BMG_APIT",
+        "display_name": "APIT",
+        "short_name": "APIT",
+        "ui_group": "APIT",
+        "ammo_family_label": "50_BMG_US",
+        "short_description": "APIT is armor-piercing incendiary tracer ammunition for light armor and fire correction.",
+        "long_description": "APIT is armor-piercing incendiary tracer ammunition for light armor and fire correction. Against armor it rates as light armor plus incendiary. Against personnel it is moderate plus tracer. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "792_BALL_SS",
+        "display_name": "s.S. Ball",
+        "short_name": "s.S. Ball",
+        "ui_group": "Ball",
+        "ammo_family_label": "792_MAUSER_DE",
+        "short_description": "s.S. Ball is standard ball ammunition for routine combat fire.",
+        "long_description": "s.S. Ball is standard ball ammunition for routine combat fire. Against armor it rates as low. Against personnel it is standard lethal ball ammunition. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "792_AP_SMK",
+        "display_name": "SmK",
+        "short_name": "SmK",
+        "ui_group": "AP",
+        "ammo_family_label": "792_MAUSER_DE",
+        "short_description": "SmK is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "SmK is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light armor penetration. Against personnel it is limited. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "792_INCEND_PMK",
+        "display_name": "PmK",
+        "short_name": "PmK",
+        "ui_group": "Incendiary/Tracer",
+        "ammo_family_label": "792_MAUSER_DE",
+        "short_description": "PmK is incendiary tracer load for visibility and fire-starting effect.",
+        "long_description": "PmK is incendiary tracer load for visibility and fire-starting effect. Against armor it rates as low. Against personnel it is fire adjustment and incendiary effect. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "792_KURZ_BALL",
+        "display_name": "Kurz Ball",
+        "short_name": "Kurz Ball",
+        "ui_group": "Ball",
+        "ammo_family_label": "792_KURZ_DE",
+        "short_description": "Kurz Ball is standard ball ammunition for routine combat fire.",
+        "long_description": "Kurz Ball is standard ball ammunition for routine combat fire. Against armor it rates as very low. Against personnel it is intermediate cartridge anti-personnel. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "9MM_BALL_DE",
+        "display_name": "9mm Ball",
+        "short_name": "9mm Ball",
+        "ui_group": "Ball",
+        "ammo_family_label": "9MM_SMG_DE",
+        "short_description": "9mm Ball is standard ball ammunition for routine combat fire.",
+        "long_description": "9mm Ball is standard ball ammunition for routine combat fire. Against armor it rates as negligible. Against personnel it is close-range anti-personnel. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "303_BALL_MK7",
+        "display_name": "Mk VII Ball",
+        "short_name": "Mk VII Ball",
+        "ui_group": "Ball",
+        "ammo_family_label": "303_BRITISH_UK",
+        "short_description": "Mk VII Ball is standard ball ammunition for routine combat fire.",
+        "long_description": "Mk VII Ball is standard ball ammunition for routine combat fire. Against armor it rates as low. Against personnel it is standard lethal ball ammunition. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "303_AP_W",
+        "display_name": "W AP",
+        "short_name": "W AP",
+        "ui_group": "AP",
+        "ammo_family_label": "303_BRITISH_UK",
+        "short_description": "W AP is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "W AP is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light armor penetration. Against personnel it is limited. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "303_TRACER_G",
+        "display_name": "Tracer G",
+        "short_name": "Tracer G",
+        "ui_group": "Tracer",
+        "ammo_family_label": "303_BRITISH_UK",
+        "short_description": "Tracer G is tracer ammunition that helps track and adjust fire.",
+        "long_description": "Tracer G is tracer ammunition that helps track and adjust fire. Against armor it rates as low. Against personnel it is fire adjustment and target indication. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "9MM_BALL_UK",
+        "display_name": "9mm Ball",
+        "short_name": "9mm Ball",
+        "ui_group": "Ball",
+        "ammo_family_label": "9MM_SMG_UK",
+        "short_description": "9mm Ball is standard ball ammunition for routine combat fire.",
+        "long_description": "9mm Ball is standard ball ammunition for routine combat fire. Against armor it rates as negligible. Against personnel it is close-range anti-personnel. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "55_BOYS_WMK1",
+        "display_name": "W Mk I",
+        "short_name": "W Mk I",
+        "ui_group": "AP",
+        "ammo_family_label": "55_BOYS_UK",
+        "short_description": "W Mk I is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "W Mk I is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light armor penetration. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "55_BOYS_WMK2",
+        "display_name": "W Mk II",
+        "short_name": "W Mk II",
+        "ui_group": "AP",
+        "ammo_family_label": "55_BOYS_UK",
+        "short_description": "W Mk II is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "W Mk II is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as improved light armor penetration. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "762X54R_L",
+        "display_name": "L Ball",
+        "short_name": "L Ball",
+        "ui_group": "Ball",
+        "ammo_family_label": "762X54R_SU",
+        "short_description": "L Ball is standard ball ammunition for routine combat fire.",
+        "long_description": "L Ball is standard ball ammunition for routine combat fire. Against armor it rates as low. Against personnel it is standard lethal ball ammunition. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "762X54R_B30",
+        "display_name": "B-30 AP",
+        "short_name": "B-30 AP",
+        "ui_group": "AP",
+        "ammo_family_label": "762X54R_SU",
+        "short_description": "B-30 AP is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "B-30 AP is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light armor penetration. Against personnel it is limited. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "762X54R_T46",
+        "display_name": "T-46 Tracer",
+        "short_name": "T-46 Tracer",
+        "ui_group": "Tracer",
+        "ammo_family_label": "762X54R_SU",
+        "short_description": "T-46 Tracer is tracer ammunition that helps track and adjust fire.",
+        "long_description": "T-46 Tracer is tracer ammunition that helps track and adjust fire. Against armor it rates as low. Against personnel it is fire adjustment and target indication. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "762X25_BALL",
+        "display_name": "7.62x25 Ball",
+        "short_name": "7.62x25 Ball",
+        "ui_group": "Ball",
+        "ammo_family_label": "762X25_SU",
+        "short_description": "7.62x25 Ball is standard ball ammunition for routine combat fire.",
+        "long_description": "7.62x25 Ball is standard ball ammunition for routine combat fire. Against armor it rates as negligible. Against personnel it is close-range anti-personnel. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "145_B32_API",
+        "display_name": "B-32 API",
+        "short_name": "B-32 API",
+        "ui_group": "API",
+        "ammo_family_label": "145_SU",
+        "short_description": "B-32 API is armor-piercing incendiary ammunition for light vehicles and vulnerable equipment.",
+        "long_description": "B-32 API is armor-piercing incendiary ammunition for light vehicles and vulnerable equipment. Against armor it rates as light armor penetration. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "145_BS41_AP",
+        "display_name": "BS-41",
+        "short_name": "BS-41",
+        "ui_group": "APCR-like",
+        "ammo_family_label": "145_SU",
+        "short_description": "BS-41 is high-velocity specialty anti-armor round.",
+        "long_description": "BS-41 is high-velocity specialty anti-armor round. Against armor it rates as improved light armor penetration. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "60MM_ROCKET_M6A1",
+        "display_name": "Rocket M6A1",
+        "short_name": "Rocket M6A1",
+        "ui_group": "HEAT",
+        "ammo_family_label": "60MM_ROCKET_US",
+        "short_description": "Rocket M6A1 is shaped-charge round that threatens armor without relying on high velocity.",
+        "long_description": "Rocket M6A1 is shaped-charge round that threatens armor without relying on high velocity. Against armor it rates as anti-armor heat. Against personnel it is blast/fragmentation secondary. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "89MM_PIAT_BOMB",
+        "display_name": "PIAT Bomb",
+        "short_name": "PIAT Bomb",
+        "ui_group": "HEAT",
+        "ammo_family_label": "PIAT_89MM_UK",
+        "short_description": "PIAT Bomb is shaped-charge round that threatens armor without relying on high velocity.",
+        "long_description": "PIAT Bomb is shaped-charge round that threatens armor without relying on high velocity. Against armor it rates as anti-armor heat. Against personnel it is limited blast. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "88MM_RPZB_HEAT",
+        "display_name": "RPzB HEAT Rocket",
+        "short_name": "RPzB HEAT Rocket",
+        "ui_group": "HEAT",
+        "ammo_family_label": "88MM_ROCKET_DE",
+        "short_description": "RPzB HEAT Rocket is shaped-charge round that threatens armor without relying on high velocity.",
+        "long_description": "RPzB HEAT Rocket is shaped-charge round that threatens armor without relying on high velocity. Against armor it rates as anti-armor heat. Against personnel it is limited blast. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "PF_30_HEAT",
+        "display_name": "Panzerfaust 30 Warhead",
+        "short_name": "Panzerfaust 30 Warhead",
+        "ui_group": "HEAT",
+        "ammo_family_label": "PF_30_DE",
+        "short_description": "Panzerfaust 30 Warhead is shaped-charge round that threatens armor without relying on high velocity.",
+        "long_description": "Panzerfaust 30 Warhead is shaped-charge round that threatens armor without relying on high velocity. Against armor it rates as anti-armor heat. Against personnel it is large blast on impact. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "PF_60_HEAT",
+        "display_name": "Panzerfaust 60 Warhead",
+        "short_name": "Panzerfaust 60 Warhead",
+        "ui_group": "HEAT",
+        "ammo_family_label": "PF_60_DE",
+        "short_description": "Panzerfaust 60 Warhead is shaped-charge round that threatens armor without relying on high velocity.",
+        "long_description": "Panzerfaust 60 Warhead is shaped-charge round that threatens armor without relying on high velocity. Against armor it rates as anti-armor heat. Against personnel it is large blast on impact. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "PF_100_HEAT",
+        "display_name": "Panzerfaust 100 Warhead",
+        "short_name": "Panzerfaust 100 Warhead",
+        "ui_group": "HEAT",
+        "ammo_family_label": "PF_100_DE",
+        "short_description": "Panzerfaust 100 Warhead is shaped-charge round that threatens armor without relying on high velocity.",
+        "long_description": "Panzerfaust 100 Warhead is shaped-charge round that threatens armor without relying on high velocity. Against armor it rates as anti-armor heat. Against personnel it is large blast on impact. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "60MM_MORTAR_HE_US",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "60MM_MORTAR_US",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against personnel it is fragmentation. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "60MM_MORTAR_SMOKE_US",
+        "display_name": "Smoke",
+        "short_name": "Smoke",
+        "ui_group": "Smoke",
+        "ammo_family_label": "60MM_MORTAR_US",
+        "short_description": "Smoke is smoke round for screening, signaling, or blinding positions.",
+        "long_description": "Smoke is smoke round for screening, signaling, or blinding positions. Against personnel it is screening. Smoke utility is primary role. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "60MM_MORTAR_ILLUM_US",
+        "display_name": "Illumination",
+        "short_name": "Illumination",
+        "ui_group": "Illumination",
+        "ammo_family_label": "60MM_MORTAR_US",
+        "short_description": "Illumination is illumination round for lighting ground and marking targets.",
+        "long_description": "Illumination is illumination round for lighting ground and marking targets. Against personnel it is illumination. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "81MM_MORTAR_HE_US",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "81MM_MORTAR_US",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against personnel it is fragmentation. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "81MM_MORTAR_SMOKE_US",
+        "display_name": "Smoke",
+        "short_name": "Smoke",
+        "ui_group": "Smoke",
+        "ammo_family_label": "81MM_MORTAR_US",
+        "short_description": "Smoke is smoke round for screening, signaling, or blinding positions.",
+        "long_description": "Smoke is smoke round for screening, signaling, or blinding positions. Against personnel it is screening. Smoke utility is primary role. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "81MM_MORTAR_ILLUM_US",
+        "display_name": "Illumination",
+        "short_name": "Illumination",
+        "ui_group": "Illumination",
+        "ammo_family_label": "81MM_MORTAR_US",
+        "short_description": "Illumination is illumination round for lighting ground and marking targets.",
+        "long_description": "Illumination is illumination round for lighting ground and marking targets. Against personnel it is illumination. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "107MM_MORTAR_HE_US",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "107MM_MORTAR_US",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as light structure/fieldworks. Against personnel it is heavy fragmentation. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "50MM_MORTAR_HE_DE",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "50MM_MORTAR_DE",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against personnel it is fragmentation. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "81MM_MORTAR_HE_DE",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "81MM_MORTAR_DE",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against personnel it is fragmentation. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "51MM_MORTAR_HE_UK",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "51MM_MORTAR_UK",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against personnel it is fragmentation. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "81MM_MORTAR_HE_UK",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "81MM_MORTAR_UK",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against personnel it is fragmentation. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "50MM_MORTAR_HE_SU",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "50MM_MORTAR_SU",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against personnel it is fragmentation. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "82MM_MORTAR_HE_SU",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "82MM_MORTAR_SU",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against personnel it is fragmentation. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "120MM_MORTAR_HE_SU",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "120MM_MORTAR_SU",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as fieldworks/light cover. Against personnel it is heavy fragmentation. It can be used in weapons that fire indirectly."
+    },
+    {
+        "ammo_id": "MK2_FRAG",
+        "display_name": "Mk 2 Fragmentation Grenade",
+        "short_name": "Mk 2 Fragmentation Grenade",
+        "ui_group": "FRAG",
+        "ammo_family_label": "HAND_GRENADE_US",
+        "short_description": "Mk 2 Fragmentation Grenade is fragmentation round for infantry and soft targets.",
+        "long_description": "Mk 2 Fragmentation Grenade is fragmentation round for infantry and soft targets. Against personnel it is fragmentation. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "NO36M_FRAG",
+        "display_name": "No. 36M Fragmentation Grenade",
+        "short_name": "No. 36M Fragmentation Grenade",
+        "ui_group": "FRAG",
+        "ammo_family_label": "HAND_GRENADE_UK",
+        "short_description": "No. 36M Fragmentation Grenade is fragmentation round for infantry and soft targets.",
+        "long_description": "No. 36M Fragmentation Grenade is fragmentation round for infantry and soft targets. Against personnel it is fragmentation. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "F1_FRAG",
+        "display_name": "F-1 Fragmentation Grenade",
+        "short_name": "F-1 Fragmentation Grenade",
+        "ui_group": "FRAG",
+        "ammo_family_label": "HAND_GRENADE_SU",
+        "short_description": "F-1 Fragmentation Grenade is fragmentation round for infantry and soft targets.",
+        "long_description": "F-1 Fragmentation Grenade is fragmentation round for infantry and soft targets. Against personnel it is fragmentation. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "M2_BOUNDING_FRAG",
+        "display_name": "Bounding Fragmentation Charge",
+        "short_name": "Bounding Fragmentation Charge",
+        "ui_group": "FRAG",
+        "ammo_family_label": "AP_MINE_US",
+        "short_description": "Bounding Fragmentation Charge is fragmentation round for infantry and soft targets.",
+        "long_description": "Bounding Fragmentation Charge is fragmentation round for infantry and soft targets. Against personnel it is area fragmentation. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "S_MINE_FRAG",
+        "display_name": "Bounding Fragmentation Charge",
+        "short_name": "Bounding Fragmentation Charge",
+        "ui_group": "FRAG",
+        "ammo_family_label": "AP_MINE_DE",
+        "short_description": "Bounding Fragmentation Charge is fragmentation round for infantry and soft targets.",
+        "long_description": "Bounding Fragmentation Charge is fragmentation round for infantry and soft targets. Against personnel it is area fragmentation. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "M15_AT_BLAST",
+        "display_name": "High Explosive Blast Charge",
+        "short_name": "High Explosive Blast Charge",
+        "ui_group": "Blast",
+        "ammo_family_label": "AT_MINE_US",
+        "short_description": "High Explosive Blast Charge is blast-focused explosive charge for demolition and close assault.",
+        "long_description": "High Explosive Blast Charge is blast-focused explosive charge for demolition and close assault. Against armor it rates as track/wheel damage. Against personnel it is limited. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "TELLERMINE_BLAST",
+        "display_name": "High Explosive Blast Charge",
+        "short_name": "High Explosive Blast Charge",
+        "ui_group": "Blast",
+        "ammo_family_label": "AT_MINE_DE",
+        "short_description": "High Explosive Blast Charge is blast-focused explosive charge for demolition and close assault.",
+        "long_description": "High Explosive Blast Charge is blast-focused explosive charge for demolition and close assault. Against armor it rates as track/wheel damage. Against personnel it is limited. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "HAWKINS_BLAST",
+        "display_name": "High Explosive Blast Charge",
+        "short_name": "High Explosive Blast Charge",
+        "ui_group": "Blast",
+        "ammo_family_label": "AT_MINE_UK",
+        "short_description": "High Explosive Blast Charge is blast-focused explosive charge for demolition and close assault.",
+        "long_description": "High Explosive Blast Charge is blast-focused explosive charge for demolition and close assault. Against armor it rates as track/wheel damage. Against personnel it is limited. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "PMD6_BLAST",
+        "display_name": "Blast/Fragmentation Charge",
+        "short_name": "Blast/Fragmentation Charge",
+        "ui_group": "Blast",
+        "ammo_family_label": "AP_MINE_SU",
+        "short_description": "Blast/Fragmentation Charge is blast-focused explosive charge for demolition and close assault.",
+        "long_description": "Blast/Fragmentation Charge is blast-focused explosive charge for demolition and close assault. Against personnel it is localized anti-personnel. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "TM35_BLAST",
+        "display_name": "High Explosive Blast Charge",
+        "short_name": "High Explosive Blast Charge",
+        "ui_group": "Blast",
+        "ammo_family_label": "AT_MINE_SU",
+        "short_description": "High Explosive Blast Charge is blast-focused explosive charge for demolition and close assault.",
+        "long_description": "High Explosive Blast Charge is blast-focused explosive charge for demolition and close assault. Against armor it rates as track/wheel damage. Against personnel it is limited. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "SATCHEL_HE",
+        "display_name": "Demolition Charge",
+        "short_name": "Demolition Charge",
+        "ui_group": "Demolition",
+        "ammo_family_label": "SATCHEL_GENERIC",
+        "short_description": "Demolition Charge is demolition charge meant to wreck positions and obstacles.",
+        "long_description": "Demolition Charge is demolition charge meant to wreck positions and obstacles. Against armor it rates as severe vs structures/guns at contact range. Against personnel it is severe blast at very close range. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "CLAYMORE_STEEL_BALL",
+        "display_name": "Directional Fragmentation Charge",
+        "short_name": "Directional Fragmentation Charge",
+        "ui_group": "Directional FRAG",
+        "ammo_family_label": "DIRECTIONAL_MINE",
+        "short_description": "Directional Fragmentation Charge is directional fragmentation charge for ambush and area denial.",
+        "long_description": "Directional Fragmentation Charge is directional fragmentation charge for ambush and area denial. Against personnel it is forward arc steel-ball spray. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "37MM_US_AP",
+        "display_name": "AP Shot",
+        "short_name": "AP Shot",
+        "ui_group": "AP",
+        "ammo_family_label": "37MM_US",
+        "short_description": "AP Shot is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "AP Shot is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "37MM_US_HE",
+        "display_name": "HE Shell",
+        "short_name": "HE Shell",
+        "ui_group": "HE",
+        "ammo_family_label": "37MM_US",
+        "short_description": "HE Shell is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE Shell is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as very low. Against personnel it is fragmentation. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "37MM_US_CANISTER",
+        "display_name": "Canister",
+        "short_name": "Canister",
+        "ui_group": "Canister",
+        "ammo_family_label": "37MM_US",
+        "short_description": "Canister is anti-personnel canister load for very short-range defense.",
+        "long_description": "Canister is anti-personnel canister load for very short-range defense. Against personnel it is very strong at point-blank anti-personnel. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_US_M61",
+        "display_name": "M61 APCBC-HE-T",
+        "short_name": "M61 APCBC-HE-T",
+        "ui_group": "APCBC-HE-T",
+        "ammo_family_label": "75MM_US",
+        "short_description": "M61 APCBC-HE-T is capped armor-piercing tracer round tuned for anti-armor work.",
+        "long_description": "M61 APCBC-HE-T is capped armor-piercing tracer round tuned for anti-armor work. Against armor it rates as primary anti-armor shot. Against personnel it is moderate after penetration. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_US_M72",
+        "display_name": "M72 AP-T",
+        "short_name": "M72 AP-T",
+        "ui_group": "AP-T",
+        "ammo_family_label": "75MM_US",
+        "short_description": "M72 AP-T is armor-piercing tracer round for anti-vehicle fire and shot observation.",
+        "long_description": "M72 AP-T is armor-piercing tracer round for anti-vehicle fire and shot observation. Against armor it rates as anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_US_T45",
+        "display_name": "T45 HVAP-T",
+        "short_name": "T45 HVAP-T",
+        "ui_group": "APCR/HVAP",
+        "ammo_family_label": "75MM_US",
+        "short_description": "T45 HVAP-T is high-velocity anti-armor round for harder targets.",
+        "long_description": "T45 HVAP-T is high-velocity anti-armor round for harder targets. Against armor it rates as improved anti-armor at short range. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_US_M48",
+        "display_name": "M48 HE",
+        "short_name": "M48 HE",
+        "ui_group": "HE",
+        "ammo_family_label": "75MM_US",
+        "short_description": "M48 HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "M48 HE is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_US_M89",
+        "display_name": "M89 Smoke",
+        "short_name": "M89 Smoke",
+        "ui_group": "Smoke",
+        "ammo_family_label": "75MM_US",
+        "short_description": "M89 Smoke is smoke round for screening, signaling, or blinding positions.",
+        "long_description": "M89 Smoke is smoke round for screening, signaling, or blinding positions. Against armor it rates as very low. Against personnel it is screening/marking. Smoke utility is primary role. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_US_M66",
+        "display_name": "M66 HEAT",
+        "short_name": "M66 HEAT",
+        "ui_group": "HEAT",
+        "ammo_family_label": "75MM_US",
+        "short_description": "M66 HEAT is shaped-charge round that threatens armor without relying on high velocity.",
+        "long_description": "M66 HEAT is shaped-charge round that threatens armor without relying on high velocity. Against armor it rates as shaped-charge anti-armor. Against personnel it is moderate blast. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_US_M62",
+        "display_name": "M62 APCBC-HE-T",
+        "short_name": "M62 APCBC-HE-T",
+        "ui_group": "APCBC-HE-T",
+        "ammo_family_label": "76MM_US",
+        "short_description": "M62 APCBC-HE-T is capped armor-piercing tracer round tuned for anti-armor work.",
+        "long_description": "M62 APCBC-HE-T is capped armor-piercing tracer round tuned for anti-armor work. Against armor it rates as primary anti-armor. Against personnel it is moderate after penetration. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_US_M79",
+        "display_name": "M79 AP-T",
+        "short_name": "M79 AP-T",
+        "ui_group": "AP-T",
+        "ammo_family_label": "76MM_US",
+        "short_description": "M79 AP-T is armor-piercing tracer round for anti-vehicle fire and shot observation.",
+        "long_description": "M79 AP-T is armor-piercing tracer round for anti-vehicle fire and shot observation. Against armor it rates as anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_US_M93",
+        "display_name": "M93 HVAP-T",
+        "short_name": "M93 HVAP-T",
+        "ui_group": "APCR/HVAP",
+        "ammo_family_label": "76MM_US",
+        "short_description": "M93 HVAP-T is high-velocity anti-armor round for harder targets.",
+        "long_description": "M93 HVAP-T is high-velocity anti-armor round for harder targets. Against armor it rates as improved anti-armor at short range. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_US_M42A1",
+        "display_name": "M42A1 HE",
+        "short_name": "M42A1 HE",
+        "ui_group": "HE",
+        "ammo_family_label": "76MM_US",
+        "short_description": "M42A1 HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "M42A1 HE is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_US_M88",
+        "display_name": "M88 Smoke",
+        "short_name": "M88 Smoke",
+        "ui_group": "Smoke",
+        "ammo_family_label": "76MM_US",
+        "short_description": "M88 Smoke is smoke round for screening, signaling, or blinding positions.",
+        "long_description": "M88 Smoke is smoke round for screening, signaling, or blinding positions. Against armor it rates as very low. Against personnel it is screening/marking. Smoke utility is primary role. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "3IN_US_M62",
+        "display_name": "M62 APCBC-HE-T",
+        "short_name": "M62 APCBC-HE-T",
+        "ui_group": "APCBC-HE-T",
+        "ammo_family_label": "3IN_US",
+        "short_description": "M62 APCBC-HE-T is capped armor-piercing tracer round tuned for anti-armor work.",
+        "long_description": "M62 APCBC-HE-T is capped armor-piercing tracer round tuned for anti-armor work. Against armor it rates as primary anti-armor. Against personnel it is moderate after penetration. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "3IN_US_M79",
+        "display_name": "M79 AP-T",
+        "short_name": "M79 AP-T",
+        "ui_group": "AP-T",
+        "ammo_family_label": "3IN_US",
+        "short_description": "M79 AP-T is armor-piercing tracer round for anti-vehicle fire and shot observation.",
+        "long_description": "M79 AP-T is armor-piercing tracer round for anti-vehicle fire and shot observation. Against armor it rates as anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "3IN_US_M93",
+        "display_name": "M93 HVAP-T",
+        "short_name": "M93 HVAP-T",
+        "ui_group": "APCR/HVAP",
+        "ammo_family_label": "3IN_US",
+        "short_description": "M93 HVAP-T is high-velocity anti-armor round for harder targets.",
+        "long_description": "M93 HVAP-T is high-velocity anti-armor round for harder targets. Against armor it rates as improved anti-armor at short range. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "3IN_US_M42A1",
+        "display_name": "M42A1 HE",
+        "short_name": "M42A1 HE",
+        "ui_group": "HE",
+        "ammo_family_label": "3IN_US",
+        "short_description": "M42A1 HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "M42A1 HE is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "3IN_US_M88",
+        "display_name": "M88 Smoke",
+        "short_name": "M88 Smoke",
+        "ui_group": "Smoke",
+        "ammo_family_label": "3IN_US",
+        "short_description": "M88 Smoke is smoke round for screening, signaling, or blinding positions.",
+        "long_description": "M88 Smoke is smoke round for screening, signaling, or blinding positions. Against armor it rates as very low. Against personnel it is screening/marking. Smoke utility is primary role. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "90MM_US_M82",
+        "display_name": "M82 APCBC-HE-T",
+        "short_name": "M82 APCBC-HE-T",
+        "ui_group": "APCBC-HE-T",
+        "ammo_family_label": "90MM_US",
+        "short_description": "M82 APCBC-HE-T is capped armor-piercing tracer round tuned for anti-armor work.",
+        "long_description": "M82 APCBC-HE-T is capped armor-piercing tracer round tuned for anti-armor work. Against armor it rates as primary anti-armor. Against personnel it is moderate after penetration. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "90MM_US_T33",
+        "display_name": "T33 APBC-T",
+        "short_name": "T33 APBC-T",
+        "ui_group": "APBC-T",
+        "ammo_family_label": "90MM_US",
+        "short_description": "T33 APBC-T is armor-piercing ballistic-capped tracer round for direct-fire anti-armor use.",
+        "long_description": "T33 APBC-T is armor-piercing ballistic-capped tracer round for direct-fire anti-armor use. Against armor it rates as improved anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "90MM_US_M304",
+        "display_name": "M304 HVAP-T",
+        "short_name": "M304 HVAP-T",
+        "ui_group": "APCR/HVAP",
+        "ammo_family_label": "90MM_US",
+        "short_description": "M304 HVAP-T is high-velocity anti-armor round for harder targets.",
+        "long_description": "M304 HVAP-T is high-velocity anti-armor round for harder targets. Against armor it rates as high anti-armor performance at shorter ranges. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "90MM_US_M71",
+        "display_name": "M71 HE",
+        "short_name": "M71 HE",
+        "ui_group": "HE",
+        "ammo_family_label": "90MM_US",
+        "short_description": "M71 HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "M71 HE is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "105MM_US_HE",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "105MM_US",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low vs armor. Against personnel it is heavy blast and fragmentation. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "105MM_US_SMOKE",
+        "display_name": "Smoke",
+        "short_name": "Smoke",
+        "ui_group": "Smoke",
+        "ammo_family_label": "105MM_US",
+        "short_description": "Smoke is smoke round for screening, signaling, or blinding positions.",
+        "long_description": "Smoke is smoke round for screening, signaling, or blinding positions. Against armor it rates as very low. Against personnel it is screening/marking. Smoke utility is primary role. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "37MM_DE_PZGR",
+        "display_name": "PzGr. AP",
+        "short_name": "PzGr. AP",
+        "ui_group": "AP",
+        "ammo_family_label": "37MM_DE",
+        "short_description": "PzGr. AP is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "PzGr. AP is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "37MM_DE_SPRGR",
+        "display_name": "Sprgr. HE",
+        "short_name": "Sprgr. HE",
+        "ui_group": "HE",
+        "ammo_family_label": "37MM_DE",
+        "short_description": "Sprgr. HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "Sprgr. HE is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as very low. Against personnel it is fragmentation. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "50MM_DE_PZGR39",
+        "display_name": "PzGr.39",
+        "short_name": "PzGr.39",
+        "ui_group": "APCBC-HE",
+        "ammo_family_label": "50MM_DE",
+        "short_description": "PzGr.39 is capped armor-piercing round that adds a small bursting effect after penetration.",
+        "long_description": "PzGr.39 is capped armor-piercing round that adds a small bursting effect after penetration. Against armor it rates as primary anti-armor. Against personnel it is low to moderate after penetration. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "50MM_DE_PZGR40",
+        "display_name": "PzGr.40",
+        "short_name": "PzGr.40",
+        "ui_group": "APCR",
+        "ammo_family_label": "50MM_DE",
+        "short_description": "PzGr.40 is high-velocity armor-piercing round for tougher vehicle targets.",
+        "long_description": "PzGr.40 is high-velocity armor-piercing round for tougher vehicle targets. Against armor it rates as improved short-range anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "50MM_DE_SPRGR38",
+        "display_name": "Sprgr.38",
+        "short_name": "Sprgr.38",
+        "ui_group": "HE",
+        "ammo_family_label": "50MM_DE",
+        "short_description": "Sprgr.38 is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "Sprgr.38 is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_DE_SHORT_SPRGR",
+        "display_name": "Sprgr.34",
+        "short_name": "Sprgr.34",
+        "ui_group": "HE",
+        "ammo_family_label": "75MM_SHORT_DE",
+        "short_description": "Sprgr.34 is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "Sprgr.34 is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_DE_SHORT_GR38HLA",
+        "display_name": "Gr.38 HL/A",
+        "short_name": "Gr.38 HL/A",
+        "ui_group": "HEAT",
+        "ammo_family_label": "75MM_SHORT_DE",
+        "short_description": "Gr.38 HL/A is shaped-charge round that threatens armor without relying on high velocity.",
+        "long_description": "Gr.38 HL/A is shaped-charge round that threatens armor without relying on high velocity. Against armor it rates as shaped-charge anti-armor. Against personnel it is moderate blast. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_DE_SHORT_NBGR",
+        "display_name": "Nbgr.",
+        "short_name": "Nbgr.",
+        "ui_group": "Smoke",
+        "ammo_family_label": "75MM_SHORT_DE",
+        "short_description": "Nbgr. is smoke round for screening, signaling, or blinding positions.",
+        "long_description": "Nbgr. is smoke round for screening, signaling, or blinding positions. Against armor it rates as very low. Against personnel it is screening/marking. Smoke utility is primary role. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_DE_LONG_PZGR39",
+        "display_name": "PzGr.39",
+        "short_name": "PzGr.39",
+        "ui_group": "APCBC-HE",
+        "ammo_family_label": "75MM_LONG_DE",
+        "short_description": "PzGr.39 is capped armor-piercing round that adds a small bursting effect after penetration.",
+        "long_description": "PzGr.39 is capped armor-piercing round that adds a small bursting effect after penetration. Against armor it rates as primary anti-armor. Against personnel it is low to moderate after penetration. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_DE_LONG_PZGR40",
+        "display_name": "PzGr.40",
+        "short_name": "PzGr.40",
+        "ui_group": "APCR",
+        "ammo_family_label": "75MM_LONG_DE",
+        "short_description": "PzGr.40 is high-velocity armor-piercing round for tougher vehicle targets.",
+        "long_description": "PzGr.40 is high-velocity armor-piercing round for tougher vehicle targets. Against armor it rates as improved short-range anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_DE_LONG_SPRGR34",
+        "display_name": "Sprgr.34",
+        "short_name": "Sprgr.34",
+        "ui_group": "HE",
+        "ammo_family_label": "75MM_LONG_DE",
+        "short_description": "Sprgr.34 is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "Sprgr.34 is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "75MM_DE_LONG_HLGR38B",
+        "display_name": "Hl.Gr.38B",
+        "short_name": "Hl.Gr.38B",
+        "ui_group": "HEAT",
+        "ammo_family_label": "75MM_LONG_DE",
+        "short_description": "Hl.Gr.38B is shaped-charge round that threatens armor without relying on high velocity.",
+        "long_description": "Hl.Gr.38B is shaped-charge round that threatens armor without relying on high velocity. Against armor it rates as shaped-charge anti-armor. Against personnel it is moderate blast. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "88MM_DE_L56_PZGR39",
+        "display_name": "PzGr.39",
+        "short_name": "PzGr.39",
+        "ui_group": "APCBC-HE",
+        "ammo_family_label": "88MM_L56_DE",
+        "short_description": "PzGr.39 is capped armor-piercing round that adds a small bursting effect after penetration.",
+        "long_description": "PzGr.39 is capped armor-piercing round that adds a small bursting effect after penetration. Against armor it rates as primary anti-armor. Against personnel it is low to moderate after penetration. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "88MM_DE_L56_PZGR40",
+        "display_name": "PzGr.40",
+        "short_name": "PzGr.40",
+        "ui_group": "APCR",
+        "ammo_family_label": "88MM_L56_DE",
+        "short_description": "PzGr.40 is high-velocity armor-piercing round for tougher vehicle targets.",
+        "long_description": "PzGr.40 is high-velocity armor-piercing round for tougher vehicle targets. Against armor it rates as improved short-range anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "88MM_DE_L56_SPRGR",
+        "display_name": "Sprgr.",
+        "short_name": "Sprgr.",
+        "ui_group": "HE",
+        "ammo_family_label": "88MM_L56_DE",
+        "short_description": "Sprgr. is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "Sprgr. is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "88MM_DE_L71_PZGR39_43",
+        "display_name": "PzGr.39/43",
+        "short_name": "PzGr.39/43",
+        "ui_group": "APCBC-HE",
+        "ammo_family_label": "88MM_L71_DE",
+        "short_description": "PzGr.39/43 is capped armor-piercing round that adds a small bursting effect after penetration.",
+        "long_description": "PzGr.39/43 is capped armor-piercing round that adds a small bursting effect after penetration. Against armor it rates as primary anti-armor. Against personnel it is low to moderate after penetration. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "88MM_DE_L71_PZGR40_43",
+        "display_name": "PzGr.40/43",
+        "short_name": "PzGr.40/43",
+        "ui_group": "APCR",
+        "ammo_family_label": "88MM_L71_DE",
+        "short_description": "PzGr.40/43 is high-velocity armor-piercing round for tougher vehicle targets.",
+        "long_description": "PzGr.40/43 is high-velocity armor-piercing round for tougher vehicle targets. Against armor it rates as improved short-range anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "88MM_DE_L71_SPRGR43",
+        "display_name": "Sprgr.43",
+        "short_name": "Sprgr.43",
+        "ui_group": "HE",
+        "ammo_family_label": "88MM_L71_DE",
+        "short_description": "Sprgr.43 is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "Sprgr.43 is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "88MM_FLAK_SPRGR",
+        "display_name": "Sprgr. Flak",
+        "short_name": "Sprgr. Flak",
+        "ui_group": "HE/Time Fuze",
+        "ammo_family_label": "88MM_FLAK_DE",
+        "short_description": "Sprgr. Flak is timed high-explosive round for airburst or anti-aircraft work.",
+        "long_description": "Sprgr. Flak is timed high-explosive round for airburst or anti-aircraft work. Against armor it rates as low vs armor. Against personnel it is aa fragmentation and ground he effect. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "88MM_FLAK_AP",
+        "display_name": "AP Shot",
+        "short_name": "AP Shot",
+        "ui_group": "AP",
+        "ammo_family_label": "88MM_FLAK_DE",
+        "short_description": "AP Shot is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "AP Shot is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as strong anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "40MM_UK_AP",
+        "display_name": "AP Shot",
+        "short_name": "AP Shot",
+        "ui_group": "AP",
+        "ammo_family_label": "40MM_UK",
+        "short_description": "AP Shot is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "AP Shot is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "40MM_UK_APHV",
+        "display_name": "Littlejohn/APHV",
+        "short_name": "Littlejohn/APHV",
+        "ui_group": "APCR-like",
+        "ammo_family_label": "40MM_UK",
+        "short_description": "Littlejohn/APHV is high-velocity specialty anti-armor round.",
+        "long_description": "Littlejohn/APHV is high-velocity specialty anti-armor round. Against armor it rates as improved anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "57MM_UK_APCBC",
+        "display_name": "APCBC/T",
+        "short_name": "APCBC/T",
+        "ui_group": "APCBC",
+        "ammo_family_label": "57MM_UK",
+        "short_description": "APCBC/T is capped armor-piercing round built to defeat armor with clean penetration.",
+        "long_description": "APCBC/T is capped armor-piercing round built to defeat armor with clean penetration. Against armor it rates as primary anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "57MM_UK_APCR",
+        "display_name": "APCR",
+        "short_name": "APCR",
+        "ui_group": "APCR",
+        "ammo_family_label": "57MM_UK",
+        "short_description": "APCR is high-velocity armor-piercing round for tougher vehicle targets.",
+        "long_description": "APCR is high-velocity armor-piercing round for tougher vehicle targets. Against armor it rates as improved short-range anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "57MM_UK_APDS",
+        "display_name": "APDS",
+        "short_name": "APDS",
+        "ui_group": "APDS",
+        "ammo_family_label": "57MM_UK",
+        "short_description": "APDS is discarding-sabot anti-armor round that trades explosive effect for penetration.",
+        "long_description": "APDS is discarding-sabot anti-armor round that trades explosive effect for penetration. Against armor it rates as high anti-armor performance. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "57MM_UK_HE",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "57MM_UK",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_UK_17PDR_APCBC",
+        "display_name": "APCBC",
+        "short_name": "APCBC",
+        "ui_group": "APCBC",
+        "ammo_family_label": "76MM_17PDR_UK",
+        "short_description": "APCBC is capped armor-piercing round built to defeat armor with clean penetration.",
+        "long_description": "APCBC is capped armor-piercing round built to defeat armor with clean penetration. Against armor it rates as primary anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_UK_17PDR_APDS",
+        "display_name": "APDS",
+        "short_name": "APDS",
+        "ui_group": "APDS",
+        "ammo_family_label": "76MM_17PDR_UK",
+        "short_description": "APDS is discarding-sabot anti-armor round that trades explosive effect for penetration.",
+        "long_description": "APDS is discarding-sabot anti-armor round that trades explosive effect for penetration. Against armor it rates as very high anti-armor performance. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_UK_17PDR_HE",
+        "display_name": "HE",
+        "short_name": "HE",
+        "ui_group": "HE",
+        "ammo_family_label": "76MM_17PDR_UK",
+        "short_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_UK_17PDR_SMOKE",
+        "display_name": "Smoke",
+        "short_name": "Smoke",
+        "ui_group": "Smoke",
+        "ammo_family_label": "76MM_17PDR_UK",
+        "short_description": "Smoke is smoke round for screening, signaling, or blinding positions.",
+        "long_description": "Smoke is smoke round for screening, signaling, or blinding positions. Against armor it rates as very low. Against personnel it is screening/marking. Smoke utility is primary role. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "45MM_SU_BR240",
+        "display_name": "BR-240",
+        "short_name": "BR-240",
+        "ui_group": "AP",
+        "ammo_family_label": "45MM_SU",
+        "short_description": "BR-240 is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "BR-240 is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "45MM_SU_O240",
+        "display_name": "O-240",
+        "short_name": "O-240",
+        "ui_group": "HE",
+        "ammo_family_label": "45MM_SU",
+        "short_description": "O-240 is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "O-240 is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "57MM_SU_BR271",
+        "display_name": "BR-271",
+        "short_name": "BR-271",
+        "ui_group": "APCBC",
+        "ammo_family_label": "57MM_SU",
+        "short_description": "BR-271 is capped armor-piercing round built to defeat armor with clean penetration.",
+        "long_description": "BR-271 is capped armor-piercing round built to defeat armor with clean penetration. Against armor it rates as primary anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "57MM_SU_O271U",
+        "display_name": "O-271U",
+        "short_name": "O-271U",
+        "ui_group": "HE",
+        "ammo_family_label": "57MM_SU",
+        "short_description": "O-271U is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "O-271U is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_SU_BR350A",
+        "display_name": "BR-350A",
+        "short_name": "BR-350A",
+        "ui_group": "APHEBC",
+        "ammo_family_label": "76MM_SU",
+        "short_description": "BR-350A is armor-piercing ballistic-capped round with internal explosive effect.",
+        "long_description": "BR-350A is armor-piercing ballistic-capped round with internal explosive effect. Against armor it rates as primary anti-armor. Against personnel it is moderate after penetration. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_SU_BR354P",
+        "display_name": "BR-354P",
+        "short_name": "BR-354P",
+        "ui_group": "APCR",
+        "ammo_family_label": "76MM_SU",
+        "short_description": "BR-354P is high-velocity armor-piercing round for tougher vehicle targets.",
+        "long_description": "BR-354P is high-velocity armor-piercing round for tougher vehicle targets. Against armor it rates as improved short-range anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "76MM_SU_OF350",
+        "display_name": "OF-350",
+        "short_name": "OF-350",
+        "ui_group": "HE",
+        "ammo_family_label": "76MM_SU",
+        "short_description": "OF-350 is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "OF-350 is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "85MM_SU_BR365K",
+        "display_name": "BR-365K",
+        "short_name": "BR-365K",
+        "ui_group": "APHE",
+        "ammo_family_label": "85MM_SU",
+        "short_description": "BR-365K is armor-piercing round with a bursting charge for internal damage.",
+        "long_description": "BR-365K is armor-piercing round with a bursting charge for internal damage. Against armor it rates as primary anti-armor. Against personnel it is moderate after penetration. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "85MM_SU_BR365P",
+        "display_name": "BR-365P",
+        "short_name": "BR-365P",
+        "ui_group": "APCR",
+        "ammo_family_label": "85MM_SU",
+        "short_description": "BR-365P is high-velocity armor-piercing round for tougher vehicle targets.",
+        "long_description": "BR-365P is high-velocity armor-piercing round for tougher vehicle targets. Against armor it rates as improved short-range anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "85MM_SU_O365",
+        "display_name": "O-365K",
+        "short_name": "O-365K",
+        "ui_group": "HE",
+        "ammo_family_label": "85MM_SU",
+        "short_description": "O-365K is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "O-365K is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel/soft target. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "122MM_SU_BR471",
+        "display_name": "BR-471",
+        "short_name": "BR-471",
+        "ui_group": "APHEBC",
+        "ammo_family_label": "122MM_SU",
+        "short_description": "BR-471 is armor-piercing ballistic-capped round with internal explosive effect.",
+        "long_description": "BR-471 is armor-piercing ballistic-capped round with internal explosive effect. Against armor it rates as heavy anti-armor. Against personnel it is moderate after penetration. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "122MM_SU_OF471",
+        "display_name": "OF-471",
+        "short_name": "OF-471",
+        "ui_group": "HE",
+        "ammo_family_label": "122MM_SU",
+        "short_description": "OF-471 is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "OF-471 is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is heavy blast and fragmentation. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "20MM_AUTO_HE",
+        "display_name": "HE Autocannon",
+        "short_name": "HE Autocannon",
+        "ui_group": "HE",
+        "ammo_family_label": "20MM_AUTO_GENERIC",
+        "short_description": "HE Autocannon is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE Autocannon is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel and light aa effect. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "20MM_AUTO_APT",
+        "display_name": "AP-T Autocannon",
+        "short_name": "AP-T Autocannon",
+        "ui_group": "AP-T",
+        "ammo_family_label": "20MM_AUTO_GENERIC",
+        "short_description": "AP-T Autocannon is armor-piercing tracer round for anti-vehicle fire and shot observation.",
+        "long_description": "AP-T Autocannon is armor-piercing tracer round for anti-vehicle fire and shot observation. Against armor it rates as light armor penetration. Against personnel it is limited. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "37MM_AUTO_HE",
+        "display_name": "HE Autocannon",
+        "short_name": "HE Autocannon",
+        "ui_group": "HE",
+        "ammo_family_label": "37MM_AUTO_GENERIC",
+        "short_description": "HE Autocannon is high-explosive round for infantry, gun crews, and unarmored targets.",
+        "long_description": "HE Autocannon is high-explosive round for infantry, gun crews, and unarmored targets. Against armor it rates as low. Against personnel it is primary anti-personnel and soft-target effect. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "37MM_AUTO_AP",
+        "display_name": "AP Autocannon",
+        "short_name": "AP Autocannon",
+        "ui_group": "AP",
+        "ammo_family_label": "37MM_AUTO_GENERIC",
+        "short_description": "AP Autocannon is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "AP Autocannon is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light anti-armor. Against personnel it is low. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "RIFLECAL_MG_BALL",
+        "display_name": "MG Ball",
+        "short_name": "MG Ball",
+        "ui_group": "Ball",
+        "ammo_family_label": "RIFLECAL_MG_GENERIC",
+        "short_description": "MG Ball is standard ball ammunition for routine combat fire.",
+        "long_description": "MG Ball is standard ball ammunition for routine combat fire. Against armor it rates as low. Against personnel it is standard lethal ball ammunition. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "RIFLECAL_MG_AP",
+        "display_name": "MG AP",
+        "short_name": "MG AP",
+        "ui_group": "AP",
+        "ammo_family_label": "RIFLECAL_MG_GENERIC",
+        "short_description": "MG AP is armor-piercing round for direct-fire anti-vehicle work.",
+        "long_description": "MG AP is armor-piercing round for direct-fire anti-vehicle work. Against armor it rates as light armor penetration. Against personnel it is limited. It is mainly intended for direct-fire employment."
+    },
+    {
+        "ammo_id": "RIFLECAL_MG_TRACER",
+        "display_name": "MG Tracer",
+        "short_name": "MG Tracer",
+        "ui_group": "Tracer",
+        "ammo_family_label": "RIFLECAL_MG_GENERIC",
+        "short_description": "MG Tracer is tracer ammunition that helps track and adjust fire.",
+        "long_description": "MG Tracer is tracer ammunition that helps track and adjust fire. Against armor it rates as low. Against personnel it is fire adjustment and target indication. It is mainly intended for direct-fire employment."
+    }
+]
