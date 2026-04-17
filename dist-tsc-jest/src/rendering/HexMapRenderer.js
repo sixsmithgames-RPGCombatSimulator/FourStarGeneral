@@ -5502,8 +5502,8 @@ export class HexMapRenderer {
         };
     }
     resolveAirShowCorridor(center, origin, target, hqAxis) {
-        const approach = origin ?? hqAxis?.botOrigin ?? { cx: center.cx - 220, cy: center.cy + 110 };
-        const egress = target ?? hqAxis?.playerOrigin ?? { cx: center.cx + 220, cy: center.cy - 24 };
+        const approach = hqAxis?.botOrigin ?? origin ?? { cx: center.cx - 220, cy: center.cy + 110 };
+        const egress = hqAxis?.playerOrigin ?? target ?? { cx: center.cx + 220, cy: center.cy - 24 };
         const axis = this.normalizeAircraftVector(egress.cx - approach.cx, egress.cy - approach.cy, 1, 0);
         const normal = { x: -axis.y, y: axis.x };
         return {
