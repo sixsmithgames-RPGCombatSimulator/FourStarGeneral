@@ -75,41 +75,63 @@ test.describe("AirShow Browser Harness", () => {
     expect(activeFighterActors).toHaveLength(0);
   });
 
-  test("bot interceptors and player escorts spawn on opposite sides of the map center", async ({ page }) => {
+  test("all interceptor and escort actors spawn outside the visible map viewBox", async ({ page }) => {
     await page.evaluate(async () => {
       const hooks = (window as Window & {
-        __FSG_AIRSHOW_E2E__?: {
-          startScenario: () => Promise<unknown>;
-          waitForPhase: (label: string) => Promise<void>;
-        };
+        __FSG_AIRSHOW_E2E__?: { startScenario: () => Promise<unknown> };
       }).__FSG_AIRSHOW_E2E__;
       if (!hooks) throw new Error("Airshow e2e hooks were not installed.");
       await hooks.startScenario();
-      await hooks.waitForPhase("fighter-ingress");
     });
 
-    await page.waitForSelector('[data-testid="airshow-actor"]', { timeout: 5000 });
+    const result = await page.evaluate(() => {
+      const hooks = (window as Window & {
+        __FSG_AIRSHOW_E2E__?: {
+          getSpawnSnapshot: () => ReadonlyArray<{ role: string; active: boolean; cx: number; cy: number }>;
+        };
+      }).__FSG_AIRSHOW_E2E__;
+      if (!hooks) throw new Error("Airshow e2e hooks were not installed.");
 
-    const positions = await page.evaluate(() => {
-      const actors = Array.from(document.querySelectorAll<SVGImageElement>('[data-testid="airshow-actor"]'));
       const svg = document.getElementById("battleHexMap") as SVGSVGElement | null;
-      const viewBox = svg?.viewBox.baseVal;
-      const mapCenterX = viewBox ? viewBox.x + viewBox.width / 2 : 0;
-      return actors.map((el) => ({
-        role: el.getAttribute("data-airshow-role") ?? "",
-        active: el.getAttribute("data-airshow-active") === "true",
-        cx: parseFloat(el.getAttribute("x") ?? "0") + 16
-      })).filter((a) => a.active).map((a) => ({ ...a, side: a.cx < mapCenterX ? "left" : "right" }));
+      const vb = svg?.viewBox.baseVal;
+      if (!vb) throw new Error("No viewBox on battleHexMap");
+
+      const spawn = hooks.getSpawnSnapshot();
+      const fighters = spawn.filter((a) => a.role === "interceptor" || a.role === "escort");
+      return {
+        viewBox: { x: vb.x, y: vb.y, width: vb.width, height: vb.height },
+        fighters: fighters.map((a) => ({ role: a.role, active: a.active, cx: Math.round(a.cx), cy: Math.round(a.cy) }))
+      };
     });
 
-    const interceptors = positions.filter((a) => a.role === "interceptor");
-    const escorts = positions.filter((a) => a.role === "escort");
+    const { viewBox, fighters } = result as {
+      viewBox: { x: number; y: number; width: number; height: number };
+      fighters: ReadonlyArray<{ role: string; active: boolean; cx: number; cy: number }>;
+    };
 
+    expect(fighters.length).toBeGreaterThan(0);
+
+    const vbRight = viewBox.x + viewBox.width;
+    const vbBottom = viewBox.y + viewBox.height;
+
+    for (const actor of fighters) {
+      const isOutside =
+        actor.cx < viewBox.x || actor.cx > vbRight ||
+        actor.cy < viewBox.y || actor.cy > vbBottom;
+      expect(
+        isOutside,
+        `actor ${actor.role} cx=${actor.cx} cy=${actor.cy} is inside viewBox [${viewBox.x},${viewBox.y} ${vbRight}x${vbBottom}]`
+      ).toBe(true);
+    }
+
+    const interceptors = fighters.filter((a) => a.role === "interceptor");
+    const escorts = fighters.filter((a) => a.role === "escort");
     expect(interceptors.length).toBeGreaterThan(0);
     expect(escorts.length).toBeGreaterThan(0);
 
-    const interceptorSides = new Set(interceptors.map((a) => a.side));
-    const escortSides = new Set(escorts.map((a) => a.side));
+    const midX = viewBox.x + viewBox.width / 2;
+    const interceptorSides = new Set(interceptors.map((a) => (a.cx < midX ? "left" : "right")));
+    const escortSides = new Set(escorts.map((a) => (a.cx < midX ? "left" : "right")));
     const sidesOverlap = [...interceptorSides].some((s) => escortSides.has(s));
     expect(sidesOverlap).toBe(false);
   });

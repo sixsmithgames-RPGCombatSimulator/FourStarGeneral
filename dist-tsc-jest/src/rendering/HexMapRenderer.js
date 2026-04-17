@@ -5336,10 +5336,13 @@ export class HexMapRenderer {
         flight.anchor = this.averageAirShowPosition(flight.actors) ?? anchor;
     }
     normalizeAirShowSceneFlightAnchors(corridor, sceneKind, interceptorFlights, escortFlights, bomberFlights, hqAxis) {
+        console.log("[AirShow:normalize] hqAxis present:", !!hqAxis, "| corridorAxis:", hqAxis ? { x: Math.round(hqAxis.axis.x * 100) / 100, y: Math.round(hqAxis.axis.y * 100) / 100 } : null);
         const factionAlongSign = (flight) => {
             if (!hqAxis)
                 return null;
-            return flight.spec.faction === "Bot" ? -1 : 1;
+            const sign = flight.spec.faction === "Bot" ? -1 : 1;
+            console.log(`[AirShow:normalize] flight ${flight.spec.id} faction=${flight.spec.faction} -> alongSign=${sign}`);
+            return sign;
         };
         const positionFlights = (flights, role, fallbackAlongSign) => {
             const orderedFlights = flights
@@ -5358,11 +5361,14 @@ export class HexMapRenderer {
                 const laneIndex = orderedFlights.length <= 1
                     ? 0
                     : orderedIndex - (orderedFlights.length - 1) / 2;
-                const alongSign = factionAlongSign(entry.flight)
+                const resolvedFactionSign = factionAlongSign(entry.flight);
+                const alongSign = resolvedFactionSign
                     ?? (Math.abs(entry.projection.alongPx) > 24
                         ? (entry.projection.alongPx >= 0 ? 1 : -1)
                         : fallbackAlongSign);
-                const anchor = this.resolveAirShowSceneCorridorAnchor(corridor, role, orderedIndex, orderedFlights.length, alongSign);
+                const anchor = (hqAxis && resolvedFactionSign !== null)
+                    ? this.offsetAirShowPoint(resolvedFactionSign >= 0 ? hqAxis.playerOrigin : hqAxis.botOrigin, corridor.normal.x * laneIndex * 64, corridor.normal.y * laneIndex * 64)
+                    : this.resolveAirShowSceneCorridorAnchor(corridor, role, orderedIndex, orderedFlights.length, alongSign);
                 const headingTarget = role === "bomber"
                     ? this.resolveAirShowBomberIngressBandHoldTarget(corridor, anchor, sceneKind, laneIndex, orderedFlights.length)
                     : this.resolveAirShowEscortClashFocusPoint(corridor, role, 0, laneIndex);

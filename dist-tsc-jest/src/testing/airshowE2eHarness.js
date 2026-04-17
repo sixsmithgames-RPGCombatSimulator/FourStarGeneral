@@ -6,6 +6,7 @@ let activeRenderer = null;
 let activeInspection = null;
 let activeAnimation = null;
 let activePhaseLabel = null;
+let spawnSnapshot = [];
 let restorePhaseProbe = null;
 function compressSceneForHarness(scene) {
     return {
@@ -137,6 +138,16 @@ export function installAirshowE2EHarness() {
             activeInspection = activeRenderer.inspectResolvedAirCombatShow(scene);
             installPhaseProbe(activeRenderer, activeInspection?.phases.map((phase) => phase.label) ?? []);
             activeAnimation = activeRenderer.animateResolvedAirCombatShow(scene);
+            spawnSnapshot = Array.from(document.querySelectorAll('[data-testid="airshow-actor"]')).map((el) => {
+                const size = 32;
+                return {
+                    actorId: el.getAttribute("data-airshow-actor-id") ?? "",
+                    role: el.getAttribute("data-airshow-role") ?? "",
+                    active: el.getAttribute("data-airshow-active") === "true",
+                    cx: parseFloat(el.getAttribute("x") ?? "0") + size / 2,
+                    cy: parseFloat(el.getAttribute("y") ?? "0") + size / 2
+                };
+            });
             activeAnimation.finally(() => {
                 activePhaseLabel = "complete";
                 restorePhaseProbe?.();
@@ -151,6 +162,7 @@ export function installAirshowE2EHarness() {
             };
         },
         getActorSnapshot,
+        getSpawnSnapshot() { return spawnSnapshot; },
         waitForPhase,
         async waitForCompletion() {
             if (!activeAnimation) {

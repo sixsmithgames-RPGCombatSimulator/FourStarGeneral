@@ -7395,7 +7395,6 @@ export class HexMapRenderer implements IMapRenderer {
     const playerHq = this.resolveHexCenterByKey(playerHqKey);
     const botHq = this.resolveHexCenterByKey(botHqKey);
     if (!playerHq || !botHq) {
-      console.warn("[HexMapRenderer] resolveHqAxis: HQ key(s) did not resolve in hexElementMap", { playerHqKey, botHqKey, playerHq, botHq });
       return null;
     }
     const axis = this.normalizeAircraftVector(
@@ -7641,18 +7640,25 @@ export class HexMapRenderer implements IMapRenderer {
           orderedFlights.length <= 1
             ? 0
             : orderedIndex - (orderedFlights.length - 1) / 2;
+        const resolvedFactionSign = factionAlongSign(entry.flight);
         const alongSign =
-          factionAlongSign(entry.flight)
+          resolvedFactionSign
           ?? (Math.abs(entry.projection.alongPx) > 24
             ? (entry.projection.alongPx >= 0 ? 1 : -1)
             : fallbackAlongSign);
-        const anchor = this.resolveAirShowSceneCorridorAnchor(
-          corridor,
-          role,
-          orderedIndex,
-          orderedFlights.length,
-          alongSign
-        );
+        const anchor = (hqAxis && resolvedFactionSign !== null)
+          ? this.offsetAirShowPoint(
+              resolvedFactionSign >= 0 ? hqAxis.playerOrigin : hqAxis.botOrigin,
+              corridor.normal.x * laneIndex * 64,
+              corridor.normal.y * laneIndex * 64
+            )
+          : this.resolveAirShowSceneCorridorAnchor(
+              corridor,
+              role,
+              orderedIndex,
+              orderedFlights.length,
+              alongSign
+            );
         const headingTarget =
           role === "bomber"
             ? this.resolveAirShowBomberIngressBandHoldTarget(

@@ -15,6 +15,14 @@ interface AirshowActorSnapshot {
   readonly opacity: string;
 }
 
+interface AirshowSpawnSnapshot {
+  readonly actorId: string;
+  readonly role: string;
+  readonly active: boolean;
+  readonly cx: number;
+  readonly cy: number;
+}
+
 interface AirshowStartResult {
   readonly missionId: string;
   readonly phaseLabels: readonly string[];
@@ -25,6 +33,7 @@ interface AirshowStartResult {
 interface AirshowE2EHarness {
   startScenario(): Promise<AirshowStartResult>;
   getActorSnapshot(): readonly AirshowActorSnapshot[];
+  getSpawnSnapshot(): readonly AirshowSpawnSnapshot[];
   waitForCompletion(): Promise<void>;
   waitForPhase(label: string): Promise<void>;
   getInspectionSummary(): { readonly phaseLabels: readonly string[] } | null;
@@ -42,6 +51,7 @@ let activeRenderer: HexMapRenderer | null = null;
 let activeInspection: AirShowInspectionReport | null = null;
 let activeAnimation: Promise<void> | null = null;
 let activePhaseLabel: string | null = null;
+let spawnSnapshot: readonly AirshowSpawnSnapshot[] = [];
 let restorePhaseProbe: (() => void) | null = null;
 
 function compressSceneForHarness(scene: ResolvedAirShowScene): ResolvedAirShowScene {
@@ -243,6 +253,16 @@ export function installAirshowE2EHarness(): void {
       }).inspectResolvedAirCombatShow(scene);
       installPhaseProbe(activeRenderer, activeInspection?.phases.map((phase) => phase.label) ?? []);
       activeAnimation = activeRenderer.animateResolvedAirCombatShow(scene);
+      spawnSnapshot = Array.from(document.querySelectorAll<SVGImageElement>('[data-testid="airshow-actor"]')).map((el) => {
+        const size = 32;
+        return {
+          actorId: el.getAttribute("data-airshow-actor-id") ?? "",
+          role: el.getAttribute("data-airshow-role") ?? "",
+          active: el.getAttribute("data-airshow-active") === "true",
+          cx: parseFloat(el.getAttribute("x") ?? "0") + size / 2,
+          cy: parseFloat(el.getAttribute("y") ?? "0") + size / 2
+        };
+      });
       activeAnimation.finally(() => {
         activePhaseLabel = "complete";
         restorePhaseProbe?.();
@@ -260,6 +280,7 @@ export function installAirshowE2EHarness(): void {
       };
     },
     getActorSnapshot,
+    getSpawnSnapshot(): readonly AirshowSpawnSnapshot[] { return spawnSnapshot; },
     waitForPhase,
     async waitForCompletion(): Promise<void> {
       if (!activeAnimation) {
