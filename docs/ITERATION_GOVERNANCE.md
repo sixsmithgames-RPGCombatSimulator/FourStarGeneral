@@ -109,6 +109,71 @@ Testing may include:
 
 The test must answer a concrete question tied to the goal. Test first, even when the bug appears obvious.
 
+## Animation Moment Precision (Mandatory for Animation Testing)
+
+When testing animated systems (airshow, unit movement, combat effects), the test must capture state at the **exact moment** being claimed, not at an arbitrary point during or after animation.
+
+### The Problem With Imprecise Timing
+
+A test that reads actor positions mid-animation or after a phase transition may pass or fail for the wrong reasons:
+- Actors may have already moved from their spawn positions before the snapshot is taken
+- `waitForPhase("X")` fires when phase X **begins executing**, not at the initial DOM placement
+- `waitForCompletion()` reads state after all animation has finished — useless for spawn verification
+
+### Required: Name The Exact Moment
+
+Every animation test must explicitly state which moment it is measuring and why that moment proves the goal:
+
+```
+// ✅ GOOD — names the moment and why it's the right one
+// Capture immediately after animateResolvedAirCombatShow() is called but before
+// any requestAnimationFrame has fired. This is the initial spawn placement
+// set by normalizeAirShowSceneFlightAnchors → resetAirShowFlightToSceneAnchor.
+spawnSnapshot = captureActorPositions();  // synchronous, before first frame
+```
+
+```
+// ❌ BAD — moment is undefined; animation may have moved actors already
+await hooks.waitForPhase("fighter-ingress");
+const positions = readActorPositions();  // could be mid-flight
+```
+
+### Capture Pattern For Spawn Position
+
+To test where actors **start**, capture synchronously immediately after the animation is initiated — before any async frame executes:
+
+```typescript
+activeAnimation = renderer.animateResolvedAirCombatShow(scene);
+// Synchronous snapshot here: JS single-thread guarantees no frames have run yet
+spawnSnapshot = captureActorPositions();
+```
+
+### Capture Pattern For Phase-Specific Position
+
+To test actor positions at a specific phase, use a probe that fires at the exact start of that phase before any movement within the phase occurs. Document which probe event you are hooking and why it corresponds to the pre-movement state.
+
+### Assertion Must Reference The Moment
+
+The assertion message must identify the moment and the coordinate space:
+
+```typescript
+// ✅ GOOD
+expect(
+  isOutside,
+  `actor ${role} cx=${cx} cy=${cy} is inside viewBox [${vb.x},${vb.y} ${vbRight}x${vbBottom}] — checked at spawn, before first animation frame`
+).toBe(true);
+```
+
+### Coordinate Space Must Be Explicit
+
+Always state which coordinate system the assertion uses:
+- SVG viewBox coordinates (from `viewBox.baseVal`) — not CSS pixels, not screen pixels
+- Read from `element.getAttribute("x")` / `getAttribute("y")` — set by `positionAircraftImageGhost`
+
+Mixing coordinate spaces silently produces wrong bounds comparisons.
+
+---
+
 ## Step 3: Report
 
 Record what actually happened.

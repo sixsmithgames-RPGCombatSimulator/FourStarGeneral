@@ -136,6 +136,163 @@ test.describe("AirShow Browser Harness", () => {
     expect(sidesOverlap).toBe(false);
   });
 
+  // Minimum sampling rate: one position snapshot every 200ms throughout the full animation.
+  // Add more targeted per-phase assertions below this test as needed.
+  test("interceptors and escorts remain on opposite sides of map center throughout the full animation", async ({ page }) => {
+    await page.evaluate(async () => {
+      const hooks = (window as Window & {
+        __FSG_AIRSHOW_E2E__?: {
+          startScenario: () => Promise<unknown>;
+          waitForCompletion: () => Promise<void>;
+        };
+      }).__FSG_AIRSHOW_E2E__;
+      if (!hooks) throw new Error("Airshow e2e hooks were not installed.");
+      await hooks.startScenario();
+      await hooks.waitForCompletion();
+    });
+
+    type Sample = {
+      elapsedMs: number;
+      phaseLabel: string | null;
+      actors: ReadonlyArray<{ actorId: string; role: string; active: boolean; cx: number; cy: number }>;
+    };
+
+    const { timeline, midX } = await page.evaluate(() => {
+      const hooks = (window as Window & {
+        __FSG_AIRSHOW_E2E__?: { getPositionTimeline: () => readonly Sample[] };
+      }).__FSG_AIRSHOW_E2E__;
+      if (!hooks) throw new Error("Airshow e2e hooks were not installed.");
+      const svg = document.getElementById("battleHexMap") as SVGSVGElement | null;
+      const vb = svg?.viewBox.baseVal;
+      if (!vb) throw new Error("No viewBox on battleHexMap");
+      return {
+        timeline: hooks.getPositionTimeline() as readonly Sample[],
+        midX: vb.x + vb.width / 2
+      };
+    });
+
+    expect(timeline.length).toBeGreaterThan(0);
+
+    // Per spec §Scenario 5: side-separation guaranteed during fighter-ingress (first 70%
+    // only — at phase end both factions converge to hold points near center before clash)
+    // and egress. Clash, bomber-ingress, and target-run have no side guarantee.
+    const ingressSamples = timeline.filter((s) => s.phaseLabel === "fighter-ingress");
+    const egressSamples = timeline.filter((s) => s.phaseLabel === "egress");
+    const ingressEarlyCount = Math.max(1, Math.floor(ingressSamples.length * 0.7));
+    const checkedSamples = [...ingressSamples.slice(0, ingressEarlyCount), ...egressSamples];
+
+    // Egress margin: actors start near center after clash and must travel >30px into
+    // the wrong side before it counts. Ingress has no margin — sides should be clean from spawn.
+    const EGRESS_MARGIN_PX = 30;
+
+    for (const sample of checkedSamples) {
+      const activeInterceptors = sample.actors.filter((a) => a.role === "interceptor" && a.active);
+      const activeEscorts = sample.actors.filter((a) => a.role === "escort" && a.active);
+
+      if (activeInterceptors.length === 0 || activeEscorts.length === 0) {
+        continue;
+      }
+
+      if (sample.phaseLabel === "egress") {
+        // Egress: each faction must be heading toward its own HQ, with 30px margin
+        // from center before counting (actors start near center after clash).
+        for (const a of activeInterceptors) {
+          expect(
+            a.cx >= midX - EGRESS_MARGIN_PX,
+            `at ~${Math.round(sample.elapsedMs)}ms egress: interceptor ${a.actorId} cx=${Math.round(a.cx)} is >30px into player side — should egress right toward bot HQ. midX=${Math.round(midX)}`
+          ).toBe(true);
+        }
+        for (const a of activeEscorts) {
+          expect(
+            a.cx <= midX + EGRESS_MARGIN_PX,
+            `at ~${Math.round(sample.elapsedMs)}ms egress: escort ${a.actorId} cx=${Math.round(a.cx)} is >30px into bot side — should egress left toward player HQ. midX=${Math.round(midX)}`
+          ).toBe(true);
+        }
+      } else {
+        // Ingress: interceptors and escorts must be on opposite sides from spawn
+        const interceptorSides = new Set(activeInterceptors.map((a) => (a.cx < midX ? "left" : "right")));
+        const escortSides = new Set(activeEscorts.map((a) => (a.cx < midX ? "left" : "right")));
+        const sidesOverlap = [...interceptorSides].some((s) => escortSides.has(s));
+        expect(
+          sidesOverlap,
+          `at ~${Math.round(sample.elapsedMs)}ms fighter-ingress: interceptors[${[...interceptorSides]}] escorts[${[...escortSides]}] same side — SVG viewBox coords, midX=${Math.round(midX)}`
+        ).toBe(false);
+      }
+    }
+  });
+
+  // Spec §Speed Principles: during bomber-ingress CAP/escorts at V while bombers at V/2.
+  // Assert bombers move ≤60% as far per 200ms as fighters during bomber-ingress.
+  // Add finer-grained speed samples if the ratio tolerance needs tightening.
+  test("bombers move slower than fighters during bomber-ingress phase", async ({ page }) => {
+    await page.evaluate(async () => {
+      const hooks = (window as Window & {
+        __FSG_AIRSHOW_E2E__?: {
+          startScenario: () => Promise<unknown>;
+          waitForCompletion: () => Promise<void>;
+        };
+      }).__FSG_AIRSHOW_E2E__;
+      if (!hooks) throw new Error("Airshow e2e hooks were not installed.");
+      await hooks.startScenario();
+      await hooks.waitForCompletion();
+    });
+
+    type Sample = {
+      elapsedMs: number;
+      phaseLabel: string | null;
+      actors: ReadonlyArray<{ actorId: string; role: string; active: boolean; cx: number; cy: number }>;
+    };
+
+    const timeline = await page.evaluate(() => {
+      const hooks = (window as Window & {
+        __FSG_AIRSHOW_E2E__?: { getPositionTimeline: () => readonly Sample[] };
+      }).__FSG_AIRSHOW_E2E__;
+      if (!hooks) throw new Error("Airshow e2e hooks were not installed.");
+      return hooks.getPositionTimeline() as readonly Sample[];
+    });
+
+    const bomberIngressSamples = timeline.filter((s) => s.phaseLabel === "bomber-ingress");
+    if (bomberIngressSamples.length < 2) {
+      return;
+    }
+
+    let totalBomberDisplacement = 0;
+    let totalFighterDisplacement = 0;
+    let bomberReadings = 0;
+    let fighterReadings = 0;
+
+    for (let i = 1; i < bomberIngressSamples.length; i++) {
+      const prev = bomberIngressSamples[i - 1]!;
+      const curr = bomberIngressSamples[i]!;
+
+      for (const currActor of curr.actors.filter((a) => a.active)) {
+        const prevActor = prev.actors.find((a) => a.actorId === currActor.actorId);
+        if (!prevActor?.active) continue;
+        const dist = Math.hypot(currActor.cx - prevActor.cx, currActor.cy - prevActor.cy);
+        if (currActor.role === "bomber") {
+          totalBomberDisplacement += dist;
+          bomberReadings++;
+        } else if (currActor.role === "interceptor" || currActor.role === "escort") {
+          totalFighterDisplacement += dist;
+          fighterReadings++;
+        }
+      }
+    }
+
+    if (bomberReadings === 0 || fighterReadings === 0) {
+      return;
+    }
+
+    const avgBomberPx = totalBomberDisplacement / bomberReadings;
+    const avgFighterPx = totalFighterDisplacement / fighterReadings;
+    const ratio = avgBomberPx / avgFighterPx;
+
+    expect(
+      ratio,
+      `bomber avg displacement per 200ms (${avgBomberPx.toFixed(1)}px) should be ≤60% of fighter (${avgFighterPx.toFixed(1)}px). ratio=${ratio.toFixed(2)} — spec requires bombers at V/2 vs fighters at V during bomber-ingress`
+    ).toBeLessThan(0.6);
+  });
+
   test("browser playback runs to completion cleanly", async ({ page }) => {
     await page.evaluate(async () => {
       const hooks = (window as Window & {

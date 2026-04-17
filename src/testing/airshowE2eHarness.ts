@@ -23,6 +23,18 @@ interface AirshowSpawnSnapshot {
   readonly cy: number;
 }
 
+interface AirshowPositionSample {
+  readonly elapsedMs: number;
+  readonly phaseLabel: string | null;
+  readonly actors: ReadonlyArray<{
+    readonly actorId: string;
+    readonly role: string;
+    readonly active: boolean;
+    readonly cx: number;
+    readonly cy: number;
+  }>;
+}
+
 interface AirshowStartResult {
   readonly missionId: string;
   readonly phaseLabels: readonly string[];
@@ -34,6 +46,7 @@ interface AirshowE2EHarness {
   startScenario(): Promise<AirshowStartResult>;
   getActorSnapshot(): readonly AirshowActorSnapshot[];
   getSpawnSnapshot(): readonly AirshowSpawnSnapshot[];
+  getPositionTimeline(): readonly AirshowPositionSample[];
   waitForCompletion(): Promise<void>;
   waitForPhase(label: string): Promise<void>;
   getInspectionSummary(): { readonly phaseLabels: readonly string[] } | null;
@@ -52,7 +65,43 @@ let activeInspection: AirShowInspectionReport | null = null;
 let activeAnimation: Promise<void> | null = null;
 let activePhaseLabel: string | null = null;
 let spawnSnapshot: readonly AirshowSpawnSnapshot[] = [];
+let positionTimeline: AirshowPositionSample[] = [];
+let positionSamplerHandle: number | null = null;
 let restorePhaseProbe: (() => void) | null = null;
+
+const POSITION_SAMPLE_INTERVAL_MS = 200;
+
+function sampleActorPositions(): AirshowPositionSample {
+  const size = 32;
+  return {
+    elapsedMs: performance.now(),
+    phaseLabel: activePhaseLabel,
+    actors: Array.from(document.querySelectorAll<SVGImageElement>('[data-testid="airshow-actor"]')).map((el) => ({
+      actorId: el.getAttribute("data-airshow-actor-id") ?? "",
+      role: el.getAttribute("data-airshow-role") ?? "",
+      active: el.getAttribute("data-airshow-active") === "true",
+      cx: parseFloat(el.getAttribute("x") ?? "0") + size / 2,
+      cy: parseFloat(el.getAttribute("y") ?? "0") + size / 2
+    }))
+  };
+}
+
+function startPositionSampler(): void {
+  positionTimeline = [];
+  if (positionSamplerHandle !== null) {
+    window.clearInterval(positionSamplerHandle);
+  }
+  positionSamplerHandle = window.setInterval(() => {
+    positionTimeline.push(sampleActorPositions());
+  }, POSITION_SAMPLE_INTERVAL_MS);
+}
+
+function stopPositionSampler(): void {
+  if (positionSamplerHandle !== null) {
+    window.clearInterval(positionSamplerHandle);
+    positionSamplerHandle = null;
+  }
+}
 
 function compressSceneForHarness(scene: ResolvedAirShowScene): ResolvedAirShowScene {
   return {
@@ -263,7 +312,9 @@ export function installAirshowE2EHarness(): void {
           cy: parseFloat(el.getAttribute("y") ?? "0") + size / 2
         };
       });
+      startPositionSampler();
       activeAnimation.finally(() => {
+        stopPositionSampler();
         activePhaseLabel = "complete";
         restorePhaseProbe?.();
       });
@@ -281,6 +332,7 @@ export function installAirshowE2EHarness(): void {
     },
     getActorSnapshot,
     getSpawnSnapshot(): readonly AirshowSpawnSnapshot[] { return spawnSnapshot; },
+    getPositionTimeline(): readonly AirshowPositionSample[] { return positionTimeline; },
     waitForPhase,
     async waitForCompletion(): Promise<void> {
       if (!activeAnimation) {
