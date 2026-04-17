@@ -64,7 +64,11 @@ async function captureScene() {
         }
     };
     const screen = createSceneCaptureScreen(captureRenderer);
-    await screen.playMissionAirInterceptEvent(fixture.engagement, fixture.locKey, captureRenderer, {}, 0, false, false, fixture.bomberArrivalDelayMs, true, fixture.bomberOriginKey, fixture.linkedEscortFlights, fixture.bomberTargetKey, fixture.flakEvent);
+    const fakeEngine = {
+        getPlayerHq: () => ({ q: 0, r: 0 }),
+        getBotHq: () => ({ q: 9, r: 5 })
+    };
+    await screen.playMissionAirInterceptEvent(fixture.engagement, fixture.locKey, captureRenderer, fakeEngine, 0, false, false, fixture.bomberArrivalDelayMs, true, fixture.bomberOriginKey, fixture.linkedEscortFlights, fixture.bomberTargetKey, fixture.flakEvent);
     if (!capturedScene) {
         throw new Error("Airshow e2e harness failed to capture the resolved airshow scene.");
     }

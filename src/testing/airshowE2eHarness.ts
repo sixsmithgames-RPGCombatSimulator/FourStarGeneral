@@ -122,6 +122,11 @@ async function captureScene(): Promise<ResolvedAirShowScene> {
   };
   const screen = createSceneCaptureScreen(captureRenderer);
 
+  const fakeEngine = {
+    getPlayerHq: () => ({ q: 0, r: 0 }),
+    getBotHq: () => ({ q: 9, r: 5 })
+  };
+
   await (screen as unknown as {
     playMissionAirInterceptEvent: (
       event: typeof fixture.engagement,
@@ -142,7 +147,7 @@ async function captureScene(): Promise<ResolvedAirShowScene> {
     fixture.engagement,
     fixture.locKey,
     captureRenderer,
-    {} as never,
+    fakeEngine as never,
     0,
     false,
     false,

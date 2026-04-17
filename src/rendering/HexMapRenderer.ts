@@ -7395,6 +7395,7 @@ export class HexMapRenderer implements IMapRenderer {
     const playerHq = this.resolveHexCenterByKey(playerHqKey);
     const botHq = this.resolveHexCenterByKey(botHqKey);
     if (!playerHq || !botHq) {
+      console.warn("[HexMapRenderer] resolveHqAxis: HQ key(s) did not resolve in hexElementMap", { playerHqKey, botHqKey, playerHq, botHq });
       return null;
     }
     const axis = this.normalizeAircraftVector(
