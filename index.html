@@ -57,7 +57,7 @@
       // Keep Clerk authentication gating, but do not require an active plan or bundle for launch.
       var APP_SLUG = 'fourstargeneral';
       var BUNDLE_SLUG = 'bundle';
-      if (codexTestMode === 'airshow') {
+      if (codexTestMode === 'airshow' || codexTestMode === 'airshow-large') {
         publishAuthContext({
           resolved: true,
           isAuthenticated: true,

@@ -4,7 +4,7 @@ import {
   type AirShowInspectionReport,
   type ResolvedAirShowScene
 } from "../rendering/HexMapRenderer";
-import { buildAirshowHarnessFixture } from "./airshowHarnessFixture";
+import { buildAirshowHarnessFixture, buildAirshowHarnessFixtureLarge, type AirshowHarnessFixture } from "./airshowHarnessFixture";
 
 interface AirshowActorSnapshot {
   readonly actorId: string;
@@ -29,6 +29,8 @@ interface AirshowPositionSample {
   readonly actors: ReadonlyArray<{
     readonly actorId: string;
     readonly role: string;
+    readonly combatRole: string;
+    readonly faction: string;
     readonly active: boolean;
     readonly cx: number;
     readonly cy: number;
@@ -40,6 +42,8 @@ interface AirshowStartResult {
   readonly phaseLabels: readonly string[];
   readonly targetRunSampleMs: number;
   readonly bomberIngressActorCount: number;
+  readonly hqMidX: number | null;
+  readonly corridorCenterX: number | null;
 }
 
 interface AirshowE2EHarness {
@@ -58,50 +62,7 @@ declare global {
   }
 }
 
-const fixture = buildAirshowHarnessFixture();
-
-let activeRenderer: HexMapRenderer | null = null;
-let activeInspection: AirShowInspectionReport | null = null;
-let activeAnimation: Promise<void> | null = null;
-let activePhaseLabel: string | null = null;
-let spawnSnapshot: readonly AirshowSpawnSnapshot[] = [];
-let positionTimeline: AirshowPositionSample[] = [];
-let positionSamplerHandle: number | null = null;
-let restorePhaseProbe: (() => void) | null = null;
-
-const POSITION_SAMPLE_INTERVAL_MS = 200;
-
-function sampleActorPositions(): AirshowPositionSample {
-  const size = 32;
-  return {
-    elapsedMs: performance.now(),
-    phaseLabel: activePhaseLabel,
-    actors: Array.from(document.querySelectorAll<SVGImageElement>('[data-testid="airshow-actor"]')).map((el) => ({
-      actorId: el.getAttribute("data-airshow-actor-id") ?? "",
-      role: el.getAttribute("data-airshow-role") ?? "",
-      active: el.getAttribute("data-airshow-active") === "true",
-      cx: parseFloat(el.getAttribute("x") ?? "0") + size / 2,
-      cy: parseFloat(el.getAttribute("y") ?? "0") + size / 2
-    }))
-  };
-}
-
-function startPositionSampler(): void {
-  positionTimeline = [];
-  if (positionSamplerHandle !== null) {
-    window.clearInterval(positionSamplerHandle);
-  }
-  positionSamplerHandle = window.setInterval(() => {
-    positionTimeline.push(sampleActorPositions());
-  }, POSITION_SAMPLE_INTERVAL_MS);
-}
-
-function stopPositionSampler(): void {
-  if (positionSamplerHandle !== null) {
-    window.clearInterval(positionSamplerHandle);
-    positionSamplerHandle = null;
-  }
-}
+const POSITION_SAMPLE_INTERVAL_MS = 100;
 
 function compressSceneForHarness(scene: ResolvedAirShowScene): ResolvedAirShowScene {
   return {
@@ -121,23 +82,27 @@ function ensureBattleScreenVisible(): void {
   if (!battleScreen) {
     throw new Error("Expected #battleScreen to exist for airshow e2e harness.");
   }
+  document.querySelectorAll<HTMLElement>("[id$='Screen']:not(#battleScreen), .modal-overlay, .overlay, #deploymentScreen, #campaignScreen, #mainMenuScreen").forEach((el) => {
+    el.classList.add("hidden");
+    el.setAttribute("aria-hidden", "true");
+  });
   battleScreen.classList.remove("hidden");
   battleScreen.setAttribute("aria-hidden", "false");
+  battleScreen.style.zIndex = "1";
 }
 
-function createRenderer(): HexMapRenderer {
+function createRendererForFixture(harnessFixture: AirshowHarnessFixture): HexMapRenderer { // eslint-disable-line
   const svg = document.getElementById("battleHexMap") as SVGSVGElement | null;
   const canvas = document.getElementById("battleMapCanvas") as HTMLDivElement | null;
   if (!svg || !canvas) {
     throw new Error("Expected #battleHexMap and #battleMapCanvas to exist for airshow e2e harness.");
   }
-
   const renderer = new HexMapRenderer();
-  renderer.render(svg, canvas, fixture.renderScenario);
+  renderer.render(svg, canvas, harnessFixture.renderScenario);
   return renderer;
 }
 
-function createSceneCaptureScreen(rendererLike: unknown): BattleScreen {
+function createSceneCaptureScreenForFixture(rendererLike: unknown, harnessFixture: AirshowHarnessFixture): BattleScreen { // eslint-disable-line
   const fakeBattleState = {
     ensureGameEngine: () => ({ getScheduledAirMissions: () => [] }),
     tryGetGameEngine: () => ({ getScheduledAirMissions: () => [] }),
@@ -165,30 +130,30 @@ function createSceneCaptureScreen(rendererLike: unknown): BattleScreen {
   (screen as unknown as Record<string, unknown>).focusCameraOnHex = async () => {};
   (screen as unknown as Record<string, unknown>).renderEngineUnits = () => {};
   (screen as unknown as Record<string, unknown>).resolveAirEngagementOffsetKey = (unitKey: string) =>
-    fixture.originKeysByUnitId[unitKey as keyof typeof fixture.originKeysByUnitId] ?? null;
+    harnessFixture.originKeysByUnitId[unitKey as keyof typeof harnessFixture.originKeysByUnitId] ?? null;
   (screen as unknown as Record<string, unknown>).resolveAirSquadronStrength = (unitKey: string) =>
-    fixture.strengthByUnitId[unitKey as keyof typeof fixture.strengthByUnitId] ?? 100;
+    harnessFixture.strengthByUnitId[unitKey as keyof typeof harnessFixture.strengthByUnitId] ?? 100;
 
   return screen;
 }
 
-async function captureScene(): Promise<ResolvedAirShowScene> {
+async function captureSceneFromFixture(harnessFixture: AirshowHarnessFixture): Promise<ResolvedAirShowScene> {
   let capturedScene: ResolvedAirShowScene | null = null;
   const captureRenderer = {
     animateResolvedAirCombatShow: async (scene: ResolvedAirShowScene): Promise<void> => {
       capturedScene = scene;
     }
   };
-  const screen = createSceneCaptureScreen(captureRenderer);
+  const screen = createSceneCaptureScreenForFixture(captureRenderer, harnessFixture);
 
   const fakeEngine = {
-    getPlayerHq: () => ({ q: 0, r: 0 }),
-    getBotHq: () => ({ q: 9, r: 5 })
+    getPlayerHq: () => harnessFixture.renderScenario.sides.Player.hq,
+    getBotHq: () => harnessFixture.renderScenario.sides.Bot.hq
   };
 
   await (screen as unknown as {
     playMissionAirInterceptEvent: (
-      event: typeof fixture.engagement,
+      event: unknown,
       locKey: string,
       renderer: unknown,
       engine: unknown,
@@ -200,22 +165,22 @@ async function captureScene(): Promise<ResolvedAirShowScene> {
       bomberOriginKey: string | null,
       linkedEscortFlights: readonly Record<string, unknown>[],
       bomberTargetKey: string | null,
-      flakEvent: typeof fixture.flakEvent
+      flakEvent: unknown
     ) => Promise<void>;
   }).playMissionAirInterceptEvent(
-    fixture.engagement,
-    fixture.locKey,
+    harnessFixture.engagement,
+    harnessFixture.locKey,
     captureRenderer,
     fakeEngine as never,
     0,
     false,
     false,
-    fixture.bomberArrivalDelayMs,
+    harnessFixture.bomberArrivalDelayMs,
     true,
-    fixture.bomberOriginKey,
-    fixture.linkedEscortFlights,
-    fixture.bomberTargetKey,
-    fixture.flakEvent
+    harnessFixture.bomberOriginKey,
+    harnessFixture.linkedEscortFlights as readonly Record<string, unknown>[],
+    harnessFixture.bomberTargetKey,
+    harnessFixture.flakEvent
   );
 
   if (!capturedScene) {
@@ -253,50 +218,75 @@ function getActorSnapshot(): readonly AirshowActorSnapshot[] {
   }));
 }
 
-function installPhaseProbe(renderer: HexMapRenderer, phaseLabels: readonly string[]): void {
-  restorePhaseProbe?.();
-
-  const runtimeRenderer = renderer as unknown as {
-    runAirShowPhase?: (...args: unknown[]) => Promise<void>;
-  };
-  const originalRunAirShowPhase = runtimeRenderer.runAirShowPhase?.bind(renderer);
-  if (typeof originalRunAirShowPhase !== "function") {
-    restorePhaseProbe = null;
-    return;
-  }
-
-  let phaseIndex = 0;
-  runtimeRenderer.runAirShowPhase = async (...args: unknown[]): Promise<void> => {
-    activePhaseLabel = phaseLabels[phaseIndex] ?? `phase-${phaseIndex + 1}`;
-    phaseIndex += 1;
-    return originalRunAirShowPhase(...args);
-  };
-
-  restorePhaseProbe = () => {
-    runtimeRenderer.runAirShowPhase = originalRunAirShowPhase;
-    restorePhaseProbe = null;
-  };
-}
-
-async function waitForPhase(label: string): Promise<void> {
-  const startedAt = performance.now();
-  while (activePhaseLabel !== label) {
-    if (performance.now() - startedAt > 15000) {
-      throw new Error(`Timed out waiting for airshow phase "${label}". Last phase: ${activePhaseLabel ?? "none"}.`);
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, 25));
-  }
-}
-
-export function installAirshowE2EHarness(): void {
+function installAirshowE2EHarnessWithFixture(harnessFixture: AirshowHarnessFixture): void {
   ensureBattleScreenVisible();
+
+  let activeRenderer: HexMapRenderer | null = null;
+  let activeInspection: AirShowInspectionReport | null = null;
+  let activeAnimation: Promise<void> | null = null;
+  let activePhaseLabel: string | null = null;
+  let spawnSnapshot: readonly AirshowSpawnSnapshot[] = [];
+  let positionTimeline: AirshowPositionSample[] = [];
+  let positionSamplerHandle: number | null = null;
+  let restorePhaseProbe: (() => void) | null = null;
+
+  function sampleActorPositions(): AirshowPositionSample {
+    const size = 32;
+    return {
+      elapsedMs: performance.now(),
+      phaseLabel: activePhaseLabel,
+      actors: Array.from(document.querySelectorAll<SVGImageElement>('[data-testid="airshow-actor"]')).map((el) => ({
+        actorId: el.getAttribute("data-airshow-actor-id") ?? "",
+        role: el.getAttribute("data-airshow-role") ?? "",
+        combatRole: el.getAttribute("data-airshow-combat-role") ?? "",
+        faction: el.getAttribute("data-airshow-faction") ?? "",
+        active: el.getAttribute("data-airshow-active") === "true",
+        cx: parseFloat(el.getAttribute("x") ?? "0") + size / 2,
+        cy: parseFloat(el.getAttribute("y") ?? "0") + size / 2
+      }))
+    };
+  }
+
+  function startPositionSampler(): void {
+    positionTimeline = [];
+    if (positionSamplerHandle !== null) window.clearInterval(positionSamplerHandle);
+    positionSamplerHandle = window.setInterval(() => { positionTimeline.push(sampleActorPositions()); }, POSITION_SAMPLE_INTERVAL_MS);
+  }
+
+  function stopPositionSampler(): void {
+    if (positionSamplerHandle !== null) { window.clearInterval(positionSamplerHandle); positionSamplerHandle = null; }
+  }
+
+  function installPhaseProbe(renderer: HexMapRenderer, phaseLabels: readonly string[]): void {
+    restorePhaseProbe?.();
+    const runtimeRenderer = renderer as unknown as { runAirShowPhase?: (...args: unknown[]) => Promise<void> };
+    const originalRunAirShowPhase = runtimeRenderer.runAirShowPhase?.bind(renderer);
+    if (typeof originalRunAirShowPhase !== "function") { restorePhaseProbe = null; return; }
+    let phaseIndex = 0;
+    runtimeRenderer.runAirShowPhase = async (...args: unknown[]): Promise<void> => {
+      activePhaseLabel = phaseLabels[phaseIndex] ?? `phase-${phaseIndex + 1}`;
+      phaseIndex += 1;
+      return originalRunAirShowPhase(...args);
+    };
+    restorePhaseProbe = () => { runtimeRenderer.runAirShowPhase = originalRunAirShowPhase; restorePhaseProbe = null; };
+  }
+
+  async function waitForPhase(label: string): Promise<void> {
+    const startedAt = performance.now();
+    while (activePhaseLabel !== label) {
+      if (performance.now() - startedAt > 15000) {
+        throw new Error(`Timed out waiting for airshow phase "${label}". Last phase: ${activePhaseLabel ?? "none"}.`);
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 25));
+    }
+  }
 
   window.__FSG_AIRSHOW_E2E__ = {
     async startScenario(): Promise<AirshowStartResult> {
       activePhaseLabel = null;
       restorePhaseProbe?.();
-      activeRenderer = createRenderer();
-      const scene = compressSceneForHarness(await captureScene());
+      activeRenderer = createRendererForFixture(harnessFixture);
+      const scene = compressSceneForHarness(await captureSceneFromFixture(harnessFixture));
       activeInspection = (activeRenderer as unknown as {
         inspectResolvedAirCombatShow: (candidate: ResolvedAirShowScene) => AirShowInspectionReport | null;
       }).inspectResolvedAirCombatShow(scene);
@@ -318,16 +308,16 @@ export function installAirshowE2EHarness(): void {
         activePhaseLabel = "complete";
         restorePhaseProbe?.();
       });
-
       const bomberIngressPhase = activeInspection?.phases.find((phase) => phase.label === "bomber-ingress");
       const bomberIngressActorCount =
         bomberIngressPhase?.assignments.filter((assignment) => assignment.role === "bomber").length ?? 0;
-
       return {
-        missionId: fixture.missionId,
+        missionId: harnessFixture.missionId,
         phaseLabels: activeInspection?.phases.map((phase) => phase.label) ?? [],
         targetRunSampleMs: computeTargetRunSampleMs(activeInspection),
-        bomberIngressActorCount
+        bomberIngressActorCount,
+        hqMidX: activeInspection?.hqMidX ?? null,
+        corridorCenterX: activeInspection?.corridor.center.cx ?? null
       };
     },
     getActorSnapshot,
@@ -335,18 +325,66 @@ export function installAirshowE2EHarness(): void {
     getPositionTimeline(): readonly AirshowPositionSample[] { return positionTimeline; },
     waitForPhase,
     async waitForCompletion(): Promise<void> {
-      if (!activeAnimation) {
-        return;
-      }
+      if (!activeAnimation) return;
       await activeAnimation;
     },
     getInspectionSummary(): { readonly phaseLabels: readonly string[] } | null {
-      if (!activeInspection) {
-        return null;
-      }
-      return {
-        phaseLabels: activeInspection.phases.map((phase) => phase.label)
-      };
+      if (!activeInspection) return null;
+      return { phaseLabels: activeInspection.phases.map((phase) => phase.label) };
     }
   };
+
+  function runAutoPlay(): void {
+    const harness = window.__FSG_AIRSHOW_E2E__!;
+
+    const overlay = document.createElement("div");
+    overlay.id = "airshow-autoplay-overlay";
+    overlay.style.cssText = [
+      "position:fixed", "top:12px", "right:12px", "z-index:99999",
+      "background:rgba(0,0,0,0.78)", "color:#fff", "font:bold 14px/1.4 monospace",
+      "padding:10px 16px", "border-radius:8px", "cursor:pointer",
+      "box-shadow:0 2px 12px rgba(0,0,0,0.5)", "user-select:none"
+    ].join(";");
+
+    let countdown = 3;
+    const update = (): void => { overlay.textContent = `▶ Click to play  (auto in ${countdown}s)`; };
+    update();
+    document.body.appendChild(overlay);
+
+    let cancelled = false;
+    const tick = window.setInterval(() => {
+      countdown -= 1;
+      if (countdown <= 0) {
+        window.clearInterval(tick);
+        if (!cancelled) { cancelled = true; launch(); }
+      } else {
+        update();
+      }
+    }, 1000);
+
+    overlay.addEventListener("click", () => {
+      window.clearInterval(tick);
+      if (!cancelled) { cancelled = true; launch(); }
+    }, { once: true });
+
+    function launch(): void {
+      overlay.textContent = "▶ Running…";
+      void harness.startScenario().then(() => harness.waitForCompletion()).then(() => {
+        overlay.textContent = "↺ Done — click to replay";
+        overlay.addEventListener("click", launch, { once: true });
+      });
+    }
+  }
+
+  if (!navigator.webdriver) {
+    window.setTimeout(runAutoPlay, 0);
+  }
+}
+
+export function installAirshowE2EHarness(): void {
+  installAirshowE2EHarnessWithFixture(buildAirshowHarnessFixture());
+}
+
+export function installAirshowE2EHarnessLarge(): void {
+  installAirshowE2EHarnessWithFixture(buildAirshowHarnessFixtureLarge());
 }

@@ -171,10 +171,15 @@ function initializeApplication(): void {
   console.log("  - Rendering: HexMapRenderer, TerrainRenderer, RoadOverlayRenderer, CoordinateSystem");
 
   const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  if (searchParams?.get("codex-test") === "airshow") {
+  const codexTest = searchParams?.get("codex-test");
+  if (codexTest === "airshow" || codexTest === "airshow-large") {
     void import("./testing/airshowE2eHarness")
-      .then(({ installAirshowE2EHarness }) => {
-        installAirshowE2EHarness();
+      .then(({ installAirshowE2EHarness, installAirshowE2EHarnessLarge }) => {
+        if (codexTest === "airshow-large") {
+          installAirshowE2EHarnessLarge();
+        } else {
+          installAirshowE2EHarness();
+        }
       })
       .catch((error) => {
         console.error("[AirshowE2E] Failed to install browser harness", error);

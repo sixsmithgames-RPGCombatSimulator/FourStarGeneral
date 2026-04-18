@@ -865,7 +865,9 @@ export class HexMapRenderer {
                 ]
                 : [];
             if (ingressAssignments.length > 0) {
-                const fighterIngressDurationMs = Math.max(1250, scene.fighterIngressDurationMs ?? 1680);
+                // North Star Spec §Scenario 5 Phase 1: ingress needs enough on-screen time to show
+                // CAP at V and bombers/escorts at V/2. Floor raised 1250→1875 (1.5×) for clear read.
+                const fighterIngressDurationMs = Math.max(1875, scene.fighterIngressDurationMs ?? 2520);
                 const spacedIngressAssignments = this.resolveAirShowPhaseSpacing(ingressAssignments, [0.18, 0.42, 0.68, 0.9]);
                 recordPhase("fighter-ingress", spacedIngressAssignments, fighterIngressDurationMs);
                 updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
@@ -1331,7 +1333,14 @@ export class HexMapRenderer {
             const egressFlights = activeFlights([...interceptorFlights, ...escortFlights, ...bomberFlights]);
             if (egressFlights.length > 0) {
                 const egressAssignments = egressFlights.flatMap((flight, index) => {
-                    const current = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
+                    const rawCurrent = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
+                    const current = flight.spec.role !== "bomber" ? (() => {
+                        const proj = this.resolveAirShowCorridorCoordinates(corridor, rawCurrent);
+                        const wrongSide = flight.spec.faction === "Bot" ? proj.alongPx > 0 : proj.alongPx < 0;
+                        return wrongSide
+                            ? this.projectAirShowCorridorPoint(corridor, 0, proj.lateralPx)
+                            : rawCurrent;
+                    })() : rawCurrent;
                     const rand = stageRandom(`egress:${flight.spec.id}:${index}`);
                     const egressPoint = flight.spec.role === "bomber"
                         ? (() => {
@@ -1341,9 +1350,16 @@ export class HexMapRenderer {
                             }
                             return corridorPoint(126 + rand() * 20, (rand() - 0.5) * 12);
                         })()
-                        : flight.spec.role === "escort"
-                            ? corridorPoint(108 + index * 18 + rand() * 16, 138 + index * 18 + (rand() - 0.5) * 24)
-                            : corridorPoint(-146 - index * 18 - rand() * 16, -156 - index * 20 + (rand() - 0.5) * 24);
+                        : (() => {
+                            const laneOffset = (index - (egressFlights.length - 1) / 2) * 64;
+                            if (hqAxis) {
+                                const origin = flight.spec.faction === "Bot" ? hqAxis.botOrigin : hqAxis.playerOrigin;
+                                return this.offsetAirShowPoint(origin, corridor.normal.x * laneOffset + (rand() - 0.5) * 22, corridor.normal.y * laneOffset + (rand() - 0.5) * 18);
+                            }
+                            return flight.spec.role === "escort"
+                                ? corridorPoint(108 + index * 18 + rand() * 16, 138 + index * 18 + (rand() - 0.5) * 24)
+                                : corridorPoint(-146 - index * 18 - rand() * 16, -156 - index * 20 + (rand() - 0.5) * 24);
+                        })();
                     return this.buildAirShowFlightAssignments(flight, this.buildAirShowDisengagePath(current, egressPoint, {
                         lateralSign: this.resolveAirShowRouteSideSign(current, egressPoint, this.resolveAirShowFlightHeadingDegrees(flight), flight.spec.role === "escort" ? 1 : -1),
                         corridorWidthPx: flight.spec.role === "bomber" ? 18 + rand() * 8 : 22 + rand() * 10,
@@ -1363,6 +1379,11 @@ export class HexMapRenderer {
                     strike: { cx: corridor.strike.cx, cy: corridor.strike.cy },
                     exit: { cx: corridor.exit.cx, cy: corridor.exit.cy }
                 },
+                hqMidX: (() => {
+                    const ph = this.resolveHexCenterByKey(scene.playerHqKey);
+                    const bh = this.resolveHexCenterByKey(scene.botHqKey);
+                    return ph && bh ? (ph.cx + bh.cx) / 2 : null;
+                })(),
                 bomberTarget: averageBomberTargetCenter ? { cx: averageBomberTargetCenter.cx, cy: averageBomberTargetCenter.cy } : null,
                 flights: allFlights.map((flight) => this.describeInspectionAirShowFlight(flight)),
                 phases
@@ -1518,14 +1539,29 @@ export class HexMapRenderer {
                 logAirShowBeatStart(packageId, 0, "ingress", [...interceptorFlights.map(f => f.spec.id), ...bomberFlights.map(f => f.spec.id)]);
                 debugAirShowPhase("Ingress", { type: "fighters + bombers approaching together" });
                 // Per North Star Spec §Speed Principles: fighters at V, bombers at V/2.
-                // Fighters and bombers share the same phase but fighters travel their (shorter)
-                // path in less time — this is achieved by giving all actors the bomber duration
-                // while fighters have a shorter path, making them visibly faster.
-                // The opening ingress is fighter-owned timing. Bombers remain visible in the same beat,
-                // but this phase should resolve on fighter speed while the later bomber-ingress beat
-                // carries the slower strike package deeper toward the target.
-                const fighterIngressDurationMs = Math.max(1250, scene.fighterIngressDurationMs ?? 1680);
-                const spacedIngressAssignments = this.resolveAirShowPhaseSpacing(ingressAssignments, [0.18, 0.42, 0.68, 0.9]);
+                // All actors share fighterIngressDurationMs but bomber path endpoints are
+                // scaled to (fighterDuration/bomberDuration) of the full spawn→hold distance,
+                // so bombers only travel half as far in the same time — correct V/2 appearance.
+                // North Star Spec §Scenario 5 Phase 1: floor raised 1250→1875 (1.5×) for clear ingress read.
+                const fighterIngressDurationMs = Math.max(1875, scene.fighterIngressDurationMs ?? 2520);
+                const bomberIngressDurationMs = Math.max(3000, scene.bomberIngressDurationMs ?? 3500);
+                const speedScale = fighterIngressDurationMs / bomberIngressDurationMs;
+                const scaledIngressAssignments = ingressAssignments.map((assignment) => {
+                    if (assignment.actor.role !== "bomber" || assignment.points.length < 2) {
+                        return assignment;
+                    }
+                    const start = assignment.points[0];
+                    const end = assignment.points[assignment.points.length - 1];
+                    const scaledEnd = {
+                        cx: start.cx + (end.cx - start.cx) * speedScale,
+                        cy: start.cy + (end.cy - start.cy) * speedScale
+                    };
+                    return {
+                        ...assignment,
+                        points: [start, scaledEnd]
+                    };
+                });
+                const spacedIngressAssignments = this.resolveAirShowPhaseSpacing(scaledIngressAssignments, [0.18, 0.42, 0.68, 0.9]);
                 await this.runAirShowPhase(spacedIngressAssignments, fighterIngressDurationMs, [], { easing: "linear", sceneActors });
                 updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
             }
@@ -2071,7 +2107,14 @@ export class HexMapRenderer {
             debugAirShowPhase("Egress", { flights: egressFlights.length });
             if (egressFlights.length > 0) {
                 await this.runAirShowPhase(egressFlights.flatMap((flight, index) => {
-                    const current = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
+                    const rawCurrent = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
+                    const current = flight.spec.role !== "bomber" ? (() => {
+                        const proj = this.resolveAirShowCorridorCoordinates(corridor, rawCurrent);
+                        const wrongSide = flight.spec.faction === "Bot" ? proj.alongPx > 0 : proj.alongPx < 0;
+                        return wrongSide
+                            ? this.projectAirShowCorridorPoint(corridor, 0, proj.lateralPx)
+                            : rawCurrent;
+                    })() : rawCurrent;
                     const rand = stageRandom(`egress:${flight.spec.id}:${index}`);
                     const egressPoint = flight.spec.role === "bomber"
                         ? (() => {
@@ -2081,9 +2124,16 @@ export class HexMapRenderer {
                             }
                             return corridorPoint(126 + rand() * 20, (rand() - 0.5) * 12);
                         })()
-                        : flight.spec.role === "escort"
-                            ? corridorPoint(108 + index * 18 + rand() * 16, 138 + index * 18 + (rand() - 0.5) * 24)
-                            : corridorPoint(-146 - index * 18 - rand() * 16, -156 - index * 20 + (rand() - 0.5) * 24);
+                        : (() => {
+                            const laneOffset = (index - (egressFlights.length - 1) / 2) * 64;
+                            if (hqAxis) {
+                                const origin = flight.spec.faction === "Bot" ? hqAxis.botOrigin : hqAxis.playerOrigin;
+                                return this.offsetAirShowPoint(origin, corridor.normal.x * laneOffset + (rand() - 0.5) * 22, corridor.normal.y * laneOffset + (rand() - 0.5) * 18);
+                            }
+                            return flight.spec.role === "escort"
+                                ? corridorPoint(108 + index * 18 + rand() * 16, 138 + index * 18 + (rand() - 0.5) * 24)
+                                : corridorPoint(-146 - index * 18 - rand() * 16, -156 - index * 20 + (rand() - 0.5) * 24);
+                        })();
                     return this.buildAirShowFlightAssignments(flight, this.buildAirShowDisengagePath(current, egressPoint, {
                         lateralSign: this.resolveAirShowRouteSideSign(current, egressPoint, this.resolveAirShowFlightHeadingDegrees(flight), flight.spec.role === "escort" ? 1 : -1),
                         corridorWidthPx: flight.spec.role === "bomber" ? 18 + rand() * 8 : 22 + rand() * 10,
@@ -5195,7 +5245,6 @@ export class HexMapRenderer {
         const playerHq = this.resolveHexCenterByKey(playerHqKey);
         const botHq = this.resolveHexCenterByKey(botHqKey);
         if (!playerHq || !botHq) {
-            console.warn("[HexMapRenderer] resolveHqAxis: HQ key(s) did not resolve in hexElementMap", { playerHqKey, botHqKey, playerHq, botHq });
             return null;
         }
         const axis = this.normalizeAircraftVector(playerHq.cx - botHq.cx, playerHq.cy - botHq.cy, 1, 0);
@@ -5222,6 +5271,7 @@ export class HexMapRenderer {
             ghostSpec.image.setAttribute("data-airshow-flight-id", spec.id);
             ghostSpec.image.setAttribute("data-airshow-actor-id", `${spec.id}:${index}`);
             ghostSpec.image.setAttribute("data-airshow-combat-role", spec.combatRole ?? spec.role);
+            ghostSpec.image.setAttribute("data-airshow-faction", spec.faction ?? "");
             const position = {
                 cx: origin.cx + ghostSpec.biasX,
                 cy: origin.cy + ghostSpec.biasY
@@ -5336,13 +5386,10 @@ export class HexMapRenderer {
         flight.anchor = this.averageAirShowPosition(flight.actors) ?? anchor;
     }
     normalizeAirShowSceneFlightAnchors(corridor, sceneKind, interceptorFlights, escortFlights, bomberFlights, hqAxis) {
-        console.log("[AirShow:normalize] hqAxis present:", !!hqAxis, "| corridorAxis:", hqAxis ? { x: Math.round(hqAxis.axis.x * 100) / 100, y: Math.round(hqAxis.axis.y * 100) / 100 } : null);
         const factionAlongSign = (flight) => {
             if (!hqAxis)
                 return null;
-            const sign = flight.spec.faction === "Bot" ? -1 : 1;
-            console.log(`[AirShow:normalize] flight ${flight.spec.id} faction=${flight.spec.faction} -> alongSign=${sign}`);
-            return sign;
+            return flight.spec.faction === "Bot" ? -1 : 1;
         };
         const positionFlights = (flights, role, fallbackAlongSign) => {
             const orderedFlights = flights
@@ -6659,10 +6706,13 @@ export class HexMapRenderer {
         const desiredLaneLateralPx = laneIndex * 44;
         const targetLateralPx = this.clamp(currentProjection.lateralPx * (beat === 0 ? 0.48 : 0.18)
             + desiredLaneLateralPx * (beat === 0 ? 0.52 : 0.82), desiredLaneLateralPx - 28, desiredLaneLateralPx + 28);
-        const stagedAlongPx = beat === 0 ? strikeProjection.alongPx - 310 : strikeProjection.alongPx - 228;
-        const minAdvancePx = beat === 0 ? 104 : 138;
-        const maxAdvancePx = beat === 0 ? 168 : 214;
-        const targetAlongPx = this.clamp(Math.max(stagedAlongPx + laneIndex * 10, currentProjection.alongPx + (beat === 0 ? 136 : 172)), currentProjection.alongPx + minAdvancePx, currentProjection.alongPx + maxAdvancePx);
+        // Per North Star Spec clash 0.20→0.50: bombers continue at V/2 (~0.18 px/ms scaled).
+        // Beat-0 was overshooting (~200 px/100ms observed), causing a visible catch-up jump.
+        // Cap each beat's advance near V/2×beatDuration so bombers keep pace without spiking.
+        const stagedAlongPx = beat === 0 ? strikeProjection.alongPx - 460 : strikeProjection.alongPx - 300;
+        const minAdvancePx = beat === 0 ? 110 : 130;
+        const maxAdvancePx = beat === 0 ? 160 : 190;
+        const targetAlongPx = this.clamp(Math.max(stagedAlongPx + laneIndex * 10, currentProjection.alongPx + (beat === 0 ? 130 : 160)), currentProjection.alongPx + minAdvancePx, currentProjection.alongPx + maxAdvancePx);
         return this.clampPointToViewportBounds(this.projectAirShowCorridorPoint(corridor, targetAlongPx, targetLateralPx), corridor.center, 430, 300);
     }
     resolveAirShowBomberIngressContinuationTarget(corridor, bomberCurrent, laneIndex) {
@@ -6670,10 +6720,14 @@ export class HexMapRenderer {
         const strikeProjection = this.resolveAirShowCorridorCoordinates(corridor, corridor.strike);
         const desiredLaneLateralPx = laneIndex * 42;
         const targetLateralPx = this.clamp(currentProjection.lateralPx * 0.28 + desiredLaneLateralPx * 0.72, desiredLaneLateralPx - 26, desiredLaneLateralPx + 26);
-        const stagingAlongPx = strikeProjection.alongPx - 136 + laneIndex * 8;
-        const minAdvancePx = 116;
-        const maxAdvancePx = 184;
-        const targetAlongPx = this.clamp(Math.max(stagingAlongPx, currentProjection.alongPx + 152), currentProjection.alongPx + minAdvancePx, currentProjection.alongPx + maxAdvancePx);
+        // Per North Star Spec §Scenario 5 Phase 4 (CAP vs Bombers 0.50→0.80): bombers continue
+        // at V/2 — they must not stop during the CAP-vs-bomber repositioning lull.
+        // In scaled time (0.18 px/ms scaled), a 3000ms phase should cover ~540px. We target
+        // ~30% of remaining corridor so bombers visibly close on the standoff approach.
+        const stagingAlongPx = strikeProjection.alongPx - 36 + laneIndex * 8;
+        const minAdvancePx = 280;
+        const maxAdvancePx = 520;
+        const targetAlongPx = this.clamp(Math.max(stagingAlongPx, currentProjection.alongPx + 360), currentProjection.alongPx + minAdvancePx, currentProjection.alongPx + maxAdvancePx);
         return this.clampPointToViewportBounds(this.projectAirShowCorridorPoint(corridor, targetAlongPx, targetLateralPx), corridor.center, 430, 300);
     }
     resolveAirShowBomberDefenseContinuationTarget(corridor, bomberCurrent, targetApproach, laneIndex) {
@@ -9238,12 +9292,12 @@ export class HexMapRenderer {
 HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE = 60;
 HexMapRenderer.AIRCRAFT_FORMATION_SPACING = 33;
 HexMapRenderer.AIRCRAFT_ORBIT_HEADING_BLEND = 0.28;
-// Role-based size multipliers: fighters +50%, bombers +100%
-HexMapRenderer.AIRCRAFT_FIGHTER_SIZE_MULTIPLIER = 1.5;
-HexMapRenderer.AIRCRAFT_BOMBER_SIZE_MULTIPLIER = 2.0;
+// Role-based size multipliers: bombers are 2x fighter size
+HexMapRenderer.AIRCRAFT_FIGHTER_SIZE_MULTIPLIER = 0.75;
+HexMapRenderer.AIRCRAFT_BOMBER_SIZE_MULTIPLIER = 1.5;
 // Role-based spacing multipliers (proportional to size to prevent overlap)
-HexMapRenderer.AIRCRAFT_FIGHTER_SPACING_MULTIPLIER = 1.5;
-HexMapRenderer.AIRCRAFT_BOMBER_SPACING_MULTIPLIER = 2.0;
+HexMapRenderer.AIRCRAFT_FIGHTER_SPACING_MULTIPLIER = 0.75;
+HexMapRenderer.AIRCRAFT_BOMBER_SPACING_MULTIPLIER = 1.5;
 // Collision-aware formation spacing per North Star Spec
 // Minimum center-to-center spacing: 0.8 sprite widths (same-role), 1.0 (different-role)
 HexMapRenderer.AIRCRAFT_SAME_ROLE_SPACING_FACTOR = 0.8;

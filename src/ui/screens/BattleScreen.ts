@@ -4060,7 +4060,10 @@ export class BattleScreen {
         `[AirSprite] Linked escort flights missing from resolved event ${event.missionId ?? event.type}: ${diagnostics.linkedEscortMissingFromEventUnitKeys.join(", ")}`
       );
     }
-    scene.fighterIngressDurationMs = Math.round(this.resolveFighterInterceptIngressDurationMs() * 0.96);
+    // Per North Star Spec §Scenario 5 Phase 1 (Ingress 0.0 → 0.15): the ingress read needs
+    // enough on-screen time to show CAP at V and bombers/escorts at V/2. Multiplier raised
+    // from 0.96 to 1.44 (1.5× longer) so the player sees clear separation before the clash.
+    scene.fighterIngressDurationMs = Math.round(this.resolveFighterInterceptIngressDurationMs() * 1.44);
     scene.escortClashDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 1.24));
     scene.bomberIngressDurationMs = Math.round(this.resolveBomberInterceptIngressDurationMs() * 5.2);
     scene.bomberPassDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 2.18));
