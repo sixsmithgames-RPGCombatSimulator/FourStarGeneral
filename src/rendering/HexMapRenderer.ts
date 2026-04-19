@@ -2300,8 +2300,9 @@ export class HexMapRenderer implements IMapRenderer {
         (flight) => (flight.currentStrength ?? 0) > 0
       );
       if (postPassBombers.length > 0) {
-        const keepInterceptorsOnTargetRun = postPassInterceptors.length > 0 && escortFlights.length === 0;
-        const keepEscortsOnTargetRun = postPassEscorts.length > 0 && interceptorFlights.length === 0;
+        const escortsArePresentOnRun = postPassEscorts.length > 0;
+        const keepInterceptorsOnTargetRun = postPassInterceptors.length > 0;
+        const keepEscortsOnTargetRun = postPassEscorts.length > 0;
         const bomberTargetRuns = postPassBombers.map((bomberFlight, index) => {
           const cachedProfile = bomberApproachProfilesById.get(bomberFlight.spec.id);
           const targetCenter =
@@ -2388,6 +2389,30 @@ export class HexMapRenderer implements IMapRenderer {
             );
           }) : []),
           ...(keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight, index) => {
+            const laneSign = index % 2 === 0 ? 1 : -1;
+            if (escortsArePresentOnRun) {
+              return flight.actors.map((actor) => {
+                const actorPos = actor.position;
+                const holdTarget = {
+                  cx: actorPos.cx + corridor.axis.x * 42 + corridor.normal.x * laneSign * 24,
+                  cy: actorPos.cy + corridor.axis.y * 42 + corridor.normal.y * laneSign * 24
+                };
+                return {
+                  actor,
+                  points: this.buildAirShowCurvedPath(
+                    actorPos,
+                    holdTarget,
+                    laneSign * 28,
+                    laneSign * 8,
+                    this.resolveAirShowFlightHeadingDegrees(flight)
+                  ),
+                  headingBlend: 0.28,
+                  progressOffset: (actor.formationIndex - (flight.actors.length - 1) / 2) * 0.018 - 0.004,
+                  multiFlightOffsetPx: 0
+                } satisfies AirShowPhaseAssignment;
+              });
+            }
+            const current = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
             const assignedRun = bomberTargetRuns[index % bomberTargetRuns.length]!;
             const attackCorridor = this.resolveAirShowCorridor(
               center,
@@ -2397,14 +2422,14 @@ export class HexMapRenderer implements IMapRenderer {
             return this.buildAirShowFlightAssignments(
               flight,
               this.buildAirShowBomberInterceptPassPath(
-                this.averageAirShowPosition(flight.actors) ?? flight.anchor,
+                current,
                 attackCorridor,
                 {
                   passStartAlongPx: 18,
                   passEndAlongPx: 96,
                   laneIndex: index - (postPassInterceptors.length - 1) / 2,
                   attackSideSign: this.resolveAirShowCorridorSideSign(
-                    this.averageAirShowPosition(flight.actors) ?? flight.anchor,
+                    current,
                     attackCorridor,
                     -1
                   ),
@@ -2417,7 +2442,7 @@ export class HexMapRenderer implements IMapRenderer {
             );
           }) : [])
         ];
-        const strikeRunTracerBursts = keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight, index) => {
+        const strikeRunTracerBursts = (keepInterceptorsOnTargetRun && !escortsArePresentOnRun) ? postPassInterceptors.flatMap((flight, index) => {
           const assignedRun = bomberTargetRuns[index % bomberTargetRuns.length]!;
           return [
             ...this.buildAirShowDynamicTracerVolley(strikeRunAssignments, flight, assignedRun.bomberFlight, {
@@ -3721,8 +3746,9 @@ export class HexMapRenderer implements IMapRenderer {
           interceptors: postPassInterceptors.length,
           escorts: postPassEscorts.length
         });
-        const keepInterceptorsOnTargetRun = postPassInterceptors.length > 0 && escortFlights.length === 0;
-        const keepEscortsOnTargetRun = postPassEscorts.length > 0 && interceptorFlights.length === 0;
+        const escortsArePresentOnRun = postPassEscorts.length > 0;
+        const keepInterceptorsOnTargetRun = postPassInterceptors.length > 0;
+        const keepEscortsOnTargetRun = postPassEscorts.length > 0;
         // Bombers were never hidden — they held their ingress positions visibly through all
         // prior phases via hold-in-place assignments. No force-show needed here.
         // (Removed: explicit actor.active=true / opacity="1" block that was reactivating
@@ -3812,6 +3838,30 @@ export class HexMapRenderer implements IMapRenderer {
             );
           }) : []),
           ...(keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight, index) => {
+            const laneSign = index % 2 === 0 ? 1 : -1;
+            if (escortsArePresentOnRun) {
+              return flight.actors.map((actor) => {
+                const actorPos = actor.position;
+                const holdTarget = {
+                  cx: actorPos.cx + corridor.axis.x * 42 + corridor.normal.x * laneSign * 24,
+                  cy: actorPos.cy + corridor.axis.y * 42 + corridor.normal.y * laneSign * 24
+                };
+                return {
+                  actor,
+                  points: this.buildAirShowCurvedPath(
+                    actorPos,
+                    holdTarget,
+                    laneSign * 28,
+                    laneSign * 8,
+                    this.resolveAirShowFlightHeadingDegrees(flight)
+                  ),
+                  headingBlend: 0.28,
+                  progressOffset: (actor.formationIndex - (flight.actors.length - 1) / 2) * 0.018 - 0.004,
+                  multiFlightOffsetPx: 0
+                } satisfies AirShowPhaseAssignment;
+              });
+            }
+            const current = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
             const assignedRun = bomberTargetRuns[index % bomberTargetRuns.length]!;
             const attackCorridor = this.resolveAirShowCorridor(
               center,
@@ -3821,14 +3871,14 @@ export class HexMapRenderer implements IMapRenderer {
             return this.buildAirShowFlightAssignments(
               flight,
               this.buildAirShowBomberInterceptPassPath(
-                this.averageAirShowPosition(flight.actors) ?? flight.anchor,
+                current,
                 attackCorridor,
                 {
                   passStartAlongPx: 18,
                   passEndAlongPx: 96,
                   laneIndex: index - (postPassInterceptors.length - 1) / 2,
                   attackSideSign: this.resolveAirShowCorridorSideSign(
-                    this.averageAirShowPosition(flight.actors) ?? flight.anchor,
+                    current,
                     attackCorridor,
                     -1
                   ),
@@ -3841,7 +3891,7 @@ export class HexMapRenderer implements IMapRenderer {
             );
           }) : [])
         ];
-        const strikeRunTracerBursts = keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight, index) => {
+        const strikeRunTracerBursts = (keepInterceptorsOnTargetRun && !escortsArePresentOnRun) ? postPassInterceptors.flatMap((flight, index) => {
           const assignedRun = bomberTargetRuns[index % bomberTargetRuns.length]!;
           return [
             ...this.buildAirShowDynamicTracerVolley(strikeRunAssignments, flight, assignedRun.bomberFlight, {
