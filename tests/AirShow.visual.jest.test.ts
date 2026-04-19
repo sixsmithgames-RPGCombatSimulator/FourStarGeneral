@@ -142,10 +142,19 @@ describe("AirShow JEST Harness", () => {
     expect(targetRun).toBeDefined();
 
     const visibleBomberAssignments = targetRun?.assignments.filter((assignment) => assignment.role === "bomber") ?? [];
-    expect(visibleBomberAssignments).toHaveLength(4);
-    expect(targetRun?.assignments.some((assignment) => assignment.role !== "bomber")).toBe(false);
-
     const bombReleaseProgress = 0.74;
+    expect(visibleBomberAssignments).toHaveLength(4);
+
+    const bomberReleasePoints = visibleBomberAssignments.map((assignment) =>
+      assignment.sampledPositions.reduce((closest, sample) =>
+        Math.abs(sample.progress - bombReleaseProgress) < Math.abs(closest.progress - bombReleaseProgress) ? sample : closest
+      )
+    );
+    const bomberReleaseCenter = {
+      cx: bomberReleasePoints.reduce((sum, sample) => sum + sample.cx, 0) / bomberReleasePoints.length,
+      cy: bomberReleasePoints.reduce((sum, sample) => sum + sample.cy, 0) / bomberReleasePoints.length
+    };
+
     visibleBomberAssignments.forEach((assignment) => {
       const nearestSample = assignment.sampledPositions.reduce((closest, sample) =>
         Math.abs(sample.progress - bombReleaseProgress) < Math.abs(closest.progress - bombReleaseProgress) ? sample : closest
@@ -153,6 +162,18 @@ describe("AirShow JEST Harness", () => {
 
       expect(Number.isFinite(nearestSample.cx)).toBe(true);
       expect(Number.isFinite(nearestSample.cy)).toBe(true);
+    });
+
+    const nonBomberAssignments = targetRun?.assignments.filter((assignment) => assignment.role !== "bomber") ?? [];
+    nonBomberAssignments.forEach((assignment) => {
+      const nearestSample = assignment.sampledPositions.reduce((closest, sample) =>
+        Math.abs(sample.progress - bombReleaseProgress) < Math.abs(closest.progress - bombReleaseProgress) ? sample : closest
+      );
+      const distanceFromBomberLane = Math.hypot(
+        nearestSample.cx - bomberReleaseCenter.cx,
+        nearestSample.cy - bomberReleaseCenter.cy
+      );
+      expect(distanceFromBomberLane).toBeGreaterThan(60);
     });
   });
 
@@ -207,5 +228,34 @@ describe("AirShow JEST Harness", () => {
     expect(targetRun).toBeDefined();
     expect(targetRun?.assignments.filter((assignment) => assignment.role === "bomber")).toHaveLength(4);
     expect(targetRun?.flakBursts.length ?? 0).toBeGreaterThan(0);
+  });
+
+  test("inspection report exposes deterministic off-map origins and measured phase timing audit", async () => {
+    const report = inspectScene(await captureScene());
+
+    expect(report.originPlan).not.toBeNull();
+    const originPlan = report.originPlan!;
+    const playerOffsetPx = Math.hypot(
+      originPlan.playerOrigin.cx - originPlan.playerBoundary.cx,
+      originPlan.playerOrigin.cy - originPlan.playerBoundary.cy
+    );
+    const botOffsetPx = Math.hypot(
+      originPlan.botOrigin.cx - originPlan.botBoundary.cx,
+      originPlan.botOrigin.cy - originPlan.botBoundary.cy
+    );
+
+    expect(playerOffsetPx).toBeCloseTo(500, 1);
+    expect(botOffsetPx).toBeCloseTo(500, 1);
+
+    const ingressAudit = report.phaseTimingAudit.find((phase) => phase.label === "fighter-ingress");
+    expect(ingressAudit).toBeDefined();
+
+    const interceptorAudit = ingressAudit?.roles.find((role) => role.role === "interceptor");
+    const bomberAudit = ingressAudit?.roles.find((role) => role.role === "bomber");
+
+    expect(interceptorAudit?.meanPathLengthPx ?? 0).toBeGreaterThan(0);
+    expect(bomberAudit?.meanPathLengthPx ?? 0).toBeGreaterThan(0);
+    expect(Math.abs((interceptorAudit?.speedDeltaPxPerMs ?? 1))).toBeLessThan(0.03);
+    expect(Math.abs((bomberAudit?.speedDeltaPxPerMs ?? 1))).toBeLessThan(0.05);
   });
 });

@@ -13,6 +13,20 @@ import { CombatSoundManager, type QueuedWeaponSoundRequest } from "../audio/Comb
 import type { WeaponSoundClass } from "../audio/SoundAssetMetadata";
 import { sampleAirShowWaypointPath } from "../ui/airshow/AirShowPathMath";
 import {
+  AIR_SHOW_OFF_MAP_DISTANCE_PX,
+  buildAirShowInspectionOriginPlan,
+  buildAirShowMapBounds,
+  buildAirShowPhaseTimingAudit,
+  resolveAirShowFallbackOrigin,
+  resolveAirShowHqAxis,
+  type AirShowHqAxis,
+  type AirShowInspectionOriginPlan,
+  type AirShowInspectionPhaseTimingAudit,
+  type AirShowInspectionPhaseTimingRoleAudit,
+  type AirShowMapBounds,
+  type AirShowPhaseTimingSample
+} from "../ui/airshow/AirShowPlanner";
+import {
   logAirShowPackageStart,
   logAirShowBeatStart,
   logAirShowActorTransition,
@@ -30,6 +44,12 @@ import {
 import terrainData from "../data/terrain.json";
 import unitTypesData from "../data/unitTypes.json";
 import { axialDirections, hexLine, type Axial } from "../core/Hex";
+
+export type {
+  AirShowInspectionOriginPlan,
+  AirShowInspectionPhaseTimingAudit,
+  AirShowInspectionPhaseTimingRoleAudit
+} from "../ui/airshow/AirShowPlanner";
 
 /**
  * Recon status types.
@@ -314,6 +334,8 @@ export interface AirShowInspectionReport {
   };
   readonly hqMidX: number | null;
   readonly bomberTarget?: AirShowInspectionPoint | null;
+  readonly originPlan: AirShowInspectionOriginPlan | null;
+  readonly phaseTimingAudit: ReadonlyArray<AirShowInspectionPhaseTimingAudit>;
   readonly flights: ReadonlyArray<AirShowInspectionFlight>;
   readonly phases: ReadonlyArray<AirShowInspectionPhase>;
 }
@@ -1244,12 +1266,11 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const hqAxis = this.resolveHqAxis(scene.playerHqKey, scene.botHqKey);
-    const hardcodedPlayerOrigin = { cx: center.cx + 248, cy: center.cy - 126 };
-    const hardcodedBotOrigin = { cx: center.cx - 248, cy: center.cy + 126 };
+    const mapBounds = hqAxis?.mapBounds ?? this.resolveAirShowMapBounds();
     const fallbackOriginFor = (spec: ResolvedAirShowFlightSpec): AirShowPoint =>
       spec.faction === "Bot"
-        ? (hqAxis?.botOrigin ?? hardcodedBotOrigin)
-        : (hqAxis?.playerOrigin ?? hardcodedPlayerOrigin);
+        ? (hqAxis?.botOrigin ?? resolveAirShowFallbackOrigin(center, "Bot", mapBounds, { offsetPx: HexMapRenderer.OFF_MAP_DISTANCE_PX, hexHeight: HEX_HEIGHT }))
+        : (hqAxis?.playerOrigin ?? resolveAirShowFallbackOrigin(center, spec.faction, mapBounds, { offsetPx: HexMapRenderer.OFF_MAP_DISTANCE_PX, hexHeight: HEX_HEIGHT }));
 
     const defaultHeadingFor = (origin: AirShowPoint): number =>
       this.resolveAircraftHeadingDegrees(center.cx - origin.cx, center.cy - origin.cy);
@@ -1377,12 +1398,14 @@ export class HexMapRenderer implements IMapRenderer {
       });
 
     const phases: AirShowInspectionPhase[] = [];
+    const phaseTimingAudit: AirShowInspectionPhaseTimingAudit[] = [];
     const recordPhase = (
       label: string,
       assignments: ReadonlyArray<AirShowPhaseAssignment>,
       durationMs: number,
       tracerBursts: ReadonlyArray<AirShowTracerBurst> = [],
-      flakBursts: ReadonlyArray<NonNullable<ResolvedAirShowScene["flakBursts"]>[number]> = []
+      flakBursts: ReadonlyArray<NonNullable<ResolvedAirShowScene["flakBursts"]>[number]> = [],
+      roleTargetSpeeds: ReadonlyMap<AirShowRuntimeActor["role"], number> = this.resolveAirShowRoleSpeedMap()
     ): void => {
       const assignmentsByActorId = this.buildAirShowAssignmentLookup(assignments);
       phases.push({
@@ -1497,6 +1520,17 @@ export class HexMapRenderer implements IMapRenderer {
           };
         })
       });
+      phaseTimingAudit.push(
+        buildAirShowPhaseTimingAudit(
+          label,
+          durationMs,
+          assignments.map((assignment) => ({
+            role: assignment.actor.role,
+            pathLengthPx: this.measureAirShowPathLength(assignment.points)
+          })) satisfies ReadonlyArray<AirShowPhaseTimingSample>,
+          roleTargetSpeeds
+        )
+      );
       this.applyInspectionAirShowAssignments(assignments);
     };
 
@@ -1559,7 +1593,7 @@ export class HexMapRenderer implements IMapRenderer {
       if (ingressAssignments.length > 0) {
         const ingressRoleSpeeds = this.resolveAirShowRoleSpeedMap({
           interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-          escort: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
+          escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
           bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
         });
         // North Star Spec §Speed Model: derive duration from chord/V so fighters run at V
@@ -1579,7 +1613,7 @@ export class HexMapRenderer implements IMapRenderer {
           undefined,
           ingressRoleSpeeds
         );
-        recordPhase("fighter-ingress", spacedIngressAssignments, fighterIngressDurationMs);
+        recordPhase("fighter-ingress", spacedIngressAssignments, fighterIngressDurationMs, [], [], ingressRoleSpeeds);
         updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
       }
 
@@ -1815,7 +1849,9 @@ export class HexMapRenderer implements IMapRenderer {
               beat === 0 ? "escort-clash-merge" : "escort-clash-scramble",
               resolvedPhaseAssignments,
               escortBeatDurationMs,
-              tracerBursts
+              tracerBursts,
+              [],
+              escortClashRoleSpeeds
             );
             updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
           }
@@ -1842,7 +1878,17 @@ export class HexMapRenderer implements IMapRenderer {
             alongPx: 12, lateralPx: 172, alongStepPx: 24, lateralStepPx: 38, jitterAlongPx: 0, jitterLateralPx: 0, arcPx: 15, driftPx: 18
           })
         ];
-        recordPhase("escort-hold", idleAssignments, Math.max(520, Math.round((scene.escortClashDurationMs ?? 1500) * 0.55)));
+        recordPhase(
+          "escort-hold",
+          idleAssignments,
+          Math.max(520, Math.round((scene.escortClashDurationMs ?? 1500) * 0.55)),
+          [],
+          [],
+          this.resolveAirShowRoleSpeedMap({
+            interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
+            escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS
+          })
+        );
         updateFlightAnchors([...interceptorFlights, ...escortFlights]);
       }
 
@@ -1926,7 +1972,13 @@ export class HexMapRenderer implements IMapRenderer {
         recordPhase(
           "bomber-gap",
           bomberGapAssignments,
-          Math.max(180, scene.bomberArrivalDelayMs ?? 0)
+          Math.max(180, scene.bomberArrivalDelayMs ?? 0),
+          [],
+          [],
+          this.resolveAirShowRoleSpeedMap({
+            interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
+            escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS
+          })
         );
         updateFlightAnchors([...survivingInterceptors, ...survivingEscorts]);
       }
@@ -1988,7 +2040,10 @@ export class HexMapRenderer implements IMapRenderer {
         recordPhase(
           "bomber-ingress",
           spacedBomberIngressAssignments,
-          bomberIngressDurationMs
+          bomberIngressDurationMs,
+          [],
+          [],
+          bomberIngressRoleSpeeds
         );
         updateFlightAnchors([...survivingBombers, ...survivingInterceptors, ...survivingEscorts]);
 
@@ -2275,7 +2330,14 @@ export class HexMapRenderer implements IMapRenderer {
             46,
             bomberDefenseRoleSpeeds
           );
-          recordPhase("bomber-defense-pass", spacedPhaseAssignments, bomberPassBeatDurationMs, tracerBursts);
+          recordPhase(
+            "bomber-defense-pass",
+            spacedPhaseAssignments,
+            bomberPassBeatDurationMs,
+            tracerBursts,
+            [],
+            bomberDefenseRoleSpeeds
+          );
           updateFlightAnchors([...survivingBombers, ...interceptorFlights, ...escortFlights]);
 
           survivingBombers.forEach((flight) =>
@@ -2442,7 +2504,7 @@ export class HexMapRenderer implements IMapRenderer {
             );
           }) : [])
         ];
-        const strikeRunTracerBursts = (keepInterceptorsOnTargetRun && !escortsArePresentOnRun) ? postPassInterceptors.flatMap((flight, index) => {
+        const strikeRunTracerBursts = keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight, index) => {
           const assignedRun = bomberTargetRuns[index % bomberTargetRuns.length]!;
           return [
             ...this.buildAirShowDynamicTracerVolley(strikeRunAssignments, flight, assignedRun.bomberFlight, {
@@ -2497,7 +2559,14 @@ export class HexMapRenderer implements IMapRenderer {
           undefined,
           strikeRunRoleSpeeds
         );
-        recordPhase("target-run", finalizedStrikeRunAssignments, strikeRunDurationMs, strikeRunTracerBursts, strikeRunFlakBursts);
+        recordPhase(
+          "target-run",
+          finalizedStrikeRunAssignments,
+          strikeRunDurationMs,
+          strikeRunTracerBursts,
+          strikeRunFlakBursts,
+          strikeRunRoleSpeeds
+        );
         updateFlightAnchors([
           ...postPassBombers,
           ...(keepInterceptorsOnTargetRun ? postPassInterceptors : []),
@@ -2579,7 +2648,7 @@ export class HexMapRenderer implements IMapRenderer {
           undefined,
           egressRoleSpeeds
         );
-        recordPhase("egress", finalizedEgressAssignments, egressDurationMs);
+        recordPhase("egress", finalizedEgressAssignments, egressDurationMs, [], [], egressRoleSpeeds);
       }
 
       return {
@@ -2598,6 +2667,8 @@ export class HexMapRenderer implements IMapRenderer {
           return ph && bh ? (ph.cx + bh.cx) / 2 : null;
         })(),
         bomberTarget: averageBomberTargetCenter ? { cx: averageBomberTargetCenter.cx, cy: averageBomberTargetCenter.cy } : null,
+        originPlan: hqAxis ? buildAirShowInspectionOriginPlan(hqAxis, HexMapRenderer.OFF_MAP_DISTANCE_PX) : null,
+        phaseTimingAudit,
         flights: allFlights.map((flight) => this.describeInspectionAirShowFlight(flight)),
         phases
       };
@@ -2620,12 +2691,11 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const hqAxis = this.resolveHqAxis(scene.playerHqKey, scene.botHqKey);
-    const hardcodedPlayerOrigin = { cx: center.cx + 248, cy: center.cy - 126 };
-    const hardcodedBotOrigin = { cx: center.cx - 248, cy: center.cy + 126 };
+    const mapBounds = hqAxis?.mapBounds ?? this.resolveAirShowMapBounds();
     const fallbackOriginFor = (spec: ResolvedAirShowFlightSpec): AirShowPoint =>
       spec.faction === "Bot"
-        ? (hqAxis?.botOrigin ?? hardcodedBotOrigin)
-        : (hqAxis?.playerOrigin ?? hardcodedPlayerOrigin);
+        ? (hqAxis?.botOrigin ?? resolveAirShowFallbackOrigin(center, "Bot", mapBounds, { offsetPx: HexMapRenderer.OFF_MAP_DISTANCE_PX, hexHeight: HEX_HEIGHT }))
+        : (hqAxis?.playerOrigin ?? resolveAirShowFallbackOrigin(center, spec.faction, mapBounds, { offsetPx: HexMapRenderer.OFF_MAP_DISTANCE_PX, hexHeight: HEX_HEIGHT }));
 
     const defaultHeadingFor = (origin: AirShowPoint): number =>
       this.resolveAircraftHeadingDegrees(center.cx - origin.cx, center.cy - origin.cy);
@@ -2926,7 +2996,7 @@ export class HexMapRenderer implements IMapRenderer {
         debugAirShowPhase("Ingress", { type: "fighters + bombers approaching together" });
         const ingressRoleSpeeds = this.resolveAirShowRoleSpeedMap({
           interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-          escort: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
+          escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
           bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
         });
         // North Star Spec §Speed Model: derive duration from chord/V so fighters run at V
@@ -3891,7 +3961,7 @@ export class HexMapRenderer implements IMapRenderer {
             );
           }) : [])
         ];
-        const strikeRunTracerBursts = (keepInterceptorsOnTargetRun && !escortsArePresentOnRun) ? postPassInterceptors.flatMap((flight, index) => {
+        const strikeRunTracerBursts = keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight, index) => {
           const assignedRun = bomberTargetRuns[index % bomberTargetRuns.length]!;
           return [
             ...this.buildAirShowDynamicTracerVolley(strikeRunAssignments, flight, assignedRun.bomberFlight, {
@@ -7781,32 +7851,30 @@ export class HexMapRenderer implements IMapRenderer {
     return this.extractHexCenter(cell);
   }
 
-  // Halved from 2000 per user feedback — initial spawn locations were unnecessarily far.
-  // Combined with V = 0.115 px/ms this lets fighters cover the full ingress path in a
-  // reasonable time without being forced above V by the phase-duration ceiling.
-  private static readonly OFF_MAP_DISTANCE_PX = 1000;
+  // Airshow origins must sit outside the rendered tile envelope, not merely outside the
+  // current viewBox. We push the HQ-side ray to the tile boundary and then another 500px.
+  private static readonly OFF_MAP_DISTANCE_PX = AIR_SHOW_OFF_MAP_DISTANCE_PX;
+
+  private resolveAirShowMapBounds(): AirShowMapBounds | null {
+    const centers = Array.from(this.hexElementMap.values())
+      .map((cell) => this.extractHexCenter(cell))
+      .filter((center): center is AirShowPoint => !!center);
+    return buildAirShowMapBounds(centers, HEX_WIDTH, HEX_HEIGHT);
+  }
 
   private resolveHqAxis(
     playerHqKey: string | null | undefined,
     botHqKey: string | null | undefined
-  ): { playerOrigin: AirShowPoint; botOrigin: AirShowPoint; axis: { x: number; y: number } } | null {
+  ): AirShowHqAxis | null {
     const playerHq = this.resolveHexCenterByKey(playerHqKey);
     const botHq = this.resolveHexCenterByKey(botHqKey);
-    if (!playerHq || !botHq) {
-      return null;
-    }
-    const axis = this.normalizeAircraftVector(
-      playerHq.cx - botHq.cx,
-      playerHq.cy - botHq.cy,
-      1,
-      0
+    const mapBounds = this.resolveAirShowMapBounds();
+    return resolveAirShowHqAxis(
+      playerHq,
+      botHq,
+      mapBounds,
+      HexMapRenderer.OFF_MAP_DISTANCE_PX
     );
-    const d = HexMapRenderer.OFF_MAP_DISTANCE_PX;
-    return {
-      axis,
-      playerOrigin: { cx: playerHq.cx + axis.x * d, cy: playerHq.cy + axis.y * d },
-      botOrigin: { cx: botHq.cx - axis.x * d, cy: botHq.cy - axis.y * d }
-    };
   }
 
   private buildAirShowRuntimeFlight(
@@ -7904,21 +7972,17 @@ export class HexMapRenderer implements IMapRenderer {
     const lane = total <= 1 ? 0 : index - (total - 1) / 2;
     const rand = this.seededRandom(this.seedFromHexKey(`airshow-anchor:${role}:${index}:${total}:${sideBias}`));
 
-    // Per North Star Spec: aircraft must spawn at least 8 hexes from combat center
-    // HEX_WIDTH ~83px, so 8 hexes = ~664px minimum distance
-    const MINIMUM_SPAWN_DISTANCE_PX = 8 * HEX_WIDTH; // ~665px
+    const MINIMUM_SPAWN_DISTANCE_PX = 500;
 
     if (role === "bomber") {
-      // Bombers spawn further out with slower ingress (3.0s minimum)
-      const bomberDistance = MINIMUM_SPAWN_DISTANCE_PX + rand() * 40;
+      const bomberDistance = MINIMUM_SPAWN_DISTANCE_PX + rand() * 22;
       return {
         cx: center.cx + sideBias * bomberDistance,
         cy: center.cy + lane * 32 + (rand() - 0.5) * 24
       };
     }
 
-    // Fighters/escorts spawn at 8+ hex distance with faster ingress (1.25s minimum)
-    const fighterDistance = MINIMUM_SPAWN_DISTANCE_PX + rand() * 32;
+    const fighterDistance = MINIMUM_SPAWN_DISTANCE_PX + rand() * 20;
     const xBase = role === "interceptor" ? -fighterDistance : fighterDistance;
     const laneSpread = 48;
     return {
@@ -7941,13 +8005,12 @@ export class HexMapRenderer implements IMapRenderer {
         `airshow-corridor-anchor:${role}:${index}:${total}:${safeAlongSign}:${Math.round(corridor.center.cx)}:${Math.round(corridor.center.cy)}`
       )
     );
-    const minimumSpawnDistancePx = 8 * HEX_WIDTH;
     const alongMagnitudePx =
       role === "interceptor"
-        ? minimumSpawnDistancePx + 88 + rand() * 28
+        ? 500 + rand() * 20
         : role === "escort"
-          ? minimumSpawnDistancePx + 18 + rand() * 22
-          : minimumSpawnDistancePx + 48 + rand() * 30;
+          ? 500 + rand() * 16
+          : 500 + rand() * 22;
     const lateralStepPx =
       role === "interceptor"
         ? 72
@@ -8294,6 +8357,22 @@ export class HexMapRenderer implements IMapRenderer {
       cx: corridor.center.cx + corridor.axis.x * alongPx + corridor.normal.x * lateralPx,
       cy: corridor.center.cy + corridor.axis.y * alongPx + corridor.normal.y * lateralPx
     };
+  }
+
+  private clampAirShowHqOriginToCorridorDistance(
+    corridor: AirShowCorridor,
+    hqOrigin: AirShowPoint,
+    maxAlongPx: number,
+    minAlongPx = 440
+  ): AirShowPoint {
+    const coords = this.resolveAirShowCorridorCoordinates(corridor, hqOrigin);
+    const absAlong = Math.abs(coords.alongPx);
+    const sign = Math.sign(coords.alongPx) || 1;
+    const clampedAlong = this.clamp(absAlong, minAlongPx, maxAlongPx);
+    if (clampedAlong === absAlong) {
+      return hqOrigin;
+    }
+    return this.projectAirShowCorridorPoint(corridor, sign * clampedAlong, coords.lateralPx);
   }
 
   private resolveAirShowCorridorCoordinates(
@@ -10075,7 +10154,7 @@ export class HexMapRenderer implements IMapRenderer {
     }
     if (sceneKind === "airToAir" && role === "escort") {
       return {
-        alongPx: 156,
+        alongPx: 300,
         lateralPx: 176,
         alongStepPx: 24,
         lateralStepPx: 42,
@@ -10100,7 +10179,7 @@ export class HexMapRenderer implements IMapRenderer {
       };
     }
     return {
-      alongPx: 136,
+      alongPx: 252,
       lateralPx: 158,
       alongStepPx: 30,
       lateralStepPx: 54,
@@ -10170,43 +10249,15 @@ export class HexMapRenderer implements IMapRenderer {
     const currentProjection = this.resolveAirShowCorridorCoordinates(corridor, current);
     const alongSign = Math.abs(currentProjection.alongPx) > 6 ? (currentProjection.alongPx >= 0 ? 1 : -1) : 1;
     const currentAbsAlong = Math.abs(currentProjection.alongPx);
-    const targetAbsAlong =
-      sceneKind === "airToAir"
-        ? (() => {
-            // North Star Spec §Speed Model: during the shared ingress the bombers must read
-            // as half-speed relative to the fighters. With fighter hold ~140px from corridor
-            // center and spawn ~1100px off-map, the fighter chord is ~960px; keeping the
-            // bomber chord ~half that (bomber holds ~620px from center) lets a single phase
-            // duration hit V and V/2 simultaneously without exceeding the chord-length floor
-            // inside `retargetAirShowAssignmentPathLength`.
-            const trailingFloorPx = 620;
-            const cappedAdvancePx = this.clamp(currentAbsAlong * 0.1, 18, 32);
-            if (currentAbsAlong > trailingFloorPx) {
-              return Math.max(trailingFloorPx, currentAbsAlong - cappedAdvancePx);
-            }
-            return Math.max(560, currentAbsAlong - 12);
-          })()
-        : (() => {
-            const bandAbsAlong = Math.abs(plan.alongPx);
-            return currentAbsAlong > bandAbsAlong
-              ? Math.max(bandAbsAlong, currentAbsAlong - 118)
-              : Math.max(156, currentAbsAlong - 72);
-          })();
-    let targetLateralPx = laneIndex * 64 + jitterLateralPx;
-    if (bomberCount <= 1) {
-      const lateralBias =
-        Math.abs(currentProjection.lateralPx) > 24
-          ? -Math.sign(currentProjection.lateralPx) * 84
-          : alongSign * 84;
-      targetLateralPx =
-        Math.abs(targetLateralPx - currentProjection.lateralPx) < 56
-          ? currentProjection.lateralPx + lateralBias
-          : targetLateralPx + lateralBias * 0.45;
-    }
-    // The bomber hold for airToAir packages trails the fighter clash by ~620px along
-    // the corridor. The default ±430 horizontal clamp cut that back to ±430, reducing
-    // the bomber chord to fighter-chord length and collapsing the V/V/2 speed ratio.
-    // Relax the clamp so the bomber can actually hold at the trailing floor.
+    // Interceptors: spawn at -spawnPx, hold at -holdPx → chord = spawnPx - holdPx.
+    // Bombers: spawn at +spawnPx, target path = interceptorChord × (V_bomber/V_fighter).
+    // Bomber hold = spawnPx - targetPath, ensuring bomber chord ≤ targetPath for V/2 speed.
+    const SPEED_RATIO = HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS / HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS;
+    const interceptorHoldPx = sceneKind === "airToAir" ? 140 : 104;
+    const interceptorChordPx = currentAbsAlong - interceptorHoldPx;
+    const bomberTargetPathPx = Math.max(interceptorChordPx * SPEED_RATIO, 60);
+    const targetAbsAlong = Math.max(currentAbsAlong - bomberTargetPathPx, interceptorHoldPx);
+    const targetLateralPx = laneIndex * 48 + jitterLateralPx;
     return this.clampPointToViewportBounds(
       this.projectAirShowCorridorPoint(
         corridor,
@@ -10214,7 +10265,7 @@ export class HexMapRenderer implements IMapRenderer {
         targetLateralPx
       ),
       corridor.center,
-      820,
+      430,
       300
     );
   }
@@ -10225,8 +10276,12 @@ export class HexMapRenderer implements IMapRenderer {
     beat: number,
     laneIndex: number
   ): AirShowPoint {
-    const mergeAlongPx = 0;
-    const scrambleAlongPx = role === "interceptor" ? 12 : 4;
+    const strikeProjection = this.resolveAirShowCorridorCoordinates(corridor, corridor.strike);
+    const strikeAlongPx = Math.abs(strikeProjection.alongPx);
+    const interceptorSideSign = strikeProjection.alongPx >= 0 ? -1 : 1;
+    const mergeAlongPx = interceptorSideSign * this.clamp(strikeAlongPx * 0.28, 40, 220);
+    const scrambleOffset = interceptorSideSign * this.clamp(strikeAlongPx * 0.06, 8, 48);
+    const scrambleAlongPx = mergeAlongPx + (role === "interceptor" ? scrambleOffset : -scrambleOffset * 0.4);
     const roleLateralPx = beat === 0 ? 0 : role === "interceptor" ? -26 : 26;
     const laneLateralPx = laneIndex * (beat === 0 ? 64 : 44);
     return this.clampPointToViewportBounds(
