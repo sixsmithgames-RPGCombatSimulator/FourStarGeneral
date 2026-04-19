@@ -11,6 +11,8 @@ import type {
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem.js";
 import {
   HexMapRenderer,
+  type AirShowInspectionFlight,
+  type AirShowInspectionFlightActor,
   type AirShowInspectionReport,
   type ResolvedAirShowFlightSpec,
   type ResolvedAirShowScene
@@ -2577,6 +2579,96 @@ export function runAirScenario(): AirScenarioResult {
 export function formatAirScenarioReport(result: AirScenarioResult): string {
   const formatPoint = (point: { readonly cx: number; readonly cy: number } | undefined): string =>
     point ? `(${Math.round(point.cx)},${Math.round(point.cy)})` : "(n/a)";
+  const formatHeading = (headingDegrees: number | undefined): string =>
+    typeof headingDegrees === "number" && Number.isFinite(headingDegrees)
+      ? `${Math.round(headingDegrees)}deg`
+      : "n/a";
+  const formatPxPer100Ms = (speedPxPer100Ms: number | undefined): string =>
+    typeof speedPxPer100Ms === "number" && Number.isFinite(speedPxPer100Ms)
+      ? `${speedPxPer100Ms.toFixed(1)}px/100ms`
+      : "n/a";
+  const describeSpeedWindow = (
+    sampledPositions: readonly {
+      readonly timeMs: number;
+      readonly cx: number;
+      readonly cy: number;
+    }[]
+  ): {
+    readonly minPxPer100Ms: number;
+    readonly meanPxPer100Ms: number;
+    readonly maxPxPer100Ms: number;
+  } | null => {
+    const segmentSpeeds = sampledPositions
+      .slice(1)
+      .map((sample, index) => {
+        const previous = sampledPositions[index];
+        if (!previous) {
+          return null;
+        }
+        const dt = sample.timeMs - previous.timeMs;
+        if (dt <= 0) {
+          return null;
+        }
+        const distancePx = Math.hypot(sample.cx - previous.cx, sample.cy - previous.cy);
+        return (distancePx / dt) * 100;
+      })
+      .filter((speed): speed is number => typeof speed === "number" && Number.isFinite(speed));
+    if (segmentSpeeds.length <= 0) {
+      return null;
+    }
+    return {
+      minPxPer100Ms: Math.min(...segmentSpeeds),
+      meanPxPer100Ms: segmentSpeeds.reduce((sum, speed) => sum + speed, 0) / segmentSpeeds.length,
+      maxPxPer100Ms: Math.max(...segmentSpeeds)
+    };
+  };
+  const describeSampleTrack = (
+    sampledPositions: readonly {
+      readonly timeMs: number;
+      readonly progress: number;
+      readonly cx: number;
+      readonly cy: number;
+      readonly headingDegrees: number;
+    }[]
+  ): string =>
+    sampledPositions
+      .map((sample, index) => {
+        const previous = index > 0 ? sampledPositions[index - 1] : null;
+        const speedLabel = previous
+          ? (() => {
+              const dt = sample.timeMs - previous.timeMs;
+              if (dt <= 0) {
+                return "spd=n/a";
+              }
+              const distancePx = Math.hypot(sample.cx - previous.cx, sample.cy - previous.cy);
+              return `spd=${formatPxPer100Ms((distancePx / dt) * 100)}`;
+            })()
+          : "spd=start";
+        return `t=${sample.timeMs}ms p=${sample.progress.toFixed(2)} pos=(${Math.round(sample.cx)},${Math.round(sample.cy)}) hdg=${formatHeading(sample.headingDegrees)} ${speedLabel}`;
+      })
+      .join(" | ");
+  const describeActor = (
+    inspectionReport: AirShowInspectionReport,
+    assignment: AirShowInspectionReport["phases"][number]["assignments"][number]
+  ): string => {
+    const flight = inspectionReport.flights.find((entry) => entry.id === assignment.flightId);
+    const actor = flight?.actors.find((entry) => entry.actorId === assignment.actorId);
+    const speedWindow = describeSpeedWindow(assignment.sampledPositions);
+    const roleLabel = flight?.combatRole ? `${assignment.role}/${flight.combatRole}` : assignment.role;
+    return [
+      `${assignment.actorId}`,
+      `${flight?.faction ?? "Unknown"}`,
+      `${flight?.scenarioType ?? assignment.role}`,
+      `${roleLabel}`,
+      `flight=${assignment.flightId}`,
+      actor ? `anchor=${formatPoint(actor.position)} ${formatHeading(actor.headingDegrees)}` : null,
+      speedWindow
+        ? `speed[min/mean/max]=${formatPxPer100Ms(speedWindow.minPxPer100Ms)}/${formatPxPer100Ms(speedWindow.meanPxPer100Ms)}/${formatPxPer100Ms(speedWindow.maxPxPer100Ms)}`
+        : null
+    ]
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
+      .join(" ");
+  };
   const lines: string[] = [];
   lines.push(`Scenario: ${result.scenarioName}`);
   lines.push(`Mission arrivals: ${result.arrivals.length}`);
@@ -2670,6 +2762,23 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
       lines.push(
         `- coordinated cluster #${plan.clusterIndex + 1} focus=${plan.focusKey ?? "<none>"} center=(${Math.round(report.center.cx)},${Math.round(report.center.cy)}) phases=${report.phases.length} sorties=${plan.strikeSortieMissionIds.join("|") || "<none>"}`
       );
+      if (report.flights.length > 0) {
+        lines.push("  flight roster:");
+        report.flights.forEach((flight) => {
+          const activeActors = flight.actors.filter((actor) => actor.active);
+          const actorSummary = flight.actors
+            .map((actor) =>
+              `${actor.actorId}@${formatPoint(actor.position)} ${formatHeading(actor.headingDegrees)} ${actor.active ? "active" : "inactive"}`
+            )
+            .join(" | ");
+          lines.push(
+            `    ${flight.id} ${flight.faction ?? "Unknown"} ${flight.scenarioType} ${flight.role}/${flight.combatRole ?? "unknown"} ` +
+            `strength=${flight.strengthBefore}->${flight.strengthAfterEscortPhase ?? flight.strengthBefore}->${flight.finalStrength ?? flight.strengthBefore} ` +
+            `actors=${flight.actors.length} active=${activeActors.length} origin=${flight.originHexKey ?? "<none>"}`
+          );
+          lines.push(`      ${actorSummary}`);
+        });
+      }
       report.phases.forEach((phase) => {
         const metrics = plan.scenePhaseMetrics.find((entry) => entry.label === phase.label);
         lines.push(
@@ -2702,14 +2811,16 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
             `closestMid=${Math.round(relation.minMidPairSeparationPx)} angle=${Math.round(relation.approachAngleDeg)}`
           );
         });
-        phase.assignments.slice(0, 8).forEach((assignment) => {
+        phase.assignments.forEach((assignment) => {
           const compactPoints = sampleInspectionPath(assignment.points, 7)
             .map((sample) => sample.point)
             .map((point) => `(${Math.round(point.cx)},${Math.round(point.cy)})`)
             .join(" -> ");
-          lines.push(`    ${assignment.actorId}: ${compactPoints}`);
+          lines.push(`    actor ${describeActor(report, assignment)}`);
+          lines.push(`      authoredPath=${compactPoints}`);
+          lines.push(`      samples=${describeSampleTrack(assignment.sampledPositions)}`);
         });
-        metrics?.tracerMetrics.slice(0, 6).forEach((tracer) => {
+        metrics?.tracerMetrics.forEach((tracer) => {
           const fanLabel =
             tracer.leftFanEndPoint && tracer.rightFanEndPoint
               ? ` fan=${formatPoint(tracer.leftFanEndPoint)} | ${formatPoint(tracer.centerlineEndPoint)} | ${formatPoint(tracer.rightFanEndPoint)}`
@@ -2724,11 +2835,17 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
             (typeof tracer.targetRangePx === "number" ? ` range=${Math.round(tracer.targetRangePx)}` : "")
           );
         });
-        metrics?.flakMetrics.slice(0, 6).forEach((flak) => {
+        phase.flakBursts.forEach((flak, index) => {
+          const metric = metrics?.flakMetrics[index];
           lines.push(
-            `    flak ${Math.round(flak.progress * 100)}% center=${formatPoint(flak.burstCenter)} ` +
+            `    flak ${Math.round(flak.progress * 100)}% bomber=${flak.bomberUnitKey ?? "<none>"} targetHex=${flak.targetHexKey ?? "<none>"} ` +
+            `target=${formatPoint(flak.targetCenter)} source=${flak.targetSource} center=${formatPoint(flak.burstCenter)} ` +
             `flash/puffs=${flak.flashCount}/${flak.puffCount}/${flak.smokePuffCount} ` +
-            `belt=${Math.round(flak.widthPx)}x${Math.round(flak.heightPx)}`
+            `belt=${Math.round(flak.widthPx)}x${Math.round(flak.heightPx)}` +
+            (metric ? ` metricBelt=${Math.round(metric.widthPx)}x${Math.round(metric.heightPx)}` : "")
+          );
+          lines.push(
+            `      points=${flak.points.map((point) => formatPoint(point)).join(" | ")}`
           );
         });
       });
@@ -2850,6 +2967,282 @@ export function formatAirScenarioReport(result: AirScenarioResult): string {
   } else {
     lines.push("Anomalies:");
     lines.push("- none");
+  }
+  return lines.join("\n");
+}
+
+export interface AirScenarioDiagnosticTextFile {
+  readonly relativePath: string;
+  readonly content: string;
+}
+
+type AirScenarioDiagnosticAnimation = {
+  readonly id: string;
+  readonly title: string;
+  readonly category: "coordinated" | "inspection";
+  readonly report: AirShowInspectionReport;
+  readonly phaseMetrics: readonly AirShowPhaseMetric[];
+  readonly findings: readonly AirScenarioFinding[];
+  readonly metadata: readonly string[];
+};
+
+function sanitizeDiagnosticFileSegment(value: string): string {
+  return value
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase()
+    || "unnamed";
+}
+
+function formatSceneTimeMs(value: number): string {
+  return `${Math.round(value).toString().padStart(5, "0")}ms`;
+}
+
+function describeSampleSpeedPxPer100Ms(
+  current: { readonly timeMs: number; readonly cx: number; readonly cy: number },
+  previous: { readonly timeMs: number; readonly cx: number; readonly cy: number } | null
+): string {
+  if (!previous) {
+    return "start";
+  }
+  const dt = current.timeMs - previous.timeMs;
+  if (dt <= 0) {
+    return "n/a";
+  }
+  const distancePx = Math.hypot(current.cx - previous.cx, current.cy - previous.cy);
+  return `${((distancePx / dt) * 100).toFixed(1)}px/100ms`;
+}
+
+function collectAirScenarioDiagnosticAnimations(result: AirScenarioResult): AirScenarioDiagnosticAnimation[] {
+  const animations: AirScenarioDiagnosticAnimation[] = [];
+
+  result.playbackProjection.coordinatedPlans.forEach((plan, index) => {
+    if (!plan.sceneReport) {
+      return;
+    }
+    animations.push({
+      id: `animation-${String(animations.length + 1).padStart(3, "0")}`,
+      title: `coordinated-cluster-${index + 1}-${sanitizeDiagnosticFileSegment(plan.focusKey ?? "none")}`,
+      category: "coordinated",
+      report: plan.sceneReport,
+      phaseMetrics: plan.scenePhaseMetrics,
+      findings: plan.sceneFindings,
+      metadata: [
+        `focus=${plan.focusKey ?? "<none>"}`,
+        `coveredMissionIds=${plan.coveredMissionIds.join("|") || "<none>"}`,
+        `strikeSorties=${plan.strikeSortieMissionIds.join("|") || "<none>"}`,
+        `fighterScene=${plan.hasFighterScene}`,
+        `fighterSceneDurationMs=${plan.fighterSceneDurationMs}`,
+        `bomberStartDelayMs=${plan.bomberStartDelayMs}`,
+        `fighterIngressLeadMs=${plan.fighterIngressLeadMs}`,
+        `tracers=${plan.fighterSceneTracerCount}`,
+        `flakBursts=${plan.fighterSceneFlakBurstCount}`
+      ]
+    });
+  });
+
+  result.airshowInspections.forEach((inspection, index) => {
+    animations.push({
+      id: `animation-${String(animations.length + 1).padStart(3, "0")}`,
+      title: `${inspection.eventType}-${sanitizeDiagnosticFileSegment(inspection.missionId ?? `inspection-${index + 1}`)}`,
+      category: "inspection",
+      report: inspection.report,
+      phaseMetrics: inspection.phaseMetrics,
+      findings: inspection.findings,
+      metadata: [
+        `eventType=${inspection.eventType}`,
+        `missionId=${inspection.missionId ?? "<none>"}`,
+        `bomberIncluded=${inspection.diagnostics.bomberIncluded}`,
+        `linkedEscortUnitKeys=${inspection.diagnostics.linkedEscortUnitKeys.join("|") || "<none>"}`,
+        `eventEscortUnitKeys=${inspection.diagnostics.eventEscortUnitKeys.join("|") || "<none>"}`,
+        `unresolvedOrigins=${inspection.diagnostics.unresolvedOriginUnitKeys.join("|") || "<none>"}`
+      ]
+    });
+  });
+
+  return animations;
+}
+
+function buildAirScenarioAnimationIndexText(animation: AirScenarioDiagnosticAnimation): string {
+  const phaseStartTimes = animation.report.phases.reduce<number[]>((starts, phase, index) => {
+    if (index === 0) {
+      starts.push(0);
+      return starts;
+    }
+    starts.push((starts[index - 1] ?? 0) + animation.report.phases[index - 1]!.durationMs);
+    return starts;
+  }, []);
+  const lines: string[] = [];
+  lines.push(`Animation: ${animation.id}`);
+  lines.push(`Title: ${animation.title}`);
+  lines.push(`Category: ${animation.category}`);
+  lines.push(`Hex: ${animation.report.hexKey}`);
+  lines.push(`Center: (${Math.round(animation.report.center.cx)},${Math.round(animation.report.center.cy)})`);
+  lines.push(`BomberTarget: ${animation.report.bomberTarget ? `(${Math.round(animation.report.bomberTarget.cx)},${Math.round(animation.report.bomberTarget.cy)})` : "<none>"}`);
+  lines.push(`Flights: ${animation.report.flights.length}`);
+  lines.push(`Phases: ${animation.report.phases.length}`);
+  lines.push(`Metadata:`);
+  animation.metadata.forEach((entry) => lines.push(`- ${entry}`));
+  lines.push(`Findings:`);
+  if (animation.findings.length > 0) {
+    animation.findings.forEach((finding) => lines.push(`- [${finding.code}] ${finding.message}`));
+  } else {
+    lines.push(`- none`);
+  }
+  lines.push(`Phase Timeline:`);
+  animation.report.phases.forEach((phase, index) => {
+    const startMs = phaseStartTimes[index] ?? 0;
+    const endMs = startMs + phase.durationMs;
+    const metric = animation.phaseMetrics[index];
+    lines.push(
+      `- ${phase.label} sceneT=${formatSceneTimeMs(startMs)}..${formatSceneTimeMs(endMs)} duration=${phase.durationMs}ms ` +
+      `assignments=${phase.assignments.length} tracers=${phase.tracers.length} flak=${phase.flakBursts.length}` +
+      (metric
+        ? ` speed=${Math.round(metric.meanSpeedPxPerSec)}px/s path=${Math.round(metric.meanPathLengthPx)} disp=${Math.round(metric.meanDisplacementPx)}`
+        : "")
+    );
+    phase.tracers.forEach((tracer, tracerIndex) => {
+      const sceneTimeMs = startMs + phase.durationMs * tracer.progress;
+      lines.push(
+        `  tracer#${tracerIndex + 1} sceneT=${formatSceneTimeMs(sceneTimeMs)} src=${tracer.sourceActorId} ` +
+        `target=${tracer.targetActorId ?? "<point>"} emit=${tracer.emitter} ` +
+        `emitPos=(${Math.round(tracer.emitterPoint.cx)},${Math.round(tracer.emitterPoint.cy)}) ` +
+        `heading=${Math.round(tracer.sourceHeadingDegrees)}deg len=${Math.round(tracer.streakLengthPx)} vis=${Math.round(tracer.visibleLengthPx)}`
+      );
+    });
+    phase.flakBursts.forEach((flak, flakIndex) => {
+      const sceneTimeMs = startMs + phase.durationMs * flak.progress;
+      lines.push(
+        `  flak#${flakIndex + 1} sceneT=${formatSceneTimeMs(sceneTimeMs)} bomber=${flak.bomberUnitKey ?? "<none>"} ` +
+        `targetHex=${flak.targetHexKey ?? "<none>"} target=(${Math.round(flak.targetCenter.cx)},${Math.round(flak.targetCenter.cy)}) ` +
+        `source=${flak.targetSource} center=(${Math.round(flak.burstCenter.cx)},${Math.round(flak.burstCenter.cy)}) ` +
+        `flash/puffs=${flak.flashCount}/${flak.puffCount}/${flak.smokePuffCount}`
+      );
+    });
+  });
+  lines.push(`Sprite Files:`);
+  animation.report.flights.forEach((flight) => {
+    flight.actors.forEach((actor) => {
+      lines.push(
+        `- sprites/${animation.id}__${sanitizeDiagnosticFileSegment(actor.actorId)}.txt :: ${actor.actorId} ${flight.faction ?? "Unknown"} ${flight.scenarioType} ${flight.role}/${flight.combatRole ?? "unknown"}`
+      );
+    });
+  });
+  return lines.join("\n");
+}
+
+function buildAirScenarioSpriteTimelineText(
+  animation: AirScenarioDiagnosticAnimation,
+  flight: AirShowInspectionFlight,
+  actor: AirShowInspectionFlightActor
+): string {
+  const phaseStartTimes = animation.report.phases.reduce<number[]>((starts, phase, index) => {
+    if (index === 0) {
+      starts.push(0);
+      return starts;
+    }
+    starts.push((starts[index - 1] ?? 0) + animation.report.phases[index - 1]!.durationMs);
+    return starts;
+  }, []);
+  const lines: string[] = [];
+  lines.push(`Animation: ${animation.id}`);
+  lines.push(`Title: ${animation.title}`);
+  lines.push(`Sprite: ${actor.actorId}`);
+  lines.push(`Flight: ${flight.id}`);
+  lines.push(`Faction: ${flight.faction ?? "Unknown"}`);
+  lines.push(`Type: ${flight.scenarioType}`);
+  lines.push(`Role: ${flight.role}/${flight.combatRole ?? "unknown"}`);
+  lines.push(`OriginHex: ${flight.originHexKey ?? "<none>"}`);
+  lines.push(`InitialAnchor: (${Math.round(actor.position.cx)},${Math.round(actor.position.cy)}) heading=${Math.round(actor.headingDegrees)}deg active=${actor.active}`);
+  lines.push(`Strength: ${flight.strengthBefore}->${flight.strengthAfterEscortPhase ?? flight.strengthBefore}->${flight.finalStrength ?? flight.strengthBefore}`);
+  lines.push(`Timeline:`);
+
+  animation.report.phases.forEach((phase, phaseIndex) => {
+    const assignment = phase.assignments.find((entry) => entry.actorId === actor.actorId);
+    if (!assignment) {
+      return;
+    }
+    const phaseStartMs = phaseStartTimes[phaseIndex] ?? 0;
+    lines.push(`- phase=${phase.label} sceneT=${formatSceneTimeMs(phaseStartMs)}..${formatSceneTimeMs(phaseStartMs + phase.durationMs)} duration=${phase.durationMs}ms`);
+    assignment.sampledPositions.forEach((sample, sampleIndex) => {
+      const previous = sampleIndex > 0 ? assignment.sampledPositions[sampleIndex - 1] ?? null : null;
+      const sceneTimeMs = phaseStartMs + sample.timeMs;
+      lines.push(
+        `  sceneT=${formatSceneTimeMs(sceneTimeMs)} phaseT=${formatSceneTimeMs(sample.timeMs)} progress=${sample.progress.toFixed(2)} ` +
+        `pos=(${Math.round(sample.cx)},${Math.round(sample.cy)}) heading=${Math.round(sample.headingDegrees)}deg ` +
+        `speed=${describeSampleSpeedPxPer100Ms(sample, previous)}`
+      );
+    });
+  });
+
+  return lines.join("\n");
+}
+
+export function buildAirScenarioDiagnosticTextFiles(result: AirScenarioResult): readonly AirScenarioDiagnosticTextFile[] {
+  const animations = collectAirScenarioDiagnosticAnimations(result);
+  const files: AirScenarioDiagnosticTextFile[] = [];
+  const indexLines: string[] = [];
+  indexLines.push(`Scenario: ${result.scenarioName}`);
+  indexLines.push(`Animations: ${animations.length}`);
+  indexLines.push(`Findings: ${result.findings.length}`);
+  indexLines.push(`Anomalies: ${result.anomalies.length}`);
+  indexLines.push(`Bundle Layout:`);
+  indexLines.push(`- summary.txt`);
+  indexLines.push(`- animations/<animation>.txt`);
+  indexLines.push(`- sprites/<animation>__<sprite>.txt`);
+  indexLines.push(``);
+  indexLines.push(`Animations:`);
+
+  animations.forEach((animation) => {
+    const animationFile = `animations/${animation.id}__${sanitizeDiagnosticFileSegment(animation.title)}.txt`;
+    indexLines.push(
+      `- ${animationFile} :: phases=${animation.report.phases.length} sprites=${animation.report.flights.reduce((sum, flight) => sum + flight.actors.length, 0)} findings=${animation.findings.length}`
+    );
+    files.push({
+      relativePath: animationFile,
+      content: buildAirScenarioAnimationIndexText(animation)
+    });
+
+    animation.report.flights.forEach((flight) => {
+      flight.actors.forEach((actor) => {
+        files.push({
+          relativePath: `sprites/${animation.id}__${sanitizeDiagnosticFileSegment(actor.actorId)}.txt`,
+          content: buildAirScenarioSpriteTimelineText(animation, flight, actor)
+        });
+      });
+    });
+  });
+
+  files.unshift({
+    relativePath: "index.txt",
+    content: indexLines.join("\n")
+  });
+
+  return files;
+}
+
+export function formatAirScenarioSummary(result: AirScenarioResult): string {
+  const animations = collectAirScenarioDiagnosticAnimations(result);
+  const lines: string[] = [];
+  lines.push(`Scenario: ${result.scenarioName}`);
+  lines.push(`Mission arrivals: ${result.arrivals.length}`);
+  lines.push(`Mission reports: ${result.missionReports.length}`);
+  lines.push(`Engagement events: ${result.engagements.length}`);
+  lines.push(`Diagnostic animations: ${animations.length}`);
+  lines.push(`Per-animation files: diagnostics/air-scenario/<timestamp>/animations/`);
+  lines.push(`Per-sprite files: diagnostics/air-scenario/<timestamp>/sprites/`);
+  lines.push(``);
+  lines.push(`Findings:`);
+  if (result.findings.length > 0) {
+    result.findings.forEach((finding) => lines.push(`- [${finding.code}] ${finding.message}`));
+  } else {
+    lines.push(`- none`);
+  }
+  if (result.anomalies.length > 0) {
+    lines.push(``);
+    lines.push(`Anomalies:`);
+    result.anomalies.forEach((anomaly) => lines.push(`- [${anomaly.code}] ${anomaly.message}`));
   }
   return lines.join("\n");
 }

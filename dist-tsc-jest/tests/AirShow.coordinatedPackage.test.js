@@ -45,6 +45,25 @@ registerTest("AIR_SHOW_COORDINATED_PACKAGE_NORTH_STAR", async ({ Given, When, Th
         if (jerkyBomberPhases.length > 0) {
             throw new Error(`Coordinated bomber phases still enter too sharply:\n${jerkyBomberPhases.map((metric) => `- ${metric.label}: ${Math.round(metric.meanFirstWaypointTurnAngleDeg)}/${Math.round(metric.maxFirstWaypointTurnAngleDeg)} deg`).join("\n")}`);
         }
+        const strikeGroupViolations = bomberPhases.flatMap((metric) => {
+            const strikeGroup = metric.groupMetrics.find((group) => group.combatRole === "strike");
+            if (!strikeGroup) {
+                return [`${metric.label}: missing strike group metrics`];
+            }
+            const violations = [];
+            const meanSpeedPxPerMs = strikeGroup.meanSpeedPxPerSec / 1000;
+            if (meanSpeedPxPerMs < 0.054 || meanSpeedPxPerMs > 0.066) {
+                violations.push(`${metric.label}: strike speed ${meanSpeedPxPerMs.toFixed(3)} px/ms outside bomber band`);
+            }
+            const minimumEfficiency = metric.label === "bomber-defense-pass" ? 0.68 : 0.9;
+            if (strikeGroup.meanEfficiency < minimumEfficiency) {
+                violations.push(`${metric.label}: strike efficiency ${(strikeGroup.meanEfficiency * 100).toFixed(0)}% below ${(minimumEfficiency * 100).toFixed(0)}%`);
+            }
+            return violations;
+        });
+        if (strikeGroupViolations.length > 0) {
+            throw new Error(`Coordinated bomber choreography still loiters or stretches paths too much:\n${strikeGroupViolations.map((message) => `- ${message}`).join("\n")}`);
+        }
         const clashPhases = coordinatedPlan.scenePhaseMetrics.filter((metric) => metric.label.includes("clash"));
         if (clashPhases.length < 2 || clashPhases.some((metric) => metric.tracerCount <= 0)) {
             throw new Error(`Expected both fighter clash beats to paint tracer bursts, saw:\n${clashPhases.map((metric) => `- ${metric.label}: tracers=${metric.tracerCount}`).join("\n")}`);

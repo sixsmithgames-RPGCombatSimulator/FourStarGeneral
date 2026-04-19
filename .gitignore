@@ -22,3 +22,9 @@ npm-debug.log*
 
 # Misc
 nul
+
+# Airshow test results
+airshow-*.txt
+test-results/airshow-*/
+diagnostics/air-scenario/
+**/animation-*.txt

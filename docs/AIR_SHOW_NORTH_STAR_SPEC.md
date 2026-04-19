@@ -47,8 +47,8 @@ Once converted, **ALL** movement, timing, spacing, and collision operate exclusi
 ### 3. Speed Model
 
 **Base Speeds**
-- Fighter speed = V
-- Bomber speed = V / 2
+- Fighter speed = V = 11.5 px/100ms
+- Bomber speed = V / 2 = 5.75 px/100ms
 
 **Behavior**
 - **Initial Ingress**: Bombers at V/2, Escorts at V/2 (matching bombers), CAP at V

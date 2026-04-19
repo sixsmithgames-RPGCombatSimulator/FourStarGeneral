@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-function makeChoreographyTests(describeLabel, testUrl, setupTimeoutMs = 15000, testTimeoutMs = 30000) {
+function makeChoreographyTests(describeLabel, testUrl, setupTimeoutMs = 15000, testTimeoutMs = 45000) {
     test.describe(describeLabel, () => {
         test.beforeEach(async ({ page }) => {
             await page.goto(testUrl);
@@ -109,12 +109,14 @@ function makeChoreographyTests(describeLabel, testUrl, setupTimeoutMs = 15000, t
                 }
             }
             // ── Invariant 6: egress — interceptors exit toward bot side, escorts toward player side.
-            // Aircraft start near corridor center and take ~400ms to cross the HQ midpoint.
-            // Skip the first 400ms of egress to allow travel time before checking position.
+            // Aircraft start near corridor center. With spec-correct V=11.5 px/100ms the egress
+            // phase spans ~15s and fighters need ~1.5-2s to cross the HQ midpoint, so the
+            // direction check must skip the launch transient rather than check the instant
+            // egress begins.
             const EGRESS_MARGIN_PX = 30;
             const egressSamples = timeline.filter(s => s.phaseLabel === "egress");
             const egressStartMs = egressSamples[0]?.elapsedMs ?? 0;
-            for (const s of egressSamples.filter(s => s.elapsedMs >= egressStartMs + 400)) {
+            for (const s of egressSamples.filter(s => s.elapsedMs >= egressStartMs + 2500)) {
                 const ints = s.actors.filter(a => a.active && a.role === "interceptor");
                 const escs = s.actors.filter(a => a.active && a.role === "escort");
                 for (const a of ints) {
@@ -133,6 +135,15 @@ function makeChoreographyTests(describeLabel, testUrl, setupTimeoutMs = 15000, t
         // Each section measures a specific spec requirement and reports what was observed.
         test("open bug diagnostics — measure and report remaining spec violations", async ({ page }) => {
             test.setTimeout(testTimeoutMs);
+            // Capture renderer logs for flak, explosions, bomb release, dust clouds so the diagnostic
+            // test can answer: did flak animations fire? did ordnance explosions paint?
+            const rendererLogs = [];
+            page.on("console", (msg) => {
+                const text = msg.text();
+                if (/flak|explosion|dust|bomb.?release|playCombatAnimation START|Target-run flak plan|AirSprite|playDustCloud|playExplosion/i.test(text)) {
+                    rendererLogs.push(text);
+                }
+            });
             const { phaseLabels } = await page.evaluate(async () => {
                 const h = window.__FSG_AIRSHOW_E2E__;
                 if (!h)
@@ -480,6 +491,31 @@ function makeChoreographyTests(describeLabel, testUrl, setupTimeoutMs = 15000, t
             }
             else {
                 findings.push("  Could not find target-run and egress phases");
+            }
+            // ── BUG 7 (OPEN): Flak / ordnance animation painting
+            // Spec §Scenario 5 Phase 6 (Flak 0.80 → 1.00) and Phase 7 (Bomb release at turnProgress 0.50)
+            // User reported: no flak animations painted; no ordnance explosion animations painted.
+            findings.push("\n=== BUG 7 (OPEN): Flak / ordnance animation painting ===");
+            const flakPlanLogs = rendererLogs.filter((line) => /Target-run flak plan/i.test(line));
+            const flakFiredLogs = rendererLogs.filter((line) => /\[AirSprite\] Flak burst fired/i.test(line));
+            const explosionStartLogs = rendererLogs.filter((line) => /playExplosion called/i.test(line));
+            const explosionFrameLogs = rendererLogs.filter((line) => /playCombatAnimation START.*(explosionSmall|explosionLarge)/i.test(line));
+            const dustLogs = rendererLogs.filter((line) => /playDustCloud called/i.test(line));
+            const bombScheduledLogs = rendererLogs.filter((line) => /Scheduling bomb release/i.test(line));
+            const bombFiredLogs = rendererLogs.filter((line) => /Bomb release firing/i.test(line));
+            const bombCancelledLogs = rendererLogs.filter((line) => /Bomb release cancelled before firing/i.test(line));
+            const bombSkippedLogs = rendererLogs.filter((line) => /Bomb release skipped/i.test(line));
+            findings.push(`  Flak plans scheduled (Target-run flak plan): ${flakPlanLogs.length}`);
+            findings.push(`  Flak bursts actually fired: ${flakFiredLogs.length}${flakFiredLogs.length === 0 ? " ⚠ NO FLAK ANIMATIONS PAINTED" : " ✓"}`);
+            findings.push(`  Bomb release scheduled: ${bombScheduledLogs.length}`);
+            findings.push(`  Bomb release fired: ${bombFiredLogs.length}${bombFiredLogs.length === 0 ? " ⚠ NO ORDNANCE EXPLOSION PAINTED" : " ✓"}`);
+            findings.push(`  Bomb release cancelled before firing: ${bombCancelledLogs.length}${bombCancelledLogs.length > 0 ? " ⚠ CANCELLED BEFORE FIRING" : ""}`);
+            findings.push(`  Bomb release skipped (no targetHexKey): ${bombSkippedLogs.length}`);
+            findings.push(`  playExplosion calls: ${explosionStartLogs.length}${explosionStartLogs.length === 0 ? " ⚠ NO EXPLOSIONS PAINTED" : " ✓"}`);
+            findings.push(`  Combat animations started for explosions: ${explosionFrameLogs.length}`);
+            findings.push(`  playDustCloud calls: ${dustLogs.length}`);
+            if (flakFiredLogs.length === 0 && flakPlanLogs.length > 0) {
+                findings.push("  ⚠ Flak was scheduled but setTimeout handles never resolved — plan was cancelled before any burst fired");
             }
             console.log("\n" + findings.join("\n"));
             expect(findings.length).toBeGreaterThan(0);
