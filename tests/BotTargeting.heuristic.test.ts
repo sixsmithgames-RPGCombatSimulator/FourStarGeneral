@@ -1024,3 +1024,49 @@ registerTest("BOT_PLANNER_PRIORITIZES_KILLING_A_PLAYER_RECON_OBSERVER_THAT_IS_SP
     }
   });
 });
+
+registerTest("BOT_PLANNER_LONG_RANGE_CHASES_USE_PRESSURE_LOGIC_INSTEAD_OF_DISTANT_FIRE_SETUP", async ({ Given, When, Then }) => {
+  let plannedDestination = "";
+  let plannedRationale = "";
+
+  await Given("a rear tank looking at artillery that is still multiple turns away from a real firing position", async () => {
+    const rearTank = createPlannerSnapshot("RearTank", playerTankDef, { q: 0, r: 0 });
+    const playerArtillery = createPlannerSnapshot("PlayerArtillery", playerArtilleryDef, { q: 9, r: 0 });
+
+    const input: BotPlannerInput = {
+      botUnits: [rearTank],
+      playerUnits: [playerArtillery],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(rearTank.unit.hex), "bot"],
+        [axialKey(playerArtillery.unit.hex), "player"]
+      ]),
+      map: {
+        inBounds: (hex) => hex.q >= 0 && hex.q <= 10 && hex.r >= 0 && hex.r <= 6,
+        terrainAt: () => plains,
+        movementCost: () => 1
+      },
+      losAllows: () => true,
+      movementAllowance: () => 2,
+      attackEstimator: () => null,
+      difficulty: "Normal"
+    };
+
+    const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "0,0");
+    plannedDestination = plan ? axialKey(plan.destination) : "";
+    plannedRationale = plan?.rationale ?? "";
+  });
+
+  await When("the planner evaluates whether this is really a next-turn fire setup or just a longer operational chase", async () => {
+    // Result captured during Given.
+  });
+
+  await Then("the move should be treated as pressure instead of a fake long-range firing setup", async () => {
+    if (plannedDestination !== "2,0") {
+      throw new Error(`Expected rear tank to pressure forward to 2,0, but planner chose ${plannedDestination || "no move"}.`);
+    }
+    if (!plannedRationale.toLowerCase().includes("pressure")) {
+      throw new Error(`Expected a pressure-driven rationale, but planner reported "${plannedRationale || "none"}".`);
+    }
+  });
+});

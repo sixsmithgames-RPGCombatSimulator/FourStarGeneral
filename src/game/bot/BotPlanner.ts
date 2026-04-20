@@ -632,6 +632,32 @@ function isObjectiveCandidate(candidate: ActionCandidate | null): boolean {
   return Boolean(candidate && candidate.attackTarget === null && candidate.rationale.toLowerCase().includes("objective"));
 }
 
+function isPassiveStagingCandidate(candidate: ActionCandidate | null): boolean {
+  if (!candidate || candidate.attackTarget) {
+    return false;
+  }
+  return candidate.rationale.toLowerCase().startsWith("stage for");
+}
+
+/**
+ * Rear units should keep marching when they are still well outside the fight and only found a distant staging idea.
+ */
+function shouldCompareMarchPlans(
+  snapshot: PlannerUnitSnapshot,
+  candidate: ActionCandidate | null,
+  nearestEnemyDistance: number
+): boolean {
+  if (!candidate || candidate.score < 0) {
+    return true;
+  }
+  if (!isPassiveStagingCandidate(candidate)) {
+    return false;
+  }
+
+  const tacticalReach = (snapshot.definition.rangeMax ?? 1) + resolveTacticalMoveRate(snapshot.definition);
+  return nearestEnemyDistance > Math.max(PROXIMITY_ENGAGE_RADIUS + 1, tacticalReach + 2);
+}
+
 /**
  * Dijkstra-style search restricted by movement allowance to collect passable tiles and the cheapest path to each.
  * The planner keeps this pure so the engine can re-run it without mutating live state.
@@ -781,6 +807,9 @@ function calculatePurposeBonus(
     if (defenderClass === "artillery") {
       return 6;
     }
+    if (defenderClass === "recon") {
+      return 4;
+    }
     if (defenderClass === "air" || defenderClass === "infantry") {
       return -5;
     }
@@ -788,6 +817,9 @@ function calculatePurposeBonus(
   if (purpose === "antiInfantry") {
     if (defenderClass === "infantry" || defenderClass === "specialist") {
       return 12;
+    }
+    if (defenderClass === "recon") {
+      return 10;
     }
     if (defenderClass === "artillery") {
       return 4;
@@ -800,6 +832,9 @@ function calculatePurposeBonus(
     if (defenderClass === "artillery") {
       return 8;
     }
+    if (defenderClass === "recon") {
+      return 5;
+    }
     if (defenderClass === "infantry" || defenderClass === "specialist") {
       return 6;
     }
@@ -808,6 +843,9 @@ function calculatePurposeBonus(
     }
   }
   if (purpose === "recon" && defenderClass === "artillery") {
+    return 4;
+  }
+  if (defenderClass === "recon") {
     return 4;
   }
   return 0;
@@ -839,7 +877,7 @@ function calculateThreatProjection(defender: PlannerUnitSnapshot | null): number
     threat += 12;
   }
   if (def.class === "recon") {
-    threat += 6;
+    threat += 10;
   }
   if (def.traits.includes("intercept")) {
     threat += 10;
@@ -916,7 +954,7 @@ function calculateStrategicTargetBonus(defender: PlannerUnitSnapshot | null): nu
     bonus += 12;
   }
   if (defender.definition.class === "recon") {
-    bonus += 4;
+    bonus += 10;
   }
   bonus += calculateThreatProjection(defender) * 0.55;
   return bonus;
@@ -1931,7 +1969,7 @@ function scoreFireSetup(
     }
 
     const originEvaluation = evaluateSetupPosition(snapshot.unit.hex, [snapshot.unit.hex], enemy);
-    if (originEvaluation.futureGap === 0 && originEvaluation.hasLos) {
+    if (originEvaluation.turnsToAttack <= 1 && originEvaluation.futureGap === 0 && originEvaluation.hasLos) {
       const holdCandidate: ActionCandidate = {
         destination: snapshot.unit.hex,
         path: [snapshot.unit.hex],
@@ -1953,6 +1991,9 @@ function scoreFireSetup(
       }
 
       const evaluation = evaluateSetupPosition(option.hex, option.path, enemy);
+      if (evaluation.turnsToAttack > 1) {
+        continue;
+      }
       const rangeImprovement = originEvaluation.rangeGap - evaluation.rangeGap;
       const futureImprovement = originEvaluation.futureGap - evaluation.futureGap;
       const losImprovement = (evaluation.hasLos ? 1 : 0) - (originEvaluation.hasLos ? 1 : 0);
@@ -2091,21 +2132,37 @@ function pickBestCandidate(
     }
   }
 
-  // Consider movement toward objectives if no attack was valuable.
-  if (!top || top.score < 0) {
+  const shouldCompareMovementPlans = shouldCompareMarchPlans(snapshot, top, nearestEnemyDistance);
+  const rearUnitNeedsObjectiveMarch = shouldCompareMovementPlans && activeObjectives.length > 0;
+
+  // Consider movement toward objectives when no attack is available or when a rear unit only found a distant staging idea.
+  if (shouldCompareMovementPlans) {
+    let bestObjectiveCandidate: ActionCandidate | null = null;
+    let bestObjectiveScore = Number.NEGATIVE_INFINITY;
     const advanceCandidate = scoreObjectiveAdvance(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods);
-    if (advanceCandidate && (!top || advanceCandidate.score > top.score)) {
-      top = advanceCandidate;
+    if (advanceCandidate && advanceCandidate.score > bestObjectiveScore) {
+      bestObjectiveCandidate = advanceCandidate;
+      bestObjectiveScore = advanceCandidate.score;
     }
-    if (!top || top.score < 0) {
+    if (shouldCompareMarchPlans(snapshot, top, nearestEnemyDistance)) {
       const approachCandidate = scoreObjectiveApproach(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods);
-      if (approachCandidate && (!top || approachCandidate.score > top.score)) {
-        top = approachCandidate;
+      if (approachCandidate && approachCandidate.score > bestObjectiveScore) {
+        bestObjectiveCandidate = approachCandidate;
+        bestObjectiveScore = approachCandidate.score;
+      }
+    }
+    if (bestObjectiveCandidate) {
+      if (rearUnitNeedsObjectiveMarch && isPassiveStagingCandidate(top)) {
+        top = bestObjectiveCandidate;
+      } else if (bestObjectiveCandidate.score > (top?.score ?? Number.NEGATIVE_INFINITY)) {
+        top = bestObjectiveCandidate;
       }
     }
     // Engage nearby/visible enemies even when objectives exist; otherwise fall back to elimination goal
     // only when no contested objectives remain.
-    if ((allowEnemyEliminationFallback || enemyNearOrVisible) && (!top || top.score < 0)) {
+    if ((allowEnemyEliminationFallback || enemyNearOrVisible)
+      && !rearUnitNeedsObjectiveMarch
+      && shouldCompareMarchPlans(snapshot, top, nearestEnemyDistance)) {
       const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods);
       if (pressureCandidate && enemyNearOrVisible) {
         // Apply difficulty-based contact engagement bonus
@@ -2119,7 +2176,7 @@ function pickBestCandidate(
 
   // If we already have a decent objective move but an enemy-pressure option clearly outranks it
   // (due to proximity/visibility), prefer the pressure move. This keeps the AI responsive to contact.
-  if ((allowEnemyEliminationFallback || enemyNearOrVisible) && isObjectiveCandidate(top)) {
+  if ((allowEnemyEliminationFallback || enemyNearOrVisible) && !rearUnitNeedsObjectiveMarch && isObjectiveCandidate(top)) {
     const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods);
     if (pressureCandidate && enemyNearOrVisible) {
       // Apply difficulty-based contact engagement bonus
