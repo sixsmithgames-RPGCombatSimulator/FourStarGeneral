@@ -480,6 +480,42 @@ Within a package:
 - survivors continue from where the previous beat ended
 - destroyed aircraft exit continuously rather than vanishing instantaneously
 
+### 4. Shared Playback Policy Is Canonical
+
+Air-show timing, role speed, HQ-relative origins, and package coordination math must be defined once and reused everywhere.
+
+The canonical playback-policy model is:
+
+- `AirShowPlaybackPolicy` owns role px/ms rates, derived phase durations, and coordination delays
+- `BattleScreen` consumes shared policy outputs when it builds coordinated and resolved air-show scenes
+- scene builders and renderer code consume the same shared policy instead of shadowing constants
+- tests and diagnostics may inspect or assert policy outputs, but they must not maintain parallel copies of the formulas they are validating
+
+Current implementation anchors:
+
+- `src/ui/airshow/AirShowPlaybackPolicy.ts`
+- `src/ui/screens/BattleScreen.ts`
+- `src/ui/airshow/ResolvedAirCombatSceneBuilder.ts`
+- `src/rendering/HexMapRenderer.ts`
+
+### 5. Canonical Test Architecture
+
+The air-show test suite mirrors the runtime layers. It must never become a second engine or a second playback planner.
+
+The canonical test layers are:
+
+- `tests/BattleScreen.airMissionPlayback.test.ts` verifies `BattleScreen` orchestration, live scene construction, shared timing policy wiring, and HQ-context propagation
+- `tests/airScenarioSupport.ts`, `tests/run-airshow-diagnostics.ts`, and `tests/AirScenario.report.ts` form the diagnostic harness and reporting layer; they consume runtime policy and produce inspection artifacts, but they are not an alternate rules engine
+- `tests/AirShow.fighterMotion.test.ts`, `tests/AirShow.progressTiming.test.ts`, `tests/AirShow.speedModel.test.ts`, `tests/AirShow.coordinatedPackage.test.ts`, `tests/AirShow.regression.test.ts`, and `tests/AirShow.bomberSpeed.validation.test.ts` enforce choreography, continuity, package ownership, speed-model, and timing invariants
+- `tests/AirShow.visual.jest.test.ts`, `tests/e2e/airshow-choreography.spec.ts`, `tests/e2e/airshow-visual.spec.ts`, `src/testing/airshowE2eHarness.ts`, and `src/testing/airshowHarnessFixture.ts` cover render-visible and browser-level confirmation
+
+Authoritative order of evidence for playback disputes:
+
+- shared playback policy
+- `BattleScreen` scene construction
+- renderer timing audit and diagnostic harness output
+- visual and e2e confirmation
+
 ## Canonical Runtime Contracts
 
 The air show depends on these contracts remaining coherent across engine, UI, and playback.
@@ -807,6 +843,14 @@ The following behaviors must be verifiable through tests, diagnostics, or direct
 - survivors transition cleanly between beats with no teleporting
 - egress is visible and readable
 
+### Architecture Guardrails
+
+- redundant or overlapping engine/test code is forbidden
+- tests must consume shared production helpers for HQ-origin selection, path timing, bomber-arrival coordination, and role px/ms rates whenever they are validating live runtime behavior
+- `airScenarioSupport.ts` is a diagnostic consumer of production code, not an alternate engine, planner, or renderer
+- `BattleScreen.ts`, `ResolvedAirCombatSceneBuilder.ts`, and `HexMapRenderer.ts` must not carry independent copies of speed constants, duration formulas, or origin-direction logic; if multiple layers need the same behavior, extract a shared module and make every layer consume it
+- synthetic or stress-only tests may diverge from live policy only when they are clearly labeled synthetic and cannot be cited as proof that runtime behavior is correct
+
 ### Scenario Verification
 
 The air show should be verifiable against at least these scenarios:
@@ -828,6 +872,7 @@ The air show is not done until all of these are true:
 - escorts and interceptors remain visually tied to the correct package
 - nearby complex packages do not run in visually corrupting parallel
 - all five scenario families have a clear and intentional visible presentation
+- runtime and tests share one canonical playback-policy implementation for origin, speed, and phase timing; duplicate formulas are not allowed in harnesses or UI branches
 - Air Support UI, reports, and activity log all reflect the same outcome as playback
 - automated tests cover engine ordering, escort inclusion, live-target resolution, and playback sequencing
 - the visible result reads as a coherent air battle rather than disconnected effects
@@ -953,10 +998,28 @@ Egress (egressProgress)
 | Within-flight formation overlap | Moderate | Formation spacing within single flight — actors visually close but distinct |
 | Late-merge convergence (t=570ms+) | Moderate | Paths reconverge after initial separation — acceptable for dramatic effect |
 
-### Test File References
+### Test Suite Architecture
 
-All air show tests are in:
-- `tests/AirShow.fighterMotion.test.ts` — choreography, pathing, continuity, spatial separation
-- `tests/AirCombatSceneBuilder.test.ts` — scene building, ingress timing, formation spacing
+The current air-show suite is organized by runtime layer, not by duplicated logic:
 
-Run with: `npm test` or `node tests/run-airshow-diagnostics.ts`
+- `tests/BattleScreen.airMissionPlayback.test.ts` is the authoritative integration layer for `BattleScreen` playback wiring
+- `tests/airScenarioSupport.ts` is the shared diagnostic support module used by scenario reports and inspection-based validations
+- `tests/AirScenario.report.ts` and `tests/run-airshow-diagnostics.ts` generate anomaly reports and human-readable diagnostic bundles
+- `tests/AirShow.fighterMotion.test.ts`, `tests/AirShow.progressTiming.test.ts`, `tests/AirShow.speedModel.test.ts`, `tests/AirShow.coordinatedPackage.test.ts`, `tests/AirShow.regression.test.ts`, and `tests/AirShow.bomberSpeed.validation.test.ts` cover motion, timing, continuity, coordinated-package behavior, regression protection, and role-speed validation
+- `tests/AirShow.visual.jest.test.ts` provides renderer-facing visual assertions
+- `tests/e2e/airshow-choreography.spec.ts` and `tests/e2e/airshow-visual.spec.ts`, with `src/testing/airshowE2eHarness.ts` and `src/testing/airshowHarnessFixture.ts`, provide browser-level confirmation
+
+Guardrails for maintaining this suite:
+
+- test support code must consume canonical runtime policy and scene-building helpers whenever the goal is to verify live behavior
+- do not recreate engine logic, scene-timing formulas, HQ-origin math, or role-speed constants inside tests
+- do not maintain one implementation in `BattleScreen` and another in diagnostics or renderer code; shared logic belongs in a production module and every consumer should import it
+- when a test intentionally uses synthetic timings or geometry, label it synthetic in the test name or report output
+
+Primary commands:
+
+- `npm test`
+- `npm run test:airshow:diagnostics`
+- `npm run test:airshow:report`
+- `npm run test:airshow:visual`
+- `npm run test:e2e`

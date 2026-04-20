@@ -98,11 +98,23 @@ import unitTypesSource from "../../data/unitTypes.json";
 import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { setMissionStartedUI } from "../utils/missionUi";
-import { buildResolvedAirCombatScene, type BuildResolvedAirCombatSceneOptions } from "../airshow/ResolvedAirCombatSceneBuilder";
+import { buildResolvedAirCombatScene } from "../airshow/ResolvedAirCombatSceneBuilder";
 import {
   buildCoordinatedAirClusterPlaybackPlan,
   type CoordinatedAirClusterPlaybackPlan
 } from "../airshow/ClusterAirPlaybackPlanner";
+import {
+  buildCoordinatedAirClusterTimingPolicy,
+  buildResolvedAirCombatSceneTimingPolicy,
+  resolveAirInterceptBomberArrivalDelayMs as resolveSharedAirInterceptBomberArrivalDelayMs,
+  resolveBomberInterceptIngressDurationMs as resolveSharedBomberInterceptIngressDurationMs,
+  resolveBomberSortieEgressDurationMs as resolveSharedBomberSortieEgressDurationMs,
+  resolveBomberSortieIngressDurationMs as resolveSharedBomberSortieIngressDurationMs,
+  resolveFighterInterceptIngressDurationMs as resolveSharedFighterInterceptIngressDurationMs,
+  resolveFighterSortieEgressDurationMs as resolveSharedFighterSortieEgressDurationMs,
+  resolveFighterSortieIngressDurationMs as resolveSharedFighterSortieIngressDurationMs,
+  scaleAirShowSequenceMs
+} from "../airshow/AirShowPlaybackPolicy";
 import {
   logAirShowPackageStart,
   logAirShowBeatStart,
@@ -274,10 +286,6 @@ export class BattleScreen {
   private static readonly BOT_MOVE_ANIMATION_MS = 500;
   private static readonly BOT_CAMERA_PADDING = 96;
   private static readonly ACTIVITY_EVENT_LIMIT = 120;
-  private static readonly AIR_SEQUENCE_TIME_SCALE = 3;
-  private static readonly AIR_BOMBER_SPEED_MULTIPLIER = 0.8;
-  private static readonly AIR_FIGHTER_SPEED_MULTIPLIER = 1.85;
-  private static readonly AIR_DOGFIGHT_ORBIT_BASE_MS = 1280;
   private static readonly AIR_FORMATION_SPACING_PX = 27;
   private static readonly AIR_PLAYBACK_CLUSTER_LINK_DISTANCE_HEX = 8;
 
@@ -1695,7 +1703,7 @@ export class BattleScreen {
         // Compose battle update lines summarizing attack outcome and any counter-fire so commanders get full context.
         const announcements: string[] = [];
         const inflicted = this.clampDisplayedDamageRounded(resolution.result.expectedDamage);
-        let primaryReport = `Attack confirmed. Damage Γëê ${inflicted}.`;
+        let primaryReport = `Attack confirmed. Damage dealt ${inflicted}.`;
         if (resolution.defenderDestroyed) {
           primaryReport += " Target destroyed.";
         } else {
@@ -1711,7 +1719,7 @@ export class BattleScreen {
             0,
             Math.round(resolution.retaliationResult?.expectedDamage ?? 0)
           );
-          let retaliationReport = `Enemy retaliation dealt Γëê ${retaliationDamage} damage.`;
+          let retaliationReport = `Enemy retaliation dealt ${retaliationDamage} damage.`;
           const attackerRemaining = resolution.attackerRemainingStrength;
           if (typeof attackerRemaining === "number") {
             if (attackerRemaining <= 0) {
@@ -2596,7 +2604,7 @@ export class BattleScreen {
   }
 
   /**
-   * Mirrors engine ΓåÆ DeploymentState and cascades UI refreshes in a single, predictable sequence.
+   * Mirrors engine -> DeploymentState and cascades UI refreshes in a single, predictable sequence.
    */
   private refreshDeploymentMirrors(
     reason: "deploy" | "recall" | "baseCamp" | "sync",
@@ -2609,7 +2617,7 @@ export class BattleScreen {
 
       console.log("Refreshing deployment mirrors for reason:", reason, "Engine reserves:", engine.getReserveSnapshot().length, "Placements:", engine.getPlayerPlacementsSnapshot().length);
 
-      // 2. Mirror engine ΓåÆ DeploymentState exactly once per refresh call to avoid redundant bridge work.
+    // 2. Mirror engine -> DeploymentState exactly once per refresh call to avoid redundant bridge work.
       deploymentState.mirrorEngineState(engine);
 
       if (this.deploymentPanel) {
@@ -2948,7 +2956,7 @@ export class BattleScreen {
       const totalCount = this.missionStatus.objectives.length;
 
       const objectivesList = this.missionStatus.objectives.map(obj => {
-        const stateIcon = obj.state === "completed" ? "Γ£ô" : obj.state === "failed" ? "Γ£ù" : "Γùï";
+        const stateIcon = obj.state === "completed" ? "OK" : obj.state === "failed" ? "X" : "...";
         const stateColor = obj.state === "completed" ? "#4ade80" : obj.state === "failed" ? "#f87171" : "rgba(255,255,255,0.5)";
         const tierLabel = obj.tier === "primary" ? "PRIMARY" : obj.tier === "secondary" ? "SECONDARY" : "TERTIARY";
         const tierColor = obj.tier === "primary" ? "#fbbf24" : obj.tier === "secondary" ? "#60a5fa" : "#a78bfa";
@@ -2969,8 +2977,8 @@ export class BattleScreen {
         <div style="margin: 24px 0; padding: 20px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); max-height: 400px; overflow-y: auto;">
           <div style="font-size: 0.9rem; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px;">Mission Objectives</div>
           <div style="font-size: 1rem; color: rgba(255,255,255,0.9); margin-bottom: 16px;">
-            <span style="color: #4ade80; font-weight: 700;">${completedCount}</span> Completed ┬╖
-            <span style="color: #f87171; font-weight: 700;">${failedCount}</span> Failed ┬╖
+            <span style="color: #4ade80; font-weight: 700;">${completedCount}</span> Completed |
+            <span style="color: #f87171; font-weight: 700;">${failedCount}</span> Failed |
             <span style="color: rgba(255,255,255,0.7);">${totalCount - completedCount - failedCount}</span> Incomplete
           </div>
           ${objectivesList}
@@ -4036,6 +4044,7 @@ export class BattleScreen {
     }
     const interceptorSceneParticipants = participants.filter((participant) => participant.role === "interceptor");
     const escortSceneParticipants = participants.filter((participant) => participant.role === "escort");
+    const phaseTimings = buildResolvedAirCombatSceneTimingPolicy(bomberArrivalDelayMs);
     const { scene, diagnostics } = buildResolvedAirCombatScene(event, {
       locKey,
       resolveOriginKey: (unitKey, faction) => this.resolveAirEngagementOffsetKey(unitKey, faction, engine),
@@ -4049,8 +4058,9 @@ export class BattleScreen {
       bomberTargetKey,
       flakEvent,
       includeBomber: includeBomberFlight,
-      playerHqKey: this.toOffsetHexKey(engine.getPlayerHq()),
-      botHqKey: this.toOffsetHexKey(engine.getBotHq())
+      phaseTimings,
+      playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
+      botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot")
     });
     if (!bomberPassAvailable) {
       scene.bomberPassExchanges = [];
@@ -4060,20 +4070,6 @@ export class BattleScreen {
         `[AirSprite] Linked escort flights missing from resolved event ${event.missionId ?? event.type}: ${diagnostics.linkedEscortMissingFromEventUnitKeys.join(", ")}`
       );
     }
-    // Per North Star Spec §Scenario 5 Phase 1 (Ingress 0.0 → 0.15): the ingress read needs
-    // enough on-screen time to show CAP at V and bombers/escorts at V/2. Multiplier raised
-    // from 0.96 to 1.44 (1.5× longer) so the player sees clear separation before the clash.
-    scene.fighterIngressDurationMs = Math.round(this.resolveFighterInterceptIngressDurationMs() * 1.44);
-    scene.escortClashDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 1.24));
-    scene.bomberIngressDurationMs = Math.round(this.resolveBomberInterceptIngressDurationMs() * 5.2);
-    scene.bomberPassDurationMs = this.scaleAirSequenceMs(Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 2.18));
-    scene.strikeRunDurationMs = this.scaleAirSequenceMs(5120);
-    scene.egressDurationMs = this.scaleAirSequenceMs(920);
-    scene.bomberArrivalDelayMs =
-      bomberArrivalDelayMs +
-      scene.escortClashDurationMs +
-      this.scaleAirSequenceMs(260);
-    scene.bombReleaseProgress = 0.91;
     await (renderer as any).animateResolvedAirCombatShow(scene);
   }
 
@@ -4514,6 +4510,16 @@ export class BattleScreen {
     return CoordinateSystem.makeHexKey(offset.col, offset.row);
   }
 
+  private resolveEngineHqOffsetKey(engine: GameEngine, faction: "Player" | "Bot"): string | null {
+    const hqResolver = faction === "Player"
+      ? (engine as Partial<GameEngine> & { getPlayerHq?: () => Axial | null | undefined }).getPlayerHq
+      : (engine as Partial<GameEngine> & { getBotHq?: () => Axial | null | undefined }).getBotHq;
+    if (typeof hqResolver !== "function") {
+      return null;
+    }
+    return this.toOffsetHexKey(hqResolver.call(engine));
+  }
+
   private offsetHexKeyToAxial(hexKey: string | null | undefined): Axial | null {
     if (!hexKey) {
       return null;
@@ -4921,40 +4927,35 @@ export class BattleScreen {
   }
 
   private scaleAirSequenceMs(durationMs: number): number {
-    return Math.max(1, Math.round(durationMs * BattleScreen.AIR_SEQUENCE_TIME_SCALE));
-  }
-
-  private scaleAirSpeedDuration(durationMs: number, speedMultiplier = 1): number {
-    const safeSpeed = Math.max(0.1, speedMultiplier);
-    return this.scaleAirSequenceMs(Math.round(durationMs / safeSpeed));
+    return scaleAirShowSequenceMs(durationMs);
   }
 
   private resolveBomberInterceptIngressDurationMs(): number {
-    return this.scaleAirSpeedDuration(1500, BattleScreen.AIR_BOMBER_SPEED_MULTIPLIER);
+    return resolveSharedBomberInterceptIngressDurationMs();
   }
 
   private resolveFighterInterceptIngressDurationMs(): number {
-    return this.scaleAirSpeedDuration(1250, BattleScreen.AIR_FIGHTER_SPEED_MULTIPLIER);
+    return resolveSharedFighterInterceptIngressDurationMs();
   }
 
   private resolveBomberSortieIngressDurationMs(): number {
-    return this.scaleAirSpeedDuration(2100, BattleScreen.AIR_BOMBER_SPEED_MULTIPLIER);
+    return resolveSharedBomberSortieIngressDurationMs();
   }
 
   private resolveBomberSortieEgressDurationMs(): number {
-    return this.scaleAirSpeedDuration(1850, BattleScreen.AIR_BOMBER_SPEED_MULTIPLIER);
+    return resolveSharedBomberSortieEgressDurationMs();
   }
 
   private resolveFighterSortieIngressDurationMs(): number {
-    return this.scaleAirSpeedDuration(1850, BattleScreen.AIR_FIGHTER_SPEED_MULTIPLIER);
+    return resolveSharedFighterSortieIngressDurationMs();
   }
 
   private resolveFighterSortieEgressDurationMs(): number {
-    return this.scaleAirSpeedDuration(1600, BattleScreen.AIR_FIGHTER_SPEED_MULTIPLIER);
+    return resolveSharedFighterSortieEgressDurationMs();
   }
 
   private resolveAirInterceptBomberArrivalDelayMs(): number {
-    return Math.max(0, this.resolveBomberInterceptIngressDurationMs() - this.resolveFighterInterceptIngressDurationMs());
+    return resolveSharedAirInterceptBomberArrivalDelayMs();
   }
 
   private resolveInterceptorsAfterEscortPhase(event: AirEngagementEvent): number {
@@ -5302,14 +5303,9 @@ export class BattleScreen {
     return buildCoordinatedAirClusterPlaybackPlan(cluster, {
       resolveOriginKey: (unitKey, faction) => this.resolveAirEngagementOffsetKey(unitKey, faction, engine),
       resolveStrength: (unitKey, faction) => this.resolveAirSquadronStrength(unitKey, faction, engine),
-      fighterIngressDurationMs: Math.round(this.resolveFighterInterceptIngressDurationMs() * 0.96),
-      escortClashDurationMs: this.scaleAirSequenceMs(
-        Math.round(BattleScreen.AIR_DOGFIGHT_ORBIT_BASE_MS * 1.24)
-      ),
-      fighterEgressDurationMs: this.scaleAirSequenceMs(920),
-      bomberStartDelayMs: this.scaleAirSequenceMs(880),
-      playerHqKey: this.toOffsetHexKey(engine.getPlayerHq()),
-      botHqKey: this.toOffsetHexKey(engine.getBotHq())
+      ...buildCoordinatedAirClusterTimingPolicy(),
+      playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
+      botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot")
     });
   }
 
@@ -5808,7 +5804,7 @@ export class BattleScreen {
     this.battleLoadout?.initialize();
     this.reservePresenter?.initialize();
 
-    // Hook panel event stream ΓåÆ engine orchestration once listeners exist.
+    // Hook panel event stream -> engine orchestration once listeners exist.
     this.bindPanelEvents();
     this.subscribeToBattleUpdates();
 
@@ -7387,12 +7383,12 @@ export class BattleScreen {
     if (nextState) {
       this.battleMainContainer.setAttribute("data-panel-collapsed", "true");
       this.deploymentPanelToggleButton.setAttribute("aria-expanded", "false");
-      this.deploymentPanelToggleButton.textContent = "Γƒ¿";
+      this.deploymentPanelToggleButton.textContent = ">";
       this.deploymentPanelToggleButton.setAttribute("aria-label", "Expand deployment panel");
     } else {
       this.battleMainContainer.removeAttribute("data-panel-collapsed");
       this.deploymentPanelToggleButton.setAttribute("aria-expanded", "true");
-      this.deploymentPanelToggleButton.textContent = "Γƒ⌐";
+      this.deploymentPanelToggleButton.textContent = "<";
       this.deploymentPanelToggleButton.setAttribute("aria-label", "Collapse deployment panel");
     }
   }

@@ -27,6 +27,10 @@ import {
   type AirShowPhaseTimingSample
 } from "../ui/airshow/AirShowPlanner";
 import {
+  AIR_SHOW_BOMBER_SPEED_PX_PER_MS as AIR_SHOW_POLICY_BOMBER_SPEED_PX_PER_MS,
+  AIR_SHOW_FIGHTER_SPEED_PX_PER_MS as AIR_SHOW_POLICY_FIGHTER_SPEED_PX_PER_MS
+} from "../ui/airshow/AirShowPlaybackPolicy";
+import {
   logAirShowPackageStart,
   logAirShowBeatStart,
   logAirShowActorTransition,
@@ -454,8 +458,8 @@ export class HexMapRenderer implements IMapRenderer {
   private static readonly AIRCRAFT_FORMATION_SPACING = 33;
   private static readonly AIRCRAFT_ORBIT_HEADING_BLEND = 0.28;
   // North Star Spec §Speed Model: Fighter V = 11.5 px/100ms, Bomber V/2 = 5.75 px/100ms.
-  private static readonly AIR_SHOW_BOMBER_SPEED_PX_PER_MS = 0.0575; // 5.75px per 100ms
-  private static readonly AIR_SHOW_FIGHTER_SPEED_PX_PER_MS = 0.115; // 11.5px per 100ms
+  private static readonly AIR_SHOW_BOMBER_SPEED_PX_PER_MS = AIR_SHOW_POLICY_BOMBER_SPEED_PX_PER_MS;
+  private static readonly AIR_SHOW_FIGHTER_SPEED_PX_PER_MS = AIR_SHOW_POLICY_FIGHTER_SPEED_PX_PER_MS;
   // Role-based size multipliers: bombers are 2x fighter size
   private static readonly AIRCRAFT_FIGHTER_SIZE_MULTIPLIER = 0.75;
   private static readonly AIRCRAFT_BOMBER_SIZE_MULTIPLIER = 1.5;
@@ -1540,7 +1544,7 @@ export class HexMapRenderer implements IMapRenderer {
         const rand = stageRandom(`ingress:bomber-band:${bomberFlight.spec.id}`);
         const laneIndex = bomberFlights.length <= 1 ? 0 : bomberIndex - (bomberFlights.length - 1) / 2;
         const current = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
-        const holdTarget = this.resolveAirShowBomberIngressBandHoldTarget(
+        const ingressWaypoint = this.resolveAirShowBomberIngressBandWaypoint(
           corridor,
           current,
           scene.kind,
@@ -1553,7 +1557,7 @@ export class HexMapRenderer implements IMapRenderer {
           bomberFlight,
           this.buildAirShowCurvedPath(
             current,
-            holdTarget,
+            ingressWaypoint,
             (laneIndex >= 0 ? 1 : -1) * 52,
             (rand() - 0.5) * 22,
             this.resolveAirShowFlightHeadingDegrees(bomberFlight)
@@ -2941,7 +2945,7 @@ export class HexMapRenderer implements IMapRenderer {
         const rand = stageRandom(`ingress:bomber-band:${bomberFlight.spec.id}`);
         const laneIndex = bomberFlights.length <= 1 ? 0 : bomberIndex - (bomberFlights.length - 1) / 2;
         const current = this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor;
-        const holdTarget = this.resolveAirShowBomberIngressBandHoldTarget(
+        const ingressWaypoint = this.resolveAirShowBomberIngressBandWaypoint(
           corridor,
           current,
           scene.kind,
@@ -2954,7 +2958,7 @@ export class HexMapRenderer implements IMapRenderer {
           bomberFlight,
           this.buildAirShowCurvedPath(
             current,
-            holdTarget,
+            ingressWaypoint,
             (laneIndex >= 0 ? 1 : -1) * 52,
             (rand() - 0.5) * 22,
             this.resolveAirShowFlightHeadingDegrees(bomberFlight)
@@ -8123,7 +8127,7 @@ export class HexMapRenderer implements IMapRenderer {
             );
         const headingTarget =
           role === "bomber"
-            ? this.resolveAirShowBomberIngressBandHoldTarget(
+            ? this.resolveAirShowBomberIngressBandWaypoint(
                 corridor,
                 anchor,
                 sceneKind,
@@ -10191,7 +10195,7 @@ export class HexMapRenderer implements IMapRenderer {
     };
   }
 
-  private resolveAirShowBomberIngressBandPlan(
+  private resolveAirShowBomberIngressBandWaypointPlan(
     sceneKind: ResolvedAirShowScene["kind"] | undefined
   ): {
     alongPx: number;
@@ -10236,7 +10240,7 @@ export class HexMapRenderer implements IMapRenderer {
     );
   }
 
-  private resolveAirShowBomberIngressBandHoldTarget(
+  private resolveAirShowBomberIngressBandWaypoint(
     corridor: AirShowCorridor,
     current: AirShowPoint,
     sceneKind: ResolvedAirShowScene["kind"] | undefined,
@@ -10245,7 +10249,7 @@ export class HexMapRenderer implements IMapRenderer {
     jitterAlongPx = 0,
     jitterLateralPx = 0
   ): AirShowPoint {
-    const plan = this.resolveAirShowBomberIngressBandPlan(sceneKind);
+    const plan = this.resolveAirShowBomberIngressBandWaypointPlan(sceneKind);
     const currentProjection = this.resolveAirShowCorridorCoordinates(corridor, current);
     const alongSign = Math.abs(currentProjection.alongPx) > 6 ? (currentProjection.alongPx >= 0 ? 1 : -1) : 1;
     const currentAbsAlong = Math.abs(currentProjection.alongPx);

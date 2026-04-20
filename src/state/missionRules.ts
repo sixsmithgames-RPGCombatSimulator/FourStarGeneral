@@ -485,7 +485,7 @@ function createCitadelRidgeController(scenario: ScenarioData, difficulty: BotDif
       detail: `Captured: ${capturedStrongpoints.length}/4 strongpoints${commandRidgeCaptured ? " (Command Ridge secured)" : " (Command Ridge required)"}. ${strongpointKeys
         .map(({ label, key }) => {
           const occupant = occupancy.get(key);
-          const status = occupant === "Player" || occupant === "Ally" ? "✓" : "—";
+          const status = occupant === "Player" || occupant === "Ally" ? "[X]" : "[ ]";
           return `${status} ${label}`;
         })
         .join(", ")}`

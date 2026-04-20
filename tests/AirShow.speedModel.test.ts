@@ -11,20 +11,24 @@
 
 import { registerTest } from "./harness.js";
 import { runAirScenario } from "./airScenarioSupport.js";
-import { sampleAirShowWaypointPath } from "../src/ui/airshow/AirShowPathMath";
-
-// Speed ratio constants per North Star Spec
-const FIGHTER_SPEED = 1.0; // V (baseline)
-const BOMBER_SPEED = 0.5;  // V / 2
-const SPEED_RATIO = FIGHTER_SPEED / BOMBER_SPEED; // 2.0
+import { buildCoordinatedAirClusterTimingPolicy } from "../src/ui/airshow/AirShowPlaybackPolicy.js";
+import {
+  AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
+  AIR_SHOW_EXPECTED_SPEED_RATIO,
+  AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
+  calculateObservedSpeed,
+  calculatePathLength,
+  getAuthoritativeContestedPackagePhases,
+  getAuthoritativeContestedPlan,
+  type AirScenarioResult
+} from "./airShowTestSupport.js";
 
 // Minimum ingress durations per spec
 const MINIMUM_FIGHTER_INGRESS_MS = 1250;
 const MINIMUM_BOMBER_INGRESS_MS = 3000;
-const EXPECTED_SPEED_RATIO = MINIMUM_BOMBER_INGRESS_MS / MINIMUM_FIGHTER_INGRESS_MS; // ~2.4
 
 registerTest("AIR_SHOW_SPEED_MODEL_FIGHTER_VS_BOMBER_RATIO", async ({ Given, When, Then }) => {
-  let result: ReturnType<typeof runAirScenario> | null = null;
+  let result: AirScenarioResult | null = null;
 
   await Given("the North Star Spec speed model: fighter at V, bomber at V/2", async () => {});
 
@@ -32,74 +36,56 @@ registerTest("AIR_SHOW_SPEED_MODEL_FIGHTER_VS_BOMBER_RATIO", async ({ Given, Whe
     result = runAirScenario();
   });
 
-  await Then("fighter ingress duration should be approximately half bomber ingress duration", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
-    );
-    if (!inspection) {
+  await Then("fighters should measure near the shared V:V/2 speed ratio inside the live ingress window", async () => {
+    const phases = getAuthoritativeContestedPackagePhases(result);
+    if (!phases) {
       console.log("[SPEED MODEL] No contested package found - skipping ratio validation");
       return;
     }
 
-    // Calculate actual speed from sampled positions
-    const phases = inspection.report.phases;
-
-    // Find fighter-ingress and bomber-ingress phases
-    const fighterIngress = phases.find(p => p.label === "fighter-ingress");
-    const bomberIngress = phases.find(p => p.label === "bomber-ingress");
-
-    if (!fighterIngress || !bomberIngress) {
-      throw new Error("Expected both fighter-ingress and bomber-ingress phases.");
+    const fighterIngress = phases.find((phase) => phase.label === "fighter-ingress");
+    if (!fighterIngress) {
+      throw new Error("Expected fighter-ingress phase.");
     }
 
-    // Get first fighter and first bomber assignments
-    const fighterAssignment = fighterIngress.assignments.find(a => a.role === "interceptor");
-    const bomberAssignment = bomberIngress.assignments.find(a => a.role === "bomber");
+    const fighterAssignment = fighterIngress.assignments.find((assignment) => assignment.role === "interceptor");
+    const bomberAssignment = fighterIngress.assignments.find((assignment) => assignment.role === "bomber");
 
     if (!fighterAssignment || !bomberAssignment) {
-      throw new Error("Expected fighter and bomber assignments for speed calculation.");
+      throw new Error("Expected fighter and bomber assignments inside fighter-ingress.");
     }
 
-    // Calculate average speed from sampled positions
-    function calcAvgSpeed(samples: ReadonlyArray<{ cx: number; cy: number; timeMs: number }>): number {
-      if (samples.length < 2) return 0;
-      let totalDistance = 0;
-      let totalTime = 0;
-      for (let i = 1; i < samples.length; i++) {
-        const dx = samples[i].cx - samples[i - 1].cx;
-        const dy = samples[i].cy - samples[i - 1].cy;
-        const dt = samples[i].timeMs - samples[i - 1].timeMs;
-        totalDistance += Math.hypot(dx, dy);
-        totalTime += dt;
-      }
-      return totalTime > 0 ? totalDistance / totalTime : 0;
-    }
-
-    const fighterSpeed = calcAvgSpeed(fighterAssignment.sampledPositions);
-    const bomberSpeed = calcAvgSpeed(bomberAssignment.sampledPositions);
+    const fighterSpeed = calculateObservedSpeed(fighterAssignment.sampledPositions);
+    const bomberSpeed = calculateObservedSpeed(bomberAssignment.sampledPositions);
 
     if (fighterSpeed === 0 || bomberSpeed === 0) {
       throw new Error("Could not calculate speeds - insufficient samples.");
     }
 
     const actualRatio = fighterSpeed / bomberSpeed;
-    const tolerance = 0.3; // Allow 30% variance due to path curvature
+    const lowerBound = AIR_SHOW_EXPECTED_SPEED_RATIO - 0.35;
+    const upperBound = AIR_SHOW_EXPECTED_SPEED_RATIO + 0.85;
 
-    if (actualRatio < SPEED_RATIO - tolerance || actualRatio > SPEED_RATIO + 1.0) {
+    if (actualRatio < lowerBound || actualRatio > upperBound) {
       throw new Error(
         `Speed ratio ${actualRatio.toFixed(2)} outside expected range ` +
-        `(expected ~${SPEED_RATIO}, got ${actualRatio.toFixed(2)})`
+        `(expected ~${AIR_SHOW_EXPECTED_SPEED_RATIO.toFixed(2)}, got ${actualRatio.toFixed(2)}). ` +
+        `Policy targets are fighter=${AIR_SHOW_FIGHTER_SPEED_PX_PER_MS.toFixed(3)} px/ms ` +
+        `bomber=${AIR_SHOW_BOMBER_SPEED_PX_PER_MS.toFixed(3)} px/ms.`
       );
     }
 
     console.log(`[SPEED MODEL] Fighter speed: ${fighterSpeed.toFixed(2)} px/ms`);
     console.log(`[SPEED MODEL] Bomber speed: ${bomberSpeed.toFixed(2)} px/ms`);
-    console.log(`[SPEED MODEL] Ratio: ${actualRatio.toFixed(2)} (expected ~${SPEED_RATIO})`);
+    console.log(
+      `[SPEED MODEL] Ratio: ${actualRatio.toFixed(2)} ` +
+      `(expected ~${AIR_SHOW_EXPECTED_SPEED_RATIO.toFixed(2)})`
+    );
   });
 });
 
 registerTest("AIR_SHOW_INGRESS_DURATIONS_RESPECT_FIGHTER_AND_BOMBER_MINIMUMS", async ({ Given, When, Then }) => {
-  let result: ReturnType<typeof runAirScenario> | null = null;
+  let result: AirScenarioResult | null = null;
 
   await Given("the North Star minimum ingress durations for fighters and bombers", async () => {});
 
@@ -107,17 +93,15 @@ registerTest("AIR_SHOW_INGRESS_DURATIONS_RESPECT_FIGHTER_AND_BOMBER_MINIMUMS", a
     result = runAirScenario();
   });
 
-  await Then("fighter ingress should stay above fighter minimum while bomber ingress stays above bomber minimum and longer than fighters", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
-    );
-    if (!inspection) {
+  await Then("fighter ingress and bomber ingress should satisfy their minimum floors while preserving a delayed bomber lead window", async () => {
+    const phases = getAuthoritativeContestedPackagePhases(result);
+    if (!phases) {
       console.log("[INGRESS DURATION] No contested package found - skipping");
       return;
     }
 
-    const fighterIngress = inspection.report.phases.find((phase) => phase.label === "fighter-ingress");
-    const bomberIngress = inspection.report.phases.find((phase) => phase.label === "bomber-ingress");
+    const fighterIngress = phases.find((phase) => phase.label === "fighter-ingress");
+    const bomberIngress = phases.find((phase) => phase.label === "bomber-ingress");
 
     if (!fighterIngress || !bomberIngress) {
       throw new Error("Expected both fighter-ingress and bomber-ingress phases.");
@@ -137,9 +121,12 @@ registerTest("AIR_SHOW_INGRESS_DURATIONS_RESPECT_FIGHTER_AND_BOMBER_MINIMUMS", a
       );
     }
 
-    if (bomberIngress.durationMs <= fighterIngress.durationMs) {
+    const coordinatedPlan = getAuthoritativeContestedPlan(result);
+    const configuredLeadFloor = buildCoordinatedAirClusterTimingPolicy().bomberStartDelayMs;
+    if (coordinatedPlan && coordinatedPlan.bomberStartDelayMs < configuredLeadFloor) {
       throw new Error(
-        `Expected bomber ingress (${bomberIngress.durationMs}ms) to exceed fighter ingress (${fighterIngress.durationMs}ms).`
+        `Expected coordinated bomber lead window >= ${configuredLeadFloor}ms, ` +
+        `saw ${coordinatedPlan.bomberStartDelayMs}ms.`
       );
     }
 
@@ -147,11 +134,17 @@ registerTest("AIR_SHOW_INGRESS_DURATIONS_RESPECT_FIGHTER_AND_BOMBER_MINIMUMS", a
       `[INGRESS DURATION] fighter=${fighterIngress.durationMs}ms bomber=${bomberIngress.durationMs}ms ` +
       `(mins: ${MINIMUM_FIGHTER_INGRESS_MS}/${MINIMUM_BOMBER_INGRESS_MS})`
     );
+    if (coordinatedPlan) {
+      console.log(
+        `[INGRESS DURATION] bomberLead=${coordinatedPlan.bomberStartDelayMs}ms ` +
+        `(policy floor ${configuredLeadFloor}ms)`
+      );
+    }
   });
 });
 
 registerTest("AIR_SHOW_FIGHTER_VISIBLE_SPEED_DIFFERENTIATION", async ({ Given, When, Then }) => {
-  let result: ReturnType<typeof runAirScenario> | null = null;
+  let result: AirScenarioResult | null = null;
 
   await Given("simultaneous ingress with fighters on shorter path at same duration", async () => {});
 
@@ -159,40 +152,41 @@ registerTest("AIR_SHOW_FIGHTER_VISIBLE_SPEED_DIFFERENTIATION", async ({ Given, W
     result = runAirScenario();
   });
 
-  await Then("fighters should appear visibly faster than bombers due to path/duration ratio", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
-    );
-    if (!inspection) {
+  await Then("fighters should cover materially more shared-window path than bombers", async () => {
+    const phases = getAuthoritativeContestedPackagePhases(result);
+    if (!phases) {
       console.log("[VISIBLE SPEED] No contested package found - skipping");
       return;
     }
 
-    // Check that fighters and bombers are both present in early phases
-    const earlyPhases = inspection.report.phases.slice(0, 3);
-
-    const hasFighters = earlyPhases.some(p =>
-      p.assignments.some(a => a.role === "interceptor" || a.role === "escort")
-    );
-    const hasBombers = earlyPhases.some(p =>
-      p.assignments.some(a => a.role === "bomber")
-    );
-
-    if (!hasFighters) {
-      throw new Error("Expected fighters in early phases for speed differentiation visibility.");
-    }
-    if (!hasBombers) {
-      throw new Error("Expected bombers in early phases for speed differentiation visibility.");
+    const fighterIngress = phases.find((phase) => phase.label === "fighter-ingress");
+    if (!fighterIngress) {
+      throw new Error("Expected fighter-ingress phase.");
     }
 
-    console.log(`[VISIBLE SPEED] Both fighters and bombers present in early phases: ✓`);
-    console.log(`  - Fighters travel shorter hold-band path in same duration as bombers`);
-    console.log(`  - Visual result: fighters appear faster (correct per fix)`);
+    const fighterAssignment = fighterIngress.assignments.find((assignment) => assignment.role === "interceptor");
+    const bomberAssignment = fighterIngress.assignments.find((assignment) => assignment.role === "bomber");
+    if (!fighterAssignment || !bomberAssignment) {
+      throw new Error("Expected fighter and bomber assignments inside fighter-ingress.");
+    }
+
+    const fighterDistance = calculatePathLength(fighterAssignment.sampledPositions);
+    const bomberDistance = calculatePathLength(bomberAssignment.sampledPositions);
+
+    if (fighterDistance <= bomberDistance) {
+      throw new Error(
+        `Expected fighters to cover more ground in the shared ingress window, ` +
+        `saw fighter=${fighterDistance.toFixed(1)}px bomber=${bomberDistance.toFixed(1)}px.`
+      );
+    }
+
+    console.log(`[VISIBLE SPEED] fighter=${fighterDistance.toFixed(0)}px bomber=${bomberDistance.toFixed(0)}px`);
+    console.log(`[VISIBLE SPEED] shared-window distance ratio ${(fighterDistance / bomberDistance).toFixed(2)}:1`);
   });
 });
 
 registerTest("AIR_SHOW_MINIMUM_INGRESS_DURATION_ENFORCED", async ({ Given, When, Then }) => {
-  let result: ReturnType<typeof runAirScenario> | null = null;
+  let result: AirScenarioResult | null = null;
 
   await Given("minimum ingress duration requirements per North Star Spec", async () => {});
 
@@ -259,74 +253,56 @@ registerTest("AIR_SHOW_MINIMUM_INGRESS_DURATION_ENFORCED", async ({ Given, When,
 });
 
 registerTest("AIR_SHOW_SPEED_MODEL_PATH_LENGTH_DIFFERENTIATION", async ({ Given, When, Then }) => {
-  let result: ReturnType<typeof runAirScenario> | null = null;
+  let result: AirScenarioResult | null = null;
 
-  await Given("fighter and bomber paths with different lengths at same duration", async () => {});
+  await Given("fighter and bomber travel inside the same ingress phase window", async () => {});
 
   await When("the contested package is run", async () => {
     result = runAirScenario();
   });
 
-  await Then("fighter paths should be shorter than bomber paths (enabling visible speed difference)", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
-    );
-    if (!inspection) {
+  await Then("fighters should accumulate more shared-window path length than bombers", async () => {
+    const phases = getAuthoritativeContestedPackagePhases(result);
+    if (!phases) {
       console.log("[PATH LENGTH] No contested package found - skipping");
       return;
     }
 
-    // Calculate total path length from waypoints for fighter vs bomber
-    function calcPathLength(points: ReadonlyArray<{ cx: number; cy: number }>): number {
-      let length = 0;
-      for (let i = 1; i < points.length; i++) {
-        const dx = points[i].cx - points[i - 1].cx;
-        const dy = points[i].cy - points[i - 1].cy;
-        length += Math.hypot(dx, dy);
-      }
-      return length;
-    }
-
-    const phases = inspection.report.phases;
     const fighterIngress = phases.find(p =>
       p.label === "fighter-ingress" && p.assignments.some(a => a.role === "interceptor")
     );
-    const bomberIngress = phases.find(p =>
-      p.label === "bomber-ingress" && p.assignments.some(a => a.role === "bomber")
-    );
 
-    if (!fighterIngress || !bomberIngress) {
-      console.log("[PATH LENGTH] Missing ingress phases - skipping path comparison");
+    if (!fighterIngress) {
+      console.log("[PATH LENGTH] Missing fighter-ingress phase - skipping path comparison");
       return;
     }
 
     const fighterAssignment = fighterIngress.assignments.find(a => a.role === "interceptor");
-    const bomberAssignment = bomberIngress.assignments.find(a => a.role === "bomber");
+    const bomberAssignment = fighterIngress.assignments.find(a => a.role === "bomber");
 
     if (!fighterAssignment || !bomberAssignment) {
       console.log("[PATH LENGTH] Missing assignments - skipping path comparison");
       return;
     }
 
-    const fighterPathLength = calcPathLength(fighterAssignment.points);
-    const bomberPathLength = calcPathLength(bomberAssignment.points);
+    const fighterPathLength = calculatePathLength(fighterAssignment.sampledPositions);
+    const bomberPathLength = calculatePathLength(bomberAssignment.sampledPositions);
 
-    // Fighter path should be shorter than bomber path
-    // This allows fighters to appear faster even at same duration
-    if (fighterPathLength >= bomberPathLength * 0.9) {
-      console.log(`[PATH LENGTH] Warning: Fighter path (${fighterPathLength.toFixed(0)}px) ` +
-        `not significantly shorter than bomber path (${bomberPathLength.toFixed(0)}px)`);
-    } else {
-      console.log(`[PATH LENGTH] Fighter path: ${fighterPathLength.toFixed(0)}px`);
-      console.log(`[PATH LENGTH] Bomber path: ${bomberPathLength.toFixed(0)}px`);
-      console.log(`[PATH LENGTH] Ratio: ${(bomberPathLength / fighterPathLength).toFixed(2)}:1`);
-      console.log(`  - Shorter fighter path + same duration = visibly faster fighters: ✓`);
+    if (fighterPathLength <= bomberPathLength) {
+      throw new Error(
+        `Expected fighters to accumulate more shared-window path length than bombers, ` +
+        `saw fighter=${fighterPathLength.toFixed(1)}px bomber=${bomberPathLength.toFixed(1)}px.`
+      );
     }
+
+    console.log(`[PATH LENGTH] Fighter path: ${fighterPathLength.toFixed(0)}px`);
+    console.log(`[PATH LENGTH] Bomber path: ${bomberPathLength.toFixed(0)}px`);
+    console.log(`[PATH LENGTH] Ratio: ${(fighterPathLength / bomberPathLength).toFixed(2)}:1`);
   });
 });
 
 registerTest("AIR_SHOW_ESCORT_SPEED_TRANSITION_AT_PROGRESS_0_15", async ({ Given, When, Then }) => {
-  let result: ReturnType<typeof runAirScenario> | null = null;
+  let result: AirScenarioResult | null = null;
 
   await Given("escort speed transition per North Star Spec: V/2 -> V at progress 0.15", async () => {});
 

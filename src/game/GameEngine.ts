@@ -2070,10 +2070,10 @@ export class GameEngine implements GameEngineAPI {
           // Apply 75% accuracy reduction for ground AA vs aircraft (small, fast, distant targets)
           flakResult = {
             ...flakResult,
-            accuracy: flakResult.accuracy * 0.25,
-            expectedHits: flakResult.expectedHits * 0.25,
-            expectedDamage: flakResult.expectedDamage * 0.25,
-            expectedSuppression: flakResult.expectedSuppression * 0.25
+            accuracy: flakResult.accuracy * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+            expectedHits: flakResult.expectedHits * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+            expectedDamage: flakResult.expectedDamage * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+            expectedSuppression: flakResult.expectedSuppression * combatBalance.accuracy.groundAntiAirVsAircraftScalar
           };
         }
 
@@ -3241,10 +3241,10 @@ export class GameEngine implements GameEngineAPI {
       if (this.hasAntiAirCapability(flakDef) && this.isAircraft(bomberDefinition)) {
         flakResult = {
           ...flakResult,
-          accuracy: flakResult.accuracy * 0.25,
-          expectedHits: flakResult.expectedHits * 0.25,
-          expectedDamage: flakResult.expectedDamage * 0.25,
-          expectedSuppression: flakResult.expectedSuppression * 0.25
+          accuracy: flakResult.accuracy * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+          expectedHits: flakResult.expectedHits * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+          expectedDamage: flakResult.expectedDamage * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+          expectedSuppression: flakResult.expectedSuppression * combatBalance.accuracy.groundAntiAirVsAircraftScalar
         };
       }
 
@@ -9696,10 +9696,10 @@ private automateSupplyConvoys(
             // Apply 75% accuracy reduction for ground AA vs aircraft (small, fast, distant targets)
             flakResult = {
               ...flakResult,
-              accuracy: flakResult.accuracy * 0.25,
-              expectedHits: flakResult.expectedHits * 0.25,
-              expectedDamage: flakResult.expectedDamage * 0.25,
-              expectedSuppression: flakResult.expectedSuppression * 0.25
+              accuracy: flakResult.accuracy * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+              expectedHits: flakResult.expectedHits * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+              expectedDamage: flakResult.expectedDamage * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+              expectedSuppression: flakResult.expectedSuppression * combatBalance.accuracy.groundAntiAirVsAircraftScalar
             };
           }
 
@@ -12720,10 +12720,10 @@ private automateSupplyConvoys(
       if (this.hasAntiAirCapability(flakDef) && this.isAircraft(attackerDef)) {
         flakResult = {
           ...flakResult,
-          accuracy: flakResult.accuracy * 0.25,
-          expectedHits: flakResult.expectedHits * 0.25,
-          expectedDamage: flakResult.expectedDamage * 0.25,
-          expectedSuppression: flakResult.expectedSuppression * 0.25
+          accuracy: flakResult.accuracy * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+          expectedHits: flakResult.expectedHits * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+          expectedDamage: flakResult.expectedDamage * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+          expectedSuppression: flakResult.expectedSuppression * combatBalance.accuracy.groundAntiAirVsAircraftScalar
         };
       }
 
@@ -13348,10 +13348,10 @@ private automateSupplyConvoys(
           if (this.hasAntiAirCapability(flakDef) && this.isAircraft(attackerDef)) {
             flakResult = {
               ...flakResult,
-              accuracy: flakResult.accuracy * 0.25,
-              expectedHits: flakResult.expectedHits * 0.25,
-              expectedDamage: flakResult.expectedDamage * 0.25,
-              expectedSuppression: flakResult.expectedSuppression * 0.25
+              accuracy: flakResult.accuracy * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+              expectedHits: flakResult.expectedHits * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+              expectedDamage: flakResult.expectedDamage * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+              expectedSuppression: flakResult.expectedSuppression * combatBalance.accuracy.groundAntiAirVsAircraftScalar
             };
           }
           const suffered = roundAppliedDamage(flakResult.expectedDamage, flakDef, attackerDef);

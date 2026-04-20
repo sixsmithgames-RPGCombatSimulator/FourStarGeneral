@@ -3,6 +3,11 @@ import type {
   ResolvedAirShowFlakBurst,
   ResolvedAirShowScene
 } from "../../rendering/HexMapRenderer";
+import {
+  AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
+  AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
+  type ResolvedAirCombatSceneTimingOverrides
+} from "./AirShowPlaybackPolicy";
 
 export interface LinkedEscortFlightContext {
   readonly unitKey: string;
@@ -45,6 +50,7 @@ export interface BuildResolvedAirCombatSceneOptions {
   readonly bomberTargetKey?: string | null;
   readonly flakEvent?: AirEngagementEvent | null;
   readonly includeBomber?: boolean;
+  readonly phaseTimings?: ResolvedAirCombatSceneTimingOverrides;
   readonly playerHqKey?: string | null;
   readonly botHqKey?: string | null;
 }
@@ -225,6 +231,7 @@ export function buildResolvedAirCombatScene(
   // Per North Star Spec §Speed Principles: fighter speed = V, bomber speed = V/2.
   // Derive ingress durations from hex distance so the scene is self-contained for
   // progress-based choreography without requiring BattleScreen runtime values.
+  const phaseTimings = options.phaseTimings ?? {};
   const parseHexKey = (key: string): { q: number; r: number } | null => {
     const parts = key.split(",");
     if (parts.length !== 2) return null;
@@ -239,7 +246,6 @@ export function buildResolvedAirCombatScene(
   };
   const locCoord = parseHexKey(options.locKey);
   const HEX_WIDTH_PX = Math.sqrt(3) * 48;
-  const BASE_FIGHTER_PX_PER_MS = 0.12; // fighter pixel speed
   const MINIMUM_FIGHTER_INGRESS_MS = 1250;
   const MINIMUM_BOMBER_INGRESS_MS = 3000;
 
@@ -259,7 +265,7 @@ export function buildResolvedAirCombatScene(
     : 8 * HEX_WIDTH_PX;
   const fighterIngressDurationMs = Math.max(
     MINIMUM_FIGHTER_INGRESS_MS,
-    Math.round(fighterDistancePx / BASE_FIGHTER_PX_PER_MS)
+    Math.round(fighterDistancePx / AIR_SHOW_FIGHTER_SPEED_PX_PER_MS)
   );
 
   // Bomber ingress: per spec §Speed Principles bomber travels at V/2, so duration = 2× fighter.
@@ -276,7 +282,7 @@ export function buildResolvedAirCombatScene(
     : fighterDistancePx;
   // Speed ratio: bomber at V/2 needs 2× the time a fighter would need for the same distance.
   // Use the longer of (bomber distance at V/2) vs (2 × fighter duration), capped at 2.5× fighter.
-  const bomberDistanceDurationMs = Math.round((bomberDistancePx / BASE_FIGHTER_PX_PER_MS) * 2);
+  const bomberDistanceDurationMs = Math.round(bomberDistancePx / AIR_SHOW_BOMBER_SPEED_PX_PER_MS);
   const bomberIngressDurationMs = Math.max(
     MINIMUM_BOMBER_INGRESS_MS,
     Math.min(
@@ -295,8 +301,14 @@ export function buildResolvedAirCombatScene(
       escortExchanges: event.escortExchanges ?? [],
       bomberPassExchanges: includeBomber ? (event.bomberPassExchanges ?? []) : [],
       bomberTargetHexKey: options.bomberTargetKey,
-      fighterIngressDurationMs,
-      bomberIngressDurationMs,
+      fighterIngressDurationMs: phaseTimings.fighterIngressDurationMs ?? fighterIngressDurationMs,
+      escortClashDurationMs: phaseTimings.escortClashDurationMs,
+      bomberIngressDurationMs: phaseTimings.bomberIngressDurationMs ?? bomberIngressDurationMs,
+      bomberPassDurationMs: phaseTimings.bomberPassDurationMs,
+      strikeRunDurationMs: phaseTimings.strikeRunDurationMs,
+      egressDurationMs: phaseTimings.egressDurationMs,
+      bomberArrivalDelayMs: phaseTimings.bomberArrivalDelayMs,
+      bombReleaseProgress: phaseTimings.bombReleaseProgress,
       playerHqKey: options.playerHqKey ?? null,
       botHqKey: options.botHqKey ?? null,
       flakBursts:

@@ -1,8 +1,13 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
+import { CoordinateSystem } from "../src/rendering/CoordinateSystem.js";
 import type { AirEngagementEvent, AirMissionArrival } from "../src/game/GameEngine";
 import type { ScenarioUnit } from "../src/core/types";
+import {
+  buildCoordinatedAirClusterTimingPolicy,
+  buildResolvedAirCombatSceneTimingPolicy
+} from "../src/ui/airshow/AirShowPlaybackPolicy.js";
 
 registerTest("BATTLESCREEN_AIR_OPERATIONS_USE_LIVE_STRIKE_TARGETS_AND_RENDER_LINKED_ESCORTS", async ({ Given, When, Then }) => {
   const originalSetTimeout = window.setTimeout;
@@ -1610,6 +1615,211 @@ registerTest("BATTLESCREEN_LINKED_STRIKES_KEEP_ESCORT_SORTIES_INSIDE_INTERCEPTED
   });
 });
 
+registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_SCENE_USES_SHARED_POLICY_TIMINGS", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let coordinatedPlan: any = null;
+  let coordinatedScene: any = null;
+  const root = document.getElementById("battleScreen") ?? document.createElement("div");
+  if (!root.parentElement) {
+    root.id = "battleScreen";
+    document.body.appendChild(root);
+  }
+
+  const fakeEngine = {
+    getPlayerHq: () => ({ q: -6, r: 2 }),
+    getBotHq: () => ({ q: 7, r: -3 })
+  } as const;
+
+  await Given("a linked strike package that BattleScreen can fold into a coordinated airshow scene", async () => {
+    screen = new BattleScreen(
+      {} as any,
+      {
+        ensureGameEngine: () => fakeEngine,
+        tryGetGameEngine: () => fakeEngine,
+        hasEngine: () => true
+      } as any,
+      {} as any,
+      {} as any,
+      null,
+      null,
+      null,
+      {} as any,
+      null
+    );
+    (screen as any).resolveAirEngagementOffsetKey = (unitKey: string) => {
+      const origins: Record<string, string> = {
+        "cap-1": "2,1",
+        "escort-1": "7,1",
+        "bomber-1": "8,2"
+      };
+      return origins[unitKey] ?? null;
+    };
+    (screen as any).resolveAirSquadronStrength = () => 100;
+  });
+
+  const coordinatedEvent: AirEngagementEvent = {
+    type: "airToAir",
+    missionId: "strike-live-coordinated",
+    location: { q: 1, r: -1 },
+    bomber: {
+      faction: "Bot",
+      unitKey: "bomber-1",
+      unitType: "Bomber",
+      strength: 100
+    },
+    interceptors: [
+      {
+        faction: "Player",
+        unitKey: "cap-1",
+        unitType: "Interceptor",
+        strength: 100
+      }
+    ],
+    escorts: [
+      {
+        faction: "Bot",
+        unitKey: "escort-1",
+        unitType: "Fighter",
+        strength: 100
+      }
+    ],
+    bomberStrengthBefore: 100,
+    bomberStrengthAfter: 82,
+    bomberDestroyed: false,
+    escortExchanges: [
+      {
+        phase: "escortClash",
+        attackerFaction: "Bot",
+        attackerUnitKey: "escort-1",
+        attackerUnitType: "Fighter",
+        defenderFaction: "Player",
+        defenderUnitKey: "cap-1",
+        defenderUnitType: "Interceptor",
+        attackerStrengthBefore: 100,
+        attackerStrengthAfter: 94,
+        defenderStrengthBefore: 100,
+        defenderStrengthAfter: 90,
+        damageToDefender: 10,
+        retaliationDamage: 6,
+        attackerDestroyed: false,
+        defenderDestroyed: false
+      }
+    ],
+    bomberPassExchanges: [
+      {
+        phase: "bomberPass",
+        attackerFaction: "Player",
+        attackerUnitKey: "cap-1",
+        attackerUnitType: "Interceptor",
+        defenderFaction: "Bot",
+        defenderUnitKey: "bomber-1",
+        defenderUnitType: "Bomber",
+        attackerStrengthBefore: 90,
+        attackerStrengthAfter: 86,
+        defenderStrengthBefore: 100,
+        defenderStrengthAfter: 82,
+        damageToDefender: 18,
+        retaliationDamage: 4,
+        attackerDestroyed: false,
+        defenderDestroyed: false
+      }
+    ]
+  };
+
+  await When("BattleScreen builds the coordinated cluster plan", async () => {
+    coordinatedPlan = (screen as any).buildCoordinatedAirPlaybackPlanForCluster(
+      [
+        {
+          kind: "linkedStrike",
+          index: 0,
+          focusHex: { q: 1, r: -1 },
+          focusKey: "1,-1",
+          flight: {
+            missionId: "strike-live-coordinated",
+            faction: "Bot",
+            kind: "strike",
+            unitKey: "bomber-1",
+            originKey: "8,2",
+            destKey: "1,-1",
+            unitType: "Bomber",
+            strength: 100,
+            laneOffsetPx: 0
+          },
+          linkedEvents: [coordinatedEvent],
+          escorts: [
+            {
+              missionId: "escort-live-coordinated",
+              faction: "Bot",
+              kind: "escort",
+              unitKey: "escort-1",
+              originKey: "7,1",
+              destKey: "1,-1",
+              unitType: "Fighter",
+              strength: 100,
+              laneOffsetPx: 0,
+              escortTargetUnitKey: "bomber-1"
+            }
+          ]
+        }
+      ],
+      fakeEngine
+    );
+    coordinatedScene = coordinatedPlan?.scene ?? null;
+  });
+
+  await Then("the coordinated scene should inherit the shared timing policy and HQ context", async () => {
+    if (!coordinatedScene) {
+      throw new Error("Expected BattleScreen to build a coordinated airshow scene.");
+    }
+
+    const expectedPolicy = buildCoordinatedAirClusterTimingPolicy();
+    if (coordinatedScene.fighterIngressDurationMs !== expectedPolicy.fighterIngressDurationMs) {
+      throw new Error(
+        `Expected coordinated fighter ingress ${expectedPolicy.fighterIngressDurationMs}, ` +
+        `saw ${coordinatedScene.fighterIngressDurationMs ?? "<missing>"}.`
+      );
+    }
+    if (coordinatedScene.escortClashDurationMs !== expectedPolicy.escortClashDurationMs) {
+      throw new Error(
+        `Expected coordinated escort clash ${expectedPolicy.escortClashDurationMs}, ` +
+        `saw ${coordinatedScene.escortClashDurationMs ?? "<missing>"}.`
+      );
+    }
+    if (coordinatedScene.egressDurationMs !== expectedPolicy.fighterEgressDurationMs) {
+      throw new Error(
+        `Expected coordinated egress ${expectedPolicy.fighterEgressDurationMs}, ` +
+        `saw ${coordinatedScene.egressDurationMs ?? "<missing>"}.`
+      );
+    }
+    const expectedComputedLeadMs = Math.max(
+      expectedPolicy.bomberStartDelayMs,
+      Math.round(expectedPolicy.fighterIngressDurationMs + expectedPolicy.escortClashDurationMs * 0.42 + 220)
+    );
+    if (coordinatedPlan?.bomberStartDelayMs !== expectedComputedLeadMs) {
+      throw new Error(
+        `Expected coordinated computed bomber start delay ${expectedComputedLeadMs}, ` +
+        `saw ${coordinatedPlan?.bomberStartDelayMs ?? "<missing>"}.`
+      );
+    }
+    if (coordinatedScene.bomberArrivalDelayMs !== coordinatedPlan?.bomberStartDelayMs) {
+      throw new Error(
+        `Expected scene bomber arrival delay ${coordinatedPlan?.bomberStartDelayMs ?? "<missing>"}, ` +
+        `saw ${coordinatedScene.bomberArrivalDelayMs ?? "<missing>"}.`
+      );
+    }
+    const playerHqOffset = CoordinateSystem.axialToOffset(fakeEngine.getPlayerHq().q, fakeEngine.getPlayerHq().r);
+    const botHqOffset = CoordinateSystem.axialToOffset(fakeEngine.getBotHq().q, fakeEngine.getBotHq().r);
+    const expectedPlayerHqKey = CoordinateSystem.makeHexKey(playerHqOffset.col, playerHqOffset.row);
+    const expectedBotHqKey = CoordinateSystem.makeHexKey(botHqOffset.col, botHqOffset.row);
+    if (coordinatedScene.playerHqKey !== expectedPlayerHqKey || coordinatedScene.botHqKey !== expectedBotHqKey) {
+      throw new Error(
+        `Expected HQ keys ${expectedPlayerHqKey} and ${expectedBotHqKey}, saw ` +
+        `${coordinatedScene.playerHqKey ?? "<missing>"} and ${coordinatedScene.botHqKey ?? "<missing>"}.`
+      );
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_USES_RESOLVED_EVENT_ESCORTS_AND_KEEPS_BOMBER_CORRIDOR_CONTEXT", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let resolvedScene: any = null;
@@ -1740,6 +1950,25 @@ registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_USES_RESOLVED_EVENT_ESCORTS_AND_KEEP
     }
     if (resolvedScene.bomberTargetHexKey !== "3,0") {
       throw new Error(`Expected bomber corridor target 3,0 to reach the renderer, saw ${resolvedScene.bomberTargetHexKey ?? "<missing>"}.`);
+    }
+    const expectedPolicy = buildResolvedAirCombatSceneTimingPolicy(900);
+    if (resolvedScene.fighterIngressDurationMs !== expectedPolicy.fighterIngressDurationMs) {
+      throw new Error(
+        `Expected resolved fighter ingress ${expectedPolicy.fighterIngressDurationMs}, ` +
+        `saw ${resolvedScene.fighterIngressDurationMs ?? "<missing>"}.`
+      );
+    }
+    if (resolvedScene.bomberIngressDurationMs !== expectedPolicy.bomberIngressDurationMs) {
+      throw new Error(
+        `Expected resolved bomber ingress ${expectedPolicy.bomberIngressDurationMs}, ` +
+        `saw ${resolvedScene.bomberIngressDurationMs ?? "<missing>"}.`
+      );
+    }
+    if (resolvedScene.bomberArrivalDelayMs !== expectedPolicy.bomberArrivalDelayMs) {
+      throw new Error(
+        `Expected resolved bomber arrival delay ${expectedPolicy.bomberArrivalDelayMs}, ` +
+        `saw ${resolvedScene.bomberArrivalDelayMs ?? "<missing>"}.`
+      );
     }
   });
 });

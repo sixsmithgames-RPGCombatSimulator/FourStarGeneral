@@ -62,11 +62,14 @@ export const combat = {
      * Small targets force more precise fire; large targets expose more surface area.
      */
     signatureMultiplier: {
-      tiny: 0.72,
-      small: 0.86,
+      tiny: 0.5,
+      small: 0.75,
       medium: 1,
-      large: 1.15
-    } as const
+      large: 1.25
+    } as const,
+    // Ground-based AA has a much harder time hitting fast aircraft than ground targets.
+    // This scalar is applied after normal attack resolution for flak-vs-aircraft engagements.
+    groundAntiAirVsAircraftScalar: 0.125
   },
   /**
    * Cover reduces exposed target area and therefore belongs entirely in the hit-chance phase.
