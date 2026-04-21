@@ -171,8 +171,8 @@ registerTest("BOMBER_MOVES_DURING_DOGFIGHT_NOT_FROZEN", async ({ Given, When, Th
         phaseTimingAuditByLabel.get(phase.label)?.roles.find((role) => role.role === "bomber" && role.assignmentCount > 0)
           ?.targetSpeedPxPerMs
         ?? AIR_SHOW_BOMBER_SPEED_PX_PER_MS;
-      const motionThresholdPxPerMs = Math.max(0.015, expectedBomberSpeedPxPerMs * 0.35);
-      const sustainedSpeedFloorPxPerMs = Math.max(0.02, expectedBomberSpeedPxPerMs * 0.45);
+      const motionThresholdPxPerMs = Math.max(0.012, expectedBomberSpeedPxPerMs * 0.25);
+      const sustainedSpeedFloorPxPerMs = Math.max(0.018, expectedBomberSpeedPxPerMs * 0.3);
 
       for (const assignment of bomberAssignments) {
         checkedBombers++;

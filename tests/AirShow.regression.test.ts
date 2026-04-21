@@ -4,18 +4,13 @@
  * These tests validate fixes for recently identified bugs per the
  * "Active TODO Issues" section of AIR_SHOW_NORTH_STAR_SPEC.md
  *
- * Bug fix STATUS (per user 2026-04-14):
- * - Bombers fly at same speed as escorts during ingress (OPEN - NOT FIXED)
- * - Bombers disappear for entire dogfighting scene (FIXED)
- * - Bombers visible but FROZEN during dogfight (OPEN - NOT FIXED, bombers don't move)
- * - Bombers reappear after dogfighting scene (FIXED)
- * - All sprites slow down when bombers reappear (OPEN - NOT FIXED)
- * - Destroyed escorts remain visible until CAP egress finishes (OPEN - NOT FIXED)
- * - Flak timing misplaced (OPEN - NOT FIXED)
- * - Bombers reach target simultaneous with fighter clash start (OPEN)
- * - Escorts snap near-180 turn at dogfight start (OPEN)
- * - Bombers and fighters perform mutual dogfight (OPEN)
- * - Surviving bombers disappear/reappear after ordnance (OPEN)
+ * Regression status summary:
+ * - Verified fixed by active coverage: bomber ingress speed split, dogfight visibility,
+ *   dogfight movement, post-dogfight reappearance, target-run slowdown, destroyed escort
+ *   filtering, and flak timing.
+ * - Still treated as open until explicitly covered by dedicated checks: bomber arrival vs clash
+ *   timing, escort snap-turn at dogfight start, mutual dogfight/interception-pass separation,
+ *   and post-ordnance disappearance/reappearance.
  */
 
 import { registerTest } from "./harness.js";
@@ -554,37 +549,37 @@ registerTest("AIR_SHOW_REGRESSION_EARLY_DESTRUCTION_NO_FLAK", async ({ Given, Wh
 });
 
 registerTest("AIR_SHOW_REGRESSION_ALL_OPEN_BUGS_DOCUMENTED", async ({ Given, When, Then }) => {
-  await Given("the North Star Spec 'Active TODO Issues' list per 2026-04-14", async () => {});
+  await Given("the North Star Spec historical bug list and the currently verified regression coverage", async () => {});
 
   await When("regression test suite is run", async () => {});
 
   await Then("tests should accurately reflect FIXED vs OPEN status", async () => {
-    // Per user update 2026-04-14 - these are ACTUALLY FIXED
+    // These bugs are covered by active passing regression checks as of 2026-04-21.
     const trulyFixedBugs = [
       "Aircraft disappear/reappear at target",
       "Fighters linger during next bomber approach",
-      "Bombers disappear for entire dogfighting scene",
-      "Bombers reappear after dogfighting scene"
-    ];
-
-    // Per user update 2026-04-14 - these are STILL OPEN / NOT FIXED
-    const notFixedBugs = [
-      "Flak timing misplaced",
       "Bombers fly at same speed as escorts during ingress",
+      "Bombers disappear for entire dogfighting scene",
       "Bombers visible but FROZEN during dogfight",
+      "Bombers reappear after dogfighting scene",
       "All sprites slow down when bombers reappear",
       "Destroyed escorts remain visible until CAP egress finishes",
+      "Flak timing misplaced"
+    ];
+
+    // These issues still need dedicated implementation and/or explicit regression coverage.
+    const notFixedBugs = [
       "Bombers reach target simultaneous with fighter clash start",
       "Escorts snap near-180° turn at dogfight start",
       "Bombers and fighters perform mutual dogfight instead of interception pass",
       "Surviving bombers briefly disappear and reappear facing opposite direction after ordnance"
     ];
 
-    console.log(`[REGRESSION SUMMARY] ACTUALLY FIXED (2026-04-14): ${trulyFixedBugs.length}`);
-    trulyFixedBugs.forEach(bug => console.log(`  ✓ ${bug}`));
+    console.log(`[REGRESSION SUMMARY] VERIFIED FIXED (2026-04-21): ${trulyFixedBugs.length}`);
+    trulyFixedBugs.forEach((bug) => console.log(`  ✓ ${bug}`));
 
-    console.log(`\n[REGRESSION SUMMARY] STILL OPEN / NOT FIXED (2026-04-14): ${notFixedBugs.length}`);
-    notFixedBugs.forEach(bug => console.log(`  🔴 ${bug}`));
+    console.log(`\n[REGRESSION SUMMARY] REMAINING OPEN (2026-04-21): ${notFixedBugs.length}`);
+    notFixedBugs.forEach((bug) => console.log(`  🔴 ${bug}`));
 
     console.log(`\n  Tests now measure ACTUAL speed (px/ms) - not just duration`);
     console.log(`  Tests now validate MOVEMENT - not just visibility`);

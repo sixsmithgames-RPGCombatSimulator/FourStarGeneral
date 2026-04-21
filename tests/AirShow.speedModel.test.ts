@@ -23,9 +23,13 @@ import {
   type AirScenarioResult
 } from "./airShowTestSupport.js";
 
-// Minimum ingress durations per spec
-const MINIMUM_FIGHTER_INGRESS_MS = 1250;
-const MINIMUM_BOMBER_INGRESS_MS = 3000;
+const PRE_TARGET_BOMBER_PHASES = new Set([
+  "fighter-ingress",
+  "escort-clash-merge",
+  "escort-clash-scramble",
+  "bomber-ingress",
+  "bomber-defense-pass"
+]);
 
 registerTest("AIR_SHOW_SPEED_MODEL_FIGHTER_VS_BOMBER_RATIO", async ({ Given, When, Then }) => {
   let result: AirScenarioResult | null = null;
@@ -84,40 +88,45 @@ registerTest("AIR_SHOW_SPEED_MODEL_FIGHTER_VS_BOMBER_RATIO", async ({ Given, Whe
   });
 });
 
-registerTest("AIR_SHOW_INGRESS_DURATIONS_RESPECT_FIGHTER_AND_BOMBER_MINIMUMS", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_PRE_TARGET_PHASES_SCALE_TO_CANONICAL_BOMBER_PATH", async ({ Given, When, Then }) => {
   let result: AirScenarioResult | null = null;
 
-  await Given("the North Star minimum ingress durations for fighters and bombers", async () => {});
+  await Given("the bomber corridor to stand-off governs contested-package pre-target timing", async () => {});
 
   await When("the contested package scenario is run", async () => {
     result = runAirScenario();
   });
 
-  await Then("fighter ingress and bomber ingress should satisfy their minimum floors while preserving a delayed bomber lead window", async () => {
+  await Then("pre-target bomber phases should add up to the sampled bomber corridor time while preserving a delayed bomber lead window", async () => {
     const phases = getAuthoritativeContestedPackagePhases(result);
     if (!phases) {
       console.log("[INGRESS DURATION] No contested package found - skipping");
       return;
     }
 
-    const fighterIngress = phases.find((phase) => phase.label === "fighter-ingress");
-    const bomberIngress = phases.find((phase) => phase.label === "bomber-ingress");
-
-    if (!fighterIngress || !bomberIngress) {
-      throw new Error("Expected both fighter-ingress and bomber-ingress phases.");
+    const preTargetBomberPhases = phases.filter((phase) =>
+      PRE_TARGET_BOMBER_PHASES.has(phase.label) && phase.assignments.some((assignment) => assignment.role === "bomber")
+    );
+    if (preTargetBomberPhases.length === 0) {
+      throw new Error("Expected bomber pre-target phases.");
     }
 
-    if (fighterIngress.durationMs < MINIMUM_FIGHTER_INGRESS_MS) {
+    const sampledBomberPathPx = preTargetBomberPhases.reduce((sum, phase) => {
+      const bomberAssignments = phase.assignments.filter((assignment) => assignment.role === "bomber");
+      const meanPhasePathPx =
+        bomberAssignments.reduce((phaseSum, assignment) => {
+          return phaseSum + calculatePathLength(assignment.sampledPositions);
+        }, 0) / Math.max(1, bomberAssignments.length);
+      return sum + meanPhasePathPx;
+    }, 0);
+    const sampledPreTargetDurationMs = preTargetBomberPhases.reduce((sum, phase) => sum + phase.durationMs, 0);
+    const canonicalDurationMs = sampledBomberPathPx / AIR_SHOW_BOMBER_SPEED_PX_PER_MS;
+    const allowedDeltaMs = Math.max(140, canonicalDurationMs * 0.18);
+    if (Math.abs(sampledPreTargetDurationMs - canonicalDurationMs) > allowedDeltaMs) {
       throw new Error(
-        `Fighter ingress ${fighterIngress.durationMs}ms too short ` +
-        `(expected >= ${MINIMUM_FIGHTER_INGRESS_MS}ms).`
-      );
-    }
-
-    if (bomberIngress.durationMs < MINIMUM_BOMBER_INGRESS_MS) {
-      throw new Error(
-        `Bomber ingress ${bomberIngress.durationMs}ms too short ` +
-        `(expected >= ${MINIMUM_BOMBER_INGRESS_MS}ms).`
+        `Pre-target bomber timing drifted from canonical corridor time. ` +
+        `Observed duration=${sampledPreTargetDurationMs}ms, canonical=${canonicalDurationMs.toFixed(0)}ms, ` +
+        `delta=${Math.abs(sampledPreTargetDurationMs - canonicalDurationMs).toFixed(0)}ms.`
       );
     }
 
@@ -131,8 +140,8 @@ registerTest("AIR_SHOW_INGRESS_DURATIONS_RESPECT_FIGHTER_AND_BOMBER_MINIMUMS", a
     }
 
     console.log(
-      `[INGRESS DURATION] fighter=${fighterIngress.durationMs}ms bomber=${bomberIngress.durationMs}ms ` +
-      `(mins: ${MINIMUM_FIGHTER_INGRESS_MS}/${MINIMUM_BOMBER_INGRESS_MS})`
+      `[INGRESS DURATION] sampledPreTarget=${sampledPreTargetDurationMs}ms canonical=${canonicalDurationMs.toFixed(0)}ms ` +
+      `path=${sampledBomberPathPx.toFixed(1)}px`
     );
     if (coordinatedPlan) {
       console.log(
@@ -185,16 +194,16 @@ registerTest("AIR_SHOW_FIGHTER_VISIBLE_SPEED_DIFFERENTIATION", async ({ Given, W
   });
 });
 
-registerTest("AIR_SHOW_MINIMUM_INGRESS_DURATION_ENFORCED", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_INGRESS_PHASES_TRACK_POLICY_SPEEDS_ACROSS_INSPECTIONS", async ({ Given, When, Then }) => {
   let result: AirScenarioResult | null = null;
 
-  await Given("minimum ingress duration requirements per North Star Spec", async () => {});
+  await Given("contested ingress phases should follow policy speeds instead of legacy duration floors", async () => {});
 
   await When("the air scenario is run with full package", async () => {
     result = runAirScenario();
   });
 
-  await Then("all ingress phases should meet minimum duration requirements", async () => {
+  await Then("ingress phases should stay positive and preserve role speeds across inspections", async () => {
     const inspections = result?.airshowInspections ?? [];
 
     const violations: string[] = [];
@@ -225,15 +234,49 @@ registerTest("AIR_SHOW_MINIMUM_INGRESS_DURATION_ENFORCED", async ({ Given, When,
           );
         }
 
-        if (phase.label === "fighter-ingress" && phase.durationMs < MINIMUM_FIGHTER_INGRESS_MS * 0.8) {
-          violations.push(
-            `${inspection.missionId}/${phase.label}: ${phase.durationMs}ms < ${MINIMUM_FIGHTER_INGRESS_MS}ms (fighter)`
-          );
+        if (phase.durationMs <= 0) {
+          violations.push(`${inspection.missionId}/${phase.label}: non-positive duration ${phase.durationMs}ms`);
         }
 
-        if (phase.label === "bomber-ingress" && phase.durationMs < MINIMUM_BOMBER_INGRESS_MS * 0.8) {
+        const fighterAssignments = phase.assignments.filter((assignment) => assignment.role === "interceptor");
+        if (fighterAssignments.length > 0) {
+          const meanFighterSpeed =
+            fighterAssignments.reduce((sum, assignment) => sum + calculateObservedSpeed(assignment.sampledPositions), 0)
+            / fighterAssignments.length;
+          observations.push(
+            `${inspection.missionId}/${phase.label}: fighter=${meanFighterSpeed.toFixed(3)} px/ms`
+          );
+          if (
+            meanFighterSpeed < AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * 0.75
+            || meanFighterSpeed > AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * 1.25
+          ) {
+            violations.push(
+              `${inspection.missionId}/${phase.label}: fighter speed ${meanFighterSpeed.toFixed(3)} px/ms out of range`
+            );
+          }
+        }
+
+        const bomberAssignments = phase.assignments.filter((assignment) => assignment.role === "bomber");
+        if (bomberAssignments.length > 0) {
+          const meanBomberSpeed =
+            bomberAssignments.reduce((sum, assignment) => sum + calculateObservedSpeed(assignment.sampledPositions), 0)
+            / bomberAssignments.length;
+          observations.push(
+            `${inspection.missionId}/${phase.label}: bomber=${meanBomberSpeed.toFixed(3)} px/ms`
+          );
+          if (
+            meanBomberSpeed < AIR_SHOW_BOMBER_SPEED_PX_PER_MS * 0.7
+            || meanBomberSpeed > AIR_SHOW_BOMBER_SPEED_PX_PER_MS * 1.3
+          ) {
+            violations.push(
+              `${inspection.missionId}/${phase.label}: bomber speed ${meanBomberSpeed.toFixed(3)} px/ms out of range`
+            );
+          }
+        }
+
+        if (!hasFighters && !hasBombers) {
           violations.push(
-            `${inspection.missionId}/${phase.label}: ${phase.durationMs}ms < ${MINIMUM_BOMBER_INGRESS_MS}ms (bomber)`
+            `${inspection.missionId}/${phase.label}: ingress phase reported without aircraft assignments`
           );
         }
       }
@@ -243,9 +286,7 @@ registerTest("AIR_SHOW_MINIMUM_INGRESS_DURATION_ENFORCED", async ({ Given, When,
       throw new Error(`Ingress duration violations:\n${violations.join("\n")}`);
     }
 
-    console.log(`[MINIMUM DURATION] All ingress phases meet minimum requirements`);
-    console.log(`  - Fighter minimum: ${MINIMUM_FIGHTER_INGRESS_MS}ms`);
-    console.log(`  - Bomber minimum: ${MINIMUM_BOMBER_INGRESS_MS}ms`);
+    console.log(`[INGRESS SPEEDS] All inspected ingress phases track policy speeds`);
     for (const observation of observations) {
       console.log(`  - ${observation}`);
     }

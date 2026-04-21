@@ -490,6 +490,8 @@ The canonical playback-policy model is:
 - `BattleScreen` consumes shared policy outputs when it builds coordinated and resolved air-show scenes
 - scene builders and renderer code consume the same shared policy instead of shadowing constants
 - tests and diagnostics may inspect or assert policy outputs, but they must not maintain parallel copies of the formulas they are validating
+- no renderer, scene-builder, or test-layer patch may "fix" timing by shortening a role's path, stretching a rival role's window, or otherwise compensating visually for incorrect policy timing
+- if observed playback only looks correct because of a role-specific path-length retarget, phase-local speed fudge, or visibility workaround, the issue remains open and the policy/runtime contract is not satisfied
 
 Current implementation anchors:
 
@@ -646,6 +648,8 @@ These are target behavior rules for readability. The authoritative timing model 
 - CAP ingress at fighter speed
 - Bombers and escorts ingress together at bomber speed
 - Escorts accelerate to fighter speed at 15% bomber progress
+- visible speed is the on-screen distance traveled over wall-clock time; it must come from canonical path length plus canonical timing, not from truncated paths or shared-window illusions
+- if two roles must appear to move at different speeds, the renderer must give them different authoritative time windows or local progress windows derived from policy, rather than forcing them through one shared progress value
 
 ### Progress-Based Phase Triggers
 
@@ -850,6 +854,8 @@ The following behaviors must be verifiable through tests, diagnostics, or direct
 - `airScenarioSupport.ts` is a diagnostic consumer of production code, not an alternate engine, planner, or renderer
 - `BattleScreen.ts`, `ResolvedAirCombatSceneBuilder.ts`, and `HexMapRenderer.ts` must not carry independent copies of speed constants, duration formulas, or origin-direction logic; if multiple layers need the same behavior, extract a shared module and make every layer consume it
 - synthetic or stress-only tests may diverge from live policy only when they are clearly labeled synthetic and cannot be cited as proof that runtime behavior is correct
+- playback patches and visual workarounds are forbidden for timing, speed, continuity, or arrival-order defects; non-compliant behavior must be fixed in canonical policy and canonical runtime flow
+- any "fix" that depends on per-role path truncation inside a shared phase window, actor hide/show compensation, or phase-local speed fudging is not a valid completion state and must be treated as an open defect
 
 ### Scenario Verification
 
@@ -957,7 +963,7 @@ The air show is not done until all of these are true:
 | ~~**Flak timing misplaced**~~ | ~~High~~ | **OPEN** |  |
 | ~~**Aircraft disappear/reappear at target**~~ | ~~Critical~~ | ✅ **FIXED** | Removed `actor.active` filter from `buildAirShowFlightAssignments` — all actors now get phase assignments, visibility controlled by opacity only |
 | ~~**Fighters linger during next bomber approach**~~ | ~~High~~ | ✅ **FIXED** | Skip `escort-hold` phase when bomber is present — fighters now reposition immediately for defense instead of drifting |
-| ~~**Bombers fly at near-fighter speed during fighter-ingress**~~ | ~~High~~ | ✅ **FIXED** | Bomber path endpoints in `ingressAssignments` are scaled by `fighterDuration/bomberDuration` ratio before the phase runs. Bombers travel only `speedScale` fraction of their full path in `fighterIngressDurationMs`, giving correct V/2 apparent speed. Choreography test Invariant 3 now passes (ratio<0.75). |
+| **Bombers appear compliant only via shared-window path truncation during fighter-ingress** | Critical | 🔴 **OPEN** | The current shortened-path workaround is not spec-compliant. It makes bomber px/ms look correct inside `fighter-ingress`, but bombers still share the same ingress window instead of following the canonical bomber-progress timeline and arrival lead. Replace with authoritative per-role timing windows driven by shared playback policy. |
 | ~~**Both fighter factions egress toward same side (player HQ)**~~ | ~~High~~ | ✅ **FIXED** | Egress target for interceptors/escorts now uses `hqAxis.botOrigin` (Bot faction) or `hqAxis.playerOrigin` (Player faction) with lane offset, replacing hardcoded `corridorPoint(±146px)` offsets from corridor center. Applied to both `inspectResolvedAirCombatShow` and `animateResolvedAirCombatShow`. Choreography test Invariants 5+6 now pass. |
 | **Bombers reach target simultaneous with fighter clash start** | High | 🔴 **OPEN** | Spec §Typical Contested Package: bombers must still be mid-approach when escort-CAP dogfight begins (step 2 before step 3). `bomberArrivalDelayMs` / ingress lead timing needs increase so fighters engage well ahead of bomber arrival. |
 | ~~**Bombers disappear for entire dogfighting scene**~~ | ~~Critical~~ | ✅ **FIXED** | Root cause: `syncAirShowPhaseVisibility` hid any actor not in current phase assignments. Added bomber hold-in-place assignments to every escort clash beat so bombers remain in `phaseAssignments` and stay visible. |
