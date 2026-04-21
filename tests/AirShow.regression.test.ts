@@ -6,15 +6,29 @@
  *
  * Regression status summary:
  * - Verified fixed by active coverage: bomber ingress speed split, dogfight visibility,
- *   dogfight movement, post-dogfight reappearance, target-run slowdown, destroyed escort
- *   filtering, and flak timing.
- * - Still treated as open until explicitly covered by dedicated checks: bomber arrival vs clash
- *   timing, escort snap-turn at dogfight start, mutual dogfight/interception-pass separation,
- *   and post-ordnance disappearance/reappearance.
+ *   dogfight movement, clash timing, clash-entry heading continuity, one-sided interception-pass
+ *   ownership, post-dogfight reappearance, post-ordnance continuity, target-run slowdown,
+ *   destroyed escort filtering, and flak timing.
  */
 
 import { registerTest } from "./harness.js";
 import { runAirScenario } from "./airScenarioSupport.js";
+
+function findContestedInspection(result: ReturnType<typeof runAirScenario> | null) {
+  return result?.airshowInspections.find(
+    (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
+  ) ?? null;
+}
+
+function headingChangeDeg(ax: number, ay: number, bx: number, by: number): number {
+  const aMagnitude = Math.hypot(ax, ay);
+  const bMagnitude = Math.hypot(bx, by);
+  if (aMagnitude <= 0.0001 || bMagnitude <= 0.0001) {
+    return 0;
+  }
+  const dot = Math.max(-1, Math.min(1, (ax * bx + ay * by) / (aMagnitude * bMagnitude)));
+  return Math.acos(dot) * 180 / Math.PI;
+}
 
 registerTest("AIR_SHOW_REGRESSION_BOMBER_SPEED_DIFFERENTIATION", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
@@ -213,6 +227,125 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_VISIBILITY_DURING_DOGFIGHT", async ({ G
   });
 });
 
+registerTest("AIR_SHOW_REGRESSION_CLASH_STARTS_DURING_BOMBER_APPROACH_NOT_AT_TARGET", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the governed contested-package timeline anchored to bomber approach progress", async () => {});
+
+  await When("the contested package scenario is run", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("the fighter clash should begin while bombers are still early in their pre-target approach", async () => {
+    const inspection = findContestedInspection(result);
+    if (!inspection) {
+      console.log("[REGRESSION: CLASH TIMING] No contested package found - skipping");
+      return;
+    }
+
+    const preTargetBomberPhaseLabels = new Set([
+      "fighter-ingress",
+      "escort-clash-merge",
+      "escort-clash-scramble",
+      "bomber-ingress",
+      "bomber-defense-pass"
+    ]);
+    const preTargetBomberPhases = inspection.report.phases.filter(
+      (phase) => preTargetBomberPhaseLabels.has(phase.label) && phase.assignments.some((assignment) => assignment.role === "bomber")
+    );
+    const fighterIngress = preTargetBomberPhases.find((phase) => phase.label === "fighter-ingress");
+    const targetRun = inspection.report.phases.find((phase) => phase.label === "target-run");
+
+    if (!fighterIngress || preTargetBomberPhases.length === 0 || !targetRun) {
+      throw new Error("Expected fighter-ingress, pre-target bomber phases, and target-run in the contested package.");
+    }
+
+    const totalPreTargetDurationMs = preTargetBomberPhases.reduce((sum, phase) => sum + phase.durationMs, 0);
+    const clashStartProgress = fighterIngress.durationMs / Math.max(1, totalPreTargetDurationMs);
+
+    if (clashStartProgress < 0.08 || clashStartProgress > 0.35) {
+      throw new Error(
+        `Expected clash start during early bomber approach (~0.20), saw ${(clashStartProgress * 100).toFixed(1)}% ` +
+        `of pre-target bomber progress.`
+      );
+    }
+
+    console.log(
+      `[REGRESSION: CLASH TIMING] ✓ FIXED: clash starts at ${(clashStartProgress * 100).toFixed(1)}% of bomber pre-target progress`
+    );
+  });
+});
+
+registerTest("AIR_SHOW_REGRESSION_ESCORT_CLASH_ENTRY_MAINTAINS_HEADING_CONTINUITY", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the clash-entry path continuity requirement from the north star spec", async () => {});
+
+  await When("the contested package scenario is run", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("escorts should not snap into a near-180 degree reversal at clash entry", async () => {
+    const inspection = findContestedInspection(result);
+    if (!inspection) {
+      console.log("[REGRESSION: ESCORT TURN] No contested package found - skipping");
+      return;
+    }
+
+    const ingressPhase = inspection.report.phases.find((phase) => phase.label === "fighter-ingress");
+    const firstClashPhase = inspection.report.phases.find((phase) => phase.label.includes("clash"));
+    if (!ingressPhase || !firstClashPhase) {
+      throw new Error("Expected fighter-ingress and clash phases.");
+    }
+
+    const violations: string[] = [];
+    let maxTurnDeg = 0;
+    let checkedEscorts = 0;
+
+    ingressPhase.assignments
+      .filter((assignment) => assignment.role === "escort")
+      .forEach((ingressAssignment) => {
+        const clashAssignment = firstClashPhase.assignments.find(
+          (assignment) => assignment.actorId === ingressAssignment.actorId
+        );
+        if (!clashAssignment) {
+          return;
+        }
+        const ingressSamples = ingressAssignment.sampledPositions;
+        const clashSamples = clashAssignment.sampledPositions;
+        if (ingressSamples.length < 2 || clashSamples.length < 2) {
+          return;
+        }
+
+        checkedEscorts += 1;
+        const ingressPrev = ingressSamples[ingressSamples.length - 2]!;
+        const ingressEnd = ingressSamples[ingressSamples.length - 1]!;
+        const clashStart = clashSamples[0]!;
+        const clashNext = clashSamples[1]!;
+        const turnDeg = headingChangeDeg(
+          ingressEnd.cx - ingressPrev.cx,
+          ingressEnd.cy - ingressPrev.cy,
+          clashNext.cx - clashStart.cx,
+          clashNext.cy - clashStart.cy
+        );
+        maxTurnDeg = Math.max(maxTurnDeg, turnDeg);
+        if (turnDeg > 90) {
+          violations.push(`${ingressAssignment.actorId}: ${turnDeg.toFixed(1)}deg`);
+        }
+      });
+
+    if (checkedEscorts === 0) {
+      throw new Error("Expected at least one escort assignment to validate clash-entry heading continuity.");
+    }
+
+    if (violations.length > 0) {
+      throw new Error(`Escort clash-entry snap turns detected:\n${violations.join("\n")}`);
+    }
+
+    console.log(`[REGRESSION: ESCORT TURN] ✓ FIXED: max clash-entry heading change ${maxTurnDeg.toFixed(1)}deg`);
+  });
+});
+
 registerTest("AIR_SHOW_REGRESSION_NO_BOMBER_REAPPEAR_AFTER_DOGFIGHT", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
@@ -275,6 +408,54 @@ registerTest("AIR_SHOW_REGRESSION_NO_BOMBER_REAPPEAR_AFTER_DOGFIGHT", async ({ G
   });
 });
 
+registerTest("AIR_SHOW_REGRESSION_BOMBER_DEFENSE_PASS_USES_ONE_SIDED_INTERCEPTION_VISUALS", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("north star bomber interception where CAP owns the attack pass", async () => {});
+
+  await When("the contested package reaches bomber-defense-pass", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("bomber-defense-pass should not emit bomber-owned attack tracers", async () => {
+    const inspection = findContestedInspection(result);
+    if (!inspection) {
+      console.log("[REGRESSION: INTERCEPTION OWNERSHIP] No contested package found - skipping");
+      return;
+    }
+
+    const bomberDefensePass = inspection.report.phases.find((phase) => phase.label === "bomber-defense-pass");
+    if (!bomberDefensePass) {
+      throw new Error("Expected bomber-defense-pass phase.");
+    }
+
+    const roleByActorId = new Map(
+      bomberDefensePass.assignments.map((assignment) => [assignment.actorId, assignment.role] as const)
+    );
+    const bomberOwnedTracers = bomberDefensePass.tracers.filter(
+      (tracer) => roleByActorId.get(tracer.sourceActorId) === "bomber"
+    );
+    const interceptorOwnedTracerCount = bomberDefensePass.tracers.filter(
+      (tracer) => roleByActorId.get(tracer.sourceActorId) === "interceptor"
+    ).length;
+
+    if (bomberOwnedTracers.length > 0) {
+      throw new Error(
+        `Expected one-sided interception visuals, found bomber-owned tracers from: ` +
+        `${bomberOwnedTracers.map((tracer) => tracer.sourceActorId).join(", ")}`
+      );
+    }
+
+    if (interceptorOwnedTracerCount <= 0) {
+      throw new Error("Expected interceptor-owned tracers during bomber-defense-pass.");
+    }
+
+    console.log(
+      `[REGRESSION: INTERCEPTION OWNERSHIP] ✓ FIXED: ${interceptorOwnedTracerCount} interceptor-owned tracers, 0 bomber-owned tracers`
+    );
+  });
+});
+
 registerTest("AIR_SHOW_REGRESSION_NO_SPRITE_SLOWDOWN", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
@@ -333,6 +514,80 @@ registerTest("AIR_SHOW_REGRESSION_NO_SPRITE_SLOWDOWN", async ({ Given, When, The
 
     console.log(`  - Removed fade-in await blocking: ✓`);
     console.log(`  - Smooth motion maintained: ✓`);
+  });
+});
+
+registerTest("AIR_SHOW_REGRESSION_BOMBER_ORDNANCE_TO_EGRESS_REMAINS_CONTINUOUS", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the no-respawn continuity rule across target-run and egress", async () => {});
+
+  await When("the contested package transitions from target-run into egress", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("surviving bombers should carry continuous position and heading through the ordnance-to-egress boundary", async () => {
+    const inspection = findContestedInspection(result);
+    if (!inspection) {
+      console.log("[REGRESSION: ORDNANCE CONTINUITY] No contested package found - skipping");
+      return;
+    }
+
+    const targetRun = inspection.report.phases.find((phase) => phase.label === "target-run");
+    const egress = inspection.report.phases.find((phase) => phase.label === "egress");
+    if (!targetRun || !egress) {
+      throw new Error("Expected target-run and egress phases.");
+    }
+
+    const targetRunBombers = targetRun.assignments.filter((assignment) => assignment.role === "bomber");
+    const egressBomberById = new Map(
+      egress.assignments
+        .filter((assignment) => assignment.role === "bomber")
+        .map((assignment) => [assignment.actorId, assignment] as const)
+    );
+
+    if (targetRunBombers.length === 0 || egressBomberById.size === 0) {
+      throw new Error("Expected bomber assignments in both target-run and egress.");
+    }
+
+    const violations: string[] = [];
+
+    targetRunBombers.forEach((targetRunAssignment) => {
+      const egressAssignment = egressBomberById.get(targetRunAssignment.actorId);
+      if (!egressAssignment) {
+        violations.push(`${targetRunAssignment.actorId}: missing from egress`);
+        return;
+      }
+
+      const targetRunSamples = targetRunAssignment.sampledPositions;
+      const egressSamples = egressAssignment.sampledPositions;
+      if (targetRunSamples.length < 2 || egressSamples.length < 2) {
+        violations.push(`${targetRunAssignment.actorId}: insufficient samples`);
+        return;
+      }
+
+      const targetRunPrev = targetRunSamples[targetRunSamples.length - 2]!;
+      const targetRunEnd = targetRunSamples[targetRunSamples.length - 1]!;
+      const egressStart = egressSamples[0]!;
+      const egressNext = egressSamples[1]!;
+      const gapPx = Math.hypot(targetRunEnd.cx - egressStart.cx, targetRunEnd.cy - egressStart.cy);
+      const turnDeg = headingChangeDeg(
+        targetRunEnd.cx - targetRunPrev.cx,
+        targetRunEnd.cy - targetRunPrev.cy,
+        egressNext.cx - egressStart.cx,
+        egressNext.cy - egressStart.cy
+      );
+
+      if (gapPx > 1.5 || turnDeg > 120) {
+        violations.push(`${targetRunAssignment.actorId}: gap=${gapPx.toFixed(1)}px turn=${turnDeg.toFixed(1)}deg`);
+      }
+    });
+
+    if (violations.length > 0) {
+      throw new Error(`Bomber ordnance-to-egress continuity violations:\n${violations.join("\n")}`);
+    }
+
+    console.log(`[REGRESSION: ORDNANCE CONTINUITY] ✓ FIXED: target-run to egress boundary remains continuous`);
   });
 });
 
@@ -559,21 +814,19 @@ registerTest("AIR_SHOW_REGRESSION_ALL_OPEN_BUGS_DOCUMENTED", async ({ Given, Whe
       "Aircraft disappear/reappear at target",
       "Fighters linger during next bomber approach",
       "Bombers fly at same speed as escorts during ingress",
+      "Bombers reach target simultaneous with fighter clash start",
       "Bombers disappear for entire dogfighting scene",
+      "Escorts snap near-180° turn at dogfight start",
+      "Bombers and fighters perform mutual dogfight instead of interception pass",
       "Bombers visible but FROZEN during dogfight",
       "Bombers reappear after dogfighting scene",
       "All sprites slow down when bombers reappear",
+      "Surviving bombers briefly disappear and reappear facing opposite direction after ordnance",
       "Destroyed escorts remain visible until CAP egress finishes",
       "Flak timing misplaced"
     ];
 
-    // These issues still need dedicated implementation and/or explicit regression coverage.
-    const notFixedBugs = [
-      "Bombers reach target simultaneous with fighter clash start",
-      "Escorts snap near-180° turn at dogfight start",
-      "Bombers and fighters perform mutual dogfight instead of interception pass",
-      "Surviving bombers briefly disappear and reappear facing opposite direction after ordnance"
-    ];
+    const notFixedBugs: string[] = [];
 
     console.log(`[REGRESSION SUMMARY] VERIFIED FIXED (2026-04-21): ${trulyFixedBugs.length}`);
     trulyFixedBugs.forEach((bug) => console.log(`  ✓ ${bug}`));

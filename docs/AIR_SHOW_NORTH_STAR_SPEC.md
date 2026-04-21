@@ -956,23 +956,25 @@ The air show is not done until all of these are true:
 - **Fixes**: Enforced 8 hex minimum spawn, 1250ms fighter / 3000ms bomber ingress, 250ms role-read beat
 - **Tests**: `AIR_SHOW_INGRESS_SPAWN_MINIMUM_8_HEX_DISTANCE`, `AIR_SHOW_FIGHTER_INGRESS_MINIMUM_1250MS`
 
-### Active TODO Issues (User Reported - Under Investigation)
+### Historical Regression Ledger (User Reported)
+
+Retained for traceability. Statuses below reflect the current measured runtime and regression coverage as of 2026-04-21.
 
 | Issue | Severity | Status | Notes |
 |-------|----------|--------|-------|
-| ~~**Flak timing misplaced**~~ | ~~High~~ | **OPEN** |  |
+| ~~**Flak timing misplaced**~~ | ~~High~~ | ✅ **FIXED** | Flak now fires during terminal approach in the governed late-approach window, with active regression coverage for progress placement. |
 | ~~**Aircraft disappear/reappear at target**~~ | ~~Critical~~ | ✅ **FIXED** | Removed `actor.active` filter from `buildAirShowFlightAssignments` — all actors now get phase assignments, visibility controlled by opacity only |
 | ~~**Fighters linger during next bomber approach**~~ | ~~High~~ | ✅ **FIXED** | Skip `escort-hold` phase when bomber is present — fighters now reposition immediately for defense instead of drifting |
-| **Bombers appear compliant only via shared-window path truncation during fighter-ingress** | Critical | 🔴 **OPEN** | The current shortened-path workaround is not spec-compliant. It makes bomber px/ms look correct inside `fighter-ingress`, but bombers still share the same ingress window instead of following the canonical bomber-progress timeline and arrival lead. Replace with authoritative per-role timing windows driven by shared playback policy. |
+| ~~**Bombers appear compliant only via shared-window path truncation during fighter-ingress**~~ | ~~Critical~~ | ✅ **FIXED** | Contested pre-target timing is now derived from the canonical bomber corridor-to-stand-off path, and the renderer applies explicit motion budgets from shared playback policy instead of the old shared-window shortening workaround. |
 | ~~**Both fighter factions egress toward same side (player HQ)**~~ | ~~High~~ | ✅ **FIXED** | Egress target for interceptors/escorts now uses `hqAxis.botOrigin` (Bot faction) or `hqAxis.playerOrigin` (Player faction) with lane offset, replacing hardcoded `corridorPoint(±146px)` offsets from corridor center. Applied to both `inspectResolvedAirCombatShow` and `animateResolvedAirCombatShow`. Choreography test Invariants 5+6 now pass. |
-| **Bombers reach target simultaneous with fighter clash start** | High | 🔴 **OPEN** | Spec §Typical Contested Package: bombers must still be mid-approach when escort-CAP dogfight begins (step 2 before step 3). `bomberArrivalDelayMs` / ingress lead timing needs increase so fighters engage well ahead of bomber arrival. |
+| ~~**Bombers reach target simultaneous with fighter clash start**~~ | ~~High~~ | ✅ **FIXED** | Current contested playback starts the clash during early bomber approach instead of at target arrival; regression coverage now measures clash start against bomber pre-target progress. |
 | ~~**Bombers disappear for entire dogfighting scene**~~ | ~~Critical~~ | ✅ **FIXED** | Root cause: `syncAirShowPhaseVisibility` hid any actor not in current phase assignments. Added bomber hold-in-place assignments to every escort clash beat so bombers remain in `phaseAssignments` and stay visible. |
-| **Escorts snap near-180° turn at dogfight start** | High | 🔴 **OPEN** | Spec §Continuity Requirement: "next phase begins from aircraft's actual end position, not a preselected staging point". Sharp heading reversal at `escort-clash-merge` entry — ingress end heading is nearly opposite the clash approach vector. |
+| ~~**Escorts snap near-180° turn at dogfight start**~~ | ~~High~~ | ✅ **FIXED** | Clash-entry continuity is now covered directly; current escorts enter the first clash beat without the old near-180° reversal. |
 | ~~**Bombers reappear after dogfighting scene**~~ | ~~Critical~~ | ✅ **FIXED** | Paired with disappearance fix. Removed the force `actor.active=true / opacity="1"` block at target-run start — bombers are never hidden so the restore was never needed, and it was incorrectly reactivating destroyed actors. |
-| ~~**All sprites slow down when bombers reappear**~~ | ~~High~~ | **OPEN** | . |
-| **Bombers and fighters perform mutual dogfight instead of interception pass** | High | 🔴 **OPEN** | Spec §Scenario 5 Phase 4: "Surviving CAP attack bombers / Surviving escorts intercept/chase CAP". Should be one-sided interception passes against the bomber package, not a symmetrical dogfight involving bombers as aggressors. |
-| **Surviving bombers briefly disappear and reappear facing opposite direction after ordnance** | Critical | 🔴 **OPEN** | Spec §Visual Continuity Rules: "aircraft must not disappear during bomb release/explosion"; §Transition Rules: "instant opacity jumps not acceptable". Egress despawns/respawns bombers for heading flip — must be continuous from arc-turn exit. |
-| ~~**Destroyed escorts remain visible until CAP egress finishes**~~ | ~~Medium~~ | ✅ **OPEN** | The old `actor.active=true` force-show block at target-run start was reactivating all bomber actors including destroyed ones, pulling destroyed escorts back into `egressFlights`. Removing that block means only genuinely active actors enter egress. |}
+| ~~**All sprites slow down when bombers reappear**~~ | ~~High~~ | ✅ **FIXED** | The blocking fade-in await was removed; target-run motion no longer stalls when bombers transition through the later beats. |
+| ~~**Bombers and fighters perform mutual dogfight instead of interception pass**~~ | ~~High~~ | ✅ **FIXED** | `bomber-defense-pass` now paints one-sided interception ownership only: interceptor-owned attack tracers remain, and bomber-owned counterattack tracer paths were removed from both inspection and runtime playback. |
+| ~~**Surviving bombers briefly disappear and reappear facing opposite direction after ordnance**~~ | ~~Critical~~ | ✅ **FIXED** | Target-run to egress now stays continuous across position and heading; no despawn/respawn or heading-flip handoff remains at the ordnance boundary. |
+| ~~**Destroyed escorts remain visible until CAP egress finishes**~~ | ~~Medium~~ | ✅ **FIXED** | The old `actor.active=true` force-show block at target-run start was reactivating destroyed actors; removing that block means only genuinely active actors enter egress. |}
 
 ### Progress Anchor Reference
 

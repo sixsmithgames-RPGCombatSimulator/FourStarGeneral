@@ -191,14 +191,12 @@ All of the following must be true after fixes:
 
 ---
 
-## What Is NOT In This Plan
+## What Followed This Plan
 
-The following open bugs from the Known Issues table are **not addressed here** — they require
-separate planning and are tracked in `AIR_SHOW_NORTH_STAR_SPEC.md`:
+The issues that were previously deferred from this plan are now covered by the governed renderer
+and dedicated regression checks in `AIR_SHOW_NORTH_STAR_SPEC.md` / `tests/AirShow.regression.test.ts`:
 
-- Bombers reach target simultaneous with fighter clash start
-- Escorts snap near-180° turn at dogfight start
-- Bombers and fighters perform mutual dogfight instead of interception pass
-- Surviving bombers disappear/reappear after ordnance
-
-Each of those will require its own plan following the same structure.
+- Bombers no longer wait until target arrival before the fighter clash reads as engaged
+- Escorts no longer snap into a near-180° reversal at clash entry
+- Bomber-defense-pass now keeps attack ownership on the interceptors instead of painting a mutual dogfight
+- Surviving bombers now remain continuous across ordnance and egress transition

@@ -2052,16 +2052,14 @@ export class HexMapRenderer implements IMapRenderer {
           const attackEntriesForShow = activeAttackEntries.length > 0
             ? activeAttackEntries.map((entry) => ({
                 interceptorFlight: entry.interceptorFlight,
-                bomberFlight: entry.bomberFlight,
-                retaliationDamage: entry.exchange.retaliationDamage ?? 0
+                bomberFlight: entry.bomberFlight
               }))
             : activeFlights(interceptorFlights)
                 .filter((flight) => flight.actors.some((actor) => actor.active))
                 .slice(0, Math.max(1, Math.min(survivingBombers.length, activeFlights(interceptorFlights).length)))
                 .map((interceptorFlight, attackIndex) => ({
                   interceptorFlight,
-                  bomberFlight: survivingBombers[attackIndex % Math.max(1, survivingBombers.length)]!,
-                  retaliationDamage: 0
+                  bomberFlight: survivingBombers[attackIndex % Math.max(1, survivingBombers.length)]!
                 }));
 
           attackEntriesForShow.forEach((entry, attackIndex) => {
@@ -2125,30 +2123,6 @@ export class HexMapRenderer implements IMapRenderer {
                 }
               )
             );
-            if (entry.retaliationDamage > 0) {
-              tracerBursts.push(
-                ...this.buildAirShowDynamicTracerVolley(
-                  phaseAssignments,
-                  entry.bomberFlight,
-                  entry.interceptorFlight,
-                  {
-                    emitter: "center",
-                    color: "#fff1c8",
-                    width: 0.17,
-                    lifetimeMs: 28,
-                    spreadPx: 0,
-                  streakLengthPx: 560,
-                  visibleLengthPx: 22,
-                  fanHalfAngleDeg: 0,
-                  burstCount: 4,
-                  maxAlignmentDeg: 30,
-                  maxRangePx: 228,
-                  timings: [0.42, 0.52, 0.62, 0.72],
-                  fallbackToNearest: true
-                }
-              )
-            );
-            }
           });
 
           const engagedInterceptorIds = new Set(attackEntriesForShow.map((entry) => entry.interceptorFlight.spec.id));
@@ -2217,26 +2191,6 @@ export class HexMapRenderer implements IMapRenderer {
                     maxAlignmentDeg: 64,
                     maxRangePx: 220,
                     timings: [0.42, 0.5, 0.58, 0.66],
-                    fallbackToNearest: true
-                  }
-                ),
-                ...this.buildAirShowDynamicTracerVolley(
-                  phaseAssignments,
-                  fallbackBomberFlight,
-                  fallbackAttackerFlight,
-                  {
-                    emitter: "center",
-                    color: "#fff1c8",
-                    width: 0.17,
-                    lifetimeMs: 28,
-                    spreadPx: 0,
-                    streakLengthPx: 540,
-                    visibleLengthPx: 22,
-                    fanHalfAngleDeg: 0,
-                    burstCount: 3,
-                    maxAlignmentDeg: 80,
-                    maxRangePx: 240,
-                    timings: [0.48, 0.58, 0.68],
                     fallbackToNearest: true
                   }
                 )
@@ -3467,30 +3421,6 @@ export class HexMapRenderer implements IMapRenderer {
                 }
               )
             );
-            if ((entry.exchange.retaliationDamage ?? 0) > 0) {
-              tracerBursts.push(
-                ...this.buildAirShowDynamicTracerVolley(
-                  phaseAssignments,
-                  entry.bomberFlight,
-                  entry.interceptorFlight,
-                  {
-                    emitter: "center",
-                    color: "#fff1c8",
-                    width: 0.17,
-                    lifetimeMs: 28,
-                  spreadPx: 0,
-                  streakLengthPx: 560,
-                  visibleLengthPx: 22,
-                  fanHalfAngleDeg: 0,
-                  burstCount: 4,
-                  maxAlignmentDeg: 30,
-                  maxRangePx: 228,
-                  timings: [0.42, 0.52, 0.62, 0.72],
-                  fallbackToNearest: true
-                }
-              )
-            );
-            }
           });
 
           const engagedInterceptorIds = new Set(activeAttackEntries.map((entry) => entry.interceptorFlight.spec.id));
@@ -3565,26 +3495,6 @@ export class HexMapRenderer implements IMapRenderer {
                     maxAlignmentDeg: 64,
                     maxRangePx: 220,
                     timings: [0.42, 0.5, 0.58, 0.66],
-                    fallbackToNearest: true
-                  }
-                ),
-                ...this.buildAirShowDynamicTracerVolley(
-                  phaseAssignments,
-                  fallbackBomberFlight,
-                  fallbackAttackerFlight,
-                  {
-                    emitter: "center",
-                    color: "#fff1c8",
-                    width: 0.17,
-                    lifetimeMs: 28,
-                    spreadPx: 0,
-                    streakLengthPx: 540,
-                    visibleLengthPx: 22,
-                    fanHalfAngleDeg: 0,
-                    burstCount: 3,
-                    maxAlignmentDeg: 80,
-                    maxRangePx: 240,
-                    timings: [0.48, 0.58, 0.68],
                     fallbackToNearest: true
                   }
                 )
