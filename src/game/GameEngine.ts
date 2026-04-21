@@ -11848,11 +11848,47 @@ private automateSupplyConvoys(
           }
         }
       }
+
+      if (!plan.attackTarget && plan.fieldAction === "digIn" && axialKey(current) === axialKey(plan.origin)) {
+        if (this.executeHeuristicBotDigIn(current)) {
+          console.log(`[Bot AI] ${unit.type} dug in at ${this.formatAxial(current)}`);
+        }
+      }
     }
 
     const supplyReport = this.applySupplyTickFor("Bot");
     console.log(`[Bot AI] Heuristic bot turn complete. Moves: ${moves.length}, Attacks: ${attacks.length}`);
     return { moves, attacks, supplyReport };
+  }
+
+  /**
+   * Heuristic infantry may deliberately consolidate instead of moving again. This mirrors the player dig-in action
+   * while keeping the same battlefield abstraction: a five-minute turn across a 250 m hex is enough time to improve
+   * a prepared position, but not to both maneuver and entrench in depth.
+   */
+  private executeHeuristicBotDigIn(hex: Axial): boolean {
+    const key = axialKey(hex);
+    const unit = this.botPlacements.get(key);
+    if (!unit) {
+      return false;
+    }
+
+    const definition = this.getUnitDefinition(unit.type);
+    if (definition.class !== "infantry" || this.isTowableUnit(unit)) {
+      return false;
+    }
+    if ((unit.entrench ?? 0) >= 2) {
+      return false;
+    }
+    if (this.resolveUnitSuppressionState(unit).state === "pinned") {
+      return false;
+    }
+
+    const updated = structuredClone(unit);
+    updated.entrench = Math.min(2, (updated.entrench ?? 0) + 1);
+    this.botPlacements.set(key, updated);
+    this.syncBotEntrench(hex, updated.entrench, this.getSquadronId(updated));
+    return true;
   }
 
   private executeHeuristicAllyTurn(): void {

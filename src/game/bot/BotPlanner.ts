@@ -126,6 +126,20 @@ const INFANTRY_COVER_MARCH_BONUS = 4;
  */
 const INFANTRY_EXPOSED_MARCH_PENALTY = 5;
 /**
+ * When there is no realistic near-term shot coming back, infantry should take free tempo instead of bogging
+ * themselves down in rough ground just because it looks safer on paper.
+ */
+const SAFE_TEMPO_APPROACH_BONUS = 4;
+/**
+ * Crawling through slow terrain is only worth it when that terrain is actually buying meaningful protection.
+ */
+const SLOW_TERRAIN_TEMPO_PENALTY = 3;
+/**
+ * Infantry that reaches a covered staging position near contact should sometimes hold and deepen its posture
+ * instead of shuffling for another marginal hex.
+ */
+const INFANTRY_CONSOLIDATION_BONUS = 14;
+/**
  * Armor should arrive as a spearhead, not as single vehicles trickling forward.
  */
 const ARMORED_UNIFIED_FRONT_BONUS = 5;
@@ -226,6 +240,10 @@ const FIRE_SETUP_FUTURE_GAP_PENALTY = 9;
  */
 const FIRE_SETUP_LOS_BONUS = 4;
 const FIRE_SETUP_NO_LOS_PENALTY = 10;
+/**
+ * Direct-fire units should value masked jump-off positions when they still need another turn before firing.
+ */
+const FIRE_SETUP_MASKED_STAGING_BONUS = 10;
 
 /**
  * Difficulty levels control how aggressively and intelligently the bot plays.
@@ -608,6 +626,7 @@ export interface PlannedBotAction {
   readonly destination: Axial;
   readonly path: readonly Axial[];
   readonly attackTarget: Axial | null;
+  readonly fieldAction?: "digIn" | null;
   readonly expectedDamage: number;
   readonly expectedRetaliation: number;
   readonly score: number;
@@ -619,6 +638,7 @@ interface ActionCandidate {
   destination: Axial;
   path: readonly Axial[];
   attackTarget: Axial | null;
+  fieldAction?: "digIn" | null;
   expectedDamage: number;
   expectedRetaliation: number;
   score: number;
@@ -1529,6 +1549,110 @@ function calculateReconPositioningScore(
   return score;
 }
 
+function calculateApproachThreatEnvelope(
+  snapshot: PlannerUnitSnapshot,
+  destination: Axial,
+  input: BotPlannerInput,
+  focusHex: Axial | null,
+  inAttackBand: boolean
+): { visible: number; directImmediate: number; directNear: number; indirectImmediate: number } {
+  const focusKey = focusHex ? axialKey(focusHex) : null;
+  let visible = 0;
+  let directImmediate = 0;
+  let directNear = 0;
+  let indirectImmediate = 0;
+
+  input.playerUnits.forEach((enemy) => {
+    if (!canPotentiallyAttackTarget(enemy, snapshot)) {
+      return;
+    }
+
+    const enemyKey = axialKey(enemy.unit.hex);
+    if (focusKey && inAttackBand && enemyKey === focusKey) {
+      return;
+    }
+
+    const enemyIsAir = enemy.definition.moveType === "air";
+    const hasLos = !requiresDirectLOS(enemy.definition) || input.losAllows(enemy.unit.hex, destination, enemyIsAir);
+    if (hasLos) {
+      visible += 1;
+    }
+
+    const turnsToThreat = estimateTurnsToAttackWindow(enemy.definition, enemy.unit.hex, destination, input);
+    if (enemy.definition.class === "artillery") {
+      if (turnsToThreat <= 1) {
+        indirectImmediate += 1;
+      }
+      return;
+    }
+
+    if (!hasLos) {
+      return;
+    }
+    if (turnsToThreat <= 1) {
+      directImmediate += 1;
+    } else if (turnsToThreat <= 2) {
+      directNear += 1;
+    }
+  });
+
+  return { visible, directImmediate, directNear, indirectImmediate };
+}
+
+function scoreInfantryConsolidation(
+  snapshot: PlannerUnitSnapshot,
+  input: BotPlannerInput,
+  modifiers: DifficultyModifiers,
+  focusHex: Axial | null
+): ActionCandidate | null {
+  if (snapshot.definition.class !== "infantry" || snapshot.unit.entrench >= 2) {
+    return null;
+  }
+
+  const terrain = input.map.terrainAt(snapshot.unit.hex);
+  const onObjective = input.objectives.some((objective) => axialKey(objective.hex) === axialKey(snapshot.unit.hex));
+  const defensible = Boolean(terrain && (terrain.blocksLOS || terrain.defense >= 2)) || onObjective;
+  if (!defensible) {
+    return null;
+  }
+
+  const nearestEnemyDistance = input.playerUnits.reduce(
+    (min, enemy) => Math.min(min, hexDistance(snapshot.unit.hex, enemy.unit.hex)),
+    Number.POSITIVE_INFINITY
+  );
+  if (!onObjective && nearestEnemyDistance > PROXIMITY_ENGAGE_RADIUS + 1) {
+    return null;
+  }
+
+  const approachScore = calculateApproachPositionScore(
+    snapshot,
+    snapshot.unit.hex,
+    focusHex,
+    input,
+    modifiers,
+    1
+  );
+  const entrenchHeadroom = Math.max(0, 2 - (snapshot.unit.entrench ?? 0));
+  const score = approachScore
+    + INFANTRY_CONSOLIDATION_BONUS
+    + entrenchHeadroom * 4
+    + (terrain?.blocksLOS ? 3 : 0)
+    + ((terrain?.defense ?? 0) >= 2 ? 2 : 0)
+    + (onObjective ? 5 : 0)
+    + Math.max(0, PROXIMITY_ENGAGE_RADIUS + 1 - nearestEnemyDistance) * 0.8;
+
+  return {
+    destination: snapshot.unit.hex,
+    path: [snapshot.unit.hex],
+    attackTarget: null,
+    fieldAction: "digIn",
+    expectedDamage: 0,
+    expectedRetaliation: 0,
+    score,
+    rationale: onObjective ? "Consolidate objective and dig in" : "Consolidate in cover and dig in"
+  };
+}
+
 /**
  * Scores the safety and cohesion of a non-attack destination so the bot stages whole groups instead of lone probes.
  * This rewards covered, mutually supporting approaches and penalizes exposed lunges that end outside a fighting posture.
@@ -1578,19 +1702,13 @@ function calculateApproachPositionScore(
   const wantsCoveredApproach = requiresDirectLOS(snapshot.definition)
     || snapshot.definition.class === "recon"
     || isArmoredGroundUnit(snapshot.definition);
-  const isAir = snapshot.definition.moveType === "air";
-  const focusKey = focusHex ? axialKey(focusHex) : null;
-  let visibleThreats = 0;
-
-  input.playerUnits.forEach((enemy) => {
-    const enemyKey = axialKey(enemy.unit.hex);
-    if (focusKey && inAttackBand && enemyKey === focusKey) {
-      return;
-    }
-    if (input.losAllows(destination, enemy.unit.hex, isAir)) {
-      visibleThreats += 1;
-    }
-  });
+  const terrainCost = input.map.movementCost(destination, snapshot.definition.moveType);
+  const threatEnvelope = calculateApproachThreatEnvelope(snapshot, destination, input, focusHex, inAttackBand);
+  const visibleThreats = threatEnvelope.visible;
+  const directImmediateThreats = threatEnvelope.directImmediate;
+  const directNearThreats = threatEnvelope.directNear;
+  const indirectImmediateThreats = threatEnvelope.indirectImmediate;
+  const weightedThreatExposure = directImmediateThreats + directNearThreats * 0.6 + indirectImmediateThreats * 0.4;
 
   let score = calculateTerrainPositionScore(destination, terrain, false);
   const relevantSupportCount = snapshot.definition.class === "recon" ? nearbyCombatSupport : nearbySupport;
@@ -1619,35 +1737,57 @@ function calculateApproachPositionScore(
   }
 
   if (wantsCoveredApproach) {
-    if (visibleThreats === 0 && nearestEnemyDistance <= PROXIMITY_ENGAGE_RADIUS + 2) {
+    if (directImmediateThreats === 0 && directNearThreats === 0 && nearestEnemyDistance <= PROXIMITY_ENGAGE_RADIUS + 2) {
       score += MASKED_APPROACH_BONUS;
     } else if (!inAttackBand) {
-      score -= visibleThreats * EXPOSED_APPROACH_PENALTY;
-      if (visibleThreats > 1) {
+      score -= weightedThreatExposure * EXPOSED_APPROACH_PENALTY;
+      if (directImmediateThreats > 1) {
         // Multiple open firing lanes are where piecemeal pushes get chewed up. Penalize them sharply.
-        score -= (visibleThreats - 1) * 4;
+        score -= (directImmediateThreats - 1) * 4;
       }
-    } else if (visibleThreats > 1) {
-      score -= (visibleThreats - 1) * 2;
+      if (directNearThreats > 0) {
+        score -= directNearThreats * 2;
+      }
+    } else if (directImmediateThreats > 1) {
+      score -= (directImmediateThreats - 1) * 2;
     }
   }
 
   if (snapshot.definition.class === "infantry" || snapshot.definition.class === "specialist") {
     if (!inAttackBand) {
-      if (terrain?.blocksLOS || (terrain?.defense ?? 0) >= 2 || visibleThreats === 0) {
+      if (terrain?.blocksLOS || (terrain?.defense ?? 0) >= 2 || weightedThreatExposure === 0) {
         score += INFANTRY_COVER_MARCH_BONUS;
-      } else if (visibleThreats > 0) {
-        score -= visibleThreats * INFANTRY_EXPOSED_MARCH_PENALTY;
+      } else if (directImmediateThreats > 0) {
+        score -= directImmediateThreats * INFANTRY_EXPOSED_MARCH_PENALTY;
+      } else if (directNearThreats > 0) {
+        score -= directNearThreats * (INFANTRY_EXPOSED_MARCH_PENALTY * 0.5);
+      }
+
+      if (turnGain > 0 && directImmediateThreats === 0 && directNearThreats <= 1 && terrainCost <= 1) {
+        score += SAFE_TEMPO_APPROACH_BONUS;
+      }
+      if (terrainCost > 1 && nearestEnemyDistance > PROXIMITY_ENGAGE_RADIUS + 1) {
+        if (!terrain?.blocksLOS && (terrain?.defense ?? 0) < 2) {
+          score -= (terrainCost - 1) * SLOW_TERRAIN_TEMPO_PENALTY;
+        } else if (turnGain <= 0) {
+          score -= (terrainCost - 1) * (SLOW_TERRAIN_TEMPO_PENALTY - 1);
+        }
       }
     }
   }
 
   if (isArmoredGroundUnit(snapshot.definition)) {
     if (!inAttackBand && !terrain?.blocksLOS) {
-      score -= visibleThreats * 5;
+      score -= directImmediateThreats * 10 + directNearThreats * 3;
+      if (directImmediateThreats > 0 && indirectImmediateThreats > 0) {
+        score -= indirectImmediateThreats * 5;
+      }
+      if (directImmediateThreats > 0 && destinationTurnsToAttack > 0) {
+        score -= 4;
+      }
     }
-    if (!inAttackBand && visibleThreats > nearbySupport) {
-      score -= (visibleThreats - nearbySupport) * 6;
+    if (!inAttackBand && directImmediateThreats + directNearThreats > nearbySupport) {
+      score -= (directImmediateThreats + directNearThreats - nearbySupport) * 6;
     }
     const alliedArmorTurnBand = input.botUnits
       .filter((ally) => axialKey(ally.unit.hex) !== selfKey && isArmoredGroundUnit(ally.definition))
@@ -1954,6 +2094,24 @@ function scoreFireSetup(
       score += FIRE_SETUP_READY_BONUS;
     }
 
+    const setupThreatEnvelope = calculateApproachThreatEnvelope(snapshot, hex, input, enemy.unit.hex, rangeGap === 0);
+    if (
+      isArmoredGroundUnit(snapshot.definition)
+      && rangeGap > 0
+      && !terrain?.blocksLOS
+      && setupThreatEnvelope.directImmediate > 0
+    ) {
+      score -= setupThreatEnvelope.directImmediate * 14 + setupThreatEnvelope.indirectImmediate * 4;
+    }
+    if (
+      requiresLos
+      && rangeGap > 0
+      && terrain?.blocksLOS
+      && setupThreatEnvelope.directImmediate === 0
+    ) {
+      score += FIRE_SETUP_MASKED_STAGING_BONUS;
+    }
+
     // Direct-fire units should not stage onto hexes that still leave the target masked next turn.
     score += hasLos ? FIRE_SETUP_LOS_BONUS : -FIRE_SETUP_NO_LOS_PENALTY;
     score += calculateTerrainPositionScore(hex, terrain, false);
@@ -1965,6 +2123,10 @@ function scoreFireSetup(
 
   for (const enemy of enemies) {
     if (!canPotentiallyAttackTarget(snapshot, enemy)) {
+      continue;
+    }
+    const immediateOriginAttack = input.attackEstimator(snapshot, snapshot.unit.hex, enemy, enemy.unit.hex);
+    if (immediateOriginAttack) {
       continue;
     }
 
@@ -2082,6 +2244,20 @@ function pickBestCandidate(
   }
   const enemyNearOrVisible = enemyVisible || nearestEnemyDistance <= PROXIMITY_ENGAGE_RADIUS || globallySpottedPlayers.length > 0;
   const pressureTargets = globallySpottedPlayers.length > 0 ? globallySpottedPlayers : input.playerUnits;
+  const consolidationFocus = pressureTargets.reduce<PlannerUnitSnapshot | null>((best, enemy) => {
+    if (!best) {
+      return enemy;
+    }
+    const bestDistance = hexDistance(snapshot.unit.hex, best.unit.hex);
+    const enemyDistance = hexDistance(snapshot.unit.hex, enemy.unit.hex);
+    if (enemyDistance !== bestDistance) {
+      return enemyDistance < bestDistance ? enemy : best;
+    }
+    return calculateContextualTargetPriorityBonus(purpose, enemy, input)
+      > calculateContextualTargetPriorityBonus(purpose, best, input)
+      ? enemy
+      : best;
+  }, null);
 
   for (const playerSnapshot of input.playerUnits) {
     const rangeMax = snapshot.definition.rangeMax ?? 1;
@@ -2130,6 +2306,16 @@ function pickBestCandidate(
     if (!top || setupCandidate.score > top.score) {
       top = setupCandidate;
     }
+  }
+
+  const consolidationCandidate = scoreInfantryConsolidation(
+    snapshot,
+    input,
+    difficultyMods,
+    consolidationFocus?.unit.hex ?? null
+  );
+  if (consolidationCandidate && (!top || consolidationCandidate.score > top.score)) {
+    top = consolidationCandidate;
   }
 
   const shouldCompareMovementPlans = shouldCompareMarchPlans(snapshot, top, nearestEnemyDistance);
@@ -2244,6 +2430,7 @@ export function planHeuristicBotTurn(input: BotPlannerInput): PlannedBotAction[]
         destination: bestCandidate.destination,
         path: bestCandidate.path,
         attackTarget: bestCandidate.attackTarget,
+        fieldAction: bestCandidate.fieldAction ?? null,
         expectedDamage: bestCandidate.expectedDamage,
         expectedRetaliation: bestCandidate.expectedRetaliation,
         score: bestCandidate.score,
