@@ -579,10 +579,10 @@ export class GameEngine {
                         // Apply 75% accuracy reduction for ground AA vs aircraft (small, fast, distant targets)
                         flakResult = {
                             ...flakResult,
-                            accuracy: flakResult.accuracy * 0.25,
-                            expectedHits: flakResult.expectedHits * 0.25,
-                            expectedDamage: flakResult.expectedDamage * 0.25,
-                            expectedSuppression: flakResult.expectedSuppression * 0.25
+                            accuracy: flakResult.accuracy * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                            expectedHits: flakResult.expectedHits * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                            expectedDamage: flakResult.expectedDamage * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                            expectedSuppression: flakResult.expectedSuppression * combatBalance.accuracy.groundAntiAirVsAircraftScalar
                         };
                     }
                     const suffered = Math.max(0, Math.min(currentBomber.strength, Math.round(flakResult.expectedDamage)));
@@ -1607,10 +1607,10 @@ export class GameEngine {
             if (this.hasAntiAirCapability(flakDef) && this.isAircraft(bomberDefinition)) {
                 flakResult = {
                     ...flakResult,
-                    accuracy: flakResult.accuracy * 0.25,
-                    expectedHits: flakResult.expectedHits * 0.25,
-                    expectedDamage: flakResult.expectedDamage * 0.25,
-                    expectedSuppression: flakResult.expectedSuppression * 0.25
+                    accuracy: flakResult.accuracy * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                    expectedHits: flakResult.expectedHits * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                    expectedDamage: flakResult.expectedDamage * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                    expectedSuppression: flakResult.expectedSuppression * combatBalance.accuracy.groundAntiAirVsAircraftScalar
                 };
             }
             const suffered = Math.max(0, Math.min(currentBomber.strength, Math.round(flakResult.expectedDamage)));
@@ -7033,10 +7033,10 @@ export class GameEngine {
                         // Apply 75% accuracy reduction for ground AA vs aircraft (small, fast, distant targets)
                         flakResult = {
                             ...flakResult,
-                            accuracy: flakResult.accuracy * 0.25,
-                            expectedHits: flakResult.expectedHits * 0.25,
-                            expectedDamage: flakResult.expectedDamage * 0.25,
-                            expectedSuppression: flakResult.expectedSuppression * 0.25
+                            accuracy: flakResult.accuracy * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                            expectedHits: flakResult.expectedHits * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                            expectedDamage: flakResult.expectedDamage * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                            expectedSuppression: flakResult.expectedSuppression * combatBalance.accuracy.groundAntiAirVsAircraftScalar
                         };
                     }
                     const suffered = roundAppliedDamage(flakResult.expectedDamage, flakDef, unitDef);
@@ -8910,10 +8910,42 @@ export class GameEngine {
                     }
                 }
             }
+            if (!plan.attackTarget && plan.fieldAction === "digIn" && axialKey(current) === axialKey(plan.origin)) {
+                if (this.executeHeuristicBotDigIn(current)) {
+                    console.log(`[Bot AI] ${unit.type} dug in at ${this.formatAxial(current)}`);
+                }
+            }
         }
         const supplyReport = this.applySupplyTickFor("Bot");
         console.log(`[Bot AI] Heuristic bot turn complete. Moves: ${moves.length}, Attacks: ${attacks.length}`);
         return { moves, attacks, supplyReport };
+    }
+    /**
+     * Heuristic infantry may deliberately consolidate instead of moving again. This mirrors the player dig-in action
+     * while keeping the same battlefield abstraction: a five-minute turn across a 250 m hex is enough time to improve
+     * a prepared position, but not to both maneuver and entrench in depth.
+     */
+    executeHeuristicBotDigIn(hex) {
+        const key = axialKey(hex);
+        const unit = this.botPlacements.get(key);
+        if (!unit) {
+            return false;
+        }
+        const definition = this.getUnitDefinition(unit.type);
+        if (definition.class !== "infantry" || this.isTowableUnit(unit)) {
+            return false;
+        }
+        if ((unit.entrench ?? 0) >= 2) {
+            return false;
+        }
+        if (this.resolveUnitSuppressionState(unit).state === "pinned") {
+            return false;
+        }
+        const updated = structuredClone(unit);
+        updated.entrench = Math.min(2, (updated.entrench ?? 0) + 1);
+        this.botPlacements.set(key, updated);
+        this.syncBotEntrench(hex, updated.entrench, this.getSquadronId(updated));
+        return true;
     }
     executeHeuristicAllyTurn() {
         if (this.botPlacements.size === 0 || this.allyPlacements.size === 0) {
@@ -9641,10 +9673,10 @@ export class GameEngine {
             if (this.hasAntiAirCapability(flakDef) && this.isAircraft(attackerDef)) {
                 flakResult = {
                     ...flakResult,
-                    accuracy: flakResult.accuracy * 0.25,
-                    expectedHits: flakResult.expectedHits * 0.25,
-                    expectedDamage: flakResult.expectedDamage * 0.25,
-                    expectedSuppression: flakResult.expectedSuppression * 0.25
+                    accuracy: flakResult.accuracy * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                    expectedHits: flakResult.expectedHits * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                    expectedDamage: flakResult.expectedDamage * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                    expectedSuppression: flakResult.expectedSuppression * combatBalance.accuracy.groundAntiAirVsAircraftScalar
                 };
             }
             const suffered = Math.max(0, Math.round(flakResult.expectedDamage));
@@ -10167,10 +10199,10 @@ export class GameEngine {
                     if (this.hasAntiAirCapability(flakDef) && this.isAircraft(attackerDef)) {
                         flakResult = {
                             ...flakResult,
-                            accuracy: flakResult.accuracy * 0.25,
-                            expectedHits: flakResult.expectedHits * 0.25,
-                            expectedDamage: flakResult.expectedDamage * 0.25,
-                            expectedSuppression: flakResult.expectedSuppression * 0.25
+                            accuracy: flakResult.accuracy * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                            expectedHits: flakResult.expectedHits * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                            expectedDamage: flakResult.expectedDamage * combatBalance.accuracy.groundAntiAirVsAircraftScalar,
+                            expectedSuppression: flakResult.expectedSuppression * combatBalance.accuracy.groundAntiAirVsAircraftScalar
                         };
                     }
                     const suffered = roundAppliedDamage(flakResult.expectedDamage, flakDef, attackerDef);

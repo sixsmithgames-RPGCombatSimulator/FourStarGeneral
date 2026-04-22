@@ -54,6 +54,25 @@ Once converted, **ALL** movement, timing, spacing, and collision operate exclusi
 - **Initial Ingress**: Bombers at V/2, Escorts at V/2 (matching bombers), CAP at V
 - **Escort Acceleration**: At `bomberProgress = 0.15`, escorts instantly transition to speed V
 
+### 4. Tracer Geometry and Fire Ownership
+
+Tracer ownership and tracer geometry are governed visual behavior, not cosmetic implementation detail.
+
+**Fighter / Escort / Interceptor Tracers**
+- Fighter-class tracers must originate from the nose/front of the sprite
+- Fighter-class tracers must fire as straight forward bursts only
+- Angled fighter tracer fans, side-emission, and center-origin fighter fire are forbidden
+
+**Bomber Defensive Fire**
+- Bomber return fire is allowed during direct interception and `bomber-defense-pass`
+- Bomber defensive fire must originate from the center of the bomber sprite
+- Bomber defensive fire is turreted 360 degrees relative to bomber heading and must aim toward attacking interceptors
+- Bomber defensive fire must be intermittent burst fire, never a continuous beam or sustained stream
+
+**Verification Rule**
+- Inspection output, diagnostics, and tests must validate emitter origin and tracer geometry from canonical renderer output
+- Tests may not satisfy this section by reconstructing alternate tracer rules in parallel code
+
 ## Product Goal
 
 The air show must present the turn's air combat as a coherent replay of resolved airspace events.
@@ -217,6 +236,8 @@ Required choreography (progress-based, all times relative to bomber ingress path
      - **Attack Priority**: Strongest CAP formation vs Strongest Bomber formation first
      - **Re-calculation**: After each engagement pair resolves, re-evaluate: next strongest CAP vs next strongest bomber
      - CAP flights coordinate and gang up on target bombers
+   - Fighter attack tracers remain nose-origin, straight-ahead attack bursts
+   - Bombers may answer with intermittent center-origin turret bursts toward attacking CAP
    - Surviving escorts chase CAP at fighter speed (V) — purely visual, tracers for show
    - Escorts pursue CAP until CAP egress begins (≥ 0.80), or egress immediately if all CAP destroyed
    - Fighters at speed V, bombers continue at V/2
@@ -311,7 +332,8 @@ The renderer must select the canonical package timeline that matches the resolve
 **Phase 2: Direct Bomber Interception (0.50 → 0.80)**
 - Hostile fighters attack strike craft directly (no escort screen)
 - Fighter passes simultaneous within beat
-- Bomber defensive fire occurs during passes
+- Fighter tracers remain nose-origin, straight-ahead bursts only
+- Bomber defensive fire occurs during passes as intermittent center-origin turret bursts toward interceptors
 - Speed differential: fighters at V, bombers at V/2
 - Destroyed bombers and CAP removed immediately
 
@@ -492,6 +514,7 @@ The canonical playback-policy model is:
 - tests and diagnostics may inspect or assert policy outputs, but they must not maintain parallel copies of the formulas they are validating
 - no renderer, scene-builder, or test-layer patch may "fix" timing by shortening a role's path, stretching a rival role's window, or otherwise compensating visually for incorrect policy timing
 - if observed playback only looks correct because of a role-specific path-length retarget, phase-local speed fudge, or visibility workaround, the issue remains open and the policy/runtime contract is not satisfied
+- no layer may suppress, relocate, or re-characterize governed tracer ownership to hide a choreography defect; if bomber defensive fire, fighter nose fire, or tracer geometry is wrong, the shared runtime and shared tests must be corrected rather than patched around
 
 Current implementation anchors:
 
@@ -972,7 +995,7 @@ Retained for traceability. Statuses below reflect the current measured runtime a
 | ~~**Escorts snap near-180° turn at dogfight start**~~ | ~~High~~ | ✅ **FIXED** | Clash-entry continuity is now covered directly; current escorts enter the first clash beat without the old near-180° reversal. |
 | ~~**Bombers reappear after dogfighting scene**~~ | ~~Critical~~ | ✅ **FIXED** | Paired with disappearance fix. Removed the force `actor.active=true / opacity="1"` block at target-run start — bombers are never hidden so the restore was never needed, and it was incorrectly reactivating destroyed actors. |
 | ~~**All sprites slow down when bombers reappear**~~ | ~~High~~ | ✅ **FIXED** | The blocking fade-in await was removed; target-run motion no longer stalls when bombers transition through the later beats. |
-| ~~**Bombers and fighters perform mutual dogfight instead of interception pass**~~ | ~~High~~ | ✅ **FIXED** | `bomber-defense-pass` now paints one-sided interception ownership only: interceptor-owned attack tracers remain, and bomber-owned counterattack tracer paths were removed from both inspection and runtime playback. |
+| ~~**Bombers and fighters perform mutual dogfight instead of interception pass**~~ | ~~High~~ | ✅ **FIXED** | `bomber-defense-pass` now preserves interception-pass roles without collapsing into fighter-style dogfight visuals: fighters fire straight nose-origin attack bursts, and bombers answer only with intermittent center-origin turret fire toward interceptors. |
 | ~~**Surviving bombers briefly disappear and reappear facing opposite direction after ordnance**~~ | ~~Critical~~ | ✅ **FIXED** | Target-run to egress now stays continuous across position and heading; no despawn/respawn or heading-flip handoff remains at the ordnance boundary. |
 | ~~**Destroyed escorts remain visible until CAP egress finishes**~~ | ~~Medium~~ | ✅ **FIXED** | The old `actor.active=true` force-show block at target-run start was reactivating destroyed actors; removing that block means only genuinely active actors enter egress. |}
 

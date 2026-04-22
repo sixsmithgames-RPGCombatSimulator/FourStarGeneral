@@ -1,7 +1,7 @@
 {
     "Infantry_42": {
         "class": "infantry",
-        "combat": { "category": "infantry", "weight": "light", "role": "normal", "signature": "small" },
+        "combat": { "category": "infantry", "weight": "light", "role": "normal", "signature": "tiny" },
         "weaponEffectType": "small_arms",
         "movement": 1.5,
         "moveType": "leg",
@@ -21,7 +21,7 @@
     },
     "AT_Infantry": {
         "class": "infantry",
-        "combat": { "category": "infantry", "weight": "heavy", "role": "antiTank", "signature": "small" },
+        "combat": { "category": "infantry", "weight": "heavy", "role": "antiTank", "signature": "tiny" },
         "weaponEffectType": "cannon",
         "movement": 1,
         "moveType": "leg",
@@ -41,7 +41,7 @@
     },
     "Paratrooper": {
         "class": "infantry",
-        "combat": { "category": "infantry", "weight": "light", "role": "normal", "signature": "small" },
+        "combat": { "category": "infantry", "weight": "light", "role": "normal", "signature": "tiny" },
         "weaponEffectType": "small_arms",
         "movement": 1.5,
         "moveType": "leg",

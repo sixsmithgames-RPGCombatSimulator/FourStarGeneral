@@ -9,6 +9,8 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 45 * 1000,
+  outputDir: './diagnostics/playwright/results',
+  preserveOutput: 'always',
   
   /* Run tests in files in parallel */
   fullyParallel: true,
@@ -23,7 +25,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   
   /* Reporter to use */
-  reporter: 'html',
+  reporter: [['html', { outputFolder: 'diagnostics/playwright/report', open: 'never' }]],
   
   /* Shared settings for all the projects below */
   use: {
@@ -62,7 +64,7 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev -- --port 4173',
     url: 'http://localhost:4173',
-    reuseExistingServer: false,
+    reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000
   }
 });

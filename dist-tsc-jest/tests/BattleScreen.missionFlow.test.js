@@ -12,6 +12,44 @@ function mountBattleScreenRoot() {
     }
     return root;
 }
+registerTest("BATTLESCREEN_MISSION_END_MODAL_USES_SAFE_ASCII_STATUS_MARKERS", async ({ Given, When, Then }) => {
+    let screen;
+    let modalText = "";
+    let modalHtml = "";
+    await Given("a battle screen mission debrief with completed, failed, and incomplete objectives", async () => {
+        const root = mountBattleScreenRoot();
+        screen = Object.create(BattleScreen.prototype);
+        screen.element = root;
+        screen.missionEndModal = null;
+        screen.endMissionButton = document.createElement("button");
+        screen.handleEndMission = () => { };
+        screen.announceBattleUpdate = () => { };
+        screen.missionStatus = {
+            objectives: [
+                { id: "primary", label: "Repel the enemy assault", tier: "primary", state: "completed", detail: "Town remains in friendly hands." },
+                { id: "secondary", label: "Hold the west ford", tier: "secondary", state: "failed", detail: "Enemy crossed the ford." },
+                { id: "tertiary", label: "Preserve reserve armor", tier: "tertiary", state: "inProgress", detail: "Armor still in action." }
+            ]
+        };
+    });
+    await When("the mission end modal is rendered", async () => {
+        screen.showMissionEndModal("playerVictory", "The enemy attack spent itself before it could seize the town.");
+        const modal = screen.missionEndModal;
+        modalText = modal?.textContent ?? "";
+        modalHtml = modal?.innerHTML ?? "";
+    });
+    await Then("the modal should avoid corrupted glyph sequences and use safe text markers instead", async () => {
+        if (!modalText.includes("Mission Objectives")) {
+            throw new Error(`Expected mission objectives summary in modal text, received ${modalText || "<empty>"}`);
+        }
+        if (!modalText.includes("OK") || !modalText.includes("X") || !modalText.includes("...")) {
+            throw new Error(`Expected ASCII objective state markers in modal text, received ${modalText}`);
+        }
+        if (modalHtml.includes("Γ") || modalHtml.includes("┬") || modalHtml.includes("â")) {
+            throw new Error(`Expected modal HTML to avoid mojibake sequences, received ${modalHtml}`);
+        }
+    });
+});
 registerTest("SCENARIO_REGISTRY_REQUIRES_EXPLICIT_MISSION_MAPPING", async ({ Given, When, Then }) => {
     let patrolScenarioName = "";
     let resolvedScenarioName = "";

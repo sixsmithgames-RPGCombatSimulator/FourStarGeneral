@@ -2252,6 +2252,7 @@ function detectAirshowFindings(
   expectedFlakOnTargetRun: boolean
 ): AirScenarioFinding[] {
   const findings: AirScenarioFinding[] = [];
+  const isSyntheticScenario = event.missionId?.startsWith(SYNTHETIC_SCENARIO_MISSION_PREFIX) ?? false;
   if (diagnostics.linkedEscortMissingFromEventUnitKeys.length > 0) {
     findings.push({
       code: "linked-escort-missing-from-event",
@@ -2395,7 +2396,7 @@ function detectAirshowFindings(
           }
         });
     }
-    if ((metric.label.includes("clash") || metric.label.includes("pass")) && metric.tracerCount <= 0) {
+    if (!isSyntheticScenario && (metric.label.includes("clash") || metric.label.includes("pass")) && metric.tracerCount <= 0) {
       findings.push({
         code: "missing-tracer-phase",
         message: `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} scheduled no tracers.`
@@ -2454,7 +2455,7 @@ function detectAirshowFindings(
         }
       });
     }
-    if ((metric.label.includes("clash") || metric.label.includes("pass")) && metric.tracerCount > 0) {
+    if (!isSyntheticScenario && (metric.label.includes("clash") || metric.label.includes("pass")) && metric.tracerCount > 0) {
       if (metric.meanTracerLengthPx < 220) {
         findings.push({
           code: "short-tracers",

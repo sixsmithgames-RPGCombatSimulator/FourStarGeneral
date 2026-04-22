@@ -210,13 +210,7 @@ export function calculateAccuracy(request) {
     // Step 3: Apply target signature modifier
     // Smaller signatures are harder to hit, larger signatures are easier to hit
     const defenderSignature = defender.unit.combat.signature;
-    const signatureMultipliers = {
-        tiny: 0.7, // -30% hit chance (very hard to hit)
-        small: 0.85, // -15% hit chance
-        medium: 1.0, // baseline
-        large: 1.15 // +15% hit chance
-    };
-    const signatureMultiplier = signatureMultipliers[defenderSignature] ?? 1.0;
+    const signatureMultiplier = combatBalance.accuracy.signatureMultiplier[defenderSignature] ?? 1.0;
     const afterSignature = afterExperience * signatureMultiplier;
     // Step 4: Apply terrain modifier multiplicatively.
     const fortificationCoverPct = defenderCtx.fortified

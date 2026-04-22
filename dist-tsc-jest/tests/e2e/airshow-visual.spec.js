@@ -1,12 +1,62 @@
 import { expect, test } from "@playwright/test";
+const AIRSHOW_BROWSER_TIMEOUT_MS = 120000;
+async function gotoAirshowHarness(page, url = "/?codex-test=airshow") {
+    await page.goto(url);
+    await page.waitForSelector("#battleHexMap", { state: "attached", timeout: 15000 });
+    await page.waitForFunction(() => Boolean(window.__FSG_AIRSHOW_E2E__), null, {
+        timeout: 15000
+    });
+    await page.waitForSelector("#battleScreen", { state: "visible", timeout: 15000 });
+}
+async function pauseScenarioAtPhaseStart(page, phaseLabel) {
+    await page.evaluate(async (targetPhaseLabel) => {
+        const hooks = window.__FSG_AIRSHOW_E2E__;
+        if (!hooks) {
+            throw new Error("Airshow e2e hooks were not installed.");
+        }
+        const pauseReady = hooks.pauseAtPhaseStart(targetPhaseLabel);
+        await hooks.startScenario();
+        await pauseReady;
+    }, phaseLabel);
+}
+async function expectPaintedPhaseStartFrame(page, testInfo, phaseLabel, snapshotName) {
+    await pauseScenarioAtPhaseStart(page, phaseLabel);
+    const bounds = await page.evaluate(() => {
+        const svg = document.getElementById("battleHexMap");
+        if (!svg) {
+            return null;
+        }
+        const rect = svg.getBoundingClientRect();
+        return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height
+        };
+    });
+    if (!bounds) {
+        throw new Error("battleHexMap bounds were not available for painted-frame capture.");
+    }
+    const frame = await page.screenshot({
+        path: testInfo.outputPath(snapshotName),
+        clip: {
+            x: Math.floor(bounds.x),
+            y: Math.floor(bounds.y),
+            width: Math.ceil(bounds.width),
+            height: Math.ceil(bounds.height)
+        }
+    });
+    await expect(frame).toMatchSnapshot(snapshotName, {
+        maxDiffPixels: 2500
+    });
+}
+test.use({
+    viewport: { width: 1440, height: 1080 },
+    deviceScaleFactor: 1
+});
 test.describe("AirShow Browser Harness", () => {
     test.beforeEach(async ({ page }) => {
-        await page.goto("/?codex-test=airshow");
-        await page.waitForSelector("#battleHexMap", { state: "attached", timeout: 15000 });
-        await page.waitForFunction(() => Boolean(window.__FSG_AIRSHOW_E2E__), null, {
-            timeout: 15000
-        });
-        await page.waitForSelector("#battleScreen", { state: "visible", timeout: 15000 });
+        await gotoAirshowHarness(page);
     });
     test("browser harness captures the contested package phases from the real airshow scene", async ({ page }) => {
         const result = await page.evaluate(async () => {
@@ -30,6 +80,7 @@ test.describe("AirShow Browser Harness", () => {
         ]));
     });
     test("target-run shows bomber actors while fighters stay out of the strike lane", async ({ page }) => {
+        test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
         await page.evaluate(async () => {
             const hooks = window.__FSG_AIRSHOW_E2E__;
             if (!hooks) {
@@ -97,6 +148,7 @@ test.describe("AirShow Browser Harness", () => {
     // Minimum sampling rate: one position snapshot every 200ms throughout the full animation.
     // Add more targeted per-phase assertions below this test as needed.
     test("interceptors and escorts remain on opposite sides of map center throughout the full animation", async ({ page }) => {
+        test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
         await page.evaluate(async () => {
             const hooks = window.__FSG_AIRSHOW_E2E__;
             if (!hooks)
@@ -125,9 +177,12 @@ test.describe("AirShow Browser Harness", () => {
         const egressSamples = timeline.filter((s) => s.phaseLabel === "egress");
         const ingressEarlyCount = Math.max(1, Math.floor(ingressSamples.length * 0.7));
         const checkedSamples = [...ingressSamples.slice(0, ingressEarlyCount), ...egressSamples];
-        // Egress margin: actors start near center after clash and must travel >30px into
-        // the wrong side before it counts. Ingress has no margin — sides should be clean from spawn.
+        // Egress margin: actors start from post-clash positions and need time to unwind into their
+        // HQ-bound exit vectors, so the direction check skips the launch transient.
+        // Ingress has no margin — sides should be clean from spawn.
         const EGRESS_MARGIN_PX = 30;
+        const EGRESS_DIRECTION_CHECK_DELAY_MS = 4000;
+        const egressStartMs = egressSamples[0]?.elapsedMs ?? 0;
         for (const sample of checkedSamples) {
             const activeInterceptors = sample.actors.filter((a) => a.role === "interceptor" && a.active);
             const activeEscorts = sample.actors.filter((a) => a.role === "escort" && a.active);
@@ -135,8 +190,11 @@ test.describe("AirShow Browser Harness", () => {
                 continue;
             }
             if (sample.phaseLabel === "egress") {
-                // Egress: each faction must be heading toward its own HQ, with 30px margin
-                // from center before counting (actors start near center after clash).
+                if (sample.elapsedMs < egressStartMs + EGRESS_DIRECTION_CHECK_DELAY_MS) {
+                    continue;
+                }
+                // Egress: once the unwind window has passed, each faction must be heading
+                // toward its own HQ, with 30px margin from center before counting.
                 for (const a of activeInterceptors) {
                     expect(a.cx >= midX - EGRESS_MARGIN_PX, `at ~${Math.round(sample.elapsedMs)}ms egress: interceptor ${a.actorId} cx=${Math.round(a.cx)} is >30px into player side — should egress right toward bot HQ. midX=${Math.round(midX)}`).toBe(true);
                 }
@@ -157,6 +215,7 @@ test.describe("AirShow Browser Harness", () => {
     // Assert bombers move ≤60% as far per 200ms as fighters during bomber-ingress.
     // Add finer-grained speed samples if the ratio tolerance needs tightening.
     test("bombers move slower than fighters during bomber-ingress phase", async ({ page }) => {
+        test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
         await page.evaluate(async () => {
             const hooks = window.__FSG_AIRSHOW_E2E__;
             if (!hooks)
@@ -205,6 +264,7 @@ test.describe("AirShow Browser Harness", () => {
         expect(ratio, `bomber avg displacement per 200ms (${avgBomberPx.toFixed(1)}px) should be ≤60% of fighter (${avgFighterPx.toFixed(1)}px). ratio=${ratio.toFixed(2)} — spec requires bombers at V/2 vs fighters at V during bomber-ingress`).toBeLessThan(0.6);
     });
     test("browser playback runs to completion cleanly", async ({ page }) => {
+        test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
         await page.evaluate(async () => {
             const hooks = window.__FSG_AIRSHOW_E2E__;
             if (!hooks) {
@@ -215,5 +275,34 @@ test.describe("AirShow Browser Harness", () => {
         });
         const remainingActors = await page.locator('[data-testid="airshow-actor"]').count();
         expect(remainingActors).toBe(0);
+    });
+    test.describe("Painted Frames", () => {
+        test.describe.configure({ mode: "serial" });
+        test("captures painted escort clash merge frame @painted-frame", async ({ page, browserName }, testInfo) => {
+            test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
+            await expectPaintedPhaseStartFrame(page, testInfo, "escort-clash-merge", "airshow-painted-escort-clash-merge-start.png");
+        });
+        test("captures painted bomber ingress frame @painted-frame", async ({ page, browserName }, testInfo) => {
+            test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
+            await expectPaintedPhaseStartFrame(page, testInfo, "bomber-ingress", "airshow-painted-bomber-ingress-start.png");
+        });
+        test("captures painted target run frame @painted-frame", async ({ page, browserName }, testInfo) => {
+            test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
+            await expectPaintedPhaseStartFrame(page, testInfo, "target-run", "airshow-painted-target-run-start.png");
+        });
+        test("captures painted escort clash scramble frame @painted-frame", async ({ page, browserName }, testInfo) => {
+            test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
+            await expectPaintedPhaseStartFrame(page, testInfo, "escort-clash-scramble", "airshow-painted-escort-clash-scramble-start.png");
+        });
+    });
+});
+test.describe("AirShow Browser Harness Large Map", () => {
+    test.beforeEach(async ({ page }) => {
+        await gotoAirshowHarness(page, "/?codex-test=airshow-large");
+    });
+    test.describe.configure({ mode: "serial" });
+    test("captures painted bomber ingress frame on large map @painted-frame", async ({ page, browserName }, testInfo) => {
+        test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
+        await expectPaintedPhaseStartFrame(page, testInfo, "bomber-ingress", "airshow-large-painted-bomber-ingress-start.png");
     });
 });

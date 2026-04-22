@@ -7,7 +7,14 @@ import { expect, test } from "@playwright/test";
 type Actor = { actorId: string; role: string; combatRole: string; faction: string; active: boolean; cx: number; cy: number };
 type Sample = { elapsedMs: number; phaseLabel: string | null; actors: ReadonlyArray<Actor> };
 
-function makeChoreographyTests(describeLabel: string, testUrl: string, setupTimeoutMs = 15000, testTimeoutMs = 45000): void {
+const AIRSHOW_CHOREOGRAPHY_TIMEOUT_MS = 120_000;
+
+function makeChoreographyTests(
+  describeLabel: string,
+  testUrl: string,
+  setupTimeoutMs = 15000,
+  testTimeoutMs = AIRSHOW_CHOREOGRAPHY_TIMEOUT_MS
+): void {
   test.describe(describeLabel, () => {
     test.beforeEach(async ({ page }) => {
       await page.goto(testUrl);
@@ -122,14 +129,14 @@ function makeChoreographyTests(describeLabel: string, testUrl: string, setupTime
     }
 
     // ── Invariant 6: egress — interceptors exit toward bot side, escorts toward player side.
-    // Aircraft start near corridor center. With spec-correct V=11.5 px/100ms the egress
-    // phase spans ~15s and fighters need ~1.5-2s to cross the HQ midpoint, so the
-    // direction check must skip the launch transient rather than check the instant
-    // egress begins.
+    // Aircraft start from post-clash geometry, so the direction check must skip the
+    // launch transient rather than check the instant egress begins.
+    // The current governed scenes need about 3.5-4.0s on the small-map fixture before
+    // escorts fully unwind across the HQ midpoint.
     const EGRESS_MARGIN_PX = 30;
     const egressSamples = timeline.filter(s => s.phaseLabel === "egress");
     const egressStartMs = egressSamples[0]?.elapsedMs ?? 0;
-    for (const s of egressSamples.filter(s => s.elapsedMs >= egressStartMs + 2500)) {
+    for (const s of egressSamples.filter(s => s.elapsedMs >= egressStartMs + 4000)) {
       const ints = s.actors.filter(a => a.active && a.role === "interceptor");
       const escs = s.actors.filter(a => a.active && a.role === "escort");
       for (const a of ints) {

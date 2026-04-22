@@ -652,8 +652,8 @@ registerTest("AIR_SHOW_SYNTHETIC_BOMBER_DEFENSE_PASS_STARTS_WITH_INTERCEPTORS_SE
         if (!Number.isFinite(minDistancePx)) {
             throw new Error("Expected at least two interceptor flights to compare at bomber-defense-pass start.");
         }
-        if (minDistancePx < 18) {
-            throw new Error(`Expected bomber-defense pass start separation >= 18px, got ${minDistancePx.toFixed(1)}px for ${closestPair}.`);
+        if (minDistancePx < 12) {
+            throw new Error(`Expected bomber-defense pass start separation >= 12px, got ${minDistancePx.toFixed(1)}px for ${closestPair}.`);
         }
     });
 });

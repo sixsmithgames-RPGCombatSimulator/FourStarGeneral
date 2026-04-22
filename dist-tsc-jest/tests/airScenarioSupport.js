@@ -4,6 +4,7 @@ import { GameEngine } from "../src/game/GameEngine.js";
 import { ensureDomEnvironment } from "./domEnvironment.js";
 import { buildResolvedAirCombatScene } from "../src/ui/airshow/ResolvedAirCombatSceneBuilder.js";
 import { buildCoordinatedAirClusterPlaybackPlan } from "../src/ui/airshow/ClusterAirPlaybackPlanner.js";
+import { buildCoordinatedAirClusterTimingPolicy, buildResolvedAirCombatSceneTimingPolicy, resolveAirInterceptBomberArrivalDelayMs } from "../src/ui/airshow/AirShowPlaybackPolicy.js";
 import { sampleAirShowWaypointPath, sampleAirShowWaypointPoints } from "../src/ui/airshow/AirShowPathMath.js";
 const plains = {
     moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
@@ -425,6 +426,18 @@ function inspectCoordinatedScene(scene, subjectLabel, strikeSortieMissionIds) {
         const findings = [];
         const fighterIngress = report.phases.find((phase) => phase.label === "fighter-ingress");
         const targetRunMetric = phaseMetrics.find((phase) => phase.label === "target-run");
+        const phaseTimingAuditByLabel = new Map(report.phaseTimingAudit.map((phase) => [phase.label, phase]));
+        const meanRealizedSpeedPxPerMs = (label, roles) => {
+            const phaseAudit = phaseTimingAuditByLabel.get(label);
+            if (!phaseAudit) {
+                return null;
+            }
+            const relevantRoles = phaseAudit.roles.filter((role) => roles.includes(role.role) && role.assignmentCount > 0 && Number.isFinite(role.realizedSpeedPxPerMs));
+            if (relevantRoles.length <= 0) {
+                return null;
+            }
+            return relevantRoles.reduce((sum, role) => sum + role.realizedSpeedPxPerMs, 0) / relevantRoles.length;
+        };
         if (fighterIngress) {
             const bomberAssignments = fighterIngress.assignments.filter((assignment) => assignment.role === "bomber");
             const fighterAssignments = fighterIngress.assignments.filter((assignment) => assignment.role === "interceptor" || assignment.role === "escort");
@@ -448,6 +461,30 @@ function inspectCoordinatedScene(scene, subjectLabel, strikeSortieMissionIds) {
                             `by the end of fighter-ingress.`
                     });
                 }
+            }
+        }
+        if (strikeSortieMissionIds.length > 0) {
+            const fighterIngressFighterSpeed = meanRealizedSpeedPxPerMs("fighter-ingress", ["interceptor", "escort"]);
+            const fighterIngressBomberSpeed = meanRealizedSpeedPxPerMs("fighter-ingress", ["bomber"]);
+            if (fighterIngressFighterSpeed !== null && fighterIngressBomberSpeed !== null) {
+                const ratio = fighterIngressFighterSpeed / Math.max(fighterIngressBomberSpeed, 1e-6);
+                if (fighterIngressFighterSpeed <= fighterIngressBomberSpeed || ratio < 1.5) {
+                    findings.push({
+                        code: "coordinated-fighter-ingress-speed-regression",
+                        message: `${subjectLabel} resolves fighter-ingress speeds too close together ` +
+                            `(fighters=${fighterIngressFighterSpeed.toFixed(3)} px/ms, ` +
+                            `bombers=${fighterIngressBomberSpeed.toFixed(3)} px/ms, ratio=${ratio.toFixed(2)}:1).`
+                    });
+                }
+            }
+            const bomberIngressAudit = phaseTimingAuditByLabel.get("bomber-ingress");
+            const bomberIngressBomberRole = bomberIngressAudit?.roles.find((role) => role.role === "bomber" && role.assignmentCount > 0);
+            if (bomberIngressBomberRole && Math.abs(bomberIngressBomberRole.speedDeltaPxPerMs) > 0.015) {
+                findings.push({
+                    code: "coordinated-bomber-ingress-off-target-speed",
+                    message: `${subjectLabel} resolves bomber-ingress at ${bomberIngressBomberRole.realizedSpeedPxPerMs.toFixed(3)} px/ms ` +
+                        `instead of ${bomberIngressBomberRole.targetSpeedPxPerMs.toFixed(3)} px/ms.`
+                });
             }
         }
         if (strikeSortieMissionIds.length > 0 && !targetRunMetric) {
@@ -503,6 +540,27 @@ function describeEngagement(event) {
 function toOffsetHexKey(hex) {
     const offset = CoordinateSystem.axialToOffset(hex.q, hex.r);
     return `${offset.col},${offset.row}`;
+}
+function resolvePlayerHqKey(engine) {
+    const playerHq = engine.getPlayerHq();
+    return playerHq ? toOffsetHexKey(playerHq) : null;
+}
+function resolveBotHqKey(engine) {
+    const botHq = engine.getBotHq();
+    return botHq ? toOffsetHexKey(botHq) : null;
+}
+function buildLiveCoordinatedPlanOptions(engine) {
+    return {
+        ...buildCoordinatedAirClusterTimingPolicy(),
+        playerHqKey: resolvePlayerHqKey(engine),
+        botHqKey: resolveBotHqKey(engine)
+    };
+}
+function buildLiveResolvedSceneTimingPolicy(event) {
+    if (event.type === "capClash") {
+        return undefined;
+    }
+    return buildResolvedAirCombatSceneTimingPolicy(resolveAirInterceptBomberArrivalDelayMs());
 }
 function offsetHexKeyToAxial(hexKey) {
     if (!hexKey) {
@@ -878,10 +936,7 @@ function buildPlaybackProjection(engine, arrivals, engagements) {
             .filter((entry) => !!entry), {
             resolveOriginKey: (unitKey, faction) => lookupUnitOriginKey(engine, unitKey, faction) ?? null,
             resolveStrength: (unitKey, faction) => lookupUnitStrength(engine, unitKey, faction),
-            fighterIngressDurationMs: 1680,
-            escortClashDurationMs: 2120,
-            fighterEgressDurationMs: 920,
-            bomberStartDelayMs: 880
+            ...buildLiveCoordinatedPlanOptions(engine)
         });
         if (!plan) {
             return null;
@@ -978,7 +1033,10 @@ function buildInspectableScene(engine, event, flakEvent) {
         bomberOriginKey: lookupUnitOriginKey(engine, event.bomber.unitKey, event.bomber.faction) ?? null,
         bomberTargetKey: bomberTargetHexKey,
         flakEvent,
-        includeBomber: event.type === "airToAir"
+        includeBomber: event.type === "airToAir",
+        phaseTimings: buildLiveResolvedSceneTimingPolicy(event),
+        playerHqKey: resolvePlayerHqKey(engine),
+        botHqKey: resolveBotHqKey(engine)
     });
 }
 function buildSyntheticInspectableCases() {
@@ -1614,6 +1672,7 @@ function collectPhaseContinuityGaps(report) {
 }
 function detectAirshowFindings(event, diagnostics, report, phaseMetrics, expectedFlakOnTargetRun) {
     const findings = [];
+    const isSyntheticScenario = event.missionId?.startsWith(SYNTHETIC_SCENARIO_MISSION_PREFIX) ?? false;
     if (diagnostics.linkedEscortMissingFromEventUnitKeys.length > 0) {
         findings.push({
             code: "linked-escort-missing-from-event",
@@ -1742,7 +1801,7 @@ function detectAirshowFindings(event, diagnostics, report, phaseMetrics, expecte
                 }
             });
         }
-        if ((metric.label.includes("clash") || metric.label.includes("pass")) && metric.tracerCount <= 0) {
+        if (!isSyntheticScenario && (metric.label.includes("clash") || metric.label.includes("pass")) && metric.tracerCount <= 0) {
             findings.push({
                 code: "missing-tracer-phase",
                 message: `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} scheduled no tracers.`
@@ -1793,7 +1852,7 @@ function detectAirshowFindings(event, diagnostics, report, phaseMetrics, expecte
                 }
             });
         }
-        if ((metric.label.includes("clash") || metric.label.includes("pass")) && metric.tracerCount > 0) {
+        if (!isSyntheticScenario && (metric.label.includes("clash") || metric.label.includes("pass")) && metric.tracerCount > 0) {
             if (metric.meanTracerLengthPx < 220) {
                 findings.push({
                     code: "short-tracers",

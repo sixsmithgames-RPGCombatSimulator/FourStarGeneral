@@ -26,5 +26,6 @@ nul
 # Airshow test results
 airshow-*.txt
 test-results/airshow-*/
-diagnostics/air-scenario/
+diagnostics/
+tests/
 **/animation-*.txt

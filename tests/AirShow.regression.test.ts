@@ -6,13 +6,14 @@
  *
  * Regression status summary:
  * - Verified fixed by active coverage: bomber ingress speed split, dogfight visibility,
- *   dogfight movement, clash timing, clash-entry heading continuity, one-sided interception-pass
- *   ownership, post-dogfight reappearance, post-ordnance continuity, target-run slowdown,
+ *   dogfight movement, clash timing, clash-entry heading continuity, interception-pass tracer
+ *   geometry and ownership, post-dogfight reappearance, post-ordnance continuity, target-run slowdown,
  *   destroyed escort filtering, and flak timing.
  */
 
 import { registerTest } from "./harness.js";
 import { runAirScenario } from "./airScenarioSupport.js";
+import { sampleAirShowWaypointPath } from "../src/ui/airshow/AirShowPathMath.js";
 
 function findContestedInspection(result: ReturnType<typeof runAirScenario> | null) {
   return result?.airshowInspections.find(
@@ -28,6 +29,56 @@ function headingChangeDeg(ax: number, ay: number, bx: number, by: number): numbe
   }
   const dot = Math.max(-1, Math.min(1, (ax * bx + ay * by) / (aMagnitude * bMagnitude)));
   return Math.acos(dot) * 180 / Math.PI;
+}
+
+function distanceBetweenPoints(
+  left: { readonly cx: number; readonly cy: number },
+  right: { readonly cx: number; readonly cy: number }
+): number {
+  return Math.hypot(right.cx - left.cx, right.cy - left.cy);
+}
+
+function sampleAssignmentCenterAtProgress(
+  assignment: {
+    readonly points: ReadonlyArray<{ readonly cx: number; readonly cy: number }>;
+    readonly sampledPositions: ReadonlyArray<{
+      readonly progress: number;
+      readonly cx: number;
+      readonly cy: number;
+    }>;
+  },
+  progress: number
+): { readonly cx: number; readonly cy: number } | null {
+  const sampledPositions = assignment.sampledPositions;
+  if (sampledPositions.length > 0) {
+    const clampedProgress = Math.max(0, Math.min(1, progress));
+    const first = sampledPositions[0]!;
+    const last = sampledPositions[sampledPositions.length - 1]!;
+    if (clampedProgress <= first.progress) {
+      return { cx: first.cx, cy: first.cy };
+    }
+    if (clampedProgress >= last.progress) {
+      return { cx: last.cx, cy: last.cy };
+    }
+    for (let index = 1; index < sampledPositions.length; index += 1) {
+      const previous = sampledPositions[index - 1]!;
+      const current = sampledPositions[index]!;
+      if (clampedProgress > current.progress) {
+        continue;
+      }
+      const span = Math.max(0.0001, current.progress - previous.progress);
+      const t = (clampedProgress - previous.progress) / span;
+      return {
+        cx: previous.cx + (current.cx - previous.cx) * t,
+        cy: previous.cy + (current.cy - previous.cy) * t
+      };
+    }
+  }
+  if (assignment.points.length > 0) {
+    return sampleAirShowWaypointPath(assignment.points, progress).point;
+  }
+  const fallback = sampledPositions[0];
+  return fallback ? { cx: fallback.cx, cy: fallback.cy } : null;
 }
 
 registerTest("AIR_SHOW_REGRESSION_BOMBER_SPEED_DIFFERENTIATION", async ({ Given, When, Then }) => {
@@ -408,50 +459,131 @@ registerTest("AIR_SHOW_REGRESSION_NO_BOMBER_REAPPEAR_AFTER_DOGFIGHT", async ({ G
   });
 });
 
-registerTest("AIR_SHOW_REGRESSION_BOMBER_DEFENSE_PASS_USES_ONE_SIDED_INTERCEPTION_VISUALS", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_REGRESSION_BOMBER_DEFENSE_PASS_USES_TURRET_RETURN_FIRE_AND_STRAIGHT_FIGHTER_TRACERS", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
-  await Given("north star bomber interception where CAP owns the attack pass", async () => {});
+  await Given("north star interception-pass geometry for fighter attack bursts and bomber turret return fire", async () => {});
 
   await When("the contested package reaches bomber-defense-pass", async () => {
     result = runAirScenario();
   });
 
-  await Then("bomber-defense-pass should not emit bomber-owned attack tracers", async () => {
+  await Then("bomber-defense-pass should keep fighter tracers nose-origin and bomber return fire center-origin", async () => {
     const inspection = findContestedInspection(result);
     if (!inspection) {
-      console.log("[REGRESSION: INTERCEPTION OWNERSHIP] No contested package found - skipping");
+      console.log("[REGRESSION: INTERCEPTION TRACERS] No contested package found - skipping");
       return;
     }
 
     const bomberDefensePass = inspection.report.phases.find((phase) => phase.label === "bomber-defense-pass");
-    if (!bomberDefensePass) {
+    const bomberDefenseMetrics = inspection.phaseMetrics.find((phase) => phase.label === "bomber-defense-pass");
+    if (!bomberDefensePass || !bomberDefenseMetrics) {
       throw new Error("Expected bomber-defense-pass phase.");
     }
 
     const roleByActorId = new Map(
       bomberDefensePass.assignments.map((assignment) => [assignment.actorId, assignment.role] as const)
     );
-    const bomberOwnedTracers = bomberDefensePass.tracers.filter(
+    const assignmentByActorId = new Map(
+      bomberDefensePass.assignments.map((assignment) => [assignment.actorId, assignment] as const)
+    );
+    const bomberOwnedTracers = bomberDefenseMetrics.tracerMetrics.filter(
       (tracer) => roleByActorId.get(tracer.sourceActorId) === "bomber"
     );
-    const interceptorOwnedTracerCount = bomberDefensePass.tracers.filter(
-      (tracer) => roleByActorId.get(tracer.sourceActorId) === "interceptor"
-    ).length;
+    const fighterOwnedTracers = bomberDefenseMetrics.tracerMetrics.filter((tracer) => {
+      const role = roleByActorId.get(tracer.sourceActorId);
+      return role === "interceptor" || role === "escort";
+    });
 
-    if (bomberOwnedTracers.length > 0) {
+    if (bomberOwnedTracers.length <= 0) {
       throw new Error(
-        `Expected one-sided interception visuals, found bomber-owned tracers from: ` +
-        `${bomberOwnedTracers.map((tracer) => tracer.sourceActorId).join(", ")}`
+        "Expected bomber defensive turret fire during bomber-defense-pass."
+      );
+    }
+    if (fighterOwnedTracers.length <= 0) {
+      throw new Error("Expected fighter attack tracers during bomber-defense-pass.");
+    }
+
+    const bomberEmitterViolations = bomberOwnedTracers.flatMap((tracer) => {
+      const assignment = assignmentByActorId.get(tracer.sourceActorId);
+      const center = assignment ? sampleAssignmentCenterAtProgress(assignment, tracer.progress) : null;
+      const offsetPx = center ? distanceBetweenPoints(center, tracer.emitterPoint) : Number.POSITIVE_INFINITY;
+      const violations: string[] = [];
+      if (tracer.emitter !== "center") {
+        violations.push(`${tracer.sourceActorId} used ${tracer.emitter} emitter`);
+      }
+      if (tracer.fanHalfAngleDeg !== 0 || tracer.leftFanEndPoint || tracer.rightFanEndPoint) {
+        violations.push(`${tracer.sourceActorId} used angled/fanned turret fire`);
+      }
+      if (offsetPx > 1.5) {
+        violations.push(`${tracer.sourceActorId} emitter offset ${offsetPx.toFixed(1)}px from bomber center`);
+      }
+      if ((tracer.targetAlignmentDeg ?? Number.POSITIVE_INFINITY) > 2) {
+        violations.push(`${tracer.sourceActorId} turret aim misaligned by ${(tracer.targetAlignmentDeg ?? 0).toFixed(1)}deg`);
+      }
+      return violations;
+    });
+    if (bomberEmitterViolations.length > 0) {
+      throw new Error(
+        `Expected center-origin turret return fire, found violations: ${bomberEmitterViolations.join("; ")}`
       );
     }
 
-    if (interceptorOwnedTracerCount <= 0) {
-      throw new Error("Expected interceptor-owned tracers during bomber-defense-pass.");
+    const bomberBurstCadenceViolations = Array.from(
+      bomberOwnedTracers.reduce((groups, tracer) => {
+        const bucket = groups.get(tracer.sourceActorId) ?? [];
+        bucket.push(tracer.progress);
+        groups.set(tracer.sourceActorId, bucket);
+        return groups;
+      }, new Map<string, number[]>())
+    ).flatMap(([actorId, timings]) => {
+      const sortedTimings = [...timings].sort((left, right) => left - right);
+      const minGap = sortedTimings.reduce((smallestGap, timing, index) => {
+        if (index === 0) {
+          return smallestGap;
+        }
+        return Math.min(smallestGap, timing - sortedTimings[index - 1]!);
+      }, Number.POSITIVE_INFINITY);
+      return Number.isFinite(minGap) && minGap < 0.08
+        ? [`${actorId} turret fire cadence gap ${minGap.toFixed(2)} below intermittent floor`]
+        : [];
+    });
+    if (bomberBurstCadenceViolations.length > 0) {
+      throw new Error(
+        `Expected intermittent bomber turret bursts, found violations: ${bomberBurstCadenceViolations.join("; ")}`
+      );
+    }
+
+    const fighterEmitterViolations = fighterOwnedTracers.flatMap((tracer) => {
+      const assignment = assignmentByActorId.get(tracer.sourceActorId);
+      const center = assignment ? sampleAssignmentCenterAtProgress(assignment, tracer.progress) : null;
+      const offsetPx = center ? distanceBetweenPoints(center, tracer.emitterPoint) : 0;
+      const violations: string[] = [];
+      if (tracer.emitter !== "nose") {
+        violations.push(`${tracer.sourceActorId} used ${tracer.emitter} emitter`);
+      }
+      if (tracer.fanHalfAngleDeg !== 0 || tracer.leftFanEndPoint || tracer.rightFanEndPoint) {
+        violations.push(`${tracer.sourceActorId} used angled fighter fire`);
+      }
+      if (offsetPx < 1) {
+        violations.push(`${tracer.sourceActorId} emitter stayed on sprite center (${offsetPx.toFixed(1)}px)`);
+      }
+      if ((tracer.targetAlignmentDeg ?? Number.POSITIVE_INFINITY) > 35) {
+        violations.push(
+          `${tracer.sourceActorId} fired off-axis by ${(tracer.targetAlignmentDeg ?? 0).toFixed(1)}deg`
+        );
+      }
+      return violations;
+    });
+    if (fighterEmitterViolations.length > 0) {
+      throw new Error(
+        `Expected straight nose-origin fighter tracers, found violations: ${fighterEmitterViolations.join("; ")}`
+      );
     }
 
     console.log(
-      `[REGRESSION: INTERCEPTION OWNERSHIP] ✓ FIXED: ${interceptorOwnedTracerCount} interceptor-owned tracers, 0 bomber-owned tracers`
+      `[REGRESSION: INTERCEPTION TRACERS] ✓ FIXED: ${fighterOwnedTracers.length} fighter nose bursts, ` +
+      `${bomberOwnedTracers.length} bomber center-origin turret bursts`
     );
   });
 });

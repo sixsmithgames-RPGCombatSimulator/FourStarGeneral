@@ -11,16 +11,16 @@ import "./domEnvironment.js";
 import { runAllTests } from "./harness.js";
 // App-layer playback ownership and cluster routing checks
 import "./BattleScreen.airMissionPlayback.test.js";
+// Speed model and role-based behavior tests
+import "./AirShow.speedModel.test.js";
+// Rigorous bomber speed validation (catches actual vs expected speed)
+import "./AirShow.bomberSpeed.validation.test.js";
 // Core air show choreography and motion tests
 import "./AirShow.fighterMotion.test.js";
 // Scene building and formation spacing tests
 import "./AirCombatSceneBuilder.test.js";
 // North Star Spec progress-based timing validation
 import "./AirShow.progressTiming.test.js";
-// Speed model and role-based behavior tests
-import "./AirShow.speedModel.test.js";
-// Rigorous bomber speed validation (catches actual vs expected speed)
-import "./AirShow.bomberSpeed.validation.test.js";
 // Full coordinated-package governance checks
 import "./AirShow.coordinatedPackage.test.js";
 // Regression tests for recent bug fixes

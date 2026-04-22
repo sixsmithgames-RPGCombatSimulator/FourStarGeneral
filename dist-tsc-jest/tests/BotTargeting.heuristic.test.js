@@ -14,7 +14,13 @@ const woods = {
     accMod: -1,
     blocksLOS: true
 };
-const terrain = { plains };
+const roughWoods = {
+    moveCost: { leg: 2, wheel: 2, track: 2, air: 1 },
+    defense: 3,
+    accMod: -1,
+    blocksLOS: true
+};
+const terrain = { plains, woods, roughWoods };
 const playerInfantryDef = {
     class: "infantry",
     combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
@@ -160,12 +166,32 @@ const groundAttackDef = {
         refitTurns: 2
     }
 };
+const supplyTruckDef = {
+    class: "vehicle",
+    combat: { category: "vehicle", weight: "medium", role: "support", signature: "large" },
+    movement: 2,
+    moveType: "wheel",
+    vision: 2,
+    ammo: 0,
+    fuel: 70,
+    rangeMin: 0,
+    rangeMax: 0,
+    initiative: 1,
+    armor: { front: 2, side: 1, top: 1 },
+    hardAttack: 1,
+    softAttack: 1,
+    ap: 0,
+    accuracyBase: 0,
+    traits: [],
+    cost: 50
+};
 const strikeUnitTypes = {
     TestInfantry: playerInfantryDef,
     TestTank: playerTankDef,
     TestArtillery: playerArtilleryDef,
     TestBomber: bomberDef,
-    TestGroundAttack: groundAttackDef
+    TestGroundAttack: groundAttackDef,
+    Supply_Truck: supplyTruckDef
 };
 function createPlannerSnapshot(type, definition, hex) {
     return {
@@ -646,6 +672,99 @@ registerTest("BOT_PLANNER_INFANTRY_MARCHES_THROUGH_COVER_TOWARD_HIGH_VALUE_GUNS"
         }
     });
 });
+registerTest("BOT_PLANNER_INFANTRY_TAKES_SAFE_TEMPO_OVER_A_SLOW_ROUGH_SLOG", async ({ Given, When, Then }) => {
+    let plannedDestination = "";
+    await Given("an infantry unit choosing between a fast plains lane and a slower rough-woods lane while the enemy is still several turns away", async () => {
+        const botInfantry = createPlannerSnapshot("BotInfantry", playerInfantryDef, { q: 0, r: 1 });
+        const supportInfantry = createPlannerSnapshot("SupportInfantry", playerInfantryDef, { q: 0, r: 2 });
+        const enemyArtillery = createPlannerSnapshot("EnemyArtillery", playerArtilleryDef, { q: 6, r: 1 });
+        const enemyInfantry = createPlannerSnapshot("EnemyInfantry", playerInfantryDef, { q: 7, r: 1 });
+        const input = {
+            botUnits: [botInfantry, supportInfantry],
+            playerUnits: [enemyArtillery, enemyInfantry],
+            objectives: [],
+            occupancy: new Map([
+                [axialKey(botInfantry.unit.hex), "bot"],
+                [axialKey(supportInfantry.unit.hex), "bot"],
+                [axialKey(enemyArtillery.unit.hex), "player"],
+                [axialKey(enemyInfantry.unit.hex), "player"]
+            ]),
+            map: {
+                inBounds: (hex) => hex.q >= 0 && hex.q <= 7 && hex.r >= 0 && hex.r <= 7,
+                terrainAt: (hex) => axialKey(hex) === "1,2" ? roughWoods : plains,
+                movementCost: (hex) => axialKey(hex) === "1,2" ? 2 : 1
+            },
+            losAllows: () => true,
+            movementAllowance: () => 2,
+            attackEstimator: () => null,
+            difficulty: "Normal"
+        };
+        const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "0,1");
+        plannedDestination = plan ? axialKey(plan.destination) : "";
+    });
+    await When("the planner compares immediate safety against march tempo", async () => {
+        // Result captured during Given.
+    });
+    await Then("the infantry should use the faster safe lane instead of bogging down in slow terrain", async () => {
+        if (plannedDestination !== "1,1") {
+            throw new Error(`Expected infantry to pick the faster plains lane at 1,1, but planner chose ${plannedDestination || "no move"}.`);
+        }
+    });
+});
+registerTest("BOT_HEURISTIC_INFANTRY_CONSOLIDATES_IN_COVER_AND_DIGS_IN", async ({ Given, When, Then }) => {
+    let plannedDestination = "";
+    let plannedFieldAction = "";
+    await Given("a bot infantry battalion already staged in woods near contact with friendly support", async () => {
+        const infantryDef = structuredClone(playerInfantryDef);
+        const tankDef = structuredClone(playerTankDef);
+        const localWoods = structuredClone(woods);
+        const localPlains = structuredClone(plains);
+        const botInfantry = createPlannerSnapshot("BotInfantry", infantryDef, { q: 3, r: 3 });
+        const supportInfantry = createPlannerSnapshot("SupportInfantry", infantryDef, { q: 3, r: 4 });
+        const enemyTank = createPlannerSnapshot("EnemyTank", tankDef, { q: 9, r: 3 });
+        const enemyInfantry = createPlannerSnapshot("EnemyInfantry", infantryDef, { q: 9, r: 4 });
+        const input = {
+            botUnits: [botInfantry, supportInfantry],
+            playerUnits: [enemyTank, enemyInfantry],
+            objectives: [],
+            occupancy: new Map([
+                [axialKey(botInfantry.unit.hex), "bot"],
+                [axialKey(supportInfantry.unit.hex), "bot"],
+                [axialKey(enemyTank.unit.hex), "player"],
+                [axialKey(enemyInfantry.unit.hex), "player"]
+            ]),
+            map: {
+                inBounds: (hex) => hex.q >= 0 && hex.q <= 10 && hex.r >= 0 && hex.r <= 10,
+                terrainAt: (hex) => axialKey(hex) === "3,3" ? localWoods : localPlains,
+                movementCost: () => 1
+            },
+            losAllows: (attackerHex, targetHex) => {
+                const attackerKey = axialKey(attackerHex);
+                if (attackerKey === "3,3" && axialKey(targetHex) === "9,4") {
+                    return false;
+                }
+                return true;
+            },
+            movementAllowance: () => 2,
+            attackEstimator: () => null,
+            difficulty: "Normal"
+        };
+        const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "3,3");
+        plannedDestination = plan ? axialKey(plan.destination) : "";
+        plannedFieldAction = plan?.fieldAction ?? "";
+    });
+    await When("the planner evaluates whether the infantry should push again or consolidate the covered posture", async () => {
+        // Result captured during Given.
+    });
+    await Then("the staged infantry should hold the covered hex and choose the dig-in field action", async () => {
+        if (plannedDestination !== "3,3") {
+            throw new Error(`Expected the infantry to hold its covered staging hex, but planner chose ${plannedDestination || "no move"}.`);
+        }
+        if (plannedFieldAction !== "digIn") {
+            throw new Error(`Expected the infantry to choose a dig-in consolidation action, received ${plannedFieldAction || "none"}.`);
+        }
+    });
+});
 registerTest("BOT_PLANNER_RECON_PREFERS_A_SCREENING_LANE_OVER_A_SUICIDAL_FRONTLINE_POKE", async ({ Given, When, Then }) => {
     let plannedDestination = "";
     let plannedAttackTarget = "";
@@ -839,11 +958,17 @@ registerTest("BOT_PLANNER_RECON_SPREADS_INTO_A_SECOND_SPOTTING_LANE_INSTEAD_OF_C
 registerTest("BOT_PLANNER_PRIORITIZES_KILLING_A_PLAYER_RECON_OBSERVER_THAT_IS_SPOTTING_FOR_ARTILLERY", async ({ Given, When, Then }) => {
     let plannedAttackTarget = "";
     await Given("a bot tank choosing between a player recon observer and a nearby infantry unit with the observer enabling artillery fire", async () => {
-        const botTank = createPlannerSnapshot("BotTank", playerTankDef, { q: 0, r: 0 });
-        const botGun = createPlannerSnapshot("BotGun", antiTankGunDef, { q: 0, r: 1 });
-        const playerRecon = createPlannerSnapshot("PlayerRecon", reconBikeDef, { q: 1, r: 0 });
-        const playerInfantry = createPlannerSnapshot("PlayerInfantry", playerInfantryDef, { q: 1, r: 1 });
-        const playerArtillery = createPlannerSnapshot("PlayerArtillery", playerArtilleryDef, { q: 3, r: 0 });
+        const tankDef = structuredClone(playerTankDef);
+        const gunDef = structuredClone(antiTankGunDef);
+        const reconDef = structuredClone(reconBikeDef);
+        const infantryDef = structuredClone(playerInfantryDef);
+        const artilleryDef = structuredClone(playerArtilleryDef);
+        const localPlains = structuredClone(plains);
+        const botTank = createPlannerSnapshot("BotTank", tankDef, { q: 0, r: 0 });
+        const botGun = createPlannerSnapshot("BotGun", gunDef, { q: 0, r: 1 });
+        const playerRecon = createPlannerSnapshot("PlayerRecon", reconDef, { q: 1, r: 0 });
+        const playerInfantry = createPlannerSnapshot("PlayerInfantry", infantryDef, { q: 1, r: 1 });
+        const playerArtillery = createPlannerSnapshot("PlayerArtillery", artilleryDef, { q: 3, r: 0 });
         const input = {
             botUnits: [botTank, botGun],
             playerUnits: [playerRecon, playerInfantry, playerArtillery],
@@ -857,7 +982,7 @@ registerTest("BOT_PLANNER_PRIORITIZES_KILLING_A_PLAYER_RECON_OBSERVER_THAT_IS_SP
             ]),
             map: {
                 inBounds: (hex) => hex.q >= 0 && hex.q <= 4 && hex.r >= 0 && hex.r <= 4,
-                terrainAt: () => plains,
+                terrainAt: () => localPlains,
                 movementCost: () => 1
             },
             losAllows: (attackerHex, targetHex) => {
@@ -892,6 +1017,46 @@ registerTest("BOT_PLANNER_PRIORITIZES_KILLING_A_PLAYER_RECON_OBSERVER_THAT_IS_SP
     await Then("the recon observer should be attacked before the equally available infantry target", async () => {
         if (plannedAttackTarget !== "1,0") {
             throw new Error(`Expected bot tank to attack recon observer at 1,0, but planner targeted ${plannedAttackTarget || "nothing"}.`);
+        }
+    });
+});
+registerTest("BOT_PLANNER_LONG_RANGE_CHASES_USE_PRESSURE_LOGIC_INSTEAD_OF_DISTANT_FIRE_SETUP", async ({ Given, When, Then }) => {
+    let plannedDestination = "";
+    let plannedRationale = "";
+    await Given("a rear tank looking at artillery that is still multiple turns away from a real firing position", async () => {
+        const rearTank = createPlannerSnapshot("RearTank", playerTankDef, { q: 0, r: 0 });
+        const playerArtillery = createPlannerSnapshot("PlayerArtillery", playerArtilleryDef, { q: 9, r: 0 });
+        const input = {
+            botUnits: [rearTank],
+            playerUnits: [playerArtillery],
+            objectives: [],
+            occupancy: new Map([
+                [axialKey(rearTank.unit.hex), "bot"],
+                [axialKey(playerArtillery.unit.hex), "player"]
+            ]),
+            map: {
+                inBounds: (hex) => hex.q >= 0 && hex.q <= 10 && hex.r >= 0 && hex.r <= 6,
+                terrainAt: () => plains,
+                movementCost: () => 1
+            },
+            losAllows: () => true,
+            movementAllowance: () => 2,
+            attackEstimator: () => null,
+            difficulty: "Normal"
+        };
+        const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "0,0");
+        plannedDestination = plan ? axialKey(plan.destination) : "";
+        plannedRationale = plan?.rationale ?? "";
+    });
+    await When("the planner evaluates whether this is really a next-turn fire setup or just a longer operational chase", async () => {
+        // Result captured during Given.
+    });
+    await Then("the move should be treated as pressure instead of a fake long-range firing setup", async () => {
+        if (plannedDestination !== "2,0") {
+            throw new Error(`Expected rear tank to pressure forward to 2,0, but planner chose ${plannedDestination || "no move"}.`);
+        }
+        if (!plannedRationale.toLowerCase().includes("pressure")) {
+            throw new Error(`Expected a pressure-driven rationale, but planner reported "${plannedRationale || "none"}".`);
         }
     });
 });

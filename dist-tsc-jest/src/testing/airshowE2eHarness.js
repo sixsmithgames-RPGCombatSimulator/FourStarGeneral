@@ -2,6 +2,9 @@ import { BattleScreen } from "../ui/screens/BattleScreen";
 import { HexMapRenderer } from "../rendering/HexMapRenderer";
 import { buildAirshowHarnessFixture, buildAirshowHarnessFixtureLarge } from "./airshowHarnessFixture";
 const POSITION_SAMPLE_INTERVAL_MS = 100;
+const DEFAULT_PHASE_WAIT_TIMEOUT_MS = 45000;
+const PHASE_WAIT_BUFFER_MS = 4000;
+const COMPLETION_WAIT_BUFFER_MS = 10000;
 function compressSceneForHarness(scene) {
     return {
         ...scene,
@@ -88,6 +91,40 @@ function computeTargetRunSampleMs(report) {
     }
     return roleReadDelayMs + Math.round(elapsedMs * 0.7);
 }
+function computeInspectionTotalDurationMs(report) {
+    if (!report) {
+        return DEFAULT_PHASE_WAIT_TIMEOUT_MS;
+    }
+    return report.phases.reduce((sum, phase) => sum + phase.durationMs, 0);
+}
+function computePhaseTimeoutMs(report, label) {
+    if (!report) {
+        return DEFAULT_PHASE_WAIT_TIMEOUT_MS;
+    }
+    let elapsedMs = 0;
+    for (const phase of report.phases) {
+        const phaseBudgetMs = Math.max(phase.durationMs, 1);
+        if (phase.label === label) {
+            return Math.max(DEFAULT_PHASE_WAIT_TIMEOUT_MS, elapsedMs + phaseBudgetMs + PHASE_WAIT_BUFFER_MS);
+        }
+        elapsedMs += phaseBudgetMs;
+    }
+    return Math.max(DEFAULT_PHASE_WAIT_TIMEOUT_MS, computeInspectionTotalDurationMs(report) + PHASE_WAIT_BUFFER_MS);
+}
+function createTimedPromise(promise, timeoutMs, label) {
+    return new Promise((resolve, reject) => {
+        const timer = window.setTimeout(() => {
+            reject(new Error(`Timed out waiting for ${label} after ${timeoutMs}ms.`));
+        }, timeoutMs);
+        void promise.then((value) => {
+            window.clearTimeout(timer);
+            resolve(value);
+        }, (error) => {
+            window.clearTimeout(timer);
+            reject(error);
+        });
+    });
+}
 function getActorSnapshot() {
     return Array.from(document.querySelectorAll('[data-testid="airshow-actor"]')).map((node) => ({
         actorId: node.getAttribute("data-airshow-actor-id") ?? "",
@@ -104,10 +141,12 @@ function installAirshowE2EHarnessWithFixture(harnessFixture) {
     let activeInspection = null;
     let activeAnimation = null;
     let activePhaseLabel = null;
+    let activeTotalDurationMs = DEFAULT_PHASE_WAIT_TIMEOUT_MS;
     let spawnSnapshot = [];
     let positionTimeline = [];
     let positionSamplerHandle = null;
     let restorePhaseProbe = null;
+    let pendingPhaseStartPause = null;
     function sampleActorPositions() {
         const size = 32;
         return {
@@ -140,23 +179,55 @@ function installAirshowE2EHarnessWithFixture(harnessFixture) {
         restorePhaseProbe?.();
         const runtimeRenderer = renderer;
         const originalRunAirShowPhase = runtimeRenderer.runAirShowPhase?.bind(renderer);
-        if (typeof originalRunAirShowPhase !== "function") {
+        const originalScheduleAnimationFrame = runtimeRenderer.scheduleAnimationFrame?.bind(renderer);
+        if (typeof originalRunAirShowPhase !== "function" || typeof originalScheduleAnimationFrame !== "function") {
             restorePhaseProbe = null;
             return;
         }
         let phaseIndex = 0;
         runtimeRenderer.runAirShowPhase = async (...args) => {
-            activePhaseLabel = phaseLabels[phaseIndex] ?? `phase-${phaseIndex + 1}`;
+            const phaseLabel = phaseLabels[phaseIndex] ?? `phase-${phaseIndex + 1}`;
+            activePhaseLabel = phaseLabel;
             phaseIndex += 1;
-            return originalRunAirShowPhase(...args);
+            const phasePause = pendingPhaseStartPause?.label === phaseLabel ? pendingPhaseStartPause : null;
+            let interceptedInitialFrame = false;
+            if (phasePause) {
+                runtimeRenderer.scheduleAnimationFrame = (step) => {
+                    if (interceptedInitialFrame) {
+                        originalScheduleAnimationFrame(step);
+                        return;
+                    }
+                    interceptedInitialFrame = true;
+                    phasePause.engaged = true;
+                    phasePause.readyResolve();
+                    void phasePause.resumePromise.then(() => {
+                        if (pendingPhaseStartPause === phasePause) {
+                            pendingPhaseStartPause = null;
+                        }
+                        originalScheduleAnimationFrame(step);
+                    });
+                };
+            }
+            try {
+                return await originalRunAirShowPhase(...args);
+            }
+            finally {
+                runtimeRenderer.scheduleAnimationFrame = originalScheduleAnimationFrame;
+            }
         };
-        restorePhaseProbe = () => { runtimeRenderer.runAirShowPhase = originalRunAirShowPhase; restorePhaseProbe = null; };
+        restorePhaseProbe = () => {
+            runtimeRenderer.runAirShowPhase = originalRunAirShowPhase;
+            runtimeRenderer.scheduleAnimationFrame = originalScheduleAnimationFrame;
+            restorePhaseProbe = null;
+        };
     }
     async function waitForPhase(label) {
         const startedAt = performance.now();
+        const timeoutMs = computePhaseTimeoutMs(activeInspection, label);
         while (activePhaseLabel !== label) {
-            if (performance.now() - startedAt > 15000) {
-                throw new Error(`Timed out waiting for airshow phase "${label}". Last phase: ${activePhaseLabel ?? "none"}.`);
+            if (performance.now() - startedAt > timeoutMs) {
+                throw new Error(`Timed out waiting for airshow phase "${label}" after ${timeoutMs}ms. ` +
+                    `Last phase: ${activePhaseLabel ?? "none"}.`);
             }
             await new Promise((resolve) => window.setTimeout(resolve, 25));
         }
@@ -168,6 +239,7 @@ function installAirshowE2EHarnessWithFixture(harnessFixture) {
             activeRenderer = createRendererForFixture(harnessFixture);
             const scene = compressSceneForHarness(await captureSceneFromFixture(harnessFixture));
             activeInspection = activeRenderer.inspectResolvedAirCombatShow(scene);
+            activeTotalDurationMs = computeInspectionTotalDurationMs(activeInspection);
             installPhaseProbe(activeRenderer, activeInspection?.phases.map((phase) => phase.label) ?? []);
             activeAnimation = activeRenderer.animateResolvedAirCombatShow(scene);
             spawnSnapshot = Array.from(document.querySelectorAll('[data-testid="airshow-actor"]')).map((el) => {
@@ -191,6 +263,7 @@ function installAirshowE2EHarnessWithFixture(harnessFixture) {
             return {
                 missionId: harnessFixture.missionId,
                 phaseLabels: activeInspection?.phases.map((phase) => phase.label) ?? [],
+                totalDurationMs: activeTotalDurationMs,
                 targetRunSampleMs: computeTargetRunSampleMs(activeInspection),
                 bomberIngressActorCount,
                 hqMidX: activeInspection?.hqMidX ?? null,
@@ -200,11 +273,41 @@ function installAirshowE2EHarnessWithFixture(harnessFixture) {
         getActorSnapshot,
         getSpawnSnapshot() { return spawnSnapshot; },
         getPositionTimeline() { return positionTimeline; },
+        pauseAtPhaseStart(label) {
+            if (pendingPhaseStartPause) {
+                pendingPhaseStartPause.resumeResolve();
+            }
+            let readyResolve;
+            let resumeResolve;
+            const resumePromise = new Promise((resolve) => {
+                resumeResolve = resolve;
+            });
+            const readyPromise = new Promise((resolve) => {
+                readyResolve = resolve;
+            });
+            pendingPhaseStartPause = {
+                label,
+                engaged: false,
+                readyResolve,
+                resumePromise,
+                resumeResolve
+            };
+            return readyPromise;
+        },
+        resumePhase() {
+            if (!pendingPhaseStartPause) {
+                return;
+            }
+            const pause = pendingPhaseStartPause;
+            pendingPhaseStartPause = null;
+            pause.resumeResolve();
+        },
         waitForPhase,
         async waitForCompletion() {
             if (!activeAnimation)
                 return;
-            await activeAnimation;
+            const timeoutMs = Math.max(DEFAULT_PHASE_WAIT_TIMEOUT_MS, activeTotalDurationMs + COMPLETION_WAIT_BUFFER_MS);
+            await createTimedPromise(activeAnimation, timeoutMs, "airshow completion");
         },
         getInspectionSummary() {
             if (!activeInspection)
