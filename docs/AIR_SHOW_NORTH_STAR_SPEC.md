@@ -671,6 +671,7 @@ These are target behavior rules for readability. The authoritative timing model 
 - CAP ingress at fighter speed
 - Bombers and escorts ingress together at bomber speed
 - Escorts accelerate to fighter speed at 15% bomber progress
+- CAP may appear on-screen slightly before the first escort because of the speed differential, but that visible lead must stay brief; the governed browser suite caps the lead at about 1 second so CAP does not loiter on-screen waiting for the package
 - visible speed is the on-screen distance traveled over wall-clock time; it must come from canonical path length plus canonical timing, not from truncated paths or shared-window illusions
 - if two roles must appear to move at different speeds, the renderer must give them different authoritative time windows or local progress windows derived from policy, rather than forcing them through one shared progress value
 
@@ -805,7 +806,7 @@ The current codebase already reflects part of the north star and still falls sho
 ### Already Aligned
 
 - the engine has a global inflight air phase in `resolveInflightAirPhase()`
-- tests already assert CAP-first ordering and escort participation in package interception
+- tests already assert bounded CAP visible lead and escort participation in package interception
 - mission update hooks and mission-report plumbing exist
 - the system already exposes arrivals, engagements, and reports as distinct artifacts
 

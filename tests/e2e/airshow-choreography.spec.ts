@@ -37,13 +37,19 @@ function makeChoreographyTests(
       return { hqMidX: result.hqMidX, corridorCenterX: result.corridorCenterX };
     });
 
-    const { timeline, midX, vbRight, vbBottom, vbX, vbY } = await page.evaluate(() => {
-      const h = (window as Window & { __FSG_AIRSHOW_E2E__?: { getPositionTimeline: () => readonly Sample[] } }).__FSG_AIRSHOW_E2E__;
+    const { timeline, spawn, midX, vbRight, vbBottom, vbX, vbY } = await page.evaluate(() => {
+      const h = (window as Window & {
+        __FSG_AIRSHOW_E2E__?: {
+          getPositionTimeline: () => readonly Sample[];
+          getSpawnSnapshot: () => ReadonlyArray<{ actorId: string; role: string; active: boolean; cx: number; cy: number }>;
+        };
+      }).__FSG_AIRSHOW_E2E__;
       if (!h) throw new Error("hooks not installed");
       const svg = document.getElementById("battleHexMap") as unknown as SVGSVGElement;
       const vb = svg.viewBox.baseVal;
       return {
         timeline: h.getPositionTimeline() as readonly Sample[],
+        spawn: h.getSpawnSnapshot(),
         midX: vb.x + vb.width / 2,
         vbRight: vb.x + vb.width,
         vbBottom: vb.y + vb.height,
@@ -68,10 +74,36 @@ function makeChoreographyTests(
       return n > 0 ? total / n : 0;
     }
 
-    // ── Invariant 1: All fighters spawn off-map (checked at t=0, spawn snapshot)
-    const spawnSample = timeline[0];
-    if (spawnSample) {
-      for (const a of spawnSample.actors.filter(x => x.role === "interceptor" || x.role === "escort")) {
+    function avgVisibleDisp(samples: readonly Sample[], role: string): number {
+      let total = 0; let n = 0;
+      for (let i = 1; i < samples.length; i++) {
+        const prev = samples[i - 1]!; const curr = samples[i]!;
+        for (const a of curr.actors.filter(x => x.active && x.role === role && isOnMap(x))) {
+          const p = prev.actors.find(x => x.actorId === a.actorId);
+          if (!p?.active || !isOnMap(p)) continue;
+          total += Math.hypot(a.cx - p.cx, a.cy - p.cy); n++;
+        }
+      }
+      return n > 0 ? total / n : 0;
+    }
+
+    function isOnMap(actor: Actor): boolean {
+      return actor.cx >= vbX && actor.cx <= vbRight && actor.cy >= vbY && actor.cy <= vbBottom;
+    }
+
+    function centroid(actors: readonly Actor[]): { cx: number; cy: number } | null {
+      if (actors.length <= 0) {
+        return null;
+      }
+      return {
+        cx: actors.reduce((sum, actor) => sum + actor.cx, 0) / actors.length,
+        cy: actors.reduce((sum, actor) => sum + actor.cy, 0) / actors.length
+      };
+    }
+
+    // ── Invariant 1: All fighters spawn off-map (checked from authoritative spawn snapshot)
+    if (spawn) {
+      for (const a of spawn.filter(x => x.role === "interceptor" || x.role === "escort")) {
         const inside = a.cx >= vbX && a.cx <= vbRight && a.cy >= vbY && a.cy <= vbBottom;
         if (inside) violations.push(`SPAWN: ${a.role} ${a.actorId} spawned on-map cx=${Math.round(a.cx)} cy=${Math.round(a.cy)}`);
       }
@@ -92,10 +124,36 @@ function makeChoreographyTests(
         violations.push(`INGRESS @${Math.round(s.elapsedMs)}ms: interceptors[${[...iSides]}] escorts[${[...eSides]}] same side — should be opposite`);
     }
 
-    // ── Invariant 3: fighter-ingress — bombers must move slower than fighters (ratio < 0.75)
+    // ── Invariant 3: fighter-ingress — CAP may not establish a long visible lead before escort
+    // The north star allows simultaneous off-map start with faster CAP closure, so the correct
+    // guardrail is a bounded visible lead rather than zero lead at every sampled frame.
+    const MAX_INGRESS_VISIBLE_LEAD_MS = 1000;
+    const firstVisibleInterceptorSample = ingressSamples.find(
+      (s) => s.actors.some((a) => a.active && a.role === "interceptor" && isOnMap(a))
+    );
+    const firstVisibleEscortSample = ingressSamples.find(
+      (s) => s.actors.some((a) => a.active && a.role === "escort" && isOnMap(a))
+    );
+    if (firstVisibleInterceptorSample && !firstVisibleEscortSample) {
+      violations.push(
+        `INGRESS VISIBILITY: interceptors entered the visible map but escorts never became visible during fighter-ingress.`
+      );
+    } else if (
+      firstVisibleInterceptorSample
+      && firstVisibleEscortSample
+      && firstVisibleEscortSample.elapsedMs - firstVisibleInterceptorSample.elapsedMs > MAX_INGRESS_VISIBLE_LEAD_MS
+    ) {
+      violations.push(
+        `INGRESS VISIBILITY: interceptors led escort onto the visible map by `
+        + `${Math.round(firstVisibleEscortSample.elapsedMs - firstVisibleInterceptorSample.elapsedMs)}ms `
+        + `(max ${MAX_INGRESS_VISIBLE_LEAD_MS}ms).`
+      );
+    }
+
+    // ── Invariant 4: fighter-ingress — visible on-map bomber motion must stay slower than visible fighter motion
     if (ingressSamples.length >= 2) {
-      const bDisp = avgDisp(ingressSamples, "bomber");
-      const fDisp = avgDisp(ingressSamples, "interceptor") || avgDisp(ingressSamples, "escort");
+      const bDisp = avgVisibleDisp(ingressSamples, "bomber");
+      const fDisp = avgVisibleDisp(ingressSamples, "interceptor") || avgVisibleDisp(ingressSamples, "escort");
       if (fDisp > 0 && bDisp > 0) {
         const ratio = bDisp / fDisp;
         if (ratio >= 0.75)
@@ -103,7 +161,7 @@ function makeChoreographyTests(
       }
     }
 
-    // ── Invariant 4: fighter-ingress — bombers must trail fighters (be further from target than escorts)
+    // ── Invariant 5: fighter-ingress — bombers must trail fighters (be further from target than escorts)
     for (const s of ingressSamples) {
       const bombers = s.actors.filter(a => a.active && a.role === "bomber");
       const escorts = s.actors.filter(a => a.active && a.role === "escort");
@@ -116,11 +174,69 @@ function makeChoreographyTests(
         violations.push(`INGRESS TRAIL @${Math.round(s.elapsedMs)}ms: escorts not ahead of bombers toward center. escort cx=${avgEscortCx.toFixed(0)} bomber cx=${avgBomberCx.toFixed(0)} midX=${Math.round(midX)}`);
     }
 
-    // ── Invariant 5: bomber-ingress — bombers at V/2 vs fighters at V (ratio < 0.6)
+    // ── Invariant 6: clash opening — escorts and interceptors must stay visibly engaged on-map
+    const clashSamples = timeline.filter(
+      s => s.phaseLabel === "escort-clash-merge" || s.phaseLabel === "escort-clash-scramble"
+    );
+    const openingClashCount = Math.max(1, Math.floor(clashSamples.length * 0.5));
+    for (const s of clashSamples.slice(0, openingClashCount)) {
+      const visibleInts = s.actors.filter(a => a.active && a.role === "interceptor" && isOnMap(a));
+      const visibleEscs = s.actors.filter(a => a.active && a.role === "escort" && isOnMap(a));
+      if (visibleInts.length === 0 || visibleEscs.length === 0) {
+        violations.push(
+          `CLASH VISIBILITY @${Math.round(s.elapsedMs)}ms: interceptors=${visibleInts.length} escorts=${visibleEscs.length} on-map during clash.`
+        );
+      }
+    }
+
+    // ── Invariant 7: clash midpoint — both fighter factions must actually converge into one combat volume
+    const clashMidpointSamples = ["escort-clash-merge", "escort-clash-scramble"]
+      .map((label) => {
+        const phaseSamples = timeline.filter((sample) => sample.phaseLabel === label);
+        if (phaseSamples.length <= 0) {
+          return null;
+        }
+        const first = phaseSamples[0]!;
+        const last = phaseSamples[phaseSamples.length - 1]!;
+        const midpointElapsedMs = first.elapsedMs + (last.elapsedMs - first.elapsedMs) * 0.5;
+        const midpointSample = phaseSamples.reduce((closest, sample) => {
+          const closestDistanceMs = Math.abs(closest.elapsedMs - midpointElapsedMs);
+          const sampleDistanceMs = Math.abs(sample.elapsedMs - midpointElapsedMs);
+          return sampleDistanceMs < closestDistanceMs ? sample : closest;
+        }, phaseSamples[0]!);
+        return { label, sample: midpointSample };
+      })
+      .filter((entry): entry is { label: string; sample: Sample } => !!entry);
+    const maxMergeCentroidDistancePx = Math.min(vbRight - vbX, vbBottom - vbY) * 0.42;
+    for (const { label, sample } of clashMidpointSamples) {
+      const visibleInts = sample.actors.filter((actor) => actor.active && actor.role === "interceptor" && isOnMap(actor));
+      const visibleEscs = sample.actors.filter((actor) => actor.active && actor.role === "escort" && isOnMap(actor));
+      const interceptorCentroid = centroid(visibleInts);
+      const escortCentroid = centroid(visibleEscs);
+      if (!interceptorCentroid || !escortCentroid) {
+        violations.push(
+          `CLASH MIDPOINT ${label} @${Math.round(sample.elapsedMs)}ms: missing visible fighters for cohesion check. `
+          + `interceptors=${visibleInts.length} escorts=${visibleEscs.length}.`
+        );
+        continue;
+      }
+      const centroidDistancePx = Math.hypot(
+        interceptorCentroid.cx - escortCentroid.cx,
+        interceptorCentroid.cy - escortCentroid.cy
+      );
+      if (centroidDistancePx > maxMergeCentroidDistancePx) {
+        violations.push(
+          `CLASH MIDPOINT ${label} @${Math.round(sample.elapsedMs)}ms: fighter groups are split by `
+          + `${Math.round(centroidDistancePx)}px (max ${Math.round(maxMergeCentroidDistancePx)}px).`
+        );
+      }
+    }
+
+    // ── Invariant 8: bomber-ingress — visible on-map bombers must remain slower than fighters
     const biSamples = timeline.filter(s => s.phaseLabel === "bomber-ingress");
     if (biSamples.length >= 2) {
-      const bDisp = avgDisp(biSamples, "bomber");
-      const fDisp = Math.max(avgDisp(biSamples, "interceptor"), avgDisp(biSamples, "escort"));
+      const bDisp = avgVisibleDisp(biSamples, "bomber");
+      const fDisp = Math.max(avgVisibleDisp(biSamples, "interceptor"), avgVisibleDisp(biSamples, "escort"));
       if (fDisp > 0 && bDisp > 0) {
         const ratio = bDisp / fDisp;
         if (ratio >= 0.6)
@@ -128,7 +244,7 @@ function makeChoreographyTests(
       }
     }
 
-    // ── Invariant 6: egress — interceptors exit toward bot side, escorts toward player side.
+    // ── Invariant 9: egress — interceptors exit toward bot side, escorts toward player side.
     // Aircraft start from post-clash geometry, so the direction check must skip the
     // launch transient rather than check the instant egress begins.
     // The current governed scenes need about 3.5-4.0s on the small-map fixture before
@@ -175,10 +291,13 @@ function makeChoreographyTests(
       return { phaseLabels: result.phaseLabels };
     });
 
-    const { timeline, phaseSequence } = await page.evaluate(() => {
+    const { timeline, phaseSequence, viewBox } = await page.evaluate(() => {
       const h = (window as Window & { __FSG_AIRSHOW_E2E__?: { getPositionTimeline: () => readonly Sample[] } }).__FSG_AIRSHOW_E2E__;
       if (!h) throw new Error("hooks not installed");
       const tl = h.getPositionTimeline() as readonly Sample[];
+      const svg = document.getElementById("battleHexMap") as SVGSVGElement | null;
+      const vb = svg?.viewBox.baseVal;
+      if (!vb) throw new Error("No viewBox on battleHexMap");
       const seen: string[] = [];
       const seq: { label: string; startMs: number; endMs: number }[] = [];
       for (const s of tl) {
@@ -191,16 +310,31 @@ function makeChoreographyTests(
           seq[seq.length - 1]!.endMs = s.elapsedMs;
         }
       }
-      return { timeline: tl, phaseSequence: seq };
+      return {
+        timeline: tl,
+        phaseSequence: seq,
+        viewBox: {
+          minX: vb.x,
+          maxX: vb.x + vb.width,
+          minY: vb.y,
+          maxY: vb.y + vb.height
+        }
+      };
     });
 
     const findings: string[] = [];
     const t0 = phaseSequence[0]?.startMs ?? 0;
+    const isOnMap = (actor: { cx: number; cy: number }): boolean =>
+      actor.cx >= viewBox.minX
+      && actor.cx <= viewBox.maxX
+      && actor.cy >= viewBox.minY
+      && actor.cy <= viewBox.maxY;
 
     // ── Helper: compute per-actor speed in px/ms for consecutive active samples
     function actorSpeedPxPerMs(
       samples: readonly Sample[],
-      actorId: string
+      actorId: string,
+      visibleOnly = false
     ): { tMs: number; phase: string | null; speedPxPerMs: number; dx: number; dy: number }[] {
       const result = [];
       for (let i = 1; i < samples.length; i++) {
@@ -208,6 +342,7 @@ function makeChoreographyTests(
         const pa = prev.actors.find(a => a.actorId === actorId);
         const ca = curr.actors.find(a => a.actorId === actorId);
         if (!pa?.active || !ca?.active) continue;
+        if (visibleOnly && (!isOnMap(pa) || !isOnMap(ca))) continue;
         const dt = curr.elapsedMs - prev.elapsedMs;
         if (dt <= 0) continue;
         const dx = ca.cx - pa.cx; const dy = ca.cy - pa.cy;
@@ -253,8 +388,8 @@ function makeChoreographyTests(
     const bomberIds = allActorIds.filter(id => actorMeta.get(id)?.role === "bomber");
     let estimatedV = 0; let estimatedHalfV = 0;
     if (ingressSamples.length >= 3) {
-      const fSpeeds = fighterIds.flatMap(id => actorSpeedPxPerMs(ingressSamples, id).map(s => s.speedPxPerMs));
-      const bSpeeds = bomberIds.flatMap(id => actorSpeedPxPerMs(ingressSamples, id).map(s => s.speedPxPerMs));
+      const fSpeeds = fighterIds.flatMap(id => actorSpeedPxPerMs(ingressSamples, id, true).map(s => s.speedPxPerMs));
+      const bSpeeds = bomberIds.flatMap(id => actorSpeedPxPerMs(ingressSamples, id, true).map(s => s.speedPxPerMs));
       estimatedV = fSpeeds.length ? fSpeeds.reduce((a, b) => a + b, 0) / fSpeeds.length : 0;
       estimatedHalfV = bSpeeds.length ? bSpeeds.reduce((a, b) => a + b, 0) / bSpeeds.length : 0;
       const ratio = estimatedHalfV > 0 && estimatedV > 0 ? estimatedV / estimatedHalfV : 0;
@@ -264,6 +399,69 @@ function makeChoreographyTests(
       if (ratio < 1.5 || ratio > 2.8) findings.push(`  ⚠ RATIO OUT OF RANGE: expected 1.5–2.8, got ${ratio.toFixed(2)}`);
     } else {
       findings.push("  Insufficient fighter-ingress samples for calibration");
+    }
+
+    findings.push("\n=== DIAGNOSTIC 0: First Visible Ingress Samples ===");
+    const ingressVisibleByRole = (role: string) => {
+      for (const sample of ingressSamples) {
+        const visibleActors = sample.actors.filter(
+          (actor) => actor.active && actor.role === role && isOnMap(actor)
+        );
+        if (visibleActors.length > 0) {
+          return { sample, visibleActors };
+        }
+      }
+      return null;
+    };
+    const firstVisibleInterceptors = ingressVisibleByRole("interceptor");
+    const firstVisibleEscorts = ingressVisibleByRole("escort");
+    if (firstVisibleInterceptors) {
+      findings.push(
+        `  Interceptors first visible @ ${Math.round(firstVisibleInterceptors.sample.elapsedMs - t0)}ms: `
+        + firstVisibleInterceptors.visibleActors
+          .map((actor) => `${actor.actorId}(${Math.round(actor.cx)},${Math.round(actor.cy)})`)
+          .join(", ")
+      );
+    } else {
+      findings.push("  Interceptors first visible: none");
+    }
+    if (firstVisibleEscorts) {
+      findings.push(
+        `  Escorts first visible @ ${Math.round(firstVisibleEscorts.sample.elapsedMs - t0)}ms: `
+        + firstVisibleEscorts.visibleActors
+          .map((actor) => `${actor.actorId}(${Math.round(actor.cx)},${Math.round(actor.cy)})`)
+          .join(", ")
+      );
+    } else {
+      findings.push("  Escorts first visible: none");
+    }
+
+    findings.push("\n=== DIAGNOSTIC 1: Clash midpoint visible fighters ===");
+    for (const phaseLabel of ["escort-clash-merge", "escort-clash-scramble"]) {
+      const phaseSamples = timeline.filter((sample) => sample.phaseLabel === phaseLabel);
+      if (phaseSamples.length <= 0) {
+        findings.push(`  ${phaseLabel}: no samples`);
+        continue;
+      }
+      const first = phaseSamples[0]!;
+      const last = phaseSamples[phaseSamples.length - 1]!;
+      const midpointElapsedMs = first.elapsedMs + (last.elapsedMs - first.elapsedMs) * 0.5;
+      const midpointSample = phaseSamples.reduce((closest, sample) => {
+        const closestDistanceMs = Math.abs(closest.elapsedMs - midpointElapsedMs);
+        const sampleDistanceMs = Math.abs(sample.elapsedMs - midpointElapsedMs);
+        return sampleDistanceMs < closestDistanceMs ? sample : closest;
+      }, phaseSamples[0]!);
+      const visibleFighters = midpointSample.actors.filter(
+        (actor) => actor.active && (actor.role === "interceptor" || actor.role === "escort") && isOnMap(actor)
+      );
+      findings.push(
+        `  ${phaseLabel} @ ${Math.round(midpointSample.elapsedMs - t0)}ms: `
+        + (visibleFighters.length > 0
+          ? visibleFighters
+            .map((actor) => `${actor.role}:${actor.actorId}(${Math.round(actor.cx)},${Math.round(actor.cy)})`)
+            .join(", ")
+          : "no visible fighters")
+      );
     }
 
     // ── BUG 1: Bomber continuity — disappear/reappear and genuine discontinuities
@@ -385,8 +583,8 @@ function makeChoreographyTests(
     for (const phase of phaseLabelsInOrder) {
       const phaseSamples = timeline.filter(s => s.phaseLabel === phase);
       if (phaseSamples.length < 2) continue;
-      const fSpeeds = fighterIds.flatMap(id => actorSpeedPxPerMs(phaseSamples, id).map(s => s.speedPxPerMs));
-      const bSpeeds = bomberIds.flatMap(id => actorSpeedPxPerMs(phaseSamples, id).map(s => s.speedPxPerMs));
+      const fSpeeds = fighterIds.flatMap(id => actorSpeedPxPerMs(phaseSamples, id, true).map(s => s.speedPxPerMs));
+      const bSpeeds = bomberIds.flatMap(id => actorSpeedPxPerMs(phaseSamples, id, true).map(s => s.speedPxPerMs));
       const avgF = fSpeeds.length ? fSpeeds.reduce((a, b) => a + b, 0) / fSpeeds.length : null;
       const avgB = bSpeeds.length ? bSpeeds.reduce((a, b) => a + b, 0) / bSpeeds.length : null;
       const ratio = avgF && avgB && avgB > 0 ? avgF / avgB : null;

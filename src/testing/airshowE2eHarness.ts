@@ -53,9 +53,11 @@ interface AirshowE2EHarness {
   getSpawnSnapshot(): readonly AirshowSpawnSnapshot[];
   getPositionTimeline(): readonly AirshowPositionSample[];
   pauseAtPhaseStart(label: string): Promise<void>;
+  pauseAtPhaseProgress(label: string, progress: number): Promise<void>;
   resumePhase(): void;
   waitForCompletion(): Promise<void>;
   waitForPhase(label: string): Promise<void>;
+  waitForPhaseProgress(label: string, progress: number): Promise<void>;
   getInspectionSummary(): { readonly phaseLabels: readonly string[] } | null;
 }
 
@@ -71,16 +73,7 @@ const PHASE_WAIT_BUFFER_MS = 4000;
 const COMPLETION_WAIT_BUFFER_MS = 10000;
 
 function compressSceneForHarness(scene: ResolvedAirShowScene): ResolvedAirShowScene {
-  return {
-    ...scene,
-    fighterIngressDurationMs: 320,
-    escortClashDurationMs: 920,
-    bomberIngressDurationMs: 780,
-    bomberPassDurationMs: 760,
-    strikeRunDurationMs: 980,
-    egressDurationMs: 320,
-    bomberArrivalDelayMs: 160
-  };
+  return scene;
 }
 
 function ensureBattleScreenVisible(): void {
@@ -276,8 +269,9 @@ function getActorSnapshot(): readonly AirshowActorSnapshot[] {
 function installAirshowE2EHarnessWithFixture(harnessFixture: AirshowHarnessFixture): void {
   ensureBattleScreenVisible();
 
-  type PendingPhaseStartPause = {
+  type PendingPhasePause = {
     label: string;
+    progress: number;
     engaged: boolean;
     readyResolve: () => void;
     resumePromise: Promise<void>;
@@ -288,12 +282,14 @@ function installAirshowE2EHarnessWithFixture(harnessFixture: AirshowHarnessFixtu
   let activeInspection: AirShowInspectionReport | null = null;
   let activeAnimation: Promise<void> | null = null;
   let activePhaseLabel: string | null = null;
+  let activePhaseStartedAtMs = 0;
+  let activePhaseDurationMs = 0;
   let activeTotalDurationMs = DEFAULT_PHASE_WAIT_TIMEOUT_MS;
   let spawnSnapshot: readonly AirshowSpawnSnapshot[] = [];
   let positionTimeline: AirshowPositionSample[] = [];
   let positionSamplerHandle: number | null = null;
   let restorePhaseProbe: (() => void) | null = null;
-  let pendingPhaseStartPause: PendingPhaseStartPause | null = null;
+  let pendingPhasePause: PendingPhasePause | null = null;
 
   function sampleActorPositions(): AirshowPositionSample {
     const size = 32;
@@ -338,30 +334,44 @@ function installAirshowE2EHarnessWithFixture(harnessFixture: AirshowHarnessFixtu
     runtimeRenderer.runAirShowPhase = async (...args: unknown[]): Promise<void> => {
       const phaseLabel = phaseLabels[phaseIndex] ?? `phase-${phaseIndex + 1}`;
       activePhaseLabel = phaseLabel;
+      activePhaseStartedAtMs = performance.now();
+      activePhaseDurationMs = typeof args[1] === "number" ? Math.max(args[1], 1) : 0;
       phaseIndex += 1;
-      const phasePause = pendingPhaseStartPause?.label === phaseLabel ? pendingPhaseStartPause : null;
-      let interceptedInitialFrame = false;
+      const phasePause = pendingPhasePause?.label === phaseLabel ? pendingPhasePause : null;
       if (phasePause) {
         runtimeRenderer.scheduleAnimationFrame = (step: FrameRequestCallback): void => {
-          if (interceptedInitialFrame) {
-            originalScheduleAnimationFrame(step);
+          const targetElapsedMs = activePhaseDurationMs * thisClamp(phasePause.progress, 0, 1);
+          const elapsedMs = performance.now() - activePhaseStartedAtMs;
+          if (!phasePause.engaged && elapsedMs >= targetElapsedMs) {
+            phasePause.engaged = true;
+            phasePause.readyResolve();
+            void phasePause.resumePromise.then(() => {
+              if (pendingPhasePause === phasePause) {
+                pendingPhasePause = null;
+              }
+              originalScheduleAnimationFrame(step);
+            });
             return;
           }
-          interceptedInitialFrame = true;
-          phasePause.engaged = true;
-          phasePause.readyResolve();
-          void phasePause.resumePromise.then(() => {
-            if (pendingPhaseStartPause === phasePause) {
-              pendingPhaseStartPause = null;
-            }
-            originalScheduleAnimationFrame(step);
-          });
+          if (phasePause.engaged) {
+            void phasePause.resumePromise.then(() => {
+              if (pendingPhasePause === phasePause) {
+                pendingPhasePause = null;
+              }
+              originalScheduleAnimationFrame(step);
+            });
+            return;
+          }
+          originalScheduleAnimationFrame(step);
         };
       }
       try {
         return await originalRunAirShowPhase(...args);
       } finally {
         runtimeRenderer.scheduleAnimationFrame = originalScheduleAnimationFrame;
+        if (activePhaseLabel === phaseLabel) {
+          activePhaseDurationMs = 0;
+        }
       }
     };
     restorePhaseProbe = () => {
@@ -369,6 +379,53 @@ function installAirshowE2EHarnessWithFixture(harnessFixture: AirshowHarnessFixtu
       runtimeRenderer.scheduleAnimationFrame = originalScheduleAnimationFrame;
       restorePhaseProbe = null;
     };
+  }
+
+  function createPhasePause(label: string, progress: number): Promise<void> {
+    if (pendingPhasePause) {
+      pendingPhasePause.resumeResolve();
+    }
+    let readyResolve!: () => void;
+    let resumeResolve!: () => void;
+    const resumePromise = new Promise<void>((resolve) => {
+      resumeResolve = resolve;
+    });
+    const readyPromise = new Promise<void>((resolve) => {
+      readyResolve = resolve;
+    });
+    pendingPhasePause = {
+      label,
+      progress: thisClamp(progress, 0, 1),
+      engaged: false,
+      readyResolve,
+      resumePromise,
+      resumeResolve
+    };
+    return readyPromise;
+  }
+
+  function thisClamp(value: number, min: number, max: number): number {
+    if (Number.isNaN(value)) {
+      return min;
+    }
+    return Math.min(max, Math.max(min, value));
+  }
+
+  async function waitForPhaseProgress(label: string, progress: number): Promise<void> {
+    await waitForPhase(label);
+    const clampedProgress = thisClamp(progress, 0, 1);
+    const targetElapsedMs = activePhaseDurationMs * clampedProgress;
+    const timeoutMs = Math.max(DEFAULT_PHASE_WAIT_TIMEOUT_MS, targetElapsedMs + PHASE_WAIT_BUFFER_MS);
+    const startedAt = performance.now();
+    while (activePhaseLabel === label && performance.now() - activePhaseStartedAtMs < targetElapsedMs) {
+      if (performance.now() - startedAt > timeoutMs) {
+        throw new Error(
+          `Timed out waiting for airshow phase "${label}" progress ${(clampedProgress * 100).toFixed(0)}% ` +
+          `after ${timeoutMs}ms.`
+        );
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 10));
+    }
   }
 
   async function waitForPhase(label: string): Promise<void> {
@@ -388,6 +445,8 @@ function installAirshowE2EHarnessWithFixture(harnessFixture: AirshowHarnessFixtu
   window.__FSG_AIRSHOW_E2E__ = {
     async startScenario(): Promise<AirshowStartResult> {
       activePhaseLabel = null;
+      activePhaseStartedAtMs = 0;
+      activePhaseDurationMs = 0;
       restorePhaseProbe?.();
       activeRenderer = createRendererForFixture(harnessFixture);
       const scene = compressSceneForHarness(await captureSceneFromFixture(harnessFixture));
@@ -430,35 +489,21 @@ function installAirshowE2EHarnessWithFixture(harnessFixture: AirshowHarnessFixtu
     getSpawnSnapshot(): readonly AirshowSpawnSnapshot[] { return spawnSnapshot; },
     getPositionTimeline(): readonly AirshowPositionSample[] { return positionTimeline; },
     pauseAtPhaseStart(label: string): Promise<void> {
-      if (pendingPhaseStartPause) {
-        pendingPhaseStartPause.resumeResolve();
-      }
-      let readyResolve!: () => void;
-      let resumeResolve!: () => void;
-      const resumePromise = new Promise<void>((resolve) => {
-        resumeResolve = resolve;
-      });
-      const readyPromise = new Promise<void>((resolve) => {
-        readyResolve = resolve;
-      });
-      pendingPhaseStartPause = {
-        label,
-        engaged: false,
-        readyResolve,
-        resumePromise,
-        resumeResolve
-      };
-      return readyPromise;
+      return createPhasePause(label, 0);
+    },
+    pauseAtPhaseProgress(label: string, progress: number): Promise<void> {
+      return createPhasePause(label, progress);
     },
     resumePhase(): void {
-      if (!pendingPhaseStartPause) {
+      if (!pendingPhasePause) {
         return;
       }
-      const pause = pendingPhaseStartPause;
-      pendingPhaseStartPause = null;
+      const pause = pendingPhasePause;
+      pendingPhasePause = null;
       pause.resumeResolve();
     },
     waitForPhase,
+    waitForPhaseProgress,
     async waitForCompletion(): Promise<void> {
       if (!activeAnimation) return;
       const timeoutMs = Math.max(

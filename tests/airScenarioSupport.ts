@@ -1439,7 +1439,10 @@ function buildInspectableScene(
           .filter((entry) => entry.kind === "escort" && entry.escortTargetUnitKey === event.bomber.unitKey)
           .map((entry) => ({
             unitKey: entry.unitKey,
-            originKey: entry.originHexKey ?? lookupUnitOriginKey(engine, entry.unitKey, entry.faction) ?? "",
+            originKey:
+              (entry.originHexKey ? CoordinateSystem.axialKeyToOffsetKey(entry.originHexKey) : null)
+              ?? lookupUnitOriginKey(engine, entry.unitKey, entry.faction)
+              ?? "",
             unitType: entry.unitType,
             faction: entry.faction,
             strength: lookupUnitStrength(engine, entry.unitKey, entry.faction)

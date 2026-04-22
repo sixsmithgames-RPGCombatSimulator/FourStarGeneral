@@ -4,6 +4,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 const AIRSHOW_BROWSER_TIMEOUT_MS = 120_000;
 const LATEST_PAINTED_FRAME_DIR = path.resolve(process.cwd(), "diagnostics", "playwright", "screenshots", "latest");
+const PAINTED_FRAME_PROGRESS = 0.5;
 
 let latestPaintedFramesPrepared = false;
 
@@ -26,31 +27,31 @@ async function gotoAirshowHarness(page: Page, url = "/?codex-test=airshow"): Pro
   await page.waitForSelector("#battleScreen", { state: "visible", timeout: 15000 });
 }
 
-async function pauseScenarioAtPhaseStart(page: Page, phaseLabel: string): Promise<void> {
-  await page.evaluate(async (targetPhaseLabel) => {
+async function pauseScenarioAtPhaseProgress(page: Page, phaseLabel: string, progress: number): Promise<void> {
+  await page.evaluate(async ({ targetPhaseLabel, targetProgress }) => {
     const hooks = (window as Window & {
       __FSG_AIRSHOW_E2E__?: {
         startScenario: () => Promise<unknown>;
-        pauseAtPhaseStart: (label: string) => Promise<void>;
+        pauseAtPhaseProgress: (label: string, progress: number) => Promise<void>;
       };
     }).__FSG_AIRSHOW_E2E__;
     if (!hooks) {
       throw new Error("Airshow e2e hooks were not installed.");
     }
-    const pauseReady = hooks.pauseAtPhaseStart(targetPhaseLabel);
+    const pauseReady = hooks.pauseAtPhaseProgress(targetPhaseLabel, targetProgress);
     await hooks.startScenario();
     await pauseReady;
-  }, phaseLabel);
+  }, { targetPhaseLabel: phaseLabel, targetProgress: progress });
 }
 
-async function expectPaintedPhaseStartFrame(
+async function expectPaintedPhaseMotionFrame(
   page: Page,
   testInfo: TestInfo,
   phaseLabel: string,
   snapshotName: string
 ): Promise<void> {
   prepareLatestPaintedFrameDir();
-  await pauseScenarioAtPhaseStart(page, phaseLabel);
+  await pauseScenarioAtPhaseProgress(page, phaseLabel, PAINTED_FRAME_PROGRESS);
   const bounds = await page.evaluate(() => {
     const svg = document.getElementById("battleHexMap");
     if (!svg) {
@@ -410,22 +411,22 @@ test.describe("AirShow Browser Harness", () => {
 
     test("captures painted escort clash merge frame @painted-frame", async ({ page, browserName }, testInfo) => {
       test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
-      await expectPaintedPhaseStartFrame(page, testInfo, "escort-clash-merge", "airshow-painted-escort-clash-merge-start.png");
+      await expectPaintedPhaseMotionFrame(page, testInfo, "escort-clash-merge", "airshow-painted-escort-clash-merge-mid.png");
     });
 
     test("captures painted bomber ingress frame @painted-frame", async ({ page, browserName }, testInfo) => {
       test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
-      await expectPaintedPhaseStartFrame(page, testInfo, "bomber-ingress", "airshow-painted-bomber-ingress-start.png");
+      await expectPaintedPhaseMotionFrame(page, testInfo, "bomber-ingress", "airshow-painted-bomber-ingress-mid.png");
     });
 
     test("captures painted target run frame @painted-frame", async ({ page, browserName }, testInfo) => {
       test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
-      await expectPaintedPhaseStartFrame(page, testInfo, "target-run", "airshow-painted-target-run-start.png");
+      await expectPaintedPhaseMotionFrame(page, testInfo, "target-run", "airshow-painted-target-run-mid.png");
     });
 
     test("captures painted escort clash scramble frame @painted-frame", async ({ page, browserName }, testInfo) => {
       test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
-      await expectPaintedPhaseStartFrame(page, testInfo, "escort-clash-scramble", "airshow-painted-escort-clash-scramble-start.png");
+      await expectPaintedPhaseMotionFrame(page, testInfo, "escort-clash-scramble", "airshow-painted-escort-clash-scramble-mid.png");
     });
   });
 });
@@ -439,6 +440,6 @@ test.describe("AirShow Browser Harness Large Map", () => {
 
   test("captures painted bomber ingress frame on large map @painted-frame", async ({ page, browserName }, testInfo) => {
     test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
-    await expectPaintedPhaseStartFrame(page, testInfo, "bomber-ingress", "airshow-large-painted-bomber-ingress-start.png");
+    await expectPaintedPhaseMotionFrame(page, testInfo, "bomber-ingress", "airshow-large-painted-bomber-ingress-mid.png");
   });
 });
