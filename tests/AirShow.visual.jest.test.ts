@@ -1,8 +1,8 @@
-import {
-  HexMapRenderer,
-  type AirShowInspectionReport,
-  type ResolvedAirShowScene
-} from "../src/rendering/HexMapRenderer";
+import { HexMapRenderer } from "../src/rendering/HexMapRenderer";
+import type {
+  AirShowInspectionReport,
+  ResolvedAirShowScene
+} from "../src/ui/airshow/AirShowPlaybackScene";
 import { buildResolvedAirCombatScene } from "../src/ui/airshow/ResolvedAirCombatSceneBuilder";
 import {
   buildAirshowHarnessFixture,

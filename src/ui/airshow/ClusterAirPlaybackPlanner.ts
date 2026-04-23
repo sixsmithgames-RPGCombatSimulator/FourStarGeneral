@@ -5,7 +5,7 @@ import type {
   ResolvedAirShowFlightSpec,
   ResolvedAirShowStrikeFlightSpec,
   ResolvedAirShowScene
-} from "../../rendering/HexMapRenderer";
+} from "./AirShowPlaybackScene";
 import { buildResolvedAirShowFlakBursts } from "./ResolvedAirCombatSceneBuilder";
 
 export interface ClusterPlaybackFlight {

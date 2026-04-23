@@ -2,7 +2,7 @@ import type { AirEngagementEvent, TurnFaction } from "../../game/GameEngine";
 import type {
   ResolvedAirShowFlakBurst,
   ResolvedAirShowScene
-} from "../../rendering/HexMapRenderer";
+} from "./AirShowPlaybackScene";
 import {
   AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
   AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,

@@ -9,14 +9,14 @@ import type {
   UnitTypeDictionary
 } from "../src/core/types.js";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem.js";
-import {
-  HexMapRenderer,
-  type AirShowInspectionFlight,
-  type AirShowInspectionFlightActor,
-  type AirShowInspectionReport,
-  type ResolvedAirShowFlightSpec,
-  type ResolvedAirShowScene
-} from "../src/rendering/HexMapRenderer.js";
+import { HexMapRenderer } from "../src/rendering/HexMapRenderer.js";
+import type {
+  AirShowInspectionFlight,
+  AirShowInspectionFlightActor,
+  AirShowInspectionReport,
+  ResolvedAirShowFlightSpec,
+  ResolvedAirShowScene
+} from "../src/ui/airshow/AirShowPlaybackScene.js";
 import {
   GameEngine,
   type AirEngagementEvent,

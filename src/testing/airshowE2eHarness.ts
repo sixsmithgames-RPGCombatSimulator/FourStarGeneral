@@ -1,9 +1,9 @@
 import { BattleScreen } from "../ui/screens/BattleScreen";
-import {
-  HexMapRenderer,
-  type AirShowInspectionReport,
-  type ResolvedAirShowScene
-} from "../rendering/HexMapRenderer";
+import { HexMapRenderer } from "../rendering/HexMapRenderer";
+import type {
+  AirShowInspectionReport,
+  ResolvedAirShowScene
+} from "../ui/airshow/AirShowPlaybackScene";
 import { buildAirshowHarnessFixture, buildAirshowHarnessFixtureLarge, type AirshowHarnessFixture } from "./airshowHarnessFixture";
 
 interface AirshowActorSnapshot {
