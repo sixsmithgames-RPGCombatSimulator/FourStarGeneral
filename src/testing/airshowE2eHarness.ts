@@ -58,7 +58,16 @@ interface AirshowE2EHarness {
   waitForCompletion(): Promise<void>;
   waitForPhase(label: string): Promise<void>;
   waitForPhaseProgress(label: string, progress: number): Promise<void>;
-  getInspectionSummary(): { readonly phaseLabels: readonly string[] } | null;
+  getInspectionSummary(): {
+    readonly phaseLabels: readonly string[];
+    readonly originPlan: unknown;
+    readonly fighterIngressStart: ReadonlyArray<{
+      readonly actorId: string;
+      readonly role: string;
+      readonly cx: number;
+      readonly cy: number;
+    }>;
+  } | null;
 }
 
 declare global {
@@ -512,9 +521,32 @@ function installAirshowE2EHarnessWithFixture(harnessFixture: AirshowHarnessFixtu
       );
       await createTimedPromise(activeAnimation, timeoutMs, "airshow completion");
     },
-    getInspectionSummary(): { readonly phaseLabels: readonly string[] } | null {
+    getInspectionSummary(): {
+      readonly phaseLabels: readonly string[];
+      readonly originPlan: unknown;
+      readonly fighterIngressStart: ReadonlyArray<{
+        readonly actorId: string;
+        readonly role: string;
+        readonly cx: number;
+        readonly cy: number;
+      }>;
+    } | null {
       if (!activeInspection) return null;
-      return { phaseLabels: activeInspection.phases.map((phase) => phase.label) };
+      const fighterIngressPhase = activeInspection.phases.find((phase) => phase.label === "fighter-ingress");
+      return {
+        phaseLabels: activeInspection.phases.map((phase) => phase.label),
+        originPlan: activeInspection.originPlan ?? null,
+        fighterIngressStart:
+          fighterIngressPhase?.assignments.map((assignment) => {
+            const sample = assignment.sampledPositions[0];
+            return {
+              actorId: assignment.actorId,
+              role: assignment.role,
+              cx: sample?.cx ?? 0,
+              cy: sample?.cy ?? 0
+            };
+          }) ?? []
+      };
     }
   };
 
