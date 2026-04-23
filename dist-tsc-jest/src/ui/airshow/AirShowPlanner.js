@@ -118,12 +118,17 @@ export function buildAirShowPhaseTimingAudit(label, durationMs, samples, roleTar
         const meanPathLengthPx = roleSamples.length > 0
             ? roleSamples.reduce((sum, sample) => sum + sample.pathLengthPx, 0) / roleSamples.length
             : 0;
+        const meanActiveDurationMs = roleSamples.length > 0
+            ? roleSamples.reduce((sum, sample) => {
+                return sum + Math.max(0, sample.activeDurationMs ?? durationMs);
+            }, 0) / roleSamples.length
+            : durationMs;
         const targetSpeedPxPerMs = roleTargetSpeeds.get(role) ?? 0;
         const expectedDurationMs = meanPathLengthPx > 0 && targetSpeedPxPerMs > 0
             ? meanPathLengthPx / targetSpeedPxPerMs
             : 0;
-        const realizedSpeedPxPerMs = meanPathLengthPx > 0 && durationMs > 0
-            ? meanPathLengthPx / durationMs
+        const realizedSpeedPxPerMs = meanPathLengthPx > 0 && meanActiveDurationMs > 0
+            ? meanPathLengthPx / meanActiveDurationMs
             : 0;
         return {
             role,
@@ -131,7 +136,8 @@ export function buildAirShowPhaseTimingAudit(label, durationMs, samples, roleTar
             targetSpeedPxPerMs,
             meanPathLengthPx,
             expectedDurationMs,
-            realizedDurationMs: durationMs,
+            phaseDurationMs: durationMs,
+            realizedDurationMs: meanActiveDurationMs,
             realizedSpeedPxPerMs,
             speedDeltaPxPerMs: realizedSpeedPxPerMs - targetSpeedPxPerMs
         };

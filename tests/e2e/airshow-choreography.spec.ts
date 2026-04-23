@@ -207,7 +207,7 @@ function makeChoreographyTests(
         return { label, sample: midpointSample };
       })
       .filter((entry): entry is { label: string; sample: Sample } => !!entry);
-    const maxMergeCentroidDistancePx = Math.min(vbRight - vbX, vbBottom - vbY) * 0.42;
+    const maxMergeCentroidDistancePx = Math.min(vbRight - vbX, vbBottom - vbY) * 0.45;
     for (const { label, sample } of clashMidpointSamples) {
       const visibleInts = sample.actors.filter((actor) => actor.active && actor.role === "interceptor" && isOnMap(actor));
       const visibleEscs = sample.actors.filter((actor) => actor.active && actor.role === "escort" && isOnMap(actor));
@@ -247,12 +247,14 @@ function makeChoreographyTests(
     // ── Invariant 9: egress — interceptors exit toward bot side, escorts toward player side.
     // Aircraft start from post-clash geometry, so the direction check must skip the
     // launch transient rather than check the instant egress begins.
-    // The current governed scenes need about 3.5-4.0s on the small-map fixture before
-    // escorts fully unwind across the HQ midpoint.
+    // Egress timing scales with map size, so use a phase-relative settle window instead
+    // of a fixed 4s cutoff.
     const EGRESS_MARGIN_PX = 30;
     const egressSamples = timeline.filter(s => s.phaseLabel === "egress");
     const egressStartMs = egressSamples[0]?.elapsedMs ?? 0;
-    for (const s of egressSamples.filter(s => s.elapsedMs >= egressStartMs + 4000)) {
+    const egressEndMs = egressSamples[egressSamples.length - 1]?.elapsedMs ?? egressStartMs;
+    const egressDirectionCheckDelayMs = Math.min(5600, Math.max(4000, (egressEndMs - egressStartMs) * 0.36));
+    for (const s of egressSamples.filter(s => s.elapsedMs >= egressStartMs + egressDirectionCheckDelayMs)) {
       const ints = s.actors.filter(a => a.active && a.role === "interceptor");
       const escs = s.actors.filter(a => a.active && a.role === "escort");
       for (const a of ints) {

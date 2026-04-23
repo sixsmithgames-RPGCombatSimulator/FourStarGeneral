@@ -1,28 +1,32 @@
 import { HexMapRenderer } from "../src/rendering/HexMapRenderer";
 import { buildResolvedAirCombatScene } from "../src/ui/airshow/ResolvedAirCombatSceneBuilder";
-import { buildAirshowHarnessFixture } from "../src/testing/airshowHarnessFixture";
+import { buildAirshowHarnessFixture, buildAirshowHarnessFixtureLarge } from "../src/testing/airshowHarnessFixture";
 import { ensureDomEnvironment } from "./domEnvironment";
 const fixture = buildAirshowHarnessFixture();
-async function captureScene() {
-    const { scene } = buildResolvedAirCombatScene(fixture.engagement, {
-        locKey: fixture.locKey,
-        resolveOriginKey: (unitKey) => fixture.originKeysByUnitId[unitKey] ?? null,
-        resolveStrength: (unitKey) => fixture.strengthByUnitId[unitKey] ?? 100,
-        linkedEscortFlights: fixture.linkedEscortFlights.map((flight) => ({
+const largeFixture = buildAirshowHarnessFixtureLarge();
+async function captureSceneForFixture(fixtureUnderTest) {
+    const { scene } = buildResolvedAirCombatScene(fixtureUnderTest.engagement, {
+        locKey: fixtureUnderTest.locKey,
+        resolveOriginKey: (unitKey) => fixtureUnderTest.originKeysByUnitId[unitKey] ?? null,
+        resolveStrength: (unitKey) => fixtureUnderTest.strengthByUnitId[unitKey] ?? 100,
+        linkedEscortFlights: fixtureUnderTest.linkedEscortFlights.map((flight) => ({
             unitKey: String(flight.unitKey),
             originKey: String(flight.originKey),
             unitType: String(flight.unitType),
             faction: flight.faction,
             strength: Number(flight.strength ?? 100)
         })),
-        bomberOriginKey: fixture.bomberOriginKey,
-        bomberTargetKey: fixture.bomberTargetKey,
-        flakEvent: fixture.flakEvent,
+        bomberOriginKey: fixtureUnderTest.bomberOriginKey,
+        bomberTargetKey: fixtureUnderTest.bomberTargetKey,
+        flakEvent: fixtureUnderTest.flakEvent,
         includeBomber: true,
-        playerHqKey: fixture.playerHqKey,
-        botHqKey: fixture.botHqKey
+        playerHqKey: fixtureUnderTest.playerHqKey,
+        botHqKey: fixtureUnderTest.botHqKey
     });
     return scene;
+}
+async function captureScene() {
+    return captureSceneForFixture(fixture);
 }
 function installRenderFetchMocks() {
     const originalFetch = globalThis.fetch?.bind(globalThis);
@@ -53,7 +57,7 @@ function installRenderFetchMocks() {
         }
     };
 }
-function inspectScene(scene) {
+function inspectSceneForFixture(fixtureUnderTest, scene) {
     ensureDomEnvironment();
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("width", "1600");
@@ -63,7 +67,7 @@ function inspectScene(scene) {
     document.body.appendChild(canvas);
     const restoreFetch = installRenderFetchMocks();
     const renderer = new HexMapRenderer();
-    renderer.render(svg, canvas, fixture.renderScenario);
+    renderer.render(svg, canvas, fixtureUnderTest.renderScenario);
     try {
         const report = renderer.inspectResolvedAirCombatShow(scene);
         if (!report) {
@@ -76,6 +80,9 @@ function inspectScene(scene) {
         svg.remove();
         canvas.remove();
     }
+}
+function inspectScene(scene) {
+    return inspectSceneForFixture(fixture, scene);
 }
 describe("AirShow JEST Harness", () => {
     beforeEach(() => {
@@ -181,5 +188,27 @@ describe("AirShow JEST Harness", () => {
         expect(bomberAudit?.meanPathLengthPx ?? 0).toBeGreaterThan(0);
         expect(Math.abs((interceptorAudit?.speedDeltaPxPerMs ?? 1))).toBeLessThan(0.03);
         expect(Math.abs((bomberAudit?.speedDeltaPxPerMs ?? 1))).toBeLessThan(0.05);
+    });
+    test("large-map bomber egress does not hairpin through an abrupt reversal", async () => {
+        const report = inspectSceneForFixture(largeFixture, await captureSceneForFixture(largeFixture));
+        const egress = report.phases.find((phase) => phase.label === "egress");
+        expect(egress).toBeDefined();
+        const bomberAssignments = egress?.assignments.filter((assignment) => assignment.role === "bomber") ?? [];
+        expect(bomberAssignments).toHaveLength(4);
+        bomberAssignments.forEach((assignment) => {
+            const earlySamples = assignment.sampledPositions.filter((sample) => sample.progress <= 0.36);
+            expect(earlySamples.length).toBeGreaterThanOrEqual(4);
+            let maxTurnDeg = 0;
+            for (let index = 2; index < earlySamples.length; index += 1) {
+                const previous = earlySamples[index - 2];
+                const current = earlySamples[index - 1];
+                const next = earlySamples[index];
+                const turnDeg = Math.abs(Math.atan2(next.cy - current.cy, next.cx - current.cx)
+                    - Math.atan2(current.cy - previous.cy, current.cx - previous.cx)) * 180 / Math.PI;
+                const normalizedTurnDeg = turnDeg > 180 ? 360 - turnDeg : turnDeg;
+                maxTurnDeg = Math.max(maxTurnDeg, normalizedTurnDeg);
+            }
+            expect(maxTurnDeg).toBeLessThan(120);
+        });
     });
 });

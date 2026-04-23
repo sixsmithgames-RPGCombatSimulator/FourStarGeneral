@@ -1922,6 +1922,43 @@ function angleBetweenVectors(
   return Math.acos(Math.max(-1, Math.min(1, dot))) * (180 / Math.PI);
 }
 
+function resolveSampledBoundaryVector(
+  sampledPositions: readonly {
+    readonly cx: number;
+    readonly cy: number;
+  }[],
+  edge: "start" | "end"
+): { x: number; y: number } | null {
+  if (sampledPositions.length < 2) {
+    return null;
+  }
+  if (edge === "start") {
+    const boundary = sampledPositions[0]!;
+    const reference = sampledPositions.find((sample, index) =>
+      index > 0 && Math.hypot(sample.cx - boundary.cx, sample.cy - boundary.cy) > 0.5
+    );
+    if (!reference) {
+      return null;
+    }
+    return {
+      x: reference.cx - boundary.cx,
+      y: reference.cy - boundary.cy
+    };
+  }
+  const boundary = sampledPositions[sampledPositions.length - 1]!;
+  for (let index = sampledPositions.length - 2; index >= 0; index -= 1) {
+    const reference = sampledPositions[index]!;
+    if (Math.hypot(boundary.cx - reference.cx, boundary.cy - reference.cy) <= 0.5) {
+      continue;
+    }
+    return {
+      x: boundary.cx - reference.cx,
+      y: boundary.cy - reference.cy
+    };
+  }
+  return null;
+}
+
 function measurePhase(
   report: AirShowInspectionReport,
   phase: AirShowInspectionReport["phases"][number],
@@ -2022,19 +2059,12 @@ function measurePhase(
           if (!previousAssignment) {
             return null;
           }
-          const previousSamples = sampleInspectionPath(previousAssignment.points, 17);
-          const currentSamples = sampleInspectionPath(assignment.points, 17);
-          if (previousSamples.length < 3 || currentSamples.length < 3) {
+          const previousVector = resolveSampledBoundaryVector(previousAssignment.sampledPositions, "end");
+          const currentVector = resolveSampledBoundaryVector(assignment.sampledPositions, "start");
+          if (!previousVector || !currentVector) {
             return null;
           }
-          const previousTail = previousSamples[previousSamples.length - 1]!.point;
-          const previousBeforeTail = previousSamples[previousSamples.length - 2]!.point;
-          const currentStart = currentSamples[0]!.point;
-          const currentNext = currentSamples[1]!.point;
-          return angleBetweenVectors(
-            { x: previousTail.cx - previousBeforeTail.cx, y: previousTail.cy - previousBeforeTail.cy },
-            { x: currentNext.cx - currentStart.cx, y: currentNext.cy - currentStart.cy }
-          );
+          return angleBetweenVectors(previousVector, currentVector);
         })
         .filter((angle): angle is number => typeof angle === "number")
     : [];
