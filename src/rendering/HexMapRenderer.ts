@@ -57,6 +57,14 @@ import type {
   SpriteRenderFaction
 } from "../ui/airshow/AirShowPlaybackScene";
 import {
+  beginAirShowRuntimeTrace,
+  completeAirShowRuntimeTrace,
+  recordAirShowRuntimeTraceEvent,
+  type AirShowRuntimeTraceActorState,
+  type AirShowRuntimeTraceEvent,
+  type AirShowRuntimeTraceSession
+} from "../ui/airshow/AirShowRuntimeTrace";
+import {
   logAirShowPackageStart,
   logAirShowBeatStart,
   logAirShowActorTransition,
@@ -241,6 +249,7 @@ type AirShowPhaseOptions = {
   easing?: "easeInOut" | "linear";
   sceneActors?: ReadonlyArray<AirShowRuntimeActor>;
   visibleActorIds?: ReadonlyArray<string>;
+  phaseLabel?: string;
 };
 type AirShowTracerBurst = {
   progress: number;
@@ -329,6 +338,7 @@ export class HexMapRenderer implements IMapRenderer {
   private combatAnimator: ProceduralEffectsAnimator | null = null;
   private readonly soundManager: CombatSoundManager = new CombatSoundManager();
   private readonly recentEffects = new Map<string, number>(); // Dedupe guard: effectKey -> timestamp
+  private activeAirShowRuntimeTrace: AirShowRuntimeTraceSession | null = null;
   private static effectSpecsLoaded = false;
   private soundCatalogReady: Promise<void> | null = null;
   private wreckFxRenderer: WreckFxRenderer | null = null;
@@ -1370,12 +1380,26 @@ export class HexMapRenderer implements IMapRenderer {
     );
     logAirShowOwnershipAssert(packageId, "HexMapRenderer", null);
 
+    this.activeAirShowRuntimeTrace = beginAirShowRuntimeTrace(scene, plannedScene);
+
     const runtimeFlights = plannedScene.flights
       .map((flight) => this.buildAirShowRuntimeFlightFromPlan(layer, flight))
       .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
 
     const sceneActors = runtimeFlights.flatMap((flight) => flight.actors);
     const actorsById = new Map(sceneActors.map((actor) => [actor.id, actor] as const));
+    let runtimeTraceStatus: "success" | "error" = "success";
+    let runtimeTraceError: string | null = null;
+    runtimeFlights.forEach((flight) => {
+      this.recordAirShowRuntimeTrace({
+        kind: "runtime-flight-built",
+        flightId: flight.spec.id,
+        role: flight.spec.role,
+        combatRole: flight.spec.combatRole ?? flight.spec.role,
+        faction: flight.spec.faction ?? "",
+        actorStates: flight.actors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
+      });
+    });
 
     try {
       for (const [phaseIndex, phase] of plannedScene.phases.entries()) {
@@ -1387,15 +1411,34 @@ export class HexMapRenderer implements IMapRenderer {
           await this.runAirShowPhase(assignments, phase.durationMs, tracerBursts, {
             easing: "linear",
             sceneActors,
-            visibleActorIds: phase.visibleActorIds
+            visibleActorIds: phase.visibleActorIds,
+            phaseLabel: phase.label
           });
         } finally {
           cancelEffects();
         }
       }
 
+      this.recordAirShowRuntimeTrace({
+        kind: "scene-complete",
+        actorStates: sceneActors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
+      });
       logAirShowPackageEnd(packageId, "success", plannedScene.flights.map((flight) => flight.id), [], true);
+    } catch (error) {
+      runtimeTraceStatus = "error";
+      runtimeTraceError = error instanceof Error ? error.message : String(error);
+      throw error;
     } finally {
+      this.recordAirShowRuntimeTrace({
+        kind: "scene-cleanup",
+        actorStates: sceneActors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
+      });
+      completeAirShowRuntimeTrace(
+        this.activeAirShowRuntimeTrace,
+        runtimeTraceStatus,
+        runtimeTraceError
+      );
+      this.activeAirShowRuntimeTrace = null;
       sceneActors.forEach((actor) => actor.image.remove());
     }
   }
@@ -5130,6 +5173,23 @@ export class HexMapRenderer implements IMapRenderer {
   ): AirShowRuntimeFlightInternal | null {
     const spriteHref = getSpriteForScenarioType(flight.scenarioType, flight.faction);
     if (!spriteHref) {
+      console.error("[HexMapRenderer] Missing airshow sprite mapping", {
+        flightId: flight.id,
+        scenarioType: flight.scenarioType,
+        faction: flight.faction,
+        role: flight.role,
+        combatRole: flight.combatRole
+      });
+      this.recordAirShowRuntimeTrace({
+        kind: "runtime-flight-build-skipped",
+        flightId: flight.id,
+        role: flight.role,
+        combatRole: flight.combatRole ?? flight.role,
+        faction: flight.faction ?? "",
+        scenarioType: flight.scenarioType,
+        actorIds: flight.actors.map((actor) => actor.actorId),
+        reason: "missing-sprite-mapping"
+      });
       return null;
     }
 
@@ -5186,6 +5246,24 @@ export class HexMapRenderer implements IMapRenderer {
       currentStrength: Math.max(0, flight.strengthBefore),
       anchor: this.averageAirShowPosition(actors) ?? (flight.actors[0]?.position ?? { cx: 0, cy: 0 })
     };
+  }
+
+  private snapshotAirShowRuntimeActorState(actor: AirShowRuntimeActor): AirShowRuntimeTraceActorState {
+    return {
+      actorId: actor.id,
+      flightId: actor.flightId,
+      role: actor.role,
+      active: actor.active,
+      headingDegrees: actor.headingDegrees,
+      cx: actor.position.cx,
+      cy: actor.position.cy,
+      opacity: actor.image.style.opacity || null,
+      dataAirshowActive: actor.image.getAttribute("data-airshow-active")
+    };
+  }
+
+  private recordAirShowRuntimeTrace(event: AirShowRuntimeTraceEvent): void {
+    recordAirShowRuntimeTraceEvent(this.activeAirShowRuntimeTrace, event);
   }
 
   private buildAirShowRuntimeFlight(
@@ -11855,7 +11933,26 @@ export class HexMapRenderer implements IMapRenderer {
       );
     });
 
+    const tracedActors =
+      (options.sceneActors && options.sceneActors.length > 0)
+        ? options.sceneActors
+        : Array.from(new Map(assignments.map((assignment) => [assignment.actor.id, assignment.actor] as const)).values());
+    this.recordAirShowRuntimeTrace({
+      kind: "phase-start",
+      label: options.phaseLabel ?? "(unlabeled-phase)",
+      durationMs,
+      assignmentActorIds: assignments.map((assignment) => assignment.actor.id),
+      visibleActorIds: [...(options.visibleActorIds ?? assignments.map((assignment) => assignment.actor.id))],
+      actorStates: tracedActors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
+    });
+
     this.syncAirShowPhaseVisibility(assignments, options.sceneActors, options.visibleActorIds);
+    this.recordAirShowRuntimeTrace({
+      kind: "phase-visibility-sync",
+      label: options.phaseLabel ?? "(unlabeled-phase)",
+      visibleActorIds: [...(options.visibleActorIds ?? assignments.map((assignment) => assignment.actor.id))],
+      actorStates: tracedActors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
+    });
 
     const sortedBursts = [...tracerBursts].sort((left, right) => left.progress - right.progress);
     let nextBurstIndex = 0;
@@ -11981,12 +12078,30 @@ export class HexMapRenderer implements IMapRenderer {
     });
 
     if (activeActors.length <= targetVisibleCount) {
+      this.recordAirShowRuntimeTrace({
+        kind: "strength-sync",
+        flightId: flight.spec.id,
+        previousStrength,
+        targetStrength,
+        targetVisibleCount,
+        activeActorIds: activeActors.map((actor) => actor.id),
+        removedActorIds: []
+      });
       return;
     }
 
     const removedActors = [...activeActors]
       .sort((left, right) => right.formationIndex - left.formationIndex)
       .slice(0, activeActors.length - targetVisibleCount);
+    this.recordAirShowRuntimeTrace({
+      kind: "strength-sync",
+      flightId: flight.spec.id,
+      previousStrength,
+      targetStrength,
+      targetVisibleCount,
+      activeActorIds: activeActors.map((actor) => actor.id),
+      removedActorIds: removedActors.map((actor) => actor.id)
+    });
 
     debugAirShowPhase("RemovingActors", {
       flightId: flight.spec.id,
@@ -12013,6 +12128,12 @@ export class HexMapRenderer implements IMapRenderer {
 
     await this.runAirShowPhase(assignments, 320);
     await Promise.all(removedActors.map((actor) => this.fadeOutActor(actor, 200)));
+    removedActors.forEach((actor) => {
+      this.recordAirShowRuntimeTrace({
+        kind: "actor-fade-out",
+        actorState: this.snapshotAirShowRuntimeActorState(actor)
+      });
+    });
     removedActors.forEach((actor) => {
       actor.active = false;
       actor.image.setAttribute("data-airshow-active", "false");

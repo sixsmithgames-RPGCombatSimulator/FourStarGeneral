@@ -37,6 +37,7 @@ import { BattleWarRoomDataProvider } from "./ui/components/BattleWarRoomDataProv
 import { ensureTutorialOverlay } from "./ui/components/TutorialOverlay";
 import { setMissionStartedUI } from "./ui/utils/missionUi";
 import { installAirShowPlaybackCaptureDebugHook } from "./ui/airshow/AirShowPlaybackCapture";
+import { installAirShowRuntimeTraceDebugHook } from "./ui/airshow/AirShowRuntimeTrace";
 
 /**
  * Application initialization and bootstrapping.
@@ -173,6 +174,7 @@ function initializeApplication(): void {
 
   if (typeof window !== "undefined") {
     installAirShowPlaybackCaptureDebugHook(window);
+    installAirShowRuntimeTraceDebugHook(window);
   }
 
   const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
