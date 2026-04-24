@@ -8609,11 +8609,30 @@ export class HexMapRenderer implements IMapRenderer {
     const focusProjection = this.resolveAirShowCorridorCoordinates(corridor, focusPoint);
     const currentProjection = this.resolveAirShowCorridorCoordinates(corridor, current);
     const approachSign = focusProjection.alongPx >= currentProjection.alongPx ? 1 : -1;
-    const roleAlongLeadPx = role === "interceptor" ? 74 : 58;
-    const roleLaneAlongPx = laneIndex * (role === "interceptor" ? 12 : 10);
+    const visibleBounds = this.resolveAirShowVisibleBounds();
+    const visibleWidthPx =
+      visibleBounds
+        ? Math.max(0, visibleBounds.maxX - visibleBounds.minX)
+        : Number.POSITIVE_INFINITY;
+    const useCompactIngressStaging = visibleWidthPx <= 1500;
+    const roleAlongLeadPx =
+      role === "interceptor"
+        ? (useCompactIngressStaging ? 56 : 74)
+        : (useCompactIngressStaging ? 46 : 58);
+    const roleLaneAlongPx = laneIndex * (
+      role === "interceptor"
+        ? (useCompactIngressStaging ? 10 : 12)
+        : (useCompactIngressStaging ? 8 : 10)
+    );
     const roleLateralSign = role === "interceptor" ? -1 : 1;
-    const roleLateralBasePx = role === "interceptor" ? 68 : 60;
-    const roleLateralStepPx = role === "interceptor" ? 24 : 22;
+    const roleLateralBasePx =
+      role === "interceptor"
+        ? (useCompactIngressStaging ? 48 : 68)
+        : (useCompactIngressStaging ? 42 : 60);
+    const roleLateralStepPx =
+      role === "interceptor"
+        ? (useCompactIngressStaging ? 18 : 24)
+        : (useCompactIngressStaging ? 18 : 22);
     return this.clampPointToViewportBounds(
       this.projectAirShowCorridorPoint(
         corridor,
@@ -8740,9 +8759,9 @@ export class HexMapRenderer implements IMapRenderer {
         : Number.POSITIVE_INFINITY;
     const useTightMergeClosure = visibleWidthPx <= 1500;
     const mergeClosurePx = this.clamp(
-      Math.abs(strikeProjection.alongPx) * (useTightMergeClosure ? 0.42 : 0.05),
-      useTightMergeClosure ? 72 : 18,
-      useTightMergeClosure ? 250 : 54
+      Math.abs(strikeProjection.alongPx) * (useTightMergeClosure ? 0.37 : 0.05),
+      useTightMergeClosure ? 60 : 18,
+      useTightMergeClosure ? 228 : 54
     );
     const alongPx =
       beat === 0
@@ -9839,7 +9858,7 @@ export class HexMapRenderer implements IMapRenderer {
       return [...assignments];
     }
     const midpointTimeMs = Math.round(durationMs * 0.5);
-    const midpointProgress = 0.67;
+    const midpointProgress = 0.72;
     return assignments.map((assignment) => {
       if (assignment.actor.role !== "interceptor" && assignment.actor.role !== "escort") {
         return assignment;

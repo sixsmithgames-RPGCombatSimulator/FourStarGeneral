@@ -1,6 +1,7 @@
 import { BattleScreen } from "../ui/screens/BattleScreen";
 import { HexMapRenderer } from "../rendering/HexMapRenderer";
 import { buildAirshowHarnessFixture, buildAirshowHarnessFixtureLarge } from "./airshowHarnessFixture";
+import { buildAirshowPlaybackCaptureFixture } from "./airshowPlaybackCaptureFixture";
 const POSITION_SAMPLE_INTERVAL_MS = 100;
 const DEFAULT_PHASE_WAIT_TIMEOUT_MS = 45000;
 const PHASE_WAIT_BUFFER_MS = 4000;
@@ -21,14 +22,14 @@ function ensureBattleScreenVisible() {
     battleScreen.setAttribute("aria-hidden", "false");
     battleScreen.style.zIndex = "1";
 }
-function createRendererForFixture(harnessFixture) {
+function createRendererForScenario(renderScenario) {
     const svg = document.getElementById("battleHexMap");
     const canvas = document.getElementById("battleMapCanvas");
     if (!svg || !canvas) {
         throw new Error("Expected #battleHexMap and #battleMapCanvas to exist for airshow e2e harness.");
     }
     const renderer = new HexMapRenderer();
-    renderer.render(svg, canvas, harnessFixture.renderScenario);
+    renderer.render(svg, canvas, renderScenario);
     return renderer;
 }
 function createSceneCaptureScreenForFixture(rendererLike, harnessFixture) {
@@ -48,6 +49,42 @@ function createSceneCaptureScreenForFixture(rendererLike, harnessFixture) {
     screen.renderEngineUnits = () => { };
     screen.resolveAirEngagementOffsetKey = (unitKey) => harnessFixture.originKeysByUnitId[unitKey] ?? null;
     screen.resolveAirSquadronStrength = (unitKey) => harnessFixture.strengthByUnitId[unitKey] ?? 100;
+    screen.scenario = harnessFixture.renderScenario;
+    screen.scenarioSource = harnessFixture.renderScenario;
+    return screen;
+}
+function buildReplayEngineFromCapture(capture) {
+    return {
+        playerUnits: capture.playerUnits,
+        botUnits: capture.botUnits,
+        allyUnits: capture.allyUnits,
+        reserveUnits: capture.reserveUnits.map((unit) => ({ unit })),
+        getScheduledAirMissions(faction) {
+            return capture.scheduledMissionsByFaction[faction] ?? [];
+        },
+        getPlayerHq: () => capture.playerHq,
+        getBotHq: () => capture.botHq
+    };
+}
+function createReplayScreenForCapture(rendererLike, capture) {
+    const fakeEngine = buildReplayEngineFromCapture(capture);
+    const fakeBattleState = {
+        ensureGameEngine: () => fakeEngine,
+        tryGetGameEngine: () => fakeEngine,
+        hasEngine: () => true
+    };
+    const screen = new BattleScreen({}, fakeBattleState, {}, rendererLike, null, null, null, {}, null);
+    screen.announceAirInterceptEngagement = () => { };
+    screen.announceBattleUpdate = () => { };
+    screen.announceFlakEngagement = () => { };
+    screen.publishActivityEvent = () => { };
+    screen.closeSelectionIntelForAnimation = () => { };
+    screen.waitMs = async () => { };
+    screen.waitForNextFrame = async () => { };
+    screen.focusCameraOnHex = async () => { };
+    screen.renderEngineUnits = () => { };
+    screen.scenario = capture.scenario;
+    screen.scenarioSource = capture.scenario;
     return screen;
 }
 async function captureSceneFromFixture(harnessFixture) {
@@ -126,7 +163,7 @@ function getActorSnapshot() {
         opacity: window.getComputedStyle(node).opacity
     }));
 }
-function installAirshowE2EHarnessWithFixture(harnessFixture) {
+function installAirshowE2EHarnessWithPlayback(config) {
     ensureBattleScreenVisible();
     let activeRenderer = null;
     let activeInspection = null;
@@ -135,6 +172,7 @@ function installAirshowE2EHarnessWithFixture(harnessFixture) {
     let activePhaseStartedAtMs = 0;
     let activePhaseDurationMs = 0;
     let activeTotalDurationMs = DEFAULT_PHASE_WAIT_TIMEOUT_MS;
+    let restoreAnimateCapture = null;
     let spawnSnapshot = [];
     let positionTimeline = [];
     let positionSamplerHandle = null;
@@ -286,13 +324,48 @@ function installAirshowE2EHarnessWithFixture(harnessFixture) {
             activePhaseLabel = null;
             activePhaseStartedAtMs = 0;
             activePhaseDurationMs = 0;
+            restoreAnimateCapture?.();
             restorePhaseProbe?.();
-            activeRenderer = createRendererForFixture(harnessFixture);
-            const scene = compressSceneForHarness(await captureSceneFromFixture(harnessFixture));
-            activeInspection = activeRenderer.inspectResolvedAirCombatShow(scene);
-            activeTotalDurationMs = computeInspectionTotalDurationMs(activeInspection);
-            installPhaseProbe(activeRenderer, activeInspection?.phases.map((phase) => phase.label) ?? []);
-            activeAnimation = activeRenderer.animateResolvedAirCombatShow(scene);
+            activeInspection = null;
+            activeRenderer = createRendererForScenario(config.renderScenario);
+            const renderer = activeRenderer;
+            const originalAnimateResolvedAirCombatShow = renderer.animateResolvedAirCombatShow.bind(renderer);
+            renderer.animateResolvedAirCombatShow = async (scene) => {
+                const compressedScene = compressSceneForHarness(scene);
+                if (!activeInspection) {
+                    activeInspection = renderer.inspectResolvedAirCombatShow(compressedScene);
+                    activeTotalDurationMs = computeInspectionTotalDurationMs(activeInspection);
+                    installPhaseProbe(renderer, activeInspection?.phases.map((phase) => phase.label) ?? []);
+                }
+                return originalAnimateResolvedAirCombatShow(compressedScene);
+            };
+            restoreAnimateCapture = () => {
+                renderer.animateResolvedAirCombatShow = originalAnimateResolvedAirCombatShow;
+                restoreAnimateCapture = null;
+            };
+            activeAnimation = config.startPlayback(renderer);
+            startPositionSampler();
+            activeAnimation.finally(() => {
+                stopPositionSampler();
+                activePhaseLabel = "complete";
+                restoreAnimateCapture?.();
+                restorePhaseProbe?.();
+            });
+            await createTimedPromise(new Promise((resolve, reject) => {
+                const startedAtMs = performance.now();
+                const tick = () => {
+                    if (activeInspection) {
+                        resolve();
+                        return;
+                    }
+                    if (performance.now() - startedAtMs > DEFAULT_PHASE_WAIT_TIMEOUT_MS) {
+                        reject(new Error("Airshow e2e harness did not observe a resolved airshow scene."));
+                        return;
+                    }
+                    window.setTimeout(tick, 10);
+                };
+                tick();
+            }), DEFAULT_PHASE_WAIT_TIMEOUT_MS, "initial airshow scene");
             spawnSnapshot = Array.from(document.querySelectorAll('[data-testid="airshow-actor"]')).map((el) => {
                 const size = 32;
                 return {
@@ -303,22 +376,20 @@ function installAirshowE2EHarnessWithFixture(harnessFixture) {
                     cy: parseFloat(el.getAttribute("y") ?? "0") + size / 2
                 };
             });
-            startPositionSampler();
-            activeAnimation.finally(() => {
-                stopPositionSampler();
-                activePhaseLabel = "complete";
-                restorePhaseProbe?.();
-            });
-            const bomberIngressPhase = activeInspection?.phases.find((phase) => phase.label === "bomber-ingress");
+            if (!activeInspection) {
+                throw new Error("Airshow e2e harness did not capture an inspection report.");
+            }
+            const inspection = activeInspection;
+            const bomberIngressPhase = inspection.phases.find((phase) => phase.label === "bomber-ingress");
             const bomberIngressActorCount = bomberIngressPhase?.assignments.filter((assignment) => assignment.role === "bomber").length ?? 0;
             return {
-                missionId: harnessFixture.missionId,
-                phaseLabels: activeInspection?.phases.map((phase) => phase.label) ?? [],
+                missionId: config.missionId,
+                phaseLabels: inspection.phases.map((phase) => phase.label),
                 totalDurationMs: activeTotalDurationMs,
-                targetRunSampleMs: computeTargetRunSampleMs(activeInspection),
+                targetRunSampleMs: computeTargetRunSampleMs(inspection),
                 bomberIngressActorCount,
-                hqMidX: activeInspection?.hqMidX ?? null,
-                corridorCenterX: activeInspection?.corridor.center.cx ?? null
+                hqMidX: inspection.hqMidX ?? null,
+                corridorCenterX: inspection.corridor.center.cx ?? null
             };
         },
         getActorSnapshot,
@@ -411,6 +482,27 @@ function installAirshowE2EHarnessWithFixture(harnessFixture) {
     if (!navigator.webdriver) {
         window.setTimeout(runAutoPlay, 0);
     }
+}
+function installAirshowE2EHarnessWithFixture(harnessFixture) {
+    installAirshowE2EHarnessWithPlayback({
+        missionId: harnessFixture.missionId,
+        renderScenario: harnessFixture.renderScenario,
+        startPlayback: async (renderer) => {
+            const scene = compressSceneForHarness(await captureSceneFromFixture(harnessFixture));
+            await renderer.animateResolvedAirCombatShow(scene);
+        }
+    });
+}
+export function installAirshowPlaybackReplayE2EHarness() {
+    const capture = buildAirshowPlaybackCaptureFixture();
+    installAirshowE2EHarnessWithPlayback({
+        missionId: capture.events[0]?.missionId ?? capture.missionKey,
+        renderScenario: capture.scenario,
+        startPlayback: async (renderer) => {
+            const screen = createReplayScreenForCapture(renderer, capture);
+            await screen.playAirOperations(capture.arrivals, capture.events);
+        }
+    });
 }
 export function installAirshowE2EHarness() {
     installAirshowE2EHarnessWithFixture(buildAirshowHarnessFixture());

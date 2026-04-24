@@ -648,6 +648,31 @@ export function planResolvedAirCombatShowScene(
       corridor.normal.y * laneOffset + (rand() - 0.5) * 18
     );
   };
+  const resolveFighterHomeLaneContext = (
+    flight: AirShowPlannerFlight,
+    fighterFlights: ReadonlyArray<AirShowPlannerFlight>
+  ): { index: number; totalFlights: number } => {
+    const homeFlights = fighterFlights.filter(
+      (candidate) => candidate.spec.faction === flight.spec.faction
+    );
+    const groupedIndex = homeFlights.findIndex(
+      (candidate) => candidate.spec.id === flight.spec.id
+    );
+    if (groupedIndex >= 0 && homeFlights.length > 0) {
+      return {
+        index: groupedIndex,
+        totalFlights: homeFlights.length
+      };
+    }
+    const fallbackIndex = Math.max(
+      0,
+      fighterFlights.findIndex((candidate) => candidate.spec.id === flight.spec.id)
+    );
+    return {
+      index: fallbackIndex,
+      totalFlights: Math.max(1, fighterFlights.length)
+    };
+  };
   const normalizeVector = (
     x: number,
     y: number,
@@ -827,9 +852,14 @@ export function planResolvedAirCombatShowScene(
     fighterFlights.flatMap((flight, index) => {
       const current = host.averageAirShowPosition(flight.actors) ?? flight.anchor;
       const peelRand = stageRandom(`fighter-peel:${flight.spec.id}:${index}`);
+      const fighterHomeLaneContext = resolveFighterHomeLaneContext(flight, fighterFlights);
       const egressHeadingDegrees =
         tailHeadingByFlightId.get(flight.spec.id) ?? host.resolveAirShowFlightHeadingDegrees(flight);
-      const fullEgressPoint = resolveFighterHomePoint(flight, index, fighterFlights.length);
+      const fullEgressPoint = resolveFighterHomePoint(
+        flight,
+        fighterHomeLaneContext.index,
+        fighterHomeLaneContext.totalFlights
+      );
       const homeDx = fullEgressPoint.cx - current.cx;
       const homeDy = fullEgressPoint.cy - current.cy;
       const homeDistancePx = Math.max(1, Math.hypot(homeDx, homeDy));
@@ -928,8 +958,13 @@ export function planResolvedAirCombatShowScene(
     fighterFlights.flatMap((flight, index) => {
       const current = host.averageAirShowPosition(flight.actors) ?? flight.anchor;
       const rand = stageRandom(`fighter-egress:${flight.spec.id}:${index}`);
+      const fighterHomeLaneContext = resolveFighterHomeLaneContext(flight, fighterFlights);
       const egressHeadingDegrees = host.resolveAirShowFlightHeadingDegrees(flight);
-      const egressPoint = resolveFighterHomePoint(flight, index, fighterFlights.length);
+      const egressPoint = resolveFighterHomePoint(
+        flight,
+        fighterHomeLaneContext.index,
+        fighterHomeLaneContext.totalFlights
+      );
       const egressLateralSign = host.resolveAirShowRouteSideSign(
         current,
         egressPoint,

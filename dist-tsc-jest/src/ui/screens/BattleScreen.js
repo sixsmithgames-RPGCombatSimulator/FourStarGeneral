@@ -20,6 +20,7 @@ import { buildResolvedAirCombatScene } from "../airshow/ResolvedAirCombatSceneBu
 import { buildCoordinatedAirClusterPlaybackPlan } from "../airshow/ClusterAirPlaybackPlanner";
 import { resolveAirInterceptBomberArrivalDelayMs as resolveSharedAirInterceptBomberArrivalDelayMs, resolveBomberInterceptIngressDurationMs as resolveSharedBomberInterceptIngressDurationMs, resolveBomberSortieEgressDurationMs as resolveSharedBomberSortieEgressDurationMs, resolveBomberSortieIngressDurationMs as resolveSharedBomberSortieIngressDurationMs, resolveFighterInterceptIngressDurationMs as resolveSharedFighterInterceptIngressDurationMs, resolveFighterSortieEgressDurationMs as resolveSharedFighterSortieEgressDurationMs, resolveFighterSortieIngressDurationMs as resolveSharedFighterSortieIngressDurationMs, scaleAirShowSequenceMs } from "../airshow/AirShowPlaybackPolicy";
 import { buildCoordinatedAirClusterTimingPolicy, buildResolvedAirCombatSceneTimingPolicy } from "../airshow/AirShowTimingPolicies";
+import { recordAirShowPlaybackCapture } from "../airshow/AirShowPlaybackCapture";
 /**
  * Manages the battle screen where combat takes place.
  * Handles turn management, deployment finalization, and mission completion.
@@ -2420,6 +2421,145 @@ export class BattleScreen {
     async playAirEngagements(events) {
         await this.playAirOperations([], events);
     }
+    beginAirShowPlaybackCapture(arrivals, events, engine) {
+        return {
+            base: {
+                version: 1,
+                recordedAtIso: new Date().toISOString(),
+                missionKey: this.uiState?.selectedMission ?? "training",
+                source: "BattleScreen.playAirOperations",
+                scenario: this.deepCloneValue(this.scenario),
+                arrivals: this.deepCloneValue([...arrivals]),
+                events: this.deepCloneValue([...events]),
+                playerUnits: this.deepCloneValue([...(engine.playerUnits ?? [])]),
+                botUnits: this.deepCloneValue([...(engine.botUnits ?? [])]),
+                allyUnits: this.deepCloneValue([...(engine.allyUnits ?? [])]),
+                reserveUnits: this.deepCloneValue((engine.reserveUnits ?? []).map((entry) => entry.unit)),
+                scheduledMissionsByFaction: {
+                    Player: this.deepCloneValue(engine.getScheduledAirMissions("Player")),
+                    Bot: this.deepCloneValue(engine.getScheduledAirMissions("Bot")),
+                    Ally: this.deepCloneValue(engine.getScheduledAirMissions("Ally"))
+                },
+                playerHq: typeof engine.getPlayerHq === "function" ? this.deepCloneValue(engine.getPlayerHq()) : null,
+                botHq: typeof engine.getBotHq === "function" ? this.deepCloneValue(engine.getBotHq()) : null,
+                playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
+                botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot")
+            },
+            operations: [],
+            clusters: [],
+            eventSceneCaptures: [],
+            violations: [],
+            error: null
+        };
+    }
+    finalizeAirShowPlaybackCapture(context) {
+        recordAirShowPlaybackCapture({
+            ...context.base,
+            operations: context.operations,
+            clusters: context.clusters,
+            eventSceneCaptures: context.eventSceneCaptures,
+            violations: context.violations,
+            error: context.error
+        });
+    }
+    snapshotAirPlaybackOperation(operation) {
+        if (operation.kind === "linkedStrike") {
+            return {
+                kind: operation.kind,
+                index: operation.index,
+                focusKey: operation.focusKey,
+                focusHex: operation.focusHex ? this.deepCloneValue(operation.focusHex) : null,
+                missionId: operation.flight.missionId,
+                unitKey: operation.flight.unitKey,
+                unitType: operation.flight.unitType,
+                eventType: null,
+                bomberUnitKey: operation.flight.unitKey,
+                escortUnitKeys: operation.escorts.map((flight) => flight.unitKey),
+                interceptorUnitKeys: Array.from(new Set(operation.linkedEvents.flatMap((event) => event.interceptors.map((participant) => participant.unitKey)))),
+                linkedEventTypes: operation.linkedEvents.map((event) => event.type)
+            };
+        }
+        if (operation.kind === "flight") {
+            return {
+                kind: operation.kind,
+                index: operation.index,
+                focusKey: operation.focusKey,
+                focusHex: operation.focusHex ? this.deepCloneValue(operation.focusHex) : null,
+                missionId: operation.flight.missionId,
+                unitKey: operation.flight.unitKey,
+                unitType: operation.flight.unitType,
+                eventType: null,
+                bomberUnitKey: operation.flight.kind === "strike" ? operation.flight.unitKey : null,
+                escortUnitKeys: [],
+                interceptorUnitKeys: [],
+                linkedEventTypes: []
+            };
+        }
+        return {
+            kind: operation.kind,
+            index: operation.index,
+            focusKey: operation.focusKey,
+            focusHex: this.deepCloneValue(operation.focusHex),
+            missionId: operation.event.missionId ?? null,
+            unitKey: null,
+            unitType: null,
+            eventType: operation.event.type,
+            bomberUnitKey: operation.event.bomber.unitKey,
+            escortUnitKeys: operation.event.escorts.map((participant) => participant.unitKey),
+            interceptorUnitKeys: operation.event.interceptors.map((participant) => participant.unitKey),
+            linkedEventTypes: [operation.event.type]
+        };
+    }
+    snapshotCoordinatedAirClusterPlaybackPlan(plan) {
+        return {
+            focusKey: plan.focusKey,
+            strikeMissionIds: [...plan.strikeMissionIds],
+            handledOperationIndices: [...plan.handledOperationIndices],
+            residualOperationIndices: plan.residualOperations.map((operation) => operation.index),
+            bomberStartDelayMs: plan.bomberStartDelayMs,
+            fighterIngressLeadMs: plan.fighterIngressLeadMs,
+            scene: plan.scene ? this.deepCloneValue(plan.scene) : null
+        };
+    }
+    recordActiveAirShowPlaybackCluster(cluster, coordinatedPlan) {
+        if (!this.activeAirShowPlaybackCaptureContext) {
+            return;
+        }
+        this.activeAirShowPlaybackCaptureContext.clusters.push({
+            focusKey: cluster.find((operation) => operation.focusKey)?.focusKey ?? null,
+            operationIndices: cluster.map((operation) => operation.index),
+            operations: cluster.map((operation) => this.snapshotAirPlaybackOperation(operation)),
+            coordinatedPlan: coordinatedPlan ? this.snapshotCoordinatedAirClusterPlaybackPlan(coordinatedPlan) : null,
+            executionMode: coordinatedPlan ? "coordinated" : "parallel"
+        });
+    }
+    recordActiveAirShowResolvedEventSceneCapture(event, locKey, linkedEscortFlights, missingLinkedEscortUnitKeys, bomberPassAvailable, scene) {
+        if (!this.activeAirShowPlaybackCaptureContext) {
+            return;
+        }
+        this.activeAirShowPlaybackCaptureContext.eventSceneCaptures.push({
+            missionId: event.missionId ?? null,
+            eventType: event.type,
+            locKey,
+            linkedEscortMissionIds: linkedEscortFlights.map((flight) => flight.missionId),
+            linkedEscortUnitKeys: linkedEscortFlights.map((flight) => flight.unitKey),
+            missingLinkedEscortUnitKeys: [...missingLinkedEscortUnitKeys],
+            bomberPassAvailable,
+            scene: this.deepCloneValue(scene)
+        });
+    }
+    recordActiveAirShowPlaybackViolation(violation) {
+        if (!this.activeAirShowPlaybackCaptureContext) {
+            return;
+        }
+        this.activeAirShowPlaybackCaptureContext.violations.push(this.deepCloneValue(violation));
+    }
+    formatAirShowPlaybackError(error) {
+        if (error instanceof Error) {
+            return error.stack ?? error.message;
+        }
+        return String(error);
+    }
     async playAirOperations(arrivals, events) {
         const renderer = this.hexMapRenderer;
         if (!renderer) {
@@ -2427,6 +2567,9 @@ export class BattleScreen {
         }
         this.closeSelectionIntelForAnimation();
         const engine = this.battleState.ensureGameEngine();
+        const captureContext = this.beginAirShowPlaybackCapture(arrivals, events, engine);
+        const previousCaptureContext = this.activeAirShowPlaybackCaptureContext;
+        this.activeAirShowPlaybackCaptureContext = captureContext;
         let hadAnimationError = false;
         try {
             const preparedFlights = await this.collectAirMissionFlights(arrivals);
@@ -2502,6 +2645,7 @@ export class BattleScreen {
             linkedEscortFlights.forEach((escorts) => standaloneFlights.push(...escorts.filter((flight) => !claimedAirBattleUnitKeys.has(flight.unitKey))));
             const standaloneEvents = events.filter((event) => !claimedLinkedEvents.has(event));
             const playbackOperations = this.buildAirPlaybackOperations(linkedStrikeFlights, standaloneFlights, standaloneEvents, engine);
+            captureContext.operations = playbackOperations.map((operation) => this.snapshotAirPlaybackOperation(operation));
             const playbackClusters = this.clusterAirPlaybackOperations(playbackOperations);
             for (const cluster of playbackClusters) {
                 await this.playAirPlaybackCluster(cluster, renderer, engine);
@@ -2509,7 +2653,12 @@ export class BattleScreen {
         }
         catch (error) {
             hadAnimationError = true;
+            captureContext.error = this.formatAirShowPlaybackError(error);
             console.error("[BattleScreen] Air operations animation failed", { arrivals, events }, error);
+        }
+        finally {
+            this.finalizeAirShowPlaybackCapture(captureContext);
+            this.activeAirShowPlaybackCaptureContext = previousCaptureContext;
         }
         if (hadAnimationError) {
             this.publishActivityEvent({
@@ -2776,8 +2925,27 @@ export class BattleScreen {
         if (!bomberPassAvailable) {
             scene.bomberPassExchanges = [];
         }
+        this.recordActiveAirShowResolvedEventSceneCapture(event, locKey, linkedEscortFlights, diagnostics.linkedEscortMissingFromEventUnitKeys, bomberPassAvailable, scene);
         if (diagnostics.linkedEscortMissingFromEventUnitKeys.length > 0) {
-            console.warn(`[AirSprite] Linked escort flights missing from resolved event ${event.missionId ?? event.type}: ${diagnostics.linkedEscortMissingFromEventUnitKeys.join(", ")}`);
+            const message = `[AirSprite] Linked escort flights missing from resolved event ${event.missionId ?? event.type}: ` +
+                diagnostics.linkedEscortMissingFromEventUnitKeys.join(", ");
+            if (event.type === "airToAir" && linkedEscortFlights.length > 0) {
+                const violation = {
+                    code: "linked-escort-missing-from-event",
+                    message,
+                    missionId: event.missionId ?? null,
+                    eventType: event.type,
+                    unitKeys: [...diagnostics.linkedEscortMissingFromEventUnitKeys]
+                };
+                this.recordActiveAirShowPlaybackViolation(violation);
+                console.error(message, {
+                    linkedEscortFlightMissionIds: linkedEscortFlights.map((flight) => flight.missionId),
+                    linkedEscortFlightUnitKeys: linkedEscortFlights.map((flight) => flight.unitKey),
+                    eventEscortUnitKeys: event.escorts.map((escort) => escort.unitKey)
+                });
+                throw new Error(message);
+            }
+            console.warn(message);
         }
         await renderer.animateResolvedAirCombatShow(scene);
     }
@@ -3663,9 +3831,11 @@ export class BattleScreen {
         }
         const coordinatedPlan = this.buildCoordinatedAirPlaybackPlanForCluster(concurrentOperations, engine);
         if (coordinatedPlan) {
+            this.recordActiveAirShowPlaybackCluster(concurrentOperations, coordinatedPlan);
             await this.playCoordinatedAirPlaybackPlan(coordinatedPlan, renderer, engine, laneOffsetsByIndex);
             return;
         }
+        this.recordActiveAirShowPlaybackCluster(concurrentOperations, null);
         await Promise.all(concurrentOperations.map(async (operation) => {
             if (operation.kind === "linkedStrike") {
                 await this.playMissionStrikeOperation(operation.flight, [...operation.linkedEvents], operation.escorts, renderer, engine, Boolean(focusKey));
@@ -4066,6 +4236,7 @@ export class BattleScreen {
         this.targetMarkerClickListener = null;
         this.seenAirReportIds = new Set();
         this.detailedAirCombatTurnUnitKeys = new Set();
+        this.activeAirShowPlaybackCaptureContext = null;
         this.deferMissionLogSync = false;
         this.pendingMissionLogSync = false;
         this.artilleryPreviewKeys = new Set();

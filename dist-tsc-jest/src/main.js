@@ -34,6 +34,7 @@ import { HexMapRenderer } from "./rendering/HexMapRenderer";
 import { BattleWarRoomDataProvider } from "./ui/components/BattleWarRoomDataProvider";
 import { ensureTutorialOverlay } from "./ui/components/TutorialOverlay";
 import { setMissionStartedUI } from "./ui/utils/missionUi";
+import { installAirShowPlaybackCaptureDebugHook } from "./ui/airshow/AirShowPlaybackCapture";
 /**
  * Application initialization and bootstrapping.
  */
@@ -141,13 +142,19 @@ function initializeApplication() {
     console.log("  - Components: PopupManager, WarRoomOverlay, BattleLoadout, DeploymentPanel");
     console.log("  - Controls: MapViewport, ZoomPanControls");
     console.log("  - Rendering: HexMapRenderer, TerrainRenderer, RoadOverlayRenderer, CoordinateSystem");
+    if (typeof window !== "undefined") {
+        installAirShowPlaybackCaptureDebugHook(window);
+    }
     const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const codexTest = searchParams?.get("codex-test");
-    if (codexTest === "airshow" || codexTest === "airshow-large") {
+    if (codexTest === "airshow" || codexTest === "airshow-large" || codexTest === "airshow-replay") {
         void import("./testing/airshowE2eHarness")
-            .then(({ installAirshowE2EHarness, installAirshowE2EHarnessLarge }) => {
+            .then(({ installAirshowE2EHarness, installAirshowE2EHarnessLarge, installAirshowPlaybackReplayE2EHarness }) => {
             if (codexTest === "airshow-large") {
                 installAirshowE2EHarnessLarge();
+            }
+            else if (codexTest === "airshow-replay") {
+                installAirshowPlaybackReplayE2EHarness();
             }
             else {
                 installAirshowE2EHarness();

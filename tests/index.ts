@@ -24,6 +24,7 @@ import "./BattleScreen.turnAdvance.test.js";
 import "./BattleScreen.selectionIntel.test.js";
 import "./BattleScreen.objectiveMarkers.test.js";
 import "./BattleScreen.missionFlow.test.js";
+import "./AirShow.productionCapture.test.js";
 import "./AirShow.speedModel.test.js";
 import "./AirShow.bomberSpeed.validation.test.js";
 import "./FacingDirection.migration.test.js";

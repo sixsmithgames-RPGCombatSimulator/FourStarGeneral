@@ -473,6 +473,45 @@ test.describe("AirShow Browser Harness", () => {
   });
 });
 
+test.describe("AirShow Browser Replay Harness", () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoAirshowHarness(page, "/?codex-test=airshow-replay");
+  });
+
+  test("captured playback fixture runs through BattleScreen.playAirOperations before reaching the renderer", async ({ page }) => {
+    test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
+    const result = await page.evaluate(async () => {
+      const hooks = (window as Window & {
+        __FSG_AIRSHOW_E2E__?: {
+          startScenario: () => Promise<unknown>;
+          waitForCompletion: () => Promise<void>;
+        };
+      }).__FSG_AIRSHOW_E2E__;
+      if (!hooks) {
+        throw new Error("Airshow e2e hooks were not installed.");
+      }
+      const started = await hooks.startScenario();
+      await hooks.waitForCompletion();
+      return started;
+    });
+
+    expect(result).toMatchObject({
+      missionId: "e2e-airshow-contested-package",
+      bomberIngressActorCount: 4
+    });
+    expect((result as { readonly phaseLabels: readonly string[] }).phaseLabels).toEqual(
+      expect.arrayContaining([
+        "fighter-ingress",
+        "escort-clash-merge",
+        "escort-clash-scramble",
+        "bomber-ingress",
+        "target-run",
+        "egress"
+      ])
+    );
+  });
+});
+
 test.describe("AirShow Browser Harness Large Map", () => {
   test.beforeEach(async ({ page }) => {
     await gotoAirshowHarness(page, "/?codex-test=airshow-large");

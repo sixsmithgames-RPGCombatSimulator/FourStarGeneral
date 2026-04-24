@@ -2,7 +2,7 @@ import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem.js";
-import { buildCoordinatedAirClusterTimingPolicy, buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies.js";
+import { buildCoordinatedAirClusterTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies.js";
 function resolveSceneBombers(scene) {
     if (Array.isArray(scene.bombers) && scene.bombers.length > 0) {
         return scene.bombers;
@@ -1649,6 +1649,7 @@ registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_SCENE_USES_SHARED_POLICY_TIMINGS"
 registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_USES_RESOLVED_EVENT_ESCORTS_AND_KEEPS_BOMBER_CORRIDOR_CONTEXT", async ({ Given, When, Then }) => {
     let screen;
     let resolvedScene = null;
+    let thrownMessage = null;
     const root = document.getElementById("battleScreen") ?? document.createElement("div");
     if (!root.parentElement) {
         root.id = "battleScreen";
@@ -1736,31 +1737,19 @@ registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_USES_RESOLVED_EVENT_ESCORTS_AND_KEEP
         }
     ];
     await When("the resolved airshow scene is built for playback", async () => {
-        await screen.playMissionAirInterceptEvent(event, "0,0", fakeRenderer, {}, 0, false, false, 900, true, "-1,-2", linkedEscortFlights, "3,0");
+        try {
+            await screen.playMissionAirInterceptEvent(event, "0,0", fakeRenderer, {}, 0, false, false, 900, true, "-1,-2", linkedEscortFlights, "3,0");
+        }
+        catch (error) {
+            thrownMessage = error instanceof Error ? error.message : String(error);
+        }
     });
-    await Then("the scene should not invent escorts that are absent from the resolved event, but should keep bomber corridor context", async () => {
-        if (!resolvedScene) {
-            throw new Error("Expected the resolved airshow scene to be handed to the renderer.");
+    await Then("playback should fail loudly instead of animating a broken linked-escort package", async () => {
+        if (!thrownMessage?.includes("Linked escort flights missing from resolved event")) {
+            throw new Error(`Expected a linked-escort playback contract violation, saw ${thrownMessage ?? "<no error>"}.`);
         }
-        const escortIds = Array.isArray(resolvedScene.escorts) ? resolvedScene.escorts.map((entry) => entry.id) : [];
-        if (escortIds.includes("escort-1")) {
-            throw new Error(`Did not expect playback to invent escort-1 when the resolved event omitted it, saw ${JSON.stringify(resolvedScene)}.`);
-        }
-        if (resolvedScene.bomberTargetHexKey !== "3,0") {
-            throw new Error(`Expected bomber corridor target 3,0 to reach the renderer, saw ${resolvedScene.bomberTargetHexKey ?? "<missing>"}.`);
-        }
-        const expectedPolicy = buildResolvedAirCombatSceneTimingPolicy(900);
-        if (resolvedScene.fighterIngressDurationMs !== expectedPolicy.fighterIngressDurationMs) {
-            throw new Error(`Expected resolved fighter ingress ${expectedPolicy.fighterIngressDurationMs}, ` +
-                `saw ${resolvedScene.fighterIngressDurationMs ?? "<missing>"}.`);
-        }
-        if (resolvedScene.bomberIngressDurationMs !== expectedPolicy.bomberIngressDurationMs) {
-            throw new Error(`Expected resolved bomber ingress ${expectedPolicy.bomberIngressDurationMs}, ` +
-                `saw ${resolvedScene.bomberIngressDurationMs ?? "<missing>"}.`);
-        }
-        if (resolvedScene.bomberArrivalDelayMs !== expectedPolicy.bomberArrivalDelayMs) {
-            throw new Error(`Expected resolved bomber arrival delay ${expectedPolicy.bomberArrivalDelayMs}, ` +
-                `saw ${resolvedScene.bomberArrivalDelayMs ?? "<missing>"}.`);
+        if (resolvedScene) {
+            throw new Error(`Did not expect the renderer to receive a broken scene, saw ${JSON.stringify(resolvedScene)}.`);
         }
     });
 });
