@@ -120,43 +120,70 @@ test.describe("AirShow Browser Harness", () => {
     );
   });
 
-  test("target-run shows bomber actors while fighters stay out of the strike lane", async ({ page }) => {
+  test("target-run keeps bombers on the strike lane while fighters peel away toward egress", async ({ page }) => {
     test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
-    await page.evaluate(async () => {
+    await pauseScenarioAtPhaseProgress(page, "target-run", 0.55);
+
+    const { sample, viewBox, midX } = await page.evaluate(() => {
       const hooks = (window as Window & {
-        __FSG_AIRSHOW_E2E__?: {
-          startScenario: () => Promise<{ targetRunSampleMs: number }>;
-          waitForPhase: (label: string) => Promise<void>;
-        };
+        __FSG_AIRSHOW_E2E__?: { getPositionTimeline: () => ReadonlyArray<{
+          elapsedMs: number;
+          phaseLabel: string | null;
+          actors: ReadonlyArray<{ actorId: string; role: string; active: boolean; cx: number; cy: number }>;
+        }> };
       }).__FSG_AIRSHOW_E2E__;
       if (!hooks) {
         throw new Error("Airshow e2e hooks were not installed.");
       }
-      await hooks.startScenario();
-      await hooks.waitForPhase("target-run");
-    });
-
-    await page.waitForSelector('[data-testid="airshow-actor"]', { timeout: 5000 });
-    await page.waitForTimeout(120);
-
-    const snapshot = await page.evaluate(() => {
-      const hooks = (window as Window & {
-        __FSG_AIRSHOW_E2E__?: { getActorSnapshot: () => unknown };
-      }).__FSG_AIRSHOW_E2E__;
-      if (!hooks) {
-        throw new Error("Airshow e2e hooks were not installed.");
+      const timeline = hooks.getPositionTimeline();
+      const latest = timeline[timeline.length - 1];
+      const svg = document.getElementById("battleHexMap") as SVGSVGElement | null;
+      const vb = svg?.viewBox.baseVal;
+      if (!latest || !vb) {
+        throw new Error("Target-run sample or SVG viewBox was not available.");
       }
-      return hooks.getActorSnapshot();
+      return {
+        sample: latest,
+        viewBox: {
+          minX: vb.x,
+          maxX: vb.x + vb.width,
+          minY: vb.y,
+          maxY: vb.y + vb.height
+        },
+        midX: vb.x + vb.width / 2
+      };
     });
 
-    const activeActors = (snapshot as ReadonlyArray<{ role: string; active: boolean; opacity: string }>).filter(
-      (actor) => actor.active && Number.parseFloat(actor.opacity) > 0.5
+    expect(sample.phaseLabel).toBe("target-run");
+
+    const isOnMap = (actor: { cx: number; cy: number }): boolean =>
+      actor.cx >= viewBox.minX
+      && actor.cx <= viewBox.maxX
+      && actor.cy >= viewBox.minY
+      && actor.cy <= viewBox.maxY;
+
+    const activeActors = sample.actors.filter(
+      (actor) => actor.active
     );
     const activeBomberActors = activeActors.filter((actor) => actor.role === "bomber");
-    const activeFighterActors = activeActors.filter((actor) => actor.role !== "bomber");
+    const onMapActiveFighters = activeActors.filter((actor) => actor.role !== "bomber" && isOnMap(actor));
 
     expect(activeBomberActors).toHaveLength(4);
-    expect(activeFighterActors).toHaveLength(0);
+    if (onMapActiveFighters.length > 0) {
+      const bomberMeanDistanceFromCenter = activeBomberActors.reduce(
+        (sum, actor) => sum + Math.abs(actor.cx - midX),
+        0
+      ) / activeBomberActors.length;
+      const fighterMeanDistanceFromCenter = onMapActiveFighters.reduce(
+        (sum, actor) => sum + Math.abs(actor.cx - midX),
+        0
+      ) / onMapActiveFighters.length;
+      expect(
+        fighterMeanDistanceFromCenter,
+        `fighters still visible during target-run should already be peeling away from the strike lane. ` +
+        `fighters=${fighterMeanDistanceFromCenter.toFixed(1)}px from center, bombers=${bomberMeanDistanceFromCenter.toFixed(1)}px`
+      ).toBeGreaterThan(bomberMeanDistanceFromCenter + 20);
+    }
   });
 
   test("all interceptor and escort actors spawn outside the visible map viewBox", async ({ page }) => {
@@ -222,18 +249,22 @@ test.describe("AirShow Browser Harness", () => {
 
   // Minimum sampling rate: one position snapshot every 200ms throughout the full animation.
   // Add more targeted per-phase assertions below this test as needed.
-  test("interceptors and escorts remain on opposite sides of map center throughout the full animation", async ({ page }) => {
+  test("interceptors and escorts remain on opposite sides during ingress and egress", async ({ page }) => {
     test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
-    await page.evaluate(async () => {
+    const { hqMidX: rawHqMidX, corridorCenterX: rawCorridorCenterX } = await page.evaluate(async () => {
       const hooks = (window as Window & {
         __FSG_AIRSHOW_E2E__?: {
-          startScenario: () => Promise<unknown>;
+          startScenario: () => Promise<{ hqMidX: number | null; corridorCenterX: number | null }>;
           waitForCompletion: () => Promise<void>;
         };
       }).__FSG_AIRSHOW_E2E__;
       if (!hooks) throw new Error("Airshow e2e hooks were not installed.");
-      await hooks.startScenario();
+      const result = await hooks.startScenario();
       await hooks.waitForCompletion();
+      return {
+        hqMidX: result.hqMidX,
+        corridorCenterX: result.corridorCenterX
+      };
     });
 
     type Sample = {
@@ -257,21 +288,36 @@ test.describe("AirShow Browser Harness", () => {
     });
 
     expect(timeline.length).toBeGreaterThan(0);
+    const egressMidX = rawHqMidX ?? rawCorridorCenterX ?? midX;
+    const resolvePhaseWindowSamples = (
+      phaseSamples: readonly Sample[],
+      startProgress: number,
+      endProgress: number
+    ): readonly Sample[] => {
+      if (phaseSamples.length <= 0) {
+        return [];
+      }
+      if (phaseSamples.length === 1) {
+        return startProgress <= 0 && endProgress >= 1 ? phaseSamples : [];
+      }
+      const startMs = phaseSamples[0]!.elapsedMs;
+      const endMs = phaseSamples[phaseSamples.length - 1]!.elapsedMs;
+      const durationMs = Math.max(1, endMs - startMs);
+      const minMs = startMs + durationMs * startProgress;
+      const maxMs = startMs + durationMs * endProgress;
+      return phaseSamples.filter((sample) => sample.elapsedMs >= minMs && sample.elapsedMs <= maxMs);
+    };
 
     // Per spec §Scenario 5: side-separation guaranteed during fighter-ingress (first 70%
     // only — at phase end both factions converge to hold points near center before clash)
     // and egress. Clash, bomber-ingress, and target-run have no side guarantee.
     const ingressSamples = timeline.filter((s) => s.phaseLabel === "fighter-ingress");
     const egressSamples = timeline.filter((s) => s.phaseLabel === "egress");
-    const ingressEarlyCount = Math.max(1, Math.floor(ingressSamples.length * 0.7));
-    const checkedSamples = [...ingressSamples.slice(0, ingressEarlyCount), ...egressSamples];
-
-    // Egress margin: actors start from post-clash positions and need time to unwind into their
-    // HQ-bound exit vectors, so the direction check skips the launch transient.
-    // Ingress has no margin — sides should be clean from spawn.
+    const checkedSamples = [
+      ...resolvePhaseWindowSamples(ingressSamples, 0, 0.7),
+      ...resolvePhaseWindowSamples(egressSamples, 0.35, 1)
+    ];
     const EGRESS_MARGIN_PX = 30;
-    const EGRESS_DIRECTION_CHECK_DELAY_MS = 4000;
-    const egressStartMs = egressSamples[0]?.elapsedMs ?? 0;
 
     for (const sample of checkedSamples) {
       const activeInterceptors = sample.actors.filter((a) => a.role === "interceptor" && a.active);
@@ -282,22 +328,18 @@ test.describe("AirShow Browser Harness", () => {
       }
 
       if (sample.phaseLabel === "egress") {
-        if (sample.elapsedMs < egressStartMs + EGRESS_DIRECTION_CHECK_DELAY_MS) {
-          continue;
-        }
-
-        // Egress: once the unwind window has passed, each faction must be heading
-        // toward its own HQ, with 30px margin from center before counting.
+        // During the dedicated egress beat, each surviving fighter faction must already
+        // be committed to its own HQ side while the bomber package exits continuously.
         for (const a of activeInterceptors) {
           expect(
-            a.cx >= midX - EGRESS_MARGIN_PX,
-            `at ~${Math.round(sample.elapsedMs)}ms egress: interceptor ${a.actorId} cx=${Math.round(a.cx)} is >30px into player side — should egress right toward bot HQ. midX=${Math.round(midX)}`
+            a.cx >= egressMidX - EGRESS_MARGIN_PX,
+            `at ~${Math.round(sample.elapsedMs)}ms egress: interceptor ${a.actorId} cx=${Math.round(a.cx)} is >30px into player side — should be peeling right toward bot HQ. egressMidX=${Math.round(egressMidX)}`
           ).toBe(true);
         }
         for (const a of activeEscorts) {
           expect(
-            a.cx <= midX + EGRESS_MARGIN_PX,
-            `at ~${Math.round(sample.elapsedMs)}ms egress: escort ${a.actorId} cx=${Math.round(a.cx)} is >30px into bot side — should egress left toward player HQ. midX=${Math.round(midX)}`
+            a.cx <= egressMidX + EGRESS_MARGIN_PX,
+            `at ~${Math.round(sample.elapsedMs)}ms egress: escort ${a.actorId} cx=${Math.round(a.cx)} is >30px into bot side — should be peeling left toward player HQ. egressMidX=${Math.round(egressMidX)}`
           ).toBe(true);
         }
       } else {

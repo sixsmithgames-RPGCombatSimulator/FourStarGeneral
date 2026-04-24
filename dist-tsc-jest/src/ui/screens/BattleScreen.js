@@ -18,7 +18,8 @@ import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { setMissionStartedUI } from "../utils/missionUi";
 import { buildResolvedAirCombatScene } from "../airshow/ResolvedAirCombatSceneBuilder";
 import { buildCoordinatedAirClusterPlaybackPlan } from "../airshow/ClusterAirPlaybackPlanner";
-import { buildCoordinatedAirClusterTimingPolicy, buildResolvedAirCombatSceneTimingPolicy, resolveAirInterceptBomberArrivalDelayMs as resolveSharedAirInterceptBomberArrivalDelayMs, resolveBomberInterceptIngressDurationMs as resolveSharedBomberInterceptIngressDurationMs, resolveBomberSortieEgressDurationMs as resolveSharedBomberSortieEgressDurationMs, resolveBomberSortieIngressDurationMs as resolveSharedBomberSortieIngressDurationMs, resolveFighterInterceptIngressDurationMs as resolveSharedFighterInterceptIngressDurationMs, resolveFighterSortieEgressDurationMs as resolveSharedFighterSortieEgressDurationMs, resolveFighterSortieIngressDurationMs as resolveSharedFighterSortieIngressDurationMs, scaleAirShowSequenceMs } from "../airshow/AirShowPlaybackPolicy";
+import { resolveAirInterceptBomberArrivalDelayMs as resolveSharedAirInterceptBomberArrivalDelayMs, resolveBomberInterceptIngressDurationMs as resolveSharedBomberInterceptIngressDurationMs, resolveBomberSortieEgressDurationMs as resolveSharedBomberSortieEgressDurationMs, resolveBomberSortieIngressDurationMs as resolveSharedBomberSortieIngressDurationMs, resolveFighterInterceptIngressDurationMs as resolveSharedFighterInterceptIngressDurationMs, resolveFighterSortieEgressDurationMs as resolveSharedFighterSortieEgressDurationMs, resolveFighterSortieIngressDurationMs as resolveSharedFighterSortieIngressDurationMs, scaleAirShowSequenceMs } from "../airshow/AirShowPlaybackPolicy";
+import { buildCoordinatedAirClusterTimingPolicy, buildResolvedAirCombatSceneTimingPolicy } from "../airshow/AirShowTimingPolicies";
 /**
  * Manages the battle screen where combat takes place.
  * Handles turn management, deployment finalization, and mission completion.
@@ -2752,14 +2753,6 @@ export class BattleScreen {
         const includeBomberFlight = event.type !== "capClash";
         const bomberPassAvailable = includeBomberFlight && allowBomberDefensePass && this.shouldPlayBomberDefensePass(event);
         const resolvedBomberOriginKey = bomberOriginKey ?? this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
-        if (typeof renderer.animateResolvedAirCombatShow !== "function") {
-            const ingressFlights = participants.map((participant) => this.animateAircraftLeg(renderer, participant.originKey, locKey, participant.unitType, participant.role === "interceptor"
-                ? this.resolveFighterInterceptIngressDurationMs()
-                : this.resolveFighterSortieIngressDurationMs(), undefined, 1, participant.initialStrength, participant.laneOffsetPx, participant.faction, participant.role));
-            await Promise.all(ingressFlights);
-            await this.playAirInterceptPasses(event, locKey, renderer, bomberArrivalDelayMs, allowBomberDefensePass);
-            return;
-        }
         const interceptorSceneParticipants = participants.filter((participant) => participant.role === "interceptor");
         const escortSceneParticipants = participants.filter((participant) => participant.role === "escort");
         const phaseTimings = buildResolvedAirCombatSceneTimingPolicy(bomberArrivalDelayMs);
@@ -3695,7 +3688,7 @@ export class BattleScreen {
         });
     }
     async playCoordinatedAirPlaybackPlan(plan, renderer, engine, laneOffsetsByIndex) {
-        if (plan.scene && typeof renderer.animateResolvedAirCombatShow === "function") {
+        if (plan.scene) {
             plan.announcementEvents.forEach((event) => this.announceAirInterceptEngagement(event));
             plan.flakAnnouncementEvents.forEach((event) => this.announceFlakEngagement(event));
             await renderer.animateResolvedAirCombatShow(plan.scene);

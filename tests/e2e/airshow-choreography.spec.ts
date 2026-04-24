@@ -101,6 +101,25 @@ function makeChoreographyTests(
       };
     }
 
+    function resolvePhaseWindowSamples(
+      phaseSamples: readonly Sample[],
+      startProgress: number,
+      endProgress: number
+    ): readonly Sample[] {
+      if (phaseSamples.length <= 0) {
+        return [];
+      }
+      if (phaseSamples.length === 1) {
+        return startProgress <= 0 && endProgress >= 1 ? phaseSamples : [];
+      }
+      const startMs = phaseSamples[0]!.elapsedMs;
+      const endMs = phaseSamples[phaseSamples.length - 1]!.elapsedMs;
+      const durationMs = Math.max(1, endMs - startMs);
+      const minMs = startMs + durationMs * startProgress;
+      const maxMs = startMs + durationMs * endProgress;
+      return phaseSamples.filter((sample) => sample.elapsedMs >= minMs && sample.elapsedMs <= maxMs);
+    }
+
     // ── Invariant 1: All fighters spawn off-map (checked from authoritative spawn snapshot)
     if (spawn) {
       for (const a of spawn.filter(x => x.role === "interceptor" || x.role === "escort")) {
@@ -113,8 +132,7 @@ function makeChoreographyTests(
     // Only checked in first 70% of phase samples: at phase end both factions approach
     // their hold points near center, so separation naturally narrows before clash begins.
     const ingressSamples = timeline.filter(s => s.phaseLabel === "fighter-ingress");
-    const ingressEarlyCount = Math.max(1, Math.floor(ingressSamples.length * 0.7));
-    for (const s of ingressSamples.slice(0, ingressEarlyCount)) {
+    for (const s of resolvePhaseWindowSamples(ingressSamples, 0, 0.7)) {
       const ints = s.actors.filter(a => a.active && a.role === "interceptor");
       const escs = s.actors.filter(a => a.active && a.role === "escort");
       if (!ints.length || !escs.length) continue;
@@ -245,16 +263,12 @@ function makeChoreographyTests(
     }
 
     // ── Invariant 9: egress — interceptors exit toward bot side, escorts toward player side.
-    // Aircraft start from post-clash geometry, so the direction check must skip the
-    // launch transient rather than check the instant egress begins.
-    // Egress timing scales with map size, so use a phase-relative settle window instead
-    // of a fixed 4s cutoff.
+    // The package now keeps surviving fighters and bombers under one owner through a dedicated
+    // egress beat, so direction is checked on egress rather than on the older late target-run
+    // workaround.
     const EGRESS_MARGIN_PX = 30;
     const egressSamples = timeline.filter(s => s.phaseLabel === "egress");
-    const egressStartMs = egressSamples[0]?.elapsedMs ?? 0;
-    const egressEndMs = egressSamples[egressSamples.length - 1]?.elapsedMs ?? egressStartMs;
-    const egressDirectionCheckDelayMs = Math.min(5600, Math.max(4000, (egressEndMs - egressStartMs) * 0.36));
-    for (const s of egressSamples.filter(s => s.elapsedMs >= egressStartMs + egressDirectionCheckDelayMs)) {
+    for (const s of resolvePhaseWindowSamples(egressSamples, 0.35, 1)) {
       const ints = s.actors.filter(a => a.active && a.role === "interceptor");
       const escs = s.actors.filter(a => a.active && a.role === "escort");
       for (const a of ints) {
@@ -271,10 +285,10 @@ function makeChoreographyTests(
     ).toHaveLength(0);
   });
 
-  // Diagnostic test for the remaining open bugs from AIR_SHOW_NORTH_STAR_SPEC.md.
+  // Diagnostic test for any remaining soft anomalies against AIR_SHOW_NORTH_STAR_SPEC.md.
   // Does NOT assert pass/fail — collects raw measurements at 100ms resolution and reports.
   // Each section measures a specific spec requirement and reports what was observed.
-  test("open bug diagnostics — measure and report remaining spec violations", async ({ page }) => {
+  test("diagnostic measurements — report remaining soft choreography anomalies", async ({ page }) => {
     test.setTimeout(testTimeoutMs);
     // Capture renderer logs for flak, explosions, bomb release, dust clouds so the diagnostic
     // test can answer: did flak animations fire? did ordnance explosions paint?
@@ -659,18 +673,27 @@ function makeChoreographyTests(
     const bombFiredLogs = rendererLogs.filter((line) => /Bomb release firing/i.test(line));
     const bombCancelledLogs = rendererLogs.filter((line) => /Bomb release cancelled before firing/i.test(line));
     const bombSkippedLogs = rendererLogs.filter((line) => /Bomb release skipped/i.test(line));
+    const flakStatus =
+      flakFiredLogs.length > 0
+        ? " ✓"
+        : flakPlanLogs.length > 0
+        ? " ⚠ FLAK WAS SCHEDULED BUT NO BURSTS FIRED"
+        : " (no flak scheduled for this run)";
+    const ordnanceStatus =
+      bombFiredLogs.length > 0
+        ? " ✓"
+        : explosionStartLogs.length > 0
+        ? " (impact painted via playExplosion)"
+        : " ⚠ NO ORDNANCE EXPLOSION PAINTED";
     findings.push(`  Flak plans scheduled (Target-run flak plan): ${flakPlanLogs.length}`);
-    findings.push(`  Flak bursts actually fired: ${flakFiredLogs.length}${flakFiredLogs.length === 0 ? " ⚠ NO FLAK ANIMATIONS PAINTED" : " ✓"}`);
+    findings.push(`  Flak bursts actually fired: ${flakFiredLogs.length}${flakStatus}`);
     findings.push(`  Bomb release scheduled: ${bombScheduledLogs.length}`);
-    findings.push(`  Bomb release fired: ${bombFiredLogs.length}${bombFiredLogs.length === 0 ? " ⚠ NO ORDNANCE EXPLOSION PAINTED" : " ✓"}`);
+    findings.push(`  Bomb release fired: ${bombFiredLogs.length}${ordnanceStatus}`);
     findings.push(`  Bomb release cancelled before firing: ${bombCancelledLogs.length}${bombCancelledLogs.length > 0 ? " ⚠ CANCELLED BEFORE FIRING" : ""}`);
     findings.push(`  Bomb release skipped (no targetHexKey): ${bombSkippedLogs.length}`);
     findings.push(`  playExplosion calls: ${explosionStartLogs.length}${explosionStartLogs.length === 0 ? " ⚠ NO EXPLOSIONS PAINTED" : " ✓"}`);
     findings.push(`  Combat animations started for explosions: ${explosionFrameLogs.length}`);
     findings.push(`  playDustCloud calls: ${dustLogs.length}`);
-    if (flakFiredLogs.length === 0 && flakPlanLogs.length > 0) {
-      findings.push("  ⚠ Flak was scheduled but setTimeout handles never resolved — plan was cancelled before any burst fired");
-    }
 
     console.log("\n" + findings.join("\n"));
     expect(findings.length).toBeGreaterThan(0);

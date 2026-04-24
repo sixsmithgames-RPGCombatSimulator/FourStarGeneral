@@ -100,8 +100,6 @@ import {
   type CoordinatedAirClusterPlaybackPlan
 } from "../airshow/ClusterAirPlaybackPlanner";
 import {
-  buildCoordinatedAirClusterTimingPolicy,
-  buildResolvedAirCombatSceneTimingPolicy,
   resolveAirInterceptBomberArrivalDelayMs as resolveSharedAirInterceptBomberArrivalDelayMs,
   resolveBomberInterceptIngressDurationMs as resolveSharedBomberInterceptIngressDurationMs,
   resolveBomberSortieEgressDurationMs as resolveSharedBomberSortieEgressDurationMs,
@@ -111,6 +109,10 @@ import {
   resolveFighterSortieIngressDurationMs as resolveSharedFighterSortieIngressDurationMs,
   scaleAirShowSequenceMs
 } from "../airshow/AirShowPlaybackPolicy";
+import {
+  buildCoordinatedAirClusterTimingPolicy,
+  buildResolvedAirCombatSceneTimingPolicy
+} from "../airshow/AirShowTimingPolicies";
 import type { AirShowRole } from "../airshow/AirShowLogger";
 
 type ActivityCategory = "player" | "enemy" | "system";
@@ -3671,28 +3673,6 @@ export class BattleScreen {
     const bomberPassAvailable = includeBomberFlight && allowBomberDefensePass && this.shouldPlayBomberDefensePass(event);
     const resolvedBomberOriginKey =
       bomberOriginKey ?? this.resolveAirEngagementOffsetKey(event.bomber.unitKey, event.bomber.faction, engine);
-    if (typeof (renderer as any).animateResolvedAirCombatShow !== "function") {
-      const ingressFlights = participants.map((participant) =>
-        this.animateAircraftLeg(
-          renderer,
-          participant.originKey,
-          locKey,
-          participant.unitType,
-          participant.role === "interceptor"
-            ? this.resolveFighterInterceptIngressDurationMs()
-            : this.resolveFighterSortieIngressDurationMs(),
-          undefined,
-          1,
-          participant.initialStrength,
-          participant.laneOffsetPx,
-          participant.faction,
-          participant.role
-        )
-      );
-      await Promise.all(ingressFlights);
-      await this.playAirInterceptPasses(event, locKey, renderer, bomberArrivalDelayMs, allowBomberDefensePass);
-      return;
-    }
     const interceptorSceneParticipants = participants.filter((participant) => participant.role === "interceptor");
     const escortSceneParticipants = participants.filter((participant) => participant.role === "escort");
     const phaseTimings = buildResolvedAirCombatSceneTimingPolicy(bomberArrivalDelayMs);
@@ -3721,7 +3701,7 @@ export class BattleScreen {
         `[AirSprite] Linked escort flights missing from resolved event ${event.missionId ?? event.type}: ${diagnostics.linkedEscortMissingFromEventUnitKeys.join(", ")}`
       );
     }
-    await (renderer as any).animateResolvedAirCombatShow(scene);
+    await renderer.animateResolvedAirCombatShow(scene);
   }
 
   private async playResolvedAirStrikeImpact(
@@ -4966,10 +4946,10 @@ export class BattleScreen {
     engine: GameEngine,
     laneOffsetsByIndex: ReadonlyMap<number, number>
   ): Promise<void> {
-    if (plan.scene && typeof (renderer as any).animateResolvedAirCombatShow === "function") {
+    if (plan.scene) {
       plan.announcementEvents.forEach((event) => this.announceAirInterceptEngagement(event));
       plan.flakAnnouncementEvents.forEach((event) => this.announceFlakEngagement(event));
-      await (renderer as any).animateResolvedAirCombatShow(plan.scene);
+      await renderer.animateResolvedAirCombatShow(plan.scene);
     }
 
     const residualPromises = plan.residualOperations.map(async (operation) => {

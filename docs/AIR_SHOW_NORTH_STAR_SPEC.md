@@ -266,6 +266,8 @@ Required choreography (progress-based, all times relative to bomber ingress path
 
 **Multiple Bomber Flights Rule**: When bombers have different target hexes, each bomber flight maintains separate ingress progress track. Flak units target their assigned bomber formation independently.
 
+**Verification Guardrail**: Multi-bomber coordinated packages may not be validated by forcing all bomber flights through one shared straight-line efficiency or one shared ingress progress track. Validation must respect each bomber flight's own progress track and the governed 160° arc-turn geometry.
+
 8. **Bomber Egress**
    - Surviving bombers complete arc turn and begin egress
    - Flak stops scheduling new bursts at egressProgress 0.20
@@ -481,14 +483,19 @@ Playback must consume resolved air combat outputs and render them without redefi
 
 The canonical playback model is:
 
-- `BattleScreen` orchestrates collection, grouping, sequencing, and camera timing
-- the renderer owns the full linked package show for any complex contested air battle
+- `BattleScreen` collects resolved results, groups nearby operations, and hands resolved contested packages to the playback planner
+- `ClusterAirPlaybackPlanner` owns coordinated cluster grouping outputs and shared timing inputs for contested packages
+- `AirShowPlaybackPlanner` owns authoritative contested-package choreography and produces one `PlannedAirShowScene`
+- `HexMapRenderer` paints and animates the already-planned scene; it must not rebuild choreography from separate renderer-only rules
 - no package may split bomber ownership, escort ownership, or interceptor ownership across multiple unrelated playback paths
 - no aircraft should disappear and later reappear because ownership switched between systems
 
 Current implementation anchors:
 
 - `src/ui/screens/BattleScreen.ts`
+- `src/ui/airshow/ClusterAirPlaybackPlanner.ts`
+- `src/ui/airshow/AirShowPlaybackPlanner.ts`
+- `src/ui/airshow/AirShowPlaybackScene.ts`
 - `src/rendering/HexMapRenderer.ts`
 
 ### 3. One Package, One Visible Story
@@ -508,8 +515,9 @@ Air-show timing, role speed, HQ-relative origins, and package coordination math 
 
 The canonical playback-policy model is:
 
-- `AirShowPlaybackPolicy` owns role px/ms rates, derived phase durations, and coordination delays
-- `BattleScreen` consumes shared policy outputs when it builds coordinated and resolved air-show scenes
+- `AirShowPlaybackPolicy` owns role px/ms rates and shared timing primitives
+- `AirShowTimingPolicies` owns derived phase durations and coordination delay builders
+- `BattleScreen` and scene builders consume shared policy outputs when they build coordinated and resolved air-show scenes
 - scene builders and renderer code consume the same shared policy instead of shadowing constants
 - tests and diagnostics may inspect or assert policy outputs, but they must not maintain parallel copies of the formulas they are validating
 - no renderer, scene-builder, or test-layer patch may "fix" timing by shortening a role's path, stretching a rival role's window, or otherwise compensating visually for incorrect policy timing
@@ -519,8 +527,11 @@ The canonical playback-policy model is:
 Current implementation anchors:
 
 - `src/ui/airshow/AirShowPlaybackPolicy.ts`
+- `src/ui/airshow/AirShowTimingPolicies.ts`
 - `src/ui/screens/BattleScreen.ts`
+- `src/ui/airshow/ClusterAirPlaybackPlanner.ts`
 - `src/ui/airshow/ResolvedAirCombatSceneBuilder.ts`
+- `src/ui/airshow/AirShowPlaybackPlanner.ts`
 - `src/rendering/HexMapRenderer.ts`
 
 ### 5. Canonical Test Architecture
@@ -530,7 +541,7 @@ The air-show test suite mirrors the runtime layers. It must never become a secon
 The canonical test layers are:
 
 - `tests/BattleScreen.airMissionPlayback.test.ts` verifies `BattleScreen` orchestration, live scene construction, shared timing policy wiring, and HQ-context propagation
-- `tests/airScenarioSupport.ts`, `tests/run-airshow-diagnostics.ts`, and `tests/AirScenario.report.ts` form the diagnostic harness and reporting layer; they consume runtime policy and produce inspection artifacts, but they are not an alternate rules engine
+- `tests/airScenarioSupport.ts`, `tests/run-airshow-diagnostics.ts`, and `tests/AirScenario.report.ts` form the diagnostic harness and reporting layer; they consume production planners and the shared `PlannedAirShowScene`/inspection output, but they are not an alternate rules engine
 - `tests/AirShow.fighterMotion.test.ts`, `tests/AirShow.progressTiming.test.ts`, `tests/AirShow.speedModel.test.ts`, `tests/AirShow.coordinatedPackage.test.ts`, `tests/AirShow.regression.test.ts`, and `tests/AirShow.bomberSpeed.validation.test.ts` enforce choreography, continuity, package ownership, speed-model, and timing invariants
 - `tests/AirShow.visual.jest.test.ts`, `tests/e2e/airshow-choreography.spec.ts`, `tests/e2e/airshow-visual.spec.ts`, `src/testing/airshowE2eHarness.ts`, and `src/testing/airshowHarnessFixture.ts` cover render-visible and browser-level confirmation
 
@@ -538,7 +549,8 @@ Authoritative order of evidence for playback disputes:
 
 - shared playback policy
 - `BattleScreen` scene construction
-- renderer timing audit and diagnostic harness output
+- authoritative `PlannedAirShowScene` output from `AirShowPlaybackPlanner`
+- renderer timing audit and diagnostic harness output derived from that same planned scene
 - visual and e2e confirmation
 
 ## Canonical Runtime Contracts
@@ -720,6 +732,10 @@ Every phase transition must be seamless.
 
 The next phase begins from the aircraft's actual end position from the previous phase. Progress is measured along pixel path length, not time directly.
 
+Continuity, separation, and speed validation must use canonical sampled/rendered positions from the shared playback scene.
+
+Raw assignment `points` are planner control waypoints and are not authoritative proof of painted boundary continuity.
+
 ## Visual Design Constraints
 
 ### Path Behavior
@@ -810,28 +826,26 @@ The current codebase already reflects part of the north star and still falls sho
 - mission update hooks and mission-report plumbing exist
 - the system already exposes arrivals, engagements, and reports as distinct artifacts
 
-### Not Yet Aligned
+### Remaining Focus Areas
 
-- `BattleScreen.playAirOperations()` still contains legacy orchestration and mixed playback paths
-- `HexMapRenderer.playLinkedStrikePackage()` is still a structural stub rather than the full authoritative package renderer
-- contested-package playback ownership is not yet fully consolidated
-- CAP-only patrol presentation is still less explicit than the other package scenarios
+- CAP-only patrol presentation can still be made more explicit than the contested-package scenarios
+- browser diagnostic probes should remain consumers of the planned scene and must not drift back into heuristic-only alternate choreography logic
 
-This means the engine center of gravity is mostly correct, while the playback center of gravity is still drifting.
+This means the engine and playback center of gravity are now aligned around one planned contested-package scene, and remaining work is primarily presentation polish rather than split-brain correction.
 
 ## Realignment Priorities
 
 These priorities capture the most important lessons from prior planning and evaluation.
 
-### Priority 1: Unify Playback Ownership
+### Priority 1: Preserve Unified Playback Ownership
 
 Before tuning path parameters or polishing visuals further:
 
-- consolidate contested linked-package playback under one visible owner path
-- stop splitting bomber lifecycle across separate playback systems
-- eliminate any remaining path where a complex package is partly rendered by a fallback system
+- keep contested linked-package playback under one visible owner path
+- do not split bomber lifecycle across separate playback systems
+- do not reintroduce any path where a complex package is partly rendered by a fallback system
 
-This is the first correction priority because most visible defects are downstream symptoms of ownership split.
+This remains the first correction priority because most visible defects are downstream symptoms of ownership split.
 
 ### Priority 2: Serialize Complex Package Playback
 
@@ -876,6 +890,7 @@ The following behaviors must be verifiable through tests, diagnostics, or direct
 - redundant or overlapping engine/test code is forbidden
 - tests must consume shared production helpers for HQ-origin selection, path timing, bomber-arrival coordination, and role px/ms rates whenever they are validating live runtime behavior
 - `airScenarioSupport.ts` is a diagnostic consumer of production code, not an alternate engine, planner, or renderer
+- tests and diagnostics must use canonical sampled playback positions for continuity, separation, and speed assertions; raw planner waypoints are not a second source of truth for painted motion
 - `BattleScreen.ts`, `ResolvedAirCombatSceneBuilder.ts`, and `HexMapRenderer.ts` must not carry independent copies of speed constants, duration formulas, or origin-direction logic; if multiple layers need the same behavior, extract a shared module and make every layer consume it
 - synthetic or stress-only tests may diverge from live policy only when they are clearly labeled synthetic and cannot be cited as proof that runtime behavior is correct
 - playback patches and visual workarounds are forbidden for timing, speed, continuity, or arrival-order defects; non-compliant behavior must be fixed in canonical policy and canonical runtime flow
@@ -920,7 +935,7 @@ The air show is not done until all of these are true:
 - **Issue**: 7.2px gap between phase boundaries (e.g., `escort-clash-scramble` → `bomber-ingress`)
 - **Root Cause**: `applyInspectionAirShowAssignments` stored biased endpoint, next phase added bias again
 - **Fix**: Store unbiased position (`finalPoint - bias`) in `actor.position`
-- **Test**: `AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY` — validates ≤2px gap
+- **Test**: `AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY` — validates ≤2px sampled boundary gap from canonical playback positions
 
 **Fixed: Merge Convergence / Formation Overlap**
 - **Issue**: 247+ overlap events in `escort-clash-merge` — CAP flights converging with 40-75% sprite overlap
@@ -936,6 +951,7 @@ The air show is not done until all of these are true:
 - Added `sampledPositions` to `AirShowInspectionAssignment`
 - Samples every ~250ms with `{timeMs, progress, cx, cy, headingDegrees}`
 - Enables animation verification and collision detection
+- Boundary continuity and start-of-phase separation assertions must read `sampledPositions`, not raw planner control waypoints
 
 ### April 13, 2026 — User Reported Fixes
 
@@ -1035,7 +1051,7 @@ Egress (egressProgress)
 The current air-show suite is organized by runtime layer, not by duplicated logic:
 
 - `tests/BattleScreen.airMissionPlayback.test.ts` is the authoritative integration layer for `BattleScreen` playback wiring
-- `tests/airScenarioSupport.ts` is the shared diagnostic support module used by scenario reports and inspection-based validations
+- `tests/airScenarioSupport.ts` is the shared diagnostic support module used by scenario reports and inspection-based validations; it consumes production builders and planned-scene output rather than reconstructing its own choreography
 - `tests/AirScenario.report.ts` and `tests/run-airshow-diagnostics.ts` generate anomaly reports and human-readable diagnostic bundles
 - `tests/AirShow.fighterMotion.test.ts`, `tests/AirShow.progressTiming.test.ts`, `tests/AirShow.speedModel.test.ts`, `tests/AirShow.coordinatedPackage.test.ts`, `tests/AirShow.regression.test.ts`, and `tests/AirShow.bomberSpeed.validation.test.ts` cover motion, timing, continuity, coordinated-package behavior, regression protection, and role-speed validation
 - `tests/AirShow.visual.jest.test.ts` provides renderer-facing visual assertions
@@ -1044,8 +1060,10 @@ The current air-show suite is organized by runtime layer, not by duplicated logi
 Guardrails for maintaining this suite:
 
 - test support code must consume canonical runtime policy and scene-building helpers whenever the goal is to verify live behavior
+- `AirShowPlaybackPlanner` and `PlannedAirShowScene` are authoritative for contested-package choreography; diagnostics and tests must consume them rather than rebuilding paths or timing from scratch
 - do not recreate engine logic, scene-timing formulas, HQ-origin math, or role-speed constants inside tests
 - do not maintain one implementation in `BattleScreen` and another in diagnostics or renderer code; shared logic belongs in a production module and every consumer should import it
+- redundant or overlapping engine, planner, renderer, and test code is forbidden for contested-package timing, origin resolution, tracer ownership, and path choreography
 - when a test intentionally uses synthetic timings or geometry, label it synthetic in the test name or report output
 
 Primary commands:

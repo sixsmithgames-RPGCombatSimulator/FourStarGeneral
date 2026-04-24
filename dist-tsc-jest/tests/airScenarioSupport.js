@@ -4,7 +4,8 @@ import { GameEngine } from "../src/game/GameEngine.js";
 import { ensureDomEnvironment } from "./domEnvironment.js";
 import { buildResolvedAirCombatScene } from "../src/ui/airshow/ResolvedAirCombatSceneBuilder.js";
 import { buildCoordinatedAirClusterPlaybackPlan } from "../src/ui/airshow/ClusterAirPlaybackPlanner.js";
-import { buildCoordinatedAirClusterTimingPolicy, buildResolvedAirCombatSceneTimingPolicy, resolveAirInterceptBomberArrivalDelayMs } from "../src/ui/airshow/AirShowPlaybackPolicy.js";
+import { resolveAirInterceptBomberArrivalDelayMs } from "../src/ui/airshow/AirShowPlaybackPolicy.js";
+import { buildCoordinatedAirClusterTimingPolicy, buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies.js";
 import { sampleAirShowWaypointPath, sampleAirShowWaypointPoints } from "../src/ui/airshow/AirShowPathMath.js";
 const plains = {
     moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
@@ -1387,6 +1388,52 @@ function sampleInspectionPathPoint(points, progress) {
 function sampleInspectionPath(points, sampleCount = 15) {
     return sampleAirShowWaypointPoints(points, sampleCount);
 }
+function sampleInspectionAssignmentPoint(assignment, progress) {
+    const clampedProgress = Math.max(0, Math.min(1, progress));
+    const sampledPositions = assignment.sampledPositions;
+    if (sampledPositions.length > 0) {
+        const first = sampledPositions[0];
+        if (clampedProgress <= first.progress || sampledPositions.length === 1) {
+            return { cx: first.cx, cy: first.cy };
+        }
+        const last = sampledPositions[sampledPositions.length - 1];
+        if (clampedProgress >= last.progress) {
+            return { cx: last.cx, cy: last.cy };
+        }
+        for (let index = 1; index < sampledPositions.length; index += 1) {
+            const previous = sampledPositions[index - 1];
+            const current = sampledPositions[index];
+            if (clampedProgress > current.progress) {
+                continue;
+            }
+            const span = Math.max(0.0001, current.progress - previous.progress);
+            const ratio = Math.max(0, Math.min(1, (clampedProgress - previous.progress) / span));
+            return {
+                cx: previous.cx + (current.cx - previous.cx) * ratio,
+                cy: previous.cy + (current.cy - previous.cy) * ratio
+            };
+        }
+        return { cx: last.cx, cy: last.cy };
+    }
+    return sampleInspectionPathPoint(assignment.points, clampedProgress);
+}
+function sampleInspectionAssignmentPath(assignment, sampleCount = 15) {
+    const resolvedSampleCount = Math.max(2, sampleCount);
+    const step = 1 / Math.max(1, resolvedSampleCount - 1);
+    return Array.from({ length: resolvedSampleCount }, (_, index) => {
+        const progress = index / Math.max(1, resolvedSampleCount - 1);
+        const point = sampleInspectionAssignmentPoint(assignment, progress);
+        const previousPoint = sampleInspectionAssignmentPoint(assignment, Math.max(0, progress - step));
+        const nextPoint = sampleInspectionAssignmentPoint(assignment, Math.min(1, progress + step));
+        return {
+            point,
+            derivative: {
+                dx: nextPoint.cx - previousPoint.cx,
+                dy: nextPoint.cy - previousPoint.cy
+            }
+        };
+    });
+}
 function axialDistance(left, right) {
     const dq = left.q - right.q;
     const dr = left.r - right.r;
@@ -1436,10 +1483,25 @@ function resolveSampledBoundaryVector(sampledPositions, edge) {
     }
     return null;
 }
+export function resolveInspectionAssignmentBoundaryPoint(assignment, edge) {
+    const sampledBoundary = edge === "start"
+        ? assignment.sampledPositions[0]
+        : assignment.sampledPositions[assignment.sampledPositions.length - 1];
+    if (sampledBoundary) {
+        return {
+            cx: sampledBoundary.cx,
+            cy: sampledBoundary.cy
+        };
+    }
+    const rawBoundary = edge === "start"
+        ? assignment.points[0]
+        : assignment.points[assignment.points.length - 1];
+    return rawBoundary ? { cx: rawBoundary.cx, cy: rawBoundary.cy } : null;
+}
 function measurePhase(report, phase, previousPhase) {
     const sampledAssignments = phase.assignments.map((assignment) => ({
         assignment,
-        samples: sampleInspectionPath(assignment.points, 17)
+        samples: sampleInspectionAssignmentPath(assignment, 17)
     }));
     const allPoints = sampledAssignments.flatMap((entry) => entry.samples.map((sample) => sample.point));
     const xs = allPoints.map((point) => point.cx);
@@ -1538,14 +1600,14 @@ function measurePhase(report, phase, previousPhase) {
         const flight = flightsById.get(assignments[0]?.flightId ?? "");
         const faction = (flight?.faction ?? "Unknown");
         const combatRole = (flight?.combatRole ?? "unknown");
-        const startCentroid = averagePoint(assignments.map((assignment) => sampleInspectionPathPoint(assignment.points, 0)));
-        const midCentroid = averagePoint(assignments.map((assignment) => sampleInspectionPathPoint(assignment.points, 0.5)));
-        const endCentroid = averagePoint(assignments.map((assignment) => sampleInspectionPathPoint(assignment.points, 1)));
+        const startCentroid = averagePoint(assignments.map((assignment) => sampleInspectionAssignmentPoint(assignment, 0)));
+        const midCentroid = averagePoint(assignments.map((assignment) => sampleInspectionAssignmentPoint(assignment, 0.5)));
+        const endCentroid = averagePoint(assignments.map((assignment) => sampleInspectionAssignmentPoint(assignment, 1)));
         const assignmentPathLengths = assignments.map((assignment) => {
-            const samples = sampleInspectionPath(assignment.points, 17);
+            const samples = sampleInspectionAssignmentPath(assignment, 17);
             return samples.slice(1).reduce((sum, sample, index) => sum + distanceBetween(samples[index].point, sample.point), 0);
         });
-        const assignmentDisplacements = assignments.map((assignment) => distanceBetween(sampleInspectionPathPoint(assignment.points, 0), sampleInspectionPathPoint(assignment.points, 1)));
+        const assignmentDisplacements = assignments.map((assignment) => distanceBetween(sampleInspectionAssignmentPoint(assignment, 0), sampleInspectionAssignmentPoint(assignment, 1)));
         const groupMeanPathLengthPx = assignmentPathLengths.length > 0
             ? assignmentPathLengths.reduce((sum, value) => sum + value, 0) / assignmentPathLengths.length
             : 0;
@@ -1576,8 +1638,8 @@ function measurePhase(report, phase, previousPhase) {
             }
             const leftAssignments = groupedAssignments.get(leftGroup.label) ?? [];
             const rightAssignments = groupedAssignments.get(rightGroup.label) ?? [];
-            const leftMidPoints = leftAssignments.map((assignment) => sampleInspectionPathPoint(assignment.points, 0.5));
-            const rightMidPoints = rightAssignments.map((assignment) => sampleInspectionPathPoint(assignment.points, 0.5));
+            const leftMidPoints = leftAssignments.map((assignment) => sampleInspectionAssignmentPoint(assignment, 0.5));
+            const rightMidPoints = rightAssignments.map((assignment) => sampleInspectionAssignmentPoint(assignment, 0.5));
             const minMidPairSeparationPx = leftMidPoints.length > 0 && rightMidPoints.length > 0
                 ? Math.min(...leftMidPoints.flatMap((leftPoint) => rightMidPoints.map((rightPoint) => distanceBetween(leftPoint, rightPoint))))
                 : 0;
@@ -1680,8 +1742,10 @@ function collectPhaseContinuityGaps(report) {
         const previousAssignmentsByActor = new Map(previousPhase.assignments.map((assignment) => [assignment.actorId, assignment]));
         currentPhase.assignments.forEach((assignment) => {
             const previousAssignment = previousAssignmentsByActor.get(assignment.actorId);
-            const previousEnd = previousAssignment?.points[previousAssignment.points.length - 1];
-            const currentStart = assignment.points[0];
+            const previousEnd = previousAssignment
+                ? resolveInspectionAssignmentBoundaryPoint(previousAssignment, "end")
+                : null;
+            const currentStart = resolveInspectionAssignmentBoundaryPoint(assignment, "start");
             if (!previousEnd || !currentStart) {
                 return;
             }

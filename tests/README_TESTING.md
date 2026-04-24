@@ -103,6 +103,7 @@ Per ITERATION_GOVERNANCE.md:
 2. **Test at the same layer as the user's complaint**
    - If user reports "sprites disappear" → test DOM visibility
    - If user reports "animation jumps" → test position continuity
+   - For inspection-report continuity/separation checks, use canonical `sampledPositions` or shared helpers from `tests/airScenarioSupport.ts`, not raw assignment control waypoints
 
 3. **When to use which framework:**
    - **Custom harness**: Fast logic/data structure tests

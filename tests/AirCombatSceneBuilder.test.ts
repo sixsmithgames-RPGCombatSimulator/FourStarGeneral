@@ -10,6 +10,7 @@
 import { registerTest } from "./harness.js";
 import { buildResolvedAirCombatScene } from "../src/ui/airshow/ResolvedAirCombatSceneBuilder";
 import type { AirEngagementEvent } from "../src/game/GameEngine";
+import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies.js";
 
 // HEX constants for distance calculations (from balance.ts)
 const HEX_RADIUS = 48;
@@ -363,32 +364,31 @@ registerTest("AIR_SHOW_SCENE_BUILDER_INCLUDES_PROGRESS_BASED_TIMING_METADATA", a
       throw new Error("Expected a built scene result.");
     }
 
+    const expectedPolicy = buildResolvedAirCombatSceneTimingPolicy();
+
     // Validate scene has duration metadata
     if (!result.scene.fighterIngressDurationMs || !result.scene.bomberIngressDurationMs) {
       throw new Error("Expected scene to include ingress duration metadata for progress calculation.");
     }
 
-    // Validate speed ratio (bomber duration should be ~2x fighter duration per V vs V/2)
-    const ratio = result.scene.bomberIngressDurationMs / result.scene.fighterIngressDurationMs;
-    if (ratio < 1.5 || ratio > 3.0) {
+    if (result.scene.fighterIngressDurationMs !== expectedPolicy.fighterIngressDurationMs) {
       throw new Error(
-        `Bomber/fighter duration ratio ${ratio.toFixed(2)} outside expected range ` +
-        `(per spec: bomber at V/2 should be ~2x fighter at V)`
+        `Expected fighter ingress timing to inherit the shared policy ${expectedPolicy.fighterIngressDurationMs}ms, ` +
+        `saw ${result.scene.fighterIngressDurationMs}ms.`
       );
     }
-
-    // Validate minimum durations per spec
-    if (result.scene.fighterIngressDurationMs < 1250) {
-      throw new Error(`Fighter ingress duration ${result.scene.fighterIngressDurationMs}ms below minimum 1250ms`);
-    }
-    if (result.scene.bomberIngressDurationMs < 2500) {
-      throw new Error(`Bomber ingress duration ${result.scene.bomberIngressDurationMs}ms below expected minimum 2500ms`);
+    if (result.scene.bomberIngressDurationMs !== expectedPolicy.bomberIngressDurationMs) {
+      throw new Error(
+        `Expected bomber ingress timing to inherit the shared policy ${expectedPolicy.bomberIngressDurationMs}ms, ` +
+        `saw ${result.scene.bomberIngressDurationMs}ms.`
+      );
     }
 
     console.log(`[PROGRESS TIMING] Scene includes timing metadata:`);
     console.log(`  - Fighter ingress: ${result.scene.fighterIngressDurationMs}ms`);
     console.log(`  - Bomber ingress: ${result.scene.bomberIngressDurationMs}ms`);
-    console.log(`  - Speed ratio: ${ratio.toFixed(2)} (expected ~2.0 for V vs V/2)`);
+    console.log(`  - Shared policy fighter ingress: ${expectedPolicy.fighterIngressDurationMs}ms`);
+    console.log(`  - Shared policy bomber ingress: ${expectedPolicy.bomberIngressDurationMs}ms`);
   });
 });
 

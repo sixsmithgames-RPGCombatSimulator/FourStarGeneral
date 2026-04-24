@@ -10,7 +10,7 @@
  */
 import { registerTest } from "./harness.js";
 import { runAirScenario } from "./airScenarioSupport.js";
-import { buildCoordinatedAirClusterTimingPolicy } from "../src/ui/airshow/AirShowPlaybackPolicy.js";
+import { buildCoordinatedAirClusterTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies.js";
 import { AIR_SHOW_BOMBER_SPEED_PX_PER_MS, AIR_SHOW_EXPECTED_SPEED_RATIO, AIR_SHOW_FIGHTER_SPEED_PX_PER_MS, calculatePathLength, getAuthoritativeContestedInspection, getAuthoritativeContestedPackagePhases, getAuthoritativeContestedPlan } from "./airShowTestSupport.js";
 const PRE_TARGET_BOMBER_PHASES = new Set([
     "bomber-ingress",

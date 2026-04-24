@@ -252,10 +252,12 @@ registerTest("AIR_SHOW_FIGHTER_EGRESS_AT_PROGRESS_0_80_PLUS", async ({ Given, Wh
         if (!egressPhase) {
             throw new Error("Expected egress phase per spec.");
         }
-        // Validate egress has fighter assignments (CAP and/or escorts)
         const fighterAssignments = egressPhase.assignments.filter(a => a.role === "interceptor" || a.role === "escort");
-        console.log(`[FIGHTER EGRESS] ${fighterAssignments.length} fighter actors in egress phase`);
-        console.log(`  - Egress trigger at progress >= 0.80: validated via phase structure`);
+        if (fighterAssignments.length === 0) {
+            throw new Error("Expected fighter assignments on egress to represent coordinated fighter return.");
+        }
+        console.log(`[FIGHTER EGRESS] ${fighterAssignments.length} fighter actors continue through governed egress`);
+        console.log(`  - Egress trigger at progress >= 0.80: validated via dedicated egress phase structure`);
     });
 });
 registerTest("AIR_SHOW_BOMB_RELEASE_AT_TURN_PROGRESS_0_50", async ({ Given, When, Then }) => {

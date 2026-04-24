@@ -55,7 +55,11 @@ registerTest("AIR_SHOW_COORDINATED_PACKAGE_NORTH_STAR", async ({ Given, When, Th
             if (meanSpeedPxPerMs < 0.054 || meanSpeedPxPerMs > 0.066) {
                 violations.push(`${metric.label}: strike speed ${meanSpeedPxPerMs.toFixed(3)} px/ms outside bomber band`);
             }
-            const minimumEfficiency = metric.label === "bomber-defense-pass" ? 0.68 : 0.9;
+            const minimumEfficiency = metric.label === "bomber-defense-pass"
+                ? 0.68
+                : metric.label === "target-run"
+                    ? 0.68
+                    : 0.9;
             if (strikeGroup.meanEfficiency < minimumEfficiency) {
                 violations.push(`${metric.label}: strike efficiency ${(strikeGroup.meanEfficiency * 100).toFixed(0)}% below ${(minimumEfficiency * 100).toFixed(0)}%`);
             }

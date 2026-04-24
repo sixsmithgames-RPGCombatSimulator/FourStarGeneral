@@ -5,7 +5,6 @@ export const AIR_SHOW_FIGHTER_CLASH_START_PROGRESS = 0.2;
 const AIR_SHOW_SEQUENCE_TIME_SCALE = 3;
 const AIR_SHOW_BOMBER_SPEED_MULTIPLIER = 0.8;
 const AIR_SHOW_FIGHTER_SPEED_MULTIPLIER = 1.85;
-const AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS = 1280;
 export function scaleAirShowSequenceMs(durationMs) {
     return Math.max(1, Math.round(durationMs * AIR_SHOW_SEQUENCE_TIME_SCALE));
 }
@@ -33,25 +32,4 @@ export function resolveFighterSortieEgressDurationMs() {
 }
 export function resolveAirInterceptBomberArrivalDelayMs() {
     return Math.max(0, resolveBomberInterceptIngressDurationMs() - resolveFighterInterceptIngressDurationMs());
-}
-export function buildResolvedAirCombatSceneTimingPolicy(baseBomberArrivalDelayMs = resolveAirInterceptBomberArrivalDelayMs()) {
-    const escortClashDurationMs = scaleAirShowSequenceMs(Math.round(AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS * 1.24));
-    return {
-        fighterIngressDurationMs: Math.round(resolveFighterInterceptIngressDurationMs() * 1.44),
-        escortClashDurationMs,
-        bomberIngressDurationMs: Math.round(resolveBomberInterceptIngressDurationMs() * 5.2),
-        bomberPassDurationMs: scaleAirShowSequenceMs(Math.round(AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS * 2.18)),
-        strikeRunDurationMs: scaleAirShowSequenceMs(5120),
-        egressDurationMs: scaleAirShowSequenceMs(920),
-        bomberArrivalDelayMs: Math.max(0, Math.round(baseBomberArrivalDelayMs)) + escortClashDurationMs + scaleAirShowSequenceMs(260),
-        bombReleaseProgress: 0.91
-    };
-}
-export function buildCoordinatedAirClusterTimingPolicy() {
-    return {
-        fighterIngressDurationMs: Math.round(resolveFighterInterceptIngressDurationMs() * 0.96),
-        escortClashDurationMs: scaleAirShowSequenceMs(Math.round(AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS * 1.24)),
-        fighterEgressDurationMs: scaleAirShowSequenceMs(920),
-        bomberStartDelayMs: scaleAirShowSequenceMs(880)
-    };
 }

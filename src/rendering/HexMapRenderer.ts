@@ -14,18 +14,13 @@ import type { WeaponSoundClass } from "../audio/SoundAssetMetadata";
 import { sampleAirShowWaypointPath } from "../ui/airshow/AirShowPathMath";
 import {
   AIR_SHOW_OFF_MAP_DISTANCE_PX,
-  buildAirShowInspectionOriginPlan,
   buildAirShowMapBounds,
-  buildAirShowPhaseTimingAudit,
   resolveAirShowFallbackOrigin,
   resolveAirShowBoundsRayIntersection,
   resolveAirShowHqAxis,
   type AirShowHqAxis,
-  type AirShowInspectionOriginPlan,
-  type AirShowInspectionPhaseTimingAudit,
   type AirShowInspectionPhaseTimingRoleAudit,
-  type AirShowMapBounds,
-  type AirShowPhaseTimingSample
+  type AirShowMapBounds
 } from "../ui/airshow/AirShowPlanner";
 import {
   AIR_SHOW_ESCORT_ACCELERATION_PROGRESS,
@@ -33,6 +28,13 @@ import {
   AIR_SHOW_BOMBER_SPEED_PX_PER_MS as AIR_SHOW_POLICY_BOMBER_SPEED_PX_PER_MS,
   AIR_SHOW_FIGHTER_SPEED_PX_PER_MS as AIR_SHOW_POLICY_FIGHTER_SPEED_PX_PER_MS
 } from "../ui/airshow/AirShowPlaybackPolicy";
+import {
+  planResolvedAirCombatShowScene,
+  type AirShowPlannerActor,
+  type AirShowPlannerFlight,
+  type PlanResolvedAirCombatShowHost
+} from "../ui/airshow/AirShowPlaybackPlanner";
+import { resolveResolvedAirShowBombers } from "../ui/airshow/AirShowPlaybackScene";
 import type {
   AirShowInspectionAssignment,
   AirShowInspectionFlakBurst,
@@ -44,6 +46,9 @@ import type {
   AirShowInspectionSampledPosition,
   AirShowInspectionTracer,
   AirShowPoint,
+  PlannedAirShowFlight,
+  PlannedAirShowPhase,
+  PlannedAirShowScene,
   ResolvedAirShowExchange,
   ResolvedAirShowFlightSpec,
   ResolvedAirShowFlakBurst,
@@ -235,6 +240,7 @@ type AirShowContestedBomberPhaseLabel =
 type AirShowPhaseOptions = {
   easing?: "easeInOut" | "linear";
   sceneActors?: ReadonlyArray<AirShowRuntimeActor>;
+  visibleActorIds?: ReadonlyArray<string>;
 };
 type AirShowTracerBurst = {
   progress: number;
@@ -1097,1356 +1103,122 @@ export class HexMapRenderer implements IMapRenderer {
     return this.planResolvedAirCombatShow(scene);
   }
 
-  private planResolvedAirCombatShow(scene: ResolvedAirShowScene): AirShowInspectionReport | null {
+  private planResolvedAirCombatShow(scene: ResolvedAirShowScene): PlannedAirShowScene | null {
     if (!this.svgElement) {
       return null;
     }
 
-    const layer = this.ensureCombatEffectsLayer();
-    const center = this.resolveHexCenterByKey(scene.hexKey);
-    if (!layer || !center) {
-      return null;
-    }
+    return planResolvedAirCombatShowScene(this.createResolvedAirCombatShowPlannerHost(), scene);
+  }
 
-    const hqAxis = this.resolveHqAxis(scene.playerHqKey, scene.botHqKey);
-    const mapBounds = hqAxis?.mapBounds ?? this.resolveAirShowMapBounds();
-    const fallbackOriginFor = (spec: ResolvedAirShowFlightSpec): AirShowPoint =>
-      spec.faction === "Bot"
-        ? (hqAxis?.botOrigin ?? resolveAirShowFallbackOrigin(center, "Bot", mapBounds, { offsetPx: HexMapRenderer.OFF_MAP_DISTANCE_PX, hexHeight: HEX_HEIGHT }))
-        : (hqAxis?.playerOrigin ?? resolveAirShowFallbackOrigin(center, spec.faction, mapBounds, { offsetPx: HexMapRenderer.OFF_MAP_DISTANCE_PX, hexHeight: HEX_HEIGHT }));
-
-    const defaultHeadingFor = (origin: AirShowPoint): number =>
-      this.resolveAircraftHeadingDegrees(center.cx - origin.cx, center.cy - origin.cy);
-
-    const interceptorFlights = scene.interceptors
-      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
-      .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
-    const escortFlights = scene.escorts
-      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
-      .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
-    const bomberSpecs = this.resolveSceneBomberSpecs(scene);
-    const bomberSpecsById = new Map(bomberSpecs.map((spec) => [spec.id, spec] as const));
-    const bomberFlights = bomberSpecs
-      .map((spec) => this.buildAirShowRuntimeFlight(layer, spec, fallbackOriginFor(spec), defaultHeadingFor(fallbackOriginFor(spec))))
-      .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
-
-    const allFlights = [...interceptorFlights, ...escortFlights, ...bomberFlights];
-    if (allFlights.length === 0) {
-      return null;
-    }
-
-    const flightMap = new Map(allFlights.map((flight) => [flight.spec.id, flight] as const));
-    const sceneActors = allFlights.flatMap((flight) => flight.actors);
-    const sceneSeed = this.seedFromHexKey(
-      `${scene.hexKey}:airshow:${scene.interceptors.length}:${scene.escorts.length}:${bomberSpecs.map((spec) => spec.id).join(",") || "none"}`
-    );
-    const stageRandom = (label: string): (() => number) =>
-      this.seededRandom(this.seedFromHexKey(`${sceneSeed}:${label}`));
-    const bomberTargetCentersById = new Map(
-      bomberSpecs
-        .map((spec) => [spec.id, this.resolveAirShowBomberTargetCenter(spec, scene)] as const)
-        .filter((entry): entry is readonly [string, AirShowPoint] => !!entry[1])
-    );
-    const averageBomberAnchor =
-      this.averageAirShowPoints(
-        bomberFlights.map((flight) => this.averageAirShowPosition(flight.actors) ?? flight.anchor)
-      ) ?? null;
-    const averageBomberTargetCenter =
-      this.averageAirShowPoints(Array.from(bomberTargetCentersById.values())) ?? null;
-    const corridor = this.resolveAirShowCorridor(
-      center,
-      averageBomberAnchor,
-      averageBomberTargetCenter,
-      hqAxis
-    );
-    this.normalizeAirShowSceneFlightAnchors(
-      corridor,
-      scene.kind,
-      interceptorFlights,
-      escortFlights,
-      bomberFlights,
-      hqAxis
-    );
-    const initialBomberApproachProfilesById = this.resolveAirShowBomberApproachProfiles(
-      bomberFlights,
-      corridor,
-      bomberTargetCentersById,
-      averageBomberTargetCenter,
-      stageRandom
-    );
-    const fighterIngressSeedDurationMs = this.clamp(Math.round(scene.fighterIngressDurationMs ?? 2520), 1250, 13250);
-    const egressHeadingByFlightId = new Map<string, number>();
-    let previousEgressAssignments: AirShowPhaseAssignment[] = [];
-    let previousEgressDurationMs = 0;
-    const corridorPoint = (alongPx: number, lateralPx = 0): AirShowPoint =>
-      this.projectAirShowCorridorPoint(corridor, alongPx, lateralPx);
-    const updateFlightAnchors = (flights: ReadonlyArray<AirShowRuntimeFlightInternal>): void => {
-      flights.forEach((flight) => {
-        flight.anchor = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
-      });
+  private createResolvedAirCombatShowPlannerHost(): PlanResolvedAirCombatShowHost {
+    const bind = <T extends (...args: any[]) => any>(fn: T): T => fn.bind(this) as T;
+    return {
+      offMapDistancePx: HexMapRenderer.OFF_MAP_DISTANCE_PX,
+      airShowFighterSpeedPxPerMs: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
+      airShowBomberSpeedPxPerMs: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
+      resolveHexCenterByKey: bind(this.resolveHexCenterByKey),
+      resolveHqAxis: bind(this.resolveHqAxis),
+      resolveAirShowMapBounds: bind(this.resolveAirShowMapBounds),
+      resolveAircraftHeadingDegrees: bind(this.resolveAircraftHeadingDegrees),
+      buildAirShowPlannedFlight: bind(this.buildAirShowPlannedFlight),
+      resolveSceneBomberSpecs: bind(this.resolveSceneBomberSpecs),
+      seedFromHexKey: bind(this.seedFromHexKey),
+      seededRandom: bind(this.seededRandom),
+      resolveAirShowBomberTargetCenter: bind(this.resolveAirShowBomberTargetCenter),
+      averageAirShowPoints: bind(this.averageAirShowPoints),
+      averageAirShowPosition: bind(this.averageAirShowPosition),
+      resolveAirShowCorridor: bind(this.resolveAirShowCorridor),
+      normalizeAirShowSceneFlightAnchors: bind(this.normalizeAirShowSceneFlightAnchors),
+      resolveAirShowBomberApproachProfiles: bind(this.resolveAirShowBomberApproachProfiles),
+      clamp: bind(this.clamp),
+      projectAirShowCorridorPoint: bind(this.projectAirShowCorridorPoint),
+      buildAirShowAssignmentLookup: bind(this.buildAirShowAssignmentLookup),
+      sampleAirShowAssignmentAtTime: bind(this.sampleAirShowAssignmentAtTime),
+      shouldRenderAirShowTracerBurst: bind(this.shouldRenderAirShowTracerBurst),
+      resolveAirShowTracerBurstGeometry: bind(this.resolveAirShowTracerBurstGeometry),
+      resolveAirShowFlakBurstWave: bind(this.resolveAirShowFlakBurstWave),
+      resolveAirShowAssignmentTraversedPathLengthPx: bind(this.resolveAirShowAssignmentTraversedPathLengthPx),
+      resolveAirShowAssignmentActiveDurationMs: bind(this.resolveAirShowAssignmentActiveDurationMs),
+      applyPlannedAirShowAssignments: bind(this.applyPlannedAirShowAssignments),
+      buildContestedFighterIngressPlan: bind(this.buildContestedFighterIngressPlan),
+      resolveAirShowContestedBomberPhaseDurations: bind(this.resolveAirShowContestedBomberPhaseDurations),
+      retimeContestedFighterIngressPlan: bind(this.retimeContestedFighterIngressPlan),
+      buildContestedBomberMasterPaths: bind(this.buildContestedBomberMasterPaths),
+      buildContestedBomberPhaseSliceAssignments: bind(this.buildContestedBomberPhaseSliceAssignments),
+      extendAirShowPhaseAssignmentsForSpeed: bind(this.extendAirShowPhaseAssignmentsForSpeed),
+      prepareAirShowPhaseAssignments: bind(this.prepareAirShowPhaseAssignments),
+      resolveAirShowEscortClashCenter: bind(this.resolveAirShowEscortClashCenter),
+      resolveAirShowEscortClashFocusPoint: bind(this.resolveAirShowEscortClashFocusPoint),
+      buildAirShowMergePassPath: bind(this.buildAirShowMergePassPath),
+      buildAirShowPursuitPath: bind(this.buildAirShowPursuitPath),
+      buildAirShowFlightAssignments: bind(this.buildAirShowFlightAssignments),
+      buildAirShowDynamicTracerVolley: bind(this.buildAirShowDynamicTracerVolley),
+      buildAirShowTracerVolley: bind(this.buildAirShowTracerVolley),
+      buildAirShowBandAssignments: bind(this.buildAirShowBandAssignments),
+      buildAirShowBreakTurnPath: bind(this.buildAirShowBreakTurnPath),
+      shapeCompactAirShowMergeAssignments: bind(this.shapeCompactAirShowMergeAssignments),
+      syncAirShowFlightStrengthForInspection: bind(this.syncAirShowFlightStrengthForInspection),
+      resolveAirShowBomberDefensePassAttackEntries: bind(this.resolveAirShowBomberDefensePassAttackEntries),
+      buildAirShowBomberDefensePassTracerBursts: bind(this.buildAirShowBomberDefensePassTracerBursts),
+      buildAirShowTargetRunEscortPath: bind(this.buildAirShowTargetRunEscortPath),
+      resolveAirShowBomberFlakBursts: bind(this.resolveAirShowBomberFlakBursts),
+      resolveAirShowRoleSpeedMap: bind(this.resolveAirShowRoleSpeedMap),
+      resolveAirShowPhaseDurationFromRoleSpeeds: bind(this.resolveAirShowPhaseDurationFromRoleSpeeds),
+      finalizeAirShowPhaseAssignments: bind(this.finalizeAirShowPhaseAssignments),
+      collectAirShowFlightTailHeadings: bind(this.collectAirShowFlightTailHeadings),
+      resolveAirShowVisibleBounds: bind(this.resolveAirShowVisibleBounds),
+      resolveAirShowCorridorCoordinates: bind(this.resolveAirShowCorridorCoordinates),
+      offsetAirShowPoint: bind(this.offsetAirShowPoint),
+      resolveAirShowFlightHeadingDegrees: bind(this.resolveAirShowFlightHeadingDegrees),
+      buildAirShowDisengagePath: bind(this.buildAirShowDisengagePath),
+      resolveAirShowRouteSideSign: bind(this.resolveAirShowRouteSideSign),
+      buildAirShowBomberInterceptPassPath: bind(this.buildAirShowBomberInterceptPassPath),
+      buildAirShowBomberTargetRunPath: bind(this.buildAirShowBomberTargetRunPath),
+      buildAirShowCurvedPath: bind(this.buildAirShowCurvedPath),
+      buildAirShowScreenRunPath: bind(this.buildAirShowScreenRunPath),
+      resolveAirShowBomberPassEntries: bind(this.resolveAirShowBomberPassEntries),
+      resolveAirShowCorridorSideSign: bind(this.resolveAirShowCorridorSideSign),
+      sanitizeAirShowEntryPath: bind(this.sanitizeAirShowEntryPath)
     };
-    const activeFlights = (flights: ReadonlyArray<AirShowRuntimeFlightInternal>): AirShowRuntimeFlightInternal[] =>
-      flights.filter((flight) => flight.actors.some((actor) => actor.active));
-    const phases: AirShowInspectionPhase[] = [];
-    const phaseTimingAudit: AirShowInspectionPhaseTimingAudit[] = [];
-    let previousPhaseAssignments: AirShowPhaseAssignment[] = [];
-    let previousPhaseDurationMs = 0;
-    const recordPhase = (
-      label: string,
-      assignments: ReadonlyArray<AirShowPhaseAssignment>,
-      durationMs: number,
-      tracerBursts: ReadonlyArray<AirShowTracerBurst> = [],
-      flakBursts: ReadonlyArray<NonNullable<ResolvedAirShowScene["flakBursts"]>[number]> = [],
-      roleTargetSpeeds: ReadonlyMap<AirShowRuntimeActor["role"], number> = this.resolveAirShowRoleSpeedMap()
-    ): void => {
-      const assignmentsByActorId = this.buildAirShowAssignmentLookup(assignments);
-      phases.push({
-        label,
-        durationMs,
-        assignments: assignments.map((assignment) => {
-          const sampledPositions: AirShowInspectionSampledPosition[] = [];
-          const sampleCount = Math.max(4, Math.ceil(durationMs / 250));
-          for (let i = 0; i <= sampleCount; i += 1) {
-            const progress = i / sampleCount;
-            const timeMs = Math.round(progress * durationMs);
-            const sample = this.sampleAirShowAssignmentAtTime(assignment, timeMs, durationMs);
-            sampledPositions.push({
-              timeMs,
-              progress,
-              pathProgress: sample.pathProgress,
-              cx: Math.round(sample.position.cx * 10) / 10,
-              cy: Math.round(sample.position.cy * 10) / 10,
-              headingDegrees: Math.round(sample.headingDegrees * 10) / 10
-            });
-          }
-          return {
-            actorId: assignment.actor.id,
-            flightId: assignment.actor.flightId,
-            role: assignment.actor.role,
-            points: assignment.points.map((point) => ({ cx: point.cx, cy: point.cy })),
-            sampledPositions
-          };
-        }),
-        tracers: tracerBursts.flatMap<AirShowInspectionPhase["tracers"][number]>((burst) => {
-          const sourceAssignment = assignmentsByActorId.get(burst.source.id);
-          const sampledSource = sourceAssignment
-            ? this.sampleAirShowAssignmentAtTime(sourceAssignment, burst.progress * durationMs, durationMs)
-            : {
-                position: burst.source.position,
-                headingDegrees: burst.source.headingDegrees,
-                size: burst.source.size,
-                pathProgress: burst.progress
-              };
-          const targetAssignment =
-            "image" in burst.target
-              ? assignmentsByActorId.get((burst.target as AirShowRuntimeActor).id)
-              : undefined;
-          const sampledTargetPoint =
-            "image" in burst.target
-                ? (targetAssignment
-                  ? this.sampleAirShowAssignmentAtTime(targetAssignment, burst.progress * durationMs, durationMs).position
-                  : (burst.target as AirShowRuntimeActor).position)
-              : (burst.target as AirShowPoint);
-          if (
-            sampledTargetPoint
-            && !this.shouldRenderAirShowTracerBurst(sampledSource, sampledTargetPoint, burst)
-          ) {
-            return [];
-          }
-          const geometry = this.resolveAirShowTracerBurstGeometry(sampledSource, burst, sampledTargetPoint);
-          return [{
-            progress: burst.progress,
-            sourceActorId: burst.source.id,
-            targetActorId: "image" in burst.target ? (burst.target as AirShowRuntimeActor).id : undefined,
-            targetPoint: sampledTargetPoint ? { cx: sampledTargetPoint.cx, cy: sampledTargetPoint.cy } : undefined,
-            emitter: burst.emitter,
-            emitterPoint: { cx: geometry.emitterPoint.cx, cy: geometry.emitterPoint.cy },
-            sourceHeadingDegrees: geometry.sourceHeadingDegrees,
-            width: burst.width,
-            lifetimeMs: burst.lifetimeMs,
-            streakLengthPx: geometry.streakLengthPx,
-            visibleLengthPx: geometry.visibleLengthPx,
-            fanHalfAngleDeg: geometry.fanHalfAngleDeg,
-            centerlineEndPoint: {
-              cx: geometry.centerlineEndPoint.cx,
-              cy: geometry.centerlineEndPoint.cy
-            },
-            leftFanEndPoint: geometry.leftFanEndPoint
-              ? { cx: geometry.leftFanEndPoint.cx, cy: geometry.leftFanEndPoint.cy }
-              : undefined,
-            rightFanEndPoint: geometry.rightFanEndPoint
-              ? { cx: geometry.rightFanEndPoint.cx, cy: geometry.rightFanEndPoint.cy }
-              : undefined
-          }];
-        }),
-        flakBursts: flakBursts.map((burst) => {
-          const targetHexCenter = burst.targetHexKey ? this.resolveHexCenterByKey(burst.targetHexKey) : null;
-          const bomberTargetCenter = burst.bomberUnitKey ? bomberTargetCentersById.get(burst.bomberUnitKey) ?? null : null;
-          const targetSource: AirShowInspectionFlakBurst["targetSource"] =
-            targetHexCenter
-              ? "targetHex"
-              : bomberTargetCenter
-                ? "bomberTarget"
-                : averageBomberTargetCenter
-                  ? "averageBomberTarget"
-                  : "corridorStrike";
-          const scopedTargetCenter =
-            targetHexCenter
-            ?? bomberTargetCenter
-            ?? averageBomberTargetCenter
-            ?? corridor.strike;
-          const wave = this.resolveAirShowFlakBurstWave(corridor, scopedTargetCenter, burst);
-          const xs = wave.points.map((point) => point.cx);
-          const ys = wave.points.map((point) => point.cy);
-          return {
-            progress: burst.progress,
-            bomberUnitKey: burst.bomberUnitKey ?? null,
-            targetHexKey: burst.targetHexKey ?? null,
-            targetCenter: { cx: scopedTargetCenter.cx, cy: scopedTargetCenter.cy },
-            targetSource,
-            burstCenter: { cx: wave.center.cx, cy: wave.center.cy },
-            flashCount: wave.flashCount,
-            puffCount: wave.puffCount,
-            smokePuffCount: wave.smokePuffCount,
-            widthPx: xs.length > 0 ? Math.max(...xs) - Math.min(...xs) : 0,
-            heightPx: ys.length > 0 ? Math.max(...ys) - Math.min(...ys) : 0,
-            points: wave.points.map((point) => ({ cx: point.cx, cy: point.cy }))
-          };
-        })
-      });
-      phaseTimingAudit.push(
-        buildAirShowPhaseTimingAudit(
-          label,
-          durationMs,
-          assignments.map((assignment) => ({
-            role: assignment.actor.role,
-            pathLengthPx: this.resolveAirShowAssignmentTraversedPathLengthPx(assignment, durationMs),
-            activeDurationMs: this.resolveAirShowAssignmentActiveDurationMs(assignment, durationMs)
-          })) satisfies ReadonlyArray<AirShowPhaseTimingSample>,
-          roleTargetSpeeds
-        )
-      );
-      this.applyInspectionAirShowAssignments(assignments, durationMs);
+  }
+
+  private applyPlannedAirShowAssignments(
+    assignments: ReadonlyArray<AirShowPhaseAssignment>,
+    durationMs: number
+  ): void {
+    this.applyInspectionAirShowAssignments(assignments, durationMs);
+  }
+
+  private describePlannedAirShowFlight(flight: AirShowPlannerFlight): PlannedAirShowFlight {
+    return {
+      id: flight.spec.id,
+      role: flight.spec.role,
+      combatRole: flight.spec.combatRole,
+      faction: flight.spec.faction,
+      scenarioType: flight.spec.scenarioType,
+      originHexKey: flight.spec.originHexKey,
+      strengthBefore: flight.spec.strengthBefore,
+      strengthAfterEscortPhase: flight.spec.strengthAfterEscortPhase,
+      finalStrength: flight.spec.finalStrength,
+      laneOffsetPx: flight.spec.laneOffsetPx,
+      actors: flight.actors.map((actor) => ({
+        actorId: actor.id,
+        flightId: actor.flightId,
+        role: actor.role,
+        active: actor.active,
+        headingDegrees: actor.headingDegrees,
+        position: { cx: actor.position.cx, cy: actor.position.cy },
+        size: actor.size,
+        formationIndex: actor.formationIndex,
+        biasX: actor.biasX,
+        biasY: actor.biasY
+      }))
     };
-
-    try {
-      const hasFighterIngressParticipants = interceptorFlights.length > 0 || escortFlights.length > 0;
-      const fighterIngressPlan = hasFighterIngressParticipants
-        ? this.buildContestedFighterIngressPlan(
-            scene,
-            corridor,
-            interceptorFlights,
-            escortFlights,
-            fighterIngressSeedDurationMs,
-            stageRandom
-          )
-        : null;
-      const contestedBomberPhaseDurations = this.resolveAirShowContestedBomberPhaseDurations(
-        bomberFlights,
-        corridor,
-        initialBomberApproachProfilesById,
-        scene,
-        stageRandom,
-        fighterIngressPlan?.durationMs
-      );
-      const governedFighterIngressPlan = fighterIngressPlan
-        ? this.retimeContestedFighterIngressPlan(
-            fighterIngressPlan,
-            contestedBomberPhaseDurations.fighterIngressDurationMs
-          )
-        : null;
-      const plannedEscortMergeDurationMs = contestedBomberPhaseDurations.escortMergeDurationMs;
-      const plannedEscortScrambleDurationMs = contestedBomberPhaseDurations.escortScrambleDurationMs;
-      const plannedBomberIngressDurationMs = contestedBomberPhaseDurations.bomberIngressDurationMs;
-      const plannedBomberDefenseDurationMs = contestedBomberPhaseDurations.bomberDefenseDurationMs;
-      const contestedBomberMasterPaths = this.buildContestedBomberMasterPaths(
-        bomberFlights,
-        corridor,
-        initialBomberApproachProfilesById,
-        stageRandom
-      );
-
-      if (governedFighterIngressPlan) {
-        const extendedFighterIngressAssignments = this.extendAirShowPhaseAssignmentsForSpeed(
-          [
-            ...governedFighterIngressPlan.assignments,
-            ...this.buildContestedBomberPhaseSliceAssignments(
-              bomberFlights,
-              contestedBomberMasterPaths,
-              contestedBomberPhaseDurations,
-              "fighter-ingress"
-            )
-          ],
-          governedFighterIngressPlan.durationMs,
-          governedFighterIngressPlan.roleSpeeds,
-          {
-            clampCenter: corridor.center,
-            orbitSignByRole: {
-              interceptor: -1,
-              escort: 1
-            },
-            extendAt: "end"
-          }
-        );
-        const preparedFighterIngressAssignments = this.prepareAirShowPhaseAssignments(
-          extendedFighterIngressAssignments,
-          governedFighterIngressPlan.durationMs,
-          governedFighterIngressPlan.progressSamplePoints,
-          42,
-          governedFighterIngressPlan.roleSpeeds,
-          {
-            harmonizeIngressVisibility: true
-          }
-        );
-        recordPhase(
-          "fighter-ingress",
-          preparedFighterIngressAssignments,
-          governedFighterIngressPlan.durationMs,
-          [],
-          [],
-          governedFighterIngressPlan.roleSpeeds
-        );
-        previousPhaseAssignments = preparedFighterIngressAssignments;
-        previousPhaseDurationMs = governedFighterIngressPlan.durationMs;
-        updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
-      }
-
-      const escortExchanges = scene.escortExchanges ?? [];
-      if (escortExchanges.length > 0) {
-        type EscortPairData = {
-          exchange: (typeof escortExchanges)[number];
-          interceptorFlight: AirShowRuntimeFlightInternal;
-          escortFlight: AirShowRuntimeFlightInternal;
-          pairIndex: number;
-        };
-
-        const rawEscortPairs = escortExchanges
-          .map((exchange) => {
-            const interceptorFlight = flightMap.get(exchange.defenderUnitKey);
-            const escortFlight = flightMap.get(exchange.attackerUnitKey);
-            if (!interceptorFlight || !escortFlight) {
-              return null;
-            }
-            return { exchange, interceptorFlight, escortFlight };
-          })
-          .filter((entry): entry is {
-            exchange: (typeof escortExchanges)[number];
-            interceptorFlight: AirShowRuntimeFlightInternal;
-            escortFlight: AirShowRuntimeFlightInternal;
-          } => !!entry);
-        const uniqueEscortPairs = Array.from(
-          new Map(
-            rawEscortPairs.map((entry) => [
-              `${entry.escortFlight.spec.id}:${entry.interceptorFlight.spec.id}`,
-              entry
-            ] as const)
-          ).values()
-        ).map((entry, pairIndex) => ({
-          ...entry,
-          pairIndex
-        } satisfies EscortPairData));
-
-        if (uniqueEscortPairs.length > 0) {
-          const escortBeatCount = 2;
-          for (let beat = 0; beat < escortBeatCount; beat += 1) {
-            const defaultEscortBeatDurationMs = beat === 0 ? plannedEscortMergeDurationMs : plannedEscortScrambleDurationMs;
-            const phaseAssignments: AirShowPhaseAssignment[] = [];
-            const tracerBursts: AirShowTracerBurst[] = [];
-            const activeInterceptorFlights = activeFlights(interceptorFlights);
-            const activeEscortFlights = activeFlights(escortFlights);
-            const clashCenter = this.resolveAirShowEscortClashCenter(
-              corridor,
-              activeInterceptorFlights,
-              activeEscortFlights,
-              beat
-            );
-
-            activeInterceptorFlights.forEach((flight, index) => {
-              const current = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
-              const laneIndex = index - (activeInterceptorFlights.length - 1) / 2;
-              const focusPoint = this.resolveAirShowEscortClashFocusPoint(
-                corridor,
-                "interceptor",
-                beat,
-                laneIndex,
-                clashCenter
-              );
-              const sideSign = this.resolveAirShowRouteSideSign(
-                current,
-                focusPoint,
-                this.resolveAirShowFlightHeadingDegrees(flight),
-                index <= (activeInterceptorFlights.length - 1) / 2 ? -1 : 1
-              );
-              const path = beat === 0
-                ? this.buildAirShowMergePassPath(current, focusPoint, corridor, {
-                    sideSign,
-                    laneIndex,
-                    startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight),
-                    entrySeparationPx: 104,
-                    crossSeparationPx: 12,
-                    overshootPx: 78
-                  })
-                : this.buildAirShowPursuitPath(current, focusPoint, {
-                    startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight),
-                    lateralSign: sideSign,
-                    entryLateralPx: 26,
-                    mergeLateralPx: 10,
-                    attackOffsetPx: laneIndex * 6,
-                    closeInPx: 4,
-                    overshootPx: 18,
-                    breakLateralPx: 20,
-                    breakForwardPx: 10
-                  });
-              phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.26, index, activeInterceptorFlights.length));
-            });
-
-            activeEscortFlights.forEach((flight, index) => {
-              const current = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
-              const laneIndex = index - (activeEscortFlights.length - 1) / 2;
-              const focusPoint = this.resolveAirShowEscortClashFocusPoint(
-                corridor,
-                "escort",
-                beat,
-                laneIndex,
-                clashCenter
-              );
-              const sideSign = this.resolveAirShowRouteSideSign(
-                current,
-                focusPoint,
-                this.resolveAirShowFlightHeadingDegrees(flight),
-                index >= (activeEscortFlights.length - 1) / 2 ? 1 : -1
-              );
-              const path = beat === 0
-                ? this.buildAirShowMergePassPath(current, focusPoint, corridor, {
-                    sideSign,
-                    laneIndex,
-                    startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight),
-                    entrySeparationPx: 98,
-                    crossSeparationPx: 10,
-                    overshootPx: 72
-                  })
-                : this.buildAirShowBreakTurnPath(current, focusPoint, {
-                    startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight),
-                    lateralSign: sideSign,
-                    entryLateralPx: 16,
-                    guardForwardPx: 8,
-                    guardLateralPx: 20,
-                    exitForwardPx: 24,
-                    exitLateralPx: 28,
-                    trailForwardPx: 10
-                  });
-              phaseAssignments.push(...this.buildAirShowFlightAssignments(flight, path, 0.24, index, activeEscortFlights.length));
-            });
-
-            const activeBomberFlights = activeFlights(bomberFlights);
-            const escortClashRoleSpeeds = this.resolveAirShowRoleSpeedMap({
-              interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-              escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-              bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
-            });
-            const escortBeatDurationMs = defaultEscortBeatDurationMs;
-            if (activeBomberFlights.length > 0) {
-              const bomberPhaseLabel: AirShowContestedBomberPhaseLabel =
-                beat === 0 ? "escort-clash-merge" : "escort-clash-scramble";
-              const bomberPhaseAssignments = this.buildContestedBomberPhaseSliceAssignments(
-                activeBomberFlights,
-                contestedBomberMasterPaths,
-                contestedBomberPhaseDurations,
-                bomberPhaseLabel
-              );
-              phaseAssignments.push(...bomberPhaseAssignments);
-            }
-            const extendedPhaseAssignments =
-              beat === 1
-                ? this.extendAirShowPhaseAssignmentsForSpeed(
-                    phaseAssignments,
-                    escortBeatDurationMs,
-                    escortClashRoleSpeeds,
-                    {
-                      clampCenter: corridor.center,
-                      orbitSignByRole: {
-                        interceptor: -1,
-                        escort: 1
-                      }
-                    }
-                  )
-                : phaseAssignments;
-            const resolvedPhaseAssignments = this.prepareAirShowPhaseAssignments(
-              extendedPhaseAssignments,
-              escortBeatDurationMs,
-              [0.3, 0.5, 0.7],
-              beat === 0 ? 54 : 48,
-              escortClashRoleSpeeds,
-              {
-                previousAssignments: previousPhaseAssignments,
-                previousDurationMs: previousPhaseDurationMs,
-                entryTurnLimitDeg: beat === 0 ? 100 : 108
-              }
-            );
-            const timedPhaseAssignments =
-              beat === 0
-                ? this.shapeCompactAirShowMergeAssignments(resolvedPhaseAssignments, escortBeatDurationMs)
-                : resolvedPhaseAssignments;
-            uniqueEscortPairs.forEach((pair) => {
-              const baseTimings = beat === 0
-                ? [0.42, 0.48, 0.54, 0.6, 0.66]
-                : [0.3, 0.38, 0.46, 0.54, 0.62, 0.7];
-              tracerBursts.push(
-                ...this.buildAirShowDynamicTracerVolley(
-                  timedPhaseAssignments,
-                  pair.interceptorFlight,
-                  pair.escortFlight,
-                  {
-                    emitter: "nose",
-                    color: "#fff5cf",
-                    width: 0.14,
-                    lifetimeMs: beat === 0 ? 24 : 22,
-                    spreadPx: 0,
-                    streakLengthPx: beat === 0 ? 760 : 700,
-                    visibleLengthPx: beat === 0 ? 32 : 26,
-                    fanHalfAngleDeg: 0,
-                    burstCount: baseTimings.length,
-                    maxAlignmentDeg: beat === 0 ? 24 : 36,
-                    maxRangePx: beat === 0 ? 160 : 220,
-                    timings: baseTimings,
-                    fallbackToNearest: true
-                  }
-                ),
-                ...this.buildAirShowDynamicTracerVolley(
-                  timedPhaseAssignments,
-                  pair.escortFlight,
-                  pair.interceptorFlight,
-                  {
-                    emitter: "nose",
-                    color: "#ffd98a",
-                    width: 0.14,
-                    lifetimeMs: beat === 0 ? 24 : 22,
-                    spreadPx: 0,
-                    streakLengthPx: beat === 0 ? 760 : 700,
-                    visibleLengthPx: beat === 0 ? 32 : 26,
-                    fanHalfAngleDeg: 0,
-                    burstCount: baseTimings.length,
-                    maxAlignmentDeg: beat === 0 ? 24 : 36,
-                    maxRangePx: beat === 0 ? 160 : 220,
-                    timings: baseTimings.map((timing) => Math.min(0.78, timing + 0.02)),
-                    fallbackToNearest: true
-                  }
-                )
-              );
-            });
-            recordPhase(
-              beat === 0 ? "escort-clash-merge" : "escort-clash-scramble",
-              timedPhaseAssignments,
-              escortBeatDurationMs,
-              tracerBursts,
-              [],
-              escortClashRoleSpeeds
-            );
-            previousPhaseAssignments = timedPhaseAssignments;
-            previousPhaseDurationMs = escortBeatDurationMs;
-            updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
-          }
-
-          interceptorFlights.forEach((flight) => this.syncAirShowFlightStrengthForInspection(
-            flight,
-            Math.max(0, flight.spec.strengthAfterEscortPhase ?? flight.currentStrength)
-          ));
-          escortFlights.forEach((flight) => this.syncAirShowFlightStrengthForInspection(
-            flight,
-            Math.max(0, flight.spec.strengthAfterEscortPhase ?? flight.currentStrength)
-          ));
-          updateFlightAnchors([...interceptorFlights, ...escortFlights, ...bomberFlights]);
-        }
-      } else if (interceptorFlights.length + escortFlights.length > 1 && bomberFlights.length === 0) {
-        // Only hold/drift when no bomber is present. If a bomber is approaching,
-        // skip straight to defense positioning to avoid "linger and drift" effect
-        // while the next bomber arrives.
-        const idleAssignments = [
-          ...this.buildAirShowBandAssignments(
-            activeFlights(interceptorFlights),
-            "escort-idle:interceptors",
-            corridor,
-            scene.kind,
-            stageRandom,
-            {
-              alongPx: -92,
-              lateralPx: -196,
-              alongStepPx: 28,
-              lateralStepPx: 42,
-              jitterAlongPx: 0,
-              jitterLateralPx: 0,
-              arcPx: 15,
-              driftPx: 18
-            }
-          ),
-          ...this.buildAirShowBandAssignments(
-            activeFlights(escortFlights),
-            "escort-idle:escorts",
-            corridor,
-            scene.kind,
-            stageRandom,
-            {
-              alongPx: 12,
-              lateralPx: 172,
-              alongStepPx: 24,
-              lateralStepPx: 38,
-              jitterAlongPx: 0,
-              jitterLateralPx: 0,
-              arcPx: 15,
-              driftPx: 18
-            }
-          )
-        ];
-        recordPhase(
-          "escort-hold",
-          idleAssignments,
-          Math.max(520, Math.round((scene.escortClashDurationMs ?? 1500) * 0.55)),
-          [],
-          [],
-          this.resolveAirShowRoleSpeedMap({
-            interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-            escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS
-          })
-        );
-        updateFlightAnchors([...interceptorFlights, ...escortFlights]);
-      }
-
-      const survivingInterceptors = activeFlights(interceptorFlights);
-      const survivingEscorts = activeFlights(escortFlights);
-      const survivingBombers = activeFlights(bomberFlights).filter(
-        (flight) => (flight.currentStrength ?? flight.spec.finalStrength ?? 0) > 0
-      );
-      const bomberApproachProfilesById = this.resolveAirShowBomberApproachProfiles(
-        survivingBombers,
-        corridor,
-        bomberTargetCentersById,
-        averageBomberTargetCenter,
-        stageRandom
-      );
-
-      // Inspection path: BomberGap suppressed when bombers are present (mirrors runtime fix).
-      if (
-        survivingBombers.length === 0
-        && (scene.bomberArrivalDelayMs ?? 0) > 0
-        && (scene.escortExchanges?.length ?? 0) > 0
-        && (survivingInterceptors.length > 0 || survivingEscorts.length > 0)
-      ) {
-        const bomberGapAssignments: AirShowPhaseAssignment[] = [
-          ...survivingInterceptors.flatMap((flight, index) =>
-            this.buildAirShowFlightAssignments(
-              flight,
-              this.buildAirShowScreenRunPath(
-                this.averageAirShowPosition(flight.actors) ?? flight.anchor,
-                corridor,
-                {
-                  endAlongPx: -96,
-                  baseLateralPx: -118,
-                  laneIndex: index - (survivingInterceptors.length - 1) / 2,
-                  sideSign: -1,
-                  alongStepPx: 16,
-                  lateralStepPx: 28,
-                  corridorWidthPx: 18,
-                  driftPx: 18,
-                  startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight)
-                }
-              ),
-              0.28,
-              index,
-              survivingInterceptors.length
-            )
-          ),
-          ...survivingEscorts.flatMap((flight, index) =>
-            this.buildAirShowFlightAssignments(
-              flight,
-              this.buildAirShowScreenRunPath(
-                this.averageAirShowPosition(flight.actors) ?? flight.anchor,
-                corridor,
-                {
-                  endAlongPx: -18,
-                  baseLateralPx: 132,
-                  laneIndex: index - (survivingEscorts.length - 1) / 2,
-                  sideSign: 1,
-                  alongStepPx: 18,
-                  lateralStepPx: 30,
-                  corridorWidthPx: 18,
-                  driftPx: 18,
-                  startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight)
-                }
-              ),
-              0.26,
-              index,
-              survivingEscorts.length
-            )
-          )
-        ];
-        recordPhase(
-          "bomber-gap",
-          bomberGapAssignments,
-          Math.max(180, scene.bomberArrivalDelayMs ?? 0),
-          [],
-          [],
-          this.resolveAirShowRoleSpeedMap({
-            interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-            escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS
-          })
-        );
-        updateFlightAnchors([...survivingInterceptors, ...survivingEscorts]);
-      }
-
-      if (survivingBombers.length > 0) {
-        const bomberIngressAssignments = this.buildContestedBomberPhaseSliceAssignments(
-          survivingBombers,
-          contestedBomberMasterPaths,
-          contestedBomberPhaseDurations,
-          "bomber-ingress"
-        );
-        const bomberIngressRoleSpeeds = this.resolveAirShowRoleSpeedMap({
-          bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
-        });
-        const bomberIngressDurationMs = plannedBomberIngressDurationMs;
-        const spacedBomberIngressAssignments = this.finalizeAirShowPhaseAssignments(
-          bomberIngressAssignments,
-          bomberIngressDurationMs,
-          [0.22, 0.5, 0.78, 0.94],
-          undefined,
-          bomberIngressRoleSpeeds
-        );
-        recordPhase(
-          "bomber-ingress",
-          spacedBomberIngressAssignments,
-          bomberIngressDurationMs,
-          [],
-          [],
-          bomberIngressRoleSpeeds
-        );
-        updateFlightAnchors([...survivingBombers, ...survivingInterceptors, ...survivingEscorts]);
-
-        const bomberPassEntriesByBomber = this.resolveAirShowBomberPassEntries(scene, flightMap);
-        const bomberAttackEntries = survivingBombers.flatMap((bomberFlight) =>
-          (bomberPassEntriesByBomber.get(bomberFlight.spec.id) ?? []).map((entry) => ({
-            ...entry,
-            bomberFlight
-          }))
-        );
-        if (bomberAttackEntries.length > 0 || survivingInterceptors.length > 0) {
-          const bomberDefenseAssignments = this.buildContestedBomberPhaseSliceAssignments(
-            survivingBombers,
-            contestedBomberMasterPaths,
-            contestedBomberPhaseDurations,
-            "bomber-defense-pass"
-          );
-          const bomberDefenseTargets = survivingBombers.map((bomberFlight, bomberIndex) => {
-            const laneIndex = survivingBombers.length <= 1 ? 0 : bomberIndex - (survivingBombers.length - 1) / 2;
-            const defenseAssignment = bomberDefenseAssignments.find(
-              (assignment) => assignment.actor.flightId === bomberFlight.spec.id
-            );
-            const defenseTarget =
-              defenseAssignment?.points[defenseAssignment.points.length - 1]
-              ?? (this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor);
-            return {
-              bomberFlight,
-              laneIndex,
-              defenseTarget
-            };
-          });
-          const averageDefenseAlongPx =
-            bomberDefenseTargets.reduce((sum, entry) => {
-              return sum + this.resolveAirShowCorridorCoordinates(corridor, entry.defenseTarget).alongPx;
-            }, 0) / Math.max(1, bomberDefenseTargets.length);
-          const passEnd = Math.round(averageDefenseAlongPx);
-          const passStart = passEnd - 128;
-          const phaseAssignments: AirShowPhaseAssignment[] = [...bomberDefenseAssignments];
-          const tracerBursts: AirShowTracerBurst[] = [];
-          const attackEntriesForShow = this.resolveAirShowBomberDefensePassAttackEntries(
-            bomberAttackEntries,
-            interceptorFlights,
-            survivingBombers
-          );
-
-          attackEntriesForShow.forEach((entry, attackIndex) => {
-            const interceptorCurrent = this.averageAirShowPosition(entry.interceptorFlight.actors) ?? entry.interceptorFlight.anchor;
-            const lane = attackEntriesForShow.length <= 1 ? 0 : attackIndex - (attackEntriesForShow.length - 1) / 2;
-            const bomberCurrent = this.averageAirShowPosition(entry.bomberFlight.actors) ?? entry.bomberFlight.anchor;
-            const bomberApproachProfile = bomberApproachProfilesById.get(entry.bomberFlight.spec.id);
-            const attackCorridor = this.resolveAirShowCorridor(
-              center,
-              bomberCurrent,
-              bomberApproachProfile?.targetCenter ?? corridor.strike
-            );
-            const attackPassEnd = Math.round(
-              this.resolveAirShowCorridorCoordinates(
-                attackCorridor,
-                bomberDefenseTargets.find((candidate) => candidate.bomberFlight.spec.id === entry.bomberFlight.spec.id)?.defenseTarget
-                  ?? bomberApproachProfile?.targetApproach
-                  ?? corridor.strike
-              ).alongPx
-            );
-            const attackPassStart = attackPassEnd - 116;
-            const direction = this.resolveAirShowCorridorSideSign(
-              interceptorCurrent,
-              attackCorridor,
-              attackIndex % 2 === 0 ? -1 : 1
-            );
-            const interceptorPath = this.buildAirShowBomberInterceptPassPath(interceptorCurrent, attackCorridor, {
-              passStartAlongPx: attackPassStart,
-              passEndAlongPx: attackPassEnd,
-              laneIndex: lane,
-              attackSideSign: direction,
-              startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(entry.interceptorFlight)
-            });
-            phaseAssignments.push(
-              ...this.buildAirShowFlightAssignments(
-                entry.interceptorFlight,
-                interceptorPath,
-                0.3,
-                attackIndex,
-                attackEntriesForShow.length
-              )
-            );
-          });
-
-          const engagedInterceptorIds = new Set(attackEntriesForShow.map((entry) => entry.interceptorFlight.spec.id));
-          const holdingInterceptors = activeFlights(interceptorFlights).filter((flight) => !engagedInterceptorIds.has(flight.spec.id));
-          phaseAssignments.push(
-            ...this.buildAirShowBandAssignments(
-              holdingInterceptors,
-              "bomber-stack:other-interceptors:0",
-              corridor,
-              scene.kind,
-              stageRandom,
-              {
-                alongPx: passStart - 28,
-                lateralPx: -156,
-                alongStepPx: 22,
-                lateralStepPx: 30,
-                jitterAlongPx: 0,
-                jitterLateralPx: 0,
-                arcPx: 12,
-                driftPx: 12
-              }
-            )
-          );
-          const activeScreeningEscorts = activeFlights(escortFlights);
-          phaseAssignments.push(
-            ...activeScreeningEscorts.flatMap((flight, escortIndex) =>
-              this.buildAirShowFlightAssignments(
-                flight,
-                this.sanitizeAirShowEntryPath(
-                  this.buildAirShowScreenRunPath(
-                    this.averageAirShowPosition(flight.actors) ?? flight.anchor,
-                    corridor,
-                    {
-                      endAlongPx: passEnd + 36,
-                      baseLateralPx: 108,
-                      laneIndex: escortIndex - (activeScreeningEscorts.length - 1) / 2,
-                      sideSign: 1,
-                      alongStepPx: 18,
-                      lateralStepPx: 26,
-                      corridorWidthPx: 14,
-                      driftPx: 12,
-                      startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight)
-                    }
-                  ),
-                  {
-                    maxTurnDeg: 42,
-                    strongTurnDeg: 86,
-                    maxFirstSegmentPx: 72,
-                    maxSharpTurnDeg: 116,
-                    maxWaypointsToRemove: 3
-                  }
-                ),
-                0.24,
-                escortIndex,
-                activeScreeningEscorts.length
-              )
-            )
-          );
-          const bomberDefenseRoleSpeeds = this.resolveAirShowRoleSpeedMap({
-            interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-            escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-            bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
-          });
-          const bomberPassBeatDurationMs = plannedBomberDefenseDurationMs;
-          const extendedBomberDefenseAssignments = this.extendAirShowPhaseAssignmentsForSpeed(
-            phaseAssignments,
-            bomberPassBeatDurationMs,
-            bomberDefenseRoleSpeeds,
-            {
-              clampCenter: corridor.center,
-              orbitSignByRole: {
-                interceptor: -1,
-                escort: 1
-              }
-            }
-          );
-          const spacedPhaseAssignments = this.finalizeAirShowPhaseAssignments(
-            extendedBomberDefenseAssignments,
-            bomberPassBeatDurationMs,
-            [0.04, 0.18, 0.36, 0.56, 0.76],
-            46,
-            bomberDefenseRoleSpeeds
-          );
-          attackEntriesForShow.forEach((entry) => {
-            tracerBursts.push(
-              ...this.buildAirShowBomberDefensePassTracerBursts(
-                spacedPhaseAssignments,
-                entry.interceptorFlight,
-                entry.bomberFlight
-              )
-            );
-          });
-          if (tracerBursts.length === 0) {
-            const fallbackAttackerFlight =
-              activeFlights(interceptorFlights)[0]
-              ?? activeFlights(escortFlights)[0]
-              ?? null;
-            const fallbackBomberFlight = survivingBombers[0] ?? null;
-            const fallbackInterceptor = fallbackAttackerFlight?.actors.find((actor) => actor.active) ?? null;
-            const fallbackBomber = fallbackBomberFlight?.actors.find((actor) => actor.active) ?? null;
-            if (fallbackAttackerFlight && fallbackBomberFlight) {
-              tracerBursts.push(
-                ...this.buildAirShowBomberDefensePassTracerBursts(
-                  spacedPhaseAssignments,
-                  fallbackAttackerFlight,
-                  fallbackBomberFlight,
-                  {
-                    attackTimings: [0.22, 0.3, 0.38, 0.46, 0.54, 0.62, 0.7, 0.78],
-                    defensiveTimings: [0.28, 0.4, 0.52, 0.64, 0.76],
-                    fallbackToNearest: true
-                  }
-                )
-              );
-            } else if (fallbackInterceptor && fallbackBomber) {
-              tracerBursts.push(
-                ...this.buildAirShowTracerVolley(fallbackInterceptor, fallbackBomber, {
-                  emitter: "nose",
-                  width: 0.18,
-                  lifetimeMs: 30,
-                  spreadPx: 0,
-                  streakLengthPx: 684,
-                  visibleLengthPx: 24,
-                  fanHalfAngleDeg: 0,
-                  burstCount: 5,
-                  timings: [0.34, 0.42, 0.5, 0.58, 0.66]
-                }),
-                ...this.buildAirShowTracerVolley(fallbackBomber, fallbackInterceptor, {
-                  emitter: "center",
-                  color: "#fff1c8",
-                  width: 0.17,
-                  lifetimeMs: 28,
-                  spreadPx: 0,
-                  streakLengthPx: 540,
-                  visibleLengthPx: 22,
-                  fanHalfAngleDeg: 0,
-                  burstCount: 4,
-                  timings: [0.4, 0.52, 0.64, 0.76]
-                })
-              );
-            }
-          }
-          recordPhase(
-            "bomber-defense-pass",
-            spacedPhaseAssignments,
-            bomberPassBeatDurationMs,
-            tracerBursts,
-            [],
-            bomberDefenseRoleSpeeds
-          );
-          updateFlightAnchors([...survivingBombers, ...interceptorFlights, ...escortFlights]);
-
-          survivingBombers.forEach((flight) =>
-            this.syncAirShowFlightStrengthForInspection(
-              flight,
-              Math.max(0, flight.spec.finalStrength ?? flight.currentStrength)
-            )
-          );
-          interceptorFlights.forEach((flight) =>
-            this.syncAirShowFlightStrengthForInspection(
-              flight,
-              Math.max(0, flight.spec.finalStrength ?? flight.currentStrength)
-            )
-          );
-          updateFlightAnchors([...survivingBombers, ...interceptorFlights]);
-        }
-      }
-
-      const postPassInterceptors = activeFlights(interceptorFlights);
-      const postPassEscorts = activeFlights(escortFlights);
-      const postPassBombers = activeFlights(bomberFlights).filter(
-        (flight) => (flight.currentStrength ?? 0) > 0
-      );
-      if (postPassBombers.length > 0) {
-        const escortsArePresentOnRun = false;
-        const keepInterceptorsOnTargetRun = false;
-        const keepEscortsOnTargetRun = false;
-        const bomberTargetRuns = postPassBombers.map((bomberFlight, index) => {
-          const cachedProfile = bomberApproachProfilesById.get(bomberFlight.spec.id);
-          const targetCenter =
-            cachedProfile?.targetCenter
-            ?? bomberTargetCentersById.get(bomberFlight.spec.id)
-            ?? averageBomberTargetCenter
-            ?? corridor.strike;
-          const laneIndex =
-            cachedProfile?.laneIndex
-            ?? (postPassBombers.length <= 1 ? 0 : index - (postPassBombers.length - 1) / 2);
-          const targetApproach =
-            cachedProfile?.targetApproach
-            ?? this.offsetAirShowPoint(
-              targetCenter,
-              -corridor.axis.x * 14 + corridor.normal.x * laneIndex * 16,
-              -corridor.axis.y * 14 + corridor.normal.y * laneIndex * 16
-            );
-          const targetExit = this.resolveAirShowBomberTargetRunExitPoint(
-            corridor,
-            this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor,
-            targetCenter,
-            targetApproach,
-            laneIndex
-          );
-          return {
-            bomberFlight,
-            targetCenter,
-            targetApproach,
-            targetExit,
-            laneIndex,
-            lateralSign: this.resolveAirShowRouteSideSign(
-              this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor,
-              targetExit,
-              this.resolveAirShowFlightHeadingDegrees(bomberFlight),
-              laneIndex >= 0 ? 1 : -1
-            )
-          };
-        });
-        const strikeRunAssignments: AirShowPhaseAssignment[] = [
-          ...bomberTargetRuns.flatMap(({ bomberFlight, targetExit, lateralSign }, bomberIndex) =>
-            this.buildAirShowFlightAssignments(
-              bomberFlight,
-              this.buildAirShowBomberTargetRunPath(
-                this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor,
-                targetExit,
-                {
-                  lateralSign: this.resolveAirShowRouteSideSign(
-                    this.averageAirShowPosition(bomberFlight.actors) ?? bomberFlight.anchor,
-                    targetExit,
-                    this.resolveAirShowFlightHeadingDegrees(bomberFlight),
-                    lateralSign
-                  ),
-                  corridorWidthPx: 10,
-                  startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(bomberFlight)
-                }
-              ),
-              0.2,
-              bomberIndex,
-              bomberTargetRuns.length
-            )
-          ),
-          ...(keepEscortsOnTargetRun ? postPassEscorts.flatMap((flight, index) => {
-            const assignedRun = bomberTargetRuns[index % bomberTargetRuns.length]!;
-            return this.buildAirShowFlightAssignments(
-              flight,
-              this.buildAirShowTargetRunEscortPath(
-                this.averageAirShowPosition(flight.actors) ?? flight.anchor,
-                assignedRun.targetApproach,
-                corridor,
-                {
-                  laneIndex: index - (postPassEscorts.length - 1) / 2,
-                  sideSign: 1,
-                  alongOffsetPx: 54,
-                  lateralBasePx: 116,
-                  lateralStepPx: 32,
-                  corridorWidthPx: 18,
-                  driftPx: 18,
-                  startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight)
-                }
-              ),
-              0.24,
-              index,
-              postPassEscorts.length
-            );
-          }) : []),
-          ...(keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight, index) => {
-            const laneSign = index % 2 === 0 ? 1 : -1;
-            if (escortsArePresentOnRun) {
-              return flight.actors.map((actor) => {
-                const actorPos = actor.position;
-                const holdTarget = {
-                  cx: actorPos.cx + corridor.axis.x * 42 + corridor.normal.x * laneSign * 24,
-                  cy: actorPos.cy + corridor.axis.y * 42 + corridor.normal.y * laneSign * 24
-                };
-                return {
-                  actor,
-                  points: this.buildAirShowCurvedPath(
-                    actorPos,
-                    holdTarget,
-                    laneSign * 28,
-                    laneSign * 8,
-                    this.resolveAirShowFlightHeadingDegrees(flight)
-                  ),
-                  headingBlend: 0.28,
-                  progressOffset: (actor.formationIndex - (flight.actors.length - 1) / 2) * 0.018 - 0.004,
-                  multiFlightOffsetPx: 0
-                } satisfies AirShowPhaseAssignment;
-              });
-            }
-            const current = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
-            const assignedRun = bomberTargetRuns[index % bomberTargetRuns.length]!;
-            const attackCorridor = this.resolveAirShowCorridor(
-              center,
-              this.averageAirShowPosition(assignedRun.bomberFlight.actors) ?? assignedRun.bomberFlight.anchor,
-              assignedRun.targetCenter
-            );
-            return this.buildAirShowFlightAssignments(
-              flight,
-              this.buildAirShowBomberInterceptPassPath(
-                current,
-                attackCorridor,
-                {
-                  passStartAlongPx: 18,
-                  passEndAlongPx: 96,
-                  laneIndex: index - (postPassInterceptors.length - 1) / 2,
-                  attackSideSign: this.resolveAirShowCorridorSideSign(
-                    current,
-                    attackCorridor,
-                    -1
-                  ),
-                  startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(flight)
-                }
-              ),
-              0.34,
-              index,
-              postPassInterceptors.length
-            );
-          }) : [])
-        ];
-        const strikeRunTracerBursts = keepInterceptorsOnTargetRun ? postPassInterceptors.flatMap((flight, index) => {
-          const assignedRun = bomberTargetRuns[index % bomberTargetRuns.length]!;
-          return [
-            ...this.buildAirShowDynamicTracerVolley(strikeRunAssignments, flight, assignedRun.bomberFlight, {
-              emitter: "nose",
-              width: 0.18,
-              lifetimeMs: 30,
-              spreadPx: 0,
-              streakLengthPx: 660,
-              visibleLengthPx: 24,
-              fanHalfAngleDeg: 0,
-              burstCount: 6,
-              maxAlignmentDeg: 16,
-              maxRangePx: 176,
-              timings: [0.38, 0.46, 0.54, 0.62, 0.7, 0.78]
-            }),
-            ...this.buildAirShowDynamicTracerVolley(strikeRunAssignments, assignedRun.bomberFlight, flight, {
-              emitter: "center",
-              color: "#fff1c8",
-              width: 0.17,
-              lifetimeMs: 28,
-              spreadPx: 0,
-              streakLengthPx: 540,
-              visibleLengthPx: 22,
-              fanHalfAngleDeg: 0,
-              burstCount: 5,
-              maxAlignmentDeg: 18,
-              maxRangePx: 196,
-              timings: [0.44, 0.52, 0.6, 0.68, 0.76]
-            })
-          ];
-        }) : [];
-        const strikeRunFlakBursts = bomberTargetRuns.flatMap(({ bomberFlight }) =>
-          this.resolveAirShowBomberFlakBursts(scene, bomberFlight.spec.id)
-        );
-        const strikeRunRoleSpeeds = this.resolveAirShowRoleSpeedMap({
-          interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-          escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-          bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
-        });
-        const strikeRunDurationMs = this.resolveAirShowPhaseDurationFromRoleSpeeds(
-          strikeRunAssignments,
-          strikeRunRoleSpeeds,
-          scene.strikeRunDurationMs ?? 980,
-          640,
-          2200,
-          ["bomber"]
-        );
-        const finalizedStrikeRunAssignments = this.finalizeAirShowPhaseAssignments(
-          strikeRunAssignments,
-          strikeRunDurationMs,
-          [0.18, 0.42, 0.66, 0.86],
-          undefined,
-          strikeRunRoleSpeeds
-        );
-        this.collectAirShowFlightTailHeadings(finalizedStrikeRunAssignments, {
-          role: "bomber",
-          sampleStartProgress: 0.9,
-          sampleEndProgress: 1
-        }).forEach((headingDegrees, flightId) => {
-          egressHeadingByFlightId.set(flightId, headingDegrees);
-        });
-        recordPhase(
-          "target-run",
-          finalizedStrikeRunAssignments,
-          strikeRunDurationMs,
-          strikeRunTracerBursts,
-          strikeRunFlakBursts,
-          strikeRunRoleSpeeds
-        );
-        previousEgressAssignments = finalizedStrikeRunAssignments;
-        previousEgressDurationMs = strikeRunDurationMs;
-        updateFlightAnchors([
-          ...postPassBombers,
-          ...(keepInterceptorsOnTargetRun ? postPassInterceptors : []),
-          ...(keepEscortsOnTargetRun ? postPassEscorts : [])
-        ]);
-      }
-
-      const egressFlights = activeFlights([...interceptorFlights, ...escortFlights, ...bomberFlights]);
-      if (egressFlights.length > 0) {
-        const visibleBounds = this.resolveAirShowVisibleBounds();
-        const compactEgressLaneStepPx =
-          visibleBounds && Math.max(0, visibleBounds.maxX - visibleBounds.minX) <= 1500
-            ? 46
-            : 64;
-        const hqMidX = (() => {
-          const playerHq = this.resolveHexCenterByKey(scene.playerHqKey);
-          const botHq = this.resolveHexCenterByKey(scene.botHqKey);
-          return playerHq && botHq ? (playerHq.cx + botHq.cx) / 2 : null;
-        })();
-        const clampFighterEgressPointToFactionSide = (
-          point: AirShowPoint,
-          faction: SpriteRenderFaction | undefined
-        ): AirShowPoint => {
-          if (hqMidX === null) {
-            return point;
-          }
-          const sideMarginPx = 24;
-          if (faction === "Bot") {
-            return point.cx < hqMidX + sideMarginPx
-              ? { cx: hqMidX + sideMarginPx, cy: point.cy }
-              : point;
-          }
-          return point.cx > hqMidX - sideMarginPx
-            ? { cx: hqMidX - sideMarginPx, cy: point.cy }
-            : point;
-        };
-        const egressAssignments = egressFlights.flatMap((flight, index) => {
-          const rawCurrent = this.averageAirShowPosition(flight.actors) ?? flight.anchor;
-          const current = flight.spec.role !== "bomber" ? clampFighterEgressPointToFactionSide((() => {
-            const proj = this.resolveAirShowCorridorCoordinates(corridor, rawCurrent);
-            const wrongSide = flight.spec.faction === "Bot" ? proj.alongPx > 0 : proj.alongPx < 0;
-            return wrongSide
-              ? this.projectAirShowCorridorPoint(corridor, 0, proj.lateralPx)
-              : rawCurrent;
-          })(), flight.spec.faction) : rawCurrent;
-          const rand = stageRandom(`egress:${flight.spec.id}:${index}`);
-          const egressHeadingDegrees =
-            flight.spec.role === "bomber"
-              ? (egressHeadingByFlightId.get(flight.spec.id) ?? this.resolveAirShowFlightHeadingDegrees(flight))
-              : this.resolveAirShowFlightHeadingDegrees(flight);
-          const egressPoint =
-            flight.spec.role === "bomber"
-              ? (() => {
-                  const originCenter =
-                    hqAxis
-                      ? (flight.spec.faction === "Bot" ? hqAxis.playerOrigin : hqAxis.botOrigin)
-                      : this.resolveHexCenterByKey(flight.spec.originHexKey);
-                  if (originCenter) {
-                    return this.offsetAirShowPoint(originCenter, (rand() - 0.5) * 22, (rand() - 0.5) * 18);
-                  }
-                  return corridorPoint(126 + rand() * 20, (rand() - 0.5) * 12);
-                })()
-              : (() => {
-                  const laneOffset = (index - (egressFlights.length - 1) / 2) * compactEgressLaneStepPx;
-                  if (hqAxis) {
-                    const origin = flight.spec.faction === "Bot" ? hqAxis.botOrigin : hqAxis.playerOrigin;
-                    return this.offsetAirShowPoint(
-                      origin,
-                      corridor.normal.x * laneOffset + (rand() - 0.5) * 22,
-                      corridor.normal.y * laneOffset + (rand() - 0.5) * 18
-                    );
-                  }
-                  return flight.spec.role === "escort"
-                    ? corridorPoint(108 + index * 18 + rand() * 16, 138 + index * 18 + (rand() - 0.5) * 24)
-                    : corridorPoint(-146 - index * 18 - rand() * 16, -156 - index * 20 + (rand() - 0.5) * 24);
-                })();
-          const rawEgressPath = this.buildAirShowDisengagePath(current, egressPoint, {
-            lateralSign: this.resolveAirShowRouteSideSign(
-              current,
-              egressPoint,
-              egressHeadingDegrees,
-              flight.spec.role === "escort" ? 1 : -1
-            ),
-            corridorWidthPx: flight.spec.role === "bomber" ? 18 + rand() * 8 : 22 + rand() * 10,
-            driftPx: flight.spec.role === "bomber" ? 16 + rand() * 8 : 18 + rand() * 8,
-            startHeadingDegrees: egressHeadingDegrees,
-            preferForwardContinuous: flight.spec.role === "bomber"
-          });
-          const egressPath = flight.spec.role === "bomber"
-            ? rawEgressPath
-            : rawEgressPath.map((point) => clampFighterEgressPointToFactionSide(point, flight.spec.faction));
-          return this.buildAirShowFlightAssignments(
-            flight,
-            egressPath,
-            flight.spec.role === "bomber" ? 0.18 : 0.26
-          );
-        });
-        const egressRoleSpeeds = this.resolveAirShowRoleSpeedMap({
-          interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-          escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-          bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
-        });
-        const egressDurationMs = this.resolveAirShowPhaseDurationFromRoleSpeeds(
-          egressAssignments,
-          egressRoleSpeeds,
-          scene.egressDurationMs ?? 1080,
-          820,
-          7000,
-          egressAssignments.some((assignment) => assignment.actor.role === "bomber")
-            ? ["bomber"]
-            : ["interceptor", "escort"]
-        );
-        const finalizedEgressAssignments = this.prepareAirShowPhaseAssignments(
-          egressAssignments,
-          egressDurationMs,
-          [0.22, 0.5, 0.78],
-          42,
-          egressRoleSpeeds,
-          {
-            previousAssignments: previousEgressAssignments,
-            previousDurationMs: previousEgressDurationMs,
-            entryTurnLimitDeg: 96
-          }
-        );
-        recordPhase("egress", finalizedEgressAssignments, egressDurationMs, [], [], egressRoleSpeeds);
-      }
-
-      return {
-        hexKey: scene.hexKey,
-        center: { cx: center.cx, cy: center.cy },
-        corridor: {
-          center: { cx: corridor.center.cx, cy: corridor.center.cy },
-          entry: { cx: corridor.entry.cx, cy: corridor.entry.cy },
-          merge: { cx: corridor.merge.cx, cy: corridor.merge.cy },
-          strike: { cx: corridor.strike.cx, cy: corridor.strike.cy },
-          exit: { cx: corridor.exit.cx, cy: corridor.exit.cy }
-        },
-        hqMidX: (() => {
-          const ph = this.resolveHexCenterByKey(scene.playerHqKey);
-          const bh = this.resolveHexCenterByKey(scene.botHqKey);
-          return ph && bh ? (ph.cx + bh.cx) / 2 : null;
-        })(),
-        bomberTarget: averageBomberTargetCenter ? { cx: averageBomberTargetCenter.cx, cy: averageBomberTargetCenter.cy } : null,
-        originPlan: hqAxis ? buildAirShowInspectionOriginPlan(hqAxis, HexMapRenderer.OFF_MAP_DISTANCE_PX) : null,
-        phaseTimingAudit,
-        flights: allFlights.map((flight) => this.describeInspectionAirShowFlight(flight)),
-        phases
-      };
-    } finally {
-      allFlights.forEach((flight) => {
-        flight.actors.forEach((actor) => actor.image.remove());
-      });
-    }
   }
 
   private buildAirShowAssignmentsFromPlannedPhase(
-    phase: AirShowInspectionPhase,
+    phase: PlannedAirShowPhase,
     actorsById: ReadonlyMap<string, AirShowRuntimeActor>
   ): AirShowPhaseAssignment[] {
     const assignments: AirShowPhaseAssignment[] = [];
@@ -2475,7 +1247,12 @@ export class HexMapRenderer implements IMapRenderer {
       });
       const totalLengthPx = Math.max(0.0001, cumulativeLengthPx);
       const progressTimeline =
-        plannedAssignment.sampledPositions.length >= 2
+        plannedAssignment.progressTimeline && plannedAssignment.progressTimeline.length >= 2
+          ? plannedAssignment.progressTimeline.map((keyframe) => ({
+              timeMs: keyframe.timeMs,
+              progress: keyframe.progress
+            }))
+          : plannedAssignment.sampledPositions.length >= 2
           ? plannedAssignment.sampledPositions.map((sample, index) => ({
               timeMs: sample.timeMs,
               progress: (cumulativeLengths[index] ?? cumulativeLengthPx) / totalLengthPx
@@ -2484,7 +1261,10 @@ export class HexMapRenderer implements IMapRenderer {
       assignments.push({
         actor,
         points,
-        headingBlend: 1,
+        headingBlend: plannedAssignment.headingBlend ?? 1,
+        multiFlightOffsetPx: plannedAssignment.multiFlightOffsetPx,
+        progressOffset: plannedAssignment.progressOffset,
+        distanceBudgetPx: plannedAssignment.distanceBudgetPx,
         progressTimeline
       });
     });
@@ -2492,7 +1272,7 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   private buildAirShowTracerBurstsFromPlannedPhase(
-    phase: AirShowInspectionPhase,
+    phase: PlannedAirShowPhase,
     actorsById: ReadonlyMap<string, AirShowRuntimeActor>
   ): AirShowTracerBurst[] {
     const bursts: AirShowTracerBurst[] = [];
@@ -2516,20 +1296,21 @@ export class HexMapRenderer implements IMapRenderer {
         source,
         target,
         emitter: plannedTracer.emitter,
+        color: plannedTracer.color,
         width: plannedTracer.width,
         lifetimeMs: plannedTracer.lifetimeMs,
         streakLengthPx: plannedTracer.streakLengthPx,
         visibleLengthPx: plannedTracer.visibleLengthPx,
         fanHalfAngleDeg: plannedTracer.fanHalfAngleDeg,
-        burstCount: 1,
-        spreadPx: 0
+        burstCount: plannedTracer.burstCount ?? 1,
+        spreadPx: plannedTracer.spreadPx ?? 0
       });
     });
     return bursts;
   }
 
   private schedulePlannedAirShowPhaseEffects(
-    phase: AirShowInspectionPhase,
+    phase: PlannedAirShowPhase,
     scene: ResolvedAirShowScene
   ): () => void {
     const handles: number[] = [];
@@ -2551,7 +1332,7 @@ export class HexMapRenderer implements IMapRenderer {
     if (phase.label === "target-run") {
       const targetHexKey = scene.bomberTargetHexKey ?? scene.bomber?.targetHexKey ?? null;
       if (targetHexKey) {
-        const progress = this.clamp(scene.bombReleaseProgress ?? 0.91, 0, 1);
+        const progress = this.clamp(scene.bombReleaseProgress ?? 0.5, 0, 1);
         handles.push(window.setTimeout(() => {
           void this.playExplosion(targetHexKey, true);
           void this.playDustCloud(targetHexKey);
@@ -2590,28 +1371,7 @@ export class HexMapRenderer implements IMapRenderer {
     logAirShowOwnershipAssert(packageId, "HexMapRenderer", null);
 
     const runtimeFlights = plannedScene.flights
-      .map((flight) => {
-        const initialActor = flight.actors.find((actor) => actor.active) ?? flight.actors[0] ?? null;
-        const fallbackOrigin = initialActor?.position ?? plannedScene.center;
-        const spec: ResolvedAirShowFlightSpec = {
-          id: flight.id,
-          scenarioType: flight.scenarioType,
-          faction: flight.faction,
-          originHexKey: null,
-          strengthBefore: flight.strengthBefore,
-          strengthAfterEscortPhase: flight.strengthAfterEscortPhase,
-          finalStrength: flight.finalStrength,
-          laneOffsetPx: flight.laneOffsetPx,
-          role: flight.role,
-          combatRole: flight.combatRole
-        };
-        return this.buildAirShowRuntimeFlight(
-          layer,
-          spec,
-          { cx: fallbackOrigin.cx, cy: fallbackOrigin.cy },
-          initialActor?.headingDegrees ?? 0
-        );
-      })
+      .map((flight) => this.buildAirShowRuntimeFlightFromPlan(layer, flight))
       .filter((flight): flight is AirShowRuntimeFlightInternal => !!flight);
 
     const sceneActors = runtimeFlights.flatMap((flight) => flight.actors);
@@ -2626,7 +1386,8 @@ export class HexMapRenderer implements IMapRenderer {
         try {
           await this.runAirShowPhase(assignments, phase.durationMs, tracerBursts, {
             easing: "linear",
-            sceneActors
+            sceneActors,
+            visibleActorIds: phase.visibleActorIds
           });
         } finally {
           cancelEffects();
@@ -6065,29 +4826,39 @@ export class HexMapRenderer implements IMapRenderer {
     strength?: number,
     role: AirShowRole = "interceptor"
   ): Array<{ image: SVGImageElement; size: number; biasX: number; biasY: number; formationIndex: number }> {
-    // Apply role-based size multiplier
+    const layout = this.resolveAircraftSpriteLayoutSpecs(iconSize, strength, role);
+    return layout.map((spec) => {
+      const image = this.createMoveGhost(spriteHref, spec.size, spec.size);
+      image.classList.add("aircraft-show-sprite", `aircraft-show-sprite-${spec.formationIndex}`);
+      return {
+        image,
+        size: spec.size,
+        biasX: spec.biasX,
+        biasY: spec.biasY,
+        formationIndex: spec.formationIndex
+      };
+    });
+  }
+
+  private resolveAircraftSpriteLayoutSpecs(
+    iconSize: number,
+    strength?: number,
+    role: AirShowRole = "interceptor"
+  ): Array<{ size: number; biasX: number; biasY: number; formationIndex: number }> {
     const sizeMultiplier = role === "bomber"
       ? HexMapRenderer.AIRCRAFT_BOMBER_SIZE_MULTIPLIER
       : HexMapRenderer.AIRCRAFT_FIGHTER_SIZE_MULTIPLIER;
     const scaledIconSize = iconSize * sizeMultiplier;
-
     const layout =
       strength === undefined || strength === null
         ? [{ ox: 0, oy: 0, scale: 1 }]
         : this.resolveAircraftFormationLayout(strength, role);
-
-    return layout.map((spec, index) => {
-      const spriteSize = scaledIconSize * spec.scale;
-      const image = this.createMoveGhost(spriteHref, spriteSize, spriteSize);
-      image.classList.add("aircraft-show-sprite", `aircraft-show-sprite-${index}`);
-      return {
-        image,
-        size: spriteSize,
-        biasX: spec.ox * 0.48,
-        biasY: spec.oy * 0.48,
-        formationIndex: index
-      };
-    });
+    return layout.map((spec, index) => ({
+      size: scaledIconSize * spec.scale,
+      biasX: spec.ox * 0.48,
+      biasY: spec.oy * 0.48,
+      formationIndex: index
+    }));
   }
 
   private normalizeAircraftVector(
@@ -6306,81 +5077,43 @@ export class HexMapRenderer implements IMapRenderer {
     );
   }
 
-  private buildAirShowRuntimeFlight(
-    layer: SVGGElement,
+  private buildAirShowPlannedFlight(
     spec: ResolvedAirShowFlightSpec,
     fallbackOrigin: AirShowPoint,
     defaultHeadingDegrees: number
-  ): AirShowRuntimeFlightInternal | null {
-    const spriteHref = getSpriteForScenarioType(spec.scenarioType, spec.faction);
-    if (!spriteHref) {
-      return null;
-    }
-
+  ): AirShowPlannerFlight | null {
     const origin = this.resolveHexCenterByKey(spec.originHexKey) ?? fallbackOrigin;
-    const ghosts = this.createAircraftSpriteGhosts(
-      spriteHref,
+    const actorLayouts = this.resolveAircraftSpriteLayoutSpecs(
       HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE,
       spec.strengthBefore,
       spec.role
     );
+    if (actorLayouts.length === 0) {
+      return null;
+    }
+
     const visibleCount = this.resolveAirShowVisibleActorCount(spec.strengthBefore);
-    const formationMid = ghosts.length <= 1 ? 0 : (ghosts.length - 1) / 2;
-    const actors: AirShowRuntimeActor[] = ghosts.map((ghostSpec, index) => {
-      layer.appendChild(ghostSpec.image);
-      ghostSpec.image.setAttribute("data-testid", "airshow-actor");
-      ghostSpec.image.setAttribute("data-airshow-role", spec.role);
-      ghostSpec.image.setAttribute("data-airshow-flight-id", spec.id);
-      ghostSpec.image.setAttribute("data-airshow-actor-id", `${spec.id}:${index}`);
-      ghostSpec.image.setAttribute("data-airshow-combat-role", spec.combatRole ?? spec.role);
-      ghostSpec.image.setAttribute("data-airshow-faction", spec.faction ?? "");
+    const formationMid = actorLayouts.length <= 1 ? 0 : (actorLayouts.length - 1) / 2;
+    const actors: AirShowPlannerActor[] = actorLayouts.map((layout, index) => {
       const position = {
-        cx: origin.cx + ghostSpec.biasX,
-        cy: origin.cy + ghostSpec.biasY
+        cx: origin.cx + layout.biasX,
+        cy: origin.cy + layout.biasY
       };
       const headingDegrees =
         defaultHeadingDegrees +
-        (ghostSpec.formationIndex - formationMid) * (spec.role === "bomber" ? 5 : 8);
-      this.positionAircraftImageGhost(ghostSpec.image, ghostSpec.size, position.cx, position.cy, headingDegrees);
-      ghostSpec.image.style.opacity = index < visibleCount ? "1" : "0";
-      ghostSpec.image.setAttribute("data-airshow-active", index < visibleCount ? "true" : "false");
+        (layout.formationIndex - formationMid) * (spec.role === "bomber" ? 5 : 8);
       return {
         id: `${spec.id}:${index}`,
         flightId: spec.id,
         role: spec.role,
-        image: ghostSpec.image,
-        size: ghostSpec.size,
-        formationIndex: ghostSpec.formationIndex,
-        headingDegrees,
         position,
-        biasX: ghostSpec.biasX,
-        biasY: ghostSpec.biasY,
+        size: layout.size,
+        formationIndex: layout.formationIndex,
+        headingDegrees,
+        biasX: layout.biasX,
+        biasY: layout.biasY,
         active: index < visibleCount
       };
-    });
-
-    const activeCount = actors.filter(a => a.active).length;
-    const roleLabel =
-      spec.role === "escort" && spec.combatRole === "cap"
-        ? "opposition/cap"
-        : spec.combatRole && spec.combatRole !== spec.role
-          ? `${spec.role}/${spec.combatRole}`
-          : spec.role;
-    debugAirShowPhase("FlightCreated", {
-      flightId: spec.id,
-      role: roleLabel,
-      active: `${activeCount}/${actors.length}`,
-      origin: { cx: Math.round(origin.cx), cy: Math.round(origin.cy) },
-      heading: Math.round(defaultHeadingDegrees)
-    });
-    actors.forEach((actor) => {
-      if (actor.active) {
-        debugAirShowActor(actor.id, "initialized", {
-          pos: { cx: Math.round(actor.position.cx), cy: Math.round(actor.position.cy) },
-          heading: Math.round(actor.headingDegrees),
-          formation: actor.formationIndex
-        });
-      }
     });
 
     return {
@@ -6389,6 +5122,83 @@ export class HexMapRenderer implements IMapRenderer {
       currentStrength: Math.max(0, spec.strengthBefore),
       anchor: this.averageAirShowPosition(actors) ?? origin
     };
+  }
+
+  private buildAirShowRuntimeFlightFromPlan(
+    layer: SVGGElement,
+    flight: PlannedAirShowFlight
+  ): AirShowRuntimeFlightInternal | null {
+    const spriteHref = getSpriteForScenarioType(flight.scenarioType, flight.faction);
+    if (!spriteHref) {
+      return null;
+    }
+
+    const actors: AirShowRuntimeActor[] = flight.actors.map((plannedActor) => {
+      const image = this.createMoveGhost(spriteHref, plannedActor.size, plannedActor.size);
+      layer.appendChild(image);
+      image.setAttribute("data-testid", "airshow-actor");
+      image.setAttribute("data-airshow-role", flight.role);
+      image.setAttribute("data-airshow-flight-id", flight.id);
+      image.setAttribute("data-airshow-actor-id", plannedActor.actorId);
+      image.setAttribute("data-airshow-combat-role", flight.combatRole ?? flight.role);
+      image.setAttribute("data-airshow-faction", flight.faction ?? "");
+      this.positionAircraftImageGhost(
+        image,
+        plannedActor.size,
+        plannedActor.position.cx,
+        plannedActor.position.cy,
+        plannedActor.headingDegrees
+      );
+      image.style.opacity = plannedActor.active ? "1" : "0";
+      image.setAttribute("data-airshow-active", plannedActor.active ? "true" : "false");
+      return {
+        id: plannedActor.actorId,
+        flightId: plannedActor.flightId,
+        role: plannedActor.role,
+        image,
+        size: plannedActor.size,
+        formationIndex: plannedActor.formationIndex,
+        headingDegrees: plannedActor.headingDegrees,
+        position: {
+          cx: plannedActor.position.cx,
+          cy: plannedActor.position.cy
+        },
+        biasX: plannedActor.biasX,
+        biasY: plannedActor.biasY,
+        active: plannedActor.active
+      };
+    });
+
+    return {
+      spec: {
+        id: flight.id,
+        scenarioType: flight.scenarioType,
+        faction: flight.faction,
+        originHexKey: flight.originHexKey,
+        strengthBefore: flight.strengthBefore,
+        strengthAfterEscortPhase: flight.strengthAfterEscortPhase,
+        finalStrength: flight.finalStrength,
+        laneOffsetPx: flight.laneOffsetPx,
+        role: flight.role,
+        combatRole: flight.combatRole
+      },
+      actors,
+      currentStrength: Math.max(0, flight.strengthBefore),
+      anchor: this.averageAirShowPosition(actors) ?? (flight.actors[0]?.position ?? { cx: 0, cy: 0 })
+    };
+  }
+
+  private buildAirShowRuntimeFlight(
+    layer: SVGGElement,
+    spec: ResolvedAirShowFlightSpec,
+    fallbackOrigin: AirShowPoint,
+    defaultHeadingDegrees: number
+  ): AirShowRuntimeFlightInternal | null {
+    const plannedFlight = this.buildAirShowPlannedFlight(spec, fallbackOrigin, defaultHeadingDegrees);
+    if (!plannedFlight) {
+      return null;
+    }
+    return this.buildAirShowRuntimeFlightFromPlan(layer, this.describePlannedAirShowFlight(plannedFlight));
   }
 
   private resolveAirShowSceneAnchor(
@@ -6612,13 +5422,15 @@ export class HexMapRenderer implements IMapRenderer {
         cx: anchor.cx + actor.biasX,
         cy: anchor.cy + actor.biasY
       };
-      this.positionAircraftImageGhost(
-        actor.image,
-        actor.size,
-        actor.position.cx,
-        actor.position.cy,
-        headingDegrees
-      );
+      if ("image" in actor && actor.image instanceof SVGImageElement) {
+        this.positionAircraftImageGhost(
+          actor.image,
+          actor.size,
+          actor.position.cx,
+          actor.position.cy,
+          headingDegrees
+        );
+      }
     });
     flight.anchor = this.averageAirShowPosition(flight.actors) ?? anchor;
   }
@@ -7232,6 +6044,103 @@ export class HexMapRenderer implements IMapRenderer {
     return prunedPath;
   }
 
+  private pruneAirShowEntryWindowSharpTurns(
+    path: ReadonlyArray<AirShowPoint>,
+    maxTurnDeg: number,
+    maxWaypointsToRemove = 2,
+    entryWaypointCount = 3
+  ): AirShowPoint[] {
+    const prunedPath = [...path];
+    let removedWaypoints = 0;
+    while (prunedPath.length >= 4 && removedWaypoints < maxWaypointsToRemove) {
+      let worstTurnDeg = maxTurnDeg;
+      let worstTurnWaypointIndex = -1;
+      const maxWaypointIndex = Math.min(prunedPath.length - 2, entryWaypointCount);
+      for (let index = 1; index <= maxWaypointIndex; index += 1) {
+        const previous = prunedPath[index - 1];
+        const current = prunedPath[index];
+        const next = prunedPath[index + 1];
+        if (!previous || !current || !next) {
+          continue;
+        }
+        const turnDeg = this.resolveAirShowWaypointTurnDegrees(previous, current, next);
+        const directDistancePx = Math.hypot(next.cx - previous.cx, next.cy - previous.cy);
+        if (turnDeg <= worstTurnDeg || directDistancePx < 12) {
+          continue;
+        }
+        worstTurnDeg = turnDeg;
+        worstTurnWaypointIndex = index;
+      }
+      if (worstTurnWaypointIndex <= 0) {
+        break;
+      }
+      prunedPath.splice(worstTurnWaypointIndex, 1);
+      removedWaypoints += 1;
+    }
+    return prunedPath;
+  }
+
+  private softenAirShowEntryWindowTurns(
+    path: ReadonlyArray<AirShowPoint>,
+    maxTurnDeg = 118,
+    options: {
+      maxWaypointsToRemove?: number;
+      entryWaypointCount?: number;
+      blendRangeDeg?: number;
+      minBlendFactor?: number;
+      maxBlendFactor?: number;
+    } = {}
+  ): AirShowPoint[] {
+    const entryWindowPrunedPoints = this.pruneAirShowEntryWindowSharpTurns(
+      path,
+      maxTurnDeg,
+      options.maxWaypointsToRemove ?? 2,
+      options.entryWaypointCount ?? 3
+    );
+    const resolvedPoints =
+      entryWindowPrunedPoints.length >= 2 ? [...entryWindowPrunedPoints] : [...path];
+    if (resolvedPoints.length >= 3) {
+      const resolvedStart = resolvedPoints[0];
+      const resolvedFirst = resolvedPoints[1];
+      const resolvedSecond = resolvedPoints[2];
+      if (resolvedStart && resolvedFirst && resolvedSecond) {
+        const resolvedFirstTurnDeg = this.resolveAirShowWaypointTurnDegrees(
+          resolvedStart,
+          resolvedFirst,
+          resolvedSecond
+        );
+        if (resolvedFirstTurnDeg > maxTurnDeg) {
+          const routeDx = resolvedSecond.cx - resolvedStart.cx;
+          const routeDy = resolvedSecond.cy - resolvedStart.cy;
+          const routeDistance = Math.max(1, Math.hypot(routeDx, routeDy));
+          const routeForward = this.normalizeAircraftVector(routeDx, routeDy, 0, -1);
+          const firstSegmentPx = Math.hypot(
+            resolvedFirst.cx - resolvedStart.cx,
+            resolvedFirst.cy - resolvedStart.cy
+          );
+          const projectedFirstPoint = {
+            cx:
+              resolvedStart.cx +
+              routeForward.x * Math.min(firstSegmentPx * 0.72, Math.max(18, routeDistance * 0.32)),
+            cy:
+              resolvedStart.cy +
+              routeForward.y * Math.min(firstSegmentPx * 0.72, Math.max(18, routeDistance * 0.32))
+          };
+          const blendFactor = this.clamp(
+            (resolvedFirstTurnDeg - maxTurnDeg) / (options.blendRangeDeg ?? 36),
+            options.minBlendFactor ?? 0.4,
+            options.maxBlendFactor ?? 0.75
+          );
+          resolvedPoints[1] = {
+            cx: resolvedFirst.cx * (1 - blendFactor) + projectedFirstPoint.cx * blendFactor,
+            cy: resolvedFirst.cy * (1 - blendFactor) + projectedFirstPoint.cy * blendFactor
+          };
+        }
+      }
+    }
+    return resolvedPoints;
+  }
+
   private sanitizeAirShowEntryPath(
     path: ReadonlyArray<AirShowPoint>,
     options: {
@@ -7248,8 +6157,13 @@ export class HexMapRenderer implements IMapRenderer {
       maxFirstSegmentPx: options.maxFirstSegmentPx,
       maxWaypointsToRemove: options.maxWaypointsToRemove
     });
-    return this.pruneAirShowSharpTurns(
+    const entryWindowPruned = this.pruneAirShowEntryWindowSharpTurns(
       earlyPruned,
+      options.maxSharpTurnDeg ?? 124,
+      options.maxWaypointsToRemove ?? 2
+    );
+    return this.pruneAirShowSharpTurns(
+      entryWindowPruned,
       options.maxSharpTurnDeg ?? 124,
       options.maxWaypointsToRemove ?? 2
     );
@@ -8032,24 +6946,110 @@ export class HexMapRenderer implements IMapRenderer {
 
   private buildAirShowBomberTargetRunPath(
     start: AirShowPoint,
-    end: AirShowPoint,
+    targetCenter: AirShowPoint,
     options: {
       lateralSign?: number;
       corridorWidthPx?: number;
       startHeadingDegrees?: number;
     } = {}
   ): AirShowPoint[] {
-    return this.buildAirShowBomberMonotonicPath(start, end, {
-      lateralSign: options.lateralSign,
-      corridorWidthPx: options.corridorWidthPx ?? 6,
-      driftPx: 2,
-      earlyRatio: 0.28,
-      midRatio: 0.58,
-      lateRatio: 0.84,
-      earlyLateralScale: 0.03,
-      midLateralScale: 0.015,
-      lateLateralScale: 0.008,
-      finalLateralScale: 0.004
+    const clampPoint = (point: AirShowPoint): AirShowPoint =>
+      this.clampPointToViewportBounds(point, targetCenter, 430, 300);
+    const forward =
+      typeof options.startHeadingDegrees === "number"
+        ? this.resolveAirShowHeadingVector(options.startHeadingDegrees)
+        : this.normalizeAircraftVector(targetCenter.cx - start.cx, targetCenter.cy - start.cy, 0, -1);
+    const desiredHalfSweepRad = (80 * Math.PI) / 180;
+    const desiredFullSweepRad = desiredHalfSweepRad * 2;
+    const chordDx = targetCenter.cx - start.cx;
+    const chordDy = targetCenter.cy - start.cy;
+    const chordLengthPx = Math.max(1, Math.hypot(chordDx, chordDy));
+    const baseRadiusPx = (HEX_WIDTH * 3) / 2;
+    const requiredRadiusPx = chordLengthPx / Math.max(0.0001, 2 * Math.sin(desiredHalfSweepRad / 2));
+    const turnRadiusPx = Math.max(baseRadiusPx, requiredRadiusPx);
+    const halfChordPx = chordLengthPx * 0.5;
+    const perpendicularOffsetPx = Math.max(0, Math.sqrt(Math.max(0, turnRadiusPx * turnRadiusPx - halfChordPx * halfChordPx)));
+    const chordUnit = { x: chordDx / chordLengthPx, y: chordDy / chordLengthPx };
+    const normal = { x: -chordUnit.y, y: chordUnit.x };
+    const midpoint = {
+      cx: (start.cx + targetCenter.cx) * 0.5,
+      cy: (start.cy + targetCenter.cy) * 0.5
+    };
+    const candidateCenters = [
+      {
+        cx: midpoint.cx + normal.x * perpendicularOffsetPx,
+        cy: midpoint.cy + normal.y * perpendicularOffsetPx
+      },
+      {
+        cx: midpoint.cx - normal.x * perpendicularOffsetPx,
+        cy: midpoint.cy - normal.y * perpendicularOffsetPx
+      }
+    ];
+    const normalizeSignedAngleRad = (radians: number): number => {
+      let value = radians;
+      while (value <= -Math.PI) {
+        value += Math.PI * 2;
+      }
+      while (value > Math.PI) {
+        value -= Math.PI * 2;
+      }
+      return value;
+    };
+    const rotateQuarterTurn = (
+      vector: { x: number; y: number },
+      sign: number
+    ): { x: number; y: number } =>
+      sign >= 0
+        ? { x: -vector.y, y: vector.x }
+        : { x: vector.y, y: -vector.x };
+
+    const preferredTurnSign = options.lateralSign ?? 1;
+    const bestArc = candidateCenters
+      .map((center) => {
+        const startAngle = Math.atan2(start.cy - center.cy, start.cx - center.cx);
+        const midpointAngle = Math.atan2(targetCenter.cy - center.cy, targetCenter.cx - center.cx);
+        const signedHalfSweepRad = normalizeSignedAngleRad(midpointAngle - startAngle);
+        const turnSign = signedHalfSweepRad >= 0 ? 1 : -1;
+        const radiusVectorAtStart = {
+          x: start.cx - center.cx,
+          y: start.cy - center.cy
+        };
+        const tangentStartVector = rotateQuarterTurn(radiusVectorAtStart, turnSign);
+        const tangentAtStart = this.normalizeAircraftVector(
+          tangentStartVector.x,
+          tangentStartVector.y,
+          forward.x,
+          forward.y
+        );
+        const alignment = tangentAtStart.x * forward.x + tangentAtStart.y * forward.y;
+        const halfSweepErrorRad = Math.abs(Math.abs(signedHalfSweepRad) - desiredHalfSweepRad);
+        const sidePenalty = turnSign === preferredTurnSign ? 0 : 1;
+        return {
+          center,
+          startAngle,
+          turnSign,
+          score: halfSweepErrorRad * 100 + sidePenalty * 10 + (1 - alignment) * 4
+        };
+      })
+      .sort((left, right) => left.score - right.score)[0];
+
+    if (!bestArc) {
+      return [start, targetCenter];
+    }
+
+    const arcSamples = [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1].map((progress) => {
+      const angle = bestArc.startAngle + bestArc.turnSign * desiredFullSweepRad * progress;
+      return clampPoint({
+        cx: bestArc.center.cx + Math.cos(angle) * turnRadiusPx,
+        cy: bestArc.center.cy + Math.sin(angle) * turnRadiusPx
+      });
+    });
+    return this.sanitizeAirShowEntryPath([start, ...arcSamples], {
+      maxTurnDeg: 52,
+      strongTurnDeg: 100,
+      maxFirstSegmentPx: 72,
+      maxSharpTurnDeg: 116,
+      maxWaypointsToRemove: 2
     });
   }
 
@@ -8065,6 +7065,29 @@ export class HexMapRenderer implements IMapRenderer {
     } = {}
   ): AirShowPoint[] {
     if (options.preferForwardContinuous) {
+      const dx = end.cx - start.cx;
+      const dy = end.cy - start.cy;
+      const length = Math.max(1, Math.hypot(dx, dy));
+      const routeForward = this.normalizeAircraftVector(dx, dy, 0, -1);
+      const headingForward =
+        typeof options.startHeadingDegrees === "number"
+          ? this.resolveAirShowHeadingVector(options.startHeadingDegrees)
+          : routeForward;
+      const routeAlignment = headingForward.x * routeForward.x + headingForward.y * routeForward.y;
+      if (routeAlignment <= -0.2) {
+        return this.buildAirShowBomberMonotonicPath(start, end, {
+          lateralSign: options.lateralSign,
+          corridorWidthPx: options.corridorWidthPx ?? 12,
+          driftPx: options.driftPx ?? 10,
+          earlyRatio: length <= 120 ? 0.3 : 0.18,
+          midRatio: length <= 120 ? 0.58 : 0.46,
+          lateRatio: length <= 120 ? 0.84 : 0.76,
+          earlyLateralScale: 0.04,
+          midLateralScale: 0.02,
+          lateLateralScale: 0.01,
+          finalLateralScale: 0.006
+        });
+      }
       return this.buildAirShowBomberBreakawayPath(start, end, {
         lateralSign: options.lateralSign,
         corridorWidthPx: options.corridorWidthPx ?? 12,
@@ -8579,21 +7602,10 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   private resolveSceneBomberSpecs(scene: ResolvedAirShowScene): ResolvedAirShowStrikeFlightSpec[] {
-    if (Array.isArray(scene.bombers) && scene.bombers.length > 0) {
-      return scene.bombers.map((bomber) => ({
-        ...bomber,
-        targetHexKey: bomber.targetHexKey ?? scene.bomberTargetHexKey ?? null
-      }));
-    }
-    if (scene.bomber) {
-      return [
-        {
-          ...scene.bomber,
-          targetHexKey: scene.bomber.targetHexKey ?? scene.bomberTargetHexKey ?? null
-        }
-      ];
-    }
-    return [];
+    return resolveResolvedAirShowBombers(scene).map((bomber) => ({
+      ...bomber,
+      targetHexKey: bomber.targetHexKey ?? scene.bomberTargetHexKey ?? null
+    }));
   }
 
   private resolveAirShowBomberTargetHexKey(
@@ -8920,20 +7932,54 @@ export class HexMapRenderer implements IMapRenderer {
       if (!masterPath || masterPath.length < 2) {
         return [];
       }
-      const slicedPath = this.sliceAirShowPathByProgressRange(masterPath, startProgress, endProgress);
+      const masterPathLengthPx = this.measureAirShowPathLength(masterPath);
+      if (!Number.isFinite(masterPathLengthPx) || masterPathLengthPx <= 0.5) {
+        return [];
+      }
+      const activeDurationMs = Math.max(
+        1,
+        Math.round(masterPathLengthPx / HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS)
+      );
+      const ingressDelayMs = Math.max(0, totalDurationMs - activeDurationMs);
+      const activeStartTimeMs = this.clamp(elapsedBeforeMs - ingressDelayMs, 0, activeDurationMs);
+      const activeEndTimeMs = this.clamp(
+        elapsedBeforeMs + phaseDurationMs - ingressDelayMs,
+        activeStartTimeMs,
+        activeDurationMs
+      );
+      const flightStartProgress =
+        activeDurationMs > 0 ? this.clamp(activeStartTimeMs / activeDurationMs, 0, 1) : startProgress;
+      const flightEndProgress =
+        activeDurationMs > 0 ? this.clamp(activeEndTimeMs / activeDurationMs, flightStartProgress, 1) : endProgress;
+      if (flightEndProgress <= flightStartProgress + 0.0001) {
+        return [];
+      }
+      const slicedPath = this.sliceAirShowPathByProgressRange(masterPath, flightStartProgress, flightEndProgress);
       const slicedPathLengthPx = this.measureAirShowPathLength(slicedPath);
       if (slicedPath.length < 2 || slicedPathLengthPx <= 0.5) {
         return [];
       }
+      const phaseMovementStartMs = this.clamp(ingressDelayMs - elapsedBeforeMs, 0, phaseDurationMs);
       return this.buildAirShowFlightAssignments(
         bomberFlight,
         slicedPath,
         0.22,
         bomberIndex,
-        bomberFlights.length
+        bomberFlights.length,
+        {
+          phaseStartAnchor: slicedPath[0]
+        }
       ).map((assignment) => ({
         ...assignment,
-        distanceBudgetPx: slicedPathLengthPx
+        distanceBudgetPx: slicedPathLengthPx,
+        progressTimeline:
+          phaseMovementStartMs > 1
+            ? [
+                { timeMs: 0, progress: 0 },
+                { timeMs: Math.round(phaseMovementStartMs), progress: 0 },
+                { timeMs: phaseDurationMs, progress: 1 }
+              ]
+            : undefined
       }));
     });
   }
@@ -10450,8 +9496,8 @@ export class HexMapRenderer implements IMapRenderer {
           // geometry truthful instead of introducing an artificial first-segment kink.
           cx:
             pointIndex === 0
-              ? ((options.phaseStartAnchor?.cx ?? flight.anchor.cx) + actor.biasX) - multiFlightOffsetPx
-              : point.cx + actor.biasX - multiFlightOffsetPx,
+              ? (options.phaseStartAnchor?.cx ?? flight.anchor.cx) + actor.biasX
+              : point.cx + actor.biasX,
           cy:
             pointIndex === 0
               ? (options.phaseStartAnchor?.cy ?? flight.anchor.cy) + actor.biasY
@@ -10743,6 +9789,7 @@ export class HexMapRenderer implements IMapRenderer {
       previousDurationMs?: number;
       harmonizeIngressVisibility?: boolean;
       entryTurnLimitDeg?: number;
+      directTurnHomeRoles?: ReadonlyArray<AirShowRuntimeActor["role"]>;
     } = {}
   ): AirShowPhaseAssignment[] {
     let finalizedAssignments = this.finalizeAirShowPhaseAssignments(
@@ -10766,7 +9813,8 @@ export class HexMapRenderer implements IMapRenderer {
           options.previousDurationMs ?? durationMs,
           finalizedAssignments,
           durationMs,
-          options.entryTurnLimitDeg ?? 108
+          options.entryTurnLimitDeg ?? 108,
+          new Set(options.directTurnHomeRoles ?? [])
         ),
         durationMs,
         roleTargetSpeeds
@@ -11563,9 +10611,14 @@ export class HexMapRenderer implements IMapRenderer {
     previousDurationMs: number,
     currentAssignments: ReadonlyArray<AirShowPhaseAssignment>,
     currentDurationMs: number,
-    maxTurnDeg = 108
+    maxTurnDeg = 108,
+    directTurnHomeRoles: ReadonlySet<AirShowRuntimeActor["role"]> = new Set()
   ): AirShowPhaseAssignment[] {
     const previousAssignmentsByActorId = this.buildAirShowAssignmentLookup(previousAssignments);
+    const preserveBridgeEntryActorIds = new Set<string>();
+    const contestedInterceptorRolesPresent =
+      currentAssignments.some((candidate) => candidate.actor.role === "interceptor")
+      || previousAssignments.some((candidate) => candidate.actor.role === "interceptor");
     const adjustedAssignments = currentAssignments.map((assignment) => {
       const previousAssignment = previousAssignmentsByActorId.get(assignment.actor.id);
       if (!previousAssignment || assignment.points.length < 2 || previousAssignment.points.length < 2) {
@@ -11613,17 +10666,116 @@ export class HexMapRenderer implements IMapRenderer {
         cx: previousBoundary.point.cx - currentOffsetPx,
         cy: previousBoundary.point.cy
       };
-      const bridgeTargetIndex = assignment.points.length >= 4 ? 2 : 1;
-      const bridgeTarget = assignment.points[bridgeTargetIndex] ?? currentFirst;
-      const routeToTarget = {
+      let bridgeTargetIndex = assignment.points.length >= 4 ? 2 : 1;
+      let bridgeTarget = assignment.points[bridgeTargetIndex] ?? currentFirst;
+      let routeToTarget = {
         x: bridgeTarget.cx - alignedStartPoint.cx,
         y: bridgeTarget.cy - alignedStartPoint.cy
       };
+      let routeForward = this.normalizeAircraftVector(
+        routeToTarget.x,
+        routeToTarget.y,
+        currentForward.x,
+        currentForward.y
+      );
+      let routeAlignment =
+        previousBoundary.forward.x * routeForward.x + previousBoundary.forward.y * routeForward.y;
+      const finalTarget = assignment.points[assignment.points.length - 1] ?? bridgeTarget;
+      const overallRouteToTarget = {
+        x: finalTarget.cx - alignedStartPoint.cx,
+        y: finalTarget.cy - alignedStartPoint.cy
+      };
+      const overallRouteForward = this.normalizeAircraftVector(
+        overallRouteToTarget.x,
+        overallRouteToTarget.y,
+        routeForward.x,
+        routeForward.y
+      );
+      const overallRouteAlignment =
+        previousBoundary.forward.x * overallRouteForward.x + previousBoundary.forward.y * overallRouteForward.y;
+      if (
+        contestedInterceptorRolesPresent
+        && overallRouteAlignment <= 0.16
+        && directTurnHomeRoles.has(assignment.actor.role)
+      ) {
+        const turnHomeCross =
+          previousBoundary.forward.x * overallRouteToTarget.y
+          - previousBoundary.forward.y * overallRouteToTarget.x;
+        const turnHomePath = this.softenAirShowEntryWindowTurns(
+          this.sanitizeAirShowEntryPath(
+            this.buildAirShowDisengagePath(alignedStartPoint, finalTarget, {
+              startHeadingDegrees: previousBoundary.headingDegrees,
+              lateralSign: turnHomeCross >= 0 ? 1 : -1,
+              corridorWidthPx: 12,
+              driftPx: 8,
+              preferForwardContinuous: true
+            }),
+            {
+              maxTurnDeg: 42,
+              strongTurnDeg: 84,
+              maxFirstSegmentPx: 76,
+              maxSharpTurnDeg: 104,
+              maxWaypointsToRemove: 2
+            }
+          ),
+          104,
+          {
+            maxWaypointsToRemove: 2,
+            entryWaypointCount: 4,
+            blendRangeDeg: 24,
+            minBlendFactor: 0.52,
+            maxBlendFactor: 0.84
+          }
+        );
+        if (turnHomePath.length >= 2) {
+          preserveBridgeEntryActorIds.add(assignment.actor.id);
+          return {
+            ...assignment,
+            points: turnHomePath
+          };
+        }
+      }
+      if (overallRouteAlignment <= -0.2 && directTurnHomeRoles.has(assignment.actor.role) && assignment.points.length >= 4) {
+        bridgeTargetIndex =
+          assignment.points.length <= 4
+            ? assignment.points.length - 1
+            : this.clamp(
+                Math.round((assignment.points.length - 1) * (assignment.points.length >= 7 ? 0.55 : 0.5)),
+                3,
+                assignment.points.length - 1
+              );
+        bridgeTarget = assignment.points[bridgeTargetIndex] ?? bridgeTarget;
+        routeToTarget = {
+          x: bridgeTarget.cx - alignedStartPoint.cx,
+          y: bridgeTarget.cy - alignedStartPoint.cy
+        };
+        routeForward = this.normalizeAircraftVector(
+          routeToTarget.x,
+          routeToTarget.y,
+          currentForward.x,
+          currentForward.y
+        );
+        routeAlignment =
+          previousBoundary.forward.x * routeForward.x + previousBoundary.forward.y * routeForward.y;
+        preserveBridgeEntryActorIds.add(assignment.actor.id);
+      }
       const routeCross = previousBoundary.forward.x * routeToTarget.y - previousBoundary.forward.y * routeToTarget.x;
       const bridgePoints = this.buildAirShowPhaseEntryBridge(alignedStartPoint, bridgeTarget, {
         startHeadingDegrees: previousBoundary.headingDegrees,
         sideSign: routeCross >= 0 ? 1 : -1,
-        carryForwardPx: this.clamp(Math.round(Math.max(firstSegmentPx, startCarryDistancePx * 0.42)), 24, 88)
+        carryForwardPx:
+          preserveBridgeEntryActorIds.has(assignment.actor.id)
+            ? this.clamp(
+                Math.round(
+                  Math.max(
+                    firstSegmentPx * 0.7,
+                    startCarryDistancePx * 0.32
+                  )
+                ),
+                20,
+                68
+              )
+            : this.clamp(Math.round(Math.max(firstSegmentPx, startCarryDistancePx * 0.42)), 24, 88)
       });
       const adjustedPoints = [
         alignedStartPoint,
@@ -11639,12 +10791,39 @@ export class HexMapRenderer implements IMapRenderer {
       if (adjustedPoints.length < 2) {
         return assignment;
       }
+      const isDirectTurnHomeRole = directTurnHomeRoles.has(assignment.actor.role);
+      const resolvedAdjustedPoints = preserveBridgeEntryActorIds.has(assignment.actor.id)
+        ? this.pruneAirShowEntryWindowSharpTurns(
+            adjustedPoints,
+            isDirectTurnHomeRole ? 108 : 118,
+            isDirectTurnHomeRole ? 3 : 2,
+            isDirectTurnHomeRole ? 5 : 4
+          )
+        : adjustedPoints;
+      const roleScopedAdjustedPoints = isDirectTurnHomeRole
+        ? this.softenAirShowEntryWindowTurns(resolvedAdjustedPoints, 108, {
+            maxWaypointsToRemove: 3,
+            entryWaypointCount: 5,
+            blendRangeDeg: 28,
+            minBlendFactor: 0.5,
+            maxBlendFactor: 0.82
+          })
+        : resolvedAdjustedPoints;
       return {
         ...assignment,
-        points: adjustedPoints
+        points: roleScopedAdjustedPoints.length >= 2 ? roleScopedAdjustedPoints : adjustedPoints
       };
     });
-    return this.smoothAirShowAssignmentEntries(adjustedAssignments, Math.min(52, maxTurnDeg * 0.42));
+    const smoothedAssignments = this.smoothAirShowAssignmentEntries(
+      adjustedAssignments.filter((assignment) => !preserveBridgeEntryActorIds.has(assignment.actor.id)),
+      Math.min(52, maxTurnDeg * 0.42)
+    );
+    const smoothedAssignmentsByActorId = this.buildAirShowAssignmentLookup(smoothedAssignments);
+    return adjustedAssignments.map((assignment) =>
+      preserveBridgeEntryActorIds.has(assignment.actor.id)
+        ? assignment
+        : (smoothedAssignmentsByActorId.get(assignment.actor.id) ?? assignment)
+    );
   }
 
   private resolveAirShowSpacingWindowWeight(progress: number): number {
@@ -12392,7 +11571,9 @@ export class HexMapRenderer implements IMapRenderer {
     });
   }
 
-  private averageAirShowPosition(actors: ReadonlyArray<AirShowRuntimeActor>): AirShowPoint | null {
+  private averageAirShowPosition(
+    actors: ReadonlyArray<Pick<AirShowRuntimeActor, "position">>
+  ): AirShowPoint | null {
     // Use ALL actors for position calculation, not just active ones.
     // The active flag controls visual opacity only; position must remain continuous.
     if (actors.length === 0) {
@@ -12463,13 +11644,15 @@ export class HexMapRenderer implements IMapRenderer {
         cy: finalSample.position.cy
       };
       assignment.actor.headingDegrees = finalSample.headingDegrees;
-      this.positionAircraftImageGhost(
-        assignment.actor.image,
-        assignment.actor.size,
-        assignment.actor.position.cx,
-        assignment.actor.position.cy,
-        assignment.actor.headingDegrees
-      );
+      if ("image" in assignment.actor && assignment.actor.image instanceof SVGImageElement) {
+        this.positionAircraftImageGhost(
+          assignment.actor.image,
+          assignment.actor.size,
+          assignment.actor.position.cx,
+          assignment.actor.position.cy,
+          assignment.actor.headingDegrees
+        );
+      }
     });
   }
 
@@ -12481,8 +11664,10 @@ export class HexMapRenderer implements IMapRenderer {
     const targetVisibleCount = this.resolveAirShowVisibleActorCount(flight.currentStrength);
     flight.actors.forEach((actor, index) => {
       actor.active = index < targetVisibleCount;
-      actor.image.style.opacity = actor.active ? "1" : "0";
-      actor.image.setAttribute("data-airshow-active", actor.active ? "true" : "false");
+      if ("image" in actor && actor.image instanceof SVGImageElement) {
+        actor.image.style.opacity = actor.active ? "1" : "0";
+        actor.image.setAttribute("data-airshow-active", actor.active ? "true" : "false");
+      }
     });
   }
 
@@ -12651,7 +11836,7 @@ export class HexMapRenderer implements IMapRenderer {
       );
     });
 
-    this.syncAirShowPhaseVisibility(assignments, options.sceneActors);
+    this.syncAirShowPhaseVisibility(assignments, options.sceneActors, options.visibleActorIds);
 
     const sortedBursts = [...tracerBursts].sort((left, right) => left.progress - right.progress);
     let nextBurstIndex = 0;
@@ -12744,16 +11929,17 @@ export class HexMapRenderer implements IMapRenderer {
 
   private syncAirShowPhaseVisibility(
     assignments: ReadonlyArray<AirShowPhaseAssignment>,
-    sceneActors: ReadonlyArray<AirShowRuntimeActor> = []
+    sceneActors: ReadonlyArray<AirShowRuntimeActor> = [],
+    visibleActorIds?: ReadonlyArray<string>
   ): void {
-    const assignedActorIds = new Set(assignments.map((assignment) => assignment.actor.id));
+    const visibleActorIdSet = new Set(visibleActorIds ?? assignments.map((assignment) => assignment.actor.id));
     const actorsToSync =
       sceneActors.length > 0
         ? sceneActors
         : Array.from(new Map(assignments.map((assignment) => [assignment.actor.id, assignment.actor] as const)).values());
 
     actorsToSync.forEach((actor) => {
-      const shouldDisplay = assignedActorIds.has(actor.id) && actor.active;
+      const shouldDisplay = visibleActorIdSet.has(actor.id) && actor.active;
       actor.image.style.opacity = shouldDisplay ? "1" : "0";
       actor.image.setAttribute("data-airshow-active", shouldDisplay ? "true" : "false");
     });

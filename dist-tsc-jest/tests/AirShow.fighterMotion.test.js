@@ -8,7 +8,7 @@
  */
 import { registerTest } from "./harness.js";
 import { sampleAirShowWaypointPath } from "../src/ui/airshow/AirShowPathMath";
-import { runAirScenario } from "./airScenarioSupport.js";
+import { resolveInspectionAssignmentBoundaryPoint, runAirScenario } from "./airScenarioSupport.js";
 // Per North Star Spec: heading change must not exceed 25 degrees per 0.25 seconds
 // outside of a designated break turn.
 const MAX_HEADING_CHANGE_DEG_PER_QUARTER_SEC = 25;
@@ -218,13 +218,13 @@ registerTest("AIR_SHOW_BIAS_OFFSET_DOES_NOT_GROW_ALONG_PATH", async ({ Given, Wh
         console.log(`[DIAGNOSTIC] Bias formula: index 0 = ${growthFactors[0]}, all others = 0. PASS.`);
     });
 });
-registerTest("AIR_SHOW_FULL_ENGAGEMENT_KEEPS_FIGHTERS_OUT_OF_TARGET_RUN_AND_COLLAPSES_BOMBER_DEFENSE_TO_ONE_BEAT", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_FULL_ENGAGEMENT_TARGET_RUN_KEEPS_BOMBERS_ON_STRIKE_LANE_AND_PEELS_FIGHTERS_AWAY", async ({ Given, When, Then }) => {
     let result = null;
     await Given("the air automation scenario includes a full engagement strike package", async () => { });
     await When("the scenario is resolved and the inspected airshow report is generated", async () => {
         result = runAirScenario();
     });
-    await Then("the full engagement target run should contain only strike craft and only one bomber-defense pass beat", async () => {
+    await Then("the full engagement target run should keep bombers on the strike lane while fighters transition into egress", async () => {
         const inspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" && entry.missionId === "bot-strike-1");
         if (!inspection) {
             throw new Error("Expected an inspected airshow for bot-strike-1.");
@@ -237,10 +237,23 @@ registerTest("AIR_SHOW_FULL_ENGAGEMENT_KEEPS_FIGHTERS_OUT_OF_TARGET_RUN_AND_COLL
         if (!targetRunMetric) {
             throw new Error("Expected a target-run phase metric for bot-strike-1.");
         }
-        const nonStrikeGroups = targetRunMetric.groupMetrics.filter((group) => group.combatRole !== "strike");
-        if (nonStrikeGroups.length > 0) {
-            throw new Error(`Expected target-run to keep only strike craft, saw ${nonStrikeGroups.map((group) => `${group.label}:${group.combatRole}`).join(", ")}.`);
+        const strikeGroups = targetRunMetric.groupMetrics.filter((group) => group.combatRole === "strike");
+        if (strikeGroups.length === 0) {
+            throw new Error("Expected target-run to retain strike craft.");
         }
+        const nonStrikeGroups = targetRunMetric.groupMetrics.filter((group) => group.combatRole !== "strike");
+        nonStrikeGroups.forEach((group) => {
+            const startDistancePx = Math.hypot(group.centroidStart.cx - inspection.report.center.cx, group.centroidStart.cy - inspection.report.center.cy);
+            const endDistancePx = Math.hypot(group.centroidEnd.cx - inspection.report.center.cx, group.centroidEnd.cy - inspection.report.center.cy);
+            if (endDistancePx <= startDistancePx + 24) {
+                throw new Error(`Expected ${group.label}:${group.combatRole} to peel away from the strike lane during target-run, ` +
+                    `but distance from contested center only changed ${Math.round(endDistancePx - startDistancePx)}px.`);
+            }
+            if (group.meanDisplacementPx < 80) {
+                throw new Error(`Expected ${group.label}:${group.combatRole} to move decisively during target-run egress, ` +
+                    `but mean displacement was only ${Math.round(group.meanDisplacementPx)}px.`);
+            }
+        });
     });
 });
 registerTest("AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY", async ({ Given, When, Then }) => {
@@ -263,8 +276,10 @@ registerTest("AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY", async 
             const previousByActorId = new Map(previousPhase.assignments.map((assignment) => [assignment.actorId, assignment]));
             currentPhase.assignments.forEach((assignment) => {
                 const previousAssignment = previousByActorId.get(assignment.actorId);
-                const previousEnd = previousAssignment?.points[previousAssignment.points.length - 1];
-                const currentStart = assignment.points[0];
+                const previousEnd = previousAssignment
+                    ? resolveInspectionAssignmentBoundaryPoint(previousAssignment, "end")
+                    : null;
+                const currentStart = resolveInspectionAssignmentBoundaryPoint(assignment, "start");
                 if (!previousEnd || !currentStart) {
                     return;
                 }
@@ -276,7 +291,7 @@ registerTest("AIR_SHOW_FULL_ENGAGEMENT_PHASES_PRESERVE_ACTOR_CONTINUITY", async 
             });
         }
         if (largestGapPx > 2) {
-            throw new Error(`Expected phase handoff continuity within 2px, saw ${largestGapPx.toFixed(1)}px at ${worstTransition}.`);
+            throw new Error(`Expected painted phase handoff continuity within 2px, saw ${largestGapPx.toFixed(1)}px at ${worstTransition}.`);
         }
     });
 });
@@ -637,8 +652,8 @@ registerTest("AIR_SHOW_SYNTHETIC_BOMBER_DEFENSE_PASS_STARTS_WITH_INTERCEPTORS_SE
                 if (left.flightId === right.flightId) {
                     continue;
                 }
-                const leftStart = left.points[0];
-                const rightStart = right.points[0];
+                const leftStart = resolveInspectionAssignmentBoundaryPoint(left, "start");
+                const rightStart = resolveInspectionAssignmentBoundaryPoint(right, "start");
                 if (!leftStart || !rightStart) {
                     continue;
                 }

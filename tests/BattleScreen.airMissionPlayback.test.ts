@@ -7,7 +7,71 @@ import type { ScenarioUnit } from "../src/core/types";
 import {
   buildCoordinatedAirClusterTimingPolicy,
   buildResolvedAirCombatSceneTimingPolicy
-} from "../src/ui/airshow/AirShowPlaybackPolicy.js";
+} from "../src/ui/airshow/AirShowTimingPolicies.js";
+
+type ResolvedSceneFlightLike = {
+  readonly scenarioType?: string;
+  readonly faction?: string;
+  readonly originHexKey?: string | null;
+  readonly strengthBefore?: number;
+  readonly strengthAfterEscortPhase?: number;
+  readonly finalStrength?: number;
+};
+
+type ResolvedSceneLike = {
+  readonly hexKey: string;
+  readonly interceptors?: ReadonlyArray<ResolvedSceneFlightLike>;
+  readonly escorts?: ReadonlyArray<ResolvedSceneFlightLike>;
+  readonly bombers?: ReadonlyArray<ResolvedSceneFlightLike>;
+  readonly bomber?: ResolvedSceneFlightLike | null;
+  readonly escortExchanges?: ReadonlyArray<unknown>;
+  readonly bomberPassExchanges?: ReadonlyArray<unknown>;
+  readonly bomberArrivalDelayMs?: number;
+};
+
+function resolveSceneBombers(scene: ResolvedSceneLike): ReadonlyArray<ResolvedSceneFlightLike> {
+  if (Array.isArray(scene.bombers) && scene.bombers.length > 0) {
+    return scene.bombers;
+  }
+  return scene.bomber ? [scene.bomber] : [];
+}
+
+function resolveSceneFlightStrength(flight: ResolvedSceneFlightLike | null | undefined): number {
+  return Math.max(
+    0,
+    Math.round(flight?.finalStrength ?? flight?.strengthAfterEscortPhase ?? flight?.strengthBefore ?? 0)
+  );
+}
+
+function recordResolvedAirCombatShow(callOrder: string[], scene: ResolvedSceneLike): void {
+  [...(scene.interceptors ?? []), ...(scene.escorts ?? [])].forEach((flight) => {
+    callOrder.push(
+      `fly:${flight.faction ?? "unknown"}:${flight.scenarioType ?? "unknown"}:${flight.originHexKey ?? "-"}->${scene.hexKey}`
+    );
+  });
+
+  const hasEscortBattle =
+    (scene.escortExchanges?.length ?? 0) > 0
+    || ((scene.interceptors?.length ?? 0) > 0 && (scene.escorts?.length ?? 0) > 0);
+  if (hasEscortBattle) {
+    callOrder.push(`dogfight:${scene.hexKey}`);
+    (scene.escorts ?? []).forEach((flight) => {
+      callOrder.push(`orbit:${flight.scenarioType ?? "unknown"}:${flight.strengthAfterEscortPhase ?? flight.strengthBefore ?? "?"}`);
+    });
+    (scene.interceptors ?? []).forEach((flight) => {
+      callOrder.push(`orbit:${flight.scenarioType ?? "unknown"}:${flight.strengthAfterEscortPhase ?? flight.strengthBefore ?? "?"}`);
+    });
+  }
+
+  if ((scene.bomberPassExchanges?.length ?? 0) > 0 && resolveSceneBombers(scene).some((flight) => resolveSceneFlightStrength(flight) > 0)) {
+    callOrder.push(`bomber-defense:${scene.hexKey}`);
+    (scene.interceptors ?? [])
+      .filter((flight) => resolveSceneFlightStrength(flight) > 0)
+      .forEach((flight) => {
+        callOrder.push(`orbit:${flight.scenarioType ?? "unknown"}:${flight.finalStrength ?? flight.strengthAfterEscortPhase ?? flight.strengthBefore ?? "?"}`);
+      });
+  }
+}
 
 registerTest("BATTLESCREEN_AIR_OPERATIONS_USE_LIVE_STRIKE_TARGETS_AND_RENDER_LINKED_ESCORTS", async ({ Given, When, Then }) => {
   const originalSetTimeout = window.setTimeout;
@@ -290,6 +354,9 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_PLAY_ESCORT_CLASH_BEFORE_BOMBER_DEFENS
     ): Promise<void> {
       callOrder.push(`fly:${faction ?? "unknown"}:${unitType}:${fromKey}->${toKey}`);
     },
+    async animateResolvedAirCombatShow(scene: ResolvedSceneLike): Promise<void> {
+      recordResolvedAirCombatShow(callOrder, scene);
+    },
     async playDogfight(hexKey: string): Promise<void> {
       callOrder.push(`dogfight:${hexKey}`);
     },
@@ -351,7 +418,27 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_PLAY_ESCORT_CLASH_BEFORE_BOMBER_DEFENS
     escortKills: 0,
     escortsEngaged: 1,
     interceptorsAfterEscortPhase: 1,
-    escortsAfterEscortPhase: 1
+    escortsAfterEscortPhase: 1,
+    bomberPassExchanges: [
+      {
+        phase: "bomberPass",
+        attackerFaction: "Player",
+        attackerUnitKey: "cap-1",
+        attackerUnitType: "Interceptor",
+        defenderFaction: "Bot",
+        defenderUnitKey: "bomber-1",
+        defenderUnitType: "Bomber",
+        attackerStrengthBefore: 100,
+        attackerStrengthAfter: 88,
+        defenderStrengthBefore: 100,
+        defenderStrengthAfter: 78,
+        damageToDefender: 22,
+        retaliationDamage: 12,
+        attackerDestroyed: false,
+        defenderDestroyed: false,
+        visualPasses: 2
+      }
+    ]
   };
 
   await When("the mission air intercept event is played", async () => {
@@ -457,6 +544,9 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_STOP_DESTROYED_ESCORTS_FROM_CONTINUING
     ): Promise<void> {
       callOrder.push(`orbit:${unitType}:${strength ?? "?"}`);
     },
+    async animateResolvedAirCombatShow(scene: ResolvedSceneLike): Promise<void> {
+      recordResolvedAirCombatShow(callOrder, scene);
+    },
     async playDogfight(hexKey: string): Promise<void> {
       callOrder.push(`dogfight:${hexKey}`);
     },
@@ -522,7 +612,27 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_STOP_DESTROYED_ESCORTS_FROM_CONTINUING
     interceptorStrengthsAfterEscortPhase: [82],
     escortStrengthsAfterEscortPhase: [0],
     interceptorFinalStrengths: [61],
-    escortFinalStrengths: [0]
+    escortFinalStrengths: [0],
+    bomberPassExchanges: [
+      {
+        phase: "bomberPass",
+        attackerFaction: "Player",
+        attackerUnitKey: "cap-1",
+        attackerUnitType: "Interceptor",
+        defenderFaction: "Bot",
+        defenderUnitKey: "bomber-1",
+        defenderUnitType: "Bomber",
+        attackerStrengthBefore: 82,
+        attackerStrengthAfter: 61,
+        defenderStrengthBefore: 100,
+        defenderStrengthAfter: 74,
+        damageToDefender: 26,
+        retaliationDamage: 21,
+        attackerDestroyed: false,
+        defenderDestroyed: false,
+        visualPasses: 2
+      }
+    ]
   };
 
   await When("the mission air intercept event is played through both phases", async () => {
@@ -689,6 +799,7 @@ registerTest("BATTLESCREEN_LINKED_FLAK_AND_CAP_ANIMATE_IN_ONE_SEQUENCE_EVEN_IF_F
 registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BOMBER_WINDOW", async ({ Given, When, Then }) => {
   const callOrder: string[] = [];
   const waits: number[] = [];
+  let resolvedScene: ResolvedSceneLike | null = null;
   const root = document.getElementById("battleScreen") ?? document.createElement("div");
   if (!root.parentElement) {
     root.id = "battleScreen";
@@ -760,6 +871,10 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BO
     ): Promise<void> {
       callOrder.push(`fly:${faction ?? "unknown"}:${unitType}:${fromKey}->${toKey}`);
     },
+    async animateResolvedAirCombatShow(scene: ResolvedSceneLike): Promise<void> {
+      resolvedScene = scene;
+      recordResolvedAirCombatShow(callOrder, scene);
+    },
     async playDogfight(hexKey: string): Promise<void> {
       callOrder.push(`dogfight:${hexKey}`);
     },
@@ -823,7 +938,27 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BO
     escortKills: 0,
     escortsEngaged: 1,
     interceptorsAfterEscortPhase: 1,
-    escortsAfterEscortPhase: 1
+    escortsAfterEscortPhase: 1,
+    bomberPassExchanges: [
+      {
+        phase: "bomberPass",
+        attackerFaction: "Player",
+        attackerUnitKey: "cap-1",
+        attackerUnitType: "Interceptor",
+        defenderFaction: "Bot",
+        defenderUnitKey: "bomber-1",
+        defenderUnitType: "Bomber",
+        attackerStrengthBefore: 100,
+        attackerStrengthAfter: 90,
+        defenderStrengthBefore: 100,
+        defenderStrengthAfter: 76,
+        damageToDefender: 24,
+        retaliationDamage: 10,
+        attackerDestroyed: false,
+        defenderDestroyed: false,
+        visualPasses: 2
+      }
+    ]
   };
 
   await When("the mission air intercept event is played with a delayed bomber arrival window", async () => {
@@ -837,8 +972,10 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BO
       throw new Error(`Expected one escort dogfight and one bomber-defense pass, saw ${JSON.stringify(callOrder)}.`);
     }
 
-    if (!waits.some((durationMs) => durationMs >= 700)) {
-      throw new Error(`Expected a substantial hold before the bomber-defense pass, saw waits ${JSON.stringify(waits)}.`);
+    if ((resolvedScene?.bomberArrivalDelayMs ?? 0) < 700) {
+      throw new Error(
+        `Expected a substantial bomber arrival hold before the defense pass, saw ${resolvedScene?.bomberArrivalDelayMs ?? "<missing>"}ms.`
+      );
     }
   });
 });
@@ -893,6 +1030,9 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_SKIP_THE_BOMBER_PASS_WHEN_FLAK_ALREADY
 
   const fakeRenderer = {
     async animateAircraftFlyover(): Promise<void> {},
+    async animateResolvedAirCombatShow(scene: ResolvedSceneLike): Promise<void> {
+      recordResolvedAirCombatShow(callOrder, scene);
+    },
     async playDogfight(hexKey: string): Promise<void> {
       callOrder.push(`dogfight:${hexKey}`);
     },
@@ -954,7 +1094,27 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_SKIP_THE_BOMBER_PASS_WHEN_FLAK_ALREADY
     escortKills: 0,
     escortsEngaged: 1,
     interceptorsAfterEscortPhase: 1,
-    escortsAfterEscortPhase: 1
+    escortsAfterEscortPhase: 1,
+    bomberPassExchanges: [
+      {
+        phase: "bomberPass",
+        attackerFaction: "Player",
+        attackerUnitKey: "cap-1",
+        attackerUnitType: "Interceptor",
+        defenderFaction: "Bot",
+        defenderUnitKey: "bomber-1",
+        defenderUnitType: "Bomber",
+        attackerStrengthBefore: 100,
+        attackerStrengthAfter: 100,
+        defenderStrengthBefore: 100,
+        defenderStrengthAfter: 0,
+        damageToDefender: 100,
+        retaliationDamage: 0,
+        attackerDestroyed: false,
+        defenderDestroyed: true,
+        visualPasses: 2
+      }
+    ]
   };
 
   await When("the air intercept playback is told the bomber-defense pass is unavailable", async () => {

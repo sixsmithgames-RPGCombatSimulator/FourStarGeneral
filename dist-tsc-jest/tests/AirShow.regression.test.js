@@ -524,39 +524,52 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_ORDNANCE_TO_EGRESS_REMAINS_CONTINUOUS",
         console.log(`[REGRESSION: ORDNANCE CONTINUITY] ✓ FIXED: target-run to egress boundary remains continuous`);
     });
 });
-registerTest("AIR_SHOW_REGRESSION_DESTROYED_ESCORTS_NOT_VISIBLE_IN_EGRESS", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_REGRESSION_FINAL_EGRESS_CARRIES_SURVIVING_PACKAGE_ACTORS", async ({ Given, When, Then }) => {
     let result = null;
-    await Given("the fixed destroyed actor filtering (removed force-show reactivation)", async () => { });
+    await Given("the north star requirement that one contested package owner carries surviving fighters and bombers through final egress", async () => { });
     await When("the contested package reaches egress phase", async () => {
         result = runAirScenario();
     });
-    await Then("destroyed escorts should NOT be visible in egress (only survivors)", async () => {
+    await Then("the final egress beat should carry the surviving fighters and bombers from the package", async () => {
         const inspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-"));
         if (!inspection) {
-            console.log("[REGRESSION: DESTROYED ESCORTS] No contested package found - skipping");
+            console.log("[REGRESSION: PACKAGE EGRESS] No contested package found - skipping");
             return;
         }
+        const targetRunPhase = inspection.report.phases.find(p => p.label === "target-run");
         const egressPhase = inspection.report.phases.find(p => p.label === "egress");
-        if (!egressPhase) {
-            console.log("[REGRESSION: DESTROYED ESCORTS] No egress phase - skipping");
+        if (!targetRunPhase || !egressPhase) {
+            console.log("[REGRESSION: PACKAGE EGRESS] Missing target-run or egress phase - skipping");
             return;
         }
-        // Get escort assignments in egress
+        const targetRunFighters = new Set(targetRunPhase.assignments
+            .filter(a => a.role === "escort" || a.role === "interceptor")
+            .map(a => a.actorId));
+        const targetRunBombers = new Set(targetRunPhase.assignments
+            .filter(a => a.role === "bomber")
+            .map(a => a.actorId));
         const egressEscorts = egressPhase.assignments.filter(a => a.role === "escort");
-        // Get total escorts from earlier phases
-        const allEscortIds = new Set();
-        for (const phase of inspection.report.phases) {
-            if (phase.label.includes("clash") || phase.label.includes("merge") || phase.label.includes("ingress")) {
-                phase.assignments
-                    .filter(a => a.role === "escort")
-                    .forEach(a => allEscortIds.add(a.actorId));
-            }
+        const egressInterceptors = egressPhase.assignments.filter(a => a.role === "interceptor");
+        const egressBombers = egressPhase.assignments.filter(a => a.role === "bomber");
+        const egressFighterIds = new Set([...egressEscorts, ...egressInterceptors].map(a => a.actorId));
+        const egressBomberIds = new Set(egressBombers.map(a => a.actorId));
+        if (egressFighterIds.size === 0) {
+            throw new Error("Expected final egress to include surviving fighters, but none were present.");
         }
-        const survivedCount = egressEscorts.length;
-        const totalCount = allEscortIds.size;
-        console.log(`[REGRESSION: DESTROYED ESCORTS] ✓ FIXED: ${survivedCount}/${totalCount} escorts in egress`);
-        console.log(`  - Destroyed escorts correctly filtered: ✓`);
-        console.log(`  - Only survivors visible: ✓`);
+        if (egressBomberIds.size === 0) {
+            throw new Error("Expected final egress to include surviving bombers, but none were present.");
+        }
+        const missingFighters = [...targetRunFighters].filter(id => !egressFighterIds.has(id));
+        const missingBombers = [...targetRunBombers].filter(id => !egressBomberIds.has(id));
+        if (missingFighters.length > 0 || missingBombers.length > 0) {
+            throw new Error(`Expected package continuity from target-run into egress.\n` +
+                `  Missing fighters: ${missingFighters.join(", ") || "<none>"}\n` +
+                `  Missing bombers: ${missingBombers.join(", ") || "<none>"}`);
+        }
+        console.log(`[REGRESSION: PACKAGE EGRESS] ✓ FIXED: egress carries ` +
+            `${egressEscorts.length + egressInterceptors.length} fighters and ${egressBombers.length} bombers`);
+        console.log(`  - One contested package owner through final egress: ✓`);
+        console.log(`  - Fighter and bomber continuity preserved from target-run: ✓`);
     });
 });
 registerTest("AIR_SHOW_REGRESSION_FLAK_TIMING_DURING_APPROACH", async ({ Given, When, Then }) => {

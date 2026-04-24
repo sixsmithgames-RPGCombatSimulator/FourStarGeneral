@@ -6,6 +6,7 @@ import type {
   ResolvedAirShowStrikeFlightSpec,
   ResolvedAirShowScene
 } from "./AirShowPlaybackScene";
+import { resolveCoordinatedAirClusterLeadWindow } from "./AirShowTimingPolicies";
 import { buildResolvedAirShowFlakBursts } from "./ResolvedAirCombatSceneBuilder";
 
 export interface ClusterPlaybackFlight {
@@ -214,45 +215,6 @@ function toResolvedStrikeFlightSpec(
     role: "bomber",
     combatRole: "strike",
     targetHexKey
-  };
-}
-
-function resolveCoordinatedBomberStartDelayMs(
-  fighterScenePresent: boolean,
-  strikePlanCount: number,
-  options: BuildCoordinatedAirClusterPlaybackPlanOptions
-): { bomberStartDelayMs: number; fighterIngressLeadMs: number } {
-  if (strikePlanCount <= 0) {
-    return {
-      bomberStartDelayMs: 0,
-      fighterIngressLeadMs: 0
-    };
-  }
-
-  const configuredLeadMs = Math.max(0, Math.round(options.bomberStartDelayMs ?? 0));
-  if (!fighterScenePresent) {
-    return {
-      bomberStartDelayMs: configuredLeadMs,
-      fighterIngressLeadMs: 0
-    };
-  }
-
-  // Coordinated bomber arrivals need to trail not only fighter ingress, but enough of the
-  // escort merge window that the package is still inbound while the dogfight establishes.
-  // This keeps bombers from arriving on target while the CAP/escort fight is still making
-  // its first merge pass.
-  const fighterIngressLeadMs = Math.max(
-    configuredLeadMs,
-    Math.round(
-      options.fighterIngressDurationMs +
-      options.escortClashDurationMs * 0.42 +
-      220
-    )
-  );
-
-  return {
-    bomberStartDelayMs: fighterIngressLeadMs,
-    fighterIngressLeadMs
   };
 }
 
@@ -557,10 +519,12 @@ export function buildCoordinatedAirClusterPlaybackPlan(
   });
 
   const residualOperations = cluster.filter((operation) => !claimedOperationIndices.has(operation.index));
-  const { bomberStartDelayMs, fighterIngressLeadMs } = resolveCoordinatedBomberStartDelayMs(
+  const { bomberStartDelayMs, fighterIngressLeadMs } = resolveCoordinatedAirClusterLeadWindow(
     fighterScenePresent,
     coordinatedBombers.length,
-    options
+    options.fighterIngressDurationMs,
+    options.escortClashDurationMs,
+    options.bomberStartDelayMs ?? 0
   );
   const finalScene =
     scene

@@ -57,8 +57,10 @@ export type ResolvedAirShowScene = {
   hexKey: string;
   interceptors: ReadonlyArray<ResolvedAirShowFlightSpec>;
   escorts: ReadonlyArray<ResolvedAirShowFlightSpec>;
-  bomber: ResolvedAirShowStrikeFlightSpec | null;
+  // `bombers` is the authoritative contested-playback collection.
   bombers?: ReadonlyArray<ResolvedAirShowStrikeFlightSpec>;
+  // `bomber` mirrors the first bomber for transitional consumers.
+  bomber: ResolvedAirShowStrikeFlightSpec | null;
   escortExchanges?: ReadonlyArray<ResolvedAirShowExchange>;
   bomberPassExchanges?: ReadonlyArray<ResolvedAirShowExchange>;
   fighterIngressDurationMs?: number;
@@ -75,6 +77,21 @@ export type ResolvedAirShowScene = {
   botHqKey?: string | null;
 };
 
+export function resolveResolvedAirShowBombers(
+  scene: ResolvedAirShowScene
+): ReadonlyArray<ResolvedAirShowStrikeFlightSpec> {
+  if (Array.isArray(scene.bombers) && scene.bombers.length > 0) {
+    return scene.bombers;
+  }
+  return scene.bomber ? [scene.bomber] : [];
+}
+
+export function resolvePrimaryResolvedAirShowBomber(
+  scene: ResolvedAirShowScene
+): ResolvedAirShowStrikeFlightSpec | null {
+  return resolveResolvedAirShowBombers(scene)[0] ?? null;
+}
+
 export interface AirShowInspectionPoint {
   readonly cx: number;
   readonly cy: number;
@@ -87,6 +104,13 @@ export interface AirShowInspectionFlightActor {
   readonly active: boolean;
   readonly headingDegrees: number;
   readonly position: AirShowInspectionPoint;
+}
+
+export interface PlannedAirShowFlightActor extends AirShowInspectionFlightActor {
+  readonly size: number;
+  readonly formationIndex: number;
+  readonly biasX: number;
+  readonly biasY: number;
 }
 
 export interface AirShowInspectionFlight {
@@ -103,6 +127,10 @@ export interface AirShowInspectionFlight {
   readonly actors: ReadonlyArray<AirShowInspectionFlightActor>;
 }
 
+export interface PlannedAirShowFlight extends Omit<AirShowInspectionFlight, "actors"> {
+  readonly actors: ReadonlyArray<PlannedAirShowFlightActor>;
+}
+
 export interface AirShowInspectionSampledPosition {
   readonly timeMs: number;
   readonly progress: number;
@@ -116,8 +144,23 @@ export interface AirShowInspectionAssignment {
   readonly actorId: string;
   readonly flightId: string;
   readonly role: AirShowFlightRole;
+  // Planner control waypoints. Use sampledPositions for rendered continuity or speed assertions.
   readonly points: ReadonlyArray<AirShowInspectionPoint>;
+  // Canonical painted-position samples from the shared playback scene.
   readonly sampledPositions: ReadonlyArray<AirShowInspectionSampledPosition>;
+}
+
+export interface PlannedAirShowAssignmentProgressKeyframe {
+  readonly timeMs: number;
+  readonly progress: number;
+}
+
+export interface PlannedAirShowAssignment extends AirShowInspectionAssignment {
+  readonly headingBlend?: number;
+  readonly multiFlightOffsetPx?: number;
+  readonly progressOffset?: number;
+  readonly distanceBudgetPx?: number;
+  readonly progressTimeline?: ReadonlyArray<PlannedAirShowAssignmentProgressKeyframe>;
 }
 
 export interface AirShowInspectionTracer {
@@ -138,6 +181,12 @@ export interface AirShowInspectionTracer {
   readonly rightFanEndPoint?: AirShowInspectionPoint;
 }
 
+export interface PlannedAirShowTracer extends AirShowInspectionTracer {
+  readonly color?: string;
+  readonly burstCount?: number;
+  readonly spreadPx?: number;
+}
+
 export interface AirShowInspectionFlakBurst {
   readonly progress: number;
   readonly bomberUnitKey?: string | null;
@@ -156,9 +205,15 @@ export interface AirShowInspectionFlakBurst {
 export interface AirShowInspectionPhase {
   readonly label: string;
   readonly durationMs: number;
+  readonly visibleActorIds: ReadonlyArray<string>;
   readonly assignments: ReadonlyArray<AirShowInspectionAssignment>;
   readonly tracers: ReadonlyArray<AirShowInspectionTracer>;
   readonly flakBursts: ReadonlyArray<AirShowInspectionFlakBurst>;
+}
+
+export interface PlannedAirShowPhase extends Omit<AirShowInspectionPhase, "assignments" | "tracers"> {
+  readonly assignments: ReadonlyArray<PlannedAirShowAssignment>;
+  readonly tracers: ReadonlyArray<PlannedAirShowTracer>;
 }
 
 export interface AirShowInspectionReport {
@@ -179,4 +234,7 @@ export interface AirShowInspectionReport {
   readonly phases: ReadonlyArray<AirShowInspectionPhase>;
 }
 
-export type PlannedAirShowScene = AirShowInspectionReport;
+export interface PlannedAirShowScene extends Omit<AirShowInspectionReport, "flights" | "phases"> {
+  readonly flights: ReadonlyArray<PlannedAirShowFlight>;
+  readonly phases: ReadonlyArray<PlannedAirShowPhase>;
+}
