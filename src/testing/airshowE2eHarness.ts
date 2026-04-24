@@ -1,5 +1,6 @@
 import { BattleScreen } from "../ui/screens/BattleScreen";
 import { HexMapRenderer } from "../rendering/HexMapRenderer";
+import { MapViewport } from "../ui/controls/MapViewport";
 import type {
   AirShowInspectionReport,
   ResolvedAirShowScene
@@ -186,6 +187,10 @@ function createReplayScreenForCapture(rendererLike: unknown, capture: AirShowPla
     tryGetGameEngine: () => fakeEngine,
     hasEngine: () => true
   } as unknown as import("../state/BattleState").BattleState;
+  const mapViewport = new MapViewport();
+  if (rendererLike instanceof HexMapRenderer) {
+    mapViewport.setViewportRoot(rendererLike.getViewportRoot());
+  }
 
   const screen = new BattleScreen(
     {} as never,
@@ -195,7 +200,7 @@ function createReplayScreenForCapture(rendererLike: unknown, capture: AirShowPla
     null,
     null,
     null,
-    {} as never,
+    mapViewport,
     null
   );
 
@@ -205,8 +210,6 @@ function createReplayScreenForCapture(rendererLike: unknown, capture: AirShowPla
   (screen as unknown as Record<string, unknown>).publishActivityEvent = () => {};
   (screen as unknown as Record<string, unknown>).closeSelectionIntelForAnimation = () => {};
   (screen as unknown as Record<string, unknown>).waitMs = async () => {};
-  (screen as unknown as Record<string, unknown>).waitForNextFrame = async () => {};
-  (screen as unknown as Record<string, unknown>).focusCameraOnHex = async () => {};
   (screen as unknown as Record<string, unknown>).renderEngineUnits = () => {};
   (screen as unknown as Record<string, unknown>).scenario = capture.scenario;
   (screen as unknown as Record<string, unknown>).scenarioSource = capture.scenario;

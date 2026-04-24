@@ -57,6 +57,28 @@ function installRenderFetchMocks() {
         }
     };
 }
+function parseSvgViewBox(svg) {
+    const rawViewBox = svg.getAttribute("viewBox");
+    if (!rawViewBox) {
+        throw new Error("Expected rendered SVG to expose a viewBox for airshow bounds inspection.");
+    }
+    const values = rawViewBox
+        .trim()
+        .split(/[ ,]+/)
+        .map((value) => Number.parseFloat(value))
+        .filter((value) => Number.isFinite(value));
+    if (values.length !== 4) {
+        throw new Error(`Expected SVG viewBox to contain four numeric values, received: ${rawViewBox}`);
+    }
+    const [x, y, width, height] = values;
+    if (typeof x !== "number"
+        || typeof y !== "number"
+        || typeof width !== "number"
+        || typeof height !== "number") {
+        throw new Error(`Expected finite numeric SVG viewBox values, received: ${rawViewBox}`);
+    }
+    return { x, y, width, height };
+}
 function inspectSceneForFixture(fixtureUnderTest, scene) {
     ensureDomEnvironment();
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -210,5 +232,67 @@ describe("AirShow JEST Harness", () => {
             }
             expect(maxTurnDeg).toBeLessThan(120);
         });
+    });
+    test("renderer visible bounds follow the focused viewport instead of the whole map", () => {
+        ensureDomEnvironment();
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("id", "battleHexMap");
+        svg.setAttribute("width", "1600");
+        svg.setAttribute("height", "1200");
+        const canvas = document.createElement("div");
+        canvas.id = "battleMapCanvas";
+        document.body.appendChild(svg);
+        document.body.appendChild(canvas);
+        const restoreFetch = installRenderFetchMocks();
+        const renderer = new HexMapRenderer();
+        renderer.render(svg, canvas, largeFixture.renderScenario);
+        try {
+            const viewportRoot = renderer.getViewportRoot();
+            expect(viewportRoot).not.toBeNull();
+            viewportRoot?.setAttribute("transform", "translate(-480, -360) scale(2)");
+            const viewBox = parseSvgViewBox(svg);
+            const bounds = renderer.resolveAirShowVisibleBounds();
+            expect(bounds).not.toBeNull();
+            const expected = {
+                minX: (viewBox.x + 480) / 2,
+                maxX: (viewBox.x + viewBox.width + 480) / 2,
+                minY: (viewBox.y + 360) / 2,
+                maxY: (viewBox.y + viewBox.height + 360) / 2
+            };
+            expect(bounds?.minX).toBeCloseTo(expected.minX, 4);
+            expect(bounds?.maxX).toBeCloseTo(expected.maxX, 4);
+            expect(bounds?.minY).toBeCloseTo(expected.minY, 4);
+            expect(bounds?.maxY).toBeCloseTo(expected.maxY, 4);
+            expect((bounds?.maxX ?? 0) - (bounds?.minX ?? 0)).toBeCloseTo(viewBox.width / 2, 4);
+            expect((bounds?.maxY ?? 0) - (bounds?.minY ?? 0)).toBeCloseTo(viewBox.height / 2, 4);
+        }
+        finally {
+            restoreFetch();
+            svg.remove();
+            canvas.remove();
+        }
+    });
+    test("runtime seed flights keep bombers active at scene start even when final strength is zero", async () => {
+        const scene = await captureScene();
+        const destroyedBomberScene = {
+            ...scene,
+            bomber: scene.bomber
+                ? {
+                    ...scene.bomber,
+                    finalStrength: 0
+                }
+                : scene.bomber,
+            bombers: scene.bombers?.map((bomber) => ({
+                ...bomber,
+                finalStrength: 0
+            }))
+        };
+        const report = inspectScene(destroyedBomberScene);
+        const bomberFlight = report.flights.find((flight) => flight.role === "bomber");
+        expect(bomberFlight).toBeDefined();
+        expect(bomberFlight?.strengthBefore).toBeGreaterThan(0);
+        expect(bomberFlight?.finalStrength).toBe(0);
+        expect(bomberFlight?.actors.length).toBeGreaterThan(0);
+        expect(bomberFlight?.actors.every((actor) => actor.active)).toBe(true);
     });
 });

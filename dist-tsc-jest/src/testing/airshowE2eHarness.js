@@ -1,5 +1,6 @@
 import { BattleScreen } from "../ui/screens/BattleScreen";
 import { HexMapRenderer } from "../rendering/HexMapRenderer";
+import { MapViewport } from "../ui/controls/MapViewport";
 import { buildAirshowHarnessFixture, buildAirshowHarnessFixtureLarge } from "./airshowHarnessFixture";
 import { buildAirshowPlaybackCaptureFixture } from "./airshowPlaybackCaptureFixture";
 const POSITION_SAMPLE_INTERVAL_MS = 100;
@@ -73,15 +74,17 @@ function createReplayScreenForCapture(rendererLike, capture) {
         tryGetGameEngine: () => fakeEngine,
         hasEngine: () => true
     };
-    const screen = new BattleScreen({}, fakeBattleState, {}, rendererLike, null, null, null, {}, null);
+    const mapViewport = new MapViewport();
+    if (rendererLike instanceof HexMapRenderer) {
+        mapViewport.setViewportRoot(rendererLike.getViewportRoot());
+    }
+    const screen = new BattleScreen({}, fakeBattleState, {}, rendererLike, null, null, null, mapViewport, null);
     screen.announceAirInterceptEngagement = () => { };
     screen.announceBattleUpdate = () => { };
     screen.announceFlakEngagement = () => { };
     screen.publishActivityEvent = () => { };
     screen.closeSelectionIntelForAnimation = () => { };
     screen.waitMs = async () => { };
-    screen.waitForNextFrame = async () => { };
-    screen.focusCameraOnHex = async () => { };
     screen.renderEngineUnits = () => { };
     screen.scenario = capture.scenario;
     screen.scenarioSource = capture.scenario;

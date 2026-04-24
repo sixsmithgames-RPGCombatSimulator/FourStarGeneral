@@ -369,6 +369,83 @@ test.describe("AirShow Browser Replay Harness", () => {
             "egress"
         ]));
     });
+    test("replay harness applies live camera focus so bomber ingress is painted inside the focused viewport", async ({ page }) => {
+        test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
+        await pauseScenarioAtPhaseProgress(page, "bomber-ingress", 0.72);
+        const result = await page.evaluate(() => {
+            const svg = document.getElementById("battleHexMap");
+            const viewportRoot = document.getElementById("viewportRoot");
+            if (!svg || !viewportRoot) {
+                throw new Error("Expected battleHexMap and viewportRoot to exist for replay visibility inspection.");
+            }
+            const rawViewBox = svg.getAttribute("viewBox");
+            if (!rawViewBox) {
+                throw new Error("Expected replay airshow SVG to expose a viewBox.");
+            }
+            const viewBoxValues = rawViewBox
+                .trim()
+                .split(/[ ,]+/)
+                .map((value) => Number.parseFloat(value))
+                .filter((value) => Number.isFinite(value));
+            if (viewBoxValues.length !== 4) {
+                throw new Error(`Expected replay airshow SVG viewBox to contain four numeric values, received: ${rawViewBox}`);
+            }
+            const [viewBoxX, viewBoxY, viewBoxWidth, viewBoxHeight] = viewBoxValues;
+            const transformValue = viewportRoot.getAttribute("transform")?.trim() ?? "";
+            const translateMatch = transformValue.match(/translate\(\s*(-?\d*\.?\d+)(?:[\s,]+(-?\d*\.?\d+))?\s*\)/i);
+            const scaleMatch = transformValue.match(/scale\(\s*(-?\d*\.?\d+)(?:[\s,]+(-?\d*\.?\d+))?\s*\)/i);
+            if (!translateMatch || !scaleMatch) {
+                throw new Error(`Expected replay viewportRoot transform to expose translate/scale, received: ${transformValue || "(empty)"}`);
+            }
+            const panX = Number(translateMatch[1]);
+            const panY = Number(translateMatch[2] ?? "0");
+            const zoomX = Number(scaleMatch[1]);
+            const zoomY = Number(scaleMatch[2] ?? scaleMatch[1]);
+            if (![panX, panY, zoomX, zoomY].every(Number.isFinite)) {
+                throw new Error(`Expected replay viewportRoot transform to produce finite pan/zoom values, received: ${transformValue}`);
+            }
+            const minX = (viewBoxX - panX) / zoomX;
+            const maxX = (viewBoxX + viewBoxWidth - panX) / zoomX;
+            const minY = (viewBoxY - panY) / zoomY;
+            const maxY = (viewBoxY + viewBoxHeight - panY) / zoomY;
+            const visibleBounds = {
+                minX: Math.min(minX, maxX),
+                maxX: Math.max(minX, maxX),
+                minY: Math.min(minY, maxY),
+                maxY: Math.max(minY, maxY)
+            };
+            const size = 32;
+            const bombers = Array.from(document.querySelectorAll('[data-testid="airshow-actor"][data-airshow-role="bomber"]')).map((el) => {
+                const x = Number.parseFloat(el.getAttribute("x") ?? "0");
+                const y = Number.parseFloat(el.getAttribute("y") ?? "0");
+                return {
+                    actorId: el.getAttribute("data-airshow-actor-id") ?? "",
+                    active: el.getAttribute("data-airshow-active") === "true",
+                    opacity: window.getComputedStyle(el).opacity,
+                    cx: x + size / 2,
+                    cy: y + size / 2
+                };
+            });
+            return {
+                transformValue,
+                panX,
+                panY,
+                zoomX,
+                zoomY,
+                visibleBounds,
+                bombers
+            };
+        });
+        const activeBombers = result.bombers.filter((actor) => actor.active);
+        const paintedBombers = activeBombers.filter((actor) => actor.opacity !== "0"
+            && actor.cx >= result.visibleBounds.minX
+            && actor.cx <= result.visibleBounds.maxX
+            && actor.cy >= result.visibleBounds.minY
+            && actor.cy <= result.visibleBounds.maxY);
+        expect(Math.abs(result.panX) + Math.abs(result.panY) + Math.abs(result.zoomX - 1) + Math.abs(result.zoomY - 1), `Expected replay harness to exercise a focused camera, but viewportRoot remained near identity: ${result.transformValue}`).toBeGreaterThan(1);
+        expect(activeBombers).toHaveLength(4);
+        expect(paintedBombers.length, `Expected bomber ingress to be painted inside the focused viewport. Visible bounds=${JSON.stringify(result.visibleBounds)} bombers=${JSON.stringify(result.bombers)}`).toBeGreaterThanOrEqual(3);
+    });
 });
 test.describe("AirShow Browser Harness Large Map", () => {
     test.beforeEach(async ({ page }) => {

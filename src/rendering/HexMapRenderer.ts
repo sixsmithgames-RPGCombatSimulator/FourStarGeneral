@@ -10231,16 +10231,27 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   private resolveAirShowVisibleBounds(): AirShowMapBounds | null {
-    if (this.mapPixelWidth > 0 && this.mapPixelHeight > 0) {
-      return {
-        minX: 0,
-        maxX: this.mapPixelWidth,
-        minY: 0,
-        maxY: this.mapPixelHeight
-      };
-    }
     const viewBox = this.svgElement?.viewBox?.baseVal;
     if (viewBox && Number.isFinite(viewBox.width) && Number.isFinite(viewBox.height) && viewBox.width > 0 && viewBox.height > 0) {
+      try {
+        const matrix = this.resolveViewportRootMatrix();
+        const scaleX = matrix.a;
+        const scaleY = matrix.d;
+        if (Math.abs(scaleX) > 0.0001 && Math.abs(scaleY) > 0.0001) {
+          const minX = (viewBox.x - matrix.e) / scaleX;
+          const maxX = (viewBox.x + viewBox.width - matrix.e) / scaleX;
+          const minY = (viewBox.y - matrix.f) / scaleY;
+          const maxY = (viewBox.y + viewBox.height - matrix.f) / scaleY;
+          return {
+            minX: Math.min(minX, maxX),
+            maxX: Math.max(minX, maxX),
+            minY: Math.min(minY, maxY),
+            maxY: Math.max(minY, maxY)
+          };
+        }
+      } catch (error) {
+        console.warn("[HexMapRenderer] Falling back to static airshow bounds; viewport transform could not be resolved.", error);
+      }
       return {
         minX: viewBox.x,
         maxX: viewBox.x + viewBox.width,
@@ -10265,6 +10276,25 @@ export class HexMapRenderer implements IMapRenderer {
           && width > 0
           && height > 0
         ) {
+          try {
+            const matrix = this.resolveViewportRootMatrix();
+            const scaleX = matrix.a;
+            const scaleY = matrix.d;
+            if (Math.abs(scaleX) > 0.0001 && Math.abs(scaleY) > 0.0001) {
+              const minX = (x - matrix.e) / scaleX;
+              const maxX = (x + width - matrix.e) / scaleX;
+              const minY = (y - matrix.f) / scaleY;
+              const maxY = (y + height - matrix.f) / scaleY;
+              return {
+                minX: Math.min(minX, maxX),
+                maxX: Math.max(minX, maxX),
+                minY: Math.min(minY, maxY),
+                maxY: Math.max(minY, maxY)
+              };
+            }
+          } catch (error) {
+            console.warn("[HexMapRenderer] Falling back to static raw viewBox airshow bounds; viewport transform could not be resolved.", error);
+          }
           return {
             minX: x,
             maxX: x + width,
@@ -10273,6 +10303,14 @@ export class HexMapRenderer implements IMapRenderer {
           };
         }
       }
+    }
+    if (this.mapPixelWidth > 0 && this.mapPixelHeight > 0) {
+      return {
+        minX: 0,
+        maxX: this.mapPixelWidth,
+        minY: 0,
+        maxY: this.mapPixelHeight
+      };
     }
     const widthAttr = Number.parseFloat(this.svgElement?.getAttribute("width") ?? "");
     const heightAttr = Number.parseFloat(this.svgElement?.getAttribute("height") ?? "");

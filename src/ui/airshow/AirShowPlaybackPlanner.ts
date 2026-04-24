@@ -445,6 +445,7 @@ export function planResolvedAirCombatShowScene(
     bomberFlights,
     hqAxis
   );
+  const runtimeSeedFlights = allFlights.map((flight) => describePlannedAirShowFlight(flight));
   const initialBomberApproachProfilesById = host.resolveAirShowBomberApproachProfiles(
     bomberFlights,
     corridor,
@@ -2003,7 +2004,7 @@ export function planResolvedAirCombatShowScene(
       bomberTarget: averageBomberTargetCenter ? { cx: averageBomberTargetCenter.cx, cy: averageBomberTargetCenter.cy } : null,
       originPlan: hqAxis ? buildAirShowInspectionOriginPlan(hqAxis, host.offMapDistancePx) : null,
       phaseTimingAudit,
-      flights: allFlights.map((flight) => describePlannedAirShowFlight(flight)),
+      flights: runtimeSeedFlights,
       phases
     };
 }

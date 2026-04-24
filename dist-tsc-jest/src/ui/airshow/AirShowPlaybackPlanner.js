@@ -63,6 +63,7 @@ export function planResolvedAirCombatShowScene(host, scene) {
     const averageBomberTargetCenter = host.averageAirShowPoints(Array.from(bomberTargetCentersById.values())) ?? null;
     const corridor = host.resolveAirShowCorridor(center, averageBomberAnchor, averageBomberTargetCenter, hqAxis);
     host.normalizeAirShowSceneFlightAnchors(corridor, scene.kind, interceptorFlights, escortFlights, bomberFlights, hqAxis);
+    const runtimeSeedFlights = allFlights.map((flight) => describePlannedAirShowFlight(flight));
     const initialBomberApproachProfilesById = host.resolveAirShowBomberApproachProfiles(bomberFlights, corridor, bomberTargetCentersById, averageBomberTargetCenter, stageRandom);
     const fighterIngressSeedDurationMs = host.clamp(Math.round(scene.fighterIngressDurationMs ?? 2520), 1250, 13250);
     const egressHeadingByFlightId = new Map();
@@ -220,6 +221,21 @@ export function planResolvedAirCombatShowScene(host, scene) {
         }
         return host.offsetAirShowPoint(fallbackOriginFor(flight.spec), corridor.normal.x * laneOffset + (rand() - 0.5) * 22, corridor.normal.y * laneOffset + (rand() - 0.5) * 18);
     };
+    const resolveFighterHomeLaneContext = (flight, fighterFlights) => {
+        const homeFlights = fighterFlights.filter((candidate) => candidate.spec.faction === flight.spec.faction);
+        const groupedIndex = homeFlights.findIndex((candidate) => candidate.spec.id === flight.spec.id);
+        if (groupedIndex >= 0 && homeFlights.length > 0) {
+            return {
+                index: groupedIndex,
+                totalFlights: homeFlights.length
+            };
+        }
+        const fallbackIndex = Math.max(0, fighterFlights.findIndex((candidate) => candidate.spec.id === flight.spec.id));
+        return {
+            index: fallbackIndex,
+            totalFlights: Math.max(1, fighterFlights.length)
+        };
+    };
     const normalizeVector = (x, y, fallbackX = 0, fallbackY = -1) => {
         const length = Math.hypot(x, y);
         if (length >= 0.001) {
@@ -310,8 +326,9 @@ export function planResolvedAirCombatShowScene(host, scene) {
     const buildFighterPeelAssignments = (fighterFlights, durationMs, tailHeadingByFlightId) => fighterFlights.flatMap((flight, index) => {
         const current = host.averageAirShowPosition(flight.actors) ?? flight.anchor;
         const peelRand = stageRandom(`fighter-peel:${flight.spec.id}:${index}`);
+        const fighterHomeLaneContext = resolveFighterHomeLaneContext(flight, fighterFlights);
         const egressHeadingDegrees = tailHeadingByFlightId.get(flight.spec.id) ?? host.resolveAirShowFlightHeadingDegrees(flight);
-        const fullEgressPoint = resolveFighterHomePoint(flight, index, fighterFlights.length);
+        const fullEgressPoint = resolveFighterHomePoint(flight, fighterHomeLaneContext.index, fighterHomeLaneContext.totalFlights);
         const homeDx = fullEgressPoint.cx - current.cx;
         const homeDy = fullEgressPoint.cy - current.cy;
         const homeDistancePx = Math.max(1, Math.hypot(homeDx, homeDy));
@@ -365,8 +382,9 @@ export function planResolvedAirCombatShowScene(host, scene) {
     const buildFighterEgressAssignments = (fighterFlights) => fighterFlights.flatMap((flight, index) => {
         const current = host.averageAirShowPosition(flight.actors) ?? flight.anchor;
         const rand = stageRandom(`fighter-egress:${flight.spec.id}:${index}`);
+        const fighterHomeLaneContext = resolveFighterHomeLaneContext(flight, fighterFlights);
         const egressHeadingDegrees = host.resolveAirShowFlightHeadingDegrees(flight);
-        const egressPoint = resolveFighterHomePoint(flight, index, fighterFlights.length);
+        const egressPoint = resolveFighterHomePoint(flight, fighterHomeLaneContext.index, fighterHomeLaneContext.totalFlights);
         const egressLateralSign = host.resolveAirShowRouteSideSign(current, egressPoint, egressHeadingDegrees, flight.spec.role === "escort" ? 1 : -1);
         const egressPath = host.sanitizeAirShowEntryPath(buildForwardContinuousRoutePath(current, egressPoint, {
             startHeadingDegrees: egressHeadingDegrees,
@@ -954,7 +972,7 @@ export function planResolvedAirCombatShowScene(host, scene) {
         bomberTarget: averageBomberTargetCenter ? { cx: averageBomberTargetCenter.cx, cy: averageBomberTargetCenter.cy } : null,
         originPlan: hqAxis ? buildAirShowInspectionOriginPlan(hqAxis, host.offMapDistancePx) : null,
         phaseTimingAudit,
-        flights: allFlights.map((flight) => describePlannedAirShowFlight(flight)),
+        flights: runtimeSeedFlights,
         phases
     };
 }
