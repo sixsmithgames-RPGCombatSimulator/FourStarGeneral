@@ -552,20 +552,20 @@ export function planResolvedAirCombatShowScene(host, scene) {
                             sideSign,
                             laneIndex,
                             startHeadingDegrees: host.resolveAirShowFlightHeadingDegrees(flight),
-                            entrySeparationPx: 104,
-                            crossSeparationPx: 12,
-                            overshootPx: 78
+                            entrySeparationPx: 74,
+                            crossSeparationPx: 8,
+                            overshootPx: 42
                         })
                         : host.buildAirShowPursuitPath(current, focusPoint, {
                             startHeadingDegrees: host.resolveAirShowFlightHeadingDegrees(flight),
                             lateralSign: sideSign,
-                            entryLateralPx: 26,
-                            mergeLateralPx: 10,
-                            attackOffsetPx: laneIndex * 6,
-                            closeInPx: 4,
-                            overshootPx: 18,
-                            breakLateralPx: 20,
-                            breakForwardPx: 10
+                            entryLateralPx: 14,
+                            mergeLateralPx: 6,
+                            attackOffsetPx: laneIndex * 4,
+                            closeInPx: 6,
+                            overshootPx: 10,
+                            breakLateralPx: 12,
+                            breakForwardPx: 8
                         });
                     phaseAssignments.push(...host.buildAirShowFlightAssignments(flight, path, 0.26, index, activeInterceptorFlights.length));
                 });
@@ -579,19 +579,19 @@ export function planResolvedAirCombatShowScene(host, scene) {
                             sideSign,
                             laneIndex,
                             startHeadingDegrees: host.resolveAirShowFlightHeadingDegrees(flight),
-                            entrySeparationPx: 98,
-                            crossSeparationPx: 10,
-                            overshootPx: 72
+                            entrySeparationPx: 70,
+                            crossSeparationPx: 8,
+                            overshootPx: 38
                         })
                         : host.buildAirShowBreakTurnPath(current, focusPoint, {
                             startHeadingDegrees: host.resolveAirShowFlightHeadingDegrees(flight),
                             lateralSign: sideSign,
-                            entryLateralPx: 16,
-                            guardForwardPx: 8,
-                            guardLateralPx: 20,
-                            exitForwardPx: 24,
-                            exitLateralPx: 28,
-                            trailForwardPx: 10
+                            entryLateralPx: 10,
+                            guardForwardPx: 6,
+                            guardLateralPx: 14,
+                            exitForwardPx: 16,
+                            exitLateralPx: 20,
+                            trailForwardPx: 8
                         });
                     phaseAssignments.push(...host.buildAirShowFlightAssignments(flight, path, 0.24, index, activeEscortFlights.length));
                 });
@@ -616,44 +616,44 @@ export function planResolvedAirCombatShowScene(host, scene) {
                         }
                     })
                     : phaseAssignments;
-                const resolvedPhaseAssignments = host.prepareAirShowPhaseAssignments(extendedPhaseAssignments, escortBeatDurationMs, [0.3, 0.5, 0.7], beat === 0 ? 54 : 48, escortClashRoleSpeeds, {
+                const resolvedPhaseAssignments = host.prepareAirShowPhaseAssignments(extendedPhaseAssignments, escortBeatDurationMs, [0.3, 0.5, 0.7], beat === 0 ? 42 : 34, escortClashRoleSpeeds, {
                     previousAssignments: previousPhaseAssignments,
                     previousDurationMs: previousPhaseDurationMs,
-                    entryTurnLimitDeg: beat === 0 ? 100 : 108
+                    entryTurnLimitDeg: beat === 0 ? 72 : 78
                 });
                 const timedPhaseAssignments = beat === 0
                     ? host.shapeCompactAirShowMergeAssignments(resolvedPhaseAssignments, escortBeatDurationMs)
                     : resolvedPhaseAssignments;
                 uniqueEscortPairs.forEach((pair) => {
                     const baseTimings = beat === 0
-                        ? [0.42, 0.48, 0.54, 0.6, 0.66]
-                        : [0.3, 0.38, 0.46, 0.54, 0.62, 0.7];
+                        ? [0.62, 0.7, 0.78, 0.86]
+                        : [0.16, 0.28, 0.4, 0.52, 0.64, 0.76];
                     tracerBursts.push(...host.buildAirShowDynamicTracerVolley(timedPhaseAssignments, pair.interceptorFlight, pair.escortFlight, {
                         emitter: "nose",
                         color: "#fff5cf",
-                        width: 0.14,
-                        lifetimeMs: beat === 0 ? 24 : 22,
-                        spreadPx: 0,
-                        streakLengthPx: beat === 0 ? 760 : 700,
-                        visibleLengthPx: beat === 0 ? 32 : 26,
-                        fanHalfAngleDeg: 0,
-                        burstCount: baseTimings.length,
-                        maxAlignmentDeg: beat === 0 ? 24 : 36,
-                        maxRangePx: beat === 0 ? 160 : 220,
+                        width: beat === 0 ? 0.62 : 0.58,
+                        lifetimeMs: beat === 0 ? 42 : 40,
+                        spreadPx: beat === 0 ? 6 : 8,
+                        streakLengthPx: beat === 0 ? 128 : 140,
+                        visibleLengthPx: beat === 0 ? 10 : 12,
+                        fanHalfAngleDeg: 2,
+                        burstCount: 3,
+                        maxAlignmentDeg: beat === 0 ? 24 : 30,
+                        maxRangePx: beat === 0 ? 136 : 152,
                         timings: baseTimings,
                         fallbackToNearest: true
                     }), ...host.buildAirShowDynamicTracerVolley(timedPhaseAssignments, pair.escortFlight, pair.interceptorFlight, {
                         emitter: "nose",
                         color: "#ffd98a",
-                        width: 0.14,
-                        lifetimeMs: beat === 0 ? 24 : 22,
-                        spreadPx: 0,
-                        streakLengthPx: beat === 0 ? 760 : 700,
-                        visibleLengthPx: beat === 0 ? 32 : 26,
-                        fanHalfAngleDeg: 0,
-                        burstCount: baseTimings.length,
-                        maxAlignmentDeg: beat === 0 ? 24 : 36,
-                        maxRangePx: beat === 0 ? 160 : 220,
+                        width: beat === 0 ? 0.58 : 0.54,
+                        lifetimeMs: beat === 0 ? 40 : 38,
+                        spreadPx: beat === 0 ? 6 : 8,
+                        streakLengthPx: beat === 0 ? 124 : 136,
+                        visibleLengthPx: beat === 0 ? 10 : 11,
+                        fanHalfAngleDeg: 2,
+                        burstCount: 3,
+                        maxAlignmentDeg: beat === 0 ? 24 : 30,
+                        maxRangePx: beat === 0 ? 136 : 152,
                         timings: baseTimings.map((timing) => Math.min(0.78, timing + 0.02)),
                         fallbackToNearest: true
                     }));
@@ -796,7 +796,11 @@ export function planResolvedAirCombatShowScene(host, scene) {
         const spacedBomberIngressAssignments = host.prepareAirShowPhaseAssignments(extendedBomberIngressAssignments, bomberIngressDurationMs, [0.22, 0.5, 0.78, 0.94], undefined, bomberIngressRoleSpeeds, {
             previousAssignments: previousPhaseAssignments,
             previousDurationMs: previousPhaseDurationMs,
-            entryTurnLimitDeg: 96
+            entryTurnLimitDeg: 90,
+            directTurnHomeRoles: ["interceptor", "escort"],
+            softenEntryRoles: ["interceptor", "escort"],
+            softenEntryTurnLimitDeg: 102,
+            softenEntryWaypointCount: 6
         });
         recordPhase("bomber-ingress", spacedBomberIngressAssignments, bomberIngressDurationMs, [], [], bomberIngressRoleSpeeds);
         previousPhaseAssignments = spacedBomberIngressAssignments;
@@ -894,7 +898,11 @@ export function planResolvedAirCombatShowScene(host, scene) {
             const spacedPhaseAssignments = host.prepareAirShowPhaseAssignments(extendedBomberDefenseAssignments, bomberPassBeatDurationMs, [0.04, 0.18, 0.36, 0.56, 0.76], 46, bomberDefenseRoleSpeeds, {
                 previousAssignments: previousPhaseAssignments,
                 previousDurationMs: previousPhaseDurationMs,
-                entryTurnLimitDeg: 92
+                entryTurnLimitDeg: 88,
+                directTurnHomeRoles: ["interceptor", "escort"],
+                softenEntryRoles: ["interceptor", "escort"],
+                softenEntryTurnLimitDeg: 100,
+                softenEntryWaypointCount: 6
             });
             attackEntriesForShow.forEach((entry) => {
                 tracerBursts.push(...host.buildAirShowBomberDefensePassTracerBursts(spacedPhaseAssignments, entry.interceptorFlight, entry.bomberFlight));
@@ -908,33 +916,33 @@ export function planResolvedAirCombatShowScene(host, scene) {
                 const fallbackBomber = fallbackBomberFlight?.actors.find((actor) => actor.active) ?? null;
                 if (fallbackAttackerFlight && fallbackBomberFlight) {
                     tracerBursts.push(...host.buildAirShowBomberDefensePassTracerBursts(spacedPhaseAssignments, fallbackAttackerFlight, fallbackBomberFlight, {
-                        attackTimings: [0.22, 0.3, 0.38, 0.46, 0.54, 0.62, 0.7, 0.78],
-                        defensiveTimings: [0.28, 0.4, 0.52, 0.64, 0.76],
+                        attackTimings: [0.24, 0.38, 0.52, 0.66],
+                        defensiveTimings: [0.36, 0.54, 0.72],
                         fallbackToNearest: true
                     }));
                 }
                 else if (fallbackInterceptor && fallbackBomber) {
                     tracerBursts.push(...host.buildAirShowTracerVolley(fallbackInterceptor, fallbackBomber, {
                         emitter: "nose",
-                        width: 0.18,
-                        lifetimeMs: 30,
-                        spreadPx: 0,
-                        streakLengthPx: 684,
-                        visibleLengthPx: 24,
-                        fanHalfAngleDeg: 0,
-                        burstCount: 5,
-                        timings: [0.34, 0.42, 0.5, 0.58, 0.66]
+                        width: 0.54,
+                        lifetimeMs: 40,
+                        spreadPx: 6,
+                        streakLengthPx: 132,
+                        visibleLengthPx: 12,
+                        fanHalfAngleDeg: 2,
+                        burstCount: 3,
+                        timings: [0.28, 0.42, 0.56, 0.7]
                     }), ...host.buildAirShowTracerVolley(fallbackBomber, fallbackInterceptor, {
                         emitter: "center",
                         color: "#fff1c8",
-                        width: 0.17,
-                        lifetimeMs: 28,
-                        spreadPx: 0,
-                        streakLengthPx: 540,
-                        visibleLengthPx: 22,
-                        fanHalfAngleDeg: 0,
-                        burstCount: 4,
-                        timings: [0.4, 0.52, 0.64, 0.76]
+                        width: 0.42,
+                        lifetimeMs: 34,
+                        spreadPx: 4,
+                        streakLengthPx: 96,
+                        visibleLengthPx: 8,
+                        fanHalfAngleDeg: 1,
+                        burstCount: 2,
+                        timings: [0.36, 0.54, 0.72]
                     }));
                 }
             }

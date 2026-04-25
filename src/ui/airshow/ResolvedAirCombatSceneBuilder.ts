@@ -81,7 +81,7 @@ export function buildResolvedAirShowFlakBursts(
   return Array.from({ length: waveCount }, (_, index) => ({
     // Keep flak in the late approach window, but shape it as clustered airbursts
     // around the bomber track instead of a corridor-wide sweep across the target.
-    progress: Math.min(0.94, 0.78 + index * 0.018),
+    progress: Math.min(0.82, 0.6 + index * 0.018),
     count: normalizedEngagementCount,
     scale: 0.66 + index * 0.022,
     alongOffsetPx: -8 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI * 1.35) * 6,

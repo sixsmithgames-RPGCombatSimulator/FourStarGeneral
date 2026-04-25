@@ -110,13 +110,13 @@ registerTest("AIR_SHOW_BOMBER_REACHES_STANDOFF_AT_PROGRESS_1_0", async ({ Given,
         console.log(`[STANDOFF VALIDATION] ${bomberAssignments.length} bombers reached standoff point with valid positions`);
     });
 });
-registerTest("AIR_SHOW_FLAK_TIMING_AT_PROGRESS_0_80_TO_1_00", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_FLAK_TIMING_AT_PROGRESS_0_60_TO_BEFORE_BOMB_RELEASE", async ({ Given, When, Then }) => {
     let result = null;
     await Given("flak engagement per North Star Spec §Scenario 5 Phase 6", async () => { });
     await When("the scenario with flak is run", async () => {
         result = runAirScenario();
     });
-    await Then("flak should activate at bomberProgress >= 0.80 and continue through turn", async () => {
+    await Then("flak should activate on the late approach and finish before bomb release", async () => {
         const strikeInspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" &&
             entry.report.phases.some(p => (p.flakBursts?.length ?? 0) > 0));
         if (!strikeInspection) {
@@ -131,16 +131,15 @@ registerTest("AIR_SHOW_FLAK_TIMING_AT_PROGRESS_0_80_TO_1_00", async ({ Given, Wh
             const flakBursts = phase.flakBursts;
             // Check first flak burst timing
             const firstFlakProgress = flakBursts[0]?.progress ?? 0;
-            // Per spec: flak activates at bomberProgress 0.80
-            if (firstFlakProgress < 0.75) {
+            if (firstFlakProgress < 0.6) {
                 throw new Error(`Flak starts too early in ${phase.label}: first burst at ${(firstFlakProgress * 100).toFixed(1)}% ` +
-                    `(spec requires >= 80%)`);
+                    `(late-approach window requires >= 60%)`);
             }
-            // Check last flak burst doesn't exceed reasonable bounds
             const lastFlakProgress = flakBursts[flakBursts.length - 1]?.progress ?? 0;
-            if (lastFlakProgress > 1.1) {
+            const bombReleaseProgress = 0.9;
+            if (lastFlakProgress >= bombReleaseProgress) {
                 throw new Error(`Flak extends too far in ${phase.label}: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
-                    `(should complete by end of arc turn)`);
+                    `(must complete before bomb release at ${(bombReleaseProgress * 100).toFixed(1)}%)`);
             }
             console.log(`[FLAK TIMING] ${phase.label}: ${flakBursts.length} bursts from ${(firstFlakProgress * 100).toFixed(0)}% to ${(lastFlakProgress * 100).toFixed(0)}%`);
         }

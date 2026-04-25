@@ -2577,12 +2577,12 @@ function detectAirshowFindings(
       });
     }
     if (!isSyntheticScenario && (metric.label.includes("clash") || metric.label.includes("pass")) && metric.tracerCount > 0) {
-      if (metric.meanTracerLengthPx < 220) {
+      if (metric.meanTracerLengthPx < 96 || metric.meanVisibleTracerLengthPx < 8) {
         findings.push({
           code: "short-tracers",
           message:
             `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} only paints ` +
-            `${Math.round(metric.meanTracerLengthPx)}px tracer streaks on average.`
+            `${Math.round(metric.meanTracerLengthPx)}/${Math.round(metric.meanVisibleTracerLengthPx)}px tracer streaks on average.`
         });
       }
       if (metric.meanTracerAlignmentDeg > 24 || metric.maxTracerAlignmentDeg > 38) {

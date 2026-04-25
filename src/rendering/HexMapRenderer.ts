@@ -1342,7 +1342,15 @@ export class HexMapRenderer implements IMapRenderer {
     if (phase.label === "target-run") {
       const targetHexKey = scene.bomberTargetHexKey ?? scene.bomber?.targetHexKey ?? null;
       if (targetHexKey) {
-        const progress = this.clamp(scene.bombReleaseProgress ?? 0.5, 0, 1);
+        const latestFlakProgress = phase.flakBursts.reduce(
+          (latest, burst) => Math.max(latest, this.clamp(burst.progress, 0, 1)),
+          0
+        );
+        const progress = this.clamp(
+          Math.max(scene.bombReleaseProgress ?? 0.5, latestFlakProgress + 0.06),
+          0,
+          0.98
+        );
         handles.push(window.setTimeout(() => {
           void this.playExplosion(targetHexKey, true);
           void this.playDustCloud(targetHexKey);
@@ -4974,15 +4982,15 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const distance = Math.max(0.001, Math.hypot(end.cx - start.cx, end.cy - start.cy));
-    const lifetimeMs = Math.max(68, options.lifetimeMs ?? 92);
+    const lifetimeMs = Math.max(24, options.lifetimeMs ?? 48);
     const strokeColor = options.color ?? (options.reverse ? "#fff0b8" : "#ffbf47");
-    const strokeWidth = Math.max(0.72, options.width ?? (options.reverse ? 0.9 : 1.02));
+    const strokeWidth = Math.max(0.28, options.width ?? (options.reverse ? 0.44 : 0.52));
     const visibleLengthPx = this.clamp(
-      options.visibleLengthPx ?? Math.min(104, distance * 0.24),
-      28,
-      Math.min(distance, 112)
+      options.visibleLengthPx ?? Math.min(18, distance * 0.16),
+      4,
+      Math.min(distance, 28)
     );
-    const visibleRatio = this.clamp(visibleLengthPx / distance, 0.06, 0.42);
+    const visibleRatio = this.clamp(visibleLengthPx / distance, 0.04, 0.48);
     const glow = document.createElementNS(SVG_NS, "line");
     const tracer = document.createElementNS(SVG_NS, "line");
     [glow, tracer].forEach((line) => {
@@ -4994,7 +5002,7 @@ export class HexMapRenderer implements IMapRenderer {
       line.style.opacity = "0";
     });
     glow.setAttribute("stroke", options.reverse ? "#ffe39a" : "#ff9d1f");
-    glow.setAttribute("stroke-width", String(strokeWidth * 1.12));
+    glow.setAttribute("stroke-width", String(strokeWidth * 1.08));
     glow.style.opacity = "0";
     tracer.setAttribute("stroke", strokeColor);
     tracer.setAttribute("stroke-width", String(strokeWidth));
@@ -5015,8 +5023,8 @@ export class HexMapRenderer implements IMapRenderer {
         cx: start.cx + (end.cx - start.cx) * tailProgress,
         cy: start.cy + (end.cy - start.cy) * tailProgress
       };
-      const rise = this.clamp(progress / 0.08, 0, 1);
-      const decay = progress < 0.42 ? 1 : 1 - (progress - 0.42) / 0.58;
+      const rise = this.clamp(progress / 0.04, 0, 1);
+      const decay = progress < 0.26 ? 1 : 1 - (progress - 0.26) / 0.74;
       const opacity = rise * this.clamp(decay, 0, 1);
       [glow, tracer].forEach((line) => {
         line.setAttribute("x1", String(tail.cx));
@@ -5024,8 +5032,8 @@ export class HexMapRenderer implements IMapRenderer {
         line.setAttribute("x2", String(head.cx));
         line.setAttribute("y2", String(head.cy));
       });
-      glow.style.opacity = `${0.12 * opacity}`;
-      tracer.style.opacity = `${0.96 * opacity}`;
+      glow.style.opacity = `${0.08 * opacity}`;
+      tracer.style.opacity = `${0.92 * opacity}`;
       if (progress >= 1) {
         glow.remove();
         tracer.remove();
@@ -6236,6 +6244,33 @@ export class HexMapRenderer implements IMapRenderer {
     return resolvedPoints;
   }
 
+  private softenAirShowExitWindowTurns(
+    path: ReadonlyArray<AirShowPoint>,
+    maxTurnDeg = 118,
+    options: {
+      maxWaypointsToRemove?: number;
+      exitWaypointCount?: number;
+      blendRangeDeg?: number;
+      minBlendFactor?: number;
+      maxBlendFactor?: number;
+    } = {}
+  ): AirShowPoint[] {
+    if (path.length < 3) {
+      return [...path];
+    }
+    return this.softenAirShowEntryWindowTurns(
+      [...path].reverse(),
+      maxTurnDeg,
+      {
+        maxWaypointsToRemove: options.maxWaypointsToRemove,
+        entryWaypointCount: options.exitWaypointCount,
+        blendRangeDeg: options.blendRangeDeg,
+        minBlendFactor: options.minBlendFactor,
+        maxBlendFactor: options.maxBlendFactor
+      }
+    ).reverse();
+  }
+
   private sanitizeAirShowEntryPath(
     path: ReadonlyArray<AirShowPoint>,
     options: {
@@ -6333,12 +6368,12 @@ export class HexMapRenderer implements IMapRenderer {
     const driftPx = options.driftPx ?? 0;
     const clampPoint = (point: AirShowPoint): AirShowPoint => this.clampPointToViewportBounds(point, target);
     const entryPoint = clampPoint({
-      cx: start.cx + fx * (length * 0.2) + nx * lateralSign * (entryLateralPx * 0.42) + fx * driftPx * 0.08,
-      cy: start.cy + fy * (length * 0.2) + ny * lateralSign * (entryLateralPx * 0.42) + fy * driftPx * 0.08
+      cx: start.cx + fx * (length * 0.16) + nx * lateralSign * (entryLateralPx * 0.36) + fx * driftPx * 0.08,
+      cy: start.cy + fy * (length * 0.16) + ny * lateralSign * (entryLateralPx * 0.36) + fy * driftPx * 0.08
     });
     const mergePoint = clampPoint({
-      cx: start.cx + fx * (length * 0.38) + nx * lateralSign * mergeLateralPx + fx * driftPx * 0.2,
-      cy: start.cy + fy * (length * 0.38) + ny * lateralSign * mergeLateralPx + fy * driftPx * 0.2
+      cx: start.cx + fx * (length * 0.3) + nx * lateralSign * mergeLateralPx + fx * driftPx * 0.2,
+      cy: start.cy + fy * (length * 0.3) + ny * lateralSign * mergeLateralPx + fy * driftPx * 0.2
     });
     const attackPoint = clampPoint({
       cx: target.cx - fx * closeInPx + nx * lateralSign * attackOffsetPx,
@@ -6347,21 +6382,21 @@ export class HexMapRenderer implements IMapRenderer {
     const overshootPoint = clampPoint({
       cx:
         target.cx +
-        fx * (overshootPx * 0.28 + breakForwardPx * 0.08) +
-        nx * lateralSign * Math.max(attackOffsetPx * 0.72, breakLateralPx * 0.18),
+        fx * (overshootPx * 0.22 + breakForwardPx * 0.06) +
+        nx * lateralSign * Math.max(attackOffsetPx * 0.6, breakLateralPx * 0.14),
       cy:
         target.cy +
-        fy * (overshootPx * 0.28 + breakForwardPx * 0.08) +
-        ny * lateralSign * Math.max(attackOffsetPx * 0.72, breakLateralPx * 0.18)
+        fy * (overshootPx * 0.22 + breakForwardPx * 0.06) +
+        ny * lateralSign * Math.max(attackOffsetPx * 0.6, breakLateralPx * 0.14)
     });
     const exitPoint = clampPoint({
-      cx: target.cx + fx * (overshootPx * 0.72 + breakForwardPx * 0.62) + nx * lateralSign * (breakLateralPx * 0.56),
-      cy: target.cy + fy * (overshootPx * 0.72 + breakForwardPx * 0.62) + ny * lateralSign * (breakLateralPx * 0.56)
+      cx: target.cx + fx * (overshootPx * 0.56 + breakForwardPx * 0.48) + nx * lateralSign * (breakLateralPx * 0.46),
+      cy: target.cy + fy * (overshootPx * 0.56 + breakForwardPx * 0.48) + ny * lateralSign * (breakLateralPx * 0.46)
     });
     const leadPoint = this.buildAirShowHeadingLeadPoint(start, entryPoint, {
       startHeadingDegrees: options.startHeadingDegrees,
       lateralSign,
-      leadForwardPx: Math.min(Math.max(30, length * 0.12), Math.max(48, length * 0.18)),
+      leadForwardPx: Math.min(Math.max(24, length * 0.09), Math.max(40, length * 0.14)),
       leadLateralPx: entryLateralPx * 0.14,
       clampCenter: target
     });
@@ -6387,7 +6422,7 @@ export class HexMapRenderer implements IMapRenderer {
     const routeForward = this.normalizeAircraftVector(routeDx, routeDy, fx, fy);
     const routeNormal = { x: -routeForward.y, y: routeForward.x };
     const headingForward = this.resolveAirShowHeadingVector(options.startHeadingDegrees);
-    if (this.resolveAirShowVectorAngleDegrees(headingForward, routeForward) <= 30) {
+    if (this.resolveAirShowVectorAngleDegrees(headingForward, routeForward) <= 24) {
       return authoredPath;
     }
     const commitDistancePx = Math.min(Math.max(34, routeDistance * 0.16), Math.max(52, routeDistance * 0.24));
@@ -6415,9 +6450,9 @@ export class HexMapRenderer implements IMapRenderer {
         return Math.hypot(point.cx - previous.cx, point.cy - previous.cy) >= 2;
       }),
       {
-        maxTurnDeg: 44,
-        strongTurnDeg: 92,
-        maxFirstSegmentPx: 70,
+        maxTurnDeg: 38,
+        strongTurnDeg: 78,
+        maxFirstSegmentPx: 58,
         maxWaypointsToRemove: 1
       }
     );
@@ -6453,12 +6488,12 @@ export class HexMapRenderer implements IMapRenderer {
     const trailForwardPx = options.trailForwardPx ?? 30;
     const clampPoint = (point: AirShowPoint): AirShowPoint => this.clampPointToViewportBounds(point, threat);
     const setupPoint = clampPoint({
-      cx: start.cx + fx * (length * 0.18) + nx * lateralSign * (entryLateralPx * 0.44),
-      cy: start.cy + fy * (length * 0.18) + ny * lateralSign * (entryLateralPx * 0.44)
+      cx: start.cx + fx * (length * 0.14) + nx * lateralSign * (entryLateralPx * 0.34),
+      cy: start.cy + fy * (length * 0.14) + ny * lateralSign * (entryLateralPx * 0.34)
     });
     const guardPoint = clampPoint({
-      cx: threat.cx - fx * guardForwardPx + nx * lateralSign * (guardLateralPx * 0.54),
-      cy: threat.cy - fy * guardForwardPx + ny * lateralSign * (guardLateralPx * 0.54)
+      cx: threat.cx - fx * guardForwardPx + nx * lateralSign * (guardLateralPx * 0.44),
+      cy: threat.cy - fy * guardForwardPx + ny * lateralSign * (guardLateralPx * 0.44)
     });
     const turnInPoint = clampPoint({
       cx: threat.cx - fx * Math.max(8, guardForwardPx * 0.12) - nx * lateralSign * Math.max(12, guardLateralPx * 0.14),
@@ -6469,17 +6504,17 @@ export class HexMapRenderer implements IMapRenderer {
       cy: threat.cy + fy * Math.max(14, exitForwardPx * 0.2) - ny * lateralSign * Math.max(8, exitLateralPx * 0.16)
     });
     const exitPoint = clampPoint({
-      cx: threat.cx + fx * (exitForwardPx * 0.74) - nx * lateralSign * (exitLateralPx * 0.62),
-      cy: threat.cy + fy * (exitForwardPx * 0.74) - ny * lateralSign * (exitLateralPx * 0.62)
+      cx: threat.cx + fx * (exitForwardPx * 0.6) - nx * lateralSign * (exitLateralPx * 0.5),
+      cy: threat.cy + fy * (exitForwardPx * 0.6) - ny * lateralSign * (exitLateralPx * 0.5)
     });
     const trailPoint = clampPoint({
-      cx: threat.cx + fx * (exitForwardPx * 0.78 + trailForwardPx * 0.72) - nx * lateralSign * (exitLateralPx * 0.74),
-      cy: threat.cy + fy * (exitForwardPx * 0.78 + trailForwardPx * 0.72) - ny * lateralSign * (exitLateralPx * 0.74)
+      cx: threat.cx + fx * (exitForwardPx * 0.68 + trailForwardPx * 0.56) - nx * lateralSign * (exitLateralPx * 0.6),
+      cy: threat.cy + fy * (exitForwardPx * 0.68 + trailForwardPx * 0.56) - ny * lateralSign * (exitLateralPx * 0.6)
     });
     const leadPoint = this.buildAirShowHeadingLeadPoint(start, setupPoint, {
       startHeadingDegrees: options.startHeadingDegrees,
       lateralSign,
-      leadForwardPx: Math.min(Math.max(24, length * 0.1), Math.max(38, length * 0.16)),
+      leadForwardPx: Math.min(Math.max(18, length * 0.08), Math.max(30, length * 0.12)),
       leadLateralPx: entryLateralPx * 0.14,
       clampCenter: threat
     });
@@ -6506,7 +6541,7 @@ export class HexMapRenderer implements IMapRenderer {
     const routeForward = this.normalizeAircraftVector(routeDx, routeDy, fx, fy);
     const routeNormal = { x: -routeForward.y, y: routeForward.x };
     const headingForward = this.resolveAirShowHeadingVector(options.startHeadingDegrees);
-    if (this.resolveAirShowVectorAngleDegrees(headingForward, routeForward) <= 32) {
+    if (this.resolveAirShowVectorAngleDegrees(headingForward, routeForward) <= 26) {
       return authoredPath;
     }
     const commitDistancePx = Math.min(Math.max(32, routeDistance * 0.14), Math.max(48, routeDistance * 0.22));
@@ -6534,9 +6569,9 @@ export class HexMapRenderer implements IMapRenderer {
         return Math.hypot(point.cx - previous.cx, point.cy - previous.cy) >= 2;
       }),
       {
-        maxTurnDeg: 46,
-        strongTurnDeg: 94,
-        maxFirstSegmentPx: 72,
+        maxTurnDeg: 40,
+        strongTurnDeg: 80,
+        maxFirstSegmentPx: 60,
         maxWaypointsToRemove: 1
       }
     );
@@ -7160,29 +7195,6 @@ export class HexMapRenderer implements IMapRenderer {
     } = {}
   ): AirShowPoint[] {
     if (options.preferForwardContinuous) {
-      const dx = end.cx - start.cx;
-      const dy = end.cy - start.cy;
-      const length = Math.max(1, Math.hypot(dx, dy));
-      const routeForward = this.normalizeAircraftVector(dx, dy, 0, -1);
-      const headingForward =
-        typeof options.startHeadingDegrees === "number"
-          ? this.resolveAirShowHeadingVector(options.startHeadingDegrees)
-          : routeForward;
-      const routeAlignment = headingForward.x * routeForward.x + headingForward.y * routeForward.y;
-      if (routeAlignment <= -0.2) {
-        return this.buildAirShowBomberMonotonicPath(start, end, {
-          lateralSign: options.lateralSign,
-          corridorWidthPx: options.corridorWidthPx ?? 12,
-          driftPx: options.driftPx ?? 10,
-          earlyRatio: length <= 120 ? 0.3 : 0.18,
-          midRatio: length <= 120 ? 0.58 : 0.46,
-          lateRatio: length <= 120 ? 0.84 : 0.76,
-          earlyLateralScale: 0.04,
-          midLateralScale: 0.02,
-          lateLateralScale: 0.01,
-          finalLateralScale: 0.006
-        });
-      }
       return this.buildAirShowBomberBreakawayPath(start, end, {
         lateralSign: options.lateralSign,
         corridorWidthPx: options.corridorWidthPx ?? 12,
@@ -9904,6 +9916,12 @@ export class HexMapRenderer implements IMapRenderer {
       harmonizeIngressVisibility?: boolean;
       entryTurnLimitDeg?: number;
       directTurnHomeRoles?: ReadonlyArray<AirShowRuntimeActor["role"]>;
+      softenEntryRoles?: ReadonlyArray<AirShowRuntimeActor["role"]>;
+      softenEntryTurnLimitDeg?: number;
+      softenEntryWaypointCount?: number;
+      softenExitRoles?: ReadonlyArray<AirShowRuntimeActor["role"]>;
+      softenExitTurnLimitDeg?: number;
+      softenExitWaypointCount?: number;
     } = {}
   ): AirShowPhaseAssignment[] {
     let finalizedAssignments = this.finalizeAirShowPhaseAssignments(
@@ -9933,6 +9951,94 @@ export class HexMapRenderer implements IMapRenderer {
         durationMs,
         roleTargetSpeeds
       );
+    }
+    const softenedEntryRoles = new Set(options.softenEntryRoles ?? []);
+    if (softenedEntryRoles.size > 0) {
+      let softenedEntryAssignmentsChanged = false;
+      const softenedEntryAssignments = finalizedAssignments.map((assignment) => {
+        if (!softenedEntryRoles.has(assignment.actor.role) || assignment.points.length < 3) {
+          return assignment;
+        }
+        const softenedPoints = this.softenAirShowEntryWindowTurns(
+          assignment.points,
+          options.softenEntryTurnLimitDeg ?? 104,
+          {
+            maxWaypointsToRemove: 3,
+            entryWaypointCount: options.softenEntryWaypointCount ?? 5,
+            blendRangeDeg: 24,
+            minBlendFactor: 0.48,
+            maxBlendFactor: 0.8
+          }
+        );
+        if (softenedPoints.length < 2 || softenedPoints === assignment.points) {
+          return assignment;
+        }
+        if (softenedPoints.length !== assignment.points.length) {
+          softenedEntryAssignmentsChanged = true;
+        } else if (
+          softenedPoints.some((point, index) => {
+            const originalPoint = assignment.points[index];
+            return !originalPoint || Math.hypot(point.cx - originalPoint.cx, point.cy - originalPoint.cy) > 0.5;
+          })
+        ) {
+          softenedEntryAssignmentsChanged = true;
+        }
+        return {
+          ...assignment,
+          points: softenedPoints
+        };
+      });
+      if (softenedEntryAssignmentsChanged) {
+        finalizedAssignments = this.applyAirShowPhaseMotionBudgets(
+          softenedEntryAssignments,
+          durationMs,
+          roleTargetSpeeds
+        );
+      }
+    }
+    const softenedExitRoles = new Set(options.softenExitRoles ?? []);
+    if (softenedExitRoles.size > 0) {
+      let softenedExitAssignmentsChanged = false;
+      const softenedExitAssignments = finalizedAssignments.map((assignment) => {
+        if (!softenedExitRoles.has(assignment.actor.role) || assignment.points.length < 3) {
+          return assignment;
+        }
+        const softenedPoints = this.softenAirShowExitWindowTurns(
+          assignment.points,
+          options.softenExitTurnLimitDeg ?? 104,
+          {
+            maxWaypointsToRemove: 3,
+            exitWaypointCount: options.softenExitWaypointCount ?? 5,
+            blendRangeDeg: 24,
+            minBlendFactor: 0.48,
+            maxBlendFactor: 0.8
+          }
+        );
+        if (softenedPoints.length < 2 || softenedPoints === assignment.points) {
+          return assignment;
+        }
+        if (softenedPoints.length !== assignment.points.length) {
+          softenedExitAssignmentsChanged = true;
+        } else if (
+          softenedPoints.some((point, index) => {
+            const originalPoint = assignment.points[index];
+            return !originalPoint || Math.hypot(point.cx - originalPoint.cx, point.cy - originalPoint.cy) > 0.5;
+          })
+        ) {
+          softenedExitAssignmentsChanged = true;
+        }
+        return {
+          ...assignment,
+          points: softenedPoints
+        };
+      });
+      if (softenedExitAssignmentsChanged) {
+        finalizedAssignments = this.applyAirShowPhaseMotionBudgets(
+          softenedExitAssignments,
+          durationMs,
+          roleTargetSpeeds
+        );
+      }
     }
     return finalizedAssignments;
   }
@@ -10748,13 +10854,17 @@ export class HexMapRenderer implements IMapRenderer {
       edge === "start"
         ? referenceSample.position.cy - boundarySample.position.cy
         : boundarySample.position.cy - referenceSample.position.cy;
+    const resolvedHeadingDegrees =
+      Math.hypot(forwardDx, forwardDy) > 0.5
+        ? this.resolveAircraftHeadingDegrees(forwardDx, forwardDy, boundarySample.headingDegrees)
+        : boundarySample.headingDegrees;
     return {
       point: {
         cx: boundarySample.position.cx,
         cy: boundarySample.position.cy
       },
       forward: this.normalizeAircraftVector(forwardDx, forwardDy, fallbackForward.x, fallbackForward.y),
-      headingDegrees: boundarySample.headingDegrees
+      headingDegrees: resolvedHeadingDegrees
     };
   }
 
@@ -10802,6 +10912,7 @@ export class HexMapRenderer implements IMapRenderer {
         previousBoundary.point.cy - currentBoundary.point.cy
       );
       const entryTurnDeg = this.resolveAirShowVectorAngleDegrees(previousBoundary.forward, currentForward);
+      const strongBoundaryShock = entryTurnDeg > Math.max(maxTurnDeg + 10, 104);
       if (startCarryDistancePx <= 1 && entryTurnDeg <= maxTurnDeg) {
         return assignment;
       }
@@ -10847,7 +10958,7 @@ export class HexMapRenderer implements IMapRenderer {
         previousBoundary.forward.x * overallRouteForward.x + previousBoundary.forward.y * overallRouteForward.y;
       if (
         contestedInterceptorRolesPresent
-        && overallRouteAlignment <= 0.16
+        && (overallRouteAlignment <= 0.16 || strongBoundaryShock)
         && directTurnHomeRoles.has(assignment.actor.role)
       ) {
         const turnHomeCross =
@@ -10870,13 +10981,13 @@ export class HexMapRenderer implements IMapRenderer {
               maxWaypointsToRemove: 2
             }
           ),
-          104,
+          strongBoundaryShock ? 132 : 104,
           {
-            maxWaypointsToRemove: 2,
-            entryWaypointCount: 4,
-            blendRangeDeg: 24,
-            minBlendFactor: 0.52,
-            maxBlendFactor: 0.84
+            maxWaypointsToRemove: strongBoundaryShock ? 1 : 2,
+            entryWaypointCount: strongBoundaryShock ? 5 : 4,
+            blendRangeDeg: strongBoundaryShock ? 40 : 24,
+            minBlendFactor: strongBoundaryShock ? 0.36 : 0.52,
+            maxBlendFactor: strongBoundaryShock ? 0.68 : 0.84
           }
         );
         if (turnHomePath.length >= 2) {
@@ -11210,7 +11321,7 @@ export class HexMapRenderer implements IMapRenderer {
     let bestScore = Number.POSITIVE_INFINITY;
     const enforceForwardAlignment = emitter !== "center";
     const maxAlignmentDeg = enforceForwardAlignment
-      ? Math.max(constraints.maxAlignmentDeg ?? 90, 90)
+      ? this.clamp(constraints.maxAlignmentDeg ?? 90, 6, 90)
       : 180;
     const maxRangePx = constraints.maxRangePx ?? (emitter === "center" ? 176 : 138);
 
@@ -11329,16 +11440,26 @@ export class HexMapRenderer implements IMapRenderer {
       -1
     );
     const lateral = { x: -baseForward.y, y: baseForward.x };
-    const streakLengthPx = Math.max(
-      140,
-      burst.streakLengthPx ?? actor.size * (burst.emitter === "center" ? 7.2 : 7.8)
+    const targetDistancePx = targetPoint
+      ? Math.max(0.001, Math.hypot(targetPoint.cx - emitterPoint.cx, targetPoint.cy - emitterPoint.cy))
+      : null;
+    const requestedStreakLengthPx = burst.streakLengthPx ?? actor.size * (burst.emitter === "center" ? 4.6 : 5.4);
+    const streakLengthCapPx =
+      typeof targetDistancePx === "number"
+        ? Math.max(16, targetDistancePx * 0.96)
+        : Math.max(36, requestedStreakLengthPx);
+    const streakLengthPx = this.clamp(
+      Math.min(requestedStreakLengthPx, streakLengthCapPx),
+      16,
+      Math.max(18, streakLengthCapPx)
     );
     const visibleLengthPx = this.clamp(
-      burst.visibleLengthPx ?? Math.min(54, streakLengthPx * 0.14),
-      24,
-      Math.min(streakLengthPx, 96)
+      burst.visibleLengthPx ?? Math.min(14, streakLengthPx * 0.16),
+      5,
+      Math.min(streakLengthPx, 20)
     );
-    const fanHalfAngleDeg = 0;
+    const fanHalfAngleDeg = this.clamp(burst.fanHalfAngleDeg ?? 0, 0, 12);
+    const spreadPx = Math.max(0, burst.spreadPx ?? 0);
     const centerlineEndPoint = {
       cx: emitterPoint.cx + baseForward.x * streakLengthPx,
       cy: emitterPoint.cy + baseForward.y * streakLengthPx
@@ -11347,16 +11468,30 @@ export class HexMapRenderer implements IMapRenderer {
     const segments = Array.from({ length: burstCount }, (_, index) => {
       const fanT = burstCount <= 1 ? 0 : (index / Math.max(1, burstCount - 1)) * 2 - 1;
       const direction = this.rotateAirShowVector(baseForward, fanT * fanHalfAngleDeg);
-      const startOffsetPx = 0;
+      const startOffsetPx = fanT * spreadPx * 0.5;
+      const forwardBiasPx =
+        typeof targetDistancePx === "number" && burstCount > 1
+          ? (index % 2 === 0 ? -1 : 1) * Math.min(8, targetDistancePx * 0.08)
+          : 0;
       const start = {
-        cx: emitterPoint.cx + lateral.x * startOffsetPx,
-        cy: emitterPoint.cy + lateral.y * startOffsetPx
+        cx: emitterPoint.cx + lateral.x * startOffsetPx + baseForward.x * forwardBiasPx,
+        cy: emitterPoint.cy + lateral.y * startOffsetPx + baseForward.y * forwardBiasPx
       };
+      const segmentLengthPx = this.clamp(
+        typeof targetPoint === "object" && targetPoint
+          ? Math.min(
+              streakLengthPx * (0.88 - Math.abs(fanT) * 0.08),
+              Math.max(14, Math.hypot(targetPoint.cx - start.cx, targetPoint.cy - start.cy) * 0.95)
+            )
+          : streakLengthPx,
+        14,
+        Math.max(18, streakLengthPx)
+      );
       return {
         start,
         end: {
-          cx: start.cx + direction.x * streakLengthPx,
-          cy: start.cy + direction.y * streakLengthPx
+          cx: start.cx + direction.x * segmentLengthPx,
+          cy: start.cy + direction.y * segmentLengthPx
         }
       };
     });
@@ -11392,14 +11527,16 @@ export class HexMapRenderer implements IMapRenderer {
       timings?: ReadonlyArray<number>;
     } = {}
   ): AirShowTracerBurst[] {
-    const density = Math.max(4, options.burstCount ?? (options.emitter === "center" ? 6 : 7));
-    const timingCount = Math.max(6, density);
+    const timingCount =
+      Array.isArray(options.timings) && options.timings.length > 0
+        ? options.timings.length
+        : (options.emitter === "center" ? 4 : 5);
     const timings =
       options.timings
       ?? Array.from({ length: timingCount }, (_, index) =>
           0.38 + (index / Math.max(1, timingCount - 1)) * 0.42
         );
-    const perBurstSegments = 1;
+    const perBurstSegments = Math.max(1, Math.round(options.burstCount ?? 1));
     return timings.map((progress, volleyIndex) => ({
       progress,
       source,
@@ -11408,10 +11545,10 @@ export class HexMapRenderer implements IMapRenderer {
       color: options.color,
       width: options.width,
       lifetimeMs: options.lifetimeMs,
-      spreadPx: 0,
+      spreadPx: options.spreadPx,
       streakLengthPx: options.streakLengthPx ?? (options.emitter === "center" ? 312 : 328),
       visibleLengthPx: options.visibleLengthPx,
-      fanHalfAngleDeg: 0,
+      fanHalfAngleDeg: options.fanHalfAngleDeg,
       burstCount: perBurstSegments
     }));
   }
@@ -11454,20 +11591,19 @@ export class HexMapRenderer implements IMapRenderer {
     } = {}
   ): AirShowTracerBurst[] {
     const emitter = options.emitter ?? "nose";
+    const segmentCount = Math.max(1, Math.round(options.burstCount ?? 1));
     const timings =
       options.timings
-      ?? Array.from({ length: Math.max(5, options.burstCount ?? 6) }, (_, index) => 0.34 + index * 0.08);
+      ?? Array.from({ length: emitter === "center" ? 4 : 5 }, (_, index) => 0.34 + index * 0.08);
     return timings.flatMap<AirShowTracerBurst>((progress, volleyIndex) => {
       const probeProgresses = [
         progress,
-        progress - 0.04,
-        progress + 0.04,
-        progress - 0.08,
-        progress + 0.08,
-        progress - 0.12,
-        progress + 0.12,
-        progress - 0.16,
-        progress + 0.16
+        progress - 0.03,
+        progress + 0.03,
+        progress - 0.06,
+        progress + 0.06,
+        progress - 0.09,
+        progress + 0.09
       ]
         .map((candidate) => this.clamp(candidate, 0, 1))
         .filter((candidate, index, array) =>
@@ -11514,11 +11650,11 @@ export class HexMapRenderer implements IMapRenderer {
             color: options.color,
             width: options.width,
             lifetimeMs: options.lifetimeMs,
-            spreadPx: 0,
+            spreadPx: options.spreadPx,
             streakLengthPx: options.streakLengthPx,
             visibleLengthPx: options.visibleLengthPx,
-            fanHalfAngleDeg: 0,
-            burstCount: 1
+            fanHalfAngleDeg: options.fanHalfAngleDeg,
+            burstCount: segmentCount
           }];
         }
       }
@@ -11533,11 +11669,11 @@ export class HexMapRenderer implements IMapRenderer {
         color: options.color,
         width: options.width,
         lifetimeMs: options.lifetimeMs,
-        spreadPx: 0,
+        spreadPx: options.spreadPx,
         streakLengthPx: options.streakLengthPx,
         visibleLengthPx: options.visibleLengthPx,
-        fanHalfAngleDeg: 0,
-        burstCount: 1
+        fanHalfAngleDeg: options.fanHalfAngleDeg,
+        burstCount: segmentCount
       }];
     });
   }
@@ -11584,35 +11720,35 @@ export class HexMapRenderer implements IMapRenderer {
       readonly fallbackToNearest?: boolean;
     } = {}
   ): AirShowTracerBurst[] {
-    const attackTimings = options.attackTimings ?? [0.34, 0.42, 0.5, 0.58, 0.66, 0.74];
-    const defensiveTimings = options.defensiveTimings ?? [0.4, 0.52, 0.64, 0.76];
+    const attackTimings = options.attackTimings ?? [0.14, 0.26, 0.38, 0.5, 0.62, 0.74];
+    const defensiveTimings = options.defensiveTimings ?? [0.34, 0.52, 0.7];
     const fallbackToNearest = options.fallbackToNearest ?? false;
     return [
       ...this.buildAirShowDynamicTracerVolley(assignments, interceptorFlight, bomberFlight, {
         emitter: "nose",
-        width: 1.08,
-        lifetimeMs: 104,
-        spreadPx: 0,
-        streakLengthPx: 684,
-        visibleLengthPx: 72,
-        fanHalfAngleDeg: 0,
-        burstCount: attackTimings.length,
-        maxAlignmentDeg: 32,
-        maxRangePx: 198,
+        width: 0.58,
+        lifetimeMs: 42,
+        spreadPx: 6,
+        streakLengthPx: 132,
+        visibleLengthPx: 12,
+        fanHalfAngleDeg: 2,
+        burstCount: 3,
+        maxAlignmentDeg: 30,
+        maxRangePx: 160,
         timings: attackTimings,
         fallbackToNearest
       }),
       ...this.buildAirShowDynamicTracerVolley(assignments, bomberFlight, interceptorFlight, {
         emitter: "center",
         color: "#fff1c8",
-        width: 0.92,
-        lifetimeMs: 96,
-        spreadPx: 0,
-        streakLengthPx: 540,
-        visibleLengthPx: 60,
-        fanHalfAngleDeg: 0,
-        burstCount: defensiveTimings.length,
-        maxRangePx: 198,
+        width: 0.42,
+        lifetimeMs: 36,
+        spreadPx: 4,
+        streakLengthPx: 96,
+        visibleLengthPx: 8,
+        fanHalfAngleDeg: 1,
+        burstCount: 2,
+        maxRangePx: 136,
         timings: defensiveTimings,
         fallbackToNearest
       })
@@ -11998,8 +12134,19 @@ export class HexMapRenderer implements IMapRenderer {
     });
 
     assignments.forEach((assignment) => {
+      if (assignment.points.length > 0) {
+        const phaseStartOffsetPx = assignment.multiFlightOffsetPx ?? 0;
+        assignment.points[0] = {
+          cx: assignment.actor.position.cx - phaseStartOffsetPx,
+          cy: assignment.actor.position.cy
+        };
+      }
       const initialSample = this.sampleAirShowAssignmentAtTime(assignment, 0, durationMs, 0);
-      assignment.actor.headingDegrees = initialSample.headingDegrees;
+      assignment.actor.headingDegrees = this.interpolateAircraftHeadingDegrees(
+        assignment.actor.headingDegrees,
+        initialSample.headingDegrees,
+        0.68
+      );
       assignment.actor.position = {
         cx: initialSample.position.cx,
         cy: initialSample.position.cy

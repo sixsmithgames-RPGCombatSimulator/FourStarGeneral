@@ -1977,7 +1977,7 @@ registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_SCENE_USES_SHARED_POLICY_TIMINGS"
     }
     const expectedComputedLeadMs = Math.max(
       expectedPolicy.bomberStartDelayMs,
-      Math.round(expectedPolicy.fighterIngressDurationMs + expectedPolicy.escortClashDurationMs * 0.42 + 220)
+      Math.round(expectedPolicy.fighterIngressDurationMs + expectedPolicy.escortClashDurationMs * 0.3 + 140)
     );
     if (coordinatedPlan?.bomberStartDelayMs !== expectedComputedLeadMs) {
       throw new Error(

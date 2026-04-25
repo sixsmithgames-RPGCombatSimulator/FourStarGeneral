@@ -1,5 +1,5 @@
 import { resolveAirInterceptBomberArrivalDelayMs, resolveBomberInterceptIngressDurationMs, resolveFighterInterceptIngressDurationMs, scaleAirShowSequenceMs } from "./AirShowPlaybackPolicy";
-const AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS = 1280;
+const AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS = 320;
 export function buildResolvedAirCombatSceneTimingPolicy(baseBomberArrivalDelayMs = resolveAirInterceptBomberArrivalDelayMs()) {
     const escortClashDurationMs = scaleAirShowSequenceMs(Math.round(AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS * 1.24));
     return {
@@ -9,8 +9,8 @@ export function buildResolvedAirCombatSceneTimingPolicy(baseBomberArrivalDelayMs
         bomberPassDurationMs: scaleAirShowSequenceMs(Math.round(AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS * 2.18)),
         strikeRunDurationMs: scaleAirShowSequenceMs(5120),
         egressDurationMs: scaleAirShowSequenceMs(920),
-        bomberArrivalDelayMs: Math.max(0, Math.round(baseBomberArrivalDelayMs)) + escortClashDurationMs + scaleAirShowSequenceMs(260),
-        bombReleaseProgress: 0.5
+        bomberArrivalDelayMs: Math.max(0, Math.round(baseBomberArrivalDelayMs)) + escortClashDurationMs + scaleAirShowSequenceMs(140),
+        bombReleaseProgress: 0.92
     };
 }
 export function buildCoordinatedAirClusterTimingPolicy() {
@@ -22,7 +22,7 @@ export function buildCoordinatedAirClusterTimingPolicy() {
         bomberPassDurationMs: sharedSceneTimings.bomberPassDurationMs,
         strikeRunDurationMs: sharedSceneTimings.strikeRunDurationMs,
         egressDurationMs: sharedSceneTimings.egressDurationMs,
-        bomberStartDelayMs: scaleAirShowSequenceMs(880),
+        bomberStartDelayMs: scaleAirShowSequenceMs(720),
         bombReleaseProgress: sharedSceneTimings.bombReleaseProgress
     };
 }
@@ -41,8 +41,8 @@ export function resolveCoordinatedAirClusterLeadWindow(fighterScenePresent, stri
         };
     }
     const fighterIngressLeadMs = Math.max(configuredLeadMs, Math.round(fighterIngressDurationMs +
-        escortClashDurationMs * 0.42 +
-        220));
+        escortClashDurationMs * 0.3 +
+        140));
     return {
         bomberStartDelayMs: fighterIngressLeadMs,
         fighterIngressLeadMs

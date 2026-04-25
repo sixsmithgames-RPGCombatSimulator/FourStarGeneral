@@ -1643,7 +1643,7 @@ registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_SCENE_USES_SHARED_POLICY_TIMINGS"
             throw new Error(`Expected coordinated bomb release progress ${expectedPolicy.bombReleaseProgress}, ` +
                 `saw ${coordinatedScene.bombReleaseProgress ?? "<missing>"}.`);
         }
-        const expectedComputedLeadMs = Math.max(expectedPolicy.bomberStartDelayMs, Math.round(expectedPolicy.fighterIngressDurationMs + expectedPolicy.escortClashDurationMs * 0.42 + 220));
+        const expectedComputedLeadMs = Math.max(expectedPolicy.bomberStartDelayMs, Math.round(expectedPolicy.fighterIngressDurationMs + expectedPolicy.escortClashDurationMs * 0.3 + 140));
         if (coordinatedPlan?.bomberStartDelayMs !== expectedComputedLeadMs) {
             throw new Error(`Expected coordinated computed bomber start delay ${expectedComputedLeadMs}, ` +
                 `saw ${coordinatedPlan?.bomberStartDelayMs ?? "<missing>"}.`);

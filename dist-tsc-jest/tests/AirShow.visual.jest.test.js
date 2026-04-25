@@ -149,11 +149,12 @@ describe("AirShow JEST Harness", () => {
         expect(bomberIngress?.assignments.filter((assignment) => assignment.role === "bomber")).toHaveLength(4);
     });
     test("target-run keeps bomber actors assigned through bomb release and removes fighters from the strike lane", async () => {
-        const report = inspectScene(await captureScene());
+        const scene = await captureScene();
+        const report = inspectScene(scene);
         const targetRun = report.phases.find((phase) => phase.label === "target-run");
         expect(targetRun).toBeDefined();
         const visibleBomberAssignments = targetRun?.assignments.filter((assignment) => assignment.role === "bomber") ?? [];
-        const bombReleaseProgress = 0.74;
+        const bombReleaseProgress = scene.bombReleaseProgress ?? 0.5;
         expect(visibleBomberAssignments).toHaveLength(4);
         const bomberReleasePoints = visibleBomberAssignments.map((assignment) => assignment.sampledPositions.reduce((closest, sample) => Math.abs(sample.progress - bombReleaseProgress) < Math.abs(closest.progress - bombReleaseProgress) ? sample : closest));
         const bomberReleaseCenter = {
@@ -208,23 +209,30 @@ describe("AirShow JEST Harness", () => {
             expect(displacement(assignment)).toBeGreaterThan(36);
         });
     });
-    test("dogfight phases paint tracer bursts before bomber ingress in the 3 CAP / 2 escort package", async () => {
+    test("dogfight phases keep tracer bursts inside the clash windows with short forward sprays", async () => {
         const report = inspectScene(await captureScene());
         const bomberIngressIndex = report.phases.findIndex((phase) => phase.label === "bomber-ingress");
         const mergePhase = report.phases.find((phase) => phase.label === "escort-clash-merge");
         const scramblePhase = report.phases.find((phase) => phase.label === "escort-clash-scramble");
+        const allDogfightTracers = [...(mergePhase?.tracers ?? []), ...(scramblePhase?.tracers ?? [])];
         expect(bomberIngressIndex).toBeGreaterThan(0);
         expect(mergePhase).toBeDefined();
         expect(scramblePhase).toBeDefined();
         expect(mergePhase?.tracers.length ?? 0).toBeGreaterThan(0);
         expect(scramblePhase?.tracers.length ?? 0).toBeGreaterThan(0);
+        expect(mergePhase?.tracers.every((tracer) => tracer.progress >= 0.56)).toBe(true);
+        expect(scramblePhase?.tracers.every((tracer) => tracer.progress >= 0.12 && tracer.progress <= 0.8)).toBe(true);
+        expect(Math.max(...allDogfightTracers.map((tracer) => tracer.visibleLengthPx))).toBeLessThanOrEqual(14);
+        expect(Math.max(...allDogfightTracers.map((tracer) => tracer.streakLengthPx))).toBeLessThanOrEqual(150);
     });
     test("target-run keeps four bomber actors visible and schedules flak bursts in the visual harness", async () => {
-        const report = inspectScene(await captureScene());
+        const scene = await captureScene();
+        const report = inspectScene(scene);
         const targetRun = report.phases.find((phase) => phase.label === "target-run");
         expect(targetRun).toBeDefined();
         expect(targetRun?.assignments.filter((assignment) => assignment.role === "bomber")).toHaveLength(4);
         expect(targetRun?.flakBursts.length ?? 0).toBeGreaterThan(0);
+        expect(Math.max(...(targetRun?.flakBursts.map((burst) => burst.progress) ?? [0]))).toBeLessThan(scene.bombReleaseProgress ?? 1);
     });
     test("target-run flak targets the sampled bomber path instead of the ground target anchor", async () => {
         const report = inspectScene(await captureScene());
@@ -269,17 +277,20 @@ describe("AirShow JEST Harness", () => {
         expect(targetRun?.assignments.some((assignment) => assignment.role === "bomber")).toBe(true);
         expect(egress?.assignments.some((assignment) => assignment.role === "bomber")).toBe(false);
     });
-    test("bomber-defense-pass exposes readable tracer widths and lifetimes for live playback", async () => {
+    test("bomber-defense-pass keeps fighter fire denser than turret fire while staying in short bursts", async () => {
         const report = inspectScene(await captureScene());
         const bomberDefensePass = report.phases.find((phase) => phase.label === "bomber-defense-pass");
-        const tracerWidths = bomberDefensePass?.tracers.map((tracer) => tracer.width ?? 0) ?? [];
+        const fighterTracers = bomberDefensePass?.tracers.filter((tracer) => tracer.emitter === "nose") ?? [];
+        const turretTracers = bomberDefensePass?.tracers.filter((tracer) => tracer.emitter === "center") ?? [];
         const tracerVisibleLengths = bomberDefensePass?.tracers.map((tracer) => tracer.visibleLengthPx) ?? [];
         const tracerLifetimes = bomberDefensePass?.tracers.map((tracer) => tracer.lifetimeMs ?? 0) ?? [];
         expect(bomberDefensePass).toBeDefined();
-        expect(tracerWidths.length).toBeGreaterThan(0);
-        expect(Math.max(...tracerWidths)).toBeGreaterThanOrEqual(0.9);
-        expect(Math.max(...tracerVisibleLengths)).toBeGreaterThanOrEqual(60);
-        expect(Math.max(...tracerLifetimes)).toBeGreaterThanOrEqual(90);
+        expect(fighterTracers.length).toBeGreaterThan(0);
+        expect(turretTracers.length).toBeGreaterThan(0);
+        expect(Math.max(...tracerVisibleLengths)).toBeLessThanOrEqual(14);
+        expect(Math.max(...tracerLifetimes)).toBeLessThanOrEqual(44);
+        expect(fighterTracers.reduce((sum, tracer) => sum + (tracer.width ?? 0), 0) / fighterTracers.length).toBeGreaterThan(turretTracers.reduce((sum, tracer) => sum + (tracer.width ?? 0), 0) / turretTracers.length);
+        expect(fighterTracers.reduce((sum, tracer) => sum + tracer.visibleLengthPx, 0) / fighterTracers.length).toBeGreaterThanOrEqual(turretTracers.reduce((sum, tracer) => sum + tracer.visibleLengthPx, 0) / turretTracers.length);
     });
     test("inspection report exposes deterministic off-map origins and measured phase timing audit", async () => {
         const report = inspectScene(await captureScene());
