@@ -5268,22 +5268,17 @@ export class HexMapRenderer implements IMapRenderer {
 
   private resolveAirShowPhaseVisibleActorIds(
     assignments: ReadonlyArray<AirShowPhaseAssignment>,
-    sceneActors: ReadonlyArray<AirShowRuntimeActor> = [],
     visibleActorIds?: ReadonlyArray<string>
   ): string[] {
     const explicitVisibleActorIds = (visibleActorIds ?? []).filter((actorId) => actorId.length > 0);
     const assignmentActorIds = assignments
       .map((assignment) => assignment.actor.id)
       .filter((actorId) => actorId.length > 0);
-    const activeSceneActorIds = sceneActors
-      .filter((actor) => actor.active)
-      .map((actor) => actor.id)
-      .filter((actorId) => actorId.length > 0);
 
     return Array.from(
       new Set([
-        ...(explicitVisibleActorIds.length > 0 ? explicitVisibleActorIds : assignmentActorIds),
-        ...activeSceneActorIds
+        ...(explicitVisibleActorIds.length > 0 ? explicitVisibleActorIds : []),
+        ...assignmentActorIds
       ])
     );
   }
@@ -12001,7 +11996,6 @@ export class HexMapRenderer implements IMapRenderer {
       .filter((actorId) => actorId.length > 0);
     const resolvedVisibleActorIds = this.resolveAirShowPhaseVisibleActorIds(
       assignments,
-      options.sceneActors ?? [],
       options.visibleActorIds
     );
     this.recordAirShowRuntimeTrace({

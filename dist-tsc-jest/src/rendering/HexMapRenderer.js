@@ -4153,18 +4153,14 @@ export class HexMapRenderer {
     recordAirShowRuntimeTrace(event) {
         recordAirShowRuntimeTraceEvent(this.activeAirShowRuntimeTrace, event);
     }
-    resolveAirShowPhaseVisibleActorIds(assignments, sceneActors = [], visibleActorIds) {
+    resolveAirShowPhaseVisibleActorIds(assignments, visibleActorIds) {
         const explicitVisibleActorIds = (visibleActorIds ?? []).filter((actorId) => actorId.length > 0);
         const assignmentActorIds = assignments
             .map((assignment) => assignment.actor.id)
             .filter((actorId) => actorId.length > 0);
-        const activeSceneActorIds = sceneActors
-            .filter((actor) => actor.active)
-            .map((actor) => actor.id)
-            .filter((actorId) => actorId.length > 0);
         return Array.from(new Set([
-            ...(explicitVisibleActorIds.length > 0 ? explicitVisibleActorIds : assignmentActorIds),
-            ...activeSceneActorIds
+            ...(explicitVisibleActorIds.length > 0 ? explicitVisibleActorIds : []),
+            ...assignmentActorIds
         ]));
     }
     buildAirShowRuntimeFlight(layer, spec, fallbackOrigin, defaultHeadingDegrees) {
@@ -8593,7 +8589,7 @@ export class HexMapRenderer {
             : Array.from(new Map(assignments.map((assignment) => [assignment.actor.id, assignment.actor])).values());
         const requestedVisibleActorIds = (options.visibleActorIds ?? assignments.map((assignment) => assignment.actor.id))
             .filter((actorId) => actorId.length > 0);
-        const resolvedVisibleActorIds = this.resolveAirShowPhaseVisibleActorIds(assignments, options.sceneActors ?? [], options.visibleActorIds);
+        const resolvedVisibleActorIds = this.resolveAirShowPhaseVisibleActorIds(assignments, options.visibleActorIds);
         this.recordAirShowRuntimeTrace({
             kind: "phase-start",
             label: options.phaseLabel ?? "(unlabeled-phase)",

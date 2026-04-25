@@ -461,7 +461,7 @@ describe("AirShow JEST Harness", () => {
     expect(bomberFlight?.actors.every((actor) => actor.active)).toBe(true);
   });
 
-  test("runAirShowPhase keeps active scene actors visible when a phase only reassigns one actor", async () => {
+  test("runAirShowPhase respects the planned phase visibility instead of reviving unrelated active actors", async () => {
     ensureDomEnvironment();
 
     const renderer = new HexMapRenderer();
@@ -499,7 +499,7 @@ describe("AirShow JEST Harness", () => {
     );
 
     expect(leadActor.image.style.opacity).toBe("1");
-    expect(wingActor.image.style.opacity).toBe("1");
-    expect(wingActor.image.getAttribute("data-airshow-active")).toBe("true");
+    expect(wingActor.image.style.opacity).toBe("0");
+    expect(wingActor.image.getAttribute("data-airshow-active")).toBe("false");
   });
 });
