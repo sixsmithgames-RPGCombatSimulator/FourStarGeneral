@@ -1769,6 +1769,142 @@ registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_USES_RESOLVED_EVENT_ESCORTS_AND_KEEP
         }
     });
 });
+registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_KEEPS_FLAK_ATTRITION_OUT_OF_ESCORT_PHASE_STRENGTH", async ({ Given, When, Then }) => {
+    let screen;
+    let coordinatedScene = null;
+    const root = document.getElementById("battleScreen") ?? document.createElement("div");
+    if (!root.parentElement) {
+        root.id = "battleScreen";
+        document.body.appendChild(root);
+    }
+    const fakeEngine = {
+        getPlayerHq: () => ({ q: -6, r: 2 }),
+        getBotHq: () => ({ q: 7, r: -3 })
+    };
+    await Given("a coordinated strike with both fighter damage and later flak damage", async () => {
+        screen = new BattleScreen({}, {
+            ensureGameEngine: () => fakeEngine,
+            tryGetGameEngine: () => fakeEngine,
+            hasEngine: () => true
+        }, {}, {}, null, null, null, {}, null);
+        screen.resolveAirEngagementOffsetKey = (unitKey) => {
+            const origins = {
+                "cap-1": "2,1",
+                "escort-1": "7,1",
+                "bomber-1": "8,2"
+            };
+            return origins[unitKey] ?? null;
+        };
+        screen.resolveAirSquadronStrength = () => 100;
+    });
+    await When("BattleScreen builds the coordinated cluster scene", async () => {
+        const airToAirEvent = {
+            type: "airToAir",
+            missionId: "strike-live-flak-contract",
+            location: { q: 1, r: -1 },
+            bomber: {
+                faction: "Bot",
+                unitKey: "bomber-1",
+                unitType: "Bomber",
+                strength: 100
+            },
+            interceptors: [
+                {
+                    faction: "Player",
+                    unitKey: "cap-1",
+                    unitType: "Interceptor",
+                    strength: 100
+                }
+            ],
+            escorts: [
+                {
+                    faction: "Bot",
+                    unitKey: "escort-1",
+                    unitType: "Fighter",
+                    strength: 100
+                }
+            ],
+            bomberStrengthBefore: 100,
+            bomberStrengthAfter: 82,
+            bomberDestroyed: false
+        };
+        const flakEvent = {
+            type: "flak",
+            missionId: "strike-live-flak-contract",
+            location: { q: 1, r: -1 },
+            bomber: {
+                faction: "Bot",
+                unitKey: "bomber-1",
+                unitType: "Bomber",
+                strength: 82
+            },
+            interceptors: [
+                {
+                    faction: "Player",
+                    unitKey: "flak-1",
+                    unitType: "Flak_88",
+                    strength: 100,
+                    hex: { q: 1, r: 0 }
+                }
+            ],
+            escorts: [],
+            bomberStrengthBefore: 82,
+            bomberStrengthAfter: 41,
+            bomberDestroyed: false,
+            flakDamage: 41
+        };
+        const coordinatedPlan = screen.buildCoordinatedAirPlaybackPlanForCluster([
+            {
+                kind: "linkedStrike",
+                index: 0,
+                focusHex: { q: 1, r: -1 },
+                focusKey: "1,-1",
+                flight: {
+                    missionId: "strike-live-flak-contract",
+                    faction: "Bot",
+                    kind: "strike",
+                    unitKey: "bomber-1",
+                    originKey: "8,2",
+                    destKey: "1,-1",
+                    unitType: "Bomber",
+                    strength: 100,
+                    laneOffsetPx: 0
+                },
+                linkedEvents: [airToAirEvent, flakEvent],
+                escorts: [
+                    {
+                        missionId: "escort-live-flak-contract",
+                        faction: "Bot",
+                        kind: "escort",
+                        unitKey: "escort-1",
+                        originKey: "7,1",
+                        destKey: "1,-1",
+                        unitType: "Fighter",
+                        strength: 100,
+                        laneOffsetPx: 0,
+                        escortTargetUnitKey: "bomber-1"
+                    }
+                ]
+            }
+        ], fakeEngine);
+        coordinatedScene = coordinatedPlan?.scene ?? null;
+    });
+    await Then("the bomber contract should preserve post-escort strength before flak resolves final attrition", async () => {
+        if (!coordinatedScene) {
+            throw new Error("Expected a coordinated scene.");
+        }
+        const bomber = coordinatedScene.bombers?.[0] ?? coordinatedScene.bomber ?? null;
+        if (!bomber) {
+            throw new Error("Expected coordinated bomber spec.");
+        }
+        if (bomber.strengthAfterEscortPhase !== 82) {
+            throw new Error(`Expected bomber strengthAfterEscortPhase 82 from the fighter pass, saw ${bomber.strengthAfterEscortPhase ?? "<missing>"}.`);
+        }
+        if (bomber.finalStrength !== 41) {
+            throw new Error(`Expected bomber finalStrength 41 after flak, saw ${bomber.finalStrength ?? "<missing>"}.`);
+        }
+    });
+});
 registerTest("BATTLESCREEN_RESOLVED_AIRSHOW_KEEPS_BOMBER_VISIBLE_EVEN_WITHOUT_A_BOMBER_DEFENSE_PASS", async ({ Given, When, Then }) => {
     let screen;
     let resolvedScene = null;

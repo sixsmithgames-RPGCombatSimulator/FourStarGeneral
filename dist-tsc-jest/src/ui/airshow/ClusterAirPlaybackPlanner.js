@@ -69,9 +69,9 @@ function toResolvedStrikeFlightSpec(entry, options) {
     const fallbackStrength = flight.strength ?? options.resolveStrength(flight.unitKey, flight.faction);
     const originHexKey = flight.originKey || options.resolveOriginKey(flight.unitKey, flight.faction);
     const targetHexKey = flight.destKey;
-    const strengthAfterAirPhase = flakEvent?.bomberStrengthAfter
-        ?? airToAirEvent?.bomberStrengthAfter
-        ?? (entry.destroyedBeforeTarget ? 0 : fallbackStrength);
+    const strengthAfterEscortPhase = airToAirEvent?.bomberStrengthAfter
+        ?? (entry.destroyedBeforeTarget && !flakEvent ? 0 : fallbackStrength);
+    const finalStrength = Math.max(0, Math.min(strengthAfterEscortPhase, flakEvent?.bomberStrengthAfter ?? strengthAfterEscortPhase));
     return {
         id: flight.unitKey,
         scenarioType: flight.unitType,
@@ -81,8 +81,8 @@ function toResolvedStrikeFlightSpec(entry, options) {
             ?? flakEvent?.bomberStrengthBefore
             ?? airToAirEvent?.bomber.strength
             ?? fallbackStrength,
-        strengthAfterEscortPhase: strengthAfterAirPhase,
-        finalStrength: strengthAfterAirPhase,
+        strengthAfterEscortPhase,
+        finalStrength,
         laneOffsetPx: flight.laneOffsetPx,
         role: "bomber",
         combatRole: "strike",

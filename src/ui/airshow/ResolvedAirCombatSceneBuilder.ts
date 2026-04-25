@@ -76,24 +76,21 @@ export function buildResolvedAirShowFlakBursts(
     Array.isArray(flakEvent.flakEngagements) && flakEvent.flakEngagements.length > 0
       ? flakEvent.flakEngagements.length
       : Math.max(0, flakEvent.interceptors.length);
-  const waveCount = Math.max(18, Math.min(26, engagementCount * 3 + 14));
+  const normalizedEngagementCount = Math.max(1, engagementCount);
+  const waveCount = Math.max(8, Math.min(12, normalizedEngagementCount * 2 + 5));
   return Array.from({ length: waveCount }, (_, index) => ({
-    // Flak should open late in the strike run, once the bombers are committed to
-    // the target lane but before release, so the barrage reads as "target defense"
-    // rather than a mid-map fireworks belt.
-    // Keep the barrage concentrated in the last committed approach segment.
-    // It should open late, build rapidly, and finish before the post-release tail
-    // so the effect reads as "target area flak" instead of lingering after the drop.
-    progress: Math.min(0.93, 0.8 + index * 0.005),
-    count: engagementCount,
-    scale: 0.34 + index * 0.01,
-    alongOffsetPx: -14 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI) * 10,
-    lateralOffsetPx: (index - (waveCount - 1) / 2) * Math.min(22, 14 + engagementCount * 3),
-    alongSpreadPx: 54 + engagementCount * 12,
-    lateralSpreadPx: 84 + engagementCount * 14,
-    puffCount: 18 + engagementCount * 8,
-    smokePuffCount: 24 + engagementCount * 10,
-    smokeScale: 1.36 + index * 0.028,
+    // Keep flak in the late approach window, but shape it as clustered airbursts
+    // around the bomber track instead of a corridor-wide sweep across the target.
+    progress: Math.min(0.94, 0.78 + index * 0.018),
+    count: normalizedEngagementCount,
+    scale: 0.66 + index * 0.022,
+    alongOffsetPx: -8 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI * 1.35) * 6,
+    lateralOffsetPx: Math.sin(index * 1.17) * Math.min(26, 10 + normalizedEngagementCount * 4),
+    alongSpreadPx: 40 + normalizedEngagementCount * 8,
+    lateralSpreadPx: 58 + normalizedEngagementCount * 12,
+    puffCount: 7 + normalizedEngagementCount * 2,
+    smokePuffCount: 9 + normalizedEngagementCount * 2,
+    smokeScale: 1.08 + index * 0.022,
     bomberUnitKey: options.bomberUnitKey ?? null,
     targetHexKey: options.targetHexKey ?? null
   }));
@@ -213,7 +210,13 @@ export function buildResolvedAirCombatScene(
             originHexKey,
             strengthBefore: fallbackStrength,
             strengthAfterEscortPhase: event.bomberStrengthAfter ?? fallbackStrength,
-            finalStrength: event.bomberStrengthAfter ?? fallbackStrength,
+            finalStrength: Math.max(
+              0,
+              Math.min(
+                event.bomberStrengthAfter ?? fallbackStrength,
+                options.flakEvent?.bomberStrengthAfter ?? event.bomberStrengthAfter ?? fallbackStrength
+              )
+            ),
             laneOffsetPx: options.bomberLaneOffsetPx ?? options.fallbackLaneOffsetPx ?? 0,
             role: "bomber" as const,
             combatRole: "strike" as const

@@ -80,6 +80,22 @@ export function planResolvedAirCombatShowScene(host, scene) {
     let previousPhaseDurationMs = 0;
     const recordPhase = (label, assignments, durationMs, tracerBursts = [], flakBursts = [], roleTargetSpeeds = host.resolveAirShowRoleSpeedMap(), visibleActorIds) => {
         const assignmentsByActorId = host.buildAirShowAssignmentLookup(assignments);
+        const sampleFlightCenterAtTime = (flightId, timeMs) => {
+            if (!flightId) {
+                return null;
+            }
+            const flight = flightMap.get(flightId);
+            if (!flight) {
+                return null;
+            }
+            const sampledActorPositions = flight.actors.map((actor) => {
+                const assignment = assignmentsByActorId.get(actor.id);
+                return assignment
+                    ? host.sampleAirShowAssignmentAtTime(assignment, timeMs, durationMs).position
+                    : actor.position;
+            });
+            return host.averageAirShowPoints(sampledActorPositions);
+        };
         const activeSceneActorIds = sceneActors
             .filter((actor) => actor.active)
             .map((actor) => actor.id)
@@ -176,16 +192,21 @@ export function planResolvedAirCombatShowScene(host, scene) {
                     }];
             }),
             flakBursts: flakBursts.map((burst) => {
+                const burstTimeMs = host.clamp(burst.progress, 0, 1) * durationMs;
+                const bomberPathCenter = sampleFlightCenterAtTime(burst.bomberUnitKey ?? null, burstTimeMs);
                 const targetHexCenter = burst.targetHexKey ? host.resolveHexCenterByKey(burst.targetHexKey) : null;
                 const bomberTargetCenter = burst.bomberUnitKey ? bomberTargetCentersById.get(burst.bomberUnitKey) ?? null : null;
-                const targetSource = targetHexCenter
-                    ? "targetHex"
-                    : bomberTargetCenter
-                        ? "bomberTarget"
-                        : averageBomberTargetCenter
-                            ? "averageBomberTarget"
-                            : "corridorStrike";
-                const scopedTargetCenter = targetHexCenter
+                const targetSource = bomberPathCenter
+                    ? "bomberPath"
+                    : targetHexCenter
+                        ? "targetHex"
+                        : bomberTargetCenter
+                            ? "bomberTarget"
+                            : averageBomberTargetCenter
+                                ? "averageBomberTarget"
+                                : "corridorStrike";
+                const scopedTargetCenter = bomberPathCenter
+                    ?? targetHexCenter
                     ?? bomberTargetCenter
                     ?? averageBomberTargetCenter
                     ?? corridor.strike;
@@ -921,7 +942,10 @@ export function planResolvedAirCombatShowScene(host, scene) {
             previousPhaseAssignments = spacedPhaseAssignments;
             previousPhaseDurationMs = bomberPassBeatDurationMs;
             updateFlightAnchors([...survivingBombers, ...interceptorFlights, ...escortFlights]);
-            survivingBombers.forEach((flight) => host.syncAirShowFlightStrengthForInspection(flight, Math.max(0, flight.spec.finalStrength ?? flight.currentStrength)));
+            const deferBomberFinalStrengthUntilFlak = (scene.flakBursts?.length ?? 0) > 0;
+            survivingBombers.forEach((flight) => host.syncAirShowFlightStrengthForInspection(flight, Math.max(0, deferBomberFinalStrengthUntilFlak
+                ? (flight.spec.strengthAfterEscortPhase ?? flight.currentStrength)
+                : (flight.spec.finalStrength ?? flight.currentStrength))));
             interceptorFlights.forEach((flight) => host.syncAirShowFlightStrengthForInspection(flight, Math.max(0, flight.spec.finalStrength ?? flight.currentStrength)));
             updateFlightAnchors([...survivingBombers, ...interceptorFlights]);
         }
@@ -982,6 +1006,9 @@ export function planResolvedAirCombatShowScene(host, scene) {
         recordPhase("target-run", finalizedStrikeRunAssignments, strikeRunDurationMs, strikeRunTracerBursts, strikeRunFlakBursts, strikeRunRoleSpeeds);
         previousPhaseAssignments = finalizedStrikeRunAssignments;
         previousPhaseDurationMs = strikeRunDurationMs;
+        if (strikeRunFlakBursts.length > 0) {
+            postPassBombers.forEach((flight) => host.syncAirShowFlightStrengthForInspection(flight, Math.max(0, flight.spec.finalStrength ?? flight.currentStrength)));
+        }
         updateFlightAnchors([
             ...postPassBombers,
             ...targetRunFighterFlights

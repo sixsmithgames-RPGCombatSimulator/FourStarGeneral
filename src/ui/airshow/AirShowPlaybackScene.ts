@@ -192,7 +192,7 @@ export interface AirShowInspectionFlakBurst {
   readonly bomberUnitKey?: string | null;
   readonly targetHexKey?: string | null;
   readonly targetCenter: AirShowInspectionPoint;
-  readonly targetSource: "targetHex" | "bomberTarget" | "averageBomberTarget" | "corridorStrike";
+  readonly targetSource: "bomberPath" | "targetHex" | "bomberTarget" | "averageBomberTarget" | "corridorStrike";
   readonly burstCenter: AirShowInspectionPoint;
   readonly flashCount: number;
   readonly puffCount: number;

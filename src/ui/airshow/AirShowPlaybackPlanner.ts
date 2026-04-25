@@ -478,6 +478,25 @@ export function planResolvedAirCombatShowScene(
     visibleActorIds?: ReadonlyArray<string>
   ): void => {
     const assignmentsByActorId = host.buildAirShowAssignmentLookup(assignments);
+    const sampleFlightCenterAtTime = (
+      flightId: string | null | undefined,
+      timeMs: number
+    ): AirShowPoint | null => {
+      if (!flightId) {
+        return null;
+      }
+      const flight = flightMap.get(flightId);
+      if (!flight) {
+        return null;
+      }
+      const sampledActorPositions = flight.actors.map((actor) => {
+        const assignment = assignmentsByActorId.get(actor.id);
+        return assignment
+          ? host.sampleAirShowAssignmentAtTime(assignment, timeMs, durationMs).position
+          : actor.position;
+      });
+      return host.averageAirShowPoints(sampledActorPositions);
+    };
     const activeSceneActorIds = sceneActors
       .filter((actor) => actor.active)
       .map((actor) => actor.id)
@@ -584,10 +603,14 @@ export function planResolvedAirCombatShowScene(
         }];
       }),
       flakBursts: flakBursts.map((burst) => {
+        const burstTimeMs = host.clamp(burst.progress, 0, 1) * durationMs;
+        const bomberPathCenter = sampleFlightCenterAtTime(burst.bomberUnitKey ?? null, burstTimeMs);
         const targetHexCenter = burst.targetHexKey ? host.resolveHexCenterByKey(burst.targetHexKey) : null;
         const bomberTargetCenter = burst.bomberUnitKey ? bomberTargetCentersById.get(burst.bomberUnitKey) ?? null : null;
         const targetSource: AirShowInspectionFlakBurst["targetSource"] =
-          targetHexCenter
+          bomberPathCenter
+            ? "bomberPath"
+            : targetHexCenter
             ? "targetHex"
             : bomberTargetCenter
               ? "bomberTarget"
@@ -595,7 +618,8 @@ export function planResolvedAirCombatShowScene(
                 ? "averageBomberTarget"
                 : "corridorStrike";
         const scopedTargetCenter =
-          targetHexCenter
+          bomberPathCenter
+          ?? targetHexCenter
           ?? bomberTargetCenter
           ?? averageBomberTargetCenter
           ?? corridor.strike;
@@ -1903,10 +1927,16 @@ export function planResolvedAirCombatShowScene(
         previousPhaseDurationMs = bomberPassBeatDurationMs;
         updateFlightAnchors([...survivingBombers, ...interceptorFlights, ...escortFlights]);
 
+        const deferBomberFinalStrengthUntilFlak = (scene.flakBursts?.length ?? 0) > 0;
         survivingBombers.forEach((flight) =>
           host.syncAirShowFlightStrengthForInspection(
             flight,
-            Math.max(0, flight.spec.finalStrength ?? flight.currentStrength)
+            Math.max(
+              0,
+              deferBomberFinalStrengthUntilFlak
+                ? (flight.spec.strengthAfterEscortPhase ?? flight.currentStrength)
+                : (flight.spec.finalStrength ?? flight.currentStrength)
+            )
           )
         );
         interceptorFlights.forEach((flight) =>
@@ -2034,6 +2064,14 @@ export function planResolvedAirCombatShowScene(
       );
       previousPhaseAssignments = finalizedStrikeRunAssignments;
       previousPhaseDurationMs = strikeRunDurationMs;
+      if (strikeRunFlakBursts.length > 0) {
+        postPassBombers.forEach((flight) =>
+          host.syncAirShowFlightStrengthForInspection(
+            flight,
+            Math.max(0, flight.spec.finalStrength ?? flight.currentStrength)
+          )
+        );
+      }
       updateFlightAnchors([
         ...postPassBombers,
         ...targetRunFighterFlights

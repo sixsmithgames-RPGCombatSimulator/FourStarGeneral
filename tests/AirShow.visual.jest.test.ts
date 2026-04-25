@@ -329,6 +329,77 @@ describe("AirShow JEST Harness", () => {
     expect(targetRun?.flakBursts.length ?? 0).toBeGreaterThan(0);
   });
 
+  test("target-run flak targets the sampled bomber path instead of the ground target anchor", async () => {
+    const report = inspectScene(await captureScene());
+    const targetRun = report.phases.find((phase) => phase.label === "target-run");
+    const firstBurst = targetRun?.flakBursts[0];
+    const bomberAssignments = targetRun?.assignments.filter((assignment) => assignment.role === "bomber") ?? [];
+    const bomberAssignment =
+      bomberAssignments.find((assignment) => assignment.flightId === firstBurst?.bomberUnitKey)
+      ?? bomberAssignments[0];
+
+    expect(targetRun).toBeDefined();
+    expect(firstBurst).toBeDefined();
+    expect(firstBurst?.targetSource).toBe("bomberPath");
+    expect(bomberAssignment).toBeDefined();
+
+    const closestBomberSample = bomberAssignment?.sampledPositions.reduce((closest, sample) =>
+      Math.abs(sample.progress - (firstBurst?.progress ?? 0)) < Math.abs(closest.progress - (firstBurst?.progress ?? 0))
+        ? sample
+        : closest
+    );
+
+    expect(closestBomberSample).toBeDefined();
+
+    const bomberTrackOffsetPx = Math.hypot(
+      (firstBurst?.targetCenter.cx ?? 0) - (closestBomberSample?.cx ?? 0),
+      (firstBurst?.targetCenter.cy ?? 0) - (closestBomberSample?.cy ?? 0)
+    );
+
+    expect(bomberTrackOffsetPx).toBeLessThan(28);
+  });
+
+  test("flak-delivered bomber kills stay visible through target-run and drop before egress", async () => {
+    const scene = await captureScene();
+    const flakKilledScene: ResolvedAirShowScene = {
+      ...scene,
+      bomber: scene.bomber
+        ? {
+            ...scene.bomber,
+            strengthAfterEscortPhase: Math.max(scene.bomber.strengthAfterEscortPhase ?? scene.bomber.strengthBefore, 48),
+            finalStrength: 0
+          }
+        : scene.bomber,
+      bombers: scene.bombers?.map((bomber) => ({
+        ...bomber,
+        strengthAfterEscortPhase: Math.max(bomber.strengthAfterEscortPhase ?? bomber.strengthBefore, 48),
+        finalStrength: 0
+      }))
+    };
+    const report = inspectScene(flakKilledScene);
+    const targetRun = report.phases.find((phase) => phase.label === "target-run");
+    const egress = report.phases.find((phase) => phase.label === "egress");
+
+    expect(targetRun).toBeDefined();
+    expect(targetRun?.flakBursts.length ?? 0).toBeGreaterThan(0);
+    expect(targetRun?.assignments.some((assignment) => assignment.role === "bomber")).toBe(true);
+    expect(egress?.assignments.some((assignment) => assignment.role === "bomber")).toBe(false);
+  });
+
+  test("bomber-defense-pass exposes readable tracer widths and lifetimes for live playback", async () => {
+    const report = inspectScene(await captureScene());
+    const bomberDefensePass = report.phases.find((phase) => phase.label === "bomber-defense-pass");
+    const tracerWidths = bomberDefensePass?.tracers.map((tracer) => tracer.width ?? 0) ?? [];
+    const tracerVisibleLengths = bomberDefensePass?.tracers.map((tracer) => tracer.visibleLengthPx) ?? [];
+    const tracerLifetimes = bomberDefensePass?.tracers.map((tracer) => tracer.lifetimeMs ?? 0) ?? [];
+
+    expect(bomberDefensePass).toBeDefined();
+    expect(tracerWidths.length).toBeGreaterThan(0);
+    expect(Math.max(...tracerWidths)).toBeGreaterThanOrEqual(0.9);
+    expect(Math.max(...tracerVisibleLengths)).toBeGreaterThanOrEqual(60);
+    expect(Math.max(...tracerLifetimes)).toBeGreaterThanOrEqual(90);
+  });
+
   test("inspection report exposes deterministic off-map origins and measured phase timing audit", async () => {
     const report = inspectScene(await captureScene());
 

@@ -3914,11 +3914,11 @@ export class HexMapRenderer {
             return;
         }
         const distance = Math.max(0.001, Math.hypot(end.cx - start.cx, end.cy - start.cy));
-        const lifetimeMs = Math.max(52, options.lifetimeMs ?? 68);
+        const lifetimeMs = Math.max(68, options.lifetimeMs ?? 92);
         const strokeColor = options.color ?? (options.reverse ? "#fff0b8" : "#ffbf47");
-        const strokeWidth = options.width ?? (options.reverse ? 0.26 : 0.3);
-        const visibleLengthPx = this.clamp(options.visibleLengthPx ?? Math.min(84, distance * 0.2), 24, Math.min(distance, 92));
-        const visibleRatio = this.clamp(visibleLengthPx / distance, 0.03, 0.34);
+        const strokeWidth = Math.max(0.72, options.width ?? (options.reverse ? 0.9 : 1.02));
+        const visibleLengthPx = this.clamp(options.visibleLengthPx ?? Math.min(104, distance * 0.24), 28, Math.min(distance, 112));
+        const visibleRatio = this.clamp(visibleLengthPx / distance, 0.06, 0.42);
         const glow = document.createElementNS(SVG_NS, "line");
         const tracer = document.createElementNS(SVG_NS, "line");
         [glow, tracer].forEach((line) => {
@@ -8124,8 +8124,8 @@ export class HexMapRenderer {
             : null;
         const baseForward = targetDirectedForward ?? this.normalizeAircraftVector(Math.cos(((sourceHeadingDegrees - 90) * Math.PI) / 180), Math.sin(((sourceHeadingDegrees - 90) * Math.PI) / 180), 0, -1);
         const lateral = { x: -baseForward.y, y: baseForward.x };
-        const streakLengthPx = Math.max(96, burst.streakLengthPx ?? actor.size * (burst.emitter === "center" ? 7.2 : 7.8));
-        const visibleLengthPx = this.clamp(burst.visibleLengthPx ?? Math.min(36, streakLengthPx * 0.085), 10, Math.min(streakLengthPx, 44));
+        const streakLengthPx = Math.max(140, burst.streakLengthPx ?? actor.size * (burst.emitter === "center" ? 7.2 : 7.8));
+        const visibleLengthPx = this.clamp(burst.visibleLengthPx ?? Math.min(54, streakLengthPx * 0.14), 24, Math.min(streakLengthPx, 96));
         const fanHalfAngleDeg = 0;
         const centerlineEndPoint = {
             cx: emitterPoint.cx + baseForward.x * streakLengthPx,
@@ -8295,11 +8295,11 @@ export class HexMapRenderer {
         return [
             ...this.buildAirShowDynamicTracerVolley(assignments, interceptorFlight, bomberFlight, {
                 emitter: "nose",
-                width: 0.18,
-                lifetimeMs: 30,
+                width: 1.08,
+                lifetimeMs: 104,
                 spreadPx: 0,
                 streakLengthPx: 684,
-                visibleLengthPx: 24,
+                visibleLengthPx: 72,
                 fanHalfAngleDeg: 0,
                 burstCount: attackTimings.length,
                 maxAlignmentDeg: 32,
@@ -8310,11 +8310,11 @@ export class HexMapRenderer {
             ...this.buildAirShowDynamicTracerVolley(assignments, bomberFlight, interceptorFlight, {
                 emitter: "center",
                 color: "#fff1c8",
-                width: 0.17,
-                lifetimeMs: 28,
+                width: 0.92,
+                lifetimeMs: 96,
                 spreadPx: 0,
                 streakLengthPx: 540,
-                visibleLengthPx: 22,
+                visibleLengthPx: 60,
                 fanHalfAngleDeg: 0,
                 burstCount: defensiveTimings.length,
                 maxRangePx: 198,
@@ -8324,28 +8324,45 @@ export class HexMapRenderer {
         ];
     }
     resolveAirShowFlakBurstWave(corridor, targetCenter, burst) {
-        const alongOffsetPx = burst.alongOffsetPx ?? -46;
+        const alongOffsetPx = burst.alongOffsetPx ?? -8;
         const lateralOffsetPx = burst.lateralOffsetPx ?? 0;
-        const alongSpreadPx = Math.max(24, burst.alongSpreadPx ?? 42);
-        const lateralSpreadPx = Math.max(28, burst.lateralSpreadPx ?? HEX_WIDTH * 0.7);
-        const puffCount = Math.max(8, burst.puffCount ?? Math.max(10, burst.count * 5));
-        const smokePuffCount = Math.max(10, burst.smokePuffCount ?? Math.round(puffCount * 1.2));
+        const alongSpreadPx = Math.max(30, burst.alongSpreadPx ?? 52);
+        const lateralSpreadPx = Math.max(36, burst.lateralSpreadPx ?? HEX_WIDTH * 0.8);
+        const puffCount = Math.max(7, burst.puffCount ?? Math.max(8, burst.count * 3));
+        const smokePuffCount = Math.max(8, Math.min(puffCount + 4, burst.smokePuffCount ?? Math.round(puffCount * 1.15)));
         const center = this.clampPointToViewportBounds({
             cx: targetCenter.cx + corridor.axis.x * alongOffsetPx + corridor.normal.x * lateralOffsetPx,
             cy: targetCenter.cy + corridor.axis.y * alongOffsetPx + corridor.normal.y * lateralOffsetPx
         }, targetCenter, 430, 300);
+        let seed = (Math.round(targetCenter.cx * 13)
+            + Math.round(targetCenter.cy * 17)
+            + Math.round((burst.progress ?? 0) * 1000) * 19
+            + Math.round((burst.count ?? 1) * 31)) >>> 0;
+        const nextRandom = () => {
+            seed = (seed * 1664525 + 1013904223) >>> 0;
+            return seed / 0x100000000;
+        };
+        const clusterOffsets = [
+            { along: -alongSpreadPx * 0.22, lateral: -lateralSpreadPx * 0.18 },
+            { along: alongSpreadPx * 0.08, lateral: lateralSpreadPx * 0.24 },
+            { along: alongSpreadPx * 0.18, lateral: -lateralSpreadPx * 0.12 }
+        ];
         const points = Array.from({ length: puffCount }, (_, index) => {
-            const t = puffCount <= 1 ? 0.5 : index / Math.max(1, puffCount - 1);
-            const lateralT = t * 2 - 1;
-            const arcWave = Math.sin(t * Math.PI) * 0.52;
-            const alongJitter = (Math.cos(t * Math.PI * 2.4) * 0.38 + (index % 3) * 0.14 - 0.14) * alongSpreadPx;
-            const lateralJitter = lateralT * lateralSpreadPx + Math.sin(t * Math.PI * 2.2) * 8;
+            const cluster = clusterOffsets[index % clusterOffsets.length];
+            const angle = nextRandom() * Math.PI * 2;
+            const radial = Math.sqrt(nextRandom());
+            const alongJitter = cluster.along
+                + Math.cos(angle) * alongSpreadPx * (0.18 + radial * 0.42)
+                + (nextRandom() - 0.5) * alongSpreadPx * 0.12;
+            const lateralJitter = cluster.lateral
+                + Math.sin(angle) * lateralSpreadPx * (0.22 + radial * 0.48)
+                + (nextRandom() - 0.5) * lateralSpreadPx * 0.1;
             return this.clampPointToViewportBounds({
                 cx: center.cx + corridor.axis.x * alongJitter + corridor.normal.x * lateralJitter,
-                cy: center.cy + corridor.axis.y * alongJitter + corridor.normal.y * lateralJitter - arcWave * 8
+                cy: center.cy + corridor.axis.y * alongJitter + corridor.normal.y * lateralJitter
             }, targetCenter, 470, 320);
         });
-        const flashCount = Math.max(2, Math.round(puffCount * 0.1));
+        const flashCount = Math.max(2, Math.min(4, Math.round(puffCount * 0.26)));
         return { center, flashCount, points, puffCount, smokePuffCount };
     }
     resolveAirShowTracerTargetPoint(target) {
@@ -9223,51 +9240,24 @@ export class HexMapRenderer {
     }
     playAirShowFlakWave(wave, scale = 1.08, smokeScale = 0.92) {
         wave.points.forEach((point, index) => {
-            const flashDelayMs = index * 6;
-            const smokeDelayMs = index * 8;
-            const puffScale = smokeScale * (1.08 + (index % 6) * 0.06);
+            const flashDelayMs = index * 34;
+            const puffScale = smokeScale * (0.96 + (index % 4) * 0.08);
             if (index < wave.flashCount) {
                 window.setTimeout(() => {
                     void this.playFlakBurstAt(point.cx, point.cy, 1, scale * (0.8 + (index % 4) * 0.06), false);
                 }, flashDelayMs);
             }
-            window.setTimeout(() => {
-                void this.playAirDamageSmokeTrailAt(point.cx, point.cy, puffScale * 1.18, false);
-            }, smokeDelayMs);
-            window.setTimeout(() => {
-                void this.playAirDamageSmokeTrailAt(point.cx + 3, point.cy - 2, puffScale * 1.12, false);
-            }, smokeDelayMs + 280);
-            window.setTimeout(() => {
-                void this.playAirDamageSmokeTrailAt(point.cx - 3, point.cy + 2, puffScale * 1.04, false);
-            }, smokeDelayMs + 760);
-            window.setTimeout(() => {
-                void this.playAirDamageSmokeTrailAt(point.cx + 2, point.cy + 3, puffScale * 0.98, false);
-            }, smokeDelayMs + 1520);
-            window.setTimeout(() => {
-                void this.playAirDamageSmokeTrailAt(point.cx - 3, point.cy - 2, puffScale * 0.9, false);
-            }, smokeDelayMs + 2620);
-            window.setTimeout(() => {
-                void this.playAirDamageSmokeTrailAt(point.cx + 2, point.cy - 3, puffScale * 0.82, false);
-            }, smokeDelayMs + 4120);
-        });
-        wave.points.slice(0, wave.smokePuffCount).forEach((point, index) => {
-            const delayMs = 420 + index * 12;
-            const puffScale = smokeScale * (1.12 + (index % 5) * 0.06);
-            window.setTimeout(() => {
-                void this.playAirDamageSmokeTrailAt(point.cx + 2, point.cy - 1, puffScale, false);
-            }, delayMs);
-            window.setTimeout(() => {
-                void this.playAirDamageSmokeTrailAt(point.cx - 2, point.cy + 1, puffScale * 0.96, false);
-            }, delayMs + 980);
-            window.setTimeout(() => {
-                void this.playAirDamageSmokeTrailAt(point.cx + 3, point.cy, puffScale * 0.9, false);
-            }, delayMs + 2080);
-            window.setTimeout(() => {
-                void this.playAirDamageSmokeTrailAt(point.cx - 3, point.cy - 1, puffScale * 0.84, false);
-            }, delayMs + 3460);
-            window.setTimeout(() => {
-                void this.playAirDamageSmokeTrailAt(point.cx + 1, point.cy + 2, puffScale * 0.78, false);
-            }, delayMs + 4980);
+            if (index < wave.smokePuffCount) {
+                const smokeDelayMs = 120 + index * 36;
+                window.setTimeout(() => {
+                    void this.playAirDamageSmokeTrailAt(point.cx, point.cy, puffScale, false);
+                }, smokeDelayMs);
+                if (index % 2 === 0) {
+                    window.setTimeout(() => {
+                        void this.playAirDamageSmokeTrailAt(point.cx + 2, point.cy - 1, puffScale * 0.86, false);
+                    }, smokeDelayMs + 620);
+                }
+            }
         });
     }
     /**
