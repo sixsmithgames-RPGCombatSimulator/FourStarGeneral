@@ -14,11 +14,16 @@ export function buildResolvedAirCombatSceneTimingPolicy(baseBomberArrivalDelayMs
     };
 }
 export function buildCoordinatedAirClusterTimingPolicy() {
+    const sharedSceneTimings = buildResolvedAirCombatSceneTimingPolicy(0);
     return {
         fighterIngressDurationMs: Math.round(resolveFighterInterceptIngressDurationMs() * 0.96),
-        escortClashDurationMs: scaleAirShowSequenceMs(Math.round(AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS * 1.24)),
-        fighterEgressDurationMs: scaleAirShowSequenceMs(920),
-        bomberStartDelayMs: scaleAirShowSequenceMs(880)
+        escortClashDurationMs: sharedSceneTimings.escortClashDurationMs,
+        bomberIngressDurationMs: sharedSceneTimings.bomberIngressDurationMs,
+        bomberPassDurationMs: sharedSceneTimings.bomberPassDurationMs,
+        strikeRunDurationMs: sharedSceneTimings.strikeRunDurationMs,
+        egressDurationMs: sharedSceneTimings.egressDurationMs,
+        bomberStartDelayMs: scaleAirShowSequenceMs(880),
+        bombReleaseProgress: sharedSceneTimings.bombReleaseProgress
     };
 }
 export function resolveCoordinatedAirClusterLeadWindow(fighterScenePresent, strikePlanCount, fighterIngressDurationMs, escortClashDurationMs, configuredBomberStartDelayMs) {

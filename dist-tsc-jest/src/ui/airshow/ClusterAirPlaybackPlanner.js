@@ -287,8 +287,12 @@ export function buildCoordinatedAirClusterPlaybackPlan(cluster, options) {
             bomberPassExchanges: combinedBomberPassExchanges,
             fighterIngressDurationMs: options.fighterIngressDurationMs,
             escortClashDurationMs: options.escortClashDurationMs,
-            egressDurationMs: options.fighterEgressDurationMs,
+            bomberIngressDurationMs: options.bomberIngressDurationMs,
+            bomberPassDurationMs: options.bomberPassDurationMs,
+            strikeRunDurationMs: options.strikeRunDurationMs,
+            egressDurationMs: options.egressDurationMs,
             bomberArrivalDelayMs: 0,
+            bombReleaseProgress: options.bombReleaseProgress,
             flakBursts: combinedFlakBursts,
             playerHqKey: options.playerHqKey ?? null,
             botHqKey: options.botHqKey ?? null

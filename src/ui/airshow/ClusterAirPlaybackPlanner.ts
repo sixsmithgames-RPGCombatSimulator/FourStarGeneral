@@ -72,8 +72,12 @@ export interface BuildCoordinatedAirClusterPlaybackPlanOptions {
   readonly resolveStrength: (unitKey: string, faction: TurnFaction) => number;
   readonly fighterIngressDurationMs: number;
   readonly escortClashDurationMs: number;
-  readonly fighterEgressDurationMs: number;
+  readonly bomberIngressDurationMs: number;
+  readonly bomberPassDurationMs: number;
+  readonly strikeRunDurationMs: number;
+  readonly egressDurationMs: number;
   readonly bomberStartDelayMs?: number;
+  readonly bombReleaseProgress: number;
   readonly playerHqKey?: string | null;
   readonly botHqKey?: string | null;
 }
@@ -504,8 +508,12 @@ export function buildCoordinatedAirClusterPlaybackPlan(
           bomberPassExchanges: combinedBomberPassExchanges,
           fighterIngressDurationMs: options.fighterIngressDurationMs,
           escortClashDurationMs: options.escortClashDurationMs,
-          egressDurationMs: options.fighterEgressDurationMs,
+          bomberIngressDurationMs: options.bomberIngressDurationMs,
+          bomberPassDurationMs: options.bomberPassDurationMs,
+          strikeRunDurationMs: options.strikeRunDurationMs,
+          egressDurationMs: options.egressDurationMs,
           bomberArrivalDelayMs: 0,
+          bombReleaseProgress: options.bombReleaseProgress,
           flakBursts: combinedFlakBursts,
           playerHqKey: options.playerHqKey ?? null,
           botHqKey: options.botHqKey ?? null

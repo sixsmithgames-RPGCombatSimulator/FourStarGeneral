@@ -103,6 +103,39 @@ function parseSvgViewBox(svg: SVGSVGElement): { x: number; y: number; width: num
   return { x, y, width, height };
 }
 
+function createRuntimeActor(
+  id: string,
+  role: "interceptor" | "escort" | "bomber",
+  formationIndex: number,
+  position: { cx: number; cy: number }
+): {
+  id: string;
+  flightId: string;
+  role: "interceptor" | "escort" | "bomber";
+  image: SVGImageElement;
+  size: number;
+  formationIndex: number;
+  headingDegrees: number;
+  position: { cx: number; cy: number };
+  biasX: number;
+  biasY: number;
+  active: boolean;
+} {
+  return {
+    id,
+    flightId: `${id}-flight`,
+    role,
+    image: document.createElementNS("http://www.w3.org/2000/svg", "image") as SVGImageElement,
+    size: 18,
+    formationIndex,
+    headingDegrees: 0,
+    position: { cx: position.cx, cy: position.cy },
+    biasX: 0,
+    biasY: 0,
+    active: true
+  };
+}
+
 function inspectSceneForFixture(
   fixtureUnderTest: AirshowHarnessFixture,
   scene: ResolvedAirShowScene
@@ -247,6 +280,31 @@ describe("AirShow JEST Harness", () => {
     expect(averageDistanceToCenter(bomberAssignments)).toBeGreaterThan(averageDistanceToCenter(fighterAssignments));
     expect(scramblePhase?.assignments.some((assignment) => assignment.role === "interceptor")).toBe(true);
     expect(scramblePhase?.assignments.some((assignment) => assignment.role === "escort")).toBe(true);
+  });
+
+  test("bomber ingress keeps fighter cover assignments moving instead of freezing the surviving fighters", async () => {
+    const report = inspectScene(await captureScene());
+    const bomberIngress = report.phases.find((phase) => phase.label === "bomber-ingress");
+
+    expect(bomberIngress).toBeDefined();
+
+    const bomberAssignments = bomberIngress?.assignments.filter((assignment) => assignment.role === "bomber") ?? [];
+    const fighterAssignments =
+      bomberIngress?.assignments.filter(
+        (assignment) => assignment.role === "interceptor" || assignment.role === "escort"
+      ) ?? [];
+
+    expect(bomberAssignments.length).toBeGreaterThan(0);
+    expect(fighterAssignments.length).toBeGreaterThan(0);
+
+    const displacement = (assignment: (typeof fighterAssignments)[number]): number => {
+      const first = assignment.sampledPositions[0];
+      const last = assignment.sampledPositions[assignment.sampledPositions.length - 1];
+      return Math.hypot((last?.cx ?? 0) - (first?.cx ?? 0), (last?.cy ?? 0) - (first?.cy ?? 0));
+    };
+    fighterAssignments.forEach((assignment) => {
+      expect(displacement(assignment)).toBeGreaterThan(36);
+    });
   });
 
   test("dogfight phases paint tracer bursts before bomber ingress in the 3 CAP / 2 escort package", async () => {
@@ -401,5 +459,47 @@ describe("AirShow JEST Harness", () => {
     expect(bomberFlight?.finalStrength).toBe(0);
     expect(bomberFlight?.actors.length).toBeGreaterThan(0);
     expect(bomberFlight?.actors.every((actor) => actor.active)).toBe(true);
+  });
+
+  test("runAirShowPhase keeps active scene actors visible when a phase only reassigns one actor", async () => {
+    ensureDomEnvironment();
+
+    const renderer = new HexMapRenderer();
+    const leadActor = createRuntimeActor("lead-bomber", "bomber", 0, { cx: 100, cy: 120 });
+    const wingActor = createRuntimeActor("wing-bomber", "bomber", 1, { cx: 118, cy: 132 });
+    const assignment = {
+      actor: leadActor,
+      points: [
+        { cx: 100, cy: 120 },
+        { cx: 154, cy: 126 }
+      ],
+      headingBlend: 0.34
+    };
+
+    await (renderer as unknown as {
+      runAirShowPhase: (
+        assignments: ReadonlyArray<typeof assignment>,
+        durationMs: number,
+        tracerBursts?: ReadonlyArray<unknown>,
+        options?: {
+          sceneActors?: ReadonlyArray<typeof leadActor>;
+          visibleActorIds?: ReadonlyArray<string>;
+          phaseLabel?: string;
+        }
+      ) => Promise<void>;
+    }).runAirShowPhase(
+      [assignment],
+      1,
+      [],
+      {
+        sceneActors: [leadActor, wingActor],
+        visibleActorIds: [leadActor.id],
+        phaseLabel: "subset-visibility-regression"
+      }
+    );
+
+    expect(leadActor.image.style.opacity).toBe("1");
+    expect(wingActor.image.style.opacity).toBe("1");
+    expect(wingActor.image.getAttribute("data-airshow-active")).toBe("true");
   });
 });

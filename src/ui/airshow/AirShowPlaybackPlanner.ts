@@ -478,9 +478,18 @@ export function planResolvedAirCombatShowScene(
     visibleActorIds?: ReadonlyArray<string>
   ): void => {
     const assignmentsByActorId = host.buildAirShowAssignmentLookup(assignments);
+    const activeSceneActorIds = sceneActors
+      .filter((actor) => actor.active)
+      .map((actor) => actor.id)
+      .filter((actorId) => actorId.length > 0);
     const resolvedVisibleActorIds = Array.from(
       new Set(
-        (visibleActorIds ?? assignments.map((assignment) => assignment.actor.id)).filter((actorId) => actorId.length > 0)
+        [
+          ...(visibleActorIds ?? assignments.map((assignment) => assignment.actor.id)).filter(
+            (actorId) => actorId.length > 0
+          ),
+          ...activeSceneActorIds
+        ]
       )
     );
     phases.push({
@@ -874,8 +883,8 @@ export function planResolvedAirCombatShowScene(
         egressHeadingDegrees,
         flight.spec.role === "escort" ? 1 : -1
       );
-      const peelCoverageRatio = flight.spec.role === "escort" ? 0.82 : 0.68;
-      const peelMinForwardPx = flight.spec.role === "escort" ? 210 : 150;
+      const peelCoverageRatio = flight.spec.role === "escort" ? 0.9 : 0.78;
+      const peelMinForwardPx = flight.spec.role === "escort" ? 240 : 180;
       const peelMaxForwardPx = flight.spec.role === "escort" ? 620 : 460;
       const peelForwardPx = host.clamp(
         Math.round(
@@ -889,27 +898,27 @@ export function planResolvedAirCombatShowScene(
       const laneOffset = (index - (fighterFlights.length - 1) / 2) * compactEgressLaneStepPx * 0.34;
       const peelLateralPx =
         laneOffset
-        + peelSideSign * (flight.spec.role === "escort" ? 34 : 28)
+        + peelSideSign * (flight.spec.role === "escort" ? 52 : 42)
         + (peelRand() - 0.5) * 10;
       const peelTarget = host.offsetAirShowPoint(
         current,
         homeForward.x * peelForwardPx + homeNormal.x * peelLateralPx,
         homeForward.y * peelForwardPx + homeNormal.y * peelLateralPx
       );
-      const peelCarryPx = Math.min(Math.max(52, peelForwardPx * 0.3), Math.max(92, peelForwardPx * 0.42));
+      const peelCarryPx = Math.min(Math.max(38, peelForwardPx * 0.18), Math.max(72, peelForwardPx * 0.3));
       const peelPathSource =
         headingRouteDot < 0.1
           ? [
               current,
               host.offsetAirShowPoint(
                 current,
-                headingForward.x * (peelCarryPx * 0.42) + homeNormal.x * peelSideSign * 12,
-                headingForward.y * (peelCarryPx * 0.42) + homeNormal.y * peelSideSign * 12
+                headingForward.x * (peelCarryPx * 0.36) + homeNormal.x * peelSideSign * 22,
+                headingForward.y * (peelCarryPx * 0.36) + homeNormal.y * peelSideSign * 22
               ),
               host.offsetAirShowPoint(
                 current,
-                headingForward.x * peelCarryPx + homeNormal.x * peelSideSign * (Math.abs(peelLateralPx) * 0.58 + 14),
-                headingForward.y * peelCarryPx + homeNormal.y * peelSideSign * (Math.abs(peelLateralPx) * 0.58 + 14)
+                headingForward.x * peelCarryPx + homeNormal.x * peelSideSign * (Math.abs(peelLateralPx) * 0.78 + 22),
+                headingForward.y * peelCarryPx + homeNormal.y * peelSideSign * (Math.abs(peelLateralPx) * 0.78 + 22)
               ),
               host.offsetAirShowPoint(
                 current,
@@ -918,8 +927,8 @@ export function planResolvedAirCombatShowScene(
               ),
               host.offsetAirShowPoint(
                 current,
-                homeForward.x * Math.max(112, peelForwardPx * 0.82) + homeNormal.x * peelLateralPx * 0.24,
-                homeForward.y * Math.max(112, peelForwardPx * 0.82) + homeNormal.y * peelLateralPx * 0.24
+                homeForward.x * Math.max(112, peelForwardPx * 0.82) + homeNormal.x * peelLateralPx * 0.42,
+                homeForward.y * Math.max(112, peelForwardPx * 0.82) + homeNormal.y * peelLateralPx * 0.42
               ),
               peelTarget
             ]
@@ -931,9 +940,9 @@ export function planResolvedAirCombatShowScene(
               earlyAlongPx: Math.max(52, peelForwardPx * 0.38),
               midAlongPx: Math.max(90, peelForwardPx * 0.7),
               lateAlongPx: Math.max(126, peelForwardPx * 0.9),
-              entryLateralPx: Math.abs(peelLateralPx) + 18,
-              midLateralPx: Math.abs(peelLateralPx) * 0.34 + 12,
-              lateLateralPx: Math.abs(peelLateralPx) * 0.08 + 4
+              entryLateralPx: Math.abs(peelLateralPx) + 34,
+              midLateralPx: Math.abs(peelLateralPx) * 0.56 + 18,
+              lateLateralPx: Math.abs(peelLateralPx) * 0.18 + 8
             });
       const peelPath = host.sanitizeAirShowEntryPath(
         peelPathSource,
@@ -1543,12 +1552,95 @@ export function planResolvedAirCombatShowScene(
         contestedBomberPhaseDurations,
         "bomber-ingress"
       );
+      const bomberIngressFighterAssignments: AirShowPhaseAssignment[] = [
+        ...survivingInterceptors.flatMap((flight, index) =>
+          host.buildAirShowFlightAssignments(
+            flight,
+            host.sanitizeAirShowEntryPath(
+              host.buildAirShowScreenRunPath(
+                host.averageAirShowPosition(flight.actors) ?? flight.anchor,
+                corridor,
+                {
+                  endAlongPx: -84,
+                  baseLateralPx: -142,
+                  laneIndex: index - (survivingInterceptors.length - 1) / 2,
+                  sideSign: -1,
+                  alongStepPx: 20,
+                  lateralStepPx: 28,
+                  corridorWidthPx: 18,
+                  driftPx: 14,
+                  startHeadingDegrees: host.resolveAirShowFlightHeadingDegrees(flight)
+                }
+              ),
+              {
+                maxTurnDeg: 48,
+                strongTurnDeg: 92,
+                maxFirstSegmentPx: 82,
+                maxSharpTurnDeg: 120,
+                maxWaypointsToRemove: 3
+              }
+            ),
+            0.26,
+            index,
+            survivingInterceptors.length
+          )
+        ),
+        ...survivingEscorts.flatMap((flight, index) =>
+          host.buildAirShowFlightAssignments(
+            flight,
+            host.sanitizeAirShowEntryPath(
+              host.buildAirShowScreenRunPath(
+                host.averageAirShowPosition(flight.actors) ?? flight.anchor,
+                corridor,
+                {
+                  endAlongPx: 24,
+                  baseLateralPx: 118,
+                  laneIndex: index - (survivingEscorts.length - 1) / 2,
+                  sideSign: 1,
+                  alongStepPx: 18,
+                  lateralStepPx: 24,
+                  corridorWidthPx: 16,
+                  driftPx: 14,
+                  startHeadingDegrees: host.resolveAirShowFlightHeadingDegrees(flight)
+                }
+              ),
+              {
+                maxTurnDeg: 44,
+                strongTurnDeg: 90,
+                maxFirstSegmentPx: 78,
+                maxSharpTurnDeg: 118,
+                maxWaypointsToRemove: 3
+              }
+            ),
+            0.24,
+            index,
+            survivingEscorts.length
+          )
+        )
+      ];
       const bomberIngressRoleSpeeds = host.resolveAirShowRoleSpeedMap({
+        interceptor: host.airShowFighterSpeedPxPerMs,
+        escort: host.airShowFighterSpeedPxPerMs,
         bomber: host.airShowBomberSpeedPxPerMs
       });
       const bomberIngressDurationMs = plannedBomberIngressDurationMs;
+      const extendedBomberIngressAssignments = host.extendAirShowPhaseAssignmentsForSpeed(
+        [
+          ...bomberIngressAssignments,
+          ...bomberIngressFighterAssignments
+        ],
+        bomberIngressDurationMs,
+        bomberIngressRoleSpeeds,
+        {
+          clampCenter: corridor.center,
+          orbitSignByRole: {
+            interceptor: -1,
+            escort: 1
+          }
+        }
+      );
       const spacedBomberIngressAssignments = host.prepareAirShowPhaseAssignments(
-        bomberIngressAssignments,
+        extendedBomberIngressAssignments,
         bomberIngressDurationMs,
         [0.22, 0.5, 0.78, 0.94],
         undefined,
@@ -1913,18 +2005,18 @@ export function planResolvedAirCombatShowScene(
       const strikeRunFlakBursts = bomberTargetRuns.flatMap(({ bomberFlight }) =>
         host.resolveAirShowBomberFlakBursts(scene, bomberFlight.spec.id)
       );
-      const finalizedStrikeRunAssignments = host.prepareAirShowPhaseAssignments(
-        strikeRunAssignments,
-        strikeRunDurationMs,
-        [0.18, 0.42, 0.66, 0.86],
-        undefined,
+        const finalizedStrikeRunAssignments = host.prepareAirShowPhaseAssignments(
+          strikeRunAssignments,
+          strikeRunDurationMs,
+          [0.18, 0.42, 0.66, 0.86],
+          undefined,
         strikeRunRoleSpeeds,
         {
           previousAssignments: previousPhaseAssignments,
           previousDurationMs: previousPhaseDurationMs,
-          entryTurnLimitDeg: 84
-        }
-      );
+            entryTurnLimitDeg: 84
+          }
+        );
       host.collectAirShowFlightTailHeadings(finalizedStrikeRunAssignments, {
         role: "bomber",
         sampleStartProgress: 0.9,

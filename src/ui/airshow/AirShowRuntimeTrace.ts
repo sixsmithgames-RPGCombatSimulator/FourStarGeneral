@@ -61,6 +61,21 @@ export type AirShowRuntimeTraceEvent =
       readonly actorStates: readonly AirShowRuntimeTraceActorState[];
     }
   | {
+      readonly kind: "phase-visibility-expanded";
+      readonly label: string;
+      readonly requestedVisibleActorIds: readonly string[];
+      readonly resolvedVisibleActorIds: readonly string[];
+      readonly addedActiveActorIds: readonly string[];
+      readonly actorStates: readonly AirShowRuntimeTraceActorState[];
+    }
+  | {
+      readonly kind: "phase-complete";
+      readonly label: string;
+      readonly requestedDurationMs: number;
+      readonly elapsedMs: number;
+      readonly actorStates: readonly AirShowRuntimeTraceActorState[];
+    }
+  | {
       readonly kind: "strength-sync";
       readonly flightId: string;
       readonly previousStrength: number;

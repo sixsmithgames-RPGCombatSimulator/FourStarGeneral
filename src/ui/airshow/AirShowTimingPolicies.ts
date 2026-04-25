@@ -23,8 +23,12 @@ export type ResolvedAirCombatSceneTimingOverrides = Partial<ResolvedAirCombatSce
 export interface CoordinatedAirClusterTimingPolicy {
   readonly fighterIngressDurationMs: number;
   readonly escortClashDurationMs: number;
-  readonly fighterEgressDurationMs: number;
+  readonly bomberIngressDurationMs: number;
+  readonly bomberPassDurationMs: number;
+  readonly strikeRunDurationMs: number;
+  readonly egressDurationMs: number;
   readonly bomberStartDelayMs: number;
+  readonly bombReleaseProgress: number;
 }
 
 export interface CoordinatedAirClusterLeadWindow {
@@ -50,11 +54,17 @@ export function buildResolvedAirCombatSceneTimingPolicy(
 }
 
 export function buildCoordinatedAirClusterTimingPolicy(): CoordinatedAirClusterTimingPolicy {
+  const sharedSceneTimings = buildResolvedAirCombatSceneTimingPolicy(0);
+
   return {
     fighterIngressDurationMs: Math.round(resolveFighterInterceptIngressDurationMs() * 0.96),
-    escortClashDurationMs: scaleAirShowSequenceMs(Math.round(AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS * 1.24)),
-    fighterEgressDurationMs: scaleAirShowSequenceMs(920),
-    bomberStartDelayMs: scaleAirShowSequenceMs(880)
+    escortClashDurationMs: sharedSceneTimings.escortClashDurationMs,
+    bomberIngressDurationMs: sharedSceneTimings.bomberIngressDurationMs,
+    bomberPassDurationMs: sharedSceneTimings.bomberPassDurationMs,
+    strikeRunDurationMs: sharedSceneTimings.strikeRunDurationMs,
+    egressDurationMs: sharedSceneTimings.egressDurationMs,
+    bomberStartDelayMs: scaleAirShowSequenceMs(880),
+    bombReleaseProgress: sharedSceneTimings.bombReleaseProgress
   };
 }
 

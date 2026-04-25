@@ -1623,9 +1623,25 @@ registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_SCENE_USES_SHARED_POLICY_TIMINGS"
             throw new Error(`Expected coordinated escort clash ${expectedPolicy.escortClashDurationMs}, ` +
                 `saw ${coordinatedScene.escortClashDurationMs ?? "<missing>"}.`);
         }
-        if (coordinatedScene.egressDurationMs !== expectedPolicy.fighterEgressDurationMs) {
-            throw new Error(`Expected coordinated egress ${expectedPolicy.fighterEgressDurationMs}, ` +
+        if (coordinatedScene.bomberIngressDurationMs !== expectedPolicy.bomberIngressDurationMs) {
+            throw new Error(`Expected coordinated bomber ingress ${expectedPolicy.bomberIngressDurationMs}, ` +
+                `saw ${coordinatedScene.bomberIngressDurationMs ?? "<missing>"}.`);
+        }
+        if (coordinatedScene.bomberPassDurationMs !== expectedPolicy.bomberPassDurationMs) {
+            throw new Error(`Expected coordinated bomber pass ${expectedPolicy.bomberPassDurationMs}, ` +
+                `saw ${coordinatedScene.bomberPassDurationMs ?? "<missing>"}.`);
+        }
+        if (coordinatedScene.strikeRunDurationMs !== expectedPolicy.strikeRunDurationMs) {
+            throw new Error(`Expected coordinated strike run ${expectedPolicy.strikeRunDurationMs}, ` +
+                `saw ${coordinatedScene.strikeRunDurationMs ?? "<missing>"}.`);
+        }
+        if (coordinatedScene.egressDurationMs !== expectedPolicy.egressDurationMs) {
+            throw new Error(`Expected coordinated egress ${expectedPolicy.egressDurationMs}, ` +
                 `saw ${coordinatedScene.egressDurationMs ?? "<missing>"}.`);
+        }
+        if (coordinatedScene.bombReleaseProgress !== expectedPolicy.bombReleaseProgress) {
+            throw new Error(`Expected coordinated bomb release progress ${expectedPolicy.bombReleaseProgress}, ` +
+                `saw ${coordinatedScene.bombReleaseProgress ?? "<missing>"}.`);
         }
         const expectedComputedLeadMs = Math.max(expectedPolicy.bomberStartDelayMs, Math.round(expectedPolicy.fighterIngressDurationMs + expectedPolicy.escortClashDurationMs * 0.42 + 220));
         if (coordinatedPlan?.bomberStartDelayMs !== expectedComputedLeadMs) {

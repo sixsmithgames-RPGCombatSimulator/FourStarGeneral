@@ -5266,6 +5266,28 @@ export class HexMapRenderer implements IMapRenderer {
     recordAirShowRuntimeTraceEvent(this.activeAirShowRuntimeTrace, event);
   }
 
+  private resolveAirShowPhaseVisibleActorIds(
+    assignments: ReadonlyArray<AirShowPhaseAssignment>,
+    sceneActors: ReadonlyArray<AirShowRuntimeActor> = [],
+    visibleActorIds?: ReadonlyArray<string>
+  ): string[] {
+    const explicitVisibleActorIds = (visibleActorIds ?? []).filter((actorId) => actorId.length > 0);
+    const assignmentActorIds = assignments
+      .map((assignment) => assignment.actor.id)
+      .filter((actorId) => actorId.length > 0);
+    const activeSceneActorIds = sceneActors
+      .filter((actor) => actor.active)
+      .map((actor) => actor.id)
+      .filter((actorId) => actorId.length > 0);
+
+    return Array.from(
+      new Set([
+        ...(explicitVisibleActorIds.length > 0 ? explicitVisibleActorIds : assignmentActorIds),
+        ...activeSceneActorIds
+      ])
+    );
+  }
+
   private buildAirShowRuntimeFlight(
     layer: SVGGElement,
     spec: ResolvedAirShowFlightSpec,
@@ -11975,20 +11997,40 @@ export class HexMapRenderer implements IMapRenderer {
       (options.sceneActors && options.sceneActors.length > 0)
         ? options.sceneActors
         : Array.from(new Map(assignments.map((assignment) => [assignment.actor.id, assignment.actor] as const)).values());
+    const requestedVisibleActorIds = (options.visibleActorIds ?? assignments.map((assignment) => assignment.actor.id))
+      .filter((actorId) => actorId.length > 0);
+    const resolvedVisibleActorIds = this.resolveAirShowPhaseVisibleActorIds(
+      assignments,
+      options.sceneActors ?? [],
+      options.visibleActorIds
+    );
     this.recordAirShowRuntimeTrace({
       kind: "phase-start",
       label: options.phaseLabel ?? "(unlabeled-phase)",
       durationMs,
       assignmentActorIds: assignments.map((assignment) => assignment.actor.id),
-      visibleActorIds: [...(options.visibleActorIds ?? assignments.map((assignment) => assignment.actor.id))],
+      visibleActorIds: [...resolvedVisibleActorIds],
       actorStates: tracedActors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
     });
+    const addedActiveActorIds = resolvedVisibleActorIds.filter(
+      (actorId) => !requestedVisibleActorIds.includes(actorId)
+    );
+    if (addedActiveActorIds.length > 0) {
+      this.recordAirShowRuntimeTrace({
+        kind: "phase-visibility-expanded",
+        label: options.phaseLabel ?? "(unlabeled-phase)",
+        requestedVisibleActorIds: [...requestedVisibleActorIds],
+        resolvedVisibleActorIds: [...resolvedVisibleActorIds],
+        addedActiveActorIds,
+        actorStates: tracedActors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
+      });
+    }
 
-    this.syncAirShowPhaseVisibility(assignments, options.sceneActors, options.visibleActorIds);
+    this.syncAirShowPhaseVisibility(assignments, options.sceneActors, resolvedVisibleActorIds);
     this.recordAirShowRuntimeTrace({
       kind: "phase-visibility-sync",
       label: options.phaseLabel ?? "(unlabeled-phase)",
-      visibleActorIds: [...(options.visibleActorIds ?? assignments.map((assignment) => assignment.actor.id))],
+      visibleActorIds: [...resolvedVisibleActorIds],
       actorStates: tracedActors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
     });
 
@@ -12070,6 +12112,13 @@ export class HexMapRenderer implements IMapRenderer {
               finalSample.position.cy,
               assignment.actor.headingDegrees
             );
+          });
+          this.recordAirShowRuntimeTrace({
+            kind: "phase-complete",
+            label: options.phaseLabel ?? "(unlabeled-phase)",
+            requestedDurationMs: durationMs,
+            elapsedMs: Math.round(now - startTime),
+            actorStates: tracedActors.map((actor) => this.snapshotAirShowRuntimeActorState(actor))
           });
           debugAirShowPhase("Complete", { durationMs: Math.round(now - startTime) });
           resolve();
