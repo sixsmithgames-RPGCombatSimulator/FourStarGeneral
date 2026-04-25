@@ -79,6 +79,17 @@ function parseSvgViewBox(svg) {
     }
     return { x, y, width, height };
 }
+function sampleFlightCenterAtProgress(phase, flightId, targetProgress) {
+    const assignments = phase.assignments.filter((assignment) => assignment.flightId === flightId);
+    if (assignments.length === 0) {
+        return null;
+    }
+    const nearestSamples = assignments.map((assignment) => assignment.sampledPositions.reduce((closest, sample) => Math.abs(sample.progress - targetProgress) < Math.abs(closest.progress - targetProgress) ? sample : closest));
+    return {
+        cx: nearestSamples.reduce((sum, sample) => sum + sample.cx, 0) / nearestSamples.length,
+        cy: nearestSamples.reduce((sum, sample) => sum + sample.cy, 0) / nearestSamples.length
+    };
+}
 function createRuntimeActor(id, role, formationIndex, position) {
     return {
         id,
@@ -215,15 +226,43 @@ describe("AirShow JEST Harness", () => {
         const mergePhase = report.phases.find((phase) => phase.label === "escort-clash-merge");
         const scramblePhase = report.phases.find((phase) => phase.label === "escort-clash-scramble");
         const allDogfightTracers = [...(mergePhase?.tracers ?? []), ...(scramblePhase?.tracers ?? [])];
+        const actorTargetedDogfightTracers = allDogfightTracers.filter((tracer) => !!tracer.targetActorId);
         expect(bomberIngressIndex).toBeGreaterThan(0);
         expect(mergePhase).toBeDefined();
         expect(scramblePhase).toBeDefined();
         expect(mergePhase?.tracers.length ?? 0).toBeGreaterThan(0);
         expect(scramblePhase?.tracers.length ?? 0).toBeGreaterThan(0);
+        expect(actorTargetedDogfightTracers.length).toBeGreaterThan(0);
+        expect(actorTargetedDogfightTracers.length).toBeGreaterThanOrEqual(Math.ceil(allDogfightTracers.length * 0.75));
         expect(mergePhase?.tracers.every((tracer) => tracer.progress >= 0.56)).toBe(true);
         expect(scramblePhase?.tracers.every((tracer) => tracer.progress >= 0.12 && tracer.progress <= 0.8)).toBe(true);
         expect(Math.max(...allDogfightTracers.map((tracer) => tracer.visibleLengthPx))).toBeLessThanOrEqual(14);
         expect(Math.max(...allDogfightTracers.map((tracer) => tracer.streakLengthPx))).toBeLessThanOrEqual(150);
+    });
+    test("escort clash phases keep paired CAP and escort flights converged in the same fight space", async () => {
+        const scene = await captureScene();
+        const report = inspectScene(scene);
+        const mergePhase = report.phases.find((phase) => phase.label === "escort-clash-merge");
+        const scramblePhase = report.phases.find((phase) => phase.label === "escort-clash-scramble");
+        const uniquePairs = Array.from(new Map((scene.escortExchanges ?? []).map((exchange) => [
+            `${exchange.attackerUnitKey}:${exchange.defenderUnitKey}`,
+            exchange
+        ])).values());
+        expect(mergePhase).toBeDefined();
+        expect(scramblePhase).toBeDefined();
+        expect(uniquePairs.length).toBeGreaterThan(0);
+        uniquePairs.forEach((pair) => {
+            const mergeInterceptor = sampleFlightCenterAtProgress(mergePhase, pair.attackerUnitKey, 0.72);
+            const mergeEscort = sampleFlightCenterAtProgress(mergePhase, pair.defenderUnitKey, 0.72);
+            const scrambleInterceptor = sampleFlightCenterAtProgress(scramblePhase, pair.attackerUnitKey, 0.44);
+            const scrambleEscort = sampleFlightCenterAtProgress(scramblePhase, pair.defenderUnitKey, 0.44);
+            expect(mergeInterceptor).not.toBeNull();
+            expect(mergeEscort).not.toBeNull();
+            expect(scrambleInterceptor).not.toBeNull();
+            expect(scrambleEscort).not.toBeNull();
+            expect(Math.hypot((mergeInterceptor?.cx ?? 0) - (mergeEscort?.cx ?? 0), (mergeInterceptor?.cy ?? 0) - (mergeEscort?.cy ?? 0))).toBeLessThan(118);
+            expect(Math.hypot((scrambleInterceptor?.cx ?? 0) - (scrambleEscort?.cx ?? 0), (scrambleInterceptor?.cy ?? 0) - (scrambleEscort?.cy ?? 0))).toBeLessThan(108);
+        });
     });
     test("target-run keeps four bomber actors visible and schedules flak bursts in the visual harness", async () => {
         const scene = await captureScene();
@@ -287,6 +326,8 @@ describe("AirShow JEST Harness", () => {
         expect(bomberDefensePass).toBeDefined();
         expect(fighterTracers.length).toBeGreaterThan(0);
         expect(turretTracers.length).toBeGreaterThan(0);
+        expect(fighterTracers.some((tracer) => !!tracer.targetActorId)).toBe(true);
+        expect(turretTracers.some((tracer) => !!tracer.targetActorId)).toBe(true);
         expect(Math.max(...tracerVisibleLengths)).toBeLessThanOrEqual(14);
         expect(Math.max(...tracerLifetimes)).toBeLessThanOrEqual(44);
         expect(fighterTracers.reduce((sum, tracer) => sum + (tracer.width ?? 0), 0) / fighterTracers.length).toBeGreaterThan(turretTracers.reduce((sum, tracer) => sum + (tracer.width ?? 0), 0) / turretTracers.length);
