@@ -1,6 +1,6 @@
 import type { IMapRenderer } from "../contracts/IMapRenderer";
 import { normalizeFacingDirection, type HexEdgeFacing, type HexModification, type ScenarioData, type ScenarioUnit, type TerrainDictionary, type UnitClass, type UnitTypeDefinition } from "../core/types";
-import { getSpriteForScenarioType } from "../data/unitSpriteCatalog";
+import { getSpriteForScenarioType, getCompositeSpritesForUnit } from "../data/unitSpriteCatalog";
 import { HEX_RADIUS, HEX_HEIGHT, HEX_WIDTH } from "../core/balance";
 import { CoordinateSystem, type TileDetails } from "./CoordinateSystem";
 import { TerrainRenderer } from "./TerrainRenderer";
@@ -3917,9 +3917,19 @@ export class HexMapRenderer implements IMapRenderer {
         typeof member.reconStatus === "boolean"
           ? (member.reconStatus ? "spotted" : "visible")
           : (member.reconStatus ?? "visible");
-      const spriteHref =
-        reconStatus === "spotted" ? UNKNOWN_CONTACT_SPRITE : getSpriteForScenarioType(member.unit.type as string, member.faction);
       const stackCount = this.resolveUnitStackCount(member.unit.strength);
+      // Resolve per-position sprites; composite units (e.g. Infantry_42) return a mixed array,
+      // non-composite units return the same sprite for every position.
+      const compositeSprites =
+        reconStatus === "spotted"
+          ? null
+          : getCompositeSpritesForUnit(member.unit.type as string, member.faction, stackCount, reconStatus);
+      if (!compositeSprites && reconStatus !== "spotted") {
+        console.error(
+          "[HexMapRenderer] renderUnitStack: no sprite registered for unit type+faction — unit will render blank.",
+          { type: member.unit.type, faction: member.faction, hexKey }
+        );
+      }
       const layout = this.resolveUnitStackLayout(
         stackCount,
         variant,
@@ -3935,10 +3945,14 @@ export class HexMapRenderer implements IMapRenderer {
 
       const facingGroup = document.createElementNS(SVG_NS, "g");
       facingGroup.classList.add("unit-stack-facing");
-      layout.forEach((spec) => {
+      layout.forEach((spec, posIndex) => {
+        const resolvedHref =
+          reconStatus === "spotted"
+            ? UNKNOWN_CONTACT_SPRITE
+            : (compositeSprites?.[posIndex] ?? null);
         const image = document.createElementNS(SVG_NS, "image");
-        if (spriteHref) {
-          image.setAttribute("href", spriteHref);
+        if (resolvedHref) {
+          image.setAttribute("href", resolvedHref);
         } else {
           image.removeAttribute("href");
         }
