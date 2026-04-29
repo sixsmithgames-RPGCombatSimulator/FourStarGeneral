@@ -3918,6 +3918,7 @@ export class HexMapRenderer implements IMapRenderer {
           ? (member.reconStatus ? "spotted" : "visible")
           : (member.reconStatus ?? "visible");
       const stackCount = this.resolveUnitStackCount(member.unit.strength);
+      const normalizedFacing = this.normalizeFacing(member.unit.facing);
       // Resolve per-position sprites with directional view based on unit facing; composite units
       // (e.g. Infantry_42) return a mixed array, non-composite units return the same sprite
       // for every position (with appropriate directional suffix based on facing).
@@ -3929,7 +3930,7 @@ export class HexMapRenderer implements IMapRenderer {
               member.faction,
               stackCount,
               reconStatus,
-              member.unit.facing
+              normalizedFacing
             );
       if (!compositeSprites && reconStatus !== "spotted") {
         console.error(
@@ -3994,7 +3995,7 @@ export class HexMapRenderer implements IMapRenderer {
         formationGroup,
         cx,
         cy,
-        this.resolveFacingAngleDeg(this.normalizeFacing(member.unit.facing))
+        this.resolveFacingAngleDeg(normalizedFacing)
       );
     });
 
