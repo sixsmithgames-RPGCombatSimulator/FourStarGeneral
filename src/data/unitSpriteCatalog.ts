@@ -87,8 +87,47 @@ const COMPOSITE_GROUND_SPRITES: Record<string, CompositeSpriteDef> = {
 };
 
 /**
+ * Faction-aware ground sprites. Only units that genuinely exist for both factions belong here.
+ * Single-faction unit types (e.g., Light_Tank=USA, Panzer_IV=German) are NOT listed here;
+ * their SCENARIO_SPRITES entry points to the correct faction-specific art directly.
+ */
+const FACTION_GROUND_SPRITES: Record<string, FactionSpriteMap> = {
+  Heavy_Tank: {
+    Player: unitSprite("Tank_M26_USA_Southview.png"),
+    Ally: unitSprite("Tank_M26_USA_Southview.png"),
+    Bot: unitSprite("Tank_Tiger_German_Southview.png"),
+    fallback: unitSprite("Tank_M26_USA_Southview.png")
+  },
+  Tank_Destroyer: {
+    Player: unitSprite("Tankkiller_M10_USA_Southview.png"),
+    Ally: unitSprite("Tankkiller_M10_USA_Southview.png"),
+    Bot: unitSprite("Tankkiller_MarderIII_German_Southview.png"),
+    fallback: unitSprite("Tankkiller_M10_USA_Southview.png")
+  },
+  SP_Artillery: {
+    Player: unitSprite("Artillery_M7_USA_Southview.png"),
+    Ally: unitSprite("Artillery_M7_USA_Southview.png"),
+    Bot: unitSprite("Artillery_Hummel_German_Southview.png"),
+    fallback: unitSprite("Artillery_M7_USA_Southview.png")
+  },
+  Flak_88: {
+    Player: unitSprite("Flak_88_USA_Southview.png"),
+    Ally: unitSprite("Flak_88_USA_Southview.png"),
+    Bot: unitSprite("Flak_88_Germany_Southview.png"),
+    fallback: unitSprite("Flak_88_USA_Southview.png")
+  },
+  Recon_Bike: {
+    Player: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png"),
+    Ally: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png"),
+    Bot: unitSprite("Wheeled_Bikes_Recon_German_Southview.png"),
+    fallback: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png")
+  }
+};
+
+/**
  * Direct mapping from engine `ScenarioUnit.type` values to concrete sprite assets.
  * This table mirrors the art catalogue so both AI and player-owned units render consistently.
+ * NOTE: For units defined in FACTION_GROUND_SPRITES, those faction-aware mappings take precedence.
  */
 const SCENARIO_SPRITES: Record<string, string> = {
   Infantry_42: unitSprite("Infantry_Light_USA_Southview.png"),
@@ -97,19 +136,19 @@ const SCENARIO_SPRITES: Record<string, string> = {
   Engineer: unitSprite("Engineer.png"),
   Combat_Engineer: unitSprite("Combat_Engineer.png"),
   AT_Gun_50mm: unitSprite("AT_Gun_50mm.png"),
-  Flak_88: unitSprite("Flak_88.png"),
+  Flak_88: unitSprite("Flak_88_USA_Southview.png"),
   Recon_ArmoredCar: unitSprite("Recon_ArmoredCar.png"),
-  Recon_Bike: unitSprite("Recon_Bike.png"),
+  Recon_Bike: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png"),
   APC_Truck: unitSprite("APC_Truck.png"),
   APC_Halftrack: unitSprite("APC_Halftrack.png"),
   Supply_Truck: unitSprite("Supply_Truck.png"),
-  Panzer_IV: unitSprite("Light_Tank.png"),
-  Heavy_Tank: unitSprite("Heavy_Tank.png"),
-  Tank_Destroyer: unitSprite("Anti_Tank_Tank.png"),
+  Panzer_IV: unitSprite("Tank_PanzerIV_German_Southview.png"),
+  Heavy_Tank: unitSprite("Tank_M26_USA_Southview.png"),
+  Tank_Destroyer: unitSprite("Tankkiller_M10_USA_Southview.png"),
   Assault_Gun: unitSprite("Assault_Gun.png"),
   Howitzer_105: unitSprite("Howitzer_105.png"),
   Rocket_Artillery: unitSprite("Rocket_Artillery.png"),
-  SP_Artillery: unitSprite("SP_Artillery.png"),
+  SP_Artillery: unitSprite("Artillery_M7_USA_Southview.png"),
   Scout_Plane: unitSprite("Scout_Plane.png"),
   Fighter: unitSprite("Fighter.png"),
   Interceptor: unitSprite("Interceptor.png"),
@@ -119,7 +158,7 @@ const SCENARIO_SPRITES: Record<string, string> = {
   Infantry: unitSprite("Infantry.png"),
   Howitzer: unitSprite("Howitzer_105.png"),
   Panzer_V: unitSprite("Panzer_V.png"),
-  Light_Tank: unitSprite("Light_Tank.png"),
+  Light_Tank: unitSprite("Tank_M4_USA_Southview.png"),
   Anti_Tank_Tank: unitSprite("Anti_Tank_Tank.png"),
   SPAA: unitSprite("Flak_88.png"),
   Recon: unitSprite("Recon_ArmoredCar.png"),
@@ -178,6 +217,7 @@ function normalizeSpriteFaction(faction?: string | null): SpriteFaction | null {
 }
 
 function resolveScenarioSprite(scenarioType: string, faction?: string | null): string | undefined {
+  // Check faction-aware aircraft sprites first
   const aircraftSpriteSet = FACTION_AIRCRAFT_SPRITES[scenarioType];
   if (aircraftSpriteSet) {
     const spriteFaction = normalizeSpriteFaction(faction);
@@ -186,7 +226,46 @@ function resolveScenarioSprite(scenarioType: string, faction?: string | null): s
     }
     return aircraftSpriteSet.Player ?? aircraftSpriteSet.Ally ?? aircraftSpriteSet.Bot ?? aircraftSpriteSet.fallback;
   }
+  // Check faction-aware ground sprites next (tanks, artillery, etc.)
+  const groundSpriteSet = FACTION_GROUND_SPRITES[scenarioType];
+  if (groundSpriteSet) {
+    const spriteFaction = normalizeSpriteFaction(faction);
+    if (spriteFaction && groundSpriteSet[spriteFaction]) {
+      return groundSpriteSet[spriteFaction];
+    }
+    return groundSpriteSet.Player ?? groundSpriteSet.Ally ?? groundSpriteSet.Bot ?? groundSpriteSet.fallback;
+  }
   return SCENARIO_SPRITES[scenarioType];
+}
+
+/**
+ * Maps facing direction to directional view suffix.
+ * Naming convention: Southview=SE, Sideview=E, Northview=NE (with horizontal flip for left facings).
+ */
+function getViewSuffixForFacing(facing: string): "Southview" | "Sideview" | "Northview" {
+  switch (facing) {
+    case "NE":
+    case "NW":
+      return "Northview";
+    case "E":
+    case "W":
+      return "Sideview";
+    case "SE":
+    case "SW":
+    default:
+      return "Southview";
+  }
+}
+
+/**
+ * Swaps the view suffix in a sprite URL to match the facing direction.
+ * Only applies to sprites that include directional suffixes (e.g., "_Southview.png").
+ * Returns the original URL if no directional suffix is present.
+ */
+function resolveDirectionalSprite(spriteUrl: string, facing: string): string {
+  const viewSuffix = getViewSuffixForFacing(facing);
+  // Replace any existing directional suffix with the target one
+  return spriteUrl.replace(/_(Southview|Sideview|Northview)\.png$/i, `_${viewSuffix}.png`);
 }
 
 /**
@@ -199,7 +278,8 @@ export function getCompositeSpritesForUnit(
   scenarioType: string,
   faction: "Player" | "Bot" | "Ally",
   stackCount: number,
-  reconStatus?: string
+  reconStatus?: string,
+  facing?: string
 ): string[] | null {
   if (reconStatus === "spotted") {
     return null; // caller uses UNKNOWN_CONTACT_SPRITE for all positions
@@ -208,13 +288,30 @@ export function getCompositeSpritesForUnit(
   const composite = COMPOSITE_GROUND_SPRITES[scenarioType];
   if (composite) {
     const factionSprites = composite[faction];
-    return Array.from({ length: clampedCount }, (_, i) => factionSprites[i]!);
+    const sprites = Array.from({ length: clampedCount }, (_, i) => factionSprites[i]!);
+    if (facing) {
+      return sprites.map((url) => resolveDirectionalSprite(url, facing));
+    }
+    return sprites;
   }
   const single = resolveScenarioSprite(scenarioType, faction);
   if (!single) {
     return null;
   }
-  return Array.from({ length: clampedCount }, () => single);
+  const resolved = facing ? resolveDirectionalSprite(single, facing) : single;
+  return Array.from({ length: clampedCount }, () => resolved);
+}
+
+/**
+ * Retrieves the sprite URL registered for a given engine scenario type.
+ * Optionally resolves directional view based on facing (e.g., Northview/Sideview/Southview).
+ */
+export function getSpriteForScenarioType(scenarioType: string, faction?: string | null, facing?: string): string | undefined {
+  const sprite = resolveScenarioSprite(scenarioType, faction);
+  if (!sprite || !facing) {
+    return sprite;
+  }
+  return resolveDirectionalSprite(sprite, facing);
 }
 
 /**
@@ -237,14 +334,8 @@ Object.entries(allocationKeyToScenarioType).forEach(([allocationKey, scenarioTyp
 });
 
 /**
- * Retrieves the sprite URL registered for a given engine scenario type.
- */
-export function getSpriteForScenarioType(scenarioType: string, faction?: string | null): string | undefined {
-  return resolveScenarioSprite(scenarioType, faction);
-}
-
-/**
  * Retrieves the sprite URL for a deployment allocation key, if the catalogue includes one.
+ * Does not support facing-based directional resolution (use getSpriteForScenarioType for that).
  */
 export function getSpriteForAllocationKey(allocationKey: string, faction?: string | null): string | undefined {
   const scenarioType = allocationKeyToScenarioType[allocationKey];

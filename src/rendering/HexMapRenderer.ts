@@ -3918,12 +3918,19 @@ export class HexMapRenderer implements IMapRenderer {
           ? (member.reconStatus ? "spotted" : "visible")
           : (member.reconStatus ?? "visible");
       const stackCount = this.resolveUnitStackCount(member.unit.strength);
-      // Resolve per-position sprites; composite units (e.g. Infantry_42) return a mixed array,
-      // non-composite units return the same sprite for every position.
+      // Resolve per-position sprites with directional view based on unit facing; composite units
+      // (e.g. Infantry_42) return a mixed array, non-composite units return the same sprite
+      // for every position (with appropriate directional suffix based on facing).
       const compositeSprites =
         reconStatus === "spotted"
           ? null
-          : getCompositeSpritesForUnit(member.unit.type as string, member.faction, stackCount, reconStatus);
+          : getCompositeSpritesForUnit(
+              member.unit.type as string,
+              member.faction,
+              stackCount,
+              reconStatus,
+              member.unit.facing
+            );
       if (!compositeSprites && reconStatus !== "spotted") {
         console.error(
           "[HexMapRenderer] renderUnitStack: no sprite registered for unit type+faction — unit will render blank.",
