@@ -47,7 +47,7 @@ const COMPOSITE_GROUND_SPRITES: Record<string, CompositeSpriteDef> = {
     Player: [
       unitSprite("Infantry_Light_USA_Southview.png"),   // pos 0 — core rifleman, last survivor
       unitSprite("Infantry_Mortar_USA_Southview.png"),  // pos 1 — mortar
-      unitSprite("Infantry_Light_USA_Southview1.png"),   // pos 2 — rifleman pose-1
+      unitSprite("Infantry_Light_USA_Southview.png"),   // pos 2 — rifleman pose-1 (reuses pose-0 until variants exist)
       unitSprite("Infantry_AT_USA_Southview.png")       // pos 3 — AT specialist, drops first
     ],
     Bot: [
@@ -59,7 +59,7 @@ const COMPOSITE_GROUND_SPRITES: Record<string, CompositeSpriteDef> = {
     Ally: [
       unitSprite("Infantry_Light_USA_Southview.png"),
       unitSprite("Infantry_Mortar_USA_Southview.png"),
-      unitSprite("Infantry_Light_USA_Southview1.png"),
+      unitSprite("Infantry_Light_USA_Southview.png"),
       unitSprite("Infantry_AT_USA_Southview.png")
     ]
   },
@@ -124,7 +124,7 @@ const FACTION_GROUND_SPRITES: Record<string, FactionSpriteMap> = {
   Engineer: {
     Player: unitSprite("Infantry_Engineers_USA_Southview.png"),
     Ally: unitSprite("Infantry_Engineers_USA_Southview.png"),
-    Bot: unitSprite("Infantry_Engineer_German_Southview.png"),
+    Bot: unitSprite("Infantry_Basic_German_Southview.png"),
     fallback: unitSprite("Infantry_Engineers_USA_Southview.png")
   }
 };

@@ -57,7 +57,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
   },
   {
     key: "tank",
-    type: "Panzer_IV",
+    type: "Light_Tank",
     strength: 100,
     ammo: 7,
     fuel: 40,
@@ -244,7 +244,7 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
   },
   {
     key: "armoredCompany",
-    type: "Panzer_IV",
+    type: "Light_Tank",
     strength: 100,
     ammo: 7,
     fuel: 40,

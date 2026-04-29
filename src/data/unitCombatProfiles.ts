@@ -19,7 +19,7 @@ const COMBAT_MAPPING: readonly [UnitAllocationKey, UnitTypeKey | null][] = [
   ["infantry", "Infantry_42"],
   ["airborneDetachment", "Paratrooper"],
   ["engineer", "Engineer"],
-  ["tank", "Panzer_IV"],
+  ["tank", "Light_Tank"],
   ["heavyTankCompany", "Heavy_Tank"],
   ["tankDestroyerCompany", "Tank_Destroyer"],
   ["assaultGunBattalion", "Assault_Gun"],

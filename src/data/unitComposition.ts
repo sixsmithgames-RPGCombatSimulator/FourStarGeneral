@@ -94,7 +94,7 @@ export const unitComposition: Record<UnitAllocationKey, UnitCompositionProfile> 
     ]
   },
   tank: {
-    combatReference: { unitType: "Panzer_IV" },
+    combatReference: { unitType: "Light_Tank" },
     personnel: 60,
     vehicles: 25,
     equipmentSummary: ["25 medium tanks", "Organic maintenance and recovery detachment"],
