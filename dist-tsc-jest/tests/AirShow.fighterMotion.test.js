@@ -615,6 +615,7 @@ registerTest("AIR_SHOW_SYNTHETIC_STACK_PACKAGE_AVOIDS_CURRENT_GOVERNED_MOTION_AN
         }
         const blockedCodes = new Set([
             "sharp-waypoint-turn",
+            "hard-phase-reversal",
             "jerky-phase-entry",
             "early-flak-window",
             "late-flak-window"

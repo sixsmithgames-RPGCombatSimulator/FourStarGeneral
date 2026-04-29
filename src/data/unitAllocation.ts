@@ -37,7 +37,7 @@ export const allocationOptions = [
     costPerUnit: 50,
     description: "Balanced line infantry with rifle companies, integral machine guns, and battalion mortars for holding ground.",
     maxQuantity: 20,
-    spriteUrl: new URL("../assets/units/Infantry.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Infantry_Light_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "airborneDetachment",
@@ -46,7 +46,7 @@ export const allocationOptions = [
     costPerUnit: 100,
     description: "Elite parachute force suited for raids, rapid blocking actions, and hard-fought light-infantry work.",
     maxQuantity: 4,
-    spriteUrl: new URL("../assets/units/Paratrooper.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Infantry_Light_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "engineer",
@@ -55,7 +55,7 @@ export const allocationOptions = [
     costPerUnit: 80,
     description: "Combat engineers able to dig in, fortify key hexes, breach obstacles, and improve crossing positions.",
     maxQuantity: 10,
-    spriteUrl: new URL("../assets/units/Engineer.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Infantry_Engineers_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "tank",
@@ -64,7 +64,7 @@ export const allocationOptions = [
     costPerUnit: 200,
     description: "Medium armor for breakthrough attacks, mobile reserve work, and direct fire against fortified positions.",
     maxQuantity: 10,
-    spriteUrl: new URL("../assets/units/Medium_Tank.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Tank_M4_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "heavyTankCompany",
@@ -73,7 +73,7 @@ export const allocationOptions = [
     costPerUnit: 280,
     description: "Slow but punishing heavy armor built to break defended lines and absorb enemy anti-tank fire.",
     maxQuantity: 4,
-    spriteUrl: new URL("../assets/units/Heavy_Tank.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Tank_M26_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "tankDestroyerCompany",
@@ -82,7 +82,7 @@ export const allocationOptions = [
     costPerUnit: 255,
     description: "High-velocity anti-armor company for countering tanks from standoff positions and covered lanes.",
     maxQuantity: 5,
-    spriteUrl: new URL("../assets/units/Anti_Tank_Tank.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Tankkiller_M10_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "assaultGunBattalion",
@@ -100,7 +100,7 @@ export const allocationOptions = [
     costPerUnit: 180,
     description: "Towed 105mm battery for indirect bombardment, counter-mobility fire, and sustained support of infantry attacks.",
     maxQuantity: 6,
-    spriteUrl: new URL("../assets/units/Howitzer_105.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Artillery_Howitzer_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "rocketArtilleryBattalion",
@@ -118,7 +118,7 @@ export const allocationOptions = [
     costPerUnit: 275,
     description: "Armored self-propelled guns that can fire, displace, and keep pace with mechanized formations.",
     maxQuantity: 4,
-    spriteUrl: new URL("../assets/units/SP_Artillery.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Artillery_M7_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "antiTankBattery",
@@ -127,7 +127,7 @@ export const allocationOptions = [
     costPerUnit: 80,
     description: "Crew-served anti-tank guns ideal for covering roads, crossings, and likely armored approach lanes.",
     maxQuantity: 6,
-    spriteUrl: new URL("../assets/units/AT_Gun_50mm.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Wheeled_AT_Gun_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "flakBattery",
@@ -136,7 +136,7 @@ export const allocationOptions = [
     costPerUnit: 210,
     description: "Dual-purpose 88mm battery providing defensive flak coverage against hostile air strikes while engaging armor and soft targets.",
     maxQuantity: 6,
-    spriteUrl: new URL("../assets/units/Flak_88.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Flak_88_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "recon",
@@ -154,7 +154,7 @@ export const allocationOptions = [
     costPerUnit: 45,
     description: "Light two-wheel scout patrol with a smaller rider package for fast screening, flank checks, and urgent liaison work.",
     maxQuantity: 8,
-    spriteUrl: new URL("../assets/units/Recon_Bike.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Wheeled_Bikes_Recon_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "scoutPlaneWing",

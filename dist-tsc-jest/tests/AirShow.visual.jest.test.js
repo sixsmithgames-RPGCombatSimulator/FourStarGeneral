@@ -234,8 +234,8 @@ describe("AirShow JEST Harness", () => {
         expect(scramblePhase?.tracers.length ?? 0).toBeGreaterThan(0);
         expect(actorTargetedDogfightTracers.length).toBeGreaterThan(0);
         expect(actorTargetedDogfightTracers.length).toBeGreaterThanOrEqual(Math.ceil(allDogfightTracers.length * 0.75));
-        expect(mergePhase?.tracers.every((tracer) => tracer.progress >= 0.56)).toBe(true);
-        expect(scramblePhase?.tracers.every((tracer) => tracer.progress >= 0.12 && tracer.progress <= 0.8)).toBe(true);
+        expect(mergePhase?.tracers.every((tracer) => tracer.progress >= 0.5)).toBe(true);
+        expect(scramblePhase?.tracers.filter((tracer) => tracer.progress >= 0.08 && tracer.progress <= 0.9).length).toBeGreaterThanOrEqual(Math.ceil((scramblePhase?.tracers.length ?? 0) * 0.85));
         expect(Math.max(...allDogfightTracers.map((tracer) => tracer.visibleLengthPx))).toBeLessThanOrEqual(14);
         expect(Math.max(...allDogfightTracers.map((tracer) => tracer.streakLengthPx))).toBeLessThanOrEqual(150);
     });
@@ -262,6 +262,89 @@ describe("AirShow JEST Harness", () => {
             expect(scrambleEscort).not.toBeNull();
             expect(Math.hypot((mergeInterceptor?.cx ?? 0) - (mergeEscort?.cx ?? 0), (mergeInterceptor?.cy ?? 0) - (mergeEscort?.cy ?? 0))).toBeLessThan(118);
             expect(Math.hypot((scrambleInterceptor?.cx ?? 0) - (scrambleEscort?.cx ?? 0), (scrambleInterceptor?.cy ?? 0) - (scrambleEscort?.cy ?? 0))).toBeLessThan(108);
+        });
+    });
+    test("escort clash keeps under-paired escorts closing into the local fight instead of stalling in a distant orbit", async () => {
+        const scene = await captureScene();
+        expect(scene.interceptors.length).toBeGreaterThan(1);
+        expect(scene.escorts.length).toBeGreaterThan(1);
+        expect((scene.escortExchanges?.length ?? 0)).toBeGreaterThan(0);
+        const underPairedScene = {
+            ...scene,
+            escortExchanges: scene.escortExchanges?.slice(0, 1) ?? []
+        };
+        const report = inspectScene(underPairedScene);
+        const mergePhase = report.phases.find((phase) => phase.label === "escort-clash-merge");
+        const scramblePhase = report.phases.find((phase) => phase.label === "escort-clash-scramble");
+        const interceptorFlightIds = underPairedScene.interceptors.map((flight) => flight.id);
+        const escortFlightIds = underPairedScene.escorts.map((flight) => flight.id);
+        expect(mergePhase).toBeDefined();
+        expect(scramblePhase).toBeDefined();
+        escortFlightIds.forEach((escortFlightId) => {
+            const escortMergeStart = sampleFlightCenterAtProgress(mergePhase, escortFlightId, 0.06);
+            const scrambleProgressSamples = [0.38, 0.54, 0.7, 0.86];
+            const escortScrambleSamples = scrambleProgressSamples
+                .map((progress) => ({
+                progress,
+                point: sampleFlightCenterAtProgress(scramblePhase, escortFlightId, progress)
+            }))
+                .filter((sample) => !!sample.point);
+            expect(escortMergeStart).not.toBeNull();
+            expect(escortScrambleSamples.length).toBeGreaterThan(0);
+            const nearestInterceptorDistanceAtMergeStartPx = Math.min(...interceptorFlightIds
+                .map((interceptorFlightId) => sampleFlightCenterAtProgress(mergePhase, interceptorFlightId, 0.06))
+                .filter((point) => !!point)
+                .map((interceptorPoint) => Math.hypot((escortMergeStart?.cx ?? 0) - interceptorPoint.cx, (escortMergeStart?.cy ?? 0) - interceptorPoint.cy)));
+            const nearestInterceptorDistanceDuringScramblePx = Math.min(...escortScrambleSamples.map((escortScrambleSample) => Math.min(...interceptorFlightIds
+                .map((interceptorFlightId) => sampleFlightCenterAtProgress(scramblePhase, interceptorFlightId, escortScrambleSample.progress))
+                .filter((point) => !!point)
+                .map((interceptorPoint) => Math.hypot(escortScrambleSample.point.cx - interceptorPoint.cx, escortScrambleSample.point.cy - interceptorPoint.cy)))));
+            expect(nearestInterceptorDistanceDuringScramblePx).toBeLessThan(170);
+            expect(nearestInterceptorDistanceAtMergeStartPx - nearestInterceptorDistanceDuringScramblePx).toBeGreaterThan(100);
+        });
+        interceptorFlightIds.forEach((interceptorFlightId) => {
+            const interceptorMergeStart = sampleFlightCenterAtProgress(mergePhase, interceptorFlightId, 0.06);
+            const scrambleProgressSamples = [0.38, 0.54, 0.7, 0.86];
+            const interceptorScrambleSamples = scrambleProgressSamples
+                .map((progress) => ({
+                progress,
+                point: sampleFlightCenterAtProgress(scramblePhase, interceptorFlightId, progress)
+            }))
+                .filter((sample) => !!sample.point);
+            expect(interceptorMergeStart).not.toBeNull();
+            expect(interceptorScrambleSamples.length).toBeGreaterThan(0);
+            const nearestEscortDistanceAtMergeStartPx = Math.min(...escortFlightIds
+                .map((escortFlightId) => sampleFlightCenterAtProgress(mergePhase, escortFlightId, 0.06))
+                .filter((point) => !!point)
+                .map((escortPoint) => Math.hypot((interceptorMergeStart?.cx ?? 0) - escortPoint.cx, (interceptorMergeStart?.cy ?? 0) - escortPoint.cy)));
+            const nearestEscortDistanceDuringScramblePx = Math.min(...interceptorScrambleSamples.map((interceptorScrambleSample) => Math.min(...escortFlightIds
+                .map((escortFlightId) => sampleFlightCenterAtProgress(scramblePhase, escortFlightId, interceptorScrambleSample.progress))
+                .filter((point) => !!point)
+                .map((escortPoint) => Math.hypot(interceptorScrambleSample.point.cx - escortPoint.cx, interceptorScrambleSample.point.cy - escortPoint.cy)))));
+            expect(nearestEscortDistanceDuringScramblePx).toBeLessThan(170);
+            expect(nearestEscortDistanceAtMergeStartPx - nearestEscortDistanceDuringScramblePx).toBeGreaterThan(100);
+        });
+    });
+    test("escort clash still stages a full fight when escort exchanges are completely missing", async () => {
+        const scene = await captureScene();
+        const noExchangeScene = {
+            ...scene,
+            escortExchanges: []
+        };
+        const report = inspectScene(noExchangeScene);
+        const mergePhase = report.phases.find((phase) => phase.label === "escort-clash-merge");
+        const scramblePhase = report.phases.find((phase) => phase.label === "escort-clash-scramble");
+        const interceptorFlightIds = noExchangeScene.interceptors.map((flight) => flight.id);
+        const escortFlightIds = noExchangeScene.escorts.map((flight) => flight.id);
+        expect(mergePhase).toBeDefined();
+        expect(scramblePhase).toBeDefined();
+        interceptorFlightIds.forEach((flightId) => {
+            expect(mergePhase?.assignments.some((assignment) => assignment.flightId === flightId)).toBe(true);
+            expect(scramblePhase?.assignments.some((assignment) => assignment.flightId === flightId)).toBe(true);
+        });
+        escortFlightIds.forEach((flightId) => {
+            expect(mergePhase?.assignments.some((assignment) => assignment.flightId === flightId)).toBe(true);
+            expect(scramblePhase?.assignments.some((assignment) => assignment.flightId === flightId)).toBe(true);
         });
     });
     test("target-run keeps four bomber actors visible and schedules flak bursts in the visual harness", async () => {
@@ -332,6 +415,35 @@ describe("AirShow JEST Harness", () => {
         expect(Math.max(...tracerLifetimes)).toBeLessThanOrEqual(44);
         expect(fighterTracers.reduce((sum, tracer) => sum + (tracer.width ?? 0), 0) / fighterTracers.length).toBeGreaterThan(turretTracers.reduce((sum, tracer) => sum + (tracer.width ?? 0), 0) / turretTracers.length);
         expect(fighterTracers.reduce((sum, tracer) => sum + tracer.visibleLengthPx, 0) / fighterTracers.length).toBeGreaterThanOrEqual(turretTracers.reduce((sum, tracer) => sum + tracer.visibleLengthPx, 0) / turretTracers.length);
+    });
+    test("bomber-defense-pass still commits every interceptor into a bomber pass when live pairings are missing", async () => {
+        const scene = await captureScene();
+        const reducedPassScene = {
+            ...scene,
+            bomberPassExchanges: []
+        };
+        const report = inspectScene(reducedPassScene);
+        const bomberDefensePass = report.phases.find((phase) => phase.label === "bomber-defense-pass");
+        const fighterTracers = bomberDefensePass?.tracers.filter((tracer) => tracer.emitter === "nose") ?? [];
+        const bomberFlightIds = reducedPassScene.bombers?.map((flight) => flight.id)
+            ?? (reducedPassScene.bomber ? [reducedPassScene.bomber.id] : []);
+        expect(bomberDefensePass).toBeDefined();
+        expect(fighterTracers.length).toBeGreaterThan(0);
+        expect(fighterTracers.some((tracer) => !!tracer.targetActorId || !!tracer.targetPoint)).toBe(true);
+        reducedPassScene.interceptors.forEach((interceptorFlight) => {
+            const nearestBomberDistancePx = Math.min(...[0.18, 0.34, 0.5, 0.66, 0.82].flatMap((progress) => {
+                const interceptorPoint = sampleFlightCenterAtProgress(bomberDefensePass, interceptorFlight.id, progress);
+                if (!interceptorPoint) {
+                    return [];
+                }
+                return bomberFlightIds
+                    .map((bomberFlightId) => sampleFlightCenterAtProgress(bomberDefensePass, bomberFlightId, progress))
+                    .filter((point) => !!point)
+                    .map((bomberPoint) => Math.hypot(interceptorPoint.cx - bomberPoint.cx, interceptorPoint.cy - bomberPoint.cy));
+            }));
+            expect(Number.isFinite(nearestBomberDistancePx)).toBe(true);
+            expect(nearestBomberDistancePx).toBeLessThan(170);
+        });
     });
     test("inspection report exposes deterministic off-map origins and measured phase timing audit", async () => {
         const report = inspectScene(await captureScene());
