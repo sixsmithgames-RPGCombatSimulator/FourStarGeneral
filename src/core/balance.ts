@@ -114,7 +114,8 @@ export const combat = {
     adjacentOnly: true,
     accuracyPenalty: 20,
     artyCloseCounterfire: false,
-    maxRetaliationsPerTurn: 1
+    maxRetaliationsPerTurn: 1,
+    sentryMaxRetaliationsPerTurn: 2
   },
   /**
    * Entrenchment itself is still capped here; the actual hit-chance effect is authored in `cover`

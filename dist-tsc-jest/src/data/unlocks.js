@@ -43,8 +43,7 @@ export const UNLOCK_UNIT_KEYS = [
     "recon",
     "assaultGunBattalion",
     "spArtilleryGroup",
-    "apcHalftrackCompany",
-    "apcTruckColumn"
+    "apcHalftrackCompany"
 ];
 /**
  * Campaign keys that require full-game access (no individual campaign purchase).

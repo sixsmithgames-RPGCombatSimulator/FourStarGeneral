@@ -407,3 +407,52 @@ registerTest("BOT_FIGHTER_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_AIR_DEFENDER_BUT
     }
   });
 });
+
+registerTest("FLAK_REACTS_ONCE_OR_TWICE_IF_SENTRY_AGAINST_AIR_STRIKES", async ({ Then }) => {
+  const buildEngine = (flakOnSentry: boolean): GameEngine => {
+    const config: GameEngineConfig = {
+      scenario: buildScenario(),
+      unitTypes,
+      terrain,
+      playerSide: baseSide(),
+      botSide: baseSide()
+    };
+    const engine = new GameEngine(config);
+    engine.beginDeployment();
+    engine.initializeFromAllocations([
+      { ...makeUnit("Bomber", { q: 0, r: 0 }), unitId: "player-bomber-alpha" } as ScenarioUnit,
+      { ...makeUnit("Bomber", { q: 0, r: 1 }), unitId: "player-bomber-bravo" } as ScenarioUnit,
+      { ...makeUnit("Bomber", { q: 0, r: 2 }), unitId: "player-bomber-charlie" } as ScenarioUnit
+    ]);
+    engine.setBaseCamp({ q: 0, r: 0 });
+    engine.finalizeDeployment();
+    engine.startPlayerTurnPhase();
+
+    const target = { ...makeUnit("Flak_88", { q: 1, r: 1 }), unitId: "bot-ground-target" } as ScenarioUnit;
+    const flak = { ...makeUnit("Flak_88", { q: 1, r: 0 }), unitId: "bot-reactive-flak", onSentry: flakOnSentry } as ScenarioUnit;
+    (engine as any).addUnitToFactionHex("Bot", target);
+    (engine as any).addUnitToFactionHex("Bot", flak);
+    return engine;
+  };
+
+  const runStrikes = (engine: GameEngine): number[] => {
+    const bomberHexes: Axial[] = [{ q: 0, r: 0 }, { q: 0, r: 1 }, { q: 0, r: 2 }];
+    return bomberHexes.map((hex) => {
+      engine.attackUnit(hex, { q: 1, r: 1 });
+      const flakEvents = engine.consumeAirEngagements().filter((event) => event.type === "flak");
+      return flakEvents.length;
+    });
+  };
+
+  const normalFlakEvents = runStrikes(buildEngine(false));
+  if (normalFlakEvents[0] !== 1 || normalFlakEvents[1] !== 0 || normalFlakEvents[2] !== 0) {
+    throw new Error(`Expected non-sentry flak to react once, saw ${JSON.stringify(normalFlakEvents)}.`);
+  }
+
+  const sentryFlakEvents = runStrikes(buildEngine(true));
+  if (sentryFlakEvents[0] !== 1 || sentryFlakEvents[1] !== 1 || sentryFlakEvents[2] !== 0) {
+    throw new Error(`Expected sentry flak to react twice, saw ${JSON.stringify(sentryFlakEvents)}.`);
+  }
+
+  await Then("flak follows the shared one-shot or two-shot sentry retaliation rule against air attacks", () => {});
+});

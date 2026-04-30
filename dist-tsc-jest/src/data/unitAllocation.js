@@ -64,7 +64,7 @@ export const allocationOptions = [
         costPerUnit: 240,
         description: "Armored assault guns providing close fire support where towed artillery would lag behind.",
         maxQuantity: 5,
-        spriteUrl: new URL("../assets/units/Assault_Gun.png", import.meta.url).href
+        spriteUrl: new URL("../assets/units/Tank_Assault_M8_USA_Sideview.png", import.meta.url).href
     },
     {
         key: "howitzer",
@@ -82,7 +82,7 @@ export const allocationOptions = [
         costPerUnit: 260,
         description: "Rocket launch battalion for short, violent saturation strikes against concentrations and ford approaches.",
         maxQuantity: 4,
-        spriteUrl: new URL("../assets/units/Rocket_Artillery.png", import.meta.url).href
+        spriteUrl: new URL("../assets/units/Artillery_Calliope_USA_Sideview.png", import.meta.url).href
     },
     {
         key: "spArtilleryGroup",
@@ -184,22 +184,13 @@ export const allocationOptions = [
         spriteUrl: new URL("../assets/units/Transport_Plane.png", import.meta.url).href
     },
     {
-        key: "apcTruckColumn",
-        label: "Motor Transport Column",
-        category: "units",
-        costPerUnit: 140,
-        description: "Soft-skinned troop lorries for moving infantry and weapons teams between staging areas and threatened sectors.",
-        maxQuantity: 6,
-        spriteUrl: new URL("../assets/units/APC_Truck.png", import.meta.url).href
-    },
-    {
         key: "apcHalftrackCompany",
         label: "Halftrack Carrier Company",
         category: "units",
         costPerUnit: 175,
         description: "Protected halftracks that keep mechanized infantry moving under light fire and across broken ground.",
         maxQuantity: 5,
-        spriteUrl: new URL("../assets/units/APC_Halftrack.png", import.meta.url).href
+        spriteUrl: new URL("../assets/units/APC_Halftrack_USA_Sideview.png", import.meta.url).href
     },
     {
         key: "supplyConvoy",

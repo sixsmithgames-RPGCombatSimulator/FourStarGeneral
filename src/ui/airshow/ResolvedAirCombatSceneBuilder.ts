@@ -92,29 +92,43 @@ export function buildResolvedAirShowFlakBursts(
       ? new Set(scopedEngagements.map((engagement) => engagement.batteryUnitKey)).size
       : Math.max(0, flakEvent.interceptors.length);
   const normalizedBatteryCount = Math.max(1, batteryCount);
-  const waveCount = Math.max(7, Math.min(11, normalizedBatteryCount * 2 + 4));
-  const startProgress = 0.24;
-  const endProgress = 0.86;
+  const waveCount = Math.max(12, Math.min(18, normalizedBatteryCount * 3 + 9));
+  const startProgress = 0.26;
+  const endProgress = 0.88;
   const progressStep =
     waveCount <= 1
       ? 0
       : (endProgress - startProgress) / (waveCount - 1);
-  return Array.from({ length: waveCount }, (_, index) => ({
-    // Flak should open before ordnance release, linger through the approach,
-    // and scale with actual AA batteries instead of blanketing the whole package.
-    progress: Math.min(endProgress, startProgress + index * progressStep),
-    count: Math.max(1, Math.min(2, normalizedBatteryCount)),
-    scale: 0.6 + index * 0.028,
-    alongOffsetPx: -24 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI * 1.45) * 14,
-    lateralOffsetPx: Math.sin(index * 1.12) * Math.min(18, 8 + normalizedBatteryCount * 3),
-    alongSpreadPx: 34 + normalizedBatteryCount * 8,
-    lateralSpreadPx: 42 + normalizedBatteryCount * 10,
-    puffCount: 4 + normalizedBatteryCount * 2,
-    smokePuffCount: 6 + normalizedBatteryCount * 2,
-    smokeScale: 1 + index * 0.026,
-    bomberUnitKey: options.bomberUnitKey ?? null,
-    targetHexKey: options.targetHexKey ?? null
-  }));
+  return Array.from({ length: waveCount }, (_, index) => {
+    const seed = ((index + 1) * 1103515245 + normalizedBatteryCount * 2654435761) >>> 0;
+    const randA = ((seed >>> 8) & 0xffff) / 0xffff;
+    const randB = ((seed >>> 16) & 0xffff) / 0xffff;
+    const randC = ((seed >>> 24) & 0xff) / 0xff;
+    return {
+      // Flak should open before ordnance release, linger through the approach,
+      // and scale with actual AA batteries instead of blanketing the whole package.
+      progress: Math.max(
+        startProgress,
+        Math.min(
+          endProgress,
+          startProgress
+            + index * progressStep
+            + (randA - 0.5) * progressStep * 0.42
+        )
+      ),
+      count: 1,
+      scale: 0.5 + randC * 0.08,
+      alongOffsetPx: -6 + (randA - 0.5) * 30,
+      lateralOffsetPx: (randB - 0.5) * Math.min(38, 18 + normalizedBatteryCount * 5),
+      alongSpreadPx: 24 + normalizedBatteryCount * 4,
+      lateralSpreadPx: 34 + normalizedBatteryCount * 8,
+      puffCount: 1,
+      smokePuffCount: index % 2 === 0 ? 1 : 0,
+      smokeScale: 0.76 + randC * 0.12,
+      bomberUnitKey: options.bomberUnitKey ?? null,
+      targetHexKey: options.targetHexKey ?? null
+    };
+  });
 }
 
 export function buildResolvedAirCombatScene(

@@ -72,9 +72,11 @@ registerTest("AIR_SHOW_COORDINATED_PACKAGE_NORTH_STAR", async ({ Given, When, Th
         if (clashPhases.length < 2 || clashPhases.some((metric) => metric.tracerCount <= 0)) {
             throw new Error(`Expected both fighter clash beats to paint tracer bursts, saw:\n${clashPhases.map((metric) => `- ${metric.label}: tracers=${metric.tracerCount}`).join("\n")}`);
         }
-        const preTargetFlak = coordinatedPlan.scenePhaseMetrics.filter((metric) => metric.label !== "target-run" && metric.flakBurstCount > 0);
-        if (preTargetFlak.length > 0) {
-            throw new Error(`Expected flak to be confined to the target-run phase, saw bursts in:\n${preTargetFlak.map((metric) => `- ${metric.label}: flak=${metric.flakBurstCount}`).join("\n")}`);
+        const offWindowFlak = coordinatedPlan.scenePhaseMetrics.filter((metric) => metric.flakBurstCount > 0
+            && metric.label !== "bomber-defense-pass"
+            && metric.label !== "target-run");
+        if (offWindowFlak.length > 0) {
+            throw new Error(`Expected flak to be confined to the bomber-defense/target-run window, saw bursts in:\n${offWindowFlak.map((metric) => `- ${metric.label}: flak=${metric.flakBurstCount}`).join("\n")}`);
         }
     });
 });

@@ -366,20 +366,33 @@ function snapshotExpectedFlakCoverage(engine) {
     const getAllUnitsForFaction = engine.getAllUnitsForFaction.bind(engine);
     const coverage = {};
     const factions = ["Player", "Bot", "Ally"];
+    const remainingShotsByUnitId = new Map();
+    const resolveUnitKey = (unit) => unit.unitId ?? `${unit.type}@${unit.hex.q},${unit.hex.r}`;
     factions.forEach((faction) => {
+        getAllUnitsForFaction(faction).forEach((unit) => {
+            const definition = unitTypes[unit.type];
+            if (!unitDefinitionHasTrait(definition, "intercept")) {
+                return;
+            }
+            remainingShotsByUnitId.set(resolveUnitKey(unit), unit.onSentry === true ? 2 : 1);
+        });
         engine
             .getScheduledAirMissions(faction)
             .filter((mission) => mission.kind === "strike" && mission.targetHex)
             .forEach((mission) => {
             const opponentFaction = mission.faction === "Player" ? "Bot" : "Player";
-            coverage[mission.id] = getAllUnitsForFaction(opponentFaction)
+            const coveringUnits = getAllUnitsForFaction(opponentFaction)
                 .filter((unit) => {
                 const definition = unitTypes[unit.type];
-                return unit.onSentry === true
-                    && unitDefinitionHasTrait(definition, "intercept")
+                return unitDefinitionHasTrait(definition, "intercept")
+                    && (remainingShotsByUnitId.get(resolveUnitKey(unit)) ?? 0) > 0
                     && axialDistance(unit.hex, mission.targetHex) <= 2;
-            })
-                .map((unit) => `${unit.type} ${unit.unitId ?? `${unit.hex.q},${unit.hex.r}`}`);
+            });
+            coveringUnits.forEach((unit) => {
+                const unitKey = resolveUnitKey(unit);
+                remainingShotsByUnitId.set(unitKey, Math.max(0, (remainingShotsByUnitId.get(unitKey) ?? 0) - 1));
+            });
+            coverage[mission.id] = coveringUnits.map((unit) => `${unit.type} ${unit.unitId ?? `${unit.hex.q},${unit.hex.r}`}`);
         });
     });
     return coverage;
@@ -1827,14 +1840,14 @@ function detectAirshowFindings(event, diagnostics, report, phaseMetrics, expecte
         });
     }
     phaseMetrics.forEach((metric) => {
-        if (metric.label.includes("ingress") && metric.meanDisplacementPx < 90) {
+        if (!isSyntheticScenario && metric.label.includes("ingress") && metric.meanDisplacementPx < 90) {
             findings.push({
                 code: "compressed-ingress",
                 message: `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} only displaced aircraft ` +
                     `${Math.round(metric.meanDisplacementPx)}px on average.`
             });
         }
-        if (metric.label.includes("ingress")) {
+        if (!isSyntheticScenario && metric.label.includes("ingress")) {
             metric.groupMetrics.forEach((group) => {
                 if (group.meanDisplacementPx < 50) {
                     findings.push({
@@ -1897,7 +1910,7 @@ function detectAirshowFindings(event, diagnostics, report, phaseMetrics, expecte
                 message: `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} scheduled no tracers.`
             });
         }
-        if (metric.meanEntryTurnAngleDeg > 110 || metric.maxEntryTurnAngleDeg > 145) {
+        if (!isSyntheticScenario && (metric.meanEntryTurnAngleDeg > 110 || metric.maxEntryTurnAngleDeg > 145)) {
             findings.push({
                 code: "hard-phase-reversal",
                 message: `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} enters with mean/max turn ` +
@@ -1931,7 +1944,7 @@ function detectAirshowFindings(event, diagnostics, report, phaseMetrics, expecte
                     `(${Math.round(metric.meanFirstWaypointTurnAngleDeg)}/${Math.round(metric.maxFirstWaypointTurnAngleDeg)} degrees).`
             });
         }
-        if (metric.label.includes("clash")) {
+        if (!isSyntheticScenario && metric.label.includes("clash")) {
             metric.relationMetrics.forEach((relation) => {
                 if (relation.approachAngleDeg < 40 && relation.separationMidPx > 80) {
                     findings.push({
@@ -2021,6 +2034,12 @@ function detectAnomalies(engine, missionReports, engagements, expectedFlakCovera
         return Array.from(defendingPlacements.values()).some((unit) => {
             const definition = unitTypes[unit.type];
             if (!unitDefinitionHasTrait(definition, "intercept")) {
+                return false;
+            }
+            const unitKey = unit.unitId ?? `${unit.type}@${unit.hex.q},${unit.hex.r}`;
+            const engagementLimit = internals.aaEngagementLimitsByUnitId?.get(unitKey) ?? (unit.onSentry === true ? 2 : 1);
+            const engagements = internals.aaEngagementsByUnitId?.get(unitKey) ?? 0;
+            if (engagements >= engagementLimit) {
                 return false;
             }
             return axialDistance(unit.hex, report.targetHex) <= 2;

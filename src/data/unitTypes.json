@@ -183,7 +183,7 @@
   },
   "Scout_Plane": {
     "class": "recon",
-    "combat": { "category": "air", "weight": "light", "role": "support", "signature": "medium" },
+    "combat": { "category": "air", "weight": "light", "role": "support", "signature": "small" },
     "weaponEffectType": "mg",
     "movement": 12,
     "moveType": "air",
@@ -411,7 +411,7 @@
   },
   "Fighter": {
     "class": "air",
-    "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "medium" },
+    "combat": { "category": "air", "weight": "light", "role": "normal", "signature": "small" },
     "weaponEffectType": "mg",
     "movement": 10,
     "moveType": "air",
@@ -491,7 +491,7 @@
   },
   "Ground_Attack": {
     "class": "air",
-    "combat": { "category": "air", "weight": "light", "role": "antiVehicle", "signature": "medium" },
+    "combat": { "category": "air", "weight": "light", "role": "antiVehicle", "signature": "small" },
     "weaponEffectType": "cannon",
     "movement": 8,
     "moveType": "air",
@@ -531,7 +531,7 @@
   },
   "Bomber": {
     "class": "air",
-    "combat": { "category": "air", "weight": "medium", "role": "antiInfantry", "signature": "large" },
+    "combat": { "category": "air", "weight": "medium", "role": "antiInfantry", "signature": "medium" },
     "weaponEffectType": "cannon",
     "movement": 6,
     "moveType": "air",
@@ -572,7 +572,7 @@
   },
   "Transport_Plane": {
     "class": "air",
-    "combat": { "category": "air", "weight": "light", "role": "support", "signature": "large" },
+    "combat": { "category": "air", "weight": "light", "role": "support", "signature": "medium" },
     "weaponEffectType": "small_arms",
     "movement": 8,
     "moveType": "air",

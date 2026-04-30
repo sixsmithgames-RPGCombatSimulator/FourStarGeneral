@@ -782,6 +782,7 @@ interface AirPhaseFlakLedgerEntry {
   readonly unitId: string;
   readonly hexKey: string;
   readonly unitSnapshot: ScenarioUnit;
+  readonly engagementLimit: number;
   remainingShots: number;
   shotsFired: number;
 }
@@ -789,6 +790,14 @@ interface AirPhaseFlakLedgerEntry {
 interface AirPhaseFlakState {
   readonly entriesByUnitId: Map<string, AirPhaseFlakLedgerEntry>;
 }
+
+type UnitActionFlags = {
+  movementPointsUsed: number;
+  attacksUsed: number;
+  retaliationsUsed: number;
+  isRushing: boolean;
+  retaliationLimit?: number;
+};
 
 /** Describes a single bot movement so UI layers can narrate progress. */
 export interface BotMoveSummary {
@@ -1129,7 +1138,7 @@ export interface SerializedBattleState {
   airborneReserves?: ScenarioUnit[];
   airMissions?: SerializedAirMission[];
   airMissionRefits?: SerializedAirMissionRefit[];
-  aaEngagements?: Array<{ unitKey: string; count: number }>;
+  aaEngagements?: Array<{ unitKey: string; count: number; limit?: number }>;
   airMissionReports?: AirMissionReportEntry[];
   reconIntelSnapshot?: ReconIntelSnapshot;
   counterIntelOperations?: SerializedCounterIntelOperation[];
@@ -3309,16 +3318,17 @@ export class GameEngine implements GameEngineAPI {
 
     factions.forEach((faction) => {
       this.getAllUnitsForFaction(faction).forEach((unit) => {
-        if (!unit.onSentry) {
-          return;
-        }
         const definition = this.getUnitDefinition(unit.type);
         if (!this.hasAntiAirCapability(definition)) {
           return;
         }
+        if (unit.ammo <= 0) {
+          return;
+        }
         const unitId = this.getSquadronId(unit);
         const priorEngagements = this.aaEngagementsByUnitId.get(unitId) ?? 0;
-        const remainingShots = Math.max(0, unit.ammo - priorEngagements);
+        const engagementLimit = this.resolveFlakEngagementLimit(unit);
+        const remainingShots = Math.max(0, Math.min(unit.ammo, engagementLimit - priorEngagements));
         if (remainingShots <= 0) {
           return;
         }
@@ -3327,6 +3337,7 @@ export class GameEngine implements GameEngineAPI {
           unitId,
           hexKey: axialKey(unit.hex),
           unitSnapshot: structuredClone(unit),
+          engagementLimit,
           remainingShots,
           shotsFired: 0
         });
@@ -3404,7 +3415,8 @@ export class GameEngine implements GameEngineAPI {
       }
 
       const prior = this.aaEngagementsByUnitId.get(entry.unitId) ?? 0;
-      this.aaEngagementsByUnitId.set(entry.unitId, prior + entry.shotsFired);
+      this.aaEngagementLimitsByUnitId.set(entry.unitId, Math.max(this.aaEngagementLimitsByUnitId.get(entry.unitId) ?? 0, entry.engagementLimit));
+      this.aaEngagementsByUnitId.set(entry.unitId, Math.min(entry.engagementLimit, prior + entry.shotsFired));
       this.syncAmmoForFaction(entry.faction, updatedUnit.hex, updatedUnit.ammo, entry.unitId);
       mutated = true;
     });
@@ -4115,7 +4127,7 @@ export class GameEngine implements GameEngineAPI {
   }
 
   /**
-   * Returns all sentry ground-based AA units within range of the target hex.
+   * Returns all ground-based AA units within range of the target hex.
    * Only includes units with "intercept" trait that haven't exceeded engagement limits.
    */
   private findAllActiveFlakUnitsForHex(
@@ -4126,9 +4138,6 @@ export class GameEngine implements GameEngineAPI {
     const allUnits = this.getAllUnitsForFaction(faction);
 
     for (const unit of allUnits) {
-      // Must be on sentry
-      if (!unit.onSentry) continue;
-
       // Must have intercept trait
       const definition = this.getUnitDefinition(unit.type);
       if (!definition?.traits?.includes("intercept")) continue;
@@ -4142,7 +4151,7 @@ export class GameEngine implements GameEngineAPI {
       // Must not have exceeded per-turn engagement limit
       const unitId = this.getSquadronId(unit);
       const engagements = this.aaEngagementsByUnitId.get(unitId) ?? 0;
-      if (engagements >= 1) continue;  // One engagement per turn
+      if (engagements >= this.resolveFlakEngagementLimit(unit)) continue;
 
       // Must be within range
       const distance = hexDistance(unit.hex, targetHex);
@@ -4168,14 +4177,28 @@ export class GameEngine implements GameEngineAPI {
     this.getAllUnitsForFaction(faction).forEach((unit) => {
       const unitId = this.getSquadronId(unit);
       this.aaEngagementsByUnitId.delete(unitId);
+      this.aaEngagementLimitsByUnitId.delete(unitId);
     });
+  }
+
+  private resolveFlakEngagementLimit(unit: ScenarioUnit): number {
+    const unitId = this.getSquadronId(unit);
+    const existingLimit = this.aaEngagementLimitsByUnitId.get(unitId) ?? 0;
+    const currentLimit = this.resolveCounterfireLimitFromSentry(unit.onSentry === true);
+    const limit = Math.max(existingLimit, currentLimit);
+    if (limit > existingLimit) {
+      this.aaEngagementLimitsByUnitId.set(unitId, limit);
+    }
+    return limit;
   }
 
   /** Increments engagement counter and breaks sentry for AA unit */
   private recordFlakEngagement(faction: TurnFaction, unit: ScenarioUnit, hexKey: string): void {
     const unitId = this.getSquadronId(unit);
+    const limit = this.resolveFlakEngagementLimit(unit);
     const current = this.aaEngagementsByUnitId.get(unitId) ?? 0;
-    this.aaEngagementsByUnitId.set(unitId, current + 1);
+    this.aaEngagementLimitsByUnitId.set(unitId, limit);
+    this.aaEngagementsByUnitId.set(unitId, Math.min(limit, current + 1));
 
     // Break sentry immediately and consume ammo
     const updatedUnit = structuredClone(unit);
@@ -5724,10 +5747,11 @@ private automateSupplyConvoys(
   private readonly botPlacementOverflow = new Map<string, ScenarioUnit[]>();
   private readonly allyPlacementOverflow = new Map<string, ScenarioUnit[]>();
   /** Per-turn action flags keyed by stable unit id so stacked formations track actions independently. */
-  private readonly playerActionFlags = new Map<string, { movementPointsUsed: number; attacksUsed: number; retaliationsUsed: number; isRushing: boolean }>();
+  private readonly playerActionFlags = new Map<string, UnitActionFlags>();
   /** Hex keys for player-controlled units that still have full actions available this turn. */
   private readonly playerIdleUnitKeys = new Set<string>();
-  private readonly botActionFlags = new Map<string, { movementPointsUsed: number; attacksUsed: number; retaliationsUsed: number; isRushing: boolean }>();
+  private readonly botActionFlags = new Map<string, UnitActionFlags>();
+  private readonly allyActionFlags = new Map<string, UnitActionFlags>();
   /** Tracks remaining attack salvos for aircraft so we can require rearming after sustained operations. */
   private readonly playerAttackAmmo = new Map<string, AircraftAmmoState>();
   private readonly botAttackAmmo = new Map<string, AircraftAmmoState>();
@@ -5750,8 +5774,9 @@ private automateSupplyConvoys(
   /** Refitting squadrons keyed by squadron id so planners know when they return to Ready status. */
   private readonly airMissionRefitTimers = new Map<string, { missionId: string; faction: TurnFaction; remaining: number }>();
 
-  /** Tracks which AA units have engaged aircraft this turn for rate limiting (one engagement per turn per unit). */
+  /** Tracks which AA units have engaged aircraft this turn for rate limiting. */
   private readonly aaEngagementsByUnitId = new Map<string, number>();
+  private readonly aaEngagementLimitsByUnitId = new Map<string, number>();
 
   /** Counter for generating unique unit IDs within this engine session. */
   private unitIdCounter = 0;
@@ -5782,7 +5807,7 @@ private automateSupplyConvoys(
   private pendingBotTurnSummary: BotTurnSummary | null = null;
 
   /** Reusable factory for default per-turn action flags so new entries stay consistent. */
-  private createDefaultActionFlags(): { movementPointsUsed: number; attacksUsed: number; retaliationsUsed: number; isRushing: boolean } {
+  private createDefaultActionFlags(): UnitActionFlags {
     return { movementPointsUsed: 0, attacksUsed: 0, retaliationsUsed: 0, isRushing: false };
   }
 
@@ -5815,9 +5840,38 @@ private automateSupplyConvoys(
     return `${subject} is limbered and cannot return fire until deployed.`;
   }
 
+  private resolveCounterfireLimitFromSentry(wasOnSentry: boolean): number {
+    const baseLimit = Math.max(0, Math.round(combatBalance.counterfire.maxRetaliationsPerTurn));
+    const sentryLimit = Math.max(
+      baseLimit,
+      Math.round(combatBalance.counterfire.sentryMaxRetaliationsPerTurn ?? baseLimit)
+    );
+    return wasOnSentry ? sentryLimit : baseLimit;
+  }
+
+  private resolveRetaliationLimit(flags: UnitActionFlags, wasOnSentry: boolean): number {
+    return Math.max(
+      this.resolveCounterfireLimitFromSentry(wasOnSentry),
+      Math.max(0, Math.round(flags.retaliationLimit ?? 0))
+    );
+  }
+
+  private hasRetaliationAvailable(flags: UnitActionFlags, wasOnSentry: boolean): boolean {
+    return flags.retaliationsUsed < this.resolveRetaliationLimit(flags, wasOnSentry);
+  }
+
+  private markRetaliationUsed(faction: TurnFaction, unit: ScenarioUnit, wasOnSentry: boolean): void {
+    const flags = this.getUnitActionFlags(faction, unit);
+    this.setUnitActionFlags(faction, unit, {
+      ...flags,
+      retaliationLimit: this.resolveRetaliationLimit(flags, wasOnSentry),
+      retaliationsUsed: flags.retaliationsUsed + 1
+    });
+  }
+
   private resolveBaseMovementAllowance(
     definition: UnitTypeDefinition,
-    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+    flags: UnitActionFlags
   ): number {
     const moveScalar = this.commanderMoveScalar();
     const baseMovement = Math.max(1, Math.ceil((definition.movement ?? 1) * moveScalar));
@@ -5837,7 +5891,7 @@ private automateSupplyConvoys(
 
   private resolveTowHookupCost(
     definition: UnitTypeDefinition,
-    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+    flags: UnitActionFlags
   ): number {
     return Math.max(1, Math.ceil(this.resolveBaseMovementAllowance(definition, flags) / 2));
   }
@@ -5902,7 +5956,7 @@ private automateSupplyConvoys(
     return this.getSquadronId(unit);
   }
 
-  private getUnitActionFlags(faction: TurnFaction, unit: ScenarioUnit): ReturnType<GameEngine["createDefaultActionFlags"]> {
+  private getUnitActionFlags(faction: TurnFaction, unit: ScenarioUnit): UnitActionFlags {
     const key = this.getActionFlagKey(unit);
     if (faction === "Bot") {
       return this.botActionFlags.get(key) ?? this.createDefaultActionFlags();
@@ -5910,13 +5964,13 @@ private automateSupplyConvoys(
     if (faction === "Player") {
       return this.playerActionFlags.get(key) ?? this.createDefaultActionFlags();
     }
-    return this.createDefaultActionFlags();
+    return this.allyActionFlags.get(key) ?? this.createDefaultActionFlags();
   }
 
   private setUnitActionFlags(
     faction: TurnFaction,
     unit: ScenarioUnit,
-    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+    flags: UnitActionFlags
   ): void {
     const key = this.getActionFlagKey(unit);
     if (faction === "Bot") {
@@ -5925,7 +5979,9 @@ private automateSupplyConvoys(
     }
     if (faction === "Player") {
       this.playerActionFlags.set(key, flags);
+      return;
     }
+    this.allyActionFlags.set(key, flags);
   }
 
   private deleteUnitActionFlags(faction: TurnFaction, unit: ScenarioUnit): void {
@@ -5936,7 +5992,9 @@ private automateSupplyConvoys(
     }
     if (faction === "Player") {
       this.playerActionFlags.delete(key);
+      return;
     }
+    this.allyActionFlags.delete(key);
   }
 
   private buildCoalitionHexMembers(hex: Axial, faction: TurnFaction): HexUnitStackMember[] {
@@ -8221,6 +8279,9 @@ private automateSupplyConvoys(
     if (Array.isArray(state.aaEngagements)) {
       state.aaEngagements.forEach((entry) => {
         this.aaEngagementsByUnitId.set(entry.unitKey, entry.count);
+        if (typeof entry.limit === "number") {
+          this.aaEngagementLimitsByUnitId.set(entry.unitKey, entry.limit);
+        }
       });
     }
     if (Array.isArray(state.airMissionReports)) {
@@ -8433,6 +8494,8 @@ private automateSupplyConvoys(
       if (this.allySide && this.allyPlacements.size > 0) {
         this._phase = "allyTurn";
         this._activeFaction = "Ally";
+        this.allyActionFlags.clear();
+        this.clearFlakEngagementsFor("Ally");
         this.clearSuppressionFor("Ally");
         this.clearSentryFor("Ally");
         this.stepAirMissionsForFaction("Ally");
@@ -8478,6 +8541,7 @@ private automateSupplyConvoys(
       this._turnNumber += 1;
       this.advanceCounterIntelTurn();
       this.playerActionFlags.clear();
+      this.clearFlakEngagementsFor("Player");
       this.clearSentryFor("Player");
       this.rebuildPlayerIdleUnitSet();
       this.refreshAircraftAmmoForFaction("Player");
@@ -8722,7 +8786,7 @@ private automateSupplyConvoys(
     const defenderFlags = defenderFaction === "Bot"
       ? this.getUnitActionFlags("Bot", retaliationDefender)
       : this.getUnitActionFlags("Player", retaliationDefender);
-    if (defenderFlags.retaliationsUsed >= combatBalance.counterfire.maxRetaliationsPerTurn) {
+    if (!this.hasRetaliationAvailable(defenderFlags, simultaneousFire)) {
       return {
         expectedDamage: 0,
         possible: false,
@@ -10008,7 +10072,7 @@ private automateSupplyConvoys(
 
       if (retaliationAllowed) {
         const defenderFlags = this.getUnitActionFlags(entry.faction, retaliationDefender);
-        if (defenderFlags.retaliationsUsed >= combatBalance.counterfire.maxRetaliationsPerTurn) {
+        if (!this.hasRetaliationAvailable(defenderFlags, defenderWasOnSentry)) {
           retaliationAllowed = false;
           retaliationNoteForEntry = resolveRetaliationNote(defenderWasOnSentry, "Enemy unit has already used all available retaliations this turn.");
         }
@@ -10072,11 +10136,7 @@ private automateSupplyConvoys(
           if (typeof updatedDefender.ammo === "number") {
             this.syncAmmoForFaction(entry.faction, defenderHex, updatedDefender.ammo, entry.unitId);
           }
-          const defenderFlags = this.getUnitActionFlags(entry.faction, updatedDefender);
-          this.setUnitActionFlags(entry.faction, updatedDefender, {
-            ...defenderFlags,
-            retaliationsUsed: defenderFlags.retaliationsUsed + 1
-          });
+          this.markRetaliationUsed(entry.faction, updatedDefender, defenderWasOnSentry);
         }
       } else if (!retaliationNoteForEntry && retaliationAllowed) {
         retaliationNoteForEntry = resolveRetaliationNote(defenderWasOnSentry, "Enemy unit lacked line of fire for retaliation.");
@@ -10218,7 +10278,8 @@ private automateSupplyConvoys(
       })),
       aaEngagements: Array.from(this.aaEngagementsByUnitId.entries()).map(([unitKey, count]) => ({
         unitKey,
-        count
+        count,
+        limit: this.aaEngagementLimitsByUnitId.get(unitKey)
       })),
       airMissionReports: this.airMissionReports.map((entry) => structuredClone(entry)),
       reconIntelSnapshot: structuredClone(this.ensureReconIntelSnapshot()),
@@ -13784,9 +13845,9 @@ private automateSupplyConvoys(
           retaliationAllowed = false;
         }
       }
-      if (retaliationAllowed && entry.faction !== "Ally") {
+      if (retaliationAllowed) {
         const defenderFlags = this.getUnitActionFlags(entry.faction, retaliationDefender);
-        if (defenderFlags.retaliationsUsed >= combatBalance.counterfire.maxRetaliationsPerTurn) {
+        if (!this.hasRetaliationAvailable(defenderFlags, defenderWasOnSentry)) {
           retaliationAllowed = false;
         }
       }
@@ -13838,13 +13899,7 @@ private automateSupplyConvoys(
           if (typeof updatedDefender.ammo === "number") {
             this.syncAmmoForFaction(entry.faction, targetHex, updatedDefender.ammo, entry.unitId);
           }
-          if (entry.faction !== "Ally") {
-            const defenderFlags = this.getUnitActionFlags(entry.faction, updatedDefender);
-            this.setUnitActionFlags(entry.faction, updatedDefender, {
-              ...defenderFlags,
-              retaliationsUsed: defenderFlags.retaliationsUsed + 1
-            });
-          }
+          this.markRetaliationUsed(entry.faction, updatedDefender, defenderWasOnSentry);
         }
       }
       if (primaryAttackResult === null || entry.unitId === preferredPrimaryDefender?.unitId) {

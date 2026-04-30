@@ -113,6 +113,12 @@ const FACTION_GROUND_SPRITES = {
         Ally: unitSprite("Artillery_Calliope_USA_Southview.png"),
         Bot: unitSprite("Artillery_Nebelwerfer_German_Southview.png"),
         fallback: unitSprite("Artillery_Calliope_USA_Southview.png")
+    },
+    APC_Halftrack: {
+        Player: unitSprite("APC_Halftrack_USA_Southview.png"),
+        Ally: unitSprite("APC_Halftrack_USA_Southview.png"),
+        Bot: unitSprite("APC_Halftrack_German_Southview.png"),
+        fallback: unitSprite("APC_Halftrack_USA_Southview.png")
     }
 };
 /**
@@ -127,8 +133,6 @@ const SCENARIO_SPRITES = {
     Combat_Engineer: unitSprite("Infantry_Engineers_USA_Southview.png"),
     AT_Gun_50mm: unitSprite("Wheeled_AT_Gun_USA_Southview.png"),
     Recon_ArmoredCar: unitSprite("Recon_ArmoredCar.png"),
-    APC_Truck: unitSprite("APC_Truck.png"),
-    APC_Halftrack: unitSprite("APC_Halftrack.png"),
     Supply_Truck: unitSprite("Supply_Truck.png"),
     Panzer_IV: unitSprite("Tank_PanzerIV_German_Southview.png"),
     Howitzer_105: unitSprite("Artillery_Howitzer_USA_Southview.png"),

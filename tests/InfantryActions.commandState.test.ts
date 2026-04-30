@@ -751,7 +751,50 @@ registerTest("BOT_ATTACK_SUMMARY_INCLUDES_PLAYER_RETALIATION", async ({ Then }) 
   await Then("bot summaries surface player counter-fire for animation playback", () => {});
 });
 
-registerTest("PLAYER_DEFENDER_RETALIATES_UP_TO_SIX_TIMES_AND_SPENDS_AMMO", async ({ Then }) => {
+registerTest("PLAYER_DEFENDER_RETALIATES_ONCE_PER_TURN_AND_SPENDS_AMMO", async ({ Then }) => {
+  const defender: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 1, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const attackers: ScenarioUnit[] = [
+    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 1, r: 0 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "SE" as ScenarioUnit["facing"] },
+    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 2, r: 0 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "SW" as ScenarioUnit["facing"] }
+  ];
+
+  const { engine } = createEngine([defender], attackers);
+
+  for (let index = 0; index < attackers.length; index += 1) {
+    const attacker = attackers[index];
+    const botAttack = (engine as any).resolveBotAttack(attacker, attacker.hex, defender.hex);
+    if (!botAttack) {
+      throw new Error(`Expected bot attack ${index + 1} to resolve.`);
+    }
+
+    const defenderAfter = engine.getPlayerPlacementsSnapshot().find((unit: ScenarioUnit) => unit.hex.q === defender.hex.q && unit.hex.r === defender.hex.r);
+    const expectedAmmo = index === 0 ? 5 : 5;
+    if (defenderAfter?.ammo !== expectedAmmo) {
+      throw new Error(`Expected defender ammo to be ${expectedAmmo} after attack ${index + 1}, received ${defenderAfter?.ammo ?? "<missing>"}.`);
+    }
+
+    if (index === 0) {
+      if (!botAttack.retaliation || botAttack.retaliation.damage <= 0) {
+        throw new Error(`Expected retaliation ${index + 1} to occur with damage, received ${JSON.stringify(botAttack)}`);
+      }
+    } else if (botAttack.retaliation) {
+      throw new Error(`Expected second attack to find no retaliation after the once-per-turn counterfire was spent, received ${JSON.stringify(botAttack)}`);
+    }
+  }
+
+  await Then("a defending unit can answer one attack and then stops until its next activation", () => {});
+});
+
+registerTest("SENTRY_DEFENDER_RETALIATES_TWICE_PER_TURN_AND_SPENDS_AMMO", async ({ Then }) => {
   const defender: ScenarioUnit = {
     type: "TestInfantry" as unknown as ScenarioUnit["type"],
     hex: { q: 1, r: 1 },
@@ -765,14 +808,13 @@ registerTest("PLAYER_DEFENDER_RETALIATES_UP_TO_SIX_TIMES_AND_SPENDS_AMMO", async
   const attackers: ScenarioUnit[] = [
     { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 1, r: 0 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "SE" as ScenarioUnit["facing"] },
     { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 2, r: 0 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "SW" as ScenarioUnit["facing"] },
-    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 2, r: 1 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "NW" as ScenarioUnit["facing"] },
-    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 1, r: 2 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "NW" as ScenarioUnit["facing"] },
-    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 0, r: 2 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "NE" as ScenarioUnit["facing"] },
-    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 0, r: 1 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "SE" as ScenarioUnit["facing"] },
-    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 0, r: 0 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "SE" as ScenarioUnit["facing"] }
+    { type: "TestRetaliationDummy" as unknown as ScenarioUnit["type"], hex: { q: 2, r: 1 }, strength: 100, experience: 0, ammo: 6, fuel: 40, entrench: 0, facing: "NW" as ScenarioUnit["facing"] }
   ];
 
   const { engine } = createEngine([defender], attackers);
+  if (!engine.enterSentry(defender.hex)) {
+    throw new Error("Expected defender to enter sentry before bot attacks.");
+  }
 
   for (let index = 0; index < attackers.length; index += 1) {
     const attacker = attackers[index];
@@ -782,21 +824,21 @@ registerTest("PLAYER_DEFENDER_RETALIATES_UP_TO_SIX_TIMES_AND_SPENDS_AMMO", async
     }
 
     const defenderAfter = engine.getPlayerPlacementsSnapshot().find((unit: ScenarioUnit) => unit.hex.q === defender.hex.q && unit.hex.r === defender.hex.r);
-    const expectedAmmo = Math.max(0, 6 - Math.min(index + 1, 6));
+    const expectedAmmo = Math.max(4, 6 - Math.min(index + 1, 2));
     if (defenderAfter?.ammo !== expectedAmmo) {
-      throw new Error(`Expected defender ammo to be ${expectedAmmo} after attack ${index + 1}, received ${defenderAfter?.ammo ?? "<missing>"}.`);
+      throw new Error(`Expected sentry defender ammo to be ${expectedAmmo} after attack ${index + 1}, received ${defenderAfter?.ammo ?? "<missing>"}.`);
     }
 
-    if (index < 6) {
+    if (index < 2) {
       if (!botAttack.retaliation || botAttack.retaliation.damage <= 0) {
-        throw new Error(`Expected retaliation ${index + 1} to occur with damage, received ${JSON.stringify(botAttack)}`);
+        throw new Error(`Expected sentry retaliation ${index + 1} to occur with damage, received ${JSON.stringify(botAttack)}`);
       }
     } else if (botAttack.retaliation) {
-      throw new Error(`Expected seventh attack to find no retaliation after ammo/counterfire depletion, received ${JSON.stringify(botAttack)}`);
+      throw new Error(`Expected third attack to find no retaliation after both sentry counterfires were spent, received ${JSON.stringify(botAttack)}`);
     }
   }
 
-  await Then("a defending unit can answer six attacks and then stops once its ammunition is gone", () => {});
+  await Then("a sentry defending unit can answer two attacks and then stops until its next activation", () => {});
 });
 
 registerTest("SENTRY_COMMITS_A_UNIT_UNTIL_ITS_NEXT_ACTIVATION", async ({ Then }) => {
