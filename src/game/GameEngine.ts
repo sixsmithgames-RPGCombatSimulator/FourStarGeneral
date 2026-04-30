@@ -1208,8 +1208,12 @@ export interface UnitCommandState {
   readonly canBuildModification: boolean;
   readonly buildReason: string | null;
   readonly buildModificationAvailability: Readonly<Record<HexModificationType, { available: boolean; reason: string | null }>>;
+  readonly isSmokeCapable: boolean;
   readonly canLaySmoke: boolean;
   readonly smokeReason: string | null;
+  readonly canSetFacing: boolean;
+  readonly setFacingReason: string | null;
+  readonly currentFacing: HexEdgeFacing;
 }
 
 interface InternalEnemyContactState {
@@ -15247,6 +15251,7 @@ private automateSupplyConvoys(
     const digIn = this.resolveDigInAvailability(hex, unit, definition, flags);
     const build = this.resolveBuildModificationAvailability(hex, unit, definition, flags);
     const smokeAvailability = this.resolveLaySmokeAvailability(hex, unit, definition);
+    const facingAvailability = this.resolveSetFacingAvailability(hex, unit, flags);
     const existingHexModifications = this.getHexModifications(hex);
     const existingHexModification = existingHexModifications[0] ?? null;
 
@@ -15274,9 +15279,54 @@ private automateSupplyConvoys(
       canBuildModification: build.available,
       buildReason: build.reason,
       buildModificationAvailability: structuredClone(build.byType),
+      isSmokeCapable: this.isSmokeCapableUnit(unit, definition),
       canLaySmoke: smokeAvailability.available,
-      smokeReason: smokeAvailability.reason
+      smokeReason: smokeAvailability.reason,
+      canSetFacing: facingAvailability.available,
+      setFacingReason: facingAvailability.reason,
+      currentFacing: unit.facing
     };
+  }
+
+  private resolveSetFacingAvailability(
+    hex: Axial,
+    unit: ScenarioUnit,
+    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
+  ): { available: boolean; reason: string | null } {
+    if (this._phase !== "playerTurn") {
+      return { available: false, reason: "Facing changes can be ordered only during the player turn." };
+    }
+    if (this.isAutomatedPlayerUnit(unit)) {
+      return { available: false, reason: "Automated logistics convoys do not accept facing orders." };
+    }
+    if (!this.playerPlacements.has(axialKey(hex))) {
+      return { available: false, reason: "No player formation occupies this hex." };
+    }
+    if (flags.attacksUsed > 0 || flags.movementPointsUsed > 0) {
+      return { available: false, reason: "A formation cannot reorient after moving or firing this turn." };
+    }
+    return { available: true, reason: null };
+  }
+
+  /**
+   * Sets the unit's facing direction without consuming movement or attacks.
+   * A unit that has already moved or fired this turn cannot change facing.
+   */
+  setUnitFacing(hex: Axial, facing: HexEdgeFacing, unitId?: string): boolean {
+    const unit = this.lookupUnit(hex, "Player", false, unitId);
+    if (!unit) {
+      throw new Error(`setUnitFacing: no player unit found at ${axialKey(hex)}.`);
+    }
+    const flags = this.getUnitActionFlags("Player", unit);
+    const availability = this.resolveSetFacingAvailability(hex, unit, flags);
+    if (!availability.available) {
+      throw new Error(`setUnitFacing: ${availability.reason ?? "cannot change facing right now."}`);
+    }
+    unit.facing = facing;
+    this.replaceUnitInFactionHex("Player", unit);
+    this.updateIdleRegistryFor(axialKey(hex));
+    this.invalidateRosterCache();
+    return true;
   }
 
   /**

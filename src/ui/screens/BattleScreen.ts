@@ -143,7 +143,7 @@ interface PendingFortificationContext {
   readonly hexKey: string;
   readonly unitLabel: string;
   readonly unitId: string | null;
-  readonly modificationType: "fortifications" | "tankTraps" | "smoke";
+  readonly modificationType: "fortifications" | "tankTraps" | "smoke" | "facing";
   /** For remote smoke only: the hex where the firing unit stands (used to pass callerAxial to engine). */
   readonly callerAxial?: Axial;
 }
@@ -2198,7 +2198,7 @@ export class BattleScreen {
     hex: Axial,
     unitLabel: string,
     unitId: string | null,
-    modificationType: "fortifications" | "tankTraps" | "smoke" = "fortifications"
+    modificationType: "fortifications" | "tankTraps" | "smoke" | "facing" = "fortifications"
   ): void {
     if (!this.selectedHexKey) {
       return;
@@ -2241,7 +2241,7 @@ export class BattleScreen {
 
   private buildFortificationFacingPreviewMarkup(
     fortifiedFacings: readonly HexEdgeFacing[],
-    modificationType: "fortifications" | "tankTraps" | "smoke"
+    modificationType: "fortifications" | "tankTraps" | "smoke" | "facing"
   ): string {
     const edgePaths: Record<HexEdgeFacing, string> = {
       NW: "M 35 67 L 110 24",
@@ -2259,7 +2259,7 @@ export class BattleScreen {
       SW: { x: 60, y: 186 },
       W: { x: 20, y: 114 }
     };
-    const noun = modificationType === "tankTraps" ? "tank-trap" : modificationType === "smoke" ? "smoke" : "fortification";
+    const noun = modificationType === "tankTraps" ? "tank-trap" : modificationType === "smoke" ? "smoke" : modificationType === "facing" ? "facing" : "fortification";
     return `
       <svg viewBox="0 0 220 220" class="fortification-facing-preview-svg" aria-label="Select a ${noun} edge">
         <polygon
@@ -2412,6 +2412,24 @@ export class BattleScreen {
       const smokeSummary = `${unitLabel} laid a smoke screen on the ${facing} edge at ${hexKey}.`;
       this.announceBattleUpdate(smokeSummary);
       this.publishActivityEvent({ category: "player", type: "log", summary: smokeSummary });
+      this.battleState.emitBattleUpdate("manual");
+      return;
+    }
+
+    // Unit facing uses a dedicated engine path — not a hex modification.
+    if (modificationType === "facing") {
+      try {
+        engine.setUnitFacing(hex, facing, unitId ?? undefined);
+      } catch (err) {
+        this.announceBattleUpdate(err instanceof Error ? err.message : "Cannot set facing right now.");
+        this.renderFortificationFacingPreview();
+        return;
+      }
+      this.hideFortificationFacingDialog();
+      this.renderEngineUnits();
+      const facingSummary = `${unitLabel} reoriented to face ${facing} at ${hexKey}.`;
+      this.announceBattleUpdate(facingSummary);
+      this.publishActivityEvent({ category: "player", type: "log", summary: facingSummary });
       this.battleState.emitBattleUpdate("manual");
       return;
     }
@@ -8343,6 +8361,13 @@ export class BattleScreen {
         this.announceBattleUpdate(commandState?.digInReason ?? "This formation cannot dig in right now.");
         return;
       }
+    } else if (actionId === "setFacing") {
+      if (!commandState?.canSetFacing) {
+        this.announceBattleUpdate(commandState?.setFacingReason ?? "This formation cannot change facing right now.");
+        return;
+      }
+      this.promptFortificationFacing(axial, unitLabel, this.selectedPlayerUnitId, "facing");
+      return;
     } else if (actionId === "laySmoke") {
       if (!commandState?.canLaySmoke) {
         this.announceBattleUpdate(commandState?.smokeReason ?? "This formation cannot lay smoke right now.");
@@ -8907,6 +8932,7 @@ export class BattleScreen {
       movementRemaining: movementBudget ? movementBudget.remaining : null,
       movementMax: movementBudget ? movementBudget.max : null,
       rangeLabel: this.formatBattleRange(definition),
+      facingLabel: commandState?.currentFacing ?? "—",
       canEntrench,
       moveOptions: this.playerMoveHexes.size,
       attackOptions: this.playerAttackHexes.size,
@@ -9053,13 +9079,23 @@ export class BattleScreen {
         reason: commandState.digInReason
       });
     }
+    if (commandState.isSmokeCapable) {
+      actions.push({
+        id: "laySmoke",
+        label: "Lay Smoke",
+        detail: "Fire smoke rounds to cover a chosen hex edge. The screen blocks ground line of sight along that edge until the start of your next turn. Requires ammo but does not use movement or attacks.",
+        tone: "mobility",
+        available: commandState.canLaySmoke,
+        reason: commandState.smokeReason
+      });
+    }
     actions.push({
-      id: "laySmoke",
-      label: "Lay Smoke",
-      detail: "Fire smoke rounds to cover a chosen hex edge. The screen blocks ground line of sight along that edge until the start of your next turn. Requires ammo but does not use movement or attacks.",
-      tone: "mobility",
-      available: commandState.canLaySmoke,
-      reason: commandState.smokeReason
+      id: "setFacing",
+      label: "Set Facing",
+      detail: "Orient the formation toward a chosen hex edge. Facing affects defensive bonuses and retaliation arcs. Cannot reorient after moving or firing.",
+      tone: "defense",
+      available: commandState.canSetFacing,
+      reason: commandState.setFacingReason
     });
     if (commandState.isEngineer) {
       const fortificationsBuild = commandState.buildModificationAvailability.fortifications;

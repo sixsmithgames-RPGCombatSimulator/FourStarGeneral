@@ -241,7 +241,12 @@ type AirShowContestedFighterIngressPlan = {
 };
 type AirShowContestedBomberPhaseLabel =
   | "fighter-ingress"
+  // INVESTIGATION: This phase name suggests escorts merging, but buildContestedBomberPhaseSliceAssignments
+  // only slices bomber master paths for this time window. No explicit fighter/interceptor assignments
+  // are built for this phase - fighters only have explicit assignments during fighter-ingress.
   | "escort-clash-merge"
+  // INVESTIGATION: Same as escort-clash-merge - this phase only slices bomber master paths.
+  // No explicit fighter/interceptor assignments are built for this phase.
   | "escort-clash-scramble"
   | "bomber-ingress"
   | "bomber-defense-pass";
@@ -9260,7 +9265,7 @@ export class HexMapRenderer implements IMapRenderer {
     return this.clampPointToViewportBounds(
       this.projectAirShowCorridorPoint(
         corridor,
-        this.clamp(midpointProjection.alongPx * 0.32 + scrambleBiasPx * 0.4, -maxAlongPx, maxAlongPx),
+        this.clamp(midpointProjection.alongPx * 0.42 + scrambleBiasPx * 0.4, -maxAlongPx, maxAlongPx),
         this.clamp(midpointProjection.lateralPx * 0.24, -42, 42)
       ),
       corridor.center,

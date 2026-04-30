@@ -61,6 +61,7 @@ export interface BattleSelectionIntel {
   readonly movementRemaining: number | null;
   readonly movementMax: number | null;
   readonly rangeLabel: string;
+  readonly facingLabel: string;
   readonly canEntrench: boolean;
   readonly moveOptions: number;
   readonly attackOptions: number;
