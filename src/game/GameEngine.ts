@@ -15298,12 +15298,50 @@ private automateSupplyConvoys(
   }
 
   /**
-   * Places a smoke screen on the specified edge of the unit's hex.
+   * Returns all hex keys within the unit's rangeMax that are valid smoke targets (excluding
+   * the unit's own hex, which is handled separately as "pop smoke" on own position).
+   * Used by the UI to highlight selectable target hexes before the edge-facing step.
+   */
+  resolveSmokeTargetHexKeys(hex: Axial, unitId?: string): string[] {
+    const unit = this.lookupUnit(hex, "Player", false, unitId);
+    if (!unit) {
+      return [];
+    }
+    const definition = this.getUnitDefinition(unit.type);
+    if (!this.isSmokeCapableUnit(unit, definition)) {
+      return [];
+    }
+    const range = Math.max(1, definition.rangeMax ?? 1);
+    const origin = axialKey(hex);
+    const visited = new Set<string>([origin]);
+    const queue: Axial[] = [hex];
+    const results: string[] = [];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const neighbor of neighbors(current)) {
+        const nKey = axialKey(neighbor);
+        if (visited.has(nKey)) { continue; }
+        visited.add(nKey);
+        if (!this.inBounds(neighbor)) { continue; }
+        const dist = hexDistance(hex, neighbor);
+        if (dist <= range) {
+          results.push(nKey);
+          queue.push(neighbor);
+        }
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Places a smoke screen on the specified edge of a hex.
+   * When targetHex is provided the smoke is placed there instead of the unit's own hex;
+   * the target must be within the unit's rangeMax. When omitted smoke goes on the unit's hex.
    * Smoke is a free action — it does not consume movement or attacks but requires ammo.
    * The modification expires at the start of the next player turn via expireSmoke().
    * Returns true on success or throws with a descriptive message on invalid preconditions.
    */
-  laySmoke(hex: Axial, facing: HexEdgeFacing, unitId?: string): boolean {
+  laySmoke(hex: Axial, facing: HexEdgeFacing, unitId?: string, targetHex?: Axial): boolean {
     const unit = this.lookupUnit(hex, "Player", false, unitId);
     if (!unit) {
       throw new Error(`laySmoke: no player unit found at ${axialKey(hex)}.`);
@@ -15313,7 +15351,16 @@ private automateSupplyConvoys(
     if (!availability.available) {
       throw new Error(`laySmoke: ${availability.reason ?? "smoke is not available for this unit."}`);
     }
-    const key = axialKey(hex);
+    // Determine placement hex — own hex or validated remote target.
+    const placeHex = targetHex ?? hex;
+    if (targetHex) {
+      const dist = hexDistance(hex, targetHex);
+      const range = Math.max(1, definition.rangeMax ?? 1);
+      if (dist > range) {
+        throw new Error(`laySmoke: target hex is out of range (distance ${dist}, max ${range}).`);
+      }
+    }
+    const key = axialKey(placeHex);
     const existing = this.hexModifications.get(key) ?? [];
     // Prevent stacking a duplicate screen on the same edge — one screen per edge is sufficient.
     const alreadySmoked = existing.some((mod) => mod.type === "smoke" && mod.facing === facing);
@@ -15322,7 +15369,7 @@ private automateSupplyConvoys(
     }
     const smokeEntry: HexModification = {
       type: "smoke",
-      hex: structuredClone(hex),
+      hex: structuredClone(placeHex),
       faction: "Player",
       facing,
       builtOnTurn: this._turnNumber,

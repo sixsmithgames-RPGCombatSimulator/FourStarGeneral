@@ -144,6 +144,8 @@ interface PendingFortificationContext {
   readonly unitLabel: string;
   readonly unitId: string | null;
   readonly modificationType: "fortifications" | "tankTraps" | "smoke";
+  /** For remote smoke only: the hex where the firing unit stands (used to pass callerAxial to engine). */
+  readonly callerAxial?: Axial;
 }
 
 interface PreparedAirMissionFlight {
@@ -333,6 +335,14 @@ export class BattleScreen {
     callerHexKey: string;
     callerLabel: string;
     assetId: string;
+    targetHexKeys: Set<string>;
+  } | null = null;
+
+  private smokeTargetingState: {
+    callerHexKey: string;
+    callerAxial: Axial;
+    callerLabel: string;
+    callerUnitId: string | null;
     targetHexKeys: Set<string>;
   } | null = null;
 
@@ -1139,6 +1149,80 @@ export class BattleScreen {
       assetId: readyAsset.id,
       targetHexKeys
     };
+  }
+
+  private promptSmokeMode(callerAxial: Axial, callerLabel: string, callerUnitId: string | null): void {
+    const engine = this.battleState.ensureGameEngine();
+    const targetHexKeys = engine.resolveSmokeTargetHexKeys(callerAxial, callerUnitId ?? undefined);
+    const offset = CoordinateSystem.axialToOffset(callerAxial.q, callerAxial.r);
+    const callerHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+    // If the unit can only reach its own hex (range 0 effective), skip the mode prompt and go straight to own-hex facing.
+    if (targetHexKeys.length === 0) {
+      this.promptFortificationFacing(callerAxial, callerLabel, callerUnitId, "smoke");
+      return;
+    }
+    // Present two choices inline via a transient announcement prompt.
+    this.announceBattleUpdate(
+      `${callerLabel}: Pop smoke on your own position (click your hex again) or select a target hex to fire smoke rounds.`
+    );
+    this.beginSmokeTargeting(callerHexKey, callerAxial, callerLabel, callerUnitId, targetHexKeys);
+  }
+
+  private beginSmokeTargeting(
+    callerHexKey: string,
+    callerAxial: Axial,
+    callerLabel: string,
+    callerUnitId: string | null,
+    targetHexKeys: readonly string[]
+  ): void {
+    this.smokeTargetingState = {
+      callerHexKey,
+      callerAxial,
+      callerLabel,
+      callerUnitId,
+      targetHexKeys: new Set(targetHexKeys)
+    };
+    // Highlight the in-range hexes using the same zone-highlight infrastructure as artillery.
+    const highlights = new Set(targetHexKeys);
+    highlights.add(callerHexKey);
+    this.hexMapRenderer?.setZoneHighlights(highlights);
+  }
+
+  private cancelSmokeTargeting(restoreSelection = true): void {
+    if (!this.smokeTargetingState) {
+      return;
+    }
+    const callerHexKey = this.smokeTargetingState.callerHexKey;
+    this.smokeTargetingState = null;
+    this.hexMapRenderer?.setZoneHighlights(new Set());
+    if (restoreSelection) {
+      this.applySelectedHex(callerHexKey);
+    }
+  }
+
+  private executeSmokeOnTargetHex(targetHexKey: string): void {
+    const state = this.smokeTargetingState;
+    if (!state) {
+      return;
+    }
+    const targetParsed = CoordinateSystem.parseHexKey(targetHexKey);
+    if (!targetParsed) {
+      this.cancelSmokeTargeting(true);
+      return;
+    }
+    const targetAxial = CoordinateSystem.offsetToAxial(targetParsed.col, targetParsed.row);
+    this.cancelSmokeTargeting(false);
+    // Show the edge-facing dialog for the chosen target hex.
+    this.pendingFortificationBuild = {
+      hex: targetAxial,
+      hexKey: targetHexKey,
+      unitLabel: state.callerLabel,
+      unitId: state.callerUnitId,
+      modificationType: "smoke",
+      callerAxial: state.callerAxial
+    };
+    this.renderFortificationFacingPreview();
+    this.showFortificationFacingDialog();
   }
 
   private beginArtilleryTargeting(callerHexKey: string, callerLabel: string, assetId: string, targetHexKeys: readonly string[]): void {
@@ -2313,7 +2397,9 @@ export class BattleScreen {
     // Smoke uses a dedicated engine action rather than the generic buildHexModification path.
     if (modificationType === "smoke") {
       try {
-        engine.laySmoke(hex, facing, unitId ?? undefined);
+        // callerAxial is set when smoke is fired at a remote target hex; absent means own-hex pop.
+        const callerHex = this.pendingFortificationBuild?.callerAxial;
+        engine.laySmoke(callerHex ?? hex, facing, unitId ?? undefined, callerHex ? hex : undefined);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unable to lay smoke right now.";
         this.announceBattleUpdate(message);
@@ -7781,6 +7867,9 @@ export class BattleScreen {
     if (this.artilleryTargetingState && key !== this.artilleryTargetingState.callerHexKey) {
       this.cancelArtilleryTargeting(false);
     }
+    if (this.smokeTargetingState && key !== this.smokeTargetingState.callerHexKey) {
+      this.cancelSmokeTargeting(false);
+    }
 
     if (key === null || this.selectedHexKey !== key) {
       this.selectedPlayerUnitId = null;
@@ -8096,6 +8185,22 @@ export class BattleScreen {
     }
     const clickedAxial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
 
+    if (this.smokeTargetingState) {
+      if (this.smokeTargetingState.targetHexKeys.has(key)) {
+        this.executeSmokeOnTargetHex(key);
+        return;
+      }
+      if (key === this.smokeTargetingState.callerHexKey) {
+        // Clicking own hex pops smoke on own position.
+        const state = this.smokeTargetingState;
+        this.cancelSmokeTargeting(false);
+        this.promptFortificationFacing(state.callerAxial, state.callerLabel, state.callerUnitId, "smoke");
+        return;
+      }
+      this.cancelSmokeTargeting(false);
+      return;
+    }
+
     if (this.artilleryTargetingState) {
       if (this.artilleryTargetingState.targetHexKeys.has(key)) {
         void this.executeQueuedArtilleryStrike(key);
@@ -8243,7 +8348,7 @@ export class BattleScreen {
         this.announceBattleUpdate(commandState?.smokeReason ?? "This formation cannot lay smoke right now.");
         return;
       }
-      this.promptFortificationFacing(axial, unitLabel, this.selectedPlayerUnitId, "smoke");
+      this.promptSmokeMode(axial, unitLabel, this.selectedPlayerUnitId);
       return;
     } else {
       const modificationType = this.parseHexModificationAction(actionId);

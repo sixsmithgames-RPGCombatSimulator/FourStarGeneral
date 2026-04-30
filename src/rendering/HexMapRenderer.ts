@@ -364,6 +364,8 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly hexModificationOverlayMap: Map<string, SVGGElement> = new Map();
   private readonly hexModificationStateMap: Map<string, HexModification[]> = new Map();
   private queuedTargetMarkerLayer: SVGGElement | null = null;
+  /** Top-level layer for smoke overlays so they always render above adjacent hex cells. */
+  private smokeScreenLayer: SVGGElement | null = null;
   private selectionGlow: SVGCircleElement | null = null;
 
   private svgElement: SVGSVGElement | null = null;
@@ -2570,6 +2572,38 @@ export class HexMapRenderer implements IMapRenderer {
     return layer;
   }
 
+  private ensureSmokeScreenLayer(): SVGGElement | null {
+    const viewportRoot = this.viewportRoot || this.svgElement?.querySelector<SVGGElement>("#viewportRoot");
+    if (!viewportRoot) {
+      return null;
+    }
+    let layer = this.smokeScreenLayer;
+    if (!layer || !layer.isConnected) {
+      layer = viewportRoot.querySelector<SVGGElement>(".smoke-screen-layer");
+    }
+    if (!layer) {
+      layer = document.createElementNS(SVG_NS, "g");
+      layer.classList.add("smoke-screen-layer");
+      layer.style.pointerEvents = "none";
+      // Insert before combat-effects-layer so effects still render on top.
+      const effectsLayer = viewportRoot.querySelector(".combat-effects-layer");
+      if (effectsLayer) {
+        viewportRoot.insertBefore(layer, effectsLayer);
+      } else {
+        viewportRoot.appendChild(layer);
+      }
+    } else if (layer.parentNode !== viewportRoot) {
+      const effectsLayer = viewportRoot.querySelector(".combat-effects-layer");
+      if (effectsLayer) {
+        viewportRoot.insertBefore(layer, effectsLayer);
+      } else {
+        viewportRoot.appendChild(layer);
+      }
+    }
+    this.smokeScreenLayer = layer;
+    return layer;
+  }
+
   private buildQueuedTargetMarker(
     marker: BattleTargetMarker,
     cx: number,
@@ -3089,56 +3123,65 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   /**
-   * Appends animated white smoke puffs along the edge inside `container`.
-   * The container is already translated/rotated to the edge midpoint, so puffs are
-   * scattered in local space along the X-axis (±halfLength) and slightly above/below (Y).
-   * Each puff uses a CSS animation with a unique delay so the cloud roils continuously.
+   * Appends animated smoke puffs along the edge inside `container`.
+   * Each puff lifecycle: appear small → grow → drift upward → fade out → repeat from a new
+   * scatter position. Puffs are densely staggered so the cloud is always full from frame 0.
    */
   private appendSmokePuffs(container: SVGElement, edgeLength: number): void {
-    const puffCount = 10;
+    const puffCount = 20;
     const halfLength = Math.min(edgeLength / 2, 28);
-    // Inject the keyframes once per document so repeated calls do not duplicate style rules.
-    const styleId = "smoke-puff-keyframes";
+
+    // Shared keyframes injected once per document.
+    // Remove legacy v1 tag if it somehow persists from an older session.
+    document.getElementById("smoke-puff-keyframes")?.remove();
+    const styleId = "smoke-puff-keyframes-v2";
     if (!document.getElementById(styleId)) {
       const style = document.createElement("style");
       style.id = styleId;
+      // smoke-rise: single lifecycle — start at r=0/opacity=0, grow to peak, then fade to 0.
+      // The transform drifts the puff upward and slightly sideways as it expands.
+      // At 100% opacity snaps back to 0 (instantly hidden) so the next cycle starts fresh.
       style.textContent = `
-        @keyframes smoke-roil {
-          0%   { r: 5;  opacity: 0.75; }
-          25%  { r: 7;  opacity: 0.9;  }
-          50%  { r: 4;  opacity: 0.65; }
-          75%  { r: 6;  opacity: 0.85; }
-          100% { r: 5;  opacity: 0.75; }
-        }
-        @keyframes smoke-drift {
-          0%   { transform: translate(0px,  0px); }
-          33%  { transform: translate(1px, -2px); }
-          66%  { transform: translate(-1px, 1px); }
-          100% { transform: translate(0px,  0px); }
+        @keyframes smoke-rise {
+          0%   { r: 0;   opacity: 0;    transform: translate(0px,  0px);  }
+          10%  { r: 2;   opacity: 0.55; transform: translate(0px, -1px);  }
+          35%  { r: 5.5; opacity: 0.80; transform: translate(1px, -3px);  }
+          60%  { r: 7;   opacity: 0.55; transform: translate(-1px,-5px);  }
+          85%  { r: 8;   opacity: 0.20; transform: translate(1px, -7px);  }
+          99%  { r: 8.5; opacity: 0;    transform: translate(0px, -8px);  }
+          100% { r: 0;   opacity: 0;    transform: translate(0px,  0px);  }
         }
       `;
       document.head.appendChild(style);
     }
 
+    // Deterministic seeded spread — evenly distribute along the edge with a y-scatter.
+    // Two interleaved rows (positive/negative Y) create visual depth.
+    // Colours alternate white / light grey to break uniformity.
+    const colours = ["white", "#d8d8d8", "white", "#cccccc", "white", "#e0e0e0"];
+
     for (let i = 0; i < puffCount; i++) {
-      // Deterministic pseudo-random spread using index so the layout is stable across redraws.
-      const t = i / (puffCount - 1);
-      const baseX = -halfLength + t * halfLength * 2;
-      // Alternate puffs slightly above and below the edge line for depth.
-      const baseY = (i % 2 === 0 ? -3 : 3) + ((i % 3) - 1) * 2;
-      const baseR = 4 + (i % 3) * 1.5;
-      const delay = (i * 0.31).toFixed(2);
-      const duration = (1.4 + (i % 4) * 0.2).toFixed(2);
+      const t = i / puffCount;
+      // Spread X across the full edge width; stagger between two Y lanes.
+      const cx = -halfLength + t * halfLength * 2 + ((i % 3) - 1) * 3;
+      // Two rows: even puffs sit slightly above centre, odd slightly below; tertiary offset adds variety.
+      const cy = (i % 2 === 0 ? -4 : 4) + ((i % 5) - 2) * 1.5;
+      // Vary duration so puffs at different stages of growth are always visible simultaneously.
+      const duration = 1.6 + (i % 7) * 0.22;
+      // Stagger delays uniformly so there is always a puff at every stage of the lifecycle.
+      const delay = -(i * (duration / puffCount));
+      const fill = colours[i % colours.length] as string;
 
       const puff = document.createElementNS(SVG_NS, "circle");
-      puff.setAttribute("cx", String(baseX.toFixed(1)));
-      puff.setAttribute("cy", String(baseY.toFixed(1)));
-      puff.setAttribute("r", String(baseR.toFixed(1)));
-      puff.setAttribute("fill", "white");
-      puff.setAttribute("fill-opacity", "0.82");
-      puff.setAttribute("stroke", "rgba(200,200,200,0.3)");
-      puff.setAttribute("stroke-width", "0.5");
-      puff.style.animation = `smoke-roil ${duration}s ${delay}s ease-in-out infinite, smoke-drift ${(Number(duration) * 1.5).toFixed(2)}s ${delay}s ease-in-out infinite`;
+      // Position at the scatter origin; the keyframe translate handles drift.
+      puff.setAttribute("cx", cx.toFixed(1));
+      puff.setAttribute("cy", cy.toFixed(1));
+      puff.setAttribute("r", "0");
+      puff.setAttribute("fill", fill);
+      puff.setAttribute("stroke", "rgba(180,180,180,0.2)");
+      puff.setAttribute("stroke-width", "0.4");
+      // Negative delay starts each puff mid-cycle so the cloud is full from frame 0.
+      puff.style.animation = `smoke-rise ${duration.toFixed(2)}s ${delay.toFixed(2)}s ease-out infinite`;
       container.appendChild(puff);
     }
   }
@@ -4119,6 +4162,8 @@ export class HexMapRenderer implements IMapRenderer {
       overlay.remove();
       this.hexModificationOverlayMap.delete(hexKey);
     }
+    // Also evict any orphaned smoke-layer group for this key.
+    this.smokeScreenLayer?.querySelector(`[data-hex-key="${hexKey}"]`)?.remove();
     this.getAdjacentHexKeys(hexKey).forEach((neighborHexKey) => this.refreshHexModificationOverlay(neighborHexKey));
   }
 
@@ -4126,6 +4171,10 @@ export class HexMapRenderer implements IMapRenderer {
     this.hexModificationOverlayMap.forEach((overlay) => overlay.remove());
     this.hexModificationOverlayMap.clear();
     this.hexModificationStateMap.clear();
+    // Clear all smoke-layer children in one pass.
+    if (this.smokeScreenLayer) {
+      this.smokeScreenLayer.replaceChildren();
+    }
   }
 
   renderHexModification(hexKey: string, modification: HexModification): void {
@@ -4162,6 +4211,7 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     const primary = modifications[0]!;
+    overlay.setAttribute("data-hex-key", hexKey);
     overlay.setAttribute("data-modification-type", primary.type);
     overlay.setAttribute("data-faction", primary.faction);
     overlay.setAttribute("data-modification-count", String(modifications.length));
@@ -4183,11 +4233,21 @@ export class HexMapRenderer implements IMapRenderer {
     }
     overlay.replaceChildren(...modifications.map((modification) => this.buildHexModificationOverlay(hexKey, cell, modification)));
 
-    const existingUnitGroup = this.hexUnitImageMap.get(hexKey);
-    if (existingUnitGroup && existingUnitGroup.parentNode === cell) {
-      cell.insertBefore(overlay, existingUnitGroup);
-    } else if (overlay.parentNode !== cell) {
-      cell.appendChild(overlay);
+    const hasSmoke = modifications.some((modification) => modification.type === "smoke");
+    if (hasSmoke) {
+      // Smoke puffs extend past the hex boundary, so the overlay must live in a shared top-level
+      // layer above all hex cells to avoid being occluded by adjacent hex <g> siblings.
+      const smokeLayer = this.ensureSmokeScreenLayer();
+      if (smokeLayer && overlay.parentNode !== smokeLayer) {
+        smokeLayer.appendChild(overlay);
+      }
+    } else {
+      const existingUnitGroup = this.hexUnitImageMap.get(hexKey);
+      if (existingUnitGroup && existingUnitGroup.parentNode === cell) {
+        cell.insertBefore(overlay, existingUnitGroup);
+      } else if (overlay.parentNode !== cell) {
+        cell.appendChild(overlay);
+      }
     }
   }
 
