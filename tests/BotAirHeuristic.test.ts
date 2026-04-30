@@ -560,3 +560,76 @@ registerTest("BOT_AIR_HEURISTIC_ESCORTED_STRIKES_ACCEPT_LOSSES_TO_KILL_A_RECON_O
     }
   });
 });
+
+registerTest("BOT_AIR_HEURISTIC_ESCORTS_A_SUPPRESSION_STRIKE_ON_A_STRONGHOLD_OBSERVER", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+
+  await Given("a defended town objective whose recon observer is screening a stronger but riskier suppression target set", async () => {
+    const strongholdScenario = scenario();
+    strongholdScenario.tilePalette.plains = {
+      ...strongholdScenario.tilePalette.plains,
+      features: ["buildings"] as any
+    } as any;
+
+    const config: GameEngineConfig = {
+      scenario: strongholdScenario,
+      unitTypes,
+      terrain,
+      playerSide: side(),
+      botSide: side()
+    };
+
+    engine = new GameEngine(config);
+    (engine as any)._phase = "botTurn";
+    (engine as any)._activeFaction = "Bot";
+
+    const botBomber = make("Bomber", { q: 0, r: 0 });
+    (botBomber as any).unitId = "bot-bomber";
+    (engine as any).botPlacements.set("0,0", botBomber);
+
+    const botEscort = make("Fighter", { q: 1, r: 0 });
+    (botEscort as any).unitId = "bot-escort";
+    (engine as any).botPlacements.set("1,0", botEscort);
+
+    const botTank = make("Panzer_IV", { q: 4, r: 1 });
+    (botTank as any).unitId = "bot-tank";
+    (engine as any).botPlacements.set("4,1", botTank);
+
+    const playerObserver = make("Recon_Bike", { q: 2, r: 1 });
+    (playerObserver as any).unitId = "player-observer";
+    (engine as any).playerPlacements.set("2,1", playerObserver);
+
+    const playerInfantry = make("Infantry_42", { q: 3, r: 0 });
+    (playerInfantry as any).unitId = "player-infantry";
+    (engine as any).playerPlacements.set("3,0", playerInfantry);
+
+    const playerInterceptor = make("Fighter", { q: 3, r: 2 });
+    (playerInterceptor as any).unitId = "player-cap";
+    (engine as any).playerPlacements.set("3,2", playerInterceptor);
+  });
+
+  await When("the bot evaluates whether it is worth launching a risky escorted suppression strike", async () => {
+    (engine as any).maybeScheduleHeuristicAirOps();
+  });
+
+  await Then("it should still queue the strike on the stronghold observer and pair the escort", async () => {
+    const missions = Array.from((engine as any).scheduledAirMissions.values()) as Array<{
+      template: { kind: string };
+      targetHex?: Axial;
+      unitKey: string;
+      escortTargetUnitKey?: string;
+    }>;
+    const strike = missions.find((mission) => mission.template.kind === "strike") ?? null;
+    const escort = missions.find((mission) => mission.template.kind === "escort") ?? null;
+
+    if (!strike?.targetHex || `${strike.targetHex.q},${strike.targetHex.r}` !== "2,1") {
+      throw new Error(`Expected the suppression strike to target stronghold observer 2,1, saw ${strike?.targetHex ? `${strike.targetHex.q},${strike.targetHex.r}` : "no strike"}.`);
+    }
+    if (!escort) {
+      throw new Error("Expected an escort mission to protect the stronghold suppression strike.");
+    }
+    if (escort.escortTargetUnitKey !== strike.unitKey) {
+      throw new Error(`Expected escort to protect ${strike.unitKey}, saw ${escort.escortTargetUnitKey ?? "<missing>"}.`);
+    }
+  });
+});

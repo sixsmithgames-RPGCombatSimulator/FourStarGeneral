@@ -129,26 +129,35 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_FINISHES_BEFORE_BOM
         if (phasesWithFlak.length === 0) {
             throw new Error("Expected phases with flak bursts.");
         }
-        for (const phase of phasesWithFlak) {
-            const flakBursts = phase.flakBursts;
-            // Check first flak burst timing
-            const firstFlakProgress = flakBursts[0]?.progress ?? 0;
-            if (firstFlakProgress < 0.24) {
-                throw new Error(`Flak starts too early in ${phase.label}: first burst at ${(firstFlakProgress * 100).toFixed(1)}% ` +
-                    `(approach window requires >= 24%)`);
-            }
-            const lastFlakProgress = flakBursts[flakBursts.length - 1]?.progress ?? 0;
-            const bombReleaseProgress = GOVERNED_BOMB_RELEASE_PROGRESS;
-            if (lastFlakProgress >= bombReleaseProgress) {
-                throw new Error(`Flak extends too far in ${phase.label}: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
-                    `(must complete before bomb release at ${(bombReleaseProgress * 100).toFixed(1)}%)`);
-            }
-            if (lastFlakProgress - firstFlakProgress < 0.3) {
-                throw new Error(`Flak window is too short in ${phase.label}: ${(lastFlakProgress * 100).toFixed(1)}% - ${(firstFlakProgress * 100).toFixed(1)}% ` +
-                    `(expected at least a 30% progress span)`);
-            }
-            console.log(`[FLAK TIMING] ${phase.label}: ${flakBursts.length} bursts from ${(firstFlakProgress * 100).toFixed(0)}% to ${(lastFlakProgress * 100).toFixed(0)}%`);
+        const firstFlakPhase = phasesWithFlak[0];
+        const lastFlakPhase = phasesWithFlak[phasesWithFlak.length - 1];
+        const targetRunPhase = phasesWithFlak.find((phase) => phase.label === "target-run");
+        if (firstFlakPhase.label !== "bomber-ingress" &&
+            firstFlakPhase.label !== "bomber-defense-pass") {
+            throw new Error(`Flak starts too late: first phase with flak is ${firstFlakPhase.label} ` +
+                `(expected bomber-ingress or bomber-defense-pass)`);
         }
+        if (lastFlakPhase.label !== "target-run") {
+            throw new Error(`Flak ends too early: last phase with flak is ${lastFlakPhase.label} ` +
+                `(expected flak to persist through target-run)`);
+        }
+        if (!targetRunPhase) {
+            throw new Error("Expected target-run phase to carry the trailing flak window.");
+        }
+        if (phasesWithFlak.length < 2) {
+            throw new Error(`Flak window is too short-lived: only ${phasesWithFlak.length} phase carries flak.`);
+        }
+        const targetRunFlakBursts = targetRunPhase.flakBursts;
+        const firstTargetRunFlakProgress = targetRunFlakBursts[0]?.progress ?? 0;
+        const lastTargetRunFlakProgress = targetRunFlakBursts[targetRunFlakBursts.length - 1]?.progress ?? 0;
+        const bombReleaseProgress = GOVERNED_BOMB_RELEASE_PROGRESS;
+        if (lastTargetRunFlakProgress >= bombReleaseProgress) {
+            throw new Error(`Flak extends too far in target-run: last burst at ${(lastTargetRunFlakProgress * 100).toFixed(1)}% ` +
+                `(must complete before bomb release at ${(bombReleaseProgress * 100).toFixed(1)}%)`);
+        }
+        console.log(`[FLAK TIMING] phases=${phasesWithFlak.map((phase) => phase.label).join(" -> ")}; ` +
+            `target-run bursts ${targetRunFlakBursts.length} from ${(firstTargetRunFlakProgress * 100).toFixed(0)}% ` +
+            `to ${(lastTargetRunFlakProgress * 100).toFixed(0)}%`);
     });
 });
 registerTest("AIR_SHOW_ESCORT_ACCELERATION_AT_PROGRESS_0_15", async ({ Given, When, Then }) => {

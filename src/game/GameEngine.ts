@@ -11646,7 +11646,10 @@ private automateSupplyConvoys(
       map: {
         inBounds: (hex) => this.inBounds(hex),
         terrainAt: (hex) => this.terrainAt(hex),
-        movementCost: (hex, moveType) => this.resolveMoveCost(moveType, this.terrainAt(hex), hex)
+        movementCost: (hex, moveType) => this.resolveMoveCost(moveType, this.terrainAt(hex), hex),
+        featuresAt: (hex) => this.lookupTileDetails(hex)?.features ?? [],
+        isRoad: (hex) => this.isRoad(hex),
+        hexModificationsAt: (hex) => this.getHexModifications(hex)
       },
       losAllows: (a, b, isAir) => this.plannerLOSAllows(a, b, isAir),
       movementAllowance: (snap) => this.plannerMovementAllowance(snap),
@@ -12520,8 +12523,98 @@ private automateSupplyConvoys(
     return Math.min(42, observerLeverage * 0.85);
   }
 
+  private objectiveLooksLikeStronghold(hex: Axial): boolean {
+    const tile = this.lookupTileDetails(hex);
+    const terrain = this.terrainAt(hex);
+    const modifications = this.getHexModifications(hex);
+    if ((terrain?.defense ?? 0) >= 2 || terrain?.blocksLOS) {
+      return true;
+    }
+    if (tile?.features?.includes("buildings") || tile?.features?.includes("walls")) {
+      return true;
+    }
+    if (modifications.some((modification) => modification.type === "fortifications" || modification.type === "tankTraps")) {
+      return true;
+    }
+    return neighbors(hex).some((neighbor) => {
+      if (!this.inBounds(neighbor)) {
+        return false;
+      }
+      const nearbyTile = this.lookupTileDetails(neighbor);
+      const nearbyTerrain = this.terrainAt(neighbor);
+      const nearbyMods = this.getHexModifications(neighbor);
+      return (nearbyTerrain?.defense ?? 0) >= 2
+        || nearbyTerrain?.blocksLOS === true
+        || nearbyTile?.features?.includes("buildings") === true
+        || nearbyTile?.features?.includes("walls") === true
+        || nearbyMods.some((modification) => modification.type === "fortifications" || modification.type === "tankTraps");
+    });
+  }
+
+  private getPlayerStrongholdObjectives(): Axial[] {
+    return (this.scenario.objectives ?? [])
+      .filter((objective) => {
+        const objectiveKey = axialKey(objective.hex);
+        return objective.owner === "Player" || this.playerPlacements.has(objectiveKey) || this.allyPlacements.has(objectiveKey);
+      })
+      .map((objective) => objective.hex)
+      .filter((hex, index, all) => all.findIndex((other) => axialKey(other) === axialKey(hex)) === index)
+      .filter((hex) => this.objectiveLooksLikeStronghold(hex));
+  }
+
+  private calculateBotStrongholdAssaultLeverage(target: ScenarioUnit, targetDef: UnitTypeDefinition): number {
+    const objectiveHexes = this.getPlayerStrongholdObjectives();
+    if (objectiveHexes.length === 0 || targetDef.moveType === "air") {
+      return 0;
+    }
+
+    let bestLeverage = 0;
+    objectiveHexes.forEach((objectiveHex) => {
+      const distanceToObjective = hexDistance(target.hex, objectiveHex);
+      let leverage = 0;
+
+      if (
+        targetDef.class === "recon"
+        && distanceToObjective <= Math.max(4, targetDef.vision ?? 4)
+        && this.plannerLOSAllows(target.hex, objectiveHex, false)
+      ) {
+        leverage = 30;
+      } else if (targetDef.class === "artillery") {
+        const turnsToThreat = this.estimateGroundTurnsToThreatHex(target, objectiveHex);
+        if (Number.isFinite(turnsToThreat) && turnsToThreat <= 1) {
+          leverage = 16;
+        }
+      } else if (targetDef.traits.includes("intercept") && distanceToObjective <= 6) {
+        leverage = 14;
+      } else if (targetDef.combat.role === "antiTank" && distanceToObjective <= 4) {
+        leverage = 12;
+      } else if (distanceToObjective <= 2 && (targetDef.class === "infantry" || targetDef.class === "specialist")) {
+        leverage = 5;
+      }
+
+      if (leverage <= 0) {
+        return;
+      }
+
+      leverage -= Math.max(0, distanceToObjective - 1) * 0.8;
+      if (targetDef.class === "recon") {
+        const exposedArmor = Array.from(this.botPlacements.values()).filter((botUnit) => {
+          const botDef = this.getUnitDefinition(botUnit.type);
+          return this.isBotArmoredGroundUnit(botDef) && hexDistance(target.hex, botUnit.hex) <= Math.max(4, targetDef.vision ?? 4);
+        }).length;
+        leverage += Math.min(10, exposedArmor * 2.5);
+      }
+
+      bestLeverage = Math.max(bestLeverage, leverage);
+    });
+
+    return bestLeverage;
+  }
+
   private calculateBotStrikeTargetLeverage(target: ScenarioUnit, targetDef: UnitTypeDefinition): number {
-    return this.calculateBotStrikeThreatValue(targetDef) + this.calculateBotStrikeObserverLeverage(target, targetDef);
+    return this.calculateBotStrikeThreatValue(targetDef)
+      + this.calculateBotStrikeObserverLeverage(target, targetDef)
+      + this.calculateBotStrongholdAssaultLeverage(target, targetDef);
   }
 
   private isDecisiveBotStrikeTarget(
@@ -12656,7 +12749,7 @@ private automateSupplyConvoys(
       score += 4;
     }
     if (targetDef.class === "recon" && leverage >= 20) {
-      score += 10;
+      score += 26;
     }
 
     score += Math.max(0, (target.strength ?? 100) * 0.05);
@@ -12918,10 +13011,20 @@ private automateSupplyConvoys(
     if (!escortCandidate && remainingRaidMass <= 1 && attrition.bomberStrengthAfter <= 40) {
       score -= decisiveTarget ? 12 : 24;
     }
+    if (
+      !escortCandidate
+      && targetDef.traits.includes("intercept")
+      && attrition.bomberStrengthAfter <= 35
+    ) {
+      // Even when a flak target looks valuable, a lone bomber returning crippled usually does not buy enough.
+      score -= 26 + Math.max(0, attrition.engagedFlakIds.length - 1) * 8;
+    }
 
     return {
       score,
-      minimumLaunchScore: decisiveTarget ? -2 : targetDef.class === "recon" ? 4 : 10,
+      minimumLaunchScore: (
+        decisiveTarget ? -2 : targetDef.class === "recon" ? 4 : 10
+      ) + (!escortCandidate && targetDef.traits.includes("intercept") && attrition.bomberStrengthAfter <= 35 ? 14 : 0),
       attrition,
       shouldReserveEscort: escortCandidate !== null
     };

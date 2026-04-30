@@ -971,6 +971,12 @@ function calculateStrongholdApproachAdjustment(
   let score = 0;
 
   if (!profile.suppressed) {
+    if (objectiveDistance <= STRONGHOLD_SUPPORT_RADIUS && covered) {
+      score += 4;
+    }
+    if (objectiveDistance <= STRONGHOLD_SUPPORT_RADIUS && openLane) {
+      score -= 5;
+    }
     if (objectiveDistance <= STRONGHOLD_OBJECTIVE_RING + 1 && onRoad) {
       score -= STRONGHOLD_ROAD_APPROACH_PENALTY;
     }
@@ -981,6 +987,9 @@ function calculateStrongholdApproachAdjustment(
       score += STRONGHOLD_COVERED_APPROACH_BONUS;
     }
     if (isArmoredGroundUnit(snapshot.definition)) {
+      if (objectiveDistance <= STRONGHOLD_SUPPORT_RADIUS && openLane) {
+        score -= 7;
+      }
       if (objectiveDistance <= STRONGHOLD_OBJECTIVE_RING) {
         score -= STRONGHOLD_ARMORED_EARLY_ENTRY_PENALTY + Math.min(12, profile.defensePressure * 0.22);
       } else if (covered && objectiveDistance <= STRONGHOLD_SUPPORT_RADIUS) {
@@ -2575,7 +2584,8 @@ function pickBestCandidate(
   input: BotPlannerInput,
   reachable: Map<string, ReachableHex>,
   activeObjectives: readonly { hex: Axial; owner: "Player" | "Bot"; vp: number }[],
-  allowEnemyEliminationFallback: boolean
+  allowEnemyEliminationFallback: boolean,
+  strongholds: readonly StrongholdProfile[]
 ): ActionCandidate | null {
   const purpose = classifyUnitPurpose(snapshot.definition);
   // Get difficulty modifiers for scoring (defaults to Normal if not specified)
@@ -2625,8 +2635,8 @@ function pickBestCandidate(
     if (enemyDistance !== bestDistance) {
       return enemyDistance < bestDistance ? enemy : best;
     }
-    return calculateContextualTargetPriorityBonus(purpose, enemy, input)
-      > calculateContextualTargetPriorityBonus(purpose, best, input)
+    return calculateContextualTargetPriorityBonus(purpose, enemy, input, strongholds)
+      > calculateContextualTargetPriorityBonus(purpose, best, input, strongholds)
       ? enemy
       : best;
   }, null);
@@ -2656,7 +2666,7 @@ function pickBestCandidate(
       };
       // Use advanced tactical scoring for Normal/Hard, basic scoring for Easy
       candidate.score = difficultyMods.useTacticalAI
-        ? scoreCandidateAdvanced(purpose, snapshot, playerSnapshot, candidate, input, difficultyMods)
+        ? scoreCandidateAdvanced(purpose, snapshot, playerSnapshot, candidate, input, difficultyMods, strongholds)
         : scoreCandidate(purpose, snapshot, playerSnapshot, candidate, difficultyMods);
 
       // Steering: if multiple attack positions have similar value, prefer first steps that point toward the defender
@@ -2670,7 +2680,7 @@ function pickBestCandidate(
     }
   }
 
-  const setupCandidate = scoreFireSetup(snapshot, reachable, pressureTargets, input, difficultyMods);
+  const setupCandidate = scoreFireSetup(snapshot, reachable, pressureTargets, input, difficultyMods, strongholds);
   if (setupCandidate && (allowEnemyEliminationFallback || enemyNearOrVisible)) {
     if (enemyNearOrVisible) {
       setupCandidate.score += difficultyMods.contactEngageBonus + Math.max(0, PROXIMITY_ENGAGE_RADIUS - nearestEnemyDistance);
@@ -2684,7 +2694,8 @@ function pickBestCandidate(
     snapshot,
     input,
     difficultyMods,
-    consolidationFocus?.unit.hex ?? null
+    consolidationFocus?.unit.hex ?? null,
+    strongholds
   );
   if (consolidationCandidate && (!top || consolidationCandidate.score > top.score)) {
     top = consolidationCandidate;
@@ -2697,13 +2708,13 @@ function pickBestCandidate(
   if (shouldCompareMovementPlans) {
     let bestObjectiveCandidate: ActionCandidate | null = null;
     let bestObjectiveScore = Number.NEGATIVE_INFINITY;
-    const advanceCandidate = scoreObjectiveAdvance(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods);
+    const advanceCandidate = scoreObjectiveAdvance(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods, strongholds);
     if (advanceCandidate && advanceCandidate.score > bestObjectiveScore) {
       bestObjectiveCandidate = advanceCandidate;
       bestObjectiveScore = advanceCandidate.score;
     }
     if (shouldCompareMarchPlans(snapshot, top, nearestEnemyDistance)) {
-      const approachCandidate = scoreObjectiveApproach(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods);
+      const approachCandidate = scoreObjectiveApproach(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods, strongholds);
       if (approachCandidate && approachCandidate.score > bestObjectiveScore) {
         bestObjectiveCandidate = approachCandidate;
         bestObjectiveScore = approachCandidate.score;
@@ -2721,7 +2732,7 @@ function pickBestCandidate(
     if ((allowEnemyEliminationFallback || enemyNearOrVisible)
       && !rearUnitNeedsObjectiveMarch
       && shouldCompareMarchPlans(snapshot, top, nearestEnemyDistance)) {
-      const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods);
+      const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods, strongholds);
       if (pressureCandidate && enemyNearOrVisible) {
         // Apply difficulty-based contact engagement bonus
         pressureCandidate.score += difficultyMods.contactEngageBonus + Math.max(0, PROXIMITY_ENGAGE_RADIUS - nearestEnemyDistance);
@@ -2735,7 +2746,7 @@ function pickBestCandidate(
   // If we already have a decent objective move but an enemy-pressure option clearly outranks it
   // (due to proximity/visibility), prefer the pressure move. This keeps the AI responsive to contact.
   if ((allowEnemyEliminationFallback || enemyNearOrVisible) && !rearUnitNeedsObjectiveMarch && isObjectiveCandidate(top)) {
-    const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods);
+    const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods, strongholds);
     if (pressureCandidate && enemyNearOrVisible) {
       // Apply difficulty-based contact engagement bonus
       pressureCandidate.score += difficultyMods.contactEngageBonus + Math.max(0, PROXIMITY_ENGAGE_RADIUS - nearestEnemyDistance);
@@ -2748,7 +2759,7 @@ function pickBestCandidate(
   // Final fallback: move toward nearest enemy even if we can't reach/attack them this turn
   // This prevents units from getting stuck when they can't find valid attack positions
   if (!top || top.score <= 0) {
-    const fallbackPressure = scoreEnemyPressure(snapshot, reachable, input.playerUnits, input, difficultyMods);
+    const fallbackPressure = scoreEnemyPressure(snapshot, reachable, input.playerUnits, input, difficultyMods, strongholds);
     if (fallbackPressure && (!top || fallbackPressure.score > top.score)) {
       top = fallbackPressure;
     }
@@ -2788,12 +2799,13 @@ function pickBestCandidate(
 export function planHeuristicBotTurn(input: BotPlannerInput): PlannedBotAction[] {
   const actions: PlannedBotAction[] = [];
   const activeObjectives = filterActiveObjectives(input.objectives, input.occupancy);
+  const strongholds = buildStrongholdProfiles(activeObjectives, input);
   const eliminationObjectiveEnabled = activeObjectives.length === 0;
   input.botUnits.forEach((snapshot) => {
     const allowance = Math.max(0, input.movementAllowance(snapshot));
     const originKey = axialKey(snapshot.unit.hex);
     const reachable = computeReachableHexes(snapshot.unit.hex, allowance, snapshot.definition.moveType, input, originKey);
-    const bestCandidate = pickBestCandidate(snapshot, input, reachable, activeObjectives, eliminationObjectiveEnabled);
+    const bestCandidate = pickBestCandidate(snapshot, input, reachable, activeObjectives, eliminationObjectiveEnabled, strongholds);
     if (bestCandidate) {
       actions.push({
         unit: snapshot,

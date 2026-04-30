@@ -2343,6 +2343,7 @@ export class HexMapRenderer implements IMapRenderer {
     let maxY = Number.NEGATIVE_INFINITY;
 
     // Process all tiles and calculate bounds
+    const realAxialKeys = new Set<string>();
     data.tiles.forEach((rowTiles, rowIndex) => {
       rowTiles.forEach((entry, columnIndex) => {
         const tile = CoordinateSystem.resolveTile(entry, data.tilePalette);
@@ -2358,6 +2359,7 @@ export class HexMapRenderer implements IMapRenderer {
         maxX = Math.max(maxX, x);
         maxY = Math.max(maxY, y);
 
+        realAxialKeys.add(`${q},${r}`);
         const reconStatus = this.normalizeReconStatus(tile.recon);
         const hexKey = CoordinateSystem.makeHexKey(columnIndex, rowIndex);
         this.trackHexReconStatus(hexKey, reconStatus);
@@ -2383,8 +2385,9 @@ export class HexMapRenderer implements IMapRenderer {
     svg.setAttribute("width", `${mapWidth}`);
     svg.setAttribute("height", `${mapHeight}`);
 
-    // Generate SVG markup for all hexes
-    const hexMarkup = hexes.map((hex) => this.renderHex(hex, minX, minY, margin, data)).join("");
+    // Generate SVG markup for all hexes, preceded by fringe ghost hexes that soften the map boundary.
+    const fringeMarkup = this.buildFringeHexMarkup(realAxialKeys, hexes, minX, minY, margin);
+    const hexMarkup = fringeMarkup + hexes.map((hex) => this.renderHex(hex, minX, minY, margin, data)).join("");
 
     // CRITICAL: Preserve viewportRoot across renders to maintain camera transform state
     // Query or create viewportRoot - NEVER replace it once it exists
@@ -4351,6 +4354,129 @@ export class HexMapRenderer implements IMapRenderer {
       const neighbor = CoordinateSystem.axialToOffset(axial.q + dir.q, axial.r + dir.r);
       return CoordinateSystem.makeHexKey(neighbor.col, neighbor.row);
     }).filter((neighborHexKey) => this.hexElementMap.has(neighborHexKey));
+  }
+
+  /**
+   * Builds SVG markup for fringe (ghost) hexes beyond the real map boundary.
+   *
+   * Two concentric rings of inert, non-interactive hexes are rendered beneath the real tile
+   * grid to fill the dark empty space with terrain-blended colour. Each fringe hex inherits
+   * its fill from the nearest real neighbour so the border dissolves naturally into the
+   * surrounding darkness rather than cutting off hard.
+   *
+   * Ring distances and opacities are intentionally low so the effect reads as ambient
+   * atmosphere rather than gameplay-relevant terrain.
+   *
+   * @param realAxialKeys - Set of "q,r" keys for every tile that actually exists in the map.
+   * @param hexes - Processed real-tile array (used to resolve pixel position and terrain fill).
+   * @param minX - Minimum raw X across all real tiles (used for cx offset calculation).
+   * @param minY - Minimum raw Y across all real tiles.
+   * @param margin - Canvas margin applied uniformly so fringe positions stay aligned.
+   * @param data - Full scenario data for tile-palette resolution on edge tiles.
+   * @returns SVG string for a `<g id="fringeLayer">` element, or empty string if no real hexes.
+   */
+  private buildFringeHexMarkup(
+    realAxialKeys: Set<string>,
+    hexes: Array<{ tile: TileDetails; x: number; y: number; col: number; row: number }>,
+    minX: number,
+    minY: number,
+    margin: number
+  ): string {
+    if (hexes.length === 0) {
+      return "";
+    }
+
+    // Build a lookup from axial key → terrain fill so fringe hexes can sample their nearest neighbour.
+    const fillByAxialKey = new Map<string, string>();
+    for (const hex of hexes) {
+      const { q, r } = CoordinateSystem.offsetToAxial(hex.col, hex.row);
+      const key = `${q},${r}`;
+      const fill = this.terrainRenderer.getTerrainFill(hex.tile.terrain, hex.tile.terrainType);
+      fillByAxialKey.set(key, fill);
+    }
+
+    // Maximum rings to emit (2 keeps the effect subtle while covering the gap to the viewport edge).
+    const FRINGE_RINGS = 2;
+    // Opacity for each ring — fades toward transparent as distance grows.
+    const RING_OPACITY = [0.42, 0.18];
+
+    // Collect fringe hexes ring by ring. We expand outward from the real boundary so that each ring
+    // only contains hexes not already present in the real map or an inner fringe ring.
+    const fringeGroups: Array<{ q: number; r: number; fill: string; opacity: number }[]> = [];
+    let previousRingKeys = new Set(realAxialKeys);
+
+    for (let ring = 0; ring < FRINGE_RINGS; ring++) {
+      const ringCandidates = new Map<string, { q: number; r: number }>();
+
+      // For every hex in the previous ring boundary, emit its absent neighbours into this ring.
+      for (const key of previousRingKeys) {
+        const [qStr, rStr] = key.split(",");
+        const q = Number(qStr);
+        const r = Number(rStr);
+        for (const dir of axialDirections) {
+          const nq = q + dir.q;
+          const nr = r + dir.r;
+          const nkey = `${nq},${nr}`;
+          if (!realAxialKeys.has(nkey) && !ringCandidates.has(nkey)) {
+            // Check it has not been claimed by any prior fringe ring.
+            let alreadyClaimed = false;
+            for (let prev = 0; prev < ring; prev++) {
+              if (fringeGroups[prev]?.some((f) => `${f.q},${f.r}` === nkey)) {
+                alreadyClaimed = true;
+                break;
+              }
+            }
+            if (!alreadyClaimed) {
+              ringCandidates.set(nkey, { q: nq, r: nr });
+            }
+          }
+        }
+      }
+
+      const opacity = RING_OPACITY[ring] ?? 0.12;
+      const ringEntries: { q: number; r: number; fill: string; opacity: number }[] = [];
+
+      for (const { q, r } of ringCandidates.values()) {
+        // Sample fill from the closest real neighbour found within a 3-step search radius.
+        let fill = "#3c5a3c"; // neutral green-grey fallback that blends with most terrain
+        outerSearch: for (let dist = 1; dist <= 3; dist++) {
+          for (const dir of axialDirections) {
+            const sq = q + dir.q * dist;
+            const sr = r + dir.r * dist;
+            const candidate = fillByAxialKey.get(`${sq},${sr}`);
+            if (candidate) {
+              fill = candidate;
+              break outerSearch;
+            }
+          }
+        }
+        ringEntries.push({ q, r, fill, opacity });
+      }
+
+      fringeGroups.push(ringEntries);
+      // Expand the boundary to include this ring for the next iteration.
+      previousRingKeys = new Set([...previousRingKeys, ...Array.from(ringCandidates.keys())]);
+    }
+
+    // Emit SVG polygons for every fringe hex. No clip-paths, no interaction attributes, no data-hex.
+    const polygons: string[] = [];
+    for (const ring of fringeGroups) {
+      for (const { q, r, fill, opacity } of ring) {
+        const { x, y } = CoordinateSystem.axialToPixel(q, r);
+        const cx = x - minX + margin;
+        const cy = y - minY + margin;
+        const points = CoordinateSystem.hexPoints(cx, cy);
+        polygons.push(
+          `<polygon points="${points}" fill="${fill}" fill-opacity="${opacity}" stroke="none" style="pointer-events:none;" />`
+        );
+      }
+    }
+
+    if (polygons.length === 0) {
+      return "";
+    }
+
+    return `<g id="fringeLayer" aria-hidden="true" style="pointer-events:none;">${polygons.join("")}</g>`;
   }
 
   /**
@@ -8083,11 +8209,11 @@ export class HexMapRenderer implements IMapRenderer {
     const scalableRemainingDurationMs = Math.max(4, canonicalPreTargetDurationMs - fixedFighterIngressDurationMs);
     const weightedEscortMergeDurationMs = Math.max(
       1,
-      Math.round(defaultDurations.escortMergeDurationMs * 1.42)
+      Math.round(defaultDurations.escortMergeDurationMs * 1.48)
     );
     const weightedEscortScrambleDurationMs = Math.max(
       1,
-      Math.round(defaultDurations.escortScrambleDurationMs * 0.98)
+      Math.round(defaultDurations.escortScrambleDurationMs * 0.88)
     );
     const weightedBomberIngressDurationMs = Math.max(
       1,
@@ -8095,7 +8221,7 @@ export class HexMapRenderer implements IMapRenderer {
     );
     const weightedBomberDefenseDurationMs = Math.max(
       1,
-      Math.round(defaultDurations.bomberDefenseDurationMs * 1.16)
+      Math.round(defaultDurations.bomberDefenseDurationMs * 1.18)
     );
     const weightedRemainingDurationMs =
       weightedEscortMergeDurationMs

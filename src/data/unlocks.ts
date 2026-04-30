@@ -67,8 +67,7 @@ export const UNLOCK_UNIT_KEYS: readonly string[] = [
   "recon",
   "assaultGunBattalion",
   "spArtilleryGroup",
-  "apcHalftrackCompany",
-  "apcTruckColumn"
+  "apcHalftrackCompany"
 ] as const;
 
 /**

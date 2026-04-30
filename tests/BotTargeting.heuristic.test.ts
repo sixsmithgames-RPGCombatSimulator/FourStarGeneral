@@ -1209,3 +1209,64 @@ registerTest("BOT_PLANNER_LONG_RANGE_CHASES_USE_PRESSURE_LOGIC_INSTEAD_OF_DISTAN
     }
   });
 });
+
+registerTest("BOT_PLANNER_ARMORED_ASSAULT_STAGES_OFF_ROAD_WHEN_A_TOWN_STRONGHOLD_IS_UNSUPPRESSED", async ({ Given, When, Then }) => {
+  let plannedDestination = "";
+
+  await Given("a tank choosing between the obvious road and a covered flank toward a fortified town objective", async () => {
+    const botTank = createPlannerSnapshot("BotTank", playerTankDef, { q: 1, r: 1 });
+    const botInfantry = createPlannerSnapshot("BotInfantry", playerInfantryDef, { q: 0, r: 1 });
+    const playerObserver = createPlannerSnapshot("PlayerObserver", reconBikeDef, { q: 5, r: 2 });
+    const playerGarrison = createPlannerSnapshot("PlayerGarrison", playerInfantryDef, { q: 4, r: 2 });
+    const playerAtGun = createPlannerSnapshot("PlayerATGun", antiTankGunDef, { q: 4, r: 3 });
+    const playerArtillery = createPlannerSnapshot("PlayerArtillery", playerArtilleryDef, { q: 6, r: 2 });
+
+    const input: BotPlannerInput = {
+      botUnits: [botTank, botInfantry],
+      playerUnits: [playerObserver, playerGarrison, playerAtGun, playerArtillery],
+      objectives: [{ hex: { q: 4, r: 2 }, owner: "Player", vp: 300 }],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(botTank.unit.hex), "bot"],
+        [axialKey(botInfantry.unit.hex), "bot"],
+        [axialKey(playerObserver.unit.hex), "player"],
+        [axialKey(playerGarrison.unit.hex), "player"],
+        [axialKey(playerAtGun.unit.hex), "player"],
+        [axialKey(playerArtillery.unit.hex), "player"]
+      ]),
+      map: {
+        inBounds: (hex) => hex.q >= 0 && hex.q <= 7 && hex.r >= 0 && hex.r <= 5,
+        terrainAt: (hex) => axialKey(hex) === "1,2" ? woods : plains,
+        movementCost: () => 1,
+        featuresAt: (hex) => axialKey(hex) === "4,2" ? ["buildings"] : [],
+        isRoad: (hex) => ["2,1", "3,1", "4,2"].includes(axialKey(hex)),
+        hexModificationsAt: (hex) => axialKey(hex) === "4,2"
+          ? [{ type: "fortifications", facing: "NW" } as never]
+          : []
+      },
+      losAllows: (attackerHex, targetHex) => {
+        const attackerKey = axialKey(attackerHex);
+        const targetKey = axialKey(targetHex);
+        if (attackerKey === "1,2" || targetKey === "1,2") {
+          return false;
+        }
+        return true;
+      },
+      movementAllowance: (snapshot) => axialKey(snapshot.unit.hex) === "1,1" ? 1 : 0,
+      attackEstimator: () => null,
+      difficulty: "Hard"
+    };
+
+    const plan = planHeuristicBotTurn(input).find((candidate) => axialKey(candidate.origin) === "1,1");
+    plannedDestination = plan ? axialKey(plan.destination) : "";
+  });
+
+  await When("the planner evaluates how to start the assault before the town fire-control network is suppressed", async () => {
+    // Result captured during Given.
+  });
+
+  await Then("the tank should stage into the covered flank instead of using the obvious road", async () => {
+    if (plannedDestination !== "1,2") {
+      throw new Error(`Expected the tank to stage into covered lane 1,2, but planner chose ${plannedDestination || "no move"}.`);
+    }
+  });
+});

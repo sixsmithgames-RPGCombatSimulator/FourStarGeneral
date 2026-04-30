@@ -38,7 +38,6 @@ const COMBAT_MAPPING: readonly [UnitAllocationKey, UnitTypeKey | null][] = [
   ["transportWing", "Transport_Plane"],
   ["corpsArtilleryGroup", null],
   ["shoreFireControlParty", null],
-  ["apcTruckColumn", "APC_Truck"],
   ["apcHalftrackCompany", "APC_Halftrack"],
   ["supplyConvoy", "Supply_Truck"],
   ["ammo", null],

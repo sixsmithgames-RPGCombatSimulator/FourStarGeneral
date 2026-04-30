@@ -207,27 +207,6 @@
       "refitTurns": 1
     }
   },
-  "APC_Truck": {
-    "class": "vehicle",
-    "combat": { "category": "vehicle", "weight": "medium", "role": "support", "signature": "large" },
-    "weaponEffectType": "small_arms",
-    "movement": 2,
-    "moveType": "wheel",
-    "vision": 2,
-    "ammo": 0,
-    "fuel": 60,
-    "rangeMin": 0,
-    "rangeMax": 0,
-    "initiative": 2,
-    "armor": { "front": 4, "side": 3, "top": 2 },
-    "hardAttack": 1,
-    "softAttack": 1,
-    "ap": 0,
-    "accuracyBase": 0,
-    "traits": [],
-    "sprite": "units/APC_Truck.png",
-    "cost": 110
-  },
   "APC_Halftrack": {
     "class": "vehicle",
     "combat": { "category": "vehicle", "weight": "medium", "role": "normal", "signature": "medium" },
@@ -246,7 +225,7 @@
     "ap": 2,
     "accuracyBase": 55,
     "traits": [],
-    "sprite": "units/APC_Halftrack.png",
+    "sprite": "units/APC_Halftrack_USA_Southview.png",
     "cost": 160
   },
   "Supply_Truck": {

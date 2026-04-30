@@ -211,15 +211,6 @@ export const allocationOptions = [
     spriteUrl: new URL("../assets/units/Transport_Plane.png", import.meta.url).href
   },
   {
-    key: "apcTruckColumn",
-    label: "Motor Transport Column",
-    category: "units",
-    costPerUnit: 140,
-    description: "Soft-skinned troop lorries for moving infantry and weapons teams between staging areas and threatened sectors.",
-    maxQuantity: 6,
-    spriteUrl: new URL("../assets/units/APC_Truck.png", import.meta.url).href
-  },
-  {
     key: "apcHalftrackCompany",
     label: "Halftrack Carrier Company",
     category: "units",

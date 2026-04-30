@@ -135,6 +135,19 @@ const ARMORED_UNIFIED_FRONT_BONUS = 5;
  */
 const ARMORED_OUTRUN_SUPPORT_PENALTY = 7;
 /**
+ * Defended objectives need a wider battlefield picture than a simple distance-to-VP score.
+ * These radii describe the defensive network around a town or fortified objective.
+ */
+const STRONGHOLD_OBJECTIVE_RING = 3;
+const STRONGHOLD_SUPPORT_RADIUS = 6;
+const STRONGHOLD_SUPPRESSED_THRESHOLD = 24;
+const STRONGHOLD_OPEN_APPROACH_PENALTY = 10;
+const STRONGHOLD_COVERED_APPROACH_BONUS = 6;
+const STRONGHOLD_ROAD_APPROACH_PENALTY = 8;
+const STRONGHOLD_ARMORED_EARLY_ENTRY_PENALTY = 14;
+const STRONGHOLD_INFANTRY_STAGING_BONUS = 5;
+const STRONGHOLD_SUPPRESSED_ASSAULT_BONUS = 8;
+/**
  * Bonus for recon units spotting enemies for allies.
  */
 const RECON_SPOTTING_BONUS = 10;
@@ -298,7 +311,7 @@ function steeringBias(origin, firstStep, target) {
 /**
  * Promote moves that shrink distance to an active objective even when it cannot be captured this turn.
  */
-function scoreObjectiveApproach(snapshot, origin, reachable, objectives, occupancy, input, modifiers) {
+function scoreObjectiveApproach(snapshot, origin, reachable, objectives, occupancy, input, modifiers, strongholds) {
     if (objectives.length === 0) {
         return null;
     }
@@ -350,7 +363,7 @@ function scoreObjectiveApproach(snapshot, origin, reachable, objectives, occupan
             expectedDamage: 0,
             expectedRetaliation: 0,
             score: bestReductionScore - (option.path.length - 1)
-                + calculateApproachPositionScore(snapshot, option.hex, bestTargetHex, input, modifiers, option.path.length),
+                + calculateApproachPositionScore(snapshot, option.hex, bestTargetHex, input, modifiers, option.path.length, strongholds),
             rationale
         };
         // Steering: favor first steps that align with the direction to the best objective for this option
@@ -377,7 +390,7 @@ function filterActiveObjectives(objectives, occupancy) {
 /**
  * When no formal objective exists, drift toward the nearest enemy so formations keep pressure on the frontline.
  */
-function scoreEnemyPressure(snapshot, reachable, enemies, input, modifiers) {
+function scoreEnemyPressure(snapshot, reachable, enemies, input, modifiers, strongholds) {
     if (enemies.length === 0) {
         return null;
     }
@@ -424,13 +437,13 @@ function scoreEnemyPressure(snapshot, reachable, enemies, input, modifiers) {
             let score = 4
                 + distanceGain * 2.5
                 + turnGain * 12
-                + calculateContextualTargetPriorityBonus(purpose, enemy, input) * 0.5
+                + calculateContextualTargetPriorityBonus(purpose, enemy, input, strongholds) * 0.5
                 + calculatePressureDamagePotential(snapshot, enemy) * 0.22
                 - (option.path.length - 1) * 0.45;
             if (reconObservationCoverage) {
                 score += reconObservationCoverage.uniqueTargets * 6 - reconObservationCoverage.overlappingTargets * 2;
             }
-            score += calculateApproachPositionScore(snapshot, option.hex, enemy.unit.hex, input, modifiers, option.path.length);
+            score += calculateApproachPositionScore(snapshot, option.hex, enemy.unit.hex, input, modifiers, option.path.length, strongholds);
             const candidate = {
                 destination: option.hex,
                 path: option.path,
@@ -450,6 +463,283 @@ function scoreEnemyPressure(snapshot, reachable, enemies, input, modifiers) {
         }
     }
     return best;
+}
+function isFlakRole(definition) {
+    return definition.traits.includes("intercept");
+}
+function isAntiTankRole(definition) {
+    return definition.combat.role === "antiTank";
+}
+function calculateStrongholdNodeReadiness(snapshot) {
+    let readiness = Math.max(0.2, (snapshot.unit.strength ?? 100) / 100);
+    if ((snapshot.unit.suppressedBy?.length ?? 0) > 0) {
+        readiness *= 0.55;
+    }
+    if (snapshot.unit.towState === "towed") {
+        readiness *= 0.7;
+    }
+    if (snapshot.unit.onSentry) {
+        readiness *= 1.05;
+    }
+    return readiness;
+}
+function getStrongholdNodeWeight(category) {
+    switch (category) {
+        case "observer":
+            return 16;
+        case "artillery":
+            return 15;
+        case "flak":
+            return 13;
+        case "antiTank":
+            return 12;
+        case "works":
+            return 9;
+        case "garrison":
+        default:
+            return 7;
+    }
+}
+function objectiveLooksTownLike(objectiveHex, input) {
+    const terrain = input.map.terrainAt(objectiveHex);
+    const features = input.map.featuresAt?.(objectiveHex) ?? [];
+    const modifications = input.map.hexModificationsAt?.(objectiveHex) ?? [];
+    if ((terrain?.defense ?? 0) >= 2 || terrain?.blocksLOS) {
+        return true;
+    }
+    if (features.includes("buildings") || features.includes("walls")) {
+        return true;
+    }
+    if (modifications.some((modification) => modification.type === "fortifications" || modification.type === "tankTraps")) {
+        return true;
+    }
+    return neighbors(objectiveHex).some((neighbor) => {
+        if (!input.map.inBounds(neighbor)) {
+            return false;
+        }
+        const nearbyFeatures = input.map.featuresAt?.(neighbor) ?? [];
+        const nearbyMods = input.map.hexModificationsAt?.(neighbor) ?? [];
+        const nearbyTerrain = input.map.terrainAt(neighbor);
+        return nearbyFeatures.includes("buildings")
+            || nearbyFeatures.includes("walls")
+            || nearbyMods.some((modification) => modification.type === "fortifications" || modification.type === "tankTraps")
+            || (nearbyTerrain?.defense ?? 0) >= 2;
+    });
+}
+function unitSupportsObjectiveFireControl(snapshot, objectiveHex, input) {
+    const distanceToObjective = hexDistance(snapshot.unit.hex, objectiveHex);
+    const definition = snapshot.definition;
+    if (definition.class === "recon"
+        && distanceToObjective <= STRONGHOLD_SUPPORT_RADIUS
+        && input.losAllows(snapshot.unit.hex, objectiveHex, false)) {
+        return "observer";
+    }
+    if (definition.class === "artillery") {
+        const turnsToThreat = estimateTurnsToAttackWindow(definition, snapshot.unit.hex, objectiveHex, input);
+        if (Number.isFinite(turnsToThreat) && turnsToThreat <= 1) {
+            return "artillery";
+        }
+    }
+    if (isFlakRole(definition) && distanceToObjective <= STRONGHOLD_SUPPORT_RADIUS) {
+        return "flak";
+    }
+    if (isAntiTankRole(definition) && distanceToObjective <= STRONGHOLD_OBJECTIVE_RING + 1) {
+        return "antiTank";
+    }
+    if (distanceToObjective <= STRONGHOLD_OBJECTIVE_RING && definition.moveType !== "air") {
+        return "garrison";
+    }
+    return null;
+}
+function buildStrongholdProfiles(objectives, input) {
+    const profiles = [];
+    objectives.forEach((objective) => {
+        const objectiveHex = objective.hex;
+        const isTownLike = objectiveLooksTownLike(objectiveHex, input);
+        const nodes = [];
+        const nodeKeys = new Set();
+        const worksHexes = [objectiveHex, ...neighbors(objectiveHex)].filter((hex, index, all) => input.map.inBounds(hex) && all.findIndex((other) => axialKey(other) === axialKey(hex)) === index);
+        worksHexes.forEach((hex) => {
+            const modifications = input.map.hexModificationsAt?.(hex) ?? [];
+            if (modifications.some((modification) => modification.type === "fortifications" || modification.type === "tankTraps")) {
+                const key = `works:${axialKey(hex)}`;
+                nodes.push({
+                    key,
+                    hex,
+                    category: "works",
+                    weight: getStrongholdNodeWeight("works"),
+                    readiness: 1
+                });
+                nodeKeys.add(key);
+            }
+        });
+        input.playerUnits.forEach((snapshot) => {
+            const category = unitSupportsObjectiveFireControl(snapshot, objectiveHex, input);
+            if (!category) {
+                return;
+            }
+            const key = axialKey(snapshot.unit.hex);
+            nodes.push({
+                key,
+                hex: snapshot.unit.hex,
+                category,
+                weight: getStrongholdNodeWeight(category),
+                readiness: calculateStrongholdNodeReadiness(snapshot)
+            });
+            nodeKeys.add(key);
+        });
+        const defensePressure = nodes.reduce((sum, node) => sum + node.weight * node.readiness, 0);
+        const fireControlReadiness = nodes
+            .filter((node) => node.category === "observer" || node.category === "artillery" || node.category === "flak")
+            .reduce((sum, node) => sum + node.weight * node.readiness, 0);
+        const suppressed = defensePressure < STRONGHOLD_SUPPRESSED_THRESHOLD || fireControlReadiness < 18;
+        if (!isTownLike && nodes.length < 2 && defensePressure < 18) {
+            return;
+        }
+        profiles.push({
+            objectiveHex,
+            isTownLike,
+            defensePressure,
+            suppressed,
+            nodeKeys,
+            nodes
+        });
+    });
+    return profiles;
+}
+function findStrongholdNodeContext(defender, strongholds) {
+    if (!defender) {
+        return null;
+    }
+    const defenderKey = axialKey(defender.unit.hex);
+    for (const profile of strongholds) {
+        const node = profile.nodes.find((candidate) => candidate.key === defenderKey);
+        if (node) {
+            return { profile, node };
+        }
+    }
+    return null;
+}
+function findRelevantStrongholdForApproach(destination, focusHex, strongholds) {
+    let best = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    const focusKey = focusHex ? axialKey(focusHex) : null;
+    strongholds.forEach((profile) => {
+        const destinationDistance = hexDistance(destination, profile.objectiveHex);
+        const focusDistance = focusHex ? hexDistance(focusHex, profile.objectiveHex) : Number.POSITIVE_INFINITY;
+        const nodeMatch = focusKey ? profile.nodeKeys.has(focusKey) : false;
+        const relevanceDistance = nodeMatch ? 0 : Math.min(destinationDistance, focusDistance);
+        if (relevanceDistance > STRONGHOLD_SUPPORT_RADIUS) {
+            return;
+        }
+        if (relevanceDistance < bestDistance) {
+            bestDistance = relevanceDistance;
+            best = profile;
+        }
+    });
+    return best;
+}
+function calculateStrongholdSuppressionPriorityBonus(purpose, defender, strongholds) {
+    const context = findStrongholdNodeContext(defender, strongholds);
+    if (!context) {
+        return 0;
+    }
+    const { profile, node } = context;
+    let bonus = node.weight * (profile.suppressed ? 0.35 : 0.7);
+    if (!profile.suppressed) {
+        switch (node.category) {
+            case "observer":
+                bonus += 10;
+                break;
+            case "artillery":
+                bonus += 8;
+                break;
+            case "flak":
+                bonus += 7;
+                break;
+            case "antiTank":
+                bonus += 6;
+                break;
+            case "works":
+                bonus += 5;
+                break;
+            default:
+                bonus += 2;
+                break;
+        }
+    }
+    if (purpose === "antiArmor" && (node.category === "antiTank" || node.category === "observer")) {
+        bonus += 4;
+    }
+    if (purpose === "artillery" && (node.category === "artillery" || node.category === "flak" || node.category === "works")) {
+        bonus += 4;
+    }
+    if (purpose === "antiInfantry" && (node.category === "observer" || node.category === "garrison")) {
+        bonus += 3;
+    }
+    return bonus;
+}
+function calculateStrongholdApproachAdjustment(snapshot, destination, focusHex, input, strongholds) {
+    const profile = findRelevantStrongholdForApproach(destination, focusHex, strongholds);
+    if (!profile) {
+        return 0;
+    }
+    const terrain = input.map.terrainAt(destination);
+    const modifications = input.map.hexModificationsAt?.(destination) ?? [];
+    const smoked = modifications.some((modification) => modification.type === "smoke");
+    const covered = Boolean(terrain?.blocksLOS || (terrain?.defense ?? 0) >= 2 || smoked);
+    const openLane = !covered && (terrain?.defense ?? 0) <= 1;
+    const objectiveDistance = hexDistance(destination, profile.objectiveHex);
+    const onRoad = input.map.isRoad?.(destination) ?? false;
+    let score = 0;
+    if (!profile.suppressed) {
+        if (objectiveDistance <= STRONGHOLD_SUPPORT_RADIUS && covered) {
+            score += 4;
+        }
+        if (objectiveDistance <= STRONGHOLD_SUPPORT_RADIUS && openLane) {
+            score -= 5;
+        }
+        if (objectiveDistance <= STRONGHOLD_OBJECTIVE_RING + 1 && onRoad) {
+            score -= STRONGHOLD_ROAD_APPROACH_PENALTY;
+        }
+        if (objectiveDistance <= STRONGHOLD_OBJECTIVE_RING && openLane) {
+            score -= STRONGHOLD_OPEN_APPROACH_PENALTY + Math.min(10, profile.defensePressure * 0.18);
+        }
+        if (covered && objectiveDistance <= STRONGHOLD_OBJECTIVE_RING + 1) {
+            score += STRONGHOLD_COVERED_APPROACH_BONUS;
+        }
+        if (isArmoredGroundUnit(snapshot.definition)) {
+            if (objectiveDistance <= STRONGHOLD_SUPPORT_RADIUS && openLane) {
+                score -= 7;
+            }
+            if (objectiveDistance <= STRONGHOLD_OBJECTIVE_RING) {
+                score -= STRONGHOLD_ARMORED_EARLY_ENTRY_PENALTY + Math.min(12, profile.defensePressure * 0.22);
+            }
+            else if (covered && objectiveDistance <= STRONGHOLD_SUPPORT_RADIUS) {
+                score += 5;
+            }
+        }
+        else if (snapshot.definition.class === "infantry" || snapshot.definition.class === "specialist") {
+            if (covered && objectiveDistance <= STRONGHOLD_SUPPORT_RADIUS) {
+                score += STRONGHOLD_INFANTRY_STAGING_BONUS;
+            }
+            if (objectiveDistance <= 2 && openLane) {
+                score -= 6;
+            }
+        }
+        else if (snapshot.definition.class === "recon" && objectiveDistance <= STRONGHOLD_OBJECTIVE_RING) {
+            score -= 10 + Math.min(8, profile.defensePressure * 0.15);
+        }
+    }
+    else if (objectiveDistance <= STRONGHOLD_OBJECTIVE_RING) {
+        if (isArmoredGroundUnit(snapshot.definition)) {
+            score += STRONGHOLD_SUPPRESSED_ASSAULT_BONUS;
+        }
+        else if (snapshot.definition.class === "infantry" || snapshot.definition.class === "specialist") {
+            score += STRONGHOLD_SUPPRESSED_ASSAULT_BONUS * 0.75;
+        }
+    }
+    return score;
 }
 /**
  * Enemy-pressure should overrule objective marching, but not a deliberate firing setup or attack plan.
@@ -810,8 +1100,10 @@ function calculateReconObservationNetworkThreat(defender, input) {
 /**
  * Base target priority is static; this contextual layer catches observer units that are multiplying allied fires.
  */
-function calculateContextualTargetPriorityBonus(purpose, defender, input) {
-    return calculateTargetPriorityBonus(purpose, defender) + calculateReconObservationNetworkThreat(defender, input);
+function calculateContextualTargetPriorityBonus(purpose, defender, input, strongholds = []) {
+    return calculateTargetPriorityBonus(purpose, defender)
+        + calculateReconObservationNetworkThreat(defender, input)
+        + calculateStrongholdSuppressionPriorityBonus(purpose, defender, strongholds);
 }
 /**
  * Returns how many hexes separate a destination from the unit's valid firing band.
@@ -1195,7 +1487,7 @@ function calculateApproachThreatEnvelope(snapshot, destination, input, focusHex,
     });
     return { visible, directImmediate, directNear, indirectImmediate };
 }
-function scoreInfantryConsolidation(snapshot, input, modifiers, focusHex) {
+function scoreInfantryConsolidation(snapshot, input, modifiers, focusHex, strongholds) {
     if (snapshot.definition.class !== "infantry" || snapshot.unit.entrench >= 2) {
         return null;
     }
@@ -1209,7 +1501,7 @@ function scoreInfantryConsolidation(snapshot, input, modifiers, focusHex) {
     if (!onObjective && nearestEnemyDistance > PROXIMITY_ENGAGE_RADIUS + 1) {
         return null;
     }
-    const approachScore = calculateApproachPositionScore(snapshot, snapshot.unit.hex, focusHex, input, modifiers, 1);
+    const approachScore = calculateApproachPositionScore(snapshot, snapshot.unit.hex, focusHex, input, modifiers, 1, strongholds);
     const entrenchHeadroom = Math.max(0, 2 - (snapshot.unit.entrench ?? 0));
     const score = approachScore
         + INFANTRY_CONSOLIDATION_BONUS
@@ -1233,7 +1525,7 @@ function scoreInfantryConsolidation(snapshot, input, modifiers, focusHex) {
  * Scores the safety and cohesion of a non-attack destination so the bot stages whole groups instead of lone probes.
  * This rewards covered, mutually supporting approaches and penalizes exposed lunges that end outside a fighting posture.
  */
-function calculateApproachPositionScore(snapshot, destination, focusHex, input, modifiers, pathLength = 1) {
+function calculateApproachPositionScore(snapshot, destination, focusHex, input, modifiers, pathLength = 1, strongholds = []) {
     if (!modifiers.useTacticalAI) {
         return 0;
     }
@@ -1374,6 +1666,7 @@ function calculateApproachPositionScore(snapshot, destination, focusHex, input, 
         }
     }
     score += calculateReconPositioningScore(destination, snapshot, input, focusHex);
+    score += calculateStrongholdApproachAdjustment(snapshot, destination, focusHex, input, strongholds);
     return score;
 }
 /**
@@ -1451,10 +1744,10 @@ export function scoreCandidate(purpose, attacker, defender, candidate, modifiers
  * Extended scoring function that includes all tactical considerations.
  * Used by pickBestCandidate for comprehensive attack evaluation.
  */
-export function scoreCandidateAdvanced(purpose, attacker, defender, candidate, input, modifiers) {
+export function scoreCandidateAdvanced(purpose, attacker, defender, candidate, input, modifiers, strongholds = []) {
     // Get base score
     let score = scoreCandidate(purpose, attacker, defender, candidate, modifiers);
-    score += calculateContextualTargetPriorityBonus(purpose, defender, input) - calculateTargetPriorityBonus(purpose, defender);
+    score += calculateContextualTargetPriorityBonus(purpose, defender, input, strongholds) - calculateTargetPriorityBonus(purpose, defender);
     if (!modifiers.useTacticalAI) {
         return score;
     }
@@ -1481,7 +1774,7 @@ export function scoreCandidateAdvanced(purpose, attacker, defender, candidate, i
  * Adds non-attack movement options so units can advance toward objectives when no shot is available.
  * Prioritizes actually reaching and occupying objective hexes.
  */
-function scoreObjectiveAdvance(snapshot, origin, reachable, objectives, occupancy, input, modifiers) {
+function scoreObjectiveAdvance(snapshot, origin, reachable, objectives, occupancy, input, modifiers, strongholds) {
     if (objectives.length === 0) {
         return null;
     }
@@ -1511,7 +1804,7 @@ function scoreObjectiveAdvance(snapshot, origin, reachable, objectives, occupanc
                 attackTarget: null,
                 expectedDamage: 0,
                 expectedRetaliation: 0,
-                score: score + calculateApproachPositionScore(snapshot, option.hex, objective.hex, input, modifiers, option.path.length),
+                score: score + calculateApproachPositionScore(snapshot, option.hex, objective.hex, input, modifiers, option.path.length, strongholds),
                 rationale: destKey === key
                     ? `Occupy objective worth ${objective.vp} VP`
                     : `Advance to objective worth ${objective.vp} VP`
@@ -1524,7 +1817,7 @@ function scoreObjectiveAdvance(snapshot, origin, reachable, objectives, occupanc
  * When a unit cannot justify an immediate shot, look for the best staging hex to threaten a valuable target
  * on the following turn. This fills the gap between "attack now" and "march at the nearest thing."
  */
-function scoreFireSetup(snapshot, reachable, enemies, input, modifiers) {
+function scoreFireSetup(snapshot, reachable, enemies, input, modifiers, strongholds) {
     if (enemies.length === 0) {
         return null;
     }
@@ -1549,7 +1842,7 @@ function scoreFireSetup(snapshot, reachable, enemies, input, modifiers) {
         const hasLos = !requiresLos || input.losAllows(hex, enemy.unit.hex, false);
         const turnsToAttack = estimateTurnsToAttackWindow(snapshot.definition, hex, enemy.unit.hex, input);
         let score = FIRE_SETUP_BASE_BONUS
-            + calculateContextualTargetPriorityBonus(purpose, enemy, input)
+            + calculateContextualTargetPriorityBonus(purpose, enemy, input, strongholds)
             + calculateThreatProjection(enemy) * 0.2
             - rangeGap * FIRE_SETUP_RANGE_GAP_PENALTY
             - futureGap * FIRE_SETUP_FUTURE_GAP_PENALTY
@@ -1575,7 +1868,7 @@ function scoreFireSetup(snapshot, reachable, enemies, input, modifiers) {
         score += hasLos ? FIRE_SETUP_LOS_BONUS : -FIRE_SETUP_NO_LOS_PENALTY;
         score += calculateTerrainPositionScore(hex, terrain, false);
         score += calculateArtilleryPositionScore(hex, nearestEnemyDistance, snapshot, enemy, modifiers);
-        score += calculateApproachPositionScore(snapshot, hex, enemy.unit.hex, input, modifiers, path.length);
+        score += calculateApproachPositionScore(snapshot, hex, enemy.unit.hex, input, modifiers, path.length, strongholds);
         return { score, rangeGap, futureGap, hasLos, turnsToAttack };
     };
     for (const enemy of enemies) {
@@ -1644,7 +1937,7 @@ function scoreFireSetup(snapshot, reachable, enemies, input, modifiers) {
 /**
  * Evaluate all reachable attack positions for a single unit and pick the highest scoring candidate.
  */
-function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEnemyEliminationFallback) {
+function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEnemyEliminationFallback, strongholds) {
     const purpose = classifyUnitPurpose(snapshot.definition);
     // Get difficulty modifiers for scoring (defaults to Normal if not specified)
     const difficultyMods = getDifficultyModifiers(input.difficulty ?? "Normal");
@@ -1692,8 +1985,8 @@ function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEn
         if (enemyDistance !== bestDistance) {
             return enemyDistance < bestDistance ? enemy : best;
         }
-        return calculateContextualTargetPriorityBonus(purpose, enemy, input)
-            > calculateContextualTargetPriorityBonus(purpose, best, input)
+        return calculateContextualTargetPriorityBonus(purpose, enemy, input, strongholds)
+            > calculateContextualTargetPriorityBonus(purpose, best, input, strongholds)
             ? enemy
             : best;
     }, null);
@@ -1720,7 +2013,7 @@ function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEn
             };
             // Use advanced tactical scoring for Normal/Hard, basic scoring for Easy
             candidate.score = difficultyMods.useTacticalAI
-                ? scoreCandidateAdvanced(purpose, snapshot, playerSnapshot, candidate, input, difficultyMods)
+                ? scoreCandidateAdvanced(purpose, snapshot, playerSnapshot, candidate, input, difficultyMods, strongholds)
                 : scoreCandidate(purpose, snapshot, playerSnapshot, candidate, difficultyMods);
             // Steering: if multiple attack positions have similar value, prefer first steps that point toward the defender
             if (option.path.length > 1) {
@@ -1731,7 +2024,7 @@ function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEn
             }
         }
     }
-    const setupCandidate = scoreFireSetup(snapshot, reachable, pressureTargets, input, difficultyMods);
+    const setupCandidate = scoreFireSetup(snapshot, reachable, pressureTargets, input, difficultyMods, strongholds);
     if (setupCandidate && (allowEnemyEliminationFallback || enemyNearOrVisible)) {
         if (enemyNearOrVisible) {
             setupCandidate.score += difficultyMods.contactEngageBonus + Math.max(0, PROXIMITY_ENGAGE_RADIUS - nearestEnemyDistance);
@@ -1740,7 +2033,7 @@ function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEn
             top = setupCandidate;
         }
     }
-    const consolidationCandidate = scoreInfantryConsolidation(snapshot, input, difficultyMods, consolidationFocus?.unit.hex ?? null);
+    const consolidationCandidate = scoreInfantryConsolidation(snapshot, input, difficultyMods, consolidationFocus?.unit.hex ?? null, strongholds);
     if (consolidationCandidate && (!top || consolidationCandidate.score > top.score)) {
         top = consolidationCandidate;
     }
@@ -1750,13 +2043,13 @@ function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEn
     if (shouldCompareMovementPlans) {
         let bestObjectiveCandidate = null;
         let bestObjectiveScore = Number.NEGATIVE_INFINITY;
-        const advanceCandidate = scoreObjectiveAdvance(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods);
+        const advanceCandidate = scoreObjectiveAdvance(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods, strongholds);
         if (advanceCandidate && advanceCandidate.score > bestObjectiveScore) {
             bestObjectiveCandidate = advanceCandidate;
             bestObjectiveScore = advanceCandidate.score;
         }
         if (shouldCompareMarchPlans(snapshot, top, nearestEnemyDistance)) {
-            const approachCandidate = scoreObjectiveApproach(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods);
+            const approachCandidate = scoreObjectiveApproach(snapshot, snapshot.unit.hex, reachable, activeObjectives, input.occupancy, input, difficultyMods, strongholds);
             if (approachCandidate && approachCandidate.score > bestObjectiveScore) {
                 bestObjectiveCandidate = approachCandidate;
                 bestObjectiveScore = approachCandidate.score;
@@ -1775,7 +2068,7 @@ function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEn
         if ((allowEnemyEliminationFallback || enemyNearOrVisible)
             && !rearUnitNeedsObjectiveMarch
             && shouldCompareMarchPlans(snapshot, top, nearestEnemyDistance)) {
-            const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods);
+            const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods, strongholds);
             if (pressureCandidate && enemyNearOrVisible) {
                 // Apply difficulty-based contact engagement bonus
                 pressureCandidate.score += difficultyMods.contactEngageBonus + Math.max(0, PROXIMITY_ENGAGE_RADIUS - nearestEnemyDistance);
@@ -1788,7 +2081,7 @@ function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEn
     // If we already have a decent objective move but an enemy-pressure option clearly outranks it
     // (due to proximity/visibility), prefer the pressure move. This keeps the AI responsive to contact.
     if ((allowEnemyEliminationFallback || enemyNearOrVisible) && !rearUnitNeedsObjectiveMarch && isObjectiveCandidate(top)) {
-        const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods);
+        const pressureCandidate = scoreEnemyPressure(snapshot, reachable, pressureTargets, input, difficultyMods, strongholds);
         if (pressureCandidate && enemyNearOrVisible) {
             // Apply difficulty-based contact engagement bonus
             pressureCandidate.score += difficultyMods.contactEngageBonus + Math.max(0, PROXIMITY_ENGAGE_RADIUS - nearestEnemyDistance);
@@ -1800,7 +2093,7 @@ function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEn
     // Final fallback: move toward nearest enemy even if we can't reach/attack them this turn
     // This prevents units from getting stuck when they can't find valid attack positions
     if (!top || top.score <= 0) {
-        const fallbackPressure = scoreEnemyPressure(snapshot, reachable, input.playerUnits, input, difficultyMods);
+        const fallbackPressure = scoreEnemyPressure(snapshot, reachable, input.playerUnits, input, difficultyMods, strongholds);
         if (fallbackPressure && (!top || fallbackPressure.score > top.score)) {
             top = fallbackPressure;
         }
@@ -1836,12 +2129,13 @@ function pickBestCandidate(snapshot, input, reachable, activeObjectives, allowEn
 export function planHeuristicBotTurn(input) {
     const actions = [];
     const activeObjectives = filterActiveObjectives(input.objectives, input.occupancy);
+    const strongholds = buildStrongholdProfiles(activeObjectives, input);
     const eliminationObjectiveEnabled = activeObjectives.length === 0;
     input.botUnits.forEach((snapshot) => {
         const allowance = Math.max(0, input.movementAllowance(snapshot));
         const originKey = axialKey(snapshot.unit.hex);
         const reachable = computeReachableHexes(snapshot.unit.hex, allowance, snapshot.definition.moveType, input, originKey);
-        const bestCandidate = pickBestCandidate(snapshot, input, reachable, activeObjectives, eliminationObjectiveEnabled);
+        const bestCandidate = pickBestCandidate(snapshot, input, reachable, activeObjectives, eliminationObjectiveEnabled, strongholds);
         if (bestCandidate) {
             actions.push({
                 unit: snapshot,

@@ -213,16 +213,6 @@ export const deploymentTemplates: readonly DeploymentUnitTemplate[] = [
     experience: 1
   },
   {
-    key: "apcTruckColumn",
-    type: "APC_Truck",
-    strength: 100,
-    ammo: 0,
-    fuel: 60,
-    entrench: 0,
-    facing: "NW",
-    experience: 0
-  },
-  {
     key: "apcHalftrackCompany",
     type: "APC_Halftrack",
     strength: 100,

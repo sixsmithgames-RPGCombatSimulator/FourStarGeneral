@@ -85,7 +85,6 @@ const FIGHTER_UNITS = [
 /** Light vehicles (trucks, recon bikes, etc.). */
 const LIGHT_VEHICLE_UNITS = [
   "Supply_Truck",
-  "APC_Truck",
   "Recon_Bike"
 ];
 

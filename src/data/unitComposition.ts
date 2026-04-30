@@ -25,7 +25,6 @@ export type UnitAllocationKey =
   | "transportWing"
   | "corpsArtilleryGroup"
   | "shoreFireControlParty"
-  | "apcTruckColumn"
   | "apcHalftrackCompany"
   | "supplyConvoy"
   | "ammo"
@@ -223,13 +222,6 @@ export const unitComposition: Record<UnitAllocationKey, UnitCompositionProfile> 
     vehicles: 2,
     equipmentSummary: ["2 naval fire missions", "Shore observer team"],
     notes: "Planned support asset for destroyer and cruiser gunfire coordination."
-  },
-  apcTruckColumn: {
-    combatReference: { unitType: "APC_Truck" },
-    personnel: 120,
-    vehicles: 28,
-    equipmentSummary: ["24 troop lorries", "4 dispatch jeeps"],
-    notes: "Configured to shuttle infantry between rear staging areas and jump-off points."
   },
   apcHalftrackCompany: {
     combatReference: { unitType: "APC_Halftrack" },

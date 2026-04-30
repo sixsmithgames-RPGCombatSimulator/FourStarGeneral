@@ -1251,34 +1251,97 @@ export function planResolvedAirCombatShowScene(
       const current = host.averageAirShowPosition(flight.actors) ?? flight.anchor;
       const rand = stageRandom(`fighter-egress:${flight.spec.id}:${index}`);
       const fighterHomeLaneContext = resolveFighterHomeLaneContext(flight, fighterFlights);
-      const egressHeadingDegrees = host.resolveAirShowFlightHeadingDegrees(flight);
-      const egressPoint = resolveFighterHomePoint(
+      const phaseBoundaryHeadingDegrees = resolvePreviousPhaseBoundaryHeadingDegrees(
+        flight,
+        host.resolveAirShowFlightHeadingDegrees(flight)
+      );
+      const egressHeadingDegrees = phaseBoundaryHeadingDegrees;
+      const baseEgressPoint = resolveFighterHomePoint(
         flight,
         fighterHomeLaneContext.index,
         fighterHomeLaneContext.totalFlights
       );
+      const homeAxisForward = normalizeVector(
+        baseEgressPoint.cx - corridor.center.cx,
+        baseEgressPoint.cy - corridor.center.cy,
+        baseEgressPoint.cx - current.cx,
+        baseEgressPoint.cy - current.cy
+      );
+      const currentHomeProjectionPx =
+        (current.cx - corridor.center.cx) * homeAxisForward.x
+        + (current.cy - corridor.center.cy) * homeAxisForward.y;
+      const targetHomeProjectionPx =
+        (baseEgressPoint.cx - corridor.center.cx) * homeAxisForward.x
+        + (baseEgressPoint.cy - corridor.center.cy) * homeAxisForward.y;
+      const laneSkidPx =
+        (fighterHomeLaneContext.index - (fighterHomeLaneContext.totalFlights - 1) / 2)
+        * compactEgressLaneStepPx
+        * 0.16;
+      const continuedOutwardPoint = (() => {
+        const continuedHeadingForward = resolveHeadingVector(egressHeadingDegrees, homeAxisForward);
+        const exitForward = normalizeVector(
+          continuedHeadingForward.x * 0.72 + homeAxisForward.x * 0.28,
+          continuedHeadingForward.y * 0.72 + homeAxisForward.y * 0.28,
+          homeAxisForward.x,
+          homeAxisForward.y
+        );
+        return host.offsetAirShowPoint(
+          current,
+          exitForward.x * Math.max(220, compactEgressLaneStepPx * 3.8)
+            + corridor.normal.x * laneSkidPx,
+          exitForward.y * Math.max(220, compactEgressLaneStepPx * 3.8)
+            + corridor.normal.y * laneSkidPx
+        );
+      })();
+      const egressPoint =
+        currentHomeProjectionPx >= targetHomeProjectionPx - 18
+          ? continuedOutwardPoint
+          : baseEgressPoint;
       const egressLateralSign = host.resolveAirShowRouteSideSign(
         current,
         egressPoint,
         egressHeadingDegrees,
         flight.spec.role === "escort" ? 1 : -1
       );
+      const homeDx = egressPoint.cx - current.cx;
+      const homeDy = egressPoint.cy - current.cy;
+      const homeDistancePx = Math.max(1, Math.hypot(homeDx, homeDy));
+      const homeForward = normalizeVector(homeDx, homeDy, 0, -1);
+      const headingForward = resolveHeadingVector(phaseBoundaryHeadingDegrees, homeForward);
+      const headingRouteDot = headingForward.x * homeForward.x + headingForward.y * homeForward.y;
+      const rawEgressPath =
+        headingRouteDot > -0.14 && homeDistancePx <= 420
+          ? buildForwardContinuousRoutePath(current, egressPoint, {
+              startHeadingDegrees: egressHeadingDegrees,
+              lateralSign: egressLateralSign,
+              minRouteDot: -0.22,
+              carryForwardPx: 50 + rand() * 16,
+              earlyAlongPx: Math.max(76, homeDistancePx * 0.3),
+              midAlongPx: Math.max(132, homeDistancePx * 0.58),
+              lateAlongPx: Math.max(184, homeDistancePx * 0.84),
+              entryLateralPx: 18 + rand() * 7,
+              midLateralPx: 8 + rand() * 4,
+              lateLateralPx: 3 + rand() * 2
+            })
+          : host.buildAirShowDisengagePath(current, egressPoint, {
+              startHeadingDegrees: egressHeadingDegrees,
+              lateralSign: egressLateralSign,
+              corridorWidthPx: flight.spec.role === "escort" ? 15 + rand() * 4 : 13 + rand() * 4,
+              driftPx: flight.spec.role === "escort" ? 10 + rand() * 4 : 8 + rand() * 3,
+              preferForwardContinuous: true
+            });
       const egressPath = host.sanitizeAirShowEntryPath(
-        buildForwardContinuousRoutePath(current, egressPoint, {
-          startHeadingDegrees: egressHeadingDegrees,
-          lateralSign: egressLateralSign,
-          minRouteDot: 0.2,
-          carryForwardPx: 56 + rand() * 18,
-          entryLateralPx: 28 + rand() * 10,
-          midLateralPx: 12 + rand() * 6,
-          lateLateralPx: 4 + rand() * 3
-        }),
+        bridgePathToPreviousPhaseMotion(
+          flight,
+          rawEgressPath,
+          flight.spec.role === "escort" ? 34 : 42
+        ),
         {
-          maxTurnDeg: 52,
-          strongTurnDeg: 90,
-          maxFirstSegmentPx: 88,
-          maxSharpTurnDeg: 116,
-          maxWaypointsToRemove: 2
+          maxTurnDeg: 44,
+          strongTurnDeg: 78,
+          maxFirstSegmentPx: 72,
+          maxSharpTurnDeg: 104,
+          maxWaypointsToRemove: 3
         }
       );
       return host.buildAirShowFlightAssignments(
@@ -2416,7 +2479,7 @@ export function planResolvedAirCombatShowScene(
               : resolvedPhaseAssignments;
           groupStates.forEach((state) => {
             const baseTimings = beat === 0
-              ? [0.46, 0.58, 0.7, 0.82]
+              ? [0.52, 0.64, 0.76, 0.88]
               : [0.14, 0.26, 0.38, 0.5, 0.62, 0.74];
             state.group.interceptorFlights.forEach((flight, interceptorIndex) => {
               const targetEscortFlight = state.group.escortFlights[
@@ -2842,11 +2905,11 @@ export function planResolvedAirCombatShowScene(
       );
       const desiredBomberIngressInterceptorTravelPx = Math.max(
         bomberIngressRepairTriggerTravelPx + 12,
-        bomberIngressDurationMs * host.airShowFighterSpeedPxPerMs * 0.84
+        bomberIngressDurationMs * host.airShowFighterSpeedPxPerMs * 0.94
       );
       const desiredBomberIngressEscortTravelPx = Math.max(
         bomberIngressRepairTriggerTravelPx + 8,
-        bomberIngressDurationMs * host.airShowFighterSpeedPxPerMs * 0.8
+        bomberIngressDurationMs * host.airShowFighterSpeedPxPerMs * 0.9
       );
       const truncatePathToLength = (
         points: ReadonlyArray<AirShowPoint>,
@@ -2935,31 +2998,31 @@ export function planResolvedAirCombatShowScene(
                   ? {
                       startHeadingDegrees,
                       lateralSign: routeSideSign,
-                      minRouteDot: emphasis === "aggressive" ? -0.16 : -0.24,
-                      carryForwardPx: (emphasis === "aggressive" ? 92 : 68) + laneMagnitude * 10,
-                      earlyAlongPx: (emphasis === "aggressive" ? 142 : 102) + laneMagnitude * 16,
-                      midAlongPx: (emphasis === "aggressive" ? 208 : 148) + laneMagnitude * 18,
-                      lateAlongPx: (emphasis === "aggressive" ? 262 : 190) + laneMagnitude * 16,
-                      entryLateralPx: (emphasis === "aggressive" ? 34 : 26) + laneMagnitude * 7,
-                      midLateralPx: (emphasis === "aggressive" ? 16 : 12) + laneMagnitude * 3.5,
-                      lateLateralPx: (emphasis === "aggressive" ? 6 : 4) + laneMagnitude * 2
+                      minRouteDot: emphasis === "aggressive" ? -0.12 : -0.18,
+                      carryForwardPx: (emphasis === "aggressive" ? 84 : 60) + laneMagnitude * 10,
+                      earlyAlongPx: (emphasis === "aggressive" ? 150 : 112) + laneMagnitude * 16,
+                      midAlongPx: (emphasis === "aggressive" ? 218 : 162) + laneMagnitude * 18,
+                      lateAlongPx: (emphasis === "aggressive" ? 272 : 208) + laneMagnitude * 16,
+                      entryLateralPx: (emphasis === "aggressive" ? 26 : 20) + laneMagnitude * 5.5,
+                      midLateralPx: (emphasis === "aggressive" ? 11 : 8) + laneMagnitude * 2.5,
+                      lateLateralPx: (emphasis === "aggressive" ? 4 : 3) + laneMagnitude * 1.25
                     }
                   : {
                       startHeadingDegrees,
                       lateralSign: routeSideSign,
-                      minRouteDot: emphasis === "aggressive" ? -0.12 : -0.18,
-                      carryForwardPx: (emphasis === "aggressive" ? 72 : 52) + laneMagnitude * 8,
-                      earlyAlongPx: (emphasis === "aggressive" ? 116 : 82) + laneMagnitude * 12,
-                      midAlongPx: (emphasis === "aggressive" ? 176 : 126) + laneMagnitude * 14,
-                      lateAlongPx: (emphasis === "aggressive" ? 222 : 162) + laneMagnitude * 12,
-                      entryLateralPx: (emphasis === "aggressive" ? 28 : 22) + laneMagnitude * 5.5,
-                      midLateralPx: (emphasis === "aggressive" ? 13 : 10) + laneMagnitude * 2.75,
-                      lateLateralPx: (emphasis === "aggressive" ? 5 : 4) + laneMagnitude * 1.5
+                      minRouteDot: emphasis === "aggressive" ? -0.08 : -0.14,
+                      carryForwardPx: (emphasis === "aggressive" ? 66 : 48) + laneMagnitude * 8,
+                      earlyAlongPx: (emphasis === "aggressive" ? 128 : 92) + laneMagnitude * 12,
+                      midAlongPx: (emphasis === "aggressive" ? 186 : 138) + laneMagnitude * 14,
+                      lateAlongPx: (emphasis === "aggressive" ? 228 : 176) + laneMagnitude * 12,
+                      entryLateralPx: (emphasis === "aggressive" ? 22 : 18) + laneMagnitude * 4.5,
+                      midLateralPx: (emphasis === "aggressive" ? 10 : 7) + laneMagnitude * 2.25,
+                      lateLateralPx: (emphasis === "aggressive" ? 4 : 3) + laneMagnitude * 1.25
                     }
               ),
               role === "interceptor"
-                ? (emphasis === "aggressive" ? 56 : 44)
-                : (emphasis === "aggressive" ? 40 : 30)
+                ? (emphasis === "aggressive" ? 52 : 40)
+                : (emphasis === "aggressive" ? 34 : 26)
             ),
             role === "interceptor"
               ? {
@@ -4000,7 +4063,7 @@ export function planResolvedAirCombatShowScene(
         )
       ];
       const strikeRunTracerBursts: AirShowTracerBurst[] = [];
-      const strikeRunFlakBursts = remapFlakBurstsToPhase(
+      const scopedStrikeRunFlakBursts = remapFlakBurstsToPhase(
         collectScopedBomberFlakBursts(postPassBombers),
         {
           globalStartProgress: 0.78,
@@ -4014,7 +4077,33 @@ export function planResolvedAirCombatShowScene(
           includeEnd: true
         }
       );
-        const finalizedStrikeRunAssignments = host.prepareAirShowPhaseAssignments(
+      const strikeRunFlakBursts =
+        scopedStrikeRunFlakBursts.length > 0
+          ? scopedStrikeRunFlakBursts
+          : Array.from(
+              collectScopedBomberFlakBursts(postPassBombers).reduce((burstsByBomberId, burst) => {
+                if (!burst.bomberUnitKey) {
+                  return burstsByBomberId;
+                }
+                const previousBurst = burstsByBomberId.get(burst.bomberUnitKey);
+                if (!previousBurst || burst.progress > previousBurst.progress) {
+                  burstsByBomberId.set(burst.bomberUnitKey, burst);
+                }
+                return burstsByBomberId;
+              }, new Map<string, ScopedFlakBurst>()).values()
+            ).map((burst, index) => ({
+              ...burst,
+              progress: host.clamp(
+                0.68 + index * 0.04,
+                0.62,
+                host.clamp(
+                  Math.max(0.7, (scene.bombReleaseProgress ?? 0.92) - 0.04),
+                  0.7,
+                  0.88
+                )
+              )
+            }));
+      const finalizedStrikeRunAssignments = host.prepareAirShowPhaseAssignments(
         strikeRunAssignments,
         strikeRunDurationMs,
         [0.18, 0.42, 0.66, 0.86],
@@ -4083,10 +4172,22 @@ export function planResolvedAirCombatShowScene(
         egressRoleSpeeds,
         scene.egressDurationMs ?? 1080,
         820,
-        7000
+        9800
+      );
+      const extendedEgressAssignments = host.extendAirShowPhaseAssignmentsForSpeed(
+        egressAssignments,
+        egressDurationMs,
+        egressRoleSpeeds,
+        {
+          clampCenter: corridor.center,
+          orbitSignByRole: {
+            interceptor: -1,
+            escort: 1
+          }
+        }
       );
       const finalizedEgressAssignments = host.prepareAirShowPhaseAssignments(
-        egressAssignments,
+        extendedEgressAssignments,
         egressDurationMs,
         [0.22, 0.5, 0.78],
         42,

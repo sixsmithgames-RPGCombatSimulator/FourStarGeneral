@@ -577,36 +577,36 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_STAYS_INSIDE_STRIKE
         result = runAirScenario();
     });
     await Then("flak bursts should open on mid-approach, persist through a real window, and finish before bomb release", async () => {
-        // Find a strike inspection that has flak in the target-run phase
         const strikeInspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" &&
-            entry.report.phases.some((p) => p.label === "target-run" && (p.flakBursts?.length ?? 0) > 0));
+            entry.report.phases.some((p) => (p.flakBursts?.length ?? 0) > 0));
         if (!strikeInspection) {
-            throw new Error("Expected a strike package inspection with target-run phase containing flak.");
+            throw new Error("Expected a strike package inspection containing flak.");
         }
-        // Find the specific target-run phase that has flak (not all do)
-        const targetRunPhase = strikeInspection.report.phases.find((p) => p.label === "target-run" && (p.flakBursts?.length ?? 0) > 0);
-        if (!targetRunPhase) {
-            throw new Error("Expected target-run phase with flak bursts in strike inspection.");
+        const phasesWithFlak = strikeInspection.report.phases.filter((phase) => (phase.flakBursts?.length ?? 0) > 0);
+        const firstFlakPhase = phasesWithFlak[0] ?? null;
+        const targetRunPhase = phasesWithFlak.find((phase) => phase.label === "target-run") ?? null;
+        if (!firstFlakPhase || !targetRunPhase) {
+            throw new Error("Expected flak to span into target-run in the strike inspection.");
+        }
+        if (firstFlakPhase.label !== "bomber-ingress" &&
+            firstFlakPhase.label !== "bomber-defense-pass") {
+            throw new Error(`Flak starts too late: first phase carrying flak is ${firstFlakPhase.label} ` +
+                `(expected bomber-ingress or bomber-defense-pass)`);
+        }
+        if (phasesWithFlak.length < 2) {
+            throw new Error(`Flak window is too short-lived: only ${phasesWithFlak.length} phase carries flak.`);
         }
         const flakBursts = targetRunPhase.flakBursts;
-        // Shared flak policy now opens during the early-to-mid approach so the barrage has time to
-        // read on screen, but it still must stay inside the strike-run window and clear before release.
         const firstFlakProgress = flakBursts[0]?.progress ?? 0;
         const lastFlakProgress = flakBursts[flakBursts.length - 1]?.progress ?? 0;
-        if (firstFlakProgress < 0.24) {
-            throw new Error(`Flak starts too early in strike run: first burst at ${(firstFlakProgress * 100).toFixed(1)}% ` +
-                `(should not open before the governed approach window at 24%+)`);
-        }
         const bombReleaseProgress = GOVERNED_BOMB_RELEASE_PROGRESS;
         if (lastFlakProgress >= bombReleaseProgress) {
             throw new Error(`Flak ends too late in strike run: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
                 `(should finish before the bomb-release segment)`);
         }
-        if (lastFlakProgress - firstFlakProgress < 0.3) {
-            throw new Error(`Flak window is too short in strike run: ${(firstFlakProgress * 100).toFixed(1)}% -> ${(lastFlakProgress * 100).toFixed(1)}% ` +
-                `(expected at least a 30% progress span)`);
-        }
-        console.log(`[FLAK TIMING] ${flakBursts.length} bursts from ${(firstFlakProgress * 100).toFixed(1)}% to ${(lastFlakProgress * 100).toFixed(1)}% — correctly sustained across approach`);
+        console.log(`[FLAK TIMING] phases=${phasesWithFlak.map((phase) => phase.label).join(" -> ")}; ` +
+            `target-run bursts ${flakBursts.length} from ${(firstFlakProgress * 100).toFixed(1)}% ` +
+            `to ${(lastFlakProgress * 100).toFixed(1)}%`);
     });
 });
 registerTest("AIR_SHOW_SYNTHETIC_STACK_PACKAGE_AVOIDS_CURRENT_GOVERNED_MOTION_AND_FLAK_FINDINGS", async ({ Given, When, Then }) => {
