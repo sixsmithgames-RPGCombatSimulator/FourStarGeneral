@@ -4455,21 +4455,23 @@ export class HexMapRenderer implements IMapRenderer {
       fillByAxialKey.set(key, fill);
     }
 
-    // Maximum rings to emit (2 keeps the effect subtle while covering the gap to the viewport edge).
-    const FRINGE_RINGS = 2;
-    // Opacity for each ring — fades toward transparent as distance grows.
-    const RING_OPACITY = [0.42, 0.18];
+    // Five rings fade the boundary smoothly from near-full terrain colour to invisible.
+    // Opacities follow an exponential decay: ring 0 (innermost) is most visible, ring 4 nearly gone.
+    const FRINGE_RINGS = 5;
+    const RING_OPACITY = [0.55, 0.38, 0.22, 0.10, 0.04];
 
-    // Collect fringe hexes ring by ring. We expand outward from the real boundary so that each ring
-    // only contains hexes not already present in the real map or an inner fringe ring.
+    // Collect fringe hexes ring by ring. allFringeKeys tracks every hex already assigned to any
+    // ring so the inner-loop claim check stays O(1) regardless of ring count.
     const fringeGroups: Array<{ q: number; r: number; fill: string; opacity: number }[]> = [];
-    let previousRingKeys = new Set(realAxialKeys);
+    const allFringeKeys = new Set<string>();
+    // The frontier expands one shell at a time; start from the real map boundary.
+    let frontierKeys = new Set(realAxialKeys);
 
     for (let ring = 0; ring < FRINGE_RINGS; ring++) {
       const ringCandidates = new Map<string, { q: number; r: number }>();
 
-      // For every hex in the previous ring boundary, emit its absent neighbours into this ring.
-      for (const key of previousRingKeys) {
+      // Expand every frontier hex outward; collect neighbours not already placed.
+      for (const key of frontierKeys) {
         const [qStr, rStr] = key.split(",");
         const q = Number(qStr);
         const r = Number(rStr);
@@ -4477,29 +4479,21 @@ export class HexMapRenderer implements IMapRenderer {
           const nq = q + dir.q;
           const nr = r + dir.r;
           const nkey = `${nq},${nr}`;
-          if (!realAxialKeys.has(nkey) && !ringCandidates.has(nkey)) {
-            // Check it has not been claimed by any prior fringe ring.
-            let alreadyClaimed = false;
-            for (let prev = 0; prev < ring; prev++) {
-              if (fringeGroups[prev]?.some((f) => `${f.q},${f.r}` === nkey)) {
-                alreadyClaimed = true;
-                break;
-              }
-            }
-            if (!alreadyClaimed) {
-              ringCandidates.set(nkey, { q: nq, r: nr });
-            }
+          if (!realAxialKeys.has(nkey) && !allFringeKeys.has(nkey) && !ringCandidates.has(nkey)) {
+            ringCandidates.set(nkey, { q: nq, r: nr });
           }
         }
       }
 
-      const opacity = RING_OPACITY[ring] ?? 0.12;
+      const opacity = RING_OPACITY[ring] ?? 0;
       const ringEntries: { q: number; r: number; fill: string; opacity: number }[] = [];
 
       for (const { q, r } of ringCandidates.values()) {
-        // Sample fill from the closest real neighbour found within a 3-step search radius.
-        let fill = "#3c5a3c"; // neutral green-grey fallback that blends with most terrain
-        outerSearch: for (let dist = 1; dist <= 3; dist++) {
+        // Sample fill from the closest real neighbour found within a search radius equal to
+        // (ring + 1) steps so outer rings can still reach a real tile for colour sampling.
+        let fill: string | null = null;
+        const searchRadius = ring + 2;
+        outerSearch: for (let dist = 1; dist <= searchRadius; dist++) {
           for (const dir of axialDirections) {
             const sq = q + dir.q * dist;
             const sr = r + dir.r * dist;
@@ -4510,12 +4504,16 @@ export class HexMapRenderer implements IMapRenderer {
             }
           }
         }
+        if (fill === null) {
+          continue;
+        }
         ringEntries.push({ q, r, fill, opacity });
+        allFringeKeys.add(`${q},${r}`);
       }
 
       fringeGroups.push(ringEntries);
-      // Expand the boundary to include this ring for the next iteration.
-      previousRingKeys = new Set([...previousRingKeys, ...Array.from(ringCandidates.keys())]);
+      // The next ring expands from the candidates we just placed, not the whole history.
+      frontierKeys = new Set(ringCandidates.keys());
     }
 
     // Emit SVG polygons for every fringe hex. No clip-paths, no interaction attributes, no data-hex.
