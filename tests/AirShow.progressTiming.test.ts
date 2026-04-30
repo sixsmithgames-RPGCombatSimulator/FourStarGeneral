@@ -11,6 +11,7 @@
 
 import { registerTest } from "./harness.js";
 import { runAirScenario } from "./airScenarioSupport.js";
+import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies";
 
 // Progress anchor reference per North Star Spec
 const PROGRESS_ANCHORS = {
@@ -33,6 +34,8 @@ const PROGRESS_ANCHORS = {
     complete: 1.0
   }
 } as const;
+
+const GOVERNED_BOMB_RELEASE_PROGRESS = buildResolvedAirCombatSceneTimingPolicy(0).bombReleaseProgress;
 
 registerTest("AIR_SHOW_PROGRESS_TIMING_ANCHORS_MATCH_SPEC", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
@@ -138,7 +141,7 @@ registerTest("AIR_SHOW_BOMBER_REACHES_STANDOFF_AT_PROGRESS_1_0", async ({ Given,
   });
 });
 
-registerTest("AIR_SHOW_FLAK_TIMING_AT_PROGRESS_0_60_TO_BEFORE_BOMB_RELEASE", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_FINISHES_BEFORE_BOMB_RELEASE", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
   await Given("flak engagement per North Star Spec §Scenario 5 Phase 6", async () => {});
@@ -147,7 +150,7 @@ registerTest("AIR_SHOW_FLAK_TIMING_AT_PROGRESS_0_60_TO_BEFORE_BOMB_RELEASE", asy
     result = runAirScenario();
   });
 
-  await Then("flak should activate on the late approach and finish before bomb release", async () => {
+  await Then("flak should activate on the approach, persist through a meaningful window, and finish before bomb release", async () => {
     const strikeInspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" &&
         entry.report.phases.some(p => (p.flakBursts?.length ?? 0) > 0)
@@ -164,31 +167,53 @@ registerTest("AIR_SHOW_FLAK_TIMING_AT_PROGRESS_0_60_TO_BEFORE_BOMB_RELEASE", asy
     if (phasesWithFlak.length === 0) {
       throw new Error("Expected phases with flak bursts.");
     }
+    const firstFlakPhase = phasesWithFlak[0]!;
+    const lastFlakPhase = phasesWithFlak[phasesWithFlak.length - 1]!;
+    const targetRunPhase = phasesWithFlak.find((phase) => phase.label === "target-run");
 
-    for (const phase of phasesWithFlak) {
-      const flakBursts = phase.flakBursts!;
-
-      // Check first flak burst timing
-      const firstFlakProgress = flakBursts[0]?.progress ?? 0;
-
-      if (firstFlakProgress < 0.6) {
-        throw new Error(
-          `Flak starts too early in ${phase.label}: first burst at ${(firstFlakProgress * 100).toFixed(1)}% ` +
-          `(late-approach window requires >= 60%)`
-        );
-      }
-
-      const lastFlakProgress = flakBursts[flakBursts.length - 1]?.progress ?? 0;
-      const bombReleaseProgress = 0.9;
-      if (lastFlakProgress >= bombReleaseProgress) {
-        throw new Error(
-          `Flak extends too far in ${phase.label}: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
-          `(must complete before bomb release at ${(bombReleaseProgress * 100).toFixed(1)}%)`
-        );
-      }
-
-      console.log(`[FLAK TIMING] ${phase.label}: ${flakBursts.length} bursts from ${(firstFlakProgress * 100).toFixed(0)}% to ${(lastFlakProgress * 100).toFixed(0)}%`);
+    if (
+      firstFlakPhase.label !== "bomber-ingress" &&
+      firstFlakPhase.label !== "bomber-defense-pass"
+    ) {
+      throw new Error(
+        `Flak starts too late: first phase with flak is ${firstFlakPhase.label} ` +
+        `(expected bomber-ingress or bomber-defense-pass)`
+      );
     }
+
+    if (lastFlakPhase.label !== "target-run") {
+      throw new Error(
+        `Flak ends too early: last phase with flak is ${lastFlakPhase.label} ` +
+        `(expected flak to persist through target-run)`
+      );
+    }
+
+    if (!targetRunPhase) {
+      throw new Error("Expected target-run phase to carry the trailing flak window.");
+    }
+
+    if (phasesWithFlak.length < 2) {
+      throw new Error(
+        `Flak window is too short-lived: only ${phasesWithFlak.length} phase carries flak.`
+      );
+    }
+
+    const targetRunFlakBursts = targetRunPhase.flakBursts!;
+    const firstTargetRunFlakProgress = targetRunFlakBursts[0]?.progress ?? 0;
+    const lastTargetRunFlakProgress = targetRunFlakBursts[targetRunFlakBursts.length - 1]?.progress ?? 0;
+    const bombReleaseProgress = GOVERNED_BOMB_RELEASE_PROGRESS;
+    if (lastTargetRunFlakProgress >= bombReleaseProgress) {
+      throw new Error(
+        `Flak extends too far in target-run: last burst at ${(lastTargetRunFlakProgress * 100).toFixed(1)}% ` +
+        `(must complete before bomb release at ${(bombReleaseProgress * 100).toFixed(1)}%)`
+      );
+    }
+
+    console.log(
+      `[FLAK TIMING] phases=${phasesWithFlak.map((phase) => phase.label).join(" -> ")}; ` +
+      `target-run bursts ${targetRunFlakBursts.length} from ${(firstTargetRunFlakProgress * 100).toFixed(0)}% ` +
+      `to ${(lastTargetRunFlakProgress * 100).toFixed(0)}%`
+    );
   });
 });
 

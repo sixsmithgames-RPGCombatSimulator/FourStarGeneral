@@ -261,13 +261,31 @@ registerTest("AIR_SHOW_INGRESS_PHASES_TRACK_POLICY_SPEEDS_ACROSS_INSPECTIONS", a
                 `(fighter=${meanFighterSpeed.toFixed(3)} px/ms bomber=${bomberReferenceSpeed.toFixed(3)} px/ms)`
               );
             }
-          } else if (
-            meanFighterSpeed < AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * 0.75
-            || meanFighterSpeed > AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * 1.25
-          ) {
-            violations.push(
-              `${inspection.missionId}/${phase.label}: fighter speed ${meanFighterSpeed.toFixed(3)} px/ms out of range`
-            );
+          } else {
+            const minimumFighterSpeed =
+              phase.label === "bomber-ingress"
+                ? AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * 0.6
+                : AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * 0.75;
+            const maximumFighterSpeed = AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * 1.25;
+            const bomberAudit = phaseAudit?.roles.find((role) => role.role === "bomber" && role.assignmentCount > 0);
+            const bomberReferenceSpeed = bomberAudit?.realizedSpeedPxPerMs ?? null;
+            if (
+              meanFighterSpeed < minimumFighterSpeed
+              || meanFighterSpeed > maximumFighterSpeed
+            ) {
+              violations.push(
+                `${inspection.missionId}/${phase.label}: fighter speed ${meanFighterSpeed.toFixed(3)} px/ms out of range`
+              );
+            } else if (
+              phase.label === "bomber-ingress"
+              && bomberReferenceSpeed !== null
+              && meanFighterSpeed <= bomberReferenceSpeed * 1.12
+            ) {
+              violations.push(
+                `${inspection.missionId}/${phase.label}: bomber-ingress fighter cover collapsed too close to bomber speed ` +
+                `(fighter=${meanFighterSpeed.toFixed(3)} px/ms bomber=${bomberReferenceSpeed.toFixed(3)} px/ms)`
+              );
+            }
           }
         }
 
@@ -414,20 +432,22 @@ registerTest("AIR_SHOW_ESCORT_SPEED_TRANSITION_AT_PROGRESS_0_15", async ({ Given
   });
 });
 
-registerTest("AIR_SHOW_CAP_SPEED_CONSTANT_AT_V", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_CAP_COMBAT_PHASES_STAY_IN_PURPOSEFUL_MOTION", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
-  await Given("CAP speed constant at V throughout engagement per North Star Spec", async () => {});
+  await Given("compact merge shaping may slow CAP locally, but combat phases should stay purposeful", async () => {});
 
   await When("the contested package with CAP is run", async () => {
     result = runAirScenario();
   });
 
-  await Then("CAP should maintain consistent speed in all combat phases", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" &&
-        entry.diagnostics.participants.some(p => p.renderRole === "interceptor")
-    );
+  await Then("CAP should keep moving through combat phases without falling into slow loiter outside compact merge work", async () => {
+    const inspection =
+      getAuthoritativeContestedInspection(result)
+      ?? result?.airshowInspections.find(
+        (entry) => entry.eventType === "airToAir" &&
+          entry.diagnostics.participants.some(p => p.renderRole === "interceptor")
+      );
     if (!inspection) {
       console.log("[CAP SPEED] No package with CAP found - skipping");
       return;
@@ -473,21 +493,32 @@ registerTest("AIR_SHOW_CAP_SPEED_CONSTANT_AT_V", async ({ Given, When, Then }) =
       return;
     }
 
-    // Check for consistency (CAP speed should not vary wildly)
-    const speedValues = speeds.map(s => s.speed);
-    const avgSpeed = speedValues.reduce((a, b) => a + b, 0) / speedValues.length;
-    const maxDeviation = Math.max(...speedValues.map(s => Math.abs(s - avgSpeed)));
-    const deviationPercent = avgSpeed > 0 ? (maxDeviation / avgSpeed) * 100 : 0;
+    const violations = speeds.flatMap(({ phase, speed }) => {
+      const isCompactMergePhase = phase.includes("merge");
+      const minimumSpeed =
+        AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * (isCompactMergePhase ? 0.25 : 0.55);
+      const maximumSpeed = AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * 1.35;
+      const failures: string[] = [];
+      if (speed < minimumSpeed) {
+        failures.push(
+          `${phase}: CAP speed ${speed.toFixed(2)} px/ms below minimum ${minimumSpeed.toFixed(2)} px/ms`
+        );
+      }
+      if (speed > maximumSpeed) {
+        failures.push(
+          `${phase}: CAP speed ${speed.toFixed(2)} px/ms above maximum ${maximumSpeed.toFixed(2)} px/ms`
+        );
+      }
+      return failures;
+    });
 
-    if (deviationPercent > 50) {
-      throw new Error(
-        `CAP speed varies too much across phases: ${deviationPercent.toFixed(0)}% deviation ` +
-        `(speeds: ${speedValues.map(s => s.toFixed(2)).join(", ")})`
-      );
+    if (violations.length > 0) {
+      throw new Error(`CAP combat phase speed violations:\n${violations.join("\n")}`);
     }
 
-    console.log(`[CAP SPEED] Consistent speed across ${speeds.length} combat phases`);
-    console.log(`  - Average: ${avgSpeed.toFixed(2)} px/ms`);
-    console.log(`  - Max deviation: ${deviationPercent.toFixed(0)}%`);
+    console.log(`[CAP SPEED] Purposeful motion across ${speeds.length} combat phases`);
+    speeds.forEach(({ phase, speed }) => {
+      console.log(`  - ${phase}: ${speed.toFixed(2)} px/ms`);
+    });
   });
 });

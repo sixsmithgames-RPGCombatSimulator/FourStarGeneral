@@ -6,7 +6,8 @@ import type { AirEngagementEvent, AirMissionArrival } from "../src/game/GameEngi
 import type { ScenarioUnit } from "../src/core/types";
 import {
   buildCoordinatedAirClusterTimingPolicy,
-  buildResolvedAirCombatSceneTimingPolicy
+  buildResolvedAirCombatSceneTimingPolicy,
+  resolveCoordinatedAirClusterLeadWindow
 } from "../src/ui/airshow/AirShowTimingPolicies.js";
 
 type ResolvedSceneFlightLike = {
@@ -972,9 +973,11 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BO
       throw new Error(`Expected one escort dogfight and one bomber-defense pass, saw ${JSON.stringify(callOrder)}.`);
     }
 
-    if ((resolvedScene?.bomberArrivalDelayMs ?? 0) < 700) {
+    const expectedPolicy = buildResolvedAirCombatSceneTimingPolicy(900);
+    if ((resolvedScene?.bomberArrivalDelayMs ?? 0) !== expectedPolicy.bomberArrivalDelayMs) {
       throw new Error(
-        `Expected a substantial bomber arrival hold before the defense pass, saw ${resolvedScene?.bomberArrivalDelayMs ?? "<missing>"}ms.`
+        `Expected bomber arrival delay ${expectedPolicy.bomberArrivalDelayMs}ms from the shared timing policy, ` +
+        `saw ${resolvedScene?.bomberArrivalDelayMs ?? "<missing>"}ms.`
       );
     }
   });
@@ -1975,10 +1978,13 @@ registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_SCENE_USES_SHARED_POLICY_TIMINGS"
         `saw ${coordinatedScene.bombReleaseProgress ?? "<missing>"}.`
       );
     }
-    const expectedComputedLeadMs = Math.max(
-      expectedPolicy.bomberStartDelayMs,
-      Math.round(expectedPolicy.fighterIngressDurationMs + expectedPolicy.escortClashDurationMs * 0.3 + 140)
-    );
+    const expectedComputedLeadMs = resolveCoordinatedAirClusterLeadWindow(
+      true,
+      1,
+      expectedPolicy.fighterIngressDurationMs,
+      expectedPolicy.escortClashDurationMs,
+      expectedPolicy.bomberStartDelayMs
+    ).bomberStartDelayMs;
     if (coordinatedPlan?.bomberStartDelayMs !== expectedComputedLeadMs) {
       throw new Error(
         `Expected coordinated computed bomber start delay ${expectedComputedLeadMs}, ` +

@@ -9,6 +9,7 @@
 
 import { registerTest } from "./harness.js";
 import { sampleAirShowWaypointPath } from "../src/ui/airshow/AirShowPathMath";
+import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies";
 import {
   resolveInspectionAssignmentBoundaryPoint,
   runAirScenario
@@ -20,6 +21,7 @@ const MAX_HEADING_CHANGE_DEG_PER_QUARTER_SEC = 25;
 
 // Sample count to approximate heading rate (40 samples = 0.025 progress steps)
 const HEADING_SAMPLE_COUNT = 40;
+const GOVERNED_BOMB_RELEASE_PROGRESS = buildResolvedAirCombatSceneTimingPolicy(0).bombReleaseProgress;
 
 function vectorToDegrees(dx: number, dy: number): number {
   return ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
@@ -765,7 +767,7 @@ registerTest("AIR_SHOW_SPATIAL_SEPARATION_REPORT", async ({ Given, When, Then })
   });
 });
 
-registerTest("AIR_SHOW_FLAK_TIMING_STAYS_IN_LATE_FINAL_APPROACH_WINDOW", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_STAYS_INSIDE_STRIKE_RUN", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
   await Given("the air scenario includes bomber strike with flak", async () => {});
@@ -774,46 +776,56 @@ registerTest("AIR_SHOW_FLAK_TIMING_STAYS_IN_LATE_FINAL_APPROACH_WINDOW", async (
     result = runAirScenario();
   });
 
-  await Then("flak bursts should open late in the strike run without slipping past bomb release", async () => {
-    // Find a strike inspection that has flak in the target-run phase
+  await Then("flak bursts should open on mid-approach, persist through a real window, and finish before bomb release", async () => {
     const strikeInspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" &&
-        entry.report.phases.some((p) => p.label === "target-run" && (p.flakBursts?.length ?? 0) > 0)
+        entry.report.phases.some((p) => (p.flakBursts?.length ?? 0) > 0)
     );
     if (!strikeInspection) {
-      throw new Error("Expected a strike package inspection with target-run phase containing flak.");
+      throw new Error("Expected a strike package inspection containing flak.");
     }
 
-    // Find the specific target-run phase that has flak (not all do)
-    const targetRunPhase = strikeInspection.report.phases.find(
-      (p) => p.label === "target-run" && (p.flakBursts?.length ?? 0) > 0
+    const phasesWithFlak = strikeInspection.report.phases.filter(
+      (phase) => (phase.flakBursts?.length ?? 0) > 0
     );
-    if (!targetRunPhase) {
-      throw new Error("Expected target-run phase with flak bursts in strike inspection.");
+    const firstFlakPhase = phasesWithFlak[0] ?? null;
+    const targetRunPhase = phasesWithFlak.find((phase) => phase.label === "target-run") ?? null;
+    if (!firstFlakPhase || !targetRunPhase) {
+      throw new Error("Expected flak to span into target-run in the strike inspection.");
+    }
+
+    if (
+      firstFlakPhase.label !== "bomber-ingress" &&
+      firstFlakPhase.label !== "bomber-defense-pass"
+    ) {
+      throw new Error(
+        `Flak starts too late: first phase carrying flak is ${firstFlakPhase.label} ` +
+        `(expected bomber-ingress or bomber-defense-pass)`
+      );
+    }
+
+    if (phasesWithFlak.length < 2) {
+      throw new Error(
+        `Flak window is too short-lived: only ${phasesWithFlak.length} phase carries flak.`
+      );
     }
 
     const flakBursts = targetRunPhase.flakBursts!;
-
-    // Per the governed late-approach window, flak should not open while the package is
-    // still far from target, and it should not trail past the bomb-release segment either.
     const firstFlakProgress = flakBursts[0]?.progress ?? 0;
     const lastFlakProgress = flakBursts[flakBursts.length - 1]?.progress ?? 0;
-
-    if (firstFlakProgress < 0.6) {
-      throw new Error(
-        `Flak starts too early in strike run: first burst at ${(firstFlakProgress * 100).toFixed(1)}% ` +
-        `(should not open before the late final-approach window at 60%+)`
-      );
-    }
-
-    if (lastFlakProgress > 0.94) {
+    const bombReleaseProgress = GOVERNED_BOMB_RELEASE_PROGRESS;
+    if (lastFlakProgress >= bombReleaseProgress) {
       throw new Error(
         `Flak ends too late in strike run: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
-        `(should finish before the post-release tail of the run)`
+        `(should finish before the bomb-release segment)`
       );
     }
 
-    console.log(`[FLAK TIMING] ${flakBursts.length} bursts from ${(firstFlakProgress * 100).toFixed(1)}% to ${(lastFlakProgress * 100).toFixed(1)}% — correctly centered on final approach`);
+    console.log(
+      `[FLAK TIMING] phases=${phasesWithFlak.map((phase) => phase.label).join(" -> ")}; ` +
+      `target-run bursts ${flakBursts.length} from ${(firstFlakProgress * 100).toFixed(1)}% ` +
+      `to ${(lastFlakProgress * 100).toFixed(1)}%`
+    );
   });
 });
 

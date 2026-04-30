@@ -8,12 +8,14 @@
  */
 import { registerTest } from "./harness.js";
 import { sampleAirShowWaypointPath } from "../src/ui/airshow/AirShowPathMath";
+import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies";
 import { resolveInspectionAssignmentBoundaryPoint, runAirScenario } from "./airScenarioSupport.js";
 // Per North Star Spec: heading change must not exceed 25 degrees per 0.25 seconds
 // outside of a designated break turn.
 const MAX_HEADING_CHANGE_DEG_PER_QUARTER_SEC = 25;
 // Sample count to approximate heading rate (40 samples = 0.025 progress steps)
 const HEADING_SAMPLE_COUNT = 40;
+const GOVERNED_BOMB_RELEASE_PROGRESS = buildResolvedAirCombatSceneTimingPolicy(0).bombReleaseProgress;
 function vectorToDegrees(dx, dy) {
     return ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
 }
@@ -568,13 +570,13 @@ registerTest("AIR_SHOW_SPATIAL_SEPARATION_REPORT", async ({ Given, When, Then })
         console.log(`\n[SUMMARY] ${warnings.length + (worstFailure ? 1 : 0)} total overlap events reported.`);
     });
 });
-registerTest("AIR_SHOW_FLAK_TIMING_STAYS_IN_LATE_FINAL_APPROACH_WINDOW", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_STAYS_INSIDE_STRIKE_RUN", async ({ Given, When, Then }) => {
     let result = null;
     await Given("the air scenario includes bomber strike with flak", async () => { });
     await When("the scenario report is generated", async () => {
         result = runAirScenario();
     });
-    await Then("flak bursts should open late in the strike run without slipping past bomb release", async () => {
+    await Then("flak bursts should open on mid-approach, persist through a real window, and finish before bomb release", async () => {
         // Find a strike inspection that has flak in the target-run phase
         const strikeInspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" &&
             entry.report.phases.some((p) => p.label === "target-run" && (p.flakBursts?.length ?? 0) > 0));
@@ -587,19 +589,24 @@ registerTest("AIR_SHOW_FLAK_TIMING_STAYS_IN_LATE_FINAL_APPROACH_WINDOW", async (
             throw new Error("Expected target-run phase with flak bursts in strike inspection.");
         }
         const flakBursts = targetRunPhase.flakBursts;
-        // Per the governed late-approach window, flak should not open while the package is
-        // still far from target, and it should not trail past the bomb-release segment either.
+        // Shared flak policy now opens during the early-to-mid approach so the barrage has time to
+        // read on screen, but it still must stay inside the strike-run window and clear before release.
         const firstFlakProgress = flakBursts[0]?.progress ?? 0;
         const lastFlakProgress = flakBursts[flakBursts.length - 1]?.progress ?? 0;
-        if (firstFlakProgress < 0.6) {
+        if (firstFlakProgress < 0.24) {
             throw new Error(`Flak starts too early in strike run: first burst at ${(firstFlakProgress * 100).toFixed(1)}% ` +
-                `(should not open before the late final-approach window at 60%+)`);
+                `(should not open before the governed approach window at 24%+)`);
         }
-        if (lastFlakProgress > 0.94) {
+        const bombReleaseProgress = GOVERNED_BOMB_RELEASE_PROGRESS;
+        if (lastFlakProgress >= bombReleaseProgress) {
             throw new Error(`Flak ends too late in strike run: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
-                `(should finish before the post-release tail of the run)`);
+                `(should finish before the bomb-release segment)`);
         }
-        console.log(`[FLAK TIMING] ${flakBursts.length} bursts from ${(firstFlakProgress * 100).toFixed(1)}% to ${(lastFlakProgress * 100).toFixed(1)}% — correctly centered on final approach`);
+        if (lastFlakProgress - firstFlakProgress < 0.3) {
+            throw new Error(`Flak window is too short in strike run: ${(firstFlakProgress * 100).toFixed(1)}% -> ${(lastFlakProgress * 100).toFixed(1)}% ` +
+                `(expected at least a 30% progress span)`);
+        }
+        console.log(`[FLAK TIMING] ${flakBursts.length} bursts from ${(firstFlakProgress * 100).toFixed(1)}% to ${(lastFlakProgress * 100).toFixed(1)}% — correctly sustained across approach`);
     });
 });
 registerTest("AIR_SHOW_SYNTHETIC_STACK_PACKAGE_AVOIDS_CURRENT_GOVERNED_MOTION_AND_FLAK_FINDINGS", async ({ Given, When, Then }) => {

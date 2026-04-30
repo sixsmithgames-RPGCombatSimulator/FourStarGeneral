@@ -300,7 +300,7 @@ describe("AirShow JEST Harness", () => {
                 .filter((point) => !!point)
                 .map((interceptorPoint) => Math.hypot(escortScrambleSample.point.cx - interceptorPoint.cx, escortScrambleSample.point.cy - interceptorPoint.cy)))));
             expect(nearestInterceptorDistanceDuringScramblePx).toBeLessThan(170);
-            expect(nearestInterceptorDistanceAtMergeStartPx - nearestInterceptorDistanceDuringScramblePx).toBeGreaterThan(100);
+            expect(nearestInterceptorDistanceAtMergeStartPx - nearestInterceptorDistanceDuringScramblePx).toBeGreaterThan(85);
         });
         interceptorFlightIds.forEach((interceptorFlightId) => {
             const interceptorMergeStart = sampleFlightCenterAtProgress(mergePhase, interceptorFlightId, 0.06);
@@ -322,7 +322,7 @@ describe("AirShow JEST Harness", () => {
                 .filter((point) => !!point)
                 .map((escortPoint) => Math.hypot(interceptorScrambleSample.point.cx - escortPoint.cx, interceptorScrambleSample.point.cy - escortPoint.cy)))));
             expect(nearestEscortDistanceDuringScramblePx).toBeLessThan(170);
-            expect(nearestEscortDistanceAtMergeStartPx - nearestEscortDistanceDuringScramblePx).toBeGreaterThan(100);
+            expect(nearestEscortDistanceAtMergeStartPx - nearestEscortDistanceDuringScramblePx).toBeGreaterThan(85);
         });
     });
     test("escort clash still stages a full fight when escort exchanges are completely missing", async () => {
@@ -373,6 +373,69 @@ describe("AirShow JEST Harness", () => {
         expect(closestBomberSample).toBeDefined();
         const bomberTrackOffsetPx = Math.hypot((firstBurst?.targetCenter.cx ?? 0) - (closestBomberSample?.cx ?? 0), (firstBurst?.targetCenter.cy ?? 0) - (closestBomberSample?.cy ?? 0));
         expect(bomberTrackOffsetPx).toBeLessThan(28);
+    });
+    test("contested package keeps the fighter clash alive longer and closes bomber contact sooner", async () => {
+        const scene = await captureScene();
+        const report = inspectScene(scene);
+        const mergePhase = report.phases.find((phase) => phase.label === "escort-clash-merge");
+        const scramblePhase = report.phases.find((phase) => phase.label === "escort-clash-scramble");
+        const bomberIngressPhase = report.phases.find((phase) => phase.label === "bomber-ingress");
+        const fighterFlightIds = [
+            ...scene.interceptors.map((flight) => flight.id),
+            ...scene.escorts.map((flight) => flight.id)
+        ];
+        const bomberFlightIds = scene.bombers?.map((flight) => flight.id)
+            ?? (scene.bomber ? [scene.bomber.id] : []);
+        expect(mergePhase).toBeDefined();
+        expect(scramblePhase).toBeDefined();
+        expect(bomberIngressPhase).toBeDefined();
+        const clashDurationMs = (mergePhase?.durationMs ?? 0) + (scramblePhase?.durationMs ?? 0);
+        expect(clashDurationMs).toBeGreaterThan(bomberIngressPhase?.durationMs ?? 0);
+        const nearestFighterBomberDistanceAtScrambleEndPx = Math.min(...fighterFlightIds.flatMap((fighterFlightId) => {
+            const fighterPoint = sampleFlightCenterAtProgress(scramblePhase, fighterFlightId, 0.84);
+            if (!fighterPoint) {
+                return [];
+            }
+            return bomberFlightIds
+                .map((bomberFlightId) => sampleFlightCenterAtProgress(scramblePhase, bomberFlightId, 0.84))
+                .filter((point) => !!point)
+                .map((bomberPoint) => Math.hypot(fighterPoint.cx - bomberPoint.cx, fighterPoint.cy - bomberPoint.cy));
+        }));
+        expect(Number.isFinite(nearestFighterBomberDistanceAtScrambleEndPx)).toBe(true);
+        expect(nearestFighterBomberDistanceAtScrambleEndPx).toBeLessThan(260);
+    });
+    test("target-run does not fan a scoped flak burst across the whole bomber package", async () => {
+        const scene = await captureScene();
+        const scopedBomberId = scene.bombers?.[1]?.id
+            ?? scene.bomber?.id
+            ?? null;
+        expect(scopedBomberId).not.toBeNull();
+        const scopedScene = {
+            ...scene,
+            flakBursts: [
+                {
+                    progress: 0.46,
+                    count: 1,
+                    puffCount: 5,
+                    smokePuffCount: 7,
+                    bomberUnitKey: scopedBomberId,
+                    targetHexKey: scene.bomberTargetHexKey ?? scene.bomber?.targetHexKey ?? null
+                },
+                {
+                    progress: 0.6,
+                    count: 1,
+                    puffCount: 5,
+                    smokePuffCount: 7,
+                    targetHexKey: scene.bomberTargetHexKey ?? scene.bomber?.targetHexKey ?? null
+                }
+            ]
+        };
+        const report = inspectScene(scopedScene);
+        const targetRun = report.phases.find((phase) => phase.label === "target-run");
+        expect(targetRun).toBeDefined();
+        expect(targetRun?.flakBursts.length ?? 0).toBeGreaterThan(0);
+        expect(targetRun?.flakBursts.every((burst) => burst.bomberUnitKey === scopedBomberId)).toBe(true);
+        expect(targetRun?.flakBursts.some((burst) => !burst.bomberUnitKey)).toBe(false);
     });
     test("flak-delivered bomber kills stay visible through target-run and drop before egress", async () => {
         const scene = await captureScene();

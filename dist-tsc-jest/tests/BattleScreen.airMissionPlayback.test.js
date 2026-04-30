@@ -2,7 +2,7 @@ import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem.js";
-import { buildCoordinatedAirClusterTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies.js";
+import { buildCoordinatedAirClusterTimingPolicy, buildResolvedAirCombatSceneTimingPolicy, resolveCoordinatedAirClusterLeadWindow } from "../src/ui/airshow/AirShowTimingPolicies.js";
 function resolveSceneBombers(scene) {
     if (Array.isArray(scene.bombers) && scene.bombers.length > 0) {
         return scene.bombers;
@@ -783,8 +783,10 @@ registerTest("BATTLESCREEN_AIR_INTERCEPTS_DELAY_BOMBER_DEFENSE_PASS_UNTIL_THE_BO
         if (dogfightCalls.length !== 1 || bomberDefenseCalls.length !== 1) {
             throw new Error(`Expected one escort dogfight and one bomber-defense pass, saw ${JSON.stringify(callOrder)}.`);
         }
-        if ((resolvedScene?.bomberArrivalDelayMs ?? 0) < 700) {
-            throw new Error(`Expected a substantial bomber arrival hold before the defense pass, saw ${resolvedScene?.bomberArrivalDelayMs ?? "<missing>"}ms.`);
+        const expectedPolicy = buildResolvedAirCombatSceneTimingPolicy(900);
+        if ((resolvedScene?.bomberArrivalDelayMs ?? 0) !== expectedPolicy.bomberArrivalDelayMs) {
+            throw new Error(`Expected bomber arrival delay ${expectedPolicy.bomberArrivalDelayMs}ms from the shared timing policy, ` +
+                `saw ${resolvedScene?.bomberArrivalDelayMs ?? "<missing>"}ms.`);
         }
     });
 });
@@ -1643,7 +1645,7 @@ registerTest("BATTLESCREEN_COORDINATED_AIRSHOW_SCENE_USES_SHARED_POLICY_TIMINGS"
             throw new Error(`Expected coordinated bomb release progress ${expectedPolicy.bombReleaseProgress}, ` +
                 `saw ${coordinatedScene.bombReleaseProgress ?? "<missing>"}.`);
         }
-        const expectedComputedLeadMs = Math.max(expectedPolicy.bomberStartDelayMs, Math.round(expectedPolicy.fighterIngressDurationMs + expectedPolicy.escortClashDurationMs * 0.3 + 140));
+        const expectedComputedLeadMs = resolveCoordinatedAirClusterLeadWindow(true, 1, expectedPolicy.fighterIngressDurationMs, expectedPolicy.escortClashDurationMs, expectedPolicy.bomberStartDelayMs).bomberStartDelayMs;
         if (coordinatedPlan?.bomberStartDelayMs !== expectedComputedLeadMs) {
             throw new Error(`Expected coordinated computed bomber start delay ${expectedComputedLeadMs}, ` +
                 `saw ${coordinatedPlan?.bomberStartDelayMs ?? "<missing>"}.`);

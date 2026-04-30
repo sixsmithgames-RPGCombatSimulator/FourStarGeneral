@@ -228,7 +228,8 @@ export const TRAIT_EFFECTS = {
     entrenchBuster: { name: "entrenchBuster" },
     suppression: { name: "suppression" },
     intercept: { name: "intercept" },
-    carpet: { name: "carpet" }
+    carpet: { name: "carpet" },
+    smoke: { name: "smoke" }
 };
 /**
  * Legacy named exports derived from the centralized structures. These keep older call sites alive

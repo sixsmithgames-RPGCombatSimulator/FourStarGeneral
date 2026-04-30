@@ -12,6 +12,11 @@ import type { TerrainDefinition, UnitClass } from "./types";
  */
 export interface Lister {
   terrainAt(hex: Axial): TerrainDefinition | null;
+  /**
+   * Optional: returns true when a live smoke screen is placed on the shared edge between `from` and
+   * adjacent `to`. When absent, smoke is treated as not present (safe for legacy callers).
+   */
+  smokeEdgeBlocksLOS?(from: Axial, to: Axial): boolean;
 }
 
 /**
@@ -58,8 +63,18 @@ export function losClearAdvanced(ctx: LOSContext): boolean {
   const distance = hexDistance(attackerHex, targetHex);
   const path = hexLine(attackerHex, targetHex);
 
-  // Adjacent hexes always have LOS
+  // Adjacent hexes always have LOS — but smoke can still block even on short paths.
+  // Smoke blocks the edge between consecutive hexes, so we check it here before the
+  // early-return so adjacent-hex smoke is respected.
   if (path.length <= 2) {
+    // For air units smoke has no effect (they observe from altitude).
+    if (!isAttackerAir && lister.smokeEdgeBlocksLOS && path.length === 2) {
+      const from = path[0];
+      const to = path[1];
+      if (from && to && lister.smokeEdgeBlocksLOS(from, to)) {
+        return false;
+      }
+    }
     return true;
   }
 
@@ -111,7 +126,8 @@ function checkAirLOS(path: Axial[], lister: Lister, isScout: boolean): boolean {
 }
 
 /**
- * Check ground LOS with recon and elevation rules
+ * Check ground LOS with recon and elevation rules.
+ * Also checks smoke screens on edges between consecutive hexes in the path.
  */
 function checkGroundLOS(
   path: Axial[],
@@ -124,6 +140,25 @@ function checkGroundLOS(
 
   for (let i = 0; i < middle.length; i++) {
     const hex = middle[i];
+
+    // Check whether a smoke screen on the edge between the previous and current hex in the path
+    // blocks this LOS. Smoke is checked before terrain because it is an edge effect, not a
+    // hex-interior effect — it blocks regardless of the hex's terrain type.
+    // i === 0 means the edge between attackerHex and middle[0]; otherwise middle[i-1] to middle[i].
+    if (lister.smokeEdgeBlocksLOS) {
+      const prevHex = i === 0 ? path[0] : middle[i - 1];
+      if (prevHex && hex && lister.smokeEdgeBlocksLOS(prevHex, hex)) {
+        return false;
+      }
+      // Also check the edge between the last middle hex and the target hex.
+      if (i === middle.length - 1) {
+        const nextHex = path[path.length - 1];
+        if (hex && nextHex && lister.smokeEdgeBlocksLOS(hex, nextHex)) {
+          return false;
+        }
+      }
+    }
+
     const terrain = lister.terrainAt(hex);
 
     if (!terrain?.blocksLOS) {

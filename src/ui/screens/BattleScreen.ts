@@ -143,7 +143,7 @@ interface PendingFortificationContext {
   readonly hexKey: string;
   readonly unitLabel: string;
   readonly unitId: string | null;
-  readonly modificationType: "fortifications" | "tankTraps";
+  readonly modificationType: "fortifications" | "tankTraps" | "smoke";
 }
 
 interface PreparedAirMissionFlight {
@@ -2114,7 +2114,7 @@ export class BattleScreen {
     hex: Axial,
     unitLabel: string,
     unitId: string | null,
-    modificationType: "fortifications" | "tankTraps" = "fortifications"
+    modificationType: "fortifications" | "tankTraps" | "smoke" = "fortifications"
   ): void {
     if (!this.selectedHexKey) {
       return;
@@ -2157,7 +2157,7 @@ export class BattleScreen {
 
   private buildFortificationFacingPreviewMarkup(
     fortifiedFacings: readonly HexEdgeFacing[],
-    modificationType: "fortifications" | "tankTraps"
+    modificationType: "fortifications" | "tankTraps" | "smoke"
   ): string {
     const edgePaths: Record<HexEdgeFacing, string> = {
       NW: "M 35 67 L 110 24",
@@ -2175,7 +2175,7 @@ export class BattleScreen {
       SW: { x: 60, y: 186 },
       W: { x: 20, y: 114 }
     };
-    const noun = modificationType === "tankTraps" ? "tank-trap" : "fortification";
+    const noun = modificationType === "tankTraps" ? "tank-trap" : modificationType === "smoke" ? "smoke" : "fortification";
     return `
       <svg viewBox="0 0 220 220" class="fortification-facing-preview-svg" aria-label="Select a ${noun} edge">
         <polygon
@@ -2309,6 +2309,27 @@ export class BattleScreen {
 
     const { hex, hexKey, unitLabel, unitId, modificationType } = this.pendingFortificationBuild;
     const engine = this.battleState.ensureGameEngine();
+
+    // Smoke uses a dedicated engine action rather than the generic buildHexModification path.
+    if (modificationType === "smoke") {
+      try {
+        engine.laySmoke(hex, facing, unitId ?? undefined);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unable to lay smoke right now.";
+        this.announceBattleUpdate(message);
+        this.renderFortificationFacingPreview();
+        return;
+      }
+      this.hideFortificationFacingDialog();
+      this.renderEngineUnits();
+      this.clearSelectedHexAfterAction();
+      const smokeSummary = `${unitLabel} laid a smoke screen on the ${facing} edge at ${hexKey}.`;
+      this.announceBattleUpdate(smokeSummary);
+      this.publishActivityEvent({ category: "player", type: "log", summary: smokeSummary });
+      this.battleState.emitBattleUpdate("manual");
+      return;
+    }
+
     const fortifiedFacings = new Set(
       engine
         .getHexModifications(hex)
@@ -8217,6 +8238,13 @@ export class BattleScreen {
         this.announceBattleUpdate(commandState?.digInReason ?? "This formation cannot dig in right now.");
         return;
       }
+    } else if (actionId === "laySmoke") {
+      if (!commandState?.canLaySmoke) {
+        this.announceBattleUpdate(commandState?.smokeReason ?? "This formation cannot lay smoke right now.");
+        return;
+      }
+      this.promptFortificationFacing(axial, unitLabel, this.selectedPlayerUnitId, "smoke");
+      return;
     } else {
       const modificationType = this.parseHexModificationAction(actionId);
       if (!modificationType) {
@@ -8920,6 +8948,14 @@ export class BattleScreen {
         reason: commandState.digInReason
       });
     }
+    actions.push({
+      id: "laySmoke",
+      label: "Lay Smoke",
+      detail: "Fire smoke rounds to cover a chosen hex edge. The screen blocks ground line of sight along that edge until the start of your next turn. Requires ammo but does not use movement or attacks.",
+      tone: "mobility",
+      available: commandState.canLaySmoke,
+      reason: commandState.smokeReason
+    });
     if (commandState.isEngineer) {
       const fortificationsBuild = commandState.buildModificationAvailability.fortifications;
       const tankTrapsBuild = commandState.buildModificationAvailability.tankTraps;
@@ -9167,6 +9203,8 @@ export class BattleScreen {
         return "tank traps";
       case "clearedPath":
         return "a cleared path";
+      case "smoke":
+        return "a smoke screen";
       default:
         return "fieldworks";
     }

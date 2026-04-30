@@ -1199,6 +1199,8 @@ export interface UnitCommandState {
   readonly canBuildModification: boolean;
   readonly buildReason: string | null;
   readonly buildModificationAvailability: Readonly<Record<HexModificationType, { available: boolean; reason: string | null }>>;
+  readonly canLaySmoke: boolean;
+  readonly smokeReason: string | null;
 }
 
 interface InternalEnemyContactState {
@@ -8463,6 +8465,8 @@ private automateSupplyConvoys(
       this.clearSentryFor("Player");
       this.rebuildPlayerIdleUnitSet();
       this.refreshAircraftAmmoForFaction("Player");
+      // Expire smoke screens laid on the previous player turn before any new player actions resolve.
+      this.expireSmoke();
       return playerSupplyReport;
     }
 
@@ -8477,6 +8481,8 @@ private automateSupplyConvoys(
       this.clearSentryFor("Player");
       this.rebuildPlayerIdleUnitSet();
       this.refreshAircraftAmmoForFaction("Player");
+      // Expire smoke screens laid on the previous player turn before any new player actions resolve.
+      this.expireSmoke();
       return this.applySupplyTickFor("Player");
     }
 
@@ -11202,7 +11208,9 @@ private automateSupplyConvoys(
   /** Adapter returning both terrain and LOS fields to the `losClear()` helper. */
   private createLosLister(): Lister {
     return {
-      terrainAt: (hex: Axial) => this.terrainAt(hex)
+      terrainAt: (hex: Axial) => this.terrainAt(hex),
+      // Expose live smoke screens so LOS checks are blocked along smoke-covered hex edges.
+      smokeEdgeBlocksLOS: (from: Axial, to: Axial): boolean => this.isSmokeOnSharedEdge(from, to)
     };
   }
 
@@ -14725,6 +14733,8 @@ private automateSupplyConvoys(
         return "fortifications";
       case "clearedPath":
         return "a cleared path";
+      case "smoke":
+        return "a smoke screen";
       default:
         return "fieldworks";
     }
@@ -14735,6 +14745,109 @@ private automateSupplyConvoys(
       return "Hold position and stay uncommitted this turn to use field actions.";
     }
     return null;
+  }
+
+  /**
+   * Returns true when the unit class and definition allow laying a smoke screen.
+   * Tanks, vehicles, and artillery can all fire smoke rounds. Any ground unit with the
+   * 'smoke' trait (e.g. mortar teams) is also eligible.
+   */
+  private isSmokeCapableUnit(unit: ScenarioUnit, definition: UnitTypeDefinition): boolean {
+    if (definition.moveType === "air") {
+      return false;
+    }
+    const smokableClasses: UnitClass[] = ["tank", "vehicle", "artillery"];
+    if (smokableClasses.includes(definition.class)) {
+      return true;
+    }
+    return (definition.traits as readonly string[]).includes("smoke");
+  }
+
+  /**
+   * Resolves whether the selected unit can lay a smoke screen this turn.
+   * Smoke is a free action (does not spend movement or attack allowance) but requires ammo.
+   */
+  private resolveLaySmokeAvailability(
+    hex: Axial,
+    unit: ScenarioUnit,
+    definition: UnitTypeDefinition
+  ): { available: boolean; reason: string | null } {
+    if (this._phase !== "playerTurn") {
+      return { available: false, reason: "Smoke orders are available only during the player turn." };
+    }
+    if (this.isAutomatedPlayerUnit(unit)) {
+      return { available: false, reason: "Automated logistics convoys cannot lay smoke." };
+    }
+    if (!this.playerPlacements.has(axialKey(hex))) {
+      return { available: false, reason: "No player formation occupies this hex." };
+    }
+    if (!this.isSmokeCapableUnit(unit, definition)) {
+      return { available: false, reason: "Only tanks, vehicles, artillery, and smoke-equipped infantry can deploy smoke." };
+    }
+    if (unit.ammo <= 0) {
+      return { available: false, reason: "No ammunition remaining — smoke rounds require the unit to have ammo." };
+    }
+    return { available: true, reason: null };
+  }
+
+  /**
+   * Returns true when an active smoke screen straddles the shared edge between hexes `a` and `b`.
+   * The smoke can be stored on either hex's modification list (covering the edge toward the other).
+   * Because hexLine always walks attacker → target, we check both directions so the check is
+   * symmetric regardless of LOS path direction.
+   */
+  private isSmokeOnSharedEdge(a: Axial, b: Axial): boolean {
+    const checkHex = (origin: Axial, other: Axial): boolean => {
+      const mods = this.hexModifications.get(axialKey(origin));
+      if (!mods) {
+        return false;
+      }
+      return mods.some((mod) => {
+        if (mod.type !== "smoke" || !mod.facing) {
+          return false;
+        }
+        // Resolve the actual neighbor hex in the direction of `mod.facing` from `origin`
+        // and check whether it matches `other`.
+        return this.hexInFacing(origin, mod.facing, other);
+      });
+    };
+    return checkHex(a, b) || checkHex(b, a);
+  }
+
+  /**
+   * Determines whether the neighbor hex of `origin` in direction `facing` equals `target`.
+   * Uses the axial coordinate neighbour offsets for the six pointy-top hex directions.
+   */
+  private hexInFacing(origin: Axial, facing: HexEdgeFacing, target: Axial): boolean {
+    // Pointy-top axial neighbour offsets for NW / NE / E / SE / SW / W.
+    const offsets: Record<HexEdgeFacing, { dq: number; dr: number }> = {
+      NW: { dq: 0,  dr: -1 },
+      NE: { dq: 1,  dr: -1 },
+      E:  { dq: 1,  dr: 0  },
+      SE: { dq: 0,  dr: 1  },
+      SW: { dq: -1, dr: 1  },
+      W:  { dq: -1, dr: 0  }
+    };
+    const offset = offsets[facing];
+    return (origin.q + offset.dq) === target.q && (origin.r + offset.dr) === target.r;
+  }
+
+  /**
+   * Removes all smoke modifications whose `expiresOnTurn` is at or before the current turn number.
+   * Called at the start of each player turn so smoke laid on the previous turn is cleared before
+   * any player actions resolve.
+   */
+  private expireSmoke(): void {
+    for (const [key, mods] of this.hexModifications.entries()) {
+      const remaining = mods.filter(
+        (mod) => !(mod.type === "smoke" && mod.expiresOnTurn !== undefined && mod.expiresOnTurn <= this._turnNumber)
+      );
+      if (remaining.length === 0) {
+        this.hexModifications.delete(key);
+      } else if (remaining.length !== mods.length) {
+        this.hexModifications.set(key, remaining);
+      }
+    }
   }
 
   private resolveSentryAvailability(
@@ -14809,14 +14922,19 @@ private automateSupplyConvoys(
     const byType: Record<HexModificationType, { available: boolean; reason: string | null }> = {
       fortifications: this.resolveBuildModificationAvailabilityForType(hex, unit, definition, flags, "fortifications"),
       tankTraps: this.resolveBuildModificationAvailabilityForType(hex, unit, definition, flags, "tankTraps"),
-      clearedPath: this.resolveBuildModificationAvailabilityForType(hex, unit, definition, flags, "clearedPath")
+      clearedPath: this.resolveBuildModificationAvailabilityForType(hex, unit, definition, flags, "clearedPath"),
+      smoke: this.resolveLaySmokeAvailability(hex, unit, definition)
     };
     const available = Object.values(byType).some((entry) => entry.available);
     return {
       available,
       reason: available
         ? null
-        : byType.fortifications.reason ?? byType.tankTraps.reason ?? byType.clearedPath.reason ?? null,
+        : byType.fortifications.reason
+          ?? byType.tankTraps.reason
+          ?? byType.clearedPath.reason
+          ?? byType.smoke.reason
+          ?? null,
       byType
     };
   }
@@ -14970,6 +15088,7 @@ private automateSupplyConvoys(
     const sentry = this.resolveSentryAvailability(hex, unit, flags);
     const digIn = this.resolveDigInAvailability(hex, unit, definition, flags);
     const build = this.resolveBuildModificationAvailability(hex, unit, definition, flags);
+    const smokeAvailability = this.resolveLaySmokeAvailability(hex, unit, definition);
     const existingHexModifications = this.getHexModifications(hex);
     const existingHexModification = existingHexModifications[0] ?? null;
 
@@ -14996,7 +15115,9 @@ private automateSupplyConvoys(
       digInReason: digIn.reason,
       canBuildModification: build.available,
       buildReason: build.reason,
-      buildModificationAvailability: structuredClone(build.byType)
+      buildModificationAvailability: structuredClone(build.byType),
+      canLaySmoke: smokeAvailability.available,
+      smokeReason: smokeAvailability.reason
     };
   }
 
@@ -15016,6 +15137,44 @@ private automateSupplyConvoys(
       movementPointsUsed: Math.max(flags.movementPointsUsed, committedMovement),
       attacksUsed: Math.max(flags.attacksUsed, 1)
     };
+  }
+
+  /**
+   * Places a smoke screen on the specified edge of the unit's hex.
+   * Smoke is a free action — it does not consume movement or attacks but requires ammo.
+   * The modification expires at the start of the next player turn via expireSmoke().
+   * Returns true on success or throws with a descriptive message on invalid preconditions.
+   */
+  laySmoke(hex: Axial, facing: HexEdgeFacing, unitId?: string): boolean {
+    const unit = this.lookupUnit(hex, "Player", false, unitId);
+    if (!unit) {
+      throw new Error(`laySmoke: no player unit found at ${axialKey(hex)}.`);
+    }
+    const definition = this.getUnitDefinition(unit.type);
+    const availability = this.resolveLaySmokeAvailability(hex, unit, definition);
+    if (!availability.available) {
+      throw new Error(`laySmoke: ${availability.reason ?? "smoke is not available for this unit."}`);
+    }
+    const key = axialKey(hex);
+    const existing = this.hexModifications.get(key) ?? [];
+    // Prevent stacking a duplicate screen on the same edge — one screen per edge is sufficient.
+    const alreadySmoked = existing.some((mod) => mod.type === "smoke" && mod.facing === facing);
+    if (alreadySmoked) {
+      throw new Error(`laySmoke: the ${facing} edge of ${key} already has an active smoke screen.`);
+    }
+    const smokeEntry: HexModification = {
+      type: "smoke",
+      hex: structuredClone(hex),
+      faction: "Player",
+      facing,
+      builtOnTurn: this._turnNumber,
+      // Expires at the start of the next player turn (turnNumber + 1).
+      expiresOnTurn: this._turnNumber + 1
+    };
+    this.hexModifications.set(key, [...existing, smokeEntry]);
+    // Smoke does not commit movement or attacks — the unit stays fully active this turn.
+    this.updateIdleRegistryFor(key);
+    return true;
   }
 
   /**

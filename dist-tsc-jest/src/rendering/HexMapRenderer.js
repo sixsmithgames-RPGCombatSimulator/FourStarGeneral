@@ -2325,6 +2325,58 @@ export class HexMapRenderer {
             });
         }
     }
+    /**
+     * Appends animated white smoke puffs along the edge inside `container`.
+     * The container is already translated/rotated to the edge midpoint, so puffs are
+     * scattered in local space along the X-axis (±halfLength) and slightly above/below (Y).
+     * Each puff uses a CSS animation with a unique delay so the cloud roils continuously.
+     */
+    appendSmokePuffs(container, edgeLength) {
+        const puffCount = 10;
+        const halfLength = Math.min(edgeLength / 2, 28);
+        // Inject the keyframes once per document so repeated calls do not duplicate style rules.
+        const styleId = "smoke-puff-keyframes";
+        if (!document.getElementById(styleId)) {
+            const style = document.createElement("style");
+            style.id = styleId;
+            style.textContent = `
+        @keyframes smoke-roil {
+          0%   { r: 5;  opacity: 0.75; }
+          25%  { r: 7;  opacity: 0.9;  }
+          50%  { r: 4;  opacity: 0.65; }
+          75%  { r: 6;  opacity: 0.85; }
+          100% { r: 5;  opacity: 0.75; }
+        }
+        @keyframes smoke-drift {
+          0%   { transform: translate(0px,  0px); }
+          33%  { transform: translate(1px, -2px); }
+          66%  { transform: translate(-1px, 1px); }
+          100% { transform: translate(0px,  0px); }
+        }
+      `;
+            document.head.appendChild(style);
+        }
+        for (let i = 0; i < puffCount; i++) {
+            // Deterministic pseudo-random spread using index so the layout is stable across redraws.
+            const t = i / (puffCount - 1);
+            const baseX = -halfLength + t * halfLength * 2;
+            // Alternate puffs slightly above and below the edge line for depth.
+            const baseY = (i % 2 === 0 ? -3 : 3) + ((i % 3) - 1) * 2;
+            const baseR = 4 + (i % 3) * 1.5;
+            const delay = (i * 0.31).toFixed(2);
+            const duration = (1.4 + (i % 4) * 0.2).toFixed(2);
+            const puff = document.createElementNS(SVG_NS, "circle");
+            puff.setAttribute("cx", String(baseX.toFixed(1)));
+            puff.setAttribute("cy", String(baseY.toFixed(1)));
+            puff.setAttribute("r", String(baseR.toFixed(1)));
+            puff.setAttribute("fill", "white");
+            puff.setAttribute("fill-opacity", "0.82");
+            puff.setAttribute("stroke", "rgba(200,200,200,0.3)");
+            puff.setAttribute("stroke-width", "0.5");
+            puff.style.animation = `smoke-roil ${duration}s ${delay}s ease-in-out infinite, smoke-drift ${(Number(duration) * 1.5).toFixed(2)}s ${delay}s ease-in-out infinite`;
+            container.appendChild(puff);
+        }
+    }
     resolveFacingAngleDeg(facing) {
         const facingVectors = {
             E: { q: 1, r: 0 },
@@ -3049,12 +3101,13 @@ export class HexMapRenderer {
                 ? (member.reconStatus ? "spotted" : "visible")
                 : (member.reconStatus ?? "visible");
             const stackCount = this.resolveUnitStackCount(member.unit.strength);
+            const normalizedFacing = this.normalizeFacing(member.unit.facing);
             // Resolve per-position sprites with directional view based on unit facing; composite units
             // (e.g. Infantry_42) return a mixed array, non-composite units return the same sprite
             // for every position (with appropriate directional suffix based on facing).
             const compositeSprites = reconStatus === "spotted"
                 ? null
-                : getCompositeSpritesForUnit(member.unit.type, member.faction, stackCount, reconStatus, member.unit.facing);
+                : getCompositeSpritesForUnit(member.unit.type, member.faction, stackCount, reconStatus, normalizedFacing);
             if (!compositeSprites && reconStatus !== "spotted") {
                 console.error("[HexMapRenderer] renderUnitStack: no sprite registered for unit type+faction — unit will render blank.", { type: member.unit.type, faction: member.faction, hexKey });
             }
@@ -3105,7 +3158,7 @@ export class HexMapRenderer {
             group.appendChild(formationGroup);
             const decorationAnchor = this.resolveStackDecorationAnchor(cx, cy, variant, visibleMembers.length > 1);
             this.renderUnitDecorations(formationGroup, decorationAnchor.cx, decorationAnchor.cy, member.unit);
-            this.applyFacingAngleToGroup(formationGroup, cx, cy, this.resolveFacingAngleDeg(this.normalizeFacing(member.unit.facing)));
+            this.applyFacingAngleToGroup(formationGroup, cx, cy, this.resolveFacingAngleDeg(normalizedFacing));
         });
         // Calculate and set suppression/sentry state on main unit-stack group
         const primaryUnit = primaryMember.unit;
@@ -3266,6 +3319,19 @@ export class HexMapRenderer {
                 edgeGroup.setAttribute("transform", `translate(${edge.mid.x + edge.inward.x * 4} ${edge.mid.y + edge.inward.y * 4}) rotate(${edge.angleDeg})`);
                 this.appendTankTrapPanels(edgeGroup, Math.max(18, edge.length - 12));
                 group.appendChild(edgeGroup);
+                break;
+            }
+            case "smoke": {
+                const facing = this.normalizeHexEdgeFacing(modification.facing);
+                if (!facing) {
+                    break;
+                }
+                const edge = this.resolveHexEdgeGeometry(cx, cy, facing);
+                const smokeGroup = document.createElementNS(SVG_NS, "g");
+                // Position at the edge midpoint, slightly outward so puffs straddle the edge line.
+                smokeGroup.setAttribute("transform", `translate(${edge.mid.x} ${edge.mid.y}) rotate(${edge.angleDeg})`);
+                this.appendSmokePuffs(smokeGroup, edge.length);
+                group.appendChild(smokeGroup);
                 break;
             }
             case "clearedPath":
@@ -5859,7 +5925,19 @@ export class HexMapRenderer {
         if (scopedBursts.length > 0) {
             return scopedBursts;
         }
-        return allBursts.filter((burst) => !burst.bomberUnitKey);
+        const unscopedBursts = allBursts.filter((burst) => !burst.bomberUnitKey);
+        if (unscopedBursts.length <= 0) {
+            return [];
+        }
+        const hasAnyScopedBursts = allBursts.some((burst) => !!burst.bomberUnitKey);
+        if (hasAnyScopedBursts) {
+            return [];
+        }
+        const sceneBombers = this.resolveSceneBomberSpecs(scene);
+        if (sceneBombers.length > 1 && sceneBombers[0]?.id !== bomberId) {
+            return [];
+        }
+        return unscopedBursts;
     }
     resolveAirShowEscortIngressMotionProfile(durationMs) {
         const safeDurationMs = Math.max(1, durationMs);
@@ -5880,14 +5958,14 @@ export class HexMapRenderer {
     }
     resolveAirShowDefaultEscortBeatDurationMs(scene, beat) {
         return beat === 0
-            ? Math.max(760, Math.round((scene.escortClashDurationMs ?? 1980) * 0.38))
-            : Math.max(1040, Math.round((scene.escortClashDurationMs ?? 1980) * 0.62));
+            ? Math.max(960, Math.round((scene.escortClashDurationMs ?? 1980) * 0.46))
+            : Math.max(1320, Math.round((scene.escortClashDurationMs ?? 1980) * 0.54));
     }
     resolveAirShowDefaultBomberIngressDurationMs(scene) {
         return this.clamp(Math.round(scene.bomberIngressDurationMs ?? 3500), 3000, 7000);
     }
     resolveAirShowDefaultBomberDefenseDurationMs(scene) {
-        return this.clamp(Math.max(760, Math.round(scene.bomberPassDurationMs ?? 2360)), 900, 5000);
+        return this.clamp(Math.max(1040, Math.round(scene.bomberPassDurationMs ?? 2360)), 1100, 5600);
     }
     collectAirShowFlightTailHeadings(assignments, options = {}) {
         const sampleStartProgress = this.clamp(options.sampleStartProgress ?? 0.9, 0, 1);
@@ -5979,16 +6057,24 @@ export class HexMapRenderer {
         // North Star: fighter clash must establish during early bomber approach.
         // Let fighter ingress consume only an early share of the bomber-governed
         // pre-target window so the clash does not slip toward the target.
-        const maxFighterIngressDurationMs = Math.max(1, Math.round(canonicalPreTargetDurationMs * 0.3));
+        const maxFighterIngressDurationMs = Math.max(1, Math.round(canonicalPreTargetDurationMs * 0.28));
         const fixedFighterIngressDurationMs = this.clamp(defaultDurations.fighterIngressDurationMs, 1, Math.min(Math.max(1, canonicalPreTargetDurationMs - 4), maxFighterIngressDurationMs));
         const scalableRemainingDurationMs = Math.max(4, canonicalPreTargetDurationMs - fixedFighterIngressDurationMs);
-        const scale = scalableRemainingDurationMs / remainingPreferredDurationMs;
+        const weightedEscortMergeDurationMs = Math.max(1, Math.round(defaultDurations.escortMergeDurationMs * 1.34));
+        const weightedEscortScrambleDurationMs = Math.max(1, Math.round(defaultDurations.escortScrambleDurationMs * 1.36));
+        const weightedBomberIngressDurationMs = Math.max(1, Math.round(defaultDurations.bomberIngressDurationMs * 0.18));
+        const weightedBomberDefenseDurationMs = Math.max(1, Math.round(defaultDurations.bomberDefenseDurationMs * 1.24));
+        const weightedRemainingDurationMs = weightedEscortMergeDurationMs
+            + weightedEscortScrambleDurationMs
+            + weightedBomberIngressDurationMs
+            + weightedBomberDefenseDurationMs;
+        const scale = scalableRemainingDurationMs / Math.max(1, weightedRemainingDurationMs);
         const scaledDurations = {
             fighterIngressDurationMs: fixedFighterIngressDurationMs,
-            escortMergeDurationMs: Math.max(1, Math.round(defaultDurations.escortMergeDurationMs * scale)),
-            escortScrambleDurationMs: Math.max(1, Math.round(defaultDurations.escortScrambleDurationMs * scale)),
-            bomberIngressDurationMs: Math.max(1, Math.round(defaultDurations.bomberIngressDurationMs * scale)),
-            bomberDefenseDurationMs: Math.max(1, Math.round(defaultDurations.bomberDefenseDurationMs * scale))
+            escortMergeDurationMs: Math.max(1, Math.round(weightedEscortMergeDurationMs * scale)),
+            escortScrambleDurationMs: Math.max(1, Math.round(weightedEscortScrambleDurationMs * scale)),
+            bomberIngressDurationMs: Math.max(1, Math.round(weightedBomberIngressDurationMs * scale)),
+            bomberDefenseDurationMs: Math.max(1, Math.round(weightedBomberDefenseDurationMs * scale))
         };
         const scaledTotalDurationMs = scaledDurations.fighterIngressDurationMs
             + scaledDurations.escortMergeDurationMs
@@ -7353,6 +7439,7 @@ export class HexMapRenderer {
             });
             if (softenedEntryAssignmentsChanged) {
                 finalizedAssignments = this.applyAirShowPhaseMotionBudgets(softenedEntryAssignments, durationMs, roleTargetSpeeds);
+                finalizedAssignments = this.applyAirShowPhaseMotionBudgets(this.smoothAirShowAssignmentEntries(finalizedAssignments, this.clamp(Math.round((options.softenEntryTurnLimitDeg ?? 104) * 0.68), 42, 68)), durationMs, roleTargetSpeeds);
             }
         }
         const softenedExitRoles = new Set(options.softenExitRoles ?? []);
@@ -7388,6 +7475,7 @@ export class HexMapRenderer {
             });
             if (softenedExitAssignmentsChanged) {
                 finalizedAssignments = this.applyAirShowPhaseMotionBudgets(softenedExitAssignments, durationMs, roleTargetSpeeds);
+                finalizedAssignments = this.applyAirShowPhaseMotionBudgets(this.smoothAirShowAssignmentExits(finalizedAssignments, this.clamp(Math.round((options.softenExitTurnLimitDeg ?? 104) * 0.68), 42, 68)), durationMs, roleTargetSpeeds);
             }
         }
         return finalizedAssignments;

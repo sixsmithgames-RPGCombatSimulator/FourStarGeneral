@@ -72,25 +72,46 @@ export function buildResolvedAirShowFlakBursts(
     return [];
   }
 
-  const engagementCount =
+  const scopedEngagements =
     Array.isArray(flakEvent.flakEngagements) && flakEvent.flakEngagements.length > 0
-      ? flakEvent.flakEngagements.length
+      ? flakEvent.flakEngagements.filter((engagement) =>
+          !options.bomberUnitKey || engagement.bomberUnitKey === options.bomberUnitKey
+        )
+      : [];
+  const eventBomberUnitKey = flakEvent.bomber?.unitKey ?? null;
+  if (
+    scopedEngagements.length <= 0
+    && !!options.bomberUnitKey
+    && !!eventBomberUnitKey
+    && options.bomberUnitKey !== eventBomberUnitKey
+  ) {
+    return [];
+  }
+  const batteryCount =
+    scopedEngagements.length > 0
+      ? new Set(scopedEngagements.map((engagement) => engagement.batteryUnitKey)).size
       : Math.max(0, flakEvent.interceptors.length);
-  const normalizedEngagementCount = Math.max(1, engagementCount);
-  const waveCount = Math.max(8, Math.min(12, normalizedEngagementCount * 2 + 5));
+  const normalizedBatteryCount = Math.max(1, batteryCount);
+  const waveCount = Math.max(7, Math.min(11, normalizedBatteryCount * 2 + 4));
+  const startProgress = 0.24;
+  const endProgress = 0.86;
+  const progressStep =
+    waveCount <= 1
+      ? 0
+      : (endProgress - startProgress) / (waveCount - 1);
   return Array.from({ length: waveCount }, (_, index) => ({
-    // Keep flak in the late approach window, but shape it as clustered airbursts
-    // around the bomber track instead of a corridor-wide sweep across the target.
-    progress: Math.min(0.82, 0.6 + index * 0.018),
-    count: normalizedEngagementCount,
-    scale: 0.66 + index * 0.022,
-    alongOffsetPx: -8 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI * 1.35) * 6,
-    lateralOffsetPx: Math.sin(index * 1.17) * Math.min(26, 10 + normalizedEngagementCount * 4),
-    alongSpreadPx: 40 + normalizedEngagementCount * 8,
-    lateralSpreadPx: 58 + normalizedEngagementCount * 12,
-    puffCount: 7 + normalizedEngagementCount * 2,
-    smokePuffCount: 9 + normalizedEngagementCount * 2,
-    smokeScale: 1.08 + index * 0.022,
+    // Flak should open before ordnance release, linger through the approach,
+    // and scale with actual AA batteries instead of blanketing the whole package.
+    progress: Math.min(endProgress, startProgress + index * progressStep),
+    count: Math.max(1, Math.min(2, normalizedBatteryCount)),
+    scale: 0.6 + index * 0.028,
+    alongOffsetPx: -24 + Math.sin((index / Math.max(1, waveCount - 1)) * Math.PI * 1.45) * 14,
+    lateralOffsetPx: Math.sin(index * 1.12) * Math.min(18, 8 + normalizedBatteryCount * 3),
+    alongSpreadPx: 34 + normalizedBatteryCount * 8,
+    lateralSpreadPx: 42 + normalizedBatteryCount * 10,
+    puffCount: 4 + normalizedBatteryCount * 2,
+    smokePuffCount: 6 + normalizedBatteryCount * 2,
+    smokeScale: 1 + index * 0.026,
     bomberUnitKey: options.bomberUnitKey ?? null,
     targetHexKey: options.targetHexKey ?? null
   }));

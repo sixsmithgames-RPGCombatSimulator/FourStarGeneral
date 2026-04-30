@@ -147,6 +147,19 @@ const ARMORED_UNIFIED_FRONT_BONUS = 5;
  * Armor that outruns the rest of the front loses most of its battlefield leverage.
  */
 const ARMORED_OUTRUN_SUPPORT_PENALTY = 7;
+/**
+ * Defended objectives need a wider battlefield picture than a simple distance-to-VP score.
+ * These radii describe the defensive network around a town or fortified objective.
+ */
+const STRONGHOLD_OBJECTIVE_RING = 3;
+const STRONGHOLD_SUPPORT_RADIUS = 6;
+const STRONGHOLD_SUPPRESSED_THRESHOLD = 24;
+const STRONGHOLD_OPEN_APPROACH_PENALTY = 10;
+const STRONGHOLD_COVERED_APPROACH_BONUS = 6;
+const STRONGHOLD_ROAD_APPROACH_PENALTY = 8;
+const STRONGHOLD_ARMORED_EARLY_ENTRY_PENALTY = 14;
+const STRONGHOLD_INFANTRY_STAGING_BONUS = 5;
+const STRONGHOLD_SUPPRESSED_ASSAULT_BONUS = 8;
 
 /**
  * Bonus for recon units spotting enemies for allies.
@@ -339,7 +352,7 @@ export function getDifficultyModifiers(difficulty: BotDifficulty): DifficultyMod
 }
 
 import { axialKey, hexDistance, neighbors, type Axial } from "../../core/Hex";
-import type { TerrainDefinition, ScenarioUnit, UnitTypeDefinition } from "../../core/types";
+import type { HexModification, TerrainDefinition, TerrainFeature, ScenarioUnit, UnitTypeDefinition } from "../../core/types";
 
 /**
  * BotStrategyMode mirrors the engine toggle so planners can branch without importing GameEngine directly.
@@ -377,7 +390,8 @@ function scoreObjectiveApproach(
   objectives: readonly { hex: Axial; owner: "Player" | "Bot"; vp: number }[],
   occupancy: ReadonlyMap<string, "bot" | "player">,
   input: BotPlannerInput,
-  modifiers: DifficultyModifiers
+  modifiers: DifficultyModifiers,
+  strongholds: readonly StrongholdProfile[]
 ): ActionCandidate | null {
   if (objectives.length === 0) {
     return null;
@@ -438,7 +452,7 @@ function scoreObjectiveApproach(
       expectedDamage: 0,
       expectedRetaliation: 0,
       score: bestReductionScore - (option.path.length - 1)
-        + calculateApproachPositionScore(snapshot, option.hex, bestTargetHex, input, modifiers, option.path.length),
+        + calculateApproachPositionScore(snapshot, option.hex, bestTargetHex, input, modifiers, option.path.length, strongholds),
       rationale
     };
 
@@ -478,7 +492,8 @@ function scoreEnemyPressure(
   reachable: Map<string, ReachableHex>,
   enemies: readonly PlannerUnitSnapshot[],
   input: BotPlannerInput,
-  modifiers: DifficultyModifiers
+  modifiers: DifficultyModifiers,
+  strongholds: readonly StrongholdProfile[]
 ): ActionCandidate | null {
   if (enemies.length === 0) {
     return null;
@@ -535,13 +550,13 @@ function scoreEnemyPressure(
       let score = 4
         + distanceGain * 2.5
         + turnGain * 12
-        + calculateContextualTargetPriorityBonus(purpose, enemy, input) * 0.5
+        + calculateContextualTargetPriorityBonus(purpose, enemy, input, strongholds) * 0.5
         + calculatePressureDamagePotential(snapshot, enemy) * 0.22
         - (option.path.length - 1) * 0.45;
       if (reconObservationCoverage) {
         score += reconObservationCoverage.uniqueTargets * 6 - reconObservationCoverage.overlappingTargets * 2;
       }
-      score += calculateApproachPositionScore(snapshot, option.hex, enemy.unit.hex, input, modifiers, option.path.length);
+      score += calculateApproachPositionScore(snapshot, option.hex, enemy.unit.hex, input, modifiers, option.path.length, strongholds);
 
       const candidate: ActionCandidate = {
         destination: option.hex,
@@ -603,6 +618,9 @@ export interface BotPlannerInput {
     readonly inBounds: (hex: Axial) => boolean;
     readonly terrainAt: (hex: Axial) => TerrainDefinition | null;
     readonly movementCost: (hex: Axial, moveType: UnitTypeDefinition["moveType"]) => number;
+    readonly featuresAt?: (hex: Axial) => readonly TerrainFeature[];
+    readonly isRoad?: (hex: Axial) => boolean;
+    readonly hexModificationsAt?: (hex: Axial) => readonly HexModification[];
   };
   readonly losAllows: (attackerHex: Axial, targetHex: Axial, isAir: boolean) => boolean;
   readonly movementAllowance: (snapshot: PlannerUnitSnapshot) => number;
@@ -643,6 +661,350 @@ interface ActionCandidate {
   expectedRetaliation: number;
   score: number;
   rationale: string;
+}
+
+type StrongholdDefenseNodeCategory = "observer" | "artillery" | "flak" | "antiTank" | "garrison" | "works";
+
+interface StrongholdDefenseNode {
+  readonly key: string;
+  readonly hex: Axial;
+  readonly category: StrongholdDefenseNodeCategory;
+  readonly weight: number;
+  readonly readiness: number;
+}
+
+interface StrongholdProfile {
+  readonly objectiveHex: Axial;
+  readonly isTownLike: boolean;
+  readonly defensePressure: number;
+  readonly suppressed: boolean;
+  readonly nodeKeys: ReadonlySet<string>;
+  readonly nodes: readonly StrongholdDefenseNode[];
+}
+
+function isFlakRole(definition: UnitTypeDefinition): boolean {
+  return definition.traits.includes("intercept");
+}
+
+function isAntiTankRole(definition: UnitTypeDefinition): boolean {
+  return definition.combat.role === "antiTank";
+}
+
+function calculateStrongholdNodeReadiness(snapshot: PlannerUnitSnapshot): number {
+  let readiness = Math.max(0.2, (snapshot.unit.strength ?? 100) / 100);
+  if ((snapshot.unit.suppressedBy?.length ?? 0) > 0) {
+    readiness *= 0.55;
+  }
+  if (snapshot.unit.towState === "towed") {
+    readiness *= 0.7;
+  }
+  if (snapshot.unit.onSentry) {
+    readiness *= 1.05;
+  }
+  return readiness;
+}
+
+function getStrongholdNodeWeight(category: StrongholdDefenseNodeCategory): number {
+  switch (category) {
+    case "observer":
+      return 16;
+    case "artillery":
+      return 15;
+    case "flak":
+      return 13;
+    case "antiTank":
+      return 12;
+    case "works":
+      return 9;
+    case "garrison":
+    default:
+      return 7;
+  }
+}
+
+function objectiveLooksTownLike(objectiveHex: Axial, input: BotPlannerInput): boolean {
+  const terrain = input.map.terrainAt(objectiveHex);
+  const features = input.map.featuresAt?.(objectiveHex) ?? [];
+  const modifications = input.map.hexModificationsAt?.(objectiveHex) ?? [];
+  if ((terrain?.defense ?? 0) >= 2 || terrain?.blocksLOS) {
+    return true;
+  }
+  if (features.includes("buildings") || features.includes("walls")) {
+    return true;
+  }
+  if (modifications.some((modification) => modification.type === "fortifications" || modification.type === "tankTraps")) {
+    return true;
+  }
+
+  return neighbors(objectiveHex).some((neighbor) => {
+    if (!input.map.inBounds(neighbor)) {
+      return false;
+    }
+    const nearbyFeatures = input.map.featuresAt?.(neighbor) ?? [];
+    const nearbyMods = input.map.hexModificationsAt?.(neighbor) ?? [];
+    const nearbyTerrain = input.map.terrainAt(neighbor);
+    return nearbyFeatures.includes("buildings")
+      || nearbyFeatures.includes("walls")
+      || nearbyMods.some((modification) => modification.type === "fortifications" || modification.type === "tankTraps")
+      || (nearbyTerrain?.defense ?? 0) >= 2;
+  });
+}
+
+function unitSupportsObjectiveFireControl(
+  snapshot: PlannerUnitSnapshot,
+  objectiveHex: Axial,
+  input: BotPlannerInput
+): StrongholdDefenseNodeCategory | null {
+  const distanceToObjective = hexDistance(snapshot.unit.hex, objectiveHex);
+  const definition = snapshot.definition;
+
+  if (
+    definition.class === "recon"
+    && distanceToObjective <= STRONGHOLD_SUPPORT_RADIUS
+    && input.losAllows(snapshot.unit.hex, objectiveHex, false)
+  ) {
+    return "observer";
+  }
+
+  if (definition.class === "artillery") {
+    const turnsToThreat = estimateTurnsToAttackWindow(definition, snapshot.unit.hex, objectiveHex, input);
+    if (Number.isFinite(turnsToThreat) && turnsToThreat <= 1) {
+      return "artillery";
+    }
+  }
+
+  if (isFlakRole(definition) && distanceToObjective <= STRONGHOLD_SUPPORT_RADIUS) {
+    return "flak";
+  }
+
+  if (isAntiTankRole(definition) && distanceToObjective <= STRONGHOLD_OBJECTIVE_RING + 1) {
+    return "antiTank";
+  }
+
+  if (distanceToObjective <= STRONGHOLD_OBJECTIVE_RING && definition.moveType !== "air") {
+    return "garrison";
+  }
+
+  return null;
+}
+
+function buildStrongholdProfiles(
+  objectives: readonly { hex: Axial; owner: "Player" | "Bot"; vp: number }[],
+  input: BotPlannerInput
+): StrongholdProfile[] {
+  const profiles: StrongholdProfile[] = [];
+
+  objectives.forEach((objective) => {
+    const objectiveHex = objective.hex;
+    const isTownLike = objectiveLooksTownLike(objectiveHex, input);
+    const nodes: StrongholdDefenseNode[] = [];
+    const nodeKeys = new Set<string>();
+
+    const worksHexes = [objectiveHex, ...neighbors(objectiveHex)].filter((hex, index, all) =>
+      input.map.inBounds(hex) && all.findIndex((other) => axialKey(other) === axialKey(hex)) === index
+    );
+    worksHexes.forEach((hex) => {
+      const modifications = input.map.hexModificationsAt?.(hex) ?? [];
+      if (modifications.some((modification) => modification.type === "fortifications" || modification.type === "tankTraps")) {
+        const key = `works:${axialKey(hex)}`;
+        nodes.push({
+          key,
+          hex,
+          category: "works",
+          weight: getStrongholdNodeWeight("works"),
+          readiness: 1
+        });
+        nodeKeys.add(key);
+      }
+    });
+
+    input.playerUnits.forEach((snapshot) => {
+      const category = unitSupportsObjectiveFireControl(snapshot, objectiveHex, input);
+      if (!category) {
+        return;
+      }
+      const key = axialKey(snapshot.unit.hex);
+      nodes.push({
+        key,
+        hex: snapshot.unit.hex,
+        category,
+        weight: getStrongholdNodeWeight(category),
+        readiness: calculateStrongholdNodeReadiness(snapshot)
+      });
+      nodeKeys.add(key);
+    });
+
+    const defensePressure = nodes.reduce((sum, node) => sum + node.weight * node.readiness, 0);
+    const fireControlReadiness = nodes
+      .filter((node) => node.category === "observer" || node.category === "artillery" || node.category === "flak")
+      .reduce((sum, node) => sum + node.weight * node.readiness, 0);
+    const suppressed = defensePressure < STRONGHOLD_SUPPRESSED_THRESHOLD || fireControlReadiness < 18;
+
+    if (!isTownLike && nodes.length < 2 && defensePressure < 18) {
+      return;
+    }
+
+    profiles.push({
+      objectiveHex,
+      isTownLike,
+      defensePressure,
+      suppressed,
+      nodeKeys,
+      nodes
+    });
+  });
+
+  return profiles;
+}
+
+function findStrongholdNodeContext(
+  defender: PlannerUnitSnapshot | null,
+  strongholds: readonly StrongholdProfile[]
+): { profile: StrongholdProfile; node: StrongholdDefenseNode } | null {
+  if (!defender) {
+    return null;
+  }
+  const defenderKey = axialKey(defender.unit.hex);
+  for (const profile of strongholds) {
+    const node = profile.nodes.find((candidate) => candidate.key === defenderKey);
+    if (node) {
+      return { profile, node };
+    }
+  }
+  return null;
+}
+
+function findRelevantStrongholdForApproach(
+  destination: Axial,
+  focusHex: Axial | null,
+  strongholds: readonly StrongholdProfile[]
+): StrongholdProfile | null {
+  let best: StrongholdProfile | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  const focusKey = focusHex ? axialKey(focusHex) : null;
+
+  strongholds.forEach((profile) => {
+    const destinationDistance = hexDistance(destination, profile.objectiveHex);
+    const focusDistance = focusHex ? hexDistance(focusHex, profile.objectiveHex) : Number.POSITIVE_INFINITY;
+    const nodeMatch = focusKey ? profile.nodeKeys.has(focusKey) : false;
+    const relevanceDistance = nodeMatch ? 0 : Math.min(destinationDistance, focusDistance);
+    if (relevanceDistance > STRONGHOLD_SUPPORT_RADIUS) {
+      return;
+    }
+    if (relevanceDistance < bestDistance) {
+      bestDistance = relevanceDistance;
+      best = profile;
+    }
+  });
+
+  return best;
+}
+
+function calculateStrongholdSuppressionPriorityBonus(
+  purpose: UnitPurpose,
+  defender: PlannerUnitSnapshot | null,
+  strongholds: readonly StrongholdProfile[]
+): number {
+  const context = findStrongholdNodeContext(defender, strongholds);
+  if (!context) {
+    return 0;
+  }
+
+  const { profile, node } = context;
+  let bonus = node.weight * (profile.suppressed ? 0.35 : 0.7);
+
+  if (!profile.suppressed) {
+    switch (node.category) {
+      case "observer":
+        bonus += 10;
+        break;
+      case "artillery":
+        bonus += 8;
+        break;
+      case "flak":
+        bonus += 7;
+        break;
+      case "antiTank":
+        bonus += 6;
+        break;
+      case "works":
+        bonus += 5;
+        break;
+      default:
+        bonus += 2;
+        break;
+    }
+  }
+
+  if (purpose === "antiArmor" && (node.category === "antiTank" || node.category === "observer")) {
+    bonus += 4;
+  }
+  if (purpose === "artillery" && (node.category === "artillery" || node.category === "flak" || node.category === "works")) {
+    bonus += 4;
+  }
+  if (purpose === "antiInfantry" && (node.category === "observer" || node.category === "garrison")) {
+    bonus += 3;
+  }
+
+  return bonus;
+}
+
+function calculateStrongholdApproachAdjustment(
+  snapshot: PlannerUnitSnapshot,
+  destination: Axial,
+  focusHex: Axial | null,
+  input: BotPlannerInput,
+  strongholds: readonly StrongholdProfile[]
+): number {
+  const profile = findRelevantStrongholdForApproach(destination, focusHex, strongholds);
+  if (!profile) {
+    return 0;
+  }
+
+  const terrain = input.map.terrainAt(destination);
+  const modifications = input.map.hexModificationsAt?.(destination) ?? [];
+  const smoked = modifications.some((modification) => modification.type === "smoke");
+  const covered = Boolean(terrain?.blocksLOS || (terrain?.defense ?? 0) >= 2 || smoked);
+  const openLane = !covered && (terrain?.defense ?? 0) <= 1;
+  const objectiveDistance = hexDistance(destination, profile.objectiveHex);
+  const onRoad = input.map.isRoad?.(destination) ?? false;
+  let score = 0;
+
+  if (!profile.suppressed) {
+    if (objectiveDistance <= STRONGHOLD_OBJECTIVE_RING + 1 && onRoad) {
+      score -= STRONGHOLD_ROAD_APPROACH_PENALTY;
+    }
+    if (objectiveDistance <= STRONGHOLD_OBJECTIVE_RING && openLane) {
+      score -= STRONGHOLD_OPEN_APPROACH_PENALTY + Math.min(10, profile.defensePressure * 0.18);
+    }
+    if (covered && objectiveDistance <= STRONGHOLD_OBJECTIVE_RING + 1) {
+      score += STRONGHOLD_COVERED_APPROACH_BONUS;
+    }
+    if (isArmoredGroundUnit(snapshot.definition)) {
+      if (objectiveDistance <= STRONGHOLD_OBJECTIVE_RING) {
+        score -= STRONGHOLD_ARMORED_EARLY_ENTRY_PENALTY + Math.min(12, profile.defensePressure * 0.22);
+      } else if (covered && objectiveDistance <= STRONGHOLD_SUPPORT_RADIUS) {
+        score += 5;
+      }
+    } else if (snapshot.definition.class === "infantry" || snapshot.definition.class === "specialist") {
+      if (covered && objectiveDistance <= STRONGHOLD_SUPPORT_RADIUS) {
+        score += STRONGHOLD_INFANTRY_STAGING_BONUS;
+      }
+      if (objectiveDistance <= 2 && openLane) {
+        score -= 6;
+      }
+    } else if (snapshot.definition.class === "recon" && objectiveDistance <= STRONGHOLD_OBJECTIVE_RING) {
+      score -= 10 + Math.min(8, profile.defensePressure * 0.15);
+    }
+  } else if (objectiveDistance <= STRONGHOLD_OBJECTIVE_RING) {
+    if (isArmoredGroundUnit(snapshot.definition)) {
+      score += STRONGHOLD_SUPPRESSED_ASSAULT_BONUS;
+    } else if (snapshot.definition.class === "infantry" || snapshot.definition.class === "specialist") {
+      score += STRONGHOLD_SUPPRESSED_ASSAULT_BONUS * 0.75;
+    }
+  }
+
+  return score;
 }
 
 /**
@@ -1097,9 +1459,12 @@ function calculateReconObservationNetworkThreat(
 function calculateContextualTargetPriorityBonus(
   purpose: UnitPurpose,
   defender: PlannerUnitSnapshot | null,
-  input: BotPlannerInput
+  input: BotPlannerInput,
+  strongholds: readonly StrongholdProfile[] = []
 ): number {
-  return calculateTargetPriorityBonus(purpose, defender) + calculateReconObservationNetworkThreat(defender, input);
+  return calculateTargetPriorityBonus(purpose, defender)
+    + calculateReconObservationNetworkThreat(defender, input)
+    + calculateStrongholdSuppressionPriorityBonus(purpose, defender, strongholds);
 }
 
 /**
@@ -1603,7 +1968,8 @@ function scoreInfantryConsolidation(
   snapshot: PlannerUnitSnapshot,
   input: BotPlannerInput,
   modifiers: DifficultyModifiers,
-  focusHex: Axial | null
+  focusHex: Axial | null,
+  strongholds: readonly StrongholdProfile[]
 ): ActionCandidate | null {
   if (snapshot.definition.class !== "infantry" || snapshot.unit.entrench >= 2) {
     return null;
@@ -1630,7 +1996,8 @@ function scoreInfantryConsolidation(
     focusHex,
     input,
     modifiers,
-    1
+    1,
+    strongholds
   );
   const entrenchHeadroom = Math.max(0, 2 - (snapshot.unit.entrench ?? 0));
   const score = approachScore
@@ -1663,7 +2030,8 @@ function calculateApproachPositionScore(
   focusHex: Axial | null,
   input: BotPlannerInput,
   modifiers: DifficultyModifiers,
-  pathLength = 1
+  pathLength = 1,
+  strongholds: readonly StrongholdProfile[] = []
 ): number {
   if (!modifiers.useTacticalAI) {
     return 0;
@@ -1812,6 +2180,7 @@ function calculateApproachPositionScore(
   }
 
   score += calculateReconPositioningScore(destination, snapshot, input, focusHex);
+  score += calculateStrongholdApproachAdjustment(snapshot, destination, focusHex, input, strongholds);
 
   return score;
 }
@@ -1925,11 +2294,12 @@ export function scoreCandidateAdvanced(
   defender: PlannerUnitSnapshot | null,
   candidate: ActionCandidate,
   input: BotPlannerInput,
-  modifiers: DifficultyModifiers
+  modifiers: DifficultyModifiers,
+  strongholds: readonly StrongholdProfile[] = []
 ): number {
   // Get base score
   let score = scoreCandidate(purpose, attacker, defender, candidate, modifiers);
-  score += calculateContextualTargetPriorityBonus(purpose, defender, input) - calculateTargetPriorityBonus(purpose, defender);
+  score += calculateContextualTargetPriorityBonus(purpose, defender, input, strongholds) - calculateTargetPriorityBonus(purpose, defender);
 
   if (!modifiers.useTacticalAI) {
     return score;
@@ -1992,7 +2362,8 @@ function scoreObjectiveAdvance(
   objectives: readonly { hex: Axial; owner: "Player" | "Bot"; vp: number }[],
   occupancy: ReadonlyMap<string, "bot" | "player">,
   input: BotPlannerInput,
-  modifiers: DifficultyModifiers
+  modifiers: DifficultyModifiers,
+  strongholds: readonly StrongholdProfile[]
 ): ActionCandidate | null {
   if (objectives.length === 0) {
     return null;
@@ -2027,7 +2398,7 @@ function scoreObjectiveAdvance(
         attackTarget: null,
         expectedDamage: 0,
         expectedRetaliation: 0,
-        score: score + calculateApproachPositionScore(snapshot, option.hex, objective.hex, input, modifiers, option.path.length),
+        score: score + calculateApproachPositionScore(snapshot, option.hex, objective.hex, input, modifiers, option.path.length, strongholds),
         rationale: destKey === key
           ? `Occupy objective worth ${objective.vp} VP`
           : `Advance to objective worth ${objective.vp} VP`
@@ -2046,7 +2417,8 @@ function scoreFireSetup(
   reachable: Map<string, ReachableHex>,
   enemies: readonly PlannerUnitSnapshot[],
   input: BotPlannerInput,
-  modifiers: DifficultyModifiers
+  modifiers: DifficultyModifiers,
+  strongholds: readonly StrongholdProfile[]
 ): ActionCandidate | null {
   if (enemies.length === 0) {
     return null;
@@ -2083,7 +2455,7 @@ function scoreFireSetup(
     const turnsToAttack = estimateTurnsToAttackWindow(snapshot.definition, hex, enemy.unit.hex, input);
 
     let score = FIRE_SETUP_BASE_BONUS
-      + calculateContextualTargetPriorityBonus(purpose, enemy, input)
+      + calculateContextualTargetPriorityBonus(purpose, enemy, input, strongholds)
       + calculateThreatProjection(enemy) * 0.2
       - rangeGap * FIRE_SETUP_RANGE_GAP_PENALTY
       - futureGap * FIRE_SETUP_FUTURE_GAP_PENALTY
@@ -2116,7 +2488,7 @@ function scoreFireSetup(
     score += hasLos ? FIRE_SETUP_LOS_BONUS : -FIRE_SETUP_NO_LOS_PENALTY;
     score += calculateTerrainPositionScore(hex, terrain, false);
     score += calculateArtilleryPositionScore(hex, nearestEnemyDistance, snapshot, enemy, modifiers);
-    score += calculateApproachPositionScore(snapshot, hex, enemy.unit.hex, input, modifiers, path.length);
+    score += calculateApproachPositionScore(snapshot, hex, enemy.unit.hex, input, modifiers, path.length, strongholds);
 
     return { score, rangeGap, futureGap, hasLos, turnsToAttack };
   };

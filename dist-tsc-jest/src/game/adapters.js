@@ -20,7 +20,7 @@ export const deploymentTemplates = [
     },
     {
         key: "tank",
-        type: "Panzer_IV",
+        type: "Light_Tank",
         strength: 100,
         ammo: 7,
         fuel: 40,
@@ -207,7 +207,7 @@ export const deploymentTemplates = [
     },
     {
         key: "armoredCompany",
-        type: "Panzer_IV",
+        type: "Light_Tank",
         strength: 100,
         ammo: 7,
         fuel: 40,

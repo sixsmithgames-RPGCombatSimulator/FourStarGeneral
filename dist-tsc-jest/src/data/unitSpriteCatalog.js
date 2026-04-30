@@ -21,37 +21,36 @@ const unitSprite = (fileName) => new URL(`../assets/units/${fileName}`, import.m
 const COMPOSITE_GROUND_SPRITES = {
     Infantry_42: {
         Player: [
-            unitSprite("Infantry_Light_USA_Southview.png"), // pos 1 — core rifleman, last survivor
-            unitSprite("Infantry_Mortar_USA_Southview.png"), // pos 2
-            unitSprite("Infantry_Light_USA_Southview1.png"), // pos 3
-            unitSprite("Infantry_AT_USA_Southview.png") // pos 4 — drops first
+            unitSprite("Infantry_Light_USA_Southview.png"), // pos 0 — core rifleman, last survivor
+            unitSprite("Infantry_Mortar_USA_Southview.png"), // pos 1 — mortar
+            unitSprite("Infantry_Light_USA_Southview.png"), // pos 2 — rifleman pose-1 (reuses pose-0 until variants exist)
+            unitSprite("Infantry_AT_USA_Southview.png") // pos 3 — AT specialist, drops first
         ],
         Bot: [
-            // German infantry sprites pending art; will be wired when assets are delivered
-            unitSprite("Infantry_Light_USA_Southview.png"),
-            unitSprite("Infantry_Mortar_USA_Southview.png"),
-            unitSprite("Infantry_Light_USA_Southview1.png"),
-            unitSprite("Infantry_AT_USA_Southview.png")
+            unitSprite("Infantry_Basic_German_Southview.png"), // pos 0 — core rifleman, last survivor
+            unitSprite("Infantry_Mortar_German_Southview.png"), // pos 1 — mortar
+            unitSprite("Infantry_Basic_German_Southview.png"), // pos 2 — rifleman pose-1 (reuses pose-0 until variants exist)
+            unitSprite("Infantry_AT_German_Southview.png") // pos 3 — AT specialist, drops first
         ],
         Ally: [
             unitSprite("Infantry_Light_USA_Southview.png"),
             unitSprite("Infantry_Mortar_USA_Southview.png"),
-            unitSprite("Infantry_Light_USA_Southview1.png"),
+            unitSprite("Infantry_Light_USA_Southview.png"),
             unitSprite("Infantry_AT_USA_Southview.png")
         ]
     },
     AT_Infantry: {
         Player: [
-            unitSprite("Infantry_AT_USA_Southview.png"), // pos 1 — core AT, last survivor
-            unitSprite("Infantry_Mortar_USA_Southview.png"), // pos 2
-            unitSprite("Infantry_AT_USA_Southview.png"), // pos 3 — reuses pose-0 until pose-1 art exists
-            unitSprite("Infantry_AT_USA_Southview.png") // pos 4 — reuses pose-0 until pose-2 art exists
+            unitSprite("Infantry_AT_USA_Southview.png"), // pos 0 — core AT, last survivor
+            unitSprite("Infantry_Mortar_USA_Southview.png"), // pos 1 — mortar support
+            unitSprite("Infantry_AT_USA_Southview.png"), // pos 2 — AT pose-1 (reuses pose-0 until variants exist)
+            unitSprite("Infantry_AT_USA_Southview.png") // pos 3 — AT pose-2, drops first (reuses pose-0)
         ],
         Bot: [
-            unitSprite("Infantry_AT_USA_Southview.png"),
-            unitSprite("Infantry_Mortar_USA_Southview.png"),
-            unitSprite("Infantry_AT_USA_Southview.png"),
-            unitSprite("Infantry_AT_USA_Southview.png")
+            unitSprite("Infantry_AT_German_Southview.png"), // pos 0 — core AT, last survivor
+            unitSprite("Infantry_Mortar_German_Southview.png"), // pos 1 — mortar support
+            unitSprite("Infantry_AT_German_Southview.png"), // pos 2 — AT pose-1 (reuses pose-0 until variants exist)
+            unitSprite("Infantry_AT_German_Southview.png") // pos 3 — AT pose-2, drops first (reuses pose-0)
         ],
         Ally: [
             unitSprite("Infantry_AT_USA_Southview.png"),
@@ -96,6 +95,12 @@ const FACTION_GROUND_SPRITES = {
         Ally: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png"),
         Bot: unitSprite("Wheeled_Bikes_Recon_German_Southview.png"),
         fallback: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png")
+    },
+    Engineer: {
+        Player: unitSprite("Infantry_Engineers_USA_Southview.png"),
+        Ally: unitSprite("Infantry_Engineers_USA_Southview.png"),
+        Bot: unitSprite("Infantry_Basic_German_Southview.png"),
+        fallback: unitSprite("Infantry_Engineers_USA_Southview.png")
     }
 };
 /**
@@ -107,41 +112,35 @@ const SCENARIO_SPRITES = {
     Infantry_42: unitSprite("Infantry_Light_USA_Southview.png"),
     AT_Infantry: unitSprite("Infantry_AT_USA_Southview.png"),
     Paratrooper: unitSprite("Paratrooper.png"),
-    Engineer: unitSprite("Engineer.png"),
-    Combat_Engineer: unitSprite("Combat_Engineer.png"),
-    AT_Gun_50mm: unitSprite("AT_Gun_50mm.png"),
-    Flak_88: unitSprite("Flak_88_USA_Southview.png"),
+    Combat_Engineer: unitSprite("Infantry_Engineers_USA_Southview.png"),
+    AT_Gun_50mm: unitSprite("Wheeled_AT_Gun_USA_Southview.png"),
     Recon_ArmoredCar: unitSprite("Recon_ArmoredCar.png"),
-    Recon_Bike: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png"),
     APC_Truck: unitSprite("APC_Truck.png"),
     APC_Halftrack: unitSprite("APC_Halftrack.png"),
     Supply_Truck: unitSprite("Supply_Truck.png"),
     Panzer_IV: unitSprite("Tank_PanzerIV_German_Southview.png"),
-    Heavy_Tank: unitSprite("Tank_M26_USA_Southview.png"),
-    Tank_Destroyer: unitSprite("Tankkiller_M10_USA_Southview.png"),
     Assault_Gun: unitSprite("Assault_Gun.png"),
-    Howitzer_105: unitSprite("Howitzer_105.png"),
-    Rocket_Artillery: unitSprite("Rocket_Artillery.png"),
-    SP_Artillery: unitSprite("Artillery_M7_USA_Southview.png"),
+    Howitzer_105: unitSprite("Artillery_Howitzer_USA_Southview.png"),
+    Rocket_Artillery: unitSprite("Artillery_Howitzer_USA_Southview.png"),
     Scout_Plane: unitSprite("Scout_Plane.png"),
     Fighter: unitSprite("Fighter.png"),
     Interceptor: unitSprite("Interceptor.png"),
     Ground_Attack: unitSprite("Ground_Attack.png"),
     Bomber: unitSprite("Bomber.png"),
     Transport_Plane: unitSprite("Transport_Plane.png"),
-    Infantry: unitSprite("Infantry.png"),
-    Howitzer: unitSprite("Howitzer_105.png"),
+    Infantry: unitSprite("Infantry_Light_USA_Southview.png"),
+    Howitzer: unitSprite("Artillery_Howitzer_USA_Southview.png"),
     Panzer_V: unitSprite("Panzer_V.png"),
     Light_Tank: unitSprite("Tank_M4_USA_Southview.png"),
-    Anti_Tank_Tank: unitSprite("Anti_Tank_Tank.png"),
-    SPAA: unitSprite("Flak_88.png"),
+    Anti_Tank_Tank: unitSprite("Tankkiller_M10_USA_Southview.png"),
+    SPAA: unitSprite("Flak_88_USA_Southview.png"),
     Recon: unitSprite("Recon_ArmoredCar.png"),
     Bomber_Elite: unitSprite("Bomber.png"),
     Transport_Ship: unitSprite("Transport_Ship.png"),
     Battleship: unitSprite("Battleship.png"),
     Infantry_Elite: unitSprite("Infantry_Elite.png"),
-    Artillery_155mm: unitSprite("Howitzer_105.png"),
-    Artillery_105mm: unitSprite("Howitzer_105.png")
+    Artillery_155mm: unitSprite("Artillery_Howitzer_USA_Southview.png"),
+    Artillery_105mm: unitSprite("Artillery_Howitzer_USA_Southview.png")
 };
 const FACTION_AIRCRAFT_SPRITES = {
     Fighter: {
@@ -233,8 +232,9 @@ function getViewSuffixForFacing(facing) {
  */
 function resolveDirectionalSprite(spriteUrl, facing) {
     const viewSuffix = getViewSuffixForFacing(facing);
-    // Replace any existing directional suffix with the target one
-    return spriteUrl.replace(/_(Southview|Sideview|Northview)\.png$/i, `_${viewSuffix}.png`);
+    // Replace any existing directional suffix with the target one.
+    // Preserve optional pose suffix numbers (e.g. "_Southview1.png" -> "_Northview1.png").
+    return spriteUrl.replace(/_(Southview|Sideview|Northview)(\d*)\.png$/i, `_${viewSuffix}$2.png`);
 }
 /**
  * Returns the ordered sprite URL array for the given unit type, faction, and stack count.

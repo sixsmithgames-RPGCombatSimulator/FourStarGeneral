@@ -39,16 +39,19 @@ export interface CoordinatedAirClusterLeadWindow {
 export function buildResolvedAirCombatSceneTimingPolicy(
   baseBomberArrivalDelayMs = resolveAirInterceptBomberArrivalDelayMs()
 ): ResolvedAirCombatSceneTimingPolicy {
-  const escortClashDurationMs = scaleAirShowSequenceMs(Math.round(AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS * 1.24));
+  const escortClashDurationMs = scaleAirShowSequenceMs(Math.round(AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS * 1.82));
 
   return {
-    fighterIngressDurationMs: Math.round(resolveFighterInterceptIngressDurationMs() * 1.44),
+    fighterIngressDurationMs: Math.round(resolveFighterInterceptIngressDurationMs() * 1.66),
     escortClashDurationMs,
-    bomberIngressDurationMs: Math.round(resolveBomberInterceptIngressDurationMs() * 5.2),
-    bomberPassDurationMs: scaleAirShowSequenceMs(Math.round(AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS * 2.18)),
+    bomberIngressDurationMs: Math.round(resolveBomberInterceptIngressDurationMs() * 0.48),
+    bomberPassDurationMs: scaleAirShowSequenceMs(Math.round(AIR_SHOW_DOGFIGHT_ORBIT_BASE_MS * 2.28)),
     strikeRunDurationMs: scaleAirShowSequenceMs(5120),
     egressDurationMs: scaleAirShowSequenceMs(920),
-    bomberArrivalDelayMs: Math.max(0, Math.round(baseBomberArrivalDelayMs)) + escortClashDurationMs + scaleAirShowSequenceMs(140),
+    bomberArrivalDelayMs:
+      Math.max(0, Math.round(baseBomberArrivalDelayMs * 0.14))
+      + Math.round(escortClashDurationMs * 0.14)
+      + scaleAirShowSequenceMs(48),
     bombReleaseProgress: 0.92
   };
 }
@@ -57,13 +60,13 @@ export function buildCoordinatedAirClusterTimingPolicy(): CoordinatedAirClusterT
   const sharedSceneTimings = buildResolvedAirCombatSceneTimingPolicy(0);
 
   return {
-    fighterIngressDurationMs: Math.round(resolveFighterInterceptIngressDurationMs() * 0.96),
+    fighterIngressDurationMs: Math.round(resolveFighterInterceptIngressDurationMs() * 1.14),
     escortClashDurationMs: sharedSceneTimings.escortClashDurationMs,
     bomberIngressDurationMs: sharedSceneTimings.bomberIngressDurationMs,
     bomberPassDurationMs: sharedSceneTimings.bomberPassDurationMs,
     strikeRunDurationMs: sharedSceneTimings.strikeRunDurationMs,
     egressDurationMs: sharedSceneTimings.egressDurationMs,
-    bomberStartDelayMs: scaleAirShowSequenceMs(720),
+    bomberStartDelayMs: scaleAirShowSequenceMs(120),
     bombReleaseProgress: sharedSceneTimings.bombReleaseProgress
   };
 }
@@ -93,9 +96,9 @@ export function resolveCoordinatedAirClusterLeadWindow(
   const fighterIngressLeadMs = Math.max(
     configuredLeadMs,
     Math.round(
-      fighterIngressDurationMs +
-      escortClashDurationMs * 0.3 +
-      140
+      fighterIngressDurationMs * 0.36 +
+      escortClashDurationMs * 0.12 +
+      48
     )
   );
 

@@ -79,7 +79,7 @@ export type CombatStance = "assault" | "suppressive" | "digIn";
 /**
  * Types of hex modifications that can be built by engineer units.
  */
-export type HexModificationType = "tankTraps" | "fortifications" | "clearedPath";
+export type HexModificationType = "tankTraps" | "fortifications" | "clearedPath" | "smoke";
 export type FacingDirection = "NW" | "NE" | "E" | "SE" | "SW" | "W";
 export type HexEdgeFacing = FacingDirection;
 export type LegacyScenarioFacing = "N" | "NE" | "SE" | "S" | "SW" | "NW";
@@ -122,6 +122,8 @@ export interface HexModification {
   level?: number;
   /** Turn when modification was built (for persistence/serialization) */
   builtOnTurn?: number;
+  /** Turn at which this modification expires and should be automatically removed (used by smoke screens). */
+  expiresOnTurn?: number;
 }
 
 export interface ScenarioUnit {
