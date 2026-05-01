@@ -15302,15 +15302,15 @@ private automateSupplyConvoys(
     if (!this.playerPlacements.has(axialKey(hex))) {
       return { available: false, reason: "No player formation occupies this hex." };
     }
-    if (flags.attacksUsed > 0 || flags.movementPointsUsed > 0) {
-      return { available: false, reason: "A formation cannot reorient after moving or firing this turn." };
+    if (flags.attacksUsed > 0) {
+      return { available: false, reason: "A formation cannot reorient after firing this turn." };
     }
     return { available: true, reason: null };
   }
 
   /**
    * Sets the unit's facing direction without consuming movement or attacks.
-   * A unit that has already moved or fired this turn cannot change facing.
+   * A unit that has already fired this turn cannot change facing.
    */
   setUnitFacing(hex: Axial, facing: HexEdgeFacing, unitId?: string): boolean {
     const unit = this.lookupUnit(hex, "Player", false, unitId);

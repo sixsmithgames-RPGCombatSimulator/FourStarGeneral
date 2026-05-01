@@ -9096,7 +9096,7 @@ export class BattleScreen {
     actions.push({
       id: "setFacing",
       label: "Set Facing",
-      detail: "Orient the formation toward a chosen hex edge. Facing affects defensive bonuses and retaliation arcs. Cannot reorient after moving or firing.",
+      detail: "Orient the formation toward a chosen hex edge. Facing affects defensive bonuses and retaliation arcs. Cannot reorient after firing.",
       tone: "defense",
       available: commandState.canSetFacing,
       reason: commandState.setFacingReason

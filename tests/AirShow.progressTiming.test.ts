@@ -17,7 +17,6 @@ import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirSh
 const PROGRESS_ANCHORS = {
   ingress: {
     start: 0.0,
-    escortAcceleration: 0.15,
     dogfightStart: 0.20,
     dogfightEnd: 0.50,
     fighterEgress: 0.80,
@@ -223,22 +222,22 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_TAPERS_AFTER_BOMB_R
   });
 });
 
-registerTest("AIR_SHOW_ESCORT_ACCELERATION_AT_PROGRESS_0_15", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_ESCORTS_PRESENT_IN_EARLY_CONTESTED_PACKAGE_PHASES", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
-  await Given("escort acceleration trigger per North Star Spec §Speed Model", async () => {});
+  await Given("escorts maintain fighter speed (V) and should be present early when they exist in the package", async () => {});
 
   await When("the contested package scenario is run", async () => {
     result = runAirScenario();
   });
 
-  await Then("escorts should transition from bomber speed to fighter speed at progress 0.15", async () => {
+  await Then("escorts should be present in early phases of the contested package", async () => {
     const inspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" &&
         entry.diagnostics.participants.some(p => p.renderRole === "escort")
     );
     if (!inspection) {
-      console.log("[ESCORT ACCEL] No contested package with escorts found - skipping");
+      console.log("[ESCORT PRESENCE] No contested package with escorts found - skipping");
       return;
     }
 
@@ -251,7 +250,7 @@ registerTest("AIR_SHOW_ESCORT_ACCELERATION_AT_PROGRESS_0_15", async ({ Given, Wh
       throw new Error("Expected phases with escort assignments.");
     }
 
-    // Validate escorts appear in early phases (ingress/acceleration)
+    // Validate escorts appear in early phases.
     const earlyPhases = phasesWithEscorts.slice(0, 2);
     const escortCount = earlyPhases.reduce((sum, p) =>
       sum + p.assignments.filter(a => a.role === "escort").length, 0
@@ -261,9 +260,8 @@ registerTest("AIR_SHOW_ESCORT_ACCELERATION_AT_PROGRESS_0_15", async ({ Given, Wh
       throw new Error("Expected escorts in early phases (ingress/acceleration).");
     }
 
-    console.log(`[ESCORT ACCEL] ${escortCount} escort assignments found in early phases`);
+    console.log(`[ESCORT PRESENCE] ${escortCount} escort assignments found in early phases`);
     console.log(`  - Escorts present in ingress phase: ✓`);
-    console.log(`  - Acceleration at progress 0.15: validated via phase structure`);
   });
 });
 

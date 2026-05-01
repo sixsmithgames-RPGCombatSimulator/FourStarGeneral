@@ -51,8 +51,8 @@ Once converted, **ALL** movement, timing, spacing, and collision operate exclusi
 - Bomber speed = V / 2 = 5.75 px/100ms
 
 **Behavior**
-- **Initial Ingress**: Bombers at V/2, Escorts at V/2 (matching bombers), CAP at V
-- **Escort Acceleration**: At `bomberProgress = 0.15`, escorts instantly transition to speed V
+- **Bombers**: Maintain speed V/2 for all legs.
+- **Fighters (CAP, Escorts, Interceptors)**: Maintain speed V for all legs.
 
 ### 4. Tracer Geometry and Fire Ownership
 
@@ -218,11 +218,11 @@ Required choreography (progress-based, all times relative to bomber ingress path
 
 1. **Ingress (0.0 → 0.15)**
    - CAP ingress at fighter speed (V)
-   - Bombers and escorts ingress together at bomber speed (V/2)
-   - Escorts fly with bombers as protective screen
+   - Bombers ingress at bomber speed (V/2)
+   - Escorts ingress at fighter speed (V) while screening the bomber package
 
-2. **Escort Acceleration (0.15)**
-   - Escorts accelerate to fighter speed (V)
+2. **Escort Screen (0.15)**
+   - Escorts maintain fighter speed (V)
    - Continue screening ahead of bombers
 
 3. **Fighter Clash / Dogfight (0.20 → 0.50)**
@@ -394,11 +394,12 @@ All timing is driven by bomber progress along ingress path.
 
 **Phase 1: Ingress (0.0 → 0.15)**
 - CAP ingress at fighter speed (V)
-- Bombers and escorts ingress at bomber speed (V/2), flying together
+- Bombers ingress at bomber speed (V/2)
+- Escorts ingress at fighter speed (V), screening the bomber package
 - Escorts screen ahead of bomber package
 
-**Phase 2: Escort Acceleration (at 0.15)**
-- Escorts accelerate to fighter speed (V)
+**Phase 2: Escort Screen (at 0.15)**
+- Escorts maintain fighter speed (V)
 - Escorts reposition to engage CAP while maintaining bomber association
 
 **Phase 3: Fighter Clash — CAP vs Escorts (0.20 → 0.50)**
@@ -693,8 +694,7 @@ All combat timing is driven by bomber progress along its ingress path:
 
 | Progress | Event |
 |----------|-------|
-| 0.00 | Spawn — CAP at V, Bombers/Escorts at V/2 |
-| 0.15 | Escort acceleration to V |
+| 0.00 | Spawn — Fighters (CAP/Escorts/Interceptors) at V, Bombers at V/2 |
 | 0.20 | Fighter clash (dogfight) begins |
 | 0.50 | Dogfight ends / CAP engages bombers |
 | 0.80 | Fighters disengage / Flak begins |
@@ -1021,7 +1021,6 @@ Retained for traceability. Statuses below reflect the current measured runtime a
 ```
 Bomber Ingress (pixel path progress)
 0.00 → spawn
-0.15 → escort acceleration
 0.20 → dogfight begins (CAP vs Escorts)
 0.50 → dogfight ends / CAP engages bombers
 0.80 → fighters disengage / flak begins

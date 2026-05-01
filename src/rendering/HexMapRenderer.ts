@@ -23,7 +23,6 @@ import {
   type AirShowMapBounds
 } from "../ui/airshow/AirShowPlanner";
 import {
-  AIR_SHOW_ESCORT_ACCELERATION_PROGRESS,
   AIR_SHOW_FIGHTER_CLASH_START_PROGRESS,
   AIR_SHOW_BOMBER_SPEED_PX_PER_MS as AIR_SHOW_POLICY_BOMBER_SPEED_PX_PER_MS,
   AIR_SHOW_FIGHTER_SPEED_PX_PER_MS as AIR_SHOW_POLICY_FIGHTER_SPEED_PX_PER_MS
@@ -8048,22 +8047,12 @@ export class HexMapRenderer implements IMapRenderer {
     progressTimeline: ReadonlyArray<AirShowAssignmentProgressKeyframe>;
   } {
     const safeDurationMs = Math.max(1, durationMs);
-    const accelerationTimeFraction = this.clamp(
-      AIR_SHOW_ESCORT_ACCELERATION_PROGRESS / Math.max(AIR_SHOW_FIGHTER_CLASH_START_PROGRESS, 0.0001),
-      0,
-      1
-    );
-    const accelerationTimeMs = Math.round(safeDurationMs * accelerationTimeFraction);
-    const slowDistancePx = HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS * accelerationTimeMs;
-    const fastDistancePx =
-      HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * Math.max(0, safeDurationMs - accelerationTimeMs);
-    const totalDistancePx = slowDistancePx + fastDistancePx;
-    const accelerationProgress = totalDistancePx > 0 ? slowDistancePx / totalDistancePx : 0;
+    // Escorts maintain fighter speed (V) throughout; no ingress acceleration beat.
+    const totalDistancePx = HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS * safeDurationMs;
     return {
       distanceBudgetPx: totalDistancePx,
       progressTimeline: [
         { timeMs: 0, progress: 0 },
-        { timeMs: accelerationTimeMs, progress: accelerationProgress },
         { timeMs: safeDurationMs, progress: 1 }
       ]
     };

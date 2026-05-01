@@ -392,7 +392,7 @@ registerTest("AIR_SHOW_SCENE_BUILDER_INCLUDES_PROGRESS_BASED_TIMING_METADATA", a
   });
 });
 
-registerTest("AIR_SHOW_SCENE_BUILDER_INCLUDES_ESCORT_ACCELERATION_TRIGGER", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_SCENE_BUILDER_INCLUDES_ESCORT_METADATA_FOR_PATHING", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof buildResolvedAirCombatScene> | null = null;
 
   const event: AirEngagementEvent = {
@@ -411,7 +411,7 @@ registerTest("AIR_SHOW_SCENE_BUILDER_INCLUDES_ESCORT_ACCELERATION_TRIGGER", asyn
     ]
   };
 
-  await Given("a contested package with escorts requiring acceleration at progress 0.15", async () => {});
+  await Given("a contested package with escorts that must be rendered with correct role and origin metadata", async () => {});
 
   await When("the resolved scene is built with escort metadata", async () => {
     result = buildResolvedAirCombatScene(event, {
@@ -422,7 +422,7 @@ registerTest("AIR_SHOW_SCENE_BUILDER_INCLUDES_ESCORT_ACCELERATION_TRIGGER", asyn
     });
   });
 
-  await Then("escort flights should include metadata for speed transition at bomberProgress 0.15", async () => {
+  await Then("escort flights should include role and origin metadata for path calculation", async () => {
     if (!result) {
       throw new Error("Expected a built scene result.");
     }
@@ -442,10 +442,9 @@ registerTest("AIR_SHOW_SCENE_BUILDER_INCLUDES_ESCORT_ACCELERATION_TRIGGER", asyn
       }
     }
 
-    console.log(`[ESCORT ACCEL] ${result.scene.escorts.length} escort flights with metadata:`);
+    console.log(`[ESCORT METADATA] ${result.scene.escorts.length} escort flights with metadata:`);
     console.log(`  - Role assignments: ✓`);
     console.log(`  - Origin keys for pathing: ✓`);
-    console.log(`  - Speed transition at progress 0.15: validated via role metadata`);
   });
 });
 
@@ -459,7 +458,6 @@ registerTest("AIR_SHOW_SCENE_BUILDER_PROGRESS_ANCHOR_REFERENCE", async ({ Given,
     const progressAnchors = {
       ingress: {
         0.0: "spawn",
-        0.15: "escort acceleration (V/2 -> V)",
         0.20: "dogfight begins (CAP vs Escorts)",
         0.50: "dogfight ends / CAP engages bombers",
         0.80: "fighters disengage / flak begins",
