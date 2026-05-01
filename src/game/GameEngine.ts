@@ -797,6 +797,8 @@ type UnitActionFlags = {
   retaliationsUsed: number;
   isRushing: boolean;
   retaliationLimit?: number;
+  /** True once the unit has deployed smoke this turn — prevents a second smoke action. */
+  smokeUsed?: boolean;
 };
 
 /** Describes a single bot movement so UI layers can narrate progress. */
@@ -14932,7 +14934,8 @@ private automateSupplyConvoys(
   private resolveLaySmokeAvailability(
     hex: Axial,
     unit: ScenarioUnit,
-    definition: UnitTypeDefinition
+    definition: UnitTypeDefinition,
+    flags: ReturnType<GameEngine["createDefaultActionFlags"]>
   ): { available: boolean; reason: string | null } {
     if (this._phase !== "playerTurn") {
       return { available: false, reason: "Smoke orders are available only during the player turn." };
@@ -14948,6 +14951,9 @@ private automateSupplyConvoys(
     }
     if (unit.ammo <= 0) {
       return { available: false, reason: "No ammunition remaining — smoke rounds require the unit to have ammo." };
+    }
+    if (flags.smokeUsed) {
+      return { available: false, reason: "Smoke already deployed this turn — one smoke action per formation per turn." };
     }
     return { available: true, reason: null };
   }
@@ -15085,7 +15091,7 @@ private automateSupplyConvoys(
       fortifications: this.resolveBuildModificationAvailabilityForType(hex, unit, definition, flags, "fortifications"),
       tankTraps: this.resolveBuildModificationAvailabilityForType(hex, unit, definition, flags, "tankTraps"),
       clearedPath: this.resolveBuildModificationAvailabilityForType(hex, unit, definition, flags, "clearedPath"),
-      smoke: this.resolveLaySmokeAvailability(hex, unit, definition)
+      smoke: this.resolveLaySmokeAvailability(hex, unit, definition, flags)
     };
     const available = Object.values(byType).some((entry) => entry.available);
     return {
@@ -15250,7 +15256,7 @@ private automateSupplyConvoys(
     const sentry = this.resolveSentryAvailability(hex, unit, flags);
     const digIn = this.resolveDigInAvailability(hex, unit, definition, flags);
     const build = this.resolveBuildModificationAvailability(hex, unit, definition, flags);
-    const smokeAvailability = this.resolveLaySmokeAvailability(hex, unit, definition);
+    const smokeAvailability = this.resolveLaySmokeAvailability(hex, unit, definition, flags);
     const facingAvailability = this.resolveSetFacingAvailability(hex, unit, flags);
     const existingHexModifications = this.getHexModifications(hex);
     const existingHexModification = existingHexModifications[0] ?? null;
@@ -15397,7 +15403,8 @@ private automateSupplyConvoys(
       throw new Error(`laySmoke: no player unit found at ${axialKey(hex)}.`);
     }
     const definition = this.getUnitDefinition(unit.type);
-    const availability = this.resolveLaySmokeAvailability(hex, unit, definition);
+    const flags = this.getUnitActionFlags("Player", unit);
+    const availability = this.resolveLaySmokeAvailability(hex, unit, definition, flags);
     if (!availability.available) {
       throw new Error(`laySmoke: ${availability.reason ?? "smoke is not available for this unit."}`);
     }
@@ -15427,8 +15434,12 @@ private automateSupplyConvoys(
       expiresOnTurn: this._turnNumber + 1
     };
     this.hexModifications.set(key, [...existing, smokeEntry]);
-    // Smoke does not commit movement or attacks — the unit stays fully active this turn.
-    this.updateIdleRegistryFor(key);
+    // Deduct one ammo round for the smoke discharge.
+    unit.ammo = Math.max(0, unit.ammo - 1);
+    this.replaceUnitInFactionHex("Player", unit);
+    // Record that this unit has used its smoke action for the turn — one per turn.
+    this.setUnitActionFlags("Player", unit, { ...flags, smokeUsed: true });
+    this.updateIdleRegistryFor(axialKey(hex));
     return true;
   }
 
