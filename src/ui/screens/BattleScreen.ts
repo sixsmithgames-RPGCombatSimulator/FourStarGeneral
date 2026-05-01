@@ -2426,7 +2426,11 @@ export class BattleScreen {
         return;
       }
       this.hideFortificationFacingDialog();
+      // Clear the stale movement-derived angle so the sprite re-derives its direction from unit.facing.
+      this.hexMapRenderer?.clearUnitFacingAngle(hexKey);
       this.renderEngineUnits();
+      // Re-select the hex so buildBattleSelectionIntel re-runs and the Facing stat card updates.
+      this.applySelectedHex(hexKey);
       const facingSummary = `${unitLabel} reoriented to face ${facing} at ${hexKey}.`;
       this.announceBattleUpdate(facingSummary);
       this.publishActivityEvent({ category: "player", type: "log", summary: facingSummary });

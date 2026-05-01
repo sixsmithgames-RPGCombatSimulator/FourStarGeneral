@@ -3423,6 +3423,16 @@ export class HexMapRenderer implements IMapRenderer {
     facingGroup.setAttribute("transform", `translate(${cx} ${cy}) scale(${sx} 1) translate(${-cx} ${-cy})`);
   }
 
+  /**
+   * Clears the cached movement-derived facing angle for a hex so the next renderUnitStack call
+   * re-derives the angle from the unit's authoritative facing field instead of the stale cache.
+   * Call this before renderEngineUnits whenever the engine changes a unit's facing in place
+   * (e.g., via setUnitFacing) without triggering a movement animation.
+   */
+  clearUnitFacingAngle(hexKey: string): void {
+    this.hexUnitFacingAngleMap.delete(hexKey);
+  }
+
   private setHexFacingAngle(hexKey: string, cx: number, cy: number, angleDeg: number): void {
     this.hexUnitFacingAngleMap.set(hexKey, angleDeg);
     const group = this.hexUnitImageMap.get(hexKey);
