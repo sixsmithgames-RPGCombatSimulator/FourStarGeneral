@@ -1148,28 +1148,45 @@ export function planResolvedAirCombatShowScene(host, scene) {
                 targetCenter
             };
         });
-        const preTargetFractions = new Map([
-            ["fighter-ingress", [0, 0.2]],
-            ["escort-clash-merge", [0.2, 0.4]],
-            ["escort-clash-scramble", [0.4, 0.62]],
-            ["bomber-ingress", [0.62, 0.66]],
-            ["bomber-defense-pass", [0.66, 1]]
+        const preTargetPhaseWeights = new Map([
+            ["fighter-ingress", 0.2],
+            ["escort-clash-merge", 0.18],
+            ["escort-clash-scramble", 0.2],
+            ["bomber-ingress", 0.17],
+            ["bomber-defense-pass", 0.25]
         ]);
+        const orderedPreTargetPhaseLabels = [
+            "fighter-ingress",
+            "escort-clash-merge",
+            "escort-clash-scramble",
+            "bomber-ingress",
+            "bomber-defense-pass"
+        ];
+        const totalPreTargetPhaseWeight = orderedPreTargetPhaseLabels.reduce((sum, label) => sum + Math.max(0, preTargetPhaseWeights.get(label) ?? 0), 0);
+        const preTargetPhaseWindows = new Map();
+        let elapsedPreTargetWeight = 0;
+        orderedPreTargetPhaseLabels.forEach((label) => {
+            const phaseWeight = Math.max(0, preTargetPhaseWeights.get(label) ?? 0);
+            const startProgress = totalPreTargetPhaseWeight > 0 ? elapsedPreTargetWeight / totalPreTargetPhaseWeight : 0;
+            elapsedPreTargetWeight += phaseWeight;
+            const endProgress = totalPreTargetPhaseWeight > 0 ? elapsedPreTargetWeight / totalPreTargetPhaseWeight : startProgress;
+            preTargetPhaseWindows.set(label, [host.clamp(startProgress, 0, 1), host.clamp(endProgress, startProgress, 1)]);
+        });
         const resolveBomberPhasePath = (plan, label) => {
-            const [startProgress, endProgress] = preTargetFractions.get(label) ?? [0, 1];
+            const [startProgress, endProgress] = preTargetPhaseWindows.get(label) ?? [0, 1];
             const lengthPx = measurePathLength(plan.preTargetPath);
             return slicePathByDistanceRange(plan.preTargetPath, lengthPx * startProgress, lengthPx * endProgress);
         };
-        const phaseDurationMs = (label) => {
+        const seedPhaseDurationMs = (label) => {
             const longestPathPx = bomberPlans.reduce((longest, plan) => Math.max(longest, measurePathLength(resolveBomberPhasePath(plan, label))), 0);
             return Math.max(1, Math.round(longestPathPx / host.airShowBomberSpeedPxPerMs));
         };
-        const durationByPhase = new Map([
-            ["fighter-ingress", phaseDurationMs("fighter-ingress")],
-            ["escort-clash-merge", phaseDurationMs("escort-clash-merge")],
-            ["escort-clash-scramble", phaseDurationMs("escort-clash-scramble")],
-            ["bomber-ingress", phaseDurationMs("bomber-ingress")],
-            ["bomber-defense-pass", phaseDurationMs("bomber-defense-pass")]
+        const seedDurationByPhase = new Map([
+            ["fighter-ingress", seedPhaseDurationMs("fighter-ingress")],
+            ["escort-clash-merge", seedPhaseDurationMs("escort-clash-merge")],
+            ["escort-clash-scramble", seedPhaseDurationMs("escort-clash-scramble")],
+            ["bomber-ingress", seedPhaseDurationMs("bomber-ingress")],
+            ["bomber-defense-pass", seedPhaseDurationMs("bomber-defense-pass")]
         ]);
         const targetRunDurationMs = Math.max(1, Math.round(bomberPlans.reduce((longest, plan) => Math.max(longest, measurePathLength(plan.targetRunPath)), 0)
             / host.airShowBomberSpeedPxPerMs));
@@ -1217,6 +1234,13 @@ export function planResolvedAirCombatShowScene(host, scene) {
             const bomberPoint = averageBomberPointAtPreTargetProgress(preTargetProgress);
             return host.offsetAirShowPoint(bomberPoint, corridor.axis.x * leadPx + corridor.normal.x * groupLane * 58, corridor.axis.y * leadPx + corridor.normal.y * groupLane * 58);
         };
+        /**
+         * Build fighter phase assignments with aggressive head-on dogfight behavior.
+         * Key principles:
+         * - No waiting periods: fighters transition immediately between phases
+         * - Dogfight is head-on pass with tracers, peel/re-pair, tight turn, attack
+         * - Surviving interceptors immediately attack bombers (no bomber-ingress wait)
+         */
         const buildFighterPhaseAssignments = (label) => {
             const assignments = [];
             fighterGroups.forEach((group) => {
@@ -1229,13 +1253,14 @@ export function planResolvedAirCombatShowScene(host, scene) {
                     const roleSide = role === "interceptor" ? 1 : -1;
                     let path;
                     if (label === "fighter-ingress") {
-                        const centerPoint = fightCenter(0.2, lane, 8);
+                        // Ingress: fighters approach from off-map to clash point
+                        const centerPoint = fightCenter(0.42, lane, 12);
                         const separatedTarget = host.offsetAirShowPoint(centerPoint, corridor.axis.x * roleSide * 12 + corridor.normal.x * roleSide * fighterIngressRoleSeparationPx, corridor.axis.y * roleSide * 12 + corridor.normal.y * roleSide * fighterIngressRoleSeparationPx);
                         const target = {
                             cx: separatedTarget.cx + (center.cx - separatedTarget.cx) * 0.03,
                             cy: separatedTarget.cy + (center.cy - separatedTarget.cy) * 0.03
                         };
-                        const ingressDurationMs = durationByPhase.get("fighter-ingress") ?? 1;
+                        const ingressDurationMs = seedDurationByPhase.get("fighter-ingress") ?? 1;
                         const ingressLengthPx = Math.max(96, ingressDurationMs * host.airShowFighterSpeedPxPerMs);
                         const approach = normalizeVector(target.cx - current.cx, target.cy - current.cy, corridor.axis.x * roleSide, corridor.axis.y * roleSide);
                         const start = {
@@ -1245,42 +1270,69 @@ export function planResolvedAirCombatShowScene(host, scene) {
                         path = dedupePath([start, target]);
                     }
                     else if (label === "escort-clash-merge") {
+                        // First head-on pass: aggressive convergence at clash center
                         const centerPoint = fightCenter(0.4, lane, 30);
                         const passPoint = host.offsetAirShowPoint(centerPoint, corridor.normal.x * lane * 8, corridor.normal.y * lane * 8);
-                        const exitPoint = host.offsetAirShowPoint(centerPoint, -corridor.axis.x * roleSide * 28 + corridor.normal.x * lane * 8, -corridor.axis.y * roleSide * 28 + corridor.normal.y * lane * 8);
+                        // Sharp peel-off after pass with tight turn
+                        const peelPoint = host.offsetAirShowPoint(passPoint, -corridor.axis.x * roleSide * 42 + corridor.normal.x * roleSide * 38, -corridor.axis.y * roleSide * 42 + corridor.normal.y * roleSide * 38);
+                        const mergeRouteForward = normalizeVector(passPoint.cx - current.cx, passPoint.cy - current.cy, corridor.axis.x * roleSide, corridor.axis.y * roleSide);
+                        const currentHeadingForward = resolveHeadingVector(host.resolveAirShowFlightHeadingDegrees(flight), mergeRouteForward);
+                        const continuityPoint = host.offsetAirShowPoint(current, currentHeadingForward.x * 72 + corridor.normal.x * roleSide * 10, currentHeadingForward.y * 72 + corridor.normal.y * roleSide * 10);
                         path = dedupePath([
                             current,
-                            host.offsetAirShowPoint(current, (passPoint.cx - current.cx) * 0.42 + corridor.normal.x * roleSide * 12, (passPoint.cy - current.cy) * 0.42 + corridor.normal.y * roleSide * 12),
+                            continuityPoint,
+                            host.offsetAirShowPoint(continuityPoint, (passPoint.cx - continuityPoint.cx) * 0.5 + corridor.normal.x * roleSide * 16, (passPoint.cy - continuityPoint.cy) * 0.5 + corridor.normal.y * roleSide * 16),
                             passPoint,
-                            exitPoint
+                            peelPoint
                         ]);
                     }
                     else if (label === "escort-clash-scramble") {
-                        const centerPoint = fightCenter(0.62, lane, 22);
+                        // Re-pair and second head-on pass with tight turn setup
+                        const centerPoint = fightCenter(0.58, lane, 26);
+                        // Re-pair: tight lateral turn to re-engage
+                        const rePairPoint = host.offsetAirShowPoint(current, corridor.axis.x * roleSide * 24 + corridor.normal.x * (lane * 12 - roleSide * 28), corridor.axis.y * roleSide * 24 + corridor.normal.y * (lane * 12 - roleSide * 28));
+                        // Second pass point (slightly ahead of bomber progression)
+                        const secondPass = host.offsetAirShowPoint(centerPoint, corridor.normal.x * lane * 6, corridor.normal.y * lane * 6);
+                        // Exit toward bomber attack position (no wait, immediate transition)
+                        const exitToBomber = host.offsetAirShowPoint(centerPoint, corridor.axis.x * 48 + corridor.normal.x * lane * 22, corridor.axis.y * 48 + corridor.normal.y * lane * 22);
                         path = dedupePath([
                             current,
-                            host.offsetAirShowPoint(centerPoint, -corridor.axis.x * roleSide * 8 + corridor.normal.x * (lane * 8 + roleSide * 6), -corridor.axis.y * roleSide * 8 + corridor.normal.y * (lane * 8 + roleSide * 6)),
-                            host.offsetAirShowPoint(centerPoint, corridor.normal.x * lane * 6, corridor.normal.y * lane * 6),
-                            host.offsetAirShowPoint(centerPoint, -corridor.axis.x * 54 + corridor.normal.x * lane * 18, -corridor.axis.y * 54 + corridor.normal.y * lane * 18)
+                            rePairPoint,
+                            secondPass,
+                            exitToBomber
                         ]);
                     }
                     else if (label === "bomber-ingress") {
-                        const centerPoint = averageBomberPointAtPreTargetProgress(0.66);
-                        const target = role === "interceptor"
-                            ? host.offsetAirShowPoint(centerPoint, -corridor.axis.x * 76 + corridor.normal.x * (lane * 30 - 10), -corridor.axis.y * 76 + corridor.normal.y * (lane * 30 - 10))
-                            : host.offsetAirShowPoint(centerPoint, -corridor.axis.x * 44 + corridor.normal.x * (lane * 36 + 96), -corridor.axis.y * 44 + corridor.normal.y * (lane * 36 + 96));
-                        path = buildSpeedMatchedCorridorPath(current, target, durationByPhase.get("bomber-ingress") ?? 1, host.airShowFighterSpeedPxPerMs, role === "interceptor" ? -1 : 1);
+                        // INTERCEPTORS: Immediate bomber attack (no waiting period)
+                        // Surviving interceptors from scramble immediately attack bombers
+                        if (role === "interceptor") {
+                            const interceptorIndex = activeFlights(interceptorFlights).findIndex((candidate) => candidate.spec.id === flight.spec.id);
+                            const targetPlan = bomberPlans[Math.max(0, interceptorIndex) % Math.max(1, bomberPlans.length)];
+                            // Attack position ahead of bomber progression
+                            const attackFocus = targetPlan
+                                ? pointAtPathDistance(targetPlan.preTargetPath, measurePathLength(targetPlan.preTargetPath) * 0.72)
+                                : averageBomberPointAtPreTargetProgress(0.72);
+                            const attackPoint = host.offsetAirShowPoint(attackFocus, corridor.axis.x * 18 + corridor.normal.x * lane * 24, corridor.axis.y * 18 + corridor.normal.y * lane * 24);
+                            path = buildSpeedMatchedPassPath(current, attackPoint, seedDurationByPhase.get("bomber-ingress") ?? 1, host.airShowFighterSpeedPxPerMs, lane >= 0 ? 1 : -1);
+                        }
+                        else {
+                            // ESCORTS: Defensive repositioning to protect bombers
+                            const protectPoint = averageBomberPointAtPreTargetProgress(0.68);
+                            path = smoothCorridorPath(current, host.offsetAirShowPoint(protectPoint, corridor.axis.x * 56 + corridor.normal.x * (lane * 36 + 120), corridor.axis.y * 56 + corridor.normal.y * (lane * 36 + 120)), 18);
+                        }
                     }
                     else if (role === "interceptor") {
+                        // Bomber defense pass: sustained attack on bombers
                         const interceptorIndex = activeFlights(interceptorFlights).findIndex((candidate) => candidate.spec.id === flight.spec.id);
                         const targetPlan = bomberPlans[Math.max(0, interceptorIndex) % Math.max(1, bomberPlans.length)];
                         const focusPoint = targetPlan
                             ? pointAtPathDistance(targetPlan.preTargetPath, measurePathLength(targetPlan.preTargetPath) * 0.84)
                             : averageBomberPointAtPreTargetProgress(0.84);
                         const aimPoint = host.offsetAirShowPoint(focusPoint, corridor.normal.x * lane * 16, corridor.normal.y * lane * 16);
-                        path = buildSpeedMatchedPassPath(current, aimPoint, durationByPhase.get("bomber-defense-pass") ?? 1, host.airShowFighterSpeedPxPerMs, lane >= 0 ? 1 : -1);
+                        path = buildSpeedMatchedPassPath(current, aimPoint, seedDurationByPhase.get("bomber-defense-pass") ?? 1, host.airShowFighterSpeedPxPerMs, lane >= 0 ? 1 : -1);
                     }
                     else {
+                        // Escort reposition during bomber defense
                         const centerPoint = averageBomberPointAtPreTargetProgress(0.86);
                         path = smoothCorridorPath(current, host.offsetAirShowPoint(centerPoint, corridor.axis.x * 86 + corridor.normal.x * (lane * 42 + 160), corridor.axis.y * 86 + corridor.normal.y * (lane * 42 + 160)), 22);
                     }
@@ -1289,9 +1341,22 @@ export function planResolvedAirCombatShowScene(host, scene) {
             });
             return assignments;
         };
+        /**
+         * Build aggressive dogfight tracer volleys for head-on pass engagement.
+         * Tracers fire during head-on convergence and peel-off maneuvers.
+         */
         const buildDogfightTracers = (assignments, label) => {
             const tracers = [];
             const isMerge = label === "escort-clash-merge";
+            // Aggressive head-on pass timing: tracers fire during convergence and break
+            // Merge phase: single concentrated burst at head-on pass (0.5-0.7)
+            // Scramble phase: sustained fire during re-pair and second pass (0.2-0.8)
+            const interceptorTimings = isMerge
+                ? [0.55, 0.68, 0.78] // Head-on pass convergence then peel
+                : [0.25, 0.40, 0.55, 0.70, 0.82]; // Re-pair, second pass, exit
+            const escortTimings = isMerge
+                ? [0.58, 0.72, 0.82] // Slight offset for visual chaos
+                : [0.30, 0.45, 0.60, 0.75, 0.88];
             fighterGroups.forEach((group, groupIndex) => {
                 group.interceptorFlights.forEach((interceptorFlight, index) => {
                     const escortTarget = group.escortFlights[(index + (isMerge ? 0 : 1)) % Math.max(1, group.escortFlights.length)];
@@ -1301,16 +1366,16 @@ export function planResolvedAirCombatShowScene(host, scene) {
                     tracers.push(...host.buildAirShowDynamicTracerVolley(assignments, interceptorFlight, escortTarget, {
                         emitter: "nose",
                         color: "#fff5cf",
-                        width: 0.66,
-                        lifetimeMs: 40,
-                        spreadPx: isMerge ? 6 : 7,
-                        streakLengthPx: isMerge ? 126 : 136,
-                        visibleLengthPx: isMerge ? 10 : 11,
-                        fanHalfAngleDeg: 2.4,
-                        burstCount: isMerge ? 3 : 4,
-                        maxAlignmentDeg: 72,
-                        maxRangePx: 230,
-                        timings: isMerge ? [0.6, 0.72, 0.84] : [0.18, 0.3, 0.44, 0.58, 0.72],
+                        width: 0.7,
+                        lifetimeMs: 42,
+                        spreadPx: isMerge ? 7 : 8,
+                        streakLengthPx: isMerge ? 134 : 148,
+                        visibleLengthPx: isMerge ? 11 : 12,
+                        fanHalfAngleDeg: 2.6,
+                        burstCount: isMerge ? 3 : 5,
+                        maxAlignmentDeg: 78,
+                        maxRangePx: 240,
+                        timings: interceptorTimings,
                         fallbackToNearest: true
                     }));
                 });
@@ -1322,70 +1387,78 @@ export function planResolvedAirCombatShowScene(host, scene) {
                     tracers.push(...host.buildAirShowDynamicTracerVolley(assignments, escortFlight, interceptorTarget, {
                         emitter: "nose",
                         color: "#ffd98a",
-                        width: 0.58,
-                        lifetimeMs: 38,
-                        spreadPx: isMerge ? 5 : 6,
-                        streakLengthPx: isMerge ? 118 : 128,
-                        visibleLengthPx: isMerge ? 9 : 10,
-                        fanHalfAngleDeg: 2,
-                        burstCount: isMerge ? 2 : 3,
-                        maxAlignmentDeg: 72,
-                        maxRangePx: 220,
-                        timings: isMerge ? [0.62, 0.76, 0.88] : [0.22, 0.36, 0.5, 0.64, 0.78],
+                        width: 0.62,
+                        lifetimeMs: 40,
+                        spreadPx: isMerge ? 6 : 7,
+                        streakLengthPx: isMerge ? 126 : 138,
+                        visibleLengthPx: isMerge ? 10 : 11,
+                        fanHalfAngleDeg: 2.2,
+                        burstCount: isMerge ? 3 : 4,
+                        maxAlignmentDeg: 76,
+                        maxRangePx: 230,
+                        timings: escortTimings,
                         fallbackToNearest: true
                     }));
                 });
             });
             return tracers;
         };
-        const resolveRangedFlakBursts = (assignments, durationMs, phase) => {
+        /**
+         * Resolve continuous flak bursts during bomber approach.
+         * Flak runs continuously when bombers are within 8 hex range of flak battery,
+         * sampled at bomber positions during the phase, tapering after ordnance release.
+         */
+        const resolveContinuousFlakBursts = (assignments, durationMs, phase) => {
             const assignmentsByActorId = host.buildAirShowAssignmentLookup(assignments);
-            const rangePx = HEX_WIDTH * 8;
+            const rangePx = HEX_WIDTH * 8; // 8 hex range for flak engagement
             return bomberPlans.flatMap((plan) => {
                 const scoped = host.resolveAirShowBomberFlakBursts(scene, plan.flight.spec.id);
                 if (scoped.length <= 0) {
                     return [];
                 }
-                const splitIndex = host.clamp(Math.round(scoped.length * 0.45), 1, Math.max(1, scoped.length - 1));
-                const phaseBursts = scoped.length <= 1
-                    ? (phase === "target" ? scoped : [])
-                    : (phase === "defense" ? scoped.slice(0, splitIndex) : scoped.slice(splitIndex));
-                const localStart = phase === "defense" ? 0.18 : 0.08;
-                const localEnd = phase === "defense" ? 0.88 : 0.72;
-                return phaseBursts.flatMap((burst, index) => {
-                    const progress = phaseBursts.length <= 1
-                        ? (localStart + localEnd) / 2
-                        : localStart + (index / Math.max(1, phaseBursts.length - 1)) * (localEnd - localStart);
-                    const sampledActorPositions = plan.flight.actors.flatMap((actor) => {
-                        const assignment = assignmentsByActorId.get(actor.id);
-                        return assignment
-                            ? [host.sampleAirShowAssignmentAtTime(assignment, durationMs * progress, durationMs).position]
-                            : [];
-                    });
-                    const bomberCenter = host.averageAirShowPoints(sampledActorPositions);
+                // Sample bomber positions at multiple points during phase for continuous flak
+                const sampleProgresses = phase === "approach"
+                    ? [0.12, 0.28, 0.44, 0.60, 0.76, 0.84] // Continuous during approach, tapering before phase exit
+                    : [0.15, 0.35, 0.55, 0.75]; // Tapering during target run
+                return scoped.flatMap((burst) => {
                     const targetCenter = (burst.targetHexKey ? host.resolveHexCenterByKey(burst.targetHexKey) : null) ?? plan.targetCenter;
                     const batteryCenter = burst.batteryHexKey ? host.resolveHexCenterByKey(burst.batteryHexKey) : null;
                     const rangeReferenceCenter = batteryCenter ?? targetCenter;
-                    if (!bomberCenter
-                        || Math.hypot(bomberCenter.cx - rangeReferenceCenter.cx, bomberCenter.cy - rangeReferenceCenter.cy) > rangePx) {
-                        return [];
+                    // Check range at each sample point - flak only fires when bombers within 8 hexes
+                    const inRangeSamples = sampleProgresses.filter((progress) => {
+                        const sampledActorPositions = plan.flight.actors.flatMap((actor) => {
+                            const assignment = assignmentsByActorId.get(actor.id);
+                            return assignment
+                                ? [host.sampleAirShowAssignmentAtTime(assignment, durationMs * progress, durationMs).position]
+                                : [];
+                        });
+                        const bomberCenter = host.averageAirShowPoints(sampledActorPositions);
+                        if (!bomberCenter) {
+                            return false;
+                        }
+                        const distancePx = Math.hypot(bomberCenter.cx - rangeReferenceCenter.cx, bomberCenter.cy - rangeReferenceCenter.cy);
+                        return distancePx <= rangePx;
+                    });
+                    if (inRangeSamples.length <= 0) {
+                        return []; // No flak if bomber never within range during this phase
                     }
-                    return [{
-                            ...burst,
-                            progress,
-                            bomberUnitKey: plan.flight.spec.id,
-                            targetHexKey: burst.targetHexKey
-                                ?? bomberSpecsById.get(plan.flight.spec.id)?.targetHexKey
-                                ?? scene.bomberTargetHexKey
-                                ?? null,
-                            batteryHexKey: burst.batteryHexKey ?? null
-                        }];
+                    // Flak fires continuously at sampled positions where bombers are in range
+                    return inRangeSamples.map((progress) => ({
+                        ...burst,
+                        progress,
+                        bomberUnitKey: plan.flight.spec.id,
+                        targetHexKey: burst.targetHexKey
+                            ?? bomberSpecsById.get(plan.flight.spec.id)?.targetHexKey
+                            ?? scene.bomberTargetHexKey
+                            ?? null,
+                        batteryHexKey: burst.batteryHexKey ?? null
+                    }));
                 });
             });
         };
         const recordCorridorPhase = (label, fighterAssignments, tracerBursts = [], flakBursts = []) => {
-            const durationMs = durationByPhase.get(label) ?? 1;
             const assignments = [...buildBomberPhaseAssignments(label), ...fighterAssignments];
+            const durationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(assignments, roleSpeeds, seedDurationByPhase.get(label) ?? 1, 1, 60000);
             recordPhase(label, assignments, durationMs, tracerBursts, flakBursts, roleSpeeds);
             previousPhaseAssignments = assignments;
             previousPhaseDurationMs = durationMs;
@@ -1394,13 +1467,13 @@ export function planResolvedAirCombatShowScene(host, scene) {
         recordCorridorPhase("fighter-ingress", buildFighterPhaseAssignments("fighter-ingress"));
         if (escortFlights.length > 0) {
             const mergeAssignments = [...buildBomberPhaseAssignments("escort-clash-merge"), ...buildFighterPhaseAssignments("escort-clash-merge")];
-            const mergeDurationMs = durationByPhase.get("escort-clash-merge") ?? 1;
+            const mergeDurationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(mergeAssignments, roleSpeeds, seedDurationByPhase.get("escort-clash-merge") ?? 1, 1, 60000);
             recordPhase("escort-clash-merge", mergeAssignments, mergeDurationMs, buildDogfightTracers(mergeAssignments, "escort-clash-merge"), [], roleSpeeds);
             previousPhaseAssignments = mergeAssignments;
             previousPhaseDurationMs = mergeDurationMs;
             updateFlightAnchors([...bomberFlights, ...interceptorFlights, ...escortFlights]);
             const scrambleAssignments = [...buildBomberPhaseAssignments("escort-clash-scramble"), ...buildFighterPhaseAssignments("escort-clash-scramble")];
-            const scrambleDurationMs = durationByPhase.get("escort-clash-scramble") ?? 1;
+            const scrambleDurationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(scrambleAssignments, roleSpeeds, seedDurationByPhase.get("escort-clash-scramble") ?? 1, 1, 60000);
             recordPhase("escort-clash-scramble", scrambleAssignments, scrambleDurationMs, buildDogfightTracers(scrambleAssignments, "escort-clash-scramble"), [], roleSpeeds);
             previousPhaseAssignments = scrambleAssignments;
             previousPhaseDurationMs = scrambleDurationMs;
@@ -1408,7 +1481,7 @@ export function planResolvedAirCombatShowScene(host, scene) {
         }
         recordCorridorPhase("bomber-ingress", buildFighterPhaseAssignments("bomber-ingress"));
         const bomberDefenseAssignments = [...buildBomberPhaseAssignments("bomber-defense-pass"), ...buildFighterPhaseAssignments("bomber-defense-pass")];
-        const bomberDefenseDurationMs = durationByPhase.get("bomber-defense-pass") ?? 1;
+        const bomberDefenseDurationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(bomberDefenseAssignments, roleSpeeds, seedDurationByPhase.get("bomber-defense-pass") ?? 1, 1, 60000);
         const bomberDefenseTracers = [];
         activeFlights(interceptorFlights).forEach((interceptorFlight, index) => {
             const targetBomber = bomberFlights[index % Math.max(1, bomberFlights.length)];
@@ -1445,7 +1518,7 @@ export function planResolvedAirCombatShowScene(host, scene) {
                 fallbackToNearest: true
             }));
         });
-        recordPhase("bomber-defense-pass", bomberDefenseAssignments, bomberDefenseDurationMs, bomberDefenseTracers, resolveRangedFlakBursts(bomberDefenseAssignments, bomberDefenseDurationMs, "defense"), roleSpeeds);
+        recordPhase("bomber-defense-pass", bomberDefenseAssignments, bomberDefenseDurationMs, bomberDefenseTracers, resolveContinuousFlakBursts(bomberDefenseAssignments, bomberDefenseDurationMs, "approach"), roleSpeeds);
         previousPhaseAssignments = bomberDefenseAssignments;
         previousPhaseDurationMs = bomberDefenseDurationMs;
         updateFlightAnchors([...bomberFlights, ...interceptorFlights, ...escortFlights]);
@@ -1466,7 +1539,7 @@ export function planResolvedAirCombatShowScene(host, scene) {
             ...bomberPlans.flatMap((plan) => buildAssignmentsForFlightPath(plan.flight, plan.targetRunPath, 0.24)),
             ...targetRunFighterAssignments
         ];
-        recordPhase("target-run", targetRunAssignments, targetRunDurationMs, [], resolveRangedFlakBursts(targetRunAssignments, targetRunDurationMs, "target"), roleSpeeds);
+        recordPhase("target-run", targetRunAssignments, targetRunDurationMs, [], resolveContinuousFlakBursts(targetRunAssignments, targetRunDurationMs, "target"), roleSpeeds);
         previousPhaseAssignments = targetRunAssignments;
         previousPhaseDurationMs = targetRunDurationMs;
         updateFlightAnchors([...bomberFlights, ...interceptorFlights, ...escortFlights]);

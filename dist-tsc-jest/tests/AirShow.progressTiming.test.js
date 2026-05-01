@@ -10,12 +10,12 @@
  */
 import { registerTest } from "./harness.js";
 import { runAirScenario } from "./airScenarioSupport.js";
+import { getAuthoritativeContestedPlan } from "./airShowTestSupport.js";
 import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies";
 // Progress anchor reference per North Star Spec
 const PROGRESS_ANCHORS = {
     ingress: {
         start: 0.0,
-        escortAcceleration: 0.15,
         dogfightStart: 0.20,
         dogfightEnd: 0.50,
         fighterEgress: 0.80,
@@ -112,6 +112,39 @@ registerTest("AIR_SHOW_BOMBER_REACHES_STANDOFF_AT_PROGRESS_1_0", async ({ Given,
         console.log(`[STANDOFF VALIDATION] ${bomberAssignments.length} bombers reached standoff point with valid positions`);
     });
 });
+registerTest("AIR_SHOW_CORRIDOR_PHASE_DURATIONS_ARE_NOT_FIXED_FRACTION_ARTIFACTS", async ({ Given, When, Then }) => {
+    let result = null;
+    await Given("corridor path anchors may shape phase windows but cannot collapse readable beat durations", async () => { });
+    await When("the coordinated contested package is planned", async () => {
+        result = runAirScenario();
+    });
+    await Then("bomber-ingress should consume a readable share of pre-target playback instead of a tiny fixed slice", async () => {
+        const sceneReport = getAuthoritativeContestedPlan(result)?.sceneReport;
+        if (!sceneReport) {
+            throw new Error("Expected authoritative coordinated contested plan report.");
+        }
+        const preTargetLabels = new Set([
+            "fighter-ingress",
+            "escort-clash-merge",
+            "escort-clash-scramble",
+            "bomber-ingress",
+            "bomber-defense-pass"
+        ]);
+        const preTargetPhases = sceneReport.phases.filter((phase) => preTargetLabels.has(phase.label));
+        const bomberIngress = preTargetPhases.find((phase) => phase.label === "bomber-ingress");
+        if (!bomberIngress) {
+            throw new Error("Expected bomber-ingress phase in coordinated contested package.");
+        }
+        const preTargetDurationMs = preTargetPhases.reduce((sum, phase) => sum + phase.durationMs, 0);
+        const ingressShare = bomberIngress.durationMs / Math.max(1, preTargetDurationMs);
+        if (ingressShare < 0.12) {
+            throw new Error(`bomber-ingress collapsed to ${(ingressShare * 100).toFixed(1)}% of pre-target playback; ` +
+                `expected a readable window derived from planned paths, not a tiny fixed corridor fraction.`);
+        }
+        console.log(`[CORRIDOR TIMING] bomber-ingress=${bomberIngress.durationMs}ms ` +
+            `preTarget=${preTargetDurationMs}ms share=${(ingressShare * 100).toFixed(1)}%`);
+    });
+});
 registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_TAPERS_AFTER_BOMB_RELEASE", async ({ Given, When, Then }) => {
     let result = null;
     await Given("flak engagement per North Star Spec §Scenario 5 Phase 6", async () => { });
@@ -164,17 +197,17 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_TAPERS_AFTER_BOMB_R
             `to ${(lastTargetRunFlakProgress * 100).toFixed(0)}%`);
     });
 });
-registerTest("AIR_SHOW_ESCORT_ACCELERATION_AT_PROGRESS_0_15", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_ESCORTS_PRESENT_IN_EARLY_CONTESTED_PACKAGE_PHASES", async ({ Given, When, Then }) => {
     let result = null;
-    await Given("escort acceleration trigger per North Star Spec §Speed Model", async () => { });
+    await Given("escorts maintain fighter speed (V) and should be present early when they exist in the package", async () => { });
     await When("the contested package scenario is run", async () => {
         result = runAirScenario();
     });
-    await Then("escorts should transition from bomber speed to fighter speed at progress 0.15", async () => {
+    await Then("escorts should be present in early phases of the contested package", async () => {
         const inspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" &&
             entry.diagnostics.participants.some(p => p.renderRole === "escort"));
         if (!inspection) {
-            console.log("[ESCORT ACCEL] No contested package with escorts found - skipping");
+            console.log("[ESCORT PRESENCE] No contested package with escorts found - skipping");
             return;
         }
         // Find phases where escorts are present
@@ -182,15 +215,14 @@ registerTest("AIR_SHOW_ESCORT_ACCELERATION_AT_PROGRESS_0_15", async ({ Given, Wh
         if (phasesWithEscorts.length === 0) {
             throw new Error("Expected phases with escort assignments.");
         }
-        // Validate escorts appear in early phases (ingress/acceleration)
+        // Validate escorts appear in early phases.
         const earlyPhases = phasesWithEscorts.slice(0, 2);
         const escortCount = earlyPhases.reduce((sum, p) => sum + p.assignments.filter(a => a.role === "escort").length, 0);
         if (escortCount === 0) {
             throw new Error("Expected escorts in early phases (ingress/acceleration).");
         }
-        console.log(`[ESCORT ACCEL] ${escortCount} escort assignments found in early phases`);
+        console.log(`[ESCORT PRESENCE] ${escortCount} escort assignments found in early phases`);
         console.log(`  - Escorts present in ingress phase: ✓`);
-        console.log(`  - Acceleration at progress 0.15: validated via phase structure`);
     });
 });
 registerTest("AIR_SHOW_DOGFIGHT_OCCURS_BETWEEN_PROGRESS_0_20_AND_0_50", async ({ Given, When, Then }) => {

@@ -994,3 +994,71 @@ registerTest("TOWED_GUNS_CANNOT_RETALIATE_UNTIL_DEPLOYED", async ({ Then }) => {
     }
     await Then("limbered guns lose retaliation in previews and live combat until they are deployed again", () => { });
 });
+registerTest("SET_FACING_REMAINS_AVAILABLE_AFTER_MOVEMENT_BUT_LOCKS_AFTER_FIRING", async ({ Then }) => {
+    const mover = {
+        type: "TestInfantry",
+        hex: { q: 0, r: 0 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 0,
+        entrench: 0,
+        facing: "NE"
+    };
+    const { engine: moveEngine } = createEngine([mover]);
+    moveEngine.moveUnit({ q: 0, r: 0 }, { q: 1, r: 0 });
+    const postMoveCommand = moveEngine.getUnitCommandState({ q: 1, r: 0 });
+    if (!postMoveCommand?.canSetFacing) {
+        throw new Error(`Expected facing order to remain available after movement, received ${JSON.stringify(postMoveCommand)}`);
+    }
+    if (!moveEngine.setUnitFacing({ q: 1, r: 0 }, "SW")) {
+        throw new Error("Expected setUnitFacing to succeed after movement.");
+    }
+    const postMoveFacing = moveEngine.getUnitCommandState({ q: 1, r: 0 })?.currentFacing;
+    if (postMoveFacing !== "SW") {
+        throw new Error(`Expected facing to update to SW after setUnitFacing, received ${String(postMoveFacing)}.`);
+    }
+    const attacker = {
+        type: "TestShockInfantry",
+        hex: { q: 0, r: 0 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 0,
+        entrench: 0,
+        facing: "NE"
+    };
+    const defender = {
+        type: "TestRetaliationDummy",
+        hex: { q: 1, r: 0 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 40,
+        entrench: 0,
+        facing: "SW"
+    };
+    const { engine: fireEngine } = createEngine([attacker], [defender]);
+    const resolution = fireEngine.attackUnit(attacker.hex, defender.hex, "assault");
+    if (!resolution) {
+        throw new Error("Expected attack to resolve before checking facing lockout.");
+    }
+    const postFireCommand = fireEngine.getUnitCommandState(attacker.hex);
+    if (postFireCommand?.canSetFacing) {
+        throw new Error(`Expected facing order to be unavailable after firing, received ${JSON.stringify(postFireCommand)}`);
+    }
+    if (!postFireCommand?.setFacingReason?.includes("after firing")) {
+        throw new Error(`Expected post-fire facing reason to mention firing, received ${String(postFireCommand?.setFacingReason)}.`);
+    }
+    let threw = false;
+    try {
+        fireEngine.setUnitFacing(attacker.hex, "SW");
+    }
+    catch {
+        threw = true;
+    }
+    if (!threw) {
+        throw new Error("Expected setUnitFacing to throw after the unit has fired.");
+    }
+    await Then("movement keeps facing orders available while firing locks them for the turn", () => { });
+});

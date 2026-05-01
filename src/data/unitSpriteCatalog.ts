@@ -5,16 +5,13 @@ import { deploymentTemplates } from "../game/adapters";
  * Build tooling may fingerprint file names, so keep a filename→final URL manifest
  * for reliable directional swapping (Southview/Sideview/Northview) in both dev and prod.
  */
-const importMetaWithGlob = import.meta as ImportMeta & {
-  glob?: (pattern: string, options: { eager: true; import: "default" }) => Record<string, string>;
-};
-
-const UNIT_SPRITE_MANIFEST: Record<string, string> = importMetaWithGlob.glob
-  ? importMetaWithGlob.glob("../assets/units/*", {
+const UNIT_SPRITE_MANIFEST: Record<string, string> = typeof import.meta.glob === "function"
+  ? import.meta.glob("../assets/units/*", {
       eager: true,
       import: "default"
     })
   : {};
+const HAS_UNIT_SPRITE_MANIFEST = Object.keys(UNIT_SPRITE_MANIFEST).length > 0;
 
 const UNIT_SPRITE_URL_BY_FILE = new Map<string, string>();
 const UNIT_SPRITE_FILE_BY_URL = new Map<string, string>();
@@ -323,7 +320,11 @@ function resolveDirectionalSprite(spriteUrl: string, facing: string): string {
     return spriteUrl;
   }
 
-  return UNIT_SPRITE_URL_BY_FILE.get(resolvedFileName) ?? spriteUrl;
+  const manifestUrl = UNIT_SPRITE_URL_BY_FILE.get(resolvedFileName);
+  if (manifestUrl) {
+    return manifestUrl;
+  }
+  return HAS_UNIT_SPRITE_MANIFEST ? spriteUrl : unitSprite(resolvedFileName);
 }
 
 /**

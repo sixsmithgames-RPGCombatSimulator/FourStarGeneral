@@ -1788,7 +1788,7 @@ export class BattleScreen {
             this.hexMapRenderer?.clearUnitFacingAngle(hexKey);
             this.renderEngineUnits();
             // Re-select the hex so buildBattleSelectionIntel re-runs and the Facing stat card updates.
-            this.applySelectedHex(hexKey);
+            this.applySelectedHex(hexKey, true);
             const facingSummary = `${unitLabel} reoriented to face ${facing} at ${hexKey}.`;
             this.announceBattleUpdate(facingSummary);
             this.publishActivityEvent({ category: "player", type: "log", summary: facingSummary });
@@ -6280,12 +6280,15 @@ export class BattleScreen {
      * When the renderer is not available (edge-case testing scenarios), the handler falls back to a
      * direct invocation of the selection synchronization routine.
      */
-    applySelectedHex(key) {
+    applySelectedHex(key, forceRefresh = false) {
         if (this.hexMapRenderer) {
             this.hexMapRenderer.applyHexSelection(key);
+            if (forceRefresh && this.selectedHexKey === key) {
+                this.handleRendererSelection(key, true);
+            }
             return;
         }
-        this.handleRendererSelection(key);
+        this.handleRendererSelection(key, forceRefresh);
     }
     /**
      * Clears the currently selected hex via the renderer so panels and status banners reset.
@@ -6321,8 +6324,8 @@ export class BattleScreen {
      * Receives renderer selection notifications and propagates the new state to UI affordances while
      * avoiding redundant work when the key is unchanged.
      */
-    handleRendererSelection(key) {
-        if (this.selectedHexKey === key) {
+    handleRendererSelection(key, forceRefresh = false) {
+        if (!forceRefresh && this.selectedHexKey === key) {
             return;
         }
         // Only enforce zone lock during deployment phase, not during battle
@@ -7433,7 +7436,7 @@ export class BattleScreen {
         actions.push({
             id: "setFacing",
             label: "Set Facing",
-            detail: "Orient the formation toward a chosen hex edge. Facing affects defensive bonuses and retaliation arcs. Cannot reorient after moving or firing.",
+            detail: "Orient the formation toward a chosen hex edge. Facing affects defensive bonuses and retaliation arcs. Cannot reorient after firing.",
             tone: "defense",
             available: commandState.canSetFacing,
             reason: commandState.setFacingReason

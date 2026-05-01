@@ -2030,31 +2030,53 @@ export function planResolvedAirCombatShowScene(
         targetCenter
       };
     });
-    const preTargetFractions = new Map<CorridorPhaseLabel, [number, number]>([
-      ["fighter-ingress", [0, 0.2]],
-      ["escort-clash-merge", [0.2, 0.4]],
-      ["escort-clash-scramble", [0.4, 0.62]],
-      ["bomber-ingress", [0.62, 0.66]],
-      ["bomber-defense-pass", [0.66, 1]]
+    const preTargetPhaseWeights = new Map<CorridorPhaseLabel, number>([
+      ["fighter-ingress", 0.2],
+      ["escort-clash-merge", 0.18],
+      ["escort-clash-scramble", 0.2],
+      ["bomber-ingress", 0.17],
+      ["bomber-defense-pass", 0.25]
     ]);
+    const orderedPreTargetPhaseLabels: CorridorPhaseLabel[] = [
+      "fighter-ingress",
+      "escort-clash-merge",
+      "escort-clash-scramble",
+      "bomber-ingress",
+      "bomber-defense-pass"
+    ];
+    const totalPreTargetPhaseWeight = orderedPreTargetPhaseLabels.reduce(
+      (sum, label) => sum + Math.max(0, preTargetPhaseWeights.get(label) ?? 0),
+      0
+    );
+    const preTargetPhaseWindows = new Map<CorridorPhaseLabel, [number, number]>();
+    let elapsedPreTargetWeight = 0;
+    orderedPreTargetPhaseLabels.forEach((label) => {
+      const phaseWeight = Math.max(0, preTargetPhaseWeights.get(label) ?? 0);
+      const startProgress =
+        totalPreTargetPhaseWeight > 0 ? elapsedPreTargetWeight / totalPreTargetPhaseWeight : 0;
+      elapsedPreTargetWeight += phaseWeight;
+      const endProgress =
+        totalPreTargetPhaseWeight > 0 ? elapsedPreTargetWeight / totalPreTargetPhaseWeight : startProgress;
+      preTargetPhaseWindows.set(label, [host.clamp(startProgress, 0, 1), host.clamp(endProgress, startProgress, 1)]);
+    });
     const resolveBomberPhasePath = (plan: BomberCorridorPlan, label: CorridorPhaseLabel): AirShowPoint[] => {
-      const [startProgress, endProgress] = preTargetFractions.get(label) ?? [0, 1];
+      const [startProgress, endProgress] = preTargetPhaseWindows.get(label) ?? [0, 1];
       const lengthPx = measurePathLength(plan.preTargetPath);
       return slicePathByDistanceRange(plan.preTargetPath, lengthPx * startProgress, lengthPx * endProgress);
     };
-    const phaseDurationMs = (label: CorridorPhaseLabel): number => {
+    const seedPhaseDurationMs = (label: CorridorPhaseLabel): number => {
       const longestPathPx = bomberPlans.reduce(
         (longest, plan) => Math.max(longest, measurePathLength(resolveBomberPhasePath(plan, label))),
         0
       );
       return Math.max(1, Math.round(longestPathPx / host.airShowBomberSpeedPxPerMs));
     };
-    const durationByPhase = new Map<CorridorPhaseLabel, number>([
-      ["fighter-ingress", phaseDurationMs("fighter-ingress")],
-      ["escort-clash-merge", phaseDurationMs("escort-clash-merge")],
-      ["escort-clash-scramble", phaseDurationMs("escort-clash-scramble")],
-      ["bomber-ingress", phaseDurationMs("bomber-ingress")],
-      ["bomber-defense-pass", phaseDurationMs("bomber-defense-pass")]
+    const seedDurationByPhase = new Map<CorridorPhaseLabel, number>([
+      ["fighter-ingress", seedPhaseDurationMs("fighter-ingress")],
+      ["escort-clash-merge", seedPhaseDurationMs("escort-clash-merge")],
+      ["escort-clash-scramble", seedPhaseDurationMs("escort-clash-scramble")],
+      ["bomber-ingress", seedPhaseDurationMs("bomber-ingress")],
+      ["bomber-defense-pass", seedPhaseDurationMs("bomber-defense-pass")]
     ]);
     const targetRunDurationMs = Math.max(
       1,
@@ -2153,7 +2175,7 @@ export function planResolvedAirCombatShowScene(
               cx: separatedTarget.cx + (center.cx - separatedTarget.cx) * 0.03,
               cy: separatedTarget.cy + (center.cy - separatedTarget.cy) * 0.03
             };
-            const ingressDurationMs = durationByPhase.get("fighter-ingress") ?? 1;
+            const ingressDurationMs = seedDurationByPhase.get("fighter-ingress") ?? 1;
             const ingressLengthPx = Math.max(96, ingressDurationMs * host.airShowFighterSpeedPxPerMs);
             const approach = normalizeVector(
               target.cx - current.cx,
@@ -2180,12 +2202,28 @@ export function planResolvedAirCombatShowScene(
               -corridor.axis.x * roleSide * 42 + corridor.normal.x * roleSide * 38,
               -corridor.axis.y * roleSide * 42 + corridor.normal.y * roleSide * 38
             );
+            const mergeRouteForward = normalizeVector(
+              passPoint.cx - current.cx,
+              passPoint.cy - current.cy,
+              corridor.axis.x * roleSide,
+              corridor.axis.y * roleSide
+            );
+            const currentHeadingForward = resolveHeadingVector(
+              host.resolveAirShowFlightHeadingDegrees(flight),
+              mergeRouteForward
+            );
+            const continuityPoint = host.offsetAirShowPoint(
+              current,
+              currentHeadingForward.x * 72 + corridor.normal.x * roleSide * 10,
+              currentHeadingForward.y * 72 + corridor.normal.y * roleSide * 10
+            );
             path = dedupePath([
               current,
+              continuityPoint,
               host.offsetAirShowPoint(
-                current,
-                (passPoint.cx - current.cx) * 0.5 + corridor.normal.x * roleSide * 16,
-                (passPoint.cy - current.cy) * 0.5 + corridor.normal.y * roleSide * 16
+                continuityPoint,
+                (passPoint.cx - continuityPoint.cx) * 0.5 + corridor.normal.x * roleSide * 16,
+                (passPoint.cy - continuityPoint.cy) * 0.5 + corridor.normal.y * roleSide * 16
               ),
               passPoint,
               peelPoint
@@ -2235,7 +2273,7 @@ export function planResolvedAirCombatShowScene(
               path = buildSpeedMatchedPassPath(
                 current,
                 attackPoint,
-                durationByPhase.get("bomber-ingress") ?? 1,
+                seedDurationByPhase.get("bomber-ingress") ?? 1,
                 host.airShowFighterSpeedPxPerMs,
                 lane >= 0 ? 1 : -1
               );
@@ -2263,7 +2301,7 @@ export function planResolvedAirCombatShowScene(
             path = buildSpeedMatchedPassPath(
               current,
               aimPoint,
-              durationByPhase.get("bomber-defense-pass") ?? 1,
+              seedDurationByPhase.get("bomber-defense-pass") ?? 1,
               host.airShowFighterSpeedPxPerMs,
               lane >= 0 ? 1 : -1
             );
@@ -2372,7 +2410,7 @@ export function planResolvedAirCombatShowScene(
         }
         // Sample bomber positions at multiple points during phase for continuous flak
         const sampleProgresses = phase === "approach"
-          ? [0.12, 0.28, 0.44, 0.60, 0.76, 0.92] // Continuous during approach
+          ? [0.12, 0.28, 0.44, 0.60, 0.76, 0.84] // Continuous during approach, tapering before phase exit
           : [0.15, 0.35, 0.55, 0.75]; // Tapering during target run
         return scoped.flatMap((burst) => {
           const targetCenter = (burst.targetHexKey ? host.resolveHexCenterByKey(burst.targetHexKey) : null) ?? plan.targetCenter;
@@ -2421,8 +2459,14 @@ export function planResolvedAirCombatShowScene(
       tracerBursts: ReadonlyArray<AirShowTracerBurst> = [],
       flakBursts: ReadonlyArray<ScopedFlakBurst> = []
     ): void => {
-      const durationMs = durationByPhase.get(label) ?? 1;
       const assignments = [...buildBomberPhaseAssignments(label), ...fighterAssignments];
+      const durationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(
+        assignments,
+        roleSpeeds,
+        seedDurationByPhase.get(label) ?? 1,
+        1,
+        60000
+      );
       recordPhase(label, assignments, durationMs, tracerBursts, flakBursts, roleSpeeds);
       previousPhaseAssignments = assignments;
       previousPhaseDurationMs = durationMs;
@@ -2432,14 +2476,26 @@ export function planResolvedAirCombatShowScene(
     recordCorridorPhase("fighter-ingress", buildFighterPhaseAssignments("fighter-ingress"));
     if (escortFlights.length > 0) {
       const mergeAssignments = [...buildBomberPhaseAssignments("escort-clash-merge"), ...buildFighterPhaseAssignments("escort-clash-merge")];
-      const mergeDurationMs = durationByPhase.get("escort-clash-merge") ?? 1;
+      const mergeDurationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(
+        mergeAssignments,
+        roleSpeeds,
+        seedDurationByPhase.get("escort-clash-merge") ?? 1,
+        1,
+        60000
+      );
       recordPhase("escort-clash-merge", mergeAssignments, mergeDurationMs, buildDogfightTracers(mergeAssignments, "escort-clash-merge"), [], roleSpeeds);
       previousPhaseAssignments = mergeAssignments;
       previousPhaseDurationMs = mergeDurationMs;
       updateFlightAnchors([...bomberFlights, ...interceptorFlights, ...escortFlights]);
 
       const scrambleAssignments = [...buildBomberPhaseAssignments("escort-clash-scramble"), ...buildFighterPhaseAssignments("escort-clash-scramble")];
-      const scrambleDurationMs = durationByPhase.get("escort-clash-scramble") ?? 1;
+      const scrambleDurationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(
+        scrambleAssignments,
+        roleSpeeds,
+        seedDurationByPhase.get("escort-clash-scramble") ?? 1,
+        1,
+        60000
+      );
       recordPhase("escort-clash-scramble", scrambleAssignments, scrambleDurationMs, buildDogfightTracers(scrambleAssignments, "escort-clash-scramble"), [], roleSpeeds);
       previousPhaseAssignments = scrambleAssignments;
       previousPhaseDurationMs = scrambleDurationMs;
@@ -2448,7 +2504,13 @@ export function planResolvedAirCombatShowScene(
     recordCorridorPhase("bomber-ingress", buildFighterPhaseAssignments("bomber-ingress"));
 
     const bomberDefenseAssignments = [...buildBomberPhaseAssignments("bomber-defense-pass"), ...buildFighterPhaseAssignments("bomber-defense-pass")];
-    const bomberDefenseDurationMs = durationByPhase.get("bomber-defense-pass") ?? 1;
+    const bomberDefenseDurationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(
+      bomberDefenseAssignments,
+      roleSpeeds,
+      seedDurationByPhase.get("bomber-defense-pass") ?? 1,
+      1,
+      60000
+    );
     const bomberDefenseTracers: AirShowTracerBurst[] = [];
     activeFlights(interceptorFlights).forEach((interceptorFlight, index) => {
       const targetBomber = bomberFlights[index % Math.max(1, bomberFlights.length)];
@@ -6108,4 +6170,3 @@ export function planResolvedAirCombatShowScene(
 
     return buildPlannedAirShowSceneReport();
 }
-

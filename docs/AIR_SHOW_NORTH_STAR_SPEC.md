@@ -54,6 +54,11 @@ Once converted, **ALL** movement, timing, spacing, and collision operate exclusi
 - **Bombers**: Maintain speed V/2 for all legs.
 - **Fighters (CAP, Escorts, Interceptors)**: Maintain speed V for all legs.
 
+**Phase Duration Authority**
+- Corridor fractions and progress anchors may define where a beat begins or ends along a path, but they must not be the authority for visible duration.
+- Planned phase durations must be derived from the actual actor paths and role speed constants: `durationMs = pathLengthPx / speedPxPerMs`.
+- If a beat is too short to read at the governed speed, the planner must adjust the beat path or choreography so the path is long enough; it must not slow sprites below their role speed or stretch a tiny fixed slice into a misleading timing window.
+
 ### 4. Tracer Geometry and Fire Ownership
 
 Tracer ownership and tracer geometry are governed visual behavior, not cosmetic implementation detail.

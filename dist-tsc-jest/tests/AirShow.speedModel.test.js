@@ -6,7 +6,7 @@
  * These tests validate the speed differential model:
  * - Fighter speed = V
  * - Bomber speed = V / 2
- * - Escorts start at bomber speed (V/2), accelerate to fighter speed (V) at progress 0.15
+ * - Fighters (CAP/Escorts/Interceptors) maintain speed V for all legs
  */
 import { registerTest } from "./harness.js";
 import { runAirScenario } from "./airScenarioSupport.js";
@@ -263,13 +263,13 @@ registerTest("AIR_SHOW_SPEED_MODEL_PATH_LENGTH_DIFFERENTIATION", async ({ Given,
         console.log(`[PATH LENGTH] Ratio: ${(fighterPathLength / bomberPathLength).toFixed(2)}:1`);
     });
 });
-registerTest("AIR_SHOW_ESCORT_SPEED_TRANSITION_AT_PROGRESS_0_15", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_ESCORTS_HAVE_CONTINUOUS_PRESENCE_ACROSS_PHASES", async ({ Given, When, Then }) => {
     let result = null;
-    await Given("escort speed transition per North Star Spec: V/2 -> V at progress 0.15", async () => { });
+    await Given("escorts maintain fighter speed (V) and should remain continuous across contested-package phases", async () => { });
     await When("the contested package with escorts is run", async () => {
         result = runAirScenario();
     });
-    await Then("escorts should be present in early phases (validating transition point exists)", async () => {
+    await Then("escorts should be present across multiple phases (continuity, not teleport/disappear)", async () => {
         const inspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" &&
             entry.diagnostics.participants.some(p => p.renderRole === "escort"));
         if (!inspection) {
@@ -301,7 +301,6 @@ registerTest("AIR_SHOW_ESCORT_SPEED_TRANSITION_AT_PROGRESS_0_15", async ({ Given
         }
         console.log(`[ESCORT SPEED] ${byActor.size} unique escort actors tracked`);
         console.log(`  - Continuous through multiple phases: ${continuousEscorts}`);
-        console.log(`  - Speed transition at progress 0.15: validated via phase continuity`);
     });
 });
 registerTest("AIR_SHOW_CAP_COMBAT_PHASES_STAY_IN_PURPOSEFUL_MOTION", async ({ Given, When, Then }) => {

@@ -1,9 +1,36 @@
 import { deploymentTemplates } from "../game/adapters";
 /**
  * Resolves the absolute URL for a sprite asset bundled under `src/assets/units/`.
- * Using `import.meta.url` keeps paths correct regardless of build tooling.
+ * Build tooling may fingerprint file names, so keep a filename→final URL manifest
+ * for reliable directional swapping (Southview/Sideview/Northview) in both dev and prod.
  */
-const unitSprite = (fileName) => new URL(`../assets/units/${fileName}`, import.meta.url).href;
+const UNIT_SPRITE_MANIFEST = typeof import.meta.glob === "function"
+    ? import.meta.glob("../assets/units/*", {
+        eager: true,
+        import: "default"
+    })
+    : {};
+const HAS_UNIT_SPRITE_MANIFEST = Object.keys(UNIT_SPRITE_MANIFEST).length > 0;
+const UNIT_SPRITE_URL_BY_FILE = new Map();
+const UNIT_SPRITE_FILE_BY_URL = new Map();
+Object.entries(UNIT_SPRITE_MANIFEST).forEach(([path, url]) => {
+    const fileName = path.split("/").pop();
+    if (!fileName) {
+        return;
+    }
+    UNIT_SPRITE_URL_BY_FILE.set(fileName, url);
+    UNIT_SPRITE_FILE_BY_URL.set(url, fileName);
+});
+const unitSprite = (fileName) => {
+    const known = UNIT_SPRITE_URL_BY_FILE.get(fileName);
+    if (known) {
+        return known;
+    }
+    const resolved = new URL(`../assets/units/${fileName}`, import.meta.url).href;
+    UNIT_SPRITE_URL_BY_FILE.set(fileName, resolved);
+    UNIT_SPRITE_FILE_BY_URL.set(resolved, fileName);
+    return resolved;
+};
 /**
  * Composite sprite sequences for units whose formation is made up of mixed figure types.
  * The array length is always 4 (full strength). resolveCompositeSprites slices it to stackCount.
@@ -246,9 +273,19 @@ function getViewSuffixForFacing(facing) {
  */
 function resolveDirectionalSprite(spriteUrl, facing) {
     const viewSuffix = getViewSuffixForFacing(facing);
-    // Replace any existing directional suffix with the target one.
-    // Preserve optional pose suffix numbers (e.g. "_Southview1.png" -> "_Northview1.png").
-    return spriteUrl.replace(/_(Southview|Sideview|Northview)(\d*)\.png$/i, `_${viewSuffix}$2.png`);
+    const sourceFileName = UNIT_SPRITE_FILE_BY_URL.get(spriteUrl);
+    if (!sourceFileName) {
+        return spriteUrl;
+    }
+    const resolvedFileName = sourceFileName.replace(/_(Southview|Sideview|Northview)(\d*)\.png$/i, `_${viewSuffix}$2.png`);
+    if (resolvedFileName === sourceFileName) {
+        return spriteUrl;
+    }
+    const manifestUrl = UNIT_SPRITE_URL_BY_FILE.get(resolvedFileName);
+    if (manifestUrl) {
+        return manifestUrl;
+    }
+    return HAS_UNIT_SPRITE_MANIFEST ? spriteUrl : unitSprite(resolvedFileName);
 }
 /**
  * Returns the ordered sprite URL array for the given unit type, faction, and stack count.

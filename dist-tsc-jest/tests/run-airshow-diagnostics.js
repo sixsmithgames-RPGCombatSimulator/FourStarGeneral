@@ -3,7 +3,7 @@
  *
  * Comprehensive test suite for validating North Star Spec compliance:
  * - Progress-based timing (bomber progress 0.0-1.0)
- * - Speed model (fighter V, bomber V/2, escort acceleration at 0.15)
+ * - Speed model (fighter V, bomber V/2)
  * - Scenario choreography (Scenarios 1-5)
  * - Recent bug fix regressions (bomber visibility, flak timing)
  */
@@ -34,7 +34,7 @@ import "./AirShow.regression.test.js";
     console.log("  - Fighter Motion & Path Continuity");
     console.log("  - Scene Building & Formation Spacing");
     console.log("  - Progress-Based Timing (0.0-1.0)");
-    console.log("  - Speed Model (V / V/2 / Accel at 0.15)");
+    console.log("  - Speed Model (V / V/2)");
     console.log("  - RIGOROUS Bomber Speed Validation (actual px/ms measurement)");
     console.log("  - Coordinated Package Ownership & Coverage");
     console.log("  - Bug Fix Regression Tests (speed + movement validation)");

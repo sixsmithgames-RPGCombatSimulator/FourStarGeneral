@@ -358,9 +358,10 @@ export class SelectionIntelOverlay {
         const contentMarkup = !this.collapsed && this.activeBattleTab === "unit"
             ? this.renderBattleDetailsMarkup(intel)
             : this.renderBattleActionsMarkup(intel);
+        const statsStyle = `style="--battle-intel-stat-count:${statCards.length}"`;
         return `
       ${unitTabMarkup}
-      <div class="battle-intel-overlay__stats">
+      <div class="battle-intel-overlay__stats" ${statsStyle}>
         ${statCards.map((stat) => `
           <article class="battle-intel-overlay__stat">
             <span class="battle-intel-overlay__stat-label">${this.escapeHtml(stat.label)}</span>
