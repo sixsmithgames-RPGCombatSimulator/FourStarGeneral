@@ -354,7 +354,9 @@ describe("AirShow JEST Harness", () => {
         expect(targetRun).toBeDefined();
         expect(targetRun?.assignments.filter((assignment) => assignment.role === "bomber")).toHaveLength(4);
         expect(targetRun?.flakBursts.length ?? 0).toBeGreaterThan(0);
-        expect(Math.max(...(targetRun?.flakBursts.map((burst) => burst.progress) ?? [0]))).toBeLessThan(scene.bombReleaseProgress ?? 1);
+        const latestFlakProgress = Math.max(...(targetRun?.flakBursts.map((burst) => burst.progress) ?? [0]));
+        expect(latestFlakProgress).toBeGreaterThan(scene.bombReleaseProgress ?? 0.5);
+        expect(latestFlakProgress).toBeLessThanOrEqual(0.86);
     });
     test("target-run flak targets the sampled bomber path instead of the ground target anchor", async () => {
         const report = inspectScene(await captureScene());

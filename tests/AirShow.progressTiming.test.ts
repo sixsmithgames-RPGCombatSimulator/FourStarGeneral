@@ -141,7 +141,7 @@ registerTest("AIR_SHOW_BOMBER_REACHES_STANDOFF_AT_PROGRESS_1_0", async ({ Given,
   });
 });
 
-registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_FINISHES_BEFORE_BOMB_RELEASE", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_TAPERS_AFTER_BOMB_RELEASE", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
   await Given("flak engagement per North Star Spec §Scenario 5 Phase 6", async () => {});
@@ -150,7 +150,7 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_FINISHES_BEFORE_BOM
     result = runAirScenario();
   });
 
-  await Then("flak should activate on the approach, persist through a meaningful window, and finish before bomb release", async () => {
+  await Then("flak should activate on the approach, persist through bomb release, and taper before egress", async () => {
     const strikeInspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" &&
         entry.report.phases.some(p => (p.flakBursts?.length ?? 0) > 0)
@@ -202,10 +202,16 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_FINISHES_BEFORE_BOM
     const firstTargetRunFlakProgress = targetRunFlakBursts[0]?.progress ?? 0;
     const lastTargetRunFlakProgress = targetRunFlakBursts[targetRunFlakBursts.length - 1]?.progress ?? 0;
     const bombReleaseProgress = GOVERNED_BOMB_RELEASE_PROGRESS;
-    if (lastTargetRunFlakProgress >= bombReleaseProgress) {
+    if (lastTargetRunFlakProgress <= bombReleaseProgress) {
+      throw new Error(
+        `Flak ends too early in target-run: last burst at ${(lastTargetRunFlakProgress * 100).toFixed(1)}% ` +
+        `(must persist past bomb release at ${(bombReleaseProgress * 100).toFixed(1)}%)`
+      );
+    }
+    if (lastTargetRunFlakProgress > 0.86) {
       throw new Error(
         `Flak extends too far in target-run: last burst at ${(lastTargetRunFlakProgress * 100).toFixed(1)}% ` +
-        `(must complete before bomb release at ${(bombReleaseProgress * 100).toFixed(1)}%)`
+        `(must taper before egress setup)`
       );
     }
 

@@ -1,0 +1,854 @@
+
+> Four Star General@1.0.0 test
+> node -e "require('node:fs').rmSync('dist-tsc', { recursive: true, force: true })" && tsc --outDir dist-tsc && xcopy /E /I /Y "src\assets" "dist-tsc\src\assets" && node --loader ./tools/resolve-js-extension-loader.mjs dist-tsc/tests/index.js
+
+src\assets\Overwhelming Explosions.png
+src\assets\units-sprite.png
+src\assets\campaign\airbase.svg
+src\assets\campaign\Airbase_Coast_Large.png
+src\assets\campaign\Airbase_Land_Large.png
+src\assets\campaign\Airfield.png
+src\assets\campaign\Campaign Map -- Advancing Inland.png
+src\assets\campaign\Campaign Map -- Central Channel.png
+src\assets\campaign\Campaign Map -- North Channel.png
+src\assets\campaign\Fortifications -- Heavy -- Coastal -- small.png
+src\assets\campaign\Fortifications -- Heavy -- Coastal.png
+src\assets\campaign\Fortifications -- Heavy -- Land -- small.png
+src\assets\campaign\Fortifications -- Light -- Coastal -- small.png
+src\assets\campaign\Fortifications -- Light -- Land -- small.png
+src\assets\campaign\logistics_hub.svg
+src\assets\campaign\Military_Base_Large.png
+src\assets\campaign\naval_base.svg
+src\assets\campaign\Naval_base_large.png
+src\assets\campaign\region.svg
+src\assets\campaign\task_force.svg
+src\assets\combat animations\dust_cloud.png
+src\assets\combat animations\explosion_large.png
+src\assets\combat animations\explosion_small.png
+src\assets\combat animations\FSG_Explosion_Small_6_x_4.png
+src\assets\combat animations\FSG_Explosion_Small_7_x_5.png
+src\assets\combat animations\FSG_Sparks_and_Hits.png
+src\assets\combat animations\muzzle_flash.png
+src\assets\combat animations\tracer.png
+src\assets\Interface\Air_Icon.png
+src\assets\Interface\General_Icon.png
+src\assets\Interface\Intel_Icon.png
+src\assets\Interface\Logistics_Icon.png
+src\assets\Interface\Ops_Icon.png
+src\assets\Interface\Recon_Icon.png
+src\assets\Interface\Roster_Icon.png
+src\assets\Interface\War_Room.png
+src\assets\Sounds\bullet_on_metal_#1-1774476108805.mp3
+src\assets\Sounds\bullet_on_metal_#4-1774476122869.mp3
+src\assets\Sounds\cannon_firing_#2-1774475989776.mp3
+src\assets\Sounds\cannon_firing_#3-1774475989776.mp3
+src\assets\Sounds\cannon_firing_#4-1774475989777.mp3
+src\assets\Sounds\gun_shot_#3-1774495196840.mp3
+src\assets\Sounds\gun_shot_#4-1774495196841.mp3
+src\assets\Sounds\machine_gun_fire_#1-1774475604045.mp3
+src\assets\Sounds\machine_gun_fire_#2-1774475604046.mp3
+src\assets\Sounds\machine_gun_fire_#2-1774475628124.mp3
+src\assets\Sounds\several_machine_guns_#1-1774475741894.mp3
+src\assets\Sounds\several_machine_guns_#2-1774475735685.mp3
+src\assets\Sounds\single_explosion_#2-1774476185282.mp3
+src\assets\Sounds\single_explosion_#3-1774476190538.mp3
+src\assets\Sounds\single_explosion_#4-1774476198142.mp3
+src\assets\terrain\Beach.png
+src\assets\terrain\Forest.png
+src\assets\terrain\grasslands.png
+src\assets\terrain\Hill.png
+src\assets\terrain\Marsh.png
+src\assets\terrain\Mountain.png
+src\assets\terrain\Plain.png
+src\assets\terrain\River.png
+src\assets\terrain\Sea.png
+src\assets\terrain\Village.png
+src\assets\terrain\Woods.png
+src\assets\units\Aircraft_England_Spitfire.png
+src\assets\units\Aircraft_German_BF109.png
+src\assets\units\Aircraft_German_FW190.png
+src\assets\units\Aircraft_German_HE177.png
+src\assets\units\Aircraft_German_JU87.png
+src\assets\units\Aircraft_USA_B17.png
+src\assets\units\Aircraft_USA_B25.png
+src\assets\units\Aircraft_USA_P51.png
+src\assets\units\APC_Halftrack.png
+src\assets\units\APC_Halftrack_German_Northview.png
+src\assets\units\APC_Halftrack_German_Sideview.png
+src\assets\units\APC_Halftrack_German_Southview.png
+src\assets\units\APC_Halftrack_USA_Northview.png
+src\assets\units\APC_Halftrack_USA_Sideview.png
+src\assets\units\APC_Halftrack_USA_Southview.png
+src\assets\units\APC_Truck.png
+src\assets\units\Artillery_Calliope_USA_Northview.png
+src\assets\units\Artillery_Calliope_USA_Sideview.png
+src\assets\units\Artillery_Calliope_USA_Southview.png
+src\assets\units\Artillery_Howitzer_USA_Northview.png
+src\assets\units\Artillery_Howitzer_USA_Sideview.png
+src\assets\units\Artillery_Howitzer_USA_Southview.png
+src\assets\units\Artillery_Hummel_German_Northview.png
+src\assets\units\Artillery_Hummel_German_Sideview.png
+src\assets\units\Artillery_Hummel_German_Southview.png
+src\assets\units\Artillery_M7_USA_Northview.png
+src\assets\units\Artillery_M7_USA_Sideview.png
+src\assets\units\Artillery_M7_USA_Southview.png
+src\assets\units\Artillery_Nebelwerfer_German_Northview.png
+src\assets\units\Artillery_Nebelwerfer_German_Sideview.png
+src\assets\units\Artillery_Nebelwerfer_German_Southview.png
+src\assets\units\Assault_Gun.png
+src\assets\units\Base_camp.png
+src\assets\units\Battleship.png
+src\assets\units\Bomber 1024.png.png
+src\assets\units\Bomber.png
+src\assets\units\Camp.png
+src\assets\units\Camp_1024x1024.png
+src\assets\units\Fighter.png
+src\assets\units\Flak_88_Germany_Northview.png
+src\assets\units\Flak_88_Germany_Sideview.png
+src\assets\units\Flak_88_Germany_Southview.png
+src\assets\units\Flak_88_USA_Northview.png
+src\assets\units\Flak_88_USA_Sideview.png
+src\assets\units\Flak_88_USA_Southview.png
+src\assets\units\Ground_Attack.png
+src\assets\units\Infantry_AT_German_Northview.png
+src\assets\units\Infantry_AT_German_Sideview.png
+src\assets\units\Infantry_AT_German_Southview.png
+src\assets\units\Infantry_AT_USA_Northview.png
+src\assets\units\Infantry_AT_USA_Sideview.png
+src\assets\units\Infantry_AT_USA_Southview.png
+src\assets\units\Infantry_Basic_German_Northview.png
+src\assets\units\Infantry_Basic_German_Sideview.png
+src\assets\units\Infantry_Basic_German_Southview.png
+src\assets\units\Infantry_Elite.png
+src\assets\units\Infantry_Engineers_USA_Northview.png
+src\assets\units\Infantry_Engineers_USA_Sideview.png
+src\assets\units\Infantry_Engineers_USA_Southview.png
+src\assets\units\Infantry_Light_USA_Northview.png
+src\assets\units\Infantry_Light_USA_Sideview.png
+src\assets\units\Infantry_Light_USA_Southview.png
+src\assets\units\Infantry_Mortar_German_Northview.png
+src\assets\units\Infantry_Mortar_German_Sideview.png
+src\assets\units\Infantry_Mortar_German_Southview.png
+src\assets\units\Infantry_Mortar_USA_Northview.png
+src\assets\units\Infantry_Mortar_USA_Sideview.png
+src\assets\units\Infantry_Mortar_USA_Southview.png
+src\assets\units\Interceptor.png
+src\assets\units\Light_Tank.png
+src\assets\units\M4_Sherman_Sprite_Sheet.png
+src\assets\units\Panzer_IV_Sprite_Sheet.png
+src\assets\units\Panzer_V.png
+src\assets\units\Paratrooper.png
+src\assets\units\Recon_ArmoredCar.png
+src\assets\units\Scout_Plane.png
+src\assets\units\Supply_Truck.png
+src\assets\units\Tankkiller_M10_USA_Northview.png
+src\assets\units\Tankkiller_M10_USA_Sideview.png
+src\assets\units\Tankkiller_M10_USA_Southview.png
+src\assets\units\Tankkiller_MarderIII_German_Northview.png
+src\assets\units\Tankkiller_MarderIII_German_Sideview.png
+src\assets\units\Tankkiller_MarderIII_German_Southview.png
+src\assets\units\Tank_Assault_M8_USA_Northview.png
+src\assets\units\Tank_Assault_M8_USA_Sideview.png
+src\assets\units\Tank_Assault_M8_USA_Southview.png
+src\assets\units\Tank_Assault_StuG_German_Northview.png
+src\assets\units\Tank_Assault_StuG_German_Sideview.png
+src\assets\units\Tank_Assault_StuG_German_Southview.png
+src\assets\units\Tank_M26_USA_Northview.png
+src\assets\units\Tank_M26_USA_Sideview.png
+src\assets\units\Tank_M26_USA_Southview.png
+src\assets\units\Tank_M4_USA_Northview.png
+src\assets\units\Tank_M4_USA_Sideview.png
+src\assets\units\Tank_M4_USA_Southview.png
+src\assets\units\Tank_PanzerIV_German_Northview.png
+src\assets\units\Tank_PanzerIV_German_Sideview.png
+src\assets\units\Tank_PanzerIV_German_Southview.png
+src\assets\units\Tank_Tiger_German_Northview.png
+src\assets\units\Tank_Tiger_German_Sideview.png
+src\assets\units\Tank_Tiger_German_Southview.png
+src\assets\units\Transport_Plane.png
+src\assets\units\Transport_Ship.png
+src\assets\units\Wheeled_AT_Gun_USA_Northview.png
+src\assets\units\Wheeled_AT_Gun_USA_Sideview.png
+src\assets\units\Wheeled_AT_Gun_USA_Southview.png
+src\assets\units\Wheeled_Bikes_Recon_German_Northview.png
+src\assets\units\Wheeled_Bikes_Recon_German_Sideview.png
+src\assets\units\Wheeled_Bikes_Recon_German_Southview.png
+src\assets\units\Wheeled_Bikes_Recon_USA_Northview.png
+src\assets\units\Wheeled_Bikes_Recon_USA_Sideview.png
+src\assets\units\Wheeled_Bikes_Recon_USA_Southview.png
+src\assets\units\archive\Anti_Tank_Tank.png
+src\assets\units\archive\AT_Gun_50mm.png
+src\assets\units\archive\Engineer.png
+src\assets\units\archive\Flak_88.png
+src\assets\units\archive\Heavy_Tank.png
+src\assets\units\archive\Howitzer_105.png
+src\assets\units\archive\Infantry.png
+src\assets\units\archive\Infantry_bazooka.png
+src\assets\units\archive\Infantry_mg.png
+src\assets\units\archive\Infantry_mortar.png
+src\assets\units\archive\Medium_Tank.png
+src\assets\units\archive\Recon_Bike.png
+src\assets\units\archive\Rocket_Artillery.png
+src\assets\units\archive\SP_Artillery.png
+src\assets\units\archive\Tiger_Tank.png
+189 File(s) copied
+(node:10248) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("./tools/resolve-js-extension-loader.mjs", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 4, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[EffectSpecifications] Error loading specs from data/effectSpecs.json: TypeError: Failed to parse URL from data/effectSpecs.json
+    at node:internal/deps/undici/undici:15845:13
+    at async loadEffectSpecifications (file:///C:/FourStarGeneral/dist-tsc/src/rendering/EffectSpecifications.js:91:26)
+    at async Promise.all (index 0) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at loadEffectSpecifications (file:///C:/FourStarGeneral/dist-tsc/src/rendering/EffectSpecifications.js:91:32)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1814:21)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:40:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:39:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/effectSpecs.json'
+  }
+}
+[TerrainResponseSystem] Error loading tints from data/terrainTints.json: TypeError: Failed to parse URL from data/terrainTints.json
+    at node:internal/deps/undici/undici:15845:13
+    at async loadTerrainTints (file:///C:/FourStarGeneral/dist-tsc/src/rendering/TerrainResponseSystem.js:71:26)
+    at async Promise.all (index 1) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at loadTerrainTints (file:///C:/FourStarGeneral/dist-tsc/src/rendering/TerrainResponseSystem.js:71:32)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1815:21)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:40:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:39:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/terrainTints.json'
+  }
+}
+[CombatSoundManager] Error loading sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:40:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:39:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] Failed to load sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:40:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:39:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] Failed to load effect specifications or terrain tints: TypeError: Failed to parse URL from data/effectSpecs.json
+    at node:internal/deps/undici/undici:15845:13
+    at async loadEffectSpecifications (file:///C:/FourStarGeneral/dist-tsc/src/rendering/EffectSpecifications.js:91:26)
+    at async Promise.all (index 0) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at loadEffectSpecifications (file:///C:/FourStarGeneral/dist-tsc/src/rendering/EffectSpecifications.js:91:32)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1814:21)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:40:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:39:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/effectSpecs.json'
+  }
+}
+[TEST PASS] HEXMAP_ANIMATE_UNIT_MOVE
+  Given a rendered map and unit icon
+  When animateUnitMove runs from the first hex to the second
+  Then the ghost is removed and original icon opacity restored
+  When animateUnitMove runs with zero duration
+  Then the zero-duration path snap-cleans the ghost and restores opacity
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 3, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Error loading sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:158:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:157:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] viewportRoot updated with children: { childCount: 3, hexCount: 0, preserved: true }
+[HexMapRenderer] Failed to load sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:158:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:157:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[TEST PASS] HEXMAP_RENDER_REUSES_COMBAT_ANIMATOR_WHEN_EFFECTS_LAYER_IS_PRESERVED
+  Given a rendered map with an initialized combat effects layer
+  When the map re-renders while preserving the same effects layer node
+  Then the renderer reuses the same combat animator instance instead of resetting it
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 3, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Error loading sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:216:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:215:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] Failed to load sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:216:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:215:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[TEST PASS] HEXMAP_RENDERUNIT_REJECTS_MALFORMED_FACING_WITHOUT_CRASHING
+  Given a rendered map
+  When a unit render request carries a malformed facing value
+  Then the renderer keeps drawing the unit instead of throwing
+[CombatSoundManager] Initialized with Web Audio API
+[TEST PASS] HEXMAP_DIRECT_FIRE_ATTACK_SPAWNS_ONE_CENTERED_IMPACT_HIT
+  Given a direct-fire renderer path with all non-impact visuals stubbed
+  When the attack sequence reaches its direct-fire impact branch
+  Then it schedules direct-fire combat animations targeting defender
+[CombatSoundManager] Initialized with Web Audio API
+[TEST PASS] HEXMAP_FLAK_88_USES_DIRECT_FIRE_CANNON_VISUALS
+  Given a Flak 88 attack path with animation hooks stubbed
+  When the Flak 88 attack sequence plays
+  Then it stays on direct-fire cannon visuals and never uses the artillery arc branch
+[CombatSoundManager] Initialized with Web Audio API
+[TEST PASS] HEXMAP_ARCING_ARTILLERY_ATTACK_SPAWNS_STAGGERED_SMALL_BURSTS
+  Given an arcing-artillery renderer path with all non-impact visuals stubbed
+  When the attack sequence reaches its arcing-artillery impact branch
+  Then it schedules several smaller explosion bursts on the defender hex
+[CombatSoundManager] Initialized with Web Audio API
+[TEST PASS] HEXMAP_AIR_BOMBING_ATTACK_SPAWNS_ONE_CENTERED_EXPLOSION
+  Given an air-bombing renderer path with all non-impact visuals stubbed
+  When the attack sequence reaches its air-bombing impact branch
+  Then it schedules exactly one centered bombing explosion animation
+[CombatSoundManager] Initialized with Web Audio API
+[TEST PASS] HEXMAP_ROCKET_ARTILLERY_ATTACK_SPAWNS_TRIPLE_BARRAGE_SALVOS
+  Given a rocket-artillery renderer path with non-impact visuals stubbed
+  When the rocket artillery attack sequence resolves
+  Then it plays three artillery-style salvos with spread-out small explosions
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 3, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Error loading sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:551:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:550:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] Failed to load sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:551:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.animateUnitMove.test.js:550:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[TEST PASS] HEXMAP_RENDERUNIT_DOES_NOT_ADD_WATER_TRANSPORT_OVERLAY
+  Given a rendered water hex
+  When a unit is rendered on the water tile
+  Then the renderer keeps only the unit sprite and does not add a transport ship overlay
+[CombatSoundManager] Initialized with Web Audio API
+[TEST PASS] HEXMAP_ARTILLERY_ATTACKS_SKIP_OPENING_IMPACT_FLASH
+  Given an arcing-artillery attack sequence
+  When the artillery impact sequence plays
+  Then the small barrage still plays but the opening impact flash is skipped entirely
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 3, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Error loading sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.focusOnHex.test.js:41:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.focusOnHex.test.js:40:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] Failed to load sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.focusOnHex.test.js:41:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.focusOnHex.test.js:40:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[TEST PASS] HEXMAP_FOCUS_ON_HEX
+  Given a rendered single-hex map
+  When focusOnHex is invoked for the origin hex
+  Then the viewport scroll offsets center the requested hex
+[CombatSoundManager] Initialized with Web Audio API
+[TEST PASS] HEXMAP_AIRCRAFT_HEADINGS_ASSUME_NOSE_UP_SPRITES
+  When aircraft headings are resolved for nose-up aircraft sprites
+  Then northbound movement should remain upright while eastbound movement rotates clockwise
+[CombatSoundManager] Initialized with Web Audio API
+[TEST PASS] HEXMAP_SMALL_ARMS_MUZZLE_FLASH_USES_SMALL_STAGGERED_BURSTS
+  Given a small-arms attacker with animation and sound playback stubbed
+  When the muzzle flash helper runs
+  Then it emits several tiny spread-out muzzle bursts and preserves the configured sound burst timing
+[CombatSoundManager] Initialized with Web Audio API
+[TEST PASS] HEXMAP_RECON_BIKE_WRECKS_USE_SMALL_SCATTERED_SILHOUETTES
+  Then light vehicle wrecks stay low-profile and fragmented
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 3, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Error loading sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.wreckSilhouette.test.js:58:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.wreckSilhouette.test.js:57:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] Failed to load sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.wreckSilhouette.test.js:58:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.wreckSilhouette.test.js:57:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[TEST PASS] HEXMAP_DAMAGED_VEHICLES_USE_LAYERED_AFTERMATH_FX_WITHOUT_LEGACY_ANIMATE_NODES
+  Given a rendered vehicle on a single battlefield hex
+  When the hex is marked as damaged but not wrecked
+  Then the aftermath overlay uses the pooled layered FX renderer instead of legacy animate nodes
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 3, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Error loading sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:37:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:36:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] renderUnitDecorations - unit: Infantry_42 unitId: undefined suppressedBy: [ 'enemy-a', 'enemy-b' ] suppressorCount: 2 suppressionState: pinned statusPips will include: pinned
+[HexMapRenderer] Failed to load sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:37:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:36:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[TEST PASS] HEXMAP_RENDERER_SHOWS_TACTICAL_OVERLAYS_FOR_SUPPRESSION_AND_FIELDWORKS
+  Given a rendered battlefield hex
+  When a dug-in pinned unit and engineer fortifications are drawn on the same hex
+  Then the map displays the battlefield status badge, entrenchment pips, and hex modification overlay
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 3, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Error loading sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:119:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:118:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] Failed to load sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:119:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:118:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[TEST PASS] HEXMAP_RENDERER_SHOWS_SENTRY_STATUS_PIP
+  Given a rendered battlefield hex
+  When a sentry unit is drawn
+  Then the map displays the sentry pip above the unit
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 3, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Error loading sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:179:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:178:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] Failed to load sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:179:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:178:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[TEST PASS] HEXMAP_RENDERER_KEEPS_SPOTTED_CONTACT_MARKERS_READABLE_WHEN_FACING_LEFT
+  Given a rendered battlefield hex
+  When a spotted contact is rendered with a left-facing orientation
+  Then the generic contact marker stays unmirrored
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 3, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Error loading sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:239:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:238:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] Failed to load sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:239:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.tacticalOverlays.test.js:238:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[TEST PASS] HEXMAP_RENDERER_SHOWS_TWO_STACKED_FORMATIONS_WITH_DISTINCT_SPRITE_LAYOUTS
+  Given a rendered battlefield hex
+  When two full-strength formations share the same hex
+  Then the renderer draws two formation groups with scaled non-overlapping sprite positions
+[CombatSoundManager] Initialized with Web Audio API
+[HexMapRenderer] viewportRoot created for first time
+[HexMapRenderer] viewportRoot updated with children: { childCount: 4, hexCount: 0, preserved: false }
+[HexMapRenderer] Combat animator initialized with SVG effects layer and sound manager
+[CombatSoundManager] Error loading sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.engineerFieldworks.test.js:44:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.engineerFieldworks.test.js:43:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[HexMapRenderer] Failed to load sound catalog: TypeError: Failed to parse URL from data/soundCatalog.json
+    at node:internal/deps/undici/undici:15845:13
+    at async CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:30) {
+  [cause]: TypeError: Invalid URL
+      at new URL (node:internal/url:828:25)
+      at new Request (node:internal/deps/undici/undici:10413:25)
+      at fetch (node:internal/deps/undici/undici:11325:25)
+      at fetch (node:internal/deps/undici/undici:15843:10)
+      at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+      at CombatSoundManager.loadSoundCatalog (file:///C:/FourStarGeneral/dist-tsc/src/audio/CombatSoundManager.js:33:36)
+      at HexMapRenderer.render (file:///C:/FourStarGeneral/dist-tsc/src/rendering/HexMapRenderer.js:1822:60)
+      at file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.engineerFieldworks.test.js:44:18
+      at Given (file:///C:/FourStarGeneral/dist-tsc/tests/harness.js:14:23)
+      at Object.spec (file:///C:/FourStarGeneral/dist-tsc/tests/HexMapRenderer.engineerFieldworks.test.js:43:11) {
+    code: 'ERR_INVALID_URL',
+    input: 'data/soundCatalog.json'
+  }
+}
+[TEST PASS] HEXMAP_RENDERER_SHOWS_EDGE_TANK_TRAPS_AND_LEVELED_CLEAR_PATHS
+  Given a rendered battlefield hex adjacent to a road
+  When edge tank traps, fortifications, and a level-2 clear path are drawn together
+  Then the map shows black edge tank traps and a road-like level-2 clear path
+[TEST PASS] WRECK_FX_CLASSIFIER_SEPARATES_CONVOY_ARTILLERY_AND_TANK_CASES
+  Then wreck presets distinguish low-fire infantry from heavier vehicle classes
+[TEST PASS] WRECK_FX_PRESETS_SCALE_FROM_INFANTRY_TO_CONVOY
+  Then starter presets reflect the intended low, medium, and large burn ladders
+[TEST PASS] WRECK_FX_RENDERER_MOUNTS_LAYERED_GROUPS_FOR_TANK_WRECKS
+  Then the renderer mounts layered persistent wreck visuals instead of one flat blob
+[TEST PASS] WRECK_FX_RENDERER_SUPPORTS_SUBTLER_DAMAGE_MODE_WITHOUT_LEGACY_FLAME_BLOBS
+  Then persistent vehicle damage uses the modern layered renderer without promoting to full wreck fire
+[TEST PASS] ROAD_OVERLAY_TREATS_HAMLET_AS_CONNECTED_ROAD
+  Given a sparse urban hamlet tile adjacent to a road tile
+  When the road overlay resolves road connectivity
+  Then the hamlet is treated as part of the road network and draws a connecting segment
+[TEST PASS] ROAD_OVERLAY_ACCEPTS_ROAD_FEATURES_ON_LAND_BUT_REJECTS_WATER_HOSTS
+  Given a land tile and a sea tile both marked with a road feature
+  When road-hosting eligibility is resolved
+  Then only the land tile hosts a road overlay
+[TEST PASS] SEEDED_RANDOM_PRODUCES_DETERMINISTIC_SEQUENCE
+  Given two SeededRandom instances with the same seed
+  When both generate the same number of random values
+  Then both sequences are identical
+[TEST PASS] FLASH_CORE_RENDERS_RADIAL_GRADIENT_CIRCLE
+  Given a render context at mid-phase progress
+  When flash_core primitive is rendered
+  Then it produces a defs element and a circle with radial gradient
+[TEST PASS] SHOCK_RING_RESPECTS_NODE_COUNT_BUDGET
+  Given render contexts at different zoom tiers
+  When shock_ring is rendered at each zoom tier
+  Then far zoom produces fewer elements than near zoom
+[TEST PASS] SPARKS_USES_ANCHOR_AS_ORIGIN
+  Given a render context with standard anchor
+  When sparks primitive is rendered
+  Then all spark lines originate from the anchor point
+[TEST PASS] DEBRIS_APPLIES_BALLISTIC_TRAJECTORY
+  Given a render context at late-phase progress
+  When debris primitive is rendered
+  Then particles are displaced from anchor with gravity effect
+[TEST PASS] DUST_PUFF_APPLIES_TERRAIN_TINT
+  Given a render context with terrain tint color
+  When dust_puff primitive is rendered
+  Then the cloud uses multiple layered ellipses and keeps the terrain tint in the palette
+[TEST PASS] SMOKE_PUFF_RISES_FROM_ANCHOR
+  Given render contexts at early and late progress
+  When smoke_puff is rendered at both stages
+  Then late-stage smoke is positioned higher than early-stage and renders as a layered plume
+[TEST PASS] EMBERS_FLICKER_WITH_TIME
+  Given two render contexts with different elapsed times but same seed
+  When embers are rendered at both times
+  Then embers have same positions but potentially different opacities due to flicker
+[TEST PASS] SCORCH_FADES_IN_GRADUALLY
+  Given render contexts at early and late progress
+  When scorch is rendered at both stages
+  Then early scorch has lower opacity than late scorch
+[TEST PASS] DIRECTIONAL_FORTIFICATIONS_APPLY_FULL_HALF_OR_ZERO_COVER
+  Then the fortification bonus only applies through the protected edge and halves on split-angle fire
+[FrameSequenceAnimator] playAnimation called - type: dustCloud, pos: (100, 120), scale: 1.5
+[FrameSequenceAnimator] Spec resolved, frames cached: 4
+[FrameSequenceAnimator] Frame swap - animation: dustCloud#1, frame: 0, source: frame-0, nodes: 1
+[FrameSequenceAnimator] Frame swap - animation: dustCloud#1, frame: 0, source: frame-0, nodes: 1
+[FrameSequenceAnimator] Frame swap - animation: dustCloud#1, frame: 1, source: frame-1, nodes: 1
+[FrameSequenceAnimator] Frame swap - animation: dustCloud#1, frame: 2, source: frame-2, nodes: 1
+[FrameSequenceAnimator] Frame swap - animation: dustCloud#1, frame: 3, source: frame-3, nodes: 1
+[TEST PASS] FRAME_SEQUENCE_ANIMATOR_REUSES_ONE_NODE_AND_RESOLVES_AFTER_CLEANUP
+  Given a frame-sequence animator with injected cached dust-cloud frames
+  When the animation plays through successive frame ticks
+  Then the promise resolves only after DOM cleanup removes the active node
+[FrameSequenceAnimator] playAnimation called - type: dustCloud, pos: (50, 60), scale: 1
+[FrameSequenceAnimator] Spec resolved, frames cached: 4
+[FrameSequenceAnimator] Frame swap - animation: dustCloud#2, frame: 0, source: frame-0, nodes: 1
+[FrameSequenceAnimator] Frame swap - animation: dustCloud#2, frame: 0, source: frame-0, nodes: 1
+[FrameSequenceAnimator] Frame swap - animation: dustCloud#2, frame: 1, source: frame-1, nodes: 1

@@ -52,7 +52,7 @@ export function buildResolvedAirCombatSceneTimingPolicy(
       Math.max(0, Math.round(baseBomberArrivalDelayMs * 0.14))
       + Math.round(escortClashDurationMs * 0.14)
       + scaleAirShowSequenceMs(48),
-    bombReleaseProgress: 0.92
+    bombReleaseProgress: 0.56
   };
 }
 

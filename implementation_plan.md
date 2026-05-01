@@ -413,3 +413,61 @@ HexMapRenderer and GameEngine are high-risk. Changes are additive only — no ex
 - Add focused regressions for legacy facing normalization and edge-direction heading resolution.
 - Run `npm run build`.
 - Run a focused harness pass for the new facing-direction tests.
+
+## Airshow Corridor Architecture Plan
+
+### Intended behavior
+- One corridor, one clock, one planned lifecycle per sprite.
+- Build one authoritative corridor from HQ/origin to target/egress.
+- Place every plane into stable lanes in that corridor at time zero.
+- Compute fighter groupings once: 1:1, 2:1, 3:1, etc. No "extra" orbiting fighters.
+- Drive all actors from one global timeline, then slice it into renderer phases only after the full motion is planned.
+- Keep bombers moving the whole time. Fighter timing adapts to bomber ETA, not the other way around.
+- Dogfight is not looping orbit behavior. It should be: head-on pass with tracers, peel/re-pair, tight turn, straight tracer pass, tight turn, straight tracer pass.
+- Interceptors that survive then immediately attack bombers while bombers defend. No waiting period.
+- Flak runs continuously around sampled bomber positions during the approach/target run, tapering after ordnance. Not interval bursts behind the target.
+- Flak only runs when bombers are about eight hexes away from the flak unit.
+- Bomber sprites turn before reaching the target so that they do not fly directly over the target hex, but not too soon as to look like they never got close enough.
+
+### Current behavior
+- The airshow has separate phase-local path repairs, timing patches, "gap/hold" phases, and static clash positions.
+- Sprites look like they teleport, wait, circle, or disappear because each phase is trying to fix the last one.
+- Fighters have a "bomber-ingress" wait phase where they hold position before attacking.
+- Flak is split between defense and target phases with fixed intervals.
+- Dogfight uses looping orbit behavior rather than aggressive head-on passes.
+
+### Expected new behavior
+- Fighter assignments in `bomber-ingress` phase now immediately attack bombers (no waiting period).
+- Escort-clash-merge phase uses aggressive head-on pass with sharp peel-off after convergence.
+- Escort-clash-scramble phase uses re-pair maneuver and second head-on pass before transitioning to bomber attack.
+- Dogfight tracers fire during head-on convergence (0.5-0.7 in merge, 0.2-0.8 in scramble) with increased burst count and range.
+- Flak is now continuous: sampled at bomber positions throughout approach phases (6 samples in approach, 4 in target run).
+- Flak only fires when bombers are within 8 hex range (`HEX_WIDTH * 8`).
+- Bomber target run path maintains existing turn-before-target behavior (turnEntry at -78px, nearTarget at -30px).
+
+### Edge cases
+- Fighters without escort opponents should still ingress and attack bombers immediately.
+- Flak batteries beyond 8 hex range should not fire even if bombers are in other phases.
+- Surviving interceptors from scramble phase must seamlessly transition to bomber attack without position jumps.
+
+### Impact analysis
+- Systems consuming this output:
+  - `AirShowPlaybackPlanner.ts` contested airshow choreography
+  - `HexMapRenderer.ts` airshow rendering via `PlannedAirShowScene`
+  - Fighter/bomber animation paths and timing
+- Events depending on this structure:
+  - Airshow phase playback timing
+  - Tracer burst rendering during dogfight phases
+  - Flak burst rendering during approach and target phases
+- Visual behaviors that could shift:
+  - Fighters no longer hold position during bomber-ingress phase; they attack immediately.
+  - Dogfight shows more aggressive head-on passes with continuous tracer fire.
+  - Flak appears continuously during approach rather than in discrete bursts.
+  - Bombers maintain existing turn-before-target behavior.
+
+### Risk
+AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorContestedAirShowPlan` function only — no new code paths added, existing fallback planning path preserved as fallback (will be removed once corridor plan proves stable).
+
+### Verification
+- `npm run build`, `npm run lint`, `npm run test` must all pass.
+- Visual verification: fighters attack immediately after escort clash; dogfight shows head-on passes; flak appears continuously during approach.

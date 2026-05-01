@@ -50,6 +50,7 @@ export type ResolvedAirShowFlakBurst = {
   smokeScale?: number;
   bomberUnitKey?: string | null;
   targetHexKey?: string | null;
+  batteryHexKey?: string | null;
 };
 
 export type ResolvedAirShowScene = {
@@ -191,6 +192,9 @@ export interface AirShowInspectionFlakBurst {
   readonly progress: number;
   readonly bomberUnitKey?: string | null;
   readonly targetHexKey?: string | null;
+  readonly batteryHexKey?: string | null;
+  readonly sampledBomberCenter?: AirShowInspectionPoint;
+  readonly rangeReferenceCenter?: AirShowInspectionPoint;
   readonly targetCenter: AirShowInspectionPoint;
   readonly targetSource: "bomberPath" | "targetHex" | "bomberTarget" | "averageBomberTarget" | "corridorStrike";
   readonly burstCenter: AirShowInspectionPoint;

@@ -1,3 +1,4 @@
+import { axialKey } from "../../core/Hex";
 import { buildResolvedAirCombatSceneTimingPolicy } from "./AirShowTimingPolicies";
 export function buildResolvedAirShowFlakBursts(flakEvent, options = {}) {
     if (!flakEvent) {
@@ -16,6 +17,13 @@ export function buildResolvedAirShowFlakBursts(flakEvent, options = {}) {
     const batteryCount = scopedEngagements.length > 0
         ? new Set(scopedEngagements.map((engagement) => engagement.batteryUnitKey)).size
         : Math.max(0, flakEvent.interceptors.length);
+    const batteryHexKeys = scopedEngagements.length > 0
+        ? scopedEngagements
+            .map((engagement) => engagement.batteryHex ? axialKey(engagement.batteryHex) : null)
+            .filter((hexKey) => !!hexKey)
+        : flakEvent.interceptors
+            .map((interceptor) => interceptor.hex ? axialKey(interceptor.hex) : null)
+            .filter((hexKey) => !!hexKey);
     const normalizedBatteryCount = Math.max(1, batteryCount);
     const waveCount = Math.max(12, Math.min(18, normalizedBatteryCount * 3 + 9));
     const startProgress = 0.26;
@@ -44,7 +52,8 @@ export function buildResolvedAirShowFlakBursts(flakEvent, options = {}) {
             smokePuffCount: index % 2 === 0 ? 1 : 0,
             smokeScale: 0.76 + randC * 0.12,
             bomberUnitKey: options.bomberUnitKey ?? null,
-            targetHexKey: options.targetHexKey ?? null
+            targetHexKey: options.targetHexKey ?? null,
+            batteryHexKey: batteryHexKeys[index % Math.max(1, batteryHexKeys.length)] ?? null
         };
     });
 }

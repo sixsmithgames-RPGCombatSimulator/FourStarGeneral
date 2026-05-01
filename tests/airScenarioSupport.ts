@@ -42,6 +42,7 @@ import {
   sampleAirShowWaypointPath,
   sampleAirShowWaypointPoints
 } from "../src/ui/airshow/AirShowPathMath.js";
+import { HEX_WIDTH } from "../src/core/balance.js";
 
 const plains: TerrainDefinition = {
   moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
@@ -481,6 +482,9 @@ export interface AirShowPhaseTracerMetric {
 export interface AirShowPhaseFlakMetric {
   readonly progress: number;
   readonly burstCenter: { readonly cx: number; readonly cy: number };
+  readonly sampledBomberCenter?: { readonly cx: number; readonly cy: number };
+  readonly rangeReferenceCenter?: { readonly cx: number; readonly cy: number };
+  readonly rangeToReferencePx?: number;
   readonly flashCount: number;
   readonly puffCount: number;
   readonly smokePuffCount: number;
@@ -2329,15 +2333,24 @@ function measurePhase(
         : undefined,
       targetRangePx: tracer.targetPoint ? distanceBetween(tracer.emitterPoint, tracer.targetPoint) : undefined
     })),
-    flakMetrics: phase.flakBursts.map((burst) => ({
-      progress: burst.progress,
-      burstCenter: burst.burstCenter,
-      flashCount: burst.flashCount,
-      puffCount: burst.puffCount,
-      smokePuffCount: burst.smokePuffCount,
-      widthPx: burst.widthPx,
-      heightPx: burst.heightPx
-    }))
+    flakMetrics: phase.flakBursts.map((burst) => {
+      const sampledBomberCenter =
+        burst.sampledBomberCenter
+        ?? (burst.targetSource === "bomberPath" ? burst.targetCenter : undefined);
+      const rangeReferenceCenter = burst.rangeReferenceCenter ?? burst.targetCenter;
+      return {
+        progress: burst.progress,
+        burstCenter: burst.burstCenter,
+        sampledBomberCenter,
+        rangeReferenceCenter,
+        rangeToReferencePx: sampledBomberCenter ? distanceBetween(sampledBomberCenter, rangeReferenceCenter) : undefined,
+        flashCount: burst.flashCount,
+        puffCount: burst.puffCount,
+        smokePuffCount: burst.smokePuffCount,
+        widthPx: burst.widthPx,
+        heightPx: burst.heightPx
+      };
+    })
   };
 }
 
@@ -2624,10 +2637,15 @@ function detectAirshowFindings(
       }
     }
     if (metric.label === "target-run" && metric.flakBurstCount > 0) {
-      if (metric.flakMetrics.some((flak) => flak.progress < 0.6)) {
+      const outOfRangeFlak = metric.flakMetrics.find(
+        (flak) => typeof flak.rangeToReferencePx === "number" && flak.rangeToReferencePx > HEX_WIDTH * 8.25
+      );
+      if (outOfRangeFlak) {
         findings.push({
           code: "early-flak-window",
-          message: `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} schedules flak before the final approach window.`
+          message:
+            `${event.type} ${event.missionId ?? "<no-mission>"} phase ${metric.label} schedules flak ` +
+            `${Math.round(outOfRangeFlak.rangeToReferencePx ?? 0)}px from its battery/target reference before the eight-hex engagement window.`
         });
       }
       if (metric.flakMetrics.some((flak) => flak.progress > 0.94)) {

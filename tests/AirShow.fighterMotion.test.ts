@@ -776,7 +776,7 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_STAYS_INSIDE_STRIKE
     result = runAirScenario();
   });
 
-  await Then("flak bursts should open on mid-approach, persist through a real window, and finish before bomb release", async () => {
+  await Then("flak bursts should open on mid-approach, persist through bomb release, and taper before egress", async () => {
     const strikeInspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" &&
         entry.report.phases.some((p) => (p.flakBursts?.length ?? 0) > 0)
@@ -814,10 +814,16 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_STAYS_INSIDE_STRIKE
     const firstFlakProgress = flakBursts[0]?.progress ?? 0;
     const lastFlakProgress = flakBursts[flakBursts.length - 1]?.progress ?? 0;
     const bombReleaseProgress = GOVERNED_BOMB_RELEASE_PROGRESS;
-    if (lastFlakProgress >= bombReleaseProgress) {
+    if (lastFlakProgress <= bombReleaseProgress) {
       throw new Error(
-        `Flak ends too late in strike run: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
-        `(should finish before the bomb-release segment)`
+        `Flak ends too early in strike run: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
+        `(should persist beyond bomb release at ${(bombReleaseProgress * 100).toFixed(1)}%)`
+      );
+    }
+    if (lastFlakProgress > 0.86) {
+      throw new Error(
+        `Flak tapers too late in strike run: last burst at ${(lastFlakProgress * 100).toFixed(1)}% ` +
+        `(should taper before egress setup)`
       );
     }
 

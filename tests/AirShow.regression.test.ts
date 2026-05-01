@@ -18,6 +18,7 @@ import {
   AIR_SHOW_BOMBER_SPEED_PX_PER_MS,
   AIR_SHOW_FIGHTER_SPEED_PX_PER_MS
 } from "../src/ui/airshow/AirShowPlaybackPolicy.js";
+import { HEX_WIDTH } from "../src/core/balance.js";
 
 function findContestedInspection(result: ReturnType<typeof runAirScenario> | null) {
   return result?.airshowInspections.find(
@@ -798,13 +799,13 @@ registerTest("AIR_SHOW_REGRESSION_FINAL_EGRESS_CARRIES_SURVIVING_PACKAGE_ACTORS"
 registerTest("AIR_SHOW_REGRESSION_FLAK_TIMING_DURING_APPROACH", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
-  await Given("the fixed flak timing during bomber-defense approach and pre-release target run", async () => {});
+  await Given("the fixed flak timing during bomber-defense approach and target-run taper", async () => {});
 
   await When("the strike package with flak is run", async () => {
     result = runAirScenario();
   });
 
-  await Then("flak should open during bomber approach, continue into target run, and stop before bomb release", async () => {
+  await Then("flak should open in range, continue through bomb release, and taper before egress", async () => {
     const inspection = result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" &&
         entry.report.phases.some(p => (p.flakBursts?.length ?? 0) > 0)
@@ -836,15 +837,27 @@ registerTest("AIR_SHOW_REGRESSION_FLAK_TIMING_DURING_APPROACH", async ({ Given, 
         );
       }
 
-      if (phase.label === "target-run" && firstProgress < 0.50) {
+      const outOfRangeFlak = flakBursts.find((burst) => {
+        const bomberCenter =
+          burst.sampledBomberCenter
+          ?? (burst.targetSource === "bomberPath" ? burst.targetCenter : null);
+        const rangeReferenceCenter = burst.rangeReferenceCenter ?? burst.targetCenter;
+        return !!bomberCenter && distanceBetweenPoints(bomberCenter, rangeReferenceCenter) > HEX_WIDTH * 8.25;
+      });
+      if (outOfRangeFlak) {
+        const bomberCenter =
+          outOfRangeFlak.sampledBomberCenter
+          ?? (outOfRangeFlak.targetSource === "bomberPath" ? outOfRangeFlak.targetCenter : null);
+        const rangeReferenceCenter = outOfRangeFlak.rangeReferenceCenter ?? outOfRangeFlak.targetCenter;
+        const rangePx = bomberCenter ? distanceBetweenPoints(bomberCenter, rangeReferenceCenter) : 0;
         violations.push(
-          `${phase.label}: flak starts at ${(firstProgress * 100).toFixed(0)}% (should be >=50%)`
+          `${phase.label}: flak burst at ${(outOfRangeFlak.progress * 100).toFixed(0)}% is ${Math.round(rangePx)}px from its battery/target reference (should be within about eight hexes)`
         );
       }
 
       if (lastProgress > 0.88) {
         violations.push(
-          `${phase.label}: flak ends at ${(lastProgress * 100).toFixed(0)}% (should finish before bomb-release segment)`
+          `${phase.label}: flak ends at ${(lastProgress * 100).toFixed(0)}% (should taper before egress setup)`
         );
       }
 
@@ -855,7 +868,7 @@ registerTest("AIR_SHOW_REGRESSION_FLAK_TIMING_DURING_APPROACH", async ({ Given, 
       throw new Error(`Flak timing violations:\n${violations.join("\n")}`);
     }
 
-    console.log(`[REGRESSION: FLAK] ✓ FIXED: Flak opens on approach and finishes before release`);
+    console.log(`[REGRESSION: FLAK] ✓ FIXED: Flak opens in range, persists through release, and tapers before egress`);
   });
 });
 

@@ -1349,12 +1349,8 @@ export class HexMapRenderer implements IMapRenderer {
     if (phase.label === "target-run") {
       const targetHexKey = scene.bomberTargetHexKey ?? scene.bomber?.targetHexKey ?? null;
       if (targetHexKey) {
-        const latestFlakProgress = phase.flakBursts.reduce(
-          (latest, burst) => Math.max(latest, this.clamp(burst.progress, 0, 1)),
-          0
-        );
         const progress = this.clamp(
-          Math.max(scene.bombReleaseProgress ?? 0.5, latestFlakProgress + 0.06),
+          scene.bombReleaseProgress ?? 0.5,
           0,
           0.98
         );

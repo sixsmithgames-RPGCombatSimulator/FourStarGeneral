@@ -341,7 +341,8 @@ export class SelectionIntelOverlay {
                     ? `${Math.max(0, Math.round(intel.movementRemaining))}${typeof intel.movementMax === "number" ? `/${Math.max(0, Math.round(intel.movementMax))}` : ""}`
                     : "—"
             },
-            { label: "Range", value: intel.rangeLabel }
+            { label: "Range", value: intel.rangeLabel },
+            { label: "Facing", value: intel.facingLabel }
         ];
         if (intel.canEntrench) {
             statCards.splice(3, 0, {

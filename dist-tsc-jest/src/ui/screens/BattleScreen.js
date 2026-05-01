@@ -690,6 +690,68 @@ export class BattleScreen {
             targetHexKeys
         };
     }
+    promptSmokeMode(callerAxial, callerLabel, callerUnitId) {
+        const engine = this.battleState.ensureGameEngine();
+        const targetHexKeys = engine.resolveSmokeTargetHexKeys(callerAxial, callerUnitId ?? undefined);
+        const offset = CoordinateSystem.axialToOffset(callerAxial.q, callerAxial.r);
+        const callerHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+        // If the unit can only reach its own hex (range 0 effective), skip the mode prompt and go straight to own-hex facing.
+        if (targetHexKeys.length === 0) {
+            this.promptFortificationFacing(callerAxial, callerLabel, callerUnitId, "smoke");
+            return;
+        }
+        // Present two choices inline via a transient announcement prompt.
+        this.announceBattleUpdate(`${callerLabel}: Pop smoke on your own position (click your hex again) or select a target hex to fire smoke rounds.`);
+        this.beginSmokeTargeting(callerHexKey, callerAxial, callerLabel, callerUnitId, targetHexKeys);
+    }
+    beginSmokeTargeting(callerHexKey, callerAxial, callerLabel, callerUnitId, targetHexKeys) {
+        this.smokeTargetingState = {
+            callerHexKey,
+            callerAxial,
+            callerLabel,
+            callerUnitId,
+            targetHexKeys: new Set(targetHexKeys)
+        };
+        // Highlight the in-range hexes using the same zone-highlight infrastructure as artillery.
+        const highlights = new Set(targetHexKeys);
+        highlights.add(callerHexKey);
+        this.hexMapRenderer?.setZoneHighlights(highlights);
+    }
+    cancelSmokeTargeting(restoreSelection = true) {
+        if (!this.smokeTargetingState) {
+            return;
+        }
+        const callerHexKey = this.smokeTargetingState.callerHexKey;
+        this.smokeTargetingState = null;
+        this.hexMapRenderer?.setZoneHighlights(new Set());
+        if (restoreSelection) {
+            this.applySelectedHex(callerHexKey);
+        }
+    }
+    executeSmokeOnTargetHex(targetHexKey) {
+        const state = this.smokeTargetingState;
+        if (!state) {
+            return;
+        }
+        const targetParsed = CoordinateSystem.parseHexKey(targetHexKey);
+        if (!targetParsed) {
+            this.cancelSmokeTargeting(true);
+            return;
+        }
+        const targetAxial = CoordinateSystem.offsetToAxial(targetParsed.col, targetParsed.row);
+        this.cancelSmokeTargeting(false);
+        // Show the edge-facing dialog for the chosen target hex.
+        this.pendingFortificationBuild = {
+            hex: targetAxial,
+            hexKey: targetHexKey,
+            unitLabel: state.callerLabel,
+            unitId: state.callerUnitId,
+            modificationType: "smoke",
+            callerAxial: state.callerAxial
+        };
+        this.renderFortificationFacingPreview();
+        this.showFortificationFacingDialog();
+    }
     beginArtilleryTargeting(callerHexKey, callerLabel, assetId, targetHexKeys) {
         this.artilleryTargetingState = {
             callerHexKey,
@@ -1563,7 +1625,7 @@ export class BattleScreen {
             SW: { x: 60, y: 186 },
             W: { x: 20, y: 114 }
         };
-        const noun = modificationType === "tankTraps" ? "tank-trap" : modificationType === "smoke" ? "smoke" : "fortification";
+        const noun = modificationType === "tankTraps" ? "tank-trap" : modificationType === "smoke" ? "smoke" : modificationType === "facing" ? "facing" : "fortification";
         return `
       <svg viewBox="0 0 220 220" class="fortification-facing-preview-svg" aria-label="Select a ${noun} edge">
         <polygon
@@ -1692,7 +1754,9 @@ export class BattleScreen {
         // Smoke uses a dedicated engine action rather than the generic buildHexModification path.
         if (modificationType === "smoke") {
             try {
-                engine.laySmoke(hex, facing, unitId ?? undefined);
+                // callerAxial is set when smoke is fired at a remote target hex; absent means own-hex pop.
+                const callerHex = this.pendingFortificationBuild?.callerAxial;
+                engine.laySmoke(callerHex ?? hex, facing, unitId ?? undefined, callerHex ? hex : undefined);
             }
             catch (err) {
                 const message = err instanceof Error ? err.message : "Unable to lay smoke right now.";
@@ -1706,6 +1770,28 @@ export class BattleScreen {
             const smokeSummary = `${unitLabel} laid a smoke screen on the ${facing} edge at ${hexKey}.`;
             this.announceBattleUpdate(smokeSummary);
             this.publishActivityEvent({ category: "player", type: "log", summary: smokeSummary });
+            this.battleState.emitBattleUpdate("manual");
+            return;
+        }
+        // Unit facing uses a dedicated engine path — not a hex modification.
+        if (modificationType === "facing") {
+            try {
+                engine.setUnitFacing(hex, facing, unitId ?? undefined);
+            }
+            catch (err) {
+                this.announceBattleUpdate(err instanceof Error ? err.message : "Cannot set facing right now.");
+                this.renderFortificationFacingPreview();
+                return;
+            }
+            this.hideFortificationFacingDialog();
+            // Clear the stale movement-derived angle so the sprite re-derives its direction from unit.facing.
+            this.hexMapRenderer?.clearUnitFacingAngle(hexKey);
+            this.renderEngineUnits();
+            // Re-select the hex so buildBattleSelectionIntel re-runs and the Facing stat card updates.
+            this.applySelectedHex(hexKey);
+            const facingSummary = `${unitLabel} reoriented to face ${facing} at ${hexKey}.`;
+            this.announceBattleUpdate(facingSummary);
+            this.publishActivityEvent({ category: "player", type: "log", summary: facingSummary });
             this.battleState.emitBattleUpdate("manual");
             return;
         }
@@ -4262,6 +4348,7 @@ export class BattleScreen {
         this.artilleryPreviewKeys = new Set();
         this.queuedTargetMarkerActions = new Map();
         this.artilleryTargetingState = null;
+        this.smokeTargetingState = null;
         this.beginBattleButton = null;
         this.soundToggleButton = null;
         this.endTurnButton = null;
@@ -6249,6 +6336,9 @@ export class BattleScreen {
         if (this.artilleryTargetingState && key !== this.artilleryTargetingState.callerHexKey) {
             this.cancelArtilleryTargeting(false);
         }
+        if (this.smokeTargetingState && key !== this.smokeTargetingState.callerHexKey) {
+            this.cancelSmokeTargeting(false);
+        }
         if (key === null || this.selectedHexKey !== key) {
             this.selectedPlayerUnitId = null;
         }
@@ -6530,6 +6620,21 @@ export class BattleScreen {
             return;
         }
         const clickedAxial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+        if (this.smokeTargetingState) {
+            if (this.smokeTargetingState.targetHexKeys.has(key)) {
+                this.executeSmokeOnTargetHex(key);
+                return;
+            }
+            if (key === this.smokeTargetingState.callerHexKey) {
+                // Clicking own hex pops smoke on own position.
+                const state = this.smokeTargetingState;
+                this.cancelSmokeTargeting(false);
+                this.promptFortificationFacing(state.callerAxial, state.callerLabel, state.callerUnitId, "smoke");
+                return;
+            }
+            this.cancelSmokeTargeting(false);
+            return;
+        }
         if (this.artilleryTargetingState) {
             if (this.artilleryTargetingState.targetHexKeys.has(key)) {
                 void this.executeQueuedArtilleryStrike(key);
@@ -6668,12 +6773,20 @@ export class BattleScreen {
                 return;
             }
         }
+        else if (actionId === "setFacing") {
+            if (!commandState?.canSetFacing) {
+                this.announceBattleUpdate(commandState?.setFacingReason ?? "This formation cannot change facing right now.");
+                return;
+            }
+            this.promptFortificationFacing(axial, unitLabel, this.selectedPlayerUnitId, "facing");
+            return;
+        }
         else if (actionId === "laySmoke") {
             if (!commandState?.canLaySmoke) {
                 this.announceBattleUpdate(commandState?.smokeReason ?? "This formation cannot lay smoke right now.");
                 return;
             }
-            this.promptFortificationFacing(axial, unitLabel, this.selectedPlayerUnitId, "smoke");
+            this.promptSmokeMode(axial, unitLabel, this.selectedPlayerUnitId);
             return;
         }
         else {
@@ -7163,6 +7276,7 @@ export class BattleScreen {
             movementRemaining: movementBudget ? movementBudget.remaining : null,
             movementMax: movementBudget ? movementBudget.max : null,
             rangeLabel: this.formatBattleRange(definition),
+            facingLabel: commandState?.currentFacing ?? "—",
             canEntrench,
             moveOptions: this.playerMoveHexes.size,
             attackOptions: this.playerAttackHexes.size,
@@ -7306,13 +7420,23 @@ export class BattleScreen {
                 reason: commandState.digInReason
             });
         }
+        if (commandState.isSmokeCapable) {
+            actions.push({
+                id: "laySmoke",
+                label: "Lay Smoke",
+                detail: "Fire smoke rounds to cover a chosen hex edge. The screen blocks ground line of sight along that edge until the start of your next turn. Requires ammo but does not use movement or attacks.",
+                tone: "mobility",
+                available: commandState.canLaySmoke,
+                reason: commandState.smokeReason
+            });
+        }
         actions.push({
-            id: "laySmoke",
-            label: "Lay Smoke",
-            detail: "Fire smoke rounds to cover a chosen hex edge. The screen blocks ground line of sight along that edge until the start of your next turn. Requires ammo but does not use movement or attacks.",
-            tone: "mobility",
-            available: commandState.canLaySmoke,
-            reason: commandState.smokeReason
+            id: "setFacing",
+            label: "Set Facing",
+            detail: "Orient the formation toward a chosen hex edge. Facing affects defensive bonuses and retaliation arcs. Cannot reorient after moving or firing.",
+            tone: "defense",
+            available: commandState.canSetFacing,
+            reason: commandState.setFacingReason
         });
         if (commandState.isEngineer) {
             const fortificationsBuild = commandState.buildModificationAvailability.fortifications;
