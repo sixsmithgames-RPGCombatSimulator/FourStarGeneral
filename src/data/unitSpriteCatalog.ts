@@ -2,9 +2,42 @@ import { deploymentTemplates } from "../game/adapters";
 
 /**
  * Resolves the absolute URL for a sprite asset bundled under `src/assets/units/`.
- * Using `import.meta.url` keeps paths correct regardless of build tooling.
+ * Build tooling may fingerprint file names, so keep a filename→final URL manifest
+ * for reliable directional swapping (Southview/Sideview/Northview) in both dev and prod.
  */
-const unitSprite = (fileName: string): string => new URL(`../assets/units/${fileName}`, import.meta.url).href;
+const importMetaWithGlob = import.meta as ImportMeta & {
+  glob?: (pattern: string, options: { eager: true; import: "default" }) => Record<string, string>;
+};
+
+const UNIT_SPRITE_MANIFEST = importMetaWithGlob.glob
+  ? importMetaWithGlob.glob("../assets/units/*", {
+      eager: true,
+      import: "default"
+    })
+  : {};
+
+const UNIT_SPRITE_URL_BY_FILE = new Map<string, string>();
+const UNIT_SPRITE_FILE_BY_URL = new Map<string, string>();
+
+Object.entries(UNIT_SPRITE_MANIFEST).forEach(([path, url]) => {
+  const fileName = path.split("/").pop();
+  if (!fileName) {
+    return;
+  }
+  UNIT_SPRITE_URL_BY_FILE.set(fileName, url);
+  UNIT_SPRITE_FILE_BY_URL.set(url, fileName);
+});
+
+const unitSprite = (fileName: string): string => {
+  const known = UNIT_SPRITE_URL_BY_FILE.get(fileName);
+  if (known) {
+    return known;
+  }
+  const resolved = new URL(`../assets/units/${fileName}`, import.meta.url).href;
+  UNIT_SPRITE_URL_BY_FILE.set(fileName, resolved);
+  UNIT_SPRITE_FILE_BY_URL.set(resolved, fileName);
+  return resolved;
+};
 type SpriteFaction = "Player" | "Bot" | "Ally";
 
 type FactionSpriteMap = {
@@ -277,9 +310,20 @@ function getViewSuffixForFacing(facing: string): "Southview" | "Sideview" | "Nor
  */
 function resolveDirectionalSprite(spriteUrl: string, facing: string): string {
   const viewSuffix = getViewSuffixForFacing(facing);
-  // Replace any existing directional suffix with the target one.
-  // Preserve optional pose suffix numbers (e.g. "_Southview1.png" -> "_Northview1.png").
-  return spriteUrl.replace(/_(Southview|Sideview|Northview)(\d*)\.png$/i, `_${viewSuffix}$2.png`);
+  const sourceFileName = UNIT_SPRITE_FILE_BY_URL.get(spriteUrl);
+  if (!sourceFileName) {
+    return spriteUrl;
+  }
+
+  const resolvedFileName = sourceFileName.replace(
+    /_(Southview|Sideview|Northview)(\d*)\.png$/i,
+    `_${viewSuffix}$2.png`
+  );
+  if (resolvedFileName === sourceFileName) {
+    return spriteUrl;
+  }
+
+  return UNIT_SPRITE_URL_BY_FILE.get(resolvedFileName) ?? spriteUrl;
 }
 
 /**
