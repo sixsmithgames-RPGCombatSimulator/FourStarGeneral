@@ -2,20 +2,26 @@ import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { getSpriteForAllocationKey, getSpriteForScenarioType } from "../src/data/unitSpriteCatalog";
 
-registerTest("UNITSPRITECATALOG_USES_FACTION_SPECIFIC_AIRCRAFT_ART", async ({ When, Then }) => {
+registerTest("UNITSPRITECATALOG_RESOLVES_FACTION_AND_DIRECTIONAL_VARIANTS", async ({ When, Then }) => {
   const resolved: Record<string, string | undefined> = {};
 
-  await When("aircraft sprites are requested for both factions and player allocation cards", async () => {
+  await When("sprites are requested for faction-aware and directional units", async () => {
     resolved.playerBomber = getSpriteForScenarioType("Bomber", "Player");
     resolved.botBomber = getSpriteForScenarioType("Bomber", "Bot");
     resolved.playerGroundAttack = getSpriteForScenarioType("Ground_Attack", "Player");
     resolved.botInterceptor = getSpriteForScenarioType("Interceptor", "Bot");
     resolved.playerEscort = getSpriteForScenarioType("Fighter", "Player");
     resolved.playerAllocationEscort = getSpriteForAllocationKey("fighter", "Player");
-    resolved.groundFallback = getSpriteForScenarioType("Recon_Bike", "Bot");
+    resolved.playerTankSouth = getSpriteForScenarioType("Light_Tank", "Player", "SE");
+    resolved.playerTankNorth = getSpriteForScenarioType("Light_Tank", "Player", "NE");
+    resolved.playerTankWest = getSpriteForScenarioType("Light_Tank", "Player", "W");
+    resolved.playerTankAllocation = getSpriteForAllocationKey("tank", "Player");
+    resolved.botReconNorth = getSpriteForScenarioType("Recon_Bike", "Bot", "NE");
+    resolved.botReconWest = getSpriteForScenarioType("Recon_Bike", "Bot", "W");
+    resolved.playerReconSouth = getSpriteForScenarioType("Recon_Bike", "Player", "SE");
   });
 
-  await Then("the catalog should resolve the new faction-specific aircraft files while leaving ground art unchanged", async () => {
+  await Then("the catalog should resolve faction-specific aircraft and directional ground sprites", async () => {
     if (!resolved.playerBomber?.includes("Aircraft_USA_B17.png")) {
       throw new Error(`Expected player bomber sprite to use B17 art, saw ${String(resolved.playerBomber)}.`);
     }
@@ -40,8 +46,36 @@ registerTest("UNITSPRITECATALOG_USES_FACTION_SPECIFIC_AIRCRAFT_ART", async ({ Wh
       throw new Error(`Expected player fighter allocation card to use P51 art, saw ${String(resolved.playerAllocationEscort)}.`);
     }
 
-    if (!resolved.groundFallback?.includes("Recon_Bike.png")) {
-      throw new Error(`Expected non-aircraft sprite lookup to remain unchanged, saw ${String(resolved.groundFallback)}.`);
+    if (!resolved.playerTankSouth?.includes("Tank_M4_USA_Southview")) {
+      throw new Error(`Expected player tank south view to use M4 Southview, saw ${String(resolved.playerTankSouth)}.`);
+    }
+
+    if (!resolved.playerTankNorth?.includes("Tank_M4_USA_Northview")) {
+      throw new Error(`Expected player tank north view to use M4 Northview, saw ${String(resolved.playerTankNorth)}.`);
+    }
+
+    if (!resolved.playerTankWest?.includes("Tank_M4_USA_Sideview")) {
+      throw new Error(`Expected player tank west view to use M4 Sideview, saw ${String(resolved.playerTankWest)}.`);
+    }
+
+    if (!resolved.playerTankAllocation?.includes("Tank_M4_USA_Southview")) {
+      throw new Error(`Expected tank allocation card to resolve USA M4 art, saw ${String(resolved.playerTankAllocation)}.`);
+    }
+
+    if (resolved.playerTankAllocation?.includes("Panzer")) {
+      throw new Error(`Expected tank allocation card to avoid German Panzer art, saw ${String(resolved.playerTankAllocation)}.`);
+    }
+
+    if (!resolved.botReconNorth?.includes("Wheeled_Bikes_Recon_German_Northview")) {
+      throw new Error(`Expected bot recon north view to use German Northview art, saw ${String(resolved.botReconNorth)}.`);
+    }
+
+    if (!resolved.botReconWest?.includes("Wheeled_Bikes_Recon_German_Sideview")) {
+      throw new Error(`Expected bot recon west view to use German Sideview art, saw ${String(resolved.botReconWest)}.`);
+    }
+
+    if (!resolved.playerReconSouth?.includes("Wheeled_Bikes_Recon_USA_Southview")) {
+      throw new Error(`Expected player recon south view to use USA Southview art, saw ${String(resolved.playerReconSouth)}.`);
     }
   });
 });

@@ -9,7 +9,7 @@ const importMetaWithGlob = import.meta as ImportMeta & {
   glob?: (pattern: string, options: { eager: true; import: "default" }) => Record<string, string>;
 };
 
-const UNIT_SPRITE_MANIFEST = importMetaWithGlob.glob
+const UNIT_SPRITE_MANIFEST: Record<string, string> = importMetaWithGlob.glob
   ? importMetaWithGlob.glob("../assets/units/*", {
       eager: true,
       import: "default"
