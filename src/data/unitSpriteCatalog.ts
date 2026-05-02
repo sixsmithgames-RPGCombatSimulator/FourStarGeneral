@@ -151,6 +151,12 @@ const FACTION_GROUND_SPRITES: Record<string, FactionSpriteMap> = {
     Bot: unitSprite("Wheeled_Bikes_Recon_German_Southview.png"),
     fallback: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png")
   },
+  Recon_ArmoredCar: {
+    Player: unitSprite("Recon_ArmoredCar_USA_Southview.png"),
+    Ally: unitSprite("Recon_ArmoredCar_USA_Southview.png"),
+    Bot: unitSprite("Recon_ArmoredCar_German_Southview.png"),
+    fallback: unitSprite("Recon_ArmoredCar_USA_Southview.png")
+  },
   Engineer: {
     Player: unitSprite("Infantry_Engineers_USA_Southview.png"),
     Ally: unitSprite("Infantry_Engineers_USA_Southview.png"),
