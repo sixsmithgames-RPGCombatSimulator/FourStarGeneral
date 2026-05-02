@@ -796,35 +796,19 @@ export class HexMapRenderer {
             if (!actor) {
                 return;
             }
-            const sampledPoints = plannedAssignment.sampledPositions.length >= 2
-                ? plannedAssignment.sampledPositions.map((sample) => ({ cx: sample.cx, cy: sample.cy }))
-                : plannedAssignment.points.map((point) => ({ cx: point.cx, cy: point.cy }));
-            const points = sampledPoints.length >= 2
-                ? sampledPoints
+            const plannedPoints = plannedAssignment.points.map((point) => ({ cx: point.cx, cy: point.cy }));
+            const points = plannedPoints.length >= 2
+                ? plannedPoints
                 : [
                     { cx: actor.position.cx, cy: actor.position.cy },
                     { cx: actor.position.cx, cy: actor.position.cy }
                 ];
-            let cumulativeLengthPx = 0;
-            const cumulativeLengths = points.map((point, index) => {
-                if (index > 0) {
-                    const previous = points[index - 1];
-                    cumulativeLengthPx += Math.hypot(point.cx - previous.cx, point.cy - previous.cy);
-                }
-                return cumulativeLengthPx;
-            });
-            const totalLengthPx = Math.max(0.0001, cumulativeLengthPx);
             const progressTimeline = plannedAssignment.progressTimeline && plannedAssignment.progressTimeline.length >= 2
                 ? plannedAssignment.progressTimeline.map((keyframe) => ({
                     timeMs: keyframe.timeMs,
                     progress: keyframe.progress
                 }))
-                : plannedAssignment.sampledPositions.length >= 2
-                    ? plannedAssignment.sampledPositions.map((sample, index) => ({
-                        timeMs: sample.timeMs,
-                        progress: (cumulativeLengths[index] ?? cumulativeLengthPx) / totalLengthPx
-                    }))
-                    : undefined;
+                : undefined;
             assignments.push({
                 actor,
                 points,
@@ -7466,6 +7450,37 @@ export class HexMapRenderer {
         }
         return extended;
     }
+    extendAirShowPathWithCarry(points, targetPathLengthPx, options = {}) {
+        if (points.length < 2) {
+            return [...points];
+        }
+        const currentPathLengthPx = this.measureAirShowPathLength(points);
+        const extraDistancePx = targetPathLengthPx - currentPathLengthPx;
+        if (!Number.isFinite(extraDistancePx) || extraDistancePx <= 1) {
+            return [...points];
+        }
+        const start = points[points.length - 2];
+        const end = points[points.length - 1];
+        const travel = this.normalizeAircraftVector(end.cx - start.cx, end.cy - start.cy, 1, 0);
+        const normal = { x: -travel.y, y: travel.x };
+        const sideSign = options.orbitSign && options.orbitSign < 0 ? -1 : 1;
+        const lateralPx = this.clamp(extraDistancePx * 0.045, 0, 34);
+        const progressStops = extraDistancePx <= 96 ? [1] : extraDistancePx <= 220 ? [0.5, 1] : [0.34, 0.68, 1];
+        const carryPoints = progressStops.map((progress) => {
+            const lateralEase = Math.sin(progress * Math.PI);
+            return {
+                cx: end.cx + travel.x * extraDistancePx * progress + normal.x * sideSign * lateralPx * lateralEase,
+                cy: end.cy + travel.y * extraDistancePx * progress + normal.y * sideSign * lateralPx * lateralEase
+            };
+        });
+        return [...points, ...carryPoints].filter((point, index, path) => {
+            if (index === 0) {
+                return true;
+            }
+            const previous = path[index - 1];
+            return !previous || Math.hypot(point.cx - previous.cx, point.cy - previous.cy) > 0.5;
+        });
+    }
     extendAirShowPhaseAssignmentsForSpeed(assignments, durationMs, roleTargetSpeeds, options) {
         return assignments.map((assignment) => {
             const targetSpeedPxPerMs = roleTargetSpeeds.get(assignment.actor.role) ?? 0;
@@ -7485,19 +7500,46 @@ export class HexMapRenderer {
             const basePoints = extendAt === "start"
                 ? [...assignment.points].reverse()
                 : [...assignment.points];
-            const extendedPoints = this.extendAirShowPathWithLoiterArc(basePoints, targetPathLengthPx, {
-                clampCenter: options.clampCenter,
-                orbitSign: options.orbitSignByRole?.[assignment.actor.role],
-                maxHorizontalPx: options.maxHorizontalPx,
-                maxVerticalPx: options.maxVerticalPx
-            });
+            const extensionMode = options.extensionModeByRole?.[assignment.actor.role]
+                ?? options.extensionMode;
+            const extendedPoints = extensionMode === "carry"
+                ? this.extendAirShowPathWithCarry(basePoints, targetPathLengthPx, {
+                    orbitSign: options.orbitSignByRole?.[assignment.actor.role]
+                })
+                : this.extendAirShowPathWithLoiterArc(basePoints, targetPathLengthPx, {
+                    clampCenter: options.clampCenter,
+                    orbitSign: options.orbitSignByRole?.[assignment.actor.role],
+                    maxHorizontalPx: options.maxHorizontalPx,
+                    maxVerticalPx: options.maxVerticalPx
+                });
             return {
                 ...assignment,
                 points: extendAt === "start"
                     ? extendedPoints.reverse()
-                    : extendedPoints
+                    : extendedPoints,
+                progressTimeline: options.remapProgressTimelineForExtension
+                    ? this.remapAirShowProgressTimelineForExtendedPath(assignment.progressTimeline, currentPathLengthPx, this.measureAirShowPathLength(extendedPoints), extendAt === "start")
+                    : assignment.progressTimeline
             };
         });
+    }
+    remapAirShowProgressTimelineForExtendedPath(timeline, originalPathLengthPx, extendedPathLengthPx, extendedAtStart) {
+        if (!Array.isArray(timeline)
+            || timeline.length < 2
+            || !Number.isFinite(originalPathLengthPx)
+            || !Number.isFinite(extendedPathLengthPx)
+            || originalPathLengthPx <= 0
+            || extendedPathLengthPx <= 0) {
+            return timeline;
+        }
+        const addedStartLengthPx = extendedAtStart
+            ? Math.max(0, extendedPathLengthPx - originalPathLengthPx)
+            : 0;
+        return timeline.map((keyframe) => ({
+            timeMs: keyframe.timeMs,
+            progress: this.clamp((addedStartLengthPx + this.clamp(keyframe.progress, 0, 1) * originalPathLengthPx)
+                / extendedPathLengthPx, 0, 1)
+        }));
     }
     applyAirShowAssignmentDistanceBudget(assignment, durationMs, roleTargetSpeeds) {
         const explicitBudgetPx = typeof assignment.distanceBudgetPx === "number" && Number.isFinite(assignment.distanceBudgetPx)
@@ -7641,6 +7683,43 @@ export class HexMapRenderer {
                     ]
                 };
             });
+            if (typeof smoothEntryRadiusPx === "number") {
+                finalizedAssignments = this.applyAirShowPhaseMotionBudgets(this.smoothAirShowAssignmentEntries(finalizedAssignments, this.clamp(Math.round(smoothEntryRadiusPx * 0.9), 42, 68)), durationMs, roleTargetSpeeds);
+            }
+        }
+        if (options.sanitizeEntryTurns) {
+            let sanitizedAssignmentsChanged = false;
+            const sanitizedAssignments = finalizedAssignments.map((assignment) => {
+                if (assignment.points.length < 4) {
+                    return assignment;
+                }
+                const sanitizedPoints = this.sanitizeAirShowEntryPath(assignment.points, {
+                    maxTurnDeg: options.sanitizeEntryTurnLimitDeg ?? 42,
+                    strongTurnDeg: options.sanitizeEntryStrongTurnDeg ?? 84,
+                    maxFirstSegmentPx: options.sanitizeEntryMaxFirstSegmentPx ?? 92,
+                    maxSharpTurnDeg: options.sanitizeEntryMaxSharpTurnDeg ?? 108,
+                    maxWaypointsToRemove: options.sanitizeEntryMaxWaypointsToRemove ?? 4
+                });
+                if (sanitizedPoints.length < 2 || sanitizedPoints === assignment.points) {
+                    return assignment;
+                }
+                if (sanitizedPoints.length !== assignment.points.length) {
+                    sanitizedAssignmentsChanged = true;
+                }
+                else if (sanitizedPoints.some((point, index) => {
+                    const originalPoint = assignment.points[index];
+                    return !originalPoint || Math.hypot(point.cx - originalPoint.cx, point.cy - originalPoint.cy) > 0.5;
+                })) {
+                    sanitizedAssignmentsChanged = true;
+                }
+                return {
+                    ...assignment,
+                    points: sanitizedPoints
+                };
+            });
+            if (sanitizedAssignmentsChanged) {
+                finalizedAssignments = this.applyAirShowPhaseMotionBudgets(sanitizedAssignments, durationMs, roleTargetSpeeds);
+            }
         }
         return finalizedAssignments;
     }
@@ -7687,12 +7766,11 @@ export class HexMapRenderer {
             if (relevantAssignments.length === 0) {
                 return null;
             }
-            const meanPathLengthPx = relevantAssignments.reduce((sum, assignment) => sum + this.measureAirShowPathLength(assignment.points), 0)
-                / relevantAssignments.length;
-            if (!Number.isFinite(meanPathLengthPx) || meanPathLengthPx <= 0) {
+            const longestPathLengthPx = relevantAssignments.reduce((longest, assignment) => Math.max(longest, this.measureAirShowPathLength(assignment.points)), 0);
+            if (!Number.isFinite(longestPathLengthPx) || longestPathLengthPx <= 0) {
                 return null;
             }
-            return meanPathLengthPx / targetSpeedPxPerMs;
+            return longestPathLengthPx / targetSpeedPxPerMs;
         })
             .filter((durationMs) => typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs > 0);
         if (candidateDurations.length === 0) {
@@ -9037,10 +9115,10 @@ export class HexMapRenderer {
     resolveAirShowFlakBurstWave(corridor, targetCenter, burst) {
         const alongOffsetPx = burst.alongOffsetPx ?? -8;
         const lateralOffsetPx = burst.lateralOffsetPx ?? 0;
-        const alongSpreadPx = Math.max(30, burst.alongSpreadPx ?? 52);
-        const lateralSpreadPx = Math.max(36, burst.lateralSpreadPx ?? HEX_WIDTH * 0.8);
-        const puffCount = Math.max(4, burst.puffCount ?? Math.max(5, burst.count * 3));
-        const smokePuffCount = Math.max(5, Math.min(puffCount + 3, burst.smokePuffCount ?? Math.round(puffCount * 1.1)));
+        const alongSpreadPx = Math.max(34, burst.alongSpreadPx ?? 46);
+        const lateralSpreadPx = Math.max(54, burst.lateralSpreadPx ?? HEX_WIDTH * 1.08);
+        const puffCount = Math.max(11, burst.puffCount ?? Math.max(11, burst.count * 6));
+        const smokePuffCount = Math.max(1, Math.min(Math.max(1, Math.round(puffCount * 0.28)), burst.smokePuffCount ?? Math.round(puffCount * 0.24)));
         const center = this.clampPointToViewportBounds({
             cx: targetCenter.cx + corridor.axis.x * alongOffsetPx + corridor.normal.x * lateralOffsetPx,
             cy: targetCenter.cy + corridor.axis.y * alongOffsetPx + corridor.normal.y * lateralOffsetPx
@@ -9054,9 +9132,10 @@ export class HexMapRenderer {
             return seed / 0x100000000;
         };
         const clusterOffsets = [
-            { along: -alongSpreadPx * 0.16, lateral: -lateralSpreadPx * 0.16 },
-            { along: alongSpreadPx * 0.06, lateral: lateralSpreadPx * 0.18 },
-            { along: alongSpreadPx * 0.14, lateral: -lateralSpreadPx * 0.1 }
+            { along: -alongSpreadPx * 0.2, lateral: -lateralSpreadPx * 0.42 },
+            { along: alongSpreadPx * 0.04, lateral: lateralSpreadPx * 0.32 },
+            { along: alongSpreadPx * 0.18, lateral: -lateralSpreadPx * 0.06 },
+            { along: -alongSpreadPx * 0.08, lateral: lateralSpreadPx * 0.12 }
         ];
         const points = Array.from({ length: puffCount }, (_, index) => {
             const cluster = clusterOffsets[index % clusterOffsets.length];
@@ -9073,7 +9152,7 @@ export class HexMapRenderer {
                 cy: center.cy + corridor.axis.y * alongJitter + corridor.normal.y * lateralJitter
             }, targetCenter, 470, 320);
         });
-        const flashCount = Math.max(1, Math.min(3, Math.round(puffCount * 0.24)));
+        const flashCount = Math.max(4, Math.min(8, Math.round(puffCount * 0.36)));
         return { center, flashCount, points, puffCount, smokePuffCount };
     }
     resolveAirShowTracerTargetPoint(target) {
@@ -9377,7 +9456,10 @@ export class HexMapRenderer {
                     }
                 }
                 assignments.forEach((assignment) => {
-                    const sample = this.sampleAirShowAssignmentAtTime(assignment, elapsed, durationMs, easedProgress);
+                    const phaseProgressOverride = assignment.progressTimeline && assignment.progressTimeline.length >= 2
+                        ? undefined
+                        : easedProgress;
+                    const sample = this.sampleAirShowAssignmentAtTime(assignment, elapsed, durationMs, phaseProgressOverride);
                     assignment.actor.headingDegrees = this.interpolateAircraftHeadingDegrees(assignment.actor.headingDegrees, sample.headingDegrees, assignment.headingBlend ?? 0.34);
                     assignment.actor.position = sample.position;
                     this.positionAircraftImageGhost(assignment.actor.image, assignment.actor.size, sample.position.cx, sample.position.cy, assignment.actor.headingDegrees);
@@ -9956,27 +10038,22 @@ export class HexMapRenderer {
         });
         await Promise.all(burstPromises);
     }
-    playAirShowFlakWave(wave, scale = 1.08, smokeScale = 0.92) {
-        wave.points.forEach((point, index) => {
-            const flashDelayMs = index * 34;
-            const puffScale = smokeScale * (0.96 + (index % 4) * 0.08);
+    playAirShowFlakWave(wave, scale = 1.08, _smokeScale = 0.92) {
+        const pointCount = Math.min(wave.puffCount, wave.points.length);
+        for (let index = 0; index < pointCount; index += 1) {
+            const point = wave.points[index];
+            const flashDelayMs = index * 42 + (index % 3) * 14;
+            window.setTimeout(() => {
+                const burstScale = scale * (0.78 + (index % 5) * 0.05);
+                void this.playFlakBurstAt(point.cx, point.cy, index % 3 === 0 ? 3 : 2, burstScale, false);
+            }, flashDelayMs);
             if (index < wave.flashCount) {
                 window.setTimeout(() => {
-                    void this.playFlakBurstAt(point.cx, point.cy, 1, scale * (0.8 + (index % 4) * 0.06), false);
-                }, flashDelayMs);
+                    const side = index % 2 === 0 ? -1 : 1;
+                    void this.playFlakBurstAt(point.cx + side * (5 + (index % 4) * 2), point.cy - side * (3 + (index % 3)), 1, scale * 0.62, false);
+                }, flashDelayMs + 160 + (index % 2) * 52);
             }
-            if (index < wave.smokePuffCount) {
-                const smokeDelayMs = 120 + index * 36;
-                window.setTimeout(() => {
-                    void this.playAirDamageSmokeTrailAt(point.cx, point.cy, puffScale, false);
-                }, smokeDelayMs);
-                if (index % 2 === 0) {
-                    window.setTimeout(() => {
-                        void this.playAirDamageSmokeTrailAt(point.cx + 2, point.cy - 1, puffScale * 0.86, false);
-                    }, smokeDelayMs + 620);
-                }
-            }
-        });
+        }
     }
     /**
      * Plays a faint smoke puff that can trail a damaged aircraft on egress.
