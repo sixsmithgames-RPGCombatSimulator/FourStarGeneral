@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
@@ -13,7 +13,6 @@ function prepareLatestPaintedFrameDir(): void {
     return;
   }
 
-  rmSync(LATEST_PAINTED_FRAME_DIR, { recursive: true, force: true });
   mkdirSync(LATEST_PAINTED_FRAME_DIR, { recursive: true });
   latestPaintedFramesPrepared = true;
 }
@@ -52,29 +51,52 @@ async function expectPaintedPhaseMotionFrame(
 ): Promise<void> {
   prepareLatestPaintedFrameDir();
   await pauseScenarioAtPhaseProgress(page, phaseLabel, PAINTED_FRAME_PROGRESS);
-  const bounds = await page.evaluate(() => {
+  const snapshotState = await page.evaluate(() => {
     const svg = document.getElementById("battleHexMap");
     if (!svg) {
       return null;
     }
+    document.querySelectorAll<SVGGElement>(".combat-effects-layer").forEach((layer) => {
+      layer.style.visibility = "hidden";
+    });
     const rect = svg.getBoundingClientRect();
+    const activeActors = Array.from(
+      document.querySelectorAll<SVGImageElement>('[data-testid="airshow-actor"][data-airshow-active="true"]')
+    ).filter((actor) => {
+      const opacity = Number.parseFloat(window.getComputedStyle(actor).opacity || "0");
+      const x = Number.parseFloat(actor.getAttribute("x") ?? "0");
+      const y = Number.parseFloat(actor.getAttribute("y") ?? "0");
+      const width = Number.parseFloat(actor.getAttribute("width") ?? "0");
+      const height = Number.parseFloat(actor.getAttribute("height") ?? "0");
+      return (
+        opacity > 0.05
+        && width > 0
+        && height > 0
+        && Number.isFinite(x)
+        && Number.isFinite(y)
+      );
+    });
     return {
-      x: rect.x,
-      y: rect.y,
-      width: rect.width,
-      height: rect.height
+      bounds: {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height
+      },
+      activeActorCount: activeActors.length
     };
   });
-  if (!bounds) {
+  if (!snapshotState) {
     throw new Error("battleHexMap bounds were not available for painted-frame capture.");
   }
+  expect(snapshotState.activeActorCount, `${phaseLabel} should have active painted aircraft sprites`).toBeGreaterThan(0);
   const frame = await page.screenshot({
     path: testInfo.outputPath(snapshotName),
     clip: {
-      x: Math.floor(bounds.x),
-      y: Math.floor(bounds.y),
-      width: Math.ceil(bounds.width),
-      height: Math.ceil(bounds.height)
+      x: Math.floor(snapshotState.bounds.x),
+      y: Math.floor(snapshotState.bounds.y),
+      width: Math.ceil(snapshotState.bounds.width),
+      height: Math.ceil(snapshotState.bounds.height)
     }
   });
   writeFileSync(path.join(LATEST_PAINTED_FRAME_DIR, snapshotName), frame);
