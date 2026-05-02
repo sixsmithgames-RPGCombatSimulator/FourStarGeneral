@@ -404,6 +404,91 @@ registerTest("AIR_SHOW_REGRESSION_ESCORT_CLASH_ENTRY_MAINTAINS_HEADING_CONTINUIT
   });
 });
 
+registerTest("AIR_SHOW_REGRESSION_FIGHTER_INGRESS_USES_HQ_CORRIDOR_MIDPOINT", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the North Star requirement that fighters originate from faction HQ-side off-map origins", async () => {});
+
+  await When("the contested package ingress is planned", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("CAP and escorts should ingress from their faction origins into the axial corridor midpoint, not deep toward the enemy origin", async () => {
+    const inspection = findContestedInspection(result);
+    if (!inspection) {
+      console.log("[REGRESSION: CORRIDOR CENTER] No contested package found - skipping");
+      return;
+    }
+    const originPlan = inspection.report.originPlan;
+    if (!originPlan) {
+      throw new Error("Expected HQ origin plan for contested package corridor midpoint validation.");
+    }
+
+    const fighterIngress = inspection.report.phases.find((phase) => phase.label === "fighter-ingress");
+    if (!fighterIngress) {
+      throw new Error("Expected fighter-ingress phase.");
+    }
+
+    const axis = { x: originPlan.axis.cx, y: originPlan.axis.cy };
+    const corridorCenter = inspection.report.corridor.center;
+    const along = (point: { readonly cx: number; readonly cy: number }): number =>
+      (point.cx - corridorCenter.cx) * axis.x + (point.cy - corridorCenter.cy) * axis.y;
+    const playerOriginAlong = along(originPlan.playerOrigin);
+    const botOriginAlong = along(originPlan.botOrigin);
+    const corridorMidpointAlong = along({
+      cx: (originPlan.playerBoundary.cx + originPlan.botBoundary.cx) / 2,
+      cy: (originPlan.playerBoundary.cy + originPlan.botBoundary.cy) / 2
+    });
+    const flightById = new Map(
+      inspection.report.flights.map((flight) => [flight.id, flight] as const)
+    );
+    const fighterAssignments = fighterIngress.assignments.filter(
+      (assignment) => assignment.role === "interceptor" || assignment.role === "escort"
+    );
+    if (fighterAssignments.length <= 0) {
+      throw new Error("Expected fighter assignments during fighter-ingress.");
+    }
+
+    const originTolerancePx = 280;
+    const midpointTolerancePx = 240;
+    const violations = fighterAssignments.flatMap((assignment) => {
+      const flight = flightById.get(assignment.flightId);
+      const samples = assignment.sampledPositions;
+      const start = samples[0] ?? assignment.points[0];
+      const end = samples[samples.length - 1] ?? assignment.points[assignment.points.length - 1];
+      if (!flight || !start || !end) {
+        return [`${assignment.actorId} missing flight or ingress samples`];
+      }
+      const expectedOriginAlong = flight.faction === "Bot" ? botOriginAlong : playerOriginAlong;
+      const startDeltaPx = Math.abs(along(start) - expectedOriginAlong);
+      const endDeltaPx = Math.abs(along(end) - corridorMidpointAlong);
+      const actorViolations: string[] = [];
+      if (startDeltaPx > originTolerancePx) {
+        actorViolations.push(
+          `${assignment.actorId} ${flight.faction ?? "Unknown"} ${assignment.role} started ${Math.round(startDeltaPx)}px from faction origin along corridor`
+        );
+      }
+      if (endDeltaPx > midpointTolerancePx) {
+        actorViolations.push(
+          `${assignment.actorId} ${assignment.role} ended ${Math.round(endDeltaPx)}px from HQ corridor midpoint`
+        );
+      }
+      return actorViolations;
+    });
+
+    if (violations.length > 0) {
+      throw new Error(
+        "Expected fighter ingress to use the HQ corridor midpoint instead of a synthetic enemy-side segment: "
+        + violations.join("; ")
+      );
+    }
+
+    console.log(
+      `[REGRESSION: CORRIDOR CENTER] ✓ FIXED: ${fighterAssignments.length} fighter actors ingress from HQ origins to corridor midpoint`
+    );
+  });
+});
+
 registerTest("AIR_SHOW_REGRESSION_NO_BOMBER_REAPPEAR_AFTER_DOGFIGHT", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
