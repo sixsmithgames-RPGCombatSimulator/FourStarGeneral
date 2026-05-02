@@ -3179,8 +3179,14 @@ export function planResolvedAirCombatShowScene(
           1,
           Math.hypot(finalPoint.cx - boundaryMotion.start.cx, finalPoint.cy - boundaryMotion.start.cy)
         );
-        const rebuiltPath = buildForwardContinuousRoutePath(
+        const carryForwardPx = Math.min(160, Math.max(120, distancePx * 0.1));
+        const entryCarryPoint = host.offsetAirShowPoint(
           boundaryMotion.start,
+          entryForward.x * carryForwardPx,
+          entryForward.y * carryForwardPx
+        );
+        const tailPath = buildForwardContinuousRoutePath(
+          entryCarryPoint,
           finalPoint,
           {
             startHeadingDegrees: entryHeadingDegrees,
@@ -3197,13 +3203,14 @@ export function planResolvedAirCombatShowScene(
         );
         return {
           ...assignment,
-          points: host.sanitizeAirShowEntryPath(rebuiltPath, {
-            maxTurnDeg: 48,
-            strongTurnDeg: 84,
-            maxFirstSegmentPx: 132,
-            maxSharpTurnDeg: 108,
-            maxWaypointsToRemove: 1
-          })
+          points: [boundaryMotion.start, entryCarryPoint, ...tailPath.slice(1)]
+            .filter((point, pointIndex, path) => {
+              if (pointIndex === 0) {
+                return true;
+              }
+              const previous = path[pointIndex - 1];
+              return !previous || Math.hypot(point.cx - previous.cx, point.cy - previous.cy) > 0.5;
+            })
         };
       });
     if (rawEgressAssignments.length > 0) {
