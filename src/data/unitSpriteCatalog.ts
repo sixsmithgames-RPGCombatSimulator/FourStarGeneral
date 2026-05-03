@@ -152,10 +152,10 @@ const FACTION_GROUND_SPRITES: Record<string, FactionSpriteMap> = {
     fallback: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png")
   },
   Recon_ArmoredCar: {
-    Player: unitSprite("Recon_ArmoredCar_USA_Southview.png"),
-    Ally: unitSprite("Recon_ArmoredCar_USA_Southview.png"),
-    Bot: unitSprite("Recon_ArmoredCar_German_Southview.png"),
-    fallback: unitSprite("Recon_ArmoredCar_USA_Southview.png")
+    Player: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png"),
+    Ally: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png"),
+    Bot: unitSprite("Wheeled_Recon_Armored_Car_SdKfz222_German_Southview.png"),
+    fallback: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png")
   },
   Engineer: {
     Player: unitSprite("Infantry_Engineers_USA_Southview.png"),
@@ -194,7 +194,7 @@ const SCENARIO_SPRITES: Record<string, string> = {
   Paratrooper: unitSprite("Paratrooper.png"),
   Combat_Engineer: unitSprite("Infantry_Engineers_USA_Southview.png"),
   AT_Gun_50mm: unitSprite("Wheeled_AT_Gun_USA_Southview.png"),
-  Recon_ArmoredCar: unitSprite("Recon_ArmoredCar.png"),
+  Recon_ArmoredCar: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png"),
   Supply_Truck: unitSprite("Supply_Truck.png"),
   Panzer_IV: unitSprite("Tank_PanzerIV_German_Southview.png"),
   Howitzer_105: unitSprite("Artillery_Howitzer_USA_Southview.png"),
