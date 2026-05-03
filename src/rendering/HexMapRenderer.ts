@@ -12690,9 +12690,15 @@ export class HexMapRenderer implements IMapRenderer {
   } {
     const alongOffsetPx = burst.alongOffsetPx ?? -8;
     const lateralOffsetPx = burst.lateralOffsetPx ?? 0;
-    const alongSpreadPx = Math.max(34, burst.alongSpreadPx ?? 46);
-    const lateralSpreadPx = Math.max(54, burst.lateralSpreadPx ?? HEX_WIDTH * 1.08);
-    const puffCount = Math.max(11, burst.puffCount ?? Math.max(11, burst.count * 6));
+    const requestedPuffCount = burst.puffCount ?? Math.max(11, burst.count * 6);
+    const isSinglePuff = burst.puffCount !== undefined && requestedPuffCount <= 1;
+    const alongSpreadPx = isSinglePuff
+      ? Math.max(4, burst.alongSpreadPx ?? 8)
+      : Math.max(34, burst.alongSpreadPx ?? 46);
+    const lateralSpreadPx = isSinglePuff
+      ? Math.max(4, burst.lateralSpreadPx ?? 8)
+      : Math.max(54, burst.lateralSpreadPx ?? HEX_WIDTH * 1.08);
+    const puffCount = Math.max(isSinglePuff ? 1 : 11, requestedPuffCount);
     const smokePuffCount = Math.max(
       1,
       Math.min(Math.max(1, Math.round(puffCount * 0.28)), burst.smokePuffCount ?? Math.round(puffCount * 0.24))
@@ -12745,7 +12751,7 @@ export class HexMapRenderer implements IMapRenderer {
         320
       );
     });
-    const flashCount = Math.max(4, Math.min(8, Math.round(puffCount * 0.36)));
+    const flashCount = isSinglePuff ? 1 : Math.max(4, Math.min(8, Math.round(puffCount * 0.36)));
     return { center, flashCount, points, puffCount, smokePuffCount };
   }
 

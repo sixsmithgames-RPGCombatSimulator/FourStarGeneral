@@ -86,6 +86,53 @@ function sampleAssignmentCenterAtProgress(
   return fallback ? { cx: fallback.cx, cy: fallback.cy } : null;
 }
 
+registerTest("AIR_SHOW_REGRESSION_TARGET_RUN_BOMBERS_STOP_AT_PLANNED_RELEASE_AND_EXIT_RAIL", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the bomber target-run rail has a known release marker and governed exit", async () => {});
+
+  await When("the 20x20 contested package target run is planned", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("bomber target-run assignments should not be speed-extended into target overshoot", async () => {
+    const inspection = findContestedInspection(result);
+    if (!inspection) {
+      console.log("[REGRESSION: TARGET OVERSHOOT] No contested package found - skipping");
+      return;
+    }
+    const targetRun = inspection.report.phases.find((phase) => phase.label === "target-run");
+    if (!targetRun || !inspection.report.originPlan) {
+      throw new Error("Expected target-run phase and origin plan.");
+    }
+
+    const axis = {
+      x: inspection.report.originPlan.axis.cx,
+      y: inspection.report.originPlan.axis.cy
+    };
+    const strike = inspection.report.corridor.strike;
+    const alongFromStrike = (point: { readonly cx: number; readonly cy: number }): number =>
+      (point.cx - strike.cx) * axis.x + (point.cy - strike.cy) * axis.y;
+
+    const violations = targetRun.assignments
+      .filter((assignment) => assignment.role === "bomber")
+      .flatMap((assignment) => {
+        const finalPoint = sampleAssignmentCenterAtProgress(assignment, 1);
+        if (!finalPoint) {
+          return [`${assignment.actorId}: missing final target-run sample`];
+        }
+        const finalAlongPx = alongFromStrike(finalPoint);
+        return finalAlongPx > 120
+          ? [`${assignment.actorId}: final point is ${Math.round(finalAlongPx)}px beyond target strike marker`]
+          : [];
+      });
+
+    if (violations.length > 0) {
+      throw new Error(`Expected bombers to stop on the planned target-run rail: ${violations.join("; ")}`);
+    }
+  });
+});
+
 registerTest("AIR_SHOW_REGRESSION_BOMBER_SPEED_DIFFERENTIATION", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 

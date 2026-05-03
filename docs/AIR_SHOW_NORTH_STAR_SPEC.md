@@ -57,10 +57,12 @@ The air show uses deterministic rail choreography, not per-sprite flight simulat
 **Path Rules**
 - aircraft use preset corridor rails between anchors
 - pairing and ganging decide which lane and target a flight uses; they must not invent simulator-style turns
+- contested escort clashes use two explicit fighter-space beats: the first pass converges head-on through the shared merge/fight marker, then the scramble beat switches opposing lanes so the same interceptor/escort pair does not orbit itself
 - randomness is limited to deterministic local lane and spacing offsets large enough to keep sprites readable
 - `fighter-ingress` starts CAP and escorts at their faction origin and ends them at the target corridor merge anchor
 - if a shorter-side fighter needs more distance to satisfy the shared phase duration at fighter speed, the planner adds simple rail doglegs before the merge; it must not carry the endpoint past the merge
-- bombers advance continuously along the bomber corridor during pre-target fighter phases; phase slices may continue forward beyond an earlier static segment instead of snapping backward
+- bombers advance continuously along the bomber corridor during pre-target fighter phases; phase slices may continue forward instead of snapping backward, but they must clamp at the pre-target endpoint and may not extend past the target-run handoff
+- the target run contains a release marker at the bomber target lane and a short governed exit; speed matching may not append extra bomber travel past that planned run
 
 **Timing Rules**
 - the final rail path length for each sprite is measured in pixels
@@ -80,6 +82,7 @@ The air show uses deterministic rail choreography, not per-sprite flight simulat
 **Phase Duration Authority**
 - Corridor fractions and progress anchors may define where a beat begins or ends along a path, but they must not be the authority for visible duration.
 - Planned phase durations must be derived from the actual actor paths and role speed constants: `durationMs = pathLengthPx / speedPxPerMs`.
+- Fighter combat phases (`fighter-ingress`, `escort-clash-merge`, `escort-clash-scramble`) are governed by fighter path lengths first. Bomber pre-target slices are then aligned to those fighter-governed windows so bombers meet the combat package at deterministic corridor markers.
 - If a beat is too short to read at the governed speed, the planner must adjust the beat path or choreography so the path is long enough; it must not slow sprites below their role speed or stretch a tiny fixed slice into a misleading timing window.
 
 ### 5. Tracer Geometry and Fire Ownership
@@ -279,8 +282,8 @@ Required choreography (progress-based, all times relative to bomber ingress path
 6. **Flak Engagement (0.80 → 1.00 + arc turn)**
    - Flak activates at bomberProgress 0.80
    - Continues through straight ingress and entire arc turn
-   - Each flak unit targets a bomber formation; animation spread across zone around formation
-   - Visual: persistent black puffs fade slowly over entire flak sequence
+   - Each flak unit targets a bomber formation; animation resolves as deterministic single-puff samples spread across the zone around the live formation
+   - Visual: persistent black puffs fade slowly over the flak sequence, but new bursts must read as scattered random puffs rather than grouped cloud waves
    - Stops scheduling new bursts at egressProgress 0.20
    - **Early Destruction Rule**: If all bombers destroyed before progress 0.80, flak does not fire
 
@@ -338,7 +341,7 @@ The renderer must select the canonical package timeline that matches the resolve
 **Phase 2: Terminal Approach & Flak (0.80 → 1.00)**
 - Flak activates at bomberProgress 0.80
 - Flak targets bomber real-time pixel position
-- Flak animation: spread across zone around formation, persistent black puffs fade slowly over sequence
+- Flak animation: scattered single-puff samples across the zone around the live formation; persistent black puffs fade slowly over sequence
 - Bombers reach stand-off point (2 hexes before target) at progress 1.0
 
 **Phase 3: Arc Turn & Strike Release**

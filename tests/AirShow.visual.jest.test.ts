@@ -539,6 +539,8 @@ describe("AirShow JEST Harness", () => {
     const latestFlakProgress = Math.max(...(targetRun?.flakBursts.map((burst) => burst.progress) ?? [0]));
     expect(latestFlakProgress).toBeGreaterThan(scene.bombReleaseProgress ?? 0.5);
     expect(latestFlakProgress).toBeLessThanOrEqual(0.86);
+    expect(targetRun?.flakBursts.every((burst) => burst.puffCount === 1)).toBe(true);
+    expect(new Set(targetRun?.flakBursts.map((burst) => burst.progress.toFixed(3))).size ?? 0).toBeGreaterThan(4);
   });
 
   test("target-run flak targets the sampled bomber path instead of the ground target anchor", async () => {
