@@ -8,16 +8,25 @@
  */
 
 import { registerTest } from "./harness.js";
+import {
+  AIR_SHOW_OFF_MAP_DISTANCE_PX,
+  buildAirShowMapBounds,
+  resolveAirShowHqAxis
+} from "../src/ui/airshow/AirShowPlanner.js";
 import { sampleAirShowWaypointPath } from "../src/ui/airshow/AirShowPathMath";
 import { buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies";
 import {
   resolveInspectionAssignmentBoundaryPoint,
   runAirScenario
 } from "./airScenarioSupport.js";
+import type { AirShowMapBounds, AirShowPlannerPoint } from "../src/ui/airshow/AirShowPlanner.js";
 
 // Per North Star Spec: heading change must not exceed 25 degrees per 0.25 seconds
 // outside of a designated break turn.
 const MAX_HEADING_CHANGE_DEG_PER_QUARTER_SEC = 25;
+const HEX_RADIUS = 48;
+const HEX_WIDTH = Math.sqrt(3) * HEX_RADIUS;
+const HEX_HEIGHT = HEX_RADIUS * 2;
 
 // Sample count to approximate heading rate (40 samples = 0.025 progress steps)
 const HEADING_SAMPLE_COUNT = 40;
@@ -31,6 +40,81 @@ function headingDeltaDeg(a: number, b: number): number {
   const raw = Math.abs(a - b);
   return raw > 180 ? 360 - raw : raw;
 }
+
+function assertBoundaryPointOnTileEnvelope(
+  point: AirShowPlannerPoint,
+  bounds: AirShowMapBounds,
+  label: string
+): void {
+  const epsilon = 0.001;
+  const onVerticalEdge = Math.abs(point.cx - bounds.minX) <= epsilon || Math.abs(point.cx - bounds.maxX) <= epsilon;
+  const onHorizontalEdge = Math.abs(point.cy - bounds.minY) <= epsilon || Math.abs(point.cy - bounds.maxY) <= epsilon;
+  if (!onVerticalEdge && !onHorizontalEdge) {
+    throw new Error(`${label} boundary did not land on the tile envelope: ${JSON.stringify(point)}`);
+  }
+}
+
+function projectedOffsetFromBoundary(
+  origin: AirShowPlannerPoint,
+  boundary: AirShowPlannerPoint,
+  axis: { readonly x: number; readonly y: number }
+): number {
+  return (origin.cx - boundary.cx) * axis.x + (origin.cy - boundary.cy) * axis.y;
+}
+
+registerTest("AIR_SHOW_HQ_ORIGINS_ARE_500PX_OUTSIDE_TILE_ENVELOPE", async ({ Given, When, Then }) => {
+  const centers: AirShowPlannerPoint[] = [];
+  for (let row = 0; row < 7; row += 1) {
+    for (let col = 0; col < 11; col += 1) {
+      centers.push({
+        cx: col * HEX_WIDTH + (row % 2) * HEX_WIDTH * 0.5,
+        cy: row * HEX_HEIGHT * 0.75
+      });
+    }
+  }
+
+  let bounds: AirShowMapBounds | null = null;
+  let originPlan: ReturnType<typeof resolveAirShowHqAxis> = null;
+
+  await Given("known player and bot HQs on a known hex map", async () => {});
+
+  await When("the air show resolves faction origins", async () => {
+    bounds = buildAirShowMapBounds(centers, HEX_WIDTH, HEX_HEIGHT);
+    originPlan = resolveAirShowHqAxis(
+      centers[5] ?? null,
+      centers[centers.length - 6] ?? null,
+      bounds,
+      AIR_SHOW_OFF_MAP_DISTANCE_PX
+    );
+  });
+
+  await Then("each faction origin should be exactly 500px beyond the map tile boundary on the HQ axis", async () => {
+    if (!bounds || !originPlan) {
+      throw new Error("Expected air show HQ origin plan.");
+    }
+
+    assertBoundaryPointOnTileEnvelope(originPlan.playerBoundary, bounds, "player");
+    assertBoundaryPointOnTileEnvelope(originPlan.botBoundary, bounds, "bot");
+
+    const playerOffset = projectedOffsetFromBoundary(
+      originPlan.playerOrigin,
+      originPlan.playerBoundary,
+      originPlan.axis
+    );
+    const botOffset = projectedOffsetFromBoundary(
+      originPlan.botOrigin,
+      originPlan.botBoundary,
+      { x: -originPlan.axis.x, y: -originPlan.axis.y }
+    );
+
+    if (Math.abs(playerOffset - AIR_SHOW_OFF_MAP_DISTANCE_PX) > 0.001) {
+      throw new Error(`Expected player origin 500px outside tile envelope, saw ${playerOffset.toFixed(3)}px.`);
+    }
+    if (Math.abs(botOffset - AIR_SHOW_OFF_MAP_DISTANCE_PX) > 0.001) {
+      throw new Error(`Expected bot origin 500px outside tile envelope, saw ${botOffset.toFixed(3)}px.`);
+    }
+  });
+});
 
 /**
  * Samples a path at HEADING_SAMPLE_COUNT points and returns the maximum

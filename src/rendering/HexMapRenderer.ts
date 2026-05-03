@@ -5613,35 +5613,30 @@ export class HexMapRenderer implements IMapRenderer {
   ): AirShowPoint {
     const lane = total <= 1 ? 0 : index - (total - 1) / 2;
     const safeAlongSign = alongSign >= 0 ? 1 : -1;
-    const rand = this.seededRandom(
-      this.seedFromHexKey(
-        `airshow-corridor-anchor:${role}:${index}:${total}:${safeAlongSign}:${Math.round(corridor.center.cx)}:${Math.round(corridor.center.cy)}`
-      )
-    );
-    const alongMagnitudePx =
-      role === "interceptor"
-        ? 500 + rand() * 20
-        : role === "escort"
-          ? 500 + rand() * 16
-          : 500 + rand() * 22;
+    const mapBounds = this.resolveAirShowMapBounds();
+    const direction = {
+      x: corridor.axis.x * safeAlongSign,
+      y: corridor.axis.y * safeAlongSign
+    };
+    const boundary = mapBounds
+      ? resolveAirShowBoundsRayIntersection(corridor.center, direction, mapBounds)
+      : null;
+    const origin = boundary
+      ? {
+          cx: boundary.cx + direction.x * HexMapRenderer.OFF_MAP_DISTANCE_PX,
+          cy: boundary.cy + direction.y * HexMapRenderer.OFF_MAP_DISTANCE_PX
+        }
+      : this.projectAirShowCorridorPoint(corridor, safeAlongSign * HexMapRenderer.OFF_MAP_DISTANCE_PX);
     const lateralStepPx =
       role === "interceptor"
         ? 72
         : role === "escort"
           ? 64
           : 58;
-    const lateralJitterPx =
-      role === "bomber"
-        ? (rand() - 0.5) * 16
-        : (rand() - 0.5) * 20;
-    const alongJitterPx =
-      role === "bomber"
-        ? (rand() - 0.5) * 14
-        : (rand() - 0.5) * 18;
-    return this.projectAirShowCorridorPoint(
-      corridor,
-      safeAlongSign * alongMagnitudePx + alongJitterPx,
-      lane * lateralStepPx + lateralJitterPx
+    return this.offsetAirShowPoint(
+      origin,
+      corridor.normal.x * lane * lateralStepPx,
+      corridor.normal.y * lane * lateralStepPx
     );
   }
 
@@ -5867,12 +5862,11 @@ export class HexMapRenderer implements IMapRenderer {
               orderedFlights.length,
               alongSign
             );
-        const anchor = this.resolveAirShowViewportSafeSpawnAnchor(corridor, entry.flight, baseAnchor);
         const headingTarget =
           role === "bomber"
             ? this.resolveAirShowBomberIngressBandWaypoint(
                 corridor,
-                anchor,
+                baseAnchor,
                 sceneKind,
                 laneIndex
               )
@@ -5882,7 +5876,7 @@ export class HexMapRenderer implements IMapRenderer {
                 0,
                 laneIndex
               );
-        this.resetAirShowFlightToSceneAnchor(entry.flight, anchor, headingTarget);
+        this.resetAirShowFlightToSceneAnchor(entry.flight, baseAnchor, headingTarget);
       });
     };
 
