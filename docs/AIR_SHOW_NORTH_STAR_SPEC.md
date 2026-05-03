@@ -44,7 +44,30 @@ Hexes are used only for strategic anchoring, never for runtime movement.
 **Conversion Rule**
 Once converted, **ALL** movement, timing, spacing, and collision operate exclusively in pixel space. No hex-based stepping, counting, or distance checks are used after conversion.
 
-### 3. Speed Model
+### 3. Rail Choreography Model
+
+The air show uses deterministic rail choreography, not per-sprite flight simulation.
+
+**Anchor Rules**
+- aircraft origins are resolved from the actual rendered hex tile envelope
+- each faction origin is 500 px outside the map tiles on that faction/HQ side of the corridor
+- viewport safe space, camera bounds, and maximum-map-view bounds may not redefine an aircraft origin or phase start
+- known HQ positions, hex size, map hex counts, and target hex determine the corridor anchors: faction origins, entry, merge, strike, and egress
+
+**Path Rules**
+- aircraft use preset corridor rails between anchors
+- pairing and ganging decide which lane and target a flight uses; they must not invent simulator-style turns
+- randomness is limited to deterministic local lane and spacing offsets large enough to keep sprites readable
+- `fighter-ingress` starts CAP and escorts at their faction origin and ends them at the target corridor merge anchor
+- if a shorter-side fighter needs more distance to satisfy the shared phase duration at fighter speed, the planner adds simple rail doglegs before the merge; it must not carry the endpoint past the merge
+- bombers advance continuously along the bomber corridor during pre-target fighter phases; phase slices may continue forward beyond an earlier static segment instead of snapping backward
+
+**Timing Rules**
+- the final rail path length for each sprite is measured in pixels
+- duration is derived from measured path length and the role speed constants
+- if path length and phase timing disagree, adjust the rail length or the phase duration; do not change role speed, truncate visibility, or move origins to make the math appear correct
+
+### 4. Speed Model
 
 **Base Speeds**
 - Fighter speed = V = 11.5 px/100ms
@@ -59,7 +82,7 @@ Once converted, **ALL** movement, timing, spacing, and collision operate exclusi
 - Planned phase durations must be derived from the actual actor paths and role speed constants: `durationMs = pathLengthPx / speedPxPerMs`.
 - If a beat is too short to read at the governed speed, the planner must adjust the beat path or choreography so the path is long enough; it must not slow sprites below their role speed or stretch a tiny fixed slice into a misleading timing window.
 
-### 4. Tracer Geometry and Fire Ownership
+### 5. Tracer Geometry and Fire Ownership
 
 Tracer ownership and tracer geometry are governed visual behavior, not cosmetic implementation detail.
 
@@ -501,6 +524,7 @@ Current implementation anchors:
 - `src/ui/screens/BattleScreen.ts`
 - `src/ui/airshow/ClusterAirPlaybackPlanner.ts`
 - `src/ui/airshow/AirShowPlaybackPlanner.ts`
+- `src/ui/airshow/AirShowRailPlanner.ts`
 - `src/ui/airshow/AirShowPlaybackScene.ts`
 - `src/rendering/HexMapRenderer.ts`
 
@@ -538,6 +562,7 @@ Current implementation anchors:
 - `src/ui/airshow/ClusterAirPlaybackPlanner.ts`
 - `src/ui/airshow/ResolvedAirCombatSceneBuilder.ts`
 - `src/ui/airshow/AirShowPlaybackPlanner.ts`
+- `src/ui/airshow/AirShowRailPlanner.ts`
 - `src/rendering/HexMapRenderer.ts`
 
 ### 5. Canonical Test Architecture
@@ -549,6 +574,7 @@ The canonical test layers are:
 - `tests/BattleScreen.airMissionPlayback.test.ts` verifies `BattleScreen` orchestration, live scene construction, shared timing policy wiring, and HQ-context propagation
 - `tests/airScenarioSupport.ts`, `tests/run-airshow-diagnostics.ts`, and `tests/AirScenario.report.ts` form the diagnostic harness and reporting layer; they consume production planners and the shared `PlannedAirShowScene`/inspection output, but they are not an alternate rules engine
 - `tests/AirShow.fighterMotion.test.ts`, `tests/AirShow.progressTiming.test.ts`, `tests/AirShow.speedModel.test.ts`, `tests/AirShow.coordinatedPackage.test.ts`, `tests/AirShow.regression.test.ts`, and `tests/AirShow.bomberSpeed.validation.test.ts` enforce choreography, continuity, package ownership, speed-model, and timing invariants
+- tests that validate rail origins, lane offsets, path lengths, or corridor merge endpoints must consume production rail/planner output instead of reconstructing alternate path math
 - `tests/AirShow.visual.jest.test.ts`, `tests/e2e/airshow-choreography.spec.ts`, `tests/e2e/airshow-visual.spec.ts`, `src/testing/airshowE2eHarness.ts`, and `src/testing/airshowHarnessFixture.ts` cover render-visible and browser-level confirmation
 
 Authoritative order of evidence for playback disputes:
@@ -896,7 +922,7 @@ The following behaviors must be verifiable through tests, diagnostics, or direct
 - tests must consume shared production helpers for HQ-origin selection, path timing, bomber-arrival coordination, and role px/ms rates whenever they are validating live runtime behavior
 - `airScenarioSupport.ts` is a diagnostic consumer of production code, not an alternate engine, planner, or renderer
 - tests and diagnostics must use canonical sampled playback positions for continuity, separation, and speed assertions; raw planner waypoints are not a second source of truth for painted motion
-- `BattleScreen.ts`, `ResolvedAirCombatSceneBuilder.ts`, and `HexMapRenderer.ts` must not carry independent copies of speed constants, duration formulas, or origin-direction logic; if multiple layers need the same behavior, extract a shared module and make every layer consume it
+- `BattleScreen.ts`, `ResolvedAirCombatSceneBuilder.ts`, and `HexMapRenderer.ts` must not carry independent copies of speed constants, duration formulas, rail-path formulas, or origin-direction logic; if multiple layers need the same behavior, extract a shared module and make every layer consume it
 - synthetic or stress-only tests may diverge from live policy only when they are clearly labeled synthetic and cannot be cited as proof that runtime behavior is correct
 - playback patches and visual workarounds are forbidden for timing, speed, continuity, or arrival-order defects; non-compliant behavior must be fixed in canonical policy and canonical runtime flow
 - any "fix" that depends on per-role path truncation inside a shared phase window, actor hide/show compensation, or phase-local speed fudging is not a valid completion state and must be treated as an open defect
@@ -923,6 +949,7 @@ The air show is not done until all of these are true:
 - nearby complex packages do not run in visually corrupting parallel
 - all five scenario families have a clear and intentional visible presentation
 - runtime and tests share one canonical playback-policy implementation for origin, speed, and phase timing; duplicate formulas are not allowed in harnesses or UI branches
+- aircraft origins, rail paths, and merge endpoints are deterministic products of HQ positions, tile envelope, hex geometry, target hex, and role/lane assignment
 - Air Support UI, reports, and activity log all reflect the same outcome as playback
 - automated tests cover engine ordering, escort inclusion, live-target resolution, and playback sequencing
 - the visible result reads as a coherent air battle rather than disconnected effects
@@ -933,6 +960,15 @@ The air show is not done until all of these are true:
 
 > This section tracks completed fixes and known issues for the air show system.
 > For bug reports and fixes, see test files in `tests/AirShow.fighterMotion.test.ts` and `tests/AirCombatSceneBuilder.test.ts`
+
+### May 3, 2026 - HQ-Origin Rail Choreography
+
+**Fixed: Viewport-Centered Fighter Ingress**
+- **Issue**: fighter anchors could be centered around viewport-safe or midpoint-derived space instead of starting from faction/HQ-side origins outside the actual map tiles
+- **Root Cause**: origin selection, path shaping, and phase-length compensation were split across planner and renderer helpers, allowing fighter-ingress paths to drift away from the known HQ corridor
+- **Fix**: resolve faction origins from the actual hex tile envelope at 500 px outside the map, plan deterministic corridor rails through shared rail helpers, and preserve `fighter-ingress` endpoints at the target corridor merge anchor
+- **Timing Rule**: shared phase duration is still derived from measured path length and role speed; short-side fighters receive simple rail doglegs before merge instead of speed fudges or endpoint carry-through
+- **Tests**: `AIR_SHOW_REGRESSION_FIGHTER_INGRESS_USES_HQ_ORIGINS_AND_TARGET_CORRIDOR_MERGE`, bomber corridor-progress validation, flak timing selection updates, and full air-show diagnostics
 
 ### April 13, 2026 — Phase Handoff Continuity & Spatial Separation
 
@@ -1003,10 +1039,11 @@ The air show is not done until all of these are true:
 
 ### Historical Regression Ledger (User Reported)
 
-Retained for traceability. Statuses below reflect the current measured runtime and regression coverage as of 2026-04-21.
+Retained for traceability. Statuses below reflect the current measured runtime and regression coverage as of 2026-05-03.
 
 | Issue | Severity | Status | Notes |
 |-------|----------|--------|-------|
+| ~~**Fighter ingress starts from viewport/midpoint anchors instead of HQ-side map origins**~~ | ~~Critical~~ | ✅ **FIXED** | `fighter-ingress` now starts CAP and escorts from deterministic faction origins 500 px outside the actual rendered map tiles, follows shared rail paths, and ends at the target corridor merge anchor. Regression coverage verifies HQ-origin starts and merge-aligned endpoints. |
 | ~~**Flak timing misplaced**~~ | ~~High~~ | ✅ **FIXED** | Flak now fires during terminal approach in the governed late-approach window, with active regression coverage for progress placement. |
 | ~~**Aircraft disappear/reappear at target**~~ | ~~Critical~~ | ✅ **FIXED** | Removed `actor.active` filter from `buildAirShowFlightAssignments` — all actors now get phase assignments, visibility controlled by opacity only |
 | ~~**Fighters linger during next bomber approach**~~ | ~~High~~ | ✅ **FIXED** | Skip `escort-hold` phase when bomber is present — fighters now reposition immediately for defense instead of drifting |
@@ -1019,7 +1056,7 @@ Retained for traceability. Statuses below reflect the current measured runtime a
 | ~~**All sprites slow down when bombers reappear**~~ | ~~High~~ | ✅ **FIXED** | The blocking fade-in await was removed; target-run motion no longer stalls when bombers transition through the later beats. |
 | ~~**Bombers and fighters perform mutual dogfight instead of interception pass**~~ | ~~High~~ | ✅ **FIXED** | `bomber-defense-pass` now preserves interception-pass roles without collapsing into fighter-style dogfight visuals: fighters fire straight nose-origin attack bursts, and bombers answer only with intermittent center-origin turret fire toward interceptors. |
 | ~~**Surviving bombers briefly disappear and reappear facing opposite direction after ordnance**~~ | ~~Critical~~ | ✅ **FIXED** | Target-run to egress now stays continuous across position and heading; no despawn/respawn or heading-flip handoff remains at the ordnance boundary. |
-| ~~**Destroyed escorts remain visible until CAP egress finishes**~~ | ~~Medium~~ | ✅ **FIXED** | The old `actor.active=true` force-show block at target-run start was reactivating destroyed actors; removing that block means only genuinely active actors enter egress. |}
+| ~~**Destroyed escorts remain visible until CAP egress finishes**~~ | ~~Medium~~ | ✅ **FIXED** | The old `actor.active=true` force-show block at target-run start was reactivating destroyed actors; removing that block means only genuinely active actors enter egress. |
 
 ### Progress Anchor Reference
 
@@ -1058,6 +1095,7 @@ The current air-show suite is organized by runtime layer, not by duplicated logi
 - `tests/airScenarioSupport.ts` is the shared diagnostic support module used by scenario reports and inspection-based validations; it consumes production builders and planned-scene output rather than reconstructing its own choreography
 - `tests/AirScenario.report.ts` and `tests/run-airshow-diagnostics.ts` generate anomaly reports and human-readable diagnostic bundles
 - `tests/AirShow.fighterMotion.test.ts`, `tests/AirShow.progressTiming.test.ts`, `tests/AirShow.speedModel.test.ts`, `tests/AirShow.coordinatedPackage.test.ts`, `tests/AirShow.regression.test.ts`, and `tests/AirShow.bomberSpeed.validation.test.ts` cover motion, timing, continuity, coordinated-package behavior, regression protection, and role-speed validation
+- `src/ui/airshow/AirShowRailPlanner.ts` is the production rail helper for corridor projection, lane offsets, preset rail paths, and measured rail lengths; tests may import it when validating those same runtime rail decisions
 - `tests/AirShow.visual.jest.test.ts` provides renderer-facing visual assertions
 - `tests/e2e/airshow-choreography.spec.ts` and `tests/e2e/airshow-visual.spec.ts`, with `src/testing/airshowE2eHarness.ts` and `src/testing/airshowHarnessFixture.ts`, provide browser-level confirmation
 
@@ -1065,7 +1103,7 @@ Guardrails for maintaining this suite:
 
 - test support code must consume canonical runtime policy and scene-building helpers whenever the goal is to verify live behavior
 - `AirShowPlaybackPlanner` and `PlannedAirShowScene` are authoritative for contested-package choreography; diagnostics and tests must consume them rather than rebuilding paths or timing from scratch
-- do not recreate engine logic, scene-timing formulas, HQ-origin math, or role-speed constants inside tests
+- do not recreate engine logic, scene-timing formulas, HQ-origin math, rail-path math, or role-speed constants inside tests
 - do not maintain one implementation in `BattleScreen` and another in diagnostics or renderer code; shared logic belongs in a production module and every consumer should import it
 - redundant or overlapping engine, planner, renderer, and test code is forbidden for contested-package timing, origin resolution, tracer ownership, and path choreography
 - when a test intentionally uses synthetic timings or geometry, label it synthetic in the test name or report output

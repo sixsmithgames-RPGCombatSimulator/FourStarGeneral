@@ -404,7 +404,7 @@ registerTest("AIR_SHOW_REGRESSION_ESCORT_CLASH_ENTRY_MAINTAINS_HEADING_CONTINUIT
   });
 });
 
-registerTest("AIR_SHOW_REGRESSION_FIGHTER_INGRESS_USES_HQ_CORRIDOR_MIDPOINT", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_REGRESSION_FIGHTER_INGRESS_USES_HQ_ORIGINS_AND_TARGET_CORRIDOR_MERGE", async ({ Given, When, Then }) => {
   let result: ReturnType<typeof runAirScenario> | null = null;
 
   await Given("the North Star requirement that fighters originate from faction HQ-side off-map origins", async () => {});
@@ -413,7 +413,7 @@ registerTest("AIR_SHOW_REGRESSION_FIGHTER_INGRESS_USES_HQ_CORRIDOR_MIDPOINT", as
     result = runAirScenario();
   });
 
-  await Then("CAP and escorts should ingress from their faction origins into the axial corridor midpoint, not deep toward the enemy origin", async () => {
+  await Then("CAP and escorts should ingress from their faction origins into the target corridor merge anchor", async () => {
     const inspection = findContestedInspection(result);
     if (!inspection) {
       console.log("[REGRESSION: CORRIDOR CENTER] No contested package found - skipping");
@@ -435,10 +435,7 @@ registerTest("AIR_SHOW_REGRESSION_FIGHTER_INGRESS_USES_HQ_CORRIDOR_MIDPOINT", as
       (point.cx - corridorCenter.cx) * axis.x + (point.cy - corridorCenter.cy) * axis.y;
     const playerOriginAlong = along(originPlan.playerOrigin);
     const botOriginAlong = along(originPlan.botOrigin);
-    const corridorMidpointAlong = along({
-      cx: (originPlan.playerBoundary.cx + originPlan.botBoundary.cx) / 2,
-      cy: (originPlan.playerBoundary.cy + originPlan.botBoundary.cy) / 2
-    });
+    const mergeAnchor = inspection.report.corridor.merge;
     const flightById = new Map(
       inspection.report.flights.map((flight) => [flight.id, flight] as const)
     );
@@ -450,7 +447,7 @@ registerTest("AIR_SHOW_REGRESSION_FIGHTER_INGRESS_USES_HQ_CORRIDOR_MIDPOINT", as
     }
 
     const originTolerancePx = 280;
-    const midpointTolerancePx = 240;
+    const mergeTolerancePx = 280;
     const violations = fighterAssignments.flatMap((assignment) => {
       const flight = flightById.get(assignment.flightId);
       const samples = assignment.sampledPositions;
@@ -461,16 +458,16 @@ registerTest("AIR_SHOW_REGRESSION_FIGHTER_INGRESS_USES_HQ_CORRIDOR_MIDPOINT", as
       }
       const expectedOriginAlong = flight.faction === "Bot" ? botOriginAlong : playerOriginAlong;
       const startDeltaPx = Math.abs(along(start) - expectedOriginAlong);
-      const endDeltaPx = Math.abs(along(end) - corridorMidpointAlong);
+      const endDistancePx = Math.hypot(end.cx - mergeAnchor.cx, end.cy - mergeAnchor.cy);
       const actorViolations: string[] = [];
       if (startDeltaPx > originTolerancePx) {
         actorViolations.push(
           `${assignment.actorId} ${flight.faction ?? "Unknown"} ${assignment.role} started ${Math.round(startDeltaPx)}px from faction origin along corridor`
         );
       }
-      if (endDeltaPx > midpointTolerancePx) {
+      if (endDistancePx > mergeTolerancePx) {
         actorViolations.push(
-          `${assignment.actorId} ${assignment.role} ended ${Math.round(endDeltaPx)}px from HQ corridor midpoint`
+          `${assignment.actorId} ${assignment.role} ended ${Math.round(endDistancePx)}px from target corridor merge`
         );
       }
       return actorViolations;
@@ -478,13 +475,13 @@ registerTest("AIR_SHOW_REGRESSION_FIGHTER_INGRESS_USES_HQ_CORRIDOR_MIDPOINT", as
 
     if (violations.length > 0) {
       throw new Error(
-        "Expected fighter ingress to use the HQ corridor midpoint instead of a synthetic enemy-side segment: "
+        "Expected fighter ingress to use faction origins and the target corridor merge instead of a synthetic enemy-side segment: "
         + violations.join("; ")
       );
     }
 
     console.log(
-      `[REGRESSION: CORRIDOR CENTER] ✓ FIXED: ${fighterAssignments.length} fighter actors ingress from HQ origins to corridor midpoint`
+      `[REGRESSION: CORRIDOR MERGE] ✓ FIXED: ${fighterAssignments.length} fighter actors ingress from HQ origins to target corridor merge`
     );
   });
 });

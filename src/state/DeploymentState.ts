@@ -909,7 +909,7 @@ export class DeploymentState {
 
     this.registerScenarioAlias(template.key, scenarioType);
 
-    const sprite = getSpriteForAllocationKey(template.key, "Player") ?? getSpriteForScenarioType(scenarioType, "Player");
+    const sprite = getSpriteForAllocationKey(template.key, "Player", "Sideview") ?? getSpriteForScenarioType(scenarioType, "Player", "Sideview");
     if (sprite) {
       this.spriteMap.set(template.key, sprite);
     }
@@ -986,7 +986,7 @@ export class DeploymentState {
         return catalogSprite;
       }
     }
-    const allocationSprite = getSpriteForAllocationKey(unitKey, "Player");
+    const allocationSprite = getSpriteForAllocationKey(unitKey, "Player", "Sideview");
     if (allocationSprite) {
       this.spriteMap.set(unitKey, allocationSprite);
       return allocationSprite;

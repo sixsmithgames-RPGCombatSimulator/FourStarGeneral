@@ -250,38 +250,55 @@ registerTest("BOMBER_CONTINUOUS_FORWARD_PROGRESS_DURING_PRE_TARGET_PHASES", asyn
       console.log("[BOMBER PROGRESS] Missing authoritative target anchor - skipping");
       return;
     }
-    const bomberPhaseDistances = phases
+    const corridor = coordinatedPlan.sceneReport.corridor;
+    const corridorDx = corridor.exit.cx - corridor.entry.cx;
+    const corridorDy = corridor.exit.cy - corridor.entry.cy;
+    const corridorLength = Math.max(0.0001, Math.hypot(corridorDx, corridorDy));
+    const corridorAxis = {
+      x: corridorDx / corridorLength,
+      y: corridorDy / corridorLength
+    };
+    const along = (point: { readonly cx: number; readonly cy: number }): number =>
+      (point.cx - corridor.center.cx) * corridorAxis.x + (point.cy - corridor.center.cy) * corridorAxis.y;
+    const firstBomberSample = phases
+      .flatMap((phase) => phase.assignments)
+      .find((assignment) => assignment.role === "bomber")
+      ?.sampledPositions[0];
+    if (!firstBomberSample) {
+      throw new Error("No bomber samples found for pre-target progress validation.");
+    }
+    const targetAlong = along(authoritativeTarget);
+    const progressSign = targetAlong >= along(firstBomberSample) ? 1 : -1;
+    const bomberPhaseProgress = phases
       .filter((phase) =>
         preTargetPhaseLabels.has(phase.label) && phase.assignments.some((assignment) => assignment.role === "bomber")
       )
       .map((phase) => ({
         phase: phase.label,
-        minDistanceToTargetPx: Math.min(
+        maxForwardProgressPx: Math.max(
           ...phase.assignments
             .filter((assignment) => assignment.role === "bomber")
             .flatMap((assignment) =>
-              assignment.sampledPositions.map((sample) =>
-                Math.hypot(sample.cx - authoritativeTarget.cx, sample.cy - authoritativeTarget.cy)
-              )
+              assignment.sampledPositions.map((sample) => along(sample) * progressSign)
             )
         )
       }));
 
-    if (bomberPhaseDistances.length === 0) {
+    if (bomberPhaseProgress.length === 0) {
       throw new Error("No pre-target bomber phases found.");
     }
 
     const violations: string[] = [];
-    let closestDistancePx = Number.POSITIVE_INFINITY;
-    let previousPhase = bomberPhaseDistances[0]!.phase;
-    for (const entry of bomberPhaseDistances) {
-      if (entry.minDistanceToTargetPx > closestDistancePx + PRE_TARGET_DISTANCE_TOLERANCE_PX) {
+    let furthestProgressPx = Number.NEGATIVE_INFINITY;
+    let previousPhase = bomberPhaseProgress[0]!.phase;
+    for (const entry of bomberPhaseProgress) {
+      if (entry.maxForwardProgressPx < furthestProgressPx - PRE_TARGET_DISTANCE_TOLERANCE_PX) {
         violations.push(
-          `strike-group: REGRESSED in pre-target distance from ${closestDistancePx.toFixed(1)}px to ${entry.minDistanceToTargetPx.toFixed(1)}px ` +
+          `strike-group: REGRESSED in axial progress from ${furthestProgressPx.toFixed(1)}px to ${entry.maxForwardProgressPx.toFixed(1)}px ` +
           `between ${previousPhase} and ${entry.phase}`
         );
       }
-      closestDistancePx = Math.min(closestDistancePx, entry.minDistanceToTargetPx);
+      furthestProgressPx = Math.max(furthestProgressPx, entry.maxForwardProgressPx);
       previousPhase = entry.phase;
     }
 
@@ -292,7 +309,7 @@ registerTest("BOMBER_CONTINUOUS_FORWARD_PROGRESS_DURING_PRE_TARGET_PHASES", asyn
       );
     }
 
-    console.log(`[BOMBER PROGRESS] ✓ Bomber strike-group centroid shows continuous pre-target forward progress`);
+    console.log(`[BOMBER PROGRESS] ✓ Bomber strike-group shows continuous axial pre-target progress`);
   });
 });
 

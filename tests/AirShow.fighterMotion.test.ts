@@ -861,7 +861,19 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_STAYS_INSIDE_STRIKE
   });
 
   await Then("flak bursts should open on mid-approach, persist through bomb release, and taper before egress", async () => {
+    const hasTargetRunFlak = (entry: NonNullable<typeof result>["airshowInspections"][number]): boolean =>
+      entry.report.phases.some((p) => p.label === "target-run" && (p.flakBursts?.length ?? 0) > 0);
+    const hasPreTargetFlak = (entry: NonNullable<typeof result>["airshowInspections"][number]): boolean =>
+      entry.report.phases.some((p) =>
+        (p.label === "bomber-ingress" || p.label === "bomber-defense-pass") &&
+        (p.flakBursts?.length ?? 0) > 0
+      );
     const strikeInspection = result?.airshowInspections.find(
+      (entry) => entry.eventType === "airToAir" && hasTargetRunFlak(entry) && hasPreTargetFlak(entry)
+    ) ?? result?.airshowInspections.find(
+      (entry) => entry.eventType === "airToAir" &&
+        hasTargetRunFlak(entry)
+    ) ?? result?.airshowInspections.find(
       (entry) => entry.eventType === "airToAir" &&
         entry.report.phases.some((p) => (p.flakBursts?.length ?? 0) > 0)
     );

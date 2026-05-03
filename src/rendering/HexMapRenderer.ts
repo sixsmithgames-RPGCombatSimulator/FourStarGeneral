@@ -8770,36 +8770,15 @@ export class HexMapRenderer implements IMapRenderer {
     const pairedInterceptorIds = new Set(uniqueEscortPairs.map((pair) => pair.interceptorFlight.spec.id));
     const pairedEscortIds = new Set(uniqueEscortPairs.map((pair) => pair.escortFlight.spec.id));
     const resolveEscortPairIngressCenter = (pair: EscortIngressPair, pairIndex: number): AirShowPoint => {
-      const interceptorCurrent =
-        this.averageAirShowPosition(pair.interceptorFlight.actors) ?? pair.interceptorFlight.anchor;
-      const escortCurrent =
-        this.averageAirShowPosition(pair.escortFlight.actors) ?? pair.escortFlight.anchor;
-      const pairMidpoint =
-        this.averageAirShowPoints([interceptorCurrent, escortCurrent])
-        ?? ingressClashCenter;
       const clashProjection = this.resolveAirShowCorridorCoordinates(corridor, ingressClashCenter);
-      const midpointProjection = this.resolveAirShowCorridorCoordinates(corridor, pairMidpoint);
       const pairLane =
         uniqueEscortPairs.length <= 1
           ? 0
           : pairIndex - (uniqueEscortPairs.length - 1) / 2;
-      return this.clampPointToViewportBounds(
-        this.projectAirShowCorridorPoint(
-          corridor,
-          this.clamp(
-            clashProjection.alongPx * 0.58 + midpointProjection.alongPx * 0.42 + pairLane * 8,
-            -108,
-            108
-          ),
-          this.clamp(
-            clashProjection.lateralPx * 0.62 + midpointProjection.lateralPx * 0.18 + pairLane * 26,
-            -112,
-            112
-          )
-        ),
-        corridor.center,
-        430,
-        300
+      return this.projectAirShowCorridorPoint(
+        corridor,
+        clashProjection.alongPx + pairLane * 8,
+        clashProjection.lateralPx + pairLane * 26
       );
     };
     const pairIngressAssignments = uniqueEscortPairs.flatMap((pair, pairIndex) => {
@@ -9077,10 +9056,7 @@ export class HexMapRenderer implements IMapRenderer {
               options.alongPx + lane * (options.alongStepPx ?? 34) + jitterAlongPx,
               options.lateralPx + lane * (options.lateralStepPx ?? 48) + jitterLateralPx
             ));
-      const phaseStartAnchor =
-        label.startsWith("ingress:")
-          ? this.resolveAirShowViewportSafeEntryAnchor(flight, current, holdTarget)
-          : current;
+      const phaseStartAnchor = current;
       const guidedPath = this.buildAirShowBomberContinuationPath(phaseStartAnchor, holdTarget, {
         lateralSign: lane >= 0 ? 1 : -1,
         corridorWidthPx: headingTarget ? 16 : 20,
@@ -9138,15 +9114,10 @@ export class HexMapRenderer implements IMapRenderer {
       role === "interceptor"
         ? (useCompactIngressStaging ? 18 : 24)
         : (useCompactIngressStaging ? 18 : 22);
-    return this.clampPointToViewportBounds(
-      this.projectAirShowCorridorPoint(
-        corridor,
-        focusProjection.alongPx - approachSign * roleAlongLeadPx + roleLaneAlongPx,
-        focusProjection.lateralPx + roleLateralSign * (roleLateralBasePx + laneIndex * roleLateralStepPx)
-      ),
-      corridor.center,
-      430,
-      300
+    return this.projectAirShowCorridorPoint(
+      corridor,
+      focusProjection.alongPx - approachSign * roleAlongLeadPx + roleLaneAlongPx,
+      focusProjection.lateralPx + roleLateralSign * (roleLateralBasePx + laneIndex * roleLateralStepPx)
     );
   }
 
@@ -9214,35 +9185,21 @@ export class HexMapRenderer implements IMapRenderer {
 
   private resolveAirShowEscortClashCenter(
     corridor: AirShowCorridor,
-    interceptorFlights: ReadonlyArray<AirShowRuntimeFlightInternal>,
-    escortFlights: ReadonlyArray<AirShowRuntimeFlightInternal>,
+    _interceptorFlights: ReadonlyArray<AirShowRuntimeFlightInternal>,
+    _escortFlights: ReadonlyArray<AirShowRuntimeFlightInternal>,
     beat: number
   ): AirShowPoint {
-    const groupMidpoint =
-      this.averageAirShowPoints(
-        [
-          this.resolveAirShowFlightGroupCenter(interceptorFlights),
-          this.resolveAirShowFlightGroupCenter(escortFlights)
-        ].filter((point): point is AirShowPoint => !!point)
-      )
-      ?? corridor.center;
-    const midpointProjection = this.resolveAirShowCorridorCoordinates(corridor, groupMidpoint);
     const strikeProjection = this.resolveAirShowCorridorCoordinates(corridor, corridor.strike);
+    const mergeProjection = this.resolveAirShowCorridorCoordinates(corridor, corridor.merge);
     const interceptorSideSign = strikeProjection.alongPx >= 0 ? -1 : 1;
-    const maxAlongPx = this.clamp(Math.abs(strikeProjection.alongPx) * 0.14, 36, 126);
     const scrambleBiasPx =
       beat === 0
         ? 0
         : interceptorSideSign * this.clamp(Math.abs(strikeProjection.alongPx) * 0.04, 10, 34);
-    return this.clampPointToViewportBounds(
-      this.projectAirShowCorridorPoint(
-        corridor,
-        this.clamp(midpointProjection.alongPx * 0.42 + scrambleBiasPx * 0.4, -maxAlongPx, maxAlongPx),
-        this.clamp(midpointProjection.lateralPx * 0.24, -42, 42)
-      ),
-      corridor.center,
-      430,
-      300
+    return this.projectAirShowCorridorPoint(
+      corridor,
+      mergeProjection.alongPx + scrambleBiasPx,
+      mergeProjection.lateralPx
     );
   }
 
@@ -9283,15 +9240,10 @@ export class HexMapRenderer implements IMapRenderer {
           : role === "interceptor" ? -12 : 12
         : role === "interceptor" ? -24 : 24;
     const laneLateralPx = laneIndex * (beat === 0 ? (useTightMergeClosure ? 18 : 34) : 28);
-    return this.clampPointToViewportBounds(
-      this.projectAirShowCorridorPoint(
-        corridor,
-        alongPx,
-        baseProjection.lateralPx + laneLateralPx + roleLateralPx
-      ),
-      corridor.center,
-      430,
-      300
+    return this.projectAirShowCorridorPoint(
+      corridor,
+      alongPx,
+      baseProjection.lateralPx + laneLateralPx + roleLateralPx
     );
   }
 

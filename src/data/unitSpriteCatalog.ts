@@ -400,12 +400,15 @@ Object.entries(allocationKeyToScenarioType).forEach(([allocationKey, scenarioTyp
 
 /**
  * Retrieves the sprite URL for a deployment allocation key, if the catalogue includes one.
- * Does not support facing-based directional resolution (use getSpriteForScenarioType for that).
+ * When facing is provided, resolves the directional view (e.g., Sideview/Southview/Northview).
  */
-export function getSpriteForAllocationKey(allocationKey: string, faction?: string | null): string | undefined {
+export function getSpriteForAllocationKey(allocationKey: string, faction?: string | null, facing?: string): string | undefined {
   const scenarioType = allocationKeyToScenarioType[allocationKey];
-  if (scenarioType) {
-    return resolveScenarioSprite(scenarioType, faction) ?? ALLOCATION_SPRITES[allocationKey];
+  const sprite = scenarioType
+    ? resolveScenarioSprite(scenarioType, faction) ?? ALLOCATION_SPRITES[allocationKey]
+    : ALLOCATION_SPRITES[allocationKey];
+  if (!sprite || !facing) {
+    return sprite;
   }
-  return ALLOCATION_SPRITES[allocationKey];
+  return resolveDirectionalSprite(sprite, facing);
 }
