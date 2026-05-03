@@ -1116,6 +1116,7 @@ export class PrecombatScreen {
         }
         if (normalized.includes("urban") ||
             normalized.includes("town") ||
+            normalized.includes("hamlet") ||
             normalized.includes("city") ||
             normalized.includes("village")) {
             return "#8a775d";

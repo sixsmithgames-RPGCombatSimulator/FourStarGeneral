@@ -152,8 +152,12 @@ registerTest("AIR_SHOW_FLAK_TIMING_OPENS_ON_MID_APPROACH_AND_TAPERS_AFTER_BOMB_R
         result = runAirScenario();
     });
     await Then("flak should activate on the approach, persist through bomb release, and taper before egress", async () => {
-        const strikeInspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" &&
-            entry.report.phases.some(p => (p.flakBursts?.length ?? 0) > 0));
+        const hasTargetRunFlak = (entry) => entry.report.phases.some((phase) => phase.label === "target-run" && (phase.flakBursts?.length ?? 0) > 0);
+        const hasPreTargetFlak = (entry) => entry.report.phases.some((phase) => (phase.label === "bomber-ingress" || phase.label === "bomber-defense-pass") &&
+            (phase.flakBursts?.length ?? 0) > 0);
+        const strikeInspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" && hasTargetRunFlak(entry) && hasPreTargetFlak(entry)) ?? result?.airshowInspections.find((entry) => entry.eventType === "airToAir" &&
+            hasTargetRunFlak(entry)) ?? result?.airshowInspections.find((entry) => entry.eventType === "airToAir" &&
+            entry.report.phases.some((phase) => (phase.flakBursts?.length ?? 0) > 0));
         if (!strikeInspection) {
             console.log("[FLAK TIMING] No strike with flak found - skipping validation");
             return;

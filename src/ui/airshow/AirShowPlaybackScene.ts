@@ -201,6 +201,8 @@ export interface AirShowInspectionFlakBurst {
   readonly flashCount: number;
   readonly puffCount: number;
   readonly smokePuffCount: number;
+  readonly scale?: number;
+  readonly smokeScale?: number;
   readonly widthPx: number;
   readonly heightPx: number;
   readonly points: ReadonlyArray<AirShowInspectionPoint>;

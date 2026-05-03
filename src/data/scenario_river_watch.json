@@ -7,7 +7,7 @@
     "FOREST": { "terrain": "forest", "terrainType": "rural", "density": "dense", "features": ["trees", "shrubs"], "recon": "intel" },
     "HILL": { "terrain": "hill", "terrainType": "rural", "density": "average", "features": ["foothills"], "recon": "intel" },
     "ROAD": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["road"], "recon": "intel" },
-    "HAMLET": { "terrain": "city", "terrainType": "urban", "density": "sparse", "features": ["buildings"], "recon": "intel" },
+    "HAMLET": { "terrain": "hamlet", "terrainType": "urban", "density": "sparse", "features": ["buildings"], "recon": "intel", "spriteVariant": "center" },
     "RIVER_DEEP": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": ["large river"], "recon": "intel" },
     "SHALLOW_CROSSING": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": ["large river", "shallow"], "recon": "intel" },
     "FORD": { "terrain": "river", "terrainType": "water", "density": "sparse", "features": ["large river", "shallow", "ford"], "recon": "intel" },

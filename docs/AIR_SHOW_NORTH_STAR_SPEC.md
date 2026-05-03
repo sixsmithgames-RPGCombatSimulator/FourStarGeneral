@@ -60,9 +60,10 @@ The air show uses deterministic rail choreography, not per-sprite flight simulat
 - contested escort clashes use two explicit fighter-space beats: the first pass converges head-on through the shared merge/fight marker, then the scramble beat switches opposing lanes so the same interceptor/escort pair does not orbit itself
 - randomness is limited to deterministic local lane and spacing offsets large enough to keep sprites readable
 - `fighter-ingress` starts CAP and escorts at their faction origin and ends them at the target corridor merge anchor
-- if a shorter-side fighter needs more distance to satisfy the shared phase duration at fighter speed, the planner adds simple rail doglegs before the merge; it must not carry the endpoint past the merge
+- if a shorter-side fighter would arrive early at the governed fighter speed, the planner holds that flight at its deterministic origin and releases it later on the same preset rail; it must not add off-map hookbacks or carry the endpoint past the merge
 - bombers advance continuously along the bomber corridor during pre-target fighter phases; phase slices may continue forward instead of snapping backward, but they must clamp at the pre-target endpoint and may not extend past the target-run handoff
 - the target run contains a release marker at the bomber target lane and a short governed exit; speed matching may not append extra bomber travel past that planned run
+- flak scheduling uses deterministic per-bomber/per-battery timing offsets and one-puff airbursts so separate bombers do not paint identical volley sequences; smoke puffs should linger long enough to read as black airburst residue
 
 **Timing Rules**
 - the final rail path length for each sprite is measured in pixels

@@ -5,6 +5,7 @@ import { HEX_RADIUS, HEX_HEIGHT, HEX_WIDTH } from "../core/balance";
 import { CoordinateSystem, type TileDetails } from "./CoordinateSystem";
 import { TerrainRenderer } from "./TerrainRenderer";
 import { RoadOverlayRenderer } from "./RoadOverlayRenderer";
+import { RiverOverlayRenderer } from "./RiverOverlayRenderer";
 import { ProceduralEffectsAnimator, getZoomTier } from "./ProceduralEffects";
 import { loadEffectSpecifications } from "./EffectSpecifications";
 import { getTerrainTint, shouldUseTerrainResponse, loadTerrainTints } from "./TerrainResponseSystem";
@@ -338,6 +339,7 @@ export class HexMapRenderer implements IMapRenderer {
 
   private readonly terrainRenderer = new TerrainRenderer();
   private readonly roadRenderer = new RoadOverlayRenderer();
+  private readonly riverRenderer = new RiverOverlayRenderer();
   private readonly reconOverlayState = new Map<string, ReconStatusKey>();
   private combatAnimator: ProceduralEffectsAnimator | null = null;
   private readonly soundManager: CombatSoundManager = new CombatSoundManager();
@@ -1322,8 +1324,8 @@ export class HexMapRenderer implements IMapRenderer {
             puffCount: burst.puffCount,
             smokePuffCount: burst.smokePuffCount
           },
-          1.08,
-          0.94
+          burst.scale ?? 1.08,
+          burst.smokeScale ?? 0.94
         );
       }, Math.max(0, Math.round(phase.durationMs * this.clamp(burst.progress, 0, 1)))));
     });
@@ -4549,7 +4551,7 @@ export class HexMapRenderer implements IMapRenderer {
     const tooltip = this.terrainRenderer.generateHexTooltip(tile);
     const hexKey = CoordinateSystem.makeHexKey(col, row);
     const clipId = `clip-${hexKey.replace(/[^a-z0-9]/gi, "-")}`;
-    const sprite = this.terrainRenderer.getTerrainSprite(tile);
+    const sprite = this.terrainRenderer.getTerrainSprite(tile, col, row);
 
     // Look up terrain definition for LOS and combat stats
     const terrainDef = (terrainData as TerrainDictionary)[tile.terrain as keyof TerrainDictionary];
@@ -4573,6 +4575,15 @@ export class HexMapRenderer implements IMapRenderer {
       data.tiles,
       data.tilePalette
     );
+    const riverOverlay = this.riverRenderer.drawRiverOverlay(
+      cx,
+      cy,
+      tile,
+      col,
+      row,
+      data.tiles,
+      data.tilePalette
+    );
     const featureOverlay = this.renderTerrainFeatureOverlay(tile, cx, cy, clipId);
 
     return `
@@ -4585,6 +4596,7 @@ export class HexMapRenderer implements IMapRenderer {
         ${sprite ? `<image href="${sprite}" x="${imageX}" y="${imageY}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})" class="terrain-sprite" />` : ""}
         <polygon class="hex-tile" points="${points}" fill="${fill}" fill-opacity="${sprite ? 0.35 : 1}" stroke="${HEX_DEFAULT_STROKE}" stroke-width="${HEX_DEFAULT_STROKE_WIDTH}"></polygon>
         ${roadOverlay}
+        ${riverOverlay}
         ${featureOverlay}
         <title>${tooltip}</title>
       </g>
@@ -12698,11 +12710,14 @@ export class HexMapRenderer implements IMapRenderer {
     const lateralSpreadPx = isSinglePuff
       ? Math.max(4, burst.lateralSpreadPx ?? 8)
       : Math.max(54, burst.lateralSpreadPx ?? HEX_WIDTH * 1.08);
-    const puffCount = Math.max(isSinglePuff ? 1 : 11, requestedPuffCount);
-    const smokePuffCount = Math.max(
-      1,
-      Math.min(Math.max(1, Math.round(puffCount * 0.28)), burst.smokePuffCount ?? Math.round(puffCount * 0.24))
-    );
+    const puffCount = Math.max(isSinglePuff ? 1 : 11, Math.min(24, requestedPuffCount));
+    const requestedSmokePuffCount = burst.smokePuffCount ?? Math.round(puffCount * 1.15);
+    const smokePuffCount = isSinglePuff
+      ? Math.max(1, requestedSmokePuffCount)
+      : Math.max(
+          Math.round(puffCount * 0.7),
+          Math.min(Math.max(puffCount + 8, Math.round(puffCount * 1.7)), requestedSmokePuffCount)
+        );
     const center = this.clampPointToViewportBounds(
       {
         cx: targetCenter.cx + corridor.axis.x * alongOffsetPx + corridor.normal.x * lateralOffsetPx,
@@ -12718,6 +12733,11 @@ export class HexMapRenderer implements IMapRenderer {
         + Math.round(targetCenter.cy * 17)
         + Math.round((burst.progress ?? 0) * 1000) * 19
         + Math.round((burst.count ?? 1) * 31)
+        + Math.round(alongOffsetPx * 23)
+        + Math.round(lateralOffsetPx * 29)
+        + Math.round(alongSpreadPx * 7)
+        + Math.round(lateralSpreadPx * 11)
+        + Math.round(puffCount * 37)
       ) >>> 0;
     const nextRandom = (): number => {
       seed = (seed * 1664525 + 1013904223) >>> 0;
@@ -12741,17 +12761,23 @@ export class HexMapRenderer implements IMapRenderer {
         cluster.lateral
         + Math.sin(angle) * lateralSpreadPx * (0.22 + radial * 0.48)
         + (nextRandom() - 0.5) * lateralSpreadPx * 0.1;
+      const screenJitterX = isSinglePuff
+        ? 0
+        : (nextRandom() - 0.5) * Math.max(92, Math.min(156, lateralSpreadPx * 0.86));
+      const screenJitterY = isSinglePuff
+        ? 0
+        : (nextRandom() - 0.5) * Math.max(20, Math.min(54, alongSpreadPx * 0.45));
       return this.clampPointToViewportBounds(
         {
-          cx: center.cx + corridor.axis.x * alongJitter + corridor.normal.x * lateralJitter,
-          cy: center.cy + corridor.axis.y * alongJitter + corridor.normal.y * lateralJitter
+          cx: center.cx + corridor.axis.x * alongJitter + corridor.normal.x * lateralJitter + screenJitterX,
+          cy: center.cy + corridor.axis.y * alongJitter + corridor.normal.y * lateralJitter + screenJitterY
         },
         targetCenter,
         470,
         320
       );
     });
-    const flashCount = isSinglePuff ? 1 : Math.max(4, Math.min(8, Math.round(puffCount * 0.36)));
+    const flashCount = isSinglePuff ? 1 : Math.max(3, Math.min(8, Math.round(puffCount * 0.34)));
     return { center, flashCount, points, puffCount, smokePuffCount };
   }
 
@@ -13811,6 +13837,9 @@ export class HexMapRenderer implements IMapRenderer {
     if (animationType === "flakBurst") {
       return 24;
     }
+    if (animationType === "flakSmokePuff") {
+      return 28;
+    }
     if (animationType === "airDamageSmoke") {
       return 40;
     }
@@ -13926,15 +13955,24 @@ export class HexMapRenderer implements IMapRenderer {
     _smokeScale = 0.92
   ): void {
     const pointCount = Math.min(wave.puffCount, wave.points.length);
+    const singlePuffWave = wave.puffCount <= 1 && pointCount <= 1;
+    const flashPointCount = singlePuffWave
+      ? pointCount
+      : Math.min(pointCount, Math.max(1, wave.flashCount));
+    const smokePointCount = singlePuffWave
+      ? pointCount
+      : Math.min(pointCount, Math.max(flashPointCount, wave.smokePuffCount));
     for (let index = 0; index < pointCount; index += 1) {
       const point = wave.points[index]!;
       const flashDelayMs = index * 42 + (index % 3) * 14;
-      window.setTimeout(() => {
-        const burstScale = scale * (0.78 + (index % 5) * 0.05);
-        void this.playFlakBurstAt(point.cx, point.cy, index % 3 === 0 ? 3 : 2, burstScale, false);
-      }, flashDelayMs);
+      if (index < flashPointCount) {
+        window.setTimeout(() => {
+          const burstScale = scale * (0.78 + (index % 5) * 0.05);
+          void this.playFlakBurstAt(point.cx, point.cy, singlePuffWave ? 1 : index % 3 === 0 ? 3 : 2, burstScale, false);
+        }, flashDelayMs);
+      }
 
-      if (index < wave.flashCount) {
+      if (!singlePuffWave && index < wave.flashCount) {
         window.setTimeout(() => {
           const side = index % 2 === 0 ? -1 : 1;
           void this.playFlakBurstAt(
@@ -13945,6 +13983,21 @@ export class HexMapRenderer implements IMapRenderer {
             false
           );
         }, flashDelayMs + 160 + (index % 2) * 52);
+      }
+
+      if (!singlePuffWave && index < smokePointCount) {
+        window.setTimeout(() => {
+          const side = index % 2 === 0 ? -1 : 1;
+          void this.playCombatAnimationAt(
+            "flakSmokePuff",
+            point.cx + side * (2 + (index % 4) * 1.7),
+            point.cy - 4 - (index % 3) * 2,
+            _smokeScale * (0.86 + (index % 5) * 0.04),
+            false,
+            undefined,
+            false
+          );
+        }, flashDelayMs + 210 + (index % 5) * 36);
       }
     }
 

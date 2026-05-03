@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 const AIRSHOW_BROWSER_TIMEOUT_MS = 120000;
@@ -9,7 +9,6 @@ function prepareLatestPaintedFrameDir() {
     if (latestPaintedFramesPrepared) {
         return;
     }
-    rmSync(LATEST_PAINTED_FRAME_DIR, { recursive: true, force: true });
     mkdirSync(LATEST_PAINTED_FRAME_DIR, { recursive: true });
     latestPaintedFramesPrepared = true;
 }
@@ -35,29 +34,57 @@ async function pauseScenarioAtPhaseProgress(page, phaseLabel, progress) {
 async function expectPaintedPhaseMotionFrame(page, testInfo, phaseLabel, snapshotName) {
     prepareLatestPaintedFrameDir();
     await pauseScenarioAtPhaseProgress(page, phaseLabel, PAINTED_FRAME_PROGRESS);
-    const bounds = await page.evaluate(() => {
+    const snapshotState = await page.evaluate(() => {
         const svg = document.getElementById("battleHexMap");
         if (!svg) {
             return null;
         }
+        document.querySelectorAll(".combat-effects-layer").forEach((layer) => {
+            layer.style.visibility = "hidden";
+        });
         const rect = svg.getBoundingClientRect();
+        const activeActors = Array.from(document.querySelectorAll('[data-testid="airshow-actor"][data-airshow-active="true"]')).filter((actor) => {
+            const opacity = Number.parseFloat(window.getComputedStyle(actor).opacity || "0");
+            const x = Number.parseFloat(actor.getAttribute("x") ?? "0");
+            const y = Number.parseFloat(actor.getAttribute("y") ?? "0");
+            const width = Number.parseFloat(actor.getAttribute("width") ?? "0");
+            const height = Number.parseFloat(actor.getAttribute("height") ?? "0");
+            return (opacity > 0.05
+                && width > 0
+                && height > 0
+                && Number.isFinite(x)
+                && Number.isFinite(y));
+        });
+        const visibleActorCount = activeActors.filter((actor) => {
+            const actorRect = actor.getBoundingClientRect();
+            return (actorRect.right > rect.left
+                && actorRect.left < rect.right
+                && actorRect.bottom > rect.top
+                && actorRect.top < rect.bottom);
+        }).length;
         return {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height
+            bounds: {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height
+            },
+            activeActorCount: activeActors.length,
+            visibleActorCount
         };
     });
-    if (!bounds) {
+    if (!snapshotState) {
         throw new Error("battleHexMap bounds were not available for painted-frame capture.");
     }
+    expect(snapshotState.activeActorCount, `${phaseLabel} should have active painted aircraft sprites`).toBeGreaterThan(0);
+    expect(snapshotState.visibleActorCount, `${phaseLabel} should have aircraft sprites inside the captured frame`).toBeGreaterThan(0);
     const frame = await page.screenshot({
         path: testInfo.outputPath(snapshotName),
         clip: {
-            x: Math.floor(bounds.x),
-            y: Math.floor(bounds.y),
-            width: Math.ceil(bounds.width),
-            height: Math.ceil(bounds.height)
+            x: Math.floor(snapshotState.bounds.x),
+            y: Math.floor(snapshotState.bounds.y),
+            width: Math.ceil(snapshotState.bounds.width),
+            height: Math.ceil(snapshotState.bounds.height)
         }
     });
     writeFileSync(path.join(LATEST_PAINTED_FRAME_DIR, snapshotName), frame);
@@ -324,18 +351,22 @@ test.describe("AirShow Browser Harness", () => {
     test.describe("Painted Frames", () => {
         test.describe.configure({ mode: "serial" });
         test("captures painted escort clash merge frame @painted-frame", async ({ page, browserName }, testInfo) => {
+            test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
             test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
             await expectPaintedPhaseMotionFrame(page, testInfo, "escort-clash-merge", "airshow-painted-escort-clash-merge-mid.png");
         });
         test("captures painted bomber ingress frame @painted-frame", async ({ page, browserName }, testInfo) => {
+            test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
             test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
             await expectPaintedPhaseMotionFrame(page, testInfo, "bomber-ingress", "airshow-painted-bomber-ingress-mid.png");
         });
         test("captures painted target run frame @painted-frame", async ({ page, browserName }, testInfo) => {
+            test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
             test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
             await expectPaintedPhaseMotionFrame(page, testInfo, "target-run", "airshow-painted-target-run-mid.png");
         });
         test("captures painted escort clash scramble frame @painted-frame", async ({ page, browserName }, testInfo) => {
+            test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
             test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
             await expectPaintedPhaseMotionFrame(page, testInfo, "escort-clash-scramble", "airshow-painted-escort-clash-scramble-mid.png");
         });

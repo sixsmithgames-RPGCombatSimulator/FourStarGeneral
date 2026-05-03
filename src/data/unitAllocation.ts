@@ -145,7 +145,7 @@ export const allocationOptions = [
     costPerUnit: 75,
     description: "Armored reconnaissance troop for screening, spotting enemy movement, and cueing fires from safer range.",
     maxQuantity: 12,
-    spriteUrl: new URL("../assets/units/Recon_ArmoredCar.png", import.meta.url).href
+    spriteUrl: new URL("../assets/units/Wheeled_Recon_Armored_Car_Greyhound_USA_Sideview.png", import.meta.url).href
   },
   {
     key: "reconBike",

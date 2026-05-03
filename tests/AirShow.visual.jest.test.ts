@@ -123,6 +123,50 @@ function sampleFlightCenterAtProgress(
   };
 }
 
+function measureSamplePathDistance(
+  samples: ReadonlyArray<{ cx: number; cy: number }>
+): number {
+  let distancePx = 0;
+  for (let index = 1; index < samples.length; index += 1) {
+    const previous = samples[index - 1];
+    const current = samples[index];
+    if (!previous || !current) {
+      continue;
+    }
+    distancePx += Math.hypot(current.cx - previous.cx, current.cy - previous.cy);
+  }
+  return distancePx;
+}
+
+function maxMovingTurnDegrees(
+  samples: ReadonlyArray<{ cx: number; cy: number }>
+): number {
+  let maxTurnDeg = 0;
+  let previousVector: { x: number; y: number } | null = null;
+  for (let index = 1; index < samples.length; index += 1) {
+    const previous = samples[index - 1];
+    const current = samples[index];
+    if (!previous || !current) {
+      continue;
+    }
+    const vector = {
+      x: current.cx - previous.cx,
+      y: current.cy - previous.cy
+    };
+    if (Math.hypot(vector.x, vector.y) < 4) {
+      continue;
+    }
+    if (previousVector) {
+      const turnDeg = Math.abs(
+        Math.atan2(vector.y, vector.x) - Math.atan2(previousVector.y, previousVector.x)
+      ) * 180 / Math.PI;
+      maxTurnDeg = Math.max(maxTurnDeg, turnDeg > 180 ? 360 - turnDeg : turnDeg);
+    }
+    previousVector = vector;
+  }
+  return maxTurnDeg;
+}
+
 function createRuntimeActor(
   id: string,
   role: "interceptor" | "escort" | "bomber",
@@ -303,6 +347,32 @@ describe("AirShow JEST Harness", () => {
     expect(scramblePhase?.assignments.some((assignment) => assignment.role === "escort")).toBe(true);
   });
 
+  test("fighter ingress uses bounded preset rails instead of off-map hookback paths", async () => {
+    const report = inspectScene(await captureScene());
+    const fighterIngress = report.phases.find((phase) => phase.label === "fighter-ingress");
+
+    expect(fighterIngress).toBeDefined();
+
+    const fighterAssignments =
+      fighterIngress?.assignments.filter(
+        (assignment) => assignment.role === "interceptor" || assignment.role === "escort"
+      ) ?? [];
+    expect(fighterAssignments.length).toBeGreaterThan(0);
+
+    fighterAssignments.forEach((assignment) => {
+      const first = assignment.sampledPositions[0];
+      const last = assignment.sampledPositions[assignment.sampledPositions.length - 1];
+      expect(first).toBeDefined();
+      expect(last).toBeDefined();
+      const directDistancePx = Math.hypot((last?.cx ?? 0) - (first?.cx ?? 0), (last?.cy ?? 0) - (first?.cy ?? 0));
+      const sampledDistancePx = measureSamplePathDistance(assignment.sampledPositions);
+
+      expect(directDistancePx).toBeGreaterThan(180);
+      expect(sampledDistancePx / directDistancePx).toBeLessThan(1.28);
+      expect(maxMovingTurnDegrees(assignment.sampledPositions)).toBeLessThan(105);
+    });
+  });
+
   test("bomber ingress keeps fighter cover assignments moving instead of freezing the surviving fighters", async () => {
     const report = inspectScene(await captureScene());
     const bomberIngress = report.phases.find((phase) => phase.label === "bomber-ingress");
@@ -355,7 +425,7 @@ describe("AirShow JEST Harness", () => {
     expect(Math.max(...allDogfightTracers.map((tracer) => tracer.streakLengthPx))).toBeLessThanOrEqual(150);
   });
 
-  test("escort clash phases keep paired CAP and escort flights converged in the same fight space", async () => {
+  test("escort clash merge converges paired flights and scramble switches into the local fight space", async () => {
     const scene = await captureScene();
     const report = inspectScene(scene);
     const mergePhase = report.phases.find((phase) => phase.label === "escort-clash-merge");
@@ -373,29 +443,61 @@ describe("AirShow JEST Harness", () => {
     expect(scramblePhase).toBeDefined();
     expect(uniquePairs.length).toBeGreaterThan(0);
 
+    const escortFlightIds = Array.from(new Set(uniquePairs.map((pair) => pair.defenderUnitKey)));
+    let switchedNearestOpponentCount = 0;
+
     uniquePairs.forEach((pair) => {
-      const mergeInterceptor = sampleFlightCenterAtProgress(mergePhase!, pair.attackerUnitKey, 0.72);
-      const mergeEscort = sampleFlightCenterAtProgress(mergePhase!, pair.defenderUnitKey, 0.72);
-      const scrambleInterceptor = sampleFlightCenterAtProgress(scramblePhase!, pair.attackerUnitKey, 0.44);
-      const scrambleEscort = sampleFlightCenterAtProgress(scramblePhase!, pair.defenderUnitKey, 0.44);
+      const mergeInterceptor = sampleFlightCenterAtProgress(mergePhase!, pair.attackerUnitKey, 0.54);
+      const mergeEscort = sampleFlightCenterAtProgress(mergePhase!, pair.defenderUnitKey, 0.54);
 
       expect(mergeInterceptor).not.toBeNull();
       expect(mergeEscort).not.toBeNull();
-      expect(scrambleInterceptor).not.toBeNull();
-      expect(scrambleEscort).not.toBeNull();
       expect(
         Math.hypot(
           (mergeInterceptor?.cx ?? 0) - (mergeEscort?.cx ?? 0),
           (mergeInterceptor?.cy ?? 0) - (mergeEscort?.cy ?? 0)
         )
       ).toBeLessThan(118);
-      expect(
-        Math.hypot(
-          (scrambleInterceptor?.cx ?? 0) - (scrambleEscort?.cx ?? 0),
-          (scrambleInterceptor?.cy ?? 0) - (scrambleEscort?.cy ?? 0)
-        )
-      ).toBeLessThan(108);
+
+      [0.38, 0.54, 0.7].forEach((progress) => {
+        const scrambleInterceptor = sampleFlightCenterAtProgress(scramblePhase!, pair.attackerUnitKey, progress);
+        const originalScrambleEscort = sampleFlightCenterAtProgress(scramblePhase!, pair.defenderUnitKey, progress);
+        expect(scrambleInterceptor).not.toBeNull();
+        expect(originalScrambleEscort).not.toBeNull();
+        const originalPairDistancePx = Math.hypot(
+          (scrambleInterceptor?.cx ?? 0) - (originalScrambleEscort?.cx ?? 0),
+          (scrambleInterceptor?.cy ?? 0) - (originalScrambleEscort?.cy ?? 0)
+        );
+        const nearestEscort = escortFlightIds
+          .map((escortFlightId) => ({
+            escortFlightId,
+            point: sampleFlightCenterAtProgress(scramblePhase!, escortFlightId, progress)
+          }))
+          .filter((sample): sample is { escortFlightId: string; point: { cx: number; cy: number } } => !!sample.point)
+          .map((sample) => ({
+            escortFlightId: sample.escortFlightId,
+            distancePx: Math.hypot(
+              (scrambleInterceptor?.cx ?? 0) - sample.point.cx,
+              (scrambleInterceptor?.cy ?? 0) - sample.point.cy
+            )
+          }))
+          .sort((left, right) => left.distancePx - right.distancePx)[0];
+
+        expect(nearestEscort).toBeDefined();
+        expect(nearestEscort?.distancePx ?? Number.POSITIVE_INFINITY).toBeLessThan(190);
+        if (
+          nearestEscort
+          && nearestEscort.escortFlightId !== pair.defenderUnitKey
+          && nearestEscort.distancePx <= originalPairDistancePx + 24
+        ) {
+          switchedNearestOpponentCount += 1;
+        }
+      });
     });
+
+    if (uniquePairs.length > 1) {
+      expect(switchedNearestOpponentCount).toBeGreaterThan(0);
+    }
   });
 
   test("escort clash keeps under-paired escorts closing into the local fight instead of stalling in a distant orbit", async () => {
@@ -539,8 +641,25 @@ describe("AirShow JEST Harness", () => {
     const latestFlakProgress = Math.max(...(targetRun?.flakBursts.map((burst) => burst.progress) ?? [0]));
     expect(latestFlakProgress).toBeGreaterThan(scene.bombReleaseProgress ?? 0.5);
     expect(latestFlakProgress).toBeLessThanOrEqual(0.86);
-    expect(targetRun?.flakBursts.every((burst) => burst.puffCount === 1)).toBe(true);
+    const flakBursts = targetRun?.flakBursts ?? [];
+    const meanFlakWidthPx =
+      flakBursts.reduce((sum, burst) => sum + burst.widthPx, 0) / Math.max(1, flakBursts.length);
+    const flakPuffCount = flakBursts.reduce((sum, burst) => sum + burst.puffCount, 0);
+    const flakFlashCount = flakBursts.reduce((sum, burst) => sum + burst.flashCount, 0);
+    expect(flakBursts.every((burst) => burst.puffCount > 1)).toBe(true);
+    expect(flakBursts.some((burst) => burst.smokePuffCount > burst.flashCount)).toBe(true);
+    expect(meanFlakWidthPx).toBeGreaterThanOrEqual(120);
+    expect(flakFlashCount).toBeLessThanOrEqual(Math.max(14, Math.round(flakPuffCount * 0.45)));
     expect(new Set(targetRun?.flakBursts.map((burst) => burst.progress.toFixed(3))).size ?? 0).toBeGreaterThan(4);
+    const flakProgressBuckets = new Map<number, number>();
+    targetRun?.flakBursts.forEach((burst) => {
+      const bucket = Math.round(burst.progress / 0.015);
+      flakProgressBuckets.set(bucket, (flakProgressBuckets.get(bucket) ?? 0) + 1);
+    });
+    const mostStackedBucket = Math.max(...flakProgressBuckets.values());
+    expect(mostStackedBucket).toBeLessThanOrEqual(
+      Math.max(3, Math.ceil((targetRun?.flakBursts.length ?? 0) * 0.09))
+    );
   });
 
   test("target-run flak targets the sampled bomber path instead of the ground target anchor", async () => {

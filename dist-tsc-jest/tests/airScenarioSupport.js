@@ -120,17 +120,18 @@ function side(hq) {
 }
 function scenario() {
     const tileKey = "plains";
-    const row = Array.from({ length: 16 }, () => ({ tile: tileKey }));
+    const mapSize = 20;
+    const row = Array.from({ length: mapSize }, () => ({ tile: tileKey }));
     return {
         name: "Air Combat Automation Scenario",
-        size: { cols: 16, rows: 16 },
+        size: { cols: mapSize, rows: mapSize },
         tilePalette: {
             [tileKey]: { terrain: "plains", terrainType: "grass", density: "average", features: [], recon: "intel" }
         },
-        tiles: Array.from({ length: 16 }, () => row),
+        tiles: Array.from({ length: mapSize }, () => row),
         objectives: [],
         turnLimit: 6,
-        sides: { Player: side({ q: 0, r: 2 }), Bot: side({ q: 14, r: 14 }) }
+        sides: { Player: side({ q: 0, r: 2 }), Bot: side({ q: 18, r: 18 }) }
     };
 }
 function make(type, hex, unitId, extras = {}) {
@@ -183,7 +184,7 @@ function buildEngine() {
         unitTypes,
         terrain,
         playerSide: side({ q: 0, r: 2 }),
-        botSide: side({ q: 14, r: 14 })
+        botSide: side({ q: 18, r: 18 })
     };
     const engine = new GameEngine(config);
     const playerUnits = [
@@ -200,12 +201,12 @@ function buildEngine() {
         make("Flak_88", { q: 5, r: 4 }, "u_pflak4", { onSentry: true })
     ];
     const botUnits = [
-        make("Bomber", { q: 13, r: 14 }, "u_bbomber1"),
-        make("Bomber", { q: 14, r: 14 }, "u_bbomber2"),
-        make("Bomber", { q: 13, r: 13 }, "u_bbomber3"),
-        make("Bomber", { q: 14, r: 13 }, "u_bbomber4"),
-        make("Fighter", { q: 12, r: 14 }, "u_bescort1"),
-        make("Fighter", { q: 12, r: 13 }, "u_bescort2")
+        make("Bomber", { q: 17, r: 18 }, "u_bbomber1"),
+        make("Bomber", { q: 18, r: 18 }, "u_bbomber2"),
+        make("Bomber", { q: 17, r: 17 }, "u_bbomber3"),
+        make("Bomber", { q: 18, r: 17 }, "u_bbomber4"),
+        make("Fighter", { q: 16, r: 18 }, "u_bescort1"),
+        make("Fighter", { q: 16, r: 17 }, "u_bescort2")
     ];
     engine.beginDeployment();
     engine.setBaseCamp({ q: 0, r: 2 });

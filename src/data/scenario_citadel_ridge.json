@@ -6,7 +6,7 @@
     "HILL": { "terrain": "hill", "terrainType": "rural", "density": "average", "features": ["foothills"], "recon": "intel" },
     "ROAD": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["fields", "road"], "recon": "intel" },
     "TRENCH": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["trenches", "foxholes"], "recon": "intel" },
-    "BASTION": { "terrain": "city", "terrainType": "urban", "density": "dense", "features": ["bunker", "fortifications", "assault cannon"], "recon": "intel" },
+    "BASTION": { "terrain": "city", "terrainType": "urban", "density": "dense", "features": ["bunker", "fortifications", "assault cannon"], "recon": "intel", "spriteVariant": "center" },
     "RIDGE": { "terrain": "hill", "terrainType": "rural", "density": "dense", "features": ["ridge", "reverse slope"], "recon": "intel" }
   },
   "tiles": [

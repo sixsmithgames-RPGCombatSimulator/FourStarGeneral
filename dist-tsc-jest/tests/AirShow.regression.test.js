@@ -62,6 +62,45 @@ function sampleAssignmentCenterAtProgress(assignment, progress) {
     const fallback = sampledPositions[0];
     return fallback ? { cx: fallback.cx, cy: fallback.cy } : null;
 }
+registerTest("AIR_SHOW_REGRESSION_TARGET_RUN_BOMBERS_STOP_AT_PLANNED_RELEASE_AND_EXIT_RAIL", async ({ Given, When, Then }) => {
+    let result = null;
+    await Given("the bomber target-run rail has a known release marker and governed exit", async () => { });
+    await When("the 20x20 contested package target run is planned", async () => {
+        result = runAirScenario();
+    });
+    await Then("bomber target-run assignments should not be speed-extended into target overshoot", async () => {
+        const inspection = findContestedInspection(result);
+        if (!inspection) {
+            console.log("[REGRESSION: TARGET OVERSHOOT] No contested package found - skipping");
+            return;
+        }
+        const targetRun = inspection.report.phases.find((phase) => phase.label === "target-run");
+        if (!targetRun || !inspection.report.originPlan) {
+            throw new Error("Expected target-run phase and origin plan.");
+        }
+        const axis = {
+            x: inspection.report.originPlan.axis.cx,
+            y: inspection.report.originPlan.axis.cy
+        };
+        const strike = inspection.report.corridor.strike;
+        const alongFromStrike = (point) => (point.cx - strike.cx) * axis.x + (point.cy - strike.cy) * axis.y;
+        const violations = targetRun.assignments
+            .filter((assignment) => assignment.role === "bomber")
+            .flatMap((assignment) => {
+            const finalPoint = sampleAssignmentCenterAtProgress(assignment, 1);
+            if (!finalPoint) {
+                return [`${assignment.actorId}: missing final target-run sample`];
+            }
+            const finalAlongPx = alongFromStrike(finalPoint);
+            return finalAlongPx > 120
+                ? [`${assignment.actorId}: final point is ${Math.round(finalAlongPx)}px beyond target strike marker`]
+                : [];
+        });
+        if (violations.length > 0) {
+            throw new Error(`Expected bombers to stop on the planned target-run rail: ${violations.join("; ")}`);
+        }
+    });
+});
 registerTest("AIR_SHOW_REGRESSION_BOMBER_SPEED_DIFFERENTIATION", async ({ Given, When, Then }) => {
     let result = null;
     await Given("the combined ingress duration fix attempt (max 3200ms, default 3600ms)", async () => { });
@@ -286,6 +325,66 @@ registerTest("AIR_SHOW_REGRESSION_ESCORT_CLASH_ENTRY_MAINTAINS_HEADING_CONTINUIT
             throw new Error(`Escort clash-entry snap turns detected:\n${violations.join("\n")}`);
         }
         console.log(`[REGRESSION: ESCORT TURN] ✓ FIXED: max clash-entry heading change ${maxTurnDeg.toFixed(1)}deg`);
+    });
+});
+registerTest("AIR_SHOW_REGRESSION_FIGHTER_INGRESS_USES_HQ_ORIGINS_AND_TARGET_CORRIDOR_MERGE", async ({ Given, When, Then }) => {
+    let result = null;
+    await Given("the North Star requirement that fighters originate from faction HQ-side off-map origins", async () => { });
+    await When("the contested package ingress is planned", async () => {
+        result = runAirScenario();
+    });
+    await Then("CAP and escorts should ingress from their faction origins into the target corridor merge anchor", async () => {
+        const inspection = findContestedInspection(result);
+        if (!inspection) {
+            console.log("[REGRESSION: CORRIDOR CENTER] No contested package found - skipping");
+            return;
+        }
+        const originPlan = inspection.report.originPlan;
+        if (!originPlan) {
+            throw new Error("Expected HQ origin plan for contested package corridor midpoint validation.");
+        }
+        const fighterIngress = inspection.report.phases.find((phase) => phase.label === "fighter-ingress");
+        if (!fighterIngress) {
+            throw new Error("Expected fighter-ingress phase.");
+        }
+        const axis = { x: originPlan.axis.cx, y: originPlan.axis.cy };
+        const corridorCenter = inspection.report.corridor.center;
+        const along = (point) => (point.cx - corridorCenter.cx) * axis.x + (point.cy - corridorCenter.cy) * axis.y;
+        const playerOriginAlong = along(originPlan.playerOrigin);
+        const botOriginAlong = along(originPlan.botOrigin);
+        const mergeAnchor = inspection.report.corridor.merge;
+        const flightById = new Map(inspection.report.flights.map((flight) => [flight.id, flight]));
+        const fighterAssignments = fighterIngress.assignments.filter((assignment) => assignment.role === "interceptor" || assignment.role === "escort");
+        if (fighterAssignments.length <= 0) {
+            throw new Error("Expected fighter assignments during fighter-ingress.");
+        }
+        const originTolerancePx = 280;
+        const mergeTolerancePx = 280;
+        const violations = fighterAssignments.flatMap((assignment) => {
+            const flight = flightById.get(assignment.flightId);
+            const samples = assignment.sampledPositions;
+            const start = samples[0] ?? assignment.points[0];
+            const end = samples[samples.length - 1] ?? assignment.points[assignment.points.length - 1];
+            if (!flight || !start || !end) {
+                return [`${assignment.actorId} missing flight or ingress samples`];
+            }
+            const expectedOriginAlong = flight.faction === "Bot" ? botOriginAlong : playerOriginAlong;
+            const startDeltaPx = Math.abs(along(start) - expectedOriginAlong);
+            const endDistancePx = Math.hypot(end.cx - mergeAnchor.cx, end.cy - mergeAnchor.cy);
+            const actorViolations = [];
+            if (startDeltaPx > originTolerancePx) {
+                actorViolations.push(`${assignment.actorId} ${flight.faction ?? "Unknown"} ${assignment.role} started ${Math.round(startDeltaPx)}px from faction origin along corridor`);
+            }
+            if (endDistancePx > mergeTolerancePx) {
+                actorViolations.push(`${assignment.actorId} ${assignment.role} ended ${Math.round(endDistancePx)}px from target corridor merge`);
+            }
+            return actorViolations;
+        });
+        if (violations.length > 0) {
+            throw new Error("Expected fighter ingress to use faction origins and the target corridor merge instead of a synthetic enemy-side segment: "
+                + violations.join("; "));
+        }
+        console.log(`[REGRESSION: CORRIDOR MERGE] ✓ FIXED: ${fighterAssignments.length} fighter actors ingress from HQ origins to target corridor merge`);
     });
 });
 registerTest("AIR_SHOW_REGRESSION_NO_BOMBER_REAPPEAR_AFTER_DOGFIGHT", async ({ Given, When, Then }) => {

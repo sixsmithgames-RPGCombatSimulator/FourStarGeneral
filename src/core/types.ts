@@ -59,6 +59,9 @@ export interface TileDefinition {
   density: TerrainDensity;
   features: TerrainFeature[];
   recon: ReconStatus;
+  /** Optional art-variant override. "center" selects the urban-center tile; "1"–"4" pin a specific variation.
+   *  When absent the renderer picks deterministically from the available variants using hex position. */
+  spriteVariant?: string;
 }
 
 export type TilePalette = Record<string, TileDefinition>;
@@ -68,6 +71,8 @@ export interface TileInstance {
   recon?: ReconStatus;
   density?: TerrainDensity;
   features?: TerrainFeature[];
+  /** Optional art-variant override forwarded to the terrain sprite resolver. See TileDefinition.spriteVariant. */
+  spriteVariant?: string;
 }
 
 /**

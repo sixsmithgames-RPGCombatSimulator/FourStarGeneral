@@ -29,6 +29,24 @@
     "accMod": -40,
     "blocksLOS": true
   },
+  "town": {
+    "moveCost": { "leg": 1, "wheel": 0.75, "track": 1, "air": 1 },
+    "defense": 4,
+    "accMod": -30,
+    "blocksLOS": true
+  },
+  "hamlet": {
+    "moveCost": { "leg": 1, "wheel": 1, "track": 1, "air": 1 },
+    "defense": 2,
+    "accMod": -16,
+    "blocksLOS": false
+  },
+  "muddy": {
+    "moveCost": { "leg": 2, "wheel": 4, "track": 3, "air": 1 },
+    "defense": -1,
+    "accMod": 8,
+    "blocksLOS": false
+  },
   "marsh": {
     "moveCost": { "leg": 2, "wheel": 4, "track": 3, "air": 1 },
     "defense": -1,

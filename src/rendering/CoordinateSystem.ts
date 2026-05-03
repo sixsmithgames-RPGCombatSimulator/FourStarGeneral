@@ -208,7 +208,8 @@ export class CoordinateSystem {
         ...reference,
         density: entry.density ?? reference.density,
         features: mergedFeatures as TileDetails["features"],
-        recon: entry.recon ?? reference.recon
+        recon: entry.recon ?? reference.recon,
+        spriteVariant: entry.spriteVariant ?? reference.spriteVariant
       };
     }
 

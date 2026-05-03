@@ -11553,6 +11553,7 @@ export class GameEngine {
     /**
      * Resolves whether the selected unit can lay a smoke screen this turn.
      * Smoke is a free action (does not spend movement or attack allowance) but requires ammo.
+     * Each unit may deploy smoke at most once per turn — the smokeUsed flag prevents reuse.
      */
     resolveLaySmokeAvailability(hex, unit, definition, flags) {
         if (this._phase !== "playerTurn") {
@@ -11953,7 +11954,8 @@ export class GameEngine {
      * Places a smoke screen on the specified edge of a hex.
      * When targetHex is provided the smoke is placed there instead of the unit's own hex;
      * the target must be within the unit's rangeMax. When omitted smoke goes on the unit's hex.
-     * Smoke is a free action — it does not consume movement or attacks but requires ammo.
+     * Smoke is a free action (does not spend movement or attacks) but consumes 1 ammo.
+     * Each unit may deploy smoke at most once per turn — the smokeUsed flag prevents reuse.
      * The modification expires at the start of the next player turn via expireSmoke().
      * Returns true on success or throws with a descriptive message on invalid preconditions.
      */

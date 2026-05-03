@@ -175,7 +175,8 @@ export class CoordinateSystem {
                 ...reference,
                 density: entry.density ?? reference.density,
                 features: mergedFeatures,
-                recon: entry.recon ?? reference.recon
+                recon: entry.recon ?? reference.recon,
+                spriteVariant: entry.spriteVariant ?? reference.spriteVariant
             };
         }
         if (this.isTileDefinition(entry)) {

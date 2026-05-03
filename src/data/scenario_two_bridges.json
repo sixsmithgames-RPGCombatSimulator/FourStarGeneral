@@ -16,6 +16,8 @@
     "ROAD_BRIDGE_FIRST": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["pastures", "road", "bridge"], "recon": "firsthand" },
     "CITY_DEF_INT": { "terrain": "city", "terrainType": "urban", "density": "dense", "features": ["walls", "moderate fortifications"], "recon": "intel" },
     "CITY_DEF_FIRST": { "terrain": "city", "terrainType": "urban", "density": "dense", "features": ["walls", "moderate fortifications"], "recon": "firsthand" },
+    "CITY_CENTER_INT": { "terrain": "city", "terrainType": "urban", "density": "dense", "features": ["walls", "moderate fortifications"], "recon": "intel", "spriteVariant": "center" },
+    "CITY_CENTER_FIRST": { "terrain": "city", "terrainType": "urban", "density": "dense", "features": ["walls", "moderate fortifications"], "recon": "firsthand", "spriteVariant": "center" },
     "MOUNTAIN_DENSE_INT": { "terrain": "mountain", "terrainType": "mountain", "density": "dense", "features": ["cliffs"], "recon": "intel" },
     "MOUNTAIN_DENSE_NONE": { "terrain": "mountain", "terrainType": "mountain", "density": "dense", "features": ["cliffs"], "recon": "none" }
   },
@@ -24,7 +26,7 @@
       { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" },
       { "tile": "HILL_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_BRIDGE_INT" }, { "tile": "SEA" },
       { "tile": "SEA" }, { "tile": "ROAD_BRIDGE_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "HILL_AVG_INT" },
-      { "tile": "PLAINS_AVG_INT" }, { "tile": "CITY_DEF_INT" }, { "tile": "CITY_DEF_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }
+      { "tile": "PLAINS_AVG_INT" }, { "tile": "CITY_CENTER_INT" }, { "tile": "CITY_DEF_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }
     ],
     [
       { "tile": "HILL_AVG_INT" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" },

@@ -1314,6 +1314,7 @@ export class PrecombatScreen {
     if (
       normalized.includes("urban") ||
       normalized.includes("town") ||
+      normalized.includes("hamlet") ||
       normalized.includes("city") ||
       normalized.includes("village")
     ) {

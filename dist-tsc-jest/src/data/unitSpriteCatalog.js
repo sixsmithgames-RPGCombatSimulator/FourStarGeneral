@@ -123,6 +123,12 @@ const FACTION_GROUND_SPRITES = {
         Bot: unitSprite("Wheeled_Bikes_Recon_German_Southview.png"),
         fallback: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png")
     },
+    Recon_ArmoredCar: {
+        Player: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png"),
+        Ally: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png"),
+        Bot: unitSprite("Wheeled_Recon_Armored_Car_SdKfz222_German_Southview.png"),
+        fallback: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png")
+    },
     Engineer: {
         Player: unitSprite("Infantry_Engineers_USA_Southview.png"),
         Ally: unitSprite("Infantry_Engineers_USA_Southview.png"),
@@ -159,7 +165,7 @@ const SCENARIO_SPRITES = {
     Paratrooper: unitSprite("Paratrooper.png"),
     Combat_Engineer: unitSprite("Infantry_Engineers_USA_Southview.png"),
     AT_Gun_50mm: unitSprite("Wheeled_AT_Gun_USA_Southview.png"),
-    Recon_ArmoredCar: unitSprite("Recon_ArmoredCar.png"),
+    Recon_ArmoredCar: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png"),
     Supply_Truck: unitSprite("Supply_Truck.png"),
     Panzer_IV: unitSprite("Tank_PanzerIV_German_Southview.png"),
     Howitzer_105: unitSprite("Artillery_Howitzer_USA_Southview.png"),
@@ -342,12 +348,15 @@ Object.entries(allocationKeyToScenarioType).forEach(([allocationKey, scenarioTyp
 });
 /**
  * Retrieves the sprite URL for a deployment allocation key, if the catalogue includes one.
- * Does not support facing-based directional resolution (use getSpriteForScenarioType for that).
+ * When facing is provided, resolves the directional view (e.g., Sideview/Southview/Northview).
  */
-export function getSpriteForAllocationKey(allocationKey, faction) {
+export function getSpriteForAllocationKey(allocationKey, faction, facing) {
     const scenarioType = allocationKeyToScenarioType[allocationKey];
-    if (scenarioType) {
-        return resolveScenarioSprite(scenarioType, faction) ?? ALLOCATION_SPRITES[allocationKey];
+    const sprite = scenarioType
+        ? resolveScenarioSprite(scenarioType, faction) ?? ALLOCATION_SPRITES[allocationKey]
+        : ALLOCATION_SPRITES[allocationKey];
+    if (!sprite || !facing) {
+        return sprite;
     }
-    return ALLOCATION_SPRITES[allocationKey];
+    return resolveDirectionalSprite(sprite, facing);
 }

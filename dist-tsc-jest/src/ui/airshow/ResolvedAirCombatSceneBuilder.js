@@ -43,14 +43,15 @@ export function buildResolvedAirShowFlakBursts(flakEvent, options = {}) {
                 + index * progressStep
                 + (randA - 0.5) * progressStep * 0.42)),
             count: 1,
-            scale: 0.5 + randC * 0.08,
-            alongOffsetPx: -6 + (randA - 0.5) * 30,
-            lateralOffsetPx: (randB - 0.5) * Math.min(38, 18 + normalizedBatteryCount * 5),
-            alongSpreadPx: 24 + normalizedBatteryCount * 4,
-            lateralSpreadPx: 34 + normalizedBatteryCount * 8,
-            puffCount: 1,
-            smokePuffCount: index % 2 === 0 ? 1 : 0,
-            smokeScale: 0.76 + randC * 0.12,
+            scale: 0.56 + randC * 0.1,
+            alongOffsetPx: -10 + (randA - 0.5) * 46,
+            lateralOffsetPx: (index % Math.max(1, normalizedBatteryCount) - (Math.max(1, normalizedBatteryCount) - 1) / 2) * 24
+                + (randB - 0.5) * Math.min(62, 28 + normalizedBatteryCount * 8),
+            alongSpreadPx: 46 + normalizedBatteryCount * 7,
+            lateralSpreadPx: 82 + normalizedBatteryCount * 13,
+            puffCount: 12 + (index % 3),
+            smokePuffCount: 16 + (index % 4),
+            smokeScale: 1.12 + randC * 0.14,
             bomberUnitKey: options.bomberUnitKey ?? null,
             targetHexKey: options.targetHexKey ?? null,
             batteryHexKey: batteryHexKeys[index % Math.max(1, batteryHexKeys.length)] ?? null

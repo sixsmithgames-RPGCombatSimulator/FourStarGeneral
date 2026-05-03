@@ -125,7 +125,7 @@
   {
     "type": "flakBurst",
     "displayName": "Flak Airburst",
-    "durationMs": 420,
+    "durationMs": 1100,
     "nodeCountBudget": {
       "min": 4,
       "typical": 7,
@@ -164,16 +164,48 @@
       {
         "name": "smoke",
         "startMs": 40,
-        "endMs": 420,
+        "endMs": 1100,
         "primitives": [
           {
             "type": "smoke_puff",
             "startMs": 40,
-            "endMs": 420,
+            "endMs": 1100,
             "params": {
-              "maxRadius": 18,
-              "riseDistance": 10,
-              "driftX": 4
+              "maxRadius": 24,
+              "riseDistance": 16,
+              "driftX": 6
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "flakSmokePuff",
+    "displayName": "Flak Smoke Puff",
+    "durationMs": 1250,
+    "nodeCountBudget": {
+      "min": 2,
+      "typical": 4,
+      "max": 6
+    },
+    "useTerrainResponse": false,
+    "phases": [
+      {
+        "name": "smoke",
+        "startMs": 0,
+        "endMs": 1250,
+        "primitives": [
+          {
+            "type": "smoke_puff",
+            "startMs": 0,
+            "endMs": 1250,
+            "params": {
+              "maxRadius": 22,
+              "riseDistance": 14,
+              "driftX": 8,
+              "plumeWidth": 1.18,
+              "detail": 1.12
             }
           }
         ]

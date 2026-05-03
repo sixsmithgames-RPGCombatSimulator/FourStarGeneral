@@ -4,6 +4,7 @@ import { HEX_RADIUS, HEX_HEIGHT, HEX_WIDTH } from "../core/balance";
 import { CoordinateSystem } from "./CoordinateSystem";
 import { TerrainRenderer } from "./TerrainRenderer";
 import { RoadOverlayRenderer } from "./RoadOverlayRenderer";
+import { RiverOverlayRenderer } from "./RiverOverlayRenderer";
 import { ProceduralEffectsAnimator, getZoomTier } from "./ProceduralEffects";
 import { loadEffectSpecifications } from "./EffectSpecifications";
 import { getTerrainTint, shouldUseTerrainResponse, loadTerrainTints } from "./TerrainResponseSystem";
@@ -57,6 +58,7 @@ export class HexMapRenderer {
         this.initialized = false;
         this.terrainRenderer = new TerrainRenderer();
         this.roadRenderer = new RoadOverlayRenderer();
+        this.riverRenderer = new RiverOverlayRenderer();
         this.reconOverlayState = new Map();
         this.combatAnimator = null;
         this.soundManager = new CombatSoundManager();
@@ -864,7 +866,7 @@ export class HexMapRenderer {
                     flashCount: burst.flashCount,
                     puffCount: burst.puffCount,
                     smokePuffCount: burst.smokePuffCount
-                }, 1.08, 0.94);
+                }, burst.scale ?? 1.08, burst.smokeScale ?? 0.94);
             }, Math.max(0, Math.round(phase.durationMs * this.clamp(burst.progress, 0, 1)))));
         });
         if (phase.label === "target-run") {
@@ -3583,7 +3585,7 @@ export class HexMapRenderer {
         const tooltip = this.terrainRenderer.generateHexTooltip(tile);
         const hexKey = CoordinateSystem.makeHexKey(col, row);
         const clipId = `clip-${hexKey.replace(/[^a-z0-9]/gi, "-")}`;
-        const sprite = this.terrainRenderer.getTerrainSprite(tile);
+        const sprite = this.terrainRenderer.getTerrainSprite(tile, col, row);
         // Look up terrain definition for LOS and combat stats
         const terrainDef = terrainData[tile.terrain];
         const defense = terrainDef?.defense ?? 0;
@@ -3596,6 +3598,7 @@ export class HexMapRenderer {
         const imageX = cx - imageWidth / 2;
         const imageY = cy - imageHeight / 2;
         const roadOverlay = this.roadRenderer.drawRoadOverlay(cx, cy, tile, col, row, data.tiles, data.tilePalette);
+        const riverOverlay = this.riverRenderer.drawRiverOverlay(cx, cy, tile, col, row, data.tiles, data.tilePalette);
         const featureOverlay = this.renderTerrainFeatureOverlay(tile, cx, cy, clipId);
         return `
       <g class="hex-cell" data-terrain="${tile.terrain}" data-terrain-type="${tile.terrainType}" data-features="${tile.features.join("|")}" data-hex="${hexKey}" data-col="${col}" data-row="${row}" data-cx="${cx}" data-cy="${cy}" data-clip-id="${clipId}" data-defense="${defense}" data-acc-mod="${accMod}" data-blocks-los="${blocksLOS}">
@@ -3607,6 +3610,7 @@ export class HexMapRenderer {
         ${sprite ? `<image href="${sprite}" x="${imageX}" y="${imageY}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})" class="terrain-sprite" />` : ""}
         <polygon class="hex-tile" points="${points}" fill="${fill}" fill-opacity="${sprite ? 0.35 : 1}" stroke="${HEX_DEFAULT_STROKE}" stroke-width="${HEX_DEFAULT_STROKE_WIDTH}"></polygon>
         ${roadOverlay}
+        ${riverOverlay}
         ${featureOverlay}
         <title>${tooltip}</title>
       </g>
@@ -4428,24 +4432,26 @@ export class HexMapRenderer {
     resolveAirShowSceneCorridorAnchor(corridor, role, index, total, alongSign) {
         const lane = total <= 1 ? 0 : index - (total - 1) / 2;
         const safeAlongSign = alongSign >= 0 ? 1 : -1;
-        const rand = this.seededRandom(this.seedFromHexKey(`airshow-corridor-anchor:${role}:${index}:${total}:${safeAlongSign}:${Math.round(corridor.center.cx)}:${Math.round(corridor.center.cy)}`));
-        const alongMagnitudePx = role === "interceptor"
-            ? 500 + rand() * 20
-            : role === "escort"
-                ? 500 + rand() * 16
-                : 500 + rand() * 22;
+        const mapBounds = this.resolveAirShowMapBounds();
+        const direction = {
+            x: corridor.axis.x * safeAlongSign,
+            y: corridor.axis.y * safeAlongSign
+        };
+        const boundary = mapBounds
+            ? resolveAirShowBoundsRayIntersection(corridor.center, direction, mapBounds)
+            : null;
+        const origin = boundary
+            ? {
+                cx: boundary.cx + direction.x * HexMapRenderer.OFF_MAP_DISTANCE_PX,
+                cy: boundary.cy + direction.y * HexMapRenderer.OFF_MAP_DISTANCE_PX
+            }
+            : this.projectAirShowCorridorPoint(corridor, safeAlongSign * HexMapRenderer.OFF_MAP_DISTANCE_PX);
         const lateralStepPx = role === "interceptor"
             ? 72
             : role === "escort"
                 ? 64
                 : 58;
-        const lateralJitterPx = role === "bomber"
-            ? (rand() - 0.5) * 16
-            : (rand() - 0.5) * 20;
-        const alongJitterPx = role === "bomber"
-            ? (rand() - 0.5) * 14
-            : (rand() - 0.5) * 18;
-        return this.projectAirShowCorridorPoint(corridor, safeAlongSign * alongMagnitudePx + alongJitterPx, lane * lateralStepPx + lateralJitterPx);
+        return this.offsetAirShowPoint(origin, corridor.normal.x * lane * lateralStepPx, corridor.normal.y * lane * lateralStepPx);
     }
     resolveAirShowViewportSafeSpawnAnchor(corridor, flight, anchor) {
         const visibleBounds = this.resolveAirShowVisibleBounds();
@@ -4581,11 +4587,10 @@ export class HexMapRenderer {
                 const baseAnchor = (hqAxis && resolvedFactionSign !== null)
                     ? this.offsetAirShowPoint(resolvedFactionSign >= 0 ? hqAxis.playerOrigin : hqAxis.botOrigin, corridor.normal.x * laneIndex * 64, corridor.normal.y * laneIndex * 64)
                     : this.resolveAirShowSceneCorridorAnchor(corridor, role, orderedIndex, orderedFlights.length, alongSign);
-                const anchor = this.resolveAirShowViewportSafeSpawnAnchor(corridor, entry.flight, baseAnchor);
                 const headingTarget = role === "bomber"
-                    ? this.resolveAirShowBomberIngressBandWaypoint(corridor, anchor, sceneKind, laneIndex)
+                    ? this.resolveAirShowBomberIngressBandWaypoint(corridor, baseAnchor, sceneKind, laneIndex)
                     : this.resolveAirShowEscortClashFocusPoint(corridor, role, 0, laneIndex);
-                this.resetAirShowFlightToSceneAnchor(entry.flight, anchor, headingTarget);
+                this.resetAirShowFlightToSceneAnchor(entry.flight, baseAnchor, headingTarget);
             });
         };
         positionFlights(interceptorFlights, "interceptor", -1);
@@ -6520,16 +6525,11 @@ export class HexMapRenderer {
         const pairedInterceptorIds = new Set(uniqueEscortPairs.map((pair) => pair.interceptorFlight.spec.id));
         const pairedEscortIds = new Set(uniqueEscortPairs.map((pair) => pair.escortFlight.spec.id));
         const resolveEscortPairIngressCenter = (pair, pairIndex) => {
-            const interceptorCurrent = this.averageAirShowPosition(pair.interceptorFlight.actors) ?? pair.interceptorFlight.anchor;
-            const escortCurrent = this.averageAirShowPosition(pair.escortFlight.actors) ?? pair.escortFlight.anchor;
-            const pairMidpoint = this.averageAirShowPoints([interceptorCurrent, escortCurrent])
-                ?? ingressClashCenter;
             const clashProjection = this.resolveAirShowCorridorCoordinates(corridor, ingressClashCenter);
-            const midpointProjection = this.resolveAirShowCorridorCoordinates(corridor, pairMidpoint);
             const pairLane = uniqueEscortPairs.length <= 1
                 ? 0
                 : pairIndex - (uniqueEscortPairs.length - 1) / 2;
-            return this.clampPointToViewportBounds(this.projectAirShowCorridorPoint(corridor, this.clamp(clashProjection.alongPx * 0.58 + midpointProjection.alongPx * 0.42 + pairLane * 8, -108, 108), this.clamp(clashProjection.lateralPx * 0.62 + midpointProjection.lateralPx * 0.18 + pairLane * 26, -112, 112)), corridor.center, 430, 300);
+            return this.projectAirShowCorridorPoint(corridor, clashProjection.alongPx + pairLane * 8, clashProjection.lateralPx + pairLane * 26);
         };
         const pairIngressAssignments = uniqueEscortPairs.flatMap((pair, pairIndex) => {
             const interceptorCurrent = this.averageAirShowPosition(pair.interceptorFlight.actors) ?? pair.interceptorFlight.anchor;
@@ -6691,9 +6691,7 @@ export class HexMapRenderer {
                 ?? (options.role
                     ? this.resolveAirShowIngressBandHoldTarget(corridor, current, sceneKind, options.role, lane, jitterAlongPx, jitterLateralPx)
                     : this.projectAirShowCorridorPoint(corridor, options.alongPx + lane * (options.alongStepPx ?? 34) + jitterAlongPx, options.lateralPx + lane * (options.lateralStepPx ?? 48) + jitterLateralPx));
-            const phaseStartAnchor = label.startsWith("ingress:")
-                ? this.resolveAirShowViewportSafeEntryAnchor(flight, current, holdTarget)
-                : current;
+            const phaseStartAnchor = current;
             const guidedPath = this.buildAirShowBomberContinuationPath(phaseStartAnchor, holdTarget, {
                 lateralSign: lane >= 0 ? 1 : -1,
                 corridorWidthPx: headingTarget ? 16 : 20,
@@ -6731,7 +6729,7 @@ export class HexMapRenderer {
         const roleLateralStepPx = role === "interceptor"
             ? (useCompactIngressStaging ? 18 : 24)
             : (useCompactIngressStaging ? 18 : 22);
-        return this.clampPointToViewportBounds(this.projectAirShowCorridorPoint(corridor, focusProjection.alongPx - approachSign * roleAlongLeadPx + roleLaneAlongPx, focusProjection.lateralPx + roleLateralSign * (roleLateralBasePx + laneIndex * roleLateralStepPx)), corridor.center, 430, 300);
+        return this.projectAirShowCorridorPoint(corridor, focusProjection.alongPx - approachSign * roleAlongLeadPx + roleLaneAlongPx, focusProjection.lateralPx + roleLateralSign * (roleLateralBasePx + laneIndex * roleLateralStepPx));
     }
     resolveAirShowIngressBandHoldTarget(corridor, current, sceneKind, role, laneIndex, jitterAlongPx = 0, jitterLateralPx = 0) {
         const plan = this.resolveAirShowIngressBandPlan(sceneKind, role);
@@ -6754,20 +6752,14 @@ export class HexMapRenderer {
             .filter((flight) => flight.actors.some((actor) => actor.active))
             .map((flight) => this.averageAirShowPosition(flight.actors) ?? flight.anchor));
     }
-    resolveAirShowEscortClashCenter(corridor, interceptorFlights, escortFlights, beat) {
-        const groupMidpoint = this.averageAirShowPoints([
-            this.resolveAirShowFlightGroupCenter(interceptorFlights),
-            this.resolveAirShowFlightGroupCenter(escortFlights)
-        ].filter((point) => !!point))
-            ?? corridor.center;
-        const midpointProjection = this.resolveAirShowCorridorCoordinates(corridor, groupMidpoint);
+    resolveAirShowEscortClashCenter(corridor, _interceptorFlights, _escortFlights, beat) {
         const strikeProjection = this.resolveAirShowCorridorCoordinates(corridor, corridor.strike);
+        const mergeProjection = this.resolveAirShowCorridorCoordinates(corridor, corridor.merge);
         const interceptorSideSign = strikeProjection.alongPx >= 0 ? -1 : 1;
-        const maxAlongPx = this.clamp(Math.abs(strikeProjection.alongPx) * 0.14, 36, 126);
         const scrambleBiasPx = beat === 0
             ? 0
             : interceptorSideSign * this.clamp(Math.abs(strikeProjection.alongPx) * 0.04, 10, 34);
-        return this.clampPointToViewportBounds(this.projectAirShowCorridorPoint(corridor, this.clamp(midpointProjection.alongPx * 0.42 + scrambleBiasPx * 0.4, -maxAlongPx, maxAlongPx), this.clamp(midpointProjection.lateralPx * 0.24, -42, 42)), corridor.center, 430, 300);
+        return this.projectAirShowCorridorPoint(corridor, mergeProjection.alongPx + scrambleBiasPx, mergeProjection.lateralPx);
     }
     resolveAirShowEscortClashFocusPoint(corridor, role, beat, laneIndex, clashCenter) {
         const strikeProjection = this.resolveAirShowCorridorCoordinates(corridor, corridor.strike);
@@ -6791,7 +6783,7 @@ export class HexMapRenderer {
                 : role === "interceptor" ? -12 : 12
             : role === "interceptor" ? -24 : 24;
         const laneLateralPx = laneIndex * (beat === 0 ? (useTightMergeClosure ? 18 : 34) : 28);
-        return this.clampPointToViewportBounds(this.projectAirShowCorridorPoint(corridor, alongPx, baseProjection.lateralPx + laneLateralPx + roleLateralPx), corridor.center, 430, 300);
+        return this.projectAirShowCorridorPoint(corridor, alongPx, baseProjection.lateralPx + laneLateralPx + roleLateralPx);
     }
     resolveAirShowBomberTargetRunExitPoint(corridor, bomberCurrent, targetCenter, targetApproach, laneIndex) {
         const currentProjection = this.resolveAirShowCorridorCoordinates(corridor, bomberCurrent);
@@ -9115,10 +9107,19 @@ export class HexMapRenderer {
     resolveAirShowFlakBurstWave(corridor, targetCenter, burst) {
         const alongOffsetPx = burst.alongOffsetPx ?? -8;
         const lateralOffsetPx = burst.lateralOffsetPx ?? 0;
-        const alongSpreadPx = Math.max(34, burst.alongSpreadPx ?? 46);
-        const lateralSpreadPx = Math.max(54, burst.lateralSpreadPx ?? HEX_WIDTH * 1.08);
-        const puffCount = Math.max(11, burst.puffCount ?? Math.max(11, burst.count * 6));
-        const smokePuffCount = Math.max(1, Math.min(Math.max(1, Math.round(puffCount * 0.28)), burst.smokePuffCount ?? Math.round(puffCount * 0.24)));
+        const requestedPuffCount = burst.puffCount ?? Math.max(11, burst.count * 6);
+        const isSinglePuff = burst.puffCount !== undefined && requestedPuffCount <= 1;
+        const alongSpreadPx = isSinglePuff
+            ? Math.max(4, burst.alongSpreadPx ?? 8)
+            : Math.max(34, burst.alongSpreadPx ?? 46);
+        const lateralSpreadPx = isSinglePuff
+            ? Math.max(4, burst.lateralSpreadPx ?? 8)
+            : Math.max(54, burst.lateralSpreadPx ?? HEX_WIDTH * 1.08);
+        const puffCount = Math.max(isSinglePuff ? 1 : 11, Math.min(24, requestedPuffCount));
+        const requestedSmokePuffCount = burst.smokePuffCount ?? Math.round(puffCount * 1.15);
+        const smokePuffCount = isSinglePuff
+            ? Math.max(1, requestedSmokePuffCount)
+            : Math.max(Math.round(puffCount * 0.7), Math.min(Math.max(puffCount + 8, Math.round(puffCount * 1.7)), requestedSmokePuffCount));
         const center = this.clampPointToViewportBounds({
             cx: targetCenter.cx + corridor.axis.x * alongOffsetPx + corridor.normal.x * lateralOffsetPx,
             cy: targetCenter.cy + corridor.axis.y * alongOffsetPx + corridor.normal.y * lateralOffsetPx
@@ -9126,7 +9127,12 @@ export class HexMapRenderer {
         let seed = (Math.round(targetCenter.cx * 13)
             + Math.round(targetCenter.cy * 17)
             + Math.round((burst.progress ?? 0) * 1000) * 19
-            + Math.round((burst.count ?? 1) * 31)) >>> 0;
+            + Math.round((burst.count ?? 1) * 31)
+            + Math.round(alongOffsetPx * 23)
+            + Math.round(lateralOffsetPx * 29)
+            + Math.round(alongSpreadPx * 7)
+            + Math.round(lateralSpreadPx * 11)
+            + Math.round(puffCount * 37)) >>> 0;
         const nextRandom = () => {
             seed = (seed * 1664525 + 1013904223) >>> 0;
             return seed / 0x100000000;
@@ -9147,12 +9153,18 @@ export class HexMapRenderer {
             const lateralJitter = cluster.lateral
                 + Math.sin(angle) * lateralSpreadPx * (0.22 + radial * 0.48)
                 + (nextRandom() - 0.5) * lateralSpreadPx * 0.1;
+            const screenJitterX = isSinglePuff
+                ? 0
+                : (nextRandom() - 0.5) * Math.max(92, Math.min(156, lateralSpreadPx * 0.86));
+            const screenJitterY = isSinglePuff
+                ? 0
+                : (nextRandom() - 0.5) * Math.max(20, Math.min(54, alongSpreadPx * 0.45));
             return this.clampPointToViewportBounds({
-                cx: center.cx + corridor.axis.x * alongJitter + corridor.normal.x * lateralJitter,
-                cy: center.cy + corridor.axis.y * alongJitter + corridor.normal.y * lateralJitter
+                cx: center.cx + corridor.axis.x * alongJitter + corridor.normal.x * lateralJitter + screenJitterX,
+                cy: center.cy + corridor.axis.y * alongJitter + corridor.normal.y * lateralJitter + screenJitterY
             }, targetCenter, 470, 320);
         });
-        const flashCount = Math.max(4, Math.min(8, Math.round(puffCount * 0.36)));
+        const flashCount = isSinglePuff ? 1 : Math.max(3, Math.min(8, Math.round(puffCount * 0.34)));
         return { center, flashCount, points, puffCount, smokePuffCount };
     }
     resolveAirShowTracerTargetPoint(target) {
@@ -9966,6 +9978,9 @@ export class HexMapRenderer {
         if (animationType === "flakBurst") {
             return 24;
         }
+        if (animationType === "flakSmokePuff") {
+            return 28;
+        }
         if (animationType === "airDamageSmoke") {
             return 40;
         }
@@ -10040,18 +10055,33 @@ export class HexMapRenderer {
     }
     playAirShowFlakWave(wave, scale = 1.08, _smokeScale = 0.92) {
         const pointCount = Math.min(wave.puffCount, wave.points.length);
+        const singlePuffWave = wave.puffCount <= 1 && pointCount <= 1;
+        const flashPointCount = singlePuffWave
+            ? pointCount
+            : Math.min(pointCount, Math.max(1, wave.flashCount));
+        const smokePointCount = singlePuffWave
+            ? pointCount
+            : Math.min(pointCount, Math.max(flashPointCount, wave.smokePuffCount));
         for (let index = 0; index < pointCount; index += 1) {
             const point = wave.points[index];
             const flashDelayMs = index * 42 + (index % 3) * 14;
-            window.setTimeout(() => {
-                const burstScale = scale * (0.78 + (index % 5) * 0.05);
-                void this.playFlakBurstAt(point.cx, point.cy, index % 3 === 0 ? 3 : 2, burstScale, false);
-            }, flashDelayMs);
-            if (index < wave.flashCount) {
+            if (index < flashPointCount) {
+                window.setTimeout(() => {
+                    const burstScale = scale * (0.78 + (index % 5) * 0.05);
+                    void this.playFlakBurstAt(point.cx, point.cy, singlePuffWave ? 1 : index % 3 === 0 ? 3 : 2, burstScale, false);
+                }, flashDelayMs);
+            }
+            if (!singlePuffWave && index < wave.flashCount) {
                 window.setTimeout(() => {
                     const side = index % 2 === 0 ? -1 : 1;
                     void this.playFlakBurstAt(point.cx + side * (5 + (index % 4) * 2), point.cy - side * (3 + (index % 3)), 1, scale * 0.62, false);
                 }, flashDelayMs + 160 + (index % 2) * 52);
+            }
+            if (!singlePuffWave && index < smokePointCount) {
+                window.setTimeout(() => {
+                    const side = index % 2 === 0 ? -1 : 1;
+                    void this.playCombatAnimationAt("flakSmokePuff", point.cx + side * (2 + (index % 4) * 1.7), point.cy - 4 - (index % 3) * 2, _smokeScale * (0.86 + (index % 5) * 0.04), false, undefined, false);
+                }, flashDelayMs + 210 + (index % 5) * 36);
             }
         }
     }
