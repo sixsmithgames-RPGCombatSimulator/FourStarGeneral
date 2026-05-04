@@ -1,35 +1,40 @@
 import defaultScenario from "./scenario01.json";
 import citadelRidgeScenario from "./scenario_citadel_ridge.json";
-import townDefenseScenario from "./scenario_town_defense";
+import townDefenseScenario from "./scenario_town_defense.json";
 import riverWatchScenario from "./scenario_river_watch.json";
 import type { MissionKey } from "../state/UIState";
+import { isValidMission } from "./missions";
 import { assertScenarioSourceValid } from "./scenarioValidation";
 
-export type ScenarioSource = typeof defaultScenario | typeof townDefenseScenario | typeof citadelRidgeScenario | typeof riverWatchScenario;
+export type ScenarioSource =
+  | typeof defaultScenario
+  | typeof townDefenseScenario
+  | typeof citadelRidgeScenario
+  | typeof riverWatchScenario;
 
-const scenarioSourcesByMissionKey: Record<"training" | "patrol" | "patrol_river_watch" | "assault_citadel_ridge" | "assault" | "campaign", ScenarioSource> = {
-  training: defaultScenario as ScenarioSource,
-  patrol: townDefenseScenario as ScenarioSource,
-  patrol_river_watch: riverWatchScenario as ScenarioSource,
-  assault_citadel_ridge: citadelRidgeScenario as ScenarioSource,
-  assault: defaultScenario as ScenarioSource,
-  campaign: defaultScenario as ScenarioSource
+const scenarioSourcesByMissionKey: Record<MissionKey, ScenarioSource> = {
+  training: defaultScenario,
+  patrol: townDefenseScenario,
+  patrol_river_watch: riverWatchScenario,
+  assault_citadel_ridge: citadelRidgeScenario,
+  assault: defaultScenario,
+  campaign: defaultScenario
 };
 
 /**
- * Returns the raw scenario data source for a given mission key.
+ * Returns the validated scenario data source for a given mission key.
+ * Throws with a clear message if the key is unrecognised or the scenario fails validation.
  */
 export function getScenarioByMissionKey(missionKey: string): ScenarioSource {
-  const resolvedKey = missionKey.trim() as MissionKey;
-  if (!(resolvedKey in scenarioSourcesByMissionKey)) {
-    throw new Error(`[scenarioRegistry] Unknown mission key: ${missionKey}`);
+  if (!isValidMission(missionKey)) {
+    throw new Error(
+      `[scenarioRegistry] Unknown mission key: "${missionKey}". Valid keys are: ${Object.keys(scenarioSourcesByMissionKey).join(", ")}.`
+    );
   }
 
-  const scenario = scenarioSourcesByMissionKey[resolvedKey as keyof typeof scenarioSourcesByMissionKey];
-  assertScenarioSourceValid(scenario, resolvedKey);
+  const scenario = scenarioSourcesByMissionKey[missionKey];
+  assertScenarioSourceValid(scenario, missionKey);
 
-  const name = (scenario as { name?: string }).name;
-  const size = (scenario as { size?: { cols?: number; rows?: number } }).size;
-  console.info("[scenarioRegistry] resolve scenario", { missionKey: resolvedKey, name, size });
+  console.info("[scenarioRegistry] resolve scenario", { missionKey, name: scenario.name, size: scenario.size });
   return scenario;
 }

@@ -26,7 +26,7 @@
       { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" },
       { "tile": "HILL_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_BRIDGE_INT" }, { "tile": "SEA" },
       { "tile": "SEA" }, { "tile": "ROAD_BRIDGE_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "HILL_AVG_INT" },
-      { "tile": "PLAINS_AVG_INT" }, { "tile": "CITY_CENTER_INT" }, { "tile": "CITY_DEF_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }
+      { "tile": "PLAINS_AVG_INT" }, { "tile": "CITY_DEF_INT" }, { "tile": "CITY_DEF_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }
     ],
     [
       { "tile": "HILL_AVG_INT" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" },
@@ -56,7 +56,7 @@
       { "tile": "PLAINS_AVG_FIRST" }, { "tile": "FOREST_DENSE_FIRST" }, { "tile": "FOREST_DENSE_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" },
       { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "SEA" },
       { "tile": "SEA" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "CITY_DEF_FIRST" },
-      { "tile": "CITY_DEF_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      { "tile": "CITY_CENTER_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
     ],
     [
       { "tile": "PLAINS_AVG_FIRST" }, { "tile": "FOREST_DENSE_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" },

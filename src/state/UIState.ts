@@ -16,8 +16,7 @@ export type MissionKey =
   | "patrol_river_watch"
   | "assault_citadel_ridge"
   | "assault"
-  | "campaign"
-  | string;
+  | "campaign";
 
 /**
  * Centralized UI state management for the application.

@@ -5,7 +5,8 @@ const DEFAULT_AUTH_CONTEXT = {
     email: null,
     subscriptionStatus: null,
     planIds: [],
-    isPrivileged: false
+    isPrivileged: false,
+    isGuest: true
 };
 function hasActiveSubscription(status) {
     return status === "active" || status === "trialing";
@@ -34,20 +35,24 @@ function normalizeAuthContext(value) {
     const email = typeof record.email === "string" && record.email.length > 0 ? record.email : null;
     const planIds = normalizePlanIds(record.planIds);
     const isPrivileged = record.isPrivileged === true;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const isGuest = isAuthenticated === false || record.isGuest === true;
     return {
         resolved: true,
         isAuthenticated,
         email,
         subscriptionStatus: normalizeSubscriptionStatus(record.subscriptionStatus),
         planIds,
-        isPrivileged
+        isPrivileged,
+        isGuest
     };
 }
 function toSnapshot(context) {
     const fullGameAccess = context.isPrivileged || (hasActiveSubscription(context.subscriptionStatus) && context.planIds.some((planId) => isFullGamePlan(planId)));
     return {
         ...context,
-        fullGameAccess
+        fullGameAccess,
+        isGuest: context.isGuest ?? !context.isAuthenticated
     };
 }
 export class UnlockState {
@@ -92,6 +97,9 @@ export class UnlockState {
     }
     hasFullGameAccess() {
         return this.snapshot.fullGameAccess;
+    }
+    isGuestMode() {
+        return this.snapshot.isGuest;
     }
     hasRegionAccess(regionKey) {
         if (!regionKey) {

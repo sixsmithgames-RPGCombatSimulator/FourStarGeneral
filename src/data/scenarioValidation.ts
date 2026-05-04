@@ -304,7 +304,7 @@ function validateDeploymentZones(
             capacity,
             faction: zoneFaction as ScenarioDeploymentZone["faction"],
             hexes: (hexes as unknown[]).map((hex) => [readInteger((hex as unknown[])[0]) ?? -1, readInteger((hex as unknown[])[1]) ?? -1] as [number, number])
-          }, planningScenario, missionKey);
+          }, planningScenario, isValidMission(missionKey) ? missionKey : undefined);
           const metrics = measureDeploymentZoneGeometry(finalizedZone.hexKeys);
           playerCapacityTotal += finalizedZone.capacity;
           maxPlayerFrontage = Math.max(maxPlayerFrontage, metrics.frontage);

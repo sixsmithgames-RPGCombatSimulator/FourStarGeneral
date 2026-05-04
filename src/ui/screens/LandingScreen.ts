@@ -24,6 +24,7 @@ import type { GeneralRosterEntry } from "../../utils/rosterStorage";
 import { ensureUnlockState } from "../../state/UnlockState";
 import { PrecombatScreen } from "./PrecombatScreen";
 import { CampaignScreen } from "./CampaignScreen";
+import { createFieldCommanderGeneral, isFieldCommander, GUEST_MODE_MESSAGES, buildSignInUrl } from "../../utils/guestMode";
 
 interface GeneralFormData {
   name: string;
@@ -87,6 +88,8 @@ export class LandingScreen {
   private precombatScreen: PrecombatScreen | null = null;
   private campaignScreen: CampaignScreen | null = null;
   private readonly unlockState = ensureUnlockState();
+  private isGuestMode = false;
+  private signInBanner: HTMLElement | null = null;
 
   attachPrecombatScreen(precombatScreen: PrecombatScreen): void {
     this.precombatScreen = precombatScreen;
@@ -175,18 +178,94 @@ export class LandingScreen {
    */
   initialize(): void {
     ensureRosterInitialized();
+    this.initializeGuestMode();
     this.reconcileGeneralSelection();
     this.cacheElements();
     this.unlockState.subscribe(() => {
       this.populateCommissioningSelections();
       this.refreshCommissioningPreview();
       this.updateUI();
+      this.updateGuestModeUI();
     });
     this.bindEvents();
     this.updateUI();
     this.populateCommissioningSelections();
     this.refreshCommissioningPreview();
     this.syncDifficultySelection();
+    this.createSignInBanner();
+    this.updateGuestModeUI();
+  }
+
+  /**
+   * Initialize guest mode state and auto-assign Field Commander for guests.
+   */
+  private initializeGuestMode(): void {
+    this.isGuestMode = this.unlockState.isGuestMode();
+
+    if (this.isGuestMode) {
+      // Check if we already have a Field Commander in roster
+      const fieldCommander = generalRosterEntries.find(g => isFieldCommander(g.id));
+
+      if (!fieldCommander) {
+        // Add Field Commander to roster for guest
+        addGeneralToRoster(createFieldCommanderGeneral());
+      }
+
+      // Auto-select Field Commander for guests
+      const fieldCommanderId = generalRosterEntries.find(g => isFieldCommander(g.id))?.id;
+      if (fieldCommanderId) {
+        this.uiState.selectedGeneralId = fieldCommanderId;
+      }
+    }
+  }
+
+  /**
+   * Create the sign-in banner for guest mode.
+   */
+  private createSignInBanner(): void {
+    if (!this.isGuestMode || this.signInBanner) {
+      return;
+    }
+
+    const banner = document.createElement("div");
+    banner.className = "guest-signin-banner";
+    banner.innerHTML = `
+      <div class="guest-signin-content">
+        <span class="guest-signin-icon">👤</span>
+        <span class="guest-signin-text">${GUEST_MODE_MESSAGES.signInPrompt}</span>
+        <a href="${buildSignInUrl()}" class="guest-signin-button">Sign In</a>
+      </div>
+    `;
+
+    // Insert at top of landing screen
+    this.element.insertBefore(banner, this.element.firstChild);
+    this.signInBanner = banner;
+  }
+
+  /**
+   * Update UI based on guest mode state.
+   */
+  private updateGuestModeUI(): void {
+    const currentGuestMode = this.unlockState.isGuestMode();
+
+    // If auth state changed, refresh
+    if (currentGuestMode !== this.isGuestMode) {
+      this.isGuestMode = currentGuestMode;
+      if (!this.isGuestMode && this.signInBanner) {
+        // User signed in - remove banner
+        this.signInBanner.remove();
+        this.signInBanner = null;
+      } else if (this.isGuestMode && !this.signInBanner) {
+        this.createSignInBanner();
+      }
+    }
+
+    // Update export/import button visibility for guests
+    if (this.exportRosterButton) {
+      this.exportRosterButton.title = this.isGuestMode
+        ? "Sign in to export your roster"
+        : "Export roster to file";
+    }
   }
 
   /**
@@ -651,16 +730,21 @@ export class LandingScreen {
     this.generalRosterList.innerHTML = generalRosterEntries
       .map((entry) => {
         const selected = entry.id === this.uiState.selectedGeneralId;
+        const isGuestGeneral = isFieldCommander(entry.id);
+        const guestBadge = isGuestGeneral ? '<span class="guest-badge" title="Guest Commander">👤</span> ' : '';
+        const retireButton = isGuestGeneral
+          ? '<button type="button" class="secondary-button" disabled title="Sign in to create your own commander">Retire</button>'
+          : `<button type="button" class="secondary-button" data-retire-general="${entry.id}">Retire</button>`;
         return `
-          <article class="general-roster-card${selected ? " is-selected" : ""}">
+          <article class="general-roster-card${selected ? " is-selected" : ""}${isGuestGeneral ? " is-guest" : ""}">
             <header class="general-roster-details">
-              <h3>${entry.identity.name}</h3>
+              <h3>${guestBadge}${entry.identity.name}</h3>
               <p>${entry.identity.rank ?? "Independent Command"}</p>
             </header>
             <footer class="general-roster-actions">
               <button type="button" class="primary-button" data-select-general="${entry.id}">Assign</button>
               <button type="button" class="secondary-button" data-view-general="${entry.id}">View</button>
-              <button type="button" class="secondary-button" data-retire-general="${entry.id}">Retire</button>
+              ${retireButton}
             </footer>
           </article>
         `;
@@ -704,8 +788,15 @@ export class LandingScreen {
   /**
    * Removes a general from the roster.
    * If the removed general is currently selected, clears the selection.
+   * Guest Field Commander cannot be retired.
    */
   private retireGeneral(generalId: string): void {
+    // Prevent retiring the guest Field Commander
+    if (isFieldCommander(generalId)) {
+      this.showFeedback("Field Commander is a provisional officer. Sign in to commission your own generals.");
+      return;
+    }
+
     // Clear selection if removing the currently selected general
     if (generalId === this.uiState.selectedGeneralId) {
       this.uiState.clearGeneralSelection();
@@ -800,9 +891,17 @@ export class LandingScreen {
 
     const missionsCompleted = general.serviceRecord?.missionsCompleted ?? 0;
     const victories = general.serviceRecord?.victoriesAchieved ?? 0;
+    const isGuestGeneral = isFieldCommander(selectedId);
+
     this.generalAssignmentHeadline.textContent = `${general.identity.name} assigned.`;
-    this.generalAssignmentDetails.textContent = `Completed ${missionsCompleted} mission${missionsCompleted === 1 ? "" : "s"} with ${victories} victor${victories === 1 ? "y" : "ies"}.`;
-    this.missionListSummary.textContent = `Operations curated for ${general.identity.name}.`;
+
+    if (isGuestGeneral) {
+      this.generalAssignmentDetails.textContent = "Guest commander active. Sign in to commission a personalized general and save your service record.";
+      this.missionListSummary.textContent = "Operations available for Field Commander. Core factions and doctrines only.";
+    } else {
+      this.generalAssignmentDetails.textContent = `Completed ${missionsCompleted} mission${missionsCompleted === 1 ? "" : "s"} with ${victories} victor${victories === 1 ? "y" : "ies"}.`;
+      this.missionListSummary.textContent = `Operations curated for ${general.identity.name}.`;
+    }
     this.updateGeneralDetailPanel(general, "assignment");
   }
 

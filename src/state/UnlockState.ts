@@ -18,10 +18,12 @@ export interface UnlockAuthContext {
   subscriptionStatus: UnlockSubscriptionStatus;
   planIds: readonly string[];
   isPrivileged: boolean;
+  isGuest?: boolean;
 }
 
 export interface UnlockSnapshot extends UnlockAuthContext {
   fullGameAccess: boolean;
+  isGuest: boolean;
 }
 
 type UnlockListener = (snapshot: UnlockSnapshot) => void;
@@ -32,7 +34,8 @@ const DEFAULT_AUTH_CONTEXT: UnlockAuthContext = {
   email: null,
   subscriptionStatus: null,
   planIds: [],
-  isPrivileged: false
+  isPrivileged: false,
+  isGuest: true
 };
 
 function hasActiveSubscription(status: UnlockSubscriptionStatus): boolean {
@@ -65,13 +68,16 @@ function normalizeAuthContext(value: unknown): UnlockAuthContext | null {
   const email = typeof record.email === "string" && record.email.length > 0 ? record.email : null;
   const planIds = normalizePlanIds(record.planIds);
   const isPrivileged = record.isPrivileged === true;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isGuest = isAuthenticated === false || (record as any).isGuest === true;
   return {
     resolved: true,
     isAuthenticated,
     email,
     subscriptionStatus: normalizeSubscriptionStatus(record.subscriptionStatus),
     planIds,
-    isPrivileged
+    isPrivileged,
+    isGuest
   };
 }
 
@@ -81,7 +87,8 @@ function toSnapshot(context: UnlockAuthContext): UnlockSnapshot {
   );
   return {
     ...context,
-    fullGameAccess
+    fullGameAccess,
+    isGuest: context.isGuest ?? !context.isAuthenticated
   };
 }
 
@@ -135,6 +142,10 @@ export class UnlockState {
 
   hasFullGameAccess(): boolean {
     return this.snapshot.fullGameAccess;
+  }
+
+  isGuestMode(): boolean {
+    return this.snapshot.isGuest;
   }
 
   hasRegionAccess(regionKey: string | null | undefined): boolean {
