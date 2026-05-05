@@ -953,7 +953,7 @@ export class LandingScreen {
     const noGeneralSelected = !selectedGeneral;
 
     // Show ALL non-campaign missions in canonical order (campaigns have their own section)
-    const canonicalOrder: MissionKey[] = ["training", "patrol", "patrol_river_watch", "assault", "assault_citadel_ridge"];
+    const canonicalOrder: MissionKey[] = ["training", "patrol", "patrol_river_watch", "patrol_pointe_du_hoc", "assault", "assault_citadel_ridge"];
 
     const missionMarkup = canonicalOrder
       .map((missionKey) => {

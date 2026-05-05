@@ -2593,20 +2593,49 @@ export class BattleScreen {
           const label = this.resolveUnitLabel(unitKey);
           const liveReserveCount = this.countLiveReservesForUnitKey(engine, unitKey);
           if (liveReserveCount <= 0) {
+            // Log detailed diagnostic info to help debug reserve mismatches
+            console.warn("[BattleScreen] Deployment failed - reserve count is 0", {
+              unitKey,
+              label,
+              requestedHex: hexKey,
+              engineReserves: engine.getReserveSnapshot().map(r => ({
+                allocationKey: r.allocationKey,
+                unitType: r.unit.type,
+                unitStrength: r.unit.strength
+              })),
+              deploymentStateReserves: ensureDeploymentState().getReserves().map(r => ({
+                unitKey: r.unitKey,
+                label: r.label,
+                remaining: r.remaining
+              }))
+            });
+
+            // Force a mirror sync and recheck - the UI might be out of date
             this.refreshDeploymentMirrors("sync");
+
+            // Re-check after sync - if placement is already there, it was a duplicate event
             if (this.isPlayerPlacementOccupyingHex(engine, axial)) {
+              console.info("[BattleScreen] Hex already occupied - treating as duplicate deployment event");
               return;
             }
-            const reserveSummary = this.summarizeLiveReserveQueue(engine);
-            this.reportDeploymentPanelError({
-              title: "Deployment failed.",
-              detail: reserveSummary
-                ? `${label} is no longer present in the live reserve queue. Ready reserves: ${reserveSummary}.`
-                : `${label} is no longer present in the live reserve queue. No ready reserves remain.`,
-              action: "Review the refreshed reserve list, choose a ready unit, and retry the deployment.",
-              recoverable: true
-            });
-            return;
+
+            // Try one more count after sync in case reserves appeared
+            const recheckCount = this.countLiveReservesForUnitKey(engine, unitKey);
+            if (recheckCount > 0) {
+              console.info("[BattleScreen] Reserves appeared after sync - proceeding with deployment");
+              // Continue to deployment below
+            } else {
+              const reserveSummary = this.summarizeLiveReserveQueue(engine);
+              this.reportDeploymentPanelError({
+                title: "Deployment failed - Unit not available",
+                detail: reserveSummary
+                  ? `${label} cannot be deployed. Available reserves: ${reserveSummary}. The unit may have already been deployed or the deployment panel needs refreshing.`
+                  : `${label} cannot be deployed. No matching reserves remain in the queue. Try selecting a different unit or refreshing the deployment list.`,
+                action: "Check the deployment panel for available units. If the unit you want is not listed, it may already be on the field. Try using 'Deploy Evenly' if manual placement fails.",
+                recoverable: true
+              });
+              return;
+            }
           }
           try {
             engine.deployUnitByKey(axial, unitKey);
@@ -8927,6 +8956,10 @@ export class BattleScreen {
   ): BattleSelectionIntel {
     const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary] as UnitTypeDefinition | undefined;
     const canEntrench = this.canUnitDigIn(unit);
+    // Build tow state and toggle for artillery units
+    const towState = commandState?.towState ?? null;
+    const towToggle = this.buildTowToggle(commandState);
+
     return {
       kind: "battle",
       hexKey,
@@ -8948,7 +8981,9 @@ export class BattleScreen {
       statusChips: this.buildBattleIntelStatusChips(unit, commandState),
       actionCards: this.buildBattleIntelActions(hexKey, unit, commandState),
       detailSections: this.buildBattleIntelDetailSections(unit, definition),
-      notes: this.buildBattleIntelNotes(unit, commandState)
+      notes: this.buildBattleIntelNotes(unit, commandState),
+      towState,
+      towToggle
     };
   }
 
@@ -9169,6 +9204,36 @@ export class BattleScreen {
       }
     }
     return notes;
+  }
+
+  /**
+   * Builds a compact tow toggle for artillery units to show in the intel overlay.
+   * Provides a quick one-tap toggle between deployed (firing) and towed (movement) states.
+   */
+  private buildTowToggle(commandState: UnitCommandState | null): BattleSelectionIntel["towToggle"] {
+    if (!commandState?.towState) {
+      return null;
+    }
+
+    if (commandState.towState === "deployed") {
+      return {
+        canToggle: commandState.canMoveOut,
+        toggleLabel: "🔧 Move Out",
+        toggleTooltip: "Hook up guns for towing. Spends half movement. Deployed batteries cannot fire while limbered.",
+        toggleAction: "moveOutTow"
+      };
+    }
+
+    if (commandState.towState === "towed") {
+      return {
+        canToggle: commandState.canDeployTow,
+        toggleLabel: "🎯 Deploy",
+        toggleTooltip: "Unlimber guns for firing. Deployment after movement ends the turn.",
+        toggleAction: "deployTow"
+      };
+    }
+
+    return null;
   }
 
   private buildBattleIntelDetailSections(

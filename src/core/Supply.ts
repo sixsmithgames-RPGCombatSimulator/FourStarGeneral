@@ -58,6 +58,70 @@ interface RoutingQueueEntry {
 }
 
 /**
+ * Binary min-heap keyed on `cost`. Used by `findSupplyRoute` to replace the previous
+ * array.sort() approach, which re-sorted the entire queue on every iteration (O(N² log N)).
+ * Each push/pop is O(log N), giving the Dijkstra loop its correct O(N log N) complexity.
+ */
+class RoutingMinHeap {
+  private readonly heap: RoutingQueueEntry[] = [];
+
+  get size(): number {
+    return this.heap.length;
+  }
+
+  push(entry: RoutingQueueEntry): void {
+    this.heap.push(entry);
+    this.bubbleUp(this.heap.length - 1);
+  }
+
+  /** Removes and returns the entry with the smallest cost. Throws if the heap is empty. */
+  pop(): RoutingQueueEntry {
+    const top = this.heap[0];
+    if (top === undefined) {
+      throw new Error("[Supply] RoutingMinHeap.pop() called on empty heap");
+    }
+    const last = this.heap.pop()!;
+    if (this.heap.length > 0) {
+      this.heap[0] = last;
+      this.sinkDown(0);
+    }
+    return top;
+  }
+
+  private bubbleUp(index: number): void {
+    while (index > 0) {
+      const parent = (index - 1) >> 1;
+      if (this.heap[parent]!.cost <= this.heap[index]!.cost) {
+        break;
+      }
+      [this.heap[parent], this.heap[index]] = [this.heap[index]!, this.heap[parent]!];
+      index = parent;
+    }
+  }
+
+  private sinkDown(index: number): void {
+    const length = this.heap.length;
+    while (true) {
+      const left = (index << 1) + 1;
+      const right = left + 1;
+      let smallest = index;
+
+      if (left < length && this.heap[left]!.cost < this.heap[smallest]!.cost) {
+        smallest = left;
+      }
+      if (right < length && this.heap[right]!.cost < this.heap[smallest]!.cost) {
+        smallest = right;
+      }
+      if (smallest === index) {
+        break;
+      }
+      [this.heap[smallest], this.heap[index]] = [this.heap[index]!, this.heap[smallest]!];
+      index = smallest;
+    }
+  }
+}
+
+/**
  * Lightweight view of the map so the supply routines can query terrain without depending on
  * storyboard-specific structures.
  */
@@ -146,8 +210,11 @@ export function estimateTravelHours(totalCost: number, roadSegments: number): nu
 }
 
 /**
- * Dijkstra-style pathfinder that respects road preference and returns the cheapest route between a
+ * Dijkstra pathfinder that respects road preference and returns the cheapest route between a
  * supply origin and target hex. Callers provide a catalog so movement costs reflect unit type profiles.
+ *
+ * Uses a binary min-heap (RoutingMinHeap) so each expansion is O(log N) rather than the O(N log N)
+ * cost of re-sorting a flat array, giving an overall complexity of O(N log N) instead of O(N² log N).
  */
 export function findSupplyRoute(
   source: Axial,
@@ -158,20 +225,18 @@ export function findSupplyRoute(
   roadPreference = 0.75
 ): SupplyRouteSummary | null {
   const visited = new Map<string, number>();
-  const queue: RoutingQueueEntry[] = [
-    {
-      key: axialKey(source),
-      hex: source,
-      cost: 0,
-      roads: 0,
-      offroad: 0,
-      path: [{ hex: source, cost: 0, via: "road" }]
-    }
-  ];
+  const heap = new RoutingMinHeap();
+  heap.push({
+    key: axialKey(source),
+    hex: source,
+    cost: 0,
+    roads: 0,
+    offroad: 0,
+    path: [{ hex: source, cost: 0, via: "road" }]
+  });
 
-  while (queue.length > 0) {
-    queue.sort((a, b) => a.cost - b.cost);
-    const current = queue.shift()!;
+  while (heap.size > 0) {
+    const current = heap.pop();
     const bestSeen = visited.get(current.key);
     if (bestSeen !== undefined && bestSeen <= current.cost) {
       continue;
@@ -206,8 +271,8 @@ export function findSupplyRoute(
       if (seenCost !== undefined && seenCost <= nextCost) {
         continue;
       }
-      const via: SupplyRouteNode["via"] = isRoad ? "road" : terrain.blocksLOS ? "rough" : "rough";
-      queue.push({
+      const via: SupplyRouteNode["via"] = isRoad ? "road" : "rough";
+      heap.push({
         key: neighborKey,
         hex: neighbor,
         cost: nextCost,

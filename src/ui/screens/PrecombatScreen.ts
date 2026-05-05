@@ -716,13 +716,14 @@ export class PrecombatScreen {
     const availabilityBadge = unavailable
       ? `<span class="allocation-lock" aria-label="${option.label} is planned but not yet implemented.">Planned feature</span>`
       : "";
+    const lockIcon = locked ? `<span class="allocation-lock-icon" title="Locked">🔒</span>` : "";
     const unlockBadge = !unavailable && locked
-      ? `<span class="allocation-lock" aria-label="${option.label} requires a roster unlock before you can requisition it.">Unlock required</span>`
+      ? `<span class="allocation-lock allocation-lock--required" aria-label="${option.label} requires a roster unlock before you can requisition it.">🔒 Unlock required — Purchase to access</span>`
       : "";
     const controlsMarkup = unavailable
       ? `<div class="allocation-quantity allocation-quantity--disabled" role="group" aria-label="${option.label} availability"><span class="allocation-count">Pending</span></div>`
       : locked
-      ? `<div class="allocation-quantity" role="group" aria-label="${option.label} unlock controls"><span class="allocation-count">Roster locked</span><a class="secondary-button allocation-unlock-link" href="${this.unlockState.buildPurchaseUrlForSku(option.key)}">Unlock Unit</a></div>`
+      ? `<div class="allocation-quantity allocation-quantity--locked" role="group" aria-label="${option.label} unlock controls"><span class="allocation-count">🔒 Locked</span><a class="secondary-button allocation-unlock-link" href="${this.unlockState.buildPurchaseUrlForSku(option.key)}">Unlock</a></div>`
       : `<div class="allocation-quantity" role="group" aria-label="${option.label} quantity controls">
             <button
               type="button"
@@ -730,7 +731,7 @@ export class PrecombatScreen {
               data-action="decrement"
               data-key="${option.key}"
               data-delta="-1"
-              aria-label="Decrease ${option.label}"
+              aria-label="Decrease ${option.label} (or press Minus key)"
               ${decrementDisabled ? "disabled" : ""}
             >−</button>
             <span class="allocation-count" aria-live="polite">${quantity}</span>
@@ -740,7 +741,7 @@ export class PrecombatScreen {
               data-action="increment"
               data-key="${option.key}"
               data-delta="1"
-              aria-label="Increase ${option.label}"
+              aria-label="Increase ${option.label} (or press Plus key)"
               ${incrementDisabled ? "disabled" : ""}
             >+</button>
           </div>`;
@@ -752,7 +753,7 @@ export class PrecombatScreen {
           </div>
           <div class="allocation-copy">
             <div class="allocation-title-row">
-              <h4>${option.label}</h4>
+              <h4>${lockIcon}${option.label}</h4>
               <span class="allocation-cost">${option.costPerUnit.toLocaleString()} RP</span>
             </div>
             <p class="allocation-copy__description">${option.description}</p>
@@ -824,7 +825,8 @@ export class PrecombatScreen {
   }
 
   /**
-   * Keyboard handler that enables ArrowUp and ArrowDown to adjust quantities while buttons are focused.
+   * Keyboard handler that enables ArrowUp/ArrowDown and Plus/Minus keys to adjust quantities.
+   * Plus/Minus keys work globally when any allocation item is focused.
    */
   private handleAllocationContainerKeydown(event: KeyboardEvent): void {
     const button = event.target as HTMLElement;
@@ -835,6 +837,7 @@ export class PrecombatScreen {
     const optionKey = button.getAttribute("data-key") ?? button.closest("[data-key]")?.getAttribute("data-key");
     const deltaAttr = button.getAttribute("data-delta") ?? button.getAttribute("data-adjust");
 
+    // Arrow keys work on buttons with data-delta
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
       if (optionKey && deltaAttr) {
@@ -842,6 +845,23 @@ export class PrecombatScreen {
         if (!Number.isNaN(delta)) {
           this.handleAllocationAdjustment(optionKey, delta);
         }
+      }
+      return;
+    }
+
+    // Plus/Minus keys adjust quantities for the currently focused allocation item
+    if (event.key === "+" || event.key === "=" || event.key === "NumpadAdd") {
+      event.preventDefault();
+      if (optionKey) {
+        this.handleAllocationAdjustment(optionKey, 1);
+      }
+      return;
+    }
+
+    if (event.key === "-" || event.key === "_" || event.key === "NumpadSubtract") {
+      event.preventDefault();
+      if (optionKey) {
+        this.handleAllocationAdjustment(optionKey, -1);
       }
       return;
     }

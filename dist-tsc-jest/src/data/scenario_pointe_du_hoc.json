@@ -1,0 +1,101 @@
+{
+    "_comment": "POINTE DU HOC — June 6 1944. Rangers assault the cliff-top battery and must hold all three gun positions for 6 consecutive turns against German counterattack. Infantry and engineers only. 16x14 map.",
+    "name": "Pointe du Hoc",
+    "size": { "cols": 16, "rows": 14 },
+    "tilePalette": {
+        "CLIFF_EDGE": { "terrain": "cliff", "terrainType": "coastal", "density": "sparse", "features": ["cliff"], "recon": "aerial" },
+        "CRATER": { "terrain": "plains", "terrainType": "rural", "density": "sparse", "features": ["crater"], "recon": "intel" },
+        "CASEMATE": { "terrain": "bunker", "terrainType": "urban", "density": "dense", "features": ["bunker", "trenches"], "recon": "intel" },
+        "TRENCH": { "terrain": "plains", "terrainType": "rural", "density": "average", "features": ["trenches"], "recon": "intel" },
+        "ROAD": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["road"], "recon": "intel" },
+        "FOREST": { "terrain": "forest", "terrainType": "rural", "density": "dense", "features": ["trees", "shrubs"], "recon": "intel" },
+        "PLAINS": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": [], "recon": "intel" },
+        "RUBBLE": { "terrain": "plains", "terrainType": "rural", "density": "sparse", "features": ["crater", "rubble"], "recon": "intel" }
+    },
+    "tiles": [
+        ["CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE", "CLIFF_EDGE"],
+        ["CRATER", "TRENCH", "CASEMATE", "CRATER", "CRATER", "CASEMATE", "CRATER", "CRATER", "CRATER", "CASEMATE", "CRATER", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS"],
+        ["CRATER", "TRENCH", "TRENCH", "CRATER", "CRATER", "TRENCH", "CRATER", "RUBBLE", "CRATER", "TRENCH", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS"],
+        ["PLAINS", "CRATER", "TRENCH", "CRATER", "RUBBLE", "CRATER", "CRATER", "CRATER", "RUBBLE", "CRATER", "PLAINS", "FOREST", "FOREST", "FOREST", "FOREST", "PLAINS"],
+        ["PLAINS", "PLAINS", "CRATER", "PLAINS", "CRATER", "TRENCH", "CRATER", "CRATER", "PLAINS", "PLAINS", "ROAD", "FOREST", "FOREST", "FOREST", "FOREST", "FOREST"],
+        ["PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "CRATER", "PLAINS", "CRATER", "PLAINS", "ROAD", "ROAD", "FOREST", "FOREST", "FOREST", "FOREST", "FOREST"],
+        ["PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "ROAD", "ROAD", "ROAD", "PLAINS", "FOREST", "FOREST", "PLAINS", "PLAINS", "FOREST", "FOREST"],
+        ["PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "ROAD", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "FOREST", "FOREST", "PLAINS", "PLAINS", "PLAINS", "FOREST"],
+        ["PLAINS", "PLAINS", "PLAINS", "PLAINS", "ROAD", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "FOREST", "FOREST", "PLAINS", "PLAINS", "PLAINS", "PLAINS"],
+        ["PLAINS", "PLAINS", "PLAINS", "ROAD", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "FOREST", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS"],
+        ["PLAINS", "PLAINS", "ROAD", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS"],
+        ["PLAINS", "ROAD", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS"],
+        ["ROAD", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS"],
+        ["PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS", "PLAINS"]
+    ],
+    "objectives": [
+        { "hex": [2, 1], "owner": "Bot", "vp": 80 },
+        { "hex": [5, 1], "owner": "Bot", "vp": 100 },
+        { "hex": [9, 1], "owner": "Bot", "vp": 80 }
+    ],
+    "deploymentZones": [
+        {
+            "key": "ranger-start",
+            "label": "Ranger Assault Start",
+            "description": "Cliff-top line of departure — Rangers have just scaled the face and are in the first covered craters",
+            "capacity": 12,
+            "faction": "Player",
+            "hexes": [
+                [0, 12], [1, 12], [2, 12], [3, 12], [4, 12], [5, 12], [6, 12], [7, 12],
+                [0, 13], [1, 13], [2, 13], [3, 13], [4, 13], [5, 13], [6, 13], [7, 13]
+            ]
+        },
+        {
+            "key": "garrison-positions",
+            "label": "German Garrison",
+            "description": "Entrenched casemates and trench lines on the promontory top",
+            "capacity": 6,
+            "faction": "Bot",
+            "hexes": [
+                [0, 1], [1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 1], [9, 1], [10, 1],
+                [0, 2], [1, 2], [2, 2], [3, 2], [4, 2], [5, 2], [6, 2], [7, 2], [8, 2], [9, 2]
+            ]
+        },
+        {
+            "key": "counterattack-forest",
+            "label": "German Counterattack Staging",
+            "description": "Inland forest from which the counterattack force advances via the road",
+            "capacity": 6,
+            "faction": "Bot",
+            "hexes": [
+                [11, 3], [12, 3], [13, 3], [14, 3],
+                [11, 4], [12, 4], [13, 4], [14, 4], [15, 4],
+                [11, 5], [12, 5], [13, 5], [14, 5], [15, 5],
+                [11, 6], [12, 6], [13, 6], [14, 6], [15, 6]
+            ]
+        }
+    ],
+    "turnLimit": 14,
+    "playerBudget": 300,
+    "allowedUnits": ["infantry", "engineer", "reconBike"],
+    "restrictedUnits": ["tank", "artillery", "at_gun", "halftrack", "supplyConvoy"],
+    "sides": {
+        "Player": {
+            "hq": [4, 12],
+            "general": { "accBonus": 0, "dmgBonus": 0, "moveBonus": 0, "supplyBonus": 0 },
+            "units": []
+        },
+        "Bot": {
+            "hq": [12, 4],
+            "general": { "accBonus": 0, "dmgBonus": 0, "moveBonus": 0, "supplyBonus": 0 },
+            "goal": "Hold the gun battery and counterattack to retake it if captured.",
+            "strategy": "Phase 1 garrison defends entrenched positions. Phase 2 counterattack force pushes from forest via road to recapture gun positions.",
+            "resources": 500,
+            "units": [
+                { "type": "Infantry_42", "hex": [2, 1], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 2, "facing": "S" },
+                { "type": "Infantry_42", "hex": [5, 1], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 2, "facing": "S" },
+                { "type": "Infantry_42", "hex": [9, 1], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 2, "facing": "S" },
+                { "type": "Engineer", "hex": [3, 2], "strength": 100, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 1, "facing": "S" },
+                { "type": "Infantry_42", "hex": [12, 4], "strength": 100, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
+                { "type": "Infantry_42", "hex": [13, 5], "strength": 100, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
+                { "type": "Infantry_42", "hex": [12, 6], "strength": 100, "experience": 1, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
+                { "type": "Engineer", "hex": [14, 5], "strength": 100, "experience": 1, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "W" }
+            ]
+        }
+    }
+}

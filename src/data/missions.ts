@@ -14,6 +14,7 @@ export const missionTitles: Record<MissionKey, string> = {
   training: "Training Exercise",
   patrol: "Town Defense",
   patrol_river_watch: "River Crossing Watch",
+  patrol_pointe_du_hoc: "Pointe du Hoc",
   assault_citadel_ridge: "Citadel Ridge",
   assault: "Tactical Assault",
   // Campaign is surfaced on the landing screen as "Western Europe" to anchor the first grand-operation offering.
@@ -32,6 +33,12 @@ export const missionBriefings: Record<MissionKey, string> = {
   patrol:
     "Enemy battle groups are pushing up the southern road net toward the northern town. " +
     "Establish a base camp inside the town perimeter, deploy your reserves around the crossroads, and break the assault before the attackers can force their way into the center. Expect a strong combined-arms attack with armor, artillery, and probing recon screens.",
+
+  patrol_pointe_du_hoc:
+    "The guns at Pointe du Hoc command both Omaha and Utah beaches. Naval bombardment has cratered the point but the German garrison is still active. " +
+    "Your Rangers must scale the cliffs, silence the battery, and hold against the counterattack until the relief column reaches you from Omaha.\n\n" +
+    "VICTORY: Capture all three gun positions and hold them simultaneously for 6 consecutive turns.\n" +
+    "DEFEAT: Mission fails if all friendly forces are eliminated or the turn limit expires before the hold objective is met.",
 
   patrol_river_watch:
     "Recon reports enemy infiltrators massing along the river. Multiple shallow fords cut through the bend—if they slip across, they'll have a lodgment before dawn. " +
@@ -104,6 +111,12 @@ const RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
   Hard: 11
 };
 
+const POINTE_DU_HOC_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
+  Easy: 16,
+  Normal: 14,
+  Hard: 12
+};
+
 const CITADEL_RIDGE_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
   Easy: 20,
   Normal: 17,
@@ -136,6 +149,21 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       { label: "Allied Garrison", amount: "Infantry, engineers, anti-tank gun, recon patrol" }
     ]
   },
+  patrol_pointe_du_hoc: {
+    objectives: [
+      "Primary: Capture all three gun positions and hold them simultaneously for 6 consecutive turns.",
+      "Secondary: Destroy the MG nest at the cliff edge.",
+      "Tertiary: Keep at least three Ranger units alive at mission end."
+    ],
+    turnLimit: 14,
+    doctrine: "Move fast across the open clifftop, use engineers to clear entrenched casemates, then consolidate on the gun positions before the counterattack reaches you. Hold every gun simultaneously to start the clock.",
+    supplies: [
+      { label: "Ranger Force", amount: "Infantry and engineers only — no armor, no artillery" },
+      { label: "Naval Gunfire", amount: "2 off-map fire missions" },
+      { label: "Operational Window", amount: "12-16 turns depending on difficulty" }
+    ]
+  },
+
   patrol_river_watch: {
     objectives: [
       "Primary: Hold all three fords simultaneously for 8 consecutive turns.",
@@ -196,6 +224,7 @@ const missionCategories: Record<MissionKey, MissionCategory> = {
   training: "training",
   patrol: "patrol",
   patrol_river_watch: "patrol",
+  patrol_pointe_du_hoc: "patrol",
   assault_citadel_ridge: "assault",
   assault: "assault",
   campaign: "campaign"
@@ -242,6 +271,24 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
       }
     ]
   },
+  patrol_pointe_du_hoc: {
+    preferredZoneKey: "ranger-start",
+    focusLabel: "cliff-top line of departure",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 12,
+      minimumPlayerZoneFrontage: 4,
+      minimumPlayerZoneDepth: 2
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "ranger-start",
+        minimumCapacity: 12,
+        minimumFrontage: 4,
+        minimumDepth: 2
+      }
+    ]
+  },
+
   patrol_river_watch: {
     preferredZoneKey: "allied-start",
     focusLabel: "line of departure",
@@ -346,6 +393,11 @@ const missionUnlockRequirements: Record<MissionKey, MissionUnlockRequirement> = 
     victories: 0,
     description: "Available to all commanders"
   },
+  patrol_pointe_du_hoc: {
+    missionsCompleted: 1,
+    victories: 0,
+    description: "Requires 1 completed mission"
+  },
   assault: {
     missionsCompleted: 2,
     victories: 0,
@@ -419,6 +471,9 @@ export function getMissionTurnLimit(mission: MissionKey, difficulty: BotDifficul
   if (mission === "patrol_river_watch") {
     return RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY[difficulty];
   }
+  if (mission === "patrol_pointe_du_hoc") {
+    return POINTE_DU_HOC_TURN_LIMIT_BY_DIFFICULTY[difficulty];
+  }
   if (mission === "assault_citadel_ridge") {
     return CITADEL_RIDGE_TURN_LIMIT_BY_DIFFICULTY[difficulty];
   }
@@ -430,8 +485,18 @@ export function getMissionSummaryPackage(mission: MissionKey, difficulty: BotDif
   const summary = missionSummaryPackages[mission];
   const turnLimit = getMissionTurnLimit(mission, difficulty);
 
-  if (mission !== "patrol_river_watch" && mission !== "assault_citadel_ridge") {
+  if (mission !== "patrol_river_watch" && mission !== "patrol_pointe_du_hoc" && mission !== "assault_citadel_ridge") {
     return summary;
+  }
+
+  if (mission === "patrol_pointe_du_hoc") {
+    return {
+      ...summary,
+      turnLimit,
+      supplies: summary.supplies.map((item) => item.label === "Operational Window"
+        ? { ...item, amount: `Assault window closes on turn ${turnLimit}` }
+        : item)
+    };
   }
 
   if (mission === "patrol_river_watch") {

@@ -448,6 +448,209 @@ function createTownDefenseController(scenario: ScenarioData): MissionRulesContro
   } satisfies MissionRulesController;
 }
 
+interface PointeDuHocTracker {
+  holdStreak: number;
+  outcome: MissionOutcome;
+  phase: MissionPhaseStatus;
+  counterattackAnnounced: boolean;
+}
+
+function createPointeDuHocPhase(turnNumber: number, counterattackAnnounced: boolean): MissionPhaseStatus {
+  if (turnNumber >= 3) {
+    return {
+      id: "phase2_commitment",
+      label: "Phase 2: Counterattack",
+      detail: "German infantry are pushing from the inland forest toward the battery. Hold every gun position simultaneously to keep the clock running.",
+      announcement: counterattackAnnounced
+        ? "German counterattack force is pressing from the forest road."
+        : "Pointe du Hoc: German counterattack force has emerged from the forest — defend the captured positions."
+    };
+  }
+
+  return {
+    id: "phase1_probe",
+    label: "Phase 1: Assault",
+    detail: "Clear the entrenched garrison from the casemates. Engineers are needed to reduce the fortified positions.",
+    announcement: "Rangers are at the cliff top — assault the battery before the garrison can reinforce."
+  };
+}
+
+function createPointeDuHocController(scenario: ScenarioData, difficulty: BotDifficulty): MissionRulesController {
+  const HOLD_TARGET = 6;
+
+  const gunPositions = (scenario.objectives ?? []).map((objective, index) => ({
+    key: makeKey(objective.hex),
+    label: `Gun Position ${index + 1}`,
+    hex: objective.hex
+  }));
+
+  const tracker: PointeDuHocTracker = {
+    holdStreak: 0,
+    outcome: { state: "inProgress" },
+    phase: createPointeDuHocPhase(0, false),
+    counterattackAnnounced: false
+  };
+
+  const buildObjectives = (
+    outcome: MissionOutcome,
+    occupancy: ReadonlyMap<string, TurnFaction>,
+    playerUnits: readonly ScenarioUnit[],
+    botUnits: readonly ScenarioUnit[]
+  ): readonly ObjectiveProgress[] => {
+    const capturedCount = gunPositions.filter(({ key }) => isFriendlyOccupant(occupancy.get(key))).length;
+
+    const primary: ObjectiveProgress = {
+      id: "primary_hold_battery",
+      label: "Capture and hold all three gun positions for 6 consecutive turns",
+      tier: "primary",
+      state: outcome.state === "playerVictory" && tracker.holdStreak >= HOLD_TARGET
+        ? "completed"
+        : outcome.state === "playerDefeat"
+          ? "failed"
+          : "inProgress",
+      detail: capturedCount < gunPositions.length
+        ? `Assault phase: ${capturedCount}/${gunPositions.length} gun positions captured. All three must be held simultaneously to start the hold clock.`
+        : `Hold phase: ${tracker.holdStreak}/${HOLD_TARGET} turns. All three positions must remain in friendly hands.`
+    };
+
+    const mgNestEliminated = botUnits.every((unit) => unit.type !== "Infantry_42" || unit.hex.q !== 5 || unit.hex.r !== 0);
+    const secondary: ObjectiveProgress = {
+      id: "secondary_mg_nest",
+      label: "Destroy the MG nest at the cliff edge",
+      tier: "secondary",
+      state: mgNestEliminated
+        ? "completed"
+        : outcome.state === "inProgress"
+          ? "inProgress"
+          : "failed",
+      detail: mgNestEliminated
+        ? "The cliff-edge MG nest has been neutralised."
+        : outcome.state === "inProgress"
+          ? "The MG nest at the cliff edge is still active."
+          : "The MG nest survived the Ranger assault."
+    };
+
+    const rangersAlive = playerUnits.length >= 3;
+    const tertiary: ObjectiveProgress = {
+      id: "tertiary_ranger_strength",
+      label: "Keep at least three Ranger units alive",
+      tier: "tertiary",
+      state: rangersAlive
+        ? outcome.state === "inProgress"
+          ? "inProgress"
+          : "completed"
+        : "failed",
+      detail: rangersAlive
+        ? outcome.state === "inProgress"
+          ? `${playerUnits.length} Rangers remain operational.`
+          : `${playerUnits.length} Rangers survived the mission.`
+        : "Fewer than three Rangers remain — the assault cost too many."
+    };
+
+    return [primary, secondary, tertiary] satisfies readonly ObjectiveProgress[];
+  };
+
+  const buildMarkers = (
+    outcome: MissionOutcome,
+    occupancy: ReadonlyMap<string, TurnFaction>
+  ): readonly ObjectiveMarkerProgress[] => {
+    return gunPositions.map(({ key, label, hex }) => {
+      const occupant = occupancy.get(key);
+
+      if (occupant === "Bot") {
+        return {
+          hex,
+          status: "enemy",
+          counter: `${tracker.holdStreak}/${HOLD_TARGET}`,
+          tooltip: `${label} — Enemy-held. Recapture this position to resume the hold clock.`
+        } satisfies ObjectiveMarkerProgress;
+      }
+
+      if (isFriendlyOccupant(occupant)) {
+        const allHeld = gunPositions.every(({ key: gk }) => isFriendlyOccupant(occupancy.get(gk)));
+        return {
+          hex,
+          status: "player",
+          counter: allHeld ? `${tracker.holdStreak}/${HOLD_TARGET}` : undefined,
+          tooltip: allHeld
+            ? `${label} — Secured. Hold clock at ${tracker.holdStreak} of ${HOLD_TARGET} turns.`
+            : `${label} — Secured, but not all positions are held. Capture the remaining guns to start the clock.`
+        } satisfies ObjectiveMarkerProgress;
+      }
+
+      return {
+        hex,
+        status: "unoccupied",
+        tooltip: `${label} — Unoccupied. Assault the casemate to capture this position.`
+      } satisfies ObjectiveMarkerProgress;
+    });
+  };
+
+  const deriveStatus = (snapshot: MissionSnapshot): MissionStatus => {
+    const { turnSummary, occupancy, playerUnits, botUnits, scenario: snapScenario } = snapshot;
+    const turnLimit = snapScenario.turnLimit ?? null;
+
+    const counterattackJustArrived = turnSummary.turnNumber === 3 && !tracker.counterattackAnnounced;
+    if (counterattackJustArrived) {
+      tracker.counterattackAnnounced = true;
+    }
+    tracker.phase = createPointeDuHocPhase(turnSummary.turnNumber, !counterattackJustArrived);
+
+    let outcome: MissionOutcome = tracker.outcome;
+
+    if (outcome.state === "inProgress") {
+      if (botUnits.length === 0) {
+        outcome = { state: "playerVictory", reason: "All German forces eliminated." };
+      } else if (playerUnits.length === 0) {
+        outcome = { state: "playerDefeat", reason: "All Ranger units were lost." };
+      }
+    }
+
+    if (outcome.state === "inProgress") {
+      const allGunsCaptured = gunPositions.length > 0 &&
+        gunPositions.every(({ key }) => isFriendlyOccupant(occupancy.get(key)));
+
+      if (allGunsCaptured) {
+        tracker.holdStreak += 1;
+      } else {
+        tracker.holdStreak = 0;
+      }
+
+      if (tracker.holdStreak >= HOLD_TARGET) {
+        outcome = { state: "playerVictory", reason: "All gun positions held for 6 consecutive turns. Pointe du Hoc is secure." };
+      } else if (turnLimit !== null && turnSummary.turnNumber >= turnLimit) {
+        outcome = { state: "playerDefeat", reason: "The assault window closed before the battery could be held. German reinforcements will retake the position." };
+      }
+    }
+
+    tracker.outcome = outcome;
+
+    return {
+      turn: turnSummary.turnNumber,
+      objectives: buildObjectives(outcome, occupancy, playerUnits, botUnits),
+      outcome,
+      phase: tracker.phase,
+      markers: buildMarkers(outcome, occupancy)
+    } satisfies MissionStatus;
+  };
+
+  return {
+    onTurnAdvanced(snapshot: MissionSnapshot): MissionStatus {
+      return deriveStatus(snapshot);
+    },
+    getStatus(): MissionStatus {
+      const emptyOccupancy = new Map<string, TurnFaction>();
+      return {
+        turn: 0,
+        objectives: buildObjectives(tracker.outcome, emptyOccupancy, scenario.sides.Player.units, scenario.sides.Bot.units),
+        outcome: tracker.outcome,
+        phase: tracker.phase,
+        markers: buildMarkers(tracker.outcome, emptyOccupancy)
+      };
+    }
+  } satisfies MissionRulesController;
+}
+
 function createCitadelRidgeController(scenario: ScenarioData, difficulty: BotDifficulty): MissionRulesController {
   const strongpointKeys = [
     { key: makeKey({ q: 16, r: 4 - Math.floor(16 / 2) }), label: "North Battery", vp: 120 },
@@ -586,6 +789,9 @@ export function createMissionRulesController(missionKey: string, scenario: Scena
   }
   if (missionKey === "patrol_river_watch") {
     return createRiverWatchController(scenario, difficulty);
+  }
+  if (missionKey === "patrol_pointe_du_hoc") {
+    return createPointeDuHocController(scenario, difficulty);
   }
   if (missionKey === "assault_citadel_ridge") {
     return createCitadelRidgeController(scenario, difficulty);

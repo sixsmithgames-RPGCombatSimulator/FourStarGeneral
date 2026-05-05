@@ -424,6 +424,19 @@ export class SelectionIntelOverlay {
     const chipMarkup = intel.statusChips.length > 0
       ? `<div class="battle-intel-overlay__chip-row">${intel.statusChips.map((chip) => this.renderChipMarkup(chip)).join("")}</div>`
       : "";
+    const towToggleMarkup = intel.towToggle
+      ? `<div class="battle-intel-overlay__tow-toggle">
+          <button
+            type="button"
+            class="battle-intel-overlay__tow-btn${intel.towToggle.canToggle ? "" : " disabled"}"
+            data-selection-action="${intel.towToggle.toggleAction}"
+            title="${this.escapeHtml(intel.towToggle.toggleTooltip)}"
+            ${!intel.towToggle.canToggle ? "disabled" : ""}
+          >
+            ${this.escapeHtml(intel.towToggle.toggleLabel)}
+          </button>
+        </div>`
+      : "";
     const unitTabMarkup = intel.unitTabs.length > 1 ? this.renderBattleUnitTabsMarkup(intel.unitTabs) : "";
     const tabMarkup = this.collapsed ? "" : this.renderBattleTabMarkup(intel);
     const contentMarkup = !this.collapsed && this.activeBattleTab === "unit"
@@ -442,6 +455,7 @@ export class SelectionIntelOverlay {
         `).join("")}
       </div>
       ${chipMarkup}
+      ${towToggleMarkup}
       ${tabMarkup}
       ${contentMarkup}
     `;

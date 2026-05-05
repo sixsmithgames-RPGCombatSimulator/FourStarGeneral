@@ -7267,6 +7267,9 @@ export class BattleScreen {
     buildBattleSelectionIntel(hexKey, unit, unitLabel, movementBudget, statusMessage, commandState, unitTabs) {
         const definition = this.unitTypes[unit.type];
         const canEntrench = this.canUnitDigIn(unit);
+        // Build tow state and toggle for artillery units
+        const towState = commandState?.towState ?? null;
+        const towToggle = this.buildTowToggle(commandState);
         return {
             kind: "battle",
             hexKey,
@@ -7288,7 +7291,9 @@ export class BattleScreen {
             statusChips: this.buildBattleIntelStatusChips(unit, commandState),
             actionCards: this.buildBattleIntelActions(hexKey, unit, commandState),
             detailSections: this.buildBattleIntelDetailSections(unit, definition),
-            notes: this.buildBattleIntelNotes(unit, commandState)
+            notes: this.buildBattleIntelNotes(unit, commandState),
+            towState,
+            towToggle
         };
     }
     buildBattleSelectionUnitTabs(hexKey) {
@@ -7505,6 +7510,32 @@ export class BattleScreen {
             }
         }
         return notes;
+    }
+    /**
+     * Builds a compact tow toggle for artillery units to show in the intel overlay.
+     * Provides a quick one-tap toggle between deployed (firing) and towed (movement) states.
+     */
+    buildTowToggle(commandState) {
+        if (!commandState?.towState) {
+            return null;
+        }
+        if (commandState.towState === "deployed") {
+            return {
+                canToggle: commandState.canMoveOut,
+                toggleLabel: "🔧 Move Out",
+                toggleTooltip: "Hook up guns for towing. Spends half movement. Deployed batteries cannot fire while limbered.",
+                toggleAction: "moveOutTow"
+            };
+        }
+        if (commandState.towState === "towed") {
+            return {
+                canToggle: commandState.canDeployTow,
+                toggleLabel: "🎯 Deploy",
+                toggleTooltip: "Unlimber guns for firing. Deployment after movement ends the turn.",
+                toggleAction: "deployTow"
+            };
+        }
+        return null;
     }
     buildBattleIntelDetailSections(unit, definition) {
         if (!definition) {

@@ -71,6 +71,15 @@ export interface BattleSelectionIntel {
   readonly actionCards: readonly BattleIntelAction[];
   readonly detailSections: readonly BattleIntelDetailSection[];
   readonly notes: readonly string[];
+  /** Tow state for artillery units: deployed (ready to fire) or towed (limbered for movement) */
+  readonly towState?: "deployed" | "towed" | null;
+  /** Quick toggle action for tow state - shown as a compact toggle button */
+  readonly towToggle?: {
+    readonly canToggle: boolean;
+    readonly toggleLabel: string;
+    readonly toggleTooltip: string;
+    readonly toggleAction: string;
+  } | null;
 }
 
 export interface ActivityDetailEntry {

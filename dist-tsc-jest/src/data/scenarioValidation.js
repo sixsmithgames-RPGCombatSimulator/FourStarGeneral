@@ -1,6 +1,8 @@
 import { hexDistance } from "../core/Hex";
 import { getMissionDeploymentProfile, isValidMission } from "./missions";
 import { finalizeDeploymentZone, measureDeploymentZoneGeometry } from "../ui/utils/deploymentZonePlanner";
+/** Maximum allowed hexes (cols × rows bounding rectangle) for a tactical scenario. Keeps SVG DOM node count and AI pathfinding within browser performance bounds. */
+const MAX_HEX_COUNT = 2000;
 const scenarioProfilesByName = {
     "Coastal Push": {
         scenarioName: "Coastal Push",
@@ -27,6 +29,15 @@ const scenarioProfilesByName = {
         minRows: 12,
         minObjectiveCount: 3,
         minObjectiveSpacing: 2,
+        minRangeBuffer: 6
+    },
+    "Pointe du Hoc": {
+        scenarioName: "Pointe du Hoc",
+        allowedMissionKeys: ["patrol_pointe_du_hoc"],
+        minCols: 16,
+        minRows: 14,
+        minObjectiveCount: 3,
+        minObjectiveSpacing: 3,
         minRangeBuffer: 6
     },
     "Citadel Ridge": {
@@ -323,6 +334,9 @@ function readScenarioSize(record, issues, missionKey, scenarioName) {
     if (cols === null || cols <= 0 || rows === null || rows <= 0) {
         issues.push(`Scenario ${scenarioName ?? missionKey} must declare positive integer cols and rows.`);
         return null;
+    }
+    if (cols * rows > MAX_HEX_COUNT) {
+        issues.push(`Scenario ${scenarioName ?? missionKey} bounding rectangle ${cols}×${rows} = ${cols * rows} hexes exceeds the maximum of ${MAX_HEX_COUNT}. Reduce cols or rows to stay within the performance limit.`);
     }
     return { cols, rows };
 }

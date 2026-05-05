@@ -2,6 +2,7 @@ import defaultScenario from "./scenario01.json";
 import citadelRidgeScenario from "./scenario_citadel_ridge.json";
 import townDefenseScenario from "./scenario_town_defense.json";
 import riverWatchScenario from "./scenario_river_watch.json";
+import pointeDuHocScenario from "./scenario_pointe_du_hoc.json";
 import type { MissionKey } from "../state/UIState";
 import { isValidMission } from "./missions";
 import { assertScenarioSourceValid } from "./scenarioValidation";
@@ -10,12 +11,14 @@ export type ScenarioSource =
   | typeof defaultScenario
   | typeof townDefenseScenario
   | typeof citadelRidgeScenario
-  | typeof riverWatchScenario;
+  | typeof riverWatchScenario
+  | typeof pointeDuHocScenario;
 
 const scenarioSourcesByMissionKey: Record<MissionKey, ScenarioSource> = {
   training: defaultScenario,
   patrol: townDefenseScenario,
   patrol_river_watch: riverWatchScenario,
+  patrol_pointe_du_hoc: pointeDuHocScenario,
   assault_citadel_ridge: citadelRidgeScenario,
   assault: defaultScenario,
   campaign: defaultScenario

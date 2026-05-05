@@ -5,10 +5,10 @@
 export const TUTORIAL_STEPS = [
     {
         phase: "welcome",
-        title: "Welcome, Commander",
-        content: "This training operation walks through the full battle loop: requisitioning a balanced force, deploying it, then using engineers, off-map artillery, flak, air support, logistics, and reserves under live conditions.",
+        title: "Operation Coastal Shield",
+        content: "Commander, welcome to your field certification. Enemy reconnaissance has detected a German forward patrol probing our coastal defenses near Hill 47. Your mission: establish a blocking position, engage the patrol, and demonstrate mastery of combined arms tactics. This training operation will walk you through the full battle loop: requisitioning a balanced force, deploying for immediate contact, then using engineers, off-map artillery, flak coverage, air support, and logistics under live conditions. The enemy is already on the move—there is no time to waste.",
         position: "center",
-        actionLabel: "Begin Training"
+        actionLabel: "Accept Command"
     },
     {
         phase: "budget_overview",
@@ -89,12 +89,20 @@ export const TUTORIAL_STEPS = [
         actionLabel: "Continue"
     },
     {
+        phase: "mission_objectives",
+        title: "Mission Objectives",
+        content: "PRIMARY OBJECTIVE: Deploy your force and eliminate the German patrol before they reach the coastal road. SUCCESS CRITERIA: Destroy at least 50% of enemy strength while preserving your command structure. KEY TACTICS: Use engineers to fortify positions, deploy smoke to block enemy observation, coordinate air support, and maintain supply lines. Remember: reconnaissance reports show the enemy patrol is small but mobile—expect contact within the first turn.",
+        highlightSelector: "#precombatMissionSummary",
+        position: "center",
+        actionLabel: "Understood"
+    },
+    {
         phase: "review_allocation",
-        title: "Review the Package",
-        content: "Review your force before stepping off. This training battle is designed to teach engineers, flak, sorties, roster control, and logistics, and it already includes a standing convoy package plus an attached off-map heavy artillery battery for you to call once the fight starts.",
+        title: "Final Equipment Check",
+        content: "Review your task force before deploying. This operation includes a standing logistics convoy and an attached off-map heavy artillery battery. For immediate combat, ensure you have: infantry for screening, armor for breakthrough, engineers for fortification, and tank destroyers to counter enemy armor. Use the [+] and [-] buttons or press the Plus/Minus keys to adjust quantities quickly.",
         highlightSelector: "#resetAllocations, #proceedToBattle",
         position: "center",
-        actionLabel: "Continue (Dismiss)"
+        actionLabel: "Deploy to Field"
     },
     {
         phase: "ui_overview",
@@ -174,13 +182,13 @@ export const TUTORIAL_STEPS = [
     },
     {
         phase: "begin_battle",
-        title: "Commence Operations",
-        content: "Once the line is set, begin the battle. The tutorial will then walk you through movement, attacks, engineers, artillery, flak, air missions, and logistics in the live fight.",
+        title: "Commence Operations — Contact Expected",
+        content: "The enemy patrol has been sighted approaching from the northeast. They are close—expect contact within the first turn. Begin operations immediately. The tutorial will guide you through movement, combat, smoke deployment, engineers, artillery, and combined arms coordination during live engagement.",
         highlightSelector: "#beginBattle",
         position: "bottom",
         arrowDirection: "up",
         waitForAction: true,
-        actionLabel: "Continue"
+        actionLabel: "Engage Enemy"
     },
     {
         phase: "movement_intro",
@@ -193,8 +201,18 @@ export const TUTORIAL_STEPS = [
     {
         phase: "attack_intro",
         title: "Attack with Intent",
-        content: "When a red target is in range, click it to attack. Read the preview before committing: armor, suppression, expected damage, and retaliation all matter. Combined arms are safer and more decisive than isolated attacks.",
+        content: "When a red target is in range, click it to attack. Read the preview before committing: armor, suppression, expected damage, and retaliation all matter. Combined arms are safer and more decisive than isolated attacks. Look for the 'Lay Smoke' option—it blocks line of sight and can protect your units from enemy fire.",
         position: "center",
+        actionLabel: "Continue"
+    },
+    {
+        phase: "smoke_demo",
+        title: "Tactical Smoke Deployment",
+        content: "Critical tactic: Use the Lay Smoke order to create visual screens. Smoke blocks line of sight along a hex edge, preventing enemy units from seeing or firing through it. Deploy smoke to: protect advancing units, shield wounded formations, or mask your movements. Select a unit with smoke capability and choose 'Lay Smoke' on the appropriate edge.",
+        highlightSelector: "#battleIntelOverlay",
+        position: "left",
+        arrowDirection: "right",
+        waitForAction: true,
         actionLabel: "Continue"
     },
     {
@@ -243,8 +261,8 @@ export const TUTORIAL_STEPS = [
     },
     {
         phase: "logistics_intro",
-        title: "Check Logistics",
-        content: "Use Logistics to inspect depot stock, convoy status, and the resupply queue. Convoys route automatically; your job is to watch shortages, delays, and battalion priority so the right formations get serviced first.",
+        title: "Supply Convoy Operations",
+        content: "Use Logistics to inspect depot stock, convoy status, and the resupply queue. Automated supply convoys route from your base camp to forward units based on Logistics priorities. You cannot directly control individual convoys, but you can influence them: set battalion priority (High/Medium/Low) to determine who gets resupplied first, and monitor the queue to anticipate shortages. During heavy combat, ammunition and fuel will deplete rapidly—stay ahead of demand by checking logistics every turn.",
         highlightSelector: "#logisticsPanel",
         position: "left",
         arrowDirection: "right",
@@ -305,6 +323,7 @@ export function getPrecombatPhases() {
         "select_engineers",
         "select_flak",
         "select_air_wing",
+        "mission_objectives",
         "review_allocation"
     ];
 }
@@ -325,6 +344,7 @@ export function getCombatPhases() {
     return [
         "movement_intro",
         "attack_intro",
+        "smoke_demo",
         "engineer_intro",
         "engineer_orders",
         "artillery_intro",
