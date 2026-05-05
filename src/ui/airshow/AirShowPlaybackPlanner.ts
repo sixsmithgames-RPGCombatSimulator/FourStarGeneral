@@ -3019,7 +3019,15 @@ export function planResolvedAirCombatShowScene(
             x: convergencePoint.cx - start.cx,
             y: convergencePoint.cy - start.cy
           });
-        const carryDistancePx = assignment.actor.role === "escort" ? 118 : 520;
+        // Calculate carry distance based on distance to convergence
+        // This ensures both fighters travel similar distances to meet at clash point
+        const distanceToConvergencePx = Math.hypot(
+          convergencePoint.cx - start.cx,
+          convergencePoint.cy - start.cy
+        );
+        // Carry should be a small fraction of distance to convergence (max 120px)
+        // This prevents overshooting while maintaining smooth approach
+        const carryDistancePx = Math.min(120, distanceToConvergencePx * 0.15);
         const carryPoint = host.offsetAirShowPoint(
           start,
           currentForward.x * carryDistancePx,
