@@ -46,6 +46,7 @@ export class PrecombatScreen {
   private objectiveListElement!: HTMLUListElement;
   private missionTurnLimitElement!: HTMLElement;
   private baselineSupplyListElement!: HTMLUListElement;
+  private baselineSupplySectionElement: HTMLElement | null = null;
   private doctrineNotesElement!: HTMLElement;
   private returnToLandingButton!: HTMLButtonElement;
   private proceedToBattleButton!: HTMLButtonElement;
@@ -162,6 +163,7 @@ export class PrecombatScreen {
     this.objectiveListElement = this.requireElement<HTMLUListElement>("#objectiveList");
     this.missionTurnLimitElement = this.requireElement<HTMLElement>("#missionTurnLimit");
     this.baselineSupplyListElement = this.requireElement<HTMLUListElement>("#baselineSupplyList");
+    this.baselineSupplySectionElement = this.element.querySelector<HTMLElement>("#baselineSupplySection");
     this.doctrineNotesElement = this.requireElement<HTMLElement>("#missionDoctrineNotes");
     this.returnToLandingButton = this.requireElement<HTMLButtonElement>("#returnToLanding");
     this.proceedToBattleButton = this.requireElement<HTMLButtonElement>("#proceedToBattle");
@@ -1182,13 +1184,13 @@ export class PrecombatScreen {
 
     const entries = Array.from(this.predeployedRoster.values());
     if (entries.length === 0) {
-      this.predeployedSummaryElement.textContent = "No scenario forces are staged in theater. All allocations originate from requisitions.";
+      this.predeployedSummaryElement.textContent = "No allied formations are in place. Every unit in this operation comes from requisition.";
       this.predeployedListElement.innerHTML = "";
       return;
     }
 
     const totalUnits = entries.reduce((sum, entry) => sum + entry.count, 0);
-    this.predeployedSummaryElement.textContent = `${totalUnits} scenario formation${totalUnits === 1 ? "" : "s"} are already in theater, including allied support. Requisitions add only to your own committed force.`;
+    this.predeployedSummaryElement.textContent = `${totalUnits} allied formation${totalUnits === 1 ? "" : "s"} already hold the line. Requisition builds the rest of your task force.`;
 
     this.predeployedListElement.innerHTML = entries
       .map((entry) => `<li><span class="predeployed-label">${entry.label}</span><span class="predeployed-count">×${entry.count}</span></li>`)
@@ -1225,11 +1227,24 @@ export class PrecombatScreen {
     this.missionTitleElement.textContent = title;
     this.missionBriefingElement.textContent = briefing;
     this.objectiveListElement.innerHTML = objectives
-      .map((objective) => `<li>${objective}</li>`)
+      .map((objective, index) => {
+        const parsed = this.parseMissionObjective(objective);
+        const primaryClass = parsed.tier === "primary" || (parsed.tier === "other" && index === 0)
+          ? " mission-order-item--primary"
+          : "";
+        const labelMarkup = parsed.label
+          ? `<strong>${parsed.label}:</strong>`
+          : "";
+        return `<li class="mission-order-item mission-order-item--${parsed.tier}${primaryClass}">${labelMarkup}${labelMarkup ? " " : ""}<span class="mission-order-copy">${parsed.text}</span></li>`;
+      })
       .join("");
     this.missionTurnLimitElement.textContent = effectiveTurnLimit !== null ? `${effectiveTurnLimit} turns` : "Pending";
-    this.baselineSupplyListElement.innerHTML = summary.supplies
-      .map((item) => `<li><strong>${item.label}:</strong> ${item.amount}</li>`)
+    const visibleMissionAssets = this.filterMissionAssetsForBriefing(summary.supplies);
+    if (this.baselineSupplySectionElement) {
+      this.baselineSupplySectionElement.classList.toggle("hidden", visibleMissionAssets.length === 0);
+    }
+    this.baselineSupplyListElement.innerHTML = visibleMissionAssets
+      .map((item) => `<li><strong>${item.label}</strong><span>${item.amount}</span></li>`)
       .join("");
     this.doctrineNotesElement.textContent = summary.doctrine;
 
@@ -1243,6 +1258,44 @@ export class PrecombatScreen {
       baselineSupplies: summary.supplies
     };
     this.battleState.setPrecombatMissionInfo(missionInfo);
+  }
+
+  private parseMissionObjective(objective: string): {
+    readonly label: string | null;
+    readonly text: string;
+    readonly tier: "primary" | "secondary" | "tertiary" | "other";
+  } {
+    const matched = objective.match(/^(Primary|Secondary|Tertiary):\s*(.+)$/i);
+    if (!matched) {
+      return {
+        label: null,
+        text: objective,
+        tier: "other"
+      };
+    }
+
+    const [, rawLabel, text] = matched;
+    const normalizedTier = rawLabel.toLowerCase() as "primary" | "secondary" | "tertiary";
+    return {
+      label: rawLabel,
+      text,
+      tier: normalizedTier
+    };
+  }
+
+  private filterMissionAssetsForBriefing(
+    supplies: ReadonlyArray<{ readonly label: string; readonly amount: string }>
+  ): ReadonlyArray<{ readonly label: string; readonly amount: string }> {
+    const duplicateAssetPatterns = [
+      /budget/i,
+      /garrison/i,
+      /baseline forces/i,
+      /predeployed/i,
+      /operational window/i,
+      /^duration$/i
+    ];
+
+    return supplies.filter((item) => duplicateAssetPatterns.every((pattern) => !pattern.test(item.label.trim())));
   }
 
   private renderMiniMap(): void {
@@ -1356,8 +1409,8 @@ export class PrecombatScreen {
       this.commanderNameElement.textContent = "No commander assigned.";
       this.commanderSummaryElement.textContent =
         rosterSize === 0
-          ? "Commission a commander on the landing screen to unlock tailored operations."
-          : "Select a commander to review their readiness stats.";
+          ? "Commission a field commander at headquarters."
+          : "Assign a field commander before deployment.";
       this.updateCommanderStats(null);
       return;
     }
@@ -1366,7 +1419,7 @@ export class PrecombatScreen {
     if (!general) {
       this.commanderCardElement.classList.add("is-unassigned");
       this.commanderNameElement.textContent = "Assigned commander not found.";
-      this.commanderSummaryElement.textContent = "Reassign a commander before continuing to deployment.";
+      this.commanderSummaryElement.textContent = "Reassign command before deployment.";
       this.updateCommanderStats(null);
       // Clear the cached commander when roster data goes missing so battle UI falls back gracefully.
       this.battleState.setAssignedCommanderId(null);
@@ -1378,7 +1431,11 @@ export class PrecombatScreen {
     const missionsCompleted = general.serviceRecord?.missionsCompleted ?? 0;
     const victories = general.serviceRecord?.victoriesAchieved ?? 0;
     this.commanderSummaryElement.textContent =
-      `Active commander with ${missionsCompleted} mission${missionsCompleted === 1 ? "" : "s"} and ${victories} victory${victories === 1 ? "" : "ies"}.`;
+      victories > 0
+        ? "Combat-proven and ready to take the field."
+        : missionsCompleted > 0
+        ? "Field-tested and awaiting orders."
+        : "Green, but ready for a first command.";
     this.updateCommanderStats(general);
     // Mirror the assignment certainty after validating roster presence to keep BattleState in sync with the UI card.
     this.battleState.setAssignedCommanderId(general.id);

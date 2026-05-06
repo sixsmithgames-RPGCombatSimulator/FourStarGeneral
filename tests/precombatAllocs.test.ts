@@ -481,11 +481,11 @@ registerTest("PRECOMBAT_RIVER_WATCH_USES_AUTHORED_MISSION_PACKAGE", async ({ Giv
       throw new Error("Expected supply list element to exist.");
     }
     const supplyText = supplyList.textContent ?? "";
-    if (!supplyText.includes("Predeployed Patrol")) {
-      throw new Error(`Expected authored patrol package summary, received ${supplyText}`);
+    if (!supplyText.includes("Off-map Artillery")) {
+      throw new Error(`Expected concise support summary, received ${supplyText}`);
     }
-    if (supplyText.includes("Turn Limit")) {
-      throw new Error("Expected authored mission package supplies to replace the old fallback entries.");
+    if (supplyText.includes("Predeployed Patrol") || supplyText.includes("Hold until dawn")) {
+      throw new Error(`Expected duplicated patrol details to stay out of the concise support summary, received ${supplyText}`);
     }
     if (!missionInfo) {
       throw new Error("Expected BattleState mission handoff to be populated.");
@@ -581,8 +581,11 @@ registerTest("PRECOMBAT_RIVER_WATCH_HARD_DIFFICULTY_UPDATES_EXTRACTION_WINDOW", 
       throw new Error("Expected supply list element to exist.");
     }
     const supplyText = supplyList.textContent ?? "";
-    if (!supplyText.includes("Hold until dawn on turn 11")) {
-      throw new Error(`Expected Hard extraction-window supply copy, received ${supplyText}`);
+    if (!supplyText.includes("Off-map Artillery")) {
+      throw new Error(`Expected Hard briefing support summary to keep off-map artillery visible, received ${supplyText}`);
+    }
+    if (supplyText.includes("Hold until dawn on turn 11")) {
+      throw new Error(`Expected Hard extraction window copy to stay in the turn-limit panel, received ${supplyText}`);
     }
     if (!missionInfo) {
       throw new Error("Expected BattleState mission handoff to be populated.");

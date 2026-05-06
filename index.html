@@ -1344,11 +1344,9 @@
       justify-self: center;
     }
     .precombat-summary {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.8rem;
+      display: grid;
+      gap: 0.32rem;
       margin: 0;
-      flex-wrap: nowrap;
       width: 100%;
       overflow: hidden;
     }
@@ -1357,12 +1355,8 @@
       font-size: 1.24rem;
       letter-spacing: 0.14em;
       text-transform: uppercase;
-      flex: 0 0 auto;
-      max-width: 34%;
+      max-width: none;
       min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
       display: block;
       line-height: 1.05;
       color: #efe3bf;
@@ -1380,15 +1374,15 @@
     .precombat-summary p {
       margin: 0;
       color: var(--text-secondary);
-      line-height: 1.35;
-      white-space: nowrap;
-      font-size: 0.78rem;
+      line-height: 1.42;
+      white-space: normal;
+      font-size: 0.8rem;
       letter-spacing: 0.03em;
-      flex: 1;
       min-width: 0;
       overflow: hidden;
-      text-overflow: ellipsis;
-      display: block;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
     }
     .precombat-header {
       position: sticky;
@@ -1501,38 +1495,105 @@
     }
     .mission-details-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.65rem;
+      grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.8fr);
+      grid-template-areas:
+        "orders turn-limit"
+        "orders doctrine";
+      gap: 0.6rem;
     }
     .mission-details-grid .info-block {
       background: rgba(14, 17, 13, 0.92);
       border: 1px solid rgba(168, 142, 91, 0.14);
       border-radius: 10px;
-      padding: 0.75rem 1rem;
+      padding: 0.7rem 0.85rem;
+      min-width: 0;
     }
     .mission-details-grid .info-block strong {
       display: block;
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       letter-spacing: 0.12em;
       text-transform: uppercase;
       color: rgba(226, 205, 154, 0.9);
-      margin-bottom: 0.4rem;
+      margin-bottom: 0.34rem;
     }
     .mission-details-grid .info-block p,
     .mission-details-grid .info-block ul {
       margin: 0;
       font-size: 0.82rem;
       color: var(--text-secondary);
-      line-height: 1.5;
+      line-height: 1.42;
+    }
+    .info-block--orders {
+      grid-area: orders;
+    }
+    .info-block--turn-limit {
+      grid-area: turn-limit;
+      align-content: start;
+    }
+    .info-block--doctrine {
+      grid-area: doctrine;
+    }
+    .mission-orders-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.42rem;
+    }
+    .mission-order-item {
+      display: grid;
+      gap: 0.12rem;
+      padding: 0.42rem 0.5rem;
+      border-radius: 10px;
+      border: 1px solid rgba(170, 146, 95, 0.12);
+      background: rgba(255, 255, 255, 0.028);
+    }
+    .mission-order-item strong {
+      margin: 0;
+      font-size: 0.64rem;
+      letter-spacing: 0.14em;
+      color: var(--accent-strong);
+    }
+    .mission-order-item--primary {
+      border-color: rgba(214, 184, 117, 0.26);
+      background: rgba(115, 92, 47, 0.16);
+    }
+    .mission-order-copy {
+      color: var(--text-primary);
+      line-height: 1.38;
+      font-size: 0.82rem;
+    }
+    .mission-clock {
+      font-size: 1.16rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--text-primary);
+    }
+    .mission-clock-note {
+      font-size: 0.74rem;
+      color: rgba(228, 220, 198, 0.56);
+      line-height: 1.35;
     }
     .predeployed-panel {
-      margin-top: 0.85rem;
+      margin-top: 0.6rem;
       background: rgba(14, 17, 13, 0.92);
       border: 1px solid rgba(168, 142, 91, 0.14);
       border-radius: 14px;
-      padding: 0.8rem 0.9rem;
+      padding: 0.72rem 0.85rem;
       display: grid;
-      gap: 0.55rem;
+      gap: 0.62rem;
+    }
+    .predeployed-panel__header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.7rem;
+      flex-wrap: wrap;
+    }
+    .predeployed-panel__copy {
+      display: grid;
+      gap: 0.26rem;
+      min-width: 0;
     }
     .predeployed-panel h3 {
       margin: 0;
@@ -1541,10 +1602,48 @@
       text-transform: uppercase;
       color: #efe3bf;
     }
+    .predeployed-support {
+      display: grid;
+      gap: 0.34rem;
+      justify-items: start;
+      max-width: 420px;
+    }
+    .predeployed-support > strong {
+      font-size: 0.64rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(226, 205, 154, 0.82);
+    }
+    .mission-asset-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .mission-asset-list li {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.48rem;
+      border-radius: 999px;
+      border: 1px solid rgba(190, 171, 130, 0.16);
+      background: rgba(82, 74, 48, 0.16);
+      color: rgba(248, 243, 229, 0.82);
+      font-size: 0.72rem;
+      line-height: 1.3;
+    }
+    .mission-asset-list strong {
+      font-size: 0.66rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #efe3bf;
+    }
     .predeployed-summary {
       margin: 0;
       color: var(--text-secondary);
-      line-height: 1.42;
+      line-height: 1.34;
       font-size: 0.8rem;
     }
     .predeployed-list {
@@ -1552,19 +1651,23 @@
       margin: 0;
       padding: 0;
       display: grid;
-      gap: 0.5rem;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.45rem;
     }
     .predeployed-list li {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0.35rem 0.5rem;
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.03);
+      gap: 0.55rem;
+      padding: 0.42rem 0.55rem;
+      border-radius: 10px;
+      border: 1px solid rgba(170, 146, 95, 0.12);
+      background: rgba(255, 255, 255, 0.028);
     }
     .predeployed-label {
       font-weight: 600;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.03em;
+      font-size: 0.82rem;
     }
     .predeployed-count {
       font-variant-numeric: tabular-nums;
@@ -1624,7 +1727,7 @@
       min-width: 0;
     }
     .map-card .commander-block {
-      margin-top: 0.5rem;
+      margin-top: 0.32rem;
     }
     .map-card > h2 {
       margin: 0;
@@ -1648,7 +1751,7 @@
       position: relative;
       width: 100%;
       aspect-ratio: 1 / 1;
-      min-height: clamp(220px, 28vh, 340px);
+      min-height: clamp(200px, 24vh, 300px);
       max-height: none;
       border-radius: 14px;
       overflow: hidden;
@@ -4784,6 +4887,13 @@
       }
       .mission-details-grid {
         grid-template-columns: 1fr;
+        grid-template-areas:
+          "orders"
+          "turn-limit"
+          "doctrine";
+      }
+      .predeployed-list {
+        grid-template-columns: 1fr;
       }
       .battle-intel-overlay {
         top: 0.5rem;
@@ -6255,26 +6365,31 @@
               </p>
             </div>
             <div class="mission-details-grid">
-              <div class="info-block">
-                <strong>Objectives:</strong>
-                <ul id="objectiveList" class="objective-list"></ul>
+              <div class="info-block info-block--orders">
+                <strong>Orders</strong>
+                <ul id="objectiveList" class="mission-orders-list"></ul>
               </div>
-              <div class="info-block">
-                <strong>Turn Limit:</strong>
-                <p id="missionTurnLimit">Pending</p>
+              <div class="info-block info-block--turn-limit">
+                <strong>Time Limit</strong>
+                <p id="missionTurnLimit" class="mission-clock">Pending</p>
+                <p class="mission-clock-note">Finish the operation before the window closes.</p>
               </div>
-              <div class="info-block">
-                <strong>Baseline Supplies:</strong>
-                <ul id="baselineSupplyList" class="baseline-supply-list"></ul>
-              </div>
-              <div class="info-block">
-                <strong>Doctrine Notes:</strong>
+              <div class="info-block info-block--doctrine">
+                <strong>Command Notes</strong>
                 <p id="missionDoctrineNotes">Doctrine brief will appear here.</p>
               </div>
             </div>
             <section class="predeployed-panel">
-              <h3>Scenario Forces</h3>
-              <p id="predeployedSummary" class="predeployed-summary">Scenario units will appear here once mission data loads.</p>
+              <div class="predeployed-panel__header">
+                <div class="predeployed-panel__copy">
+                  <h3>Forces in Theater</h3>
+                  <p id="predeployedSummary" class="predeployed-summary">Scenario units will appear here once mission data loads.</p>
+                </div>
+                <div id="baselineSupplySection" class="predeployed-support hidden">
+                  <strong>Support On Call</strong>
+                  <ul id="baselineSupplyList" class="mission-asset-list"></ul>
+                </div>
+              </div>
               <ul id="predeployedUnitList" class="predeployed-list"></ul>
             </section>
           </div>
@@ -6288,7 +6403,7 @@
               </div>
             </div>
             <div id="commanderSummaryCard" class="info-block commander-block">
-              <strong>Commander Overview</strong>
+              <strong>Field Commander</strong>
               <h3 id="commanderName">No commander assigned.</h3>
               <p id="commanderSummary">Select a commander to review their readiness stats.</p>
               <dl class="general-detail-grid">
