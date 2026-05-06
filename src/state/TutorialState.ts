@@ -9,7 +9,6 @@ export type TutorialPhase =
   | "budget_overview"
   | "unit_categories"
   | "select_infantry"
-  | "adjust_quantity"
   | "select_tanks"
   | "select_engineers"
   | "select_flak"

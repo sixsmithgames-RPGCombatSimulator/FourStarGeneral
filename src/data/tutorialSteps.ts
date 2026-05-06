@@ -10,17 +10,17 @@ export type { TutorialStep };
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   {
     phase: "welcome",
-    title: "Operation Coastal Shield",
+    title: "Field Certification: Operation Coastal Shield",
     content:
-      "Commander, welcome to your field certification. Enemy reconnaissance has detected a German forward patrol probing our coastal defenses near Hill 47. Your mission: establish a blocking position, engage the patrol, and demonstrate mastery of combined arms tactics. This training operation will walk you through the full battle loop: requisitioning a balanced force, deploying for immediate contact, then using engineers, off-map artillery, flak coverage, air support, and logistics under live conditions. The enemy is already on the move—there is no time to waste.",
+      "General, your command awaits. German scouts have been sighted probing our coastal sector near Hill 47. Your orders are clear: assemble a combat team, establish a blocking position, and engage the enemy patrol. This exercise will run you through the full command cycle—requisition, deployment, and live-fire operations. You'll lead infantry, armor, engineers, and air support while managing supply lines under combat conditions. The Germans are moving. Time is critical.",
     position: "center",
     actionLabel: "Accept Command"
   },
   {
     phase: "budget_overview",
-    title: "Operational Budget",
+    title: "Requisition Authority",
     content:
-      "Every mission begins with requisitions. Watch the budget board as you build a force package that can attack, hold, resupply, and defend itself from air attack.",
+      "You have 1,200 Requisition Points for this training operation. Spend them wisely—every formation you commission will be under your direct command in the field. Your force must include infantry for the line, armor for breakthrough, engineers for obstacles, flak for air defense, and fighter cover for protection. Watch your balance as you build.",
     highlightSelector: "#precombatBudgetPanel",
     position: "left",
     arrowDirection: "right",
@@ -28,9 +28,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "unit_categories",
-    title: "Build a Task Force",
+    title: "Assemble Your Combat Team",
     content:
-      "The requisition board is split between frontline units, supplies, support, and logistics. In this tutorial, build around infantry, armor, engineers, flak, and fighter cover while keeping the convoy train intact.",
+      "The requisition board lists available formations. For this operation, you will need: two Infantry Battalions for the assault line, one Tank Company for armor punch, one Engineering Corps for obstacles and fortification, one Flak Battery for air defense, one Fighter Squadron for overhead protection, plus ammunition and fuel reserves. The Supply Convoy is mandatory—without it, your troops run dry.",
     highlightSelector: "#allocationUnitList, #allocationSupportList, #allocationLogisticsList",
     position: "right",
     arrowDirection: "left",
@@ -38,9 +38,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_infantry",
-    title: "Line Infantry First",
+    title: "Commission Infantry",
     content:
-      "Add an Infantry Battalion. Infantry will anchor your line, spot for artillery, and hold terrain that armor should not fight over alone.",
+      "Your first priority: two Infantry Battalions. These men will take and hold ground, spot for your guns, and secure terrain that armor cannot hold alone. Click the plus button twice to add two battalions to your order of battle.",
     highlightSelector: "[data-key='infantry']",
     position: "right",
     arrowDirection: "left",
@@ -48,21 +48,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Continue"
   },
   {
-    phase: "adjust_quantity",
-    title: "Shape the Force",
-    content:
-      "Use the quantity controls to adjust your package. You do not need a huge force here, but you do need a balanced one that can move, breach, defend, and stay supplied.",
-    highlightSelector: ".allocation-quantity",
-    position: "right",
-    arrowDirection: "left",
-    waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
     phase: "select_tanks",
-    title: "Add Armor",
+    title: "Add Armor Support",
     content:
-      "Add a Tank Company. Armor gives you breakthrough power and mobile fire support, but it performs best when infantry screens for it and logistics keeps it fueled.",
+      "Now add one Tank Company. Your Shermans provide the punch to break enemy positions and the mobility to respond where the fight is hottest. Armor needs infantry support to survive—remember, tanks don't hold ground, they take it.",
     highlightSelector: "[data-key='tank']",
     position: "right",
     arrowDirection: "left",
@@ -71,9 +60,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_engineers",
-    title: "Add Engineers",
+    title: "Commission Engineers",
     content:
-      "Add an Engineering Corps. Engineers dig in, build fortifications, lay tank traps, and clear movement lanes once the battle begins.",
+      "Add one Engineering Corps. These troops dig fortifications, lay tank traps, breach obstacles, and clear lanes for your advance. In this terrain, you'll need them to create defensible positions.",
     highlightSelector: "[data-key='engineer']",
     position: "right",
     arrowDirection: "left",
@@ -82,9 +71,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_flak",
-    title: "Add Flak Cover",
+    title: "Establish Air Defense",
     content:
-      "Add a Flak Battery. It protects your base camp, gun lines, and reserves from enemy air attack and can still threaten armor and soft targets from good positions.",
+      "Add one Flak Battery. The 88s will protect your base camp and reserves from German air attack, and they can engage ground targets when positioned well. Never underestimate enemy air power.",
     highlightSelector: "[data-key='flakBattery']",
     position: "right",
     arrowDirection: "left",
@@ -93,9 +82,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_air_wing",
-    title: "Add Fighter Support",
+    title: "Request Fighter Cover",
     content:
-      "Add a Fighter Squadron. Air wings stay off-map and will be tasked later through the Air Support board for patrol, escort, and strike coverage.",
+      "Add one Fighter Squadron for air superiority. These fighters stay off-map until you task them through the Air Support board for patrol, interception, or escort missions.",
     highlightSelector: "[data-key='fighter']",
     position: "right",
     arrowDirection: "left",
@@ -104,18 +93,18 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "mission_objectives",
-    title: "Mission Objectives",
+    title: "Mission Briefing",
     content:
-      "PRIMARY OBJECTIVE: Deploy your force and eliminate the German patrol before they reach the coastal road. SUCCESS CRITERIA: Destroy at least 50% of enemy strength while preserving your command structure. KEY TACTICS: Use engineers to fortify positions, deploy smoke to block enemy observation, coordinate air support, and maintain supply lines. Remember: reconnaissance reports show the enemy patrol is small but mobile—expect contact within the first turn.",
+      "PRIMARY OBJECTIVE: Intercept and destroy the German patrol before they reach the coastal road. SUCCESS CRITERIA: Eliminate 50% of enemy combat strength while preserving your command structure. TACTICAL GUIDANCE: Use engineers to fortify key positions, deploy smoke screens to blind enemy observation, coordinate air support with ground operations, and maintain your supply line. Intelligence reports indicate a small but mobile enemy force—expect contact within the first turn.",
     highlightSelector: "#precombatMissionSummary",
     position: "center",
     actionLabel: "Understood"
   },
   {
     phase: "review_allocation",
-    title: "Final Equipment Check",
+    title: "Final Inspection",
     content:
-      "Review your task force before deploying. This operation includes a standing logistics convoy and an attached off-map heavy artillery battery. For immediate combat, ensure you have: infantry for screening, armor for breakthrough, engineers for fortification, and tank destroyers to counter enemy armor. Use the [+] and [-] buttons or press the Plus/Minus keys to adjust quantities quickly.",
+      "Review your order of battle before deployment. You should have: two Infantry Battalions, one Tank Company, one Engineering Corps, one Flak Battery, one Fighter Squadron, plus ammunition and fuel reserves. The Supply Convoy is already attached—without it, your armor runs dry and your guns fall silent. When ready, deploy to the field.",
     highlightSelector: "#resetAllocations, #proceedToBattle",
     position: "center",
     actionLabel: "Deploy to Field"
@@ -361,7 +350,6 @@ export function getPrecombatPhases(): TutorialPhase[] {
     "budget_overview",
     "unit_categories",
     "select_infantry",
-    "adjust_quantity",
     "select_tanks",
     "select_engineers",
     "select_flak",

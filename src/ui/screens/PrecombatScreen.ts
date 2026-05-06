@@ -296,11 +296,7 @@ export class PrecombatScreen {
 
     const currentPhase = tutorialState.getCurrentPhase();
 
-    if (currentPhase === "adjust_quantity") {
-      tutorialState.setCanProceed(true);
-    }
-
-    if (currentPhase === "select_infantry" && optionKey === "infantry" && newQuantity > 0) {
+    if (currentPhase === "select_infantry" && optionKey === "infantry" && newQuantity >= 2) {
       tutorialState.setCanProceed(true);
       setTimeout(() => {
         const nextPhase = getNextPhase("select_infantry");

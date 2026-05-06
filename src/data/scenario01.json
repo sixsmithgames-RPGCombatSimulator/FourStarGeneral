@@ -391,6 +391,7 @@
     }
   ],
   "turnLimit": 20,
+  "playerBudget": 1200,
   "sides": {
     "Player": {
       "hq": [2, 12],

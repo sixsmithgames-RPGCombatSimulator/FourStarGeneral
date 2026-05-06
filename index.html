@@ -618,9 +618,10 @@
       border-radius: 999px;
     }
     .allocation-item {
-      display: grid;
-      gap: 0.65rem;
-      padding: 0.9rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      padding: 0.85rem 0.9rem;
       border-radius: 12px;
       border: 1px solid rgba(177, 152, 101, 0.28);
       background:
@@ -629,7 +630,7 @@
         inset 0 1px 0 rgba(255, 255, 255, 0.05),
         0 8px 20px rgba(0, 0, 0, 0.2);
       min-width: 0;
-      min-height: 120px;
+      min-height: 0;
     }
     .allocation-item[data-locked="true"] {
       opacity: 0.65;
@@ -745,10 +746,11 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 0.75rem;
+      gap: 0.5rem;
       text-align: left;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       margin-top: auto;
+      min-width: 0;
     }
     .allocation-cost {
       font-weight: 600;
@@ -760,11 +762,12 @@
     .allocation-quantity {
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.3rem;
       border: 1px solid rgba(177, 152, 101, 0.32);
       border-radius: 999px;
-      padding: 0.2rem 0.5rem;
+      padding: 0.15rem 0.4rem;
       background: rgba(9, 11, 9, 0.85);
+      flex-shrink: 0;
     }
     .allocation-quantity--disabled {
       border-color: rgba(166, 166, 166, 0.22);
@@ -779,16 +782,17 @@
       font-variant-numeric: tabular-nums;
     }
     .allocation-btn {
-      width: 2.2rem;
-      height: 2.2rem;
-      border-radius: 10px;
+      width: 1.9rem;
+      height: 1.9rem;
+      border-radius: 8px;
       border: 1px solid rgba(177, 152, 101, 0.35);
       background: rgba(255, 255, 255, 0.1);
       color: var(--text-primary);
-      font-size: 1.25rem;
+      font-size: 1.15rem;
       font-weight: 700;
       line-height: 1;
       cursor: pointer;
+      flex-shrink: 0;
       transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
     }
     .allocation-btn:hover:not(:disabled) {
@@ -1453,6 +1457,44 @@
       gap: 0.85rem;
       align-items: start;
     }
+    .precombat-intel-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.55fr);
+      gap: 1rem;
+      align-items: start;
+      margin-bottom: 1rem;
+    }
+    .mission-intel-panel {
+      display: grid;
+      gap: 0.85rem;
+      min-width: 0;
+    }
+    .mission-details-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.65rem;
+    }
+    .mission-details-grid .info-block {
+      background: rgba(14, 17, 13, 0.92);
+      border: 1px solid rgba(168, 142, 91, 0.14);
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+    }
+    .mission-details-grid .info-block strong {
+      display: block;
+      font-size: 0.75rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(226, 205, 154, 0.9);
+      margin-bottom: 0.4rem;
+    }
+    .mission-details-grid .info-block p,
+    .mission-details-grid .info-block ul {
+      margin: 0;
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
     .predeployed-panel {
       margin-top: 0.85rem;
       background: rgba(14, 17, 13, 0.92);
@@ -1546,11 +1588,13 @@
       align-content: start;
     }
     .map-card {
-      grid-column: 3;
       display: grid;
       gap: 0.8rem;
       align-content: start;
       min-width: 0;
+    }
+    .map-card .commander-block {
+      margin-top: 0.5rem;
     }
     .map-card > h2 {
       margin: 0;
@@ -2029,8 +2073,9 @@
       line-height: 1.6;
     }
     .allocation-panel {
-      grid-column: 1 / span 2;
+      display: grid;
       gap: 0.95rem;
+      min-width: 0;
     }
     .allocation-panel > h2 {
       margin: 0;
@@ -4646,6 +4691,12 @@
       .precombat-layout {
         grid-template-columns: 1fr;
       }
+      .precombat-intel-row {
+        grid-template-columns: 1fr;
+      }
+      .mission-details-grid {
+        grid-template-columns: 1fr;
+      }
       .battle-intel-overlay {
         top: 0.5rem;
         left: 0.5rem;
@@ -6093,9 +6144,9 @@
             </div>
             <div class="precombat-toolbar-budget">
               <div id="precombatBudgetPanel" class="topbar-budget" data-state="within-budget">
-                <div class="budget-label">Budget</div>
-                <div id="budgetSpent" class="budget-value">Spent: $0</div>
-                <div id="budgetRemaining" class="budget-value">Remaining: $10,000,000</div>
+                <div class="budget-label">Requisition Points</div>
+                <div id="budgetSpent" class="budget-value">Spent: 0 RP</div>
+                <div id="budgetRemaining" class="budget-value">Available: 1,200 RP</div>
               </div>
             </div>
             <div class="precombat-toolbar-button-group">
@@ -6105,63 +6156,17 @@
           </div>
         </div>
 
-        <div class="precombat-summary">
-          <h2 id="precombatMissionTitle">Training Exercise</h2>
-          <p id="precombatMissionBriefing" class="precombat-subtitle">
-            This is a low-stakes training exercise designed to familiarize your forces with operational procedures. Focus on unit coordination and terrain assessment. No hostile contact expected.
-          </p>
-        </div>
-
-        <div class="precombat-layout">
-          <!-- Allocation Panel -->
-          <div class="allocation-panel">
-            <h2>Unit Allocation</h2>
-            <div class="allocation-grid">
-              <div class="allocation-section allocation-section--units">
-                <header>
-                  <h3>Units</h3>
-                  <p>Combat formations and battlefield carriers</p>
-                </header>
-                <ul id="allocationUnitList" class="allocation-items"></ul>
-              </div>
-              <div class="allocation-section allocation-section--supplies">
-                <header>
-                  <h3>Supplies</h3>
-                  <p>Depot stockpiles and reserve dumps</p>
-                </header>
-                <ul id="allocationSupplyList" class="allocation-items"></ul>
-              </div>
-              <div class="allocation-section allocation-section--support">
-                <header>
-                  <h3>Support</h3>
-                  <p>Air support and off-map fires</p>
-                </header>
-                <ul id="allocationSupportList" class="allocation-items"></ul>
-              </div>
-              <div class="allocation-section allocation-section--logistics">
-                <header>
-                  <h3>Logistics</h3>
-                  <p>Convoys, recovery, and medical services</p>
-                </header>
-                <ul id="allocationLogisticsList" class="allocation-items"></ul>
-              </div>
+        <!-- Top Row: Mission Intelligence and Theater Overview -->
+        <div class="precombat-intel-row">
+          <!-- Mission Intelligence (Left) -->
+          <div class="mission-intel-panel">
+            <div class="precombat-summary">
+              <h2 id="precombatMissionTitle">Training Exercise</h2>
+              <p id="precombatMissionBriefing" class="precombat-subtitle">
+                This is a low-stakes training exercise designed to familiarize your forces with operational procedures. Focus on unit coordination and terrain assessment. No hostile contact expected.
+              </p>
             </div>
-            <section class="predeployed-panel">
-              <h3>Scenario Forces</h3>
-              <p id="predeployedSummary" class="predeployed-summary">Scenario units will appear here once mission data loads.</p>
-              <ul id="predeployedUnitList" class="predeployed-list"></ul>
-            </section>
-          </div>
-
-          <!-- Map Preview -->
-          <div class="map-card">
-            <h2>Theater Overview</h2>
-            <div class="map-preview">
-              <div id="precombatMapCanvas" class="mini-map-canvas">
-                <svg id="precombatHexMap" class="precombat-minimap" xmlns="http://www.w3.org/2000/svg"></svg>
-              </div>
-            </div>
-            <div class="map-card__info-grid">
+            <div class="mission-details-grid">
               <div class="info-block">
                 <strong>Objectives:</strong>
                 <ul id="objectiveList" class="objective-list"></ul>
@@ -6179,7 +6184,22 @@
                 <p id="missionDoctrineNotes">Doctrine brief will appear here.</p>
               </div>
             </div>
-            <div id="commanderSummaryCard" class="info-block">
+            <section class="predeployed-panel">
+              <h3>Scenario Forces</h3>
+              <p id="predeployedSummary" class="predeployed-summary">Scenario units will appear here once mission data loads.</p>
+              <ul id="predeployedUnitList" class="predeployed-list"></ul>
+            </section>
+          </div>
+
+          <!-- Theater Overview (Right) -->
+          <div class="map-card">
+            <h2>Theater Overview</h2>
+            <div class="map-preview">
+              <div id="precombatMapCanvas" class="mini-map-canvas">
+                <svg id="precombatHexMap" class="precombat-minimap" xmlns="http://www.w3.org/2000/svg"></svg>
+              </div>
+            </div>
+            <div id="commanderSummaryCard" class="info-block commander-block">
               <strong>Commander Overview</strong>
               <h3 id="commanderName">No commander assigned.</h3>
               <p id="commanderSummary">Select a commander to review their readiness stats.</p>
@@ -6201,6 +6221,41 @@
                   <dd id="commanderCasualties">0</dd>
                 </div>
               </dl>
+            </div>
+          </div>
+        </div>
+
+        <!-- Allocation Panel (Full Width Below) -->
+        <div class="allocation-panel">
+          <h2>Unit Allocation</h2>
+          <div class="allocation-grid">
+            <div class="allocation-section allocation-section--units">
+              <header>
+                <h3>Units</h3>
+                <p>Combat formations and battlefield carriers</p>
+              </header>
+              <ul id="allocationUnitList" class="allocation-items"></ul>
+            </div>
+            <div class="allocation-section allocation-section--supplies">
+              <header>
+                <h3>Supplies</h3>
+                <p>Depot stockpiles and reserve dumps</p>
+              </header>
+              <ul id="allocationSupplyList" class="allocation-items"></ul>
+            </div>
+            <div class="allocation-section allocation-section--support">
+              <header>
+                <h3>Support</h3>
+                <p>Air support and off-map fires</p>
+              </header>
+              <ul id="allocationSupportList" class="allocation-items"></ul>
+            </div>
+            <div class="allocation-section allocation-section--logistics">
+              <header>
+                <h3>Logistics</h3>
+                <p>Convoys, recovery, and medical services</p>
+              </header>
+              <ul id="allocationLogisticsList" class="allocation-items"></ul>
             </div>
           </div>
         </div>
