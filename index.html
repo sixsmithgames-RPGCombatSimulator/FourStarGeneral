@@ -594,13 +594,14 @@
       list-style: none;
       margin: 0;
       padding: 0 0.2rem 0 0;
-      display: grid;
+      display: flex;
+      flex-direction: column;
       gap: 0.55rem;
       overflow-y: auto;
       overflow-x: hidden;
       min-height: 0;
       flex: 1;
-      align-content: start;
+      align-items: stretch;
     }
     .allocation-items::-webkit-scrollbar {
       width: 10px;
@@ -620,6 +621,7 @@
     .allocation-item {
       display: flex;
       flex-direction: column;
+      flex-shrink: 0;
       gap: 0.75rem;
       padding: 0.85rem 0.9rem;
       border-radius: 12px;
@@ -2186,6 +2188,20 @@
       color: var(--text-secondary);
     }
     @media (max-width: 1180px) {
+      .precombat-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .precombat-toolbar-budget {
+        order: 3;
+        flex: 1 0 100%;
+        width: 100%;
+      }
+      .precombat-toolbar-button-group:last-child {
+        margin-left: auto;
+      }
       .allocation-grid {
         gap: 1.25rem;
       }
