@@ -619,11 +619,9 @@
       border-radius: 999px;
     }
     .allocation-item {
-      display: flex;
-      flex-direction: column;
+      display: block;
       flex-shrink: 0;
-      gap: 0.75rem;
-      padding: 0.85rem 0.9rem;
+      padding: 0.9rem;
       border-radius: 12px;
       border: 1px solid rgba(177, 152, 101, 0.28);
       background:
@@ -634,6 +632,13 @@
       min-width: 240px; /* Prevent cards from becoming too narrow */
       min-height: 0;
       overflow: hidden; /* Contain any potential overflow */
+    }
+    .allocation-card-shell {
+      display: grid;
+      grid-template-columns: clamp(78px, 7vw, 92px) minmax(0, 1fr) minmax(108px, 124px);
+      gap: 0.9rem;
+      align-items: start;
+      min-width: 0;
     }
     .allocation-item[data-locked="true"] {
       opacity: 0.65;
@@ -669,7 +674,6 @@
     .allocation-item[data-unavailable="true"] .allocation-fallback {
       filter: grayscale(1);
     }
-    .allocation-item header,
     .deployment-item {
       display: flex;
       align-items: flex-start;
@@ -679,8 +683,8 @@
     .allocation-visual,
     .deployment-visual {
       position: relative;
-      width: 64px;
-      height: 64px;
+      width: 100%;
+      aspect-ratio: 1 / 1;
       border-radius: 12px;
       background:
         linear-gradient(180deg, rgba(101, 104, 86, 0.34) 0%, rgba(38, 42, 33, 0.94) 100%);
@@ -692,6 +696,11 @@
       box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.09),
         0 10px 24px rgba(0, 0, 0, 0.2);
+    }
+    .deployment-visual {
+      width: 64px;
+      height: 64px;
+      aspect-ratio: auto;
     }
     .allocation-visual::before,
     .deployment-visual::before {
@@ -725,13 +734,14 @@
     }
     .allocation-copy {
       display: grid;
-      gap: 0.25rem;
+      gap: 0.34rem;
       min-width: 0;
+      align-content: start;
     }
     .allocation-copy__description {
       margin: 0;
       color: var(--text-secondary);
-      line-height: 1.38;
+      line-height: 1.42;
       font-size: 0.82rem;
     }
     .allocation-copy__details,
@@ -756,25 +766,29 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 0.75rem;
+      gap: 0.55rem;
+      flex-wrap: wrap;
     }
     .allocation-title-row h4 {
       margin: 0;
-      font-size: 0.85rem;
+      font-size: 0.9rem;
       letter-spacing: 0.09em;
       text-transform: uppercase;
       flex: 1;
       min-width: 0;
       line-height: 1.2;
     }
-    .allocation-meta {
+    .allocation-status-row {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      min-width: 0;
+    }
+    .allocation-aside {
+      display: grid;
       gap: 0.5rem;
-      text-align: left;
-      flex-wrap: wrap; /* Allow wrapping when space is tight */
-      margin-top: auto;
+      align-content: start;
+      justify-items: stretch;
       min-width: 0;
     }
     .allocation-cost {
@@ -787,29 +801,41 @@
     .allocation-quantity {
       display: inline-flex;
       align-items: center;
-      gap: 0.3rem;
+      justify-content: space-between;
+      gap: 0.22rem;
       border: 1px solid rgba(177, 152, 101, 0.32);
-      border-radius: 999px;
-      padding: 0.15rem 0.4rem;
+      border-radius: 14px;
+      padding: 0.2rem 0.3rem;
       background: rgba(9, 11, 9, 0.85);
-      flex-shrink: 0;
-      white-space: nowrap; /* Keep buttons and count together */
+      min-width: 0;
+      width: 100%;
     }
     .allocation-quantity--disabled {
       border-color: rgba(166, 166, 166, 0.22);
       background: rgba(16, 18, 16, 0.72);
     }
+    .allocation-quantity--locked {
+      display: grid;
+      gap: 0.35rem;
+      justify-items: stretch;
+    }
     .allocation-quantity .allocation-count {
-      min-width: 2rem;
+      min-width: 1.75rem;
       text-align: center;
       font-weight: 700;
-      font-size: 1rem;
+      font-size: 0.96rem;
       color: var(--accent-strong);
       font-variant-numeric: tabular-nums;
     }
+    .allocation-quantity--disabled .allocation-count,
+    .allocation-quantity--locked .allocation-count {
+      min-width: 0;
+      font-size: 0.74rem;
+      line-height: 1.25;
+    }
     .allocation-btn {
-      width: 1.75rem; /* Slightly smaller to fit better */
-      height: 1.75rem;
+      width: 1.82rem;
+      height: 1.82rem;
       border-radius: 6px;
       border: 1px solid rgba(177, 152, 101, 0.35);
       background: rgba(255, 255, 255, 0.1);
@@ -820,7 +846,7 @@
       cursor: pointer;
       flex-shrink: 0;
       transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-      padding: 0; /* Remove default padding */
+      padding: 0;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -844,6 +870,17 @@
       font-variant-numeric: tabular-nums;
       font-size: 0.86rem;
       letter-spacing: 0.04em;
+      text-align: right;
+    }
+    .allocation-unlock-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      text-decoration: none;
+      font-size: 0.62rem;
+      letter-spacing: 0.08em;
+      padding: 0.48rem 0.55rem;
     }
     .deployment-item-title,
     .deployment-item-meta {
@@ -2374,17 +2411,46 @@
       .allocation-item {
         min-width: 0;
       }
-      .allocation-item header {
-        gap: 0.65rem;
+      .allocation-card-shell {
+        grid-template-columns: 72px minmax(0, 1fr);
+        grid-template-areas:
+          "visual copy"
+          "aside aside";
+        gap: 0.72rem 0.68rem;
       }
       .allocation-visual {
-        width: 58px;
-        height: 58px;
+        grid-area: visual;
+      }
+      .allocation-copy {
+        grid-area: copy;
+      }
+      .allocation-aside {
+        grid-area: aside;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.7rem;
+        padding-top: 0.12rem;
+        border-top: 1px solid rgba(177, 152, 101, 0.14);
+      }
+      .allocation-quantity {
+        width: auto;
+        min-width: 138px;
+      }
+      .allocation-quantity--locked {
+        min-width: 0;
+        flex: 1;
+      }
+      .allocation-total {
+        flex-shrink: 0;
       }
       .allocation-title-row {
         gap: 0.5rem;
       }
       .allocation-title-row h4 {
+        font-size: 0.8rem;
+      }
+      .allocation-copy__description {
         font-size: 0.8rem;
       }
     }
@@ -6366,7 +6432,7 @@
             </div>
             <div class="mission-details-grid">
               <div class="info-block info-block--orders">
-                <strong>Orders</strong>
+                <strong>Objectives</strong>
                 <ul id="objectiveList" class="mission-orders-list"></ul>
               </div>
               <div class="info-block info-block--turn-limit">
@@ -6401,29 +6467,6 @@
               <div id="precombatMapCanvas" class="mini-map-canvas">
                 <svg id="precombatHexMap" class="precombat-minimap" xmlns="http://www.w3.org/2000/svg"></svg>
               </div>
-            </div>
-            <div id="commanderSummaryCard" class="info-block commander-block">
-              <strong>Field Commander</strong>
-              <h3 id="commanderName">No commander assigned.</h3>
-              <p id="commanderSummary">Select a commander to review their readiness stats.</p>
-              <dl class="general-detail-grid">
-                <div>
-                  <dt>Missions</dt>
-                  <dd id="commanderMissions">0</dd>
-                </div>
-                <div>
-                  <dt>Victories</dt>
-                  <dd id="commanderVictories">0</dd>
-                </div>
-                <div>
-                  <dt>Units Deployed</dt>
-                  <dd id="commanderUnits">0</dd>
-                </div>
-                <div>
-                  <dt>Casualties</dt>
-                  <dd id="commanderCasualties">0</dd>
-                </div>
-              </dl>
             </div>
           </div>
         </div>

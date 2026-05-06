@@ -17,7 +17,6 @@ import {
 import { ensureUnlockState } from "../../state/UnlockState";
 import { findTemplateForUnitKey } from "../../game/adapters";
 import type { MissionKey } from "../../state/UIState";
-import { findGeneralById, getAllGenerals } from "../../utils/rosterStorage";
 import { ensureTutorialState, isTrainingMission } from "../../state/TutorialState";
 import { getNextPhase } from "../../data/tutorialSteps";
 import { createMissionRulesController } from "../../state/missionRules";
@@ -64,13 +63,6 @@ export class PrecombatScreen {
   private budgetSpentElement!: HTMLElement;
   private budgetRemainingElement!: HTMLElement;
   private allocationFeedbackElement!: HTMLElement;
-  private commanderCardElement!: HTMLElement;
-  private commanderNameElement!: HTMLElement;
-  private commanderSummaryElement!: HTMLElement;
-  private commanderMissionsElement!: HTMLElement;
-  private commanderVictoriesElement!: HTMLElement;
-  private commanderUnitsElement!: HTMLElement;
-  private commanderCasualtiesElement!: HTMLElement;
   private miniMapCanvas!: HTMLDivElement;
   private miniMapSvg!: SVGSVGElement;
 
@@ -182,13 +174,6 @@ export class PrecombatScreen {
     this.budgetSpentElement = this.requireElement<HTMLElement>("#budgetSpent");
     this.budgetRemainingElement = this.requireElement<HTMLElement>("#budgetRemaining");
     this.allocationFeedbackElement = this.requireElement<HTMLElement>("#allocationFeedback");
-    this.commanderCardElement = this.requireElement<HTMLElement>("#commanderSummaryCard");
-    this.commanderNameElement = this.requireElement<HTMLElement>("#commanderName");
-    this.commanderSummaryElement = this.requireElement<HTMLElement>("#commanderSummary");
-    this.commanderMissionsElement = this.requireElement<HTMLElement>("#commanderMissions");
-    this.commanderVictoriesElement = this.requireElement<HTMLElement>("#commanderVictories");
-    this.commanderUnitsElement = this.requireElement<HTMLElement>("#commanderUnits");
-    this.commanderCasualtiesElement = this.requireElement<HTMLElement>("#commanderCasualties");
     this.miniMapCanvas = this.requireElement<HTMLDivElement>("#precombatMapCanvas");
     const miniMapSvg = this.element.querySelector<SVGSVGElement>("#precombatHexMap");
     if (!miniMapSvg) {
@@ -256,7 +241,6 @@ export class PrecombatScreen {
     this.renderPredeployedOverview();
     // Persist the command assignment so battle overlays reference the same general profile as precombat.
     this.battleState.setAssignedCommanderId(selectedGeneralId);
-    this.renderGeneralSummary(selectedGeneralId);
     this.rerenderAllocations();
     this.bindAllocationLists();
     // Derive campaign caps when entering precombat from the campaign flow.
@@ -735,9 +719,12 @@ export class PrecombatScreen {
               ${incrementDisabled ? "disabled" : ""}
             >+</button>
           </div>`;
+    const statusBadges = [baselineBadge, missionMinimumBadge, availabilityBadge, unlockBadge]
+      .filter((badge) => badge.length > 0)
+      .join("");
     return `
       <li class="allocation-item" data-key="${option.key}" data-locked="${locked ? "true" : "false"}" data-unavailable="${unavailable ? "true" : "false"}">
-        <header>
+        <div class="allocation-card-shell">
           <div class="allocation-visual">
             ${option.spriteUrl ? `<img src="${option.spriteUrl}" alt="${option.label}" class="allocation-thumb" />` : `<div class="allocation-fallback">${option.label.charAt(0)}</div>`}
           </div>
@@ -753,16 +740,13 @@ export class PrecombatScreen {
             ${equipmentSummary.length > 0
               ? `<div class="allocation-copy__equipment">${equipmentSummary.map((detail) => `<span>${detail}</span>`).join("")}</div>`
               : ""}
-            ${baselineBadge}
-            ${missionMinimumBadge}
-            ${availabilityBadge}
-            ${unlockBadge}
+            ${statusBadges.length > 0 ? `<div class="allocation-status-row">${statusBadges}</div>` : ""}
           </div>
-        </header>
-        <footer class="allocation-meta">
+          <div class="allocation-aside">
           ${controlsMarkup}
           <span class="allocation-total">${totalCost.toLocaleString()} RP</span>
-        </footer>
+          </div>
+        </div>
       </li>
     `;
   }
@@ -1397,63 +1381,6 @@ export class PrecombatScreen {
       return "#867950";
     }
     return fallbackFill ?? "#7f7250";
-  }
-
-  /**
-   * Summarizes the assigned commander's readiness so the player can double-check roster context.
-   */
-  private renderGeneralSummary(selectedGeneralId: string | null): void {
-    const rosterSize = getAllGenerals().length;
-    if (!selectedGeneralId) {
-      this.commanderCardElement.classList.add("is-unassigned");
-      this.commanderNameElement.textContent = "No commander assigned.";
-      this.commanderSummaryElement.textContent =
-        rosterSize === 0
-          ? "Commission a field commander at headquarters."
-          : "Assign a field commander before deployment.";
-      this.updateCommanderStats(null);
-      return;
-    }
-
-    const general = findGeneralById(selectedGeneralId);
-    if (!general) {
-      this.commanderCardElement.classList.add("is-unassigned");
-      this.commanderNameElement.textContent = "Assigned commander not found.";
-      this.commanderSummaryElement.textContent = "Reassign command before deployment.";
-      this.updateCommanderStats(null);
-      // Clear the cached commander when roster data goes missing so battle UI falls back gracefully.
-      this.battleState.setAssignedCommanderId(null);
-      return;
-    }
-
-    this.commanderCardElement.classList.remove("is-unassigned");
-    this.commanderNameElement.textContent = general.identity.name;
-    const missionsCompleted = general.serviceRecord?.missionsCompleted ?? 0;
-    const victories = general.serviceRecord?.victoriesAchieved ?? 0;
-    this.commanderSummaryElement.textContent =
-      victories > 0
-        ? "Combat-proven and ready to take the field."
-        : missionsCompleted > 0
-        ? "Field-tested and awaiting orders."
-        : "Green, but ready for a first command.";
-    this.updateCommanderStats(general);
-    // Mirror the assignment certainty after validating roster presence to keep BattleState in sync with the UI card.
-    this.battleState.setAssignedCommanderId(general.id);
-  }
-
-  /**
-   * Updates commander stat fields with the latest roster data snapshot.
-   */
-  private updateCommanderStats(general: ReturnType<typeof findGeneralById>): void {
-    const missions = general?.serviceRecord?.missionsCompleted ?? 0;
-    const victories = general?.serviceRecord?.victoriesAchieved ?? 0;
-    const unitsDeployed = general?.serviceRecord?.unitsDeployed ?? 0;
-    const casualties = general?.serviceRecord?.casualtiesSustained ?? 0;
-
-    this.commanderMissionsElement.textContent = missions.toString();
-    this.commanderVictoriesElement.textContent = victories.toString();
-    this.commanderUnitsElement.textContent = unitsDeployed.toString();
-    this.commanderCasualtiesElement.textContent = casualties.toString();
   }
 
   /**
