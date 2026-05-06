@@ -5,6 +5,7 @@ import {
   ALLOCATION_BY_CATEGORY,
   allocationOptions,
   getAllocationOption,
+  type AllocationCategory,
   type UnitAllocationOption
 } from "../../data/unitAllocation";
 import { unitComposition } from "../../data/unitComposition";
@@ -51,7 +52,6 @@ export class PrecombatScreen {
   private allocationWarningReturn!: HTMLButtonElement;
   private allocationWarningProceed!: HTMLButtonElement;
   private allocationUnitList!: HTMLElement;
-  private allocationSupplyList!: HTMLElement;
   private allocationSupportList!: HTMLElement;
   private allocationLogisticsList!: HTMLElement;
   private allocationResetButton!: HTMLButtonElement;
@@ -168,7 +168,6 @@ export class PrecombatScreen {
     this.allocationWarningReturn = this.requireElement<HTMLButtonElement>("#allocationWarningReturn");
     this.allocationWarningProceed = this.requireElement<HTMLButtonElement>("#allocationWarningProceed");
     this.allocationUnitList = this.requireElement<HTMLElement>("#allocationUnitList");
-    this.allocationSupplyList = this.requireElement<HTMLElement>("#allocationSupplyList");
     this.allocationSupportList = this.requireElement<HTMLElement>("#allocationSupportList");
     this.allocationLogisticsList = this.requireElement<HTMLElement>("#allocationLogisticsList");
     this.allocationResetButton = this.requireElement<HTMLButtonElement>("#resetAllocations");
@@ -643,23 +642,17 @@ export class PrecombatScreen {
   }
 
   private rerenderAllocations(): void {
-    const categoryTargets: Array<["units" | "supplies" | "support" | "logistics", HTMLElement | null]> = [
-      ["units", this.allocationUnitList],
-      ["supplies", this.allocationSupplyList],
-      ["support", this.allocationSupportList],
-      ["logistics", this.allocationLogisticsList]
+    const panelTargets: Array<readonly [readonly AllocationCategory[], HTMLElement | null]> = [
+      [["units"], this.allocationUnitList],
+      [["support"], this.allocationSupportList],
+      [["logistics", "supplies"], this.allocationLogisticsList]
     ];
 
-    categoryTargets.forEach(([category, container]) => {
+    panelTargets.forEach(([categories, container]) => {
       if (!container) {
         return;
       }
-      const allocations = ALLOCATION_BY_CATEGORY.get(category);
-      if (!allocations) {
-        container.innerHTML = "";
-        return;
-      }
-      const filteredAllocations = allocations.filter((option) => {
+      const filteredAllocations = allocationOptions.filter((option) => categories.includes(option.category)).filter((option) => {
         if (!this.isAllocationVisible(option)) {
           return false;
         }
@@ -680,7 +673,6 @@ export class PrecombatScreen {
    */
   private bindAllocationLists(): void {
     this.bindAllocationInteraction(this.allocationUnitList);
-    this.bindAllocationInteraction(this.allocationSupplyList);
     this.bindAllocationInteraction(this.allocationSupportList);
     this.bindAllocationInteraction(this.allocationLogisticsList);
   }

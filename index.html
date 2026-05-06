@@ -678,21 +678,43 @@
     }
     .allocation-visual,
     .deployment-visual {
+      position: relative;
       width: 64px;
       height: 64px;
       border-radius: 12px;
-      background: rgba(255, 255, 255, 0.08);
+      background:
+        linear-gradient(180deg, rgba(101, 104, 86, 0.34) 0%, rgba(38, 42, 33, 0.94) 100%);
       display: grid;
       place-items: center;
       overflow: hidden;
       flex-shrink: 0;
-      border: 1px solid rgba(177, 152, 101, 0.25);
+      border: 1px solid rgba(207, 182, 124, 0.34);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.09),
+        0 10px 24px rgba(0, 0, 0, 0.2);
+    }
+    .allocation-visual::before,
+    .deployment-visual::before {
+      content: "";
+      position: absolute;
+      inset: 7px;
+      border-radius: 10px;
+      background:
+        radial-gradient(circle at 35% 32%, rgba(239, 227, 191, 0.18) 0%, rgba(239, 227, 191, 0.06) 26%, rgba(239, 227, 191, 0) 70%);
+      pointer-events: none;
     }
     .allocation-thumb,
     .deployment-thumb {
-      width: 100%;
-      height: 100%;
+      position: relative;
+      z-index: 1;
+      width: 108%;
+      height: 108%;
       object-fit: contain;
+      filter:
+        brightness(1.08)
+        contrast(1.12)
+        saturate(1.05)
+        drop-shadow(0 4px 10px rgba(0, 0, 0, 0.42));
     }
     .allocation-fallback,
     .deployment-fallback {
@@ -2108,7 +2130,7 @@
       gap: var(--allocation-gap);
       grid-template-areas:
         "units logistics"
-        "supplies support";
+        "support logistics";
       align-items: start;
     }
     .allocation-section {
@@ -2119,7 +2141,7 @@
       border-radius: 14px;
       border: 1px solid var(--allocation-border);
       padding: 0.8rem 0.85rem;
-      height: 360px;
+      height: 380px;
       min-height: 0;
       overflow: hidden;
     }
@@ -2143,15 +2165,15 @@
     }
     .allocation-section--units {
       grid-area: units;
-    }
-    .allocation-section--supplies {
-      grid-area: supplies;
+      height: 452px;
     }
     .allocation-section--support {
       grid-area: support;
+      height: 452px;
     }
     .allocation-section--logistics {
       grid-area: logistics;
+      height: calc(452px * 2 + var(--allocation-gap));
     }
     .map-card__info-grid {
       display: grid;
@@ -2205,18 +2227,62 @@
       .allocation-grid {
         gap: 1.25rem;
       }
+      .allocation-section--units,
+      .allocation-section--support {
+        height: 420px;
+      }
+      .allocation-section--logistics {
+        height: calc(420px * 2 + 1.25rem);
+      }
       .map-card__info-grid {
         grid-template-columns: 1fr;
       }
     }
     @media (max-width: 1024px) {
       .allocation-grid {
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        grid-template-columns: minmax(0, 1fr);
         grid-template-areas:
           "units"
-          "supplies"
           "support"
           "logistics";
+      }
+      .allocation-section,
+      .allocation-section--units,
+      .allocation-section--support {
+        height: clamp(320px, 54vh, 430px);
+      }
+      .allocation-section--logistics {
+        height: clamp(360px, 62vh, 520px);
+      }
+    }
+    @media (max-width: 640px) {
+      .topbar-budget {
+        grid-template-columns: 1fr;
+        gap: 0.2rem;
+      }
+      .topbar-budget .budget-label {
+        grid-row: auto;
+      }
+      .topbar-budget .budget-value {
+        font-size: 0.88rem;
+        letter-spacing: 0.02em;
+        text-align: left;
+      }
+      .allocation-item {
+        min-width: 0;
+      }
+      .allocation-item header {
+        gap: 0.65rem;
+      }
+      .allocation-visual {
+        width: 58px;
+        height: 58px;
+      }
+      .allocation-title-row {
+        gap: 0.5rem;
+      }
+      .allocation-title-row h4 {
+        font-size: 0.8rem;
       }
     }
     @media (max-width: 960px) {
@@ -6258,13 +6324,6 @@
               </header>
               <ul id="allocationUnitList" class="allocation-items"></ul>
             </div>
-            <div class="allocation-section allocation-section--supplies">
-              <header>
-                <h3>Supplies</h3>
-                <p>Depot stockpiles and reserve dumps</p>
-              </header>
-              <ul id="allocationSupplyList" class="allocation-items"></ul>
-            </div>
             <div class="allocation-section allocation-section--support">
               <header>
                 <h3>Support</h3>
@@ -6275,7 +6334,7 @@
             <div class="allocation-section allocation-section--logistics">
               <header>
                 <h3>Logistics</h3>
-                <p>Convoys, recovery, and medical services</p>
+                <p>Convoys, depot reserves, recovery, and medical services</p>
               </header>
               <ul id="allocationLogisticsList" class="allocation-items"></ul>
             </div>

@@ -86,8 +86,6 @@ jest.mock("../rendering/MiniMapRenderer", () => ({
 }));
 
 import { PrecombatScreen } from "../ui/screens/PrecombatScreen";
-import { ALLOCATION_BY_CATEGORY } from "../data/unitAllocation";
-
 describe("Requisition UI Integration", () => {
   let screen: PrecombatScreen;
   let container: HTMLElement;
@@ -106,7 +104,6 @@ describe("Requisition UI Integration", () => {
           <div id="budgetRemaining">Available: 1,200 RP</div>
         </div>
         <ul id="allocationUnitList"></ul>
-        <ul id="allocationSupplyList"></ul>
         <ul id="allocationSupportList"></ul>
         <ul id="allocationLogisticsList"></ul>
         <ul id="predeployedUnitList"></ul>
@@ -197,6 +194,14 @@ describe("Requisition UI Integration", () => {
 
       expect(displayedCount).toBe(actualCount);
       expect(displayedCount).toBeGreaterThan(0); // Should never show 0 when auto-seeded
+    });
+
+    it("should render ammunition and fuel reserves in the logistics list", () => {
+      screen.setup("training", "general_001", "Easy");
+
+      const logisticsList = document.getElementById("allocationLogisticsList");
+      expect(logisticsList?.querySelector('[data-key="ammo"]')).not.toBeNull();
+      expect(logisticsList?.querySelector('[data-key="fuel"]')).not.toBeNull();
     });
   });
 
@@ -296,7 +301,6 @@ describe("Allocation UI Layout", () => {
         <div id="budgetSpent"></div>
         <div id="budgetRemaining"></div>
         <div id="allocationFeedback"></div>
-        <ul id="allocationSupplyList"></ul>
         <ul id="allocationSupportList"></ul>
         <ul id="allocationLogisticsList"></ul>
         <ul id="predeployedUnitList"></ul>
