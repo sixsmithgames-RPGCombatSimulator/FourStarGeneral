@@ -29,6 +29,10 @@ export interface WarRoomHotspot {
     width: number;
     height: number;
   };
+  /** Optional CSS clip-path for shaped hotspots that outline irregular items */
+  clipPath?: string;
+  /** Hotspot shape type - defaults to rectangle for backward compatibility */
+  shape?: 'rectangle' | 'polygon';
   focusOrder: number;
   dataKey: WarRoomDataKey;
 }
@@ -166,6 +170,11 @@ export class WarRoomOverlay {
     button.style.width = `${hotspot.coords.width}%`;
     button.style.height = `${hotspot.coords.height}%`;
     button.setAttribute("aria-label", hotspot.label);
+
+    // Apply clip-path for shaped hotspots to match item outlines
+    if (hotspot.clipPath) {
+      button.style.clipPath = hotspot.clipPath;
+    }
 
     const descriptionId = `war-room-${hotspot.id}-desc`;
     const description = document.createElement("span");
