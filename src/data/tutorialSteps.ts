@@ -31,7 +31,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     title: "Assemble Your Combat Team",
     content:
       "The requisition board lists available formations. For this operation, you will need: two Infantry Battalions for the assault line, one Tank Company for armor punch, one Engineering Corps for obstacles and fortification, one Flak Battery for air defense, one Fighter Squadron for overhead protection, plus ammunition and fuel reserves. One Supply Convoy is already attached as a mission minimum—without logistics, your armor runs dry and your guns fall silent.",
-    highlightSelector: "#allocationUnitList, #allocationSupportList, #allocationLogisticsList",
+    highlightSelector: "#allocationUnitList, #allocationSupplyList, #allocationSupportList, #allocationLogisticsList",
     position: "right",
     arrowDirection: "left",
     actionLabel: "Continue"
