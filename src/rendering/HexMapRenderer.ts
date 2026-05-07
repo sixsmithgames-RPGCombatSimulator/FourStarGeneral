@@ -3573,6 +3573,9 @@ export class HexMapRenderer implements IMapRenderer {
   /**
    * Updates or removes the campaign map backdrop image. The image is positioned at the root SVG level,
    * outside viewportRoot, so it remains static during pan/zoom operations.
+   *
+   * The backdrop is sized to 3x the map dimensions and centered, ensuring it fills the viewport
+   * even when panning to the edges of the tactical hex grid.
    */
   private updateBackdropImage(svg: SVGSVGElement, width: number, height: number): void {
     const existingImage = svg.querySelector("#backdropImage") as SVGImageElement | null;
@@ -3600,11 +3603,19 @@ export class HexMapRenderer implements IMapRenderer {
       }
     }
 
+    // Scale backdrop to cover the pan range - 3x map size centered on the map
+    // This ensures the backdrop fills the viewport even at extreme pan positions
+    const coverageScale = 3;
+    const backdropWidth = width * coverageScale;
+    const backdropHeight = height * coverageScale;
+    const offsetX = -(backdropWidth - width) / 2;
+    const offsetY = -(backdropHeight - height) / 2;
+
     image.setAttribute("href", this.backdropImageUrl);
-    image.setAttribute("x", "0");
-    image.setAttribute("y", "0");
-    image.setAttribute("width", String(width));
-    image.setAttribute("height", String(height));
+    image.setAttribute("x", String(offsetX));
+    image.setAttribute("y", String(offsetY));
+    image.setAttribute("width", String(backdropWidth));
+    image.setAttribute("height", String(backdropHeight));
   }
 
   private ensureSelectionGlow(svg: SVGSVGElement): void {
