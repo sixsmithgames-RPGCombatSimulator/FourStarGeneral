@@ -7483,6 +7483,14 @@ export class BattleScreen {
       return;
     }
 
+    // Use the strategic theater map as a backdrop for flavor, whether in campaign mode or standalone mission.
+    // This eliminates empty black space beyond the tactical hex grid and reinforces the operational context.
+    const campaign = ensureCampaignState();
+    const campaignScenario = campaign.getScenario();
+    if (campaignScenario?.background?.imageUrl) {
+      this.hexMapRenderer.setBackdropImage(campaignScenario.background.imageUrl);
+    }
+
     this.hexMapRenderer.render(svg, canvas, scenarioClone);
     this.hexMapRenderer.setSoundEnabled(this.soundEnabled);
     this.hexMapRenderer.onHexClick((key) => this.handleHexSelection(key));

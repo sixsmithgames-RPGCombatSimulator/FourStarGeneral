@@ -199,7 +199,7 @@ export const allocationOptions = [
         costPerUnit: 40,
         description: "Forward resupply convoy carrying packaged ammunition and fuel from rear dumps to the line.",
         maxQuantity: 6,
-        spriteUrl: new URL("../assets/units/Supply_Truck.png", import.meta.url).href
+        spriteUrl: new URL("../assets/units/Wheeled_Supply_USA_Sideview.png", import.meta.url).href
     },
     {
         key: "ammo",

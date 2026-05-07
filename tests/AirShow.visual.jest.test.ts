@@ -123,6 +123,72 @@ function sampleFlightCenterAtProgress(
   };
 }
 
+function sampleAssignmentAtProgress(
+  assignment: AirShowInspectionReport["phases"][number]["assignments"][number],
+  targetProgress: number
+): { cx: number; cy: number } | null {
+  const firstSample = assignment.sampledPositions[0];
+  if (!firstSample) {
+    return null;
+  }
+  const sample = assignment.sampledPositions.reduce((closest, candidate) =>
+    Math.abs(candidate.progress - targetProgress) < Math.abs(closest.progress - targetProgress)
+      ? candidate
+      : closest
+  );
+  return { cx: sample.cx, cy: sample.cy };
+}
+
+function sampleRolePointsAtProgress(
+  phase: AirShowInspectionReport["phases"][number],
+  role: AirShowInspectionReport["phases"][number]["assignments"][number]["role"],
+  targetProgress: number
+): ReadonlyArray<{ cx: number; cy: number }> {
+  return phase.assignments
+    .filter((assignment) => assignment.role === role)
+    .map((assignment) => sampleAssignmentAtProgress(assignment, targetProgress))
+    .filter((point): point is { cx: number; cy: number } => !!point);
+}
+
+function nearestPointPairDistance(points: ReadonlyArray<{ cx: number; cy: number }>): number {
+  let nearestDistancePx = Number.POSITIVE_INFINITY;
+  for (let leftIndex = 0; leftIndex < points.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < points.length; rightIndex += 1) {
+      const left = points[leftIndex];
+      const right = points[rightIndex];
+      if (!left || !right) {
+        continue;
+      }
+      nearestDistancePx = Math.min(nearestDistancePx, Math.hypot(left.cx - right.cx, left.cy - right.cy));
+    }
+  }
+  return nearestDistancePx;
+}
+
+function nearestRoleDistanceAtProgress(
+  phase: AirShowInspectionReport["phases"][number],
+  leftRole: AirShowInspectionReport["phases"][number]["assignments"][number]["role"],
+  rightRole: AirShowInspectionReport["phases"][number]["assignments"][number]["role"],
+  targetProgress: number
+): number {
+  const leftPoints = sampleRolePointsAtProgress(phase, leftRole, targetProgress);
+  const rightPoints = sampleRolePointsAtProgress(phase, rightRole, targetProgress);
+  return Math.min(
+    ...leftPoints.flatMap((left) =>
+      rightPoints.map((right) => Math.hypot(left.cx - right.cx, left.cy - right.cy))
+    )
+  );
+}
+
+function pointSpreadBox(points: ReadonlyArray<{ cx: number; cy: number }>): { width: number; height: number } {
+  const xs = points.map((point) => point.cx);
+  const ys = points.map((point) => point.cy);
+  return {
+    width: Math.max(...xs) - Math.min(...xs),
+    height: Math.max(...ys) - Math.min(...ys)
+  };
+}
+
 function measureSamplePathDistance(
   samples: ReadonlyArray<{ cx: number; cy: number }>
 ): number {
@@ -368,8 +434,8 @@ describe("AirShow JEST Harness", () => {
       const sampledDistancePx = measureSamplePathDistance(assignment.sampledPositions);
 
       expect(directDistancePx).toBeGreaterThan(180);
-      expect(sampledDistancePx / directDistancePx).toBeLessThan(1.28);
-      expect(maxMovingTurnDegrees(assignment.sampledPositions)).toBeLessThan(105);
+      expect(sampledDistancePx / directDistancePx).toBeLessThan(1.2);
+      expect(maxMovingTurnDegrees(assignment.sampledPositions)).toBeLessThan(96);
     });
   });
 
@@ -457,7 +523,11 @@ describe("AirShow JEST Harness", () => {
           (mergeInterceptor?.cx ?? 0) - (mergeEscort?.cx ?? 0),
           (mergeInterceptor?.cy ?? 0) - (mergeEscort?.cy ?? 0)
         )
-      ).toBeLessThan(118);
+      ).toBeLessThan(104);
+
+      [0.48, 0.52, 0.62].forEach((progress) => {
+        expect(nearestRoleDistanceAtProgress(mergePhase!, "interceptor", "escort", progress)).toBeLessThan(124);
+      });
 
       [0.38, 0.54, 0.7].forEach((progress) => {
         const scrambleInterceptor = sampleFlightCenterAtProgress(scramblePhase!, pair.attackerUnitKey, progress);
@@ -638,6 +708,11 @@ describe("AirShow JEST Harness", () => {
     expect(targetRun).toBeDefined();
     expect(targetRun?.assignments.filter((assignment) => assignment.role === "bomber")).toHaveLength(4);
     expect(targetRun?.flakBursts.length ?? 0).toBeGreaterThan(0);
+    const bomberMidRunPoints = targetRun ? sampleRolePointsAtProgress(targetRun, "bomber", 0.55) : [];
+    expect(bomberMidRunPoints).toHaveLength(4);
+    expect(nearestPointPairDistance(bomberMidRunPoints)).toBeGreaterThan(54);
+    const bomberSpread = pointSpreadBox(bomberMidRunPoints);
+    expect(Math.max(bomberSpread.width, bomberSpread.height)).toBeGreaterThan(92);
     const latestFlakProgress = Math.max(...(targetRun?.flakBursts.map((burst) => burst.progress) ?? [0]));
     expect(latestFlakProgress).toBeGreaterThan(scene.bombReleaseProgress ?? 0.5);
     expect(latestFlakProgress).toBeLessThanOrEqual(0.86);
@@ -648,8 +723,16 @@ describe("AirShow JEST Harness", () => {
     const flakFlashCount = flakBursts.reduce((sum, burst) => sum + burst.flashCount, 0);
     expect(flakBursts.every((burst) => burst.puffCount > 1)).toBe(true);
     expect(flakBursts.some((burst) => burst.smokePuffCount > burst.flashCount)).toBe(true);
-    expect(meanFlakWidthPx).toBeGreaterThanOrEqual(120);
-    expect(flakFlashCount).toBeLessThanOrEqual(Math.max(14, Math.round(flakPuffCount * 0.45)));
+    expect(meanFlakWidthPx).toBeGreaterThanOrEqual(150);
+    expect(flakFlashCount).toBeLessThanOrEqual(Math.max(10, Math.round(flakPuffCount * 0.36)));
+    const flakPointBuckets = new Map<string, number>();
+    flakBursts.forEach((burst) => {
+      burst.points.forEach((point) => {
+        const key = `${Math.round(point.cx / 38)}:${Math.round(point.cy / 38)}`;
+        flakPointBuckets.set(key, (flakPointBuckets.get(key) ?? 0) + 1);
+      });
+    });
+    expect(Math.max(...flakPointBuckets.values())).toBeLessThanOrEqual(4);
     expect(new Set(targetRun?.flakBursts.map((burst) => burst.progress.toFixed(3))).size ?? 0).toBeGreaterThan(4);
     const flakProgressBuckets = new Map<number, number>();
     targetRun?.flakBursts.forEach((burst) => {
@@ -676,17 +759,17 @@ describe("AirShow JEST Harness", () => {
     expect(firstBurst?.targetSource).toBe("bomberPath");
     expect(bomberAssignment).toBeDefined();
 
-    const closestBomberSample = bomberAssignment?.sampledPositions.reduce((closest, sample) =>
-      Math.abs(sample.progress - (firstBurst?.progress ?? 0)) < Math.abs(closest.progress - (firstBurst?.progress ?? 0))
-        ? sample
-        : closest
+    const closestBomberCenter = sampleFlightCenterAtProgress(
+      targetRun!,
+      bomberAssignment?.flightId ?? "",
+      firstBurst?.progress ?? 0
     );
 
-    expect(closestBomberSample).toBeDefined();
+    expect(closestBomberCenter).not.toBeNull();
 
     const bomberTrackOffsetPx = Math.hypot(
-      (firstBurst?.targetCenter.cx ?? 0) - (closestBomberSample?.cx ?? 0),
-      (firstBurst?.targetCenter.cy ?? 0) - (closestBomberSample?.cy ?? 0)
+      (firstBurst?.targetCenter.cx ?? 0) - (closestBomberCenter?.cx ?? 0),
+      (firstBurst?.targetCenter.cy ?? 0) - (closestBomberCenter?.cy ?? 0)
     );
 
     expect(bomberTrackOffsetPx).toBeLessThan(28);
@@ -712,6 +795,12 @@ describe("AirShow JEST Harness", () => {
 
     const clashDurationMs = (mergePhase?.durationMs ?? 0) + (scramblePhase?.durationMs ?? 0);
     expect(clashDurationMs).toBeGreaterThan(bomberIngressPhase?.durationMs ?? 0);
+    [0.48, 0.52, 0.62].forEach((progress) => {
+      expect(nearestRoleDistanceAtProgress(mergePhase!, "interceptor", "escort", progress)).toBeLessThan(124);
+    });
+    [0.38, 0.54, 0.7].forEach((progress) => {
+      expect(nearestRoleDistanceAtProgress(scramblePhase!, "interceptor", "escort", progress)).toBeLessThan(156);
+    });
 
     const nearestFighterBomberDistanceAtScrambleEndPx = Math.min(
       ...fighterFlightIds.flatMap((fighterFlightId) => {
@@ -867,7 +956,7 @@ describe("AirShow JEST Harness", () => {
         })
       );
       expect(Number.isFinite(nearestBomberDistancePx)).toBe(true);
-      expect(nearestBomberDistancePx).toBeLessThan(170);
+      expect(nearestBomberDistancePx).toBeLessThan(135);
     });
   });
 

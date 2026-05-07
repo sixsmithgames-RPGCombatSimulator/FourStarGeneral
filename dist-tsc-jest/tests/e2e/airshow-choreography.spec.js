@@ -80,6 +80,9 @@ function makeChoreographyTests(describeLabel, testUrl, setupTimeoutMs = 15000, t
                     cy: actors.reduce((sum, actor) => sum + actor.cy, 0) / actors.length
                 };
             }
+            function nearestActorDistance(leftActors, rightActors) {
+                return Math.min(...leftActors.flatMap((left) => rightActors.map((right) => Math.hypot(left.cx - right.cx, left.cy - right.cy))));
+            }
             function resolvePhaseWindowSamples(phaseSamples, startProgress, endProgress) {
                 if (phaseSamples.length <= 0) {
                     return [];
@@ -119,7 +122,7 @@ function makeChoreographyTests(describeLabel, testUrl, setupTimeoutMs = 15000, t
             // ── Invariant 3: fighter-ingress — CAP may not establish a long visible lead before escort
             // The north star allows simultaneous off-map start with faster CAP closure, so the correct
             // guardrail is a bounded visible lead rather than zero lead at every sampled frame.
-            const MAX_INGRESS_VISIBLE_LEAD_MS = 1000;
+            const MAX_INGRESS_VISIBLE_LEAD_MS = 650;
             const firstVisibleInterceptorSample = ingressSamples.find((s) => s.actors.some((a) => a.active && a.role === "interceptor" && isOnMap(a)));
             const firstVisibleEscortSample = ingressSamples.find((s) => s.actors.some((a) => a.active && a.role === "escort" && isOnMap(a)));
             if (firstVisibleInterceptorSample && !firstVisibleEscortSample) {
@@ -183,7 +186,8 @@ function makeChoreographyTests(describeLabel, testUrl, setupTimeoutMs = 15000, t
                 return { label, sample: midpointSample };
             })
                 .filter((entry) => !!entry);
-            const maxMergeCentroidDistancePx = Math.min(vbRight - vbX, vbBottom - vbY) * 0.45;
+            const maxMergeCentroidDistancePx = Math.min(210, Math.min(vbRight - vbX, vbBottom - vbY) * 0.22);
+            const maxMergeNearestActorDistancePx = 132;
             for (const { label, sample } of clashMidpointSamples) {
                 const visibleInts = sample.actors.filter((actor) => actor.active && actor.role === "interceptor" && isOnMap(actor));
                 const visibleEscs = sample.actors.filter((actor) => actor.active && actor.role === "escort" && isOnMap(actor));
@@ -198,6 +202,11 @@ function makeChoreographyTests(describeLabel, testUrl, setupTimeoutMs = 15000, t
                 if (centroidDistancePx > maxMergeCentroidDistancePx) {
                     violations.push(`CLASH MIDPOINT ${label} @${Math.round(sample.elapsedMs)}ms: fighter groups are split by `
                         + `${Math.round(centroidDistancePx)}px (max ${Math.round(maxMergeCentroidDistancePx)}px).`);
+                }
+                const nearestDistancePx = nearestActorDistance(visibleInts, visibleEscs);
+                if (nearestDistancePx > maxMergeNearestActorDistancePx) {
+                    violations.push(`CLASH MIDPOINT ${label} @${Math.round(sample.elapsedMs)}ms: nearest interceptor/escort pair is `
+                        + `${Math.round(nearestDistancePx)}px apart (max ${maxMergeNearestActorDistancePx}px).`);
                 }
             }
             // ── Invariant 8: bomber-ingress — visible on-map bombers must remain slower than fighters

@@ -57,8 +57,6 @@ export class PrecombatScreen {
   private allocationResetButton!: HTMLButtonElement;
   private allocationWarningOverlay!: HTMLElement;
   private allocationWarningModal!: HTMLElement;
-  private predeployedSummaryElement!: HTMLElement;
-  private predeployedListElement!: HTMLElement;
   private budgetPanel!: HTMLElement;
   private budgetSpentElement!: HTMLElement;
   private budgetRemainingElement!: HTMLElement;
@@ -167,9 +165,6 @@ export class PrecombatScreen {
     this.allocationResetButton = this.requireElement<HTMLButtonElement>("#resetAllocations");
     this.allocationWarningOverlay = this.requireElement<HTMLElement>("#allocationWarningOverlay");
     this.allocationWarningModal = this.requireElement<HTMLElement>("#allocationWarningModal");
-    this.predeployedSummaryElement = this.requireElement<HTMLElement>("#predeployedSummary");
-    this.predeployedListElement = this.requireElement<HTMLElement>("#predeployedUnitList");
-
     this.budgetPanel = this.requireElement<HTMLElement>("#precombatBudgetPanel");
     this.budgetSpentElement = this.requireElement<HTMLElement>("#budgetSpent");
     this.budgetRemainingElement = this.requireElement<HTMLElement>("#budgetRemaining");
@@ -238,7 +233,7 @@ export class PrecombatScreen {
     this.renderMissionSummary(missionKey, selectedDifficulty);
     this.seedPredeployedAllocations();
     this.seedRecommendedLogisticsAllocations();
-    this.renderPredeployedOverview();
+    this.appendAlliedForcesObjective();
     // Persist the command assignment so battle overlays reference the same general profile as precombat.
     this.battleState.setAssignedCommanderId(selectedGeneralId);
     this.rerenderAllocations();
@@ -1120,8 +1115,6 @@ export class PrecombatScreen {
         count: (existing?.count ?? 0) + 1
       });
     });
-
-    this.renderPredeployedOverview();
   }
 
   /**
@@ -1159,26 +1152,22 @@ export class PrecombatScreen {
   }
 
   /**
-   * Builds the predeployment summary list so commanders can see their scenario forces before requisitioning extras.
+   * Appends allied in-theater forces as a compact Secondary objective line so the objectives list
+   * remains the single source of mission context without a separate panel.
    */
-  private renderPredeployedOverview(): void {
-    if (!this.predeployedSummaryElement || !this.predeployedListElement) {
+  private appendAlliedForcesObjective(): void {
+    const alliedEntries = Array.from(this.predeployedRoster.entries())
+      .filter(([key]) => key.startsWith("Ally:"))
+      .map(([, entry]) => entry);
+    if (alliedEntries.length === 0) {
       return;
     }
-
-    const entries = Array.from(this.predeployedRoster.values());
-    if (entries.length === 0) {
-      this.predeployedSummaryElement.textContent = "No allied formations are in place. Every unit in this operation comes from requisition.";
-      this.predeployedListElement.innerHTML = "";
-      return;
-    }
-
-    const totalUnits = entries.reduce((sum, entry) => sum + entry.count, 0);
-    this.predeployedSummaryElement.textContent = `${totalUnits} allied formation${totalUnits === 1 ? "" : "s"} already hold the line. Requisition builds the rest of your task force.`;
-
-    this.predeployedListElement.innerHTML = entries
-      .map((entry) => `<li><span class="predeployed-label">${entry.label}</span><span class="predeployed-count">×${entry.count}</span></li>`)
-      .join("");
+    const names = alliedEntries.map((e) => e.label.replace(/^Allied\s+/i, "")).join(", ");
+    const objectiveText = `Make contact with and take command of allied forces in theater: ${names}.`;
+    const li = document.createElement("li");
+    li.className = "mission-order-item mission-order-item--secondary";
+    li.innerHTML = `<strong>Secondary:</strong> <span class="mission-order-copy">${objectiveText}</span>`;
+    this.objectiveListElement.appendChild(li);
   }
 
   /**

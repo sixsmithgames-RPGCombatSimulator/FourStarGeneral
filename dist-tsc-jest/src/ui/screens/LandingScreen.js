@@ -345,8 +345,13 @@ export class LandingScreen {
     }
     /**
      * Toggles the visibility of the commission form.
+     * Guest users are redirected to sign in — progress cannot be saved without an account.
      */
     toggleCommissionForm() {
+        if (this.isGuestMode) {
+            this.showFeedback(`Sign in to commission a general. ${GUEST_MODE_MESSAGES.saveBlocked}`);
+            return;
+        }
         if (!this.generalFormSection) {
             return;
         }

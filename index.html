@@ -1611,34 +1611,6 @@
       color: rgba(228, 220, 198, 0.56);
       line-height: 1.35;
     }
-    .predeployed-panel {
-      margin-top: 0.6rem;
-      background: rgba(14, 17, 13, 0.92);
-      border: 1px solid rgba(168, 142, 91, 0.14);
-      border-radius: 14px;
-      padding: 0.72rem 0.85rem;
-      display: grid;
-      gap: 0.62rem;
-    }
-    .predeployed-panel__header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 0.7rem;
-      flex-wrap: wrap;
-    }
-    .predeployed-panel__copy {
-      display: grid;
-      gap: 0.26rem;
-      min-width: 0;
-    }
-    .predeployed-panel h3 {
-      margin: 0;
-      font-size: 0.88rem;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: #efe3bf;
-    }
     .predeployed-support {
       display: grid;
       gap: 0.34rem;
@@ -1676,39 +1648,6 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: #efe3bf;
-    }
-    .predeployed-summary {
-      margin: 0;
-      color: var(--text-secondary);
-      line-height: 1.34;
-      font-size: 0.8rem;
-    }
-    .predeployed-list {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.45rem;
-    }
-    .predeployed-list li {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 0.55rem;
-      padding: 0.42rem 0.55rem;
-      border-radius: 10px;
-      border: 1px solid rgba(170, 146, 95, 0.12);
-      background: rgba(255, 255, 255, 0.028);
-    }
-    .predeployed-label {
-      font-weight: 600;
-      letter-spacing: 0.03em;
-      font-size: 0.82rem;
-    }
-    .predeployed-count {
-      font-variant-numeric: tabular-nums;
-      color: var(--accent);
     }
     .allocation-lock {
       display: inline-flex;
@@ -4958,9 +4897,6 @@
           "turn-limit"
           "doctrine";
       }
-      .predeployed-list {
-        grid-template-columns: 1fr;
-      }
       .battle-intel-overlay {
         top: 0.5rem;
         left: 0.5rem;
@@ -6443,21 +6379,12 @@
               <div class="info-block info-block--doctrine">
                 <strong>Command Notes</strong>
                 <p id="missionDoctrineNotes">Doctrine brief will appear here.</p>
-              </div>
-            </div>
-            <section class="predeployed-panel">
-              <div class="predeployed-panel__header">
-                <div class="predeployed-panel__copy">
-                  <h3>Forces in Theater</h3>
-                  <p id="predeployedSummary" class="predeployed-summary">Scenario units will appear here once mission data loads.</p>
-                </div>
                 <div id="baselineSupplySection" class="predeployed-support hidden">
                   <strong>Support On Call</strong>
                   <ul id="baselineSupplyList" class="mission-asset-list"></ul>
                 </div>
               </div>
-              <ul id="predeployedUnitList" class="predeployed-list"></ul>
-            </section>
+            </div>
           </div>
 
           <!-- Theater Overview (Right) -->

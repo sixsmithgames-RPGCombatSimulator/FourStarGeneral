@@ -96,6 +96,10 @@ export class WarRoomOverlay {
         button.style.width = `${hotspot.coords.width}%`;
         button.style.height = `${hotspot.coords.height}%`;
         button.setAttribute("aria-label", hotspot.label);
+        // Apply clip-path for shaped hotspots to match item outlines
+        if (hotspot.clipPath) {
+            button.style.clipPath = hotspot.clipPath;
+        }
         const descriptionId = `war-room-${hotspot.id}-desc`;
         const description = document.createElement("span");
         description.id = descriptionId;

@@ -12,7 +12,7 @@ class TutorialStateManager {
         this.isActive = false;
         this.canProceed = true;
         this.listeners = new Set();
-        this.highlightedElement = null;
+        this.highlightedElements = [];
     }
     /**
      * Starts the tutorial from the beginning.
@@ -102,21 +102,25 @@ class TutorialStateManager {
      */
     highlightElement(selector) {
         this.clearHighlight();
-        const element = document.querySelector(selector);
-        if (element) {
-            this.highlightedElement = element;
-            element.classList.add("tutorial-highlight");
-            element.setAttribute("data-tutorial-target", "true");
+        const elements = Array.from(document.querySelectorAll(selector));
+        if (elements.length > 0) {
+            this.highlightedElements = elements;
+            elements.forEach((element) => {
+                element.classList.add("tutorial-highlight");
+                element.setAttribute("data-tutorial-target", "true");
+            });
         }
     }
     /**
      * Clears any active highlight.
      */
     clearHighlight() {
-        if (this.highlightedElement) {
-            this.highlightedElement.classList.remove("tutorial-highlight");
-            this.highlightedElement.removeAttribute("data-tutorial-target");
-            this.highlightedElement = null;
+        if (this.highlightedElements.length > 0) {
+            this.highlightedElements.forEach((element) => {
+                element.classList.remove("tutorial-highlight");
+                element.removeAttribute("data-tutorial-target");
+            });
+            this.highlightedElements = [];
         }
         // Also clear any stray highlights
         document.querySelectorAll(".tutorial-highlight").forEach(el => {

@@ -156,6 +156,15 @@ test.describe("AirShow Browser Harness", () => {
         const activeBomberActors = activeActors.filter((actor) => actor.role === "bomber");
         const onMapActiveFighters = activeActors.filter((actor) => actor.role !== "bomber" && isOnMap(actor));
         expect(activeBomberActors).toHaveLength(4);
+        const nearestBomberPairDistancePx = Math.min(...activeBomberActors.flatMap((left, leftIndex) => activeBomberActors
+            .slice(leftIndex + 1)
+            .map((right) => Math.hypot(left.cx - right.cx, left.cy - right.cy))));
+        const bomberSpreadWidthPx = Math.max(...activeBomberActors.map((actor) => actor.cx))
+            - Math.min(...activeBomberActors.map((actor) => actor.cx));
+        const bomberSpreadHeightPx = Math.max(...activeBomberActors.map((actor) => actor.cy))
+            - Math.min(...activeBomberActors.map((actor) => actor.cy));
+        expect(nearestBomberPairDistancePx, `target-run bomber sprites should not collapse into one painted clump. nearest pair=${nearestBomberPairDistancePx.toFixed(1)}px`).toBeGreaterThan(48);
+        expect(Math.max(bomberSpreadWidthPx, bomberSpreadHeightPx), `target-run bomber package should present a readable formation box. spread=${bomberSpreadWidthPx.toFixed(1)}x${bomberSpreadHeightPx.toFixed(1)}px`).toBeGreaterThan(86);
         if (onMapActiveFighters.length > 0) {
             const bomberMeanDistanceFromCenter = activeBomberActors.reduce((sum, actor) => sum + Math.abs(actor.cx - midX), 0) / activeBomberActors.length;
             const fighterMeanDistanceFromCenter = onMapActiveFighters.reduce((sum, actor) => sum + Math.abs(actor.cx - midX), 0) / onMapActiveFighters.length;

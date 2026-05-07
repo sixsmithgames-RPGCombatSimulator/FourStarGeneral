@@ -27,6 +27,40 @@ export class TutorialOverlay {
         this.lastAnchoredSelector = null;
         this.suppressCurrentPhaseDisplay = false;
     }
+    getHighlightTargets(selector) {
+        return Array.from(document.querySelectorAll(selector)).filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        });
+    }
+    getPrimaryHighlightTarget(selector) {
+        return this.getHighlightTargets(selector)[0] ?? document.querySelector(selector);
+    }
+    getHighlightBounds(selector) {
+        const targets = this.getHighlightTargets(selector);
+        if (targets.length === 0) {
+            return null;
+        }
+        const bounds = targets.reduce((accumulator, element) => {
+            const rect = element.getBoundingClientRect();
+            return {
+                left: Math.min(accumulator.left, rect.left),
+                top: Math.min(accumulator.top, rect.top),
+                right: Math.max(accumulator.right, rect.right),
+                bottom: Math.max(accumulator.bottom, rect.bottom)
+            };
+        }, {
+            left: Number.POSITIVE_INFINITY,
+            top: Number.POSITIVE_INFINITY,
+            right: Number.NEGATIVE_INFINITY,
+            bottom: Number.NEGATIVE_INFINITY
+        });
+        return {
+            ...bounds,
+            width: Math.max(0, bounds.right - bounds.left),
+            height: Math.max(0, bounds.bottom - bounds.top)
+        };
+    }
     /**
      * Initializes the tutorial overlay and subscribes to state changes.
      */
@@ -328,8 +362,7 @@ export class TutorialOverlay {
                     return;
                 }
                 // If the target exists now (e.g. user opened the correct panel), anchor.
-                const el = document.querySelector(selector);
-                if (el) {
+                if (this.getHighlightTargets(selector).length > 0) {
                     this.anchorToTarget(selector);
                 }
             });
@@ -347,8 +380,7 @@ export class TutorialOverlay {
         this.anchorAttemptId += 1;
         const attemptId = this.anchorAttemptId;
         // First attempt: if it exists right now, anchor immediately.
-        const existing = document.querySelector(selector);
-        if (existing) {
+        if (this.getHighlightTargets(selector).length > 0) {
             this.anchorToTarget(selector);
             return;
         }
@@ -365,8 +397,7 @@ export class TutorialOverlay {
             if (attemptId !== this.anchorAttemptId) {
                 return;
             }
-            const el = document.querySelector(selector);
-            if (el) {
+            if (this.getHighlightTargets(selector).length > 0) {
                 this.anchorToTarget(selector);
                 return;
             }
@@ -438,7 +469,7 @@ export class TutorialOverlay {
      * After scrolling completes, repositions the spotlight to match the new element location.
      */
     scrollTargetIntoView(selector) {
-        const targetElement = document.querySelector(selector);
+        const targetElement = this.getPrimaryHighlightTarget(selector);
         if (!targetElement)
             return;
         // Premium anchoring: if this is a map tile, delegate to the battle map's viewport controller.
@@ -505,17 +536,16 @@ export class TutorialOverlay {
     positionSpotlight(selector) {
         if (!this.spotlightElement)
             return;
-        const targetElement = document.querySelector(selector);
-        if (!targetElement) {
+        const bounds = this.getHighlightBounds(selector);
+        if (!bounds) {
             this.hideSpotlight();
             return;
         }
-        const rect = targetElement.getBoundingClientRect();
         const padding = 8;
-        const left = Math.max(0, rect.left - padding);
-        const top = Math.max(0, rect.top - padding);
-        const right = Math.min(window.innerWidth, rect.right + padding);
-        const bottom = Math.min(window.innerHeight, rect.bottom + padding);
+        const left = Math.max(0, bounds.left - padding);
+        const top = Math.max(0, bounds.top - padding);
+        const right = Math.min(window.innerWidth, bounds.right + padding);
+        const bottom = Math.min(window.innerHeight, bounds.bottom + padding);
         this.spotlightElement.style.left = `${left}px`;
         this.spotlightElement.style.top = `${top}px`;
         this.spotlightElement.style.width = `${Math.max(0, right - left)}px`;
@@ -604,7 +634,7 @@ export class TutorialOverlay {
         };
         // Position relative to highlighted element if one exists
         if (step.highlightSelector) {
-            const targetElement = document.querySelector(step.highlightSelector);
+            const targetElement = this.getPrimaryHighlightTarget(step.highlightSelector);
             if (targetElement) {
                 const rect = targetElement.getBoundingClientRect();
                 const offset = 20;

@@ -8,8 +8,10 @@ export const warRoomHotspotDefinitions = [
         id: "intel-briefs",
         label: "Intelligence Briefs",
         ariaDescription: "Review current intelligence assessments and threat analysis",
-        // Top-left photo board area on tent wall
+        // Top-left photo board area on tent wall - shaped to match board outline
         coords: { x: 6, y: 8, width: 22, height: 14 },
+        shape: 'polygon',
+        clipPath: 'polygon(2% 5%, 98% 0%, 100% 95%, 50% 100%, 0% 90%)',
         focusOrder: 1,
         dataKey: "intelBriefs"
     },
@@ -17,8 +19,10 @@ export const warRoomHotspotDefinitions = [
         id: "recon-reports",
         label: "Recon Reports",
         ariaDescription: "View reconnaissance findings from field operations",
-        // Desk map spread at center-bottom
+        // Desk map spread at center-bottom - shaped to match the spread map outline
         coords: { x: 32, y: 58, width: 38, height: 20 },
+        shape: 'polygon',
+        clipPath: 'polygon(5% 0%, 95% 0%, 100% 85%, 50% 100%, 0% 85%)',
         focusOrder: 2,
         dataKey: "reconReports"
     },

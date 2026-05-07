@@ -4,7 +4,6 @@ import { getMissionBriefing, getMissionSummaryPackage, getMissionTitle, getMissi
 import { ensureDeploymentState } from "../../state/DeploymentState";
 import { ensureUnlockState } from "../../state/UnlockState";
 import { findTemplateForUnitKey } from "../../game/adapters";
-import { findGeneralById, getAllGenerals } from "../../utils/rosterStorage";
 import { ensureTutorialState, isTrainingMission } from "../../state/TutorialState";
 import { getNextPhase } from "../../data/tutorialSteps";
 import { createMissionRulesController } from "../../state/missionRules";
@@ -13,6 +12,7 @@ import { getScenarioByMissionKey } from "../../data/scenarioRegistry";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 export class PrecombatScreen {
     constructor(screenManager, battleState) {
+        this.baselineSupplySectionElement = null;
         this.miniMapRenderer = new HexMapRenderer();
         // Campaign integration: active mission and dynamic caps derived from campaign economy when applicable.
         this.activeMissionKey = null;
@@ -91,31 +91,22 @@ export class PrecombatScreen {
         this.objectiveListElement = this.requireElement("#objectiveList");
         this.missionTurnLimitElement = this.requireElement("#missionTurnLimit");
         this.baselineSupplyListElement = this.requireElement("#baselineSupplyList");
+        this.baselineSupplySectionElement = this.element.querySelector("#baselineSupplySection");
         this.doctrineNotesElement = this.requireElement("#missionDoctrineNotes");
         this.returnToLandingButton = this.requireElement("#returnToLanding");
         this.proceedToBattleButton = this.requireElement("#proceedToBattle");
         this.allocationWarningReturn = this.requireElement("#allocationWarningReturn");
         this.allocationWarningProceed = this.requireElement("#allocationWarningProceed");
         this.allocationUnitList = this.requireElement("#allocationUnitList");
-        this.allocationSupplyList = this.requireElement("#allocationSupplyList");
         this.allocationSupportList = this.requireElement("#allocationSupportList");
         this.allocationLogisticsList = this.requireElement("#allocationLogisticsList");
         this.allocationResetButton = this.requireElement("#resetAllocations");
         this.allocationWarningOverlay = this.requireElement("#allocationWarningOverlay");
         this.allocationWarningModal = this.requireElement("#allocationWarningModal");
-        this.predeployedSummaryElement = this.requireElement("#predeployedSummary");
-        this.predeployedListElement = this.requireElement("#predeployedUnitList");
         this.budgetPanel = this.requireElement("#precombatBudgetPanel");
         this.budgetSpentElement = this.requireElement("#budgetSpent");
         this.budgetRemainingElement = this.requireElement("#budgetRemaining");
         this.allocationFeedbackElement = this.requireElement("#allocationFeedback");
-        this.commanderCardElement = this.requireElement("#commanderSummaryCard");
-        this.commanderNameElement = this.requireElement("#commanderName");
-        this.commanderSummaryElement = this.requireElement("#commanderSummary");
-        this.commanderMissionsElement = this.requireElement("#commanderMissions");
-        this.commanderVictoriesElement = this.requireElement("#commanderVictories");
-        this.commanderUnitsElement = this.requireElement("#commanderUnits");
-        this.commanderCasualtiesElement = this.requireElement("#commanderCasualties");
         this.miniMapCanvas = this.requireElement("#precombatMapCanvas");
         const miniMapSvg = this.element.querySelector("#precombatHexMap");
         if (!miniMapSvg) {
@@ -174,10 +165,9 @@ export class PrecombatScreen {
         this.renderMissionSummary(missionKey, selectedDifficulty);
         this.seedPredeployedAllocations();
         this.seedRecommendedLogisticsAllocations();
-        this.renderPredeployedOverview();
+        this.appendAlliedForcesObjective();
         // Persist the command assignment so battle overlays reference the same general profile as precombat.
         this.battleState.setAssignedCommanderId(selectedGeneralId);
-        this.renderGeneralSummary(selectedGeneralId);
         this.rerenderAllocations();
         this.bindAllocationLists();
         // Derive campaign caps when entering precombat from the campaign flow.
@@ -212,10 +202,7 @@ export class PrecombatScreen {
         if (!tutorialState.isTutorialActive())
             return;
         const currentPhase = tutorialState.getCurrentPhase();
-        if (currentPhase === "adjust_quantity") {
-            tutorialState.setCanProceed(true);
-        }
-        if (currentPhase === "select_infantry" && optionKey === "infantry" && newQuantity > 0) {
+        if (currentPhase === "select_infantry" && optionKey === "infantry" && newQuantity >= 2) {
             tutorialState.setCanProceed(true);
             setTimeout(() => {
                 const nextPhase = getNextPhase("select_infantry");
@@ -512,22 +499,16 @@ export class PrecombatScreen {
         return option.category === "units" && this.isDeployableAllocation(option);
     }
     rerenderAllocations() {
-        const categoryTargets = [
-            ["units", this.allocationUnitList],
-            ["supplies", this.allocationSupplyList],
-            ["support", this.allocationSupportList],
-            ["logistics", this.allocationLogisticsList]
+        const panelTargets = [
+            [["units"], this.allocationUnitList],
+            [["support"], this.allocationSupportList],
+            [["logistics", "supplies"], this.allocationLogisticsList]
         ];
-        categoryTargets.forEach(([category, container]) => {
+        panelTargets.forEach(([categories, container]) => {
             if (!container) {
                 return;
             }
-            const allocations = ALLOCATION_BY_CATEGORY.get(category);
-            if (!allocations) {
-                container.innerHTML = "";
-                return;
-            }
-            const filteredAllocations = allocations.filter((option) => {
+            const filteredAllocations = allocationOptions.filter((option) => categories.includes(option.category)).filter((option) => {
                 if (!this.isAllocationVisible(option)) {
                     return false;
                 }
@@ -547,7 +528,6 @@ export class PrecombatScreen {
      */
     bindAllocationLists() {
         this.bindAllocationInteraction(this.allocationUnitList);
-        this.bindAllocationInteraction(this.allocationSupplyList);
         this.bindAllocationInteraction(this.allocationSupportList);
         this.bindAllocationInteraction(this.allocationLogisticsList);
     }
@@ -607,9 +587,12 @@ export class PrecombatScreen {
               ${incrementDisabled ? "disabled" : ""}
             >+</button>
           </div>`;
+        const statusBadges = [baselineBadge, missionMinimumBadge, availabilityBadge, unlockBadge]
+            .filter((badge) => badge.length > 0)
+            .join("");
         return `
       <li class="allocation-item" data-key="${option.key}" data-locked="${locked ? "true" : "false"}" data-unavailable="${unavailable ? "true" : "false"}">
-        <header>
+        <div class="allocation-card-shell">
           <div class="allocation-visual">
             ${option.spriteUrl ? `<img src="${option.spriteUrl}" alt="${option.label}" class="allocation-thumb" />` : `<div class="allocation-fallback">${option.label.charAt(0)}</div>`}
           </div>
@@ -625,16 +608,13 @@ export class PrecombatScreen {
             ${equipmentSummary.length > 0
             ? `<div class="allocation-copy__equipment">${equipmentSummary.map((detail) => `<span>${detail}</span>`).join("")}</div>`
             : ""}
-            ${baselineBadge}
-            ${missionMinimumBadge}
-            ${availabilityBadge}
-            ${unlockBadge}
+            ${statusBadges.length > 0 ? `<div class="allocation-status-row">${statusBadges}</div>` : ""}
           </div>
-        </header>
-        <footer class="allocation-meta">
+          <div class="allocation-aside">
           ${controlsMarkup}
           <span class="allocation-total">${totalCost.toLocaleString()} RP</span>
-        </footer>
+          </div>
+        </div>
       </li>
     `;
     }
@@ -967,7 +947,6 @@ export class PrecombatScreen {
                 count: (existing?.count ?? 0) + 1
             });
         });
-        this.renderPredeployedOverview();
     }
     /**
      * Computes campaign-driven caps from the stored bridge snapshot (scenario + economies).
@@ -1001,23 +980,22 @@ export class PrecombatScreen {
         this.campaignCaps = { manpowerUnits, airSlots, ammo, fuel };
     }
     /**
-     * Builds the predeployment summary list so commanders can see their scenario forces before requisitioning extras.
+     * Appends allied in-theater forces as a compact Secondary objective line so the objectives list
+     * remains the single source of mission context without a separate panel.
      */
-    renderPredeployedOverview() {
-        if (!this.predeployedSummaryElement || !this.predeployedListElement) {
+    appendAlliedForcesObjective() {
+        const alliedEntries = Array.from(this.predeployedRoster.entries())
+            .filter(([key]) => key.startsWith("Ally:"))
+            .map(([, entry]) => entry);
+        if (alliedEntries.length === 0) {
             return;
         }
-        const entries = Array.from(this.predeployedRoster.values());
-        if (entries.length === 0) {
-            this.predeployedSummaryElement.textContent = "No scenario forces are staged in theater. All allocations originate from requisitions.";
-            this.predeployedListElement.innerHTML = "";
-            return;
-        }
-        const totalUnits = entries.reduce((sum, entry) => sum + entry.count, 0);
-        this.predeployedSummaryElement.textContent = `${totalUnits} scenario formation${totalUnits === 1 ? "" : "s"} are already in theater, including allied support. Requisitions add only to your own committed force.`;
-        this.predeployedListElement.innerHTML = entries
-            .map((entry) => `<li><span class="predeployed-label">${entry.label}</span><span class="predeployed-count">×${entry.count}</span></li>`)
-            .join("");
+        const names = alliedEntries.map((e) => e.label.replace(/^Allied\s+/i, "")).join(", ");
+        const objectiveText = `Make contact with and take command of allied forces in theater: ${names}.`;
+        const li = document.createElement("li");
+        li.className = "mission-order-item mission-order-item--secondary";
+        li.innerHTML = `<strong>Secondary:</strong> <span class="mission-order-copy">${objectiveText}</span>`;
+        this.objectiveListElement.appendChild(li);
     }
     /**
      * Provides a readable fallback label when allocation metadata is unavailable for a scenario unit type.
@@ -1047,11 +1025,24 @@ export class PrecombatScreen {
         this.missionTitleElement.textContent = title;
         this.missionBriefingElement.textContent = briefing;
         this.objectiveListElement.innerHTML = objectives
-            .map((objective) => `<li>${objective}</li>`)
+            .map((objective, index) => {
+            const parsed = this.parseMissionObjective(objective);
+            const primaryClass = parsed.tier === "primary" || (parsed.tier === "other" && index === 0)
+                ? " mission-order-item--primary"
+                : "";
+            const labelMarkup = parsed.label
+                ? `<strong>${parsed.label}:</strong>`
+                : "";
+            return `<li class="mission-order-item mission-order-item--${parsed.tier}${primaryClass}">${labelMarkup}${labelMarkup ? " " : ""}<span class="mission-order-copy">${parsed.text}</span></li>`;
+        })
             .join("");
         this.missionTurnLimitElement.textContent = effectiveTurnLimit !== null ? `${effectiveTurnLimit} turns` : "Pending";
-        this.baselineSupplyListElement.innerHTML = summary.supplies
-            .map((item) => `<li><strong>${item.label}:</strong> ${item.amount}</li>`)
+        const visibleMissionAssets = this.filterMissionAssetsForBriefing(summary.supplies);
+        if (this.baselineSupplySectionElement) {
+            this.baselineSupplySectionElement.classList.toggle("hidden", visibleMissionAssets.length === 0);
+        }
+        this.baselineSupplyListElement.innerHTML = visibleMissionAssets
+            .map((item) => `<li><strong>${item.label}</strong><span>${item.amount}</span></li>`)
             .join("");
         this.doctrineNotesElement.textContent = summary.doctrine;
         const missionInfo = {
@@ -1064,6 +1055,34 @@ export class PrecombatScreen {
             baselineSupplies: summary.supplies
         };
         this.battleState.setPrecombatMissionInfo(missionInfo);
+    }
+    parseMissionObjective(objective) {
+        const matched = objective.match(/^(Primary|Secondary|Tertiary):\s*(.+)$/i);
+        if (!matched) {
+            return {
+                label: null,
+                text: objective,
+                tier: "other"
+            };
+        }
+        const [, rawLabel, text] = matched;
+        const normalizedTier = rawLabel.toLowerCase();
+        return {
+            label: rawLabel,
+            text,
+            tier: normalizedTier
+        };
+    }
+    filterMissionAssetsForBriefing(supplies) {
+        const duplicateAssetPatterns = [
+            /budget/i,
+            /garrison/i,
+            /baseline forces/i,
+            /predeployed/i,
+            /operational window/i,
+            /^duration$/i
+        ];
+        return supplies.filter((item) => duplicateAssetPatterns.every((pattern) => !pattern.test(item.label.trim())));
     }
     renderMiniMap() {
         if (!this.isMiniMapVisible()) {
@@ -1155,54 +1174,6 @@ export class PrecombatScreen {
             return "#867950";
         }
         return fallbackFill ?? "#7f7250";
-    }
-    /**
-     * Summarizes the assigned commander's readiness so the player can double-check roster context.
-     */
-    renderGeneralSummary(selectedGeneralId) {
-        const rosterSize = getAllGenerals().length;
-        if (!selectedGeneralId) {
-            this.commanderCardElement.classList.add("is-unassigned");
-            this.commanderNameElement.textContent = "No commander assigned.";
-            this.commanderSummaryElement.textContent =
-                rosterSize === 0
-                    ? "Commission a commander on the landing screen to unlock tailored operations."
-                    : "Select a commander to review their readiness stats.";
-            this.updateCommanderStats(null);
-            return;
-        }
-        const general = findGeneralById(selectedGeneralId);
-        if (!general) {
-            this.commanderCardElement.classList.add("is-unassigned");
-            this.commanderNameElement.textContent = "Assigned commander not found.";
-            this.commanderSummaryElement.textContent = "Reassign a commander before continuing to deployment.";
-            this.updateCommanderStats(null);
-            // Clear the cached commander when roster data goes missing so battle UI falls back gracefully.
-            this.battleState.setAssignedCommanderId(null);
-            return;
-        }
-        this.commanderCardElement.classList.remove("is-unassigned");
-        this.commanderNameElement.textContent = general.identity.name;
-        const missionsCompleted = general.serviceRecord?.missionsCompleted ?? 0;
-        const victories = general.serviceRecord?.victoriesAchieved ?? 0;
-        this.commanderSummaryElement.textContent =
-            `Active commander with ${missionsCompleted} mission${missionsCompleted === 1 ? "" : "s"} and ${victories} victory${victories === 1 ? "" : "ies"}.`;
-        this.updateCommanderStats(general);
-        // Mirror the assignment certainty after validating roster presence to keep BattleState in sync with the UI card.
-        this.battleState.setAssignedCommanderId(general.id);
-    }
-    /**
-     * Updates commander stat fields with the latest roster data snapshot.
-     */
-    updateCommanderStats(general) {
-        const missions = general?.serviceRecord?.missionsCompleted ?? 0;
-        const victories = general?.serviceRecord?.victoriesAchieved ?? 0;
-        const unitsDeployed = general?.serviceRecord?.unitsDeployed ?? 0;
-        const casualties = general?.serviceRecord?.casualtiesSustained ?? 0;
-        this.commanderMissionsElement.textContent = missions.toString();
-        this.commanderVictoriesElement.textContent = victories.toString();
-        this.commanderUnitsElement.textContent = unitsDeployed.toString();
-        this.commanderCasualtiesElement.textContent = casualties.toString();
     }
     /**
      * Helper that throws when required DOM is missing so initialization fails fast.
