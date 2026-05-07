@@ -2127,7 +2127,7 @@ export function planResolvedAirCombatShowScene(host, scene) {
                 sanitizeEntryMaxWaypointsToRemove: 5
             });
             const resolvedTimedAssignments = label === "escort-clash-merge"
-                ? alignClashFightersThroughSharedFightSpace(preparedAssignments, durationMs, projectAirShowRailPoint(corridor, -240, 0), 0.52)
+                ? alignClashFightersThroughSharedFightSpace(preparedAssignments, durationMs, projectAirShowRailPoint(corridor, -240, 0), 0.48)
                 : label === "escort-clash-scramble"
                     ? alignScrambleFightersThroughChasePocket(preparedAssignments, durationMs, blendAirShowPoints(fighterClashCenter(0, 68), averageBomberPointAtPhaseProgress("escort-clash-scramble", 0.58), 0.42))
                     : preparedAssignments;
@@ -4630,6 +4630,24 @@ export function planResolvedAirCombatShowScene(host, scene) {
                 return {
                     ...assignment,
                     points: smoothedEntryPoints
+                };
+            });
+            const maxCombatRoleSpeedScale = 1.3;
+            bomberDefensePlaybackAssignments = bomberDefensePlaybackAssignments.map((assignment) => {
+                if (assignment.actor.role !== "interceptor"
+                    && assignment.actor.role !== "escort") {
+                    return assignment;
+                }
+                const maxTravelPx = Math.max(12, bomberPassBeatDurationMs
+                    * host.airShowFighterSpeedPxPerMs
+                    * maxCombatRoleSpeedScale);
+                const pathLengthPx = host.resolveAirShowAssignmentTraversedPathLengthPx(assignment, bomberPassBeatDurationMs);
+                if (pathLengthPx <= maxTravelPx + 0.5) {
+                    return assignment;
+                }
+                return {
+                    ...assignment,
+                    points: truncatePathToLength(assignment.points, maxTravelPx)
                 };
             });
             const bomberDefenseAssignmentsByActorId = host.buildAirShowAssignmentLookup(bomberDefensePlaybackAssignments);

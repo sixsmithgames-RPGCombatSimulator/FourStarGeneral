@@ -51,6 +51,7 @@ export type ResolvedAirShowFlakBurst = {
   bomberUnitKey?: string | null;
   targetHexKey?: string | null;
   batteryHexKey?: string | null;
+  rangeReferenceCenter?: AirShowPoint;
 };
 
 export type ResolvedAirShowScene = {
