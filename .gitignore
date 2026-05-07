@@ -29,3 +29,6 @@ test-results/airshow-*/
 diagnostics/
 tests/
 **/animation-*.txt
+
+# Temporary review assets
+tmp/
