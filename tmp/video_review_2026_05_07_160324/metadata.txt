@@ -1,4 +1,0 @@
-fps=30.0
-frame_count=874
-duration_sec=29.133333333333333
-resolution=1294x754
