@@ -424,19 +424,6 @@ export class SelectionIntelOverlay {
     const chipMarkup = intel.statusChips.length > 0
       ? `<div class="battle-intel-overlay__chip-row">${intel.statusChips.map((chip) => this.renderChipMarkup(chip)).join("")}</div>`
       : "";
-    const towToggleMarkup = intel.towToggle
-      ? `<div class="battle-intel-overlay__tow-toggle">
-          <button
-            type="button"
-            class="battle-intel-overlay__tow-btn${intel.towToggle.canToggle ? "" : " disabled"}"
-            data-selection-action="${intel.towToggle.toggleAction}"
-            title="${this.escapeHtml(intel.towToggle.toggleTooltip)}"
-            ${!intel.towToggle.canToggle ? "disabled" : ""}
-          >
-            ${this.escapeHtml(intel.towToggle.toggleLabel)}
-          </button>
-        </div>`
-      : "";
     const unitTabMarkup = intel.unitTabs.length > 1 ? this.renderBattleUnitTabsMarkup(intel.unitTabs) : "";
     const tabMarkup = this.collapsed ? "" : this.renderBattleTabMarkup(intel);
     const contentMarkup = !this.collapsed && this.activeBattleTab === "unit"
@@ -455,7 +442,6 @@ export class SelectionIntelOverlay {
         `).join("")}
       </div>
       ${chipMarkup}
-      ${towToggleMarkup}
       ${tabMarkup}
       ${contentMarkup}
     `;
@@ -497,7 +483,20 @@ export class SelectionIntelOverlay {
   }
 
   private renderChipMarkup(chip: BattleIntelChip): string {
-    return `<span class="battle-intel-overlay__chip battle-intel-overlay__chip--${chip.tone}">${this.escapeHtml(chip.label)}</span>`;
+    const baseClass = `battle-intel-overlay__chip battle-intel-overlay__chip--${chip.tone}`;
+    const isClickable = chip.action && chip.available !== false;
+
+    if (chip.action) {
+      return `<button
+        type="button"
+        class="${baseClass}${isClickable ? " battle-intel-overlay__chip--clickable" : " battle-intel-overlay__chip--disabled"}"
+        data-selection-action="${chip.action}"
+        title="${this.escapeHtml(chip.tooltip ?? "")}"
+        ${!isClickable ? "disabled" : ""}
+      >${this.escapeHtml(chip.label)}</button>`;
+    }
+
+    return `<span class="${baseClass}">${this.escapeHtml(chip.label)}</span>`;
   }
 
   private renderBattleUnitTabsMarkup(unitTabs: readonly BattleIntelUnitTab[]): string {

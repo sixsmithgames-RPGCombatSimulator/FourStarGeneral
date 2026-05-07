@@ -2749,6 +2749,9 @@ export class HexMapRenderer {
     /**
      * Updates or removes the campaign map backdrop image. The image is positioned at the root SVG level,
      * outside viewportRoot, so it remains static during pan/zoom operations.
+     *
+     * The backdrop is sized to 3x the map dimensions and centered, ensuring it fills the viewport
+     * even when panning to the edges of the tactical hex grid.
      */
     updateBackdropImage(svg, width, height) {
         const existingImage = svg.querySelector("#backdropImage");
@@ -2774,11 +2777,18 @@ export class HexMapRenderer {
                 svg.appendChild(image);
             }
         }
+        // Scale backdrop to cover the pan range - 3x map size centered on the map
+        // This ensures the backdrop fills the viewport even at extreme pan positions
+        const coverageScale = 3;
+        const backdropWidth = width * coverageScale;
+        const backdropHeight = height * coverageScale;
+        const offsetX = -(backdropWidth - width) / 2;
+        const offsetY = -(backdropHeight - height) / 2;
         image.setAttribute("href", this.backdropImageUrl);
-        image.setAttribute("x", "0");
-        image.setAttribute("y", "0");
-        image.setAttribute("width", String(width));
-        image.setAttribute("height", String(height));
+        image.setAttribute("x", String(offsetX));
+        image.setAttribute("y", String(offsetY));
+        image.setAttribute("width", String(backdropWidth));
+        image.setAttribute("height", String(backdropHeight));
     }
     ensureSelectionGlow(svg) {
         if (this.selectionGlow) {
@@ -10121,9 +10131,10 @@ export class HexMapRenderer {
             seed = Math.imul(seed, 1274126177) >>> 0;
             return ((seed ^ (seed >>> 16)) >>> 0) / 0x100000000;
         };
+        const wavePhaseDelayMs = Math.round(jitter01(0, 5) * 90);
         for (let index = 0; index < pointCount; index += 1) {
             const point = wave.points[index];
-            const flashDelayMs = Math.round(index * 62 + jitter01(index, 7) * 58 + (index % 4) * 11);
+            const flashDelayMs = Math.round(wavePhaseDelayMs + index * 46 + jitter01(index, 7) * 64 + (index % 3) * 9);
             if (index < flashPointCount) {
                 window.setTimeout(() => {
                     const burstScale = scale * (0.72 + jitter01(index, 13) * 0.28);
@@ -10140,6 +10151,11 @@ export class HexMapRenderer {
                 window.setTimeout(() => {
                     void this.playCombatAnimationAt("flakSmokePuff", point.cx + (jitter01(index, 47) - 0.5) * 22, point.cy - 5 + (jitter01(index, 53) - 0.5) * 16, _smokeScale * (0.9 + jitter01(index, 59) * 0.24), false, undefined, false);
                 }, flashDelayMs + 300 + Math.round(jitter01(index, 61) * 190));
+                if (jitter01(index, 67) > 0.26) {
+                    window.setTimeout(() => {
+                        void this.playCombatAnimationAt("flakSmokePuff", point.cx + (jitter01(index, 71) - 0.5) * 26, point.cy - 8 + (jitter01(index, 73) - 0.5) * 20, _smokeScale * (0.78 + jitter01(index, 79) * 0.2), false, undefined, false);
+                    }, flashDelayMs + 760 + Math.round(jitter01(index, 83) * 320));
+                }
             }
         }
     }

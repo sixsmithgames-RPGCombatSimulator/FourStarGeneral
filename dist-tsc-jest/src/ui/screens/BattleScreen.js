@@ -7367,10 +7367,22 @@ export class BattleScreen {
                 chips.push({ label: "Automated Convoy", tone: "warning" });
             }
             if (commandState.towState === "towed") {
-                chips.push({ label: "Towed", tone: "warning" });
+                chips.push({
+                    label: "Towed",
+                    tone: "warning",
+                    action: "deployTow",
+                    tooltip: "Click to deploy guns for firing. Deployment after movement ends the turn.",
+                    available: commandState.canDeployTow
+                });
             }
             else if (commandState.towState === "deployed") {
-                chips.push({ label: "Deployed", tone: "neutral" });
+                chips.push({
+                    label: "Deployed",
+                    tone: "neutral",
+                    action: "moveOutTow",
+                    tooltip: "Click to hook up guns for towing. Spends half movement.",
+                    available: commandState.canMoveOut
+                });
             }
             if (commandState.isOnSentry) {
                 chips.push({ label: "On Sentry", tone: "neutral" });

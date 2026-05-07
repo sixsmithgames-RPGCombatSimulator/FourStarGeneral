@@ -2944,7 +2944,22 @@
       background: rgba(110, 39, 45, 0.34);
       color: #ffb0bb;
     }
-    /* Tow mode toggle for artillery units - compact button in intel overlay */
+    .battle-intel-overlay__chip--clickable {
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border-color: rgba(177, 152, 101, 0.4);
+      background: linear-gradient(180deg, rgba(177, 152, 101, 0.18) 0%, rgba(177, 152, 101, 0.08) 100%);
+    }
+    .battle-intel-overlay__chip--clickable:hover {
+      background: linear-gradient(180deg, rgba(177, 152, 101, 0.28) 0%, rgba(177, 152, 101, 0.15) 100%);
+      border-color: rgba(245, 196, 109, 0.6);
+      transform: translateY(-1px);
+    }
+    .battle-intel-overlay__chip--disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    /* Tow mode toggle for artillery units - compact button in intel overlay (deprecated: now handled via clickable chips) */
     .battle-intel-overlay__tow-toggle {
       display: flex;
       justify-content: center;

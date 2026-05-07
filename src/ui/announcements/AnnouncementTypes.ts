@@ -18,6 +18,12 @@ export type BattleIntelActionTone = "defense" | "mobility" | "denial";
 export interface BattleIntelChip {
   readonly label: string;
   readonly tone: IntelChipTone;
+  /** Optional click action - when present, chip renders as a clickable button */
+  readonly action?: string;
+  /** Tooltip explaining what clicking the chip will do */
+  readonly tooltip?: string;
+  /** Whether the chip action is currently available */
+  readonly available?: boolean;
 }
 
 export interface BattleIntelAction {
