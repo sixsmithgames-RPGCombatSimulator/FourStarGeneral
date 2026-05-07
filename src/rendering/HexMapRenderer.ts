@@ -14043,9 +14043,12 @@ export class HexMapRenderer implements IMapRenderer {
       seed = Math.imul(seed, 1274126177) >>> 0;
       return ((seed ^ (seed >>> 16)) >>> 0) / 0x100000000;
     };
+    const wavePhaseDelayMs = Math.round(jitter01(0, 5) * 90);
     for (let index = 0; index < pointCount; index += 1) {
       const point = wave.points[index]!;
-      const flashDelayMs = Math.round(index * 62 + jitter01(index, 7) * 58 + (index % 4) * 11);
+      const flashDelayMs = Math.round(
+        wavePhaseDelayMs + index * 46 + jitter01(index, 7) * 64 + (index % 3) * 9
+      );
       if (index < flashPointCount) {
         window.setTimeout(() => {
           const burstScale = scale * (0.72 + jitter01(index, 13) * 0.28);
@@ -14084,6 +14087,19 @@ export class HexMapRenderer implements IMapRenderer {
             false
           );
         }, flashDelayMs + 300 + Math.round(jitter01(index, 61) * 190));
+        if (jitter01(index, 67) > 0.26) {
+          window.setTimeout(() => {
+            void this.playCombatAnimationAt(
+              "flakSmokePuff",
+              point.cx + (jitter01(index, 71) - 0.5) * 26,
+              point.cy - 8 + (jitter01(index, 73) - 0.5) * 20,
+              _smokeScale * (0.78 + jitter01(index, 79) * 0.2),
+              false,
+              undefined,
+              false
+            );
+          }, flashDelayMs + 760 + Math.round(jitter01(index, 83) * 320));
+        }
       }
     }
 
