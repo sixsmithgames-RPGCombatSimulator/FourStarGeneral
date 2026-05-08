@@ -8327,11 +8327,11 @@ export class HexMapRenderer implements IMapRenderer {
     );
     const weightedBomberIngressDurationMs = Math.max(
       1,
-      Math.round(defaultDurations.bomberIngressDurationMs * 0.062)
+      Math.round(defaultDurations.bomberIngressDurationMs * 0.22)
     );
     const weightedBomberDefenseDurationMs = Math.max(
       1,
-      Math.round(defaultDurations.bomberDefenseDurationMs * 1.45)
+      Math.round(defaultDurations.bomberDefenseDurationMs * 1.16)
     );
     const weightedRemainingDurationMs =
       weightedEscortMergeDurationMs
@@ -9037,50 +9037,50 @@ export class HexMapRenderer implements IMapRenderer {
     governedDurationMs: number
   ): AirShowContestedFighterIngressPlan {
     const safeGovernedDurationMs = Math.max(1, Math.round(governedDurationMs));
-    const trimmedPlan =
-      plan.durationMs > safeGovernedDurationMs
-        ? this.trimAirShowPhaseLead(
-            plan.assignments,
-            plan.durationMs,
-            plan.durationMs - safeGovernedDurationMs
-          )
-        : {
-            durationMs: safeGovernedDurationMs,
-            assignments: [...plan.assignments]
-          };
     const roleSpeeds = this.resolveAirShowRoleSpeedMap({
       interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
       escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
       bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
     });
-    const speedBalancedAssignments = trimmedPlan.assignments.map((assignment) => {
+    // Preserve deterministic HQ-origin ingress geometry. If a governed duration is too short
+    // for the authored fighter paths, extend duration instead of trimming path starts.
+    const requiredDurationMs = plan.assignments.reduce((longestDurationMs, assignment) => {
+      if (assignment.actor.role !== "interceptor" && assignment.actor.role !== "escort") {
+        return longestDurationMs;
+      }
+      const pathLengthPx = this.measureAirShowPathLength(assignment.points);
+      if (!Number.isFinite(pathLengthPx) || pathLengthPx <= 0.5) {
+        return longestDurationMs;
+      }
+      const speedPxPerMs =
+        roleSpeeds.get(assignment.actor.role) ?? HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS;
+      if (!Number.isFinite(speedPxPerMs) || speedPxPerMs <= 0.0001) {
+        return longestDurationMs;
+      }
+      return Math.max(longestDurationMs, Math.ceil(pathLengthPx / speedPxPerMs));
+    }, 0);
+    const resolvedDurationMs = this.clamp(
+      Math.max(safeGovernedDurationMs, requiredDurationMs),
+      1,
+      13250
+    );
+    const speedBalancedAssignments = plan.assignments.map((assignment) => {
       if (assignment.actor.role !== "interceptor" && assignment.actor.role !== "escort") {
         return { ...assignment };
       }
       const currentPathLengthPx = this.measureAirShowPathLength(assignment.points);
-      const targetSpeedPxPerMs =
-        roleSpeeds.get(assignment.actor.role) ?? HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS;
-      const maxPathLengthPx = targetSpeedPxPerMs * safeGovernedDurationMs * 1.18;
-      if (
-        !Number.isFinite(currentPathLengthPx)
-        || currentPathLengthPx <= maxPathLengthPx + 1
-        || currentPathLengthPx <= 1
-      ) {
-        return { ...assignment };
-      }
-      const startProgress = this.clamp(1 - maxPathLengthPx / currentPathLengthPx, 0, 0.82);
-      const points = this.sliceAirShowPathByProgressRange(assignment.points, startProgress, 1);
       return {
         ...assignment,
-        points,
-        distanceBudgetPx: Math.min(maxPathLengthPx, currentPathLengthPx),
-        progressTimeline: undefined
+        distanceBudgetPx:
+          Number.isFinite(currentPathLengthPx) && currentPathLengthPx > 0
+            ? currentPathLengthPx
+            : assignment.distanceBudgetPx
       };
     });
 
     return {
       assignments: speedBalancedAssignments,
-      durationMs: safeGovernedDurationMs,
+      durationMs: resolvedDurationMs,
       roleSpeeds,
       progressSamplePoints: plan.progressSamplePoints
     };
@@ -12727,9 +12727,9 @@ export class HexMapRenderer implements IMapRenderer {
         streakLengthPx: 126,
         visibleLengthPx: 11,
         fanHalfAngleDeg: 2.8,
-        burstCount: 6,
-        maxAlignmentDeg: 62,
-        maxRangePx: 276,
+        burstCount: 5,
+      maxAlignmentDeg: 58,
+      maxRangePx: 332,
         timings: attackTimings,
         fallbackToNearest,
         fallbackTarget: "target-centroid"
@@ -12744,7 +12744,7 @@ export class HexMapRenderer implements IMapRenderer {
         visibleLengthPx: 5,
         fanHalfAngleDeg: 0.8,
         burstCount: 2,
-        maxRangePx: 148,
+        maxRangePx: 124,
         timings: defensiveTimings,
         fallbackToNearest,
         fallbackTarget: "target-centroid"
@@ -12765,21 +12765,21 @@ export class HexMapRenderer implements IMapRenderer {
   } {
     const alongOffsetPx = burst.alongOffsetPx ?? -8;
     const lateralOffsetPx = burst.lateralOffsetPx ?? 0;
-    const requestedPuffCount = burst.puffCount ?? Math.max(7, burst.count * 5);
+    const requestedPuffCount = burst.puffCount ?? Math.max(4, burst.count * 3);
     const isSinglePuff = burst.puffCount !== undefined && requestedPuffCount <= 1;
     const alongSpreadPx = isSinglePuff
       ? Math.max(4, burst.alongSpreadPx ?? 8)
-      : Math.max(44, burst.alongSpreadPx ?? 58);
+      : Math.max(32, burst.alongSpreadPx ?? 48);
     const lateralSpreadPx = isSinglePuff
       ? Math.max(4, burst.lateralSpreadPx ?? 8)
-      : Math.max(132, burst.lateralSpreadPx ?? HEX_WIDTH * 1.52);
-    const puffCount = Math.max(isSinglePuff ? 1 : 7, Math.min(20, requestedPuffCount));
-    const requestedSmokePuffCount = burst.smokePuffCount ?? Math.round(puffCount * 1.28);
+      : Math.max(176, burst.lateralSpreadPx ?? HEX_WIDTH * 1.58);
+    const puffCount = Math.max(isSinglePuff ? 1 : 3, Math.min(10, requestedPuffCount));
+    const requestedSmokePuffCount = burst.smokePuffCount ?? Math.round(puffCount * 1.05);
     const smokePuffCount = isSinglePuff
       ? Math.max(1, requestedSmokePuffCount)
       : Math.max(
-          Math.round(puffCount * 0.7),
-          Math.min(Math.max(puffCount + 8, Math.round(puffCount * 1.7)), requestedSmokePuffCount)
+          Math.round(puffCount * 0.45),
+          Math.min(Math.max(puffCount + 3, Math.round(puffCount * 1.2)), requestedSmokePuffCount)
         );
     const center = this.clampPointToViewportBounds(
       {
@@ -12806,30 +12806,23 @@ export class HexMapRenderer implements IMapRenderer {
       seed = (seed * 1664525 + 1013904223) >>> 0;
       return seed / 0x100000000;
     };
-    const clusterOffsets = [
-      { along: -alongSpreadPx * 0.28, lateral: -lateralSpreadPx * 0.62 },
-      { along: alongSpreadPx * 0.08, lateral: lateralSpreadPx * 0.58 },
-      { along: alongSpreadPx * 0.3, lateral: -lateralSpreadPx * 0.22 },
-      { along: -alongSpreadPx * 0.16, lateral: lateralSpreadPx * 0.26 }
-    ];
-    const points = Array.from({ length: puffCount }, (_, index) => {
-      const cluster = clusterOffsets[index % clusterOffsets.length]!;
-      const angle = nextRandom() * Math.PI * 2;
+    const baseAngle = nextRandom() * Math.PI * 2;
+    let points = Array.from({ length: puffCount }, (_, index) => {
+      const ringRatio = (index + nextRandom() * 0.7) / Math.max(1, puffCount);
+      const angle = baseAngle + ringRatio * Math.PI * 2 + (nextRandom() - 0.5) * 0.68;
       const radial = Math.sqrt(nextRandom());
       const alongJitter =
-        cluster.along
-        + Math.cos(angle) * alongSpreadPx * (0.18 + radial * 0.42)
-        + (nextRandom() - 0.5) * alongSpreadPx * 0.12;
+        Math.cos(angle) * alongSpreadPx * (0.14 + radial * 0.64)
+        + (nextRandom() - 0.5) * alongSpreadPx * 0.16;
       const lateralJitter =
-        cluster.lateral
-        + Math.sin(angle) * lateralSpreadPx * (0.22 + radial * 0.48)
-        + (nextRandom() - 0.5) * lateralSpreadPx * 0.1;
+        Math.sin(angle) * lateralSpreadPx * (0.18 + radial * 0.72)
+        + (nextRandom() - 0.5) * lateralSpreadPx * 0.14;
       const screenJitterX = isSinglePuff
         ? 0
-        : (nextRandom() - 0.5) * Math.max(156, Math.min(226, lateralSpreadPx * 0.98));
+        : (nextRandom() - 0.5) * Math.max(150, Math.min(260, lateralSpreadPx * 1.04));
       const screenJitterY = isSinglePuff
         ? 0
-        : (nextRandom() - 0.5) * Math.max(26, Math.min(64, alongSpreadPx * 0.5));
+        : (nextRandom() - 0.5) * Math.max(16, Math.min(42, alongSpreadPx * 0.36));
       return this.clampPointToViewportBounds(
         {
           cx: center.cx + corridor.axis.x * alongJitter + corridor.normal.x * lateralJitter + screenJitterX,
@@ -12840,7 +12833,41 @@ export class HexMapRenderer implements IMapRenderer {
         320
       );
     });
-    const flashCount = isSinglePuff ? 1 : Math.max(2, Math.min(6, Math.round(puffCount * 0.3)));
+    if (!isSinglePuff && points.length > 1) {
+      const xs = points.map((point) => point.cx);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const currentWidthPx = Math.max(0, maxX - minX);
+      const minimumVisualWidthPx = Math.max(156, Math.min(236, Math.round(lateralSpreadPx * 0.86)));
+      if (currentWidthPx + 0.5 < minimumVisualWidthPx) {
+        const widthDeficitHalfPx = (minimumVisualWidthPx - currentWidthPx) * 0.5;
+        const sortedPointIndices = points
+          .map((_, index) => index)
+          .sort((leftIndex, rightIndex) => points[leftIndex]!.cx - points[rightIndex]!.cx);
+        const leftMostIndex = sortedPointIndices[0] ?? 0;
+        const rightMostIndex = sortedPointIndices[sortedPointIndices.length - 1] ?? leftMostIndex;
+        points = points.map((point, index) => {
+          let shiftXPx = 0;
+          if (index === leftMostIndex) {
+            shiftXPx = -widthDeficitHalfPx;
+          } else if (index === rightMostIndex) {
+            shiftXPx = widthDeficitHalfPx;
+          } else {
+            shiftXPx = (index % 2 === 0 ? -1 : 1) * widthDeficitHalfPx * 0.28;
+          }
+          return this.clampPointToViewportBounds(
+            {
+              cx: point.cx + shiftXPx,
+              cy: point.cy
+            },
+            targetCenter,
+            470,
+            320
+          );
+        });
+      }
+    }
+    const flashCount = isSinglePuff ? 1 : Math.max(1, Math.min(3, Math.round(puffCount * 0.24)));
     return { center, flashCount, points, puffCount, smokePuffCount };
   }
 
@@ -14044,18 +14071,23 @@ export class HexMapRenderer implements IMapRenderer {
       return ((seed ^ (seed >>> 16)) >>> 0) / 0x100000000;
     };
     const wavePhaseDelayMs = Math.round(jitter01(0, 5) * 90);
+    const burstWindowMs = singlePuffWave
+      ? 0
+      : Math.round(140 + jitter01(0, 11) * 170);
     for (let index = 0; index < pointCount; index += 1) {
       const point = wave.points[index]!;
-      const flashDelayMs = Math.round(
-        wavePhaseDelayMs + index * 46 + jitter01(index, 7) * 64 + (index % 3) * 9
-      );
+      const flashDelayMs = Math.round(singlePuffWave
+        ? wavePhaseDelayMs
+        : wavePhaseDelayMs
+          + jitter01(index, 7) * burstWindowMs
+          + (jitter01(index, 17) - 0.5) * 26);
       if (index < flashPointCount) {
         window.setTimeout(() => {
           const burstScale = scale * (0.72 + jitter01(index, 13) * 0.28);
-          const flashCount = singlePuffWave ? 1 : jitter01(index, 17) > 0.84 ? 2 : 1;
+          const flashCount = singlePuffWave ? 1 : jitter01(index, 19) > 0.94 ? 2 : 1;
           void this.playFlakBurstAt(
-            point.cx + (jitter01(index, 19) - 0.5) * 18,
-            point.cy + (jitter01(index, 23) - 0.5) * 12,
+            point.cx + (jitter01(index, 23) - 0.5) * 16,
+            point.cy + (jitter01(index, 29) - 0.5) * 11,
             flashCount,
             burstScale,
             false
@@ -14063,42 +14095,30 @@ export class HexMapRenderer implements IMapRenderer {
         }, flashDelayMs);
       }
 
-      if (!singlePuffWave && index < flashPointCount && (index + Math.round(jitter01(index, 29) * 7)) % 4 === 0) {
-        window.setTimeout(() => {
-          void this.playFlakBurstAt(
-            point.cx + (jitter01(index, 31) - 0.5) * 24,
-            point.cy + (jitter01(index, 37) - 0.5) * 18,
-            1,
-            scale * (0.46 + jitter01(index, 41) * 0.2),
-            false
-          );
-        }, flashDelayMs + 230 + Math.round(jitter01(index, 43) * 110));
-      }
-
       if (!singlePuffWave && index < smokePointCount) {
         window.setTimeout(() => {
           void this.playCombatAnimationAt(
             "flakSmokePuff",
-            point.cx + (jitter01(index, 47) - 0.5) * 22,
-            point.cy - 5 + (jitter01(index, 53) - 0.5) * 16,
-            _smokeScale * (0.9 + jitter01(index, 59) * 0.24),
+            point.cx + (jitter01(index, 37) - 0.5) * 18,
+            point.cy - 5 + (jitter01(index, 41) - 0.5) * 14,
+            _smokeScale * (0.88 + jitter01(index, 43) * 0.2),
             false,
             undefined,
             false
           );
-        }, flashDelayMs + 300 + Math.round(jitter01(index, 61) * 190));
-        if (jitter01(index, 67) > 0.26) {
+        }, flashDelayMs + 220 + Math.round(jitter01(index, 47) * 140));
+        if (jitter01(index, 53) > 0.88) {
           window.setTimeout(() => {
             void this.playCombatAnimationAt(
               "flakSmokePuff",
-              point.cx + (jitter01(index, 71) - 0.5) * 26,
-              point.cy - 8 + (jitter01(index, 73) - 0.5) * 20,
-              _smokeScale * (0.78 + jitter01(index, 79) * 0.2),
+              point.cx + (jitter01(index, 59) - 0.5) * 24,
+              point.cy - 8 + (jitter01(index, 61) - 0.5) * 18,
+              _smokeScale * (0.76 + jitter01(index, 67) * 0.2),
               false,
               undefined,
               false
             );
-          }, flashDelayMs + 760 + Math.round(jitter01(index, 83) * 320));
+          }, flashDelayMs + 620 + Math.round(jitter01(index, 71) * 220));
         }
       }
     }

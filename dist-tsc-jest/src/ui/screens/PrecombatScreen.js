@@ -113,18 +113,6 @@ export class PrecombatScreen {
             throw new Error("Required precombat element not found: #precombatHexMap");
         }
         this.miniMapSvg = miniMapSvg;
-        if (!this.allocationResetButton) {
-            const footer = this.element.querySelector(".precombat-footer");
-            if (footer) {
-                const resetButton = document.createElement("button");
-                resetButton.id = "resetAllocations";
-                resetButton.type = "button";
-                resetButton.className = "secondary-button";
-                resetButton.textContent = "Reset Allocations";
-                footer.insertBefore(resetButton, this.proceedToBattleButton);
-                this.allocationResetButton = resetButton;
-            }
-        }
     }
     /**
      * Binds event handlers.

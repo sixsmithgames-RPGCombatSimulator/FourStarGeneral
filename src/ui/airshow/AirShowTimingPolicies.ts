@@ -62,7 +62,7 @@ export function buildCoordinatedAirClusterTimingPolicy(): CoordinatedAirClusterT
   return {
     fighterIngressDurationMs: Math.round(resolveFighterInterceptIngressDurationMs() * 1.14),
     escortClashDurationMs: sharedSceneTimings.escortClashDurationMs,
-    bomberIngressDurationMs: sharedSceneTimings.bomberIngressDurationMs,
+    bomberIngressDurationMs: Math.round(sharedSceneTimings.bomberIngressDurationMs * 1.04),
     bomberPassDurationMs: sharedSceneTimings.bomberPassDurationMs,
     strikeRunDurationMs: sharedSceneTimings.strikeRunDurationMs,
     egressDurationMs: sharedSceneTimings.egressDurationMs,
