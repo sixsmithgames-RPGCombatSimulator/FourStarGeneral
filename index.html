@@ -1520,7 +1520,7 @@
     }
     .precombat-intel-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.55fr);
+      grid-template-columns: minmax(0, 1fr) minmax(200px, 0.32fr);
       gap: 1rem;
       align-items: start;
       margin-bottom: 1rem;
@@ -1727,12 +1727,13 @@
       position: relative;
       width: 100%;
       aspect-ratio: 1 / 1;
-      min-height: clamp(200px, 24vh, 300px);
+      min-height: clamp(180px, 20vh, 260px);
       max-height: none;
       border-radius: 14px;
       overflow: hidden;
       border: 1px solid rgba(170, 146, 95, 0.22);
       background:
+        url('/src/assets/campaign/Campaign Map -- Central Channel.png') center/cover no-repeat,
         radial-gradient(circle at 30% 24%, rgba(138, 124, 82, 0.22), transparent 32%),
         linear-gradient(180deg, rgba(31, 34, 26, 0.96) 0%, rgba(13, 15, 11, 0.98) 100%);
       display: grid;
@@ -6356,6 +6357,7 @@
           <div class="precombat-toolbar">
             <div class="precombat-toolbar-button-group">
               <button id="returnToLanding" type="button" class="secondary-button">Return to Headquarters</button>
+              <button id="resetAllocations" type="button" class="secondary-button">Reset Allocations</button>
             </div>
             <div class="precombat-toolbar-budget">
               <div id="precombatBudgetPanel" class="topbar-budget" data-state="within-budget">
@@ -6365,7 +6367,6 @@
               </div>
             </div>
             <div class="precombat-toolbar-button-group">
-              <button id="resetAllocations" type="button" class="secondary-button">Reset Allocations</button>
               <button id="proceedToBattle" type="button" class="primary-button" disabled>Begin Battle</button>
             </div>
           </div>
