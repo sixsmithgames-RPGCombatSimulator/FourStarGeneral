@@ -2572,6 +2572,71 @@ export function planResolvedAirCombatShowScene(
         cy: start.cy + (end.cy - start.cy) * clampedProgress
       };
     };
+    const clampAirShowPointToFightPocket = (
+      point: AirShowPoint,
+      centerCoordinates: { alongPx: number; lateralPx: number },
+      maxRearAlongPx: number,
+      maxForwardAlongPx: number,
+      maxLateralPx: number
+    ): AirShowPoint => {
+      const pointCoordinates = resolveAirShowRailCoordinates(corridor, point);
+      const clampedAlongPx = host.clamp(
+        pointCoordinates.alongPx,
+        centerCoordinates.alongPx - Math.max(0, maxRearAlongPx),
+        centerCoordinates.alongPx + Math.max(0, maxForwardAlongPx)
+      );
+      const clampedLateralPx = host.clamp(
+        pointCoordinates.lateralPx,
+        centerCoordinates.lateralPx - Math.max(0, maxLateralPx),
+        centerCoordinates.lateralPx + Math.max(0, maxLateralPx)
+      );
+      if (
+        Math.abs(clampedAlongPx - pointCoordinates.alongPx) <= 0.001
+        && Math.abs(clampedLateralPx - pointCoordinates.lateralPx) <= 0.001
+      ) {
+        return point;
+      }
+      return projectAirShowRailPoint(corridor, clampedAlongPx, clampedLateralPx);
+    };
+    const clampFightPathToPocket = (
+      points: ReadonlyArray<AirShowPoint>,
+      center: AirShowPoint,
+      {
+        maxRearAlongPx,
+        maxForwardAlongPx,
+        maxLateralPx,
+        preserveStart = false,
+        preserveLeadingPoints
+      }: {
+        maxRearAlongPx: number;
+        maxForwardAlongPx: number;
+        maxLateralPx: number;
+        preserveStart?: boolean;
+        preserveLeadingPoints?: number;
+      }
+    ): AirShowPoint[] => {
+      if (points.length <= 0) {
+        return [];
+      }
+      const centerCoordinates = resolveAirShowRailCoordinates(corridor, center);
+      const preservedPointCount = Math.max(
+        0,
+        Math.round(preserveLeadingPoints ?? (preserveStart ? 1 : 0))
+      );
+      return dedupePath(
+        points.map((point, index) =>
+          index < preservedPointCount
+            ? point
+            : clampAirShowPointToFightPocket(
+                point,
+                centerCoordinates,
+                maxRearAlongPx,
+                maxForwardAlongPx,
+                maxLateralPx
+              )
+        )
+      );
+    };
 
     const buildFighterGroups = (): FighterEngagementGroup[] => {
       const interceptors = activeFlights(interceptorFlights);
@@ -2786,7 +2851,7 @@ export function planResolvedAirCombatShowScene(
      */
     const buildFighterPhaseAssignments = (label: CorridorPhaseLabel): AirShowPhaseAssignment[] => {
       const assignments: AirShowPhaseAssignment[] = [];
-      fighterGroups.forEach((group, groupIndex) => {
+      fighterGroups.forEach((group) => {
         [
           ...group.interceptorFlights.map((flight) => ({ flight, role: "interceptor" as const })),
           ...group.escortFlights.map((flight) => ({ flight, role: "escort" as const }))
@@ -2846,20 +2911,13 @@ export function planResolvedAirCombatShowScene(
               }
             );
           } else if (label === "escort-clash-scramble") {
-            const switchedGroup = fighterGroups.length > 1
-              ? fighterGroups[
-                  (groupIndex + (role === "interceptor" ? 1 : fighterGroups.length - 1)) % fighterGroups.length
-                ]!
-              : group;
-            const switchedLane = switchedGroup.lane;
-            const switchedLaneOffsetPx = resolveAirShowRailLaneOffsetPx(
-              switchedLane,
-              role,
-              (flight.spec.laneOffsetPx ?? 0) * 0.2
+            const scrambleFocus = blendAirShowPoints(
+              fighterClashCenter(group.lane, 38),
+              averageBomberPointAtPhaseProgress("escort-clash-scramble", 0.62),
+              0.24
             );
-            const scrambleFocus = averageBomberPointAtPhaseProgress("escort-clash-scramble", 0.86);
-            const chaseLaneOffsetPx = switchedLaneOffsetPx * 0.12 + Math.max(0, localSlot) * (role === "interceptor" ? -6 : 6);
-            const chaseLeadPx = role === "interceptor" ? -10 : 10;
+            const chaseLaneOffsetPx = laneOffsetPx * 0.16 + localLane * (role === "interceptor" ? -4 : 4);
+            const chaseLeadPx = role === "interceptor" ? -4 : 6;
             const target = host.offsetAirShowPoint(
               scrambleFocus,
               corridor.normal.x * chaseLaneOffsetPx + corridor.axis.x * chaseLeadPx,
@@ -2870,24 +2928,24 @@ export function planResolvedAirCombatShowScene(
                 ? host.buildAirShowPursuitPath(current, target, {
                     startHeadingDegrees: host.resolveAirShowFlightHeadingDegrees(flight),
                     lateralSign: lane >= 0 ? 1 : -1,
-                    entryLateralPx: 62 + Math.abs(localLane) * 8,
-                    mergeLateralPx: 20 + Math.abs(localLane) * 6,
-                    attackOffsetPx: 6 + Math.abs(localLane) * 3,
+                    entryLateralPx: 44 + Math.abs(localLane) * 6,
+                    mergeLateralPx: 16 + Math.abs(localLane) * 5,
+                    attackOffsetPx: 4 + Math.abs(localLane) * 2,
                     closeInPx: 10,
-                    overshootPx: 58,
-                    breakLateralPx: 44,
-                    breakForwardPx: 42,
-                    driftPx: switchedLane * 8
+                    overshootPx: 44,
+                    breakLateralPx: 32,
+                    breakForwardPx: 30,
+                    driftPx: group.lane * 4
                   })
                 : host.buildAirShowBreakTurnPath(current, target, {
                     startHeadingDegrees: host.resolveAirShowFlightHeadingDegrees(flight),
                     lateralSign: lane >= 0 ? -1 : 1,
-                    entryLateralPx: 28 + Math.abs(localLane) * 6,
-                    guardForwardPx: 18,
-                    guardLateralPx: 48 + Math.abs(localLane) * 8,
-                    exitForwardPx: 58,
-                    exitLateralPx: 62 + Math.abs(localLane) * 8,
-                    trailForwardPx: 26
+                    entryLateralPx: 22 + Math.abs(localLane) * 4,
+                    guardForwardPx: 14,
+                    guardLateralPx: 34 + Math.abs(localLane) * 6,
+                    exitForwardPx: 46,
+                    exitLateralPx: 44 + Math.abs(localLane) * 6,
+                    trailForwardPx: 22
                   });
           } else if (label === "bomber-ingress") {
             if (role === "interceptor") {
@@ -2946,10 +3004,10 @@ export function planResolvedAirCombatShowScene(
       const isMerge = label === "escort-clash-merge";
       const interceptorTimings = isMerge
         ? [0.52, 0.64, 0.76]
-        : [0.25, 0.40, 0.55, 0.70, 0.82];
+        : [0.28, 0.43, 0.58, 0.72, 0.84];
       const escortTimings = isMerge
         ? [0.55, 0.67, 0.79]
-        : [0.30, 0.45, 0.60, 0.75, 0.88];
+        : [0.31, 0.46, 0.61, 0.75, 0.84];
       fighterGroups.forEach((group, groupIndex) => {
         group.interceptorFlights.forEach((interceptorFlight, index) => {
           const escortTarget = group.escortFlights[(index + (isMerge ? 0 : 1)) % Math.max(1, group.escortFlights.length)];
@@ -3327,21 +3385,25 @@ export function planResolvedAirCombatShowScene(
         const ingressShareFloor =
           label === "escort-clash-merge"
             ? 0.74
-            : 0.32;
+            : 0.28;
         const ingressShareCeiling =
           label === "escort-clash-merge"
             ? 0.92
-            : 0.52;
+            : 0.44;
         const seededScaleFloor =
           label === "escort-clash-merge"
             ? 1.22
-            : 1.1;
+            : 0.94;
         const seededScaleCeiling =
           label === "escort-clash-merge"
             ? 2.08
-            : 1.78;
+            : 1.48;
+        const hardClashMinDurationMs =
+          label === "escort-clash-merge"
+            ? 1100
+            : 900;
         const clashMinDurationMs = Math.max(
-          1100,
+          hardClashMinDurationMs,
           Math.round(seededDurationMs * seededScaleFloor),
           Math.round(ingressReferenceDurationMs * ingressShareFloor)
         );
@@ -3484,8 +3546,8 @@ export function planResolvedAirCombatShowScene(
           : null;
         const convergencePoint = host.offsetAirShowPoint(
           fightSpaceCenter,
-          corridor.axis.x * roleSide * 8 + corridor.normal.x * (lane * 20 + actorSlot * 9),
-          corridor.axis.y * roleSide * 8 + corridor.normal.y * (lane * 20 + actorSlot * 9)
+          corridor.axis.x * roleSide * 6 + corridor.normal.x * (lane * 16 + actorSlot * 7),
+          corridor.axis.y * roleSide * 6 + corridor.normal.y * (lane * 16 + actorSlot * 7)
         );
         const currentForward =
           previousHeading
@@ -3497,7 +3559,7 @@ export function planResolvedAirCombatShowScene(
           convergencePoint.cx - start.cx,
           convergencePoint.cy - start.cy
         );
-        const carryDistancePx = Math.min(108, distanceToConvergencePx * 0.14);
+        const carryDistancePx = Math.min(96, distanceToConvergencePx * 0.12);
         const carryPoint = host.offsetAirShowPoint(
           start,
           currentForward.x * carryDistancePx,
@@ -3506,55 +3568,58 @@ export function planResolvedAirCombatShowScene(
         const entryPoint = host.offsetAirShowPoint(
           carryPoint,
           (convergencePoint.cx - carryPoint.cx) * 0.36
-            + corridor.normal.x * (roleSide * 38 + lane * 14 + actorSlot * 8),
+            + corridor.normal.x * (roleSide * 24 + lane * 10 + actorSlot * 6),
           (convergencePoint.cy - carryPoint.cy) * 0.36
-            + corridor.normal.y * (roleSide * 38 + lane * 14 + actorSlot * 8)
+            + corridor.normal.y * (roleSide * 24 + lane * 10 + actorSlot * 6)
         );
         const preMergePoint = host.offsetAirShowPoint(
           entryPoint,
           (convergencePoint.cx - entryPoint.cx) * 0.62
-            + corridor.normal.x * (lane * 12 - roleSide * 16 + actorSlot * 6),
+            + corridor.normal.x * (lane * 10 - roleSide * 10 + actorSlot * 4),
           (convergencePoint.cy - entryPoint.cy) * 0.62
-            + corridor.normal.y * (lane * 12 - roleSide * 16 + actorSlot * 6)
+            + corridor.normal.y * (lane * 10 - roleSide * 10 + actorSlot * 4)
         );
         const breakPoint = host.offsetAirShowPoint(
           fightSpaceCenter,
-          corridor.axis.x * (42 + lane * 8 + actorSlot * 5)
-            + corridor.normal.x * (lane * 30 - roleSide * 72 + actorSlot * 14),
-          corridor.axis.y * (42 + lane * 8 + actorSlot * 5)
-            + corridor.normal.y * (lane * 30 - roleSide * 72 + actorSlot * 14)
+          corridor.axis.x * (34 + lane * 6 + actorSlot * 4)
+            + corridor.normal.x * (lane * 18 - roleSide * 48 + actorSlot * 10),
+          corridor.axis.y * (34 + lane * 6 + actorSlot * 4)
+            + corridor.normal.y * (lane * 18 - roleSide * 48 + actorSlot * 10)
         );
         const rejoinPoint = host.offsetAirShowPoint(
           fightSpaceCenter,
-          corridor.axis.x * (122 + lane * 12)
-            + corridor.normal.x * (roleSide * 34 + lane * 6 + actorSlot * 12),
-          corridor.axis.y * (122 + lane * 12)
-            + corridor.normal.y * (roleSide * 34 + lane * 6 + actorSlot * 12)
+          corridor.axis.x * (92 + lane * 10)
+            + corridor.normal.x * (roleSide * 24 + lane * 6 + actorSlot * 9),
+          corridor.axis.y * (92 + lane * 10)
+            + corridor.normal.y * (roleSide * 24 + lane * 6 + actorSlot * 9)
         );
         const exitPoint = host.offsetAirShowPoint(
           rejoinPoint,
-          (end.cx - rejoinPoint.cx) * 0.42,
-          (end.cy - rejoinPoint.cy) * 0.42
+          (end.cx - rejoinPoint.cx) * 0.34,
+          (end.cy - rejoinPoint.cy) * 0.34
         );
-        const points = dedupePath([
-          start,
-          carryPoint,
-          entryPoint,
-          preMergePoint,
-          convergencePoint,
-          breakPoint,
-          rejoinPoint,
-          exitPoint,
-          end
-        ]);
-        const convergencePointIndex = points.findIndex((point) => point === convergencePoint);
-        const breakPointIndex = points.findIndex((point) => point === breakPoint);
-        const convergenceDistancePx = measurePathLength(
-          points.slice(0, convergencePointIndex >= 0 ? convergencePointIndex + 1 : 5)
+        const points = clampFightPathToPocket(
+          dedupePath([
+            start,
+            carryPoint,
+            entryPoint,
+            preMergePoint,
+            convergencePoint,
+            breakPoint,
+            rejoinPoint,
+            exitPoint,
+            end
+          ]),
+          fightSpaceCenter,
+          {
+            maxRearAlongPx: 170,
+            maxForwardAlongPx: 210,
+            maxLateralPx: 126,
+            preserveLeadingPoints: 2
+          }
         );
-        const breakDistancePx = measurePathLength(
-          points.slice(0, breakPointIndex >= 0 ? breakPointIndex + 1 : 6)
-        );
+        const convergenceDistancePx = resolveClosestDistanceOnPath(points, convergencePoint);
+        const breakDistancePx = resolveClosestDistanceOnPath(points, breakPoint);
         return {
           ...assignment,
           points,
@@ -3638,18 +3703,13 @@ export function planResolvedAirCombatShowScene(
           });
         const carryPoint = host.offsetAirShowPoint(
           start,
-          currentForward.x * 66,
-          currentForward.y * 66
+          currentForward.x * 52,
+          currentForward.y * 52
         );
-        const escortConvergenceScale = assignment.actor.role === "escort" ? 0.18 : 1;
-        const pocketNormalPx =
-          (lane * 14 + roleSide * 8 + actorSlot * 5) * escortConvergenceScale;
-        const pocketAxisPx =
-          (roleSide * 4 + actorSlot * 2) * escortConvergenceScale;
-        const sweepAxisPx =
-          (50 + lane * 7) * (assignment.actor.role === "escort" ? 0.82 : 1);
-        const sweepNormalPx =
-          (lane * 24 - roleSide * 30 + actorSlot * 8) * (assignment.actor.role === "escort" ? 0.24 : 1);
+        const pocketNormalPx = lane * 8 + roleSide * 4 + actorSlot * 3;
+        const pocketAxisPx = roleSide * 2 + actorSlot * 1;
+        const sweepAxisPx = 34 + lane * 4 + roleSide * 2;
+        const sweepNormalPx = lane * 12 - roleSide * 16 + actorSlot * 4;
         const pocketPoint = host.offsetAirShowPoint(
           fightSpaceCenter,
           corridor.normal.x * pocketNormalPx + corridor.axis.x * pocketAxisPx,
@@ -3663,35 +3723,38 @@ export function planResolvedAirCombatShowScene(
         const entryPoint = host.offsetAirShowPoint(
           carryPoint,
           (pocketPoint.cx - carryPoint.cx) * 0.58
-            + corridor.normal.x * roleSide * (assignment.actor.role === "escort" ? 0 : 12),
+            + corridor.normal.x * roleSide * 6,
           (pocketPoint.cy - carryPoint.cy) * 0.58
-            + corridor.normal.y * roleSide * (assignment.actor.role === "escort" ? 0 : 12)
+            + corridor.normal.y * roleSide * 6
         );
         const exitPoint = host.offsetAirShowPoint(
           sweepPoint,
-          (end.cx - sweepPoint.cx) * 0.42,
-          (end.cy - sweepPoint.cy) * 0.42
+          (end.cx - sweepPoint.cx) * 0.28,
+          (end.cy - sweepPoint.cy) * 0.28
         );
-        const points = dedupePath([start, carryPoint, entryPoint, pocketPoint, sweepPoint, exitPoint, end]);
-        const pocketPointIndex = points.findIndex((point) => point === pocketPoint);
-        const sweepPointIndex = points.findIndex((point) => point === sweepPoint);
-        const pocketDistancePx = measurePathLength(
-          points.slice(0, pocketPointIndex >= 0 ? pocketPointIndex + 1 : 4)
+        const points = clampFightPathToPocket(
+          dedupePath([start, carryPoint, entryPoint, pocketPoint, sweepPoint, exitPoint, end]),
+          fightSpaceCenter,
+          {
+            maxRearAlongPx: 150,
+            maxForwardAlongPx: 220,
+            maxLateralPx: 110,
+            preserveLeadingPoints: 2
+          }
         );
-        const sweepDistancePx = measurePathLength(
-          points.slice(0, sweepPointIndex >= 0 ? sweepPointIndex + 1 : 5)
-        );
+        const pocketDistancePx = resolveClosestDistanceOnPath(points, pocketPoint);
+        const sweepDistancePx = resolveClosestDistanceOnPath(points, sweepPoint);
         return {
           ...assignment,
           points,
           progressTimeline: [
             { timeMs: 0, progress: 0 },
             {
-              timeMs: Math.round(durationMs * 0.52),
+              timeMs: Math.round(durationMs * 0.34),
               progress: pathProgressAtDistance(points, pocketDistancePx)
             },
             {
-              timeMs: Math.round(durationMs * 0.72),
+              timeMs: Math.round(durationMs * 0.58),
               progress: pathProgressAtDistance(points, sweepDistancePx)
             },
             { timeMs: durationMs, progress: 1 }
@@ -3710,7 +3773,11 @@ export function planResolvedAirCombatShowScene(
       );
       const isEscortClashPhase =
         label === "escort-clash-merge" || label === "escort-clash-scramble";
-      const preserveFighterRailPhase = isEscortClashPhase || label === "fighter-ingress";
+      const preserveFighterRailPhase =
+        isEscortClashPhase
+        || label === "fighter-ingress"
+        || label === "bomber-ingress"
+        || label === "bomber-defense-pass";
       const extensionModeByRole = preserveFighterRailPhase
         ? {
             interceptor: "carry" as const,
@@ -3769,22 +3836,28 @@ export function planResolvedAirCombatShowScene(
                 sanitizeEntryMaxWaypointsToRemove: 5
               }
             );
+      const mergeFightSpaceCenter = blendAirShowPoints(
+        fighterClashCenter(0, 18),
+        averageBomberPointAtPhaseProgress("escort-clash-merge", 0.44),
+        0.24
+      );
+      const scrambleFightSpaceCenter = blendAirShowPoints(
+        fighterClashCenter(0, 42),
+        averageBomberPointAtPhaseProgress("escort-clash-scramble", 0.56),
+        0.42
+      );
       const resolvedTimedAssignments = label === "escort-clash-merge"
         ? alignClashFightersThroughSharedFightSpace(
             preparedAssignments,
             durationMs,
-            projectAirShowRailPoint(corridor, -240, 0),
-            0.48
+            mergeFightSpaceCenter,
+            0.44
           )
         : label === "escort-clash-scramble"
           ? alignScrambleFightersThroughChasePocket(
               preparedAssignments,
               durationMs,
-              blendAirShowPoints(
-                fighterClashCenter(0, 68),
-                averageBomberPointAtPhaseProgress("escort-clash-scramble", 0.58),
-                0.42
-              )
+              scrambleFightSpaceCenter
             )
           : preparedAssignments;
       const finalSpeedAdjustedAssignments = preserveFighterRailPhase
@@ -3823,20 +3896,35 @@ export function planResolvedAirCombatShowScene(
               if (bomberAssignments.length <= 0) {
                 return assignment;
               }
-              const fighterFlightIds = Array.from(
-                new Set(
-                  finalSpeedAdjustedAssignments
-                    .filter((candidate) => candidate.actor.role === "interceptor")
-                    .map((candidate) => candidate.actor.flightId)
-                )
-              );
-              const fighterFlightIndex = Math.max(0, fighterFlightIds.indexOf(assignment.actor.flightId));
-              const targetBomberAssignment = bomberAssignments[fighterFlightIndex % bomberAssignments.length];
-              if (!targetBomberAssignment) {
-                return assignment;
-              }
               const originalAssignment = originalAssignmentByActorId.get(assignment.actor.id);
               const start = assignment.points[0] ?? originalAssignment?.points[0] ?? assignment.actor.position;
+              const targetBomberSample = bomberAssignments
+                .map((candidate, index) => {
+                  const interceptSample = host.sampleAirShowAssignmentAtTime(
+                    candidate,
+                    durationMs * 0.44,
+                    durationMs
+                  ).position;
+                  const distancePx = Math.hypot(
+                    interceptSample.cx - start.cx,
+                    interceptSample.cy - start.cy
+                  );
+                  return {
+                    candidate,
+                    interceptSample,
+                    distancePx,
+                    index
+                  };
+                })
+                .sort((left, right) =>
+                  left.distancePx === right.distancePx
+                    ? left.index - right.index
+                    : left.distancePx - right.distancePx
+                )[0];
+              if (!targetBomberSample) {
+                return assignment;
+              }
+              const targetBomberAssignment = targetBomberSample.candidate;
               const fighterActorCount = Math.max(
                 1,
                 finalSpeedAdjustedAssignments.filter(
@@ -3846,57 +3934,59 @@ export function planResolvedAirCombatShowScene(
                 ).length
               );
               const localLane = assignment.actor.formationIndex - (fighterActorCount - 1) / 2;
-              const lateralOffsetPx = -22 + localLane * 11;
-              const interceptFocus = host.sampleAirShowAssignmentAtTime(
-                targetBomberAssignment,
-                durationMs * 0.48,
-                durationMs
-              ).position;
-              const exitFocus = host.sampleAirShowAssignmentAtTime(
-                targetBomberAssignment,
-                durationMs * 0.78,
-                durationMs
-              ).position;
-              const interceptPoint = host.offsetAirShowPoint(
-                interceptFocus,
-                corridor.normal.x * lateralOffsetPx * 0.42 - corridor.axis.x * 8,
-                corridor.normal.y * lateralOffsetPx * 0.42 - corridor.axis.y * 8
+              const lateralOffsetPx = -12 + localLane * 7;
+              const bomberAt = (progress: number): AirShowPoint =>
+                host.sampleAirShowAssignmentAtTime(
+                  targetBomberAssignment,
+                  durationMs * host.clamp(progress, 0, 1),
+                  durationMs
+                ).position;
+              const bomberApproach = bomberAt(0.18);
+              const bomberIntercept = targetBomberSample.interceptSample;
+              const bomberCrossing = bomberAt(0.5);
+              const bomberChase = bomberAt(0.66);
+              const bomberExit = bomberAt(0.82);
+              const approachPoint = host.offsetAirShowPoint(
+                bomberApproach,
+                -corridor.axis.x * 20 + corridor.normal.x * lateralOffsetPx * 0.45,
+                -corridor.axis.y * 20 + corridor.normal.y * lateralOffsetPx * 0.45
               );
-              const entryPoint = host.offsetAirShowPoint(
-                start,
-                (interceptPoint.cx - start.cx) * 0.38
-                  + corridor.normal.x * lateralOffsetPx * 0.22
-                  - corridor.axis.x * 16,
-                (interceptPoint.cy - start.cy) * 0.38
-                  + corridor.normal.y * lateralOffsetPx * 0.22
-                  - corridor.axis.y * 16
+              const interceptPoint = host.offsetAirShowPoint(
+                bomberIntercept,
+                -corridor.axis.x * 4 + corridor.normal.x * lateralOffsetPx * 0.32,
+                -corridor.axis.y * 4 + corridor.normal.y * lateralOffsetPx * 0.32
               );
               const crossingPoint = host.offsetAirShowPoint(
-                interceptFocus,
-                corridor.axis.x * 54 - corridor.normal.x * lateralOffsetPx * 0.32,
-                corridor.axis.y * 54 - corridor.normal.y * lateralOffsetPx * 0.32
+                bomberCrossing,
+                corridor.axis.x * 18 - corridor.normal.x * lateralOffsetPx * 0.22,
+                corridor.axis.y * 18 - corridor.normal.y * lateralOffsetPx * 0.22
+              );
+              const chasePoint = host.offsetAirShowPoint(
+                bomberChase,
+                corridor.axis.x * 34 - corridor.normal.x * lateralOffsetPx * 0.16,
+                corridor.axis.y * 34 - corridor.normal.y * lateralOffsetPx * 0.16
               );
               const exitPoint = host.offsetAirShowPoint(
-                exitFocus,
-                -corridor.normal.x * lateralOffsetPx * 0.58 + corridor.axis.x * 118,
-                -corridor.normal.y * lateralOffsetPx * 0.58 + corridor.axis.y * 118
+                bomberExit,
+                corridor.axis.x * 56 - corridor.normal.x * lateralOffsetPx * 0.12,
+                corridor.axis.y * 56 - corridor.normal.y * lateralOffsetPx * 0.12
               );
-              const points = dedupePath([start, entryPoint, interceptPoint, crossingPoint, exitPoint]);
-              const interceptPointIndex = points.findIndex((point) => point === interceptPoint);
-              const crossingPointIndex = points.findIndex((point) => point === crossingPoint);
-              const interceptDistancePx = measurePathLength(
-                points.slice(0, interceptPointIndex >= 0 ? interceptPointIndex + 1 : 3)
-              );
-              const crossingDistancePx = measurePathLength(
-                points.slice(0, crossingPointIndex >= 0 ? crossingPointIndex + 1 : 4)
-              );
+              const points = dedupePath([start, approachPoint, interceptPoint, crossingPoint, chasePoint, exitPoint]);
+              const approachDistancePx = resolveClosestDistanceOnPath(points, approachPoint);
+              const interceptDistancePx = resolveClosestDistanceOnPath(points, interceptPoint);
+              const crossingDistancePx = resolveClosestDistanceOnPath(points, crossingPoint);
+              const chaseDistancePx = resolveClosestDistanceOnPath(points, chasePoint);
+              const exitDistancePx = resolveClosestDistanceOnPath(points, exitPoint);
               return {
                 ...assignment,
                 points,
                 progressTimeline: [
                   { timeMs: 0, progress: 0 },
-                  { timeMs: Math.round(durationMs * 0.48), progress: pathProgressAtDistance(points, interceptDistancePx) },
-                  { timeMs: Math.round(durationMs * 0.64), progress: pathProgressAtDistance(points, crossingDistancePx) },
+                  { timeMs: Math.round(durationMs * 0.18), progress: pathProgressAtDistance(points, approachDistancePx) },
+                  { timeMs: Math.round(durationMs * 0.34), progress: pathProgressAtDistance(points, interceptDistancePx) },
+                  { timeMs: Math.round(durationMs * 0.5), progress: pathProgressAtDistance(points, crossingDistancePx) },
+                  { timeMs: Math.round(durationMs * 0.66), progress: pathProgressAtDistance(points, chaseDistancePx) },
+                  { timeMs: Math.round(durationMs * 0.82), progress: pathProgressAtDistance(points, exitDistancePx) },
                   { timeMs: durationMs, progress: 1 }
                 ]
               };
@@ -3913,8 +4003,8 @@ export function planResolvedAirCombatShowScene(
               }
                 const maxFighterClashTravelPx =
                   label === "escort-clash-merge"
-                    ? 540
-                    : 620;
+                    ? 500
+                    : 520;
               const travelPx = measurePathLength(assignment.points);
               if (travelPx <= maxFighterClashTravelPx + 1) {
                 return assignment;
@@ -3925,9 +4015,129 @@ export function planResolvedAirCombatShowScene(
               };
             })
           : phasePatternAlignedAssignments;
+      const fighterClashSpeedFlooredAssignments =
+        label === "escort-clash-merge" || label === "escort-clash-scramble"
+          ? fighterClashTravelCappedAssignments.map((assignment) => {
+              if (
+                assignment.actor.role !== "interceptor"
+                && assignment.actor.role !== "escort"
+              ) {
+                return assignment;
+              }
+              const minimumSpeedMultiplier =
+                label === "escort-clash-merge"
+                  ? 0.3
+                  : 0.75;
+              const minimumFighterClashTravelPx = Math.max(
+                label === "escort-clash-merge" ? 28 : 36,
+                durationMs * host.airShowFighterSpeedPxPerMs * minimumSpeedMultiplier
+              );
+              const currentTravelPx = measurePathLength(assignment.points);
+              if (currentTravelPx >= minimumFighterClashTravelPx - 1) {
+                return assignment;
+              }
+              const points = [...assignment.points];
+              const start = points[0] ?? assignment.actor.position;
+              const end = points[points.length - 1] ?? start;
+              const previous = points[points.length - 2] ?? start;
+              const extensionDirection = normalizeVector(
+                end.cx - previous.cx,
+                end.cy - previous.cy,
+                corridor.axis.x,
+                corridor.axis.y
+              );
+              const extensionPx = minimumFighterClashTravelPx - currentTravelPx;
+              const sideSign = assignment.actor.role === "interceptor" ? -1 : 1;
+              const carryPoint = host.offsetAirShowPoint(
+                end,
+                extensionDirection.x * Math.min(72, extensionPx * 0.42)
+                  + corridor.normal.x * sideSign * 18,
+                extensionDirection.y * Math.min(72, extensionPx * 0.42)
+                  + corridor.normal.y * sideSign * 18
+              );
+              const extensionPoint = host.offsetAirShowPoint(
+                end,
+                extensionDirection.x * extensionPx + corridor.normal.x * sideSign * 28,
+                extensionDirection.y * extensionPx + corridor.normal.y * sideSign * 28
+              );
+              const fightSpaceCenter =
+                label === "escort-clash-merge" ? mergeFightSpaceCenter : scrambleFightSpaceCenter;
+              let constrainedPoints = clampFightPathToPocket(
+                dedupePath([...points, carryPoint, extensionPoint]),
+                fightSpaceCenter,
+                label === "escort-clash-merge"
+                    ? {
+                        maxRearAlongPx: 170,
+                        maxForwardAlongPx: 210,
+                        maxLateralPx: 126,
+                        preserveLeadingPoints: 2
+                      }
+                    : {
+                        maxRearAlongPx: 160,
+                        maxForwardAlongPx: 220,
+                        maxLateralPx: 118,
+                        preserveLeadingPoints: 2
+                      }
+              );
+              const constrainedTravelPx = measurePathLength(constrainedPoints);
+              if (constrainedTravelPx < minimumFighterClashTravelPx - 1) {
+                const shortfallPx = minimumFighterClashTravelPx - constrainedTravelPx;
+                const orbitRadiusPx = host.clamp(
+                  shortfallPx * 0.35,
+                  22,
+                  label === "escort-clash-merge" ? 54 : 56
+                );
+                const orbitLeadPx = host.clamp(
+                  shortfallPx * 0.46,
+                  36,
+                  label === "escort-clash-merge" ? 108 : 120
+                );
+                const orbitPointA = host.offsetAirShowPoint(
+                  fightSpaceCenter,
+                  corridor.axis.x * orbitLeadPx + corridor.normal.x * sideSign * orbitRadiusPx,
+                  corridor.axis.y * orbitLeadPx + corridor.normal.y * sideSign * orbitRadiusPx
+                );
+                const orbitPointB = host.offsetAirShowPoint(
+                  fightSpaceCenter,
+                  corridor.axis.x * (orbitLeadPx + orbitRadiusPx * 0.45)
+                    - corridor.normal.x * sideSign * orbitRadiusPx * 0.82,
+                  corridor.axis.y * (orbitLeadPx + orbitRadiusPx * 0.45)
+                    - corridor.normal.y * sideSign * orbitRadiusPx * 0.82
+                );
+                const orbitPointC = host.offsetAirShowPoint(
+                  fightSpaceCenter,
+                  corridor.axis.x * (orbitLeadPx * 0.56)
+                    + corridor.normal.x * sideSign * orbitRadiusPx * 0.38,
+                  corridor.axis.y * (orbitLeadPx * 0.56)
+                    + corridor.normal.y * sideSign * orbitRadiusPx * 0.38
+                );
+                constrainedPoints = clampFightPathToPocket(
+                  dedupePath([...constrainedPoints, orbitPointA, orbitPointB, orbitPointC]),
+                  fightSpaceCenter,
+                  label === "escort-clash-merge"
+                  ? {
+                      maxRearAlongPx: 170,
+                      maxForwardAlongPx: 210,
+                      maxLateralPx: 126,
+                      preserveLeadingPoints: 2
+                    }
+                    : {
+                        maxRearAlongPx: 150,
+                        maxForwardAlongPx: 220,
+                        maxLateralPx: 110,
+                        preserveLeadingPoints: 2
+                      }
+              );
+              }
+              return {
+                ...assignment,
+                points: constrainedPoints
+              };
+            })
+          : fighterClashTravelCappedAssignments;
       const bomberDefenseSpeedCappedAssignments =
         label === "bomber-defense-pass"
-          ? fighterClashTravelCappedAssignments.map((assignment) => {
+          ? fighterClashSpeedFlooredAssignments.map((assignment) => {
               if (
                 assignment.actor.role !== "interceptor"
                 && assignment.actor.role !== "escort"
@@ -3949,7 +4159,7 @@ export function planResolvedAirCombatShowScene(
                 points: slicePathByDistanceRange(assignment.points, 0, maxFighterCombatTravelPx)
               };
             })
-          : fighterClashTravelCappedAssignments;
+          : fighterClashSpeedFlooredAssignments;
       const bomberDefenseSpeedFlooredAssignments =
         label === "bomber-defense-pass"
           ? bomberDefenseSpeedCappedAssignments.map((assignment) => {
@@ -4012,8 +4222,51 @@ export function planResolvedAirCombatShowScene(
               rebuildFighterIngressPathToMergeEndpoint(assignment, durationMs)
             )
           : bomberDefenseSpeedFlooredAssignments;
+      const bomberIngressFighterRetimedAssignments =
+        label === "bomber-ingress"
+          ? endpointAlignedAssignments.map((assignment) => {
+              if (
+                assignment.actor.role !== "interceptor"
+                && assignment.actor.role !== "escort"
+              ) {
+                return assignment;
+              }
+              const pathLengthPx = measurePathLength(assignment.points);
+              const minimumFighterIngressSpeedPxPerMs = host.airShowFighterSpeedPxPerMs * 0.62;
+              const maximumFighterIngressSpeedPxPerMs = host.airShowFighterSpeedPxPerMs * 1.2;
+              const minimumActiveDurationMs = Math.max(
+                1,
+                Math.round(pathLengthPx / Math.max(0.0001, maximumFighterIngressSpeedPxPerMs))
+              );
+              const maximumActiveDurationMs = Math.max(
+                minimumActiveDurationMs,
+                Math.round(pathLengthPx / Math.max(0.0001, minimumFighterIngressSpeedPxPerMs))
+              );
+              const preferredActiveDurationMs = Math.round(
+                durationMs * (assignment.actor.role === "interceptor" ? 0.5 : 0.56)
+              );
+              const activeTimeMs = Math.round(
+                host.clamp(
+                  preferredActiveDurationMs,
+                  minimumActiveDurationMs,
+                  Math.min(durationMs, maximumActiveDurationMs)
+                )
+              );
+              if (activeTimeMs >= durationMs - 80) {
+                return assignment;
+              }
+              return {
+                ...assignment,
+                progressTimeline: [
+                  { timeMs: 0, progress: 0 },
+                  { timeMs: activeTimeMs, progress: 1 },
+                  { timeMs: durationMs, progress: 1 }
+                ]
+              };
+            })
+          : endpointAlignedAssignments;
       const bomberBackTimedAssignments = orderedPreTargetPhaseLabels.includes(label)
-        ? endpointAlignedAssignments.map((assignment) => {
+        ? bomberIngressFighterRetimedAssignments.map((assignment) => {
             if (assignment.actor.role !== "bomber") {
               return assignment;
             }
@@ -4084,7 +4337,7 @@ export function planResolvedAirCombatShowScene(
                   : undefined
             };
           })
-        : endpointAlignedAssignments;
+        : bomberIngressFighterRetimedAssignments;
       const bomberIngressSpeedRestoredAssignments =
         label === "bomber-ingress"
           ? (() => {
