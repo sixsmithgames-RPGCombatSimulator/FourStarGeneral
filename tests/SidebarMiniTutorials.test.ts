@@ -5,6 +5,7 @@ import {
   SIDEBAR_MINI_TUTORIAL_EVENT,
   normalizeSidebarMiniTutorialKey
 } from "../src/data/sidebarMiniTutorials";
+import { getCombatPhases, getDeploymentPhases, getNextPhase } from "../src/data/tutorialSteps";
 import { ensureTutorialState } from "../src/state/TutorialState";
 import { TutorialOverlay } from "../src/ui/components/TutorialOverlay";
 
@@ -54,6 +55,54 @@ registerTest("SIDEBAR_MINI_TUTORIALS_COVER_EVERY_BATTLE_SIDEBAR_ITEM", async ({ 
     }
 
     expect(normalizeSidebarMiniTutorialKey("supplies") === "logistics", "Supplies should route into the combined Logistics tutorial.");
+  });
+});
+
+registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then }) => {
+  await Then("deployment and combat flow skip sidebar mini-tutorial phases", async () => {
+    const deploymentPhases = getDeploymentPhases();
+    const combatPhases = getCombatPhases();
+
+    expect(getNextPhase("place_units") === "begin_battle", "Main deployment tutorial should go from deployment to Begin Battle.");
+    expect(!deploymentPhases.includes("roster_intro"), "Roster should be taught only by its sidebar mini tutorial.");
+    expect(!deploymentPhases.includes("air_support_intro"), "Air Support should be taught only by its sidebar mini tutorial.");
+    expect(getNextPhase("attack_intro") === "select_smoke_unit", "Fire Orders should lead into selecting a smoke-capable unit.");
+    expect(getNextPhase("select_smoke_unit") === "intel_overlay_expand", "Smoke flow should explain the intel card before Lay Smoke.");
+    expect(getNextPhase("intel_overlay_expand") === "smoke_demo", "Expanded intel should lead directly to the Lay Smoke order.");
+    expect(!combatPhases.includes("air_missions"), "Air missions should not auto-open the Air sidebar during the main tutorial.");
+    expect(!combatPhases.includes("logistics_intro"), "Logistics should not auto-open during the main tutorial.");
+  });
+});
+
+registerTest("TUTORIAL_OVERLAY_DOES_NOT_CLICK_SIDEBAR_PANELS_TO_FIND_TARGETS", async ({ Given, When, Then }) => {
+  let overlay: TutorialOverlay;
+  let airClicked = false;
+
+  await Given("a sidebar air button exists but the air panel is closed", async () => {
+    (globalThis as { MutationObserver?: typeof MutationObserver }).MutationObserver = window.MutationObserver;
+    document.body.innerHTML = `
+      <nav class="control-sidebar">
+        <button type="button" data-popup="airSupport">Air</button>
+      </nav>
+    `;
+    document.querySelector<HTMLButtonElement>("[data-popup='airSupport']")?.addEventListener("click", () => {
+      airClicked = true;
+    });
+    overlay = new TutorialOverlay();
+    overlay.initialize();
+  });
+
+  await When("a missing air-panel selector is requested for anchoring", async () => {
+    (
+      overlay as unknown as {
+        ensureAnchorTarget: (selector: string) => void;
+      }
+    ).ensureAnchorTarget(".battle-popup[data-popup-key=\"airSupport\"] [data-air-panel]");
+  });
+
+  await Then("the tutorial waits instead of opening the sidebar itself", async () => {
+    expect(!airClicked, "Tutorial anchoring should not click the Air Support sidebar button.");
+    overlay.dispose();
   });
 });
 

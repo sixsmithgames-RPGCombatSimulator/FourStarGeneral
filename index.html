@@ -2336,6 +2336,39 @@
       }
     }
     @media (max-width: 640px) {
+      .precombat-screen .screen-content {
+        overflow-x: hidden;
+      }
+      .precombat-toolbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.55rem;
+        width: 100%;
+      }
+      .precombat-toolbar-button-group,
+      .precombat-toolbar-button-group:last-child {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        justify-self: stretch;
+        width: 100%;
+        margin-left: 0;
+      }
+      .precombat-toolbar-button-group:last-child {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .precombat-toolbar button {
+        width: 100%;
+        min-width: 0;
+        white-space: normal;
+        padding-inline: 0.7rem;
+      }
+      .precombat-toolbar-budget,
+      #precombatBudgetPanel,
+      .allocation-grid,
+      .allocation-section {
+        width: 100%;
+        max-width: 100%;
+      }
       .topbar-budget {
         grid-template-columns: 1fr;
         gap: 0.2rem;
@@ -5930,6 +5963,165 @@
       max-width: 360px;
     }
 
+    .tutorial-panel.tutorial-phase-movement_intro,
+    .tutorial-panel.tutorial-phase-attack_intro,
+    .tutorial-panel.tutorial-phase-select_smoke_unit,
+    .tutorial-panel.tutorial-phase-intel_overlay_expand,
+    .tutorial-panel.tutorial-phase-smoke_demo {
+      width: 340px;
+      border-radius: 16px;
+    }
+
+    .tutorial-panel.tutorial-phase-movement_intro .tutorial-panel-header,
+    .tutorial-panel.tutorial-phase-attack_intro .tutorial-panel-header,
+    .tutorial-panel.tutorial-phase-select_smoke_unit .tutorial-panel-header,
+    .tutorial-panel.tutorial-phase-intel_overlay_expand .tutorial-panel-header,
+    .tutorial-panel.tutorial-phase-smoke_demo .tutorial-panel-header {
+      padding: 0.75rem 1rem;
+      border-radius: 16px 16px 0 0;
+    }
+
+    .tutorial-panel.tutorial-phase-movement_intro .tutorial-panel-content,
+    .tutorial-panel.tutorial-phase-attack_intro .tutorial-panel-content,
+    .tutorial-panel.tutorial-phase-select_smoke_unit .tutorial-panel-content,
+    .tutorial-panel.tutorial-phase-intel_overlay_expand .tutorial-panel-content,
+    .tutorial-panel.tutorial-phase-smoke_demo .tutorial-panel-content {
+      padding: 1rem 1.1rem 0.9rem;
+    }
+
+    .tutorial-panel.tutorial-phase-movement_intro .tutorial-title,
+    .tutorial-panel.tutorial-phase-attack_intro .tutorial-title,
+    .tutorial-panel.tutorial-phase-select_smoke_unit .tutorial-title,
+    .tutorial-panel.tutorial-phase-intel_overlay_expand .tutorial-title,
+    .tutorial-panel.tutorial-phase-smoke_demo .tutorial-title {
+      font-size: 1.08rem;
+      margin-bottom: 0.45rem;
+    }
+
+    .tutorial-panel.tutorial-phase-movement_intro .tutorial-description,
+    .tutorial-panel.tutorial-phase-attack_intro .tutorial-description,
+    .tutorial-panel.tutorial-phase-select_smoke_unit .tutorial-description,
+    .tutorial-panel.tutorial-phase-intel_overlay_expand .tutorial-description,
+    .tutorial-panel.tutorial-phase-smoke_demo .tutorial-description {
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+
+    .tutorial-panel.tutorial-phase-movement_intro .tutorial-panel-footer,
+    .tutorial-panel.tutorial-phase-attack_intro .tutorial-panel-footer,
+    .tutorial-panel.tutorial-phase-select_smoke_unit .tutorial-panel-footer,
+    .tutorial-panel.tutorial-phase-intel_overlay_expand .tutorial-panel-footer,
+    .tutorial-panel.tutorial-phase-smoke_demo .tutorial-panel-footer {
+      padding: 0 1.1rem 1rem;
+    }
+
+    .tutorial-panel.tutorial-phase-base_camp,
+    .tutorial-panel.tutorial-phase-place_units,
+    .tutorial-panel.tutorial-phase-engineer_intro,
+    .tutorial-panel.tutorial-phase-artillery_intro,
+    .tutorial-panel.tutorial-phase-flak_intro {
+      width: 340px;
+      border-radius: 16px;
+    }
+
+    .tutorial-panel.tutorial-phase-base_camp .tutorial-panel-header,
+    .tutorial-panel.tutorial-phase-place_units .tutorial-panel-header,
+    .tutorial-panel.tutorial-phase-engineer_intro .tutorial-panel-header,
+    .tutorial-panel.tutorial-phase-artillery_intro .tutorial-panel-header,
+    .tutorial-panel.tutorial-phase-flak_intro .tutorial-panel-header {
+      padding: 0.75rem 1rem;
+      border-radius: 16px 16px 0 0;
+    }
+
+    .tutorial-panel.tutorial-phase-base_camp .tutorial-panel-content,
+    .tutorial-panel.tutorial-phase-place_units .tutorial-panel-content,
+    .tutorial-panel.tutorial-phase-engineer_intro .tutorial-panel-content,
+    .tutorial-panel.tutorial-phase-artillery_intro .tutorial-panel-content,
+    .tutorial-panel.tutorial-phase-flak_intro .tutorial-panel-content {
+      padding: 1rem 1.1rem 0.9rem;
+    }
+
+    .tutorial-panel.tutorial-phase-base_camp .tutorial-title,
+    .tutorial-panel.tutorial-phase-place_units .tutorial-title,
+    .tutorial-panel.tutorial-phase-engineer_intro .tutorial-title,
+    .tutorial-panel.tutorial-phase-artillery_intro .tutorial-title,
+    .tutorial-panel.tutorial-phase-flak_intro .tutorial-title {
+      font-size: 1.08rem;
+      margin-bottom: 0.45rem;
+    }
+
+    .tutorial-panel.tutorial-phase-base_camp .tutorial-description,
+    .tutorial-panel.tutorial-phase-place_units .tutorial-description,
+    .tutorial-panel.tutorial-phase-engineer_intro .tutorial-description,
+    .tutorial-panel.tutorial-phase-artillery_intro .tutorial-description,
+    .tutorial-panel.tutorial-phase-flak_intro .tutorial-description {
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+
+    .tutorial-panel.tutorial-phase-base_camp .tutorial-panel-footer,
+    .tutorial-panel.tutorial-phase-place_units .tutorial-panel-footer,
+    .tutorial-panel.tutorial-phase-engineer_intro .tutorial-panel-footer,
+    .tutorial-panel.tutorial-phase-artillery_intro .tutorial-panel-footer,
+    .tutorial-panel.tutorial-phase-flak_intro .tutorial-panel-footer {
+      padding: 0 1.1rem 1rem;
+    }
+
+    @media (min-width: 769px) {
+      .tutorial-panel.tutorial-phase-base_camp,
+      .tutorial-panel.tutorial-phase-place_units,
+      .tutorial-panel.tutorial-phase-movement_intro,
+      .tutorial-panel.tutorial-phase-attack_intro,
+      .tutorial-panel.tutorial-phase-select_smoke_unit,
+      .tutorial-panel.tutorial-phase-engineer_intro,
+      .tutorial-panel.tutorial-phase-artillery_intro,
+      .tutorial-panel.tutorial-phase-flak_intro {
+        left: 20px !important;
+        right: auto !important;
+        top: auto !important;
+        bottom: 20px !important;
+        transform: none !important;
+        max-height: min(34vh, 260px);
+        overflow: hidden;
+      }
+
+      .tutorial-panel.tutorial-phase-intel_overlay_expand,
+      .tutorial-panel.tutorial-phase-smoke_demo {
+        left: auto !important;
+        right: 20px !important;
+        top: auto !important;
+        bottom: 20px !important;
+        transform: none !important;
+        max-height: min(34vh, 260px);
+        overflow: hidden;
+      }
+
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-panel-footer {
+        display: none;
+      }
+
+      .tutorial-panel.tutorial-phase-base_camp .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-place_units .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-movement_intro .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-attack_intro .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-select_smoke_unit .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-intel_overlay_expand .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-smoke_demo .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-engineer_intro .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-artillery_intro .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-flak_intro .tutorial-arrow {
+        display: none;
+      }
+    }
+
     /* Responsive adjustments */
     @media (max-width: 768px) {
       .tutorial-panel {
@@ -5943,7 +6135,14 @@
       }
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp,
-      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units {
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro {
         top: auto !important;
         bottom: 12px !important;
         max-height: 148px;
@@ -5952,13 +6151,27 @@
       }
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-panel-header,
-      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-header {
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-header,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-panel-header,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-panel-header,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-panel-header,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-panel-header,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-panel-header,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-panel-header,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-panel-header {
         padding: 0.55rem 0.75rem;
         border-radius: 14px 14px 0 0;
       }
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-step-indicator,
-      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-step-indicator {
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-step-indicator,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-step-indicator,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-step-indicator,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-step-indicator,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-step-indicator,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-step-indicator,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-step-indicator,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-step-indicator {
         padding: 0.22rem 0.5rem;
         font-size: 0.66rem;
       }
@@ -5966,34 +6179,76 @@
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-back-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-skip-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-back-btn,
-      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-skip-btn {
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-skip-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-back-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-skip-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-back-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-skip-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-back-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-skip-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-back-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-skip-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-back-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-skip-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-back-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-skip-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-back-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-skip-btn {
         padding: 0.28rem 0.55rem;
         font-size: 0.68rem;
         border-radius: 8px;
       }
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-panel-content,
-      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-content {
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-content,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-panel-content,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-panel-content,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-panel-content,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-panel-content,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-panel-content,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-panel-content,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-panel-content {
         padding: 0.5rem 0.85rem 0.65rem;
         max-height: 82px;
         overflow-y: auto;
       }
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-title,
-      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-title {
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-title,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-title,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-title,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-title,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-title,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-title,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-title,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-title {
         margin-bottom: 0.3rem;
         font-size: 0.98rem;
         line-height: 1.2;
       }
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-description,
-      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-description {
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-description,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-description,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-description,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-description,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-description,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-description,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-description,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-description {
         font-size: 0.78rem;
         line-height: 1.35;
       }
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-panel-footer,
-      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-footer {
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-panel-footer {
         display: none;
       }
 

@@ -135,7 +135,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "ui_overview",
     title: "Command Rail",
     content:
-      "The sidebar is your command rail. Each menu opens a focused board, and each board now gives a one-time command brief the first time you open it.",
+      "The sidebar is your command rail. Open those boards when you need them; each one gives its own command brief the first time you click it.",
     highlightSelector: ".control-sidebar",
     position: "right",
     arrowDirection: "left",
@@ -194,28 +194,6 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Continue"
   },
   {
-    phase: "roster_intro",
-    title: "Roster Board",
-    content:
-      "Open the Roster. It is the order of battle: deployed units, reserves, support, losses, and readiness at a glance.",
-    highlightSelector: "#armyRosterContent",
-    position: "left",
-    arrowDirection: "right",
-    waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
-    phase: "air_support_intro",
-    title: "Air Board",
-    content:
-      "Open Air Support. Squadrons stay off-map until ordered. Review readiness now; task sorties when the map gives you a reason.",
-    highlightSelector: "[data-air-panel]",
-    position: "left",
-    arrowDirection: "right",
-    waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
     phase: "begin_battle",
     title: "Begin Battle",
     content:
@@ -231,7 +209,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     title: "Movement",
     content:
       "Select a friendly unit. Blue hexes are movement, red hexes are attack options. Terrain, fuel, towing, and suppression all matter.",
-    position: "center",
+    highlightSelector: "#battleMapCanvas",
+    position: "right",
+    arrowDirection: "left",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -240,17 +220,41 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     title: "Fire Orders",
     content:
       "Click a red target to attack. Check the preview before firing: armor, suppression, expected damage, and retaliation decide whether the shot is worth it.",
-    position: "center",
+    highlightSelector: "#battleMapCanvas",
+    position: "right",
+    arrowDirection: "left",
+    actionLabel: "Continue"
+  },
+  {
+    phase: "select_smoke_unit",
+    title: "Pick Smoke",
+    content:
+      "Select one of the highlighted formations that can throw smoke. Smoke orders live on the unit intel card, not the sidebar.",
+    highlightSelector: "#battleMapCanvas",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "intel_overlay_expand",
+    title: "Unit Intel",
+    content:
+      "This card is the unit's command board: status, orders, and detailed readiness. Click Expand before issuing special orders.",
+    highlightSelector: "#battleIntelOverlay, #battleIntelOverlayToggle",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
     actionLabel: "Continue"
   },
   {
     phase: "smoke_demo",
-    title: "Smoke",
+    title: "Lay Smoke",
     content:
-      "Use Lay Smoke to block line of sight across a hex edge. Screen an advance, cover a damaged unit, or break enemy observation before moving.",
-    highlightSelector: "#battleIntelOverlay",
-    position: "left",
-    arrowDirection: "right",
+      "Click Lay Smoke, then choose your own hex or an in-range target hex and pick the edge to screen. Use smoke to break sight before you move.",
+    highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke']",
+    position: "right",
+    arrowDirection: "left",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -259,7 +263,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     title: "Engineers",
     content:
       "Select an Engineering Corps. Engineers control terrain: dig in, fortify, lay traps, and open lanes for the main body.",
-    position: "center",
+    highlightSelector: "#battleMapCanvas",
+    position: "right",
+    arrowDirection: "left",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -279,7 +285,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     title: "Artillery",
     content:
       "Use an infantry or recon spotter, call artillery, then click an observed enemy hex. Off-map guns queue the mission and punish fixed targets.",
-    position: "center",
+    highlightSelector: "#battleMapCanvas",
+    position: "right",
+    arrowDirection: "left",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -288,29 +296,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     title: "Flak Coverage",
     content:
       "Select the Flak Battery. Its main job is automatic air defense, so position it where coverage protects headquarters, reserves, and guns.",
-    position: "center",
-    waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
-    phase: "air_missions",
-    title: "Air Missions",
-    content:
-      "Open Air Support and issue one mission. Fighters patrol or escort; strike aircraft hit marked hexes. Task each squadron from its row.",
-    highlightSelector: "[data-air-panel]",
-    position: "left",
-    arrowDirection: "right",
-    waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
-    phase: "logistics_intro",
-    title: "Logistics",
-    content:
-      "Open Logistics. Watch depot stock, convoy status, and unit priority. You do not drive trucks by hand; you set priorities before ammo and fuel become the crisis.",
-    highlightSelector: "#logisticsPanel",
-    position: "left",
-    arrowDirection: "right",
+    highlightSelector: "#battleMapCanvas",
+    position: "right",
+    arrowDirection: "left",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -391,8 +379,6 @@ export function getDeploymentPhases(): TutorialPhase[] {
     "deployment_intro",
     "base_camp",
     "place_units",
-    "roster_intro",
-    "air_support_intro",
     "begin_battle"
   ];
 }
@@ -401,13 +387,13 @@ export function getCombatPhases(): TutorialPhase[] {
   return [
     "movement_intro",
     "attack_intro",
+    "select_smoke_unit",
+    "intel_overlay_expand",
     "smoke_demo",
     "engineer_intro",
     "engineer_orders",
     "artillery_intro",
     "flak_intro",
-    "air_missions",
-    "logistics_intro",
     "turn_end",
     "complete"
   ];

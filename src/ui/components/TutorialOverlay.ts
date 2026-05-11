@@ -559,9 +559,6 @@ export class TutorialOverlay {
       return;
     }
 
-    // Context-aware assist: try to open the correct UI surface if we can infer it.
-    this.tryAutoOpenContextForSelector(selector);
-
     // Start observing DOM mutations so the spotlight snaps in as soon as the target appears.
     this.startDomObserver();
 
@@ -611,45 +608,6 @@ export class TutorialOverlay {
 
     if (this.currentStep) {
       this.positionPanel(this.currentStep);
-    }
-  }
-
-  private tryAutoOpenContextForSelector(selector: string): void {
-    // If selector includes an obvious popup/panel, attempt to open it.
-    // This is deliberately conservative: we only auto-open when we can infer intent.
-    if (selector.includes("#deploymentPanel")) {
-      return;
-    }
-
-    // Sidebar popups use [data-popup="..."] triggers.
-    if (selector.includes("armyRoster") || selector.includes("data-popup='armyRoster'") || selector.includes("data-popup=\"armyRoster\"")) {
-      this.clickIfPresent(".control-sidebar [data-popup=\"armyRoster\"]");
-      return;
-    }
-    if (selector.includes("logisticsPanel") || selector.includes("data-popup='logistics'") || selector.includes("data-popup=\"logistics\"")) {
-      this.clickIfPresent(".control-sidebar [data-popup=\"logistics\"]");
-      return;
-    }
-    if (selector.includes("airSupport") || selector.includes("airHudWidget") || selector.includes("data-popup='airSupport'") || selector.includes("data-popup=\"airSupport\"")) {
-      // Prefer the Air HUD widget if present (it exists in the battle header), otherwise fall back to sidebar popup.
-      this.clickIfPresent("[data-airhud-open]");
-      this.clickIfPresent(".control-sidebar [data-popup=\"airSupport\"]");
-      return;
-    }
-    if (selector.includes("data-air-panel")) {
-      this.clickIfPresent("[data-airhud-open]");
-      this.clickIfPresent(".control-sidebar [data-popup=\"airSupport\"]");
-    }
-  }
-
-  private clickIfPresent(selector: string): void {
-    const el = document.querySelector<HTMLElement>(selector);
-    if (el && typeof (el as any).click === "function") {
-      try {
-        (el as any).click();
-      } catch {
-        // ignore
-      }
     }
   }
 

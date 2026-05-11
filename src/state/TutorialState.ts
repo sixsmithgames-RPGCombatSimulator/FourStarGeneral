@@ -28,6 +28,8 @@ export type TutorialPhase =
   | "begin_battle"
   | "movement_intro"
   | "attack_intro"
+  | "select_smoke_unit"
+  | "intel_overlay_expand"
   | "smoke_demo"
   | "engineer_intro"
   | "engineer_orders"

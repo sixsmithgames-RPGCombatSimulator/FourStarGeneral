@@ -4,6 +4,7 @@ import { BattleScreen } from "../src/ui/screens/BattleScreen";
 import { getScenarioByMissionKey } from "../src/data/scenarioRegistry";
 import { ensureCampaignState } from "../src/state/CampaignState";
 import { ensureDeploymentState, resetDeploymentState } from "../src/state/DeploymentState";
+import { ensureTutorialState } from "../src/state/TutorialState";
 import type { ScenarioUnit } from "../src/core/types";
 
 function mountBattleScreenRoot(): HTMLElement {
@@ -169,6 +170,77 @@ registerTest("BATTLESCREEN_BASE_CAMP_REQUIRES_A_SELECTED_DEPLOYMENT_HEX", async 
     if (!((screen as any).baseCampStatus.textContent ?? "").includes("Base camp assignment failed.")) {
       throw new Error(`Expected base camp status to surface selection guidance, received ${(screen as any).baseCampStatus.textContent}`);
     }
+    resetDeploymentState();
+  });
+});
+
+registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_IGNORES_DEFAULT_SELECTION", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let assignedAxial: { q: number; r: number } | null = null;
+  let criticalError: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null = null;
+
+  await Given("the base camp tutorial is active with only a default focus hex", async () => {
+    mountBattleScreenRoot();
+    resetDeploymentState();
+    ensureDeploymentState().registerZones([
+      {
+        zoneKey: "zone-alpha",
+        capacity: 4,
+        hexKeys: ["14,2", "15,2"],
+        name: "Town Perimeter",
+        description: "Town deployment ring",
+        faction: "Player"
+      }
+    ]);
+
+    const fakeEngine = {
+      setBaseCamp(axial: { q: number; r: number }) {
+        assignedAxial = axial;
+      }
+    } as any;
+
+    screen = new BattleScreen(
+      {} as any,
+      { ensureGameEngine: () => fakeEngine } as any,
+      {} as any,
+      { applyHexSelection() {}, renderBaseCampMarker() {} } as any,
+      {
+        setCriticalError(error: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null) {
+          criticalError = error;
+        },
+        markBaseCampAssigned() {
+          throw new Error("Tutorial base camp should require a fresh map selection.");
+        }
+      } as any,
+      null,
+      null,
+      null,
+      null,
+      null,
+      { selectedMission: "training" } as any
+    );
+
+    (screen as any).baseCampStatus = document.createElement("div");
+    (screen as any).refreshDeploymentMirrors = () => {};
+    (screen as any).completeTutorialPhase = () => {};
+    (screen as any).selectedHexKey = null;
+    (screen as any).defaultSelectionKey = "14,2";
+    ensureTutorialState().startTutorial();
+    ensureTutorialState().jumpToPhase("base_camp");
+  });
+
+  await When("the commander clicks assign before choosing a hex during the tutorial", async () => {
+    (screen as any).handleAssignBaseCamp();
+  });
+
+  await Then("the default focus hex is not accepted as the player's base camp choice", async () => {
+    if (assignedAxial) {
+      throw new Error(`Expected no base camp assignment from default selection, received ${JSON.stringify(assignedAxial)}`);
+    }
+    if (criticalError?.title !== "Base camp assignment failed.") {
+      throw new Error(`Expected a base camp selection error, received ${JSON.stringify(criticalError)}`);
+    }
+    ensureTutorialState().endTutorial();
     resetDeploymentState();
   });
 });

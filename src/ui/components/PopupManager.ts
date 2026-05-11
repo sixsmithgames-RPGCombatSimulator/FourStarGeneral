@@ -984,8 +984,9 @@ export class PopupManager implements IPopupManager {
     }
 
     this.popupDialog.focus();
-
-    this.requestSidebarMiniTutorial(key);
+    if (trigger) {
+      this.requestSidebarMiniTutorial(key);
+    }
   }
 
   /** Opens the Air Support panel and renders its contents (summary, mission roster, scheduler). */
@@ -2402,7 +2403,9 @@ export class PopupManager implements IPopupManager {
     this.syncSidebarButtons(key);
 
     this.warRoomOverlay?.open();
-    this.requestSidebarMiniTutorial(key);
+    if (trigger) {
+      this.requestSidebarMiniTutorial(key);
+    }
   }
 
   private requestSidebarMiniTutorial(key: PopupKey): void {
