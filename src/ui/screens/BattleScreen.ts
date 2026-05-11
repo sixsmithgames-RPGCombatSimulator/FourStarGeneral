@@ -2642,10 +2642,10 @@ export class BattleScreen {
             this.deploymentPanel?.setCriticalError(null);
             this.announceBattleUpdate(`Deployed ${label} to ${hexKey}.`);
             this.refreshDeploymentMirrors("deploy", { unitKey, hexKey, label });
-            // Only unlock the place_units tutorial step once every reserve has been placed.
-            // Advancing after the first deploy would skip the step before the player has
-            // had a chance to deploy their full force.
-            if (engine.getReserveSnapshot().length === 0) {
+            // Only unlock once every requisitioned deployable entry is placed. The engine
+            // reserve snapshot can still include support or non-pool entries that should
+            // not trap the deployment tutorial on Place The Line.
+            if (this.countRemainingDeploymentPoolUnits() === 0) {
               this.completeTutorialPhase("place_units");
             }
           } catch (error) {
@@ -7141,7 +7141,7 @@ export class BattleScreen {
    * Handles assigning the base camp location.
    */
   private handleAssignBaseCamp(): void {
-    const selectedHexKey = this.selectedHexKey ?? this.defaultSelectionKey ?? this.tryResolveFallbackDeploymentHexKey();
+    const selectedHexKey = this.selectedHexKey ?? this.defaultSelectionKey;
     if (!selectedHexKey) {
       this.reportDeploymentPanelError({
         title: "Base camp assignment failed.",
@@ -7200,21 +7200,6 @@ export class BattleScreen {
         action: "Retry with a valid deployment hex. If the issue persists, reload the mission.",
         recoverable: true
       }, { mirrorToBaseCampStatus: true });
-    }
-  }
-
-  private tryResolveFallbackDeploymentHexKey(): string | null {
-    try {
-      const fallbackHexKey = this.computeDefaultSelectionKey();
-      this.defaultSelectionKey = fallbackHexKey;
-      return fallbackHexKey;
-    } catch (error) {
-      console.warn("[BattleScreen] unable to resolve fallback deployment hex for base camp assignment", {
-        missionKey: this.uiState?.selectedMission ?? "training",
-        scenarioName: this.scenario.name,
-        error
-      });
-      return null;
     }
   }
 

@@ -92,6 +92,28 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Continue"
   },
   {
+    phase: "select_ammo",
+    title: "Stock Shells",
+    content:
+      "Add one Ammunition Dump. Guns win time only while the depot keeps them fed.",
+    highlightSelector: "[data-key='ammo']",
+    position: "left",
+    arrowDirection: "right",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "select_fuel",
+    title: "Fuel The Push",
+    content:
+      "Add one Fuel Dump. Armor, convoys, and reserves need fuel before the first order is given.",
+    highlightSelector: "[data-key='fuel']",
+    position: "left",
+    arrowDirection: "right",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
     phase: "mission_objectives",
     title: "Mission Orders",
     content:
@@ -143,8 +165,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "deployment_intro",
     title: "Deployment Plan",
     content:
-      "Place base camp first. Then deploy evenly, group the force, or place units by hand. Keep engineers near hard ground and flak near the rear.",
-    highlightSelector: "#deploymentPanel .deployment-header-actions",
+      "First establish base camp. Then use Deploy Evenly to spread the line, Deploy Grouped to mass formations, or place units by hand for exact control.",
+    highlightSelector: "#assignBaseCamp, #autoDeployEvenly, #autoDeployGrouped",
     position: "left",
     arrowDirection: "right",
     actionLabel: "Continue"
@@ -153,10 +175,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "base_camp",
     title: "Establish Base Camp",
     content:
-      "Assign base camp on a safe deployment hex. Reserves and convoys route through it, so do not plant headquarters where the enemy can punish it early.",
-    highlightSelector: "#assignBaseCamp, #baseCampStatus",
-    position: "left",
-    arrowDirection: "right",
+      "Choose a highlighted deployment-zone hex on the map, then click Assign Base Camp. Keep headquarters behind the first line; reserves and convoys route through it.",
+    highlightSelector: "#battleMapCanvas, #assignBaseCamp",
+    position: "right",
+    arrowDirection: "left",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -164,10 +186,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "place_units",
     title: "Place The Line",
     content:
-      "Deploy the force. Infantry wants cover, armor wants lanes, engineers want useful terrain, and flak wants reach over the rear.",
-    highlightSelector: "#deploymentPanel .deployment-header-actions, #deploymentUnitList",
-    position: "left",
-    arrowDirection: "right",
+      "Deploy the force. Evenly spreads units across legal hexes; Grouped keeps formations together. For full control, select a unit and click legal hexes one by one.",
+    highlightSelector: "#battleMapCanvas, #deploymentUnitList, #autoDeployEvenly, #autoDeployGrouped",
+    position: "right",
+    arrowDirection: "left",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -354,6 +376,8 @@ export function getPrecombatPhases(): TutorialPhase[] {
     "select_engineers",
     "select_flak",
     "select_air_wing",
+    "select_ammo",
+    "select_fuel",
     "mission_objectives",
     "review_allocation"
   ];

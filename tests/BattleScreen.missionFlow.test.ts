@@ -89,10 +89,10 @@ registerTest("SCENARIO_REGISTRY_REQUIRES_EXPLICIT_MISSION_MAPPING", async ({ Giv
   });
 });
 
-registerTest("BATTLESCREEN_BASE_CAMP_FALLS_BACK_TO_DEFAULT_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_BASE_CAMP_REQUIRES_A_SELECTED_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let assignedAxial: { q: number; r: number } | null = null;
-  let assignedZoneKey: string | null = null;
+  let criticalError: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null = null;
 
   await Given("a deployment screen with a valid player zone but no explicit hex selection", async () => {
     mountBattleScreenRoot();
@@ -121,9 +121,11 @@ registerTest("BATTLESCREEN_BASE_CAMP_FALLS_BACK_TO_DEFAULT_DEPLOYMENT_HEX", asyn
     } as any;
 
     const fakeDeploymentPanel = {
-      setCriticalError() {},
-      markBaseCampAssigned(zoneKey: string) {
-        assignedZoneKey = zoneKey;
+      setCriticalError(error: { title?: string; detail?: string; action?: string; recoverable?: boolean } | null) {
+        criticalError = error;
+      },
+      markBaseCampAssigned() {
+        throw new Error("Base camp should not be assigned without a selected deployment hex.");
       }
     } as any;
 
@@ -157,15 +159,15 @@ registerTest("BATTLESCREEN_BASE_CAMP_FALLS_BACK_TO_DEFAULT_DEPLOYMENT_HEX", asyn
     (screen as any).handleAssignBaseCamp();
   });
 
-  await Then("the default player deployment hex is used instead of surfacing a null-selection error", async () => {
-    if (!assignedAxial || assignedAxial.q !== 14 || assignedAxial.r !== -5) {
-      throw new Error(`Expected fallback base camp assignment at offset 14,2 => axial 14,-5, received ${JSON.stringify(assignedAxial)}`);
+  await Then("the commander is told to choose a deployment-zone hex first", async () => {
+    if (assignedAxial) {
+      throw new Error(`Expected no base camp assignment without selection, received ${JSON.stringify(assignedAxial)}`);
     }
-    if (assignedZoneKey !== "zone-alpha") {
-      throw new Error(`Expected fallback base camp assignment to lock zone-alpha, received ${assignedZoneKey}`);
+    if (criticalError?.title !== "Base camp assignment failed.") {
+      throw new Error(`Expected a base camp selection error, received ${JSON.stringify(criticalError)}`);
     }
-    if (!((screen as any).baseCampStatus.textContent ?? "").includes("Base camp: 14,2")) {
-      throw new Error(`Expected base camp status to confirm fallback hex 14,2, received ${(screen as any).baseCampStatus.textContent}`);
+    if (!((screen as any).baseCampStatus.textContent ?? "").includes("Base camp assignment failed.")) {
+      throw new Error(`Expected base camp status to surface selection guidance, received ${(screen as any).baseCampStatus.textContent}`);
     }
     resetDeploymentState();
   });
@@ -1693,6 +1695,141 @@ registerTest("BATTLESCREEN_DUPLICATE_DEPLOY_EVENTS_IGNORE_STALE_SECOND_ATTEMPT",
     }
     if (refreshReasons.join("|") !== "deploy|sync") {
       throw new Error(`Expected refresh reasons deploy|sync, received ${refreshReasons.join("|") || "<none>"}.`);
+    }
+    resetDeploymentState();
+  });
+});
+
+registerTest("BATTLESCREEN_MANUAL_DEPLOY_COMPLETES_TUTORIAL_WHEN_DEPLOYMENT_POOL_IS_EMPTY", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let panelListener: ((event: { type: string; payload?: Record<string, unknown> }) => void) | null = null;
+  let deployCalls = 0;
+  let completedPhase: string | null = null;
+  let reserveSnapshot: any[] = [];
+  let placements: ScenarioUnit[] = [];
+
+  const infantryReserve = {
+    unit: {
+      type: "Infantry_42",
+      hex: { q: 0, r: 0 },
+      strength: 10,
+      experience: 0,
+      ammo: 6,
+      fuel: 0,
+      entrench: 0,
+      facing: "NE"
+    },
+    definition: { name: "Infantry Battalion", moveType: "foot" },
+    allocationKey: "infantry"
+  };
+  const supportReserve = {
+    unit: {
+      type: "Supply_Truck",
+      hex: { q: 0, r: 0 },
+      strength: 10,
+      experience: 0,
+      ammo: 0,
+      fuel: 20,
+      entrench: 0,
+      facing: "NE"
+    },
+    definition: { name: "Supply Convoy", moveType: "wheel" },
+    allocationKey: "supplyConvoy"
+  };
+
+  await Given("a manual deployment with one requisitioned unit and a non-pool support reserve still present", async () => {
+    mountBattleScreenRoot();
+    resetDeploymentState();
+
+    const deploymentState = ensureDeploymentState();
+    deploymentState.initialize([{ key: "infantry", label: "Infantry Battalion", remaining: 1 }]);
+    deploymentState.registerScenarioAlias("infantry", "Infantry_42");
+    deploymentState.registerScenarioAlias("supplyConvoy", "Supply_Truck");
+
+    reserveSnapshot = [infantryReserve, supportReserve];
+
+    const fakeDeploymentPanel = {
+      on(listener: (event: { type: string; payload?: Record<string, unknown> }) => void) {
+        panelListener = listener;
+        return () => {};
+      },
+      setCriticalError() {},
+      resolveZoneForHex() {
+        return { name: "Allied Start" };
+      }
+    } as any;
+
+    const fakeEngine = {
+      getTurnSummary() {
+        return { phase: "deployment", activeFaction: "Player", turnNumber: 1 };
+      },
+      getReserveSnapshot() {
+        return reserveSnapshot;
+      },
+      getPlayerPlacementsSnapshot() {
+        return placements;
+      },
+      deployUnitByKey(hex: { q: number; r: number }, unitKey: string) {
+        if (unitKey !== "infantry") {
+          throw new Error(`Unexpected unit key ${unitKey}`);
+        }
+        deployCalls += 1;
+        reserveSnapshot = [supportReserve];
+        placements = [{
+          type: "Infantry_42" as ScenarioUnit["type"],
+          hex: { q: hex.q, r: hex.r },
+          strength: 10,
+          experience: 0,
+          ammo: 6,
+          fuel: 0,
+          entrench: 0,
+          facing: "NE"
+        } as ScenarioUnit];
+      }
+    } as any;
+
+    screen = new BattleScreen(
+      {} as any,
+      { ensureGameEngine() { return fakeEngine; } } as any,
+      {} as any,
+      null,
+      fakeDeploymentPanel,
+      null,
+      null,
+      null,
+      null,
+      null,
+      { selectedMission: "training" } as any
+    );
+
+    (screen as any).battleAnnouncements = document.createElement("div");
+    (screen as any).baseCampStatus = document.createElement("div");
+    (screen as any).refreshDeploymentMirrors = () => {
+      ensureDeploymentState().mirrorEngineState(fakeEngine);
+    };
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).completeTutorialPhase = (phase: string) => {
+      completedPhase = phase;
+    };
+  });
+
+  await When("the commander places the final requisitioned unit by hand", async () => {
+    (screen as any).bindPanelEvents();
+    if (!panelListener) {
+      throw new Error("Expected deployment panel listener to be registered.");
+    }
+    panelListener({ type: "deploy", payload: { unitKey: "infantry", hexKey: "3,3" } });
+  });
+
+  await Then("Place The Line completes even though a support reserve remains outside the deployment pool", async () => {
+    if (deployCalls !== 1) {
+      throw new Error(`Expected one manual deployment, received ${deployCalls}.`);
+    }
+    if (completedPhase !== "place_units") {
+      throw new Error(`Expected the place_units tutorial phase to complete, received ${completedPhase ?? "<none>"}.`);
+    }
+    if ((screen as any).countRemainingDeploymentPoolUnits() !== 0) {
+      throw new Error("Expected no deployable pool units to remain.");
     }
     resetDeploymentState();
   });

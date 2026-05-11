@@ -302,6 +302,22 @@ export class PrecombatScreen {
         if (nextPhase) tutorialState.advancePhase(nextPhase);
       }, 800);
     }
+
+    if (currentPhase === "select_ammo" && optionKey === "ammo" && newQuantity > 0) {
+      tutorialState.setCanProceed(true);
+      setTimeout(() => {
+        const nextPhase = getNextPhase("select_ammo");
+        if (nextPhase) tutorialState.advancePhase(nextPhase);
+      }, 800);
+    }
+
+    if (currentPhase === "select_fuel" && optionKey === "fuel" && newQuantity > 0) {
+      tutorialState.setCanProceed(true);
+      setTimeout(() => {
+        const nextPhase = getNextPhase("select_fuel");
+        if (nextPhase) tutorialState.advancePhase(nextPhase);
+      }, 800);
+    }
   }
 
   /**

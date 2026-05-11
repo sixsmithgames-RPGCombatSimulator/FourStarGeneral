@@ -2487,6 +2487,7 @@
       width: 100%;
     }
     .control-sidebar {
+      grid-area: sidebar;
       width: var(--sidebar-width);
       background: rgba(8, 11, 19, 0.9);
       border-right: 1px solid rgba(255, 255, 255, 0.04);
@@ -4884,21 +4885,117 @@
       body {
         padding: 0;
       }
+      .battle-ui {
+        display: grid;
+        grid-template-columns: 1fr;
+        grid-template-rows: 76px minmax(0, 1fr);
+        grid-template-areas:
+          "sidebar"
+          "main";
+        min-height: 0;
+      }
       .control-sidebar {
         flex-direction: row;
+        grid-area: sidebar;
         width: 100%;
-        height: 88px;
+        height: 76px;
         border-right: none;
         border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        justify-content: center;
+        justify-content: flex-start;
         gap: 0.5rem;
+        padding: 0.45rem 0.5rem;
+        overflow-x: auto;
+        overflow-y: hidden;
       }
-      .battle-ui {
-        flex-direction: column;
+      .battle-main {
+        grid-area: main;
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(250px, 46vh) minmax(330px, 1fr);
+        overflow-y: auto;
+        overflow-x: hidden;
+        min-height: 0;
+      }
+      .battle-main[data-panel-collapsed="true"],
+      .battle-main[data-activity-collapsed="true"],
+      .battle-main[data-panel-collapsed="true"][data-activity-collapsed="true"] {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(250px, 46vh) minmax(330px, 1fr);
+      }
+      .battle-main > .map-shell {
+        grid-column: 1;
+        grid-row: 1;
+        min-width: 0;
+      }
+      .battle-main > #deploymentPanel {
+        grid-column: 1;
+        grid-row: 2;
+      }
+      .battle-activity-log,
+      .activity-toggle-floating,
+      .deployment-toggle-floating,
+      .battle-loadout {
+        display: none !important;
+      }
+      .map-shell,
+      .battle-map-pane {
+        min-height: 0;
       }
       .sidebar-button {
-        width: 64px;
+        flex: 0 0 58px;
+        width: 58px;
+        height: 58px;
         aspect-ratio: unset;
+        border-radius: 18px;
+      }
+      .sidebar-button__icon {
+        width: 2.45rem;
+        height: 2.45rem;
+      }
+      .battle-map-header {
+        padding: 0.45rem 0.55rem;
+        gap: 0.45rem;
+      }
+      .battle-map-title {
+        font-size: 0.95rem;
+        white-space: normal;
+      }
+      .turn-status {
+        flex-wrap: wrap;
+        white-space: normal;
+        font-size: 0.72rem;
+      }
+      .battle-map-header .compact-button,
+      .battle-map-header .primary-button,
+      .battle-map-header .secondary-button,
+      .battle-map-header .danger-button {
+        padding: 0.42rem 0.58rem;
+        font-size: 0.64rem;
+      }
+      .map-viewport {
+        min-height: 220px;
+        border-radius: 14px;
+      }
+      #battleMapCanvas {
+        width: 100% !important;
+        height: 100% !important;
+      }
+      #battleHexMap {
+        width: 100%;
+        height: 100%;
+      }
+      .deployment-panel {
+        width: 100%;
+        max-width: 100%;
+        border-left: none;
+        border-top: 1px solid rgba(168, 142, 91, 0.18);
+      }
+      .deployment-panel-header {
+        padding: 0.65rem;
+      }
+      .deployment-panel-body {
+        grid-template-rows: auto minmax(9rem, 1fr) minmax(5.5rem, 0.65fr);
+        min-height: 0;
+        max-height: none;
       }
       .precombat-layout {
         grid-template-columns: 1fr;
@@ -5074,6 +5171,23 @@
       display: flex;
       gap: 1rem;
       justify-content: flex-end;
+    }
+    @media (max-width: 600px) {
+      .deployment-panel {
+        width: 100%;
+        max-width: 100%;
+        border-left: none;
+        border-top: 1px solid rgba(168, 142, 91, 0.18);
+      }
+      .deployment-panel-header {
+        padding: 0.65rem;
+      }
+      .deployment-panel-body,
+      #deploymentPanel[data-phase="battle"] .deployment-panel-body {
+        grid-template-rows: auto minmax(9rem, 1fr) minmax(5.5rem, 0.65fr);
+        min-height: 0;
+        max-height: none;
+      }
     }
     .loadout-list {
       list-style: none;
@@ -5826,6 +5940,61 @@
         bottom: 24px !important;
         top: auto !important;
         transform: none !important;
+      }
+
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units {
+        top: auto !important;
+        bottom: 12px !important;
+        max-height: 148px;
+        overflow: hidden;
+        border-radius: 14px;
+      }
+
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-panel-header,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-header {
+        padding: 0.55rem 0.75rem;
+        border-radius: 14px 14px 0 0;
+      }
+
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-step-indicator,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-step-indicator {
+        padding: 0.22rem 0.5rem;
+        font-size: 0.66rem;
+      }
+
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-back-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-skip-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-back-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-skip-btn {
+        padding: 0.28rem 0.55rem;
+        font-size: 0.68rem;
+        border-radius: 8px;
+      }
+
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-panel-content,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-content {
+        padding: 0.5rem 0.85rem 0.65rem;
+        max-height: 82px;
+        overflow-y: auto;
+      }
+
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-title,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-title {
+        margin-bottom: 0.3rem;
+        font-size: 0.98rem;
+        line-height: 1.2;
+      }
+
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-description,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-description {
+        font-size: 0.78rem;
+        line-height: 1.35;
+      }
+
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-footer {
+        display: none;
       }
 
       .tutorial-arrow {

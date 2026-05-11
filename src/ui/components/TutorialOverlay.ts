@@ -777,7 +777,9 @@ export class TutorialOverlay {
     this.panelElement.style.removeProperty("bottom");
     this.panelElement.style.removeProperty("transform");
 
-    this.panelElement.className = `tutorial-panel tutorial-position-${step.position}`;
+    const phaseClass = `tutorial-phase-${step.phase.replace(/[^a-z0-9_-]/gi, "-")}`;
+    const waitClass = step.waitForAction === true ? " tutorial-wait-step" : "";
+    this.panelElement.className = `tutorial-panel tutorial-position-${step.position} ${phaseClass}${waitClass}`;
 
     // Viewport boundaries with minimum margin
     const viewportMargin = 20;
