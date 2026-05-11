@@ -6106,14 +6106,14 @@ export class BattleScreen {
         return;
       }
 
-      const remainingReserves = engine.getReserveSnapshot().length;
       this.refreshDeploymentMirrors("deploy");
+      const remainingDeployableUnits = this.countRemainingDeploymentPoolUnits();
 
-      if (remainingReserves === 0) {
+      if (remainingDeployableUnits === 0) {
         this.finishDeploymentAfterAutoPlacement(engine);
       } else {
         this.announceBattleUpdate(
-          `Auto-deploy complete. ${remainingReserves} unit${remainingReserves === 1 ? "" : "s"} remain in reserve.`
+          `Auto-deploy complete. ${remainingDeployableUnits} unit${remainingDeployableUnits === 1 ? "" : "s"} remain in reserve.`
         );
       }
     } catch (error) {
@@ -6259,6 +6259,13 @@ export class BattleScreen {
       }
     }
     return true;
+  }
+
+  private countRemainingDeploymentPoolUnits(): number {
+    const deploymentState = ensureDeploymentState();
+    return deploymentState.pool.reduce((sum, entry) => {
+      return sum + Math.max(0, deploymentState.getReserveCount(entry.key));
+    }, 0);
   }
 
   /**
