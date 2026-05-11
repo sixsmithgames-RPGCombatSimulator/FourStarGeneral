@@ -10,17 +10,17 @@ export type { TutorialStep };
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   {
     phase: "welcome",
-    title: "Field Certification: Operation Coastal Shield",
+    title: "Field Command",
     content:
-      "General, your command awaits. German scouts have been sighted probing our coastal sector near Hill 47. Your orders are clear: assemble a combat team, establish a blocking position, and engage the enemy patrol. This exercise will run you through the full command cycle—requisition, deployment, and live-fire operations. You'll lead infantry, armor, engineers, and air support while managing supply lines under combat conditions. The Germans are moving. Time is critical.",
+      "General, enemy scouts are probing the sector. Assemble a task force, establish a blocking position, and break the patrol before it reaches the road net.",
     position: "center",
     actionLabel: "Accept Command"
   },
   {
     phase: "budget_overview",
-    title: "Requisition Authority",
+    title: "Requisition Order",
     content:
-      "You have 1,200 Requisition Points for this training operation. Spend them wisely—every formation you commission will be under your direct command in the field. Your force must include infantry for the line, armor for breakthrough, engineers for obstacles, flak for air defense, and fighter cover for protection. Watch your balance as you build.",
+      "You have 1,200 RP. Buy only what the mission needs: infantry to hold, armor to punch, engineers to shape ground, flak to guard the rear, and fighters to contest the sky.",
     highlightSelector: "#precombatBudgetPanel",
     position: "left",
     arrowDirection: "right",
@@ -28,9 +28,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "unit_categories",
-    title: "Assemble Your Combat Team",
+    title: "Build The Task Force",
     content:
-      "The requisition board lists available formations. For this operation, you will need: two Infantry Battalions for the assault line, one Tank Company for armor punch, one Engineering Corps for obstacles and fortification, one Flak Battery for air defense, one Fighter Squadron for overhead protection, plus ammunition and fuel reserves. One Supply Convoy is already attached as a mission minimum—without logistics, your armor runs dry and your guns fall silent.",
+      "For this fight, requisition two Infantry Battalions, one Tank Company, one Engineering Corps, one Flak Battery, one Fighter Squadron, plus ammo and fuel under Logistics. A Supply Convoy is already attached.",
     highlightSelector: "#allocationUnitList, #allocationSupportList, #allocationLogisticsList",
     position: "right",
     arrowDirection: "left",
@@ -38,9 +38,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_infantry",
-    title: "Commission Infantry",
+    title: "Form The Line",
     content:
-      "Your first priority: two Infantry Battalions. These men will take and hold ground, spot for your guns, and secure terrain that armor cannot hold alone. Click the plus button twice to add two battalions to your order of battle.",
+      "Add two Infantry Battalions. They take ground, hold villages and woods, and give the rest of the force something solid to fight around.",
     highlightSelector: "[data-key='infantry']",
     position: "right",
     arrowDirection: "left",
@@ -49,9 +49,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_tanks",
-    title: "Add Armor Support",
+    title: "Attach Armor",
     content:
-      "Now add one Tank Company. Your Shermans provide the punch to break enemy positions and the mobility to respond where the fight is hottest. Armor needs infantry support to survive—remember, tanks don't hold ground, they take it.",
+      "Add one Tank Company. Armor gives you speed and shock, but it needs infantry nearby when the enemy digs in.",
     highlightSelector: "[data-key='tank']",
     position: "right",
     arrowDirection: "left",
@@ -60,9 +60,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_engineers",
-    title: "Commission Engineers",
+    title: "Bring Engineers",
     content:
-      "Add one Engineering Corps. These troops dig fortifications, lay tank traps, breach obstacles, and clear lanes for your advance. In this terrain, you'll need them to create defensible positions.",
+      "Add one Engineering Corps. Engineers dig, breach, fortify, and keep the advance from stalling at the first obstacle.",
     highlightSelector: "[data-key='engineer']",
     position: "right",
     arrowDirection: "left",
@@ -71,9 +71,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_flak",
-    title: "Establish Air Defense",
+    title: "Cover The Rear",
     content:
-      "Add one Flak Battery. The 88s will protect your base camp and reserves from German air attack, and they can engage ground targets when positioned well. Never underestimate enemy air power.",
+      "Add one Flak Battery. Keep base camp, reserves, and road approaches under an air-defense umbrella.",
     highlightSelector: "[data-key='flakBattery']",
     position: "right",
     arrowDirection: "left",
@@ -82,9 +82,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_air_wing",
-    title: "Request Fighter Cover",
+    title: "Call Fighters",
     content:
-      "Add one Fighter Squadron for air superiority. These fighters stay off-map until you task them through the Air Support board for patrol, interception, or escort missions.",
+      "Add one Fighter Squadron. It stays off-map until you task it from the Air board, then it can patrol, intercept, or escort.",
     highlightSelector: "[data-key='fighter']",
     position: "right",
     arrowDirection: "left",
@@ -93,27 +93,27 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "mission_objectives",
-    title: "Mission Briefing",
+    title: "Mission Orders",
     content:
-      "PRIMARY OBJECTIVE: Intercept and destroy the German patrol before they reach the coastal road. SUCCESS CRITERIA: Eliminate 50% of enemy combat strength while preserving your command structure. TACTICAL GUIDANCE: Use engineers to fortify key positions, deploy smoke screens to blind enemy observation, coordinate air support with ground operations, and maintain your supply line. Intelligence reports indicate a small but mobile enemy force—expect contact within the first turn.",
+      "Primary objective: stop the enemy patrol before it reaches the coastal road. Expect a small mobile force. Use engineers, smoke, supply, and air support as one plan.",
     highlightSelector: "#precombatMissionSummary",
     position: "center",
     actionLabel: "Understood"
   },
   {
     phase: "review_allocation",
-    title: "Final Inspection",
+    title: "Final Check",
     content:
-      "Review your order of battle before deployment. You should have: two Infantry Battalions, one Tank Company, one Engineering Corps, one Flak Battery, one Fighter Squadron, plus ammunition and fuel reserves. The Supply Convoy is already attached—without it, your armor runs dry and your guns fall silent. When ready, deploy to the field.",
+      "Confirm the force: two Infantry, one Tank Company, Engineers, Flak, Fighters, ammo, fuel, and the attached Supply Convoy. When it looks right, deploy.",
     highlightSelector: "#resetAllocations, #proceedToBattle",
     position: "center",
     actionLabel: "Deploy to Field"
   },
   {
     phase: "ui_overview",
-    title: "Battlefield Controls",
+    title: "Command Rail",
     content:
-      "The left rail is your command access. From here you can review recon, task air support, inspect logistics, and open the roster without leaving the map.",
+      "The sidebar is your command rail. Each menu opens a focused board, and each board now gives a one-time command brief the first time you open it.",
     highlightSelector: ".control-sidebar",
     position: "right",
     arrowDirection: "left",
@@ -121,9 +121,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "mission_briefing",
-    title: "Mission Board",
+    title: "Battle Header",
     content:
-      "The header tracks objective, turn state, air activity, and the buttons that move the battle forward. Check it whenever you need to confirm tempo or mission state.",
+      "The header tracks the objective, turn state, air activity, and the main battle actions. Use it to keep tempo.",
     highlightSelector: ".battle-map-header",
     position: "bottom",
     arrowDirection: "up",
@@ -133,7 +133,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "deployment_panel_intro",
     title: "Deployment Board",
     content:
-      "This panel is where you assign base camp and place your battalions. It shows what is still staged, which zones are open, and the formations waiting for a hex.",
+      "This board places base camp and your opening formations. It shows what is staged, what zones are legal, and who still needs orders.",
     highlightSelector: "#deploymentPanel",
     position: "left",
     arrowDirection: "right",
@@ -141,9 +141,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "deployment_intro",
-    title: "Deployment Options",
+    title: "Deployment Plan",
     content:
-      "Base camp comes first. After that you can deploy evenly, group the force, or place formations manually. Put engineers where they can shape terrain and keep flak where it can shield the rear and likely air approach lanes.",
+      "Place base camp first. Then deploy evenly, group the force, or place units by hand. Keep engineers near hard ground and flak near the rear.",
     highlightSelector: "#deploymentPanel .deployment-header-actions",
     position: "left",
     arrowDirection: "right",
@@ -153,7 +153,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "base_camp",
     title: "Establish Base Camp",
     content:
-      "Choose a safe deployment hex and assign Base Camp. Reserves arrive here, convoys route from here, and rear-area pressure on this hex will ripple through the whole force.",
+      "Assign base camp on a safe deployment hex. Reserves and convoys route through it, so do not plant headquarters where the enemy can punish it early.",
     highlightSelector: "#assignBaseCamp, #baseCampStatus",
     position: "left",
     arrowDirection: "right",
@@ -162,9 +162,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "place_units",
-    title: "Place the Opening Line",
+    title: "Place The Line",
     content:
-      "Deploy the battalions. Keep engineers useful, armor mobile, and flak able to cover the rear. Forests help conceal infantry, hills improve observation, and open ground speeds vehicles but exposes them.",
+      "Deploy the force. Infantry wants cover, armor wants lanes, engineers want useful terrain, and flak wants reach over the rear.",
     highlightSelector: "#deploymentPanel .deployment-header-actions, #deploymentUnitList",
     position: "left",
     arrowDirection: "right",
@@ -173,9 +173,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "roster_intro",
-    title: "Army Roster",
+    title: "Roster Board",
     content:
-      "The roster is your full order of battle. Use it to review frontline units, reserves, and attached support. During battle, reserve call-ups arrive at base camp automatically rather than being hand-placed.",
+      "Open the Roster. It is the order of battle: deployed units, reserves, support, losses, and readiness at a glance.",
     highlightSelector: "#armyRosterContent",
     position: "left",
     arrowDirection: "right",
@@ -184,9 +184,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "air_support_intro",
-    title: "Air Support Board",
+    title: "Air Board",
     content:
-      "Air wings stay off-map. Use this board to review ready squadrons and mission tabs before combat begins. Later, you will return here to post a live sortie to a patrol zone or strike target.",
+      "Open Air Support. Squadrons stay off-map until ordered. Review readiness now; task sorties when the map gives you a reason.",
     highlightSelector: "[data-air-panel]",
     position: "left",
     arrowDirection: "right",
@@ -195,9 +195,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "begin_battle",
-    title: "Commence Operations — Contact Expected",
+    title: "Begin Battle",
     content:
-      "The enemy patrol has been sighted approaching from the northeast. They are close—expect contact within the first turn. Begin operations immediately. The tutorial will guide you through movement, combat, smoke deployment, engineers, artillery, and combined arms coordination during live engagement.",
+      "Enemy movement is reported northeast. Begin operations. The next steps cover movement, fire orders, engineers, artillery, air, and supply under contact.",
     highlightSelector: "#beginBattle",
     position: "bottom",
     arrowDirection: "up",
@@ -206,26 +206,26 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "movement_intro",
-    title: "Movement and Threat Range",
+    title: "Movement",
     content:
-      "Select a friendly unit. Blue hexes show where it can move this activation and red hexes show valid attack targets. Terrain, suppression, towing state, and fuel all affect what the unit can actually do.",
+      "Select a friendly unit. Blue hexes are movement, red hexes are attack options. Terrain, fuel, towing, and suppression all matter.",
     position: "center",
     waitForAction: true,
     actionLabel: "Continue"
   },
   {
     phase: "attack_intro",
-    title: "Attack with Intent",
+    title: "Fire Orders",
     content:
-      "When a red target is in range, click it to attack. Read the preview before committing: armor, suppression, expected damage, and retaliation all matter. Combined arms are safer and more decisive than isolated attacks. Look for the 'Lay Smoke' option—it blocks line of sight and can protect your units from enemy fire.",
+      "Click a red target to attack. Check the preview before firing: armor, suppression, expected damage, and retaliation decide whether the shot is worth it.",
     position: "center",
     actionLabel: "Continue"
   },
   {
     phase: "smoke_demo",
-    title: "Tactical Smoke Deployment",
+    title: "Smoke",
     content:
-      "Critical tactic: Use the Lay Smoke order to create visual screens. Smoke blocks line of sight along a hex edge, preventing enemy units from seeing or firing through it. Deploy smoke to: protect advancing units, shield wounded formations, or mask your movements. Select a unit with smoke capability and choose 'Lay Smoke' on the appropriate edge.",
+      "Use Lay Smoke to block line of sight across a hex edge. Screen an advance, cover a damaged unit, or break enemy observation before moving.",
     highlightSelector: "#battleIntelOverlay",
     position: "left",
     arrowDirection: "right",
@@ -234,18 +234,18 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "engineer_intro",
-    title: "Select Your Engineers",
+    title: "Engineers",
     content:
-      "Find and select an Engineering Corps. Engineers are your terrain-control unit: they can dig in, fortify edges, lay tank traps, and clear lanes for the battalions behind them.",
+      "Select an Engineering Corps. Engineers control terrain: dig in, fortify, lay traps, and open lanes for the main body.",
     position: "center",
     waitForAction: true,
     actionLabel: "Continue"
   },
   {
     phase: "engineer_orders",
-    title: "Use Engineer Orders",
+    title: "Engineer Work",
     content:
-      "With engineers selected, use the unit card to issue an engineer order. Dig In, Fortify, Lay Tank Traps, or Clear Path all count for this step and show how engineers shape the battlefield without leaving the map view.",
+      "Issue one engineer order from the unit card. Dig In, Fortify, Lay Tank Traps, or Clear Path all count.",
     highlightSelector: "#battleIntelOverlay",
     position: "left",
     arrowDirection: "right",
@@ -254,27 +254,27 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "artillery_intro",
-    title: "Call Off-Map Artillery",
+    title: "Artillery",
     content:
-      "Select an infantry or recon spotter that can observe an enemy hex, then use Call Artillery and click an observed enemy position. The heavy battery is off-map, so the fire mission is queued rather than fired by a gun on the map.",
+      "Use an infantry or recon spotter, call artillery, then click an observed enemy hex. Off-map guns queue the mission and punish fixed targets.",
     position: "center",
     waitForAction: true,
     actionLabel: "Continue"
   },
   {
     phase: "flak_intro",
-    title: "Inspect Flak Coverage",
+    title: "Flak Coverage",
     content:
-      "Select your Flak Battery. Flak works mainly as an automatic air-defense umbrella, so its job is position and coverage. Keep it shielding base camp, artillery, reserves, or exposed approach routes.",
+      "Select the Flak Battery. Its main job is automatic air defense, so position it where coverage protects headquarters, reserves, and guns.",
     position: "center",
     waitForAction: true,
     actionLabel: "Continue"
   },
   {
     phase: "air_missions",
-    title: "Post a Live Sortie",
+    title: "Air Missions",
     content:
-      "Open the Air Support board and issue one mission. Fighters can patrol or escort, strike aircraft attack marked hexes, and transport wings support airborne drops. Each squadron is tasked from its own row.",
+      "Open Air Support and issue one mission. Fighters patrol or escort; strike aircraft hit marked hexes. Task each squadron from its row.",
     highlightSelector: "[data-air-panel]",
     position: "left",
     arrowDirection: "right",
@@ -283,9 +283,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "logistics_intro",
-    title: "Supply Convoy Operations",
+    title: "Logistics",
     content:
-      "Use Logistics to inspect depot stock, convoy status, and the resupply queue. Automated supply convoys route from your base camp to forward units based on Logistics priorities. You cannot directly control individual convoys, but you can influence them: set battalion priority (High/Medium/Low) to determine who gets resupplied first, and monitor the queue to anticipate shortages. During heavy combat, ammunition and fuel will deplete rapidly—stay ahead of demand by checking logistics every turn.",
+      "Open Logistics. Watch depot stock, convoy status, and unit priority. You do not drive trucks by hand; you set priorities before ammo and fuel become the crisis.",
     highlightSelector: "#logisticsPanel",
     position: "left",
     arrowDirection: "right",
@@ -294,9 +294,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "turn_end",
-    title: "End the Turn Deliberately",
+    title: "End Turn",
     content:
-      "When you have moved the formations you want, fired what matters, and checked support systems, end the turn. The idle warning will help catch units that still have actions available.",
+      "When movement, fire, support, and supply checks are done, end the turn. The idle warning catches formations still waiting for orders.",
     highlightSelector: "#endTurn",
     position: "left",
     arrowDirection: "right",
@@ -305,9 +305,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "complete",
-    title: "Training Complete",
+    title: "Command Certified",
     content:
-      "You have now worked through the core command loop: requisitioning, deployment, reserves, engineers, off-map artillery, flak cover, air missions, and logistics. Keep combining those systems instead of treating them as separate menus.",
+      "You have the command loop: requisition, deploy, maneuver, strike, support, and resupply. Win by combining systems, not by treating them as separate menus.",
     position: "center",
     actionLabel: "Dismiss"
   }

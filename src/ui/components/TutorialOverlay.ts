@@ -9,6 +9,13 @@ import {
   type TutorialProgress
 } from "../../state/TutorialState";
 import { getTutorialStep, getNextPhase, getPreviousPhase, isFirstPhase, type TutorialStep } from "../../data/tutorialSteps";
+import {
+  getSidebarMiniTutorial,
+  SIDEBAR_MINI_TUTORIAL_EVENT,
+  type SidebarMiniTutorialDefinition,
+  type SidebarMiniTutorialKey,
+  type SidebarMiniTutorialRequest
+} from "../../data/sidebarMiniTutorials";
 
 /**
  * Creates and manages the tutorial overlay UI.
@@ -31,6 +38,9 @@ export class TutorialOverlay {
   private lastResolvedAnchorSelector: string | null = null;
   private lastAnchoredSelector: string | null = null;
   private suppressCurrentPhaseDisplay = false;
+  private activeMiniTutorial: SidebarMiniTutorialDefinition | null = null;
+  private sidebarMiniTutorialListener: ((event: Event) => void) | null = null;
+  private readonly sidebarMiniTutorialStorageKey = "four-star-general.sidebar-mini-tutorials.v1";
 
   private getHighlightTargets(selector: string): HTMLElement[] {
     return Array.from(document.querySelectorAll<HTMLElement>(selector)).filter((element) => {
@@ -93,6 +103,13 @@ export class TutorialOverlay {
     if (progress.isActive) {
       this.handleProgressUpdate(progress);
     }
+
+    if (!this.sidebarMiniTutorialListener) {
+      this.sidebarMiniTutorialListener = (event: Event) => {
+        this.handleSidebarMiniTutorialRequest(event as CustomEvent<SidebarMiniTutorialRequest>);
+      };
+      document.addEventListener(SIDEBAR_MINI_TUTORIAL_EVENT, this.sidebarMiniTutorialListener);
+    }
   }
 
   /**
@@ -110,6 +127,10 @@ export class TutorialOverlay {
     }
     this.stopDomObserver();
     this.clearAnchorRetry();
+    if (this.sidebarMiniTutorialListener) {
+      document.removeEventListener(SIDEBAR_MINI_TUTORIAL_EVENT, this.sidebarMiniTutorialListener);
+      this.sidebarMiniTutorialListener = null;
+    }
     this.removeOverlayElements();
   }
 
@@ -220,6 +241,8 @@ export class TutorialOverlay {
       return;
     }
 
+    this.activeMiniTutorial = null;
+
     if (this.suppressCurrentPhaseDisplay && progress.currentPhase === "review_allocation") {
       // Stay hidden after the user dismisses the free-review step. We'll re-enable when phase changes.
       this.lastRenderedPhase = progress.currentPhase;
@@ -254,12 +277,96 @@ export class TutorialOverlay {
     this.renderStep(step, progress);
   }
 
+  private handleSidebarMiniTutorialRequest(event: CustomEvent<SidebarMiniTutorialRequest>): void {
+    const request = event.detail;
+    const tutorial = request?.key ? getSidebarMiniTutorial(request.key) : null;
+    if (!tutorial) {
+      return;
+    }
+
+    const tutorialState = ensureTutorialState();
+    if (tutorialState.isTutorialActive() && request.force !== true) {
+      return;
+    }
+
+    if (request.force !== true && this.hasSeenSidebarMiniTutorial(tutorial.key)) {
+      return;
+    }
+
+    this.activeMiniTutorial = tutorial;
+    this.currentStep = {
+      phase: "inactive",
+      title: tutorial.title,
+      content: tutorial.content,
+      highlightSelector: tutorial.highlightSelector,
+      position: tutorial.position,
+      arrowDirection: tutorial.arrowDirection,
+      actionLabel: tutorial.actionLabel
+    };
+
+    this.show();
+    this.renderSidebarMiniTutorial(tutorial);
+    this.markSidebarMiniTutorialSeen(tutorial.key);
+  }
+
+  private renderSidebarMiniTutorial(tutorial: SidebarMiniTutorialDefinition): void {
+    if (!this.panelElement || !this.currentStep) {
+      return;
+    }
+
+    if (this.backdropElement) {
+      this.backdropElement.style.background = "rgba(0, 0, 0, 0)";
+      this.backdropElement.style.pointerEvents = "auto";
+    }
+    if (this.container) {
+      this.container.style.pointerEvents = "";
+    }
+    if (this.spotlightElement) {
+      this.spotlightElement.style.pointerEvents = "";
+    }
+    this.panelElement.style.pointerEvents = "";
+
+    const stepIndicator = this.panelElement.querySelector(".tutorial-step-indicator");
+    if (stepIndicator) {
+      stepIndicator.textContent = "Command Brief";
+    }
+
+    const backBtn = this.panelElement.querySelector<HTMLButtonElement>(".tutorial-back-btn");
+    if (backBtn) {
+      backBtn.style.display = "none";
+    }
+
+    const skipBtn = this.panelElement.querySelector<HTMLButtonElement>(".tutorial-skip-btn");
+    if (skipBtn) {
+      skipBtn.style.display = "";
+      skipBtn.textContent = "Close";
+    }
+
+    const titleEl = this.panelElement.querySelector(".tutorial-title");
+    const descEl = this.panelElement.querySelector(".tutorial-description");
+    if (titleEl) titleEl.textContent = tutorial.title;
+    if (descEl) descEl.textContent = tutorial.content;
+
+    const actionBtn = this.panelElement.querySelector<HTMLButtonElement>(".tutorial-action-btn");
+    if (actionBtn) {
+      actionBtn.textContent = tutorial.actionLabel;
+      actionBtn.disabled = false;
+      actionBtn.classList.remove("waiting");
+    }
+
+    ensureTutorialState().clearHighlight();
+    this.ensureAnchorTarget(tutorial.highlightSelector);
+    this.positionPanel(this.currentStep);
+    this.updateArrow(this.currentStep);
+  }
+
   /**
    * Renders the current tutorial step.
    */
   private renderStep(step: TutorialStep, progress: TutorialProgress): void {
     if (!this.panelElement) return;
 
+    this.activeMiniTutorial = null;
     const tutorialState = ensureTutorialState();
 
     if (this.backdropElement) {
@@ -281,6 +388,12 @@ export class TutorialOverlay {
       } else {
         backBtn.style.display = "";
       }
+    }
+
+    const skipBtn = this.panelElement.querySelector<HTMLButtonElement>(".tutorial-skip-btn");
+    if (skipBtn) {
+      skipBtn.style.display = "";
+      skipBtn.textContent = "Skip";
     }
 
     // Update title and description
@@ -907,14 +1020,72 @@ export class TutorialOverlay {
     if (this.container) {
       this.container.classList.add("hidden");
     }
+    this.activeMiniTutorial = null;
     this.hideSpotlight();
     ensureTutorialState().clearHighlight();
+  }
+
+  private dismissSidebarMiniTutorial(): void {
+    this.activeMiniTutorial = null;
+    this.currentStep = null;
+    this.stopDomObserver();
+    this.clearAnchorRetry();
+    this.hide();
+  }
+
+  private getSeenSidebarMiniTutorials(): Set<SidebarMiniTutorialKey> {
+    if (typeof window === "undefined" || !window.sessionStorage) {
+      return new Set();
+    }
+
+    try {
+      const rawValue = window.sessionStorage.getItem(this.sidebarMiniTutorialStorageKey);
+      if (!rawValue) {
+        return new Set();
+      }
+
+      const parsed = JSON.parse(rawValue);
+      if (!Array.isArray(parsed)) {
+        return new Set();
+      }
+
+      return new Set(
+        parsed.filter((key): key is SidebarMiniTutorialKey =>
+          typeof key === "string" && getSidebarMiniTutorial(key) !== null
+        )
+      );
+    } catch {
+      return new Set();
+    }
+  }
+
+  private hasSeenSidebarMiniTutorial(key: SidebarMiniTutorialKey): boolean {
+    return this.getSeenSidebarMiniTutorials().has(key);
+  }
+
+  private markSidebarMiniTutorialSeen(key: SidebarMiniTutorialKey): void {
+    if (typeof window === "undefined" || !window.sessionStorage) {
+      return;
+    }
+
+    try {
+      const seen = this.getSeenSidebarMiniTutorials();
+      seen.add(key);
+      window.sessionStorage.setItem(this.sidebarMiniTutorialStorageKey, JSON.stringify(Array.from(seen)));
+    } catch {
+      // Storage can be disabled in private contexts; the brief can still run without persistence.
+    }
   }
 
   /**
    * Handles the skip button click.
    */
   private handleSkip(): void {
+    if (this.activeMiniTutorial) {
+      this.dismissSidebarMiniTutorial();
+      return;
+    }
+
     ensureTutorialState().skipTutorial();
   }
 
@@ -922,6 +1093,11 @@ export class TutorialOverlay {
    * Handles the back button click.
    */
   private handleBack(): void {
+    if (this.activeMiniTutorial) {
+      this.dismissSidebarMiniTutorial();
+      return;
+    }
+
     if (!this.currentStep) return;
 
     const previousPhase = getPreviousPhase(this.currentStep.phase);
@@ -935,6 +1111,11 @@ export class TutorialOverlay {
    * Handles the action button click.
    */
   private handleAction(): void {
+    if (this.activeMiniTutorial) {
+      this.dismissSidebarMiniTutorial();
+      return;
+    }
+
     if (!this.currentStep) return;
 
     const tutorialState = ensureTutorialState();

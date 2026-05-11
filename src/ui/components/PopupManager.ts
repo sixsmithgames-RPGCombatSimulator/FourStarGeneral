@@ -6,6 +6,7 @@ import type {
   SidebarController
 } from "../../contracts/IPopupManager";
 import { getPopupContent } from "../../data/popupContent";
+import { SIDEBAR_MINI_TUTORIAL_EVENT } from "../../data/sidebarMiniTutorials";
 import { ensureBattleState, type BattleUpdateReason } from "../../state/BattleState";
 import type { BattleRosterSnapshot, PlayerReconReport, ReconObservedContact, RosterUnitSummary } from "../../game/GameEngine";
 import type {
@@ -983,6 +984,8 @@ export class PopupManager implements IPopupManager {
     }
 
     this.popupDialog.focus();
+
+    this.requestSidebarMiniTutorial(key);
   }
 
   /** Opens the Air Support panel and renders its contents (summary, mission roster, scheduler). */
@@ -2399,6 +2402,13 @@ export class PopupManager implements IPopupManager {
     this.syncSidebarButtons(key);
 
     this.warRoomOverlay?.open();
+    this.requestSidebarMiniTutorial(key);
+  }
+
+  private requestSidebarMiniTutorial(key: PopupKey): void {
+    document.dispatchEvent(new CustomEvent(SIDEBAR_MINI_TUTORIAL_EVENT, {
+      detail: { key }
+    }));
   }
 
   /**

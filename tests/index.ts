@@ -30,6 +30,7 @@ import "./AirShow.bomberSpeed.validation.test.js";
 import "./FacingDirection.migration.test.js";
 import "./SelectionIntelOverlay.commandCards.test.js";
 import "./TutorialOverlay.multiTarget.test.js";
+import "./SidebarMiniTutorials.test.js";
 import "./unitSpriteCatalog.test.js";
 import "./deploymentZonePlanner.test.js";
 import "./scenarioValidation.test.js";
