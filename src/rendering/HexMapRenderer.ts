@@ -80,7 +80,7 @@ import {
   type AirShowEffectType
 } from "../ui/airshow/AirShowLogger";
 import terrainData from "../data/terrain.json";
-import unitTypesData from "../data/unitTypes.json";
+import unitTypesData from "../data/unitSystem/derivedUnitTypes";
 import { axialDirections, hexLine, type Axial } from "../core/Hex";
 
 export type {
@@ -88,6 +88,9 @@ export type {
   AirShowInspectionPhaseTimingAudit,
   AirShowInspectionPhaseTimingRoleAudit
 } from "../ui/airshow/AirShowPlanner";
+
+type RenderedSuppressionState = "clear" | "suppressed" | "pinned" | "broken";
+type RenderedStatusPip = "sentry" | "suppressed" | "pinned" | "broken";
 export type {
   AirShowInspectionAssignment,
   AirShowInspectionFlakBurst,
@@ -146,6 +149,21 @@ const UNKNOWN_CONTACT_SPRITE = `data:image/svg+xml;utf8,${encodeURIComponent(
 )}`;
 
 type CombatAnimationKey = keyof typeof import("./SpriteSheetAnimator").COMBAT_ANIMATIONS;
+type BombImpactVisual = {
+  readonly offsetX: number;
+  readonly offsetY: number;
+  readonly scale: number;
+};
+type BombImpactPattern = {
+  readonly impacts: ReadonlyArray<BombImpactVisual>;
+  readonly staggerMs: number;
+  readonly projectileDurationMs: number;
+  readonly projectileStaggerMs: number;
+  readonly projectileRadius: number;
+  readonly projectileArcHeight: number;
+  readonly projectileCount: number;
+  readonly dustScale: number;
+};
 type AircraftAnimationProgressCallback = (progress: number, centerX: number, centerY: number) => void;
 type AircraftSortieOptions = {
   ingressDurationMs?: number;
@@ -280,11 +298,21 @@ export interface MoveAnimationHandle {
   dispose(): void;
 }
 
+export interface MoveAnimationOptions {
+  readonly path?: readonly string[];
+}
+
 interface MoveAnimationContext {
   ghost: SVGGElement;
   movingGroup: SVGGElement;
   restoreOpacity: string;
   setGhostProgress: (progress: number) => void;
+}
+
+interface MovePathPoint {
+  readonly key: string;
+  readonly cx: number;
+  readonly cy: number;
 }
 
 export interface RenderedUnitStackMember {
@@ -2077,12 +2105,12 @@ export class HexMapRenderer implements IMapRenderer {
    * Plays a temporary sprite animation that travels from one hex to another.
    * Callers should re-render units once the promise resolves so canonical engine state is reflected.
    */
-  async animateUnitMove(fromKey: string, toKey: string, durationMs = 500): Promise<void> {
+  async animateUnitMove(fromKey: string, toKey: string, durationMs = 500, options?: MoveAnimationOptions): Promise<void> {
     if (durationMs < 0) {
       durationMs = 0;
     }
 
-    const handle = this.primeUnitMove(fromKey, toKey);
+    const handle = this.primeUnitMove(fromKey, toKey, options);
     if (!handle) {
       return;
     }
@@ -2098,8 +2126,8 @@ export class HexMapRenderer implements IMapRenderer {
    * Prepares the SVG state for a future move animation by hiding the destination sprite and
    * planting a ghost image on the origin hex. Call `play()` on the returned handle once the camera settles.
    */
-  primeUnitMove(fromKey: string, toKey: string): MoveAnimationHandle | null {
-    const context = this.createMoveAnimationContext(fromKey, toKey);
+  primeUnitMove(fromKey: string, toKey: string, options?: MoveAnimationOptions): MoveAnimationHandle | null {
+    const context = this.createMoveAnimationContext(fromKey, toKey, options);
     if (!context) {
       return null;
     }
@@ -2134,7 +2162,7 @@ export class HexMapRenderer implements IMapRenderer {
     };
   }
 
-  private createMoveAnimationContext(fromKey: string, toKey: string): MoveAnimationContext | null {
+  private createMoveAnimationContext(fromKey: string, toKey: string, options?: MoveAnimationOptions): MoveAnimationContext | null {
     if (!this.svgElement) {
       return null;
     }
@@ -2190,9 +2218,9 @@ export class HexMapRenderer implements IMapRenderer {
       this.svgElement.appendChild(ghost);
     }
 
-    const dx = endCenter.cx - startCenter.cx;
-    const dy = endCenter.cy - startCenter.cy;
-    const angleDeg = this.resolveAngleDegFromVector(dx, dy);
+    const pathPoints = this.resolveMovePathPoints(fromKey, toKey, options?.path);
+    const finalSegment = this.resolveMovePathSample(pathPoints, 1);
+    const angleDeg = finalSegment.angleDeg;
     this.applyFacingAngleToGroup(ghost, startCenter.cx, startCenter.cy, angleDeg);
     this.applyFacingAngleToGroup(movingGroup, endCenter.cx, endCenter.cy, angleDeg);
     if (fromKey !== toKey) {
@@ -2200,7 +2228,9 @@ export class HexMapRenderer implements IMapRenderer {
     }
     this.hexUnitFacingAngleMap.set(toKey, angleDeg);
     const setGhostProgress = (progress: number): void => {
-      ghost.style.transform = `translate(${dx * progress}px, ${dy * progress}px)`;
+      const sample = this.resolveMovePathSample(pathPoints, progress);
+      ghost.style.transform = `translate(${sample.cx - startCenter.cx}px, ${sample.cy - startCenter.cy}px)`;
+      this.applyFacingAngleToGroup(ghost, startCenter.cx, startCenter.cy, sample.angleDeg);
     };
 
     return {
@@ -2208,6 +2238,97 @@ export class HexMapRenderer implements IMapRenderer {
       movingGroup,
       restoreOpacity,
       setGhostProgress
+    };
+  }
+
+  private resolveMovePathPoints(fromKey: string, toKey: string, path?: readonly string[]): MovePathPoint[] {
+    const normalizedKeys: string[] = [];
+    const appendKey = (key: string | null | undefined): void => {
+      if (!key) {
+        return;
+      }
+      if (normalizedKeys[normalizedKeys.length - 1] === key) {
+        return;
+      }
+      normalizedKeys.push(key);
+    };
+
+    appendKey(fromKey);
+    path?.forEach((key) => appendKey(key));
+    appendKey(toKey);
+
+    const points = normalizedKeys
+      .map((key): MovePathPoint | null => {
+        const cell = this.hexElementMap.get(key);
+        const center = cell ? this.extractHexCenter(cell) : null;
+        return center ? { key, cx: center.cx, cy: center.cy } : null;
+      })
+      .filter((point): point is MovePathPoint => point !== null);
+
+    const startCell = this.hexElementMap.get(fromKey);
+    const endCell = this.hexElementMap.get(toKey);
+    const startCenter = startCell ? this.extractHexCenter(startCell) : null;
+    const endCenter = endCell ? this.extractHexCenter(endCell) : null;
+
+    if (startCenter && points[0]?.key !== fromKey) {
+      points.unshift({ key: fromKey, cx: startCenter.cx, cy: startCenter.cy });
+    }
+    if (endCenter && points[points.length - 1]?.key !== toKey) {
+      points.push({ key: toKey, cx: endCenter.cx, cy: endCenter.cy });
+    }
+
+    return points.length >= 2 ? points : [
+      { key: fromKey, cx: startCenter?.cx ?? 0, cy: startCenter?.cy ?? 0 },
+      { key: toKey, cx: endCenter?.cx ?? startCenter?.cx ?? 0, cy: endCenter?.cy ?? startCenter?.cy ?? 0 }
+    ];
+  }
+
+  private resolveMovePathSample(
+    points: readonly MovePathPoint[],
+    progress: number
+  ): { cx: number; cy: number; angleDeg: number } {
+    const fallback = points[0] ?? { key: "", cx: 0, cy: 0 };
+    if (points.length <= 1) {
+      return { cx: fallback.cx, cy: fallback.cy, angleDeg: 0 };
+    }
+
+    const segmentLengths: number[] = [];
+    let totalDistance = 0;
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1]!;
+      const current = points[index]!;
+      const length = Math.hypot(current.cx - previous.cx, current.cy - previous.cy);
+      segmentLengths.push(length);
+      totalDistance += length;
+    }
+
+    if (totalDistance <= 0) {
+      return { cx: fallback.cx, cy: fallback.cy, angleDeg: 0 };
+    }
+
+    const targetDistance = this.clamp(progress, 0, 1) * totalDistance;
+    let traversed = 0;
+    for (let index = 0; index < segmentLengths.length; index += 1) {
+      const length = segmentLengths[index]!;
+      const start = points[index]!;
+      const end = points[index + 1]!;
+      const isFinalSegment = index === segmentLengths.length - 1;
+      if (targetDistance <= traversed + length || isFinalSegment) {
+        const localProgress = length <= 0 ? 1 : this.clamp((targetDistance - traversed) / length, 0, 1);
+        const cx = start.cx + (end.cx - start.cx) * localProgress;
+        const cy = start.cy + (end.cy - start.cy) * localProgress;
+        const angleDeg = this.resolveAngleDegFromVector(end.cx - start.cx, end.cy - start.cy);
+        return { cx, cy, angleDeg };
+      }
+      traversed += length;
+    }
+
+    const penultimate = points[points.length - 2]!;
+    const last = points[points.length - 1]!;
+    return {
+      cx: last.cx,
+      cy: last.cy,
+      angleDeg: this.resolveAngleDegFromVector(last.cx - penultimate.cx, last.cy - penultimate.cy)
     };
   }
 
@@ -2237,7 +2358,7 @@ export class HexMapRenderer implements IMapRenderer {
     attackerHexKey: string,
     defenderHexKey: string,
     durationMs = 520,
-    options?: { color?: string; radius?: number; arcHeight?: number }
+    options?: { color?: string; radius?: number; arcHeight?: number; targetOffsetX?: number; targetOffsetY?: number }
   ): Promise<void> {
     const layer = this.ensureCombatEffectsLayer();
     if (!this.svgElement || !layer) {
@@ -2255,18 +2376,37 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const dx = b.cx - a.cx;
-    const dy = b.cy - a.cy;
+    const endCx = b.cx + (options?.targetOffsetX ?? 0);
+    const endCy = b.cy + (options?.targetOffsetY ?? 0);
+    const dx = endCx - a.cx;
+    const dy = endCy - a.cy;
     const dist = Math.hypot(dx, dy) || 1;
 
     const arcHeight = options?.arcHeight ?? this.clamp(dist * 0.35, 18, 64);
     const nx = -dy / dist;
     const ny = dx / dist;
-    const ctrlX = (a.cx + b.cx) / 2 + nx * arcHeight;
-    const ctrlY = (a.cy + b.cy) / 2 + ny * arcHeight;
+    const ctrlX = (a.cx + endCx) / 2 + nx * arcHeight;
+    const ctrlY = (a.cy + endCy) / 2 + ny * arcHeight;
 
     const color = options?.color ?? "#ffcf5a";
     const radius = options?.radius ?? 3;
+
+    const trail = document.createElementNS(SVG_NS, "path");
+    trail.setAttribute("fill", "none");
+    trail.setAttribute("stroke", color);
+    trail.setAttribute("stroke-width", String(Math.max(1.1, radius * 0.72)));
+    trail.setAttribute("stroke-linecap", "round");
+    trail.setAttribute("vector-effect", "non-scaling-stroke");
+    trail.style.opacity = "0";
+    trail.style.pointerEvents = "none";
+    layer.appendChild(trail);
+
+    const glow = document.createElementNS(SVG_NS, "circle");
+    glow.setAttribute("r", String(radius * 2.4));
+    glow.setAttribute("fill", color);
+    glow.style.opacity = "0.18";
+    glow.style.pointerEvents = "none";
+    layer.appendChild(glow);
 
     const shell = document.createElementNS(SVG_NS, "circle");
     shell.setAttribute("r", String(radius));
@@ -2282,12 +2422,23 @@ export class HexMapRenderer implements IMapRenderer {
         const eased = this.easeInOut(t);
 
         const omt = 1 - eased;
-        const x = omt * omt * a.cx + 2 * omt * eased * ctrlX + eased * eased * b.cx;
-        const y = omt * omt * a.cy + 2 * omt * eased * ctrlY + eased * eased * b.cy;
+        const x = omt * omt * a.cx + 2 * omt * eased * ctrlX + eased * eased * endCx;
+        const y = omt * omt * a.cy + 2 * omt * eased * ctrlY + eased * eased * endCy;
+        const trailT = this.clamp(eased - 0.1, 0, 1);
+        const trailOmt = 1 - trailT;
+        const trailX = trailOmt * trailOmt * a.cx + 2 * trailOmt * trailT * ctrlX + trailT * trailT * endCx;
+        const trailY = trailOmt * trailOmt * a.cy + 2 * trailOmt * trailT * ctrlY + trailT * trailT * endCy;
         shell.setAttribute("cx", String(x));
         shell.setAttribute("cy", String(y));
+        glow.setAttribute("cx", String(x));
+        glow.setAttribute("cy", String(y));
+        trail.setAttribute("d", `M ${trailX} ${trailY} L ${x} ${y}`);
+        trail.style.opacity = String(0.22 * (1 - t * 0.45));
+        glow.style.opacity = String(0.18 * (1 - t * 0.35));
 
         if (t >= 1) {
+          trail.remove();
+          glow.remove();
           shell.remove();
           resolve();
           return;
@@ -3246,27 +3397,16 @@ export class HexMapRenderer implements IMapRenderer {
       decorations.appendChild(this.renderEntrenchmentPips(cx, cy, entrenchment));
     }
 
-    const suppressorCount = unit.suppressedBy?.length ?? 0;
-    const suppressionState = suppressorCount >= 2 ? "pinned" : suppressorCount === 1 ? "suppressed" : "clear";
-
-    // Log suppression state to debug pip visibility
-    if (suppressionState !== "clear") {
-      console.log("[HexMapRenderer] renderUnitDecorations - unit:", unit.type,
-        "unitId:", unit.unitId,
-        "suppressedBy:", unit.suppressedBy,
-        "suppressorCount:", suppressorCount,
-        "suppressionState:", suppressionState,
-        "statusPips will include:", suppressionState);
-    }
+    const suppressionState = this.resolveRenderedSuppressionState(unit);
 
     // Note: suppression/sentry/entrench state is set on the main unit-stack group in renderUnitStack
     // This method only renders visual decorations
 
-    const statusPips: Array<"sentry" | "suppressed" | "pinned"> = [];
+    const statusPips: RenderedStatusPip[] = [];
     if (unit.onSentry) {
       statusPips.push("sentry");
     }
-    if (suppressionState === "suppressed" || suppressionState === "pinned") {
+    if (suppressionState !== "clear") {
       statusPips.push(suppressionState);
     }
 
@@ -3298,10 +3438,18 @@ export class HexMapRenderer implements IMapRenderer {
     return group;
   }
 
+  private resolveRenderedSuppressionState(unit: ScenarioUnit): RenderedSuppressionState {
+    const suppressorCount = unit.suppressedBy?.length ?? 0;
+    if (suppressorCount >= 2) {
+      return unit.strength < 25 ? "broken" : "pinned";
+    }
+    return suppressorCount === 1 ? "suppressed" : "clear";
+  }
+
   private renderStatusPips(
     cx: number,
     cy: number,
-    statuses: ReadonlyArray<"sentry" | "suppressed" | "pinned">
+    statuses: ReadonlyArray<RenderedStatusPip>
   ): SVGGElement {
     const group = document.createElementNS(SVG_NS, "g");
     group.classList.add("unit-status-pips");
@@ -3316,7 +3464,7 @@ export class HexMapRenderer implements IMapRenderer {
     return group;
   }
 
-  private renderStatusPip(x: number, y: number, status: "sentry" | "suppressed" | "pinned"): SVGGElement {
+  private renderStatusPip(x: number, y: number, status: RenderedStatusPip): SVGGElement {
     const group = document.createElementNS(SVG_NS, "g");
     group.classList.add("unit-status-pip");
     group.setAttribute("data-status", status);
@@ -3383,8 +3531,8 @@ export class HexMapRenderer implements IMapRenderer {
       return group;
     }
 
-    backdrop.setAttribute("fill", "rgba(132, 27, 27, 0.94)");
-    backdrop.setAttribute("stroke", "#ff9e99");
+    backdrop.setAttribute("fill", status === "broken" ? "rgba(78, 12, 15, 0.97)" : "rgba(132, 27, 27, 0.94)");
+    backdrop.setAttribute("stroke", status === "broken" ? "#ffcbc6" : "#ff9e99");
     group.appendChild(backdrop);
 
     const cross = document.createElementNS(SVG_NS, "path");
@@ -3394,6 +3542,16 @@ export class HexMapRenderer implements IMapRenderer {
     cross.setAttribute("stroke-width", "1.35");
     cross.setAttribute("stroke-linecap", "round");
     group.appendChild(cross);
+
+    if (status === "broken") {
+      const lowerBar = document.createElementNS(SVG_NS, "path");
+      lowerBar.setAttribute("d", `M ${x - 2.8} ${y + 3.4} L ${x + 2.8} ${y + 3.4}`);
+      lowerBar.setAttribute("fill", "none");
+      lowerBar.setAttribute("stroke", "#fff1ef");
+      lowerBar.setAttribute("stroke-width", "1.2");
+      lowerBar.setAttribute("stroke-linecap", "round");
+      group.appendChild(lowerBar);
+    }
 
     return group;
   }
@@ -4160,14 +4318,15 @@ export class HexMapRenderer implements IMapRenderer {
 
     // Calculate and set suppression/sentry state on main unit-stack group
     const primaryUnit = primaryMember.unit;
-    const suppressorCount = primaryUnit.suppressedBy?.length ?? 0;
-    const suppressionState = suppressorCount >= 2 ? "pinned" : suppressorCount === 1 ? "suppressed" : "clear";
+    const suppressionState = this.resolveRenderedSuppressionState(primaryUnit);
     group.dataset.suppressionState = suppressionState;
     group.dataset.sentryState = primaryUnit.onSentry ? "on" : "off";
     group.dataset.entrenchLevel = String(Math.max(0, Math.min(2, Math.round(primaryUnit.entrench ?? 0))));
 
-    if (suppressionState === "suppressed" || suppressionState === "pinned") {
-      group.classList.add(suppressionState === "pinned" ? "unit-stack--pinned" : "unit-stack--suppressed");
+    if (suppressionState === "suppressed") {
+      group.classList.add("unit-stack--suppressed");
+    } else if (suppressionState === "pinned" || suppressionState === "broken") {
+      group.classList.add(suppressionState === "broken" ? "unit-stack--broken" : "unit-stack--pinned");
     }
 
     this.positionUnitStack(group, cx, cy);
@@ -5336,9 +5495,11 @@ export class HexMapRenderer implements IMapRenderer {
       Math.min(distance, 28)
     );
     const visibleRatio = this.clamp(visibleLengthPx / distance, 0.04, 0.48);
+    const wake = document.createElementNS(SVG_NS, "line");
     const glow = document.createElementNS(SVG_NS, "line");
     const tracer = document.createElementNS(SVG_NS, "line");
-    [glow, tracer].forEach((line) => {
+    const headFlare = document.createElementNS(SVG_NS, "ellipse");
+    [wake, glow, tracer].forEach((line) => {
       line.setAttribute("x1", String(start.cx));
       line.setAttribute("y1", String(start.cy));
       line.setAttribute("x2", String(start.cx));
@@ -5347,20 +5508,30 @@ export class HexMapRenderer implements IMapRenderer {
       line.setAttribute("vector-effect", "non-scaling-stroke");
       line.style.opacity = "0";
     });
+    wake.setAttribute("stroke", options.reverse ? "#fff6d2" : "#ffc15a");
+    wake.setAttribute("stroke-width", String(Math.max(strokeWidth * 1.25, strokeWidth + 0.35)));
     glow.setAttribute("stroke", options.reverse ? "#ffe39a" : "#ff9d1f");
-    glow.setAttribute("stroke-width", String(Math.max(strokeWidth * 1.8, strokeWidth + 0.6)));
+    glow.setAttribute("stroke-width", String(Math.max(strokeWidth * 2.8, strokeWidth + 0.9)));
     glow.style.opacity = "0";
     tracer.setAttribute("stroke", strokeColor);
     tracer.setAttribute("stroke-width", String(strokeWidth));
+    headFlare.setAttribute("fill", options.reverse ? "#fff8df" : "#fff1b8");
+    headFlare.setAttribute("rx", String(Math.max(0.8, strokeWidth * 1.25)));
+    headFlare.setAttribute("ry", String(Math.max(0.42, strokeWidth * 0.62)));
+    headFlare.setAttribute("vector-effect", "non-scaling-stroke");
+    headFlare.style.opacity = "0";
 
+    effectsLayer.appendChild(wake);
     effectsLayer.appendChild(glow);
     effectsLayer.appendChild(tracer);
+    effectsLayer.appendChild(headFlare);
 
     const animationStart = performance.now();
     const step = (now: number) => {
       const progress = Math.min(1, (now - animationStart) / lifetimeMs);
       const headProgress = this.clamp(progress * 1.42, 0, 1);
       const tailProgress = this.clamp(headProgress - visibleRatio, 0, 1);
+      const wakeProgress = this.clamp(headProgress - visibleRatio * 2.75, 0, 1);
       const head = {
         cx: start.cx + (end.cx - start.cx) * headProgress,
         cy: start.cy + (end.cy - start.cy) * headProgress
@@ -5368,6 +5539,10 @@ export class HexMapRenderer implements IMapRenderer {
       const tail = {
         cx: start.cx + (end.cx - start.cx) * tailProgress,
         cy: start.cy + (end.cy - start.cy) * tailProgress
+      };
+      const wakeTail = {
+        cx: start.cx + (end.cx - start.cx) * wakeProgress,
+        cy: start.cy + (end.cy - start.cy) * wakeProgress
       };
       const rise = this.clamp(progress / 0.04, 0, 1);
       const decay = progress < 0.26 ? 1 : 1 - (progress - 0.26) / 0.74;
@@ -5378,11 +5553,22 @@ export class HexMapRenderer implements IMapRenderer {
         line.setAttribute("x2", String(head.cx));
         line.setAttribute("y2", String(head.cy));
       });
-      glow.style.opacity = `${0.18 * opacity}`;
+      wake.setAttribute("x1", String(wakeTail.cx));
+      wake.setAttribute("y1", String(wakeTail.cy));
+      wake.setAttribute("x2", String(tail.cx));
+      wake.setAttribute("y2", String(tail.cy));
+      wake.style.opacity = `${0.2 * opacity}`;
+      glow.style.opacity = `${0.24 * opacity}`;
       tracer.style.opacity = `${0.98 * opacity}`;
+      headFlare.setAttribute("cx", String(head.cx));
+      headFlare.setAttribute("cy", String(head.cy));
+      headFlare.setAttribute("transform", `rotate(${Math.atan2(end.cy - start.cy, end.cx - start.cx) * 180 / Math.PI} ${head.cx} ${head.cy})`);
+      headFlare.style.opacity = `${0.82 * opacity}`;
       if (progress >= 1) {
+        wake.remove();
         glow.remove();
         tracer.remove();
+        headFlare.remove();
         return;
       }
       window.requestAnimationFrame(step);
@@ -10119,8 +10305,9 @@ export class HexMapRenderer implements IMapRenderer {
               : point.cy + actor.biasY
         })),
         headingBlend,
-        progressOffset:
-          (actor.formationIndex - (flight.actors.length - 1) / 2) * 0.018,
+        // Formation spread must stay spatial. Per-aircraft progress offsets make
+        // actors on the same governed rail visibly accelerate/decelerate.
+        progressOffset: 0,
         multiFlightOffsetPx
       }));
   }
@@ -11608,36 +11795,6 @@ export class HexMapRenderer implements IMapRenderer {
       }
       return best;
     };
-    const resolveShockEntryProgressTimeline = (
-      points: ReadonlyArray<AirShowPoint>,
-      durationMs: number,
-      entryTurnDeg: number
-    ): ReadonlyArray<AirShowAssignmentProgressKeyframe> | undefined => {
-      if (points.length < 3 || durationMs <= 0 || entryTurnDeg <= maxTurnDeg) {
-        return undefined;
-      }
-      const totalLengthPx = this.measureAirShowPathLength(points);
-      if (!Number.isFinite(totalLengthPx) || totalLengthPx <= 24) {
-        return undefined;
-      }
-      const earlyPointCount = Math.min(points.length, entryTurnDeg >= 150 ? 5 : 4);
-      const earlyLeadLengthPx = this.measureAirShowPathLength(points.slice(0, earlyPointCount));
-      const earlyProgress = this.clamp(earlyLeadLengthPx / totalLengthPx, 0.08, 0.24);
-      const earlyTimeMs = Math.round(durationMs * (entryTurnDeg >= 150 ? 0.24 : 0.18));
-      const settleTimeMs = Math.round(durationMs * (entryTurnDeg >= 150 ? 0.46 : 0.38));
-      if (earlyTimeMs <= 0 || settleTimeMs <= earlyTimeMs) {
-        return undefined;
-      }
-      return [
-        { timeMs: 0, progress: 0 },
-        { timeMs: earlyTimeMs, progress: this.clamp(earlyProgress * 0.7, 0.06, 0.18) },
-        {
-          timeMs: settleTimeMs,
-          progress: this.clamp(Math.max(earlyProgress + 0.16, earlyProgress * 1.65), 0.28, 0.56)
-        },
-        { timeMs: durationMs, progress: 1 }
-      ];
-    };
     const contestedInterceptorRolesPresent =
       currentAssignments.some((candidate) => candidate.actor.role === "interceptor")
       || previousAssignments.some((candidate) => candidate.actor.role === "interceptor");
@@ -11854,15 +12011,10 @@ export class HexMapRenderer implements IMapRenderer {
           })
         : resolvedAdjustedPoints;
       const finalPoints = roleScopedAdjustedPoints.length >= 2 ? roleScopedAdjustedPoints : adjustedPoints;
-      const shockEntryTimeline = resolveShockEntryProgressTimeline(
-        finalPoints,
-        currentDurationMs,
-        entryTurnDeg
-      );
       return {
         ...assignment,
         points: finalPoints,
-        progressTimeline: shockEntryTimeline ?? assignment.progressTimeline
+        progressTimeline: assignment.progressTimeline
       };
     });
     const smoothedAssignments = this.smoothAirShowAssignmentEntries(
@@ -14420,9 +14572,16 @@ export class HexMapRenderer implements IMapRenderer {
 
   /**
    * Plays an explosion animation at the defender's hex.
-   * Uses small explosion for infantry, large for tanks/vehicles.
+   * Large bombing calls fan out into a stick of smaller impacts.
    */
   async playExplosion(defenderHexKey: string, isLargeExplosion: boolean = false): Promise<void> {
+    if (isLargeExplosion) {
+      console.log(`[HexMapRenderer] playExplosion called - hex: ${defenderHexKey}, type: bombStick`);
+      await this.playBombImpactStick(defenderHexKey, "Bomber", this.getUnitClassAt(defenderHexKey));
+      console.log(`[HexMapRenderer] playExplosion completed for hex: ${defenderHexKey}`);
+      return;
+    }
+
     const animType = isLargeExplosion ? "explosionLarge" : "explosionSmall";
     const scale = isLargeExplosion ? 1.6 : 1.2;
     console.log(`[HexMapRenderer] playExplosion called - hex: ${defenderHexKey}, type: ${animType}, scale: ${scale}`);
@@ -14470,7 +14629,7 @@ export class HexMapRenderer implements IMapRenderer {
     await this.playDustCloud(hexKey);
   }
 
-  /** Renders a fast, thin tracer streak from attacker to defender and removes it quickly. */
+  /** Renders a fast, layered tracer streak from attacker to defender and removes it quickly. */
   private async playProjectileTracer(
     attackerHexKey: string,
     defenderHexKey: string,
@@ -14495,7 +14654,10 @@ export class HexMapRenderer implements IMapRenderer {
 
     const dx = b.cx - a.cx;
     const dy = b.cy - a.cy;
-    const length = Math.hypot(dx, dy);
+    const baseLength = Math.hypot(dx, dy);
+    if (baseLength <= 0.001) {
+      return;
+    }
 
     const style = options?.style ?? this.chooseTracerStyle(this.getUnitClassAt(attackerHexKey));
 
@@ -14510,36 +14672,101 @@ export class HexMapRenderer implements IMapRenderer {
     const x2 = b.cx + endJx;
     const y2 = b.cy + endJy;
 
-    const line = document.createElementNS(SVG_NS, "line");
-    line.setAttribute("x1", String(x1));
-    line.setAttribute("y1", String(y1));
-    line.setAttribute("x2", String(x2));
-    line.setAttribute("y2", String(y2));
-    line.setAttribute("stroke", style.color);
-    line.setAttribute("stroke-width", String(style.width));
-    line.setAttribute("stroke-linecap", "round");
-    line.style.pointerEvents = "none";
-    line.style.opacity = "1";
-    // Animate a short dash that travels along the path rather than drawing the entire beam.
+    const shotDx = x2 - x1;
+    const shotDy = y2 - y1;
+    const length = Math.max(1, Math.hypot(shotDx, shotDy));
+    const unitX = shotDx / length;
+    const unitY = shotDy / length;
+    const normalX = -unitY;
+    const normalY = unitX;
+    const angleDeg = Math.atan2(shotDy, shotDx) * 180 / Math.PI;
     const segScalar = options?.segLenScalar ?? 0.18;
-    const segLen = this.clamp(length * segScalar, 6, 24);
-    line.style.strokeDasharray = `${segLen} ${length}`;
-    line.style.strokeDashoffset = String(length + segLen);
-    layer.appendChild(line);
+    const coreLength = this.clamp(length * segScalar, 6, 24);
+    const wakeLength = this.clamp(coreLength * 2.8, coreLength + 8, 58);
+    const travelMs = Math.max(30, durationMs);
+
+    const group = document.createElementNS(SVG_NS, "g");
+    group.classList.add("combat-projectile-tracer");
+    group.style.pointerEvents = "none";
+
+    const createLine = (stroke: string, width: number, opacity: number): SVGLineElement => {
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", String(x1));
+      line.setAttribute("y1", String(y1));
+      line.setAttribute("x2", String(x1));
+      line.setAttribute("y2", String(y1));
+      line.setAttribute("stroke", stroke);
+      line.setAttribute("stroke-width", String(width));
+      line.setAttribute("stroke-linecap", "round");
+      line.setAttribute("vector-effect", "non-scaling-stroke");
+      line.style.opacity = String(opacity);
+      group.appendChild(line);
+      return line;
+    };
+
+    const wake = createLine(style.color, Math.max(style.width * 1.25, style.width + 0.45), 0);
+    const glow = createLine(style.color, Math.max(style.width * 3.1, style.width + 1.4), 0);
+    const core = createLine(style.color, style.width, 0);
+    const hotCore = createLine("#fff7d0", Math.max(0.46, style.width * 0.46), 0);
+
+    const head = document.createElementNS(SVG_NS, "ellipse");
+    head.setAttribute("fill", "#fff4c7");
+    head.setAttribute("rx", String(Math.max(1, style.width * 1.35)));
+    head.setAttribute("ry", String(Math.max(0.45, style.width * 0.62)));
+    head.style.opacity = "0";
+    group.appendChild(head);
+    layer.appendChild(group);
+
+    const setSegment = (
+      line: SVGLineElement,
+      fromDistance: number,
+      toDistance: number,
+      lateralOffset = 0
+    ): void => {
+      const from = this.clamp(fromDistance, 0, length);
+      const to = this.clamp(toDistance, 0, length);
+      line.setAttribute("x1", String(x1 + unitX * from + normalX * lateralOffset));
+      line.setAttribute("y1", String(y1 + unitY * from + normalY * lateralOffset));
+      line.setAttribute("x2", String(x1 + unitX * to + normalX * lateralOffset));
+      line.setAttribute("y2", String(y1 + unitY * to + normalY * lateralOffset));
+    };
 
     return new Promise((resolve) => {
-      requestAnimationFrame(() => {
-        line.style.transition = `stroke-dashoffset ${durationMs}ms linear`;
-        line.style.strokeDashoffset = "0";
-        window.setTimeout(() => {
-          line.style.transition = `opacity 60ms ease-out`;
-          line.style.opacity = "0";
-          window.setTimeout(() => {
-            line.remove();
-            resolve();
-          }, 70);
-        }, durationMs);
-      });
+      const startTime = performance.now();
+      const step: FrameRequestCallback = (now) => {
+        const progress = this.clamp((now - startTime) / travelMs, 0, 1);
+        const headDistance = this.clamp(progress * (length + coreLength) - coreLength * 0.35, 0, length);
+        const tailDistance = headDistance - coreLength;
+        const wakeTailDistance = headDistance - wakeLength;
+        const rise = this.clamp(progress / 0.12, 0, 1);
+        const fade = progress < 0.72 ? 1 : this.clamp(1 - (progress - 0.72) / 0.28, 0, 1);
+        const opacity = rise * fade;
+
+        setSegment(wake, wakeTailDistance, tailDistance, 0);
+        setSegment(glow, tailDistance, headDistance, 0);
+        setSegment(core, tailDistance, headDistance, 0);
+        setSegment(hotCore, Math.max(tailDistance, headDistance - coreLength * 0.54), headDistance, 0);
+        wake.style.opacity = String(0.18 * opacity);
+        glow.style.opacity = String(0.2 * opacity);
+        core.style.opacity = String(0.94 * opacity);
+        hotCore.style.opacity = String(0.9 * opacity);
+
+        const headX = x1 + unitX * headDistance;
+        const headY = y1 + unitY * headDistance;
+        head.setAttribute("cx", String(headX));
+        head.setAttribute("cy", String(headY));
+        head.setAttribute("transform", `rotate(${angleDeg} ${headX} ${headY})`);
+        head.style.opacity = String(0.78 * opacity);
+
+        if (progress >= 1) {
+          group.remove();
+          resolve();
+          return;
+        }
+
+        this.scheduleAnimationFrame(step);
+      };
+      this.scheduleAnimationFrame(step);
     });
   }
 
@@ -14739,6 +14966,130 @@ export class HexMapRenderer implements IMapRenderer {
     await Promise.all(burstPromises);
   }
 
+  private resolveBombImpactPattern(attackerType?: string, defenderClass?: UnitClass): BombImpactPattern {
+    const defenderIsAir = defenderClass === "air";
+    const hardTargetScale = defenderClass === "vehicle" || defenderClass === "tank" ? 1.06 : 1;
+
+    if (defenderIsAir) {
+      return {
+        impacts: [
+          { offsetX: -8, offsetY: -4, scale: 0.84 },
+          { offsetX: 8, offsetY: 3, scale: 0.7 }
+        ],
+        staggerMs: 70,
+        projectileDurationMs: 520,
+        projectileStaggerMs: 64,
+        projectileRadius: 2.1,
+        projectileArcHeight: 44,
+        projectileCount: 2,
+        dustScale: 0
+      };
+    }
+
+    if (attackerType === "Bomber") {
+      return {
+        impacts: [
+          { offsetX: -31, offsetY: -9, scale: 0.96 * hardTargetScale },
+          { offsetX: -15, offsetY: 7, scale: 0.82 * hardTargetScale },
+          { offsetX: 2, offsetY: -5, scale: 0.9 * hardTargetScale },
+          { offsetX: 18, offsetY: 8, scale: 0.84 * hardTargetScale },
+          { offsetX: 32, offsetY: -3, scale: 0.76 * hardTargetScale }
+        ],
+        staggerMs: 86,
+        projectileDurationMs: 650,
+        projectileStaggerMs: 66,
+        projectileRadius: 2.35,
+        projectileArcHeight: 58,
+        projectileCount: 4,
+        dustScale: 1.18
+      };
+    }
+
+    return {
+      impacts: [
+        { offsetX: -17, offsetY: -6, scale: 0.86 * hardTargetScale },
+        { offsetX: 3, offsetY: 7, scale: 0.78 * hardTargetScale },
+        { offsetX: 19, offsetY: -2, scale: 0.72 * hardTargetScale }
+      ],
+      staggerMs: 78,
+      projectileDurationMs: 560,
+      projectileStaggerMs: 72,
+      projectileRadius: 2.05,
+      projectileArcHeight: 46,
+      projectileCount: 2,
+      dustScale: 1.04
+    };
+  }
+
+  private createBombImpactSoundRequest(attackerType: string | undefined, impactIndex: number): QueuedWeaponSoundRequest | false {
+    if (impactIndex === 0) {
+      return {
+        weaponClass: attackerType === "Bomber" ? "large_bomb" : "small_bomb",
+        targetMaterial: "earth",
+        playbackMode: "impact_only",
+        gainMultiplier: attackerType === "Bomber" ? 0.62 : 0.54
+      };
+    }
+
+    if (attackerType === "Bomber" && impactIndex === 2) {
+      return {
+        weaponClass: "small_bomb",
+        targetMaterial: "earth",
+        playbackMode: "impact_only",
+        gainMultiplier: 0.36
+      };
+    }
+
+    return false;
+  }
+
+  private async playBombImpactStick(
+    defenderHexKey: string,
+    attackerType?: string,
+    defenderClass?: UnitClass,
+    pattern: BombImpactPattern = this.resolveBombImpactPattern(attackerType, defenderClass)
+  ): Promise<void> {
+    const impactPromises = pattern.impacts.map((impact, index) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          void this.playCombatAnimation(
+            "explosionSmall",
+            defenderHexKey,
+            impact.offsetX,
+            impact.offsetY,
+            impact.scale,
+            this.createBombImpactSoundRequest(attackerType, index)
+          ).then(() => resolve());
+        }, index * pattern.staggerMs);
+      })
+    );
+
+    await Promise.all(impactPromises);
+  }
+
+  private async playBombReleaseArcs(
+    attackerHexKey: string,
+    defenderHexKey: string,
+    pattern: BombImpactPattern
+  ): Promise<void> {
+    const projectileImpacts = pattern.impacts.slice(0, Math.min(pattern.projectileCount, pattern.impacts.length));
+    const projectilePromises = projectileImpacts.map((impact, index) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          void this.playArcedProjectile(attackerHexKey, defenderHexKey, pattern.projectileDurationMs, {
+            color: "#2b2b2b",
+            radius: pattern.projectileRadius,
+            arcHeight: pattern.projectileArcHeight + index * 3,
+            targetOffsetX: impact.offsetX,
+            targetOffsetY: impact.offsetY
+          }).then(() => resolve());
+        }, index * pattern.projectileStaggerMs);
+      })
+    );
+
+    await Promise.all(projectilePromises);
+  }
+
   private async playArtilleryImpactBurst(
     defenderHexKey: string,
     targetIsHardTarget: boolean,
@@ -14857,14 +15208,14 @@ export class HexMapRenderer implements IMapRenderer {
 
     const defenderElement = this.hexElementMap.get(defenderHexKey);
     const defenderCenter = defenderElement ? this.extractHexCenter(defenderElement) : null;
-    const flashRadius = HEX_RADIUS * (useArcingArtilleryVisuals || useAirBombingVisuals ? 1.55 : targetIsHardTarget ? 1.25 : 1.0);
-    const flashIntensity = useArcingArtilleryVisuals || useAirBombingVisuals ? 0.62 : targetIsHardTarget ? 0.55 : 0.4;
+    const flashRadius = HEX_RADIUS * (useArcingArtilleryVisuals ? 1.55 : useAirBombingVisuals ? 1.08 : targetIsHardTarget ? 1.25 : 1.0);
+    const flashIntensity = useArcingArtilleryVisuals ? 0.62 : useAirBombingVisuals ? 0.38 : targetIsHardTarget ? 0.55 : 0.4;
     const flashOverlayPromise = !suppressImpactFlash && defenderCenter
       ? this.playFlashOverlay(
           defenderCenter,
           flashRadius,
           flashIntensity,
-          useArcingArtilleryVisuals || useAirBombingVisuals ? 210 : targetIsHardTarget ? 160 : 130
+          useArcingArtilleryVisuals ? 210 : useAirBombingVisuals ? 150 : targetIsHardTarget ? 160 : 130
         )
       : Promise.resolve();
 
@@ -14933,20 +15284,13 @@ export class HexMapRenderer implements IMapRenderer {
     }
 
     if (useAirBombingVisuals) {
-      const bombPromise = this.playArcedProjectile(attackerHexKey, defenderHexKey, 720, {
-        color: "#2b2b2b",
-        radius: 3.8,
-        arcHeight: 72
-      });
+      const bombPattern = this.resolveBombImpactPattern(attackerType, defenderClass);
+      const bombPromise = this.playBombReleaseArcs(attackerHexKey, defenderHexKey, bombPattern);
 
-      await new Promise((resolve) => setTimeout(resolve, 420));
+      await new Promise((resolve) => setTimeout(resolve, attackerType === "Bomber" ? 360 : 320));
 
-      const hitShakePromise = this.playHitShake(defenderHexKey, defenderIsAir ? 8 : targetIsHardTarget ? 7 : 6);
-
-      const impactAnim = defenderIsAir ? "explosionSmall" : "explosionLarge";
-      const baseImpactScale = attackerType === "Bomber" ? 2.6 : 2.25;
-      const impactScale = defenderIsAir ? 1.75 : targetIsHardTarget ? baseImpactScale * 1.05 : baseImpactScale;
-      const impactPromise = this.playCombatAnimation(impactAnim, defenderHexKey, 0, 0, impactScale);
+      const hitShakePromise = this.playHitShake(defenderHexKey, defenderIsAir ? 6 : targetIsHardTarget ? 6 : 5);
+      const impactPromise = this.playBombImpactStick(defenderHexKey, attackerType, defenderClass, bombPattern);
 
       const sparksPromise = !defenderIsAir && targetIsHardTarget
         ? this.playSparkBurst(defenderHexKey, {
@@ -14954,16 +15298,16 @@ export class HexMapRenderer implements IMapRenderer {
             attackerType,
             attackerClass,
             defenderClass,
-            durationMs: 160,
-            burstCount: 3,
-            scaleMultiplier: 1.18
+            durationMs: 140,
+            burstCount: attackerType === "Bomber" ? 2 : 1,
+            scaleMultiplier: 0.9
           })
         : Promise.resolve();
       const dustPromise = !defenderIsAir
         ? new Promise<void>((resolve) => {
             window.setTimeout(() => {
-              void this.playCombatAnimation("dustCloud", defenderHexKey, 0, 0, 1.8).then(() => resolve());
-            }, 90);
+              void this.playCombatAnimation("dustCloud", defenderHexKey, 0, 0, bombPattern.dustScale).then(() => resolve());
+            }, 120);
           })
         : Promise.resolve();
 
