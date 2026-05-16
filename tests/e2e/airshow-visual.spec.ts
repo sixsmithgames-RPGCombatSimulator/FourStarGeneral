@@ -47,17 +47,23 @@ async function expectPaintedPhaseMotionFrame(
   page: Page,
   testInfo: TestInfo,
   phaseLabel: string,
-  snapshotName: string
+  snapshotName: string,
+  progress = PAINTED_FRAME_PROGRESS
 ): Promise<void> {
   prepareLatestPaintedFrameDir();
-  await pauseScenarioAtPhaseProgress(page, phaseLabel, PAINTED_FRAME_PROGRESS);
+  await pauseScenarioAtPhaseProgress(page, phaseLabel, progress);
   const snapshotState = await page.evaluate(() => {
     const svg = document.getElementById("battleHexMap");
     if (!svg) {
       return null;
     }
     document.querySelectorAll<SVGGElement>(".combat-effects-layer").forEach((layer) => {
-      layer.style.visibility = "hidden";
+      Array.from(layer.children).forEach((child) => {
+        if (child.getAttribute("data-testid") === "airshow-actor") {
+          return;
+        }
+        (child as SVGElement).style.visibility = "hidden";
+      });
     });
     const rect = svg.getBoundingClientRect();
     const activeActors = Array.from(
@@ -77,9 +83,12 @@ async function expectPaintedPhaseMotionFrame(
       );
     });
     const visibleActorCount = activeActors.filter((actor) => {
+      const style = window.getComputedStyle(actor);
       const actorRect = actor.getBoundingClientRect();
       return (
-        actorRect.right > rect.left
+        style.visibility !== "hidden"
+        && style.display !== "none"
+        && actorRect.right > rect.left
         && actorRect.left < rect.right
         && actorRect.bottom > rect.top
         && actorRect.top < rect.bottom
@@ -520,7 +529,7 @@ test.describe("AirShow Browser Harness", () => {
     test("captures painted target run frame @painted-frame", async ({ page, browserName }, testInfo) => {
       test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
       test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
-      await expectPaintedPhaseMotionFrame(page, testInfo, "target-run", "airshow-painted-target-run-mid.png");
+      await expectPaintedPhaseMotionFrame(page, testInfo, "target-run", "airshow-painted-target-run-mid.png", 0.35);
     });
 
     test("captures painted escort clash scramble frame @painted-frame", async ({ page, browserName }, testInfo) => {

@@ -170,8 +170,10 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_SPEED_DIFFERENTIATION", async ({ Given,
       throw new Error("Expected fighter and bomber assignments.");
     }
 
-    // Calculate ACTUAL observed speeds from position samples
-    function calcAvgSpeed(samples: ReadonlyArray<{ cx: number; cy: number; timeMs: number }>): number {
+    // Calculate ACTUAL observed speeds from moving samples. Fighter ingress may
+    // include a deterministic origin hold before release; the governed speed is
+    // the moving rail segment, not the pre-release wait.
+    function calcMovingAvgSpeed(samples: ReadonlyArray<{ cx: number; cy: number; timeMs: number }>): number {
       if (samples.length < 3) return 0;
       let totalDistance = 0;
       let totalTime = 0;
@@ -179,16 +181,17 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_SPEED_DIFFERENTIATION", async ({ Given,
         const dx = samples[i].cx - samples[i - 1].cx;
         const dy = samples[i].cy - samples[i - 1].cy;
         const dt = samples[i].timeMs - samples[i - 1].timeMs;
-        if (dt > 0) {
-          totalDistance += Math.hypot(dx, dy);
+        const distance = Math.hypot(dx, dy);
+        if (dt > 0 && distance > 0.5) {
+          totalDistance += distance;
           totalTime += dt;
         }
       }
       return totalTime > 0 ? totalDistance / totalTime : 0;
     }
 
-    const fighterSpeed = calcAvgSpeed(fighterAssignment.sampledPositions);
-    const bomberSpeed = calcAvgSpeed(bomberAssignment.sampledPositions);
+    const fighterSpeed = calcMovingAvgSpeed(fighterAssignment.sampledPositions);
+    const bomberSpeed = calcMovingAvgSpeed(bomberAssignment.sampledPositions);
 
     console.log(`[REGRESSION: SPEED] Fighter actual speed: ${fighterSpeed.toFixed(3)} px/ms`);
     console.log(`[REGRESSION: SPEED] Bomber actual speed: ${bomberSpeed.toFixed(3)} px/ms`);

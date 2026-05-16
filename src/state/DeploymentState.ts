@@ -4,7 +4,7 @@ import { createScenarioUnitFromTemplate, deploymentTemplates, findTemplateForUni
 import { getSpriteForAllocationKey, getSpriteForScenarioType } from "../data/unitSpriteCatalog";
 import { getAllocationOption } from "../data/unitAllocation";
 import type { GameEngineAPI, ReserveUnit } from "../game/GameEngine";
-import unitTypesSource from "../data/unitTypes.json";
+import unitTypesSource from "../data/unitSystem/derivedUnitTypes";
 
  function axialToOffsetKey(hex: { q: number; r: number }): string {
   const col = hex.q;

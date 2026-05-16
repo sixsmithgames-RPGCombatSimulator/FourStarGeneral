@@ -3,6 +3,7 @@ import { registerTest } from "./harness.js";
 import { PrecombatScreen } from "../src/ui/screens/PrecombatScreen";
 import type { IScreenManager } from "../src/contracts/IScreenManager";
 import { BattleState } from "../src/state/BattleState";
+import { ensureTutorialState } from "../src/state/TutorialState";
 
 function mountPrecombatDom(): void {
   document.body.innerHTML = `
@@ -99,6 +100,7 @@ registerTest("PRECOMBAT_HONORS_EXPLICIT_CONVOY_RESTRICTIONS", async ({ Given, Wh
   let screen: PrecombatScreen;
   let convoyVisible = true;
   let convoyCount = 1;
+  let previousRestrictedUnits: string[] | undefined;
 
   await Given("a mission that explicitly restricts supply convoys", async () => {
     screen = createScreen();
@@ -114,6 +116,9 @@ registerTest("PRECOMBAT_HONORS_EXPLICIT_CONVOY_RESTRICTIONS", async ({ Given, Wh
       allocationLogisticsList: HTMLElement;
     };
 
+    previousRestrictedUnits = Array.isArray(internals.scenarioSource.restrictedUnits)
+      ? [...internals.scenarioSource.restrictedUnits]
+      : undefined;
     internals.scenarioSource.restrictedUnits = ["supplyConvoy"];
     internals.allocationCounts.set("supplyConvoy", 0);
     internals.seedRecommendedLogisticsAllocations();
@@ -133,6 +138,16 @@ registerTest("PRECOMBAT_HONORS_EXPLICIT_CONVOY_RESTRICTIONS", async ({ Given, Wh
     }
     if (convoyCount !== 0) {
       throw new Error(`Expected explicit convoy restriction to keep the count at 0, saw ${convoyCount}.`);
+    }
+    const internals = screen as unknown as {
+      scenarioSource: {
+        restrictedUnits?: string[];
+      };
+    };
+    if (previousRestrictedUnits) {
+      internals.scenarioSource.restrictedUnits = previousRestrictedUnits;
+    } else {
+      delete internals.scenarioSource.restrictedUnits;
     }
     document.body.innerHTML = "";
   });
@@ -170,6 +185,177 @@ registerTest("PRECOMBAT_SUPPLY_REQUISITIONS_CONVERT_TO_REAL_DEPOT_PACKAGES", asy
     }
     if (depotFuel !== 54) {
       throw new Error(`Expected one fuel dump to seed 54 depot fuel, received ${depotFuel}.`);
+    }
+    document.body.innerHTML = "";
+  });
+});
+
+registerTest("PRECOMBAT_TRAINING_PRESET_APPLIES_FULL_ALLOCATION_PACKAGE", async ({ Given, When, Then }) => {
+  let screen: PrecombatScreen;
+  let actionButton: HTMLButtonElement;
+  const countsAfterPreset = new Map<string, number>();
+  let initialLabel = "";
+  let appliedLabel = "";
+  let resetLabel = "";
+  let spendAfterPreset = 0;
+  let spendAfterReset = 0;
+  let proceedDisabledAfterPreset = true;
+
+  await Given("the Training requisition screen is freshly opened", async () => {
+    screen = createScreen();
+    screen.setup("training", null, "Normal");
+    actionButton = document.getElementById("resetAllocations") as HTMLButtonElement;
+    initialLabel = actionButton.textContent?.trim() ?? "";
+  });
+
+  await When("the commander applies the Training preset", async () => {
+    actionButton.click();
+    const internals = screen as unknown as {
+      allocationCounts: Map<string, number>;
+      calculateSpend: () => number;
+      proceedToBattleButton: HTMLButtonElement;
+    };
+    [
+      "infantry",
+      "engineer",
+      "tank",
+      "heavyTankCompany",
+      "tankDestroyerCompany",
+      "flakBattery",
+      "reconBike",
+      "supplyConvoy",
+      "ammo",
+      "medic",
+      "maintenance"
+    ].forEach((key) => countsAfterPreset.set(key, internals.allocationCounts.get(key) ?? 0));
+    spendAfterPreset = internals.calculateSpend();
+    proceedDisabledAfterPreset = internals.proceedToBattleButton.disabled;
+    appliedLabel = actionButton.textContent?.trim() ?? "";
+
+    actionButton.click();
+    spendAfterReset = internals.calculateSpend();
+    resetLabel = actionButton.textContent?.trim() ?? "";
+  });
+
+  await Then("the exact 1,200 RP package is selected and reset returns to the pristine preset offer", async () => {
+    const expectedCounts = new Map<string, number>([
+      ["infantry", 3],
+      ["engineer", 1],
+      ["tank", 1],
+      ["heavyTankCompany", 1],
+      ["tankDestroyerCompany", 1],
+      ["flakBattery", 2],
+      ["reconBike", 1],
+      ["supplyConvoy", 1],
+      ["ammo", 1],
+      ["medic", 1],
+      ["maintenance", 1]
+    ]);
+
+    if (initialLabel !== "Use Preset Allocations") {
+      throw new Error(`Expected pristine Training button to offer presets, saw "${initialLabel}".`);
+    }
+    if (appliedLabel !== "Reset Allocations") {
+      throw new Error(`Expected applied preset to flip the action to reset, saw "${appliedLabel}".`);
+    }
+    for (const [key, expected] of expectedCounts.entries()) {
+      const actual = countsAfterPreset.get(key);
+      if (actual !== expected) {
+        throw new Error(`Expected Training preset ${key} count ${expected}, saw ${actual}.`);
+      }
+    }
+    if (spendAfterPreset !== 1200) {
+      throw new Error(`Expected Training preset to spend exactly 1,200 RP, saw ${spendAfterPreset}.`);
+    }
+    if (proceedDisabledAfterPreset) {
+      throw new Error("Expected Training preset to satisfy proceed gating.");
+    }
+    if (resetLabel !== "Use Preset Allocations") {
+      throw new Error(`Expected reset to restore the preset offer, saw "${resetLabel}".`);
+    }
+    if (spendAfterReset !== 40) {
+      throw new Error(`Expected reset to leave only the default supply convoy at 40 RP, saw ${spendAfterReset}.`);
+    }
+
+    ensureTutorialState().endTutorial();
+    document.body.innerHTML = "";
+  });
+});
+
+registerTest("PRECOMBAT_TRAINING_MANUAL_ALLOCATION_FLIPS_PRESET_BUTTON_TO_RESET", async ({ Given, When, Then }) => {
+  let screen: PrecombatScreen;
+  let initialLabel = "";
+  let manualLabel = "";
+
+  await Given("the Training requisition screen is pristine", async () => {
+    screen = createScreen();
+    screen.setup("training", null, "Normal");
+    initialLabel = (document.getElementById("resetAllocations") as HTMLButtonElement).textContent?.trim() ?? "";
+  });
+
+  await When("the commander manually changes an allocation", async () => {
+    const internals = screen as unknown as {
+      handleAllocationAdjustment: (optionKey: string, delta: number) => void;
+    };
+    internals.handleAllocationAdjustment("infantry", 1);
+    manualLabel = (document.getElementById("resetAllocations") as HTMLButtonElement).textContent?.trim() ?? "";
+  });
+
+  await Then("the preset offer is replaced by the reset action", async () => {
+    if (initialLabel !== "Use Preset Allocations") {
+      throw new Error(`Expected pristine Training button to offer presets, saw "${initialLabel}".`);
+    }
+    if (manualLabel !== "Reset Allocations") {
+      throw new Error(`Expected manual allocation to flip the action to reset, saw "${manualLabel}".`);
+    }
+
+    ensureTutorialState().endTutorial();
+    document.body.innerHTML = "";
+  });
+});
+
+registerTest("PRECOMBAT_TOWN_DEFENSE_PRESET_APPLIES_FLAK_ARTILLERY_AND_INTERCEPTORS", async ({ Given, When, Then }) => {
+  let screen: PrecombatScreen;
+  let initialLabel = "";
+  let appliedLabel = "";
+  let flakCount = 0;
+  let howitzerCount = 0;
+  let interceptorCount = 0;
+
+  await Given("the Town Defense requisition screen is freshly opened", async () => {
+    screen = createScreen();
+    screen.setup("patrol", null, "Normal");
+    initialLabel = (document.getElementById("resetAllocations") as HTMLButtonElement).textContent?.trim() ?? "";
+  });
+
+  await When("the commander applies the Town Defense preset", async () => {
+    const actionButton = document.getElementById("resetAllocations") as HTMLButtonElement;
+    actionButton.click();
+    appliedLabel = actionButton.textContent?.trim() ?? "";
+
+    const internals = screen as unknown as {
+      allocationCounts: Map<string, number>;
+    };
+    flakCount = internals.allocationCounts.get("flakBattery") ?? 0;
+    howitzerCount = internals.allocationCounts.get("howitzer") ?? 0;
+    interceptorCount = internals.allocationCounts.get("interceptorWing") ?? 0;
+  });
+
+  await Then("the preset applies the requested anti-air and artillery package", async () => {
+    if (initialLabel !== "Use Preset Allocations") {
+      throw new Error(`Expected pristine Town Defense button to offer presets, saw "${initialLabel}".`);
+    }
+    if (appliedLabel !== "Reset Allocations") {
+      throw new Error(`Expected applied Town Defense preset to flip the action to reset, saw "${appliedLabel}".`);
+    }
+    if (flakCount !== 4) {
+      throw new Error(`Expected Town Defense preset flakBattery count 4, saw ${flakCount}.`);
+    }
+    if (howitzerCount !== 4) {
+      throw new Error(`Expected Town Defense preset howitzer count 4, saw ${howitzerCount}.`);
+    }
+    if (interceptorCount !== 3) {
+      throw new Error(`Expected Town Defense preset interceptorWing count 3, saw ${interceptorCount}.`);
     }
     document.body.innerHTML = "";
   });

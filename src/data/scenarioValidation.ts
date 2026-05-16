@@ -1,8 +1,9 @@
-import unitTypes from "./unitTypes.json";
+import unitTypes from "./unitSystem/derivedUnitTypes";
 import { hexDistance, type Axial } from "../core/Hex";
 import type { MissionKey } from "../state/UIState";
 import type { ScenarioDeploymentZone, TileInstance, TilePalette } from "../core/types";
 import { getMissionDeploymentProfile, isValidMission } from "./missions";
+import { getFormation, isUnitAllocationKey } from "./unitSystem/formations";
 import { finalizeDeploymentZone, measureDeploymentZoneGeometry, type DeploymentZonePlanningScenario } from "../ui/utils/deploymentZonePlanner";
 
 type SupportedMissionKey = MissionKey;
@@ -15,6 +16,8 @@ type RawScenarioSource = {
   tiles?: unknown;
   objectives?: unknown;
   deploymentZones?: unknown;
+  mainSupplyDistanceTurns?: unknown;
+  allowedBattleRequisitions?: unknown;
   sides?: Record<string, unknown> | unknown;
 };
 
@@ -115,6 +118,7 @@ export function validateScenarioSource(source: unknown, missionKey: string): Sce
   validateObjectives(record, issues, missionKey, scenarioName, size, profile);
   validateDeploymentZones(record, issues, missionKey, scenarioName, size, tilePalette, tiles);
   validateRangeEnvelope(record, issues, missionKey, scenarioName, size, profile);
+  validateBattleRequisitionPolicy(record, issues, missionKey, scenarioName);
   validateSides(record, issues, missionKey, scenarioName, size);
 
   return {
@@ -122,6 +126,44 @@ export function validateScenarioSource(source: unknown, missionKey: string): Sce
     scenarioName,
     issues
   };
+}
+
+function validateBattleRequisitionPolicy(
+  record: RawScenarioSource | null,
+  issues: string[],
+  missionKey: string,
+  scenarioName: string | null
+): void {
+  const label = scenarioName ?? missionKey;
+  const distance = readInteger(record?.mainSupplyDistanceTurns);
+  if (distance === null || distance <= 0) {
+    issues.push(`Scenario ${label} must declare a positive mainSupplyDistanceTurns value for in-battle requisitions.`);
+  }
+
+  const allowed = record?.allowedBattleRequisitions;
+  if (!Array.isArray(allowed) || allowed.length === 0) {
+    issues.push(`Scenario ${label} must declare at least one allowedBattleRequisitions entry.`);
+    return;
+  }
+
+  allowed.forEach((entry, index) => {
+    const key = readString(entry);
+    if (!key || !isUnitAllocationKey(key)) {
+      issues.push(`Scenario ${label} allowedBattleRequisitions[${index}] must be a valid formation allocation key.`);
+      return;
+    }
+    const formation = getFormation(key);
+    if (!formation) {
+      issues.push(`Scenario ${label} allowedBattleRequisitions[${index}] references missing formation ${key}.`);
+      return;
+    }
+    if (formation.requisition.inBattleAllowed !== true) {
+      issues.push(`Scenario ${label} allows ${key} for in-battle requisition, but that formation is not marked inBattleAllowed.`);
+    }
+    if (formation.requisition.implemented === false) {
+      issues.push(`Scenario ${label} allows ${key} for in-battle requisition, but that formation is not implemented.`);
+    }
+  });
 }
 
 export function assertScenarioSourceValid(source: unknown, missionKey: string): void {

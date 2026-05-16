@@ -13,7 +13,7 @@ export interface CombatRangePoint {
  * A combat profile captures the shared battlefield behavior for a family of units.
  *
  * We intentionally keep the broad tactical identity here and leave per-unit numbers such as
- * `softAttack`, `hardAttack`, `ap`, and `accuracyBase` in `unitTypes.json`. The profile gives us
+ * `softAttack`, `hardAttack`, `ap`, and `accuracyBase` in the derived unit-system tactical catalog. The profile gives us
  * readable knobs for the weapon family, while the unit definition lets individual formations sit
  * above or below that family baseline.
  */
@@ -36,14 +36,14 @@ export interface CombatProfileDefinition {
  */
 export const COMBAT_PROFILES = {
   "infantry.light.normal": {
-    label: "Line infantry",
-    description: "Standard rifle formations trading volume of fire for very low lethality per bullet.",
+    label: "Regular infantry",
+    description: "Standard rifle battalion (770 men): 27 rifle squads, 14 MG teams, 6 bazookas, 6 × 81mm mortars. TO&E Feb 1944.",
     accuracyReference: 60,
     softAttackReference: 25,
     hardAttackReference: 4,
-    shotsPerTurn: 21000,
-    baseDamagePerHit: 0.00952,
-    suppressionPerHit: 0.1,
+    shotsPerTurn: 10468,
+    baseDamagePerHit: 0.015,
+    suppressionPerHit: 0.12,
     rangeAccuracy: [
       { range: 0, accuracy: 25 },
       { range: 1, accuracy: 10 },
@@ -53,11 +53,11 @@ export const COMBAT_PROFILES = {
   },
   "infantry.heavy.antiTank": {
     label: "Infantry anti-tank teams",
-    description: "Few heavy shots, strong penetration, and poor sustained anti-personnel output.",
+    description: "AT battalion (770 men): 18 rifle squads, 20 MG teams, 18 bazookas, 12 × 81mm mortars. 3× AT concentration.",
     accuracyReference: 66,
     softAttackReference: 20,
     hardAttackReference: 22,
-    shotsPerTurn: 20,
+    shotsPerTurn: 9260,
     baseDamagePerHit: 0.6,
     suppressionPerHit: 0.25,
     rangeAccuracy: [
@@ -74,8 +74,8 @@ export const COMBAT_PROFILES = {
     accuracyReference: 61,
     softAttackReference: 22,
     hardAttackReference: 10,
-    shotsPerTurn: 180,
-    baseDamagePerHit: 0.04,
+    shotsPerTurn: 9000,
+    baseDamagePerHit: 0.0012,
     suppressionPerHit: 0.18,
     rangeAccuracy: [
       { range: 0, accuracy: 32 },
@@ -342,13 +342,13 @@ export const COMBAT_PROFILES = {
   },
   "air.light.antiVehicle": {
     label: "Ground-attack sorties",
-    description: "Attack aircraft using rockets, cannon fire, and low-altitude strike runs against vehicles.",
+    description: "Attack aircraft: 150 cannon/MG strafing rounds + 8 rockets per sortie. 5-minute engagement.",
     accuracyReference: 70,
     softAttackReference: 35,
     hardAttackReference: 20,
-    shotsPerTurn: 4,
-    baseDamagePerHit: 15.0,
-    suppressionPerHit: 15.0,
+    shotsPerTurn: 158,
+    baseDamagePerHit: 0.35,
+    suppressionPerHit: 0.45,
     rangeAccuracy: [
       { range: 0, accuracy: 55 },
       { range: 1, accuracy: 36 },
@@ -393,7 +393,7 @@ export const COMBAT_PROFILES = {
 export type CombatProfileKey = keyof typeof COMBAT_PROFILES;
 
 /**
- * Build the stable lookup key shared between `unitTypes.json` combat metadata and the authored profile table.
+ * Build the stable lookup key shared between unit-system combat metadata and the authored profile table.
  */
 export function createCombatProfileKey(classification: CombatClassification): CombatProfileKey {
   const key = `${classification.category}.${classification.weight}.${classification.role}`;

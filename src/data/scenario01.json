@@ -1,6 +1,8 @@
 {
   "name": "Coastal Push",
   "size": { "cols": 20, "rows": 16 },
+  "mainSupplyDistanceTurns": 3,
+  "allowedBattleRequisitions": ["ammo", "fuel", "supplyConvoy", "airborneDetachment", "corpsArtilleryGroup", "infantry", "engineer", "recon", "reconBike"],
   "tilePalette": {
     "SEA": { "terrain": "sea", "terrainType": "water", "density": "sparse", "features": [], "recon": "aerial" },
     "BEACH_TRENCH_INT": { "terrain": "beach", "terrainType": "coastal", "density": "sparse", "features": ["trenches"], "recon": "intel" },

@@ -1,5 +1,5 @@
 import terrainData from "../data/terrain.json";
-import unitTypes from "../data/unitTypes.json";
+import unitTypes from "../data/unitSystem/derivedUnitTypes";
 import scenarioData from "../data/scenario01.json";
 import {
   GENERAL_MODIFIER_KEYS,
@@ -112,9 +112,9 @@ export function validateGameplayCanon(): void {
 
   // Unit definitions
   Object.entries(unitTypes).forEach(([unitKey, unitDef]) => {
-    ensureExactKeys(unitDef as IndexedRecord, UNIT_PROPERTY_KEYS, `unitTypes ${unitKey}`);
+    ensureExactKeys(unitDef as unknown as IndexedRecord, UNIT_PROPERTY_KEYS, `unitTypes ${unitKey}`);
 
-    const unitRecord = unitDef as {
+    const unitRecord = unitDef as unknown as {
       class: string;
       moveType: string;
       traits: readonly string[];

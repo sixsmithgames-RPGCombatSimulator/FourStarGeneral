@@ -33,6 +33,12 @@ export interface SupplySummary {
   note: string;
   stockLevel?: number;
   consumptionRate?: number;
+  ammoTotal?: number;
+  fuelTotal?: number;
+  depotAmmo?: number;
+  depotFuel?: number;
+  convoyAmmo?: number;
+  convoyFuel?: number;
 }
 
 /**
@@ -53,6 +59,18 @@ export interface CasualtySummary {
   kia: number;  // Killed in action
   wia: number;  // Wounded in action
   mia: number;  // Missing in action
+  injured?: number;
+  wounded?: number;
+  severelyWounded?: number;
+  personnelCasualties?: number;
+  nonEffectivePersonnel?: number;
+  equipmentDamaged?: number;
+  equipmentDisabled?: number;
+  equipmentDestroyed?: number;
+  equipmentLosses?: number;
+  affectedUnits?: number;
+  criticalUnits?: number;
+  destroyedUnits?: number;
   updatedAt: string;
 }
 
@@ -64,6 +82,9 @@ export interface EngagementSummary {
   result: "victory" | "defeat" | "stalemate" | "ongoing";
   note: string;
   casualties?: number;
+  personnelCasualties?: number;
+  equipmentLosses?: number;
+  damageSummary?: string;
   timestamp?: string;
 }
 
@@ -74,6 +95,14 @@ export interface LogisticsDigest {
   throughput: string;
   bottleneck?: string;
   efficiency?: number;
+  convoyCount?: number;
+  loadedConvoys?: number;
+  queueCount?: number;
+  isolatedUnits?: number;
+  supportTeamCount?: number;
+  careRequestCount?: number;
+  medicalRequestCount?: number;
+  repairRequestCount?: number;
 }
 
 /**
@@ -93,6 +122,14 @@ export interface ReadinessStatus {
   level: "not ready" | "preparing" | "ready" | "combat ready";
   comment: string;
   percentage?: number;
+  averageStrength?: number;
+  personnelReadiness?: number;
+  equipmentReadiness?: number;
+  affectedUnits?: number;
+  degradedUnits?: number;
+  criticalUnits?: number;
+  suppressedUnits?: number;
+  destroyedUnits?: number;
 }
 
 /**

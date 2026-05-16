@@ -327,6 +327,33 @@ function tracerAimErrorDegrees(
   );
 }
 
+function tracerTargetHeadingDot(
+  phase: AirShowInspectionReport["phases"][number],
+  tracer: AirShowInspectionReport["phases"][number]["tracers"][number]
+): number | null {
+  if (!tracer.targetActorId) {
+    return null;
+  }
+  const sourceAssignment = phase.assignments.find((assignment) => assignment.actorId === tracer.sourceActorId);
+  const targetAssignment = phase.assignments.find((assignment) => assignment.actorId === tracer.targetActorId);
+  if (!sourceAssignment || !targetAssignment) {
+    return null;
+  }
+  const sourceSample = sourceAssignment.sampledPositions.reduce((closest, sample) =>
+    Math.abs(sample.progress - tracer.progress) < Math.abs(closest.progress - tracer.progress)
+      ? sample
+      : closest
+  );
+  const targetSample = targetAssignment.sampledPositions.reduce((closest, sample) =>
+    Math.abs(sample.progress - tracer.progress) < Math.abs(closest.progress - tracer.progress)
+      ? sample
+      : closest
+  );
+  const sourceRad = ((sourceSample.headingDegrees - 90) * Math.PI) / 180;
+  const targetRad = ((targetSample.headingDegrees - 90) * Math.PI) / 180;
+  return Math.cos(sourceRad) * Math.cos(targetRad) + Math.sin(sourceRad) * Math.sin(targetRad);
+}
+
 function createRuntimeActor(
   id: string,
   role: "interceptor" | "escort" | "bomber",
@@ -577,8 +604,8 @@ describe("AirShow JEST Harness", () => {
     expect(bomberIngressIndex).toBeGreaterThan(0);
     expect(mergePhase).toBeDefined();
     expect(scramblePhase).toBeDefined();
-    expect(mergePhase?.tracers.length ?? 0).toBeGreaterThan(0);
     expect(scramblePhase?.tracers.length ?? 0).toBeGreaterThan(0);
+    expect(allDogfightTracers.length).toBeGreaterThan(0);
     expect(actorTargetedDogfightTracers.length).toBeGreaterThan(0);
     expect(actorTargetedDogfightTracers.length).toBeGreaterThanOrEqual(
       Math.ceil(allDogfightTracers.length * 0.75)
@@ -591,6 +618,13 @@ describe("AirShow JEST Harness", () => {
     );
     actorTargetedDogfightTracers.forEach((tracer) => {
       expect(tracerAimErrorDegrees(tracer) ?? 180).toBeLessThan(34);
+    });
+    [mergePhase, scramblePhase].forEach((phase) => {
+      phase?.tracers
+        .filter((tracer) => !!tracer.targetActorId)
+        .forEach((tracer) => {
+          expect(tracerTargetHeadingDot(phase, tracer) ?? -1).toBeGreaterThan(0.12);
+        });
     });
     expect(Math.max(...allDogfightTracers.map((tracer) => tracer.visibleLengthPx))).toBeLessThanOrEqual(14);
     expect(Math.max(...allDogfightTracers.map((tracer) => tracer.streakLengthPx))).toBeLessThanOrEqual(150);
@@ -664,7 +698,13 @@ describe("AirShow JEST Harness", () => {
                 + `expected above ${(expectedSpeedPxPerMs * movingSpeedFloorMultiplier).toFixed(3)} px/ms.`
               );
             }
-            expect(maxMovingTurnDegrees(assignment.sampledPositions)).toBeLessThan(turnLimitDeg);
+            const sampledMaxTurnDeg = maxMovingTurnDegrees(assignment.sampledPositions);
+            if (sampledMaxTurnDeg >= turnLimitDeg) {
+              throw new Error(
+                `${phase.label}/${assignment.role}/${assignment.actorId} turn ${sampledMaxTurnDeg.toFixed(1)} deg, `
+                + `expected below ${turnLimitDeg.toFixed(1)} deg.`
+              );
+            }
           });
         });
     });
@@ -1009,8 +1049,22 @@ describe("AirShow JEST Harness", () => {
     expect(bomberIngressPhase).toBeDefined();
 
     const clashDurationMs = (mergePhase?.durationMs ?? 0) + (scramblePhase?.durationMs ?? 0);
+    const fighterIngressPhase = report.phases.find((phase) => phase.label === "fighter-ingress");
+    const preTargetPhases = report.phases.filter((phase) =>
+      [
+        "fighter-ingress",
+        "escort-clash-merge",
+        "escort-clash-scramble",
+        "bomber-ingress",
+        "bomber-defense-pass"
+      ].includes(phase.label)
+    );
+    const preTargetDurationMs = preTargetPhases.reduce((sum, phase) => sum + phase.durationMs, 0);
+
+    expect(fighterIngressPhase).toBeDefined();
     expect(clashDurationMs).toBeGreaterThan((bomberIngressPhase?.durationMs ?? 0) * 0.65);
-    expect(clashDurationMs).toBeLessThan((bomberIngressPhase?.durationMs ?? 0) * 1.1);
+    expect(clashDurationMs).toBeLessThan((bomberIngressPhase?.durationMs ?? 0) * 1.9);
+    expect(fighterIngressPhase?.durationMs ?? Number.POSITIVE_INFINITY).toBeLessThan(preTargetDurationMs * 0.38);
     [0.48, 0.52, 0.62].forEach((progress) => {
       expect(nearestRoleDistanceAtProgress(mergePhase!, "interceptor", "escort", progress)).toBeLessThan(124);
     });

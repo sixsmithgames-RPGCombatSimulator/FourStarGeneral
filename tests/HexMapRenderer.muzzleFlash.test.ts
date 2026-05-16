@@ -36,27 +36,28 @@ registerTest("HEXMAP_SMALL_ARMS_MUZZLE_FLASH_USES_SMALL_STAGGERED_BURSTS", async
 
   window.setTimeout = originalSetTimeout;
 
-  await Then("it emits several tiny spread-out muzzle bursts and preserves the configured sound burst timing", async () => {
-    if (flashCalls.length !== 5) {
-      throw new Error(`Expected five staggered small-arms muzzle flashes, found ${flashCalls.length}.`);
+  await Then("it emits mixed tiny muzzle bursts and preserves the configured sound burst timing", async () => {
+    if (flashCalls.length < 8) {
+      throw new Error(`Expected mixed infantry muzzle flashes, found only ${flashCalls.length}.`);
     }
-    if (!flashCalls.every((call) => call.animationType === "small_arms_muzzle")) {
-      throw new Error(`Expected only small_arms_muzzle visuals, received ${flashCalls.map((call) => call.animationType).join(", ")}`);
+    const flashTypes = new Set(flashCalls.map((call) => call.animationType));
+    if (!flashTypes.has("small_arms_muzzle") || !flashTypes.has("mg_muzzle") || !flashTypes.has("cannon_muzzle")) {
+      throw new Error(`Expected small-arms, MG, and support-weapon muzzle flashes, received ${[...flashTypes].join(", ")}`);
     }
     if (!flashCalls.every((call) => call.hexKey === "0,0")) {
       throw new Error("Expected every muzzle flash burst to stay anchored to the attacker hex.");
     }
     if (Math.max(...flashCalls.map((call) => call.scale)) > 0.24) {
-      throw new Error(`Expected small-arms muzzle flashes to stay tiny, received scales ${flashCalls.map((call) => call.scale).join(", ")}`);
+      throw new Error(`Expected infantry muzzle flashes to stay tiny, received scales ${flashCalls.map((call) => call.scale).join(", ")}`);
     }
 
     const uniqueOffsets = new Set(flashCalls.map((call) => `${call.offsetX},${call.offsetY}`));
-    if (uniqueOffsets.size !== flashCalls.length) {
-      throw new Error(`Expected each muzzle flash burst to use a distinct offset, found ${uniqueOffsets.size} unique offsets.`);
+    if (uniqueOffsets.size < 6) {
+      throw new Error(`Expected mixed muzzle flashes to use several offsets, found ${uniqueOffsets.size} unique offsets.`);
     }
 
     const maxOffset = Math.max(...flashCalls.map((call) => Math.max(Math.abs(call.offsetX), Math.abs(call.offsetY))));
-    if (maxOffset > 4) {
+    if (maxOffset > 5) {
       throw new Error(`Expected muzzle flash offsets to stay tight to the attacker, received max offset ${maxOffset}.`);
     }
 

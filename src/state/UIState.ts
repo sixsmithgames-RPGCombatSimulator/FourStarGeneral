@@ -7,6 +7,8 @@ import {
 } from "../data/missions";
 import type { BotDifficulty } from "../game/bot/BotPlanner";
 
+export type BattleAnimationMode = "regular" | "quick";
+
 /**
  * Mission type identifiers for the landing screen.
  */
@@ -28,14 +30,17 @@ export class UIState {
   private _selectedGeneralId: string | null = null;
   private _activePopup: PopupKey | null = null;
   private _selectedDifficulty: BotDifficulty = "Normal";
+  private _battleAnimationMode: BattleAnimationMode = "regular";
   private _isFromCampaign: boolean = false;
 
   private static readonly SELECTED_GENERAL_STORAGE_KEY = "selectedGeneralId";
   private static readonly DIFFICULTY_STORAGE_KEY = "selectedDifficulty";
+  private static readonly BATTLE_ANIMATION_MODE_STORAGE_KEY = "battleAnimationMode";
 
   constructor() {
     this.loadGeneralSelectionFromStorage();
     this.loadDifficultyFromStorage();
+    this.loadBattleAnimationModeFromStorage();
   }
 
   /**
@@ -110,12 +115,41 @@ export class UIState {
   }
 
   /**
+   * Gets the current battle movement animation mode.
+   */
+  get battleAnimationMode(): BattleAnimationMode {
+    return this._battleAnimationMode;
+  }
+
+  /**
+   * Sets the battle movement animation mode and persists it for future missions.
+   */
+  set battleAnimationMode(mode: BattleAnimationMode) {
+    if (!UIState.isBattleAnimationMode(mode)) {
+      throw new Error(`Attempted to select unknown battle animation mode: ${mode}`);
+    }
+
+    this._battleAnimationMode = mode;
+    window.localStorage.setItem(UIState.BATTLE_ANIMATION_MODE_STORAGE_KEY, mode);
+  }
+
+  /**
    * Loads the difficulty setting from localStorage on initialization.
    */
   private loadDifficultyFromStorage(): void {
     const stored = window.localStorage.getItem(UIState.DIFFICULTY_STORAGE_KEY);
     if (stored && (stored === "Easy" || stored === "Normal" || stored === "Hard")) {
       this._selectedDifficulty = stored as BotDifficulty;
+    }
+  }
+
+  /**
+   * Loads the battle animation mode from localStorage on initialization.
+   */
+  private loadBattleAnimationModeFromStorage(): void {
+    const stored = window.localStorage.getItem(UIState.BATTLE_ANIMATION_MODE_STORAGE_KEY);
+    if (UIState.isBattleAnimationMode(stored)) {
+      this._battleAnimationMode = stored;
     }
   }
 
@@ -204,6 +238,10 @@ export class UIState {
    */
   static isValidMission(key: string): boolean {
     return isValidMission(key);
+  }
+
+  static isBattleAnimationMode(value: unknown): value is BattleAnimationMode {
+    return value === "regular" || value === "quick";
   }
 
   /**

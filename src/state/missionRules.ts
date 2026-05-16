@@ -2,7 +2,7 @@ import type { Axial } from "../core/Hex";
 import type { ScenarioData, ScenarioUnit } from "../core/types";
 import type { TurnSummary, TurnFaction } from "../game/GameEngine";
 import type { BotDifficulty } from "../game/bot/BotPlanner";
-import unitTypesData from "../data/unitTypes.json";
+import unitTypesData from "../data/unitSystem/derivedUnitTypes";
 
 export type ObjectiveTier = "primary" | "secondary" | "tertiary";
 

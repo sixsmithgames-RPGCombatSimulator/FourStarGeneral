@@ -170,7 +170,7 @@ objectives:
 
 forces:
   allies:
-    concept: 2nd Ranger Battalion — elite light infantry with no organic armor or artillery
+    concept: 2nd Ranger Battalion — elite light infantry with no assigned armor or artillery
     quality: veteran (experience 1 baseline; some units experience 2)
     roles:
       - role: assault infantry

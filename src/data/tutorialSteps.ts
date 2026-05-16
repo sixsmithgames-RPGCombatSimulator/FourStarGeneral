@@ -20,7 +20,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "budget_overview",
     title: "Requisition Order",
     content:
-      "You have 1,200 RP. Buy only what the mission needs: infantry to hold, armor to punch, engineers to shape ground, flak to guard the rear, and fighters to contest the sky.",
+      "You have 1,200 RP. Use the Training preset for a balanced field package, or build the same mix by hand if you want to learn each requisition lane.",
     highlightSelector: "#precombatBudgetPanel",
     position: "left",
     arrowDirection: "right",
@@ -30,7 +30,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "unit_categories",
     title: "Build The Task Force",
     content:
-      "For this fight, requisition two Infantry Battalions, one Tank Company, one Engineering Corps, one Flak Battery, one Fighter Squadron, plus ammo and fuel under Logistics. A Supply Convoy is already attached.",
+      "For this fight, the preset loads three Infantry Battalions, Engineers, medium and heavy armor, tank destroyers, two Flak Batteries, recon, supply, ammo, medical, and maintenance teams.",
     highlightSelector: "#allocationUnitList, #allocationSupportList, #allocationLogisticsList",
     position: "right",
     arrowDirection: "left",
@@ -40,7 +40,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_infantry",
     title: "Form The Line",
     content:
-      "Add two Infantry Battalions. They take ground, hold villages and woods, and give the rest of the force something solid to fight around.",
+      "Add three Infantry Battalions. They take ground, hold villages and woods, and give the rest of the force something solid to fight around.",
     highlightSelector: "[data-key='infantry']",
     position: "right",
     arrowDirection: "left",
@@ -51,8 +51,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_tanks",
     title: "Attach Armor",
     content:
-      "Add one Tank Company. Armor gives you speed and shock, but it needs infantry nearby when the enemy digs in.",
-    highlightSelector: "[data-key='tank']",
+      "Add one Medium Tank Company, one Heavy Tank Company, and one Tank Destroyer Company. The mix gives you shock, staying power, and anti-armor reach.",
+    highlightSelector: "[data-key='tank'], [data-key='heavyTankCompany'], [data-key='tankDestroyerCompany']",
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
@@ -73,7 +73,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_flak",
     title: "Cover The Rear",
     content:
-      "Add one Flak Battery. Keep base camp, reserves, and road approaches under an air-defense umbrella.",
+      "Add two Flak Batteries. Keep base camp, reserves, and road approaches under an air-defense umbrella.",
     highlightSelector: "[data-key='flakBattery']",
     position: "right",
     arrowDirection: "left",
@@ -82,10 +82,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_air_wing",
-    title: "Call Fighters",
+    title: "Send Recon",
     content:
-      "Add one Fighter Squadron. It stays off-map until you task it from the Air board, then it can patrol, intercept, or escort.",
-    highlightSelector: "[data-key='fighter']",
+      "Add one Recon Bike Patrol. Scouts widen your sight picture and make the enemy pay for moving blind.",
+    highlightSelector: "[data-key='reconBike']",
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
@@ -104,10 +104,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_fuel",
-    title: "Fuel The Push",
+    title: "Recovery Teams",
     content:
-      "Add one Fuel Dump. Armor, convoys, and reserves need fuel before the first order is given.",
-    highlightSelector: "[data-key='fuel']",
+      "Add one Medical Detachment and one Recovery & Repair Section. Casualties and damaged vehicles need real teams assigned before the battle starts.",
+    highlightSelector: "[data-key='medic'], [data-key='maintenance']",
     position: "left",
     arrowDirection: "right",
     waitForAction: true,
@@ -117,7 +117,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "mission_objectives",
     title: "Mission Orders",
     content:
-      "Primary objective: stop the enemy patrol before it reaches the coastal road. Expect a small mobile force. Use engineers, smoke, supply, and air support as one plan.",
+      "Primary objective: stop the enemy patrol before it reaches the coastal road. Expect a small mobile force. Use engineers, smoke, recon, supply, and recovery teams as one plan.",
     highlightSelector: "#precombatMissionSummary",
     position: "center",
     actionLabel: "Understood"
@@ -126,7 +126,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "review_allocation",
     title: "Final Check",
     content:
-      "Confirm the force: two Infantry, one Tank Company, Engineers, Flak, Fighters, ammo, fuel, and the attached Supply Convoy. When it looks right, deploy.",
+      "Confirm the force: three Infantry, Engineers, medium and heavy armor, tank destroyers, two Flak, recon, supply, ammo, medical, and maintenance. When it looks right, deploy.",
     highlightSelector: "#resetAllocations, #proceedToBattle",
     position: "center",
     actionLabel: "Deploy to Field"

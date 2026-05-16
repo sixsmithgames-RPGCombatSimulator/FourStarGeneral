@@ -68,6 +68,7 @@ export class WarRoomOverlay {
   private readonly detailMeta: HTMLElement;
   private readonly detailBody: HTMLElement;
   private readonly detailCloseButton: HTMLElement;
+  private readonly commandStrip: HTMLElement | null;
 
   constructor(options: WarRoomOverlayOptions) {
     this.dataProvider = options.dataProvider;
@@ -82,6 +83,7 @@ export class WarRoomOverlay {
     this.detailMeta = this.requireElement("#warRoomDetailMeta");
     this.detailBody = this.requireElement("#warRoomDetailBody");
     this.detailCloseButton = this.requireElement("#warRoomDetailClose");
+    this.commandStrip = document.querySelector<HTMLElement>("[data-war-room-command-strip]");
 
     this.bindEvents();
 
@@ -101,6 +103,7 @@ export class WarRoomOverlay {
     if (this.hotspotButtons.length === 0) {
       this.renderHotspots();
     }
+    this.renderCommandStrip();
 
     const firstHotspot = this.hotspotButtons[0];
     if (firstHotspot) {
@@ -304,7 +307,9 @@ export class WarRoomOverlay {
       }
       case "casualtyLedger": {
         const ledger = payload as CasualtySummary;
-        return `KIA ${ledger.kia}, WIA ${ledger.wia}, MIA ${ledger.mia}. Updated ${ledger.updatedAt}.`;
+        const personnel = ledger.personnelCasualties ?? ledger.kia + ledger.wia + ledger.mia;
+        const equipment = (ledger.equipmentDamaged ?? 0) + (ledger.equipmentDisabled ?? 0) + (ledger.equipmentDestroyed ?? 0);
+        return `KIA ${ledger.kia}, WIA ${ledger.wia}, equipment effects ${equipment}, affected units ${ledger.affectedUnits ?? 0}. Updated ${ledger.updatedAt}. Personnel casualties ${personnel}.`;
       }
       case "engagementLog": {
         const engagement = (payload as EngagementSummary[])[0];
@@ -370,6 +375,20 @@ export class WarRoomOverlay {
     this.detailCloseButton.addEventListener("click", (event) => {
       event.stopPropagation();
       this.closeDetail();
+    });
+
+    this.detailBody.addEventListener("click", (event) => {
+      const actionButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-war-room-action]");
+      if (!actionButton) {
+        return;
+      }
+
+      const action = actionButton.dataset.warRoomAction ?? "";
+      if (action === "open-battle-requisitions") {
+        event.preventDefault();
+        event.stopPropagation();
+        document.dispatchEvent(new CustomEvent("warroom:openBattleRequisitions"));
+      }
     });
 
     // Clicking anywhere on the surface that is not inside the detail panel or a hotspot closes the detail panel.
@@ -469,7 +488,9 @@ export class WarRoomOverlay {
       }
       case "casualtyLedger": {
         const ledger = (payload as CasualtySummary) ?? { kia: 0, wia: 0, mia: 0 };
-        return `KIA ${ledger.kia}`;
+        const personnel = ledger.personnelCasualties ?? ledger.kia + ledger.wia + ledger.mia;
+        const equipment = (ledger.equipmentDamaged ?? 0) + (ledger.equipmentDisabled ?? 0) + (ledger.equipmentDestroyed ?? 0);
+        return personnel > 0 || equipment > 0 ? `P ${personnel} / Eq ${equipment}` : "Clear";
       }
       case "engagementLog": {
         const logs = (payload as EngagementSummary[]) ?? [];
@@ -518,6 +539,58 @@ export class WarRoomOverlay {
     });
   }
 
+  private renderCommandStrip(): void {
+    if (!this.commandStrip) {
+      return;
+    }
+
+    const data = this.getWarRoomData();
+    const supply = data.supplyStatus;
+    const logistics = data.logisticsSummary;
+    const readiness = data.readinessState;
+    const casualties = data.casualtyLedger;
+    const clock = data.campaignClock;
+    const supplyClass = supply.status === "critical" || supply.status === "low"
+      ? ` war-room-command-chip--${supply.status}`
+      : "";
+    const damageChipClass = (casualties.criticalUnits ?? 0) > 0 || (casualties.destroyedUnits ?? 0) > 0
+      ? " war-room-command-chip--critical"
+      : (casualties.affectedUnits ?? 0) > 0
+      ? " war-room-command-chip--low"
+      : "";
+
+    this.commandStrip.innerHTML = `
+      <div class="war-room-command-chip">
+        <span>Headquarters</span>
+        <strong>${this.escapeHtml(clock.note || `Turn ${clock.day}`)}</strong>
+      </div>
+      <div class="war-room-command-chip${supplyClass}">
+        <span>Supply</span>
+        <strong>${this.escapeHtml(supply.status.toUpperCase())}</strong>
+      </div>
+      <div class="war-room-command-chip">
+        <span>Ammo</span>
+        <strong>${this.formatNumber(supply.ammoTotal ?? 0)}</strong>
+      </div>
+      <div class="war-room-command-chip">
+        <span>Fuel</span>
+        <strong>${this.formatNumber(supply.fuelTotal ?? 0)}</strong>
+      </div>
+      <div class="war-room-command-chip">
+        <span>Convoys</span>
+        <strong>${this.formatNumber(logistics.loadedConvoys ?? 0)}/${this.formatNumber(logistics.convoyCount ?? 0)}</strong>
+      </div>
+      <div class="war-room-command-chip">
+        <span>Ready</span>
+        <strong>${typeof readiness.percentage === "number" ? `${readiness.percentage}%` : this.escapeHtml(readiness.level.toUpperCase())}</strong>
+      </div>
+      <div class="war-room-command-chip${damageChipClass}">
+        <span>Damage</span>
+        <strong>${this.formatNumber(casualties.wia ?? 0)} WIA / ${this.formatNumber(casualties.kia ?? 0)} KIA</strong>
+      </div>
+    `;
+  }
+
   /**
    * Builds the rich HTML body for the detail panel based on hotspot data payloads.
    */
@@ -533,9 +606,9 @@ export class WarRoomOverlay {
           .map(
             (entry) => `
               <article class="war-room-intel">
-                <h4>${entry.title}</h4>
-                <p>${entry.summary}</p>
-                <p class="war-room-intel-meta">${entry.source ?? "Unknown source"} • ${entry.timestamp ?? "No timestamp"}</p>
+                <h4>${this.escapeHtml(entry.title)}</h4>
+                <p>${this.escapeHtml(entry.summary)}</p>
+                <p class="war-room-intel-meta">${this.escapeHtml(entry.source ?? "Unknown source")} • ${this.escapeHtml(entry.timestamp ?? "No timestamp")}</p>
               </article>
             `
           )
@@ -551,52 +624,57 @@ export class WarRoomOverlay {
           .map(
             (report) => `
               <article class="war-room-recon">
-                <h4>${report.sector}</h4>
-                <p>${report.finding}</p>
-                <p class="war-room-recon-meta">Confidence: ${report.confidence ?? "Unknown"} • ${report.timestamp ?? "No timestamp"}</p>
+                <h4>${this.escapeHtml(report.sector)}</h4>
+                <p>${this.escapeHtml(report.finding)}</p>
+                <p class="war-room-recon-meta">Confidence: ${this.escapeHtml(report.confidence ?? "Unknown")} • ${this.escapeHtml(report.timestamp ?? "No timestamp")}</p>
               </article>
             `
           )
           .join("");
       }
       case "logisticsSummary": {
-        // Summarize logistics posture in a compact table so commanders can spot bottlenecks.
         const digest = (payload as LogisticsDigest) ?? { throughput: "No logistics data available." };
-        const bottleneckRow = digest.bottleneck
-          ? `<tr><th scope="row">Bottleneck</th><td>${digest.bottleneck}</td></tr>`
-          : "";
-        const efficiencyRow = typeof digest.efficiency === "number"
-          ? `<tr><th scope="row">Efficiency</th><td>${digest.efficiency}%</td></tr>`
-          : "";
         return `
           <section class="war-room-logistics">
-            <table>
-              <tbody>
-                <tr><th scope="row">Throughput</th><td>${digest.throughput}</td></tr>
-                ${bottleneckRow}
-                ${efficiencyRow}
-              </tbody>
-            </table>
+            <div class="war-room-kpi-grid">
+              <div class="war-room-kpi"><span>Convoys</span><strong>${this.formatNumber(digest.loadedConvoys ?? 0)}/${this.formatNumber(digest.convoyCount ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Queue</span><strong>${this.formatNumber(digest.queueCount ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Isolated</span><strong>${this.formatNumber(digest.isolatedUnits ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Network</span><strong>${typeof digest.efficiency === "number" ? `${digest.efficiency}%` : "N/A"}</strong></div>
+              <div class="war-room-kpi"><span>Support Teams</span><strong>${this.formatNumber(digest.supportTeamCount ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Care Queue</span><strong>${this.formatNumber(digest.careRequestCount ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Medical</span><strong>${this.formatNumber(digest.medicalRequestCount ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Repair</span><strong>${this.formatNumber(digest.repairRequestCount ?? 0)}</strong></div>
+            </div>
+            <p>${this.escapeHtml(digest.throughput)}</p>
+            ${digest.bottleneck ? `<p><span class="war-room-status-pill">Bottleneck</span></p><p>${this.escapeHtml(digest.bottleneck)}</p>` : ""}
           </section>
         `;
       }
       case "supplyStatus": {
-        // Provide supply state with supporting detail so shortages stand out.
         const status = (payload as SupplySummary) ?? { status: "adequate", note: "No supply data available." };
-        const stockLine = typeof status.stockLevel === "number" ? `<li>Stock Level: ${status.stockLevel}%</li>` : "";
-        const consumptionLine = typeof status.consumptionRate === "number"
-          ? `<li>Consumption Rate: ${status.consumptionRate} units / turn</li>`
-          : "";
+        const ammo = Math.max(0, status.ammoTotal ?? 0);
+        const fuel = Math.max(0, status.fuelTotal ?? 0);
+        const depot = Math.max(0, (status.depotAmmo ?? 0) + (status.depotFuel ?? 0));
+        const total = Math.max(1, ammo + fuel + depot);
+        const ammoWidth = Math.max(0, Math.min(100, (ammo / total) * 100));
+        const fuelWidth = Math.max(0, Math.min(100 - ammoWidth, (fuel / total) * 100));
+        const depotWidth = Math.max(0, 100 - ammoWidth - fuelWidth);
         return `
           <section class="war-room-supply">
-            <header>
-              <p>Status: <strong>${status.status.toUpperCase()}</strong></p>
-            </header>
-            <p>${status.note}</p>
-            <ul class="war-room-detail-list">
-              ${stockLine}
-              ${consumptionLine}
-            </ul>
+            <p><span class="war-room-status-pill">${this.escapeHtml(status.status.toUpperCase())}</span></p>
+            <div class="war-room-kpi-grid">
+              <div class="war-room-kpi"><span>Ammo Total</span><strong>${this.formatNumber(status.ammoTotal ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Fuel Total</span><strong>${this.formatNumber(status.fuelTotal ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Depot</span><strong>${this.formatNumber(depot)}</strong></div>
+              <div class="war-room-kpi"><span>Burn</span><strong>${this.formatNumber(status.consumptionRate ?? 0)}</strong></div>
+            </div>
+            <div class="war-room-meter" role="img" aria-label="Supply split">
+              <span class="war-room-meter__ammo" style="width: ${ammoWidth}%"></span>
+              <span class="war-room-meter__fuel" style="width: ${fuelWidth}%"></span>
+              <span class="war-room-meter__reserve" style="width: ${depotWidth}%"></span>
+            </div>
+            <p>${this.escapeHtml(status.note)}</p>
           </section>
         `;
       }
@@ -610,10 +688,10 @@ export class WarRoomOverlay {
           .map(
             (directive) => `
               <article class="war-room-order">
-                <h4>${directive.title}</h4>
-                <p>${directive.objective}</p>
+                <h4>${this.escapeHtml(directive.title)}</h4>
+                <p>${this.escapeHtml(directive.objective)}</p>
                 <footer class="war-room-order-footer">
-                  <span class="war-room-order-priority">Priority: ${directive.priority ?? "unspecified"}</span>
+                  <span class="war-room-order-priority">Priority: ${this.escapeHtml(directive.priority ?? "unspecified")}</span>
                   <button type="button" class="war-room-action" data-war-room-action="acknowledge-directive">
                     Acknowledge
                   </button>
@@ -626,24 +704,23 @@ export class WarRoomOverlay {
       case "requisitions": {
         // Display outstanding requisitions in a tabular layout to show fulfillment status at a glance.
         const requisitions = (payload as RequisitionRecord[]) ?? [];
-        if (requisitions.length === 0) {
-          return `<p class="war-room-empty">All requisitions are fulfilled.</p>`;
-        }
-        const rows = requisitions
-          .map(
-            (req) => `
-              <tr>
-                <th scope="row">${req.item}</th>
-                <td>${req.quantity ?? "—"}</td>
-                <td>${req.status.toUpperCase()}</td>
-                <td>${req.requestedBy ?? "Anonymous"}</td>
-                <td>${req.updatedAt}</td>
-              </tr>
-            `
-          )
-          .join("");
-        return `
-          <section class="war-room-requisitions">
+        const rows = requisitions.length > 0
+          ? requisitions
+            .map(
+              (req) => `
+                <tr>
+                  <th scope="row">${this.escapeHtml(req.item)}</th>
+                  <td>${this.escapeHtml(req.quantity ?? "N/A")}</td>
+                  <td>${this.escapeHtml(req.status.toUpperCase())}</td>
+                  <td>${this.escapeHtml(req.requestedBy ?? "Anonymous")}</td>
+                  <td>${this.escapeHtml(req.updatedAt)}</td>
+                </tr>
+              `
+            )
+            .join("")
+          : "";
+        const tableMarkup = requisitions.length > 0
+          ? `
             <table>
               <thead>
                 <tr>
@@ -656,20 +733,47 @@ export class WarRoomOverlay {
               </thead>
               <tbody>${rows}</tbody>
             </table>
+          `
+          : "";
+        return `
+          <section class="war-room-requisitions">
+            <p>
+              <button type="button" class="war-room-action" data-war-room-action="open-battle-requisitions">
+                Open Battle Requisitions
+              </button>
+            </p>
+            ${requisitions.length === 0 ? '<p class="war-room-empty">All requisitions are fulfilled.</p>' : ""}
+            ${tableMarkup}
           </section>
         `;
       }
       case "casualtyLedger": {
-        // Summarize casualties using card layout to emphasize severity quickly.
         const ledger = (payload as CasualtySummary) ?? { kia: 0, wia: 0, mia: 0, updatedAt: "" };
+        const personnelCasualties = ledger.personnelCasualties ?? ledger.kia + ledger.wia + ledger.mia;
+        const nonEffective = ledger.nonEffectivePersonnel ?? ledger.kia + (ledger.wounded ?? 0) + (ledger.severelyWounded ?? 0);
+        const equipmentAffected = (ledger.equipmentDamaged ?? 0) + (ledger.equipmentDisabled ?? 0) + (ledger.equipmentDestroyed ?? 0);
         return `
           <section class="war-room-casualties">
             <ul class="war-room-metric-cards">
               <li><span class="label">KIA</span><span class="value">${ledger.kia}</span></li>
               <li><span class="label">WIA</span><span class="value">${ledger.wia}</span></li>
               <li><span class="label">MIA</span><span class="value">${ledger.mia}</span></li>
+              <li><span class="label">Non-Effective</span><span class="value">${this.formatNumber(nonEffective)}</span></li>
+              <li><span class="label">Affected Units</span><span class="value">${this.formatNumber(ledger.affectedUnits ?? 0)}</span></li>
+              <li><span class="label">Critical Units</span><span class="value">${this.formatNumber(ledger.criticalUnits ?? 0)}</span></li>
             </ul>
-            <p class="war-room-updated">Updated ${ledger.updatedAt}</p>
+            <div class="war-room-kpi-grid">
+              <div class="war-room-kpi"><span>Injured</span><strong>${this.formatNumber(ledger.injured ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Wounded</span><strong>${this.formatNumber(ledger.wounded ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Severe</span><strong>${this.formatNumber(ledger.severelyWounded ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Personnel Effects</span><strong>${this.formatNumber(personnelCasualties)}</strong></div>
+              <div class="war-room-kpi"><span>Damaged</span><strong>${this.formatNumber(ledger.equipmentDamaged ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Disabled</span><strong>${this.formatNumber(ledger.equipmentDisabled ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Destroyed</span><strong>${this.formatNumber(ledger.equipmentDestroyed ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Equipment Effects</span><strong>${this.formatNumber(equipmentAffected)}</strong></div>
+            </div>
+            <p>Personnel readiness uses fit, injured, wounded, severe, and KIA status pools. Equipment readiness uses operational, damaged, disabled, and destroyed vehicle pools.</p>
+            <p class="war-room-updated">Updated ${this.escapeHtml(ledger.updatedAt)}</p>
           </section>
         `;
       }
@@ -685,10 +789,11 @@ export class WarRoomOverlay {
               .map(
                 (entry) => `
                   <li>
-                    <h4>${entry.theater}</h4>
-                    <p>Result: <strong>${entry.result.toUpperCase()}</strong></p>
-                    <p>${entry.note}</p>
-                    <p class="war-room-engagement-meta">${entry.timestamp ?? "Pending timestamp"} • Casualties: ${entry.casualties ?? "N/A"}</p>
+                    <h4>${this.escapeHtml(entry.theater)}</h4>
+                    <p>Result: <strong>${this.escapeHtml(entry.result.toUpperCase())}</strong></p>
+                    <p>${this.escapeHtml(entry.note)}</p>
+                    ${entry.damageSummary ? `<p>${this.escapeHtml(entry.damageSummary)}</p>` : ""}
+                    <p class="war-room-engagement-meta">${this.escapeHtml(entry.timestamp ?? "Pending timestamp")} • Personnel effects: ${this.escapeHtml(entry.personnelCasualties ?? entry.casualties ?? "N/A")} • Equipment effects: ${this.escapeHtml(entry.equipmentLosses ?? "N/A")}</p>
                   </li>
                 `
               )
@@ -697,36 +802,43 @@ export class WarRoomOverlay {
         `;
       }
       case "readinessState": {
-        // Present readiness as a gauge with supporting commentary.
         const readiness = (payload as ReadinessStatus) ?? { level: "preparing", comment: "Readiness data pending." };
-        const percentageLine = typeof readiness.percentage === "number"
-          ? `<p class="war-room-readiness-percentage">Overall readiness: ${readiness.percentage}%</p>`
-          : "";
+        const percentage = typeof readiness.percentage === "number" ? Math.max(0, Math.min(100, readiness.percentage)) : 0;
         return `
           <section class="war-room-readiness">
-            <header>
-              <h4>${readiness.level.toUpperCase()}</h4>
-            </header>
-            <p>${readiness.comment}</p>
-            ${percentageLine}
+            <p><span class="war-room-status-pill">${this.escapeHtml(readiness.level.toUpperCase())}</span></p>
+            <div class="war-room-kpi-grid">
+              <div class="war-room-kpi"><span>Readiness</span><strong>${typeof readiness.percentage === "number" ? `${percentage}%` : "Pending"}</strong></div>
+              <div class="war-room-kpi"><span>Strength</span><strong>${typeof readiness.averageStrength === "number" ? `${readiness.averageStrength}%` : "N/A"}</strong></div>
+              <div class="war-room-kpi"><span>Personnel</span><strong>${typeof readiness.personnelReadiness === "number" ? `${readiness.personnelReadiness}%` : "N/A"}</strong></div>
+              <div class="war-room-kpi"><span>Equipment</span><strong>${typeof readiness.equipmentReadiness === "number" ? `${readiness.equipmentReadiness}%` : "N/A"}</strong></div>
+              <div class="war-room-kpi"><span>Affected</span><strong>${this.formatNumber(readiness.affectedUnits ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Degraded</span><strong>${this.formatNumber(readiness.degradedUnits ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Critical</span><strong>${this.formatNumber(readiness.criticalUnits ?? 0)}</strong></div>
+              <div class="war-room-kpi"><span>Suppressed</span><strong>${this.formatNumber(readiness.suppressedUnits ?? 0)}</strong></div>
+            </div>
+            <div class="war-room-meter" role="img" aria-label="Readiness ${percentage}%">
+              <span class="war-room-meter__ammo" style="width: ${percentage}%"></span>
+            </div>
+            <p>${this.escapeHtml(readiness.comment)}</p>
           </section>
         `;
       }
       case "campaignClock": {
         // Highlight campaign tempo so planners understand current operational window.
         const clock = (payload as CampaignTiming) ?? { day: 1, time: "0600", note: "", phase: "" };
-        const phaseLine = clock.phase ? `<p class="war-room-phase">Current Phase: ${clock.phase}</p>` : "";
+        const phaseLine = clock.phase ? `<p class="war-room-phase">Current Phase: ${this.escapeHtml(clock.phase)}</p>` : "";
         return `
           <section class="war-room-clock">
-            <p class="war-room-day">Day ${clock.day}</p>
-            <p class="war-room-time">${clock.time}</p>
-            <p>${clock.note}</p>
+            <p class="war-room-day">Day ${this.escapeHtml(clock.day)}</p>
+            <p class="war-room-time">${this.escapeHtml(clock.time)}</p>
+            <p>${this.escapeHtml(clock.note)}</p>
             ${phaseLine}
           </section>
         `;
       }
       default:
-        return `<p>No additional details recorded for ${hotspot.label}.</p>`;
+        return `<p>No additional details recorded for ${this.escapeHtml(hotspot.label)}.</p>`;
     }
   }
 
@@ -739,6 +851,22 @@ export class WarRoomOverlay {
       throw new Error(`Required element not found: ${selector}`);
     }
     return element;
+  }
+
+  private escapeHtml(value: unknown): string {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  private formatNumber(value: number): string {
+    if (!Number.isFinite(value)) {
+      return "0";
+    }
+    return Number(value.toFixed(1)).toString();
   }
 
   /**
@@ -770,6 +898,7 @@ export class WarRoomOverlay {
     if (this.overlay.getAttribute("aria-hidden") === "true") {
       return;
     }
+    this.renderCommandStrip();
     if (this.activeHotspot) {
       this.renderHotspotDetail(this.activeHotspot);
     } else {

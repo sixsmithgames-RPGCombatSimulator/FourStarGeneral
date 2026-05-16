@@ -2,6 +2,8 @@
   "_comment": "POINTE DU HOC — June 6 1944. Rangers assault the cliff-top battery and must hold all three gun positions for 6 consecutive turns against German counterattack. Infantry and engineers only. 16x14 map.",
   "name": "Pointe du Hoc",
   "size": { "cols": 16, "rows": 14 },
+  "mainSupplyDistanceTurns": 5,
+  "allowedBattleRequisitions": ["ammo", "airborneDetachment", "corpsArtilleryGroup", "infantry", "engineer"],
   "tilePalette": {
     "CLIFF_EDGE": { "terrain": "cliff", "terrainType": "coastal", "density": "sparse", "features": ["cliff"], "recon": "aerial" },
     "CRATER":     { "terrain": "plains", "terrainType": "rural",   "density": "sparse", "features": ["crater"], "recon": "intel" },

@@ -1,7 +1,7 @@
 import { registerTest } from "./harness.js";
 import { resolveAttack } from "../src/core/Combat";
 import type { AttackRequest, UnitCombatState } from "../src/core/Combat";
-import unitTypesData from "../src/data/unitTypes.json";
+import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
 import type { TerrainDefinition, UnitTypeDefinition } from "../src/core/types";
 
 const plains: TerrainDefinition = {

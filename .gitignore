@@ -4,6 +4,10 @@ node_modules/
 # Build output
 dist/
 dist-tsc/
+dist-tsc-check/
+dist-tsc-jest/
+dist-bot-check/
+dist-test/
 
 # IDE
 .windsurf/
@@ -15,6 +19,22 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# Generated output files at root
+output*.txt
+tsc_out.txt
+test_output.txt
+npm_test_out.txt
+harness*.txt
+air_*.txt
+airshow*.txt
+jest*.txt
+bot-targeting-test.log
+fightermotion_out.txt
+.codex-vite*
+
+# Root-level test scripts
+test_*.js
 
 # Environment
 .env
@@ -32,3 +52,9 @@ tests/
 
 # Temporary review assets
 tmp/
+
+# Playwright screenshots
+e2e/screenshots/
+
+# Test infrastructure in source tree
+src/testing/

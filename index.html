@@ -1353,7 +1353,7 @@
     }
     .precombat-toolbar {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      grid-template-columns: minmax(max-content, 1fr) minmax(16rem, auto) minmax(max-content, 1fr);
       align-items: center;
       gap: 0.8rem;
       width: 100%;
@@ -1363,6 +1363,7 @@
       align-items: center;
       gap: 0.5rem;
       white-space: nowrap;
+      min-width: max-content;
     }
     .precombat-toolbar-button-group:last-child {
       justify-self: end;
@@ -2351,6 +2352,7 @@
         grid-template-columns: minmax(0, 1fr);
         justify-self: stretch;
         width: 100%;
+        min-width: 0;
         margin-left: 0;
       }
       .precombat-toolbar-button-group:last-child {
@@ -2711,6 +2713,7 @@
       transform: none;
       width: min(400px, calc(100% - 2rem));
       display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
       gap: 0.48rem;
       padding: 0.72rem 0.78rem 0.78rem 0.78rem;
       background:
@@ -2730,7 +2733,9 @@
       backdrop-filter: blur(18px);
     }
     .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] {
-      width: min(520px, calc(100% - 2rem));
+      width: min(500px, calc(100% - 2rem));
+      gap: 0.38rem;
+      padding: 0.62rem 0.68rem 0.68rem;
     }
     .battle-intel-overlay[data-intel-kind="deployment"],
     .battle-intel-overlay[data-intel-kind="terrain"] {
@@ -2786,6 +2791,10 @@
       cursor: grab;
       touch-action: none;
     }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__header {
+      gap: 0.1rem;
+      padding-right: 5rem;
+    }
     .battle-intel-overlay__title {
       display: block;
       margin: 0;
@@ -2795,6 +2804,10 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__title {
+      font-size: 0.8rem;
+      line-height: 1.1;
     }
     .battle-intel-overlay__meta {
       margin: 0;
@@ -2809,11 +2822,21 @@
       text-overflow: ellipsis;
       max-width: 100%;
     }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__meta {
+      font-size: 0.6rem;
+      line-height: 1.2;
+      -webkit-line-clamp: 1;
+    }
     #battleIntelOverlayBody {
       display: grid;
       gap: 0.55rem;
+      min-height: 0;
       overflow-y: auto;
       padding-right: 0.15rem;
+    }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] #battleIntelOverlayBody {
+      gap: 0.4rem;
+      scrollbar-gutter: stable;
     }
     #battleIntelOverlayNotes {
       display: grid;
@@ -2846,6 +2869,10 @@
       grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
       gap: 0.42rem;
     }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__stats {
+      grid-template-columns: repeat(var(--battle-intel-stat-count, 6), minmax(0, 1fr));
+      gap: 0.32rem;
+    }
     .battle-intel-overlay__stat {
       display: grid;
       gap: 0.1rem;
@@ -2855,11 +2882,19 @@
       background: rgba(10, 15, 24, 0.52);
       border: 1px solid rgba(255, 255, 255, 0.05);
     }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__stat {
+      padding: 0.36rem 0.42rem;
+      border-radius: 10px;
+    }
     .battle-intel-overlay__stat-label {
       font-size: 0.58rem;
       letter-spacing: 0.07em;
       text-transform: uppercase;
       color: rgba(248, 249, 251, 0.58);
+    }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__stat-label {
+      font-size: 0.52rem;
+      letter-spacing: 0.05em;
     }
     .battle-intel-overlay__stat-value {
       font-size: 0.88rem;
@@ -2867,15 +2902,24 @@
       line-height: 1.1;
       color: var(--text-primary);
     }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__stat-value {
+      font-size: 0.78rem;
+    }
     .battle-intel-overlay__chip-row {
       display: flex;
       flex-wrap: wrap;
       gap: 0.45rem;
     }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__chip-row {
+      gap: 0.3rem;
+    }
     .battle-intel-overlay__unit-tabs {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
       gap: 0.45rem;
+    }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__unit-tabs {
+      gap: 0.32rem;
     }
     .battle-intel-overlay__unit-tab {
       display: grid;
@@ -2889,6 +2933,11 @@
       color: rgba(248, 249, 251, 0.82);
       cursor: pointer;
       transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform 140ms ease;
+    }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__unit-tab {
+      gap: 0.08rem;
+      padding: 0.34rem 0.48rem;
+      border-radius: 12px;
     }
     .battle-intel-overlay__unit-tab:hover,
     .battle-intel-overlay__unit-tab:focus-visible {
@@ -2922,6 +2971,9 @@
       display: flex;
       gap: 0.42rem;
     }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__tabs {
+      gap: 0.3rem;
+    }
     .battle-intel-overlay__tab {
       display: inline-flex;
       align-items: center;
@@ -2938,6 +2990,11 @@
       text-transform: uppercase;
       cursor: pointer;
       transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform 140ms ease;
+    }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__tab {
+      min-height: 1.65rem;
+      padding: 0.18rem 0.58rem;
+      font-size: 0.6rem;
     }
     .battle-intel-overlay__tab:hover,
     .battle-intel-overlay__tab:focus-visible {
@@ -2963,6 +3020,12 @@
       letter-spacing: 0.05em;
       text-transform: uppercase;
       color: rgba(248, 249, 251, 0.86);
+    }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__chip {
+      min-height: 1.32rem;
+      padding: 0.16rem 0.44rem;
+      font-size: 0.58rem;
+      letter-spacing: 0.04em;
     }
     .battle-intel-overlay__chip--good {
       border-color: rgba(143, 224, 164, 0.28);
@@ -3032,6 +3095,10 @@
       grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
       gap: 0.55rem;
     }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__actions {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.4rem;
+    }
     .battle-intel-overlay__details {
       display: grid;
       gap: 0.55rem;
@@ -3043,6 +3110,11 @@
       border-radius: 16px;
       background: rgba(9, 14, 22, 0.68);
       border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__detail-section {
+      gap: 0.3rem;
+      padding: 0.5rem 0.58rem;
+      border-radius: 12px;
     }
     .battle-intel-overlay__detail-title {
       margin: 0;
@@ -3056,6 +3128,10 @@
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
       gap: 0.42rem 0.68rem;
+    }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__detail-grid {
+      grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+      gap: 0.3rem 0.5rem;
     }
     .battle-intel-overlay__detail-entry {
       display: grid;
@@ -3085,6 +3161,12 @@
       color: var(--text-primary);
       cursor: pointer;
       transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background 140ms ease;
+    }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__action {
+      gap: 0.18rem;
+      min-height: 64px;
+      padding: 0.5rem 0.58rem;
+      border-radius: 12px;
     }
     .battle-intel-overlay__action:hover,
     .battle-intel-overlay__action:focus-visible {
@@ -3116,10 +3198,18 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__action-label {
+      font-size: 0.66rem;
+      letter-spacing: 0.07em;
+    }
     .battle-intel-overlay__action-detail {
       font-size: 0.72rem;
       line-height: 1.4;
       color: rgba(248, 249, 251, 0.7);
+    }
+    .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__action-detail {
+      font-size: 0.66rem;
+      line-height: 1.3;
     }
     .battle-intel-overlay__note {
       margin: 0;
@@ -3283,6 +3373,18 @@
     .battle-audio-toggle[aria-pressed="false"]:focus-visible {
       border-color: rgba(241, 213, 149, 0.36);
       color: #f1dfb2;
+    }
+
+    .battle-animation-toggle[data-animation-mode="quick"] {
+      background: rgba(67, 52, 31, 0.82);
+      border-color: rgba(245, 187, 89, 0.42);
+      color: #ffe0a6;
+    }
+
+    .battle-animation-toggle[data-animation-mode="quick"]:hover,
+    .battle-animation-toggle[data-animation-mode="quick"]:focus-visible {
+      border-color: rgba(255, 210, 132, 0.58);
+      color: #fff0c9;
     }
     @media (max-width: 980px) {
       .battle-map-header {
@@ -3700,7 +3802,7 @@
 
     .stance-buttons {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 0.6rem;
     }
 
@@ -4085,6 +4187,294 @@
     .attack-preview-breakdown strong {
       color: rgba(245, 196, 109, 0.94);
     }
+
+    /* Mode Toggle for Detailed Breakdown */
+    .attack-preview-mode-toggle {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      padding: 0.25rem;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+    }
+    .attack-preview-mode-btn {
+      flex: 1;
+      padding: 0.5rem 0.75rem;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+    }
+    .attack-preview-mode-btn:hover {
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .attack-preview-mode-btn--active {
+      background: rgba(245, 196, 109, 0.15);
+      color: rgba(245, 196, 109, 0.95);
+      border: 1px solid rgba(245, 196, 109, 0.3);
+    }
+    .attack-preview-mode-btn .mode-icon {
+      font-size: 0.9rem;
+    }
+
+    /* Player-Facing Combat Summary Card */
+    .combat-summary-card {
+      background: linear-gradient(180deg, rgba(20, 25, 35, 0.9) 0%, rgba(15, 20, 28, 0.95) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 1rem;
+      display: grid;
+      gap: 0.85rem;
+    }
+    .combat-summary-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 0.65rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .combat-summary-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: rgba(245, 196, 109, 0.95);
+      margin: 0;
+      letter-spacing: 0.02em;
+    }
+    .combat-summary-subtitle {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Combat Metrics Grid */
+    .combat-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.65rem;
+    }
+    .combat-metric {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      padding: 0.6rem 0.75rem;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 8px;
+    }
+    .combat-metric--primary {
+      background: rgba(245, 196, 109, 0.08);
+      border-color: rgba(245, 196, 109, 0.15);
+    }
+    .combat-metric__label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .combat-metric__value {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.2;
+    }
+    .combat-metric__value--text {
+      font-size: 0.78rem;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .combat-metric--primary .combat-metric__value {
+      color: rgba(245, 196, 109, 0.95);
+    }
+    .combat-metric__unit {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+    }
+
+    .damage-projection {
+      display: grid;
+      gap: 0.4rem;
+      padding: 0.65rem 0.75rem;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+    }
+    .damage-projection-row {
+      display: grid;
+      grid-template-columns: minmax(7rem, 0.85fr) minmax(0, 1.15fr);
+      gap: 0.75rem;
+      align-items: baseline;
+      font-size: 0.74rem;
+    }
+    .damage-projection-row span {
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .damage-projection-row strong {
+      color: var(--text-primary);
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+    .damage-projection-row--primary strong {
+      color: rgba(245, 196, 109, 0.95);
+      font-size: 0.88rem;
+    }
+
+    /* Penetration Assessment Bar */
+    .penetration-assessment {
+      padding: 0.5rem 0;
+    }
+    .penetration-bar {
+      position: relative;
+      height: 2.25rem;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 0.75rem;
+    }
+    .penetration-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 100%;
+      width: var(--penetration-width, 50%);
+      background: linear-gradient(90deg, rgba(212, 89, 89, 0.6) 0%, rgba(245, 196, 109, 0.5) 50%, rgba(92, 184, 92, 0.6) 100%);
+      opacity: 0.4;
+      transition: width 0.3s ease;
+    }
+    .penetration-label {
+      position: relative;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      z-index: 1;
+    }
+    .penetration-outcome {
+      position: relative;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: rgba(245, 196, 109, 0.95);
+      z-index: 1;
+    }
+
+    /* Weapon Loadout Summary */
+    .weapon-loadout-summary {
+      display: grid;
+      gap: 0.5rem;
+    }
+    .weapon-loadout-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .weapon-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .weapon-chip {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.4rem 0.6rem;
+      background: rgba(30, 35, 45, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+      font-size: 0.7rem;
+    }
+    .weapon-chip--advantage {
+      border-color: rgba(92, 184, 92, 0.3);
+      background: rgba(92, 184, 92, 0.08);
+    }
+    .weapon-chip--disadvantage {
+      border-color: rgba(212, 89, 89, 0.3);
+      background: rgba(212, 89, 89, 0.08);
+    }
+    .weapon-chip__name {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .weapon-chip__stats {
+      color: var(--text-muted);
+      font-size: 0.65rem;
+    }
+    .weapon-chip__overmatch {
+      padding: 0.15rem 0.35rem;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: rgba(245, 196, 109, 0.9);
+    }
+    .weapon-chip--advantage .weapon-chip__overmatch {
+      background: rgba(92, 184, 92, 0.2);
+      color: rgba(92, 184, 92, 0.9);
+    }
+    .weapon-chip--disadvantage .weapon-chip__overmatch {
+      background: rgba(212, 89, 89, 0.2);
+      color: rgba(212, 89, 89, 0.9);
+    }
+
+    /* Combat Factors List */
+    .combat-factors {
+      display: grid;
+      gap: 0.5rem;
+    }
+    .combat-factors-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .combat-factors-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.35rem;
+    }
+    .combat-factor {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.45rem 0.6rem;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 6px;
+      font-size: 0.72rem;
+    }
+    .combat-factor--bonus {
+      background: rgba(245, 196, 109, 0.06);
+      border-left: 2px solid rgba(245, 196, 109, 0.4);
+    }
+    .combat-factor__label {
+      color: var(--text-muted);
+    }
+    .combat-factor__value {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .combat-factor__value--final {
+      color: rgba(245, 196, 109, 0.95);
+      font-size: 0.85rem;
+    }
+
     @media (max-width: 760px) {
       .battle-dialog__surface {
         width: min(96vw, 680px);
@@ -4108,6 +4498,13 @@
       .attack-preview-rangebar {
         align-items: flex-start;
         flex-direction: column;
+      }
+      .damage-projection-row {
+        grid-template-columns: 1fr;
+        gap: 0.2rem;
+      }
+      .damage-projection-row strong {
+        text-align: left;
       }
     }
     /* Idle warning uses the same overlay treatment as other battle dialogs so it floats above the UI. */
@@ -4219,10 +4616,10 @@
       justify-content: center;
       align-items: center;
       overflow: hidden;
-      border-radius: 24px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: 0 48px 96px rgba(5, 8, 16, 0.55);
-      background: rgba(12, 16, 24, 0.92);
+      border-radius: 18px;
+      border: 1px solid rgba(170, 145, 94, 0.24);
+      box-shadow: 0 48px 96px rgba(5, 8, 16, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+      background: rgba(9, 12, 13, 0.94);
       outline: none;
     }
     .war-room-image {
@@ -4231,7 +4628,62 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
-      filter: saturate(1.1) contrast(0.96);
+      filter: saturate(1.08) contrast(0.94) brightness(0.78);
+    }
+    .war-room-command-strip {
+      position: absolute;
+      top: 0.8rem;
+      left: 0.8rem;
+      right: 4.6rem;
+      z-index: 3;
+      display: grid;
+      grid-template-columns: minmax(190px, 1fr) repeat(5, minmax(76px, 0.38fr));
+      gap: 0.42rem;
+      pointer-events: none;
+    }
+    .war-room-command-chip {
+      min-width: 0;
+      display: grid;
+      gap: 0.1rem;
+      align-content: center;
+      min-height: 3.05rem;
+      padding: 0.48rem 0.62rem;
+      border-radius: 8px;
+      border: 1px solid rgba(170, 145, 94, 0.2);
+      background: linear-gradient(180deg, rgba(14, 17, 15, 0.76) 0%, rgba(6, 9, 10, 0.82) 100%);
+      backdrop-filter: blur(6px);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 12px 26px rgba(0, 0, 0, 0.22);
+      color: #efe3bf;
+    }
+    .war-room-command-chip span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: var(--font-label);
+      font-size: 0.56rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(216, 199, 157, 0.7);
+    }
+    .war-room-command-chip strong {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: var(--font-heading);
+      font-size: 0.94rem;
+      letter-spacing: 0.04em;
+      color: rgba(248, 249, 251, 0.95);
+    }
+    .war-room-command-chip--critical {
+      border-color: rgba(255, 104, 104, 0.34);
+      background: linear-gradient(180deg, rgba(63, 23, 26, 0.78), rgba(18, 10, 11, 0.84));
+    }
+    .war-room-command-chip--low {
+      border-color: rgba(245, 196, 109, 0.36);
+      background: linear-gradient(180deg, rgba(62, 45, 20, 0.76), rgba(18, 13, 8, 0.84));
     }
     .war-room-hotspot-layer {
       position: absolute;
@@ -4239,27 +4691,48 @@
       width: 100%;
       height: 100%;
       pointer-events: none;
-      z-index: 1;
+      z-index: 2;
     }
     .war-room-hotspot {
       position: absolute;
       pointer-events: auto;
-      border: none;
-      background: rgba(245, 196, 109, 0.02);
+      border: 1px solid rgba(245, 196, 109, 0.04);
+      background: rgba(245, 196, 109, 0.025);
       box-sizing: border-box;
-      border-radius: 18px;
-      transition: background 0.2s ease;
+      border-radius: 10px;
+      transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     }
     .war-room-hotspot:hover,
     .war-room-hotspot:focus-visible {
-      background: rgba(245, 196, 109, 0.08);
+      background: rgba(245, 196, 109, 0.11);
+      border-color: rgba(245, 196, 109, 0.34);
+      box-shadow: 0 0 0 1px rgba(245, 196, 109, 0.12), inset 0 0 18px rgba(245, 196, 109, 0.11);
       outline: none;
     }
     .war-room-close {
       position: absolute;
       top: 1rem;
       right: 1rem;
-      z-index: 3;
+      z-index: 5;
+    }
+    #warRoomClose {
+      width: 2.35rem;
+      height: 2.35rem;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      border: 1px solid rgba(170, 145, 94, 0.28);
+      background: rgba(12, 15, 14, 0.72);
+      color: #efe3bf;
+      backdrop-filter: blur(6px);
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+    }
+    #warRoomClose:hover,
+    #warRoomClose:focus-visible {
+      outline: none;
+      border-color: rgba(245, 196, 109, 0.5);
+      background: rgba(50, 42, 24, 0.82);
     }
     /* Detail panel displays as a centered modal within the war room surface. */
     .war-room-detail-panel {
@@ -4267,24 +4740,31 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: min(720px, 86%);
+      width: min(760px, 86%);
       max-height: 82%;
-      background: rgba(12, 16, 24, 0.98);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 16px;
-      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
-      padding: 1rem 1.25rem 1.25rem 1.25rem;
+      background: linear-gradient(180deg, rgba(13, 18, 18, 0.94) 0%, rgba(7, 10, 11, 0.97) 100%);
+      border: 1px solid rgba(170, 145, 94, 0.26);
+      border-radius: 12px;
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+      padding: 0.92rem 1rem 1rem 1rem;
       overflow-y: auto;
-      z-index: 2;
+      z-index: 4;
       color: var(--text-primary, #f8f9fb);
+      backdrop-filter: blur(8px);
     }
     .war-room-detail-panel h3 {
       margin: 0 2rem 0.35rem 0;
-      font-size: 1.25rem;
-      color: var(--accent-strong, #f5c46d);
+      font-family: var(--font-heading);
+      font-size: 1.04rem;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: #efe3bf;
     }
     .war-room-detail-panel p {
       margin: 0.35rem 0 0.6rem 0;
+      color: rgba(229, 236, 255, 0.76);
+      font-size: 0.82rem;
+      line-height: 1.45;
     }
     .war-room-detail-close {
       position: absolute;
@@ -4296,7 +4776,7 @@
       place-items: center;
       border-radius: 999px;
       border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(20, 26, 36, 0.85);
+      background: rgba(16, 20, 20, 0.86);
       color: var(--text-primary, #f8f9fb);
       cursor: pointer;
     }
@@ -4308,15 +4788,19 @@
     /* Small numeric/status badge in a hotspot's corner. */
     .war-room-badge {
       position: absolute;
-      top: -0.4rem;
-      left: -0.4rem;
-      padding: 0.2rem 0.45rem;
+      top: 0.22rem;
+      left: 0.22rem;
+      max-width: calc(100% - 0.44rem);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0.18rem 0.4rem;
       border-radius: 999px;
-      background: var(--accent-strong, #f5c46d);
+      background: rgba(245, 196, 109, 0.92);
       color: #141b2c;
       font-weight: 700;
-      font-size: 0.7rem;
-      letter-spacing: 0.02em;
+      font-size: 0.62rem;
+      letter-spacing: 0.04em;
       pointer-events: none;
       box-shadow: 0 6px 14px rgba(245, 196, 109, 0.25);
     }
@@ -4376,6 +4860,77 @@
     }
     .war-room-engagements { margin: 0.25rem 0 0.5rem 1rem; }
     .war-room-engagements li { margin: 0.25rem 0; }
+    .war-room-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 0.48rem;
+      margin: 0.35rem 0 0.65rem;
+    }
+    .war-room-kpi {
+      display: grid;
+      gap: 0.12rem;
+      padding: 0.52rem 0.62rem;
+      border-radius: 8px;
+      border: 1px solid rgba(170, 145, 94, 0.16);
+      background: rgba(11, 15, 16, 0.72);
+    }
+    .war-room-kpi span {
+      font-family: var(--font-label);
+      font-size: 0.58rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(216, 199, 157, 0.68);
+    }
+    .war-room-kpi strong {
+      font-family: var(--font-heading);
+      font-size: 1rem;
+      color: rgba(248, 249, 251, 0.95);
+    }
+    .war-room-status-pill {
+      display: inline-flex;
+      align-items: center;
+      width: max-content;
+      min-height: 1.5rem;
+      padding: 0.2rem 0.58rem;
+      border-radius: 999px;
+      border: 1px solid rgba(170, 145, 94, 0.22);
+      background: rgba(26, 25, 18, 0.82);
+      font-family: var(--font-label);
+      font-size: 0.64rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #efe3bf;
+    }
+    .war-room-meter {
+      display: flex;
+      height: 0.52rem;
+      overflow: hidden;
+      border-radius: 999px;
+      border: 1px solid rgba(229, 236, 255, 0.1);
+      background: rgba(4, 7, 12, 0.7);
+      margin-top: 0.4rem;
+    }
+    .war-room-meter span {
+      display: block;
+      min-width: 0;
+      height: 100%;
+    }
+    .war-room-meter__ammo { background: #7ad6aa; }
+    .war-room-meter__fuel { background: #95beff; }
+    .war-room-meter__reserve { background: #f5c46d; }
+    @media (max-width: 820px) {
+      .war-room-command-strip {
+        right: 3.6rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .war-room-command-chip {
+        min-height: 2.72rem;
+      }
+      .war-room-detail-panel {
+        width: calc(100% - 1rem);
+        max-height: 78%;
+      }
+    }
     .battle-popup {
       /* Wider modal so roster entries have breathing room for condensed layout. */
       width: min(640px, 100%);
@@ -4392,7 +4947,62 @@
       overflow: hidden;
     }
     .battle-popup[data-popup-key="logistics"] {
-      width: min(1080px, calc(100vw - 2rem));
+      width: min(1120px, calc(100vw - 1.4rem));
+      max-height: min(88vh, 860px);
+      padding: 1rem 1.1rem 1.05rem;
+      border-radius: 18px;
+      border: 1px solid rgba(170, 145, 94, 0.24);
+      background:
+        radial-gradient(circle at 88% 0%, rgba(122, 214, 170, 0.08), transparent 32%),
+        radial-gradient(circle at 8% 0%, rgba(245, 196, 109, 0.12), transparent 30%),
+        linear-gradient(180deg, rgba(14, 17, 16, 0.95) 0%, rgba(7, 10, 12, 0.975) 100%);
+      box-shadow:
+        0 30px 70px rgba(2, 5, 8, 0.58),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    .battle-popup[data-popup-key="logistics"] .popup-header {
+      align-items: start;
+      padding-bottom: 0.72rem;
+      border-bottom: 1px solid rgba(170, 145, 94, 0.16);
+    }
+    .battle-popup[data-popup-key="logistics"] .popup-title {
+      font-family: var(--font-heading);
+      font-size: 1.22rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      line-height: 1.05;
+      color: #efe3bf;
+    }
+    .battle-popup[data-popup-key="logistics"] .popup-title::before {
+      content: "Supply Board";
+      display: block;
+      margin-bottom: 0.28rem;
+      font-family: var(--font-label);
+      font-size: 0.56rem;
+      font-weight: 700;
+      letter-spacing: 0.26em;
+      color: rgba(226, 205, 154, 0.7);
+    }
+    .battle-popup[data-popup-key="logistics"] #battlePopupClose {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 999px;
+      border: 1px solid rgba(170, 145, 94, 0.24);
+      background: linear-gradient(180deg, rgba(31, 34, 26, 0.94) 0%, rgba(15, 17, 13, 0.98) 100%);
+      color: #d8c79d;
+      font-size: 1rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .battle-popup[data-popup-key="logistics"] [data-popup-body] {
+      padding-right: 0.25rem;
+    }
+    .battle-popup[data-popup-key="armyRoster"] {
+      width: min(860px, calc(100vw - 2rem));
+      max-height: 90vh;
+    }
+    .battle-popup[data-popup-key="battleRequisitions"] {
+      width: min(1040px, calc(100vw - 2rem));
       max-height: 90vh;
     }
     .battle-popup[data-popup-key="airSupport"] {
@@ -5049,10 +5659,20 @@
         width: calc(100% - 1rem);
         padding: 0.72rem 0.72rem 0.78rem;
       }
+      .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] {
+        width: calc(100% - 1rem);
+        padding: 0.58rem 0.58rem 0.62rem;
+      }
       .battle-intel-overlay[data-collapsed="true"] .battle-intel-overlay__stats {
-        grid-template-columns: repeat(var(--battle-intel-stat-count, 6), minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
+      }
+      .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__stats {
+        grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
       }
       .battle-intel-overlay__actions {
+        grid-template-columns: 1fr;
+      }
+      .battle-intel-overlay[data-intel-kind="battle"][data-collapsed="false"] .battle-intel-overlay__actions {
         grid-template-columns: 1fr;
       }
     }
@@ -5352,6 +5972,225 @@
     .army-roster-entry .reserve-copy {
       gap: 0.35rem;
     }
+    .battle-popup[data-popup-key="armyRoster"] .popup-section > h3 {
+      margin: 0 0 0.75rem;
+      color: var(--text-primary);
+    }
+    .army-roster-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 0.55rem;
+      margin-bottom: 1rem;
+    }
+    .army-roster-summary p {
+      margin: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.75rem;
+      padding: 0.58rem 0.72rem;
+      border-radius: 8px;
+      border: 1px solid rgba(229, 236, 255, 0.12);
+      background: rgba(17, 24, 36, 0.56);
+      color: var(--text-secondary);
+      font-size: 0.78rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .army-roster-summary strong {
+      color: var(--text-primary);
+      font-size: 1rem;
+    }
+    .army-roster-actions {
+      margin-bottom: 0.9rem;
+    }
+    .army-roster-requisition-link {
+      border-radius: 10px;
+      border: 1px solid rgba(245, 196, 109, 0.48);
+      background: rgba(245, 196, 109, 0.14);
+      color: #ffe0a0;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.5rem 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    }
+    .army-roster-requisition-link:is(:hover, :focus-visible) {
+      background: rgba(245, 196, 109, 0.22);
+      border-color: rgba(245, 196, 109, 0.65);
+      color: #ffe9c7;
+    }
+    .battle-requisition-board {
+      display: grid;
+      gap: 0.7rem;
+      margin: 0 0 1rem;
+      padding: 0.85rem;
+      border-radius: 14px;
+      border: 1px solid rgba(245, 196, 109, 0.22);
+      background:
+        linear-gradient(145deg, rgba(53, 45, 28, 0.28), rgba(10, 15, 24, 0.72)),
+        rgba(8, 13, 22, 0.78);
+    }
+    .battle-requisition-board__header {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: start;
+    }
+    .battle-requisition-board__header h4 {
+      margin: 0;
+      color: var(--text-primary);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .battle-requisition-board__header p {
+      margin: 0.2rem 0 0;
+      color: var(--text-secondary);
+      font-size: 0.82rem;
+      line-height: 1.35;
+    }
+    .battle-requisition-board__points {
+      min-width: 92px;
+      padding: 0.45rem 0.7rem;
+      border-radius: 12px;
+      border: 1px solid rgba(245, 196, 109, 0.38);
+      background: rgba(245, 196, 109, 0.12);
+      text-align: center;
+    }
+    .battle-requisition-board__points span,
+    .battle-requisition-card__eyebrow {
+      display: block;
+      color: rgba(229, 214, 179, 0.72);
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .battle-requisition-board__points strong {
+      display: block;
+      color: #ffd47a;
+      font-size: 1.55rem;
+      line-height: 1;
+      margin-top: 0.18rem;
+    }
+    .battle-requisition-board__meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .battle-requisition-board__meta span {
+      padding: 0.18rem 0.5rem;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.055);
+      color: var(--text-secondary);
+      font-size: 0.72rem;
+    }
+    .battle-requisition-board__options {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 0.55rem;
+    }
+    .battle-requisition-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.65rem;
+      align-items: center;
+      padding: 0.7rem;
+      border-radius: 12px;
+      border: 1px solid rgba(229, 236, 255, 0.12);
+      background: rgba(9, 14, 23, 0.78);
+    }
+    .battle-requisition-card__copy {
+      display: grid;
+      gap: 0.25rem;
+      min-width: 0;
+    }
+    .battle-requisition-card__copy strong {
+      color: var(--text-primary);
+      font-size: 0.95rem;
+    }
+    .battle-requisition-card__copy p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.76rem;
+      line-height: 1.3;
+    }
+    .battle-requisition-card__payload {
+      color: #ffd47a;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .battle-requisition-card__actions {
+      display: grid;
+      gap: 0.35rem;
+    }
+    .battle-requisition-card__actions button {
+      min-width: 76px;
+      padding: 0.42rem 0.65rem;
+      border-radius: 9px;
+      border: 1px solid rgba(245, 196, 109, 0.48);
+      background: rgba(245, 196, 109, 0.14);
+      color: #ffe0a0;
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .battle-requisition-card__actions button:disabled {
+      cursor: not-allowed;
+      opacity: 0.42;
+    }
+    .battle-requisition-board__pending {
+      border-top: 1px solid rgba(229, 236, 255, 0.08);
+      padding-top: 0.5rem;
+      color: var(--text-secondary);
+      font-size: 0.78rem;
+    }
+    .battle-requisition-board__pending summary {
+      cursor: pointer;
+      color: var(--text-primary);
+      font-weight: 700;
+    }
+    .battle-requisition-board__pending ul {
+      list-style: none;
+      display: grid;
+      gap: 0.3rem;
+      margin: 0.5rem 0 0;
+      padding: 0;
+    }
+    .battle-requisition-board__pending li {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.7rem;
+      padding: 0.35rem 0.45rem;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.045);
+    }
+    .army-roster-section {
+      display: grid;
+      gap: 0.55rem;
+      margin-top: 0.9rem;
+    }
+    .army-roster-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.55rem;
+    }
+    .army-roster-empty {
+      color: var(--text-muted);
+      padding: 0.7rem 0.85rem;
+      border-radius: 8px;
+      border: 1px dashed rgba(229, 236, 255, 0.18);
+      background: rgba(13, 20, 31, 0.45);
+      font-size: 0.88rem;
+    }
     .army-roster-line {
       display: flex;
       align-items: baseline;
@@ -5389,6 +6228,33 @@
       gap: 0.35rem 0.9rem;
       font-size: 0.78rem;
       color: var(--text-muted);
+    }
+    .army-roster-details {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.32rem;
+      min-width: 0;
+      font-size: 0.74rem;
+      line-height: 1.3;
+    }
+    .army-roster-detail {
+      display: inline-flex;
+      align-items: center;
+      max-width: 100%;
+      padding: 0.14rem 0.42rem;
+      border-radius: 6px;
+      border: 1px solid rgba(229, 236, 255, 0.13);
+      background: rgba(17, 24, 36, 0.42);
+      color: var(--text-secondary);
+      overflow-wrap: anywhere;
+    }
+    .army-roster-detail--role {
+      border-color: rgba(129, 212, 250, 0.32);
+      color: #bfe9ff;
+    }
+    .army-roster-detail--suppression {
+      border-color: rgba(255, 196, 109, 0.32);
+      color: #ffe3ba;
     }
     .army-roster-stat {
       display: inline-flex;
@@ -6576,6 +7442,16 @@
                   >
                     Sound On
                   </button>
+                  <button
+                    id="battleAnimationToggle"
+                    type="button"
+                    class="compact-button battle-animation-toggle"
+                    aria-pressed="false"
+                    aria-label="Use quick movement animations"
+                    title="Use quick movement animations"
+                  >
+                    Path Anim
+                  </button>
                   <button id="battleCycleObjective" type="button" class="compact-button" aria-label="Cycle objective focus">Cycle Objective</button>
                   <button id="endTurn" type="button" class="secondary-button" disabled>End Turn</button>
                 </div>
@@ -6733,23 +7609,31 @@
 
           <!-- Combat Stance Selector -->
           <div class="attack-stance-selector">
-            <label class="stance-label">Combat Stance:</label>
+            <label class="stance-label">Combat Order:</label>
             <div class="stance-buttons">
+              <button type="button" id="stanceFireAtWill" class="stance-button stance-active" data-stance="fireAtWill">
+                <span class="stance-heading">
+                  <span class="stance-name">Fire at Will</span>
+                  <span class="stance-state">Selected</span>
+                </span>
+                <span class="stance-desc">Use the formation's standard fire profile against the selected target.</span>
+                <span class="stance-note">Baseline shots, accuracy, suppression, and ammo cost.</span>
+              </button>
               <button type="button" id="stanceAssault" class="stance-button" data-stance="assault">
                 <span class="stance-heading">
                   <span class="stance-name">Assault</span>
                   <span class="stance-state"></span>
                 </span>
-                <span class="stance-desc">Close to point-blank range. Higher hit probability, but the battalion gives up cover.</span>
-                <span class="stance-note">Point-blank attack. Uses 1.5x the computed hit chance.</span>
+                <span class="stance-desc">Attack an adjacent target at point-blank range, giving up cover for a stronger hit chance.</span>
+                <span class="stance-note">Requires adjacency and clear suppression state.</span>
               </button>
-              <button type="button" id="stanceSuppressive" class="stance-button stance-active" data-stance="suppressive">
+              <button type="button" id="stanceSuppressive" class="stance-button" data-stance="suppressive">
                 <span class="stance-heading">
-                  <span class="stance-name">Suppressive</span>
-                  <span class="stance-state">Selected</span>
+                  <span class="stance-name">Suppressing Fire</span>
+                  <span class="stance-state"></span>
                 </span>
-                <span class="stance-desc">Stay in ranged posture, disrupt the target, and preserve the battalion's formation.</span>
-                <span class="stance-note">Default fire profile for foot formations.</span>
+                <span class="stance-desc">Keep normal shots and accuracy while doubling suppression pressure on the target.</span>
+                <span class="stance-note">Costs double ammo; readiness damage is unchanged.</span>
               </button>
             </div>
           </div>
@@ -7291,6 +8175,7 @@
       <div class="war-room-surface">
         <div id="warRoomAnnouncer" class="sr-only" aria-live="polite"></div>
         <img class="war-room-image" src="/src/assets/Interface/War_Room.png" alt="" aria-hidden="true" />
+        <div class="war-room-command-strip" data-war-room-command-strip aria-live="polite"></div>
         <div class="war-room-hotspot-layer"></div>
         <div class="war-room-close">
           <button id="warRoomClose" type="button" aria-label="Close war room">

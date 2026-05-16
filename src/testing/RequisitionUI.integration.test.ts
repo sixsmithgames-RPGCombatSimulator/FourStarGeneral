@@ -245,7 +245,7 @@ describe("Requisition UI Integration", () => {
     it("should support the tutorial-required force composition within 1200 RP budget", () => {
       const unitCosts: Record<string, number> = {
         infantry: 50,
-        tank: 200,
+        tank: 100,
         engineer: 80,
         flakBattery: 210,
         fighter: 240,
@@ -257,7 +257,7 @@ describe("Requisition UI Integration", () => {
       // Tutorial composition: 2 infantry, 1 tank, 1 engineer, 1 flak, 1 fighter, supplies
       const composition: Record<string, number> = {
         infantry: 2,      // 100 RP
-        tank: 1,          // 200 RP
+        tank: 1,          // 100 RP
         engineer: 1,      // 80 RP
         flakBattery: 1,   // 210 RP
         fighter: 1,       // 240 RP
@@ -271,7 +271,7 @@ describe("Requisition UI Integration", () => {
         totalCost += (unitCosts[key] || 0) * quantity;
       }
 
-      // Total should be: 100 + 200 + 80 + 210 + 240 + 40 + 60 + 50 = 980 RP
+      // Total should be: 100 + 100 + 80 + 210 + 240 + 40 + 60 + 50 = 880 RP
       expect(totalCost).toBeLessThanOrEqual(1200);
       expect(totalCost).toBe(980);
     });

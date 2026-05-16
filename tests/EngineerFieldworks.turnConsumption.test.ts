@@ -94,9 +94,30 @@ const truckDef: UnitTypeDefinition = {
   cost: 80
 };
 
+const smokeTankDef: UnitTypeDefinition = {
+  class: "tank",
+  combat: { category: "tank", weight: "medium", role: "normal", signature: "medium" },
+  movement: 4,
+  moveType: "track",
+  vision: 4,
+  ammo: 3,
+  fuel: 40,
+  rangeMin: 1,
+  rangeMax: 4,
+  initiative: 4,
+  armor: { front: 12, side: 8, top: 4 },
+  hardAttack: 20,
+  softAttack: 25,
+  ap: 10,
+  accuracyBase: 60,
+  traits: ["zoc"],
+  cost: 160
+};
+
 const unitTypes: UnitTypeDictionary = {
   TestEngineer: engineerDef,
-  TestTruck: truckDef
+  TestTruck: truckDef,
+  TestSmokeTank: smokeTankDef
 } as unknown as UnitTypeDictionary;
 
 function side(hq = { q: 0, r: 0 }, units: ScenarioUnit[] = []): ScenarioSide {
@@ -214,6 +235,64 @@ registerTest("ENGINEER_FIELDWORKS_REQUIRE_A_FRESH_START_AND_STILL_END_THE_TURN",
   }
 
   await Then("all engineer fieldworks start fresh and burn the rest of the turn", () => {});
+});
+
+registerTest("SMOKE_ACTION_DELEGATES_FROM_GENERIC_MODIFICATION_PATH", async ({ Then }) => {
+  const smokeTank: ScenarioUnit = {
+    type: "TestSmokeTank" as unknown as ScenarioUnit["type"],
+    unitId: "smoke-tank",
+    hex: { q: 1, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 3,
+    fuel: 40,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([smokeTank]);
+  const before = engine.getUnitCommandState(smokeTank.hex, smokeTank.unitId);
+  if (!before?.canLaySmoke || !before.buildModificationAvailability.smoke.available) {
+    throw new Error(`Expected a fresh tank to be able to lay smoke, received ${JSON.stringify(before)}.`);
+  }
+
+  const targetKeys = engine.resolveSmokeTargetHexKeys(smokeTank.hex, smokeTank.unitId);
+  if (targetKeys.length === 0) {
+    throw new Error("Expected smoke-capable tank to expose in-range smoke target hexes.");
+  }
+
+  const movementBefore = engine.getMovementBudget(smokeTank.hex, smokeTank.unitId)?.remaining ?? -1;
+  if (!engine.buildHexModification(smokeTank.hex, "smoke", "E", smokeTank.unitId)) {
+    throw new Error("Expected generic smoke modification call to delegate to laySmoke.");
+  }
+
+  const smokeMods = engine.getHexModifications(smokeTank.hex).filter((modification) => modification.type === "smoke");
+  if (smokeMods.length !== 1 || smokeMods[0]?.facing !== "E" || smokeMods[0]?.expiresOnTurn !== 2) {
+    throw new Error(`Expected one expiring east-edge smoke screen, received ${JSON.stringify(smokeMods)}.`);
+  }
+
+  const [updatedTank] = engine.serialize().playerPlacements;
+  if (updatedTank?.ammo !== 2) {
+    throw new Error(`Expected smoke to consume one ammo from the live unit, received ${updatedTank?.ammo}.`);
+  }
+  const after = engine.getUnitCommandState(smokeTank.hex, smokeTank.unitId);
+  if (after?.canLaySmoke || engine.resolveSmokeTargetHexKeys(smokeTank.hex, smokeTank.unitId).length !== 0) {
+    throw new Error(`Expected smoke to be limited to once per turn, received ${JSON.stringify(after)}.`);
+  }
+  const movementAfter = engine.getMovementBudget(smokeTank.hex, smokeTank.unitId)?.remaining ?? -1;
+  if (movementAfter !== movementBefore) {
+    throw new Error(`Expected smoke to leave movement available, before=${movementBefore}, after=${movementAfter}.`);
+  }
+  if (engine.buildHexModification(smokeTank.hex, "smoke", "W", smokeTank.unitId)) {
+    throw new Error("Expected second smoke action in the same turn to be rejected.");
+  }
+
+  engine.endTurn();
+  if (engine.getHexModifications(smokeTank.hex).some((modification) => modification.type === "smoke")) {
+    throw new Error("Expected smoke to expire at the start of the next player turn.");
+  }
+
+  await Then("smoke behaves as a smoke action through both engine entry points", () => {});
 });
 
 registerTest("FORTIFICATIONS_AND_TANK_TRAPS_CAN_SHARE_THE_SAME_EDGE", async ({ Then }) => {

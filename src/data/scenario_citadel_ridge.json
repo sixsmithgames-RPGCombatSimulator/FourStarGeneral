@@ -1,6 +1,8 @@
 {
   "name": "Citadel Ridge",
   "size": { "cols": 24, "rows": 18 },
+  "mainSupplyDistanceTurns": 3,
+  "allowedBattleRequisitions": ["ammo", "fuel", "supplyConvoy", "airborneDetachment", "corpsArtilleryGroup", "infantry", "engineer", "recon", "reconBike"],
   "tilePalette": {
     "PLAINS": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["fields"], "recon": "intel" },
     "HILL": { "terrain": "hill", "terrainType": "rural", "density": "average", "features": ["foothills"], "recon": "intel" },

@@ -1,5 +1,5 @@
 // Pull in the canonical unit stat definitions so we can annotate each allocation entry with combat metrics.
-import unitTypes from "./unitTypes.json";
+import unitTypes from "./unitSystem/derivedUnitTypes";
 import { getCombatProfile } from "./combatProfiles";
 import type { UnitAllocationKey } from "./unitComposition";
 
@@ -62,7 +62,7 @@ export interface UnitCombatProfile {
   readonly fuelConsumptionPerTurn: number;
   /** Estimated ammunition expenditure per major engagement. */
   readonly ammoConsumptionPerEngagement: number;
-  /** Baseline volleys fired during a five-minute tactical turn, sourced from combat profiles. */
+  /** Authored full-strength weapon shots during a five-minute tactical turn. */
   readonly shotsPerTurn: number;
 }
 
@@ -99,7 +99,8 @@ export const unitCombatProfiles: readonly UnitCombatProfile[] = COMBAT_MAPPING.m
 
   const stats = unitTypes[unitType];
   const combatProfile = getCombatProfile(stats.combat as any); // JSON import loses literal types
-  const shotsPerTurn = combatProfile.shotsPerTurn;
+  const shotsPerTurn = stats.weaponModel?.groups.reduce((sum, group) => sum + Math.max(0, group.shots), 0)
+    ?? combatProfile.shotsPerTurn;
   const { fuelPerTurn, ammoPerEngagement } = estimateConsumption(stats);
 
   return {

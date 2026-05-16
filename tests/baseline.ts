@@ -14,7 +14,7 @@ import type { Lister } from "../src/core/LOS";
 import type { Axial } from "../src/core/Hex";
 import { GameEngine, type GameEngineConfig, buildScenarioUnitsFromAllocation } from "../src/game/GameEngine";
 import terrainDataJson from "../src/data/terrain.json";
-import unitTypesJson from "../src/data/unitTypes.json";
+import unitTypesJson from "../src/data/unitSystem/derivedUnitTypes";
 import type {
   ScenarioData as EngineScenarioData,
   ScenarioSide as EngineScenarioSide,
@@ -23,7 +23,7 @@ import type {
   ScenarioUnit
 } from "../src/core/types";
 import { deploymentTemplates } from "../src/game/adapters";
-import unitTypesData from "../src/data/unitTypes.json";
+import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
 import terrainData from "../src/data/terrain.json";
 
 const testUnitTypes = unitTypesData as UnitTypeDictionary;

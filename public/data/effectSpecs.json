@@ -528,11 +528,11 @@
   {
     "type": "explosionSmall",
     "displayName": "Small Explosion",
-    "durationMs": 1000,
+    "durationMs": 1150,
     "nodeCountBudget": {
-      "min": 18,
-      "typical": 25,
-      "max": 32
+      "min": 24,
+      "typical": 36,
+      "max": 50
     },
     "useTerrainResponse": true,
     "phases": [
@@ -546,9 +546,9 @@
             "startMs": 0,
             "endMs": 180,
             "params": {
-              "maxRadius": 40,
-              "peakProgress": 0.25,
-              "fadeProgress": 0.4
+              "maxRadius": 44,
+              "peakProgress": 0.18,
+              "fadeProgress": 0.34
             }
           },
           {
@@ -556,10 +556,12 @@
             "startMs": 10,
             "endMs": 280,
             "params": {
-              "minRadius": 12,
-              "maxRadius": 60,
-              "strokeWidth": 3.5,
-              "ringCount": 2
+              "minRadius": 11,
+              "maxRadius": 70,
+              "strokeWidth": 3.6,
+              "ringCount": 2,
+              "color": "#ffad39",
+              "radiusYScale": 0.68
             }
           },
           {
@@ -567,10 +569,14 @@
             "startMs": 25,
             "endMs": 380,
             "params": {
-              "sparkCount": 20,
-              "minLength": 18,
-              "maxLength": 30,
-              "strokeWidth": 2
+              "sparkCount": 28,
+              "minLength": 16,
+              "maxLength": 38,
+              "strokeWidth": 1.9,
+              "colors": ["#fff7ca", "#ffd15f", "#ff8c2f"],
+              "sourceRadius": 6,
+              "gravityPx": 8,
+              "fadePower": 0.85
             }
           }
         ]
@@ -585,10 +591,15 @@
             "startMs": 60,
             "endMs": 800,
             "params": {
-              "particleCount": 15,
-              "minVelocity": 30,
-              "maxVelocity": 60,
-              "particleSize": 3
+              "particleCount": 22,
+              "minVelocity": 26,
+              "maxVelocity": 76,
+              "particleSize": 2.6,
+              "angleMinDeg": -165,
+              "angleMaxDeg": -15,
+              "gravityPx": 54,
+              "fadePower": 0.95,
+              "hotParticleRatio": 0.14
             }
           },
           {
@@ -596,30 +607,51 @@
             "startMs": 90,
             "endMs": 880,
             "params": {
-              "maxRadiusX": 42,
-              "maxRadiusY": 28,
-              "driftX": 16,
-              "lift": 11,
-              "detail": 0.95
+              "maxRadiusX": 52,
+              "maxRadiusY": 33,
+              "driftX": 20,
+              "lift": 12,
+              "detail": 1.15
+            }
+          },
+          {
+            "type": "embers",
+            "startMs": 70,
+            "endMs": 640,
+            "params": {
+              "emberCount": 12,
+              "minRadius": 0.9,
+              "maxRadius": 2.4,
+              "spreadDistance": 36
             }
           }
         ]
       },
       {
         "name": "linger",
-        "startMs": 800,
-        "endMs": 1000,
+        "startMs": 760,
+        "endMs": 1150,
         "primitives": [
           {
             "type": "smoke_puff",
             "startMs": 150,
-            "endMs": 1000,
+            "endMs": 1150,
             "params": {
-              "maxRadius": 50,
-              "riseDistance": 28,
-              "driftX": 10,
-              "plumeWidth": 0.95,
-              "detail": 0.9
+              "maxRadius": 56,
+              "riseDistance": 34,
+              "driftX": 14,
+              "plumeWidth": 1.05,
+              "detail": 1.05
+            }
+          },
+          {
+            "type": "scorch",
+            "startMs": 220,
+            "endMs": 1150,
+            "params": {
+              "radiusX": 30,
+              "radiusY": 18,
+              "fadeInProgress": 0.18
             }
           }
         ]
@@ -629,11 +661,11 @@
   {
     "type": "explosionLarge",
     "displayName": "Large Explosion",
-    "durationMs": 1400,
+    "durationMs": 1650,
     "nodeCountBudget": {
-      "min": 24,
-      "typical": 34,
-      "max": 44
+      "min": 34,
+      "typical": 52,
+      "max": 68
     },
     "useTerrainResponse": true,
     "phases": [
@@ -647,9 +679,9 @@
             "startMs": 0,
             "endMs": 220,
             "params": {
-              "maxRadius": 58,
-              "peakProgress": 0.22,
-              "fadeProgress": 0.38
+              "maxRadius": 66,
+              "peakProgress": 0.18,
+              "fadeProgress": 0.32
             }
           },
           {
@@ -658,9 +690,11 @@
             "endMs": 320,
             "params": {
               "minRadius": 16,
-              "maxRadius": 88,
-              "strokeWidth": 4,
-              "ringCount": 3
+              "maxRadius": 104,
+              "strokeWidth": 4.2,
+              "ringCount": 3,
+              "color": "#ff9d2f",
+              "radiusYScale": 0.66
             }
           },
           {
@@ -668,10 +702,14 @@
             "startMs": 22,
             "endMs": 420,
             "params": {
-              "sparkCount": 26,
-              "minLength": 24,
-              "maxLength": 38,
-              "strokeWidth": 2.2
+              "sparkCount": 38,
+              "minLength": 22,
+              "maxLength": 52,
+              "strokeWidth": 2.2,
+              "colors": ["#fff7d6", "#ffd76a", "#ff9d2f", "#ff6b24"],
+              "sourceRadius": 8,
+              "gravityPx": 12,
+              "fadePower": 0.82
             }
           }
         ]
@@ -686,10 +724,15 @@
             "startMs": 60,
             "endMs": 950,
             "params": {
-              "particleCount": 20,
-              "minVelocity": 36,
-              "maxVelocity": 72,
-              "particleSize": 3.5
+              "particleCount": 32,
+              "minVelocity": 32,
+              "maxVelocity": 92,
+              "particleSize": 3.2,
+              "angleMinDeg": -168,
+              "angleMaxDeg": -12,
+              "gravityPx": 70,
+              "fadePower": 0.9,
+              "hotParticleRatio": 0.18
             }
           },
           {
@@ -697,30 +740,51 @@
             "startMs": 90,
             "endMs": 1180,
             "params": {
-              "maxRadiusX": 66,
-              "maxRadiusY": 46,
-              "driftX": 24,
-              "lift": 16,
-              "detail": 1.1
+              "maxRadiusX": 82,
+              "maxRadiusY": 54,
+              "driftX": 28,
+              "lift": 20,
+              "detail": 1.28
+            }
+          },
+          {
+            "type": "embers",
+            "startMs": 80,
+            "endMs": 780,
+            "params": {
+              "emberCount": 18,
+              "minRadius": 1,
+              "maxRadius": 2.8,
+              "spreadDistance": 52
             }
           }
         ]
       },
       {
         "name": "linger",
-        "startMs": 1020,
-        "endMs": 1400,
+        "startMs": 980,
+        "endMs": 1650,
         "primitives": [
           {
             "type": "smoke_puff",
             "startMs": 180,
-            "endMs": 1400,
+            "endMs": 1650,
             "params": {
-              "maxRadius": 68,
-              "riseDistance": 34,
-              "driftX": 12,
-              "plumeWidth": 1.1,
-              "detail": 1.05
+              "maxRadius": 82,
+              "riseDistance": 44,
+              "driftX": 18,
+              "plumeWidth": 1.18,
+              "detail": 1.2
+            }
+          },
+          {
+            "type": "scorch",
+            "startMs": 260,
+            "endMs": 1650,
+            "params": {
+              "radiusX": 46,
+              "radiusY": 28,
+              "fadeInProgress": 0.16
             }
           }
         ]

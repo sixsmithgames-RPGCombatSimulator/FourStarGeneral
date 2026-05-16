@@ -147,6 +147,26 @@ const UNKNOWN_CONTACT_SPRITE = `data:image/svg+xml;utf8,${encodeURIComponent(
     <text x="32" y="39" text-anchor="middle" font-size="28" font-family="Arial, sans-serif" font-weight="700" fill="#f9d49a">?</text>
   </svg>`
 )}`;
+const FORMATION_SMALL_ARMS_IMPACT_OFFSETS: ReadonlyArray<readonly [number, number]> = [
+  [-12, -4],
+  [9, 2],
+  [-3, 7],
+  [14, -6],
+  [-17, 5],
+  [4, -9]
+];
+const FORMATION_MG_IMPACT_OFFSETS: ReadonlyArray<readonly [number, number]> = [
+  [-8, -2],
+  [7, 1],
+  [1, 6],
+  [12, -4],
+  [-13, 4]
+];
+const FORMATION_HE_IMPACT_OFFSETS: ReadonlyArray<readonly [number, number]> = [
+  [-18, -6],
+  [13, 8],
+  [-3, 14]
+];
 
 type CombatAnimationKey = keyof typeof import("./SpriteSheetAnimator").COMBAT_ANIMATIONS;
 type BombImpactVisual = {
@@ -163,6 +183,31 @@ type BombImpactPattern = {
   readonly projectileArcHeight: number;
   readonly projectileCount: number;
   readonly dustScale: number;
+};
+type UnitWeaponModelForVisuals = NonNullable<UnitTypeDefinition["weaponModel"]>;
+type WeaponVisualRole = UnitWeaponModelForVisuals["groups"][number]["role"];
+type FormationFireMix = {
+  readonly attackerType?: string;
+  readonly attackerClass?: UnitClass;
+  readonly hasWeaponModel: boolean;
+  readonly totalShots: number;
+  readonly shotsByRole: Partial<Record<WeaponVisualRole, number>>;
+};
+type TracerVisualLayer = {
+  readonly count: number;
+  readonly delayMs: number;
+  readonly staggerMs: number;
+  readonly durationMs: number;
+  readonly jitterPx: number;
+  readonly segLenScalar: number;
+  readonly style: { readonly color: string; readonly width: number };
+};
+type MuzzleFlashProfile = {
+  readonly animationType: string;
+  readonly baseScale: number;
+  readonly offsets: Array<[number, number]>;
+  readonly staggerMs: number;
+  readonly delayMs?: number;
 };
 type AircraftAnimationProgressCallback = (progress: number, centerX: number, centerY: number) => void;
 type AircraftSortieOptions = {
@@ -291,7 +336,7 @@ type AirShowTracerBurst = {
 
 /**
  * Handle returned when staging a unit move so callers can delay playback until the camera settles.
- * Ensures the ghost sprite is already parked on the origin tile while the destination sprite stays hidden.
+ * Ensures the ghost sprite is already parked on the origin tile while the moving source sprite stays hidden.
  */
 export interface MoveAnimationHandle {
   play(durationMs: number): Promise<void>;
@@ -300,13 +345,19 @@ export interface MoveAnimationHandle {
 
 export interface MoveAnimationOptions {
   readonly path?: readonly string[];
+  readonly unitId?: string | null;
 }
 
 interface MoveAnimationContext {
   ghost: SVGGElement;
-  movingGroup: SVGGElement;
+  hiddenGroup: SVGGElement;
   restoreOpacity: string;
   setGhostProgress: (progress: number) => void;
+}
+
+interface MoveAnimationSubject {
+  readonly cloneSource: SVGGElement;
+  readonly hiddenGroup: SVGGElement;
 }
 
 interface MovePathPoint {
@@ -2123,7 +2174,7 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   /**
-   * Prepares the SVG state for a future move animation by hiding the destination sprite and
+   * Prepares the SVG state for a future move animation by hiding the moving source sprite and
    * planting a ghost image on the origin hex. Call `play()` on the returned handle once the camera settles.
    */
   primeUnitMove(fromKey: string, toKey: string, options?: MoveAnimationOptions): MoveAnimationHandle | null {
@@ -2140,7 +2191,7 @@ export class HexMapRenderer implements IMapRenderer {
         return;
       }
       settled = true;
-      this.cleanupMoveGhost(context.ghost, context.movingGroup, context.restoreOpacity);
+      this.cleanupMoveGhost(context.ghost, context.hiddenGroup, context.restoreOpacity);
     };
 
     return {
@@ -2179,13 +2230,16 @@ export class HexMapRenderer implements IMapRenderer {
       return null;
     }
 
-    const destinationGroup = this.hexUnitImageMap.get(toKey) ?? null;
-    const sourceGroup = destinationGroup ?? this.hexUnitImageMap.get(fromKey) ?? null;
-    if (!sourceGroup) {
+    const sourceStack = this.hexUnitImageMap.get(fromKey) ?? null;
+    const destinationStack = this.hexUnitImageMap.get(toKey) ?? null;
+    const movingSubject =
+      this.resolveMoveAnimationSubject(sourceStack, options?.unitId)
+      ?? this.resolveMoveAnimationSubject(destinationStack, options?.unitId);
+    if (!movingSubject) {
       return null;
     }
 
-    const ghost = sourceGroup.cloneNode(true) as SVGGElement;
+    const ghost = movingSubject.cloneSource.cloneNode(true) as SVGGElement;
     ghost.classList.add("unit-move-ghost");
     ghost.querySelectorAll("image").forEach((node) => node.classList.add("unit-move-ghost"));
     ghost.style.pointerEvents = "none";
@@ -2193,24 +2247,55 @@ export class HexMapRenderer implements IMapRenderer {
     ghost.style.transform = "";
     this.positionUnitStack(ghost, startCenter.cx, startCenter.cy);
 
-    let movingGroup = destinationGroup;
-    if (!movingGroup) {
-      const originGroup = this.hexUnitImageMap.get(fromKey) ?? null;
-      if (!originGroup) {
-        ghost.remove();
-        return null;
+    let hiddenGroup = movingSubject.hiddenGroup;
+    // Preserve per-move visual continuity for empty-target moves (especially bot turns):
+    // stage a hidden clone at the destination so revealing it at animation end does not
+    // make the formation snap back to its origin until a later full re-render.
+    if (!destinationStack && sourceStack && fromKey !== toKey) {
+      const movingSubjectLivesInSourceStack =
+        movingSubject.hiddenGroup === sourceStack || sourceStack.contains(movingSubject.hiddenGroup);
+      if (movingSubjectLivesInSourceStack) {
+        if (movingSubject.hiddenGroup === sourceStack) {
+          const stagedDestinationGroup = sourceStack.cloneNode(true) as SVGGElement;
+          this.positionUnitStack(stagedDestinationGroup, endCenter.cx, endCenter.cy);
+          toCell.appendChild(stagedDestinationGroup);
+          this.hexUnitImageMap.set(toKey, stagedDestinationGroup);
+          this.hexUnitImageMap.delete(fromKey);
+          sourceStack.remove();
+          hiddenGroup = stagedDestinationGroup;
+        } else {
+          const stagedDestinationGroup = document.createElementNS(SVG_NS, "g");
+          stagedDestinationGroup.classList.add("unit-stack");
+          stagedDestinationGroup.dataset.stackCount = "1";
+          stagedDestinationGroup.dataset.reconStatus =
+            movingSubject.hiddenGroup.dataset.reconStatus
+            ?? sourceStack.dataset.reconStatus
+            ?? "visible";
+          const stagedFormation = movingSubject.hiddenGroup.cloneNode(true) as SVGGElement;
+          stagedFormation.dataset.slot = "0";
+          stagedDestinationGroup.appendChild(stagedFormation);
+          this.positionUnitStack(stagedDestinationGroup, endCenter.cx, endCenter.cy);
+          toCell.appendChild(stagedDestinationGroup);
+          this.hexUnitImageMap.set(toKey, stagedDestinationGroup);
+          movingSubject.hiddenGroup.style.opacity = "0";
+          const remainingVisibleCount = Array.from(
+            sourceStack.querySelectorAll<SVGGElement>(":scope > g.unit-stack-formation")
+          ).reduce((count, formation) => (
+            formation.style.opacity === "0" ? count : count + 1
+          ), 0);
+          if (remainingVisibleCount <= 0) {
+            this.hexUnitImageMap.delete(fromKey);
+            sourceStack.remove();
+          } else {
+            sourceStack.dataset.stackCount = String(remainingVisibleCount);
+          }
+          hiddenGroup = stagedDestinationGroup;
+        }
       }
-      const clone = originGroup.cloneNode(true) as SVGGElement;
-      this.positionUnitStack(clone, endCenter.cx, endCenter.cy);
-      toCell.appendChild(clone);
-      this.hexUnitImageMap.set(toKey, clone);
-      this.hexUnitImageMap.delete(fromKey);
-      originGroup.remove();
-      movingGroup = clone;
     }
 
-    const restoreOpacity = movingGroup.style.opacity || "";
-    movingGroup.style.opacity = "0";
+    const restoreOpacity = hiddenGroup.style.opacity || "";
+    hiddenGroup.style.opacity = "0";
     const effectsLayer = this.ensureCombatEffectsLayer();
     if (effectsLayer) {
       effectsLayer.appendChild(ghost);
@@ -2222,7 +2307,7 @@ export class HexMapRenderer implements IMapRenderer {
     const finalSegment = this.resolveMovePathSample(pathPoints, 1);
     const angleDeg = finalSegment.angleDeg;
     this.applyFacingAngleToGroup(ghost, startCenter.cx, startCenter.cy, angleDeg);
-    this.applyFacingAngleToGroup(movingGroup, endCenter.cx, endCenter.cy, angleDeg);
+    this.applyFacingAngleToGroup(hiddenGroup, endCenter.cx, endCenter.cy, angleDeg);
     if (fromKey !== toKey) {
       this.hexUnitFacingAngleMap.delete(fromKey);
     }
@@ -2235,9 +2320,36 @@ export class HexMapRenderer implements IMapRenderer {
 
     return {
       ghost,
-      movingGroup,
+      hiddenGroup,
       restoreOpacity,
       setGhostProgress
+    };
+  }
+
+  private resolveMoveAnimationSubject(
+    stackGroup: SVGGElement | null,
+    unitId?: string | null
+  ): MoveAnimationSubject | null {
+    if (!stackGroup) {
+      return null;
+    }
+
+    const normalizedUnitId = unitId?.trim() ?? "";
+    if (normalizedUnitId) {
+      const matchingFormation = Array.from(
+        stackGroup.querySelectorAll<SVGGElement>(":scope > g.unit-stack-formation")
+      ).find((formationGroup) => formationGroup.dataset.unitId === normalizedUnitId);
+      if (matchingFormation) {
+        return {
+          cloneSource: matchingFormation,
+          hiddenGroup: matchingFormation
+        };
+      }
+    }
+
+    return {
+      cloneSource: stackGroup,
+      hiddenGroup: stackGroup
     };
   }
 
@@ -12253,6 +12365,7 @@ export class HexMapRenderer implements IMapRenderer {
     constraints: {
       maxAlignmentDeg?: number;
       maxRangePx?: number;
+      minTargetHeadingDot?: number;
     } = {}
   ): { sourceActor: AirShowRuntimeActor; targetActor: AirShowRuntimeActor } | null {
     const assignmentsByActorId = this.buildAirShowAssignmentLookup(assignments);
@@ -12264,6 +12377,10 @@ export class HexMapRenderer implements IMapRenderer {
       ? this.clamp(constraints.maxAlignmentDeg ?? 90, 6, 90)
       : 180;
     const maxRangePx = constraints.maxRangePx ?? (emitter === "center" ? 176 : 138);
+    const minTargetHeadingDot =
+      typeof constraints.minTargetHeadingDot === "number" && Number.isFinite(constraints.minTargetHeadingDot)
+        ? this.clamp(constraints.minTargetHeadingDot, -1, 1)
+        : null;
 
     sourceFlight.actors
       .filter((actor) => actor.active)
@@ -12297,6 +12414,14 @@ export class HexMapRenderer implements IMapRenderer {
             const alignmentDeg = headingVector
               ? this.resolveAirShowVectorAngleDegrees(headingVector, targetVector)
               : 0;
+            if (headingVector && minTargetHeadingDot !== null) {
+              const targetHeadingVector = this.resolveAirShowHeadingVector(sampledTarget.headingDegrees);
+              const targetHeadingDot =
+                headingVector.x * targetHeadingVector.x + headingVector.y * targetHeadingVector.y;
+              if (targetHeadingDot < minTargetHeadingDot) {
+                return;
+              }
+            }
             if ((enforceForwardAlignment && alignmentDeg > maxAlignmentDeg) || distance > maxRangePx) {
               return;
             }
@@ -12591,6 +12716,7 @@ export class HexMapRenderer implements IMapRenderer {
       burstCount?: number;
       maxAlignmentDeg?: number;
       maxRangePx?: number;
+      minTargetHeadingDot?: number;
       timings?: ReadonlyArray<number>;
       fallbackToNearest?: boolean;
       fallbackTarget?: "midpoint" | "target-centroid";
@@ -12626,7 +12752,8 @@ export class HexMapRenderer implements IMapRenderer {
           emitter,
           {
             maxAlignmentDeg: options.maxAlignmentDeg,
-            maxRangePx: options.maxRangePx
+            maxRangePx: options.maxRangePx,
+            minTargetHeadingDot: options.minTargetHeadingDot
           }
         );
         if (!candidatePair) {
@@ -13846,7 +13973,11 @@ export class HexMapRenderer implements IMapRenderer {
   private isSmallArmsAttack(attackerHexKey: string): boolean {
     const attackerClass = this.getUnitClassAt(attackerHexKey);
     const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
-    return attackerClass === "infantry" || attackerClass === "recon" || attackerType === "Assault_Gun";
+    const weaponModel = this.getUnitTypeDefinition(attackerType)?.weaponModel;
+    const hasInfantryFireGroup = weaponModel?.groups.some((group) =>
+      group.role === "smallArms" || group.role === "machineGun" || group.role === "demolition"
+    ) ?? false;
+    return attackerClass === "infantry" || attackerClass === "recon" || (attackerClass === "specialist" && hasInfantryFireGroup);
   }
 
   private isArcingArtilleryAttack(attackerHexKey: string): boolean {
@@ -13876,17 +14007,17 @@ export class HexMapRenderer implements IMapRenderer {
     switch (attackerClass) {
       case "infantry":
       case "specialist":
-        return { color: "#ffd37a", width: 1.1 }; // small arms – warm yellow, thin streak
+        return { color: "#ffd37a", width: 0.72 }; // small arms - warm yellow, thin streak
       case "vehicle":
-        return { color: "#ffe08a", width: 1.5 }; // autocannon – bright yellow
+        return { color: "#ffe08a", width: 1.05 }; // autocannon - bright yellow
       case "tank":
-        return { color: "#ffcf5a", width: 2.0 }; // main gun – still not a beam
+        return { color: "#ffcf5a", width: 1.25 }; // main gun trace, not a beam
       case "artillery":
-        return { color: "#ff9e5a", width: 2.5 }; // shells – orange
+        return { color: "#ff9e5a", width: 1.35 }; // shells - orange
       case "air":
-        return { color: "#aee1ff", width: 1.5 }; // MGs/cannons – cool cyan, very thin
+        return { color: "#aee1ff", width: 0.95 }; // MGs/cannons - cool cyan, very thin
       default:
-        return { color: "#ffd37a", width: 1.9 };
+        return { color: "#ffd37a", width: 0.9 };
     }
   }
 
@@ -13896,11 +14027,11 @@ export class HexMapRenderer implements IMapRenderer {
       case "specialist":
         return 4;
       case "vehicle":
-        return 3;
-      case "tank":
         return 2;
+      case "tank":
+        return 1;
       case "artillery":
-        return 3;
+        return 1;
       case "air":
         return 3;
       default:
@@ -13923,6 +14054,241 @@ export class HexMapRenderer implements IMapRenderer {
       default:
         return 2;
     }
+  }
+
+  private resolveFormationFireMix(attackerHexKey: string): FormationFireMix {
+    const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
+    const attackerClass = this.getUnitClassAt(attackerHexKey);
+    const weaponModel = this.getUnitTypeDefinition(attackerType)?.weaponModel;
+    const shotsByRole: Partial<Record<WeaponVisualRole, number>> = {};
+
+    weaponModel?.groups.forEach((group) => {
+      shotsByRole[group.role] = (shotsByRole[group.role] ?? 0) + Math.max(0, group.shots);
+    });
+
+    const totalShots = Object.values(shotsByRole).reduce((sum, shots) => sum + (shots ?? 0), 0);
+    return {
+      attackerType,
+      attackerClass,
+      hasWeaponModel: Boolean(weaponModel),
+      totalShots,
+      shotsByRole
+    };
+  }
+
+  private getRoleShots(mix: FormationFireMix, roles: readonly WeaponVisualRole[]): number {
+    return roles.reduce((sum, role) => sum + (mix.shotsByRole[role] ?? 0), 0);
+  }
+
+  private chooseVisibleWeaponBurstCount(
+    shots: number,
+    minCount: number,
+    maxCount: number,
+    scalar: number = 1
+  ): number {
+    if (shots <= 0) {
+      return 0;
+    }
+    return Math.round(this.clamp(Math.log10(shots + 1) * scalar, minCount, maxCount));
+  }
+
+  private buildFormationTracerLayers(
+    mix: FormationFireMix,
+    targetIsHardTarget: boolean,
+    defenderIsAir: boolean
+  ): TracerVisualLayer[] {
+    const smallArmsShots = this.getRoleShots(mix, ["smallArms"]);
+    const machineGunShots = this.getRoleShots(mix, ["machineGun"]);
+    const antiTankShots = this.getRoleShots(mix, ["antiTank"]);
+    const directHeShots = this.getRoleShots(mix, ["directHe", "demolition"]);
+    const layers: TracerVisualLayer[] = [];
+
+    const smallArmsCount = this.chooseVisibleWeaponBurstCount(smallArmsShots, 2, mix.attackerClass === "recon" ? 4 : 5, 1.18);
+    if (smallArmsCount > 0) {
+      layers.push({
+        count: smallArmsCount,
+        delayMs: 0,
+        staggerMs: 26,
+        durationMs: 62,
+        jitterPx: defenderIsAir ? 9 : 12,
+        segLenScalar: 0.07,
+        style: { color: "#ffdba0", width: 0.52 }
+      });
+    }
+
+    const machineGunCount = this.chooseVisibleWeaponBurstCount(machineGunShots, 1, mix.attackerClass === "recon" ? 3 : 4, 0.98);
+    if (machineGunCount > 0) {
+      layers.push({
+        count: machineGunCount,
+        delayMs: 18,
+        staggerMs: 18,
+        durationMs: 76,
+        jitterPx: defenderIsAir ? 6 : 8,
+        segLenScalar: 0.11,
+        style: { color: "#fff0b8", width: 0.78 }
+      });
+    }
+
+    const shouldShowLauncherTrace = targetIsHardTarget || mix.attackerType === "AT_Infantry" || directHeShots > 0;
+    const launcherCount = shouldShowLauncherTrace
+      ? this.chooseVisibleWeaponBurstCount(antiTankShots + directHeShots, 1, targetIsHardTarget ? 2 : 1, 0.58)
+      : 0;
+    if (launcherCount > 0) {
+      layers.push({
+        count: launcherCount,
+        delayMs: 72,
+        staggerMs: 82,
+        durationMs: 116,
+        jitterPx: 4,
+        segLenScalar: 0.2,
+        style: { color: "#ffc16b", width: 1.08 }
+      });
+    }
+
+    if (layers.length > 0 || mix.hasWeaponModel) {
+      return layers;
+    }
+
+    return [{
+      count: mix.attackerClass === "recon" ? 4 : 5,
+      delayMs: 0,
+      staggerMs: 24,
+      durationMs: 68,
+      jitterPx: 9,
+      segLenScalar: 0.08,
+      style: { color: "#ffdba0", width: 0.58 }
+    }];
+  }
+
+  private async playTracerLayer(attackerHexKey: string, defenderHexKey: string, layer: TracerVisualLayer): Promise<void> {
+    const tracerPromises = Array.from({ length: layer.count }).map((_, index) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          void this.playProjectileTracer(attackerHexKey, defenderHexKey, layer.durationMs, {
+            style: { color: layer.style.color, width: layer.style.width },
+            jitterPx: layer.jitterPx,
+            segLenScalar: layer.segLenScalar
+          }).then(() => resolve());
+        }, layer.delayMs + index * layer.staggerMs);
+      })
+    );
+
+    await Promise.all(tracerPromises);
+  }
+
+  private async playFormationTracerLayers(
+    attackerHexKey: string,
+    defenderHexKey: string,
+    mix: FormationFireMix,
+    targetIsHardTarget: boolean,
+    defenderIsAir: boolean
+  ): Promise<void> {
+    const layers = this.buildFormationTracerLayers(mix, targetIsHardTarget, defenderIsAir);
+    await Promise.all(layers.map((layer) => this.playTracerLayer(attackerHexKey, defenderHexKey, layer)));
+  }
+
+  private async playFormationImpactDetails(
+    attackerHexKey: string,
+    defenderHexKey: string,
+    mix: FormationFireMix,
+    targetIsHardTarget: boolean,
+    defenderIsAir: boolean
+  ): Promise<void> {
+    const smallArmsShots = this.getRoleShots(mix, ["smallArms"]);
+    const machineGunShots = this.getRoleShots(mix, ["machineGun"]);
+    const antiTankShots = this.getRoleShots(mix, ["antiTank"]);
+    const heShots = this.getRoleShots(mix, ["directHe", "indirectHe", "demolition"]);
+    const promises: Promise<void>[] = [];
+
+    const smallImpactCount = this.chooseVisibleWeaponBurstCount(smallArmsShots, 1, 4, 0.72);
+    for (let index = 0; index < smallImpactCount; index += 1) {
+      const [offsetX, offsetY] = FORMATION_SMALL_ARMS_IMPACT_OFFSETS[index % FORMATION_SMALL_ARMS_IMPACT_OFFSETS.length]!;
+      promises.push(new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          void this.playCombatAnimation(
+            "small_arms",
+            defenderHexKey,
+            offsetX,
+            offsetY,
+            targetIsHardTarget ? 0.22 : 0.28,
+            false
+          ).then(() => resolve());
+        }, 52 + index * 34);
+      }));
+    }
+
+    const mgImpactCount = this.chooseVisibleWeaponBurstCount(machineGunShots, 1, 3, 0.62);
+    for (let index = 0; index < mgImpactCount; index += 1) {
+      const [offsetX, offsetY] = FORMATION_MG_IMPACT_OFFSETS[index % FORMATION_MG_IMPACT_OFFSETS.length]!;
+      promises.push(new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          void this.playCombatAnimation(
+            "mg",
+            defenderHexKey,
+            offsetX,
+            offsetY,
+            targetIsHardTarget ? 0.24 : 0.31,
+            false
+          ).then(() => resolve());
+        }, 68 + index * 30);
+      }));
+    }
+
+    const heImpactCount = defenderIsAir ? 0 : this.chooseVisibleWeaponBurstCount(heShots, 1, mix.attackerType === "AT_Infantry" ? 3 : 2, 0.78);
+    for (let index = 0; index < heImpactCount; index += 1) {
+      const [offsetX, offsetY] = FORMATION_HE_IMPACT_OFFSETS[index % FORMATION_HE_IMPACT_OFFSETS.length]!;
+      promises.push(new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          void Promise.all([
+            this.playArcedProjectile(attackerHexKey, defenderHexKey, 430 + index * 24, {
+              color: "#e7d4a2",
+              radius: 1.45,
+              arcHeight: 34 + index * 4,
+              targetOffsetX: offsetX,
+              targetOffsetY: offsetY
+            }),
+            new Promise<void>((impactResolve) => {
+              window.setTimeout(() => {
+                void this.playCombatAnimation(
+                  "explosionSmall",
+                  defenderHexKey,
+                  offsetX,
+                  offsetY,
+                  targetIsHardTarget ? 0.42 : 0.5,
+                  false
+                ).then(() => impactResolve());
+              }, 190 + index * 28);
+            })
+          ]).then(() => resolve());
+        }, 126 + index * 82);
+      }));
+    }
+
+    const antiTankImpactCount = targetIsHardTarget ? this.chooseVisibleWeaponBurstCount(antiTankShots, 1, 1, 0.52) : 0;
+    for (let index = 0; index < antiTankImpactCount; index += 1) {
+      const offsetX = 10 + index * 6;
+      const offsetY = -7 + index * 5;
+      promises.push(new Promise<void>((resolve) => {
+        window.setTimeout(() => {
+          void Promise.all([
+            this.playArcedProjectile(attackerHexKey, defenderHexKey, 320, {
+              color: "#f4a858",
+              radius: 1.75,
+              arcHeight: 18,
+              targetOffsetX: offsetX,
+              targetOffsetY: offsetY
+            }),
+            new Promise<void>((impactResolve) => {
+              window.setTimeout(() => {
+                void this.playCombatAnimation("cannon", defenderHexKey, offsetX, offsetY, 0.36, false).then(() => impactResolve());
+              }, 150);
+            })
+          ]).then(() => resolve());
+        }, 118 + index * 90);
+      }));
+    }
+
+    await Promise.all(promises);
   }
 
   /** Maps attacker class to a subtle recoil magnitude in pixels. */
@@ -14406,7 +14772,7 @@ export class HexMapRenderer implements IMapRenderer {
       case "mg":
         return {
           animationType: "mg",
-          baseScale: targetIsHardTarget ? 0.68 : 0.58,
+          baseScale: targetIsHardTarget ? 0.42 : 0.36,
           impactOffsets: targetIsHardTarget
             ? [
                 [-10, -4],
@@ -14424,16 +14790,14 @@ export class HexMapRenderer implements IMapRenderer {
       case "cannon":
         return {
           animationType: "cannon",
-          baseScale: targetIsHardTarget ? 0.8 : 0.7,
+          baseScale: targetIsHardTarget ? 0.58 : 0.48,
           impactOffsets: targetIsHardTarget
             ? [
                 [-12, -4],
-                [9, 1],
-                [-4, 7]
+                [9, 1]
               ]
             : [
-                [-9, -3],
-                [7, 2]
+                [-9, -3]
               ],
           staggerMs: 78
         };
@@ -14441,7 +14805,7 @@ export class HexMapRenderer implements IMapRenderer {
       default:
         return {
           animationType: "small_arms",
-          baseScale: targetIsHardTarget ? 0.56 : 0.48,
+          baseScale: targetIsHardTarget ? 0.34 : 0.28,
           impactOffsets: targetIsHardTarget
             ? [
                 [-7, -2],
@@ -14457,12 +14821,7 @@ export class HexMapRenderer implements IMapRenderer {
     }
   }
 
-  private chooseMuzzleFlashProfile(attackerHexKey: string): {
-    animationType: string;
-    baseScale: number;
-    offsets: Array<[number, number]>;
-    staggerMs: number;
-  } {
+  private chooseMuzzleFlashProfile(attackerHexKey: string): MuzzleFlashProfile {
     switch (this.getWeaponEffectType(attackerHexKey)) {
       case "mg":
         return {
@@ -14505,6 +14864,60 @@ export class HexMapRenderer implements IMapRenderer {
           staggerMs: 20
         };
     }
+  }
+
+  private chooseMuzzleFlashProfiles(attackerHexKey: string): MuzzleFlashProfile[] {
+    const mix = this.resolveFormationFireMix(attackerHexKey);
+    if (!mix.hasWeaponModel) {
+      return [this.chooseMuzzleFlashProfile(attackerHexKey)];
+    }
+
+    const profiles: MuzzleFlashProfile[] = [];
+    const smallArmsCount = this.chooseVisibleWeaponBurstCount(this.getRoleShots(mix, ["smallArms"]), 2, 4, 0.9);
+    if (smallArmsCount > 0) {
+      const smallArmsOffsets: Array<[number, number]> = [
+        [0, 0],
+        [-3, 1],
+        [2, -2],
+        [4, 1]
+      ];
+      profiles.push({
+        animationType: "small_arms_muzzle",
+        baseScale: 0.18,
+        offsets: smallArmsOffsets.slice(0, smallArmsCount),
+        staggerMs: 18,
+        delayMs: 0
+      });
+    }
+
+    const machineGunCount = this.chooseVisibleWeaponBurstCount(this.getRoleShots(mix, ["machineGun"]), 1, 3, 0.82);
+    if (machineGunCount > 0) {
+      const machineGunOffsets: Array<[number, number]> = [
+        [-4, -1],
+        [1, 3],
+        [5, 0]
+      ];
+      profiles.push({
+        animationType: "mg_muzzle",
+        baseScale: 0.21,
+        offsets: machineGunOffsets.slice(0, machineGunCount),
+        staggerMs: 16,
+        delayMs: 14
+      });
+    }
+
+    const launcherShots = this.getRoleShots(mix, ["antiTank", "directHe", "indirectHe", "demolition", "airRocket"]);
+    if (launcherShots > 0) {
+      profiles.push({
+        animationType: "cannon_muzzle",
+        baseScale: mix.attackerClass === "artillery" ? 0.32 : 0.24,
+        offsets: [[5, -1]],
+        staggerMs: 24,
+        delayMs: mix.attackerClass === "artillery" ? 0 : 54
+      });
+    }
+
+    return profiles.length > 0 ? profiles : [this.chooseMuzzleFlashProfile(attackerHexKey)];
   }
 
   /**
@@ -14554,14 +14967,16 @@ export class HexMapRenderer implements IMapRenderer {
     soundIntervalMs: number = 0,
     gainMultiplier: number = 1
   ): Promise<void> {
-    const profile = this.chooseMuzzleFlashProfile(attackerHexKey);
-    const visualBursts = profile.offsets.map(([offsetX, offsetY], index) =>
-      new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          const scale = index === 0 ? profile.baseScale : profile.baseScale * Math.max(0.72, 0.94 - index * 0.05);
-          void this.playCombatAnimation(profile.animationType, attackerHexKey, offsetX, offsetY, scale, false).then(() => resolve());
-        }, index * profile.staggerMs);
-      })
+    const profiles = this.chooseMuzzleFlashProfiles(attackerHexKey);
+    const visualBursts = profiles.flatMap((profile) =>
+      profile.offsets.map(([offsetX, offsetY], index) =>
+        new Promise<void>((resolve) => {
+          window.setTimeout(() => {
+            const scale = index === 0 ? profile.baseScale : profile.baseScale * Math.max(0.72, 0.94 - index * 0.05);
+            void this.playCombatAnimation(profile.animationType, attackerHexKey, offsetX, offsetY, scale, false).then(() => resolve());
+          }, (profile.delayMs ?? 0) + index * profile.staggerMs);
+        })
+      )
     );
 
     await Promise.all([
@@ -15204,6 +15619,7 @@ export class HexMapRenderer implements IMapRenderer {
     const useAirStrafingVisuals = this.isAirStrafingAttack(attackerHexKey);
     const useAirBombingVisuals = this.isAirBombingAttack(attackerHexKey);
     const defenderIsAir = defenderClass === "air";
+    const formationFireMix = this.resolveFormationFireMix(attackerHexKey);
     const suppressImpactFlash = useArcingArtilleryVisuals;
 
     const defenderElement = this.hexElementMap.get(defenderHexKey);
@@ -15388,52 +15804,63 @@ export class HexMapRenderer implements IMapRenderer {
       return;
     }
 
-    const tracerStyle = useSmallArmsVisuals
-      ? { color: "#ffe9a8", width: attackerClass === "recon" ? 1.1 : 1.2 }
-      : this.chooseTracerStyle(attackerClass);
-    const tracerCount = useSmallArmsVisuals ? (attackerClass === "recon" ? 9 : 8) : this.chooseTracerCount(attackerClass);
-    const tracerPromises = Array.from({ length: tracerCount }).map((_, index) =>
-      new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          void this.playProjectileTracer(attackerHexKey, defenderHexKey, useSmallArmsVisuals ? 70 : index === 0 ? 90 : 110, {
-            style: tracerStyle,
-            jitterPx: useSmallArmsVisuals ? 6 : 0,
-            segLenScalar: useSmallArmsVisuals ? 0.12 : 0.18
-          }).then(() => resolve());
-        }, index * (useSmallArmsVisuals ? 28 : 55));
-      })
-    );
+    const tracerStyle = this.chooseTracerStyle(attackerClass);
+    const tracerCount = this.chooseTracerCount(attackerClass);
+    const tracerPromise = useSmallArmsVisuals
+      ? this.playFormationTracerLayers(attackerHexKey, defenderHexKey, formationFireMix, targetIsHardTarget, defenderIsAir)
+      : Promise.all(Array.from({ length: tracerCount }).map((_, index) =>
+          new Promise<void>((resolve) => {
+            window.setTimeout(() => {
+              void this.playProjectileTracer(attackerHexKey, defenderHexKey, index === 0 ? 92 : 108, {
+                style: tracerStyle,
+                jitterPx: attackerClass === "vehicle" ? 2 : 0,
+                segLenScalar: attackerClass === "tank" || attackerClass === "artillery" ? 0.24 : 0.16
+              }).then(() => resolve());
+            }, index * 58);
+          })
+        )).then(() => undefined);
 
     await new Promise((resolve) => setTimeout(resolve, useSmallArmsVisuals ? 90 : 110));
 
     const hitShakePromise = this.playHitShake(defenderHexKey, targetIsHardTarget ? 5 : 4);
 
     if (useSmallArmsVisuals) {
-      const sparksPromise = this.playSparkBurst(defenderHexKey, {
+      const formationImpactPromise = this.playFormationImpactDetails(
         attackerHexKey,
-        attackerType,
-        attackerClass,
-        defenderClass,
-        durationMs: 140,
-        rayCount: targetIsHardTarget ? 8 : 6
-      });
-      const airBurstPromise = defenderIsAir ? this.playCombatAnimation("explosionSmall", defenderHexKey, 0, 0, 1.35) : Promise.resolve();
+        defenderHexKey,
+        formationFireMix,
+        targetIsHardTarget,
+        defenderIsAir
+      );
+      const sparksPromise = defenderIsAir || targetIsHardTarget
+        ? this.playSparkBurst(defenderHexKey, {
+            attackerHexKey,
+            attackerType,
+            attackerClass,
+            defenderClass,
+            durationMs: 120,
+            rayCount: targetIsHardTarget ? 6 : 5,
+            scaleMultiplier: 0.72
+          })
+        : Promise.resolve();
+      const airBurstPromise = defenderIsAir ? this.playCombatAnimation("explosionSmall", defenderHexKey, 0, 0, 0.78, false) : Promise.resolve();
       const dustPromise = new Promise<void>((resolve) => {
         window.setTimeout(() => {
           if (defenderIsAir) {
             resolve();
             return;
           }
-          void this.playDustCloudLinger(defenderHexKey, 0.55).then(() => resolve());
-        }, 70);
+          void this.playCombatAnimation("dustCloud", defenderHexKey, 0, 0, 0.58, false).then(() => resolve());
+        }, 95);
       });
 
       await Promise.all([
         flashPromise,
-        ...tracerPromises,
+        tracerPromise,
         recoilPromise,
         markerPromise,
         hitShakePromise,
+        formationImpactPromise,
         sparksPromise,
         airBurstPromise,
         dustPromise,
@@ -15480,7 +15907,7 @@ export class HexMapRenderer implements IMapRenderer {
 
     await Promise.all([
       flashPromise,
-      ...tracerPromises,
+      tracerPromise,
       recoilPromise,
       markerPromise,
       hitShakePromise,

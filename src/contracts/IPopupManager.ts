@@ -10,6 +10,7 @@ export type PopupKey =
   | "supplies"
   | "airSupport"
   | "armyRoster"
+  | "battleRequisitions"
   | "generalProfile"
   | "support"
   | "intelligence"
@@ -61,6 +62,31 @@ export interface RosterSnapshotEntry {
   fuel: number | null;
   status: "deployed" | "reserves" | "support" | "exhausted";
   supportCategory?: string;
+  personnelStatus?: {
+    fit: number;
+    injured: number;
+    wounded: number;
+    severelyWounded: number;
+    killed: number;
+    total: number;
+    casualties: number;
+    nonEffective?: number;
+    effective?: number;
+    readiness?: number;
+  };
+  equipmentStatus?: {
+    operational: number;
+    damaged: number;
+    disabled: number;
+    destroyed: number;
+    total: number;
+    losses: number;
+    nonOperational?: number;
+    effective?: number;
+    readiness?: number;
+  };
+  suppression?: number;
+  logisticsRole?: "supply" | "medical" | "repair" | null;
   sprite?: string;
 }
 

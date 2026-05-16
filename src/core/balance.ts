@@ -55,7 +55,7 @@ export const combat = {
     max: 95,
     // Veteran crews improve their hit chance quickly because shot placement and fire control are
     // learned skills. Causing materially greater damage after impact improves more slowly.
-    expPerStar: 10,
+    expPerStar: 3,
     commanderScalar: 0.01,
     /**
      * Signature scales the final hit probability before cover and spotting are applied.
@@ -105,7 +105,7 @@ export const combat = {
       antiInfantry: { soft: 1.2, hard: 0.8 },
       support: { soft: 0.7, hard: 0.7 }
     } as const,
-    experienceScalarPerStar: 0.03
+    experienceScalarPerStar: 0
   },
   /**
    * Counter-fire policy toggles. Adjust retaliation availability and its accuracy impact here.

@@ -18,7 +18,7 @@ import {
   type SupportImpactEvent,
   type SupportAssetSnapshot
 } from "../../game/GameEngine";
-import type { CombatPreview, AttackResolution } from "../../game/GameEngine";
+import type { CombatDamageSummary, CombatPreview, AttackResolution } from "../../game/GameEngine";
 import type {
   Axial,
   ReconStatus,
@@ -44,7 +44,8 @@ import type {
 } from "../../core/types";
 import {
   HexMapRenderer,
-  type BattleTargetMarker
+  type BattleTargetMarker,
+  type MoveAnimationHandle
 } from "../../rendering/HexMapRenderer";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { MapViewport } from "../controls/MapViewport";
@@ -52,6 +53,7 @@ import { ZoomPanControls } from "../controls/ZoomPanControls";
 import { DeploymentPanel, type DeploymentPanelCriticalError, type SelectedHexContext } from "../components/DeploymentPanel";
 import { BattleLoadout } from "../components/BattleLoadout";
 import { ReserveListPresenter } from "../components/BattleReserves";
+import type { ShotBreakdown } from "../../core/Combat";
 import { hexDistance } from "../../core/Hex";
 import { SelectionIntelOverlay } from "../announcements/SelectionIntelOverlay";
 import { BattleActivityLog } from "../announcements/BattleActivityLog";
@@ -84,13 +86,13 @@ import {
   type DeploymentState,
   type ReserveBlueprint
 } from "../../state/DeploymentState";
-import type { UIState } from "../../state/UIState";
+import type { BattleAnimationMode, UIState } from "../../state/UIState";
 import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
 import { getMissionDeploymentProfile, getMissionTurnLimit } from "../../data/missions";
 import { getCombatProfile } from "../../data/combatProfiles";
 import { combat } from "../../core/balance";
 import terrainSource from "../../data/terrain.json";
-import unitTypesSource from "../../data/unitTypes.json";
+import unitTypesSource from "../../data/unitSystem/derivedUnitTypes";
 import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { setMissionStartedUI } from "../utils/missionUi";
@@ -327,6 +329,9 @@ export class BattleScreen {
   private airPreviewListener: ((e: Event) => void) | null = null;
   private airClearPreviewListener: ((e: Event) => void) | null = null;
   private targetMarkerClickListener: ((e: Event) => void) | null = null;
+  private reserveSelectionListener: ((e: Event) => void) | null = null;
+  private requisitionRequestListener: ((e: Event) => void) | null = null;
+  private sentryPipClickListener: ((e: Event) => void) | null = null;
   private readonly tutorialAirMissionQueuedListener: (event: Event) => void;
   private seenAirReportIds: Set<string> = new Set();
   private detailedAirCombatTurnUnitKeys: Set<string> = new Set();
@@ -352,6 +357,7 @@ export class BattleScreen {
 
   private beginBattleButton: HTMLButtonElement | null = null;
   private soundToggleButton: HTMLButtonElement | null = null;
+  private animationToggleButton: HTMLButtonElement | null = null;
   private endTurnButton: HTMLButtonElement | null = null;
   private endMissionButton: HTMLButtonElement | null = null;
   private baseCampStatus: HTMLElement | null = null;
@@ -388,6 +394,7 @@ export class BattleScreen {
   private lastViewportTransform: { zoom: number; panX: number; panY: number } | null = null;
   private cameraFrozen: boolean = false;
   private soundEnabled = true;
+  private battleAnimationMode: BattleAnimationMode = "regular";
 
   // Hex selection state
   private selectedHexKey: string | null = null;
@@ -406,6 +413,136 @@ export class BattleScreen {
   private fortificationDialogPreviouslyFocused: HTMLElement | null = null;
   private fortificationDialogKeydownHandler: (event: KeyboardEvent) => void;
   private pendingFortificationBuild: PendingFortificationContext | null = null;
+
+  private formatReadinessValue(value: number): string {
+    const safeValue = Number.isFinite(value) ? value : 0;
+    if (Number.isInteger(safeValue)) return safeValue.toFixed(0);
+    const roundedTenths = Math.round(safeValue * 10) / 10;
+    return Math.abs(safeValue - roundedTenths) < 0.001 ? safeValue.toFixed(1) : safeValue.toFixed(2);
+  }
+
+  private formatDamageAmount(value: number): string {
+    return this.formatReadinessValue(this.clampDisplayedDamage(value));
+  }
+
+  private formatPersonnelDelta(damage: CombatDamageSummary | null | undefined): string {
+    if (!damage) {
+      return "No personnel projection";
+    }
+    const parts: string[] = [];
+    if (damage.personnel.killed > 0) parts.push(`${damage.personnel.killed} KIA`);
+    if (damage.personnel.severelyWounded > 0) parts.push(`${damage.personnel.severelyWounded} severe`);
+    if (damage.personnel.wounded > 0) parts.push(`${damage.personnel.wounded} wounded`);
+    if (damage.personnel.injured > 0) parts.push(`${damage.personnel.injured} injured`);
+    return parts.length > 0 ? parts.join(", ") : "No personnel losses";
+  }
+
+  private formatEquipmentDelta(damage: CombatDamageSummary | null | undefined): string {
+    if (!damage) {
+      return "No equipment projection";
+    }
+    const parts: string[] = [];
+    if (damage.equipment.destroyed > 0) parts.push(`${damage.equipment.destroyed} destroyed`);
+    if (damage.equipment.disabled > 0) parts.push(`${damage.equipment.disabled} disabled`);
+    if (damage.equipment.damaged > 0) parts.push(`${damage.equipment.damaged} damaged`);
+    return parts.length > 0 ? parts.join(", ") : "No equipment losses";
+  }
+
+  private formatComponentDelta(damage: CombatDamageSummary | null | undefined): string {
+    if (!damage?.componentDamage) {
+      return "No component damage";
+    }
+    const parts: string[] = [];
+    const append = (label: string, values: Partial<Record<string, number>>): void => {
+      Object.entries(values)
+        .filter(([, count]) => typeof count === "number" && count > 0)
+        .forEach(([component, count]) => parts.push(`${count} ${component} ${label}`));
+    };
+    append("damaged", damage.componentDamage.damaged);
+    append("disabled", damage.componentDamage.disabled);
+    append("destroyed", damage.componentDamage.destroyed);
+    return parts.length > 0 ? parts.join(", ") : "No component damage";
+  }
+
+  private formatDamageTypes(damage: CombatDamageSummary | null | undefined): string {
+    if (!damage || damage.damageTypesUsed.length === 0) {
+      return "Not classified";
+    }
+    return damage.damageTypesUsed.map((type) => this.toTitleCase(type)).join(", ");
+  }
+
+  private renderReadinessProjectionRows(damage: CombatDamageSummary | null | undefined): string {
+    if (!damage) {
+      return "";
+    }
+    const before = damage.statusBefore.readinessBreakdown;
+    const after = damage.statusAfter.readinessBreakdown;
+    const equipmentBefore = before.equipment;
+    const equipmentAfter = after.equipment;
+    const equipmentRow = equipmentBefore && equipmentAfter
+      ? `
+        <div class="damage-projection-row">
+          <span>Equipment readiness</span>
+          <strong>${this.formatReadinessValue(equipmentBefore.readiness)}% -> ${this.formatReadinessValue(equipmentAfter.readiness)}%</strong>
+        </div>
+      `
+      : "";
+
+    return `
+      <div class="damage-projection">
+        <div class="damage-projection-row damage-projection-row--primary">
+          <span>Combat readiness</span>
+          <strong>${this.formatReadinessValue(damage.strengthBefore)}% -> ${this.formatReadinessValue(damage.strengthAfter)}%</strong>
+        </div>
+        <div class="damage-projection-row">
+          <span>Personnel readiness</span>
+          <strong>${this.formatReadinessValue(before.personnel.readiness)}% -> ${this.formatReadinessValue(after.personnel.readiness)}%</strong>
+        </div>
+        ${equipmentRow}
+        <div class="damage-projection-row">
+          <span>Personnel effects</span>
+          <strong>${this.escapeHtml(this.formatPersonnelDelta(damage))}</strong>
+        </div>
+        <div class="damage-projection-row">
+          <span>Equipment effects</span>
+          <strong>${this.escapeHtml(this.formatEquipmentDelta(damage))}</strong>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderWeaponStatusEffects(damage: CombatDamageSummary | null | undefined): string {
+    if (!damage || damage.weaponHits.length === 0) {
+      return `<p><strong>Status Effects by Weapon:</strong> No weapon-level status effects projected.</p>`;
+    }
+
+    const rows = damage.weaponHits.map((hit) => {
+      const personnel = this.formatPersonnelDelta({
+        ...damage,
+        personnel: hit.personnel,
+        equipment: { damaged: 0, disabled: 0, destroyed: 0 }
+      });
+      const equipment = this.formatEquipmentDelta({
+        ...damage,
+        personnel: { injured: 0, wounded: 0, severelyWounded: 0, killed: 0 },
+        equipment: hit.equipment
+      });
+      return `
+        <div class="weapon-group-item">
+          <span class="weapon-name">${this.escapeHtml(hit.label)}:</span>
+          <span class="weapon-stats">${hit.shots} shots, ${hit.expectedHits.toFixed(1)} hits</span>
+          <span class="weapon-overmatch">${this.escapeHtml(personnel)}; ${this.escapeHtml(equipment)}</span>
+        </div>
+      `;
+    }).join("");
+
+    return `
+      <div class="weapon-groups-detail">
+        <strong>Status Effects by Weapon:</strong>
+        ${rows}
+      </div>
+    `;
+  }
 
   /**
    * Prepares and displays the attack confirmation dialog so the commander can approve or cancel combat resolution.
@@ -444,7 +581,7 @@ export class BattleScreen {
     const attackerUnit = this.resolvePlayerUnitSnapshot(attackerHex, attackerUnitId);
     const commandState = attackerUnit ? engine.getUnitCommandState(attacker, attackerUnitId ?? undefined) : null;
     const supportsStances = attackerUnit ? this.canUnitUseCombatStances(attackerUnit) : false;
-    const assaultAvailable = attackerUnit ? this.canUnitAssault(attackerUnit, commandState) : false;
+    const assaultAvailable = attackerUnit ? this.canUnitAssault(attackerUnit, commandState, attacker, defender) : false;
 
     if (!supportsStances) {
       this.currentAttackStance = null;
@@ -453,7 +590,7 @@ export class BattleScreen {
       this.currentAttackStance === null ||
       (this.currentAttackStance === "assault" && !assaultAvailable)
     ) {
-      this.currentAttackStance = "suppressive";
+      this.currentAttackStance = "fireAtWill";
     }
 
     const preview = engine.previewAttack(
@@ -481,7 +618,7 @@ export class BattleScreen {
           <span>Cannot attack this target. Line of sight may be blocked or the target may be out of range.</span>
         </div>
       `;
-      this.configureAttackStanceControls(attackerUnit, commandState);
+      this.configureAttackStanceControls(attackerUnit, commandState, attacker, defender);
       this.showAttackDialog();
       return;
     }
@@ -518,22 +655,18 @@ export class BattleScreen {
     const expectedHits = preview.result.expectedHits.toFixed(1);
     const effectiveAP = Math.round(preview.result.effectiveAP);
     const facingArmor = Math.round(preview.result.facingArmor);
-    const attackerStrength = Math.round(preview.attacker.strength);
-    const defenderStrength = Math.round(preview.defender.strength);
+    const attackerStrength = preview.attacker.strength;
+    const defenderStrength = preview.defender.strength;
 
     const baseDamagePerHit = damageDetails.baseTableValue;
     const damageExperienceScalar = damageDetails.experienceScalar;
     const preCommanderDamagePerHit = damageDetails.afterExperience;
     const commanderDamageScalar = damageDetails.commanderScalar;
     const prePayloadDamagePerHit = damageDetails.final;
-    const postPayloadDamagePerHit = preview.finalDamagePerHit;
-    const damagePerHitSummary = `${prePayloadDamagePerHit.toFixed(3)}% -> ${postPayloadDamagePerHit.toFixed(3)}%`;
 
-    const baseExpectedDamage = this.clampDisplayedDamage(preview.result.expectedDamage);
     const postPayloadExpectedDamage = this.clampDisplayedDamage(preview.finalExpectedDamage);
     const baseExpectedSuppression = preview.result.expectedSuppression;
     const postPayloadExpectedSuppression = preview.finalExpectedSuppression;
-    const expectedDamageSummary = `${baseExpectedDamage.toFixed(1)}% -> ${postPayloadExpectedDamage.toFixed(1)}%`;
     const suppressionSummary = `${baseExpectedSuppression.toFixed(1)} -> ${postPayloadExpectedSuppression.toFixed(1)}`;
 
     const damageMultiplier = preview.damageMultiplier;
@@ -587,7 +720,9 @@ export class BattleScreen {
         : Math.max(0.1, 1 + (penetrationMargin * 0.15))
       : 1;
     const afterPenetrationDamagePerHit = afterAttackScalarDamagePerHit * penetrationScalar;
-    const weaponStatsLine = `Accuracy base ${attackerDef.accuracyBase}% • ${attackStatLabel} ${attackStatValue} • AP ${attackerDef.ap}`;
+    // Generate per-weapon breakdown for detailed UI display
+    const weaponBreakdown = this.generateWeaponBreakdown(attackerDef, facingArmor, preview.result.shotBreakdown ?? null);
+    const weaponStatsLine = `Accuracy base ${attackerDef.accuracyBase}% • ${attackStatLabel} ${attackStatValue} • Mixed weapon load (${weaponBreakdown.groups.length} systems)`;
     const penetrationMathLine = facingArmor > 0
       ? `Pen x${penetrationScalar.toFixed(2)} (AP ${effectiveAP} vs Armor ${facingArmor}, margin ${penetrationMargin >= 0 ? "+" : ""}${penetrationMargin})`
       : "Pen x1.00 (target has no armor)";
@@ -601,8 +736,8 @@ export class BattleScreen {
       `After Cmd ${afterCommander.toFixed(1)}% x Exp +${experienceBonusPct}% = ${afterExperience.toFixed(1)}%, ` +
       `After Exp ${afterExperience.toFixed(1)}% x Signature ${signatureMultiplier.toFixed(2)} (${defenderDef.combat.signature}) = ${afterSignature.toFixed(1)}% x Terrain ${terrainMultiplier.toFixed(2)} (${terrainDeltaText}) = ${afterTerrain.toFixed(1)}% x Spot ${spottedMultiplier.toFixed(2)} = ${finalPreClamp.toFixed(1)}% -> Final ${accuracyDetails.final.toFixed(1)}%`;
 
-    const damageBreakdownLine =
-      `Table ${baseDamagePerHit.toFixed(3)}% x Exp x${damageExperienceScalar.toFixed(2)} = ${preCommanderDamagePerHit.toFixed(3)}% x ${attackStatLabel} x${attackScalar.toFixed(2)} (${attackStatValue}/${attackReference}) = ${afterAttackScalarDamagePerHit.toFixed(3)}% x ${penetrationMathLine} = ${afterPenetrationDamagePerHit.toFixed(3)}% x Cmd x${commanderDamageScalar.toFixed(2)} = ${prePayloadDamagePerHit.toFixed(3)}%`;
+    const statusConversionLine =
+      `Contact model ${baseDamagePerHit.toFixed(3)} x Exp x${damageExperienceScalar.toFixed(2)} = ${preCommanderDamagePerHit.toFixed(3)} x ${attackStatLabel} x${attackScalar.toFixed(2)} (${attackStatValue}/${attackReference}) = ${afterAttackScalarDamagePerHit.toFixed(3)} x ${penetrationMathLine} = ${afterPenetrationDamagePerHit.toFixed(3)} x Cmd x${commanderDamageScalar.toFixed(2)} = ${prePayloadDamagePerHit.toFixed(3)}; status effects come from per-weapon hit distributions and the target's current personnel/equipment pools`;
 
     const distance = Math.abs(attacker.q - defender.q) + Math.abs(attacker.r - defender.r) + Math.abs((-attacker.q - attacker.r) - (-defender.q - defender.r));
     const range = Math.floor(distance / 2);
@@ -623,31 +758,39 @@ export class BattleScreen {
         : effectiveAP === facingArmor
           ? "Armor Dampens Fire"
           : "Armor Holds";
-    const projectedDefenderStrength = Math.max(0, defenderStrength - postPayloadExpectedDamage);
-    const projectedAttackerStrength = Math.max(0, attackerStrength - preview.expectedRetaliation);
+    const projectedTargetDamage = preview.projectedDamage?.readinessLoss ?? postPayloadExpectedDamage;
+    const projectedReturnFireDamage = preview.projectedRetaliationDamage?.readinessLoss ?? preview.expectedRetaliation;
+    const projectedDefenderStrength = preview.projectedDamage?.strengthAfter ?? Math.max(0, defenderStrength - projectedTargetDamage);
+    const projectedAttackerStrength = preview.projectedRetaliationDamage?.strengthAfter ?? Math.max(0, attackerStrength - projectedReturnFireDamage);
+    const projectedTargetSummary = preview.projectedDamage?.summary ?? `${this.formatReadinessValue(projectedTargetDamage)}% readiness loss`;
+    const projectedRetaliationSummary = preview.projectedRetaliationDamage?.summary ?? `${this.formatReadinessValue(projectedReturnFireDamage)}% readiness loss`;
+    const targetPersonnelEffects = this.formatPersonnelDelta(preview.projectedDamage);
+    const targetEquipmentEffects = this.formatEquipmentDelta(preview.projectedDamage);
+    const targetComponentEffects = this.formatComponentDelta(preview.projectedDamage);
+    const targetDamageTypes = this.formatDamageTypes(preview.projectedDamage);
 
     const accuracyToneClass = roundedAccuracy >= 75
       ? "attack-preview-outcome__value--good"
       : roundedAccuracy >= 50
         ? "attack-preview-outcome__value--warning"
         : "attack-preview-outcome__value--danger";
-    const defenderDamageToneClass = postPayloadExpectedDamage >= 20
+    const defenderDamageToneClass = projectedTargetDamage >= 20
       ? "attack-preview-outcome__value--good"
-      : postPayloadExpectedDamage >= 8
+      : projectedTargetDamage >= 8
         ? "attack-preview-outcome__value--warning"
         : "attack-preview-outcome__value--neutral";
     const retaliationToneClass = !preview.retaliationPossible
       ? "attack-preview-outcome__value--muted"
-      : preview.expectedRetaliation >= 15
+      : projectedReturnFireDamage >= 15
         ? "attack-preview-outcome__value--danger"
-        : preview.expectedRetaliation >= 6
+        : projectedReturnFireDamage >= 6
           ? "attack-preview-outcome__value--warning"
           : "attack-preview-outcome__value--neutral";
-    const retaliationValue = preview.retaliationPossible ? `${preview.expectedRetaliation.toFixed(1)}%` : "0.0%";
+    const retaliationValue = preview.retaliationPossible ? `${this.formatReadinessValue(projectedReturnFireDamage)}%` : "0.0%";
     const retaliationSummary = preview.retaliationPossible
       ? preview.retaliationNote
-        ? `Projected attacker strength: ${projectedAttackerStrength.toFixed(1)}%. ${preview.retaliationNote}`
-        : `Projected attacker strength: ${projectedAttackerStrength.toFixed(1)}%`
+        ? `Projected attacker strength: ${this.formatReadinessValue(projectedAttackerStrength)}%. ${projectedRetaliationSummary}. ${preview.retaliationNote}`
+        : `Projected attacker strength: ${this.formatReadinessValue(projectedAttackerStrength)}%. ${projectedRetaliationSummary}`
       : preview.retaliationNote ?? "No return fire expected.";
     const accuracySummary = supportsStances
       ? `${profile.title} stance selected.`
@@ -671,7 +814,7 @@ export class BattleScreen {
             <div class="attack-preview-card__stats">
               <div class="attack-preview-stat">
                 <span>Current strength</span>
-                <strong>${attackerStrength}%</strong>
+                <strong>${this.formatReadinessValue(attackerStrength)}%</strong>
               </div>
               <div class="attack-preview-stat">
                 <span>Effective range</span>
@@ -687,7 +830,7 @@ export class BattleScreen {
             <div class="attack-preview-card__stats">
               <div class="attack-preview-stat">
                 <span>Current strength</span>
-                <strong>${defenderStrength}%</strong>
+                <strong>${this.formatReadinessValue(defenderStrength)}%</strong>
               </div>
               <div class="attack-preview-stat">
                 <span>Armor</span>
@@ -704,9 +847,9 @@ export class BattleScreen {
           </div>
           <div class="attack-preview-outcome__grid">
             <article class="attack-preview-outcome__metric">
-              <span class="attack-preview-outcome__label">Damage to target</span>
-              <strong class="attack-preview-outcome__value ${defenderDamageToneClass}">${postPayloadExpectedDamage.toFixed(1)}%</strong>
-              <span class="attack-preview-outcome__subtext">Projected defender strength: ${projectedDefenderStrength.toFixed(1)}%</span>
+              <span class="attack-preview-outcome__label">Target readiness loss</span>
+              <strong class="attack-preview-outcome__value ${defenderDamageToneClass}">${this.formatReadinessValue(projectedTargetDamage)}%</strong>
+              <span class="attack-preview-outcome__subtext">Projected defender strength: ${this.formatReadinessValue(projectedDefenderStrength)}%. ${this.escapeHtml(projectedTargetSummary)}</span>
             </article>
 
             <article class="attack-preview-outcome__metric">
@@ -728,53 +871,178 @@ export class BattleScreen {
         <details class="attack-preview-details"${detailsExpanded ? " open" : ""}>
           <summary>Detailed Breakdown</summary>
           <div class="attack-preview-details__content">
-            <div class="attack-preview-detail-grid">
-              <div class="attack-preview-detail-row">
-                <span>Shots</span>
-                <strong>${shots}</strong>
-              </div>
-              <div class="attack-preview-detail-row">
-                <span>Expected Hits</span>
-                <strong>${expectedHits}</strong>
-              </div>
-              <div class="attack-preview-detail-row">
-                <span>Damage / Hit</span>
-                <strong>${postPayloadDamagePerHit.toFixed(3)}%</strong>
-              </div>
-              <div class="attack-preview-detail-row">
-                <span>Expected Suppression</span>
-                <strong>${postPayloadExpectedSuppression.toFixed(1)}</strong>
-              </div>
-              <div class="attack-preview-detail-row">
-                <span>Penetration</span>
-                <strong>${effectiveAP} vs ${facingArmor}</strong>
-              </div>
-              <div class="attack-preview-detail-row">
-                <span>Armor Outlook</span>
-                <strong>${penetrationSummary}</strong>
+            <!-- Mode Toggle -->
+            <div class="attack-preview-mode-toggle">
+              <button type="button" class="attack-preview-mode-btn attack-preview-mode-btn--active" data-mode="player" onclick="this.closest('.attack-preview-details').querySelectorAll('.attack-preview-mode-content').forEach(el => el.hidden = el.dataset.mode !== 'player'); this.closest('.attack-preview-mode-toggle').querySelectorAll('.attack-preview-mode-btn').forEach(btn => btn.classList.toggle('attack-preview-mode-btn--active', btn.dataset.mode === 'player'));">
+                <span class="mode-icon">👁️</span> Commander View
+              </button>
+              <button type="button" class="attack-preview-mode-btn" data-mode="dev" onclick="this.closest('.attack-preview-details').querySelectorAll('.attack-preview-mode-content').forEach(el => el.hidden = el.dataset.mode !== 'dev'); this.closest('.attack-preview-mode-toggle').querySelectorAll('.attack-preview-mode-btn').forEach(btn => btn.classList.toggle('attack-preview-mode-btn--active', btn.dataset.mode === 'dev'));">
+                <span class="mode-icon">🔧</span> Technical Data
+              </button>
+            </div>
+
+            <!-- Player-Facing Format (Default) -->
+            <div class="attack-preview-mode-content" data-mode="player">
+              <div class="combat-summary-card">
+                <header class="combat-summary-header">
+                  <h4 class="combat-summary-title">Combat Assessment</h4>
+                  <span class="combat-summary-subtitle">${weaponBreakdown.groups.length} weapon systems engaged</span>
+                </header>
+                
+                <div class="combat-metrics-grid">
+                  <div class="combat-metric combat-metric--primary">
+                    <span class="combat-metric__label">Fire Volume</span>
+                    <strong class="combat-metric__value">${Number(shots).toLocaleString()}</strong>
+                    <span class="combat-metric__unit">rounds</span>
+                  </div>
+                  <div class="combat-metric combat-metric--primary">
+                    <span class="combat-metric__label">Expected Hits</span>
+                    <strong class="combat-metric__value">${Math.round(Number(expectedHits))}</strong>
+                    <span class="combat-metric__unit">impacts</span>
+                  </div>
+                  <div class="combat-metric">
+                    <span class="combat-metric__label">Personnel Effects</span>
+                    <strong class="combat-metric__value combat-metric__value--text">${this.escapeHtml(targetPersonnelEffects)}</strong>
+                  </div>
+                  <div class="combat-metric">
+                    <span class="combat-metric__label">Equipment Effects</span>
+                    <strong class="combat-metric__value combat-metric__value--text">${this.escapeHtml(targetEquipmentEffects)}</strong>
+                  </div>
+                </div>
+
+                ${this.renderReadinessProjectionRows(preview.projectedDamage)}
+
+                <div class="penetration-assessment">
+                  <div class="penetration-bar">
+                    <div class="penetration-fill" style="--penetration-width: ${Math.min(100, Math.max(0, (effectiveAP / Math.max(facingArmor, 1)) * 50))}%"></div>
+                    <span class="penetration-label">Penetration: ${effectiveAP} AP vs ${facingArmor} Armor</span>
+                    <span class="penetration-outcome">${penetrationSummary}</span>
+                  </div>
+                </div>
+
+                <div class="weapon-loadout-summary">
+                  <h5 class="weapon-loadout-title">Weapon Loadout</h5>
+                  <div class="weapon-chips">
+                    ${weaponBreakdown.groups.map(group => {
+                      const margin = group.ap - facingArmor;
+                      return `
+                      <div class="weapon-chip weapon-chip--${margin > 5 ? 'advantage' : margin < -5 ? 'disadvantage' : 'neutral'}">
+                        <span class="weapon-chip__name">${this.escapeHtml(group.name)}</span>
+                        <span class="weapon-chip__stats">${group.shots}× AP${group.ap}</span>
+                        ${margin !== 0 ? `<span class="weapon-chip__overmatch">${margin > 0 ? '+' : ''}${margin}</span>` : ''}
+                      </div>
+                    `;}).join('')}
+                  </div>
+                </div>
+
+                <div class="combat-factors">
+                  <h5 class="combat-factors-title">Combat Factors</h5>
+                  <ul class="combat-factors-list">
+                    <li class="combat-factor">
+                      <span class="combat-factor__label">Range Table</span>
+                      <span class="combat-factor__value">${baseAccuracyPercent.toFixed(1)}% base accuracy</span>
+                    </li>
+                    <li class="combat-factor">
+                      <span class="combat-factor__label">Unit Proficiency</span>
+                      <span class="combat-factor__value">${(unitAccuracyScalar * 100 - 100).toFixed(0)}% modifier</span>
+                    </li>
+                    ${commanderAccuracyBonus > 0 ? `
+                    <li class="combat-factor combat-factor--bonus">
+                      <span class="combat-factor__label">Command Direction</span>
+                      <span class="combat-factor__value">+${commanderAccuracyBonus}% accuracy</span>
+                    </li>
+                    ` : ''}
+                    ${commanderDamageBonus > 0 ? `
+                    <li class="combat-factor combat-factor--bonus">
+                      <span class="combat-factor__label">Command Focus</span>
+                      <span class="combat-factor__value">+${commanderDamageBonus}% damage</span>
+                    </li>
+                    ` : ''}
+                    <li class="combat-factor">
+                      <span class="combat-factor__label">Final Accuracy</span>
+                      <span class="combat-factor__value combat-factor__value--final">${roundedAccuracy}%</span>
+                    </li>
+                  </ul>
+                </div>
               </div>
             </div>
 
-            <div class="attack-preview-breakdown">
-              <p><strong>Profile:</strong> ${this.escapeHtml(profile.description)}</p>
-              <p><strong>Weapon Inputs:</strong> ${this.escapeHtml(weaponStatsLine)}</p>
-              <p><strong>Engagement Math:</strong> ${this.escapeHtml(profile.mathLine)}</p>
-              <p><strong>Accuracy Math:</strong> ${this.escapeHtml(accuracyBreakdownLine)}</p>
-              <p><strong>Damage Math:</strong> ${this.escapeHtml(damageBreakdownLine)}</p>
-              <p><strong>Commander Bonuses:</strong> Accuracy +${commanderAccuracyBonus}% • Damage +${commanderDamageBonus}%</p>
-              <p><strong>Payload:</strong> x${damageMultiplier} (${this.escapeHtml(damageMultiplierDescription)}) • Suppression x${suppressionMultiplier} (${this.escapeHtml(suppressionMultiplierDescription)})</p>
-              <p><strong>Damage / Hit:</strong> ${damagePerHitSummary}</p>
-              <p><strong>Expected Damage:</strong> ${expectedDamageSummary}</p>
-              <p><strong>Expected Suppression:</strong> ${suppressionSummary}</p>
-              ${preview.retaliationNote
-                ? `<p><strong>Return Fire Note:</strong> ${this.escapeHtml(preview.retaliationNote)}</p>`
-                : ""}
+            <!-- Dev/Test Format -->
+            <div class="attack-preview-mode-content" data-mode="dev" hidden>
+              <div class="attack-preview-detail-grid">
+                <div class="attack-preview-detail-row">
+                  <span>Shots</span>
+                  <strong>${shots}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Expected Hits</span>
+                  <strong>${expectedHits}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Readiness Loss</span>
+                  <strong>${this.formatReadinessValue(projectedTargetDamage)}%</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Expected Suppression</span>
+                  <strong>${postPayloadExpectedSuppression.toFixed(1)}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Penetration</span>
+                  <strong>${effectiveAP} vs ${facingArmor}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Armor Outlook</span>
+                  <strong>${penetrationSummary}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Damage Types</span>
+                  <strong>${this.escapeHtml(targetDamageTypes)}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Components</span>
+                  <strong>${this.escapeHtml(targetComponentEffects)}</strong>
+                </div>
+              </div>
+
+              <div class="attack-preview-breakdown">
+                <p><strong>Profile:</strong> ${this.escapeHtml(profile.description)}</p>
+                <p><strong>Weapon Inputs:</strong> ${this.escapeHtml(weaponStatsLine)}</p>
+                <p><strong>Weapon Systems:</strong> ${this.escapeHtml(weaponBreakdown.summary)}</p>
+                
+                <div class="weapon-groups-detail">
+                  <strong>Per-Weapon Breakdown:</strong>
+                  ${weaponBreakdown.groups.map(group => `
+                    <div class="weapon-group-item">
+                      <span class="weapon-name">${this.escapeHtml(group.name)}:</span>
+                      <span class="weapon-stats">${group.shots} shots, AP${group.ap}</span>
+                      <span class="weapon-overmatch">${group.effectiveness}</span>
+                    </div>
+                  `).join('')}
+                </div>
+                
+                <p><strong>Engagement Math:</strong> ${this.escapeHtml(profile.mathLine)}</p>
+                <p><strong>Accuracy Math:</strong> ${this.escapeHtml(accuracyBreakdownLine)}</p>
+                <p><strong>Status Conversion:</strong> ${this.escapeHtml(statusConversionLine)}</p>
+                <p><strong>Commander Bonuses:</strong> Accuracy +${commanderAccuracyBonus}% • Damage +${commanderDamageBonus}%</p>
+                <p><strong>Payload:</strong> x${damageMultiplier} (${this.escapeHtml(damageMultiplierDescription)}) • Suppression x${suppressionMultiplier} (${this.escapeHtml(suppressionMultiplierDescription)})</p>
+                <p><strong>Projected Status Effects:</strong> ${this.escapeHtml(projectedTargetSummary)}</p>
+                <p><strong>Personnel Effects:</strong> ${this.escapeHtml(targetPersonnelEffects)}</p>
+                <p><strong>Equipment Effects:</strong> ${this.escapeHtml(targetEquipmentEffects)}</p>
+                <p><strong>Component Effects:</strong> ${this.escapeHtml(targetComponentEffects)}</p>
+                <p><strong>Damage Types:</strong> ${this.escapeHtml(targetDamageTypes)}</p>
+                ${this.renderWeaponStatusEffects(preview.projectedDamage)}
+                ${preview.retaliationPossible ? `<p><strong>Return Fire Projection:</strong> ${this.escapeHtml(projectedRetaliationSummary)}</p>` : ""}
+                <p><strong>Expected Suppression:</strong> ${suppressionSummary}</p>
+                ${preview.retaliationNote
+                  ? `<p class="attack-preview-breakdown__note">${this.escapeHtml(preview.retaliationNote)}</p>`
+                  : ""}
+              </div>
             </div>
           </div>
         </details>
       </div>
     `;
-    this.configureAttackStanceControls(attackerUnit ?? preview.attacker, commandState);
+    this.configureAttackStanceControls(attackerUnit ?? preview.attacker, commandState, attacker, defender);
     this.showAttackDialog();
   }
 
@@ -789,15 +1057,34 @@ export class BattleScreen {
     return unit.type === "Recon_Bike";
   }
 
-  private canUnitAssault(unit: ScenarioUnit, commandState: UnitCommandState | null): boolean {
-    return this.canUnitUseCombatStances(unit) && commandState?.suppressionState === "clear";
+  private canUnitAssault(
+    unit: ScenarioUnit,
+    commandState: UnitCommandState | null,
+    attackerHex?: Axial,
+    defenderHex?: Axial
+  ): boolean {
+    return (
+      this.canUnitUseCombatStances(unit)
+      && commandState?.suppressionState === "clear"
+      && (!attackerHex || !defenderHex || hexDistance(attackerHex, defenderHex) <= 1)
+    );
   }
 
-  private configureAttackStanceControls(attackerUnit: ScenarioUnit | null, commandState: UnitCommandState | null): void {
+  private isPinnedOrBrokenCommandState(commandState: UnitCommandState | null): boolean {
+    return commandState?.suppressionState === "pinned" || commandState?.suppressionState === "broken";
+  }
+
+  private configureAttackStanceControls(
+    attackerUnit: ScenarioUnit | null,
+    commandState: UnitCommandState | null,
+    attackerHex?: Axial,
+    defenderHex?: Axial
+  ): void {
     const selector = this.attackConfirmDialog?.querySelector<HTMLElement>(".attack-stance-selector");
+    const fireAtWillBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceFireAtWill");
     const assaultBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceAssault");
     const suppressiveBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceSuppressive");
-    if (!selector || !assaultBtn || !suppressiveBtn) {
+    if (!selector || !fireAtWillBtn || !assaultBtn || !suppressiveBtn) {
       return;
     }
 
@@ -805,13 +1092,16 @@ export class BattleScreen {
     selector.classList.toggle("attack-stance-selector--hidden", !supportsStances);
     if (!supportsStances) {
       this.currentAttackStance = null;
+      fireAtWillBtn.disabled = true;
       assaultBtn.disabled = true;
       suppressiveBtn.disabled = true;
       this.updateStanceButtonStates();
       return;
     }
 
-    const assaultAvailable = attackerUnit ? this.canUnitAssault(attackerUnit, commandState) : false;
+    const assaultAvailable = attackerUnit ? this.canUnitAssault(attackerUnit, commandState, attackerHex, defenderHex) : false;
+    fireAtWillBtn.disabled = false;
+    fireAtWillBtn.classList.remove("stance-disabled");
     assaultBtn.disabled = !assaultAvailable;
     assaultBtn.classList.toggle("stance-disabled", !assaultAvailable);
     suppressiveBtn.disabled = false;
@@ -820,8 +1110,12 @@ export class BattleScreen {
     const assaultNote = assaultBtn.querySelector<HTMLElement>(".stance-note");
     if (assaultNote) {
       assaultNote.textContent = assaultAvailable
-        ? "Point-blank attack. Closes to knife-fight range for the strongest hit chance."
-        : commandState?.suppressionState === "pinned"
+        ? "Adjacent attack. Resolves at point-blank range for the strongest hit chance."
+        : attackerHex && defenderHex && hexDistance(attackerHex, defenderHex) > 1
+          ? "Requires an adjacent target."
+        : commandState?.suppressionState === "broken"
+          ? "Blocked while broken."
+          : commandState?.suppressionState === "pinned"
           ? "Blocked while pinned."
           : "Blocked while suppressed.";
     }
@@ -839,7 +1133,7 @@ export class BattleScreen {
     if (!this.canUnitUseCombatStances(unit)) {
       return {
         title: "Direct Fire",
-        description: "This formation uses its standard direct-fire profile. Vehicles do not switch between assault and suppressive stances.",
+        description: "This formation uses its standard direct-fire profile. Vehicles do not switch between assault and suppressing-fire orders.",
         note: "Accuracy reflects the normal range, terrain, and spotting calculation for this weapon system.",
         mathLine: "Standard direct-fire calculation. No assault multiplier is in effect."
       };
@@ -848,23 +1142,34 @@ export class BattleScreen {
     if (this.currentAttackStance === "assault") {
       return {
         title: "Assault",
-        description: "The battalion closes to point-blank range and trades protection for a much better chance to hit.",
+        description: "The battalion attacks an adjacent target at point-blank range and trades protection for a much better chance to hit.",
         note: "Assault resolves at point-blank range, so the battalion benefits from the short-range accuracy curve instead of a separate hit multiplier.",
         mathLine: "Point-blank range uses the 25m midpoint, then runs the standard range, terrain, and spotting math."
       };
     }
 
-    const suppressionNote = commandState?.suppressionState === "pinned"
-      ? "Pinned formations cannot move, retaliate, or initiate assault fire until the pin is broken."
-      : commandState?.suppressionState === "suppressed"
-        ? "Suppressed formations may still move and fire, but assault is unavailable this turn."
-        : "Suppressive fire keeps the battalion in ranged posture and can stack suppression on the target.";
+    if (this.currentAttackStance === "suppressive") {
+      const suppressionNote = commandState?.suppressionState === "broken"
+        ? "Broken formations are below 25 readiness under heavy suppression and cannot move, retaliate, or initiate assault fire."
+        : commandState?.suppressionState === "pinned"
+          ? "Pinned formations cannot move, retaliate, or initiate assault fire until the pin is broken."
+        : commandState?.suppressionState === "suppressed"
+          ? "Suppressed formations may still move and fire, but assault is unavailable this turn."
+          : "Suppressing fire doubles suppression output and ammunition cost without changing shot volume or accuracy.";
+
+      return {
+        title: "Suppressing Fire",
+        description: "The battalion stays in ranged posture and prioritizes disruption without reducing its normal shot volume or accuracy.",
+        note: suppressionNote,
+        mathLine: "Standard range calculation. Readiness damage is unchanged; packet suppression is doubled and ammo cost is doubled."
+      };
+    }
 
     return {
-      title: "Suppressive",
-      description: "The battalion stays in ranged posture and trades lethality for disruption and battlefield control.",
-      note: suppressionNote,
-      mathLine: "Standard range calculation. No assault multiplier is in effect."
+      title: "Fire at Will",
+      description: "The formation uses its normal direct-fire profile against the selected target.",
+      note: "Standard attack order. Shots, accuracy, damage, suppression, and ammo cost use the baseline fire profile.",
+      mathLine: "Standard range calculation. No assault range override or suppression surcharge is in effect."
     };
   }
 
@@ -1116,10 +1421,11 @@ export class BattleScreen {
     if (!commandState || commandState.isAutomated || !this.canUnitObserveArtillery(unit)) {
       return { available: false, reason: null, assetId: null, targetHexKeys: [] };
     }
-    if (commandState.suppressionState === "pinned") {
+    if (this.isPinnedOrBrokenCommandState(commandState)) {
+      const label = commandState.suppressionState === "broken" ? "Broken" : "Pinned";
       return {
         available: false,
-        reason: "Pinned battalions cannot adjust heavy artillery fire until the pin is broken.",
+        reason: `${label} battalions cannot adjust heavy artillery fire until the suppression is broken.`,
         assetId: null,
         targetHexKeys: []
       };
@@ -1798,12 +2104,18 @@ export class BattleScreen {
         this.clearSelectedHexAfterAction();
         // Compose battle update lines summarizing attack outcome and any counter-fire so commanders get full context.
         const announcements: string[] = [];
-        const inflicted = this.clampDisplayedDamageRounded(resolution.result.expectedDamage);
+        const inflictedDamage = this.clampDisplayedDamage(
+          resolution.defenderDamage?.readinessLoss ?? resolution.result.expectedDamage
+        );
+        const inflicted = this.formatDamageAmount(inflictedDamage);
         let primaryReport = `Attack confirmed. Damage dealt ${inflicted}.`;
         if (resolution.defenderDestroyed) {
           primaryReport += " Target destroyed.";
         } else {
-          primaryReport += ` Defender strength now ${Math.max(0, resolution.defenderRemainingStrength)}.`;
+          primaryReport += ` Defender strength now ${this.formatReadinessValue(Math.max(0, resolution.defenderRemainingStrength))}.`;
+        }
+        if (resolution.defenderDamage?.summary) {
+          primaryReport += ` Effects: ${resolution.defenderDamage.summary}.`;
         }
         if (typeof resolution.attackerRemainingStrength === "number") {
           primaryReport += ` Attacking unit strength now ${Math.max(0, resolution.attackerRemainingStrength)}.`;
@@ -1811,18 +2123,20 @@ export class BattleScreen {
         announcements.push(primaryReport);
 
         if (resolution.retaliationOccurred) {
-          const retaliationDamage = Math.max(
-            0,
-            Math.round(resolution.retaliationResult?.expectedDamage ?? 0)
+          const retaliationDamage = this.clampDisplayedDamage(
+            resolution.retaliationDamage?.readinessLoss ?? resolution.retaliationResult?.expectedDamage ?? 0
           );
-          let retaliationReport = `Enemy retaliation dealt ${retaliationDamage} damage.`;
+          let retaliationReport = `Enemy retaliation dealt ${this.formatDamageAmount(retaliationDamage)} damage.`;
           const attackerRemaining = resolution.attackerRemainingStrength;
           if (typeof attackerRemaining === "number") {
             if (attackerRemaining <= 0) {
               retaliationReport += " Attacking unit destroyed.";
             } else {
-              retaliationReport += ` Attacking unit strength now ${attackerRemaining}.`;
+              retaliationReport += ` Attacking unit strength now ${this.formatReadinessValue(attackerRemaining)}.`;
             }
+          }
+          if (resolution.retaliationDamage?.summary) {
+            retaliationReport += ` Effects: ${resolution.retaliationDamage.summary}.`;
           }
           announcements.push(retaliationReport);
         }
@@ -1830,18 +2144,20 @@ export class BattleScreen {
         announcements.forEach((text) => this.announceBattleUpdate(text));
 
         const retaliationDamage = resolution.retaliationOccurred
-          ? this.clampDisplayedDamageRounded(resolution.retaliationResult ? resolution.retaliationResult.expectedDamage : 0)
+          ? this.clampDisplayedDamage(
+              resolution.retaliationDamage?.readinessLoss ?? (resolution.retaliationResult ? resolution.retaliationResult.expectedDamage : 0)
+            )
           : 0;
         const defenderDestroyedNote = resolution.defenderDestroyed ? " Target destroyed." : "";
         const retaliationSummary = resolution.retaliationOccurred
-          ? ` Enemy retaliation dealt ${retaliationDamage} damage.`
+          ? ` Enemy retaliation dealt ${this.formatDamageAmount(retaliationDamage)} damage.`
           : "";
         const attackSummary = `Player attack from ${attackerHex} to ${defenderHex} dealt ${inflicted} damage.${defenderDestroyedNote}${retaliationSummary}`;
 
         const detailSections = this.buildPlayerAttackDetails(resolution, this.pendingAttack?.preview ?? null, {
           attackerHex,
           defenderHex,
-          inflictedDamage: inflicted,
+          inflictedDamage,
           retaliationDamage
         });
 
@@ -1850,7 +2166,7 @@ export class BattleScreen {
           type: "attack",
           summary: attackSummary,
           details: {
-            inflictedDamage: inflicted,
+            inflictedDamage,
             defenderRemaining: resolution.defenderRemainingStrength,
             attackerRemaining: resolution.attackerRemainingStrength,
             retaliationDamage: retaliationDamage,
@@ -1910,19 +2226,25 @@ export class BattleScreen {
         continue;
       }
 
-      const moveHandle = this.hexMapRenderer.primeUnitMove(fromKey, toKey);
+      const pathKeys = this.toMovePathKeys(move.path, fromKey, toKey);
+      const moveHandle = this.hexMapRenderer.primeUnitMove(fromKey, toKey, {
+        path: pathKeys,
+        unitId: move.unitId ?? null
+      });
       if (!moveHandle) {
         continue;
       }
 
       // Keep the camera tracking the unit before and after the renderer handles sprite duplication/animation.
-      if (canFocusCamera) {
+      if (canFocusCamera && this.battleAnimationMode !== "quick") {
         this.focusCameraOnHex(fromKey);
       }
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      if (this.battleAnimationMode !== "quick") {
+        await this.waitMs(200);
+      }
 
       try {
-        await moveHandle.play(BattleScreen.BOT_MOVE_ANIMATION_MS);
+        await moveHandle.play(this.resolveMoveAnimationDuration(pathKeys, BattleScreen.BOT_MOVE_ANIMATION_MS));
       } catch (animationError) {
         console.warn("Bot move animation failed; continuing without playback.", {
           move,
@@ -1934,7 +2256,9 @@ export class BattleScreen {
       }
 
       // Small pause between moves so sequential ghosts don't overlap visually.
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      if (this.battleAnimationMode !== "quick") {
+        await this.waitMs(150);
+      }
     }
 
     // Animate bot attacks
@@ -2070,12 +2394,22 @@ export class BattleScreen {
    * Binds click handlers to stance selection buttons in the attack confirmation dialog.
    */
   private bindStanceButtons(): void {
+    const fireAtWillBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceFireAtWill");
     const assaultBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceAssault");
     const suppressiveBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceSuppressive");
 
-    if (!assaultBtn || !suppressiveBtn) {
+    if (!fireAtWillBtn || !assaultBtn || !suppressiveBtn) {
       return;
     }
+
+    fireAtWillBtn.onclick = () => {
+      if (fireAtWillBtn.disabled) {
+        return;
+      }
+      this.currentAttackStance = "fireAtWill";
+      this.updateStanceButtonStates();
+      this.refreshAttackPreview();
+    };
 
     assaultBtn.onclick = () => {
       if (assaultBtn.disabled) {
@@ -2100,11 +2434,21 @@ export class BattleScreen {
    * Updates the visual state of stance buttons to reflect the current selection.
    */
   private updateStanceButtonStates(): void {
+    const fireAtWillBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceFireAtWill");
     const assaultBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceAssault");
     const suppressiveBtn = this.attackConfirmDialog?.querySelector<HTMLButtonElement>("#stanceSuppressive");
 
+    const fireAtWillSelected = this.currentAttackStance === "fireAtWill";
     const assaultSelected = this.currentAttackStance === "assault";
     const suppressiveSelected = this.currentAttackStance === "suppressive";
+
+    fireAtWillBtn?.classList.toggle("stance-active", fireAtWillSelected);
+    fireAtWillBtn?.setAttribute("aria-pressed", String(fireAtWillSelected));
+    fireAtWillBtn?.setAttribute("data-selected", String(fireAtWillSelected));
+    const fireAtWillState = fireAtWillBtn?.querySelector<HTMLElement>(".stance-state");
+    if (fireAtWillState) {
+      fireAtWillState.textContent = fireAtWillSelected ? "Selected" : "";
+    }
 
     assaultBtn?.classList.toggle("stance-active", assaultSelected);
     assaultBtn?.setAttribute("aria-pressed", String(assaultSelected));
@@ -2179,6 +2523,30 @@ export class BattleScreen {
       return null;
     }
     return CoordinateSystem.makeHexKey(col, row);
+  }
+
+  private toMovePathKeys(path: readonly Axial[] | undefined, fromKey: string, toKey: string): string[] {
+    const keys: string[] = [];
+    const appendKey = (key: string | null): void => {
+      if (!key || keys[keys.length - 1] === key) {
+        return;
+      }
+      keys.push(key);
+    };
+
+    appendKey(fromKey);
+    path?.forEach((hex) => appendKey(this.toHexKey(hex)));
+    appendKey(toKey);
+    return keys;
+  }
+
+  private resolveMoveAnimationDuration(pathKeys: readonly string[], fallbackMs: number): number {
+    if (this.battleAnimationMode === "quick") {
+      return 0;
+    }
+
+    const steps = Math.max(1, pathKeys.length - 1);
+    return Math.min(1200, Math.max(fallbackMs, 160 + steps * 190));
   }
 
   /**
@@ -4945,20 +5313,23 @@ export class BattleScreen {
    * Announces the bot's moves and attacks during their turn.
    */
   private describeBotAttackCounterfire(attack: BotAttackSummary): string {
-    const retaliationDamage = this.clampDisplayedDamageRounded(attack.retaliation?.damage ?? 0);
+    const retaliationDamage = this.clampDisplayedDamage(attack.retaliation?.damage ?? 0);
     if (retaliationDamage <= 0) {
       return "";
     }
 
     const attackerStrengthAfter = attack.retaliation?.attackerStrengthAfter;
+    const effects = attack.retaliation?.summary
+      ? ` Effects: ${attack.retaliation.summary}.`
+      : "";
     if (typeof attackerStrengthAfter === "number") {
       if (attackerStrengthAfter <= 0) {
-        return ` Counterfire dealt ${retaliationDamage} damage and destroyed the attacker.`;
+        return ` Counterfire dealt ${this.formatDamageAmount(retaliationDamage)} damage.${effects} Attacker destroyed.`;
       }
-      return ` Counterfire dealt ${retaliationDamage} damage; attacker strength now ${Math.round(attackerStrengthAfter)}.`;
+      return ` Counterfire dealt ${this.formatDamageAmount(retaliationDamage)} damage.${effects} Attacker strength now ${this.formatReadinessValue(attackerStrengthAfter)}.`;
     }
 
-    return ` Counterfire dealt ${retaliationDamage} damage.`;
+    return ` Counterfire dealt ${this.formatDamageAmount(retaliationDamage)} damage.${effects}`;
   }
 
   private announceBotTurnActions(botSummary: BotTurnSummary): void {
@@ -4972,11 +5343,12 @@ export class BattleScreen {
       botSummary.attacks.forEach((attack) => {
         const attackerLabel = this.toTitleCase(attack.attackerType);
         const defenderLabel = this.toTitleCase(attack.defenderType);
-        const damage = this.clampDisplayedDamageRounded(attack.inflictedDamage);
+        const damage = this.formatDamageAmount(attack.inflictedDamage);
         const destroyed = attack.defenderDestroyed ? " Target destroyed!" : "";
+        const effects = attack.damageSummary ? ` Effects: ${attack.damageSummary}.` : "";
         const counterfire = this.describeBotAttackCounterfire(attack);
         this.announceBattleUpdate(
-          `Enemy ${attackerLabel} attacked ${defenderLabel}. Damage: ${damage}.${destroyed}${counterfire}`
+          `Enemy ${attackerLabel} attacked ${defenderLabel}. Damage: ${damage}.${effects}${destroyed}${counterfire}`
         );
       });
     }
@@ -5012,22 +5384,25 @@ export class BattleScreen {
       const targetKey = CoordinateSystem.makeHexKey(targetOffset.col, targetOffset.row);
       const attackerLabel = this.toTitleCase(attack.attackerType);
       const defenderLabel = this.toTitleCase(attack.defenderType);
-      const damage = this.clampDisplayedDamageRounded(attack.inflictedDamage);
-      const retaliationDamage = this.clampDisplayedDamageRounded(attack.retaliation?.damage ?? 0);
+      const damage = this.formatDamageAmount(attack.inflictedDamage);
+      const retaliationDamage = this.clampDisplayedDamage(attack.retaliation?.damage ?? 0);
       const attackerStrengthAfter = attack.retaliation?.attackerStrengthAfter;
       const destructionNote = attack.defenderDestroyed ? " Target destroyed." : "";
+      const effects = attack.damageSummary ? ` Effects: ${attack.damageSummary}.` : "";
       const counterfire = this.describeBotAttackCounterfire(attack);
       this.publishActivityEvent({
         category: "enemy",
         type: "attack",
-        summary: `Enemy ${attackerLabel} attacked ${defenderLabel} from ${originKey} to ${targetKey} for ${damage} damage.${destructionNote}${counterfire}`,
+        summary: `Enemy ${attackerLabel} attacked ${defenderLabel} from ${originKey} to ${targetKey} for ${damage} damage.${effects}${destructionNote}${counterfire}`,
         details: {
           attackerType: attack.attackerType,
           defenderType: attack.defenderType,
           attackerHex: originKey,
           defenderHex: targetKey,
-          inflictedDamage: damage,
+          inflictedDamage: attack.inflictedDamage,
+          damageSummary: attack.damageSummary,
           retaliationDamage,
+          retaliationSummary: attack.retaliation?.summary,
           attackerStrengthAfter,
           defenderDestroyed: attack.defenderDestroyed
         }
@@ -5957,18 +6332,27 @@ export class BattleScreen {
     this.airPreviewListener = (ev: Event) => this.handleAirPreviewRange(ev as CustomEvent<{ origin: Axial; radius: number }>);
     this.airClearPreviewListener = () => this.clearAirPreviewOverlay();
     this.targetMarkerClickListener = (ev: Event) => this.handleQueuedTargetMarkerClick(ev as CustomEvent<{ markerId: string }>);
-    document.addEventListener("air:previewRange", this.airPreviewListener);
-    document.addEventListener("air:clearPreview", this.airClearPreviewListener);
-    document.addEventListener("battle:targetMarkerClicked", this.targetMarkerClickListener);
-    document.addEventListener("battle:sentryPipClicked", this.handleSentryPipClick.bind(this));
-
-    // Wire reserve deployment from the Army Roster popup
-    document.addEventListener("battle:selectReserve", (event) => {
+    this.sentryPipClickListener = (ev: Event) => this.handleSentryPipClick(ev);
+    this.reserveSelectionListener = (event: Event) => {
       const detail = (event as CustomEvent<{ unitKey: string }>).detail;
       if (detail?.unitKey) {
         this.handleReserveCallupRequest(detail.unitKey);
       }
-    });
+    };
+    this.requisitionRequestListener = (event: Event) => {
+      const detail = (event as CustomEvent<{ unitKey: string; useTransportAirlift?: boolean }>).detail;
+      if (detail?.unitKey) {
+        this.handleBattleRequisitionRequest(detail.unitKey, detail.useTransportAirlift === true);
+      }
+    };
+    document.addEventListener("air:previewRange", this.airPreviewListener);
+    document.addEventListener("air:clearPreview", this.airClearPreviewListener);
+    document.addEventListener("battle:targetMarkerClicked", this.targetMarkerClickListener);
+    document.addEventListener("battle:sentryPipClicked", this.sentryPipClickListener);
+
+    // Wire reserve deployment and battle requisitions from roster/requisition popups.
+    document.addEventListener("battle:selectReserve", this.reserveSelectionListener);
+    document.addEventListener("battle:requestRequisition", this.requisitionRequestListener);
   }
 
   /**
@@ -5982,6 +6366,7 @@ export class BattleScreen {
     this.cacheElements();
     this.soundEnabled = this.loadSoundEnabledPreference();
     this.applySoundPreference(this.soundEnabled);
+    this.applyBattleAnimationMode(this.uiState?.battleAnimationMode ?? "regular");
     this.hydrateMissionBriefing();
     this.bindEvents();
 
@@ -6045,6 +6430,18 @@ export class BattleScreen {
     if (this.targetMarkerClickListener) {
       document.removeEventListener("battle:targetMarkerClicked", this.targetMarkerClickListener);
     }
+    if (this.sentryPipClickListener) {
+      document.removeEventListener("battle:sentryPipClicked", this.sentryPipClickListener);
+      this.sentryPipClickListener = null;
+    }
+    if (this.reserveSelectionListener) {
+      document.removeEventListener("battle:selectReserve", this.reserveSelectionListener);
+      this.reserveSelectionListener = null;
+    }
+    if (this.requisitionRequestListener) {
+      document.removeEventListener("battle:requestRequisition", this.requisitionRequestListener);
+      this.requisitionRequestListener = null;
+    }
     document.removeEventListener("tutorial:airMissionQueued", this.tutorialAirMissionQueuedListener);
     if (this.tutorialUpdateUnsubscribe) {
       this.tutorialUpdateUnsubscribe();
@@ -6075,6 +6472,7 @@ export class BattleScreen {
   private cacheElements(): void {
     this.beginBattleButton = this.element.querySelector("#beginBattle");
     this.soundToggleButton = this.element.querySelector("#battleSoundToggle");
+    this.animationToggleButton = this.element.querySelector("#battleAnimationToggle");
     this.endTurnButton = this.element.querySelector("#endTurn");
     this.endMissionButton = this.element.querySelector("#endMissionButton");
     this.baseCampStatus = this.element.querySelector("#baseCampStatus");
@@ -6157,6 +6555,7 @@ export class BattleScreen {
   private bindEvents(): void {
     this.beginBattleButton?.addEventListener("click", () => this.handleBeginBattle());
     this.soundToggleButton?.addEventListener("click", () => this.handleToggleSound());
+    this.animationToggleButton?.addEventListener("click", () => this.handleToggleBattleAnimationMode());
     this.endTurnButton?.addEventListener("click", () => {
       void this.handleEndTurn();
     });
@@ -7702,6 +8101,43 @@ export class BattleScreen {
     this.soundToggleButton.disabled = !this.hexMapRenderer;
   }
 
+  private handleToggleBattleAnimationMode(): void {
+    const nextMode: BattleAnimationMode = this.battleAnimationMode === "regular" ? "quick" : "regular";
+    if (this.uiState) {
+      this.uiState.battleAnimationMode = nextMode;
+    }
+    this.applyBattleAnimationMode(nextMode);
+    this.announceBattleUpdate(
+      nextMode === "quick"
+        ? "Movement animations set to quick."
+        : "Movement animations set to regular pathing."
+    );
+  }
+
+  private applyBattleAnimationMode(mode: BattleAnimationMode): void {
+    this.battleAnimationMode = mode;
+    this.updateBattleAnimationToggleButton(mode);
+  }
+
+  private updateBattleAnimationToggleButton(mode: BattleAnimationMode): void {
+    if (!this.animationToggleButton) {
+      return;
+    }
+
+    const quick = mode === "quick";
+    this.animationToggleButton.textContent = quick ? "Quick Anim" : "Path Anim";
+    this.animationToggleButton.setAttribute("aria-pressed", quick ? "true" : "false");
+    this.animationToggleButton.setAttribute(
+      "aria-label",
+      quick ? "Use regular path movement animations" : "Use quick movement animations"
+    );
+    this.animationToggleButton.title = quick
+      ? "Use regular path movement animations"
+      : "Use quick movement animations";
+    this.animationToggleButton.dataset.animationMode = mode;
+    this.animationToggleButton.disabled = !this.hexMapRenderer;
+  }
+
   private loadSoundEnabledPreference(): boolean {
     if (typeof window === "undefined" || !window.localStorage) {
       return true;
@@ -7903,6 +8339,25 @@ export class BattleScreen {
    * Handles reserve call-up requests emitted by the deployment panel so cooldown rules, selection validation,
    * and engine integration remain centralized. Expects the caller to provide a stable allocation key.
    */
+  private handleBattleRequisitionRequest(unitKey: string, useTransportAirlift: boolean): void {
+    const engine = this.battleState.ensureGameEngine();
+    const result = engine.requestBattleRequisition(unitKey, { useTransportAirlift });
+    if (!result.ok) {
+      this.announceBattleUpdate(result.reason);
+      return;
+    }
+
+    const arrivalMode = result.requisition.airlifted ? "airlift" : "main supply route";
+    const summary = `${result.requisition.label} requested for ${result.requisition.cost} RP. Arrival turn ${result.requisition.arrivalTurn} by ${arrivalMode}.`;
+    this.announceBattleUpdate(summary);
+    this.publishActivityEvent({
+      category: "player",
+      type: result.requisition.kind === "supplies" ? "supply" : "deployment",
+      summary
+    });
+    this.battleState.emitBattleUpdate("manual");
+  }
+
   private handleReserveCallupRequest(unitKey: string): void {
     const engine = this.battleState.ensureGameEngine();
     const turnSummary = engine.getTurnSummary();
@@ -8236,10 +8691,12 @@ export class BattleScreen {
           statusMessage += ammoStatusMessage;
         }
       }
-      if (commandState?.suppressionState === "pinned") {
+      if (commandState?.suppressionState === "broken") {
+        statusMessage += ` Broken by ${commandState.suppressorCount} suppressing units while below 25 readiness. This battalion cannot move or retaliate.`;
+      } else if (commandState?.suppressionState === "pinned") {
         statusMessage += ` Pinned by ${commandState.suppressorCount} suppressing units. This battalion cannot move or retaliate.`;
       } else if (commandState?.suppressionState === "suppressed") {
-        statusMessage += " Under suppressive fire. It may still move and fire, but it cannot assault.";
+        statusMessage += " Under suppressing fire. It may still move and fire, but it cannot assault.";
       }
       const existingHexModifications = commandState?.existingHexModifications ?? [];
       if (existingHexModifications.length > 0) {
@@ -8322,18 +8779,22 @@ export class BattleScreen {
     this.closeSelectionIntelForAnimation();
     const engine = this.battleState.ensureGameEngine();
 
-    // Prime the animation before updating engine state
     const renderer = this.hexMapRenderer;
-    const moveHandle = renderer?.primeUnitMove(fromKey, toKey) ?? null;
+    let moveHandle: MoveAnimationHandle | null = null;
 
     try {
       // Update engine state
-      engine.moveUnit(fromAxial, toAxial, unitId ?? undefined);
+      const resolution = engine.moveUnit(fromAxial, toAxial, unitId ?? undefined);
+      const pathKeys = this.toMovePathKeys(resolution.path, fromKey, toKey);
+      moveHandle = renderer?.primeUnitMove(fromKey, toKey, {
+        path: pathKeys,
+        unitId: resolution.unit.unitId ?? unitId ?? null
+      }) ?? null;
 
       // Play the animation if available
       if (moveHandle) {
         try {
-          await moveHandle.play(BattleScreen.PLAYER_MOVE_ANIMATION_MS);
+          await moveHandle.play(this.resolveMoveAnimationDuration(pathKeys, BattleScreen.PLAYER_MOVE_ANIMATION_MS));
         } catch (animationError) {
           console.warn("[BattleScreen] Player move animation failed; continuing without playback.", animationError);
         } finally {
@@ -8505,6 +8966,31 @@ export class BattleScreen {
       }
       this.selectedPlayerUnitId = unitId;
       this.updateSelectionFeedback(this.selectedHexKey);
+      return;
+    }
+    if (actionId.startsWith("consolidate:")) {
+      const secondaryUnitId = actionId.slice("consolidate:".length).trim();
+      if (!secondaryUnitId || !this.selectedPlayerUnitId) {
+        return;
+      }
+      const engine = this.battleState.ensureGameEngine();
+      const folded = engine.combinePlayerUnits(this.selectedPlayerUnitId, secondaryUnitId);
+      if (!folded) {
+        this.announceBattleUpdate("These formations cannot be folded together. They must share a hex, match type, and stay at or below 100% combined strength.");
+        return;
+      }
+      this.selectedPlayerUnitId = folded.unitId ?? this.selectedPlayerUnitId;
+      const unitLabel = this.resolveUnitLabel(folded.type);
+      const summary = `${unitLabel} consolidated at ${this.selectedHexKey}. Strength now ${Math.round(folded.strength)}%.`;
+      this.renderEngineUnits();
+      this.applySelectedHex(this.selectedHexKey, true);
+      this.announceBattleUpdate(summary);
+      this.publishActivityEvent({
+        category: "player",
+        type: "log",
+        summary
+      });
+      this.battleState.emitBattleUpdate("manual");
       return;
     }
     const parsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
@@ -8986,6 +9472,58 @@ export class BattleScreen {
     this.battleActivityLog?.append(activity);
   }
 
+  /** Generate detailed weapon breakdown for mixed weapon loads */
+  private generateWeaponBreakdown(
+    attackerDef: UnitTypeDefinition,
+    facingArmor: number,
+    shotBreakdown: Pick<ShotBreakdown, "final" | "finalScalar"> | null
+  ): { groups: Array<{ name: string; shots: number; ap: number; damage: string; effectiveness: string }>, summary: string } {
+    const weaponModel = attackerDef.weaponModel;
+    
+    if (!weaponModel || weaponModel.groups.length === 0) {
+      // Fallback for units without weapon model
+      return {
+        groups: [{
+          name: this.toTitleCase(attackerDef.class),
+          shots: shotBreakdown?.final ?? 0,
+          ap: attackerDef.ap ?? 0,
+          damage: "Profile fire",
+          effectiveness: "Single weapon system"
+        }],
+        summary: "Single weapon system"
+      };
+    }
+
+    const groups = weaponModel.groups.map((group) => {
+      const groupShots = Math.max(0, group.shots) * (shotBreakdown?.finalScalar ?? 1);
+      const groupAP = group.armorPenetration ?? group.hardEffect?.armorPenetration ?? 0;
+      const penetrationMargin = groupAP - facingArmor;
+      
+      let effectiveness = "Standard";
+      if (facingArmor > 0) {
+        if (penetrationMargin >= 0) {
+          effectiveness = `Overmatch (+${penetrationMargin})`;
+        } else {
+          effectiveness = `Undermatched (${penetrationMargin})`;
+        }
+      } else {
+        effectiveness = "No armor target";
+      }
+
+      return {
+        name: group.id.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        shots: Math.round(groupShots),
+        ap: groupAP,
+        damage: groupAP > facingArmor ? "Effective" : "Reduced",
+        effectiveness
+      };
+    });
+
+    const summary = `${groups.length} weapon systems: ${groups.map(g => `${g.name} (${g.shots} shots, AP${g.ap})`).join(", ")}`;
+
+    return { groups, summary };
+  }
+
   /** Builds structured activity detail sections so the activity log can surface full attack context on demand. */
   private buildPlayerAttackDetails(
     resolution: AttackResolution,
@@ -9010,23 +9548,34 @@ export class BattleScreen {
     if (preview) {
       const attackerLabel = this.toTitleCase(preview.attacker.type);
       const defenderLabel = this.toTitleCase(preview.defender.type);
+      
+      // Determine attack type based on defender class
+      const defenderDef = this.unitTypes?.[preview.defender.type as keyof UnitTypeDictionary];
+      const isSoftTarget = defenderDef ? (defenderDef.class === "infantry" || defenderDef.class === "specialist") : false;
+      
       sections.push({
         title: "Units",
         entries: [
           { label: "Attacker Type", value: attackerLabel },
           { label: "Defender Type", value: defenderLabel },
-          { label: "Attacker Strength", value: `${Math.round(preview.attacker.strength)}%` },
-          { label: "Defender Strength", value: `${Math.round(preview.defender.strength)}%` }
+          { label: "Attacker Strength", value: `${this.formatReadinessValue(preview.attacker.strength)}%` },
+          { label: "Defender Strength", value: `${this.formatReadinessValue(preview.defender.strength)}%` }
         ]
       });
 
       const accuracy = Math.round(preview.result.accuracy);
-      const expectedDamage = this.clampDisplayedDamage(preview.finalExpectedDamage).toFixed(1);
+      const projectedDamage = this.formatDamageAmount(
+        preview.projectedDamage?.readinessLoss ?? preview.finalExpectedDamage
+      );
+      const projectedRetaliation = this.formatDamageAmount(
+        preview.projectedRetaliationDamage?.readinessLoss ?? preview.expectedRetaliation
+      );
       const expectedHits = preview.result.expectedHits.toFixed(1);
-      const damagePerHit = preview.finalDamagePerHit.toFixed(2);
       const shots = preview.result.shots;
       const effectiveAP = Math.round(preview.result.effectiveAP);
       const facingArmor = Math.round(preview.result.facingArmor);
+      const personnelEffects = this.formatPersonnelDelta(preview.projectedDamage);
+      const equipmentEffects = this.formatEquipmentDelta(preview.projectedDamage);
 
       sections.push({
         title: "Preview Odds",
@@ -9034,31 +9583,64 @@ export class BattleScreen {
           { label: "Accuracy", value: `${accuracy}%` },
           { label: "Shots", value: shots.toString() },
           { label: "Expected Hits", value: expectedHits },
-          { label: "Damage / Hit", value: `${damagePerHit}%` },
-          { label: "Expected Damage", value: `${expectedDamage}%` },
-          { label: "Penetration", value: `${effectiveAP} vs ${facingArmor}` }
+          { label: "Projected Readiness Loss", value: `${projectedDamage}%` },
+          { label: "Projected Return Fire", value: preview.retaliationPossible ? `${projectedRetaliation}%` : "None" },
+          { label: "Personnel Effects", value: personnelEffects },
+          { label: "Equipment Effects", value: equipmentEffects },
+          { label: "Armor Penetration", value: `${effectiveAP} vs ${facingArmor} armor` }
         ]
+      });
+
+      // Add detailed weapon model details section
+      const attackerDef = this.unitTypes?.[preview.attacker.type as keyof UnitTypeDictionary];
+      const weaponBreakdown = this.generateWeaponBreakdown(attackerDef, facingArmor, preview.result.shotBreakdown ?? null);
+      const weaponEntries = [
+        { label: "Platform", value: attackerLabel },
+        { label: "Attack Type", value: isSoftTarget ? "Soft Attack" : "Hard Attack" },
+        { label: "Weapon Systems", value: `${weaponBreakdown.groups.length} systems` },
+        { label: "Target Armor", value: `${facingArmor}` }
+      ];
+      
+      // Add per-weapon details
+      weaponBreakdown.groups.forEach((group) => {
+        weaponEntries.push(
+          { label: `  ${group.name}`, value: `${group.shots} shots, AP${group.ap}` },
+          { label: `    Effectiveness`, value: group.effectiveness }
+        );
+      });
+      
+      sections.push({
+        title: "Weapon Systems",
+        entries: weaponEntries
       });
     }
 
     sections.push({
       title: "Outcome",
       entries: [
-        { label: "Damage Dealt", value: `${this.clampDisplayedDamageRounded(meta.inflictedDamage)}` },
+        { label: "Damage Dealt", value: this.formatDamageAmount(meta.inflictedDamage) },
+        {
+          label: "Target Effects",
+          value: resolution.defenderDamage?.summary ?? "--"
+        },
         {
           label: "Defender Remaining",
-          value: `${Math.max(0, resolution.defenderRemainingStrength)}%`
+          value: `${this.formatReadinessValue(Math.max(0, resolution.defenderRemainingStrength))}%`
         },
         {
           label: "Attacker Remaining",
           value:
             typeof resolution.attackerRemainingStrength === "number"
-              ? `${Math.max(0, resolution.attackerRemainingStrength)}%`
+              ? `${this.formatReadinessValue(Math.max(0, resolution.attackerRemainingStrength))}%`
               : "--"
         },
         {
           label: "Retaliation",
-          value: resolution.retaliationOccurred ? `${this.clampDisplayedDamageRounded(meta.retaliationDamage)}` : "None"
+          value: resolution.retaliationOccurred ? this.formatDamageAmount(meta.retaliationDamage) : "None"
+        },
+        {
+          label: "Retaliation Effects",
+          value: resolution.retaliationOccurred ? (resolution.retaliationDamage?.summary ?? "--") : "None"
         }
       ]
     });
@@ -9230,7 +9812,9 @@ export class BattleScreen {
       if (commandState.isOnSentry) {
         chips.push({ label: "On Sentry", tone: "neutral" });
       }
-      if (commandState.suppressionState === "pinned") {
+      if (commandState.suppressionState === "broken") {
+        chips.push({ label: `Broken x${commandState.suppressorCount}`, tone: "danger" });
+      } else if (commandState.suppressionState === "pinned") {
         chips.push({ label: `Pinned x${commandState.suppressorCount}`, tone: "danger" });
       } else if (commandState.suppressionState === "suppressed") {
         chips.push({ label: "Suppressed", tone: "warning" });
@@ -9306,6 +9890,19 @@ export class BattleScreen {
       available: commandState.canEnterSentry,
       reason: commandState.sentryReason
     });
+    const consolidation = this.resolveConsolidationActionState(hexKey, unit, commandState);
+    if (consolidation.targetUnitId) {
+      actions.push({
+        id: `consolidate:${consolidation.targetUnitId}`,
+        label: "Fold In",
+        detail: consolidation.available
+          ? `Merge with ${consolidation.targetLabel ?? "matching unit"} into one command at ${consolidation.combinedStrength ?? "?"}% strength. Ammo and fuel are pooled.`
+          : "Same-type units may fold together only when the combined strength is 100% or less.",
+        tone: "mobility",
+        available: consolidation.available,
+        reason: consolidation.reason
+      });
+    }
     if (this.canUnitDigIn(unit)) {
       actions.push({
         id: "digIn",
@@ -9368,15 +9965,46 @@ export class BattleScreen {
     return actions;
   }
 
+  private resolveConsolidationActionState(
+    hexKey: string,
+    unit: ScenarioUnit,
+    commandState: UnitCommandState
+  ): { available: boolean; reason: string | null; targetUnitId: string | null; targetLabel: string | null; combinedStrength: number | null } {
+    const members = this.getPlayerStackMembersAtHex(hexKey).filter((member) => !member.isAutomated);
+    const companion = members.find((member) => member.unitId !== commandState.unitId && member.unit.type === unit.type) ?? null;
+    if (!companion) {
+      return { available: false, reason: null, targetUnitId: null, targetLabel: null, combinedStrength: null };
+    }
+    const combinedStrength = Math.round((unit.strength ?? 0) + (companion.unit.strength ?? 0));
+    if (combinedStrength > 100) {
+      return {
+        available: false,
+        reason: `Combined strength would be ${combinedStrength}%. Fold-in is capped at 100%.`,
+        targetUnitId: companion.unitId,
+        targetLabel: this.resolveUnitLabelForUnit(companion.unit) ?? this.toTitleCase(companion.unit.type),
+        combinedStrength
+      };
+    }
+    return {
+      available: true,
+      reason: null,
+      targetUnitId: companion.unitId,
+      targetLabel: this.resolveUnitLabelForUnit(companion.unit) ?? this.toTitleCase(companion.unit.type),
+      combinedStrength
+    };
+  }
+
   private buildBattleIntelNotes(unit: ScenarioUnit, commandState: UnitCommandState | null): string[] {
     const notes: string[] = [];
     if (!commandState) {
       return notes;
     }
-    if (commandState.suppressionState === "pinned") {
+    if (commandState.suppressionState === "broken") {
+      notes.push(`Broken by ${commandState.suppressorCount} enemy suppressors while below 25 readiness. This battalion cannot move or retaliate until the suppression is broken, and assault fire is unavailable.`);
+    } else if (commandState.suppressionState === "pinned") {
       notes.push(`Pinned by ${commandState.suppressorCount} enemy suppressors. This battalion cannot move or retaliate until the pin is broken, and assault fire is unavailable.`);
     } else if (commandState.suppressionState === "suppressed") {
-      notes.push("Under suppressive fire this turn. The battalion may still move and fire, but it cannot initiate assault fire until the next friendly turn begins.");
+      notes.push("Under suppressing fire this turn. The battalion may still move and fire, but it cannot initiate assault fire until the next friendly turn begins.");
     }
     if (commandState.towState === "deployed") {
       notes.push("This battery is deployed for fire. Choose Move Out to limber the guns before towing to a new position.");
@@ -9998,9 +10626,6 @@ export class BattleScreen {
     }
 
     const suppressedBy = liveUnit?.suppressedBy ? [...liveUnit.suppressedBy] : undefined;
-    if (suppressedBy && suppressedBy.length > 0) {
-      console.log(`[BattleScreen] buildEnemyContactRenderUnit - Bot unit ${scenarioType} has suppressedBy:`, suppressedBy);
-    }
 
     return {
       type: scenarioType,
@@ -10047,10 +10672,6 @@ export class BattleScreen {
 
   private clampDisplayedDamage(value: number): number {
     return Math.min(100, Math.max(0, value));
-  }
-
-  private clampDisplayedDamageRounded(value: number): number {
-    return Math.round(this.clampDisplayedDamage(value));
   }
 
   /**

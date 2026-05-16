@@ -104,3 +104,27 @@ registerTest("SCENARIO_VALIDATION_REJECTS_OVERCAPACITY_DEPLOYMENT_ZONES", async 
     }
   });
 });
+
+registerTest("SCENARIO_VALIDATION_REQUIRES_BATTLE_REQUISITION_POLICY", async ({ Given, When, Then }) => {
+  let resultIssues: readonly string[] = [];
+
+  await Given("a scenario clone missing in-battle requisition policy fields", async () => {
+    document.body.innerHTML = "";
+  });
+
+  await When("the validator inspects the modified scenario", async () => {
+    const invalidScenario = cloneScenario(getScenarioByMissionKey("training")) as Record<string, unknown>;
+    delete invalidScenario["mainSupplyDistanceTurns"];
+    invalidScenario.allowedBattleRequisitions = ["tank"];
+    resultIssues = validateScenarioSource(invalidScenario, "training").issues;
+  });
+
+  await Then("validation reports the missing supply distance and disallowed battle requisition", async () => {
+    if (!resultIssues.some((issue) => issue.includes("mainSupplyDistanceTurns"))) {
+      throw new Error(`Expected missing mainSupplyDistanceTurns validation failure, received: ${resultIssues.join(" | ")}`);
+    }
+    if (!resultIssues.some((issue) => issue.includes("not marked inBattleAllowed"))) {
+      throw new Error(`Expected in-battle requisition eligibility failure, received: ${resultIssues.join(" | ")}`);
+    }
+  });
+});

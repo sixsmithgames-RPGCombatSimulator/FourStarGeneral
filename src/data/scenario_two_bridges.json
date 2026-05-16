@@ -1,6 +1,8 @@
 {
   "name": "Two Bridges",
   "size": { "cols": 20, "rows": 16 },
+  "mainSupplyDistanceTurns": 3,
+  "allowedBattleRequisitions": ["ammo", "fuel", "supplyConvoy", "corpsArtilleryGroup", "infantry", "engineer", "recon", "reconBike"],
   "tilePalette": {
     "SEA": { "terrain": "sea", "terrainType": "water", "density": "sparse", "features": [], "recon": "aerial" },
     "PLAINS_AVG_INT": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["pastures"], "recon": "intel" },

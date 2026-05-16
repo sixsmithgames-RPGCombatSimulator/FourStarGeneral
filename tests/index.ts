@@ -2,6 +2,8 @@ import "./domEnvironment.js";
 import { runAllTests } from "./harness.js";
 
 // Import only tests that do not rely on JSON module loading in Node. These specs use inline scenarios.
+import "./UnitSystem.rules.test.js";
+import "./UnitDamageMatrix.test.js";
 import "./HexMapRenderer.animateUnitMove.test.js";
 import "./HexMapRenderer.artilleryTargetFx.test.js";
 import "./HexMapRenderer.focusOnHex.test.js";
@@ -49,6 +51,7 @@ import "./AirStrike.damageRounding.test.js";
 import "./AirSupport.summary.test.js";
 import "./BotAirHeuristic.test.js";
 import "./GroundLogistics.enforcement.test.js";
+import "./BattleWarRoomDataProvider.damage.test.js";
 import "./EngineerFieldworks.turnConsumption.test.js";
 import "./InfantryActions.commandState.test.js";
 import "./ArtillerySupport.commandState.test.js";

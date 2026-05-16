@@ -277,7 +277,7 @@ registerTest("BATTLESCREEN_ATTACK_DETAILS_CAP_DAMAGE_DISPLAY_AT_100_PERCENT", as
   await Then("expected and final damage display values stop at 100", async () => {
     const previewSection = sections.find((section) => section.title === "Preview Odds");
     const outcomeSection = sections.find((section) => section.title === "Outcome");
-    const expectedDamage = previewSection?.entries.find((entry) => entry.label === "Expected Damage")?.value;
+    const expectedDamage = previewSection?.entries.find((entry) => entry.label === "Projected Readiness Loss")?.value;
     const dealtDamage = outcomeSection?.entries.find((entry) => entry.label === "Damage Dealt")?.value;
 
     if (expectedDamage !== "100.0%") {

@@ -676,7 +676,23 @@ registerTest("SUPPRESSED_AND_PINNED_INFANTRY_RESPECT_MOVEMENT_AND_ASSAULT_RULES"
     throw new Error("Expected pinned infantry to be blocked from movement.");
   }
 
-  await Then("suppression still allows movement while pinning halts movement and assault", () => {});
+  const { engine: brokenCommandEngine } = createEngine([movingInfantry]);
+  const brokenCommandState = brokenCommandEngine.serialize();
+  brokenCommandState.playerPlacements[0] = {
+    ...brokenCommandState.playerPlacements[0],
+    strength: 24,
+    suppressedBy: ["enemy_1", "enemy_2"]
+  };
+  brokenCommandEngine.hydrateFromSerialized(brokenCommandState);
+  const brokenCommand = brokenCommandEngine.getUnitCommandState({ q: 0, r: 0 });
+  if (brokenCommand?.suppressionState !== "broken") {
+    throw new Error(`Expected pin-level suppression below 25 readiness to become broken, received ${brokenCommand?.suppressionState}.`);
+  }
+  if (brokenCommand.canEnterSentry || brokenCommand.canDigIn) {
+    throw new Error(`Expected broken infantry command actions to be blocked, received ${JSON.stringify(brokenCommand)}.`);
+  }
+
+  await Then("suppression still allows movement, pinning halts movement, and broken requires pin-level suppression below 25 readiness", () => {});
 });
 
 registerTest("PINNED_DEFENDERS_LOSE_RETALIATION_OPPORTUNITY", async ({ Then }) => {
