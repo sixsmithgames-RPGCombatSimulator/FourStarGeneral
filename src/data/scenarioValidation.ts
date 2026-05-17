@@ -18,6 +18,8 @@ type RawScenarioSource = {
   deploymentZones?: unknown;
   mainSupplyDistanceTurns?: unknown;
   allowedBattleRequisitions?: unknown;
+  battleRequisitionPointsPerTurn?: unknown;
+  battleRequisitionStartingPoints?: unknown;
   sides?: Record<string, unknown> | unknown;
 };
 
@@ -138,6 +140,18 @@ function validateBattleRequisitionPolicy(
   const distance = readInteger(record?.mainSupplyDistanceTurns);
   if (distance === null || distance <= 0) {
     issues.push(`Scenario ${label} must declare a positive mainSupplyDistanceTurns value for in-battle requisitions.`);
+  }
+  const passiveIncome = readInteger(record?.battleRequisitionPointsPerTurn);
+  if (record?.battleRequisitionPointsPerTurn !== undefined && passiveIncome === null) {
+    issues.push(`Scenario ${label} battleRequisitionPointsPerTurn must be an integer when declared.`);
+  } else if (passiveIncome !== null && passiveIncome < 0) {
+    issues.push(`Scenario ${label} battleRequisitionPointsPerTurn cannot be negative.`);
+  }
+  const startingPoints = readInteger(record?.battleRequisitionStartingPoints);
+  if (record?.battleRequisitionStartingPoints !== undefined && startingPoints === null) {
+    issues.push(`Scenario ${label} battleRequisitionStartingPoints must be an integer when declared.`);
+  } else if (startingPoints !== null && startingPoints < 0) {
+    issues.push(`Scenario ${label} battleRequisitionStartingPoints cannot be negative.`);
   }
 
   const allowed = record?.allowedBattleRequisitions;

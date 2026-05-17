@@ -2,14 +2,16 @@
   "_comment": "POINTE DU HOC — Ridge battery assault scenario tuned to current tactical systems. Player seizes three battery positions and holds all three for 6 consecutive turns while an inland counterattack forms.",
   "name": "Pointe du Hoc",
   "size": { "cols": 16, "rows": 14 },
-  "mainSupplyDistanceTurns": 5,
-  "allowedBattleRequisitions": ["ammo", "fuel", "airborneDetachment", "corpsArtilleryGroup", "infantry", "engineer"],
+  "mainSupplyDistanceTurns": 3,
+  "battleRequisitionPointsPerTurn": 25,
+  "battleRequisitionStartingPoints": 25,
+  "allowedBattleRequisitions": ["ammo", "infantry", "shoreFireControlParty"],
   "tilePalette": {
     "RIDGE": { "terrain": "mountain", "terrainType": "mountain", "density": "dense", "features": ["cliffs", "bluffs"], "recon": "aerial" },
     "CRATER": { "terrain": "hill", "terrainType": "rural", "density": "sparse", "features": ["crater"], "recon": "intel" },
     "GUN_PIT": { "terrain": "hill", "terrainType": "rural", "density": "dense", "features": ["emplacement", "trenches"], "recon": "intel" },
     "TRENCH": { "terrain": "hill", "terrainType": "rural", "density": "average", "features": ["trenches"], "recon": "intel" },
-    "ROAD": { "terrain": "road", "terrainType": "rural", "density": "average", "features": ["road"], "recon": "intel" },
+    "ROAD": { "terrain": "plains", "terrainType": "rural", "density": "average", "features": ["road"], "recon": "intel" },
     "FOREST": { "terrain": "forest", "terrainType": "rural", "density": "dense", "features": ["trees", "shrubs"], "recon": "intel" },
     "PLAINS": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": [], "recon": "intel" },
     "RUBBLE": { "terrain": "muddy", "terrainType": "rural", "density": "sparse", "features": ["crater", "rubble"], "recon": "intel" }
@@ -74,7 +76,7 @@
       ]
     }
   ],
-  "turnLimit": 14,
+  "turnLimit": 20,
   "playerBudget": 300,
   "allowedUnits": ["infantry", "engineer", "reconBike"],
   "restrictedUnits": ["tank", "artillery", "at_gun", "halftrack", "supplyConvoy"],

@@ -36,7 +36,7 @@ export const missionBriefings: Record<MissionKey, string> = {
 
   patrol_pointe_du_hoc:
     "Enemy batteries at Pointe du Hoc still dominate the coastal approach. The ridge is cratered and broken, with fortified gun positions on the forward line and a forest counterattack route inland. " +
-    "Deploy infantry, engineers, and recon elements to seize the three battery hexes, then hold them against the German response.\n\n" +
+    "Deploy infantry, engineers, and recon elements to seize the three battery hexes, then hold them against the German response while naval gunfire supports the assault.\n\n" +
     "VICTORY: Capture all three gun positions and hold them simultaneously for 6 consecutive turns.\n" +
     "DEFEAT: Mission fails if all friendly forces are eliminated or the turn limit expires before the hold objective is met.",
 
@@ -112,9 +112,9 @@ const RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
 };
 
 const POINTE_DU_HOC_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
-  Easy: 16,
-  Normal: 14,
-  Hard: 12
+  Easy: 22,
+  Normal: 20,
+  Hard: 18
 };
 
 const CITADEL_RIDGE_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
@@ -155,12 +155,12 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       "Secondary: Neutralize all battery emplacements on the ridge line.",
       "Tertiary: Keep at least three assault units operational at mission end."
     ],
-    turnLimit: 14,
+    turnLimit: 20,
     doctrine: "Push through the crater belt, clear each gun pit with close infantry-engineer coordination, and rotate fresh units onto captured positions before the inland counterattack reconnects the battery line.",
     supplies: [
       { label: "Assault Force", amount: "Infantry, engineers, and recon bikes only (no armor)." },
-      { label: "Support Access", amount: "In-battle requisitions for ammo, fuel, infantry, engineers, and corps artillery." },
-      { label: "Operational Window", amount: "12-16 turns depending on difficulty" }
+      { label: "Support Access", amount: "In-battle requisitions are limited to ammo, infantry, and naval gunfire support." },
+      { label: "Operational Window", amount: "18-22 turns depending on difficulty" }
     ]
   },
 

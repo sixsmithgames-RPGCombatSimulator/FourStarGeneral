@@ -290,6 +290,10 @@ export interface ScenarioData {
   mainSupplyDistanceTurns?: number;
   /** Allocation keys that may be bought during the battle with battle requisition points. */
   allowedBattleRequisitions?: string[];
+  /** Passive requisition-point income granted automatically at the start of each new player turn. */
+  battleRequisitionPointsPerTurn?: number;
+  /** Optional opening requisition-point pool granted on turn 1 before any combat-earned RP. */
+  battleRequisitionStartingPoints?: number;
 }
 
 /**

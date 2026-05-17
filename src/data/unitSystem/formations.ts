@@ -1387,7 +1387,7 @@ export const unitFormations = {
     vehicles: 4,
     equipment: [{ id: "corps-fires", label: "Off-map fire missions", quantity: 3, purpose: ["indirectFire"], canonStatus: "abstract" }],
     equipmentSummary: ["3 off-map fire missions", "Forward observer party"],
-    requisition: { category: "support", costPerUnit: 165, maxQuantity: 2, inBattleAllowed: true }
+    requisition: { category: "support", costPerUnit: 90, maxQuantity: 2, inBattleAllowed: true }
   },
   shoreFireControlParty: {
     key: "shoreFireControlParty",
@@ -1400,7 +1400,7 @@ export const unitFormations = {
     vehicles: 2,
     equipment: [{ id: "naval-fires", label: "Naval fire missions", quantity: 2, purpose: ["indirectFire"], canonStatus: "abstract" }],
     equipmentSummary: ["2 naval fire missions", "Shore observer team"],
-    requisition: { category: "support", costPerUnit: 210, maxQuantity: 1, implemented: false }
+    requisition: { category: "support", costPerUnit: 80, maxQuantity: 1, inBattleAllowed: true }
   }
 } as const satisfies Record<UnitAllocationKey, FormationDefinition>;
 

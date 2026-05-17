@@ -10868,6 +10868,10 @@ export class BattleScreen {
       playerBudget?: unknown;
       restrictedUnits?: unknown[];
       allowedUnits?: unknown[];
+      mainSupplyDistanceTurns?: unknown;
+      allowedBattleRequisitions?: unknown[];
+      battleRequisitionPointsPerTurn?: unknown;
+      battleRequisitionStartingPoints?: unknown;
       sides?: Record<string, unknown>;
       deploymentZones?: unknown[];
     };
@@ -10980,6 +10984,16 @@ export class BattleScreen {
       playerBudget: typeof raw.playerBudget === "number" ? raw.playerBudget : undefined,
       restrictedUnits: Array.isArray(raw.restrictedUnits) ? raw.restrictedUnits.map((unitKey: unknown) => String(unitKey)) : undefined,
       allowedUnits: Array.isArray(raw.allowedUnits) ? raw.allowedUnits.map((unitKey: unknown) => String(unitKey)) : undefined,
+      mainSupplyDistanceTurns: typeof raw.mainSupplyDistanceTurns === "number" ? raw.mainSupplyDistanceTurns : undefined,
+      allowedBattleRequisitions: Array.isArray(raw.allowedBattleRequisitions)
+        ? raw.allowedBattleRequisitions.map((unitKey: unknown) => String(unitKey))
+        : undefined,
+      battleRequisitionPointsPerTurn: typeof raw.battleRequisitionPointsPerTurn === "number"
+        ? raw.battleRequisitionPointsPerTurn
+        : undefined,
+      battleRequisitionStartingPoints: typeof raw.battleRequisitionStartingPoints === "number"
+        ? raw.battleRequisitionStartingPoints
+        : undefined,
       sides: {
         Player: convertSide("Player"),
         Bot: convertSide("Bot"),

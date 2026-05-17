@@ -43,6 +43,16 @@ const TERRAIN_SPRITE_SETS: Record<string, SpriteSet> = {
       new URL("../assets/terrain/Terrain_Grass_4.png", import.meta.url).href
     ]
   },
+  road: {
+    // Roads are drawn as feature overlays; use plains art as a safe base so explicit "road" terrain
+    // entries never render as empty hexes when scenario data uses road as the primary terrain key.
+    variants: [
+      new URL("../assets/terrain/Terrain_Grass_1.png", import.meta.url).href,
+      new URL("../assets/terrain/Terrain_Grass_2.png", import.meta.url).href,
+      new URL("../assets/terrain/Terrain_Grass_3.png", import.meta.url).href,
+      new URL("../assets/terrain/Terrain_Grass_4.png", import.meta.url).href
+    ]
+  },
   forest: {
     variants: [
       new URL("../assets/terrain/Terrain_Forest_1.png", import.meta.url).href,

@@ -6968,6 +6968,11 @@ private automateSupplyConvoys(
     this.scenario = config.scenario;
     this.unitTypes = config.unitTypes;
     this.terrain = config.terrain;
+    const startingBattleRequisitionPoints = this.resolveBattleRequisitionStartingPoints();
+    if (startingBattleRequisitionPoints > 0) {
+      this.battleRequisitionPoints = startingBattleRequisitionPoints;
+      this.battleRequisitionPointsEarned = startingBattleRequisitionPoints;
+    }
     this.playerSide = structuredClone(config.playerSide);
     this.botSide = structuredClone(config.botSide);
     this.allySide = config.allySide ? structuredClone(config.allySide) : null;
@@ -7363,6 +7368,22 @@ private automateSupplyConvoys(
     return Math.max(1, Math.round(this.scenario.mainSupplyDistanceTurns ?? 3));
   }
 
+  private resolveBattleRequisitionPointsPerTurn(): number {
+    return Math.max(0, Math.round(this.scenario.battleRequisitionPointsPerTurn ?? 0));
+  }
+
+  private resolveBattleRequisitionStartingPoints(): number {
+    return Math.max(0, Math.round(this.scenario.battleRequisitionStartingPoints ?? 0));
+  }
+
+  private grantPassiveBattleRequisitionPointsForPlayerTurn(): void {
+    const passiveIncome = this.resolveBattleRequisitionPointsPerTurn();
+    if (passiveIncome <= 0) {
+      return;
+    }
+    this.awardBattleRequisitionPoints(passiveIncome);
+  }
+
   private nextBattleRequisitionId(): string {
     this.battleRequisitionIdCounter += 1;
     return `battle-req-${this._turnNumber}-${this.battleRequisitionIdCounter}`;
@@ -7541,7 +7562,11 @@ private automateSupplyConvoys(
       return null;
     }
     const isArtillery = entry.unitKey === "corpsArtilleryGroup" || formation.purpose.includes("indirectFire");
-    const maxCharges = entry.unitKey === "corpsArtilleryGroup" ? 3 : 1;
+    const maxCharges = entry.unitKey === "corpsArtilleryGroup"
+      ? 3
+      : entry.unitKey === "shoreFireControlParty"
+        ? 2
+        : 1;
     return {
       id: `support-${entry.id}`,
       label: entry.label,
@@ -9359,7 +9384,11 @@ private automateSupplyConvoys(
       0,
       Math.round(state.counterIntelIdCounter ?? state.counterIntelOperations?.length ?? 0)
     );
-    this.battleRequisitionPoints = Math.max(0, Math.round(state.battleRequisitionPoints ?? 0));
+    const scenarioStartingRequisitionPoints = this.resolveBattleRequisitionStartingPoints();
+    this.battleRequisitionPoints = Math.max(
+      0,
+      Math.round(state.battleRequisitionPoints ?? scenarioStartingRequisitionPoints)
+    );
     this.battleRequisitionPointsEarned = Math.max(
       this.battleRequisitionPoints,
       Math.round(state.battleRequisitionPointsEarned ?? this.battleRequisitionPoints)
@@ -9569,6 +9598,7 @@ private automateSupplyConvoys(
       this._phase = "playerTurn";
       this._activeFaction = "Player";
       this._turnNumber += 1;
+      this.grantPassiveBattleRequisitionPointsForPlayerTurn();
       this.advanceCounterIntelTurn();
       this.playerActionFlags.clear();
       this.clearFlakEngagementsFor("Player");
@@ -9588,6 +9618,7 @@ private automateSupplyConvoys(
       this._phase = "playerTurn";
       this._activeFaction = "Player";
       this._turnNumber += 1;
+      this.grantPassiveBattleRequisitionPointsForPlayerTurn();
       this.advanceCounterIntelTurn();
       this.playerActionFlags.clear();
       this.clearFlakEngagementsFor("Player");
