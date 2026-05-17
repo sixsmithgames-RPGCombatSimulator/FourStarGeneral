@@ -62,7 +62,7 @@ function projectedOffsetFromBoundary(
   return (origin.cx - boundary.cx) * axis.x + (origin.cy - boundary.cy) * axis.y;
 }
 
-registerTest("AIR_SHOW_HQ_ORIGINS_ARE_500PX_OUTSIDE_TILE_ENVELOPE", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_HQ_ORIGINS_USE_CONFIGURED_OUTSIDE_TILE_ENVELOPE_OFFSET", async ({ Given, When, Then }) => {
   const centers: AirShowPlannerPoint[] = [];
   for (let row = 0; row < 7; row += 1) {
     for (let col = 0; col < 11; col += 1) {
@@ -88,7 +88,7 @@ registerTest("AIR_SHOW_HQ_ORIGINS_ARE_500PX_OUTSIDE_TILE_ENVELOPE", async ({ Giv
     );
   });
 
-  await Then("each faction origin should be exactly 500px beyond the map tile boundary on the HQ axis", async () => {
+  await Then("each faction origin should use the configured offset beyond the map tile boundary on the HQ axis", async () => {
     if (!bounds || !originPlan) {
       throw new Error("Expected air show HQ origin plan.");
     }
@@ -108,10 +108,14 @@ registerTest("AIR_SHOW_HQ_ORIGINS_ARE_500PX_OUTSIDE_TILE_ENVELOPE", async ({ Giv
     );
 
     if (Math.abs(playerOffset - AIR_SHOW_OFF_MAP_DISTANCE_PX) > 0.001) {
-      throw new Error(`Expected player origin 500px outside tile envelope, saw ${playerOffset.toFixed(3)}px.`);
+      throw new Error(
+        `Expected player origin ${AIR_SHOW_OFF_MAP_DISTANCE_PX}px outside tile envelope, saw ${playerOffset.toFixed(3)}px.`
+      );
     }
     if (Math.abs(botOffset - AIR_SHOW_OFF_MAP_DISTANCE_PX) > 0.001) {
-      throw new Error(`Expected bot origin 500px outside tile envelope, saw ${botOffset.toFixed(3)}px.`);
+      throw new Error(
+        `Expected bot origin ${AIR_SHOW_OFF_MAP_DISTANCE_PX}px outside tile envelope, saw ${botOffset.toFixed(3)}px.`
+      );
     }
   });
 });

@@ -296,12 +296,6 @@ type AirShowContestedBomberPhaseDurations = {
   bomberIngressDurationMs: number;
   bomberDefenseDurationMs: number;
 };
-type AirShowContestedFighterIngressPlan = {
-  assignments: AirShowPhaseAssignment[];
-  durationMs: number;
-  roleSpeeds: ReadonlyMap<AirShowRuntimeActor["role"], number>;
-  progressSamplePoints: number[];
-};
 type AirShowContestedBomberPhaseLabel =
   | "fighter-ingress"
   // INVESTIGATION: This phase name suggests escorts merging, but buildContestedBomberPhaseSliceAssignments
@@ -1249,9 +1243,7 @@ export class HexMapRenderer implements IMapRenderer {
       resolveAirShowAssignmentTraversedPathLengthPx: bind(this.resolveAirShowAssignmentTraversedPathLengthPx),
       resolveAirShowAssignmentActiveDurationMs: bind(this.resolveAirShowAssignmentActiveDurationMs),
       applyPlannedAirShowAssignments: bind(this.applyPlannedAirShowAssignments),
-      buildContestedFighterIngressPlan: bind(this.buildContestedFighterIngressPlan),
       resolveAirShowContestedBomberPhaseDurations: bind(this.resolveAirShowContestedBomberPhaseDurations),
-      retimeContestedFighterIngressPlan: bind(this.retimeContestedFighterIngressPlan),
       buildContestedBomberMasterPaths: bind(this.buildContestedBomberMasterPaths),
       buildContestedBomberPhaseSliceAssignments: bind(this.buildContestedBomberPhaseSliceAssignments),
       extendAirShowPhaseAssignmentsForSpeed: bind(this.extendAirShowPhaseAssignmentsForSpeed),
@@ -5747,7 +5739,7 @@ export class HexMapRenderer implements IMapRenderer {
   }
 
   // Airshow origins must sit outside the rendered tile envelope, not merely outside the
-  // current viewBox. We push the HQ-side ray to the tile boundary and then another 500px.
+  // current viewBox. We push the HQ-side ray to the tile boundary and then the configured outside offset.
   private static readonly OFF_MAP_DISTANCE_PX = AIR_SHOW_OFF_MAP_DISTANCE_PX;
 
   private resolveAirShowMapBounds(): AirShowMapBounds | null {
@@ -6446,6 +6438,15 @@ export class HexMapRenderer implements IMapRenderer {
       0
     );
     const normal = { x: -axis.y, y: axis.x };
+    const merge = hqAxis
+      ? {
+          cx: (approach.cx + egress.cx) / 2,
+          cy: (approach.cy + egress.cy) / 2
+        }
+      : {
+          cx: center.cx - axis.x * 44,
+          cy: center.cy - axis.y * 44
+        };
     return {
       center,
       axis,
@@ -6454,10 +6455,7 @@ export class HexMapRenderer implements IMapRenderer {
         cx: center.cx - axis.x * 126,
         cy: center.cy - axis.y * 126
       },
-      merge: {
-        cx: center.cx - axis.x * 44,
-        cy: center.cy - axis.y * 44
-      },
+      merge,
       strike: {
         cx: center.cx + axis.x * 52,
         cy: center.cy + axis.y * 52
@@ -9089,301 +9087,6 @@ export class HexMapRenderer implements IMapRenderer {
     };
   }
 
-  private buildContestedFighterIngressPlan(
-    scene: ResolvedAirShowScene,
-    corridor: AirShowCorridor,
-    interceptorFlights: ReadonlyArray<AirShowRuntimeFlightInternal>,
-    escortFlights: ReadonlyArray<AirShowRuntimeFlightInternal>,
-    fighterIngressTargetDurationMs: number,
-    stageRandom: (label: string) => () => number
-  ): AirShowContestedFighterIngressPlan {
-    const ingressClashCenter = this.resolveAirShowEscortClashCenter(
-      corridor,
-      interceptorFlights,
-      escortFlights,
-      0
-    );
-    type EscortIngressPair = {
-      interceptorFlight: AirShowRuntimeFlightInternal;
-      escortFlight: AirShowRuntimeFlightInternal;
-    };
-    const rawEscortPairs = (scene.escortExchanges ?? [])
-      .map((exchange) => {
-        const directInterceptor =
-          interceptorFlights.find((flight) => flight.spec.id === exchange.attackerUnitKey) ?? null;
-        const directEscort =
-          escortFlights.find((flight) => flight.spec.id === exchange.defenderUnitKey) ?? null;
-        if (directInterceptor && directEscort) {
-          return {
-            interceptorFlight: directInterceptor,
-            escortFlight: directEscort
-          } satisfies EscortIngressPair;
-        }
-        const reverseInterceptor =
-          interceptorFlights.find((flight) => flight.spec.id === exchange.defenderUnitKey) ?? null;
-        const reverseEscort =
-          escortFlights.find((flight) => flight.spec.id === exchange.attackerUnitKey) ?? null;
-        if (reverseInterceptor && reverseEscort) {
-          return {
-            interceptorFlight: reverseInterceptor,
-            escortFlight: reverseEscort
-          } satisfies EscortIngressPair;
-        }
-        return null;
-      })
-      .filter((pair): pair is EscortIngressPair => !!pair);
-    const uniqueEscortPairs = Array.from(
-      new Map(
-        rawEscortPairs.map((pair) => [
-          `${pair.interceptorFlight.spec.id}:${pair.escortFlight.spec.id}`,
-          pair
-        ] as const)
-      ).values()
-    );
-    const pairedInterceptorIds = new Set(uniqueEscortPairs.map((pair) => pair.interceptorFlight.spec.id));
-    const pairedEscortIds = new Set(uniqueEscortPairs.map((pair) => pair.escortFlight.spec.id));
-    const resolveEscortPairIngressCenter = (pair: EscortIngressPair, pairIndex: number): AirShowPoint => {
-      const clashProjection = this.resolveAirShowCorridorCoordinates(corridor, ingressClashCenter);
-      const pairLane =
-        uniqueEscortPairs.length <= 1
-          ? 0
-          : pairIndex - (uniqueEscortPairs.length - 1) / 2;
-      return this.projectAirShowCorridorPoint(
-        corridor,
-        clashProjection.alongPx + pairLane * 8,
-        clashProjection.lateralPx + pairLane * 26
-      );
-    };
-    const pairIngressAssignments = uniqueEscortPairs.flatMap((pair, pairIndex) => {
-      const interceptorCurrent =
-        this.averageAirShowPosition(pair.interceptorFlight.actors) ?? pair.interceptorFlight.anchor;
-      const escortCurrent =
-        this.averageAirShowPosition(pair.escortFlight.actors) ?? pair.escortFlight.anchor;
-      const pairIngressCenter = resolveEscortPairIngressCenter(pair, pairIndex);
-      const interceptorHoldTarget = this.resolveAirShowContestedIngressHoldTarget(
-        corridor,
-        interceptorCurrent,
-        "interceptor",
-        pairIngressCenter,
-        0
-      );
-      const escortHoldTarget = this.resolveAirShowContestedIngressHoldTarget(
-        corridor,
-        escortCurrent,
-        "escort",
-        pairIngressCenter,
-        0
-      );
-      const interceptorHoldProjection = this.resolveAirShowCorridorCoordinates(corridor, interceptorHoldTarget);
-      const escortHoldProjection = this.resolveAirShowCorridorCoordinates(corridor, escortHoldTarget);
-      const interceptorPath = this.sanitizeAirShowEntryPath(
-        this.buildAirShowScreenRunPath(interceptorCurrent, corridor, {
-          endAlongPx: interceptorHoldProjection.alongPx,
-          baseLateralPx: interceptorHoldProjection.lateralPx,
-          laneIndex: 0,
-          sideSign: -1,
-          alongStepPx: 0,
-          lateralStepPx: 0,
-          corridorWidthPx: 14,
-          driftPx: 12,
-          startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(pair.interceptorFlight)
-        }),
-        {
-          maxTurnDeg: 46,
-          strongTurnDeg: 88,
-          maxFirstSegmentPx: 78,
-          maxSharpTurnDeg: 116,
-          maxWaypointsToRemove: 2
-        }
-      );
-      const escortPath = this.sanitizeAirShowEntryPath(
-        this.buildAirShowScreenRunPath(escortCurrent, corridor, {
-          endAlongPx: escortHoldProjection.alongPx,
-          baseLateralPx: escortHoldProjection.lateralPx,
-          laneIndex: 0,
-          sideSign: 1,
-          alongStepPx: 0,
-          lateralStepPx: 0,
-          corridorWidthPx: 12,
-          driftPx: 10,
-          startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(pair.escortFlight)
-        }),
-        {
-          maxTurnDeg: 44,
-          strongTurnDeg: 84,
-          maxFirstSegmentPx: 74,
-          maxSharpTurnDeg: 112,
-          maxWaypointsToRemove: 2
-        }
-      );
-      return [
-        ...this.buildAirShowFlightAssignments(
-          pair.interceptorFlight,
-          interceptorPath,
-          0.22,
-          0,
-          1
-        ).map((assignment) => ({
-          ...assignment,
-          distanceBudgetPx: this.measureAirShowPathLength(assignment.points)
-        })),
-        ...this.buildAirShowFlightAssignments(
-          pair.escortFlight,
-          escortPath,
-          0.22,
-          0,
-          1
-        ).map((assignment) => ({
-          ...assignment,
-          distanceBudgetPx: this.measureAirShowPathLength(assignment.points)
-        }))
-      ];
-    });
-    const pairAssignmentsByFlightId = new Map<string, AirShowPhaseAssignment[]>();
-    pairIngressAssignments.forEach((assignment) => {
-      const existing = pairAssignmentsByFlightId.get(assignment.actor.flightId) ?? [];
-      existing.push(assignment);
-      pairAssignmentsByFlightId.set(assignment.actor.flightId, existing);
-    });
-    const interceptorIngressAssignments = [
-      ...interceptorFlights
-        .filter((flight) => pairedInterceptorIds.has(flight.spec.id))
-        .flatMap((flight) => pairAssignmentsByFlightId.get(flight.spec.id) ?? []),
-      ...this.buildAirShowBandAssignments(
-        interceptorFlights.filter((flight) => !pairedInterceptorIds.has(flight.spec.id)),
-      "ingress:interceptors",
-      corridor,
-      scene.kind,
-      stageRandom,
-      {
-        role: "interceptor",
-        ...this.resolveAirShowIngressBandPlan(scene.kind, "interceptor"),
-        resolveHoldTarget: (lane, _index, current) =>
-          this.resolveAirShowContestedIngressHoldTarget(
-            corridor,
-            current,
-            "interceptor",
-            this.resolveAirShowEscortClashFocusPoint(corridor, "interceptor", 0, lane, ingressClashCenter),
-            lane
-          ),
-        resolveHeadingTarget: (lane) =>
-          this.resolveAirShowEscortClashFocusPoint(corridor, "interceptor", 0, lane, ingressClashCenter)
-        }
-      )
-    ];
-    const escortIngressAssignments = [
-      ...escortFlights
-        .filter((flight) => pairedEscortIds.has(flight.spec.id))
-        .flatMap((flight) => pairAssignmentsByFlightId.get(flight.spec.id) ?? []),
-      ...this.buildAirShowBandAssignments(
-        escortFlights.filter((flight) => !pairedEscortIds.has(flight.spec.id)),
-      "ingress:escorts",
-      corridor,
-      scene.kind,
-      stageRandom,
-      {
-        role: "escort",
-        ...this.resolveAirShowIngressBandPlan(scene.kind, "escort"),
-        resolveHoldTarget: (lane, _index, current) =>
-          this.resolveAirShowContestedIngressHoldTarget(
-            corridor,
-            current,
-            "escort",
-            this.resolveAirShowEscortClashFocusPoint(corridor, "escort", 0, lane, ingressClashCenter),
-            lane
-          ),
-        resolveHeadingTarget: (lane) =>
-          this.resolveAirShowEscortClashFocusPoint(corridor, "escort", 0, lane, ingressClashCenter)
-        }
-      )
-    ];
-
-    let fighterIngressDurationMs = this.resolveAirShowFighterPhaseDurationMs(
-      [
-        ...interceptorIngressAssignments,
-        ...escortIngressAssignments
-      ],
-      fighterIngressTargetDurationMs,
-      1250,
-      13250
-    );
-    const phaseProgressSamplePoints = [0.18, 0.42, 0.68, 0.9];
-    const fighterIngressRoleSpeeds = this.resolveAirShowRoleSpeedMap({
-      interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-      escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-      bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
-    });
-    const assignments = [
-      ...interceptorIngressAssignments.map((assignment) => ({
-        ...assignment
-      })),
-      ...escortIngressAssignments.map((assignment) => ({
-        ...assignment
-      }))
-    ];
-
-    return {
-      assignments,
-      durationMs: fighterIngressDurationMs,
-      roleSpeeds: fighterIngressRoleSpeeds,
-      progressSamplePoints: phaseProgressSamplePoints
-    };
-  }
-
-  private retimeContestedFighterIngressPlan(
-    plan: AirShowContestedFighterIngressPlan,
-    governedDurationMs: number
-  ): AirShowContestedFighterIngressPlan {
-    const safeGovernedDurationMs = Math.max(1, Math.round(governedDurationMs));
-    const roleSpeeds = this.resolveAirShowRoleSpeedMap({
-      interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-      escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-      bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
-    });
-    // Preserve deterministic HQ-origin ingress geometry. If a governed duration is too short
-    // for the authored fighter paths, extend duration instead of trimming path starts.
-    const requiredDurationMs = plan.assignments.reduce((longestDurationMs, assignment) => {
-      if (assignment.actor.role !== "interceptor" && assignment.actor.role !== "escort") {
-        return longestDurationMs;
-      }
-      const pathLengthPx = this.measureAirShowPathLength(assignment.points);
-      if (!Number.isFinite(pathLengthPx) || pathLengthPx <= 0.5) {
-        return longestDurationMs;
-      }
-      const speedPxPerMs =
-        roleSpeeds.get(assignment.actor.role) ?? HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS;
-      if (!Number.isFinite(speedPxPerMs) || speedPxPerMs <= 0.0001) {
-        return longestDurationMs;
-      }
-      return Math.max(longestDurationMs, Math.ceil(pathLengthPx / speedPxPerMs));
-    }, 0);
-    const resolvedDurationMs = this.clamp(
-      Math.max(safeGovernedDurationMs, requiredDurationMs),
-      1,
-      13250
-    );
-    const speedBalancedAssignments = plan.assignments.map((assignment) => {
-      if (assignment.actor.role !== "interceptor" && assignment.actor.role !== "escort") {
-        return { ...assignment };
-      }
-      const currentPathLengthPx = this.measureAirShowPathLength(assignment.points);
-      return {
-        ...assignment,
-        distanceBudgetPx:
-          Number.isFinite(currentPathLengthPx) && currentPathLengthPx > 0
-            ? currentPathLengthPx
-            : assignment.distanceBudgetPx
-      };
-    });
-
-    return {
-      assignments: speedBalancedAssignments,
-      durationMs: resolvedDurationMs,
-      roleSpeeds,
-      progressSamplePoints: plan.progressSamplePoints
-    };
-  }
-
   private buildAirShowBandAssignments(
     flights: ReadonlyArray<AirShowRuntimeFlightInternal>,
     label: string,
@@ -10437,6 +10140,32 @@ export class HexMapRenderer implements IMapRenderer {
     return lengthPx;
   }
 
+  private measureAirShowRenderedPathLength(
+    points: ReadonlyArray<AirShowPoint>,
+    startProgress = 0,
+    endProgress = 1
+  ): number {
+    if (points.length < 2) {
+      return 0;
+    }
+    const clampedStart = this.clamp(startProgress, 0, 1);
+    const clampedEnd = this.clamp(endProgress, clampedStart, 1);
+    const progressSpan = clampedEnd - clampedStart;
+    if (progressSpan <= 0.0001) {
+      return 0;
+    }
+    const sampleCount = Math.max(8, Math.ceil(48 * progressSpan));
+    let previous = this.sampleAircraftWaypointPath(points, clampedStart).point;
+    let lengthPx = 0;
+    for (let index = 1; index <= sampleCount; index += 1) {
+      const progress = clampedStart + progressSpan * (index / sampleCount);
+      const current = this.sampleAircraftWaypointPath(points, progress).point;
+      lengthPx += Math.hypot(current.cx - previous.cx, current.cy - previous.cy);
+      previous = current;
+    }
+    return lengthPx;
+  }
+
   private truncateAirShowPathByLength(
     points: ReadonlyArray<AirShowPoint>,
     targetPathLengthPx: number
@@ -11320,9 +11049,7 @@ export class HexMapRenderer implements IMapRenderer {
     if (endProgress <= startProgress + 0.0001) {
       return 0;
     }
-    return this.measureAirShowPathLength(
-      this.sliceAirShowPathByProgressRange(assignment.points, startProgress, endProgress)
-    );
+    return this.measureAirShowRenderedPathLength(assignment.points, startProgress, endProgress);
   }
 
   private isAirShowPointWithinMapBounds(
@@ -12366,6 +12093,8 @@ export class HexMapRenderer implements IMapRenderer {
       maxAlignmentDeg?: number;
       maxRangePx?: number;
       minTargetHeadingDot?: number;
+      maxTargetHeadingDot?: number;
+      durationMs?: number;
     } = {}
   ): { sourceActor: AirShowRuntimeActor; targetActor: AirShowRuntimeActor } | null {
     const assignmentsByActorId = this.buildAirShowAssignmentLookup(assignments);
@@ -12381,6 +12110,21 @@ export class HexMapRenderer implements IMapRenderer {
       typeof constraints.minTargetHeadingDot === "number" && Number.isFinite(constraints.minTargetHeadingDot)
         ? this.clamp(constraints.minTargetHeadingDot, -1, 1)
         : null;
+    const maxTargetHeadingDot =
+      typeof constraints.maxTargetHeadingDot === "number" && Number.isFinite(constraints.maxTargetHeadingDot)
+        ? this.clamp(constraints.maxTargetHeadingDot, -1, 1)
+        : null;
+    const durationMs =
+      typeof constraints.durationMs === "number" && Number.isFinite(constraints.durationMs) && constraints.durationMs > 0
+        ? constraints.durationMs
+        : null;
+    const sampleAssignment = (
+      assignment: AirShowPhaseAssignment,
+      sampleProgress: number
+    ): Pick<AirShowRuntimeActor, "position" | "headingDegrees" | "size"> =>
+      durationMs
+        ? this.sampleAirShowAssignmentAtTime(assignment, sampleProgress * durationMs, durationMs)
+        : this.sampleAirShowAssignmentAtProgress(assignment, sampleProgress);
 
     sourceFlight.actors
       .filter((actor) => actor.active)
@@ -12389,7 +12133,7 @@ export class HexMapRenderer implements IMapRenderer {
         if (!sourceAssignment) {
           return;
         }
-        const sampledSource = this.sampleAirShowAssignmentAtProgress(sourceAssignment, progress);
+        const sampledSource = sampleAssignment(sourceAssignment, progress);
         const emitterPoint = this.resolveAirShowEmitterPoint(sampledSource, emitter);
         const headingVector = enforceForwardAlignment
           ? this.resolveAirShowHeadingVector(sampledSource.headingDegrees)
@@ -12402,7 +12146,7 @@ export class HexMapRenderer implements IMapRenderer {
             if (!targetAssignment) {
               return;
             }
-            const sampledTarget = this.sampleAirShowAssignmentAtProgress(targetAssignment, progress);
+            const sampledTarget = sampleAssignment(targetAssignment, progress);
             const targetVector = {
               x: sampledTarget.position.cx - emitterPoint.cx,
               y: sampledTarget.position.cy - emitterPoint.cy
@@ -12414,11 +12158,14 @@ export class HexMapRenderer implements IMapRenderer {
             const alignmentDeg = headingVector
               ? this.resolveAirShowVectorAngleDegrees(headingVector, targetVector)
               : 0;
-            if (headingVector && minTargetHeadingDot !== null) {
+            if (headingVector && (minTargetHeadingDot !== null || maxTargetHeadingDot !== null)) {
               const targetHeadingVector = this.resolveAirShowHeadingVector(sampledTarget.headingDegrees);
               const targetHeadingDot =
                 headingVector.x * targetHeadingVector.x + headingVector.y * targetHeadingVector.y;
-              if (targetHeadingDot < minTargetHeadingDot) {
+              if (minTargetHeadingDot !== null && targetHeadingDot < minTargetHeadingDot) {
+                return;
+              }
+              if (maxTargetHeadingDot !== null && targetHeadingDot > maxTargetHeadingDot) {
                 return;
               }
             }
@@ -12450,12 +12197,24 @@ export class HexMapRenderer implements IMapRenderer {
     targetFlight: AirShowRuntimeFlightInternal,
     assignments: ReadonlyArray<AirShowPhaseAssignment>,
     progress: number,
-    emitter: "nose" | "center" = "nose"
+    emitter: "nose" | "center" = "nose",
+    durationMs?: number
   ): { sourceActor: AirShowRuntimeActor; targetActor: AirShowRuntimeActor } | null {
     const assignmentsByActorId = this.buildAirShowAssignmentLookup(assignments);
     let bestSource: AirShowRuntimeActor | null = null;
     let bestTarget: AirShowRuntimeActor | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
+    const resolvedDurationMs =
+      typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs > 0
+        ? durationMs
+        : null;
+    const sampleAssignment = (
+      assignment: AirShowPhaseAssignment,
+      sampleProgress: number
+    ): Pick<AirShowRuntimeActor, "position" | "headingDegrees" | "size"> =>
+      resolvedDurationMs
+        ? this.sampleAirShowAssignmentAtTime(assignment, sampleProgress * resolvedDurationMs, resolvedDurationMs)
+        : this.sampleAirShowAssignmentAtProgress(assignment, sampleProgress);
 
     sourceFlight.actors
       .filter((actor) => actor.active)
@@ -12464,7 +12223,7 @@ export class HexMapRenderer implements IMapRenderer {
         if (!sourceAssignment) {
           return;
         }
-        const sampledSource = this.sampleAirShowAssignmentAtProgress(sourceAssignment, progress);
+        const sampledSource = sampleAssignment(sourceAssignment, progress);
         const emitterPoint = this.resolveAirShowEmitterPoint(sampledSource, emitter);
         const sourceHeading = this.resolveAirShowHeadingVector(sampledSource.headingDegrees);
 
@@ -12475,7 +12234,7 @@ export class HexMapRenderer implements IMapRenderer {
             if (!targetAssignment) {
               return;
             }
-            const sampledTarget = this.sampleAirShowAssignmentAtProgress(targetAssignment, progress);
+            const sampledTarget = sampleAssignment(targetAssignment, progress);
             const targetVector = {
               x: sampledTarget.position.cx - emitterPoint.cx,
               y: sampledTarget.position.cy - emitterPoint.cy
@@ -12576,7 +12335,7 @@ export class HexMapRenderer implements IMapRenderer {
     const requestedStreakLengthPx = burst.streakLengthPx ?? actor.size * (burst.emitter === "center" ? 4.6 : 5.4);
     const streakLengthCapPx =
       typeof targetDistancePx === "number"
-        ? Math.max(16, targetDistancePx * 0.96)
+        ? Math.max(96, targetDistancePx * 1.35)
         : Math.max(36, requestedStreakLengthPx);
     const streakLengthPx = this.clamp(
       Math.min(requestedStreakLengthPx, streakLengthCapPx),
@@ -12717,9 +12476,11 @@ export class HexMapRenderer implements IMapRenderer {
       maxAlignmentDeg?: number;
       maxRangePx?: number;
       minTargetHeadingDot?: number;
+      maxTargetHeadingDot?: number;
       timings?: ReadonlyArray<number>;
       fallbackToNearest?: boolean;
       fallbackTarget?: "midpoint" | "target-centroid";
+      durationMs?: number;
     } = {}
   ): AirShowTracerBurst[] {
     const emitter = options.emitter ?? "nose";
@@ -12753,7 +12514,9 @@ export class HexMapRenderer implements IMapRenderer {
           {
             maxAlignmentDeg: options.maxAlignmentDeg,
             maxRangePx: options.maxRangePx,
-            minTargetHeadingDot: options.minTargetHeadingDot
+            minTargetHeadingDot: options.minTargetHeadingDot,
+            maxTargetHeadingDot: options.maxTargetHeadingDot,
+            durationMs: options.durationMs
           }
         );
         if (!candidatePair) {
@@ -12769,7 +12532,8 @@ export class HexMapRenderer implements IMapRenderer {
           targetFlight,
           assignments,
           resolvedProgress,
-          emitter
+          emitter,
+          options.durationMs
         );
       }
       if (pair) {
@@ -12794,7 +12558,8 @@ export class HexMapRenderer implements IMapRenderer {
           targetFlight,
           assignments,
           resolvedProgress,
-          emitter
+          emitter,
+          options.durationMs
         );
         const sourceActor = closestPair?.sourceActor ?? sourceFlight.actors.find((actor) => actor.active);
         const sourceCentroid = sourceActor
@@ -13007,8 +12772,8 @@ export class HexMapRenderer implements IMapRenderer {
         visibleLengthPx: 11,
         fanHalfAngleDeg: 2.8,
         burstCount: 5,
-      maxAlignmentDeg: 58,
-      maxRangePx: 332,
+        maxAlignmentDeg: 58,
+        maxRangePx: 332,
         timings: attackTimings,
         fallbackToNearest,
         fallbackTarget: "target-centroid"
@@ -13016,14 +12781,14 @@ export class HexMapRenderer implements IMapRenderer {
       ...this.buildAirShowDynamicTracerVolley(assignments, bomberFlight, interceptorFlight, {
         emitter: "center",
         color: "#fff1c8",
-        width: 0.3,
-        lifetimeMs: 36,
-        spreadPx: 3,
-        streakLengthPx: 66,
-        visibleLengthPx: 5,
-        fanHalfAngleDeg: 0.8,
-        burstCount: 2,
-        maxRangePx: 124,
+        width: 0.5,
+        lifetimeMs: 42,
+        spreadPx: 5,
+        streakLengthPx: 112,
+        visibleLengthPx: 10,
+        fanHalfAngleDeg: 1.2,
+        burstCount: 3,
+        maxRangePx: 250,
         timings: defensiveTimings,
         fallbackToNearest,
         fallbackTarget: "target-centroid"

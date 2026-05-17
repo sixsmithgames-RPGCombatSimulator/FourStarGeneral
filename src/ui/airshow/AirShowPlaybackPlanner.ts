@@ -79,13 +79,6 @@ export interface AirShowPlannerContestedBomberPhaseDurations {
   bomberDefenseDurationMs: number;
 }
 
-export interface AirShowPlannerContestedFighterIngressPlan {
-  assignments: AirShowPlannerPhaseAssignment[];
-  durationMs: number;
-  roleSpeeds: ReadonlyMap<AirShowPlannerActor["role"], number>;
-  progressSamplePoints: number[];
-}
-
 export type AirShowPlannerContestedBomberPhaseLabel =
   | "fighter-ingress"
   | "escort-clash-merge"
@@ -160,6 +153,22 @@ function spreadBomberFormationAssignmentsForCorridor(
       }))
     };
   });
+}
+
+function resolveFighterFormationLaneOffsetPx(
+  formationIndex: number,
+  actorCount: number,
+  flightLane: number,
+  actorSpacingPx: number,
+  flightBandPaddingPx: number
+): number {
+  const safeActorCount = Math.max(1, actorCount);
+  const actorSlot = formationIndex - (safeActorCount - 1) / 2;
+  const flightBandSpacingPx = Math.max(
+    actorSpacingPx * safeActorCount + flightBandPaddingPx,
+    actorSpacingPx * 2
+  );
+  return flightLane * flightBandSpacingPx + actorSlot * actorSpacingPx;
 }
 
 export interface PlanResolvedAirCombatShowHost {
@@ -273,14 +282,6 @@ export interface PlanResolvedAirCombatShowHost {
     assignments: ReadonlyArray<AirShowPlannerPhaseAssignment>,
     durationMs: number
   ): void;
-  buildContestedFighterIngressPlan(
-    scene: ResolvedAirShowScene,
-    corridor: AirShowPlannerCorridor,
-    interceptorFlights: ReadonlyArray<AirShowPlannerFlight>,
-    escortFlights: ReadonlyArray<AirShowPlannerFlight>,
-    fighterIngressSeedDurationMs: number,
-    stageRandom: (label: string) => () => number
-  ): AirShowPlannerContestedFighterIngressPlan | null;
   resolveAirShowContestedBomberPhaseDurations(
     bomberFlights: ReadonlyArray<AirShowPlannerFlight>,
     corridor: AirShowPlannerCorridor,
@@ -289,10 +290,6 @@ export interface PlanResolvedAirCombatShowHost {
     stageRandom: (label: string) => () => number,
     fighterIngressDurationMs?: number
   ): AirShowPlannerContestedBomberPhaseDurations;
-  retimeContestedFighterIngressPlan(
-    fighterIngressPlan: AirShowPlannerContestedFighterIngressPlan,
-    governedDurationMs: number
-  ): AirShowPlannerContestedFighterIngressPlan;
   buildContestedBomberMasterPaths(
     bomberFlights: ReadonlyArray<AirShowPlannerFlight>,
     corridor: AirShowPlannerCorridor,
@@ -2170,6 +2167,19 @@ export function planResolvedAirCombatShowScene(
       }
       return { ...points[points.length - 1]! };
     };
+    const resamplePathByDistance = (
+      points: ReadonlyArray<AirShowPoint>,
+      maxSegmentLengthPx: number
+    ): AirShowPoint[] => {
+      const lengthPx = measurePathLength(points);
+      if (points.length <= 2 || lengthPx <= 1 || maxSegmentLengthPx <= 1) {
+        return dedupePath(points);
+      }
+      const segmentCount = Math.max(2, Math.ceil(lengthPx / maxSegmentLengthPx));
+      return dedupePath(Array.from({ length: segmentCount + 1 }, (_, index) =>
+        pointAtPathDistance(points, lengthPx * (index / segmentCount))
+      ));
+    };
     const resolveClosestDistanceOnPath = (
       points: ReadonlyArray<AirShowPoint>,
       point: AirShowPoint
@@ -2459,6 +2469,63 @@ export function planResolvedAirCombatShowScene(
         ? slicePathByDistanceRange(resolvedPath, 0, targetLengthPx)
         : resolvedPath;
     };
+    const buildEndpointPreservingCircularArcPath = (
+      start: AirShowPoint,
+      end: AirShowPoint,
+      targetLengthPx: number,
+      lateralSign = 1
+    ): AirShowPoint[] => {
+      const dx = end.cx - start.cx;
+      const dy = end.cy - start.cy;
+      const chordPx = Math.hypot(dx, dy);
+      if (chordPx <= 1 || targetLengthPx <= chordPx + 1) {
+        return dedupePath([start, end]);
+      }
+      const ratio = targetLengthPx / chordPx;
+      let lowTheta = 0.001;
+      let highTheta = Math.PI * 1.94;
+      for (let iteration = 0; iteration < 28; iteration += 1) {
+        const midTheta = (lowTheta + highTheta) * 0.5;
+        const midRatio = midTheta / Math.max(0.0001, 2 * Math.sin(midTheta * 0.5));
+        if (midRatio < ratio) {
+          lowTheta = midTheta;
+        } else {
+          highTheta = midTheta;
+        }
+      }
+      const theta = (lowTheta + highTheta) * 0.5;
+      const radiusPx = Math.max(chordPx * 0.5 + 0.001, targetLengthPx / theta);
+      const forward = { x: dx / chordPx, y: dy / chordPx };
+      const normal = { x: -forward.y, y: forward.x };
+      const sideSign = lateralSign < 0 ? -1 : 1;
+      const centerDistancePx = Math.sqrt(Math.max(0, radiusPx * radiusPx - (chordPx * 0.5) ** 2));
+      const midpoint = { cx: (start.cx + end.cx) * 0.5, cy: (start.cy + end.cy) * 0.5 };
+      const center = {
+        cx: midpoint.cx + normal.x * sideSign * centerDistancePx,
+        cy: midpoint.cy + normal.y * sideSign * centerDistancePx
+      };
+      const startAngle = Math.atan2(start.cy - center.cy, start.cx - center.cx);
+      const endAngle = Math.atan2(end.cy - center.cy, end.cx - center.cx);
+      const rawDelta = endAngle - startAngle;
+      const deltas = [rawDelta, rawDelta + Math.PI * 2, rawDelta - Math.PI * 2];
+      const desiredSign = sideSign > 0 ? -1 : 1;
+      const matchingSignDeltas = deltas.filter((delta) => Math.sign(delta) === desiredSign);
+      const candidates = matchingSignDeltas.length > 0 ? matchingSignDeltas : deltas;
+      const delta = candidates.reduce((best, candidate) =>
+        Math.abs(Math.abs(candidate) - theta) < Math.abs(Math.abs(best) - theta) ? candidate : best
+      );
+      const segmentCount = Math.max(12, Math.min(44, Math.ceil(Math.abs(delta) / (Math.PI / 16))));
+      return dedupePath(
+        Array.from({ length: segmentCount + 1 }, (_, index) => {
+          const progress = index / segmentCount;
+          const angle = startAngle + delta * progress;
+          return {
+            cx: center.cx + Math.cos(angle) * radiusPx,
+            cy: center.cy + Math.sin(angle) * radiusPx
+          };
+        })
+      );
+    };
     const buildGovernedPassRail = (
       start: AirShowPoint,
       passPoint: AirShowPoint,
@@ -2519,55 +2586,6 @@ export function planResolvedAirCombatShowScene(
         forward.y * exitDistancePx + normal.y * sideSign * Math.min(42, exitDistancePx * 0.12)
       );
       return smoothMatchedPath([...basePath, exitPoint]);
-    };
-    const buildTimedRendezvousPassRail = (
-      start: AirShowPoint,
-      passPoint: AirShowPoint,
-      durationMs: number,
-      speedPxPerMs: number,
-      passProgress: number,
-      lateralSign = 1
-    ): AirShowPoint[] => {
-      const targetLengthPx = Math.max(64, durationMs * speedPxPerMs);
-      const clampedPassProgress = host.clamp(passProgress, 0.34, 0.68);
-      const passDistancePx = Math.max(36, targetLengthPx * clampedPassProgress);
-      const sideSign = lateralSign < 0 ? -1 : 1;
-      const directForward = normalizeVector(
-        passPoint.cx - start.cx,
-        passPoint.cy - start.cy,
-        corridor.axis.x,
-        corridor.axis.y
-      );
-      const approachPath = buildEndpointPreservingLengthMatchedPath(
-        start,
-        passPoint,
-        passDistancePx,
-        sideSign
-      );
-      const resolvedApproachLengthPx = measurePathLength(approachPath);
-      const exitDistancePx = targetLengthPx - resolvedApproachLengthPx;
-      if (exitDistancePx <= 1) {
-        return roundPathCorners(approachPath, Math.min(28, Math.max(10, targetLengthPx * 0.04)), 5);
-      }
-      const prePassPoint = approachPath[approachPath.length - 2] ?? start;
-      const passForward = normalizeVector(
-        passPoint.cx - prePassPoint.cx,
-        passPoint.cy - prePassPoint.cy,
-        directForward.x,
-        directForward.y
-      );
-      const passNormal = { x: -passForward.y, y: passForward.x };
-      const driftPx = Math.min(38, Math.max(4, exitDistancePx * 0.055));
-      const exitPoint = host.offsetAirShowPoint(
-        passPoint,
-        passForward.x * exitDistancePx + passNormal.x * sideSign * driftPx,
-        passForward.y * exitDistancePx + passNormal.y * sideSign * driftPx
-      );
-      return roundPathCorners(
-        dedupePath([...approachPath, exitPoint]),
-        Math.min(30, Math.max(10, targetLengthPx * 0.045)),
-        5
-      );
     };
     const buildGovernedMergeTurnRail = (
       start: AirShowPoint,
@@ -2786,10 +2804,27 @@ export function planResolvedAirCombatShowScene(
         attackForward.x * 76 + attackNormal.x * (laneOffsetPx + turnSideSign * 176),
         attackForward.y * 76 + attackNormal.y * (laneOffsetPx + turnSideSign * 176)
       );
+      const turnControlEntry = host.offsetAirShowPoint(
+        targetCenter,
+        attackForward.x * 54 + attackNormal.x * (laneOffsetPx + turnSideSign * 42),
+        attackForward.y * 54 + attackNormal.y * (laneOffsetPx + turnSideSign * 42)
+      );
+      const turnControlExit = {
+        cx: turnApex.cx * 0.42 + turnExit.cx * 0.58,
+        cy: turnApex.cy * 0.42 + turnExit.cy * 0.58
+      };
+      const targetRunPath = roundPathCorners(
+        dedupePath([
+          ...roundPathCorners(dedupePath([turnEntry, nearTarget, releasePoint]), 30, 8),
+          ...buildCubicAirShowPath(releasePoint, turnControlEntry, turnControlExit, turnExit, 20).slice(1)
+        ]),
+        42,
+        10
+      );
       return {
         flight: bomberFlight,
         preTargetPath: smoothCorridorPath(start, turnEntry, laneIndex * 8),
-        targetRunPath: roundPathCorners(dedupePath([turnEntry, nearTarget, releasePoint, turnApex, turnExit]), 34, 8),
+        targetRunPath,
         targetCenter,
         attackForward
       };
@@ -3136,9 +3171,11 @@ export function planResolvedAirCombatShowScene(
         return assignment;
       }
       const mergeCoordinates = resolveAirShowRailCoordinates(corridor, corridor.merge);
+      const startCoordinates = resolveAirShowRailCoordinates(corridor, start);
       const sideSign = assignment.actor.formationIndex % 2 === 0 ? -1 : 1;
       const pairIndex = Math.floor(assignment.actor.formationIndex / 2);
-      const roleLeadPx = assignment.actor.role === "interceptor" ? -64 : 64;
+      const originSideLeadSign = startCoordinates.alongPx >= mergeCoordinates.alongPx ? 1 : -1;
+      const roleLeadPx = originSideLeadSign * 98;
       const roleLateralBiasPx = assignment.actor.role === "interceptor" ? -54 : 54;
       const slotLeadPx = sideSign * 6;
       const slotLateralPx = sideSign * (24 + pairIndex * 6);
@@ -3235,6 +3272,33 @@ export function planResolvedAirCombatShowScene(
      * Fighters ride deterministic corridor rails. Pairing/ganging chooses who shares
      * lanes and targets; it does not invent per-aircraft simulator turns.
      */
+    const ensureMinimumBomberIngressFighterTarget = (
+      current: AirShowPoint,
+      target: AirShowPoint,
+      flight: AirShowRuntimeFlightInternal,
+      laneOffsetPx: number
+    ): AirShowPoint => {
+      const minTravelPx = 148 + Math.min(28, Math.abs(laneOffsetPx) * 0.16);
+      const directDx = target.cx - current.cx;
+      const directDy = target.cy - current.cy;
+      const directDistancePx = Math.hypot(directDx, directDy);
+      if (directDistancePx >= minTravelPx) {
+        return target;
+      }
+      const headingForward = resolveHeadingVector(
+        host.resolveAirShowFlightHeadingDegrees(flight),
+        corridor.axis
+      );
+      const forward =
+        directDistancePx > 10
+          ? normalizeVector(directDx, directDy, headingForward.x, headingForward.y)
+          : headingForward;
+      const normal = { x: -forward.y, y: forward.x };
+      return {
+        cx: current.cx + forward.x * minTravelPx + normal.x * host.clamp(laneOffsetPx * 0.05, -10, 10),
+        cy: current.cy + forward.y * minTravelPx + normal.y * host.clamp(laneOffsetPx * 0.05, -10, 10)
+      };
+    };
     const buildFighterPhaseAssignments = (label: CorridorPhaseLabel): AirShowPhaseAssignment[] => {
       const assignments: AirShowPhaseAssignment[] = [];
       fighterGroups.forEach((group) => {
@@ -3260,12 +3324,54 @@ export function planResolvedAirCombatShowScene(
             role,
             (flight.spec.laneOffsetPx ?? 0) * 0.24
           );
+          const buildFighterPeelAwayPath = (
+            baseDistancePx: number,
+            phaseLabel: CorridorPhaseLabel
+          ): AirShowPoint[] => {
+            const homeVector = normalizeVector(
+              factionOrigin.cx - current.cx,
+              factionOrigin.cy - current.cy,
+              flight.spec.faction === "Bot" ? corridor.axis.x : -corridor.axis.x,
+              flight.spec.faction === "Bot" ? corridor.axis.y : -corridor.axis.y
+            );
+            const entryForward = resolveHeadingVector(
+              host.resolveAirShowFlightHeadingDegrees(flight),
+              homeVector
+            );
+            const routeNormal = { x: -homeVector.y, y: homeVector.x };
+            const phaseSpeedPxPerMs = roleSpeeds.get(role) ?? host.airShowFighterSpeedPxPerMs;
+            const phaseTravelPx = Math.max(
+              1,
+              (seedDurationByPhase.get(phaseLabel) ?? 1) * phaseSpeedPxPerMs
+            );
+            const peelDistancePx = host.clamp(
+              phaseTravelPx * 0.58,
+              baseDistancePx * 0.82,
+              baseDistancePx * 1.36
+            );
+            const entryDistancePx = host.clamp(phaseTravelPx * 0.16, 92, 210);
+            const peelLaneOffsetPx = laneOffsetPx * 0.24 + localLane * 18;
+            const firstControl = {
+              cx: current.cx + entryForward.x * entryDistancePx + routeNormal.x * peelLaneOffsetPx * 0.08,
+              cy: current.cy + entryForward.y * entryDistancePx + routeNormal.y * peelLaneOffsetPx * 0.08
+            };
+            const secondControl = {
+              cx: current.cx + homeVector.x * peelDistancePx * 0.72 + routeNormal.x * peelLaneOffsetPx * 0.54,
+              cy: current.cy + homeVector.y * peelDistancePx * 0.72 + routeNormal.y * peelLaneOffsetPx * 0.54
+            };
+            const peelTarget = {
+              cx: current.cx + homeVector.x * peelDistancePx + routeNormal.x * peelLaneOffsetPx,
+              cy: current.cy + homeVector.y * peelDistancePx + routeNormal.y * peelLaneOffsetPx
+            };
+            return buildCubicAirShowPath(current, firstControl, secondControl, peelTarget, 16);
+          };
           let path: AirShowPoint[];
 
           if (label === "fighter-ingress") {
             const mergeCoordinates = resolveAirShowRailCoordinates(corridor, corridor.merge);
+            const currentCoordinates = resolveAirShowRailCoordinates(corridor, current);
             const ingressLaneOffsetPx = host.clamp(laneOffsetPx * 0.58, -118, 118);
-            const ingressLeadPx = role === "interceptor" ? -64 : 64;
+            const ingressLeadPx = (currentCoordinates.alongPx >= mergeCoordinates.alongPx ? 1 : -1) * 98;
             const target = projectAirShowRailPoint(
               corridor,
               mergeCoordinates.alongPx + ingressLeadPx,
@@ -3329,49 +3435,49 @@ export function planResolvedAirCombatShowScene(
             if (role === "interceptor") {
               const interceptorIndex = activeFlights(interceptorFlights).findIndex((candidate) => candidate.spec.id === flight.spec.id);
               const targetPlan = bomberPlans[Math.max(0, interceptorIndex) % Math.max(1, bomberPlans.length)];
-              const defenseFocus = targetPlan
-                ? bomberPhaseFocusPoint(targetPlan, "bomber-defense-pass", 0.44)
-                : averageBomberPointAtPhaseProgress("bomber-defense-pass", 0.44);
-              const defenseSeedDurationMs = Math.max(
-                1,
-                seedDurationByPhase.get("bomber-defense-pass") ?? seedDurationByPhase.get("bomber-ingress") ?? 1
-              );
-              const stagingDistancePx = Math.max(
-                150,
-                Math.min(230, defenseSeedDurationMs * host.airShowFighterSpeedPxPerMs * 0.28)
-              );
-              const stagingPoint = host.offsetAirShowPoint(
+              const bomberFormationFocus = averageBomberPointAtPhaseProgress("bomber-ingress", 0.84);
+              const assignedBomberFocus = targetPlan
+                ? bomberPhaseFocusPoint(targetPlan, "bomber-ingress", 0.84)
+                : averageBomberPointAtPhaseProgress("bomber-ingress", 0.84);
+              const defenseFocus = {
+                cx: assignedBomberFocus.cx * 0.34 + bomberFormationFocus.cx * 0.66,
+                cy: assignedBomberFocus.cy * 0.34 + bomberFormationFocus.cy * 0.66
+              };
+              const stagingDistancePx = 12;
+              const rawStagingPoint = host.offsetAirShowPoint(
                 defenseFocus,
                 -corridor.axis.x * stagingDistancePx
-                  + corridor.normal.x * (laneOffsetPx * 0.22 + localLane * 18),
+                  + corridor.normal.x * (Math.abs(laneOffsetPx) * 0.2 + localLane * 14),
                 -corridor.axis.y * stagingDistancePx
-                  + corridor.normal.y * (laneOffsetPx * 0.22 + localLane * 18)
+                  + corridor.normal.y * (Math.abs(laneOffsetPx) * 0.2 + localLane * 14)
               );
-              path = buildFighterRailPath(current, stagingPoint, laneOffsetPx * 0.12, label);
+              const stagingPoint = ensureMinimumBomberIngressFighterTarget(
+                current,
+                rawStagingPoint,
+                flight,
+                laneOffsetPx
+              );
+              const directDx = stagingPoint.cx - current.cx;
+              const directDy = stagingPoint.cy - current.cy;
+              const directForward = normalizeVector(directDx, directDy, corridor.axis.x, corridor.axis.y);
+              const directNormal = { x: -directForward.y, y: directForward.x };
+              path = dedupePath([
+                current,
+                {
+                  cx: current.cx + directDx * 0.36 + directNormal.x * laneOffsetPx * 0.04,
+                  cy: current.cy + directDy * 0.36 + directNormal.y * laneOffsetPx * 0.04
+                },
+                {
+                  cx: current.cx + directDx * 0.72 + directNormal.x * laneOffsetPx * 0.02,
+                  cy: current.cy + directDy * 0.72 + directNormal.y * laneOffsetPx * 0.02
+                },
+                stagingPoint
+              ]);
             } else {
-              const protectPoint = averageBomberPointAtPreTargetProgress(0.68);
-              path = buildFighterRailPath(current, fighterRailTarget(protectPoint, laneOffsetPx * 0.62, 56), laneOffsetPx * 0.62, label);
+              path = buildFighterPeelAwayPath(540 + Math.abs(lane) * 30 + Math.max(0, localSlot) * 18, label);
             }
           } else if (label === "bomber-defense-pass" && role === "escort") {
-            const homeOrigin = hqAxis?.playerOrigin ?? fallbackOriginFor(flight.spec);
-            const homeVector = normalizeVector(
-              homeOrigin.cx - current.cx,
-              homeOrigin.cy - current.cy,
-              corridor.axis.x,
-              corridor.axis.y
-            );
-            const peelDistancePx = 640 + Math.abs(lane) * 28 + Math.max(0, localSlot) * 18;
-            const peelLaneOffsetPx = laneOffsetPx * 0.24 + localLane * 18;
-            const peelTarget = {
-              cx: current.cx + homeVector.x * peelDistancePx + corridor.normal.x * peelLaneOffsetPx,
-              cy: current.cy + homeVector.y * peelDistancePx + corridor.normal.y * peelLaneOffsetPx
-            };
-            path = buildFighterRailPath(
-              current,
-              peelTarget,
-              peelLaneOffsetPx,
-              label
-            );
+            path = buildFighterPeelAwayPath(660 + Math.abs(lane) * 30 + Math.max(0, localSlot) * 18, label);
           } else if (role === "interceptor") {
             const interceptorIndex = activeFlights(interceptorFlights).findIndex((candidate) => candidate.spec.id === flight.spec.id);
             const targetPlan = bomberPlans[Math.max(0, interceptorIndex) % Math.max(1, bomberPlans.length)];
@@ -3402,18 +3508,106 @@ export function planResolvedAirCombatShowScene(
      */
     const buildDogfightTracers = (
       assignments: ReadonlyArray<AirShowPhaseAssignment>,
-      label: "escort-clash-merge" | "escort-clash-scramble"
+      label: "escort-clash-merge" | "escort-clash-scramble",
+      durationMs: number
     ): AirShowTracerBurst[] => {
       const tracers: AirShowTracerBurst[] = [];
       const isMerge = label === "escort-clash-merge";
-      if (isMerge) {
-        return tracers;
-      }
-      const interceptorTimings = [0.62, 0.74, 0.84, 0.9];
-      const escortTimings = [0.64, 0.76, 0.86, 0.92];
+      const interceptorTimings = isMerge ? [0.44, 0.52, 0.6] : [0.24, 0.34];
+      const escortTimings = isMerge ? [0.32, 0.46, 0.56] : [0.3, 0.42, 0.54, 0.66, 0.78];
+      const targetHeadingConstraint = isMerge
+        ? {}
+        : { minTargetHeadingDot: 0.1 };
+      const buildValidatedDogfightTracer = (
+        sourceFlight: AirShowRuntimeFlightInternal,
+        targetFlight: AirShowRuntimeFlightInternal,
+        timings: ReadonlyArray<number>,
+        options: Pick<
+          AirShowTracerBurst,
+          "emitter" | "color" | "width" | "lifetimeMs" | "spreadPx" | "streakLengthPx" | "visibleLengthPx" | "fanHalfAngleDeg" | "burstCount"
+        >
+      ): AirShowTracerBurst | null => {
+        const assignmentsByActorId = host.buildAirShowAssignmentLookup(assignments);
+        type ValidatedTracerCandidate = {
+          progress: number;
+          sourceActor: AirShowRuntimeActor;
+          targetActor: AirShowRuntimeActor;
+          score: number;
+        };
+        let best: ValidatedTracerCandidate | null = null;
+        const candidateProgresses = Array.from(new Set(
+          timings.flatMap((progress) => [
+            progress,
+            progress - 0.03,
+            progress + 0.03,
+            progress - 0.06,
+            progress + 0.06,
+            progress - 0.09,
+            progress + 0.09
+          ])
+            .map((progress) => Number(host.clamp(progress, 0, 1).toFixed(3)))
+        ));
+        candidateProgresses.forEach((progress) => {
+          sourceFlight.actors.filter((actor) => actor.active).forEach((sourceActor) => {
+            const sourceAssignment = assignmentsByActorId.get(sourceActor.id);
+            if (!sourceAssignment) {
+              return;
+            }
+            const sampledSource = host.sampleAirShowAssignmentAtTime(
+              sourceAssignment,
+              progress * durationMs,
+              durationMs
+            );
+            targetFlight.actors.filter((actor) => actor.active).forEach((targetActor) => {
+              const targetAssignment = assignmentsByActorId.get(targetActor.id);
+              if (!targetAssignment) {
+                return;
+              }
+              const sampledTarget = host.sampleAirShowAssignmentAtTime(
+                targetAssignment,
+                progress * durationMs,
+                durationMs
+              );
+              const geometry = host.resolveAirShowTracerBurstGeometry(
+                sampledSource,
+                options,
+                sampledTarget.position
+              );
+              const targetVector = {
+                x: sampledTarget.position.cx - geometry.emitterPoint.cx,
+                y: sampledTarget.position.cy - geometry.emitterPoint.cy
+              };
+              const distancePx = Math.hypot(targetVector.x, targetVector.y);
+              if (distancePx < 6 || distancePx > 160) {
+                return;
+              }
+              const sourceHeading = resolveHeadingVector(sampledSource.headingDegrees, targetVector);
+              const targetHeading = resolveHeadingVector(sampledTarget.headingDegrees, sourceHeading);
+              const alignmentDeg = resolveVectorAngleDegrees(sourceHeading, targetVector);
+              const targetHeadingDot = sourceHeading.x * targetHeading.x + sourceHeading.y * targetHeading.y;
+              if (alignmentDeg > 30 || targetHeadingDot <= 0.1) {
+                return;
+              }
+              const score = alignmentDeg * 3.2 + distancePx * 0.045;
+              if (!best || score < best.score) {
+                best = { progress, sourceActor, targetActor, score };
+              }
+            });
+          });
+        });
+        const selected = best as ValidatedTracerCandidate | null;
+        return selected
+          ? {
+              progress: selected.progress,
+              source: selected.sourceActor,
+              target: selected.targetActor,
+              ...options
+            }
+          : null;
+      };
       fighterGroups.forEach((group, groupIndex) => {
         group.interceptorFlights.forEach((interceptorFlight, index) => {
-          const escortTarget = group.escortFlights[(index + 1) % Math.max(1, group.escortFlights.length)];
+          const escortTarget = group.escortFlights[(index + (isMerge ? 0 : 1)) % Math.max(1, group.escortFlights.length)];
           if (!escortTarget) {
             return;
           }
@@ -3426,38 +3620,107 @@ export function planResolvedAirCombatShowScene(
             streakLengthPx: 142,
             visibleLengthPx: 12,
             fanHalfAngleDeg: 2.6,
-            burstCount: 4,
-            maxAlignmentDeg: 26,
-            maxRangePx: 286,
-            minTargetHeadingDot: 0.16,
+            burstCount: isMerge ? 3 : 4,
+            maxAlignmentDeg: isMerge ? 32 : 32,
+            maxRangePx: isMerge ? 330 : 338,
+            ...targetHeadingConstraint,
             timings: interceptorTimings,
+            durationMs,
             fallbackToNearest: false
           }));
         });
         group.escortFlights.forEach((escortFlight, index) => {
-          const interceptorTarget = group.interceptorFlights[
-            (index + groupIndex + 1) % Math.max(1, group.interceptorFlights.length)
-          ];
-          if (!interceptorTarget) {
+          const interceptorTargets = isMerge
+            ? group.interceptorFlights
+            : [
+                group.interceptorFlights[
+                  (index + groupIndex + 1) % Math.max(1, group.interceptorFlights.length)
+                ]
+              ].filter((target): target is AirShowRuntimeFlightInternal => !!target);
+          if (interceptorTargets.length <= 0) {
             return;
           }
-          tracers.push(...host.buildAirShowDynamicTracerVolley(assignments, escortFlight, interceptorTarget, {
-            emitter: "nose",
-            color: "#ffd98a",
-            width: 0.62,
-            lifetimeMs: 40,
-            spreadPx: 7,
-            streakLengthPx: 132,
-            visibleLengthPx: 11,
-            fanHalfAngleDeg: 2.2,
-            burstCount: 3,
-            maxAlignmentDeg: 26,
-            maxRangePx: 278,
-            minTargetHeadingDot: 0.16,
-            timings: escortTimings,
-            fallbackToNearest: false
-          }));
+          interceptorTargets.forEach((interceptorTarget) => {
+            tracers.push(...host.buildAirShowDynamicTracerVolley(assignments, escortFlight, interceptorTarget, {
+              emitter: "nose",
+              color: "#ffd98a",
+              width: 0.66,
+              lifetimeMs: 42,
+              spreadPx: 8,
+              streakLengthPx: 136,
+              visibleLengthPx: 12,
+              fanHalfAngleDeg: 2.4,
+              burstCount: isMerge ? 3 : 4,
+              maxAlignmentDeg: isMerge ? 32 : 32,
+              maxRangePx: isMerge ? 330 : 344,
+              ...targetHeadingConstraint,
+              timings: escortTimings,
+              durationMs,
+              fallbackToNearest: false
+            }));
+          });
         });
+        if (!isMerge) {
+          const escortSource = group.escortFlights[0];
+          const interceptorTarget = group.interceptorFlights[0];
+          const escortTracer =
+            escortSource && interceptorTarget
+              ? buildValidatedDogfightTracer(
+                  escortSource,
+                  interceptorTarget,
+                  [0.42, 0.48, 0.54, 0.57],
+                  {
+                    emitter: "nose",
+                    color: "#ffd98a",
+                    width: 0.66,
+                    lifetimeMs: 42,
+                    spreadPx: 8,
+                    streakLengthPx: 136,
+                    visibleLengthPx: 12,
+                    fanHalfAngleDeg: 2.4,
+                    burstCount: 4
+                  }
+                )
+              : null;
+          const interceptorSource = group.interceptorFlights[0];
+          const escortTarget = group.escortFlights[0];
+          const supplementalTracer =
+            escortTracer
+            ?? (
+              interceptorSource && escortTarget
+                ? buildValidatedDogfightTracer(
+                    interceptorSource,
+                    escortTarget,
+                    [0.45, 0.48, 0.54, 0.57],
+                    {
+                      emitter: "nose",
+                      color: "#fff5cf",
+                      width: 0.7,
+                      lifetimeMs: 42,
+                      spreadPx: 8,
+                      streakLengthPx: 142,
+                      visibleLengthPx: 12,
+                      fanHalfAngleDeg: 2.6,
+                      burstCount: 4
+                    }
+                  )
+                : null
+            );
+          if (
+            supplementalTracer
+            && !tracers.some((tracer) => {
+              const targetActor = "id" in tracer.target ? tracer.target as AirShowRuntimeActor : null;
+              const supplementalTarget = supplementalTracer.target as AirShowRuntimeActor;
+              return (
+                tracer.source.flightId === supplementalTracer.source.flightId
+                && targetActor?.flightId === supplementalTarget.flightId
+                && Math.abs(tracer.progress - supplementalTracer.progress) < 0.035
+              );
+            })
+          ) {
+            tracers.push(supplementalTracer);
+          }
+        }
       });
       return tracers;
     };
@@ -3474,7 +3737,7 @@ export function planResolvedAirCombatShowScene(
     ): ScopedFlakBurst[] => {
       const assignmentsByActorId = host.buildAirShowAssignmentLookup(assignments);
       const rangePx = HEX_WIDTH * 8; // 8 hex range for flak engagement
-      return bomberPlans.flatMap((plan, planIndex) => {
+      const resolvedBursts = bomberPlans.flatMap((plan, planIndex) => {
         const scoped = host.resolveAirShowBomberFlakBursts(scene, plan.flight.spec.id);
         const bomberSlot = planIndex - (bomberPlans.length - 1) / 2;
         const syntheticProgressSlots = phase === "approach"
@@ -3709,6 +3972,72 @@ export function planResolvedAirCombatShowScene(
           }];
         });
       });
+      const densityAdjustedBursts = (() => {
+        if (resolvedBursts.length <= 0) {
+          return resolvedBursts;
+        }
+        const minimumBurstCount = phase === "target" ? 6 : 4;
+        const maximumBurstCount = phase === "target" ? 10 : 8;
+        if (resolvedBursts.length > maximumBurstCount) {
+          const sorted = [...resolvedBursts].sort((left, right) => (left.progress ?? 0) - (right.progress ?? 0));
+          return Array.from({ length: maximumBurstCount }, (_, index) =>
+            sorted[Math.round(index * (sorted.length - 1) / Math.max(1, maximumBurstCount - 1))]!
+          );
+        }
+        if (resolvedBursts.length >= minimumBurstCount) {
+          return resolvedBursts;
+        }
+        const cloneCountPerBurst = Math.ceil(minimumBurstCount / resolvedBursts.length);
+        const cloneGap = phase === "target" ? 0.026 : 0.03;
+        const expandedBursts: ScopedFlakBurst[] = [];
+        for (let cloneIndex = 0; cloneIndex < cloneCountPerBurst; cloneIndex += 1) {
+          const cloneSlot = cloneIndex - (cloneCountPerBurst - 1) / 2;
+          resolvedBursts.forEach((burst, burstIndex) => {
+            expandedBursts.push({
+              ...burst,
+              progress: host.clamp(
+                (burst.progress ?? 0.5) + cloneSlot * cloneGap,
+                phase === "approach" ? 0.12 : 0.14,
+                phase === "approach" ? 0.88 : 0.84
+              ),
+              puffCount: Math.max(3, burst.puffCount ?? 3),
+              smokePuffCount: Math.max(4, burst.smokePuffCount ?? 4),
+              alongOffsetPx:
+                (burst.alongOffsetPx ?? 0)
+                + (cloneSlot * 34)
+                + (burstIndex % 2 === 0 ? -8 : 8),
+              lateralOffsetPx:
+                (burst.lateralOffsetPx ?? 0)
+                + (cloneSlot * 58)
+                + (burstIndex % 2 === 0 ? 16 : -16)
+            });
+          });
+        }
+        return expandedBursts.slice(0, minimumBurstCount);
+      })();
+      if (densityAdjustedBursts.length <= 1) {
+        return densityAdjustedBursts;
+      }
+      const minProgress = phase === "approach" ? 0.12 : 0.14;
+      const maxProgress = phase === "approach" ? 0.88 : 0.84;
+      const minimumGap = phase === "approach" ? 0.022 : 0.02;
+      const sortedBursts = [...densityAdjustedBursts].sort((left, right) => (left.progress ?? 0) - (right.progress ?? 0));
+      let previousProgress = minProgress - minimumGap;
+      return sortedBursts.map((burst, index) => {
+        const remainingBursts = sortedBursts.length - index - 1;
+        const latestProgress = maxProgress - remainingBursts * minimumGap;
+        const requestedProgress = host.clamp(burst.progress ?? minProgress, minProgress, maxProgress);
+        const progress = host.clamp(
+          Math.max(requestedProgress, previousProgress + minimumGap),
+          minProgress,
+          Math.max(minProgress, latestProgress)
+        );
+        previousProgress = progress;
+        return {
+          ...burst,
+          progress
+        };
+      });
     };
 
     const commitCorridorPhaseEndState = (
@@ -3722,6 +4051,70 @@ export function planResolvedAirCombatShowScene(
           cy: finalSample.position.cy
         };
         assignment.actor.headingDegrees = finalSample.headingDegrees;
+      });
+    };
+    const buildRenderedChordPacedTimeline = (
+      assignment: AirShowPhaseAssignment,
+      durationMs: number,
+      keyframeCount = 11
+    ): AirShowPlannerAssignmentProgressKeyframe[] | undefined => {
+      if (assignment.points.length < 2 || durationMs <= 0 || keyframeCount < 2) {
+        return undefined;
+      }
+      const sampleCount = Math.max(24, keyframeCount * 8);
+      const timelineFreeAssignment = {
+        ...assignment,
+        progressOffset: 0,
+        progressTimeline: undefined
+      };
+      const samples = Array.from({ length: sampleCount + 1 }, (_, index) => {
+        const progress = index / sampleCount;
+        const sample = host.sampleAirShowAssignmentAtTime(
+          timelineFreeAssignment,
+          progress * durationMs,
+          durationMs,
+          progress
+        );
+        return {
+          progress,
+          point: sample.position,
+          cumulativePx: 0
+        };
+      });
+      let cumulativePx = 0;
+      for (let index = 1; index < samples.length; index += 1) {
+        const previous = samples[index - 1]!;
+        const current = samples[index]!;
+        cumulativePx += Math.hypot(current.point.cx - previous.point.cx, current.point.cy - previous.point.cy);
+        current.cumulativePx = cumulativePx;
+      }
+      if (!Number.isFinite(cumulativePx) || cumulativePx <= 1) {
+        return undefined;
+      }
+      return Array.from({ length: keyframeCount }, (_, keyframeIndex) => {
+        if (keyframeIndex === 0) {
+          return { timeMs: 0, progress: 0 };
+        }
+        if (keyframeIndex === keyframeCount - 1) {
+          return { timeMs: durationMs, progress: 1 };
+        }
+        const targetDistancePx = cumulativePx * (keyframeIndex / (keyframeCount - 1));
+        let resolvedProgress = keyframeIndex / (keyframeCount - 1);
+        for (let sampleIndex = 1; sampleIndex < samples.length; sampleIndex += 1) {
+          const previous = samples[sampleIndex - 1]!;
+          const current = samples[sampleIndex]!;
+          if (targetDistancePx > current.cumulativePx && sampleIndex < samples.length - 1) {
+            continue;
+          }
+          const segmentDistancePx = Math.max(0.0001, current.cumulativePx - previous.cumulativePx);
+          const mix = host.clamp((targetDistancePx - previous.cumulativePx) / segmentDistancePx, 0, 1);
+          resolvedProgress = previous.progress + (current.progress - previous.progress) * mix;
+          break;
+        }
+        return {
+          timeMs: durationMs * (keyframeIndex / (keyframeCount - 1)),
+          progress: host.clamp(resolvedProgress, 0, 1)
+        };
       });
     };
     const resolveCorridorPhaseDurationMs = (
@@ -3757,12 +4150,11 @@ export function planResolvedAirCombatShowScene(
           Math.round(seedDurationByPhase.get("fighter-ingress") ?? fighterIngressSeedDurationMs ?? resolvedDurationMs)
         );
         const ingressMinDurationMs = Math.max(1, Math.round(seededDurationMs * 0.72));
-        const ingressMaxDurationMs = Math.max(ingressMinDurationMs, Math.round(seededDurationMs * 1.72));
-        return host.clamp(resolvedDurationMs, ingressMinDurationMs, ingressMaxDurationMs);
+        return Math.max(resolvedDurationMs, ingressMinDurationMs);
       }
       if (label === "escort-clash-merge" || label === "escort-clash-scramble") {
         return Math.max(
-          label === "escort-clash-merge" ? 1100 : 900,
+          label === "escort-clash-merge" ? 1100 : 3100,
           resolvedDurationMs
         );
       }
@@ -3781,11 +4173,11 @@ export function planResolvedAirCombatShowScene(
         );
         const ingressMinDurationMs = Math.max(
           ingressReadableShareFloorMs,
-          Math.round(seededDurationMs * 0.9)
+          Math.round(seededDurationMs * 1.48)
         );
         const ingressMaxDurationMs = Math.max(
           ingressMinDurationMs,
-          Math.round(seededDurationMs * 1.32)
+          Math.round(seededDurationMs * 1.75)
         );
         return host.clamp(resolvedDurationMs, ingressMinDurationMs, ingressMaxDurationMs);
       }
@@ -3928,6 +4320,7 @@ export function planResolvedAirCombatShowScene(
       };
       const chasePlanByFlightId = new Map<string, {
         forward: { x: number; y: number };
+        pocketCenter: AirShowPoint;
         lane: number;
         roleAheadSign: number;
       }>();
@@ -3947,6 +4340,12 @@ export function planResolvedAirCombatShowScene(
               fallbackForward.y
             )
           : fallbackForward;
+        const groupPocketCenter = interceptorStart && escortStart
+          ? {
+              cx: (interceptorStart.cx + escortStart.cx) * 0.5,
+              cy: (interceptorStart.cy + escortStart.cy) * 0.5
+            }
+          : fightSpaceCenter;
         const assignRolePlans = (
           flights: ReadonlyArray<AirShowRuntimeFlightInternal>,
           role: "interceptor" | "escort"
@@ -3955,6 +4354,7 @@ export function planResolvedAirCombatShowScene(
             const localLane = flights.length <= 1 ? 0 : index - (flights.length - 1) / 2;
             chasePlanByFlightId.set(flight.spec.id, {
               forward: groupForward,
+              pocketCenter: groupPocketCenter,
               lane: group.lane + localLane * 0.24,
               roleAheadSign: role === "escort" ? 1 : -1
             });
@@ -3978,6 +4378,7 @@ export function planResolvedAirCombatShowScene(
             x: corridor.axis.x * (lane >= 0 ? 1 : -1),
             y: corridor.axis.y * (lane >= 0 ? 1 : -1)
           },
+          pocketCenter: fightSpaceCenter,
           lane,
           roleAheadSign: roleSide > 0 ? 1 : -1
         };
@@ -3985,25 +4386,25 @@ export function planResolvedAirCombatShowScene(
         const chaseNormal = { x: -chaseForward.y, y: chaseForward.x };
         const roleSpeedPxPerMs = roleSpeeds.get(assignment.actor.role) ?? host.airShowFighterSpeedPxPerMs;
         const targetLengthPx = Math.max(64, durationMs * roleSpeedPxPerMs);
-        const laneOffsetPx = chasePlan.lane * 16 + actorSlot * 4;
-        const roleLaneOffsetPx = assignment.actor.role === "interceptor" ? -6 : 6;
-        const trailAlongPx = chasePlan.roleAheadSign * (14 + Math.abs(actorSlot) * 3);
+        const laneOffsetPx = chasePlan.lane * 8 + actorSlot * 2;
+        const roleLaneOffsetPx = 0;
+        const trailAlongPx = chasePlan.roleAheadSign * (4 + Math.abs(actorSlot) * 2);
         const chasePathCenter = host.offsetAirShowPoint(
-          fightSpaceCenter,
+          chasePlan.pocketCenter,
           chaseNormal.x * laneOffsetPx,
           chaseNormal.y * laneOffsetPx
         );
-        const chaseExit = host.offsetAirShowPoint(
+        const chaseExitForPath = host.offsetAirShowPoint(
           chasePathCenter,
           chaseForward.x * (targetLengthPx * 0.28 + trailAlongPx)
             + chaseNormal.x * roleLaneOffsetPx * 0.7,
           chaseForward.y * (targetLengthPx * 0.28 + trailAlongPx)
             + chaseNormal.y * roleLaneOffsetPx * 0.7
         );
-        const roleTurnAlongPx = assignment.actor.role === "interceptor" ? 14 : 10;
-        const rolePocketAlongPx = assignment.actor.role === "interceptor" ? 6 : 16;
+        const roleTurnAlongPx = assignment.actor.role === "interceptor" ? 8 : 6;
+        const rolePocketAlongPx = assignment.actor.role === "interceptor" ? 3 : 4;
         const rawTurnPoint = host.offsetAirShowPoint(
-          fightSpaceCenter,
+          chasePlan.pocketCenter,
           chaseForward.x * roleTurnAlongPx
             + chaseNormal.x * (laneOffsetPx * 0.42 + roleLaneOffsetPx * 0.45),
           chaseForward.y * roleTurnAlongPx
@@ -4036,7 +4437,7 @@ export function planResolvedAirCombatShowScene(
               )
             : initialTurnPoint;
         const pocketPoint = host.offsetAirShowPoint(
-          fightSpaceCenter,
+          chasePlan.pocketCenter,
           chaseForward.x * rolePocketAlongPx
             + chaseNormal.x * (laneOffsetPx * 0.2 + roleLaneOffsetPx * 0.28),
           chaseForward.y * rolePocketAlongPx
@@ -4049,8 +4450,8 @@ export function planResolvedAirCombatShowScene(
           chaseForward.y
         );
         const turnExitForward = normalizeVector(
-          chaseExit.cx - turnPoint.cx,
-          chaseExit.cy - turnPoint.cy,
+          chaseExitForPath.cx - turnPoint.cx,
+          chaseExitForPath.cy - turnPoint.cy,
           chaseForward.x,
           chaseForward.y
         );
@@ -4074,7 +4475,7 @@ export function planResolvedAirCombatShowScene(
               escortRecoveryForward.y * escortRecoveryDistancePx
             )
           : null;
-        const chaseExitForPath = recoveryPoint
+        const chaseExit = recoveryPoint
           ? host.offsetAirShowPoint(
               recoveryPoint,
               chaseForward.x * Math.max(72, targetLengthPx * 0.28)
@@ -4082,12 +4483,12 @@ export function planResolvedAirCombatShowScene(
               chaseForward.y * Math.max(72, targetLengthPx * 0.28)
                 + chaseNormal.y * roleLaneOffsetPx * 0.35
             )
-          : chaseExit;
+          : chaseExitForPath;
         const escortHoldPoint =
           !recoveryPoint && assignment.actor.role === "escort"
             ? {
-                cx: turnPoint.cx * 0.2 + chaseExitForPath.cx * 0.8,
-                cy: turnPoint.cy * 0.66 + chaseExitForPath.cy * 0.34 + 8
+                cx: turnPoint.cx * 0.2 + chaseExit.cx * 0.8,
+                cy: turnPoint.cy * 0.66 + chaseExit.cy * 0.34 + 8
               }
             : null;
         const chaseTurnPoint = escortHoldPoint
@@ -4098,16 +4499,18 @@ export function planResolvedAirCombatShowScene(
           : turnPoint;
         const baseChasePath = (() => {
           const rawPath = recoveryPoint
-            ? dedupePath([start, turnPoint, recoveryPoint, chaseExitForPath])
+            ? roundPathCorners(
+                dedupePath([start, turnPoint, recoveryPoint, pocketPoint, chaseExit]),
+                32,
+                7
+              )
             : escortHoldPoint
-              ? buildGovernedMergeTurnRail(
-                  start,
-                  chaseTurnPoint,
-                  durationMs,
-                  roleSpeedPxPerMs,
-                  chasePlan.lane >= 0 ? 1 : -1
+              ? roundPathCorners(
+                  dedupePath([start, chaseTurnPoint, escortHoldPoint, pocketPoint, chaseExit]),
+                  30,
+                  6
                 )
-              : dedupePath([start, chaseTurnPoint, pocketPoint, chaseExitForPath]);
+              : dedupePath([start, chaseTurnPoint, pocketPoint, chaseExit]);
           if (rawPath.length <= 2) {
             return rawPath;
           }
@@ -4145,10 +4548,13 @@ export function planResolvedAirCombatShowScene(
           prunedPath.push(lastPoint);
           return dedupePath(prunedPath);
         })();
-        const points = matchPathLengthWithCarry(
-          baseChasePath,
-          targetLengthPx,
-          chasePlan.lane >= 0 ? 1 : -1
+        const points = resamplePathByDistance(
+          matchPathLengthWithCarry(
+            baseChasePath,
+            targetLengthPx,
+            chasePlan.lane >= 0 ? 1 : -1
+          ),
+          34
         );
         return {
           ...assignment,
@@ -4311,16 +4717,36 @@ export function planResolvedAirCombatShowScene(
                 return assignment;
               }
               const targetBomberAssignment = targetBomberSample.candidate;
+              const interceptorAssignments = finalSpeedAdjustedAssignments.filter(
+                (candidate) => candidate.actor.role === "interceptor"
+              );
+              const interceptorFlightIds = Array.from(
+                new Set(interceptorAssignments.map((candidate) => candidate.actor.flightId))
+              );
+              const interceptorLaneByFlightId = new Map(
+                interceptorFlightIds.map((flightId, index) => [
+                  flightId,
+                  index - (interceptorFlightIds.length - 1) / 2
+                ] as const)
+              );
               const fighterActorCount = Math.max(
                 1,
-                finalSpeedAdjustedAssignments.filter(
+                interceptorAssignments.filter(
                   (candidate) =>
                     candidate.actor.flightId === assignment.actor.flightId
                     && candidate.actor.role === "interceptor"
                 ).length
               );
-              const localLane = assignment.actor.formationIndex - (fighterActorCount - 1) / 2;
-              const lateralOffsetPx = -12 + localLane * 7;
+              const flightLane = interceptorLaneByFlightId.get(assignment.actor.flightId) ?? 0;
+              const lateralOffsetPx =
+                -10
+                + resolveFighterFormationLaneOffsetPx(
+                  assignment.actor.formationIndex,
+                  fighterActorCount,
+                  flightLane,
+                  12,
+                  22
+                );
               const bomberAt = (progress: number): AirShowPoint =>
                 host.sampleAirShowAssignmentAtTime(
                   targetBomberAssignment,
@@ -4330,8 +4756,8 @@ export function planResolvedAirCombatShowScene(
               const bomberIntercept = bomberAt(0.46);
               const interceptPoint = host.offsetAirShowPoint(
                 bomberIntercept,
-                -corridor.axis.x * 6 + corridor.normal.x * lateralOffsetPx * 0.26,
-                -corridor.axis.y * 6 + corridor.normal.y * lateralOffsetPx * 0.26
+                -corridor.axis.x * 6 + corridor.normal.x * lateralOffsetPx * 0.4,
+                -corridor.axis.y * 6 + corridor.normal.y * lateralOffsetPx * 0.4
               );
               const attackSideSign = assignment.actor.formationIndex % 2 === 0 ? -1 : 1;
               const points = buildGovernedPassRail(
@@ -4358,10 +4784,12 @@ export function planResolvedAirCombatShowScene(
               ) {
                 return assignment;
               }
-                const maxFighterClashTravelPx =
-                  label === "escort-clash-merge"
-                    ? 500
-                    : 520;
+              const roleSpeedPxPerMs =
+                roleSpeeds.get(assignment.actor.role) ?? host.airShowFighterSpeedPxPerMs;
+              const maxFighterClashTravelPx = Math.max(
+                label === "escort-clash-merge" ? 500 : 520,
+                durationMs * roleSpeedPxPerMs * 1.04
+              );
               const travelPx = measurePathLength(assignment.points);
               if (travelPx <= maxFighterClashTravelPx + 1) {
                 return assignment;
@@ -4372,7 +4800,21 @@ export function planResolvedAirCombatShowScene(
               };
             })
           : phasePatternAlignedAssignments;
-      const fighterClashSpeedFlooredAssignments = fighterClashTravelCappedAssignments;
+      const fighterClashSpeedFlooredAssignments =
+        label === "escort-clash-scramble"
+          ? fighterClashTravelCappedAssignments.map((assignment) => {
+              if (
+                assignment.actor.role !== "interceptor"
+                && assignment.actor.role !== "escort"
+              ) {
+                return assignment;
+              }
+              return {
+                ...assignment,
+                progressTimeline: buildRenderedChordPacedTimeline(assignment, durationMs)
+              };
+            })
+          : fighterClashTravelCappedAssignments;
       const bomberDefenseSpeedCappedAssignments =
         label === "bomber-defense-pass"
           ? fighterClashSpeedFlooredAssignments.map((assignment) => {
@@ -4495,20 +4937,64 @@ export function planResolvedAirCombatShowScene(
                   const end = assignment.points[assignment.points.length - 1] ?? start;
                   const roleSpeedPxPerMs =
                     roleSpeeds.get(governedAssignment.actor.role) ?? host.airShowFighterSpeedPxPerMs;
-                  return {
-                    ...governedAssignment,
-                    points: buildEndpointPreservingLengthMatchedPath(
+                  const targetRenderedLengthPx = durationMs * roleSpeedPxPerMs * 1.045;
+                  const sideSign = governedAssignment.actor.role === "interceptor" ? -1 : 1;
+                  const measureRenderedLength = (points: ReadonlyArray<AirShowPoint>): number =>
+                    host.resolveAirShowAssignmentTraversedPathLengthPx(
+                      {
+                        ...governedAssignment,
+                        points: [...points],
+                        progressOffset: 0,
+                        progressTimeline: undefined
+                      },
+                      durationMs
+                    );
+                  let points = buildEndpointPreservingLengthMatchedPath(
+                    start,
+                    end,
+                    targetRenderedLengthPx,
+                    sideSign
+                  );
+                  let renderedLengthPx = measureRenderedLength(points);
+                  if (renderedLengthPx < targetRenderedLengthPx - 4) {
+                    points = buildEndpointPreservingLengthMatchedPath(
                       start,
                       end,
-                      durationMs * roleSpeedPxPerMs,
-                      governedAssignment.actor.role === "interceptor" ? -1 : 1
-                    )
+                      targetRenderedLengthPx + (targetRenderedLengthPx - renderedLengthPx) * 1.05,
+                      sideSign
+                    );
+                    renderedLengthPx = measureRenderedLength(points);
+                  }
+                  if (renderedLengthPx < targetRenderedLengthPx - 4) {
+                    points = matchPathLengthWithCarry(
+                      points,
+                      measurePathLength(points) + (targetRenderedLengthPx - renderedLengthPx) * 1.05,
+                      sideSign
+                    );
+                  }
+                  return {
+                    ...governedAssignment,
+                    points
                   };
                 }
               );
             })()
           : endpointAlignedAssignments;
-      const bomberIngressFighterAssignments = bomberIngressFighterGovernedAssignments;
+      const bomberIngressFighterAssignments =
+        label === "bomber-ingress"
+          ? bomberIngressFighterGovernedAssignments.map((assignment) => {
+              if (
+                assignment.actor.role !== "interceptor"
+                && assignment.actor.role !== "escort"
+              ) {
+                return assignment;
+              }
+              return {
+                ...assignment,
+                progressTimeline: buildRenderedChordPacedTimeline(assignment, durationMs, 21)
+              };
+            })
+          : bomberIngressFighterGovernedAssignments;
       const bomberBackTimedAssignments = orderedPreTargetPhaseLabels.includes(label)
         ? bomberIngressFighterAssignments.map((assignment) => {
             if (assignment.actor.role !== "bomber") {
@@ -4547,7 +5033,20 @@ export function planResolvedAirCombatShowScene(
                 ]);
               }
             }
-            const governedBomberTravelPx = Math.max(24, durationMs * host.airShowBomberSpeedPxPerMs);
+            const bomberTravelDurationMs =
+              label === "fighter-ingress"
+                ? (() => {
+                    const seededDurationMs = Math.max(
+                      1,
+                      Math.round(seedDurationByPhase.get("fighter-ingress") ?? durationMs)
+                    );
+                    return Math.min(
+                      durationMs,
+                      Math.round(seededDurationMs + Math.max(0, durationMs - seededDurationMs) * 0.36)
+                    );
+                  })()
+                : durationMs;
+            const governedBomberTravelPx = Math.max(24, bomberTravelDurationMs * host.airShowBomberSpeedPxPerMs);
             points = matchPathLengthWithCarry(
               points,
               governedBomberTravelPx,
@@ -4612,14 +5111,134 @@ export function planResolvedAirCombatShowScene(
               );
             })()
           : bomberBackTimedAssignments;
-      const dogfightBomberSpeedRestoredAssignments =
-        label === "escort-clash-merge" || label === "escort-clash-scramble"
+      const bomberIngressContactAlignedAssignments =
+        label === "bomber-ingress"
           ? (() => {
               const bomberAssignments = bomberIngressSpeedRestoredAssignments.filter(
                 (assignment) => assignment.actor.role === "bomber"
               );
-              if (bomberAssignments.length <= 0) {
+              const interceptorAssignments = bomberIngressSpeedRestoredAssignments.filter(
+                (assignment) => assignment.actor.role === "interceptor"
+              );
+              if (bomberAssignments.length <= 0 || interceptorAssignments.length <= 0) {
                 return bomberIngressSpeedRestoredAssignments;
+              }
+              const bomberContactPoint =
+                host.averageAirShowPoints(
+                  bomberAssignments.map((assignment) =>
+                    host.sampleAirShowAssignmentAtTime(assignment, durationMs * 0.84, durationMs).position
+                  )
+                )
+                ?? corridor.strike;
+              const flightIds = Array.from(new Set(interceptorAssignments.map((assignment) => assignment.actor.flightId)));
+              const laneByFlightId = new Map(
+                flightIds.map((flightId, index) => [flightId, index - (flightIds.length - 1) / 2] as const)
+              );
+              const actorCountByFlightId = new Map<string, number>();
+              interceptorAssignments.forEach((assignment) => {
+                actorCountByFlightId.set(
+                  assignment.actor.flightId,
+                  Math.max(actorCountByFlightId.get(assignment.actor.flightId) ?? 0, assignment.actor.formationIndex + 1)
+                );
+              });
+              return bomberIngressSpeedRestoredAssignments.map((assignment) => {
+                if (assignment.actor.role !== "interceptor") {
+                  return assignment;
+                }
+                const start = assignment.points[0] ?? assignment.actor.position;
+                const roleSpeedPxPerMs = roleSpeeds.get("interceptor") ?? host.airShowFighterSpeedPxPerMs;
+                const targetRenderedLengthPx = durationMs * roleSpeedPxPerMs * 1.045;
+                const actorCount = actorCountByFlightId.get(assignment.actor.flightId) ?? 1;
+                const lane = laneByFlightId.get(assignment.actor.flightId) ?? 0;
+                const lateralOffsetPx = resolveFighterFormationLaneOffsetPx(
+                  assignment.actor.formationIndex,
+                  actorCount,
+                  lane,
+                  12,
+                  22
+                );
+                const contactPoint = host.offsetAirShowPoint(
+                  bomberContactPoint,
+                  -corridor.axis.x * 14 + corridor.normal.x * lateralOffsetPx,
+                  -corridor.axis.y * 14 + corridor.normal.y * lateralOffsetPx
+                );
+                const sideSign = assignment.actor.formationIndex % 2 === 0 ? -1 : 1;
+                const measureRenderedLength = (points: ReadonlyArray<AirShowPoint>): number =>
+                  host.resolveAirShowAssignmentTraversedPathLengthPx(
+                    {
+                      ...assignment,
+                      points: [...points],
+                      progressOffset: 0,
+                      progressTimeline: undefined
+                    },
+                    durationMs
+                  );
+                const buildContactPath = (targetLengthPx: number, pathSideSign: number): AirShowPoint[] =>
+                  buildEndpointPreservingCircularArcPath(
+                    start,
+                    contactPoint,
+                    targetLengthPx,
+                    pathSideSign
+                  );
+                const entryTurnDegFor = (points: ReadonlyArray<AirShowPoint>): number => {
+                  const firstPoint = points[1];
+                  if (!firstPoint) {
+                    return 0;
+                  }
+                  const pathForward = normalizeVector(
+                    firstPoint.cx - start.cx,
+                    firstPoint.cy - start.cy,
+                    corridor.axis.x,
+                    corridor.axis.y
+                  );
+                  const headingForward = resolveHeadingVector(
+                    assignment.actor.headingDegrees,
+                    pathForward
+                  );
+                  return resolveVectorAngleDegrees(headingForward, pathForward);
+                };
+                const primaryPoints = buildContactPath(targetRenderedLengthPx, sideSign);
+                const alternatePoints = buildContactPath(targetRenderedLengthPx, -sideSign);
+                let selectedSideSign =
+                  entryTurnDegFor(alternatePoints) + 2 < entryTurnDegFor(primaryPoints)
+                    ? -sideSign
+                    : sideSign;
+                let points = selectedSideSign === sideSign ? primaryPoints : alternatePoints;
+                let renderedLengthPx = measureRenderedLength(points);
+                if (renderedLengthPx < targetRenderedLengthPx - 4) {
+                  points = buildContactPath(
+                    targetRenderedLengthPx + (targetRenderedLengthPx - renderedLengthPx) * 1.05,
+                    selectedSideSign
+                  );
+                  renderedLengthPx = measureRenderedLength(points);
+                }
+                if (renderedLengthPx < targetRenderedLengthPx - 4) {
+                  points = matchPathLengthWithCarry(
+                    points,
+                    measurePathLength(points) + (targetRenderedLengthPx - renderedLengthPx) * 1.05,
+                    selectedSideSign
+                  );
+                }
+                const alignedAssignment = {
+                  ...assignment,
+                  points,
+                  progressTimeline: undefined
+                };
+                return {
+                  ...alignedAssignment,
+                  progressTimeline: buildRenderedChordPacedTimeline(alignedAssignment, durationMs, 21)
+                };
+              });
+            })()
+          : bomberIngressSpeedRestoredAssignments;
+      const dogfightBomberSpeedRestoredAssignments =
+        label === "escort-clash-merge" || label === "escort-clash-scramble"
+          ? (() => {
+              const bomberAssignments = bomberIngressContactAlignedAssignments.filter(
+                (assignment) => assignment.actor.role === "bomber"
+              );
+              if (bomberAssignments.length <= 0) {
+                return bomberIngressContactAlignedAssignments;
               }
               const extendedBomberAssignments = host.extendAirShowPhaseAssignmentsForSpeed(
                 bomberAssignments,
@@ -4638,11 +5257,11 @@ export function planResolvedAirCombatShowScene(
               const extendedBomberAssignmentsByActorId = new Map(
                 extendedBomberAssignments.map((assignment) => [assignment.actor.id, assignment] as const)
               );
-              return bomberIngressSpeedRestoredAssignments.map(
+              return bomberIngressContactAlignedAssignments.map(
                 (assignment) => extendedBomberAssignmentsByActorId.get(assignment.actor.id) ?? assignment
               );
             })()
-          : bomberIngressSpeedRestoredAssignments;
+          : bomberIngressContactAlignedAssignments;
       const dogfightBomberMovementGuardedAssignments =
         label === "escort-clash-merge" || label === "escort-clash-scramble"
           ? dogfightBomberSpeedRestoredAssignments.map((assignment) => {
@@ -4734,7 +5353,7 @@ export function planResolvedAirCombatShowScene(
       let mergeAssignments = finalizeCorridorPhaseAssignments("escort-clash-merge", rawMergeAssignments, mergeDurationMs);
       mergeDurationMs = resolveCorridorPhaseDurationMs("escort-clash-merge", mergeAssignments);
       mergeAssignments = finalizeCorridorPhaseAssignments("escort-clash-merge", mergeAssignments, mergeDurationMs);
-      recordPhase("escort-clash-merge", mergeAssignments, mergeDurationMs, buildDogfightTracers(mergeAssignments, "escort-clash-merge"), [], roleSpeeds);
+      recordPhase("escort-clash-merge", mergeAssignments, mergeDurationMs, buildDogfightTracers(mergeAssignments, "escort-clash-merge", mergeDurationMs), [], roleSpeeds);
       commitCorridorPhaseEndState(mergeAssignments, mergeDurationMs);
       previousPhaseAssignments = mergeAssignments;
       previousPhaseDurationMs = mergeDurationMs;
@@ -4745,7 +5364,7 @@ export function planResolvedAirCombatShowScene(
       let scrambleAssignments = finalizeCorridorPhaseAssignments("escort-clash-scramble", rawScrambleAssignments, scrambleDurationMs);
       scrambleDurationMs = resolveCorridorPhaseDurationMs("escort-clash-scramble", scrambleAssignments);
       scrambleAssignments = finalizeCorridorPhaseAssignments("escort-clash-scramble", scrambleAssignments, scrambleDurationMs);
-      recordPhase("escort-clash-scramble", scrambleAssignments, scrambleDurationMs, buildDogfightTracers(scrambleAssignments, "escort-clash-scramble"), [], roleSpeeds);
+      recordPhase("escort-clash-scramble", scrambleAssignments, scrambleDurationMs, buildDogfightTracers(scrambleAssignments, "escort-clash-scramble", scrambleDurationMs), [], roleSpeeds);
       commitCorridorPhaseEndState(scrambleAssignments, scrambleDurationMs);
       previousPhaseAssignments = scrambleAssignments;
       previousPhaseDurationMs = scrambleDurationMs;
@@ -4778,24 +5397,26 @@ export function planResolvedAirCombatShowScene(
             visibleLengthPx: 11,
             fanHalfAngleDeg: 2.2,
             burstCount: 4,
-            maxAlignmentDeg: 58,
-            maxRangePx: 340,
+            maxAlignmentDeg: 42,
+            maxRangePx: 204,
             timings: [0, 0.04, 0.08, 0.12, 0.18],
+            durationMs: bomberDefenseDurationMs,
             fallbackToNearest: false
           }),
           ...host.buildAirShowDynamicTracerVolley(bomberDefenseAssignments, targetBomber, interceptorFlight, {
             emitter: "center",
             color: "#fff1c8",
-            width: 0.38,
-            lifetimeMs: 34,
-            spreadPx: 4,
-            streakLengthPx: 94,
-            visibleLengthPx: 8,
+            width: 0.5,
+            lifetimeMs: 42,
+            spreadPx: 5,
+            streakLengthPx: 112,
+            visibleLengthPx: 10,
             fanHalfAngleDeg: 1.2,
-            burstCount: 2,
+            burstCount: 3,
             maxAlignmentDeg: 96,
-            maxRangePx: 208,
-            timings: [0.28, 0.46, 0.64],
+            maxRangePx: 204,
+            timings: [0.24, 0.38, 0.52, 0.66],
+            durationMs: bomberDefenseDurationMs,
             fallbackToNearest: false
           })
         );
@@ -4822,6 +5443,9 @@ export function planResolvedAirCombatShowScene(
     const homeSideVisibleWidthPx = visibleBounds
       ? Math.max(1, visibleBounds.maxX - visibleBounds.minX)
       : Math.max(960, Math.abs(corridor.exit.cx - corridor.entry.cx) + 520);
+    const fighterFlightById = new Map(
+      [...interceptorFlights, ...escortFlights].map((flight) => [flight.spec.id, flight] as const)
+    );
     const resolveFighterHomeSideX = (
       sideSignInput: number,
       distancePx: number,
@@ -4834,6 +5458,23 @@ export function planResolvedAirCombatShowScene(
         return rawX;
       }
       return host.clamp(rawX, visibleBounds.minX + 54, visibleBounds.maxX - 54);
+    };
+    const resolveFighterHomeSideSign = (assignment: AirShowPhaseAssignment): number => {
+      const ownerFlight = fighterFlightById.get(assignment.actor.flightId);
+      const origin = ownerFlight
+        ? (
+            hqAxis
+              ? (ownerFlight.spec.faction === "Bot" ? hqAxis.botOrigin : hqAxis.playerOrigin)
+              : fallbackOriginFor(ownerFlight.spec)
+          )
+        : null;
+      if (origin) {
+        return origin.cx >= homeSideMidX ? 1 : -1;
+      }
+      const renderedStartX = assignment.points[0]
+        ? assignment.points[0].cx + (assignment.multiFlightOffsetPx ?? 0)
+        : assignment.actor.position.cx;
+      return renderedStartX >= homeSideMidX ? 1 : -1;
     };
     const buildHomeSideTargetRunFighterPath = (
       assignment: AirShowPhaseAssignment,
@@ -4848,48 +5489,32 @@ export function planResolvedAirCombatShowScene(
       const start = assignment.points[0] ?? assignment.actor.position;
       const rawEnd = assignment.points[assignment.points.length - 1] ?? start;
       const laneOffsetPx = (assignment.actor.formationIndex - 0.5) * 22;
-      const startRenderedX = start.cx + (assignment.multiFlightOffsetPx ?? 0);
-      const sideSign = startRenderedX >= center.cx ? 1 : -1;
+      const sideSign = resolveFighterHomeSideSign(assignment);
       const fallbackForward = resolveHeadingVector(assignment.actor.headingDegrees, {
         x: rawEnd.cx - start.cx,
         y: rawEnd.cy - start.cy
       });
       const targetLengthPx = durationMs * (roleSpeeds.get(assignment.actor.role) ?? host.airShowFighterSpeedPxPerMs);
-      const outwardStepPx = 82 + Math.abs(laneOffsetPx) * 0.35;
-      const desiredExitX =
-        sideSign < 0
-          ? Math.min(rawEnd.cx, start.cx - outwardStepPx)
-          : Math.max(rawEnd.cx, start.cx + outwardStepPx);
-      const exitMarginPx = Math.min(180, Math.max(96, homeSideVisibleWidthPx * 0.14));
-      const exitX = visibleBounds
-        ? sideSign < 0
-          ? Math.max(desiredExitX, visibleBounds.minX - exitMarginPx)
-          : Math.min(desiredExitX, visibleBounds.maxX + exitMarginPx)
-        : desiredExitX;
-      const sideExit = {
-        cx: exitX,
-        cy: rawEnd.cy
-      };
-      const exitForward = normalizeVector(
-        sideExit.cx - start.cx,
-        sideExit.cy - start.cy,
+      const outboundForward = normalizeVector(
+        sideSign * 0.92 + (fallbackForward.x * sideSign > 0.2 ? fallbackForward.x * 0.28 : 0),
+        fallbackForward.y * 0.42 + corridor.axis.y * 0.18,
         sideSign,
         fallbackForward.y
       );
-      const entryForward = normalizeVector(
-        fallbackForward.x * 0.7 + exitForward.x * 0.3,
-        fallbackForward.y * 0.7 + exitForward.y * 0.3,
-        exitForward.x,
-        exitForward.y
-      );
+      const outboundNormal = { x: -outboundForward.y, y: outboundForward.x };
       const controlDistancePx = host.clamp(targetLengthPx * 0.23, 84, 136);
+      const exitDistancePx = host.clamp(targetLengthPx * 0.54, 180, Math.max(220, targetLengthPx * 0.72));
       const firstControl = {
-        cx: start.cx + entryForward.x * controlDistancePx + sideSign * 18,
-        cy: start.cy + entryForward.y * controlDistancePx
+        cx: start.cx + outboundForward.x * controlDistancePx + outboundNormal.x * laneOffsetPx * 0.25,
+        cy: start.cy + outboundForward.y * controlDistancePx + outboundNormal.y * laneOffsetPx * 0.25
       };
       const secondControl = {
-        cx: sideExit.cx - exitForward.x * controlDistancePx * 0.96,
-        cy: sideExit.cy - exitForward.y * controlDistancePx * 0.96
+        cx: start.cx + outboundForward.x * exitDistancePx * 0.72 + outboundNormal.x * laneOffsetPx * 0.44,
+        cy: start.cy + outboundForward.y * exitDistancePx * 0.72 + outboundNormal.y * laneOffsetPx * 0.44
+      };
+      const sideExit = {
+        cx: start.cx + outboundForward.x * exitDistancePx + outboundNormal.x * laneOffsetPx * 0.58,
+        cy: start.cy + outboundForward.y * exitDistancePx + outboundNormal.y * laneOffsetPx * 0.58
       };
       return {
         ...assignment,
@@ -4976,14 +5601,43 @@ export function planResolvedAirCombatShowScene(
       const pairCount = Math.ceil(actorCount / 2);
       const sideSign = assignment.actor.formationIndex % 2 === 0 ? -1 : 1;
       const pairSlot = pairIndex - (pairCount - 1) / 2;
-      const alongBoostPx = pairSlot * 36;
-      const lateralBoostPx = sideSign * (82 + pairIndex * 14);
+      const alongBoostPx = pairSlot * 72;
+      const lateralBoostPx = sideSign * (220 + pairIndex * 18);
       return dedupePath(points.map((point, index) => {
         const progress = index / Math.max(1, points.length - 1);
-        const ease = Math.sin(progress * Math.PI * 0.5);
+        const spread = Math.sin(progress * Math.PI * 0.5);
+        const previous = points[Math.max(0, index - 1)] ?? point;
+        const next = points[Math.min(points.length - 1, index + 1)] ?? point;
+        const tangent = normalizeVector(
+          next.cx - previous.cx,
+          next.cy - previous.cy,
+          corridor.axis.x,
+          corridor.axis.y
+        );
+        const pathNormal = { x: -tangent.y, y: tangent.x };
+        const orientedPathNormal =
+          pathNormal.x * corridor.normal.x + pathNormal.y * corridor.normal.y < 0
+            ? { x: -pathNormal.x, y: -pathNormal.y }
+            : pathNormal;
+        const entryRamp = progress <= 0 ? 0 : host.clamp(progress / 0.35, 0, 1);
+        const staticSpread = 0.56 * entryRamp;
+        const dynamicSpread = spread * 0.44;
+        const alongSpread = (0.64 + spread * 0.36) * entryRamp;
         return {
-          cx: point.cx + corridor.axis.x * alongBoostPx * ease + corridor.normal.x * lateralBoostPx * ease,
-          cy: point.cy + corridor.axis.y * alongBoostPx * ease + corridor.normal.y * lateralBoostPx * ease
+          cx:
+            point.cx
+            + (
+              corridor.axis.x * alongBoostPx * alongSpread
+              + corridor.normal.x * lateralBoostPx * staticSpread
+              + orientedPathNormal.x * lateralBoostPx * dynamicSpread
+            ),
+          cy:
+            point.cy
+            + (
+              corridor.axis.y * alongBoostPx * alongSpread
+              + corridor.normal.y * lateralBoostPx * staticSpread
+              + orientedPathNormal.y * lateralBoostPx * dynamicSpread
+            )
         };
       }));
     };
@@ -5103,9 +5757,28 @@ export function planResolvedAirCombatShowScene(
         const bridgedPoints = sourceFlight
           ? bridgePathToPreviousPhaseMotion(sourceFlight, smoothedPoints, 72)
           : smoothedPoints;
+        const spacedPoints = host.sanitizeAirShowEntryPath(
+          roundPathCorners(widenTargetRunBomberSpacing(assignment, bridgedPoints), 56, 10),
+          {
+            maxTurnDeg: 42,
+            strongTurnDeg: 82,
+            maxFirstSegmentPx: 82,
+            maxSharpTurnDeg: 96,
+            maxWaypointsToRemove: 4
+          }
+        );
+        const targetPathLengthPx = durationMs * governedBomberSpeedPxPerMs;
+        const speedGovernedPoints =
+          measurePathLength(spacedPoints) < targetPathLengthPx - 1
+            ? matchPathLengthWithCarry(
+                spacedPoints,
+                targetPathLengthPx,
+                assignment.actor.formationIndex % 2 === 0 ? -1 : 1
+              )
+            : dedupePath(spacedPoints);
         return {
           ...assignment,
-          points: widenTargetRunBomberSpacing(assignment, bridgedPoints),
+          points: speedGovernedPoints,
           progressTimeline: undefined
         };
       });
@@ -5116,7 +5789,7 @@ export function planResolvedAirCombatShowScene(
       (assignment) => assignment.actor.role === "bomber"
     );
     const bomberTargetRunPathLengthsPx = bomberTargetRunAssignments.map((assignment) =>
-      measurePathLength(assignment.points)
+      host.resolveAirShowAssignmentTraversedPathLengthPx(assignment, targetRunDurationMs)
     );
     const meanBomberTargetRunPathLengthPx =
       bomberTargetRunPathLengthsPx.length > 0
@@ -5140,7 +5813,7 @@ export function planResolvedAirCombatShowScene(
     const governedTargetRunDurationMs = host.clamp(
       Math.round(
         meanBomberTargetRunDurationMs
-        + (maxBomberTargetRunDurationMs - meanBomberTargetRunDurationMs) * 0.08
+        + (maxBomberTargetRunDurationMs - meanBomberTargetRunDurationMs) * 0.28
       ),
       1,
       60000
@@ -5149,6 +5822,15 @@ export function planResolvedAirCombatShowScene(
       targetRunDurationMs = governedTargetRunDurationMs;
       targetRunAssignments = buildTargetRunPhaseAssignments(targetRunDurationMs);
     }
+    targetRunAssignments = targetRunAssignments.map((assignment) => {
+      if (assignment.actor.role !== "bomber") {
+        return assignment;
+      }
+      return {
+        ...assignment,
+        progressTimeline: buildRenderedChordPacedTimeline(assignment, targetRunDurationMs, 17)
+      };
+    });
     recordPhase(
       "target-run",
       targetRunAssignments,
@@ -5245,7 +5927,7 @@ export function planResolvedAirCombatShowScene(
           1,
           Math.hypot(finalPoint.cx - boundaryMotion.start.cx, finalPoint.cy - boundaryMotion.start.cy)
         );
-        const carryForwardPx = Math.min(160, Math.max(120, distancePx * 0.1));
+        const carryForwardPx = Math.min(980, Math.max(560, distancePx * 0.22));
         const entryCarryPoint = host.offsetAirShowPoint(
           boundaryMotion.start,
           entryForward.x * carryForwardPx,
@@ -5258,25 +5940,35 @@ export function planResolvedAirCombatShowScene(
             startHeadingDegrees: entryHeadingDegrees,
             lateralSign,
             minRouteDot: -0.72,
-            carryForwardPx: Math.min(140, Math.max(96, distancePx * 0.12)),
-            earlyAlongPx: Math.max(96, distancePx * 0.26),
-            midAlongPx: Math.max(168, distancePx * 0.56),
-            lateAlongPx: Math.max(240, distancePx * 0.84),
-            entryLateralPx: 14,
-            midLateralPx: 9,
+            carryForwardPx: Math.min(640, Math.max(360, distancePx * 0.16)),
+            earlyAlongPx: Math.max(carryForwardPx + 220, distancePx * 0.38),
+            midAlongPx: Math.max(carryForwardPx + 520, distancePx * 0.62),
+            lateAlongPx: Math.max(carryForwardPx + 760, distancePx * 0.86),
+            entryLateralPx: 6,
+            midLateralPx: 6,
             lateLateralPx: 4
           }
         );
+        const preservedPoints = [boundaryMotion.start, entryCarryPoint, ...tailPath.slice(1)]
+          .filter((point, pointIndex, path) => {
+            if (pointIndex === 0) {
+              return true;
+            }
+            const previous = path[pointIndex - 1];
+            return !previous || Math.hypot(point.cx - previous.cx, point.cy - previous.cy) > 0.5;
+          });
         return {
           ...assignment,
-          points: [boundaryMotion.start, entryCarryPoint, ...tailPath.slice(1)]
-            .filter((point, pointIndex, path) => {
-              if (pointIndex === 0) {
-                return true;
-              }
-              const previous = path[pointIndex - 1];
-              return !previous || Math.hypot(point.cx - previous.cx, point.cy - previous.cy) > 0.5;
-            })
+          points: host.sanitizeAirShowEntryPath(
+            roundPathCorners(preservedPoints, 72, 10),
+            {
+              maxTurnDeg: 42,
+              strongTurnDeg: 82,
+              maxFirstSegmentPx: 96,
+              maxSharpTurnDeg: 104,
+              maxWaypointsToRemove: 4
+            }
+          )
         };
       });
     if (rawEgressAssignments.length > 0) {
@@ -5438,12 +6130,7 @@ export function planResolvedAirCombatShowScene(
         const rawEnd = assignment.points[assignment.points.length - 1] ?? rawSecond;
         const renderedOffsetPx = assignment.multiFlightOffsetPx ?? 0;
         const laneOffsetPx = (assignment.actor.formationIndex - 0.5) * 28;
-        const renderedStartX = start.cx + renderedOffsetPx;
-        // Use role to determine egress side: escorts (Player) always exit left toward
-        // player HQ, interceptors (Bot) always exit right toward bot side. Do not derive
-        // side from current position; fighters displaced into the opponent half during
-        // combat must still return to their own HQ side.
-        const sideSign = assignment.actor.role === "escort" ? -1 : 1;
+        const sideSign = resolveFighterHomeSideSign(assignment);
         const fallbackForward = resolveHeadingVector(assignment.actor.headingDegrees, {
           x: rawEnd.cx - start.cx,
           y: rawEnd.cy - start.cy
@@ -5454,62 +6141,61 @@ export function planResolvedAirCombatShowScene(
           fallbackForward.x,
           fallbackForward.y
         );
-        const sideGuardX = resolveFighterHomeSideX(
-          sideSign,
-          Math.min(homeSideVisibleWidthPx * 0.36, 420),
-          laneOffsetPx
-        );
-        const committedStartSideX =
-          sideSign < 0
-            ? Math.min(renderedStartX, sideGuardX)
-            : Math.max(renderedStartX, sideGuardX);
-        const offMapExitX = visibleBounds
+        const targetLengthPx =
+          egressDurationMs * (roleSpeeds.get(assignment.actor.role) ?? host.airShowFighterSpeedPxPerMs);
+        const isCarryingAwayFromHome = entryForward.x * sideSign < -0.12;
+        const entryControlDistancePx = isCarryingAwayFromHome
+          ? host.clamp(targetLengthPx * 0.04, 92, 220)
+          : host.clamp(targetLengthPx * 0.1, 240, 620);
+        const boundaryExitX = visibleBounds
           ? (
               sideSign < 0
                 ? visibleBounds.minX - host.offMapDistancePx * 0.86 - Math.abs(laneOffsetPx)
                 : visibleBounds.maxX + host.offMapDistancePx * 0.86 + Math.abs(laneOffsetPx)
             )
           : homeSideMidX + sideSign * (homeSideVisibleWidthPx * 0.9 + host.offMapDistancePx);
-        const egressDy = rawEnd.cy - start.cy;
-        const entryLead = {
-          cx: committedStartSideX - renderedOffsetPx,
-          cy: start.cy + entryForward.y * 64
-        };
-        const carryPoint = host.offsetAirShowPoint(
-          start,
-          entryForward.x * 72,
-          entryForward.y * 72
+        const renderedStartX = start.cx + renderedOffsetPx;
+        const minimumHomeAdvancePx = host.clamp(
+          targetLengthPx * 0.28,
+          520,
+          Math.max(820, homeSideVisibleWidthPx * 0.58)
         );
-        const sideLead = {
-          cx: committedStartSideX - renderedOffsetPx,
-          cy: start.cy + egressDy * 0.24 + entryForward.y * 42
-        };
-        const exitMid = {
-          cx: committedStartSideX * 0.36 + offMapExitX * 0.64 - renderedOffsetPx,
-          cy: start.cy + egressDy * 0.58
-        };
+        const forwardExitX = renderedStartX + sideSign * minimumHomeAdvancePx;
+        const offMapExitX =
+          sideSign < 0
+            ? Math.min(boundaryExitX, forwardExitX)
+            : Math.max(boundaryExitX, forwardExitX);
         const exitPoint = {
           cx: offMapExitX - renderedOffsetPx,
           cy: rawEnd.cy
         };
-        const rebuiltPoints = dedupePath([
-          start,
-          carryPoint,
-          entryLead,
-          sideLead,
-          exitMid,
-          exitPoint
-        ]);
+        const routeForward = normalizeVector(
+          exitPoint.cx - start.cx,
+          exitPoint.cy - start.cy,
+          sideSign,
+          0
+        );
+        const routeNormal = { x: -routeForward.y, y: routeForward.x };
+        const exitControlDistancePx = host.clamp(targetLengthPx * 0.16, 420, 980);
+        const firstControl = {
+          cx: start.cx + entryForward.x * entryControlDistancePx + routeNormal.x * laneOffsetPx * 0.12,
+          cy: start.cy + entryForward.y * entryControlDistancePx + routeNormal.y * laneOffsetPx * 0.12
+        };
+        const secondControl = {
+          cx: exitPoint.cx - routeForward.x * exitControlDistancePx + routeNormal.x * laneOffsetPx * 0.42,
+          cy: exitPoint.cy - routeForward.y * exitControlDistancePx + routeNormal.y * laneOffsetPx * 0.42
+        };
+        const rebuiltPoints = buildCubicAirShowPath(start, firstControl, secondControl, exitPoint, 28);
         return {
           ...assignment,
           points: host.sanitizeAirShowEntryPath(
             rebuiltPoints,
             {
-              maxTurnDeg: 50,
-              strongTurnDeg: 86,
-              maxFirstSegmentPx: 94,
-              maxSharpTurnDeg: 104,
-              maxWaypointsToRemove: 2
+              maxTurnDeg: 42,
+              strongTurnDeg: 78,
+              maxFirstSegmentPx: 128,
+              maxSharpTurnDeg: 96,
+              maxWaypointsToRemove: 4
             }
           ),
           progressTimeline: undefined

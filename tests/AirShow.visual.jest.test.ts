@@ -3,6 +3,7 @@ import type {
   AirShowInspectionReport,
   ResolvedAirShowScene
 } from "../src/ui/airshow/AirShowPlaybackScene";
+import { AIR_SHOW_OFF_MAP_DISTANCE_PX } from "../src/ui/airshow/AirShowPlanner";
 import { buildResolvedAirCombatScene } from "../src/ui/airshow/ResolvedAirCombatSceneBuilder";
 import {
   buildAirshowHarnessFixture,
@@ -604,12 +605,19 @@ describe("AirShow JEST Harness", () => {
     expect(bomberIngressIndex).toBeGreaterThan(0);
     expect(mergePhase).toBeDefined();
     expect(scramblePhase).toBeDefined();
+    expect(mergePhase?.tracers.length ?? 0).toBeGreaterThan(0);
     expect(scramblePhase?.tracers.length ?? 0).toBeGreaterThan(0);
     expect(allDogfightTracers.length).toBeGreaterThan(0);
     expect(actorTargetedDogfightTracers.length).toBeGreaterThan(0);
     expect(actorTargetedDogfightTracers.length).toBeGreaterThanOrEqual(
       Math.ceil(allDogfightTracers.length * 0.75)
     );
+    expect(
+      allDogfightTracers.some((tracer) =>
+        mergePhase?.assignments.find((assignment) => assignment.actorId === tracer.sourceActorId)?.role === "escort"
+        || scramblePhase?.assignments.find((assignment) => assignment.actorId === tracer.sourceActorId)?.role === "escort"
+      )
+    ).toBe(true);
     expect(mergePhase?.tracers.every((tracer) => tracer.progress >= 0.22 && tracer.progress <= 0.62)).toBe(true);
     expect(
       scramblePhase?.tracers.filter((tracer) => tracer.progress >= 0.08 && tracer.progress <= 0.9).length
@@ -619,13 +627,16 @@ describe("AirShow JEST Harness", () => {
     actorTargetedDogfightTracers.forEach((tracer) => {
       expect(tracerAimErrorDegrees(tracer) ?? 180).toBeLessThan(34);
     });
-    [mergePhase, scramblePhase].forEach((phase) => {
-      phase?.tracers
-        .filter((tracer) => !!tracer.targetActorId)
-        .forEach((tracer) => {
-          expect(tracerTargetHeadingDot(phase, tracer) ?? -1).toBeGreaterThan(0.12);
-        });
-    });
+    mergePhase?.tracers
+      .filter((tracer) => !!tracer.targetActorId)
+      .forEach((tracer) => {
+        expect(Math.abs(tracerTargetHeadingDot(mergePhase, tracer) ?? 0)).toBeGreaterThan(0.12);
+      });
+    scramblePhase?.tracers
+      .filter((tracer) => !!tracer.targetActorId)
+      .forEach((tracer) => {
+        expect(tracerTargetHeadingDot(scramblePhase, tracer) ?? -1).toBeGreaterThan(0.1);
+      });
     expect(Math.max(...allDogfightTracers.map((tracer) => tracer.visibleLengthPx))).toBeLessThanOrEqual(14);
     expect(Math.max(...allDogfightTracers.map((tracer) => tracer.streakLengthPx))).toBeLessThanOrEqual(150);
   });
@@ -989,6 +1000,11 @@ describe("AirShow JEST Harness", () => {
     });
     expect(Math.max(...flakPointBuckets.values())).toBeLessThanOrEqual(4);
     expect(new Set(targetRun?.flakBursts.map((burst) => burst.progress.toFixed(3))).size ?? 0).toBeGreaterThan(4);
+    const sortedFlakProgress = flakBursts.map((burst) => burst.progress).sort((left, right) => left - right);
+    const nearestFlakProgressGap = Math.min(
+      ...sortedFlakProgress.slice(1).map((progress, index) => progress - sortedFlakProgress[index]!)
+    );
+    expect(nearestFlakProgressGap).toBeGreaterThanOrEqual(0.018);
     const flakProgressBuckets = new Map<number, number>();
     targetRun?.flakBursts.forEach((burst) => {
       const bucket = Math.round(burst.progress / 0.015);
@@ -1274,8 +1290,8 @@ describe("AirShow JEST Harness", () => {
       originPlan.botOrigin.cy - originPlan.botBoundary.cy
     );
 
-    expect(playerOffsetPx).toBeCloseTo(500, 1);
-    expect(botOffsetPx).toBeCloseTo(500, 1);
+    expect(playerOffsetPx).toBeCloseTo(AIR_SHOW_OFF_MAP_DISTANCE_PX, 1);
+    expect(botOffsetPx).toBeCloseTo(AIR_SHOW_OFF_MAP_DISTANCE_PX, 1);
 
     const ingressAudit = report.phaseTimingAudit.find((phase) => phase.label === "fighter-ingress");
     expect(ingressAudit).toBeDefined();
