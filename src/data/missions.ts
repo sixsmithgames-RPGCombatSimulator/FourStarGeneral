@@ -35,8 +35,8 @@ export const missionBriefings: Record<MissionKey, string> = {
     "Establish a base camp inside the town perimeter, deploy your reserves around the crossroads, and break the assault before the attackers can force their way into the center. Expect a strong combined-arms attack with armor, artillery, and probing recon screens.",
 
   patrol_pointe_du_hoc:
-    "The guns at Pointe du Hoc command both Omaha and Utah beaches. Naval bombardment has cratered the point but the German garrison is still active. " +
-    "Your Rangers must scale the cliffs, silence the battery, and hold against the counterattack until the relief column reaches you from Omaha.\n\n" +
+    "Enemy batteries at Pointe du Hoc still dominate the coastal approach. The ridge is cratered and broken, with fortified gun positions on the forward line and a forest counterattack route inland. " +
+    "Deploy infantry, engineers, and recon elements to seize the three battery hexes, then hold them against the German response.\n\n" +
     "VICTORY: Capture all three gun positions and hold them simultaneously for 6 consecutive turns.\n" +
     "DEFEAT: Mission fails if all friendly forces are eliminated or the turn limit expires before the hold objective is met.",
 
@@ -152,14 +152,14 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
   patrol_pointe_du_hoc: {
     objectives: [
       "Primary: Capture all three gun positions and hold them simultaneously for 6 consecutive turns.",
-      "Secondary: Destroy the MG nest at the cliff edge.",
-      "Tertiary: Keep at least three Ranger units alive at mission end."
+      "Secondary: Neutralize all battery emplacements on the ridge line.",
+      "Tertiary: Keep at least three assault units operational at mission end."
     ],
     turnLimit: 14,
-    doctrine: "Move fast across the open clifftop, use engineers to clear entrenched casemates, then consolidate on the gun positions before the counterattack reaches you. Hold every gun simultaneously to start the clock.",
+    doctrine: "Push through the crater belt, clear each gun pit with close infantry-engineer coordination, and rotate fresh units onto captured positions before the inland counterattack reconnects the battery line.",
     supplies: [
-      { label: "Ranger Force", amount: "Infantry and engineers only — no armor, no artillery" },
-      { label: "Naval Gunfire", amount: "2 off-map fire missions" },
+      { label: "Assault Force", amount: "Infantry, engineers, and recon bikes only (no armor)." },
+      { label: "Support Access", amount: "In-battle requisitions for ammo, fuel, infantry, engineers, and corps artillery." },
       { label: "Operational Window", amount: "12-16 turns depending on difficulty" }
     ]
   },
@@ -272,8 +272,8 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
     ]
   },
   patrol_pointe_du_hoc: {
-    preferredZoneKey: "ranger-start",
-    focusLabel: "cliff-top line of departure",
+    preferredZoneKey: "allied-assault-start",
+    focusLabel: "forward assault assembly",
     validation: {
       minimumPlayerZoneCapacityTotal: 12,
       minimumPlayerZoneFrontage: 4,
@@ -281,7 +281,7 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
     },
     zoneDoctrine: [
       {
-        zoneKey: "ranger-start",
+        zoneKey: "allied-assault-start",
         minimumCapacity: 12,
         minimumFrontage: 4,
         minimumDepth: 2

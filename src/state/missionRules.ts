@@ -470,8 +470,8 @@ function createPointeDuHocPhase(turnNumber: number, counterattackAnnounced: bool
   return {
     id: "phase1_probe",
     label: "Phase 1: Assault",
-    detail: "Clear the entrenched garrison from the casemates. Engineers are needed to reduce the fortified positions.",
-    announcement: "Rangers are at the cliff top — assault the battery before the garrison can reinforce."
+    detail: "Break through the forward ridge line and clear each gun emplacement before the inland reserve can counterattack.",
+    announcement: "Assault force is in position. Seize the battery line before reinforcements arrive."
   };
 }
 
@@ -483,6 +483,8 @@ function createPointeDuHocController(scenario: ScenarioData, difficulty: BotDiff
     label: `Gun Position ${index + 1}`,
     hex: objective.hex
   }));
+  const gunPositionKeys = new Set(gunPositions.map(({ key }) => key));
+  const batteryUnitTypes = new Set<ScenarioUnit["type"]>(["Howitzer_105", "Flak_88", "AT_Gun_50mm"]);
 
   const tracker: PointeDuHocTracker = {
     holdStreak: 0,
@@ -513,38 +515,40 @@ function createPointeDuHocController(scenario: ScenarioData, difficulty: BotDiff
         : `Hold phase: ${tracker.holdStreak}/${HOLD_TARGET} turns. All three positions must remain in friendly hands.`
     };
 
-    const mgNestEliminated = botUnits.every((unit) => unit.type !== "Infantry_42" || unit.hex.q !== 5 || unit.hex.r !== 0);
+    const batteryUnitsRemaining = botUnits.filter(
+      (unit) => batteryUnitTypes.has(unit.type) && gunPositionKeys.has(makeKey(unit.hex))
+    ).length;
     const secondary: ObjectiveProgress = {
-      id: "secondary_mg_nest",
-      label: "Destroy the MG nest at the cliff edge",
+      id: "secondary_battery_kills",
+      label: "Neutralize all battery emplacements",
       tier: "secondary",
-      state: mgNestEliminated
+      state: batteryUnitsRemaining <= 0
         ? "completed"
         : outcome.state === "inProgress"
           ? "inProgress"
           : "failed",
-      detail: mgNestEliminated
-        ? "The cliff-edge MG nest has been neutralised."
+      detail: batteryUnitsRemaining <= 0
+        ? "All gun emplacements on the ridge have been silenced."
         : outcome.state === "inProgress"
-          ? "The MG nest at the cliff edge is still active."
-          : "The MG nest survived the Ranger assault."
+          ? `${batteryUnitsRemaining} battery emplacement${batteryUnitsRemaining === 1 ? "" : "s"} still firing.`
+          : "At least one battery emplacement survived the assault."
     };
 
-    const rangersAlive = playerUnits.length >= 3;
+    const assaultForceOperational = playerUnits.length >= 3;
     const tertiary: ObjectiveProgress = {
-      id: "tertiary_ranger_strength",
-      label: "Keep at least three Ranger units alive",
+      id: "tertiary_assault_force",
+      label: "Keep at least three assault units operational",
       tier: "tertiary",
-      state: rangersAlive
+      state: assaultForceOperational
         ? outcome.state === "inProgress"
           ? "inProgress"
           : "completed"
         : "failed",
-      detail: rangersAlive
+      detail: assaultForceOperational
         ? outcome.state === "inProgress"
-          ? `${playerUnits.length} Rangers remain operational.`
-          : `${playerUnits.length} Rangers survived the mission.`
-        : "Fewer than three Rangers remain — the assault cost too many."
+          ? `${playerUnits.length} assault units remain operational.`
+          : `${playerUnits.length} assault units survived the mission.`
+        : "Fewer than three assault units remain operational."
     };
 
     return [primary, secondary, tertiary] satisfies readonly ObjectiveProgress[];
@@ -581,7 +585,7 @@ function createPointeDuHocController(scenario: ScenarioData, difficulty: BotDiff
       return {
         hex,
         status: "unoccupied",
-        tooltip: `${label} — Unoccupied. Assault the casemate to capture this position.`
+        tooltip: `${label} — Unoccupied. Move a unit onto the emplacement to capture this position.`
       } satisfies ObjectiveMarkerProgress;
     });
   };
@@ -602,7 +606,7 @@ function createPointeDuHocController(scenario: ScenarioData, difficulty: BotDiff
       if (botUnits.length === 0) {
         outcome = { state: "playerVictory", reason: "All German forces eliminated." };
       } else if (playerUnits.length === 0) {
-        outcome = { state: "playerDefeat", reason: "All Ranger units were lost." };
+        outcome = { state: "playerDefeat", reason: "All assault units were lost." };
       }
     }
 
