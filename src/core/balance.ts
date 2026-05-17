@@ -69,7 +69,7 @@ export const combat = {
     } as const,
     // Ground-based AA has a much harder time hitting fast aircraft than ground targets.
     // This scalar is applied after normal attack resolution for flak-vs-aircraft engagements.
-    groundAntiAirVsAircraftScalar: 0.125
+    groundAntiAirVsAircraftScalar: 0.2
   },
   /**
    * Cover reduces exposed target area and therefore belongs entirely in the hit-chance phase.

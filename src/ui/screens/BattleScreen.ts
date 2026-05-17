@@ -4735,7 +4735,14 @@ export class BattleScreen {
     this.publishActivityEvent({
       category: event.interceptors[0]?.faction === "Player" ? "player" : "enemy",
       type: "log",
-      summary
+      summary,
+      details: {
+        batteryCount,
+        bomberLabel,
+        flakDamage,
+        bomberStrengthAfter: strengthAfter,
+        bomberDestroyed: event.bomberDestroyed === true
+      }
     });
   }
 
@@ -4804,8 +4811,16 @@ export class BattleScreen {
           exchangeIndex: index,
           attackerUnitKey: exchange.attackerUnitKey,
           defenderUnitKey: exchange.defenderUnitKey,
+          attackerStrengthBefore: this.formatReadinessValue(exchange.attackerStrengthBefore),
+          attackerStrengthAfter: this.formatReadinessValue(exchange.attackerStrengthAfter),
+          defenderStrengthBefore: this.formatReadinessValue(exchange.defenderStrengthBefore),
+          defenderStrengthAfter: this.formatReadinessValue(exchange.defenderStrengthAfter),
           damageToPatrol: Math.max(0, Math.round(exchange.damageToDefender)),
-          retaliationDamage: Math.max(0, Math.round(exchange.retaliationDamage))
+          retaliationDamage: Math.max(0, Math.round(exchange.retaliationDamage)),
+          attackerDestroyed: exchange.attackerDestroyed,
+          defenderDestroyed: exchange.defenderDestroyed,
+          damageSummaryToDefender: exchange.damageSummaryToDefender?.summary,
+          retaliationDamageSummary: exchange.retaliationDamageSummary?.summary
         });
       });
 
@@ -4837,9 +4852,16 @@ export class BattleScreen {
           exchangeIndex: index,
           attackerUnitKey: exchange.attackerUnitKey,
           defenderUnitKey: exchange.defenderUnitKey,
+          attackerStrengthBefore: this.formatReadinessValue(exchange.attackerStrengthBefore),
+          attackerStrengthAfter: this.formatReadinessValue(exchange.attackerStrengthAfter),
+          bomberStrengthBefore: this.formatReadinessValue(exchange.defenderStrengthBefore),
           damageToBomber: Math.max(0, Math.round(exchange.damageToDefender)),
           retaliationDamage: Math.max(0, Math.round(exchange.retaliationDamage)),
-          bomberStrengthAfter: Math.max(0, Math.round(exchange.defenderStrengthAfter))
+          bomberStrengthAfter: Math.max(0, Math.round(exchange.defenderStrengthAfter)),
+          attackerDestroyed: exchange.attackerDestroyed,
+          bomberDestroyed: exchange.defenderDestroyed,
+          damageSummaryToDefender: exchange.damageSummaryToDefender?.summary,
+          retaliationDamageSummary: exchange.retaliationDamageSummary?.summary
         });
       });
       return;
@@ -9451,11 +9473,74 @@ export class BattleScreen {
     this.announceBattleUpdate(`${error.title} ${error.action}`);
   }
 
+  private formatActivityDetailLabel(key: string): string {
+    return key
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  private formatActivityDetailValue(value: unknown): string {
+    if (value === null || value === undefined) {
+      return "-";
+    }
+    if (typeof value === "string") {
+      return value;
+    }
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) {
+        return "-";
+      }
+      return Number.isInteger(value) ? value.toString() : this.formatReadinessValue(value);
+    }
+    if (typeof value === "boolean") {
+      return value ? "Yes" : "No";
+    }
+    if (Array.isArray(value)) {
+      if (value.length <= 0) {
+        return "-";
+      }
+      const rendered = value.map((entry) => this.formatActivityDetailValue(entry));
+      const joined = rendered.join(", ");
+      return joined.length > 280 ? `${joined.slice(0, 277)}...` : joined;
+    }
+    try {
+      const json = JSON.stringify(value);
+      if (!json) {
+        return "-";
+      }
+      return json.length > 280 ? `${json.slice(0, 277)}...` : json;
+    } catch {
+      return String(value);
+    }
+  }
+
+  private buildGenericActivityDetailSections(
+    details: Record<string, unknown> | undefined
+  ): readonly ActivityDetailSection[] | undefined {
+    if (!details) {
+      return undefined;
+    }
+    const entries = Object.entries(details).filter(([, value]) => value !== undefined);
+    if (entries.length <= 0) {
+      return undefined;
+    }
+    return [{
+      title: "Technical Data",
+      entries: entries.map(([key, value]) => ({
+        label: this.formatActivityDetailLabel(key),
+        value: this.formatActivityDetailValue(value)
+      }))
+    }];
+  }
+
   /**
    * Records a battle activity event while respecting log caps and updating the sidebar feed.
    */
   private publishActivityEvent(event: ActivityEventInput): void {
     this.activityEventSequence += 1;
+    const detailSections = event.detailSections ?? this.buildGenericActivityDetailSections(event.details);
     const activity: ActivityEvent = {
       id: `activity_${this.activityEventSequence}`,
       timestamp: new Date().toISOString(),
@@ -9463,7 +9548,7 @@ export class BattleScreen {
       type: event.type,
       summary: event.summary,
       details: event.details,
-      detailSections: event.detailSections
+      detailSections
     };
     this.activityEvents.push(activity);
     if (this.activityEvents.length > BattleScreen.ACTIVITY_EVENT_LIMIT) {

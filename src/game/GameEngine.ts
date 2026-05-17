@@ -908,6 +908,8 @@ export interface AirCombatExchangeEntry {
   readonly defenderStrengthAfter: number;
   readonly damageToDefender: number;
   readonly retaliationDamage: number;
+  readonly damageSummaryToDefender?: CombatDamageSummary;
+  readonly retaliationDamageSummary?: CombatDamageSummary;
   readonly attackerDestroyed: boolean;
   readonly defenderDestroyed: boolean;
   readonly visualPasses?: number;
@@ -4034,8 +4036,12 @@ export class GameEngine implements GameEngineAPI {
       ...structuredClone(defender),
       hex: { q: 1, r: 0 }
     };
-    this.reconcileUnitStatusToStrength(attackerAtContact);
-    this.reconcileUnitStatusToStrength(defenderAtContact);
+    attackerAtContact.formationKey = attackerAtContact.formationKey ?? this.inferFormationKeyForUnit(attackerAtContact);
+    defenderAtContact.formationKey = defenderAtContact.formationKey ?? this.inferFormationKeyForUnit(defenderAtContact);
+    const attackerStatus = ensureFormationStatus(attackerAtContact, attackerAtContact.formationKey);
+    const defenderStatus = ensureFormationStatus(defenderAtContact, defenderAtContact.formationKey);
+    attackerAtContact.strength = deriveStrengthFromStatus(attackerStatus, attackerAtContact.strength);
+    defenderAtContact.strength = deriveStrengthFromStatus(defenderStatus, defenderAtContact.strength);
     const airCombatAttackerDefinition = this.cloneDefinitionForAirCombat(
       attackerAtContact,
       attackerDefinition,
@@ -4090,7 +4096,9 @@ export class GameEngine implements GameEngineAPI {
     defender: ScenarioUnit,
     mode: "attack" | "turret"
   ): CombatDamageSummary | null {
-    this.reconcileUnitStatusToStrength(defender);
+    defender.formationKey = defender.formationKey ?? this.inferFormationKeyForUnit(defender);
+    const defenderStatus = ensureFormationStatus(defender, defender.formationKey);
+    defender.strength = deriveStrengthFromStatus(defenderStatus, defender.strength);
     const context = this.buildAirCombatDamageContext(attackerFaction, attacker, defender, mode);
     if (!context) {
       return null;
@@ -4143,6 +4151,7 @@ export class GameEngine implements GameEngineAPI {
       readonly defenderStrengthBefore: number;
       readonly rawDamage: number;
       effectiveDamage: number;
+      damageSummary: CombatDamageSummary | null;
     };
 
     const escortAssignments: AttackAssignment[] = liveEscorts
@@ -4157,8 +4166,9 @@ export class GameEngine implements GameEngineAPI {
           attackerStrengthBefore: escort.unitAfter.strength,
           defenderStrengthBefore: target.unitAfter.strength,
           rawDamage: this.resolveAirCombatDamage(escort.mission.faction, escort.unitAfter, target.unitAfter, "attack"),
-          effectiveDamage: 0
-        } satisfies AttackAssignment;
+          effectiveDamage: 0,
+          damageSummary: null as CombatDamageSummary | null
+        } as AttackAssignment;
       })
       .filter((assignment): assignment is AttackAssignment => !!assignment);
     const interceptorAssignments: AttackAssignment[] = liveInterceptors
@@ -4173,8 +4183,9 @@ export class GameEngine implements GameEngineAPI {
           attackerStrengthBefore: interceptor.unitAfter.strength,
           defenderStrengthBefore: target.unitAfter.strength,
           rawDamage: this.resolveAirCombatDamage(interceptor.mission.faction, interceptor.unitAfter, target.unitAfter, "attack"),
-          effectiveDamage: 0
-        } satisfies AttackAssignment;
+          effectiveDamage: 0,
+          damageSummary: null as CombatDamageSummary | null
+        } as AttackAssignment;
       })
       .filter((assignment): assignment is AttackAssignment => !!assignment);
 
@@ -4201,15 +4212,17 @@ export class GameEngine implements GameEngineAPI {
         .forEach((assignment) => {
           if (target.unitAfter.strength <= 0) {
             assignment.effectiveDamage = 0;
+            assignment.damageSummary = null;
             return;
           }
-          const damage = this.applyAirCombatDamageToUnit(
+          const damageSummary = this.applyAirCombatDamageToUnit(
             assignment.attacker.mission.faction,
             assignment.attacker.unitAfter,
             target.unitAfter,
             "attack"
           );
-          assignment.effectiveDamage = damage?.readinessLoss ?? 0;
+          assignment.effectiveDamage = damageSummary?.readinessLoss ?? 0;
+          assignment.damageSummary = damageSummary;
           assignment.attacker.inflicted += assignment.effectiveDamage;
         });
       const totalDamage = assignments.reduce((sum, assignment) => sum + assignment.effectiveDamage, 0);
@@ -4251,6 +4264,8 @@ export class GameEngine implements GameEngineAPI {
         defenderStrengthAfter: assignment.target.unitAfter.strength,
         damageToDefender: assignment.effectiveDamage,
         retaliationDamage: counter?.effectiveDamage ?? 0,
+        damageSummaryToDefender: assignment.damageSummary ?? undefined,
+        retaliationDamageSummary: counter?.damageSummary ?? undefined,
         attackerDestroyed: assignment.attacker.unitAfter.strength <= 0,
         defenderDestroyed: assignment.target.unitAfter.strength <= 0,
         visualPasses: 1
@@ -4277,6 +4292,7 @@ export class GameEngine implements GameEngineAPI {
         defenderStrengthAfter: assignment.attacker.unitAfter.strength,
         damageToDefender: 0,
         retaliationDamage: assignment.effectiveDamage,
+        retaliationDamageSummary: assignment.damageSummary ?? undefined,
         attackerDestroyed: assignment.target.unitAfter.strength <= 0,
         defenderDestroyed: assignment.attacker.unitAfter.strength <= 0,
         visualPasses: 1
@@ -4354,12 +4370,13 @@ export class GameEngine implements GameEngineAPI {
         }))
         .sort((a, b) => a.delta.mission.id.localeCompare(b.delta.mission.id));
       const effectiveDamages: number[] = [];
+      const effectiveDamageSummaries: Array<CombatDamageSummary | null> = [];
       const turretTarget = [...survivingInterceptors].sort(
         (a, b) => b.unitAfter.strength - a.unitAfter.strength || a.mission.id.localeCompare(b.mission.id)
       )[0] ?? null;
 
       interceptorAssignments.forEach((assignment) => {
-        const damage = bomberAfter.strength > 0
+        const damageSummary = bomberAfter.strength > 0
           ? this.applyAirCombatDamageToUnit(
               assignment.delta.mission.faction,
               assignment.delta.unitAfter,
@@ -4367,21 +4384,23 @@ export class GameEngine implements GameEngineAPI {
               "attack"
             )
           : null;
-        const effectiveDamage = damage?.readinessLoss ?? 0;
+        const effectiveDamage = damageSummary?.readinessLoss ?? 0;
         effectiveDamages.push(effectiveDamage);
+        effectiveDamageSummaries.push(damageSummary);
         assignment.delta.engaged = true;
         assignment.delta.inflicted += effectiveDamage;
         bomberAttrition += effectiveDamage;
       });
 
-      const turretDamage = turretTarget
+      const turretDamageSummary = turretTarget
         ? this.applyAirCombatDamageToUnit(
             bomberFaction,
             bomberAtPassStart,
             turretTarget.unitAfter,
             "turret"
-          )?.readinessLoss ?? 0
-        : 0;
+          ) ?? null
+        : null;
+      const turretDamage = turretDamageSummary?.readinessLoss ?? 0;
       if (turretTarget && turretDamage > 0) {
         bomberDefenseInterceptorAttrition = turretDamage;
         turretTarget.taken += turretDamage;
@@ -4410,6 +4429,10 @@ export class GameEngine implements GameEngineAPI {
           defenderStrengthAfter: Math.max(0, bomberStrengthBeforePass - cumulativeBomberDamage),
           damageToDefender: effectiveDamage,
           retaliationDamage: turretTarget?.mission.id === assignment.delta.mission.id ? turretDamage : 0,
+          damageSummaryToDefender: effectiveDamageSummaries[index] ?? undefined,
+          retaliationDamageSummary: turretTarget?.mission.id === assignment.delta.mission.id
+            ? turretDamageSummary ?? undefined
+            : undefined,
           attackerDestroyed: assignment.delta.unitAfter.strength <= 0,
           defenderDestroyed: bomberAfter.strength <= 0,
           visualPasses: 2,

@@ -365,10 +365,16 @@ function calculateEquipmentDamage(
   };
 
   const totalScalar = effectScalar * equipmentOutcomeScalar;
+  const defenderIsAircraft = request.defenderDefinition.class === "air";
+  const damagedThreshold = defenderIsAircraft ? 0.16 : 0.2;
+  const disabledThreshold = defenderIsAircraft ? 0.12 : 0.2;
+  const destroyedThreshold = defenderIsAircraft ? 0.1 : 0.2;
+  const disabledScalar = defenderIsAircraft ? 1.15 : 1;
+  const destroyedScalar = defenderIsAircraft ? 1.35 : 1;
   return {
-    damaged: outcomeRound((penetratingDamage.damaged + areaDamage.damaged + softDamage.damaged) * totalScalar, 0.2),
-    disabled: outcomeRound((penetratingDamage.disabled + areaDamage.disabled + softDamage.disabled) * totalScalar, 0.2),
-    destroyed: outcomeRound((penetratingDamage.destroyed + areaDamage.destroyed + softDamage.destroyed) * totalScalar, 0.2)
+    damaged: outcomeRound((penetratingDamage.damaged + areaDamage.damaged + softDamage.damaged) * totalScalar, damagedThreshold),
+    disabled: outcomeRound((penetratingDamage.disabled + areaDamage.disabled + softDamage.disabled) * totalScalar * disabledScalar, disabledThreshold),
+    destroyed: outcomeRound((penetratingDamage.destroyed + areaDamage.destroyed + softDamage.destroyed) * totalScalar * destroyedScalar, destroyedThreshold)
   };
 }
 

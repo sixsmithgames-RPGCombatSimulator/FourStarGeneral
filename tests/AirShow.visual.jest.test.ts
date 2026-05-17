@@ -1338,6 +1338,49 @@ describe("AirShow JEST Harness", () => {
     });
   });
 
+  test("egress duration stays tightly governed to avoid lingering bomber tails", async () => {
+    const reports = [
+      inspectScene(await captureScene()),
+      inspectSceneForFixture(largeFixture, await captureSceneForFixture(largeFixture))
+    ];
+
+    reports.forEach((report) => {
+      const targetRun = report.phases.find((phase) => phase.label === "target-run");
+      const egress = report.phases.find((phase) => phase.label === "egress");
+      const targetRunAudit = report.phaseTimingAudit.find((phase) => phase.label === "target-run");
+      const egressAudit = report.phaseTimingAudit.find((phase) => phase.label === "egress");
+
+      expect(targetRun).toBeDefined();
+      expect(egress).toBeDefined();
+      expect(targetRunAudit).toBeDefined();
+      expect(egressAudit).toBeDefined();
+
+      const targetRunDurationMs = Math.max(1, targetRun?.durationMs ?? 1);
+      const egressDurationCeilingMs = Math.max(
+        4400,
+        Math.min(16000, Math.round(targetRunDurationMs * 1.12))
+      );
+      const meanAuditPathLengthPx = (
+        roles:
+          | ReadonlyArray<{ meanPathLengthPx: number }>
+          | undefined
+      ): number => {
+        const rolePaths = (roles ?? [])
+          .map((role) => role.meanPathLengthPx)
+          .filter((pathLengthPx) => Number.isFinite(pathLengthPx) && pathLengthPx > 1);
+        if (rolePaths.length <= 0) {
+          return 0;
+        }
+        return rolePaths.reduce((sum, pathLengthPx) => sum + pathLengthPx, 0) / rolePaths.length;
+      };
+      const targetRunMeanPathLengthPx = meanAuditPathLengthPx(targetRunAudit?.roles);
+      const egressMeanPathLengthPx = meanAuditPathLengthPx(egressAudit?.roles);
+
+      expect(egress?.durationMs ?? 0).toBeLessThanOrEqual(egressDurationCeilingMs);
+      expect(egressMeanPathLengthPx).toBeLessThan(targetRunMeanPathLengthPx * 3.15);
+    });
+  });
+
   test("renderer visible bounds follow the focused viewport instead of the whole map", () => {
     ensureDomEnvironment();
 

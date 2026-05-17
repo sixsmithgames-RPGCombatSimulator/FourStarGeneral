@@ -1849,6 +1849,29 @@ export function planResolvedAirCombatShowScene(
           hqAxis
             ? (flight.spec.faction === "Bot" ? hqAxis.botOrigin : hqAxis.playerOrigin)
             : host.resolveHexCenterByKey(flight.spec.originHexKey);
+        if (visibleBounds) {
+          const homeSideSign =
+            originCenter
+              ? (
+                  hqMidX === null
+                    ? (originCenter.cx >= center.cx ? 1 : -1)
+                    : (originCenter.cx >= hqMidX ? 1 : -1)
+                )
+              : (flight.spec.faction === "Bot" ? 1 : -1);
+          const boundaryX = homeSideSign < 0 ? visibleBounds.minX : visibleBounds.maxX;
+          const laneOffsetPx = (index - (bomberFlightsForPhase.length - 1) / 2) * 14;
+          const egressY = host.clamp(
+            current.cy
+              + corridor.axis.y * (92 + rand() * 36)
+              + corridor.normal.y * laneOffsetPx,
+            visibleBounds.minY - host.offMapDistancePx * 0.45,
+            visibleBounds.maxY + host.offMapDistancePx * 0.45
+          );
+          return {
+            cx: boundaryX + homeSideSign * host.offMapDistancePx * 0.72 + (rand() - 0.5) * 12,
+            cy: egressY
+          };
+        }
         if (originCenter) {
           return host.offsetAirShowPoint(originCenter, (rand() - 0.5) * 22, (rand() - 0.5) * 18);
         }
@@ -5927,7 +5950,7 @@ export function planResolvedAirCombatShowScene(
           1,
           Math.hypot(finalPoint.cx - boundaryMotion.start.cx, finalPoint.cy - boundaryMotion.start.cy)
         );
-        const carryForwardPx = Math.min(980, Math.max(560, distancePx * 0.22));
+        const carryForwardPx = Math.min(260, Math.max(120, distancePx * 0.1));
         const entryCarryPoint = host.offsetAirShowPoint(
           boundaryMotion.start,
           entryForward.x * carryForwardPx,
@@ -5940,10 +5963,10 @@ export function planResolvedAirCombatShowScene(
             startHeadingDegrees: entryHeadingDegrees,
             lateralSign,
             minRouteDot: -0.72,
-            carryForwardPx: Math.min(640, Math.max(360, distancePx * 0.16)),
-            earlyAlongPx: Math.max(carryForwardPx + 220, distancePx * 0.38),
-            midAlongPx: Math.max(carryForwardPx + 520, distancePx * 0.62),
-            lateAlongPx: Math.max(carryForwardPx + 760, distancePx * 0.86),
+            carryForwardPx: Math.min(220, Math.max(92, distancePx * 0.08)),
+            earlyAlongPx: Math.max(carryForwardPx + 96, distancePx * 0.34),
+            midAlongPx: Math.max(carryForwardPx + 220, distancePx * 0.58),
+            lateAlongPx: Math.max(carryForwardPx + 340, distancePx * 0.84),
             entryLateralPx: 6,
             midLateralPx: 6,
             lateLateralPx: 4
@@ -5971,13 +5994,29 @@ export function planResolvedAirCombatShowScene(
           )
         };
       });
-    if (rawEgressAssignments.length > 0) {
-      let egressDurationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(
-        rawEgressAssignments,
+    const resolveGovernedEgressDurationMs = (
+      assignments: ReadonlyArray<AirShowPhaseAssignment>,
+      seedDurationMs: number
+    ): number => {
+      const resolvedDurationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(
+        assignments,
         roleSpeeds,
-        targetRunDurationMs,
+        seedDurationMs,
         1,
         60000
+      );
+      const referenceTargetRunDurationMs = Math.max(1, targetRunDurationMs);
+      const minimumDurationMs = Math.max(2800, Math.round(referenceTargetRunDurationMs * 0.42));
+      const maximumDurationMs = Math.max(
+        minimumDurationMs + 1600,
+        Math.min(16000, Math.round(referenceTargetRunDurationMs * 1.12))
+      );
+      return host.clamp(resolvedDurationMs, minimumDurationMs, maximumDurationMs);
+    };
+    if (rawEgressAssignments.length > 0) {
+      let egressDurationMs = resolveGovernedEgressDurationMs(
+        rawEgressAssignments,
+        targetRunDurationMs
       );
       let egressAssignments = host.prepareAirShowPhaseAssignments(
         host.extendAirShowPhaseAssignmentsForSpeed(
@@ -6044,12 +6083,9 @@ export function planResolvedAirCombatShowScene(
           extensionMode: "carry"
         }
       );
-      egressDurationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(
+      egressDurationMs = resolveGovernedEgressDurationMs(
         egressAssignments,
-        roleSpeeds,
-        egressDurationMs,
-        1,
-        60000
+        egressDurationMs
       );
       egressAssignments = host.prepareAirShowPhaseAssignments(
         host.extendAirShowPhaseAssignmentsForSpeed(
@@ -6145,8 +6181,8 @@ export function planResolvedAirCombatShowScene(
           egressDurationMs * (roleSpeeds.get(assignment.actor.role) ?? host.airShowFighterSpeedPxPerMs);
         const isCarryingAwayFromHome = entryForward.x * sideSign < -0.12;
         const entryControlDistancePx = isCarryingAwayFromHome
-          ? host.clamp(targetLengthPx * 0.04, 92, 220)
-          : host.clamp(targetLengthPx * 0.1, 240, 620);
+          ? host.clamp(targetLengthPx * 0.04, 72, 168)
+          : host.clamp(targetLengthPx * 0.08, 156, 360);
         const boundaryExitX = visibleBounds
           ? (
               sideSign < 0
@@ -6155,16 +6191,12 @@ export function planResolvedAirCombatShowScene(
             )
           : homeSideMidX + sideSign * (homeSideVisibleWidthPx * 0.9 + host.offMapDistancePx);
         const renderedStartX = start.cx + renderedOffsetPx;
-        const minimumHomeAdvancePx = host.clamp(
-          targetLengthPx * 0.28,
-          520,
-          Math.max(820, homeSideVisibleWidthPx * 0.58)
-        );
-        const forwardExitX = renderedStartX + sideSign * minimumHomeAdvancePx;
+        const minimumForwardExitX =
+          renderedStartX + sideSign * Math.max(180, homeSideVisibleWidthPx * 0.18);
         const offMapExitX =
           sideSign < 0
-            ? Math.min(boundaryExitX, forwardExitX)
-            : Math.max(boundaryExitX, forwardExitX);
+            ? Math.min(boundaryExitX, minimumForwardExitX)
+            : Math.max(boundaryExitX, minimumForwardExitX);
         const exitPoint = {
           cx: offMapExitX - renderedOffsetPx,
           cy: rawEnd.cy
@@ -6176,7 +6208,7 @@ export function planResolvedAirCombatShowScene(
           0
         );
         const routeNormal = { x: -routeForward.y, y: routeForward.x };
-        const exitControlDistancePx = host.clamp(targetLengthPx * 0.16, 420, 980);
+        const exitControlDistancePx = host.clamp(targetLengthPx * 0.14, 260, 680);
         const firstControl = {
           cx: start.cx + entryForward.x * entryControlDistancePx + routeNormal.x * laneOffsetPx * 0.12,
           cy: start.cy + entryForward.y * entryControlDistancePx + routeNormal.y * laneOffsetPx * 0.12
@@ -6204,21 +6236,32 @@ export function planResolvedAirCombatShowScene(
       egressAssignments = preserveBomberEgressEntryMotion(egressAssignments).map((assignment) =>
         buildHomeSideFighterEgressAssignment(assignment)
       );
-      egressDurationMs = host.resolveAirShowPhaseDurationFromRoleSpeeds(
+      egressDurationMs = resolveGovernedEgressDurationMs(
         egressAssignments,
-        roleSpeeds,
-        egressDurationMs,
-        1,
-        60000
+        egressDurationMs
       );
+      const resolveEgressCarrySign = (assignment: AirShowPhaseAssignment): number => {
+        const start = assignment.points[0] ?? assignment.actor.position;
+        const end = assignment.points[assignment.points.length - 1] ?? start;
+        const dx = end.cx - start.cx;
+        if (Math.abs(dx) > 0.001) {
+          return dx >= 0 ? 1 : -1;
+        }
+        if (assignment.actor.role === "escort") {
+          return -1;
+        }
+        if (assignment.actor.role === "interceptor") {
+          return 1;
+        }
+        const ownerFlight = flightMap.get(assignment.actor.flightId);
+        return ownerFlight?.spec.faction === "Bot" ? 1 : -1;
+      };
       egressAssignments = egressAssignments.map((assignment) =>
-        assignment.actor.role === "interceptor" || assignment.actor.role === "escort"
-          ? matchAssignmentPathLength(
-              assignment,
-              egressDurationMs,
-              assignment.actor.role === "escort" ? -1 : 1
-            )
-          : assignment
+        matchAssignmentPathLength(
+          assignment,
+          egressDurationMs,
+          resolveEgressCarrySign(assignment)
+        )
       );
       recordPhase("egress", egressAssignments, egressDurationMs, [], [], roleSpeeds);
       commitCorridorPhaseEndState(egressAssignments, egressDurationMs);
