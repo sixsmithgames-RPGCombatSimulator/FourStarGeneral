@@ -570,12 +570,12 @@ registerTest("PRECOMBAT_RIVER_WATCH_HARD_DIFFICULTY_UPDATES_EXTRACTION_WINDOW", 
     screen.setup("patrol_river_watch", null, "Hard");
   });
 
-  await Then("the authored extraction window and mission handoff use the Hard timer", async () => {
+  await Then("the authored extraction window and mission handoff use the fixed mission timer", async () => {
     const summary = getMissionSummaryPackage("patrol_river_watch", "Hard");
     const missionInfo = battleState.getPrecombatMissionInfo();
 
-    if (!turnLimitElement || turnLimitElement.textContent !== "11 turns") {
-      throw new Error(`Expected Hard extraction window of 11 turns, received ${turnLimitElement?.textContent}`);
+    if (!turnLimitElement || turnLimitElement.textContent !== "12 turns") {
+      throw new Error(`Expected fixed extraction window of 12 turns, received ${turnLimitElement?.textContent}`);
     }
     if (!supplyList) {
       throw new Error("Expected supply list element to exist.");
@@ -584,14 +584,14 @@ registerTest("PRECOMBAT_RIVER_WATCH_HARD_DIFFICULTY_UPDATES_EXTRACTION_WINDOW", 
     if (!supplyText.includes("Off-map Artillery")) {
       throw new Error(`Expected Hard briefing support summary to keep off-map artillery visible, received ${supplyText}`);
     }
-    if (supplyText.includes("Hold until dawn on turn 11")) {
-      throw new Error(`Expected Hard extraction window copy to stay in the turn-limit panel, received ${supplyText}`);
+    if (supplyText.includes("Hold until dawn on turn 12")) {
+      throw new Error(`Expected fixed extraction window copy to stay in the turn-limit panel, received ${supplyText}`);
     }
     if (!missionInfo) {
       throw new Error("Expected BattleState mission handoff to be populated.");
     }
-    if (missionInfo.turnLimit !== 11) {
-      throw new Error(`Expected BattleState Hard turn limit to be 11, received ${missionInfo.turnLimit}`);
+    if (missionInfo.turnLimit !== 12) {
+      throw new Error(`Expected BattleState turn limit to be 12, received ${missionInfo.turnLimit}`);
     }
     if (missionInfo.baselineSupplies.map((item) => `${item.label}:${item.amount}`).join("|") !== summary.supplies.map((item) => `${item.label}:${item.amount}`).join("|")) {
       throw new Error("Expected BattleState Hard supply summary to match the authored package.");
@@ -619,17 +619,17 @@ registerTest("MISSION_PROFILE_EXPOSES_REUSABLE_CATEGORY_AND_DEPLOYMENT_DEFAULTS"
     if (riverWatchProfile.deployment.focusLabel !== "line of departure") {
       throw new Error(`Expected River Watch deployment focus label to be line of departure, received ${riverWatchProfile.deployment.focusLabel}`);
     }
-    if (riverWatchProfile.deployment.validation.minimumPlayerZoneCapacityTotal !== 20) {
-      throw new Error(`Expected River Watch deployment doctrine to require 20 player slots, received ${riverWatchProfile.deployment.validation.minimumPlayerZoneCapacityTotal}`);
+    if (riverWatchProfile.deployment.validation.minimumPlayerZoneCapacityTotal !== 16) {
+      throw new Error(`Expected River Watch deployment doctrine to require 16 player slots, received ${riverWatchProfile.deployment.validation.minimumPlayerZoneCapacityTotal}`);
     }
     if (riverWatchProfile.deployment.zoneDoctrine[0]?.zoneKey !== "allied-start") {
       throw new Error(`Expected River Watch zone doctrine to target allied-start, received ${riverWatchProfile.deployment.zoneDoctrine[0]?.zoneKey}`);
     }
-    if (riverWatchProfile.deployment.zoneDoctrine[0]?.minimumCapacity !== 20) {
-      throw new Error(`Expected River Watch zone doctrine minimum capacity 20, received ${riverWatchProfile.deployment.zoneDoctrine[0]?.minimumCapacity}`);
+    if (riverWatchProfile.deployment.zoneDoctrine[0]?.minimumCapacity !== 16) {
+      throw new Error(`Expected River Watch zone doctrine minimum capacity 16, received ${riverWatchProfile.deployment.zoneDoctrine[0]?.minimumCapacity}`);
     }
-    if (riverWatchProfile.summary.turnLimit !== 11) {
-      throw new Error(`Expected Hard River Watch mission profile to resolve turn limit 11, received ${riverWatchProfile.summary.turnLimit}`);
+    if (riverWatchProfile.summary.turnLimit !== 12) {
+      throw new Error(`Expected River Watch mission profile to resolve turn limit 12, received ${riverWatchProfile.summary.turnLimit}`);
     }
     if (patrolProfile.category !== "patrol") {
       throw new Error(`Expected baseline patrol mission to resolve as patrol category, received ${patrolProfile.category}`);

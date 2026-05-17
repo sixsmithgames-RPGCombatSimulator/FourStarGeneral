@@ -1239,7 +1239,7 @@ registerTest("BATTLESCREEN_RIVER_WATCH_SEEDS_INITIAL_MISSION_STATUS", async ({ G
   });
 });
 
-registerTest("BATTLESCREEN_RIVER_WATCH_HARD_DIFFICULTY_NORMALIZES_TURN_LIMIT", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_RIVER_WATCH_IGNORES_DIFFICULTY_FOR_TURN_LIMIT", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let scenarioTurnLimit = -1;
 
@@ -1264,9 +1264,9 @@ registerTest("BATTLESCREEN_RIVER_WATCH_HARD_DIFFICULTY_NORMALIZES_TURN_LIMIT", a
     scenarioTurnLimit = ((screen as any).buildScenarioData() as { turnLimit: number }).turnLimit;
   });
 
-  await Then("the normalized scenario uses the authored Hard extraction window", async () => {
-    if (scenarioTurnLimit !== 11) {
-      throw new Error(`Expected Hard River Watch turn limit to normalize to 11, received ${scenarioTurnLimit}`);
+  await Then("the normalized scenario uses the authored mission turn limit", async () => {
+    if (scenarioTurnLimit !== 12) {
+      throw new Error(`Expected River Watch turn limit to normalize to 12, received ${scenarioTurnLimit}`);
     }
   });
 });

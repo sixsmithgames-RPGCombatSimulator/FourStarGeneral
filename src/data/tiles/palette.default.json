@@ -105,31 +105,31 @@
     "recon": "none"
   },
   "ROAD_BRIDGE_INT": {
-    "terrain": "road",
+    "terrain": "plains",
     "terrainType": "rural",
     "density": "sparse",
-    "features": ["bridge"],
+    "features": ["road", "bridge"],
     "recon": "intel"
   },
   "ROAD_BRIDGE_FIRST": {
-    "terrain": "road",
+    "terrain": "plains",
     "terrainType": "rural",
     "density": "sparse",
-    "features": ["bridge"],
+    "features": ["road", "bridge"],
     "recon": "firsthand"
   },
   "ROAD_CLEAR_INT": {
-    "terrain": "road",
+    "terrain": "plains",
     "terrainType": "rural",
     "density": "sparse",
-    "features": [],
+    "features": ["road"],
     "recon": "intel"
   },
   "ROAD_CLEAR_FIRST": {
-    "terrain": "road",
+    "terrain": "plains",
     "terrainType": "rural",
     "density": "sparse",
-    "features": [],
+    "features": ["road"],
     "recon": "firsthand"
   },
   "CITY_DEF_INT": {

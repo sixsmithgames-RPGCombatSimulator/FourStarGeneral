@@ -215,6 +215,155 @@ function capEquipmentPoolToAuthorized(pool: VehicleStatusPool, authorizedTotal: 
   pool.destroyed = destroyed;
 }
 
+function allocateToWeights(total: number, weights: readonly number[]): number[] {
+  const target = Math.max(0, Math.round(total));
+  if (target <= 0 || weights.length <= 0) {
+    return weights.map(() => 0);
+  }
+  const sanitized = weights.map((weight) => Math.max(0, Number.isFinite(weight) ? weight : 0));
+  const weightTotal = sanitized.reduce((sum, weight) => sum + weight, 0);
+  if (weightTotal <= 0) {
+    const even = Math.floor(target / sanitized.length);
+    let remainder = target - even * sanitized.length;
+    return sanitized.map((_, index) => {
+      if (index === sanitized.length - 1) {
+        return even + remainder;
+      }
+      return even;
+    });
+  }
+  const raw = sanitized.map((weight) => (weight / weightTotal) * target);
+  const base = raw.map((value) => Math.floor(value));
+  let used = base.reduce((sum, value) => sum + value, 0);
+  if (used < target) {
+    const remainders = raw.map((value, index) => ({ index, remainder: value - base[index]! }));
+    remainders.sort((left, right) => right.remainder - left.remainder || left.index - right.index);
+    for (let i = 0; i < remainders.length && used < target; i += 1) {
+      base[remainders[i]!.index] += 1;
+      used += 1;
+    }
+  }
+  return base;
+}
+
+function normalizeCountVectorToTotal(values: readonly number[], targetTotal: number): number[] {
+  return allocateToWeights(targetTotal, values.map((value) => Math.max(0, Math.round(value))));
+}
+
+function resolveAuthorizedPersonnelTotal(unitType: string, formation: FormationDefinition | undefined): number {
+  const formationTotal = (formation?.personnel ?? []).reduce((sum, entry) => sum + Math.max(0, Math.round(entry.count)), 0);
+  if (formationTotal > 0) {
+    return formationTotal;
+  }
+  return fallbackPersonnelCount(unitType);
+}
+
+function resolveAuthorizedEquipmentTotal(unitType: string, formation: FormationDefinition | undefined): number {
+  const trackedVehicleCount = Math.max(0, Math.round(formation?.vehicles ?? 0));
+  if (trackedVehicleCount > 0) {
+    return trackedVehicleCount;
+  }
+  const formationEquipmentTotal = (formation?.equipment ?? [])
+    .filter((entry) => entry.quantity > 1)
+    .reduce((sum, entry) => sum + Math.max(0, Math.round(entry.quantity)), 0);
+  if (formationEquipmentTotal > 0) {
+    return formationEquipmentTotal;
+  }
+  return fallbackEquipmentCount(unitType);
+}
+
+function normalizePersonnelPools(status: FormationStatus, authorizedTotal: number): void {
+  const targetTotal = Math.max(0, Math.round(authorizedTotal));
+  if (targetTotal <= 0) {
+    status.personnel = {};
+    return;
+  }
+
+  const aggregate = Object.values(status.personnel).reduce(
+    (total, pool) => ({
+      fit: total.fit + Math.max(0, Math.round(pool.fit)),
+      injured: total.injured + Math.max(0, Math.round(pool.injured)),
+      wounded: total.wounded + Math.max(0, Math.round(pool.wounded)),
+      severelyWounded: total.severelyWounded + Math.max(0, Math.round(pool.severelyWounded)),
+      killed: total.killed + Math.max(0, Math.round(pool.killed))
+    }),
+    { fit: 0, injured: 0, wounded: 0, severelyWounded: 0, killed: 0 }
+  );
+  const aggregateTotal = aggregate.fit + aggregate.injured + aggregate.wounded + aggregate.severelyWounded + aggregate.killed;
+
+  const key = Object.keys(status.personnel)[0] ?? "core";
+  if (aggregateTotal <= 0) {
+    status.personnel = { [key]: emptyPersonnel(targetTotal) };
+    return;
+  }
+
+  const normalized = normalizeCountVectorToTotal(
+    [aggregate.fit, aggregate.injured, aggregate.wounded, aggregate.severelyWounded, aggregate.killed],
+    targetTotal
+  );
+  status.personnel = {
+    [key]: {
+      fit: normalized[0] ?? 0,
+      injured: normalized[1] ?? 0,
+      wounded: normalized[2] ?? 0,
+      severelyWounded: normalized[3] ?? 0,
+      killed: normalized[4] ?? 0
+    }
+  };
+}
+
+function normalizeEquipmentPools(status: FormationStatus, authorizedTotal: number): void {
+  const targetTotal = Math.max(0, Math.round(authorizedTotal));
+  if (targetTotal <= 0) {
+    status.equipment = {};
+    return;
+  }
+
+  const aggregate = Object.values(status.equipment).reduce(
+    (total, pool) => ({
+      operational: total.operational + Math.max(0, Math.round(pool.operational)),
+      damaged: total.damaged + Math.max(0, Math.round(pool.damaged)),
+      disabled: total.disabled + Math.max(0, Math.round(pool.disabled)),
+      destroyed: total.destroyed + Math.max(0, Math.round(pool.destroyed))
+    }),
+    { operational: 0, damaged: 0, disabled: 0, destroyed: 0 }
+  );
+  const aggregateTotal = aggregate.operational + aggregate.damaged + aggregate.disabled + aggregate.destroyed;
+
+  const preferredKey =
+    Object.prototype.hasOwnProperty.call(status.equipment, "vehicles")
+      ? "vehicles"
+      : Object.keys(status.equipment)[0] ?? "core";
+  if (aggregateTotal <= 0) {
+    status.equipment = { [preferredKey]: emptyVehicles(targetTotal) };
+    return;
+  }
+
+  const normalized = normalizeCountVectorToTotal(
+    [aggregate.operational, aggregate.damaged, aggregate.disabled, aggregate.destroyed],
+    targetTotal
+  );
+  status.equipment = {
+    [preferredKey]: {
+      operational: normalized[0] ?? 0,
+      damaged: normalized[1] ?? 0,
+      disabled: normalized[2] ?? 0,
+      destroyed: normalized[3] ?? 0
+    }
+  };
+}
+
+function reconcileStatusPoolsToFormation(
+  status: FormationStatus,
+  unitType: string,
+  formation: FormationDefinition | undefined
+): void {
+  const personnelAuthorizedTotal = resolveAuthorizedPersonnelTotal(unitType, formation);
+  const equipmentAuthorizedTotal = resolveAuthorizedEquipmentTotal(unitType, formation);
+  normalizePersonnelPools(status, personnelAuthorizedTotal);
+  normalizeEquipmentPools(status, equipmentAuthorizedTotal);
+}
+
 export function calculateFormationReadiness(
   status: FormationStatus | undefined,
   fallbackStrength: number
@@ -379,11 +528,14 @@ export function deriveStrengthFromStatus(status: FormationStatus | undefined, fa
 }
 
 export function ensureFormationStatus(unit: ScenarioUnit, formationKey?: string | null): FormationStatus {
+  const formation = formationKey ? getFormation(formationKey) : undefined;
   if (!unit.status) {
     unit.status = createInitialFormationStatus(unit.type as string, formationKey, unit.strength);
   } else if (!unit.status.readinessModel) {
-    unit.status.readinessModel = buildReadinessModel(unit.type as string, formationKey ? getFormation(formationKey) : undefined);
+    unit.status.readinessModel = buildReadinessModel(unit.type as string, formation);
   }
+  reconcileStatusPoolsToFormation(unit.status, unit.type as string, formation);
+  unit.status.readinessModel = buildReadinessModel(unit.type as string, formation);
   return unit.status;
 }
 

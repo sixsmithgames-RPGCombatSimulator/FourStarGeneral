@@ -1400,7 +1400,7 @@ export const unitFormations = {
     vehicles: 2,
     equipment: [{ id: "naval-fires", label: "Naval fire missions", quantity: 2, purpose: ["indirectFire"], canonStatus: "abstract" }],
     equipmentSummary: ["2 naval fire missions", "Shore observer team"],
-    requisition: { category: "support", costPerUnit: 80, maxQuantity: 1, inBattleAllowed: true }
+    requisition: { category: "support", costPerUnit: 70, maxQuantity: 1, inBattleAllowed: true }
   }
 } as const satisfies Record<UnitAllocationKey, FormationDefinition>;
 

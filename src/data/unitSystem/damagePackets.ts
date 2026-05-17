@@ -864,9 +864,7 @@ export function resolveDamagePacket(request: DamagePacketRequest): DamagePacket 
 
   const capStatus = structuredClone(status);
   const appliedPersonnel = applyPersonnelDelta(capStatus, personnel);
-  promotePersonnelOverflow(capStatus, personnel, appliedPersonnel);
   const appliedEquipment = applyEquipmentDelta(capStatus, equipment);
-  promoteEquipmentOverflow(capStatus, equipment, appliedEquipment);
   const appliedWeaponHits = alignWeaponHitsToAppliedDamage(weaponHits, appliedPersonnel, equipment, appliedEquipment);
   const appliedComponentDamage = aggregateComponentDamage(appliedWeaponHits);
 
@@ -917,74 +915,94 @@ function allocate(total: number, weights: readonly number[]): number[] {
   });
 }
 
-function applyPersonnelDelta(status: FormationStatus, delta: PersonnelDamageDelta): PersonnelDamageDelta {
-  const applied: PersonnelDamageDelta = { ...EMPTY_PERSONNEL_DELTA };
-  const requested: PersonnelDamageDelta = {
+function scalePersonnelDeltaToCapacity(delta: PersonnelDamageDelta, capacity: number): PersonnelDamageDelta {
+  const rounded: PersonnelDamageDelta = {
     injured: roundDamageCount(delta.injured),
     wounded: roundDamageCount(delta.wounded),
     severelyWounded: roundDamageCount(delta.severelyWounded),
     killed: roundDamageCount(delta.killed)
   };
-  const directOrder: readonly PersonnelDamageKey[] = ["killed", "severelyWounded", "wounded", "injured"];
-  const escalationOrder: readonly PersonnelDamageKey[] = ["injured", "wounded", "severelyWounded", "killed"];
-
-  const applyTransition = (key: PersonnelDamageKey, amount: number): number => {
-    if (amount <= 0) return 0;
-    const transition = PERSONNEL_TRANSITIONS[key];
-    const pools = Object.values(status.personnel).filter((pool) => eligiblePersonnelForTransition(pool, transition) > 0);
-    if (pools.length === 0) return 0;
-    const allocations = allocate(amount, pools.map((pool) => eligiblePersonnelForTransition(pool, transition)));
-    let transitionApplied = 0;
-    pools.forEach((pool, index) => {
-      transitionApplied += applyPersonnelTransitionToPool(pool, allocations[index] ?? 0, transition);
-    });
-    return transitionApplied;
+  const maxCapacity = Math.max(0, Math.round(capacity));
+  if (maxCapacity <= 0) {
+    return { ...EMPTY_PERSONNEL_DELTA };
+  }
+  const totalRequested = countPersonnelDelta(rounded);
+  if (totalRequested <= maxCapacity) {
+    return rounded;
+  }
+  const scaled = allocate(maxCapacity, [
+    rounded.injured,
+    rounded.wounded,
+    rounded.severelyWounded,
+    rounded.killed
+  ]);
+  return {
+    injured: scaled[0] ?? 0,
+    wounded: scaled[1] ?? 0,
+    severelyWounded: scaled[2] ?? 0,
+    killed: scaled[3] ?? 0
   };
-
-  directOrder.forEach((key) => {
-    const amount = roundDamageCount(requested[key]);
-    if (amount <= 0) return;
-    applied[key] += applyTransition(key, amount);
-  });
-
-  return applied;
 }
 
-function promotePersonnelOverflow(status: FormationStatus, requested: PersonnelDamageDelta, applied: PersonnelDamageDelta): void {
-  const escalationOrder: readonly PersonnelDamageKey[] = ["injured", "wounded", "severelyWounded", "killed"];
-  const applyTransition = (key: PersonnelDamageKey, amount: number): number => {
-    if (amount <= 0) return 0;
-    const transition = PERSONNEL_TRANSITIONS[key];
-    const pools = Object.values(status.personnel).filter((pool) => eligiblePersonnelForTransition(pool, transition) > 0);
-    if (pools.length === 0) return 0;
-    const allocations = allocate(amount, pools.map((pool) => eligiblePersonnelForTransition(pool, transition)));
-    let transitionApplied = 0;
-    pools.forEach((pool, index) => {
-      transitionApplied += applyPersonnelTransitionToPool(pool, allocations[index] ?? 0, transition);
-    });
-    return transitionApplied;
-  };
-  escalationOrder.forEach((key, index) => {
-    const amount = roundDamageCount(requested[key] - applied[key]);
-    if (amount <= 0) return;
-    let overflow = amount;
-    for (let escalatedIndex = index + 1; escalatedIndex < escalationOrder.length && overflow > 0; escalatedIndex += 1) {
-      const escalatedKey = escalationOrder[escalatedIndex]!;
-      const transitionApplied = applyTransition(escalatedKey, overflow);
-      applied[escalatedKey] += transitionApplied;
-      overflow -= transitionApplied;
-    }
-  });
-}
-
-function applyEquipmentDelta(status: FormationStatus, delta: EquipmentDamageDelta): EquipmentDamageDelta {
-  const applied: EquipmentDamageDelta = { ...EMPTY_EQUIPMENT_DELTA };
-  const requested: EquipmentDamageDelta = {
+function scaleEquipmentDeltaToCapacity(delta: EquipmentDamageDelta, capacity: number): EquipmentDamageDelta {
+  const rounded: EquipmentDamageDelta = {
     damaged: roundDamageCount(delta.damaged),
     disabled: roundDamageCount(delta.disabled),
     destroyed: roundDamageCount(delta.destroyed)
   };
-  const directOrder: readonly EquipmentDamageKey[] = ["destroyed", "disabled", "damaged"];
+  const maxCapacity = Math.max(0, Math.round(capacity));
+  if (maxCapacity <= 0) {
+    return { ...EMPTY_EQUIPMENT_DELTA };
+  }
+  const totalRequested = countEquipmentDelta(rounded);
+  if (totalRequested <= maxCapacity) {
+    return rounded;
+  }
+  const scaled = allocate(maxCapacity, [
+    rounded.damaged,
+    rounded.disabled,
+    rounded.destroyed
+  ]);
+  return {
+    damaged: scaled[0] ?? 0,
+    disabled: scaled[1] ?? 0,
+    destroyed: scaled[2] ?? 0
+  };
+}
+
+function applyPersonnelDelta(status: FormationStatus, delta: PersonnelDamageDelta): PersonnelDamageDelta {
+  const applied: PersonnelDamageDelta = { ...EMPTY_PERSONNEL_DELTA };
+  const capacity = livingPersonnel(status);
+  const requested = scalePersonnelDeltaToCapacity(delta, capacity);
+  const directOrder: readonly PersonnelDamageKey[] = ["injured", "wounded", "severelyWounded", "killed"];
+
+  const applyTransition = (key: PersonnelDamageKey, amount: number): number => {
+    if (amount <= 0) return 0;
+    const transition = PERSONNEL_TRANSITIONS[key];
+    const pools = Object.values(status.personnel).filter((pool) => eligiblePersonnelForTransition(pool, transition) > 0);
+    if (pools.length === 0) return 0;
+    const allocations = allocate(amount, pools.map((pool) => eligiblePersonnelForTransition(pool, transition)));
+    let transitionApplied = 0;
+    pools.forEach((pool, index) => {
+      transitionApplied += applyPersonnelTransitionToPool(pool, allocations[index] ?? 0, transition);
+    });
+    return transitionApplied;
+  };
+
+  directOrder.forEach((key) => {
+    const amount = roundDamageCount(requested[key]);
+    if (amount <= 0) return;
+    applied[key] += applyTransition(key, amount);
+  });
+
+  return applied;
+}
+
+function applyEquipmentDelta(status: FormationStatus, delta: EquipmentDamageDelta): EquipmentDamageDelta {
+  const applied: EquipmentDamageDelta = { ...EMPTY_EQUIPMENT_DELTA };
+  const capacity = nonDestroyedEquipment(status);
+  const requested = scaleEquipmentDeltaToCapacity(delta, capacity);
+  const directOrder: readonly EquipmentDamageKey[] = ["damaged", "disabled", "destroyed"];
 
   const applyTransition = (key: EquipmentDamageKey, amount: number): number => {
     if (amount <= 0) return 0;
@@ -1006,33 +1024,6 @@ function applyEquipmentDelta(status: FormationStatus, delta: EquipmentDamageDelt
   });
 
   return applied;
-}
-
-function promoteEquipmentOverflow(status: FormationStatus, requested: EquipmentDamageDelta, applied: EquipmentDamageDelta): void {
-  const escalationOrder: readonly EquipmentDamageKey[] = ["damaged", "disabled", "destroyed"];
-  const applyTransition = (key: EquipmentDamageKey, amount: number): number => {
-    if (amount <= 0) return 0;
-    const transition = EQUIPMENT_TRANSITIONS[key];
-    const pools = Object.values(status.equipment).filter((pool) => eligibleEquipmentForTransition(pool, transition) > 0);
-    if (pools.length === 0) return 0;
-    const allocations = allocate(amount, pools.map((pool) => eligibleEquipmentForTransition(pool, transition)));
-    let transitionApplied = 0;
-    pools.forEach((pool, index) => {
-      transitionApplied += applyEquipmentTransitionToPool(pool, allocations[index] ?? 0, transition);
-    });
-    return transitionApplied;
-  };
-  escalationOrder.forEach((key, index) => {
-    const amount = roundDamageCount(requested[key] - applied[key]);
-    if (amount <= 0) return;
-    let overflow = amount;
-    for (let escalatedIndex = index + 1; escalatedIndex < escalationOrder.length && overflow > 0; escalatedIndex += 1) {
-      const escalatedKey = escalationOrder[escalatedIndex]!;
-      const transitionApplied = applyTransition(escalatedKey, overflow);
-      applied[escalatedKey] += transitionApplied;
-      overflow -= transitionApplied;
-    }
-  });
 }
 
 export function applyDamagePacketToUnit(unit: ScenarioUnit, packet: DamagePacket): void {

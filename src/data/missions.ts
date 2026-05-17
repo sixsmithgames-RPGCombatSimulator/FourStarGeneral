@@ -105,24 +105,6 @@ export interface MissionProfile {
   readonly unlockRequirement: MissionUnlockRequirement;
 }
 
-const RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
-  Easy: 14,
-  Normal: 12,
-  Hard: 11
-};
-
-const POINTE_DU_HOC_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
-  Easy: 22,
-  Normal: 20,
-  Hard: 18
-};
-
-const CITADEL_RIDGE_TURN_LIMIT_BY_DIFFICULTY: Record<BotDifficulty, number> = {
-  Easy: 20,
-  Normal: 17,
-  Hard: 15
-};
-
 export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> = {
   training: {
     objectives: [
@@ -160,7 +142,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
     supplies: [
       { label: "Assault Force", amount: "Infantry, engineers, and recon bikes only (no armor)." },
       { label: "Support Access", amount: "In-battle requisitions are limited to ammo, infantry, and naval gunfire support." },
-      { label: "Operational Window", amount: "18-22 turns depending on difficulty" }
+      { label: "Operational Window", amount: "20-turn assault window" }
     ]
   },
 
@@ -170,12 +152,12 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       "Secondary: Destroy the enemy comms team before it reaches the central ford.",
       "Tertiary: Keep at least one recon unit alive."
     ],
-    turnLimit: 99,
+    turnLimit: 12,
     doctrine: "Occupy all three crossings with your units. Shift forces between hedgerow lanes before the enemy can mass. Hold the two off-map artillery fire missions for the ford that starts to buckle.",
     supplies: [
       { label: "Predeployed Patrol", amount: "2 rifle squads, engineers, recon bike patrol" },
       { label: "Off-map Artillery", amount: "2 fire missions" },
-      { label: "Duration", amount: "11-14 turns depending on difficulty" }
+      { label: "Duration", amount: "12-turn operation" }
     ]
   },
   assault_citadel_ridge: {
@@ -189,7 +171,7 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
     supplies: [
       { label: "Requisition Budget", amount: "2,600 requisition points" },
       { label: "Baseline Forces", amount: "No predeployed units" },
-      { label: "Operational Window", amount: "15-20 turns depending on difficulty" }
+      { label: "Operational Window", amount: "17-turn assault window" }
     ]
   },
   assault: {
@@ -467,55 +449,12 @@ export function getMissionBriefing(mission: MissionKey): string {
   return missionBriefings[mission] ?? "No briefing available.";
 }
 
-export function getMissionTurnLimit(mission: MissionKey, difficulty: BotDifficulty): number {
-  if (mission === "patrol_river_watch") {
-    return RIVER_WATCH_TURN_LIMIT_BY_DIFFICULTY[difficulty];
-  }
-  if (mission === "patrol_pointe_du_hoc") {
-    return POINTE_DU_HOC_TURN_LIMIT_BY_DIFFICULTY[difficulty];
-  }
-  if (mission === "assault_citadel_ridge") {
-    return CITADEL_RIDGE_TURN_LIMIT_BY_DIFFICULTY[difficulty];
-  }
-
+export function getMissionTurnLimit(mission: MissionKey, _difficulty: BotDifficulty): number {
   return missionSummaryPackages[mission].turnLimit;
 }
 
-export function getMissionSummaryPackage(mission: MissionKey, difficulty: BotDifficulty): MissionSummaryPackage {
-  const summary = missionSummaryPackages[mission];
-  const turnLimit = getMissionTurnLimit(mission, difficulty);
-
-  if (mission !== "patrol_river_watch" && mission !== "patrol_pointe_du_hoc" && mission !== "assault_citadel_ridge") {
-    return summary;
-  }
-
-  if (mission === "patrol_pointe_du_hoc") {
-    return {
-      ...summary,
-      turnLimit,
-      supplies: summary.supplies.map((item) => item.label === "Operational Window"
-        ? { ...item, amount: `Assault window closes on turn ${turnLimit}` }
-        : item)
-    };
-  }
-
-  if (mission === "patrol_river_watch") {
-    return {
-      ...summary,
-      turnLimit,
-      supplies: summary.supplies.map((item) => item.label === "Duration"
-        ? { ...item, amount: `Hold until dawn on turn ${turnLimit}` }
-        : item)
-    };
-  }
-
-  return {
-    ...summary,
-    turnLimit,
-    supplies: summary.supplies.map((item) => item.label === "Operational Window"
-      ? { ...item, amount: `Assault window closes on turn ${turnLimit}` }
-      : item)
-  };
+export function getMissionSummaryPackage(mission: MissionKey, _difficulty: BotDifficulty): MissionSummaryPackage {
+  return missionSummaryPackages[mission];
 }
 
 /**

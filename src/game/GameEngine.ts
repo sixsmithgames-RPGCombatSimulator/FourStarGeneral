@@ -419,6 +419,11 @@ export interface SupportAssetSnapshot {
   readonly notes: string | null;
   readonly queuedHex: string | null;
   readonly queuedByHex: string | null;
+  /**
+   * Maximum direct readiness damage this support strike can inflict in one mission.
+   * Exposed for UI transparency and save-state determinism.
+   */
+  readonly strikeDamageCap?: number;
 }
 
 /**
@@ -476,6 +481,7 @@ interface InternalSupportAsset {
   notes: string | null;
   queuedHex: string | null;
   queuedByHex: string | null;
+  strikeDamageCap?: number;
 }
 
 /**
@@ -6439,6 +6445,8 @@ private automateSupplyConvoys(
     defenderHex: Axial,
     packet: DamagePacket
   ): void {
+    const defenderStatusSummary = summarizeFormationStatus(defender.status, defender.strength);
+
     // Generate engagement report
     const report = generateCombatEngagementReport(
       attacker.unitId ?? `${attacker.type}@${axialKey(attacker.hex)}`,
@@ -6460,7 +6468,9 @@ private automateSupplyConvoys(
       equipment: packet.equipment,
       componentDamage: packet.componentDamage ?? { damaged: {}, disabled: {}, destroyed: {} },
       damageTypes: Array.from(packet.damageTypesUsed ?? []),
-      suppression: packet.suppression
+      suppression: packet.suppression,
+      readinessAfter: defenderStatusSummary.readiness,
+      strengthAfter: defender.strength
     };
 
     recordUnitDamage(
@@ -7054,7 +7064,8 @@ private automateSupplyConvoys(
         assignedHex: null,
         notes: "Off-map heavy artillery battery available for observer-directed fire missions.",
         queuedHex: null,
-        queuedByHex: null
+        queuedByHex: null,
+        strikeDamageCap: 24
       },
       {
         id: "support-airstrike-bravo",
@@ -7068,7 +7079,8 @@ private automateSupplyConvoys(
         assignedHex: null,
         notes: "Fast attack squadron cycling through refuel/rearm",
         queuedHex: null,
-        queuedByHex: null
+        queuedByHex: null,
+        strikeDamageCap: 18
       },
       {
         id: "support-engineer-charlie",
@@ -7082,7 +7094,8 @@ private automateSupplyConvoys(
         assignedHex: null,
         notes: "Bridging gear inspection scheduled",
         queuedHex: null,
-        queuedByHex: null
+        queuedByHex: null,
+        strikeDamageCap: 10
       }
     );
     this.invalidateSupportSnapshot();
@@ -7339,7 +7352,14 @@ private automateSupplyConvoys(
       return { ok: false, reason: "No transport flight is available for a next-turn airlift." };
     }
 
-    const arrivalTurn = this._turnNumber + (useAirlift ? 1 : this.resolveMainSupplyDistanceTurns());
+    const radioDispatchedSupport = allowed.kind === "support";
+    const arrivalTurn = this._turnNumber + (
+      radioDispatchedSupport
+        ? 1
+        : useAirlift
+          ? 1
+          : this.resolveMainSupplyDistanceTurns()
+    );
     const id = this.nextBattleRequisitionId();
     const requisition: BattleRequisitionPending = {
       id,
@@ -7567,6 +7587,11 @@ private automateSupplyConvoys(
       : entry.unitKey === "shoreFireControlParty"
         ? 2
         : 1;
+    const strikeDamageCap = entry.unitKey === "shoreFireControlParty"
+      ? 30
+      : entry.unitKey === "corpsArtilleryGroup"
+        ? 24
+        : 22;
     return {
       id: `support-${entry.id}`,
       label: entry.label,
@@ -7581,7 +7606,8 @@ private automateSupplyConvoys(
         ? "Requisitioned off-map fire missions. Use an infantry, recon, or leg specialist observer to call fire on observed enemy hexes."
         : formation.gameplayDescription,
       queuedHex: null,
-      queuedByHex: null
+      queuedByHex: null,
+      strikeDamageCap
     };
   }
 
@@ -8103,7 +8129,8 @@ private automateSupplyConvoys(
       assignedHex: asset.assignedHex,
       notes: asset.notes,
       queuedHex: asset.queuedHex,
-      queuedByHex: asset.queuedByHex
+      queuedByHex: asset.queuedByHex,
+      strikeDamageCap: asset.strikeDamageCap
     } satisfies SupportAssetSnapshot;
   }
 
@@ -8558,9 +8585,10 @@ private automateSupplyConvoys(
       let damage = 0;
       let destroyed = false;
       let targetUnitType: ScenarioUnit["type"] | undefined;
+      const strikeDamageCap = this.resolveSupportStrikeDamageCap(asset);
       if (defender) {
         targetUnitType = defender.type;
-        damage = Math.min(Math.max(0, Math.round(defender.strength)), 22);
+        damage = Math.min(Math.max(0, Math.round(defender.strength)), strikeDamageCap);
         const updatedDefender = structuredClone(defender);
         updatedDefender.strength = Math.max(0, defender.strength - damage);
         this.reconcileUnitStatusToStrength(updatedDefender);
@@ -8598,6 +8626,17 @@ private automateSupplyConvoys(
     }
     this.invalidateSupportSnapshot();
     this.invalidateRosterCache();
+  }
+
+  /**
+   * Support strikes use profile-specific damage ceilings so naval gunfire and corps artillery
+   * feel distinct while keeping preview math and outcome logs deterministic.
+   */
+  private resolveSupportStrikeDamageCap(asset: InternalSupportAsset): number {
+    if (typeof asset.strikeDamageCap === "number" && Number.isFinite(asset.strikeDamageCap)) {
+      return Math.max(1, Math.round(asset.strikeDamageCap));
+    }
+    return 22;
   }
 
   private ensureIntelBriefStatesForSnapshot(snapshot: ReconIntelSnapshot): void {
@@ -9336,7 +9375,10 @@ private automateSupplyConvoys(
           assignedHex: asset.assignedHex ?? null,
           notes: asset.notes ?? null,
           queuedHex: asset.queuedHex ?? null,
-          queuedByHex: asset.queuedByHex ?? null
+          queuedByHex: asset.queuedByHex ?? null,
+          strikeDamageCap: typeof asset.strikeDamageCap === "number"
+            ? Math.max(1, Math.round(asset.strikeDamageCap))
+            : undefined
         });
       });
       this.invalidateSupportSnapshot();
@@ -15972,7 +16014,8 @@ private automateSupplyConvoys(
         assignedHex: asset.assignedHex,
         notes: asset.notes,
         queuedHex: asset.queuedHex,
-        queuedByHex: asset.queuedByHex
+        queuedByHex: asset.queuedByHex,
+        strikeDamageCap: asset.strikeDamageCap
       } satisfies SupportAssetSnapshot;
 
       switch (asset.status) {

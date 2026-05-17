@@ -42,6 +42,10 @@ export interface DamageRecord {
   damageTypes: WeaponDamageType[];
   /** Suppression applied */
   suppression: number;
+  /** Unit readiness after this engagement, if available. */
+  readinessAfter?: number;
+  /** Unit strength after this engagement, if available. */
+  strengthAfter?: number;
 }
 
 /**
@@ -66,6 +70,10 @@ export interface UnitDamageLedger {
   allDamageTypes: Set<WeaponDamageType>;
   /** Last updated timestamp */
   lastUpdated: number;
+  /** Most recent known readiness from live status pools. */
+  latestReadiness: number;
+  /** Most recent known strength percentage. */
+  latestStrength: number;
 }
 
 /**
@@ -113,6 +121,10 @@ export interface UnitDamageSummary {
   engagementsSurvived: number;
   /** Primary damage types received */
   primaryDamageTypes: WeaponDamageType[];
+  /** Most recently reported readiness from live status pools. */
+  latestReadiness: number;
+  /** Most recently reported strength percentage. */
+  latestStrength: number;
 }
 
 /**
@@ -180,7 +192,9 @@ export function recordUnitDamage(
       },
       totalSuppression: 0,
       allDamageTypes: new Set(),
-      lastUpdated: Date.now()
+      lastUpdated: Date.now(),
+      latestReadiness: 100,
+      latestStrength: 100
     };
     hqDamageLedger.set(unitId, ledger);
   }
@@ -205,6 +219,12 @@ export function recordUnitDamage(
   // Update suppression and damage types
   ledger.totalSuppression += record.suppression;
   record.damageTypes.forEach((type) => ledger!.allDamageTypes.add(type));
+  if (typeof record.readinessAfter === "number" && Number.isFinite(record.readinessAfter)) {
+    ledger.latestReadiness = Math.max(0, Math.min(100, record.readinessAfter));
+  }
+  if (typeof record.strengthAfter === "number" && Number.isFinite(record.strengthAfter)) {
+    ledger.latestStrength = Math.max(0, Math.min(100, record.strengthAfter));
+  }
   
   ledger.lastUpdated = Date.now();
 }
@@ -301,7 +321,9 @@ export function getUnitDamageSummary(
       mostAffected
     },
     engagementsSurvived: ledger.records.length,
-    primaryDamageTypes: Array.from(ledger.allDamageTypes)
+    primaryDamageTypes: Array.from(ledger.allDamageTypes),
+    latestReadiness: Math.round(ledger.latestReadiness),
+    latestStrength: Math.round(ledger.latestStrength)
   };
 }
 
@@ -333,6 +355,8 @@ export function getFormationCasualtyReport(unitIds: string[]): {
 
   let totalEngagements = 0;
   let unitsWithData = 0;
+  let readinessSum = 0;
+  let readinessSamples = 0;
 
   unitIds.forEach((unitId) => {
     const ledger = hqDamageLedger.get(unitId);
@@ -348,10 +372,14 @@ export function getFormationCasualtyReport(unitIds: string[]): {
       totalEquipment.damaged += ledger.cumulativeDamage.equipment.damaged;
       
       totalEngagements += ledger.records.length;
+      if (Number.isFinite(ledger.latestReadiness)) {
+        readinessSum += ledger.latestReadiness;
+        readinessSamples += 1;
+      }
     }
   });
 
-  const averageReadiness = unitsWithData > 0 ? 100 - (totalPersonnel.killed * 2) : 100;
+  const averageReadiness = readinessSamples > 0 ? (readinessSum / readinessSamples) : 100;
 
   return {
     totalPersonnel,
