@@ -17,7 +17,13 @@ export type MissionKey =
   | "patrol"
   | "patrol_river_watch"
   | "patrol_pointe_du_hoc"
+  | "assault_kasserine_pass"
+  | "assault_gela_landings"
+  | "assault_omaha_beach"
+  | "assault_carentan"
   | "assault_citadel_ridge"
+  | "assault_bastogne"
+  | "assault_remagen"
   | "assault"
   | "campaign";
 

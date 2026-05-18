@@ -61,6 +61,16 @@ function makeKey(hex: Axial): string {
   return `${hex.q},${hex.r}`;
 }
 
+function normalizeObjectiveHex(hex: Axial | readonly [number, number]): Axial {
+  if (Array.isArray(hex)) {
+    const [col, row] = hex;
+    return { q: col, r: row - Math.floor(col / 2) };
+  }
+
+  const axial = hex as Axial;
+  return { q: axial.q, r: axial.r };
+}
+
 interface FordTracker {
   readonly counters: Map<string, number>;
   outcome: MissionOutcome;
@@ -655,6 +665,727 @@ function createPointeDuHocController(scenario: ScenarioData, difficulty: BotDiff
   } satisfies MissionRulesController;
 }
 
+interface TwoBridgesTracker {
+  outcome: MissionOutcome;
+  phase: MissionPhaseStatus;
+}
+
+function createTwoBridgesPhase(turnNumber: number, capturedObjectiveCount: number, bastionCaptured: boolean): MissionPhaseStatus {
+  if (turnNumber >= 12 || bastionCaptured || capturedObjectiveCount >= 2) {
+    return {
+      id: "phase3_escalation",
+      label: "Phase 3: Bastion Push",
+      detail: "Bridge control has opened the approach. Commit reserves against the bastion before the defenders rebuild the line.",
+      announcement: "Two Bridges escalation: the bastion is exposed. Drive the assault home."
+    };
+  }
+
+  if (turnNumber >= 5 || capturedObjectiveCount >= 1) {
+    return {
+      id: "phase2_commitment",
+      label: "Phase 2: Bridge Fight",
+      detail: "The crossing fight is fully joined. Hold captured bridgeheads while armor and engineers force the second route.",
+      announcement: "Two Bridges escalation: bridgehead fighting has begun."
+    };
+  }
+
+  return {
+    id: "phase1_probe",
+    label: "Phase 1: Approach",
+    detail: "Reconnoiter both crossings, suppress the near bank, and choose where the main assault will break through.",
+    announcement: "Two Bridges assault has begun. Recon the crossings and prepare the breach."
+  };
+}
+
+function createTwoBridgesController(scenario: ScenarioData, _difficulty: BotDifficulty): MissionRulesController {
+  const assaultObjectives = (scenario.objectives ?? []).slice(0, 3).map((objective, index) => {
+    const hex = normalizeObjectiveHex(objective.hex);
+    const labels = ["North Bridge", "South Bridge", "Bastion City"] as const;
+    return {
+      key: makeKey(hex),
+      label: labels[index] ?? `Objective ${index + 1}`,
+      hex
+    };
+  });
+  const supplyObjective = scenario.objectives?.[3]
+    ? {
+        key: makeKey(normalizeObjectiveHex(scenario.objectives[3].hex)),
+        label: "Western Supply Base",
+        hex: normalizeObjectiveHex(scenario.objectives[3].hex)
+      }
+    : null;
+
+  const tracker: TwoBridgesTracker = {
+    outcome: { state: "inProgress" },
+    phase: createTwoBridgesPhase(0, 0, false)
+  };
+
+  const countCapturedAssaultObjectives = (occupancy: ReadonlyMap<string, TurnFaction>): number =>
+    assaultObjectives.filter(({ key }) => isFriendlyOccupant(occupancy.get(key))).length;
+
+  const buildObjectives = (
+    outcome: MissionOutcome,
+    playerUnits: readonly ScenarioUnit[],
+    botUnits: readonly ScenarioUnit[],
+    occupancy: ReadonlyMap<string, TurnFaction>
+  ): readonly ObjectiveProgress[] => {
+    const capturedCount = countCapturedAssaultObjectives(occupancy);
+
+    const primary: ObjectiveProgress = {
+      id: "primary_secure_crossings",
+      label: "Seize both bridges and the bastion city",
+      tier: "primary",
+      state: outcome.state === "playerVictory"
+        ? "completed"
+        : outcome.state === "playerDefeat"
+          ? "failed"
+          : "inProgress",
+      detail: `Captured ${capturedCount}/${assaultObjectives.length}: ${assaultObjectives
+        .map(({ key, label }) => `${isFriendlyOccupant(occupancy.get(key)) ? "[X]" : "[ ]"} ${label}`)
+        .join(", ")}`
+    };
+
+    const supplyHeld = supplyObjective ? isFriendlyOccupant(occupancy.get(supplyObjective.key)) : playerUnits.length > 0;
+    const secondary: ObjectiveProgress = {
+      id: "secondary_hold_supply_base",
+      label: "Keep the western supply base in friendly hands",
+      tier: "secondary",
+      state: supplyHeld
+        ? outcome.state === "inProgress"
+          ? "inProgress"
+          : "completed"
+        : "failed",
+      detail: supplyHeld
+        ? "The western supply base remains available for the bridge assault."
+        : "The western supply base is no longer held by friendly forces."
+    };
+
+    const fireSupportRemaining = botUnits.filter((unit) => unit.type === "Howitzer_105" || unit.type === "Flak_88").length;
+    const tertiary: ObjectiveProgress = {
+      id: "tertiary_silence_fire_support",
+      label: "Silence enemy artillery and air-defense guns",
+      tier: "tertiary",
+      state: fireSupportRemaining === 0
+        ? "completed"
+        : outcome.state === "inProgress"
+          ? "inProgress"
+          : "failed",
+      detail: fireSupportRemaining === 0
+        ? "Enemy fire-support guns are out of action."
+        : `${fireSupportRemaining} enemy fire-support guns remain operational.`
+    };
+
+    return [primary, secondary, tertiary] satisfies readonly ObjectiveProgress[];
+  };
+
+  const buildMarkers = (occupancy: ReadonlyMap<string, TurnFaction>): readonly ObjectiveMarkerProgress[] => {
+    const capturedCount = countCapturedAssaultObjectives(occupancy);
+    const assaultMarkers = assaultObjectives.map(({ key, label, hex }) => {
+      const occupant = occupancy.get(key);
+      const status = isFriendlyOccupant(occupant) ? "player" : occupant === "Bot" ? "enemy" : "unoccupied";
+      return {
+        hex,
+        status,
+        counter: `${capturedCount}/${assaultObjectives.length}`,
+        tooltip: `${label} - ${status === "player" ? "secured" : status === "enemy" ? "enemy-held" : "unoccupied"}.`
+      } satisfies ObjectiveMarkerProgress;
+    });
+
+    if (!supplyObjective) {
+      return assaultMarkers;
+    }
+
+    const supplyOccupant = occupancy.get(supplyObjective.key);
+    const supplyStatus = isFriendlyOccupant(supplyOccupant) ? "player" : supplyOccupant === "Bot" ? "enemy" : "unoccupied";
+    return [
+      ...assaultMarkers,
+      {
+        hex: supplyObjective.hex,
+        status: supplyStatus,
+        tooltip: `${supplyObjective.label} - ${supplyStatus === "player" ? "secure" : "threatened"}.`
+      } satisfies ObjectiveMarkerProgress
+    ];
+  };
+
+  const deriveStatus = (snapshot: MissionSnapshot): MissionStatus => {
+    const { turnSummary, occupancy, playerUnits, botUnits, scenario: snapScenario } = snapshot;
+    const turnLimit = snapScenario.turnLimit ?? null;
+    let outcome: MissionOutcome = tracker.outcome;
+    const capturedCount = countCapturedAssaultObjectives(occupancy);
+    const bastionCaptured = assaultObjectives[2] ? isFriendlyOccupant(occupancy.get(assaultObjectives[2].key)) : false;
+
+    tracker.phase = createTwoBridgesPhase(turnSummary.turnNumber, capturedCount, bastionCaptured);
+
+    if (outcome.state === "inProgress") {
+      if (botUnits.length === 0) {
+        outcome = { state: "playerVictory", reason: "Enemy bridge defense collapsed." };
+      } else if (playerUnits.length === 0) {
+        outcome = { state: "playerDefeat", reason: "All friendly assault forces were destroyed." };
+      } else if (capturedCount >= assaultObjectives.length) {
+        outcome = { state: "playerVictory", reason: "Both bridges and the bastion city are secured." };
+      } else if (turnLimit !== null && turnSummary.turnNumber >= turnLimit) {
+        outcome = { state: "playerDefeat", reason: "Assault window closed before both bridges and the bastion were secured." };
+      }
+    }
+
+    tracker.outcome = outcome;
+
+    return {
+      turn: turnSummary.turnNumber,
+      objectives: buildObjectives(outcome, playerUnits, botUnits, occupancy),
+      outcome,
+      phase: tracker.phase,
+      markers: buildMarkers(occupancy)
+    } satisfies MissionStatus;
+  };
+
+  return {
+    onTurnAdvanced(snapshot: MissionSnapshot): MissionStatus {
+      return deriveStatus(snapshot);
+    },
+    getStatus(): MissionStatus {
+      const emptyOccupancy = new Map<string, TurnFaction>();
+      return {
+        turn: 0,
+        objectives: buildObjectives(tracker.outcome, scenario.sides.Player.units, scenario.sides.Bot.units, emptyOccupancy),
+        outcome: tracker.outcome,
+        phase: tracker.phase,
+        markers: buildMarkers(emptyOccupancy)
+      };
+    }
+  } satisfies MissionRulesController;
+}
+
+type HistoricalSecondaryRule =
+  | {
+      readonly kind: "destroyTypes";
+      readonly id: string;
+      readonly label: string;
+      readonly targetTypes: readonly ScenarioUnit["type"][];
+    }
+  | {
+      readonly kind: "protectObjectives";
+      readonly id: string;
+      readonly label: string;
+      readonly indexes: readonly number[];
+      readonly requiredCount: number;
+    };
+
+type HistoricalTertiaryRule =
+  | {
+      readonly kind: "surviveCount";
+      readonly id: string;
+      readonly label: string;
+      readonly minCount: number;
+    }
+  | {
+      readonly kind: "unitTypeAlive";
+      readonly id: string;
+      readonly label: string;
+      readonly unitTypes: readonly ScenarioUnit["type"][];
+      readonly minCount: number;
+    }
+  | {
+      readonly kind: "destroyTypes";
+      readonly id: string;
+      readonly label: string;
+      readonly targetTypes: readonly ScenarioUnit["type"][];
+    };
+
+interface HistoricalBattleConfig {
+  readonly victoryMode: "capture" | "hold";
+  readonly primaryId: string;
+  readonly primaryLabel: string;
+  readonly objectiveLabels: readonly string[];
+  readonly primaryObjectiveIndexes: readonly number[];
+  readonly requiredPrimaryCount?: number;
+  readonly mandatoryObjectiveIndexes?: readonly number[];
+  readonly instantDefeatObjectiveIndexes?: readonly number[];
+  readonly secondary: HistoricalSecondaryRule;
+  readonly tertiary?: HistoricalTertiaryRule;
+  readonly phase1Label: string;
+  readonly phase1Detail: string;
+  readonly phase1Announcement: string;
+  readonly phase2Label: string;
+  readonly phase2Detail: string;
+  readonly phase2Announcement: string;
+  readonly phase3Label: string;
+  readonly phase3Detail: string;
+  readonly phase3Announcement: string;
+  readonly victoryReason: string;
+  readonly timerDefeatReason: string;
+  readonly eliminationDefeatReason: string;
+}
+
+const historicalBattleConfigs: Record<string, HistoricalBattleConfig> = {
+  assault_kasserine_pass: {
+    victoryMode: "hold",
+    primaryId: "primary_hold_pass_line",
+    primaryLabel: "Hold Tebessa road and enough pass objectives",
+    objectiveLabels: ["Tebessa Supply Road", "Northern Pass", "Southern Pass", "Axis Assembly Valley"],
+    primaryObjectiveIndexes: [0, 1, 2],
+    requiredPrimaryCount: 2,
+    mandatoryObjectiveIndexes: [0],
+    instantDefeatObjectiveIndexes: [0],
+    secondary: {
+      kind: "destroyTypes",
+      id: "secondary_destroy_spearhead",
+      label: "Destroy the German armored spearhead",
+      targetTypes: ["Panzer_IV", "Heavy_Tank", "Assault_Gun"]
+    },
+    tertiary: {
+      kind: "surviveCount",
+      id: "tertiary_preserve_blocking_force",
+      label: "Keep at least five friendly formations operational",
+      minCount: 5
+    },
+    phase1Label: "Phase 1: Contact",
+    phase1Detail: "Enemy scouts are entering the valley. Confirm roadblocks and keep armor in reserve.",
+    phase1Announcement: "Kasserine Pass: German reconnaissance is probing the road line.",
+    phase2Label: "Phase 2: Armored Commitment",
+    phase2Detail: "The panzer spearhead is committed into the pass lanes. Stop the armor before it reaches Tebessa road.",
+    phase2Announcement: "Kasserine Pass escalation: the armored thrust is in the valley.",
+    phase3Label: "Phase 3: Breakthrough Check",
+    phase3Detail: "The decisive pressure is on the supply road. Hold the line until the attack loses momentum.",
+    phase3Announcement: "Kasserine Pass final phase: hold Tebessa road at all costs.",
+    victoryReason: "Kasserine Pass held and the supply road remains open.",
+    timerDefeatReason: "The pass defense failed its final hold check.",
+    eliminationDefeatReason: "All friendly pass-defense forces were destroyed."
+  },
+  assault_gela_landings: {
+    victoryMode: "capture",
+    primaryId: "primary_expand_gela_beachhead",
+    primaryLabel: "Capture Gela, Ponte Olivo, and Highway 115",
+    objectiveLabels: ["Gela Port", "Ponte Olivo Airfield", "Highway 115", "Beachhead Anchor"],
+    primaryObjectiveIndexes: [0, 1, 2],
+    secondary: {
+      kind: "protectObjectives",
+      id: "secondary_hold_beachhead",
+      label: "Keep the beachhead anchor in friendly hands",
+      indexes: [3],
+      requiredCount: 1
+    },
+    tertiary: {
+      kind: "unitTypeAlive",
+      id: "tertiary_keep_engineers",
+      label: "Keep an engineer formation operational",
+      unitTypes: ["Engineer"],
+      minCount: 1
+    },
+    phase1Label: "Phase 1: Beachhead",
+    phase1Detail: "The landing line is ashore. Hold the sand while the first inland push forms.",
+    phase1Announcement: "Gela: beachhead established. Prepare for the armored counterattack.",
+    phase2Label: "Phase 2: Counterattack",
+    phase2Detail: "German armor is pressing the highway. Break the attack and keep moving inland.",
+    phase2Announcement: "Gela escalation: German armor is moving on the beachhead.",
+    phase3Label: "Phase 3: Inland Breakout",
+    phase3Detail: "The beachhead has room to breathe. Secure the airfield and highway before the window closes.",
+    phase3Announcement: "Gela final phase: drive inland and seal the beachhead.",
+    victoryReason: "Gela, Ponte Olivo, and Highway 115 are secured.",
+    timerDefeatReason: "The Gela beachhead was not expanded before the assault window closed.",
+    eliminationDefeatReason: "All friendly beachhead forces were destroyed."
+  },
+  assault_omaha_beach: {
+    victoryMode: "capture",
+    primaryId: "primary_open_omaha_exits",
+    primaryLabel: "Open every Omaha beach exit and seize the ridge",
+    objectiveLabels: ["Vierville Draw", "D-1 Exit", "Colleville Ridge", "Battery Control"],
+    primaryObjectiveIndexes: [0, 1, 2, 3],
+    secondary: {
+      kind: "destroyTypes",
+      id: "secondary_silence_beach_guns",
+      label: "Destroy enemy artillery and flak covering the beach",
+      targetTypes: ["Howitzer_105", "Flak_88"]
+    },
+    tertiary: {
+      kind: "surviveCount",
+      id: "tertiary_preserve_assault_waves",
+      label: "Keep at least four assault formations operational",
+      minCount: 4
+    },
+    phase1Label: "Phase 1: Beach Under Fire",
+    phase1Detail: "Assault waves are exposed below the bluffs. Clear lanes and get engineers to the draws.",
+    phase1Announcement: "Omaha Beach: assault waves are under the guns.",
+    phase2Label: "Phase 2: Draw Fight",
+    phase2Detail: "The draws are contested. Push infantry through any breach before the defenders reset.",
+    phase2Announcement: "Omaha Beach escalation: the draw fight is fully joined.",
+    phase3Label: "Phase 3: Ridge Push",
+    phase3Detail: "The beach exits are opening. Seize the ridge controls and silence the remaining guns.",
+    phase3Announcement: "Omaha Beach final phase: get off the beach and secure the ridge.",
+    victoryReason: "Omaha beach exits are open for follow-on forces.",
+    timerDefeatReason: "The assault stalled before the exits could be opened.",
+    eliminationDefeatReason: "All friendly assault waves were destroyed."
+  },
+  assault_carentan: {
+    victoryMode: "capture",
+    primaryId: "primary_link_beachheads",
+    primaryLabel: "Capture the causeway, Carentan, and rail station",
+    objectiveLabels: ["Northern Causeway", "Carentan Town Center", "Rail Station", "Douve Bridgehead"],
+    primaryObjectiveIndexes: [0, 1, 2],
+    secondary: {
+      kind: "protectObjectives",
+      id: "secondary_hold_douve_bridgehead",
+      label: "Keep the Douve bridgehead secure",
+      indexes: [3],
+      requiredCount: 1
+    },
+    tertiary: {
+      kind: "destroyTypes",
+      id: "tertiary_destroy_town_guns",
+      label: "Destroy enemy assault guns and anti-tank guns",
+      targetTypes: ["Assault_Gun", "AT_Gun_50mm"]
+    },
+    phase1Label: "Phase 1: Causeway",
+    phase1Detail: "The approach is narrow and exposed. Keep engineers close to the bridgehead.",
+    phase1Announcement: "Carentan: advance along the causeway and keep the bridgehead open.",
+    phase2Label: "Phase 2: Town Fight",
+    phase2Detail: "The town is engaged. Infantry must clear blocks before armor can move freely.",
+    phase2Announcement: "Carentan escalation: the fight has moved into the town.",
+    phase3Label: "Phase 3: Corridor Link",
+    phase3Detail: "The beachhead corridor is within reach. Secure the station and prevent a counterattack.",
+    phase3Announcement: "Carentan final phase: link the beachheads through the town.",
+    victoryReason: "Carentan is secured and the beachheads are linked.",
+    timerDefeatReason: "The corridor remained broken when the operation window closed.",
+    eliminationDefeatReason: "All friendly Carentan assault forces were destroyed."
+  },
+  assault_bastogne: {
+    victoryMode: "hold",
+    primaryId: "primary_hold_bastogne",
+    primaryLabel: "Hold Bastogne until relief arrives",
+    objectiveLabels: ["Bastogne Center", "Neffe Road", "Mardasson Ridge", "Southern Relief Road"],
+    primaryObjectiveIndexes: [0, 1, 2, 3],
+    requiredPrimaryCount: 3,
+    mandatoryObjectiveIndexes: [0],
+    instantDefeatObjectiveIndexes: [0],
+    secondary: {
+      kind: "protectObjectives",
+      id: "secondary_preserve_road_net",
+      label: "Keep at least two road junctions in friendly hands",
+      indexes: [1, 2, 3],
+      requiredCount: 2
+    },
+    tertiary: {
+      kind: "surviveCount",
+      id: "tertiary_preserve_garrison",
+      label: "Keep at least seven friendly formations operational",
+      minCount: 7
+    },
+    phase1Label: "Phase 1: Encirclement",
+    phase1Detail: "German probes are testing the outer roads. Keep the town center supplied.",
+    phase1Announcement: "Bastogne: the perimeter is surrounded. Hold the road hub.",
+    phase2Label: "Phase 2: Panzer Pressure",
+    phase2Detail: "Armored attacks are converging on the roads. Shift reserves through the town center.",
+    phase2Announcement: "Bastogne escalation: German armor is pressing the perimeter.",
+    phase3Label: "Phase 3: Relief Window",
+    phase3Detail: "Relief is approaching. Hold Bastogne and enough roads until the line reconnects.",
+    phase3Announcement: "Bastogne final phase: relief is near. Hold the center.",
+    victoryReason: "Bastogne held until relief reached the perimeter.",
+    timerDefeatReason: "Bastogne failed the relief hold check.",
+    eliminationDefeatReason: "All friendly Bastogne defenders were destroyed."
+  },
+  assault_remagen: {
+    victoryMode: "capture",
+    primaryId: "primary_secure_rhine_bridgehead",
+    primaryLabel: "Capture the bridge, tunnel, ridge, and engineer park",
+    objectiveLabels: ["Ludendorff Bridge", "East-Bank Tunnel", "Erpeler Ley Ridge", "Engineer Park"],
+    primaryObjectiveIndexes: [0, 1, 2, 3],
+    secondary: {
+      kind: "destroyTypes",
+      id: "secondary_silence_demolition_support",
+      label: "Destroy enemy engineers, flak, and artillery",
+      targetTypes: ["Engineer", "Flak_88", "Howitzer_105"]
+    },
+    tertiary: {
+      kind: "unitTypeAlive",
+      id: "tertiary_keep_engineers",
+      label: "Keep an engineer formation operational",
+      unitTypes: ["Engineer"],
+      minCount: 1
+    },
+    phase1Label: "Phase 1: Bridge Rush",
+    phase1Detail: "The bridge is still standing. Move fast before demolition and ridge fire seal it.",
+    phase1Announcement: "Remagen: rush the Ludendorff Bridge before the enemy can close the crossing.",
+    phase2Label: "Phase 2: East Bank",
+    phase2Detail: "The crossing fight is open. Clear the tunnel and engineer park while armor holds the bridge.",
+    phase2Announcement: "Remagen escalation: east-bank fighting has begun.",
+    phase3Label: "Phase 3: Bridgehead Expansion",
+    phase3Detail: "The bridgehead must expand beyond the river road. Secure the ridge before counterattack.",
+    phase3Announcement: "Remagen final phase: expand the Rhine bridgehead.",
+    victoryReason: "The Rhine bridgehead is secure and expanding.",
+    timerDefeatReason: "The bridgehead was not secured before the crossing window closed.",
+    eliminationDefeatReason: "All friendly Remagen assault forces were destroyed."
+  }
+};
+
+function createHistoricalBattlePhase(config: HistoricalBattleConfig, turnNumber: number, primaryFriendlyCount: number, turnLimit: number | null): MissionPhaseStatus {
+  const limit = turnLimit ?? 18;
+  const phase2Turn = Math.max(4, Math.floor(limit * 0.33));
+  const phase3Turn = Math.max(8, Math.floor(limit * 0.66));
+  const required = config.requiredPrimaryCount ?? config.primaryObjectiveIndexes.length;
+
+  if (turnNumber >= phase3Turn || primaryFriendlyCount >= required) {
+    return {
+      id: "phase3_escalation",
+      label: config.phase3Label,
+      detail: config.phase3Detail,
+      announcement: config.phase3Announcement
+    };
+  }
+
+  if (turnNumber >= phase2Turn || primaryFriendlyCount > 0) {
+    return {
+      id: "phase2_commitment",
+      label: config.phase2Label,
+      detail: config.phase2Detail,
+      announcement: config.phase2Announcement
+    };
+  }
+
+  return {
+    id: "phase1_probe",
+    label: config.phase1Label,
+    detail: config.phase1Detail,
+    announcement: config.phase1Announcement
+  };
+}
+
+function createHistoricalBattleController(scenario: ScenarioData, config: HistoricalBattleConfig): MissionRulesController {
+  const objectivePoints = (scenario.objectives ?? []).map((objective, index) => {
+    const hex = normalizeObjectiveHex(objective.hex);
+    return {
+      index,
+      key: makeKey(hex),
+      label: config.objectiveLabels[index] ?? `Objective ${index + 1}`,
+      hex
+    };
+  });
+  const primaryIndexes = new Set(config.primaryObjectiveIndexes);
+  const mandatoryIndexes = new Set(config.mandatoryObjectiveIndexes ?? []);
+  const instantDefeatIndexes = new Set(config.instantDefeatObjectiveIndexes ?? []);
+
+  let currentOutcome: MissionOutcome = { state: "inProgress" };
+  let currentPhase = createHistoricalBattlePhase(config, 0, 0, scenario.turnLimit ?? null);
+
+  const isObjectiveFriendly = (occupancy: ReadonlyMap<string, TurnFaction>, index: number): boolean => {
+    const point = objectivePoints.find((objective) => objective.index === index);
+    return point ? isFriendlyOccupant(occupancy.get(point.key)) : false;
+  };
+
+  const countFriendlyObjectives = (occupancy: ReadonlyMap<string, TurnFaction>, indexes: readonly number[]): number =>
+    indexes.filter((index) => isObjectiveFriendly(occupancy, index)).length;
+
+  const buildSecondary = (
+    outcome: MissionOutcome,
+    occupancy: ReadonlyMap<string, TurnFaction>,
+    botUnits: readonly ScenarioUnit[]
+  ): ObjectiveProgress => {
+    const rule = config.secondary;
+    if (rule.kind === "destroyTypes") {
+      const remaining = botUnits.filter((unit) => rule.targetTypes.includes(unit.type)).length;
+      return {
+        id: rule.id,
+        label: rule.label,
+        tier: "secondary",
+        state: remaining === 0
+          ? "completed"
+          : outcome.state === "inProgress"
+            ? "inProgress"
+            : "failed",
+        detail: remaining === 0
+          ? "Target formations are out of action."
+          : `${remaining} target formation${remaining === 1 ? "" : "s"} remain operational.`
+      };
+    }
+
+    const held = countFriendlyObjectives(occupancy, rule.indexes);
+    const targetMet = held >= rule.requiredCount;
+    return {
+      id: rule.id,
+      label: rule.label,
+      tier: "secondary",
+      state: targetMet
+        ? outcome.state === "inProgress"
+          ? "inProgress"
+          : "completed"
+        : outcome.state === "inProgress"
+          ? "inProgress"
+          : "failed",
+      detail: `${held}/${rule.requiredCount} protected objective${rule.requiredCount === 1 ? "" : "s"} held.`
+    };
+  };
+
+  const buildTertiary = (
+    outcome: MissionOutcome,
+    playerUnits: readonly ScenarioUnit[],
+    botUnits: readonly ScenarioUnit[]
+  ): ObjectiveProgress | null => {
+    const rule = config.tertiary;
+    if (!rule) {
+      return null;
+    }
+
+    if (rule.kind === "destroyTypes") {
+      const remaining = botUnits.filter((unit) => rule.targetTypes.includes(unit.type)).length;
+      return {
+        id: rule.id,
+        label: rule.label,
+        tier: "tertiary",
+        state: remaining === 0
+          ? "completed"
+          : outcome.state === "inProgress"
+            ? "inProgress"
+            : "failed",
+        detail: remaining === 0
+          ? "Target formations are out of action."
+          : `${remaining} target formation${remaining === 1 ? "" : "s"} began the battle as priority targets.`
+      };
+    }
+
+    if (rule.kind === "surviveCount") {
+      const survives = playerUnits.length >= rule.minCount;
+      return {
+        id: rule.id,
+        label: rule.label,
+        tier: "tertiary",
+        state: survives
+          ? outcome.state === "inProgress"
+            ? "inProgress"
+            : "completed"
+          : "failed",
+        detail: `${playerUnits.length}/${rule.minCount} friendly formation${rule.minCount === 1 ? "" : "s"} operational.`
+      };
+    }
+
+    const alive = playerUnits.filter((unit) => rule.unitTypes.includes(unit.type)).length;
+    const targetMet = alive >= rule.minCount;
+    return {
+      id: rule.id,
+      label: rule.label,
+      tier: "tertiary",
+      state: targetMet
+        ? outcome.state === "inProgress"
+          ? "inProgress"
+          : "completed"
+        : "failed",
+      detail: `${alive}/${rule.minCount} required formation${rule.minCount === 1 ? "" : "s"} operational.`
+    };
+  };
+
+  const buildObjectives = (
+    outcome: MissionOutcome,
+    occupancy: ReadonlyMap<string, TurnFaction>,
+    playerUnits: readonly ScenarioUnit[],
+    botUnits: readonly ScenarioUnit[]
+  ): readonly ObjectiveProgress[] => {
+    const primaryFriendlyCount = countFriendlyObjectives(occupancy, config.primaryObjectiveIndexes);
+    const required = config.requiredPrimaryCount ?? config.primaryObjectiveIndexes.length;
+    const mandatoryHeld = Array.from(mandatoryIndexes).every((index) => isObjectiveFriendly(occupancy, index));
+    const primaryComplete = config.victoryMode === "capture"
+      ? primaryFriendlyCount >= required && mandatoryHeld
+      : outcome.state === "playerVictory";
+
+    const primary: ObjectiveProgress = {
+      id: config.primaryId,
+      label: config.primaryLabel,
+      tier: "primary",
+      state: primaryComplete || outcome.state === "playerVictory"
+        ? "completed"
+        : outcome.state === "playerDefeat"
+          ? "failed"
+          : "inProgress",
+      detail: `${primaryFriendlyCount}/${required} required objective${required === 1 ? "" : "s"} friendly-held. ${objectivePoints
+        .filter((objective) => primaryIndexes.has(objective.index))
+        .map(({ index, label }) => `${isObjectiveFriendly(occupancy, index) ? "[X]" : "[ ]"} ${label}`)
+        .join(", ")}`
+    };
+
+    const objectives: ObjectiveProgress[] = [primary, buildSecondary(outcome, occupancy, botUnits)];
+    const tertiary = buildTertiary(outcome, playerUnits, botUnits);
+    if (tertiary) {
+      objectives.push(tertiary);
+    }
+    return objectives;
+  };
+
+  const buildMarkers = (occupancy: ReadonlyMap<string, TurnFaction>): readonly ObjectiveMarkerProgress[] =>
+    objectivePoints.map(({ key, label, hex }) => {
+      const occupant = occupancy.get(key);
+      const status = isFriendlyOccupant(occupant) ? "player" : occupant === "Bot" ? "enemy" : "unoccupied";
+      return {
+        hex,
+        status,
+        tooltip: `${label} - ${status === "player" ? "friendly-held" : status === "enemy" ? "enemy-held" : "unoccupied"}.`
+      } satisfies ObjectiveMarkerProgress;
+    });
+
+  const deriveStatus = (snapshot: MissionSnapshot): MissionStatus => {
+    const { turnSummary, occupancy, playerUnits, botUnits, scenario: snapScenario } = snapshot;
+    const turnLimit = snapScenario.turnLimit ?? null;
+    const primaryFriendlyCount = countFriendlyObjectives(occupancy, config.primaryObjectiveIndexes);
+    const required = config.requiredPrimaryCount ?? config.primaryObjectiveIndexes.length;
+    const mandatoryHeld = Array.from(mandatoryIndexes).every((index) => isObjectiveFriendly(occupancy, index));
+    currentPhase = createHistoricalBattlePhase(config, turnSummary.turnNumber, primaryFriendlyCount, turnLimit);
+
+    let outcome: MissionOutcome = currentOutcome;
+
+    if (outcome.state === "inProgress") {
+      if (botUnits.length === 0) {
+        outcome = { state: "playerVictory", reason: "All enemy forces eliminated." };
+      } else if (playerUnits.length === 0) {
+        outcome = { state: "playerDefeat", reason: config.eliminationDefeatReason };
+      }
+    }
+
+    if (outcome.state === "inProgress" && config.victoryMode === "hold") {
+      const instantLoss = Array.from(instantDefeatIndexes).some((index) => {
+        const point = objectivePoints.find((objective) => objective.index === index);
+        return point ? occupancy.get(point.key) === "Bot" : false;
+      });
+      if (instantLoss) {
+        outcome = { state: "playerDefeat", reason: config.timerDefeatReason };
+      } else if (turnLimit !== null && turnSummary.turnNumber >= turnLimit) {
+        outcome = primaryFriendlyCount >= required && mandatoryHeld
+          ? { state: "playerVictory", reason: config.victoryReason }
+          : { state: "playerDefeat", reason: config.timerDefeatReason };
+      }
+    }
+
+    if (outcome.state === "inProgress" && config.victoryMode === "capture") {
+      if (primaryFriendlyCount >= required && mandatoryHeld) {
+        outcome = { state: "playerVictory", reason: config.victoryReason };
+      } else if (turnLimit !== null && turnSummary.turnNumber >= turnLimit) {
+        outcome = { state: "playerDefeat", reason: config.timerDefeatReason };
+      }
+    }
+
+    currentOutcome = outcome;
+
+    return {
+      turn: turnSummary.turnNumber,
+      objectives: buildObjectives(outcome, occupancy, playerUnits, botUnits),
+      outcome,
+      phase: currentPhase,
+      markers: buildMarkers(occupancy)
+    } satisfies MissionStatus;
+  };
+
+  return {
+    onTurnAdvanced(snapshot: MissionSnapshot): MissionStatus {
+      return deriveStatus(snapshot);
+    },
+    getStatus(): MissionStatus {
+      const emptyOccupancy = new Map<string, TurnFaction>();
+      return {
+        turn: 0,
+        objectives: buildObjectives(currentOutcome, emptyOccupancy, scenario.sides.Player.units, scenario.sides.Bot.units),
+        outcome: currentOutcome,
+        phase: currentPhase,
+        markers: buildMarkers(emptyOccupancy)
+      };
+    }
+  } satisfies MissionRulesController;
+}
+
 function createCitadelRidgeController(scenario: ScenarioData, difficulty: BotDifficulty): MissionRulesController {
   const strongpointKeys = [
     { key: makeKey({ q: 16, r: 4 - Math.floor(16 / 2) }), label: "North Battery", vp: 120 },
@@ -796,6 +1527,13 @@ export function createMissionRulesController(missionKey: string, scenario: Scena
   }
   if (missionKey === "patrol_pointe_du_hoc") {
     return createPointeDuHocController(scenario, difficulty);
+  }
+  if (missionKey === "assault") {
+    return createTwoBridgesController(scenario, difficulty);
+  }
+  const historicalConfig = historicalBattleConfigs[missionKey];
+  if (historicalConfig) {
+    return createHistoricalBattleController(scenario, historicalConfig);
   }
   if (missionKey === "assault_citadel_ridge") {
     return createCitadelRidgeController(scenario, difficulty);

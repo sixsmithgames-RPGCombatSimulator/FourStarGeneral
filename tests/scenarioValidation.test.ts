@@ -2,35 +2,33 @@ import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { getScenarioByMissionKey } from "../src/data/scenarioRegistry";
 import { assertScenarioSourceValid, validateScenarioSource } from "../src/data/scenarioValidation";
+import { getAllMissionKeys } from "../src/data/missions";
 
 function cloneScenario<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
 registerTest("SCENARIO_VALIDATION_ACCEPTS_REGISTERED_SCENARIOS", async ({ Given, When, Then }) => {
-  let patrolIssues: readonly string[] = [];
-  let trainingIssues: readonly string[] = [];
-  let riverIssues: readonly string[] = [];
+  const issuesByMission = new Map<string, readonly string[]>();
 
   await Given("the currently registered authored scenarios", async () => {
     document.body.innerHTML = "";
   });
 
   await When("each scenario is validated against its authoritative profile", async () => {
-    patrolIssues = validateScenarioSource(getScenarioByMissionKey("patrol"), "patrol").issues;
-    trainingIssues = validateScenarioSource(getScenarioByMissionKey("training"), "training").issues;
-    riverIssues = validateScenarioSource(getScenarioByMissionKey("patrol_river_watch"), "patrol_river_watch").issues;
+    getAllMissionKeys().forEach((missionKey) => {
+      issuesByMission.set(missionKey, validateScenarioSource(getScenarioByMissionKey(missionKey), missionKey).issues);
+    });
   });
 
   await Then("the shipped scenarios pass validation", async () => {
-    if (patrolIssues.length > 0) {
-      throw new Error(`Expected patrol scenario to validate cleanly, received: ${patrolIssues.join(" | ")}`);
-    }
-    if (trainingIssues.length > 0) {
-      throw new Error(`Expected training scenario to validate cleanly, received: ${trainingIssues.join(" | ")}`);
-    }
-    if (riverIssues.length > 0) {
-      throw new Error(`Expected river-watch scenario to validate cleanly, received: ${riverIssues.join(" | ")}`);
+    const failures = Array.from(issuesByMission.entries()).filter(([, issues]) => issues.length > 0);
+    if (failures.length > 0) {
+      throw new Error(
+        `Expected every registered scenario to validate cleanly, received: ${failures
+          .map(([missionKey, issues]) => `${missionKey}: ${issues.join(" | ")}`)
+          .join(" || ")}`
+      );
     }
   });
 });

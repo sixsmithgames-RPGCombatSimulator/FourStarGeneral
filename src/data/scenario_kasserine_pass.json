@@ -1,0 +1,1703 @@
+{
+  "name": "Kasserine Pass",
+  "size": {
+    "cols": 26,
+    "rows": 20
+  },
+  "mainSupplyDistanceTurns": 4,
+  "battleRequisitionStartingPoints": 60,
+  "battleRequisitionPointsPerTurn": 20,
+  "allowedBattleRequisitions": [
+    "ammo",
+    "fuel",
+    "supplyConvoy",
+    "corpsArtilleryGroup",
+    "infantry",
+    "engineer",
+    "recon",
+    "reconBike",
+    "medic",
+    "maintenance"
+  ],
+  "tilePalette": {
+    "P": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "fields"
+      ],
+      "recon": "intel"
+    },
+    "R": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "road"
+      ],
+      "recon": "intel"
+    },
+    "F": {
+      "terrain": "forest",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "trees",
+        "shrubs"
+      ],
+      "recon": "intel"
+    },
+    "H": {
+      "terrain": "hill",
+      "terrainType": "rural",
+      "density": "average",
+      "features": [
+        "foothills"
+      ],
+      "recon": "intel"
+    },
+    "M": {
+      "terrain": "mountain",
+      "terrainType": "mountain",
+      "density": "dense",
+      "features": [
+        "cliffs",
+        "ridge"
+      ],
+      "recon": "intel"
+    },
+    "C": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "streets",
+        "buildings"
+      ],
+      "recon": "intel",
+      "spriteVariant": "center"
+    },
+    "T": {
+      "terrain": "hamlet",
+      "terrainType": "urban",
+      "density": "average",
+      "features": [
+        "village",
+        "stone buildings"
+      ],
+      "recon": "intel"
+    },
+    "U": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "rubble",
+        "fortifications"
+      ],
+      "recon": "intel"
+    },
+    "B": {
+      "terrain": "beach",
+      "terrainType": "grass",
+      "density": "sparse",
+      "features": [
+        "sand",
+        "shingle"
+      ],
+      "recon": "firsthand"
+    },
+    "W": {
+      "terrain": "river",
+      "terrainType": "water",
+      "density": "sparse",
+      "features": [
+        "river"
+      ],
+      "recon": "intel"
+    },
+    "D": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "road",
+        "bridge"
+      ],
+      "recon": "intel"
+    },
+    "S": {
+      "terrain": "marsh",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "marsh",
+        "flooded ground"
+      ],
+      "recon": "intel"
+    },
+    "N": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "snow"
+      ],
+      "recon": "intel"
+    },
+    "L": {
+      "terrain": "forest",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "snow",
+        "forest"
+      ],
+      "recon": "intel"
+    },
+    "V": {
+      "terrain": "hill",
+      "terrainType": "rural",
+      "density": "average",
+      "features": [
+        "snow",
+        "ridge"
+      ],
+      "recon": "intel"
+    },
+    "A": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "sparse",
+      "features": [
+        "airfield",
+        "runway"
+      ],
+      "recon": "intel"
+    }
+  },
+  "tiles": [
+    [
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M"
+    ],
+    [
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M"
+    ],
+    [
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M"
+    ],
+    [
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H"
+    ],
+    [
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H"
+    ],
+    [
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "T",
+      "T",
+      "T",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "T",
+      "T",
+      "T",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "S",
+      "S",
+      "R",
+      "R",
+      "T",
+      "T",
+      "T",
+      "R",
+      "H",
+      "S",
+      "P",
+      "P",
+      "P",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "T",
+      "T",
+      "T",
+      "S",
+      "R",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "R",
+      "S",
+      "P",
+      "P",
+      "P",
+      "S",
+      "S",
+      "S",
+      "S",
+      "T",
+      "T",
+      "T",
+      "P",
+      "P"
+    ],
+    [
+      "R",
+      "T",
+      "T",
+      "T",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "P",
+      "P",
+      "P",
+      "R",
+      "R",
+      "R",
+      "R",
+      "T",
+      "T",
+      "T",
+      "R",
+      "R"
+    ],
+    [
+      "R",
+      "T",
+      "T",
+      "T",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "P",
+      "P",
+      "P",
+      "R",
+      "R",
+      "R",
+      "R",
+      "T",
+      "T",
+      "T",
+      "R",
+      "R"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "S",
+      "R",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "R",
+      "S",
+      "P",
+      "P",
+      "P",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "S",
+      "S",
+      "R",
+      "R",
+      "H",
+      "T",
+      "T",
+      "T",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "R",
+      "T",
+      "T",
+      "T",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "T",
+      "T",
+      "T",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H"
+    ],
+    [
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H"
+    ],
+    [
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H"
+    ],
+    [
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M"
+    ],
+    [
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M"
+    ],
+    [
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M",
+      "M"
+    ]
+  ],
+  "objectives": [
+    {
+      "hex": [
+        2,
+        9
+      ],
+      "owner": "Player",
+      "vp": 180
+    },
+    {
+      "hex": [
+        9,
+        6
+      ],
+      "owner": "Player",
+      "vp": 110
+    },
+    {
+      "hex": [
+        10,
+        13
+      ],
+      "owner": "Player",
+      "vp": 110
+    },
+    {
+      "hex": [
+        22,
+        9
+      ],
+      "owner": "Bot",
+      "vp": 80
+    }
+  ],
+  "deploymentZones": [
+    {
+      "key": "tebessa-road-line",
+      "label": "Tebessa Road Line",
+      "description": "Western supply road and rear blocking line.",
+      "capacity": 20,
+      "faction": "Player",
+      "hexes": [
+        [
+          0,
+          7
+        ],
+        [
+          1,
+          7
+        ],
+        [
+          2,
+          7
+        ],
+        [
+          3,
+          7
+        ],
+        [
+          4,
+          7
+        ],
+        [
+          5,
+          7
+        ],
+        [
+          0,
+          8
+        ],
+        [
+          1,
+          8
+        ],
+        [
+          2,
+          8
+        ],
+        [
+          3,
+          8
+        ],
+        [
+          4,
+          8
+        ],
+        [
+          5,
+          8
+        ],
+        [
+          0,
+          9
+        ],
+        [
+          1,
+          9
+        ],
+        [
+          2,
+          9
+        ],
+        [
+          3,
+          9
+        ],
+        [
+          4,
+          9
+        ],
+        [
+          5,
+          9
+        ],
+        [
+          0,
+          10
+        ],
+        [
+          1,
+          10
+        ],
+        [
+          2,
+          10
+        ],
+        [
+          3,
+          10
+        ],
+        [
+          4,
+          10
+        ],
+        [
+          5,
+          10
+        ]
+      ]
+    },
+    {
+      "key": "pass-blocking-line",
+      "label": "Pass Blocking Line",
+      "description": "Forward roadblocks covering the northern and southern pass mouths.",
+      "capacity": 24,
+      "faction": "Player",
+      "hexes": [
+        [
+          6,
+          5
+        ],
+        [
+          7,
+          5
+        ],
+        [
+          8,
+          5
+        ],
+        [
+          9,
+          5
+        ],
+        [
+          10,
+          5
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          7,
+          6
+        ],
+        [
+          8,
+          6
+        ],
+        [
+          9,
+          6
+        ],
+        [
+          10,
+          6
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          7,
+          7
+        ],
+        [
+          8,
+          7
+        ],
+        [
+          9,
+          7
+        ],
+        [
+          10,
+          7
+        ],
+        [
+          6,
+          8
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          9,
+          8
+        ],
+        [
+          10,
+          8
+        ],
+        [
+          6,
+          12
+        ],
+        [
+          7,
+          12
+        ],
+        [
+          8,
+          12
+        ],
+        [
+          9,
+          12
+        ],
+        [
+          10,
+          12
+        ],
+        [
+          6,
+          13
+        ],
+        [
+          7,
+          13
+        ],
+        [
+          8,
+          13
+        ],
+        [
+          9,
+          13
+        ],
+        [
+          10,
+          13
+        ],
+        [
+          6,
+          14
+        ],
+        [
+          7,
+          14
+        ],
+        [
+          8,
+          14
+        ],
+        [
+          9,
+          14
+        ],
+        [
+          10,
+          14
+        ],
+        [
+          6,
+          15
+        ],
+        [
+          7,
+          15
+        ],
+        [
+          8,
+          15
+        ],
+        [
+          9,
+          15
+        ],
+        [
+          10,
+          15
+        ]
+      ]
+    },
+    {
+      "key": "axis-east-valley",
+      "label": "Axis East Valley",
+      "description": "German armored assembly area east of the pass.",
+      "capacity": 24,
+      "faction": "Bot",
+      "hexes": [
+        [
+          20,
+          6
+        ],
+        [
+          21,
+          6
+        ],
+        [
+          22,
+          6
+        ],
+        [
+          23,
+          6
+        ],
+        [
+          24,
+          6
+        ],
+        [
+          25,
+          6
+        ],
+        [
+          20,
+          7
+        ],
+        [
+          21,
+          7
+        ],
+        [
+          22,
+          7
+        ],
+        [
+          23,
+          7
+        ],
+        [
+          24,
+          7
+        ],
+        [
+          25,
+          7
+        ],
+        [
+          20,
+          8
+        ],
+        [
+          21,
+          8
+        ],
+        [
+          22,
+          8
+        ],
+        [
+          23,
+          8
+        ],
+        [
+          24,
+          8
+        ],
+        [
+          25,
+          8
+        ],
+        [
+          20,
+          9
+        ],
+        [
+          21,
+          9
+        ],
+        [
+          22,
+          9
+        ],
+        [
+          23,
+          9
+        ],
+        [
+          24,
+          9
+        ],
+        [
+          25,
+          9
+        ],
+        [
+          20,
+          10
+        ],
+        [
+          21,
+          10
+        ],
+        [
+          22,
+          10
+        ],
+        [
+          23,
+          10
+        ],
+        [
+          24,
+          10
+        ],
+        [
+          25,
+          10
+        ],
+        [
+          20,
+          11
+        ],
+        [
+          21,
+          11
+        ],
+        [
+          22,
+          11
+        ],
+        [
+          23,
+          11
+        ],
+        [
+          24,
+          11
+        ],
+        [
+          25,
+          11
+        ],
+        [
+          20,
+          12
+        ],
+        [
+          21,
+          12
+        ],
+        [
+          22,
+          12
+        ],
+        [
+          23,
+          12
+        ],
+        [
+          24,
+          12
+        ],
+        [
+          25,
+          12
+        ],
+        [
+          20,
+          13
+        ],
+        [
+          21,
+          13
+        ],
+        [
+          22,
+          13
+        ],
+        [
+          23,
+          13
+        ],
+        [
+          24,
+          13
+        ],
+        [
+          25,
+          13
+        ]
+      ]
+    },
+    {
+      "key": "axis-south-park",
+      "label": "Axis Southern Panzer Park",
+      "description": "Reserve armor staged behind the lower pass.",
+      "capacity": 15,
+      "faction": "Bot",
+      "hexes": [
+        [
+          18,
+          14
+        ],
+        [
+          19,
+          14
+        ],
+        [
+          20,
+          14
+        ],
+        [
+          21,
+          14
+        ],
+        [
+          22,
+          14
+        ],
+        [
+          18,
+          15
+        ],
+        [
+          19,
+          15
+        ],
+        [
+          20,
+          15
+        ],
+        [
+          21,
+          15
+        ],
+        [
+          22,
+          15
+        ],
+        [
+          18,
+          16
+        ],
+        [
+          19,
+          16
+        ],
+        [
+          20,
+          16
+        ],
+        [
+          21,
+          16
+        ],
+        [
+          22,
+          16
+        ]
+      ]
+    }
+  ],
+  "turnLimit": 16,
+  "playerBudget": 2200,
+  "allowedUnits": [
+    "infantry",
+    "engineer",
+    "tank",
+    "heavyTankCompany",
+    "tankDestroyerCompany",
+    "assaultGunBattalion",
+    "howitzer",
+    "rocketArtilleryBattalion",
+    "spArtilleryGroup",
+    "antiTankBattery",
+    "flakBattery",
+    "recon",
+    "reconBike",
+    "fighter",
+    "interceptorWing",
+    "groundAttackWing",
+    "bomber",
+    "apcHalftrackCompany",
+    "supplyConvoy",
+    "ammo",
+    "fuel",
+    "medic",
+    "maintenance"
+  ],
+  "restrictedUnits": [],
+  "sides": {
+    "Player": {
+      "hq": [
+        2,
+        9
+      ],
+      "general": {
+        "accBonus": 0,
+        "dmgBonus": 0,
+        "moveBonus": 0,
+        "supplyBonus": 6
+      },
+      "units": [
+        {
+          "type": "Infantry_42",
+          "hex": [
+            2,
+            9
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Engineer",
+          "hex": [
+            5,
+            9
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "AT_Gun_50mm",
+          "hex": [
+            8,
+            6
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "AT_Gun_50mm",
+          "hex": [
+            9,
+            13
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Light_Tank",
+          "hex": [
+            4,
+            10
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Tank_Destroyer",
+          "hex": [
+            6,
+            11
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            1,
+            8
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Recon_Bike",
+          "hex": [
+            7,
+            8
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        }
+      ]
+    },
+    "Bot": {
+      "hq": [
+        22,
+        9
+      ],
+      "general": {
+        "accBonus": 8,
+        "dmgBonus": 6,
+        "moveBonus": 4,
+        "supplyBonus": 3
+      },
+      "units": [
+        {
+          "type": "Recon_Bike",
+          "hex": [
+            18,
+            9
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Recon_Bike",
+          "hex": [
+            18,
+            10
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            19,
+            8
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "W"
+        },
+        {
+          "type": "Engineer",
+          "hex": [
+            20,
+            9
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Panzer_IV",
+          "hex": [
+            21,
+            8
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Panzer_IV",
+          "hex": [
+            21,
+            10
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Assault_Gun",
+          "hex": [
+            22,
+            8
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Heavy_Tank",
+          "hex": [
+            22,
+            10
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Tank_Destroyer",
+          "hex": [
+            23,
+            9
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            20,
+            6
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "AT_Infantry",
+          "hex": [
+            20,
+            12
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            24,
+            7
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            24,
+            11
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Flak_88",
+          "hex": [
+            23,
+            6
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Fighter",
+          "hex": [
+            24,
+            9
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 55,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Ground_Attack",
+          "hex": [
+            23,
+            12
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 2,
+          "fuel": 55,
+          "entrench": 0,
+          "facing": "W"
+        }
+      ],
+      "goal": "Break through the Kasserine pass line and open the road toward Tebessa.",
+      "strategy": "Push armor through both road cuts while artillery suppresses anti-tank screens.",
+      "resources": 850
+    }
+  }
+}

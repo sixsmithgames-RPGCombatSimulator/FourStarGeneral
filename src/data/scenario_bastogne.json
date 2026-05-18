@@ -1,0 +1,2377 @@
+{
+  "name": "Bastogne",
+  "size": {
+    "cols": 28,
+    "rows": 22
+  },
+  "mainSupplyDistanceTurns": 5,
+  "battleRequisitionStartingPoints": 120,
+  "battleRequisitionPointsPerTurn": 20,
+  "allowedBattleRequisitions": [
+    "ammo",
+    "fuel",
+    "supplyConvoy",
+    "corpsArtilleryGroup",
+    "infantry",
+    "airborneDetachment",
+    "engineer",
+    "recon",
+    "reconBike",
+    "medic",
+    "maintenance"
+  ],
+  "tilePalette": {
+    "P": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "fields"
+      ],
+      "recon": "intel"
+    },
+    "R": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "road"
+      ],
+      "recon": "intel"
+    },
+    "F": {
+      "terrain": "forest",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "trees",
+        "shrubs"
+      ],
+      "recon": "intel"
+    },
+    "H": {
+      "terrain": "hill",
+      "terrainType": "rural",
+      "density": "average",
+      "features": [
+        "foothills"
+      ],
+      "recon": "intel"
+    },
+    "M": {
+      "terrain": "mountain",
+      "terrainType": "mountain",
+      "density": "dense",
+      "features": [
+        "cliffs",
+        "ridge"
+      ],
+      "recon": "intel"
+    },
+    "C": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "streets",
+        "buildings"
+      ],
+      "recon": "intel",
+      "spriteVariant": "center"
+    },
+    "T": {
+      "terrain": "hamlet",
+      "terrainType": "urban",
+      "density": "average",
+      "features": [
+        "village",
+        "stone buildings"
+      ],
+      "recon": "intel"
+    },
+    "U": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "rubble",
+        "fortifications"
+      ],
+      "recon": "intel"
+    },
+    "B": {
+      "terrain": "beach",
+      "terrainType": "grass",
+      "density": "sparse",
+      "features": [
+        "sand",
+        "shingle"
+      ],
+      "recon": "firsthand"
+    },
+    "W": {
+      "terrain": "river",
+      "terrainType": "water",
+      "density": "sparse",
+      "features": [
+        "river"
+      ],
+      "recon": "intel"
+    },
+    "D": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "road",
+        "bridge"
+      ],
+      "recon": "intel"
+    },
+    "S": {
+      "terrain": "marsh",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "marsh",
+        "flooded ground"
+      ],
+      "recon": "intel"
+    },
+    "N": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "snow"
+      ],
+      "recon": "intel"
+    },
+    "L": {
+      "terrain": "forest",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "snow",
+        "forest"
+      ],
+      "recon": "intel"
+    },
+    "V": {
+      "terrain": "hill",
+      "terrainType": "rural",
+      "density": "average",
+      "features": [
+        "snow",
+        "ridge"
+      ],
+      "recon": "intel"
+    },
+    "A": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "sparse",
+      "features": [
+        "airfield",
+        "runway"
+      ],
+      "recon": "intel"
+    }
+  },
+  "tiles": [
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "R",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "R",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "R",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "R",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "N",
+      "N",
+      "N",
+      "V",
+      "V",
+      "R",
+      "V",
+      "V",
+      "V",
+      "N",
+      "R",
+      "N",
+      "N",
+      "N",
+      "N",
+      "N",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "N",
+      "N",
+      "R",
+      "V",
+      "V",
+      "R",
+      "V",
+      "V",
+      "V",
+      "N",
+      "R",
+      "N",
+      "N",
+      "N",
+      "N",
+      "N",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "R",
+      "L",
+      "L",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "T",
+      "T",
+      "R",
+      "V",
+      "V",
+      "R",
+      "V",
+      "V",
+      "V",
+      "T",
+      "R",
+      "T",
+      "N",
+      "N",
+      "N",
+      "N",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "R",
+      "L",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "T",
+      "T",
+      "R",
+      "T",
+      "N",
+      "N",
+      "N",
+      "N",
+      "L",
+      "L",
+      "L",
+      "R"
+    ],
+    [
+      "L",
+      "L",
+      "R",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "T",
+      "T",
+      "R",
+      "T",
+      "N",
+      "N",
+      "N",
+      "N",
+      "L",
+      "R",
+      "R",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "R",
+      "R",
+      "N",
+      "N",
+      "N",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "T",
+      "T",
+      "R",
+      "T",
+      "N",
+      "N",
+      "N",
+      "R",
+      "R",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "C",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "T",
+      "T",
+      "R",
+      "T",
+      "N",
+      "N",
+      "N",
+      "N",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "T",
+      "V",
+      "R",
+      "V",
+      "V",
+      "V",
+      "N",
+      "N",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "T",
+      "V",
+      "R",
+      "V",
+      "V",
+      "V",
+      "N",
+      "N",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "T",
+      "V",
+      "R",
+      "V",
+      "V",
+      "V",
+      "N",
+      "N",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "R",
+      "T",
+      "T",
+      "T",
+      "V",
+      "R",
+      "V",
+      "V",
+      "V",
+      "N",
+      "N",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "V",
+      "V",
+      "R",
+      "V",
+      "V",
+      "R",
+      "N",
+      "N",
+      "N",
+      "N",
+      "R",
+      "N",
+      "N",
+      "N",
+      "N",
+      "N",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "N",
+      "N",
+      "N",
+      "N",
+      "V",
+      "V",
+      "R",
+      "V",
+      "V",
+      "R",
+      "N",
+      "N",
+      "N",
+      "N",
+      "R",
+      "N",
+      "N",
+      "N",
+      "N",
+      "N",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "V",
+      "V",
+      "R",
+      "V",
+      "V",
+      "R",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "R",
+      "L",
+      "L",
+      "R",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "R",
+      "L",
+      "L",
+      "R",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "R",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L"
+    ]
+  ],
+  "objectives": [
+    {
+      "hex": [
+        13,
+        10
+      ],
+      "owner": "Player",
+      "vp": 200
+    },
+    {
+      "hex": [
+        18,
+        13
+      ],
+      "owner": "Player",
+      "vp": 120
+    },
+    {
+      "hex": [
+        12,
+        5
+      ],
+      "owner": "Player",
+      "vp": 120
+    },
+    {
+      "hex": [
+        10,
+        17
+      ],
+      "owner": "Player",
+      "vp": 120
+    }
+  ],
+  "deploymentZones": [
+    {
+      "key": "bastogne-core",
+      "label": "Bastogne Core",
+      "description": "Central town perimeter and road hub.",
+      "capacity": 30,
+      "faction": "Player",
+      "hexes": [
+        [
+          11,
+          8
+        ],
+        [
+          12,
+          8
+        ],
+        [
+          13,
+          8
+        ],
+        [
+          14,
+          8
+        ],
+        [
+          15,
+          8
+        ],
+        [
+          16,
+          8
+        ],
+        [
+          11,
+          9
+        ],
+        [
+          12,
+          9
+        ],
+        [
+          13,
+          9
+        ],
+        [
+          14,
+          9
+        ],
+        [
+          15,
+          9
+        ],
+        [
+          16,
+          9
+        ],
+        [
+          11,
+          10
+        ],
+        [
+          12,
+          10
+        ],
+        [
+          13,
+          10
+        ],
+        [
+          14,
+          10
+        ],
+        [
+          15,
+          10
+        ],
+        [
+          16,
+          10
+        ],
+        [
+          11,
+          11
+        ],
+        [
+          12,
+          11
+        ],
+        [
+          13,
+          11
+        ],
+        [
+          14,
+          11
+        ],
+        [
+          15,
+          11
+        ],
+        [
+          16,
+          11
+        ],
+        [
+          11,
+          12
+        ],
+        [
+          12,
+          12
+        ],
+        [
+          13,
+          12
+        ],
+        [
+          14,
+          12
+        ],
+        [
+          15,
+          12
+        ],
+        [
+          16,
+          12
+        ]
+      ]
+    },
+    {
+      "key": "southern-perimeter",
+      "label": "Southern Perimeter",
+      "description": "Southern roadblock line protecting relief approaches.",
+      "capacity": 30,
+      "faction": "Player",
+      "hexes": [
+        [
+          9,
+          14
+        ],
+        [
+          10,
+          14
+        ],
+        [
+          11,
+          14
+        ],
+        [
+          12,
+          14
+        ],
+        [
+          13,
+          14
+        ],
+        [
+          14,
+          14
+        ],
+        [
+          15,
+          14
+        ],
+        [
+          16,
+          14
+        ],
+        [
+          17,
+          14
+        ],
+        [
+          18,
+          14
+        ],
+        [
+          9,
+          15
+        ],
+        [
+          10,
+          15
+        ],
+        [
+          11,
+          15
+        ],
+        [
+          12,
+          15
+        ],
+        [
+          13,
+          15
+        ],
+        [
+          14,
+          15
+        ],
+        [
+          15,
+          15
+        ],
+        [
+          16,
+          15
+        ],
+        [
+          17,
+          15
+        ],
+        [
+          18,
+          15
+        ],
+        [
+          9,
+          16
+        ],
+        [
+          10,
+          16
+        ],
+        [
+          11,
+          16
+        ],
+        [
+          12,
+          16
+        ],
+        [
+          13,
+          16
+        ],
+        [
+          14,
+          16
+        ],
+        [
+          15,
+          16
+        ],
+        [
+          16,
+          16
+        ],
+        [
+          17,
+          16
+        ],
+        [
+          18,
+          16
+        ],
+        [
+          9,
+          17
+        ],
+        [
+          10,
+          17
+        ],
+        [
+          11,
+          17
+        ],
+        [
+          12,
+          17
+        ],
+        [
+          13,
+          17
+        ],
+        [
+          14,
+          17
+        ],
+        [
+          15,
+          17
+        ],
+        [
+          16,
+          17
+        ],
+        [
+          17,
+          17
+        ],
+        [
+          18,
+          17
+        ]
+      ]
+    },
+    {
+      "key": "north-encirclement",
+      "label": "North Encirclement",
+      "description": "German northern attack grouping.",
+      "capacity": 20,
+      "faction": "Bot",
+      "hexes": [
+        [
+          7,
+          0
+        ],
+        [
+          8,
+          0
+        ],
+        [
+          9,
+          0
+        ],
+        [
+          10,
+          0
+        ],
+        [
+          11,
+          0
+        ],
+        [
+          12,
+          0
+        ],
+        [
+          13,
+          0
+        ],
+        [
+          14,
+          0
+        ],
+        [
+          15,
+          0
+        ],
+        [
+          16,
+          0
+        ],
+        [
+          17,
+          0
+        ],
+        [
+          18,
+          0
+        ],
+        [
+          19,
+          0
+        ],
+        [
+          20,
+          0
+        ],
+        [
+          7,
+          1
+        ],
+        [
+          8,
+          1
+        ],
+        [
+          9,
+          1
+        ],
+        [
+          10,
+          1
+        ],
+        [
+          11,
+          1
+        ],
+        [
+          12,
+          1
+        ],
+        [
+          13,
+          1
+        ],
+        [
+          14,
+          1
+        ],
+        [
+          15,
+          1
+        ],
+        [
+          16,
+          1
+        ],
+        [
+          17,
+          1
+        ],
+        [
+          18,
+          1
+        ],
+        [
+          19,
+          1
+        ],
+        [
+          20,
+          1
+        ],
+        [
+          7,
+          2
+        ],
+        [
+          8,
+          2
+        ],
+        [
+          9,
+          2
+        ],
+        [
+          10,
+          2
+        ],
+        [
+          11,
+          2
+        ],
+        [
+          12,
+          2
+        ],
+        [
+          13,
+          2
+        ],
+        [
+          14,
+          2
+        ],
+        [
+          15,
+          2
+        ],
+        [
+          16,
+          2
+        ],
+        [
+          17,
+          2
+        ],
+        [
+          18,
+          2
+        ],
+        [
+          19,
+          2
+        ],
+        [
+          20,
+          2
+        ],
+        [
+          7,
+          3
+        ],
+        [
+          8,
+          3
+        ],
+        [
+          9,
+          3
+        ],
+        [
+          10,
+          3
+        ],
+        [
+          11,
+          3
+        ],
+        [
+          12,
+          3
+        ],
+        [
+          13,
+          3
+        ],
+        [
+          14,
+          3
+        ],
+        [
+          15,
+          3
+        ],
+        [
+          16,
+          3
+        ],
+        [
+          17,
+          3
+        ],
+        [
+          18,
+          3
+        ],
+        [
+          19,
+          3
+        ],
+        [
+          20,
+          3
+        ]
+      ]
+    },
+    {
+      "key": "east-encirclement",
+      "label": "East Encirclement",
+      "description": "German eastern armor route.",
+      "capacity": 20,
+      "faction": "Bot",
+      "hexes": [
+        [
+          22,
+          6
+        ],
+        [
+          23,
+          6
+        ],
+        [
+          24,
+          6
+        ],
+        [
+          25,
+          6
+        ],
+        [
+          26,
+          6
+        ],
+        [
+          27,
+          6
+        ],
+        [
+          22,
+          7
+        ],
+        [
+          23,
+          7
+        ],
+        [
+          24,
+          7
+        ],
+        [
+          25,
+          7
+        ],
+        [
+          26,
+          7
+        ],
+        [
+          27,
+          7
+        ],
+        [
+          22,
+          8
+        ],
+        [
+          23,
+          8
+        ],
+        [
+          24,
+          8
+        ],
+        [
+          25,
+          8
+        ],
+        [
+          26,
+          8
+        ],
+        [
+          27,
+          8
+        ],
+        [
+          22,
+          9
+        ],
+        [
+          23,
+          9
+        ],
+        [
+          24,
+          9
+        ],
+        [
+          25,
+          9
+        ],
+        [
+          26,
+          9
+        ],
+        [
+          27,
+          9
+        ],
+        [
+          22,
+          10
+        ],
+        [
+          23,
+          10
+        ],
+        [
+          24,
+          10
+        ],
+        [
+          25,
+          10
+        ],
+        [
+          26,
+          10
+        ],
+        [
+          27,
+          10
+        ],
+        [
+          22,
+          11
+        ],
+        [
+          23,
+          11
+        ],
+        [
+          24,
+          11
+        ],
+        [
+          25,
+          11
+        ],
+        [
+          26,
+          11
+        ],
+        [
+          27,
+          11
+        ],
+        [
+          22,
+          12
+        ],
+        [
+          23,
+          12
+        ],
+        [
+          24,
+          12
+        ],
+        [
+          25,
+          12
+        ],
+        [
+          26,
+          12
+        ],
+        [
+          27,
+          12
+        ],
+        [
+          22,
+          13
+        ],
+        [
+          23,
+          13
+        ],
+        [
+          24,
+          13
+        ],
+        [
+          25,
+          13
+        ],
+        [
+          26,
+          13
+        ],
+        [
+          27,
+          13
+        ],
+        [
+          22,
+          14
+        ],
+        [
+          23,
+          14
+        ],
+        [
+          24,
+          14
+        ],
+        [
+          25,
+          14
+        ],
+        [
+          26,
+          14
+        ],
+        [
+          27,
+          14
+        ],
+        [
+          22,
+          15
+        ],
+        [
+          23,
+          15
+        ],
+        [
+          24,
+          15
+        ],
+        [
+          25,
+          15
+        ],
+        [
+          26,
+          15
+        ],
+        [
+          27,
+          15
+        ]
+      ]
+    },
+    {
+      "key": "south-encirclement",
+      "label": "South Encirclement",
+      "description": "German southern blocking force.",
+      "capacity": 20,
+      "faction": "Bot",
+      "hexes": [
+        [
+          6,
+          18
+        ],
+        [
+          7,
+          18
+        ],
+        [
+          8,
+          18
+        ],
+        [
+          9,
+          18
+        ],
+        [
+          10,
+          18
+        ],
+        [
+          11,
+          18
+        ],
+        [
+          12,
+          18
+        ],
+        [
+          13,
+          18
+        ],
+        [
+          14,
+          18
+        ],
+        [
+          15,
+          18
+        ],
+        [
+          16,
+          18
+        ],
+        [
+          17,
+          18
+        ],
+        [
+          18,
+          18
+        ],
+        [
+          19,
+          18
+        ],
+        [
+          20,
+          18
+        ],
+        [
+          21,
+          18
+        ],
+        [
+          6,
+          19
+        ],
+        [
+          7,
+          19
+        ],
+        [
+          8,
+          19
+        ],
+        [
+          9,
+          19
+        ],
+        [
+          10,
+          19
+        ],
+        [
+          11,
+          19
+        ],
+        [
+          12,
+          19
+        ],
+        [
+          13,
+          19
+        ],
+        [
+          14,
+          19
+        ],
+        [
+          15,
+          19
+        ],
+        [
+          16,
+          19
+        ],
+        [
+          17,
+          19
+        ],
+        [
+          18,
+          19
+        ],
+        [
+          19,
+          19
+        ],
+        [
+          20,
+          19
+        ],
+        [
+          21,
+          19
+        ],
+        [
+          6,
+          20
+        ],
+        [
+          7,
+          20
+        ],
+        [
+          8,
+          20
+        ],
+        [
+          9,
+          20
+        ],
+        [
+          10,
+          20
+        ],
+        [
+          11,
+          20
+        ],
+        [
+          12,
+          20
+        ],
+        [
+          13,
+          20
+        ],
+        [
+          14,
+          20
+        ],
+        [
+          15,
+          20
+        ],
+        [
+          16,
+          20
+        ],
+        [
+          17,
+          20
+        ],
+        [
+          18,
+          20
+        ],
+        [
+          19,
+          20
+        ],
+        [
+          20,
+          20
+        ],
+        [
+          21,
+          20
+        ],
+        [
+          6,
+          21
+        ],
+        [
+          7,
+          21
+        ],
+        [
+          8,
+          21
+        ],
+        [
+          9,
+          21
+        ],
+        [
+          10,
+          21
+        ],
+        [
+          11,
+          21
+        ],
+        [
+          12,
+          21
+        ],
+        [
+          13,
+          21
+        ],
+        [
+          14,
+          21
+        ],
+        [
+          15,
+          21
+        ],
+        [
+          16,
+          21
+        ],
+        [
+          17,
+          21
+        ],
+        [
+          18,
+          21
+        ],
+        [
+          19,
+          21
+        ],
+        [
+          20,
+          21
+        ],
+        [
+          21,
+          21
+        ]
+      ]
+    }
+  ],
+  "turnLimit": 18,
+  "playerBudget": 1800,
+  "allowedUnits": [
+    "infantry",
+    "airborneDetachment",
+    "engineer",
+    "tank",
+    "tankDestroyerCompany",
+    "howitzer",
+    "antiTankBattery",
+    "recon",
+    "reconBike",
+    "supplyConvoy",
+    "ammo",
+    "fuel",
+    "medic",
+    "maintenance"
+  ],
+  "restrictedUnits": [],
+  "sides": {
+    "Player": {
+      "hq": [
+        13,
+        10
+      ],
+      "general": {
+        "accBonus": 5,
+        "dmgBonus": 4,
+        "moveBonus": 1,
+        "supplyBonus": 4
+      },
+      "units": [
+        {
+          "type": "Paratrooper",
+          "hex": [
+            13,
+            10
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Paratrooper",
+          "hex": [
+            12,
+            9
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "NE",
+          "preDeployed": true
+        },
+        {
+          "type": "Paratrooper",
+          "hex": [
+            15,
+            11
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "SE",
+          "preDeployed": true
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            18,
+            13
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            12,
+            5
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "N",
+          "preDeployed": true
+        },
+        {
+          "type": "Engineer",
+          "hex": [
+            10,
+            17
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "S",
+          "preDeployed": true
+        },
+        {
+          "type": "AT_Gun_50mm",
+          "hex": [
+            16,
+            10
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Tank_Destroyer",
+          "hex": [
+            14,
+            12
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "SE",
+          "preDeployed": true
+        },
+        {
+          "type": "Light_Tank",
+          "hex": [
+            11,
+            14
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "S",
+          "preDeployed": true
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            12,
+            11
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Supply_Truck",
+          "hex": [
+            13,
+            11
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 70,
+          "entrench": 0,
+          "facing": "NW",
+          "preDeployed": true
+        }
+      ]
+    },
+    "Bot": {
+      "hq": [
+        25,
+        10
+      ],
+      "general": {
+        "accBonus": 7,
+        "dmgBonus": 6,
+        "moveBonus": 3,
+        "supplyBonus": 4
+      },
+      "units": [
+        {
+          "type": "Infantry_42",
+          "hex": [
+            13,
+            2
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "AT_Infantry",
+          "hex": [
+            15,
+            3
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            18,
+            2
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Panzer_IV",
+          "hex": [
+            20,
+            3
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            24,
+            8
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Engineer",
+          "hex": [
+            25,
+            9
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Panzer_IV",
+          "hex": [
+            23,
+            10
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Heavy_Tank",
+          "hex": [
+            24,
+            12
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Assault_Gun",
+          "hex": [
+            22,
+            13
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Tank_Destroyer",
+          "hex": [
+            25,
+            14
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Flak_88",
+          "hex": [
+            23,
+            7
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            26,
+            11
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            10,
+            19
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Engineer",
+          "hex": [
+            13,
+            18
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Panzer_IV",
+          "hex": [
+            16,
+            19
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Assault_Gun",
+          "hex": [
+            19,
+            18
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Recon_Bike",
+          "hex": [
+            21,
+            16
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Fighter",
+          "hex": [
+            24,
+            15
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 55,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Ground_Attack",
+          "hex": [
+            26,
+            13
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 2,
+          "fuel": 55,
+          "entrench": 0,
+          "facing": "W"
+        }
+      ],
+      "goal": "Capture Bastogne and open the Ardennes road hub.",
+      "strategy": "Probe every road, mass armor on weakened roadblocks, and isolate the town center.",
+      "resources": 950
+    }
+  }
+}

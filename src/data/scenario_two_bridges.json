@@ -2,6 +2,8 @@
   "name": "Two Bridges",
   "size": { "cols": 20, "rows": 16 },
   "mainSupplyDistanceTurns": 3,
+  "battleRequisitionStartingPoints": 90,
+  "battleRequisitionPointsPerTurn": 25,
   "allowedBattleRequisitions": ["ammo", "fuel", "supplyConvoy", "corpsArtilleryGroup", "infantry", "engineer", "recon", "reconBike"],
   "tilePalette": {
     "SEA": { "terrain": "sea", "terrainType": "water", "density": "sparse", "features": [], "recon": "aerial" },
@@ -127,21 +129,58 @@
     { "hex": [15, 5], "owner": "Bot", "vp": 150 },
     { "hex": [2, 13], "owner": "Player", "vp": 60 }
   ],
+  "deploymentZones": [
+    {
+      "key": "zone-alpha",
+      "label": "Western Bridgehead Assembly",
+      "description": "Primary assault assembly behind the western ridge line, close enough to pressure both bridges without exposing reserves on turn one.",
+      "capacity": 20,
+      "faction": "Player",
+      "hexes": [[3,8],[4,8],[5,8],[6,8],[7,8],[3,9],[4,9],[5,9],[6,9],[7,9],[3,10],[4,10],[5,10],[6,10],[7,10],[3,11],[4,11],[5,11],[6,11],[7,11]]
+    },
+    {
+      "key": "zone-bravo",
+      "label": "Southern Reserve Park",
+      "description": "Covered reserve area around the western supply base for engineers, artillery, and follow-on armor.",
+      "capacity": 20,
+      "faction": "Player",
+      "hexes": [[0,12],[1,12],[2,12],[3,12],[4,12],[5,12],[0,13],[1,13],[2,13],[3,13],[4,13],[5,13],[0,14],[1,14],[2,14],[3,14],[4,14],[5,14],[0,15],[1,15],[2,15],[3,15],[4,15],[5,15]]
+    },
+    {
+      "key": "north-bridge-screen",
+      "label": "North Bridge Screen",
+      "description": "Forward German screen covering the northern bridge road and river bend.",
+      "capacity": 12,
+      "faction": "Bot",
+      "hexes": [[8,0],[11,0],[8,1],[11,1],[8,2],[11,2],[8,3],[9,3],[10,3],[11,3],[11,4],[12,4]]
+    },
+    {
+      "key": "bastion-defense",
+      "label": "Bastion Defense",
+      "description": "German hardpoint around the city, artillery park, and armored counterattack reserve.",
+      "capacity": 16,
+      "faction": "Bot",
+      "hexes": [[14,4],[15,4],[16,4],[17,4],[14,5],[15,5],[16,5],[17,5],[14,6],[15,6],[16,6],[17,6],[14,7],[15,7],[16,7],[17,7]]
+    }
+  ],
   "turnLimit": 20,
+  "playerBudget": 1200,
+  "allowedUnits": ["infantry", "engineer", "tank", "heavyTankCompany", "tankDestroyerCompany", "howitzer", "antiTankBattery", "flakBattery", "reconBike", "fighter", "groundAttackWing", "bomber", "supplyConvoy", "ammo", "fuel", "medic", "maintenance"],
+  "restrictedUnits": [],
   "sides": {
     "Player": {
       "hq": [2, 13],
       "general": { "accBonus": 5, "dmgBonus": 1, "moveBonus": 1, "supplyBonus": 3 },
       "units": [
-        { "type": "Panzer_IV", "hex": [5, 12], "strength": 100, "experience": 1, "ammo": 7, "fuel": 40, "entrench": 0, "facing": "NW" },
-        { "type": "Infantry_42", "hex": [2, 13], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "NW" },
-        { "type": "Engineer", "hex": [4, 12], "strength": 100, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "NW" },
-        { "type": "Recon_Bike", "hex": [3, 11], "strength": 89, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "NW" },
-        { "type": "Howitzer_105", "hex": [1, 14], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "NW" },
-        { "type": "Fighter", "hex": [6, 10], "strength": 100, "experience": 0, "ammo": 6, "fuel": 50, "entrench": 0, "facing": "NW" },
-        { "type": "Bomber", "hex": [5, 9], "strength": 100, "experience": 0, "ammo": 4, "fuel": 60, "entrench": 0, "facing": "NW" },
-        { "type": "Flak_88", "hex": [2, 12], "strength": 89, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "NW" },
-        { "type": "Heavy_Tank", "hex": [4, 11], "strength": 100, "experience": 0, "ammo": 6, "fuel": 35, "entrench": 0, "facing": "NW" }
+        { "type": "Light_Tank", "hex": [5, 12], "strength": 100, "experience": 1, "ammo": 7, "fuel": 40, "entrench": 0, "facing": "NW", "preDeployed": true },
+        { "type": "Infantry_42", "hex": [2, 13], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "NW", "preDeployed": true },
+        { "type": "Engineer", "hex": [4, 12], "strength": 100, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "NW", "preDeployed": true },
+        { "type": "Recon_Bike", "hex": [3, 11], "strength": 89, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "NW", "preDeployed": true },
+        { "type": "Howitzer_105", "hex": [1, 14], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "NW", "preDeployed": true },
+        { "type": "Fighter", "hex": [6, 10], "strength": 100, "experience": 0, "ammo": 6, "fuel": 50, "entrench": 0, "facing": "NW", "preDeployed": true },
+        { "type": "Bomber", "hex": [5, 9], "strength": 100, "experience": 0, "ammo": 4, "fuel": 60, "entrench": 0, "facing": "NW", "preDeployed": true },
+        { "type": "Flak_88", "hex": [2, 12], "strength": 89, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "NW", "preDeployed": true },
+        { "type": "Heavy_Tank", "hex": [4, 11], "strength": 100, "experience": 0, "ammo": 6, "fuel": 35, "entrench": 0, "facing": "NW", "preDeployed": true }
       ]
     },
     "Bot": {

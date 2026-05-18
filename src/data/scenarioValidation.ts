@@ -1,4 +1,3 @@
-import unitTypes from "./unitSystem/derivedUnitTypes";
 import { hexDistance, type Axial } from "../core/Hex";
 import type { MissionKey } from "../state/UIState";
 import type { ScenarioDeploymentZone, TileInstance, TilePalette } from "../core/types";
@@ -7,7 +6,6 @@ import { getFormation, isUnitAllocationKey } from "./unitSystem/formations";
 import { finalizeDeploymentZone, measureDeploymentZoneGeometry, type DeploymentZonePlanningScenario } from "../ui/utils/deploymentZonePlanner";
 
 type SupportedMissionKey = MissionKey;
-type UnitTypeKey = keyof typeof unitTypes;
 
 type RawScenarioSource = {
   name?: unknown;
@@ -86,6 +84,69 @@ const scenarioProfilesByName: Record<string, RawScenarioProfile> = {
     allowedMissionKeys: ["assault_citadel_ridge"],
     minCols: 24,
     minRows: 18,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 3,
+    minRangeBuffer: 6
+  },
+  "Kasserine Pass": {
+    scenarioName: "Kasserine Pass",
+    allowedMissionKeys: ["assault_kasserine_pass"],
+    minCols: 26,
+    minRows: 20,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
+  "Gela Landings": {
+    scenarioName: "Gela Landings",
+    allowedMissionKeys: ["assault_gela_landings"],
+    minCols: 28,
+    minRows: 18,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
+  "Omaha Beach": {
+    scenarioName: "Omaha Beach",
+    allowedMissionKeys: ["assault_omaha_beach"],
+    minCols: 30,
+    minRows: 18,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
+  "Carentan": {
+    scenarioName: "Carentan",
+    allowedMissionKeys: ["assault_carentan"],
+    minCols: 26,
+    minRows: 18,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
+  "Bastogne": {
+    scenarioName: "Bastogne",
+    allowedMissionKeys: ["assault_bastogne"],
+    minCols: 28,
+    minRows: 22,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
+  "Remagen": {
+    scenarioName: "Remagen",
+    allowedMissionKeys: ["assault_remagen"],
+    minCols: 30,
+    minRows: 20,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
+  "Two Bridges": {
+    scenarioName: "Two Bridges",
+    allowedMissionKeys: ["assault"],
+    minCols: 20,
+    minRows: 16,
     minObjectiveCount: 4,
     minObjectiveSpacing: 3,
     minRangeBuffer: 6
