@@ -378,3 +378,87 @@ registerTest("missionRules: historical hold missions resolve relief and hub loss
     }
   });
 });
+
+registerTest("missionRules: second historical batch capture and hold profiles resolve", async ({ When, Then }) => {
+  const elAlameinScenario = makeHistoricalScenario("El Alamein", [[10, 9], [15, 12], [21, 5], [24, 13]], 20);
+  const anzioScenario = makeHistoricalScenario("Anzio Beachhead", [[7, 15], [12, 12], [21, 6], [16, 9]], 18);
+  const elAlameinController = createMissionRulesController("assault_el_alamein", elAlameinScenario);
+  const anzioController = createMissionRulesController("assault_anzio_beachhead", anzioScenario);
+  let elAlameinStatus = elAlameinController.getStatus();
+  let anzioStatus = anzioController.getStatus();
+
+  await When("El Alamein objectives are captured and Anzio holds its port line to the final turn", async () => {
+    elAlameinStatus = elAlameinController.onTurnAdvanced({
+      turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 12 },
+      scenario: elAlameinScenario,
+      occupancy: makeOccupancy([
+        [offsetObjectiveKey(10, 9), "Player"],
+        [offsetObjectiveKey(15, 12), "Player"],
+        [offsetObjectiveKey(21, 5), "Player"],
+        [offsetObjectiveKey(24, 13), "Player"]
+      ]),
+      playerUnits: [
+        makeUnit("Infantry_42", 0, 0),
+        makeUnit("Engineer", 1, 0),
+        makeUnit("Light_Tank", 2, 0)
+      ],
+      botUnits: [makeUnit("Panzer_IV", 20, 0)]
+    });
+
+    anzioStatus = anzioController.onTurnAdvanced({
+      turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 18 },
+      scenario: anzioScenario,
+      occupancy: makeOccupancy([
+        [offsetObjectiveKey(7, 15), "Player"],
+        [offsetObjectiveKey(12, 12), "Player"],
+        [offsetObjectiveKey(21, 6), "Bot"],
+        [offsetObjectiveKey(16, 9), "Player"]
+      ]),
+      playerUnits: [
+        makeUnit("Infantry_42", 0, 0),
+        makeUnit("Engineer", 1, 0),
+        makeUnit("AT_Gun_50mm", 2, 0),
+        makeUnit("Tank_Destroyer", 3, 0),
+        makeUnit("Light_Tank", 4, 0),
+        makeUnit("Howitzer_105", 5, 0),
+        makeUnit("Recon_Bike", 6, 0)
+      ],
+      botUnits: [makeUnit("Panzer_IV", 20, 0)]
+    });
+  });
+
+  await Then("the new capture and hold rules both produce victory", async () => {
+    if (elAlameinStatus.outcome.state !== "playerVictory") {
+      throw new Error(`Expected El Alamein capture victory, received ${elAlameinStatus.outcome.state}`);
+    }
+    if (anzioStatus.outcome.state !== "playerVictory") {
+      throw new Error(`Expected Anzio final hold victory, received ${anzioStatus.outcome.state}`);
+    }
+  });
+});
+
+registerTest("missionRules: Arnhem bridge loss immediately fails the airborne operation", async ({ When, Then }) => {
+  const arnhemScenario = makeHistoricalScenario("Arnhem Bridge", [[15, 9], [7, 7], [6, 3], [21, 13]], 18);
+  const controller = createMissionRulesController("assault_arnhem_bridge", arnhemScenario);
+  let status = controller.getStatus();
+
+  await When("enemy forces retake Arnhem Bridge before relief arrives", async () => {
+    status = controller.onTurnAdvanced({
+      turnSummary: { phase: "playerTurn", activeFaction: "Player", turnNumber: 6 },
+      scenario: arnhemScenario,
+      occupancy: makeOccupancy([
+        [offsetObjectiveKey(15, 9), "Bot"],
+        [offsetObjectiveKey(7, 7), "Player"],
+        [offsetObjectiveKey(6, 3), "Player"]
+      ]),
+      playerUnits: [makeUnit("Paratrooper", 7, 7), makeUnit("Engineer", 8, 7)],
+      botUnits: [makeUnit("Panzer_IV", 21, 13)]
+    });
+  });
+
+  await Then("the bridge hold rule treats bridge loss as mission failure", async () => {
+    if (status.outcome.state !== "playerDefeat") {
+      throw new Error(`Expected Arnhem bridge-loss defeat, received ${status.outcome.state}`);
+    }
+  });
+});

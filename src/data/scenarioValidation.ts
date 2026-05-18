@@ -88,6 +88,15 @@ const scenarioProfilesByName: Record<string, RawScenarioProfile> = {
     minObjectiveSpacing: 3,
     minRangeBuffer: 6
   },
+  "El Alamein": {
+    scenarioName: "El Alamein",
+    allowedMissionKeys: ["assault_el_alamein"],
+    minCols: 30,
+    minRows: 20,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
   "Kasserine Pass": {
     scenarioName: "Kasserine Pass",
     allowedMissionKeys: ["assault_kasserine_pass"],
@@ -106,6 +115,24 @@ const scenarioProfilesByName: Record<string, RawScenarioProfile> = {
     minObjectiveSpacing: 4,
     minRangeBuffer: 6
   },
+  "Anzio Beachhead": {
+    scenarioName: "Anzio Beachhead",
+    allowedMissionKeys: ["assault_anzio_beachhead"],
+    minCols: 30,
+    minRows: 20,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
+  "Monte Cassino": {
+    scenarioName: "Monte Cassino",
+    allowedMissionKeys: ["assault_monte_cassino"],
+    minCols: 28,
+    minRows: 22,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
   "Omaha Beach": {
     scenarioName: "Omaha Beach",
     allowedMissionKeys: ["assault_omaha_beach"],
@@ -120,6 +147,33 @@ const scenarioProfilesByName: Record<string, RawScenarioProfile> = {
     allowedMissionKeys: ["assault_carentan"],
     minCols: 26,
     minRows: 18,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
+  "Arnhem Bridge": {
+    scenarioName: "Arnhem Bridge",
+    allowedMissionKeys: ["assault_arnhem_bridge"],
+    minCols: 30,
+    minRows: 18,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
+  "Falaise Pocket": {
+    scenarioName: "Falaise Pocket",
+    allowedMissionKeys: ["assault_falaise_pocket"],
+    minCols: 30,
+    minRows: 22,
+    minObjectiveCount: 4,
+    minObjectiveSpacing: 4,
+    minRangeBuffer: 6
+  },
+  "Hurtgen Forest": {
+    scenarioName: "Hurtgen Forest",
+    allowedMissionKeys: ["assault_hurtgen_forest"],
+    minCols: 28,
+    minRows: 22,
     minObjectiveCount: 4,
     minObjectiveSpacing: 4,
     minRangeBuffer: 6

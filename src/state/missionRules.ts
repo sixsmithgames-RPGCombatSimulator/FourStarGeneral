@@ -918,6 +918,38 @@ interface HistoricalBattleConfig {
 }
 
 const historicalBattleConfigs: Record<string, HistoricalBattleConfig> = {
+  assault_el_alamein: {
+    victoryMode: "capture",
+    primaryId: "primary_break_el_alamein_line",
+    primaryLabel: "Break the El Alamein ridge and minefield line",
+    objectiveLabels: ["Miteiriya Ridge", "Minefield Gap", "Tel el Eisa", "Axis Supply Track"],
+    primaryObjectiveIndexes: [0, 1, 2, 3],
+    secondary: {
+      kind: "destroyTypes",
+      id: "secondary_destroy_axis_reserve",
+      label: "Destroy the Axis armored reserve",
+      targetTypes: ["Panzer_IV", "Heavy_Tank", "Assault_Gun"]
+    },
+    tertiary: {
+      kind: "unitTypeAlive",
+      id: "tertiary_keep_breach_engineers",
+      label: "Keep an engineer formation operational",
+      unitTypes: ["Engineer"],
+      minCount: 1
+    },
+    phase1Label: "Phase 1: Minefield Contact",
+    phase1Detail: "The ridges are under observation. Put engineers on the breach lanes and keep armor behind the gun line.",
+    phase1Announcement: "El Alamein: contact along the mine belt. Prepare the breach.",
+    phase2Label: "Phase 2: Ridge Breach",
+    phase2Detail: "The minefield gap is contested. Commit armor only where infantry and guns have opened the corridor.",
+    phase2Announcement: "El Alamein escalation: the ridge fight is fully engaged.",
+    phase3Label: "Phase 3: Desert Breakout",
+    phase3Detail: "Axis reserves are reacting. Cut the supply track before the line can reform.",
+    phase3Announcement: "El Alamein final phase: drive through the gap and sever the Axis track.",
+    victoryReason: "The El Alamein line is breached and the Axis supply track is cut.",
+    timerDefeatReason: "The desert line held until the assault window closed.",
+    eliminationDefeatReason: "All friendly El Alamein assault forces were destroyed."
+  },
   assault_kasserine_pass: {
     victoryMode: "hold",
     primaryId: "primary_hold_pass_line",
@@ -985,6 +1017,73 @@ const historicalBattleConfigs: Record<string, HistoricalBattleConfig> = {
     timerDefeatReason: "The Gela beachhead was not expanded before the assault window closed.",
     eliminationDefeatReason: "All friendly beachhead forces were destroyed."
   },
+  assault_anzio_beachhead: {
+    victoryMode: "hold",
+    primaryId: "primary_hold_anzio_beachhead",
+    primaryLabel: "Hold Anzio port and enough beachhead objectives",
+    objectiveLabels: ["Anzio Port", "Beachhead Perimeter", "Alban Hills Road", "Campoleone Station"],
+    primaryObjectiveIndexes: [0, 1, 2, 3],
+    requiredPrimaryCount: 3,
+    mandatoryObjectiveIndexes: [0],
+    instantDefeatObjectiveIndexes: [0],
+    secondary: {
+      kind: "protectObjectives",
+      id: "secondary_preserve_perimeter",
+      label: "Keep the perimeter and Campoleone line in friendly hands",
+      indexes: [1, 3],
+      requiredCount: 2
+    },
+    tertiary: {
+      kind: "surviveCount",
+      id: "tertiary_preserve_beachhead_force",
+      label: "Keep at least seven friendly formations operational",
+      minCount: 7
+    },
+    phase1Label: "Phase 1: Beachhead Shelling",
+    phase1Detail: "The lodgment is shallow. Keep the port secure and site guns before the hill attack forms.",
+    phase1Announcement: "Anzio: the beachhead is under pressure from the Alban Hills.",
+    phase2Label: "Phase 2: Counterattack",
+    phase2Detail: "Enemy armor is driving for the port roads. Hold the perimeter and counterpunch at Campoleone.",
+    phase2Announcement: "Anzio escalation: German armor is entering the beachhead perimeter.",
+    phase3Label: "Phase 3: Final Hold",
+    phase3Detail: "The defense window is closing. Keep Anzio port and enough inland ground in friendly hands.",
+    phase3Announcement: "Anzio final phase: hold the port and perimeter.",
+    victoryReason: "Anzio port held and the beachhead remains viable.",
+    timerDefeatReason: "The Anzio beachhead failed its final hold check.",
+    eliminationDefeatReason: "All friendly Anzio defenders were destroyed."
+  },
+  assault_monte_cassino: {
+    victoryMode: "capture",
+    primaryId: "primary_open_route_six",
+    primaryLabel: "Capture Cassino, the Rapido crossing, monastery heights, and Route 6",
+    objectiveLabels: ["Cassino Town", "Rapido Crossing", "Monastery Heights", "Route 6"],
+    primaryObjectiveIndexes: [0, 1, 2, 3],
+    secondary: {
+      kind: "destroyTypes",
+      id: "secondary_silence_cassino_guns",
+      label: "Destroy enemy guns on the heights and approaches",
+      targetTypes: ["Flak_88", "Howitzer_105", "AT_Gun_50mm"]
+    },
+    tertiary: {
+      kind: "unitTypeAlive",
+      id: "tertiary_keep_crossing_engineers",
+      label: "Keep an engineer formation operational",
+      unitTypes: ["Engineer"],
+      minCount: 1
+    },
+    phase1Label: "Phase 1: Rapido Line",
+    phase1Detail: "The river crossing is under fire from town and heights. Suppress before the engineers move.",
+    phase1Announcement: "Monte Cassino: the Rapido line is under observation.",
+    phase2Label: "Phase 2: Town Fight",
+    phase2Detail: "Cassino is shattered but defended. Clear blocks before armor moves onto Route 6.",
+    phase2Announcement: "Monte Cassino escalation: the fight has entered the town.",
+    phase3Label: "Phase 3: Heights Assault",
+    phase3Detail: "Route 6 will not open until the monastery heights are cleared.",
+    phase3Announcement: "Monte Cassino final phase: take the heights and open Route 6.",
+    victoryReason: "Cassino is cleared and Route 6 is open.",
+    timerDefeatReason: "Route 6 remained closed when the assault window ended.",
+    eliminationDefeatReason: "All friendly Monte Cassino assault forces were destroyed."
+  },
   assault_omaha_beach: {
     victoryMode: "capture",
     primaryId: "primary_open_omaha_exits",
@@ -1047,6 +1146,104 @@ const historicalBattleConfigs: Record<string, HistoricalBattleConfig> = {
     victoryReason: "Carentan is secured and the beachheads are linked.",
     timerDefeatReason: "The corridor remained broken when the operation window closed.",
     eliminationDefeatReason: "All friendly Carentan assault forces were destroyed."
+  },
+  assault_arnhem_bridge: {
+    victoryMode: "hold",
+    primaryId: "primary_hold_arnhem_bridge",
+    primaryLabel: "Hold Arnhem Bridge and enough airborne objectives",
+    objectiveLabels: ["Arnhem Bridge", "Oosterbeek Perimeter", "Drop Zone Y", "Southern Relief Road"],
+    primaryObjectiveIndexes: [0, 1, 2, 3],
+    requiredPrimaryCount: 3,
+    mandatoryObjectiveIndexes: [0],
+    instantDefeatObjectiveIndexes: [0],
+    secondary: {
+      kind: "protectObjectives",
+      id: "secondary_preserve_airborne_line",
+      label: "Keep Oosterbeek perimeter and Drop Zone Y in friendly hands",
+      indexes: [1, 2],
+      requiredCount: 2
+    },
+    tertiary: {
+      kind: "unitTypeAlive",
+      id: "tertiary_preserve_airborne_companies",
+      label: "Keep at least four airborne or engineer formations operational",
+      unitTypes: ["Paratrooper", "Engineer"],
+      minCount: 4
+    },
+    phase1Label: "Phase 1: Bridge Seizure",
+    phase1Detail: "The bridge party is isolated. Keep the crossing held while the perimeter consolidates.",
+    phase1Announcement: "Arnhem: airborne forces hold the bridge. Prepare for armor from the south.",
+    phase2Label: "Phase 2: Perimeter Pressure",
+    phase2Detail: "Enemy armor is closing. Hold Oosterbeek and keep the drop zone open.",
+    phase2Announcement: "Arnhem escalation: the airborne perimeter is under heavy pressure.",
+    phase3Label: "Phase 3: Relief Window",
+    phase3Detail: "Relief is still fighting up the road. The bridge must stay in friendly hands.",
+    phase3Announcement: "Arnhem final phase: hold the bridge until relief can break through.",
+    victoryReason: "Arnhem Bridge held long enough for the relief corridor to remain possible.",
+    timerDefeatReason: "Arnhem Bridge or the airborne line failed before relief could arrive.",
+    eliminationDefeatReason: "All friendly Arnhem airborne forces were destroyed."
+  },
+  assault_falaise_pocket: {
+    victoryMode: "capture",
+    primaryId: "primary_close_falaise_pocket",
+    primaryLabel: "Close the Falaise pocket at every control point",
+    objectiveLabels: ["Chambois", "Trun", "Argentan Road", "Escape Gap"],
+    primaryObjectiveIndexes: [0, 1, 2, 3],
+    secondary: {
+      kind: "destroyTypes",
+      id: "secondary_destroy_trapped_armor",
+      label: "Destroy enemy armor trapped inside the pocket",
+      targetTypes: ["Panzer_IV", "Heavy_Tank", "Assault_Gun", "Tank_Destroyer"]
+    },
+    tertiary: {
+      kind: "surviveCount",
+      id: "tertiary_preserve_pincer_force",
+      label: "Keep at least seven friendly formations operational",
+      minCount: 7
+    },
+    phase1Label: "Phase 1: Jaw Movement",
+    phase1Detail: "Both Allied pincers are moving. Keep pressure on Trun and Argentan Road.",
+    phase1Announcement: "Falaise: the pocket is forming. Close both jaws.",
+    phase2Label: "Phase 2: Pocket Compression",
+    phase2Detail: "The trapped force is bunching on the roads. Block Chambois before the armor escapes.",
+    phase2Announcement: "Falaise escalation: enemy columns are pushing for the eastern gap.",
+    phase3Label: "Phase 3: Escape Gap",
+    phase3Detail: "The pocket is nearly closed. Seal the escape gap and destroy remaining armor.",
+    phase3Announcement: "Falaise final phase: close the last exit.",
+    victoryReason: "The Falaise pocket is closed and the escape route is cut.",
+    timerDefeatReason: "Enemy forces kept the Falaise escape route open.",
+    eliminationDefeatReason: "All friendly Falaise pincer forces were destroyed."
+  },
+  assault_hurtgen_forest: {
+    victoryMode: "capture",
+    primaryId: "primary_clear_hurtgen_forest",
+    primaryLabel: "Capture Huertgen village, Kall Trail, Hill 400, and Roer Dam road",
+    objectiveLabels: ["Huertgen Village", "Kall Trail", "Hill 400", "Roer Dam Road"],
+    primaryObjectiveIndexes: [0, 1, 2, 3],
+    secondary: {
+      kind: "destroyTypes",
+      id: "secondary_silence_forest_guns",
+      label: "Destroy enemy guns and armor covering the forest roads",
+      targetTypes: ["Flak_88", "Howitzer_105", "AT_Gun_50mm", "Assault_Gun", "Panzer_IV", "Heavy_Tank"]
+    },
+    tertiary: {
+      kind: "surviveCount",
+      id: "tertiary_preserve_forest_force",
+      label: "Keep at least six friendly formations operational",
+      minCount: 6
+    },
+    phase1Label: "Phase 1: Tree Line",
+    phase1Detail: "The forest hides the main defense. Advance in bounds and keep guns close to the road.",
+    phase1Announcement: "Hurtgen Forest: contact at the tree line.",
+    phase2Label: "Phase 2: Kall Trail",
+    phase2Detail: "The trail network is contested. Engineers must keep the route open for armor and supply.",
+    phase2Announcement: "Hurtgen Forest escalation: fighting has reached the Kall Trail.",
+    phase3Label: "Phase 3: Ridge And Dam Road",
+    phase3Detail: "Hill 400 and the Roer road are the decisive ground. Clear them before attrition stalls the assault.",
+    phase3Announcement: "Hurtgen Forest final phase: take the ridge and dam road.",
+    victoryReason: "The Hurtgen objectives are cleared and the Roer approach is open.",
+    timerDefeatReason: "The forest line held until the operation window closed.",
+    eliminationDefeatReason: "All friendly Hurtgen assault forces were destroyed."
   },
   assault_bastogne: {
     victoryMode: "hold",

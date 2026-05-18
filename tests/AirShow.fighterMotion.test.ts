@@ -41,6 +41,42 @@ function headingDeltaDeg(a: number, b: number): number {
   return raw > 180 ? 360 - raw : raw;
 }
 
+function maxMovingTurnDegrees(
+  sampledPositions: ReadonlyArray<{ readonly cx: number; readonly cy: number }>
+): number {
+  let maxTurnDeg = 0;
+  let previousVector: { x: number; y: number } | null = null;
+
+  for (let index = 1; index < sampledPositions.length; index += 1) {
+    const previous = sampledPositions[index - 1];
+    const current = sampledPositions[index];
+    if (!previous || !current) {
+      continue;
+    }
+    const vector = {
+      x: current.cx - previous.cx,
+      y: current.cy - previous.cy
+    };
+    if (Math.hypot(vector.x, vector.y) < 4) {
+      continue;
+    }
+    if (previousVector) {
+      const previousLength = Math.hypot(previousVector.x, previousVector.y);
+      const currentLength = Math.hypot(vector.x, vector.y);
+      const dot = previousLength > 0 && currentLength > 0
+        ? (previousVector.x * vector.x + previousVector.y * vector.y) / (previousLength * currentLength)
+        : 1;
+      maxTurnDeg = Math.max(
+        maxTurnDeg,
+        (Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI
+      );
+    }
+    previousVector = vector;
+  }
+
+  return maxTurnDeg;
+}
+
 function assertBoundaryPointOnTileEnvelope(
   point: AirShowPlannerPoint,
   bounds: AirShowMapBounds,
@@ -967,6 +1003,53 @@ registerTest("AIR_SHOW_SYNTHETIC_STACK_PACKAGE_AVOIDS_CURRENT_GOVERNED_MOTION_AN
           .map((finding) => `${finding.code}: ${finding.message}`)
           .join(" | ")}`
       );
+    }
+  });
+});
+
+registerTest("AIR_SHOW_SYNTHETIC_STACK_PACKAGE_AVOIDS_HARD_SAMPLED_TURNS", async ({ Given, When, Then }) => {
+  let result: ReturnType<typeof runAirScenario> | null = null;
+
+  await Given("the dense synthetic stack package exercises bomber target-run and egress continuity", async () => {});
+
+  await When("the governed air scenario report is generated", async () => {
+    result = runAirScenario();
+  });
+
+  await Then("sampled assignments should stay below the broad-turn threshold in non-dogfight phases", async () => {
+    const inspection = result?.airshowInspections.find(
+      (entry) => entry.eventType === "airToAir" && entry.missionId === "synthetic-scenario-5-three-cap-two-escort-four-bomber-stack"
+    );
+    if (!inspection) {
+      throw new Error("Expected the governed synthetic stack package inspection to be present.");
+    }
+
+    const checkedPhaseLabels = new Set([
+      "fighter-ingress",
+      "bomber-defense-pass",
+      "target-run",
+      "egress"
+    ]);
+    const violations: string[] = [];
+    inspection.report.phases
+      .filter((phase) => checkedPhaseLabels.has(phase.label))
+      .forEach((phase) => {
+        phase.assignments.forEach((assignment) => {
+          const maxTurnDeg = maxMovingTurnDegrees(assignment.sampledPositions);
+          const thresholdDeg =
+            phase.label === "target-run" || phase.label === "egress"
+              ? 88
+              : 94;
+          if (maxTurnDeg > thresholdDeg) {
+            violations.push(
+              `${phase.label}/${assignment.actorId}: ${maxTurnDeg.toFixed(1)}deg > ${thresholdDeg}deg`
+            );
+          }
+        });
+      });
+
+    if (violations.length > 0) {
+      throw new Error(`Expected synthetic stack sampled turns to stay broad:\n${violations.join("\n")}`);
     }
   });
 });

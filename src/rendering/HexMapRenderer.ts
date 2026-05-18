@@ -5592,11 +5592,11 @@ export class HexMapRenderer implements IMapRenderer {
     const distance = Math.max(0.001, Math.hypot(end.cx - start.cx, end.cy - start.cy));
     const lifetimeMs = Math.max(24, options.lifetimeMs ?? 48);
     const strokeColor = options.color ?? (options.reverse ? "#fff0b8" : "#ffbf47");
-    const strokeWidth = Math.max(0.42, options.width ?? (options.reverse ? 0.48 : 0.56));
+    const strokeWidth = Math.max(0.38, options.width ?? (options.reverse ? 0.42 : 0.5));
     const visibleLengthPx = this.clamp(
-      options.visibleLengthPx ?? Math.min(18, distance * 0.16),
-      4,
-      Math.min(distance, 28)
+      options.visibleLengthPx ?? Math.min(10, distance * 0.1),
+      3,
+      Math.min(distance, 14)
     );
     const visibleRatio = this.clamp(visibleLengthPx / distance, 0.04, 0.48);
     const wake = document.createElementNS(SVG_NS, "line");
@@ -5613,15 +5613,16 @@ export class HexMapRenderer implements IMapRenderer {
       line.style.opacity = "0";
     });
     wake.setAttribute("stroke", options.reverse ? "#fff6d2" : "#ffc15a");
-    wake.setAttribute("stroke-width", String(Math.max(strokeWidth * 1.25, strokeWidth + 0.35)));
+    wake.setAttribute("stroke-width", String(Math.max(strokeWidth * 0.9, strokeWidth + 0.08)));
     glow.setAttribute("stroke", options.reverse ? "#ffe39a" : "#ff9d1f");
-    glow.setAttribute("stroke-width", String(Math.max(strokeWidth * 2.8, strokeWidth + 0.9)));
+    glow.setAttribute("stroke-width", String(Math.max(strokeWidth * 1.45, strokeWidth + 0.22)));
     glow.style.opacity = "0";
     tracer.setAttribute("stroke", strokeColor);
     tracer.setAttribute("stroke-width", String(strokeWidth));
+    tracer.setAttribute("stroke-linecap", "butt");
     headFlare.setAttribute("fill", options.reverse ? "#fff8df" : "#fff1b8");
-    headFlare.setAttribute("rx", String(Math.max(0.8, strokeWidth * 1.25)));
-    headFlare.setAttribute("ry", String(Math.max(0.42, strokeWidth * 0.62)));
+    headFlare.setAttribute("rx", String(Math.max(0.58, strokeWidth * 0.92)));
+    headFlare.setAttribute("ry", String(Math.max(0.3, strokeWidth * 0.5)));
     headFlare.setAttribute("vector-effect", "non-scaling-stroke");
     headFlare.style.opacity = "0";
 
@@ -5661,13 +5662,13 @@ export class HexMapRenderer implements IMapRenderer {
       wake.setAttribute("y1", String(wakeTail.cy));
       wake.setAttribute("x2", String(tail.cx));
       wake.setAttribute("y2", String(tail.cy));
-      wake.style.opacity = `${0.2 * opacity}`;
-      glow.style.opacity = `${0.24 * opacity}`;
-      tracer.style.opacity = `${0.98 * opacity}`;
+      wake.style.opacity = `${0.08 * opacity}`;
+      glow.style.opacity = `${0.1 * opacity}`;
+      tracer.style.opacity = `${0.92 * opacity}`;
       headFlare.setAttribute("cx", String(head.cx));
       headFlare.setAttribute("cy", String(head.cy));
       headFlare.setAttribute("transform", `rotate(${Math.atan2(end.cy - start.cy, end.cx - start.cx) * 180 / Math.PI} ${head.cx} ${head.cy})`);
-      headFlare.style.opacity = `${0.82 * opacity}`;
+      headFlare.style.opacity = `${0.56 * opacity}`;
       if (progress >= 1) {
         wake.remove();
         glow.remove();
@@ -12955,12 +12956,27 @@ export class HexMapRenderer implements IMapRenderer {
     }
     const geometry = this.resolveAirShowTracerBurstGeometry(burst.source, burst, targetPoint);
     geometry.segments.forEach((segment, index) => {
-      const pulseCount = burst.emitter === "nose" ? 3 : 2;
+      const pulseCount = 2;
+      const dx = segment.end.cx - segment.start.cx;
+      const dy = segment.end.cy - segment.start.cy;
+      const distance = Math.max(0.001, Math.hypot(dx, dy));
+      const normal = { x: -dy / distance, y: dx / distance };
       for (let pulseIndex = 0; pulseIndex < pulseCount; pulseIndex += 1) {
+        const laneOffsetPx =
+          (pulseIndex - (pulseCount - 1) / 2) * 2.8
+          + (index - (geometry.segments.length - 1) / 2) * 0.8;
+        const laneStart = {
+          cx: segment.start.cx + normal.x * laneOffsetPx,
+          cy: segment.start.cy + normal.y * laneOffsetPx
+        };
+        const laneEnd = {
+          cx: segment.end.cx + normal.x * laneOffsetPx,
+          cy: segment.end.cy + normal.y * laneOffsetPx
+        };
         window.setTimeout(() => {
           this.playAirTracerExchange(
-            segment.start,
-            segment.end,
+            laneStart,
+            laneEnd,
             {
               color: burst.color,
               width: burst.width,
@@ -12968,7 +12984,7 @@ export class HexMapRenderer implements IMapRenderer {
               visibleLengthPx: geometry.visibleLengthPx
             }
           );
-        }, index * 14 + pulseIndex * 16);
+        }, index * 18 + pulseIndex * 24);
       }
     });
   }

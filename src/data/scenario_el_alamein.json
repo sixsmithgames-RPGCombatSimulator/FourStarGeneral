@@ -1,0 +1,2246 @@
+{
+  "name": "El Alamein",
+  "size": {
+    "cols": 30,
+    "rows": 20
+  },
+  "mainSupplyDistanceTurns": 4,
+  "battleRequisitionStartingPoints": 120,
+  "battleRequisitionPointsPerTurn": 25,
+  "allowedBattleRequisitions": [
+    "ammo",
+    "fuel",
+    "supplyConvoy",
+    "corpsArtilleryGroup",
+    "infantry",
+    "engineer",
+    "recon",
+    "reconBike",
+    "medic",
+    "maintenance"
+  ],
+  "tilePalette": {
+    "P": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "fields"
+      ],
+      "recon": "intel"
+    },
+    "R": {
+      "terrain": "road",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "road"
+      ],
+      "recon": "intel"
+    },
+    "F": {
+      "terrain": "forest",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "trees",
+        "shrubs"
+      ],
+      "recon": "intel"
+    },
+    "H": {
+      "terrain": "hill",
+      "terrainType": "rural",
+      "density": "average",
+      "features": [
+        "foothills"
+      ],
+      "recon": "intel"
+    },
+    "M": {
+      "terrain": "mountain",
+      "terrainType": "mountain",
+      "density": "dense",
+      "features": [
+        "cliffs",
+        "ridge"
+      ],
+      "recon": "intel"
+    },
+    "C": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "streets",
+        "buildings"
+      ],
+      "recon": "intel",
+      "spriteVariant": "center"
+    },
+    "T": {
+      "terrain": "town",
+      "terrainType": "urban",
+      "density": "average",
+      "features": [
+        "village",
+        "stone buildings"
+      ],
+      "recon": "intel"
+    },
+    "U": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "rubble",
+        "fortifications"
+      ],
+      "recon": "intel"
+    },
+    "B": {
+      "terrain": "beach",
+      "terrainType": "grass",
+      "density": "sparse",
+      "features": [
+        "sand",
+        "shingle"
+      ],
+      "recon": "firsthand"
+    },
+    "W": {
+      "terrain": "river",
+      "terrainType": "water",
+      "density": "sparse",
+      "features": [
+        "river"
+      ],
+      "recon": "intel"
+    },
+    "D": {
+      "terrain": "road",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "road",
+        "bridge"
+      ],
+      "recon": "intel"
+    },
+    "S": {
+      "terrain": "marsh",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "marsh",
+        "flooded ground"
+      ],
+      "recon": "intel"
+    },
+    "N": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "snow"
+      ],
+      "recon": "intel"
+    },
+    "L": {
+      "terrain": "forest",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "snow",
+        "forest"
+      ],
+      "recon": "intel"
+    },
+    "V": {
+      "terrain": "hill",
+      "terrainType": "rural",
+      "density": "average",
+      "features": [
+        "snow",
+        "ridge"
+      ],
+      "recon": "intel"
+    },
+    "A": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "sparse",
+      "features": [
+        "airfield",
+        "runway"
+      ],
+      "recon": "intel"
+    }
+  },
+  "tiles": [
+    [
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H"
+    ],
+    [
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "R",
+      "R",
+      "R",
+      "T",
+      "R",
+      "R",
+      "R",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P"
+    ],
+    [
+      "R",
+      "R",
+      "R",
+      "R",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "P",
+      "P",
+      "T",
+      "P",
+      "H",
+      "H",
+      "H",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "T",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "T",
+      "T",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "R",
+      "R",
+      "S",
+      "U",
+      "U",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "R",
+      "R",
+      "S",
+      "S",
+      "U",
+      "S",
+      "S",
+      "S",
+      "P",
+      "P",
+      "P",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "S",
+      "S",
+      "T",
+      "T",
+      "R",
+      "U",
+      "R",
+      "R",
+      "P",
+      "P",
+      "P",
+      "T",
+      "T",
+      "T",
+      "T",
+      "R",
+      "R",
+      "R"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "T",
+      "R",
+      "R",
+      "T",
+      "T",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "R",
+      "R",
+      "R",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "R",
+      "R",
+      "R",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "R",
+      "R",
+      "R",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "R",
+      "R",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S"
+    ],
+    [
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S",
+      "S"
+    ]
+  ],
+  "objectives": [
+    {
+      "hex": [
+        10,
+        9
+      ],
+      "owner": "Bot",
+      "vp": 140
+    },
+    {
+      "hex": [
+        15,
+        12
+      ],
+      "owner": "Bot",
+      "vp": 140
+    },
+    {
+      "hex": [
+        21,
+        5
+      ],
+      "owner": "Bot",
+      "vp": 120
+    },
+    {
+      "hex": [
+        24,
+        13
+      ],
+      "owner": "Bot",
+      "vp": 120
+    }
+  ],
+  "deploymentZones": [
+    {
+      "key": "eighth-army-start",
+      "label": "Eighth Army Start Line",
+      "description": "Western infantry and gun line facing the minefield belt.",
+      "capacity": 42,
+      "faction": "Player",
+      "hexes": [
+        [
+          0,
+          6
+        ],
+        [
+          1,
+          6
+        ],
+        [
+          2,
+          6
+        ],
+        [
+          3,
+          6
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          0,
+          7
+        ],
+        [
+          1,
+          7
+        ],
+        [
+          2,
+          7
+        ],
+        [
+          3,
+          7
+        ],
+        [
+          4,
+          7
+        ],
+        [
+          5,
+          7
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          0,
+          8
+        ],
+        [
+          1,
+          8
+        ],
+        [
+          2,
+          8
+        ],
+        [
+          3,
+          8
+        ],
+        [
+          4,
+          8
+        ],
+        [
+          5,
+          8
+        ],
+        [
+          6,
+          8
+        ],
+        [
+          0,
+          9
+        ],
+        [
+          1,
+          9
+        ],
+        [
+          2,
+          9
+        ],
+        [
+          3,
+          9
+        ],
+        [
+          4,
+          9
+        ],
+        [
+          5,
+          9
+        ],
+        [
+          6,
+          9
+        ],
+        [
+          0,
+          10
+        ],
+        [
+          1,
+          10
+        ],
+        [
+          2,
+          10
+        ],
+        [
+          3,
+          10
+        ],
+        [
+          4,
+          10
+        ],
+        [
+          5,
+          10
+        ],
+        [
+          6,
+          10
+        ],
+        [
+          0,
+          11
+        ],
+        [
+          1,
+          11
+        ],
+        [
+          2,
+          11
+        ],
+        [
+          3,
+          11
+        ],
+        [
+          4,
+          11
+        ],
+        [
+          5,
+          11
+        ],
+        [
+          6,
+          11
+        ],
+        [
+          0,
+          12
+        ],
+        [
+          1,
+          12
+        ],
+        [
+          2,
+          12
+        ],
+        [
+          3,
+          12
+        ],
+        [
+          4,
+          12
+        ],
+        [
+          5,
+          12
+        ],
+        [
+          6,
+          12
+        ],
+        [
+          0,
+          13
+        ],
+        [
+          1,
+          13
+        ],
+        [
+          2,
+          13
+        ],
+        [
+          3,
+          13
+        ],
+        [
+          4,
+          13
+        ],
+        [
+          5,
+          13
+        ],
+        [
+          6,
+          13
+        ],
+        [
+          0,
+          14
+        ],
+        [
+          1,
+          14
+        ],
+        [
+          2,
+          14
+        ],
+        [
+          3,
+          14
+        ],
+        [
+          4,
+          14
+        ],
+        [
+          5,
+          14
+        ],
+        [
+          6,
+          14
+        ]
+      ]
+    },
+    {
+      "key": "reserve-armored-lane",
+      "label": "Reserve Armored Lane",
+      "description": "Southern armored reserve lane for the breakout force.",
+      "capacity": 30,
+      "faction": "Player",
+      "hexes": [
+        [
+          7,
+          14
+        ],
+        [
+          8,
+          14
+        ],
+        [
+          9,
+          14
+        ],
+        [
+          10,
+          14
+        ],
+        [
+          11,
+          14
+        ],
+        [
+          12,
+          14
+        ],
+        [
+          7,
+          15
+        ],
+        [
+          8,
+          15
+        ],
+        [
+          9,
+          15
+        ],
+        [
+          10,
+          15
+        ],
+        [
+          11,
+          15
+        ],
+        [
+          12,
+          15
+        ],
+        [
+          7,
+          16
+        ],
+        [
+          8,
+          16
+        ],
+        [
+          9,
+          16
+        ],
+        [
+          10,
+          16
+        ],
+        [
+          11,
+          16
+        ],
+        [
+          12,
+          16
+        ],
+        [
+          7,
+          17
+        ],
+        [
+          8,
+          17
+        ],
+        [
+          9,
+          17
+        ],
+        [
+          10,
+          17
+        ],
+        [
+          11,
+          17
+        ],
+        [
+          12,
+          17
+        ],
+        [
+          7,
+          18
+        ],
+        [
+          8,
+          18
+        ],
+        [
+          9,
+          18
+        ],
+        [
+          10,
+          18
+        ],
+        [
+          11,
+          18
+        ],
+        [
+          12,
+          18
+        ],
+        [
+          7,
+          19
+        ],
+        [
+          8,
+          19
+        ],
+        [
+          9,
+          19
+        ],
+        [
+          10,
+          19
+        ],
+        [
+          11,
+          19
+        ],
+        [
+          12,
+          19
+        ]
+      ]
+    },
+    {
+      "key": "axis-ridge-line",
+      "label": "Axis Ridge Line",
+      "description": "Axis positions covering Tel el Eisa and the northern road.",
+      "capacity": 28,
+      "faction": "Bot",
+      "hexes": [
+        [
+          20,
+          3
+        ],
+        [
+          21,
+          3
+        ],
+        [
+          22,
+          3
+        ],
+        [
+          23,
+          3
+        ],
+        [
+          24,
+          3
+        ],
+        [
+          25,
+          3
+        ],
+        [
+          26,
+          3
+        ],
+        [
+          27,
+          3
+        ],
+        [
+          28,
+          3
+        ],
+        [
+          29,
+          3
+        ],
+        [
+          20,
+          4
+        ],
+        [
+          21,
+          4
+        ],
+        [
+          22,
+          4
+        ],
+        [
+          23,
+          4
+        ],
+        [
+          24,
+          4
+        ],
+        [
+          25,
+          4
+        ],
+        [
+          26,
+          4
+        ],
+        [
+          27,
+          4
+        ],
+        [
+          28,
+          4
+        ],
+        [
+          29,
+          4
+        ],
+        [
+          20,
+          5
+        ],
+        [
+          21,
+          5
+        ],
+        [
+          22,
+          5
+        ],
+        [
+          23,
+          5
+        ],
+        [
+          24,
+          5
+        ],
+        [
+          25,
+          5
+        ],
+        [
+          26,
+          5
+        ],
+        [
+          27,
+          5
+        ],
+        [
+          28,
+          5
+        ],
+        [
+          29,
+          5
+        ],
+        [
+          20,
+          6
+        ],
+        [
+          21,
+          6
+        ],
+        [
+          22,
+          6
+        ],
+        [
+          23,
+          6
+        ],
+        [
+          24,
+          6
+        ],
+        [
+          25,
+          6
+        ],
+        [
+          26,
+          6
+        ],
+        [
+          27,
+          6
+        ],
+        [
+          28,
+          6
+        ],
+        [
+          29,
+          6
+        ],
+        [
+          20,
+          7
+        ],
+        [
+          21,
+          7
+        ],
+        [
+          22,
+          7
+        ],
+        [
+          23,
+          7
+        ],
+        [
+          24,
+          7
+        ],
+        [
+          25,
+          7
+        ],
+        [
+          26,
+          7
+        ],
+        [
+          27,
+          7
+        ],
+        [
+          28,
+          7
+        ],
+        [
+          29,
+          7
+        ],
+        [
+          20,
+          8
+        ],
+        [
+          21,
+          8
+        ],
+        [
+          22,
+          8
+        ],
+        [
+          23,
+          8
+        ],
+        [
+          24,
+          8
+        ],
+        [
+          25,
+          8
+        ],
+        [
+          26,
+          8
+        ],
+        [
+          27,
+          8
+        ],
+        [
+          28,
+          8
+        ],
+        [
+          29,
+          8
+        ],
+        [
+          20,
+          9
+        ],
+        [
+          21,
+          9
+        ],
+        [
+          22,
+          9
+        ],
+        [
+          23,
+          9
+        ],
+        [
+          24,
+          9
+        ],
+        [
+          25,
+          9
+        ],
+        [
+          26,
+          9
+        ],
+        [
+          27,
+          9
+        ],
+        [
+          28,
+          9
+        ],
+        [
+          29,
+          9
+        ]
+      ]
+    },
+    {
+      "key": "axis-supply-track",
+      "label": "Axis Supply Track",
+      "description": "Rear Axis supply and armor assembly area.",
+      "capacity": 30,
+      "faction": "Bot",
+      "hexes": [
+        [
+          20,
+          10
+        ],
+        [
+          21,
+          10
+        ],
+        [
+          22,
+          10
+        ],
+        [
+          23,
+          10
+        ],
+        [
+          24,
+          10
+        ],
+        [
+          25,
+          10
+        ],
+        [
+          26,
+          10
+        ],
+        [
+          27,
+          10
+        ],
+        [
+          28,
+          10
+        ],
+        [
+          29,
+          10
+        ],
+        [
+          20,
+          11
+        ],
+        [
+          21,
+          11
+        ],
+        [
+          22,
+          11
+        ],
+        [
+          23,
+          11
+        ],
+        [
+          24,
+          11
+        ],
+        [
+          25,
+          11
+        ],
+        [
+          26,
+          11
+        ],
+        [
+          27,
+          11
+        ],
+        [
+          28,
+          11
+        ],
+        [
+          29,
+          11
+        ],
+        [
+          20,
+          12
+        ],
+        [
+          21,
+          12
+        ],
+        [
+          22,
+          12
+        ],
+        [
+          23,
+          12
+        ],
+        [
+          24,
+          12
+        ],
+        [
+          25,
+          12
+        ],
+        [
+          26,
+          12
+        ],
+        [
+          27,
+          12
+        ],
+        [
+          28,
+          12
+        ],
+        [
+          29,
+          12
+        ],
+        [
+          20,
+          13
+        ],
+        [
+          21,
+          13
+        ],
+        [
+          22,
+          13
+        ],
+        [
+          23,
+          13
+        ],
+        [
+          24,
+          13
+        ],
+        [
+          25,
+          13
+        ],
+        [
+          26,
+          13
+        ],
+        [
+          27,
+          13
+        ],
+        [
+          28,
+          13
+        ],
+        [
+          29,
+          13
+        ],
+        [
+          20,
+          14
+        ],
+        [
+          21,
+          14
+        ],
+        [
+          22,
+          14
+        ],
+        [
+          23,
+          14
+        ],
+        [
+          24,
+          14
+        ],
+        [
+          25,
+          14
+        ],
+        [
+          26,
+          14
+        ],
+        [
+          27,
+          14
+        ],
+        [
+          28,
+          14
+        ],
+        [
+          29,
+          14
+        ],
+        [
+          20,
+          15
+        ],
+        [
+          21,
+          15
+        ],
+        [
+          22,
+          15
+        ],
+        [
+          23,
+          15
+        ],
+        [
+          24,
+          15
+        ],
+        [
+          25,
+          15
+        ],
+        [
+          26,
+          15
+        ],
+        [
+          27,
+          15
+        ],
+        [
+          28,
+          15
+        ],
+        [
+          29,
+          15
+        ],
+        [
+          20,
+          16
+        ],
+        [
+          21,
+          16
+        ],
+        [
+          22,
+          16
+        ],
+        [
+          23,
+          16
+        ],
+        [
+          24,
+          16
+        ],
+        [
+          25,
+          16
+        ],
+        [
+          26,
+          16
+        ],
+        [
+          27,
+          16
+        ],
+        [
+          28,
+          16
+        ],
+        [
+          29,
+          16
+        ],
+        [
+          20,
+          17
+        ],
+        [
+          21,
+          17
+        ],
+        [
+          22,
+          17
+        ],
+        [
+          23,
+          17
+        ],
+        [
+          24,
+          17
+        ],
+        [
+          25,
+          17
+        ],
+        [
+          26,
+          17
+        ],
+        [
+          27,
+          17
+        ],
+        [
+          28,
+          17
+        ],
+        [
+          29,
+          17
+        ]
+      ]
+    }
+  ],
+  "turnLimit": 20,
+  "playerBudget": 3200,
+  "allowedUnits": [
+    "infantry",
+    "airborneDetachment",
+    "engineer",
+    "tank",
+    "heavyTankCompany",
+    "tankDestroyerCompany",
+    "assaultGunBattalion",
+    "howitzer",
+    "rocketArtilleryBattalion",
+    "spArtilleryGroup",
+    "antiTankBattery",
+    "flakBattery",
+    "recon",
+    "reconBike",
+    "fighter",
+    "interceptorWing",
+    "groundAttackWing",
+    "bomber",
+    "apcHalftrackCompany",
+    "supplyConvoy",
+    "ammo",
+    "fuel",
+    "medic",
+    "maintenance"
+  ],
+  "restrictedUnits": [],
+  "sides": {
+    "Player": {
+      "hq": [
+        2,
+        10
+      ],
+      "general": {
+        "accBonus": 2,
+        "dmgBonus": 4,
+        "moveBonus": 2,
+        "supplyBonus": 6
+      },
+      "units": [
+        {
+          "type": "Infantry_42",
+          "hex": [
+            2,
+            10
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            4,
+            8
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Engineer",
+          "hex": [
+            5,
+            10
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "AT_Gun_50mm",
+          "hex": [
+            6,
+            8
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Tank_Destroyer",
+          "hex": [
+            7,
+            12
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 35,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Light_Tank",
+          "hex": [
+            8,
+            14
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 45,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Heavy_Tank",
+          "hex": [
+            10,
+            15
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 35,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            1,
+            13
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 8,
+          "fuel": 2,
+          "entrench": 1,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Supply_Truck",
+          "hex": [
+            3,
+            14
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 0,
+          "fuel": 70,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Recon_Bike",
+          "hex": [
+            6,
+            11
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 5,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Fighter",
+          "hex": [
+            5,
+            7
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 50,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        }
+      ]
+    },
+    "Bot": {
+      "hq": [
+        25,
+        13
+      ],
+      "general": {
+        "accBonus": 7,
+        "dmgBonus": 6,
+        "moveBonus": 4,
+        "supplyBonus": 4
+      },
+      "units": [
+        {
+          "type": "Panzer_IV",
+          "hex": [
+            20,
+            8
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 7,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Panzer_IV",
+          "hex": [
+            23,
+            11
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 7,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Heavy_Tank",
+          "hex": [
+            25,
+            12
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 35,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Assault_Gun",
+          "hex": [
+            21,
+            7
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "AT_Gun_50mm",
+          "hex": [
+            22,
+            13
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "W"
+        },
+        {
+          "type": "Flak_88",
+          "hex": [
+            24,
+            5
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "W"
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            27,
+            13
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 8,
+          "fuel": 2,
+          "entrench": 1,
+          "facing": "W"
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            21,
+            5
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "W"
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            24,
+            14
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "W"
+        },
+        {
+          "type": "Recon_Bike",
+          "hex": [
+            18,
+            9
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 5,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Ground_Attack",
+          "hex": [
+            26,
+            6
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 1,
+          "fuel": 55,
+          "entrench": 0,
+          "facing": "W"
+        }
+      ]
+    }
+  }
+}

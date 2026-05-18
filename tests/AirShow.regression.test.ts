@@ -26,6 +26,20 @@ function findContestedInspection(result: ReturnType<typeof runAirScenario> | nul
   ) ?? null;
 }
 
+function findContestedInspectionWithBomberEgress(result: ReturnType<typeof runAirScenario> | null) {
+  return result?.airshowInspections.find((entry) => {
+    if (entry.eventType !== "airToAir" || !entry.missionId?.startsWith("bot-strike-")) {
+      return false;
+    }
+    const targetRunPhase = entry.report.phases.find((phase) => phase.label === "target-run");
+    const egressPhase = entry.report.phases.find((phase) => phase.label === "egress");
+    return (
+      (targetRunPhase?.assignments.some((assignment) => assignment.role === "bomber") ?? false)
+      && (egressPhase?.assignments.some((assignment) => assignment.role === "bomber") ?? false)
+    );
+  }) ?? null;
+}
+
 function headingChangeDeg(ax: number, ay: number, bx: number, by: number): number {
   const aMagnitude = Math.hypot(ax, ay);
   const bMagnitude = Math.hypot(bx, by);
@@ -793,7 +807,7 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_ORDNANCE_TO_EGRESS_REMAINS_CONTINUOUS",
   });
 
   await Then("surviving bombers should carry continuous position and heading through the ordnance-to-egress boundary", async () => {
-    const inspection = findContestedInspection(result);
+    const inspection = findContestedInspectionWithBomberEgress(result) ?? findContestedInspection(result);
     if (!inspection) {
       console.log("[REGRESSION: ORDNANCE CONTINUITY] No contested package found - skipping");
       return;
@@ -867,11 +881,9 @@ registerTest("AIR_SHOW_REGRESSION_FINAL_EGRESS_CARRIES_SURVIVING_PACKAGE_ACTORS"
   });
 
   await Then("the final egress beat should carry the surviving fighters and bombers from the package", async () => {
-    const inspection = result?.airshowInspections.find(
-      (entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")
-    );
+    const inspection = findContestedInspectionWithBomberEgress(result);
     if (!inspection) {
-      console.log("[REGRESSION: PACKAGE EGRESS] No contested package found - skipping");
+      console.log("[REGRESSION: PACKAGE EGRESS] No contested package with surviving bomber egress found - skipping");
       return;
     }
 

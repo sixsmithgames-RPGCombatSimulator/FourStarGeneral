@@ -15,10 +15,16 @@ export const missionTitles: Record<MissionKey, string> = {
   patrol: "Town Defense",
   patrol_river_watch: "River Crossing Watch",
   patrol_pointe_du_hoc: "Pointe du Hoc",
+  assault_el_alamein: "El Alamein",
   assault_kasserine_pass: "Kasserine Pass",
   assault_gela_landings: "Gela Landings",
+  assault_anzio_beachhead: "Anzio Beachhead",
+  assault_monte_cassino: "Monte Cassino",
   assault_omaha_beach: "Omaha Beach",
   assault_carentan: "Carentan",
+  assault_arnhem_bridge: "Arnhem Bridge",
+  assault_falaise_pocket: "Falaise Pocket",
+  assault_hurtgen_forest: "Hurtgen Forest",
   assault_citadel_ridge: "Citadel Ridge",
   assault_bastogne: "Bastogne",
   assault_remagen: "Remagen",
@@ -46,6 +52,12 @@ export const missionBriefings: Record<MissionKey, string> = {
     "VICTORY: Capture all three gun positions and hold them simultaneously for 6 consecutive turns.\n" +
     "DEFEAT: Mission fails if all friendly forces are eliminated or the turn limit expires before the hold objective is met.",
 
+  assault_el_alamein:
+    "General, the Axis line at El Alamein is built around ridges, mine belts, and supply tracks that keep armor flowing through the desert. " +
+    "Force a corridor through the minefield, take Miteiriya Ridge, and cut the Axis supply track before the armored reserve can restore the line.\n\n" +
+    "VICTORY: Capture Miteiriya Ridge, the minefield gap, Tel el Eisa, and the Axis supply track.\n" +
+    "DEFEAT: Mission fails if the breakout force is destroyed or the desert assault window closes.",
+
   assault_kasserine_pass:
     "General, German armored columns are pushing through the Tunisian passes toward the Tebessa supply road. The ridges channel every tank into predictable but violent lanes. " +
     "Anchor the pass line, keep anti-tank guns alive, and counterattack only after the spearhead commits.\n\n" +
@@ -58,6 +70,18 @@ export const missionBriefings: Record<MissionKey, string> = {
     "VICTORY: Capture Gela, Ponte Olivo, and Highway 115 before the turn limit expires.\n" +
     "DEFEAT: Mission fails if all friendly forces are destroyed or the beachhead cannot be expanded in time.",
 
+  assault_anzio_beachhead:
+    "General, the Anzio lodgment is shallow, exposed, and under counterattack from the Alban Hills. " +
+    "Hold the port and beachhead perimeter while pushing enough strength inland to control Campoleone and the road off the hills.\n\n" +
+    "VICTORY: Hold Anzio port and enough perimeter objectives through the final defense check.\n" +
+    "DEFEAT: Mission fails if Anzio port falls, the defense collapses, or all friendly forces are destroyed.",
+
+  assault_monte_cassino:
+    "General, Monte Cassino blocks Route 6 and the approach to Rome. The Rapido crossings are narrow, the town is shattered, and the monastery heights dominate every road. " +
+    "Force the river line, clear Cassino, and take the heights before the defenders can reset their guns.\n\n" +
+    "VICTORY: Capture Cassino town, the Rapido crossing, monastery heights, and Route 6.\n" +
+    "DEFEAT: Mission fails if the assault force is destroyed or the route remains closed at the turn limit.",
+
   assault_omaha_beach:
     "General, Omaha is under the guns. The beach is exposed, the draws are mined and covered, and the ridge line is still in German hands. " +
     "Breach the exits, silence the guns, and push enough combat power inland to open the landing zone.\n\n" +
@@ -69,6 +93,24 @@ export const missionBriefings: Record<MissionKey, string> = {
     "Keep the Douve bridgehead open, force the causeway, and clear the town before German reserves split the beaches.\n\n" +
     "VICTORY: Capture the causeway, Carentan town center, and rail station.\n" +
     "DEFEAT: Mission fails if friendly forces are destroyed or the corridor remains broken at the turn limit.",
+
+  assault_arnhem_bridge:
+    "General, the airborne force holds a fragile line from Oosterbeek toward Arnhem Bridge. The Rhine crossing must stay open long enough for relief columns to reach it. " +
+    "Hold the bridge, protect the perimeter, and keep the drop zone usable while enemy armor closes from the south bank.\n\n" +
+    "VICTORY: Hold Arnhem Bridge and enough airborne objectives through the relief window.\n" +
+    "DEFEAT: Mission fails immediately if the bridge falls, or if the airborne line fails its final hold check.",
+
+  assault_falaise_pocket:
+    "General, the enemy is compressed inside the Falaise pocket and still trying to escape east. " +
+    "Close the jaws at Chambois, Trun, Argentan Road, and the final escape gap before the trapped armor breaks out.\n\n" +
+    "VICTORY: Capture every pocket-control objective before the enemy escape route stabilizes.\n" +
+    "DEFEAT: Mission fails if the pocket remains open at the turn limit or all friendly forces are destroyed.",
+
+  assault_hurtgen_forest:
+    "General, the Hurtgen Forest is a brutal fight of narrow roads, deep woods, and ridgelines that punish every exposed movement. " +
+    "Take Huertgen village, the Kall Trail, Hill 400, and the Roer Dam road while preserving enough formations to keep the advance supplied.\n\n" +
+    "VICTORY: Capture all forest objectives before the operation window closes.\n" +
+    "DEFEAT: Mission fails if the assault force is destroyed or the forest line remains in enemy hands.",
 
   patrol_river_watch:
     "Recon reports enemy infiltrators massing along the river. Multiple shallow fords cut through the bend—if they slip across, they'll have a lodgment before dawn. " +
@@ -190,6 +232,21 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
     ]
   },
 
+  assault_el_alamein: {
+    objectives: [
+      "Primary: Capture Miteiriya Ridge, the minefield gap, Tel el Eisa, and the Axis supply track.",
+      "Secondary: Destroy the Axis armored reserve.",
+      "Tertiary: Keep an engineer formation operational."
+    ],
+    turnLimit: 20,
+    doctrine: "Fix the ridge defenders with infantry and guns, breach the mine belt with engineers, then commit armor through the opened corridor before the Axis reserve can counterattack.",
+    supplies: [
+      { label: "Requisition Budget", amount: "3,200 requisition points" },
+      { label: "Desert Breakout Force", amount: "Infantry, engineers, tank destroyers, heavy armor, artillery, supply, recon, and fighter support predeployed" },
+      { label: "Operational Window", amount: "20-turn desert breach" }
+    ]
+  },
+
   assault_kasserine_pass: {
     objectives: [
       "Primary: Hold Tebessa road and enough pass objectives until the defense window closes.",
@@ -220,6 +277,36 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
     ]
   },
 
+  assault_anzio_beachhead: {
+    objectives: [
+      "Primary: Hold Anzio port and enough beachhead objectives through the final defense check.",
+      "Secondary: Keep the perimeter and Campoleone line in friendly hands.",
+      "Tertiary: Keep at least seven friendly formations operational."
+    ],
+    turnLimit: 18,
+    doctrine: "Anchor the port, hold a compact perimeter, and use armor and naval fire support only after the hill counterattack commits into the road net.",
+    supplies: [
+      { label: "Requisition Budget", amount: "3,000 requisition points" },
+      { label: "Beachhead Defense", amount: "Infantry, engineers, tank destroyers, artillery, supply, recon, and fighter cover already ashore" },
+      { label: "Operational Window", amount: "18-turn beachhead defense" }
+    ]
+  },
+
+  assault_monte_cassino: {
+    objectives: [
+      "Primary: Capture Cassino town, the Rapido crossing, monastery heights, and Route 6.",
+      "Secondary: Destroy enemy guns on the heights and town approaches.",
+      "Tertiary: Keep an engineer formation operational."
+    ],
+    turnLimit: 20,
+    doctrine: "Use artillery and air support to suppress the heights, force a crossing with engineers, and clear Route 6 one strongpoint at a time.",
+    supplies: [
+      { label: "Requisition Budget", amount: "3,300 requisition points" },
+      { label: "Mountain Assault Force", amount: "Infantry, engineers, armor, artillery, supply, recon, close air support, and bombers predeployed" },
+      { label: "Operational Window", amount: "20-turn mountain assault" }
+    ]
+  },
+
   assault_omaha_beach: {
     objectives: [
       "Primary: Open every beach exit and seize the ridge-control position.",
@@ -247,6 +334,51 @@ export const missionSummaryPackages: Record<MissionKey, MissionSummaryPackage> =
       { label: "Requisition Budget", amount: "2,200 requisition points" },
       { label: "Airborne Spearhead", amount: "Paratroopers, engineers, anti-tank guns, light armor, and recon already in contact" },
       { label: "Operational Window", amount: "18-turn town-and-causeway fight" }
+    ]
+  },
+
+  assault_arnhem_bridge: {
+    objectives: [
+      "Primary: Hold Arnhem Bridge and enough airborne objectives until relief can arrive.",
+      "Secondary: Keep the Oosterbeek perimeter and drop zone in friendly hands.",
+      "Tertiary: Keep at least four airborne formations operational."
+    ],
+    turnLimit: 18,
+    doctrine: "Keep bridge and perimeter forces mutually supporting, use anti-tank guns to delay armor, and protect the drop zone long enough to sustain the airborne line.",
+    supplies: [
+      { label: "Requisition Budget", amount: "2,800 requisition points" },
+      { label: "Airborne Force", amount: "Paratroopers, engineers, anti-tank guns, artillery, supply, recon, and fighter support predeployed" },
+      { label: "Operational Window", amount: "18-turn bridge hold" }
+    ]
+  },
+
+  assault_falaise_pocket: {
+    objectives: [
+      "Primary: Capture Chambois, Trun, Argentan Road, and the escape gap.",
+      "Secondary: Destroy enemy armor trapped inside the pocket.",
+      "Tertiary: Keep at least seven friendly formations operational."
+    ],
+    turnLimit: 20,
+    doctrine: "Close both pincers at speed, block the eastern exit with armor and tank destroyers, and use air support to prevent the trapped force from concentrating.",
+    supplies: [
+      { label: "Requisition Budget", amount: "3,400 requisition points" },
+      { label: "Pocket-Closure Force", amount: "Two Allied jaws with infantry, engineers, armor, artillery, supply, recon, fighter, and close air support" },
+      { label: "Operational Window", amount: "20-turn encirclement" }
+    ]
+  },
+
+  assault_hurtgen_forest: {
+    objectives: [
+      "Primary: Capture Huertgen village, the Kall Trail, Hill 400, and the Roer Dam road.",
+      "Secondary: Destroy enemy guns and armor covering the forest roads.",
+      "Tertiary: Keep at least six friendly formations operational."
+    ],
+    turnLimit: 20,
+    doctrine: "Advance in short bounds through the woods, keep engineers close to the trail, and avoid feeding armor into unsupported ridgelines.",
+    supplies: [
+      { label: "Requisition Budget", amount: "3,100 requisition points" },
+      { label: "Forest Assault Force", amount: "Infantry, engineers, anti-tank guns, armor, artillery, supply, recon, and close air support predeployed" },
+      { label: "Operational Window", amount: "20-turn forest assault" }
     ]
   },
 
@@ -340,10 +472,16 @@ const missionCategories: Record<MissionKey, MissionCategory> = {
   patrol: "patrol",
   patrol_river_watch: "patrol",
   patrol_pointe_du_hoc: "patrol",
+  assault_el_alamein: "assault",
   assault_kasserine_pass: "assault",
   assault_gela_landings: "assault",
+  assault_anzio_beachhead: "assault",
+  assault_monte_cassino: "assault",
   assault_omaha_beach: "assault",
   assault_carentan: "assault",
+  assault_arnhem_bridge: "assault",
+  assault_falaise_pocket: "assault",
+  assault_hurtgen_forest: "assault",
   assault_citadel_ridge: "assault",
   assault_bastogne: "assault",
   assault_remagen: "assault",
@@ -427,6 +565,29 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
       }
     ]
   },
+  assault_el_alamein: {
+    preferredZoneKey: "eighth-army-start",
+    focusLabel: "desert breach line",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 70,
+      minimumPlayerZoneFrontage: 7,
+      minimumPlayerZoneDepth: 6
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "eighth-army-start",
+        minimumCapacity: 42,
+        minimumFrontage: 7,
+        minimumDepth: 6
+      },
+      {
+        zoneKey: "reserve-armored-lane",
+        minimumCapacity: 30,
+        minimumFrontage: 6,
+        minimumDepth: 6
+      }
+    ]
+  },
   assault_kasserine_pass: {
     preferredZoneKey: "tebessa-road-line",
     focusLabel: "pass defense line",
@@ -473,6 +634,52 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
       }
     ]
   },
+  assault_anzio_beachhead: {
+    preferredZoneKey: "anzio-port-perimeter",
+    focusLabel: "Anzio beachhead",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 68,
+      minimumPlayerZoneFrontage: 7,
+      minimumPlayerZoneDepth: 5
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "anzio-port-perimeter",
+        minimumCapacity: 42,
+        minimumFrontage: 8,
+        minimumDepth: 5
+      },
+      {
+        zoneKey: "beachhead-reserve",
+        minimumCapacity: 28,
+        minimumFrontage: 7,
+        minimumDepth: 5
+      }
+    ]
+  },
+  assault_monte_cassino: {
+    preferredZoneKey: "rapido-west-bank",
+    focusLabel: "Rapido assault line",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 70,
+      minimumPlayerZoneFrontage: 6,
+      minimumPlayerZoneDepth: 5
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "rapido-west-bank",
+        minimumCapacity: 45,
+        minimumFrontage: 6,
+        minimumDepth: 8
+      },
+      {
+        zoneKey: "route-six-assembly",
+        minimumCapacity: 25,
+        minimumFrontage: 6,
+        minimumDepth: 5
+      }
+    ]
+  },
   assault_omaha_beach: {
     preferredZoneKey: "dog-green-beach",
     focusLabel: "Omaha assault beaches",
@@ -516,6 +723,75 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
         minimumCapacity: 20,
         minimumFrontage: 8,
         minimumDepth: 4
+      }
+    ]
+  },
+  assault_arnhem_bridge: {
+    preferredZoneKey: "airborne-drop-zone",
+    focusLabel: "Arnhem airborne corridor",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 70,
+      minimumPlayerZoneFrontage: 8,
+      minimumPlayerZoneDepth: 4
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "airborne-drop-zone",
+        minimumCapacity: 40,
+        minimumFrontage: 8,
+        minimumDepth: 5
+      },
+      {
+        zoneKey: "oosterbeek-perimeter",
+        minimumCapacity: 32,
+        minimumFrontage: 8,
+        minimumDepth: 4
+      }
+    ]
+  },
+  assault_falaise_pocket: {
+    preferredZoneKey: "chambois-jaw",
+    focusLabel: "Falaise pocket jaws",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 80,
+      minimumPlayerZoneFrontage: 8,
+      minimumPlayerZoneDepth: 6
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "chambois-jaw",
+        minimumCapacity: 44,
+        minimumFrontage: 8,
+        minimumDepth: 6
+      },
+      {
+        zoneKey: "argentan-jaw",
+        minimumCapacity: 44,
+        minimumFrontage: 8,
+        minimumDepth: 6
+      }
+    ]
+  },
+  assault_hurtgen_forest: {
+    preferredZoneKey: "forest-line-alpha",
+    focusLabel: "Hurtgen forest line",
+    validation: {
+      minimumPlayerZoneCapacityTotal: 80,
+      minimumPlayerZoneFrontage: 7,
+      minimumPlayerZoneDepth: 6
+    },
+    zoneDoctrine: [
+      {
+        zoneKey: "forest-line-alpha",
+        minimumCapacity: 50,
+        minimumFrontage: 7,
+        minimumDepth: 7
+      },
+      {
+        zoneKey: "kall-trail-reserve",
+        minimumCapacity: 36,
+        minimumFrontage: 7,
+        minimumDepth: 6
       }
     ]
   },
@@ -657,6 +933,11 @@ const missionUnlockRequirements: Record<MissionKey, MissionUnlockRequirement> = 
     victories: 0,
     description: "Requires 1 completed mission"
   },
+  assault_el_alamein: {
+    missionsCompleted: 2,
+    victories: 1,
+    description: "Requires 2 completed missions and 1 victory"
+  },
   assault_kasserine_pass: {
     missionsCompleted: 2,
     victories: 0,
@@ -667,6 +948,16 @@ const missionUnlockRequirements: Record<MissionKey, MissionUnlockRequirement> = 
     victories: 1,
     description: "Requires 2 completed missions and 1 victory"
   },
+  assault_anzio_beachhead: {
+    missionsCompleted: 3,
+    victories: 1,
+    description: "Requires 3 completed missions and 1 victory"
+  },
+  assault_monte_cassino: {
+    missionsCompleted: 3,
+    victories: 2,
+    description: "Requires 3 completed missions and 2 victories"
+  },
   assault_omaha_beach: {
     missionsCompleted: 3,
     victories: 1,
@@ -676,6 +967,21 @@ const missionUnlockRequirements: Record<MissionKey, MissionUnlockRequirement> = 
     missionsCompleted: 3,
     victories: 1,
     description: "Requires 3 completed missions and 1 victory"
+  },
+  assault_arnhem_bridge: {
+    missionsCompleted: 4,
+    victories: 2,
+    description: "Requires 4 completed missions and 2 victories"
+  },
+  assault_falaise_pocket: {
+    missionsCompleted: 5,
+    victories: 3,
+    description: "Requires 5 completed missions and 3 victories"
+  },
+  assault_hurtgen_forest: {
+    missionsCompleted: 5,
+    victories: 3,
+    description: "Requires 5 completed missions and 3 victories"
   },
   assault: {
     missionsCompleted: 2,

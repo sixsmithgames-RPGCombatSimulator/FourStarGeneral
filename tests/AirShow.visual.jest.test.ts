@@ -637,8 +637,8 @@ describe("AirShow JEST Harness", () => {
       .forEach((tracer) => {
         expect(tracerTargetHeadingDot(scramblePhase, tracer) ?? -1).toBeGreaterThan(0.1);
       });
-    expect(Math.max(...allDogfightTracers.map((tracer) => tracer.visibleLengthPx))).toBeLessThanOrEqual(14);
-    expect(Math.max(...allDogfightTracers.map((tracer) => tracer.streakLengthPx))).toBeLessThanOrEqual(150);
+    expect(Math.max(...allDogfightTracers.map((tracer) => tracer.visibleLengthPx))).toBeLessThanOrEqual(9);
+    expect(Math.max(...allDogfightTracers.map((tracer) => tracer.streakLengthPx))).toBeLessThanOrEqual(112);
   });
 
   test("combat phases keep sampled sprite speeds governed with broad turns", async () => {
@@ -1187,8 +1187,8 @@ describe("AirShow JEST Harness", () => {
     expect(turretTracers.length).toBeGreaterThan(0);
     expect(fighterTracers.some((tracer) => !!tracer.targetActorId)).toBe(true);
     expect(turretTracers.some((tracer) => !!tracer.targetActorId)).toBe(true);
-    expect(Math.max(...tracerVisibleLengths)).toBeLessThanOrEqual(14);
-    expect(Math.max(...tracerLifetimes)).toBeLessThanOrEqual(44);
+    expect(Math.max(...tracerVisibleLengths)).toBeLessThanOrEqual(8);
+    expect(Math.max(...tracerLifetimes)).toBeLessThanOrEqual(38);
     expect(
       fighterTracers.reduce((sum, tracer) => sum + (tracer.width ?? 0), 0) / fighterTracers.length
     ).toBeGreaterThan(
@@ -1273,6 +1273,37 @@ describe("AirShow JEST Harness", () => {
       );
       expect(Number.isFinite(nearestBomberDistancePx)).toBe(true);
       expect(nearestBomberDistancePx).toBeLessThan(135);
+    });
+  });
+
+  test("strike-only airshow uses bomber-only phases with smooth target run and egress", async () => {
+    const scene = await captureScene();
+    const strikeOnlyScene: ResolvedAirShowScene = {
+      ...scene,
+      interceptors: [],
+      escorts: [],
+      escortExchanges: [],
+      bomberPassExchanges: []
+    };
+    const report = inspectScene(strikeOnlyScene);
+    const phaseLabels = report.phases.map((phase) => phase.label);
+
+    expect(phaseLabels).toEqual(["bomber-ingress", "target-run", "egress"]);
+    report.phases.forEach((phase) => {
+      expect(phase.assignments.length).toBeGreaterThan(0);
+      expect(phase.assignments.every((assignment) => assignment.role === "bomber")).toBe(true);
+    });
+
+    const targetRun = report.phases.find((phase) => phase.label === "target-run");
+    const targetRunBombers = targetRun?.assignments.filter((assignment) => assignment.role === "bomber") ?? [];
+    expect(targetRunBombers.length).toBeGreaterThan(0);
+    targetRunBombers.forEach((assignment) => {
+      expect(maxMovingTurnDegrees(assignment.sampledPositions)).toBeLessThan(78);
+    });
+
+    const egress = report.phases.find((phase) => phase.label === "egress");
+    egress?.assignments.forEach((assignment) => {
+      expect(maxMovingTurnDegrees(assignment.sampledPositions)).toBeLessThan(84);
     });
   });
 

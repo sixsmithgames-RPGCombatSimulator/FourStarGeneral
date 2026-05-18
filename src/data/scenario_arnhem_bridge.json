@@ -1,0 +1,1970 @@
+{
+  "name": "Arnhem Bridge",
+  "size": {
+    "cols": 30,
+    "rows": 18
+  },
+  "mainSupplyDistanceTurns": 5,
+  "battleRequisitionStartingPoints": 100,
+  "battleRequisitionPointsPerTurn": 20,
+  "allowedBattleRequisitions": [
+    "ammo",
+    "fuel",
+    "supplyConvoy",
+    "corpsArtilleryGroup",
+    "infantry",
+    "engineer",
+    "recon",
+    "reconBike",
+    "medic",
+    "maintenance",
+    "airborneDetachment"
+  ],
+  "tilePalette": {
+    "P": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "fields"
+      ],
+      "recon": "intel"
+    },
+    "R": {
+      "terrain": "road",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "road"
+      ],
+      "recon": "intel"
+    },
+    "F": {
+      "terrain": "forest",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "trees",
+        "shrubs"
+      ],
+      "recon": "intel"
+    },
+    "H": {
+      "terrain": "hill",
+      "terrainType": "rural",
+      "density": "average",
+      "features": [
+        "foothills"
+      ],
+      "recon": "intel"
+    },
+    "M": {
+      "terrain": "mountain",
+      "terrainType": "mountain",
+      "density": "dense",
+      "features": [
+        "cliffs",
+        "ridge"
+      ],
+      "recon": "intel"
+    },
+    "C": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "streets",
+        "buildings"
+      ],
+      "recon": "intel",
+      "spriteVariant": "center"
+    },
+    "T": {
+      "terrain": "town",
+      "terrainType": "urban",
+      "density": "average",
+      "features": [
+        "village",
+        "stone buildings"
+      ],
+      "recon": "intel"
+    },
+    "U": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "rubble",
+        "fortifications"
+      ],
+      "recon": "intel"
+    },
+    "B": {
+      "terrain": "beach",
+      "terrainType": "grass",
+      "density": "sparse",
+      "features": [
+        "sand",
+        "shingle"
+      ],
+      "recon": "firsthand"
+    },
+    "W": {
+      "terrain": "river",
+      "terrainType": "water",
+      "density": "sparse",
+      "features": [
+        "river"
+      ],
+      "recon": "intel"
+    },
+    "D": {
+      "terrain": "road",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "road",
+        "bridge"
+      ],
+      "recon": "intel"
+    },
+    "S": {
+      "terrain": "marsh",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "marsh",
+        "flooded ground"
+      ],
+      "recon": "intel"
+    },
+    "N": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "snow"
+      ],
+      "recon": "intel"
+    },
+    "L": {
+      "terrain": "forest",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "snow",
+        "forest"
+      ],
+      "recon": "intel"
+    },
+    "V": {
+      "terrain": "hill",
+      "terrainType": "rural",
+      "density": "average",
+      "features": [
+        "snow",
+        "ridge"
+      ],
+      "recon": "intel"
+    },
+    "A": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "sparse",
+      "features": [
+        "airfield",
+        "runway"
+      ],
+      "recon": "intel"
+    }
+  },
+  "tiles": [
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "F",
+      "F",
+      "F",
+      "F",
+      "R",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "T",
+      "R",
+      "F",
+      "F",
+      "F",
+      "F",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P"
+    ],
+    [
+      "P",
+      "F",
+      "F",
+      "R",
+      "F",
+      "F",
+      "F",
+      "F",
+      "R",
+      "R",
+      "F",
+      "F",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P"
+    ],
+    [
+      "P",
+      "F",
+      "F",
+      "F",
+      "R",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "R",
+      "R",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "F",
+      "F",
+      "F",
+      "R",
+      "R",
+      "F",
+      "F",
+      "F",
+      "F",
+      "P",
+      "R",
+      "R",
+      "R",
+      "R",
+      "C",
+      "C",
+      "C",
+      "C",
+      "C",
+      "P",
+      "R",
+      "R",
+      "R",
+      "R",
+      "H",
+      "H",
+      "H",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "T",
+      "R",
+      "R",
+      "F",
+      "P",
+      "P",
+      "C",
+      "C",
+      "C",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "H",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "R",
+      "R",
+      "R",
+      "R",
+      "C",
+      "C",
+      "C",
+      "C",
+      "T",
+      "C",
+      "C",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "F",
+      "P",
+      "P",
+      "C",
+      "R",
+      "T",
+      "C",
+      "C",
+      "C",
+      "T",
+      "C",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "D",
+      "R",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W"
+    ],
+    [
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "D",
+      "D",
+      "R",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W",
+      "W"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "T",
+      "R",
+      "R",
+      "T",
+      "T",
+      "T",
+      "T",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "T",
+      "T",
+      "T",
+      "R",
+      "T",
+      "R",
+      "R",
+      "R",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "P",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "T",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ],
+    [
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P",
+      "P"
+    ]
+  ],
+  "objectives": [
+    {
+      "hex": [
+        15,
+        9
+      ],
+      "owner": "Player",
+      "vp": 160
+    },
+    {
+      "hex": [
+        7,
+        7
+      ],
+      "owner": "Player",
+      "vp": 130
+    },
+    {
+      "hex": [
+        6,
+        3
+      ],
+      "owner": "Player",
+      "vp": 110
+    },
+    {
+      "hex": [
+        21,
+        13
+      ],
+      "owner": "Bot",
+      "vp": 120
+    }
+  ],
+  "deploymentZones": [
+    {
+      "key": "airborne-drop-zone",
+      "label": "Airborne Drop Zone",
+      "description": "Northern drop zone and glider landing fields.",
+      "capacity": 40,
+      "faction": "Player",
+      "hexes": [
+        [
+          2,
+          1
+        ],
+        [
+          3,
+          1
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          5,
+          1
+        ],
+        [
+          6,
+          1
+        ],
+        [
+          7,
+          1
+        ],
+        [
+          8,
+          1
+        ],
+        [
+          9,
+          1
+        ],
+        [
+          10,
+          1
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          2
+        ],
+        [
+          4,
+          2
+        ],
+        [
+          5,
+          2
+        ],
+        [
+          6,
+          2
+        ],
+        [
+          7,
+          2
+        ],
+        [
+          8,
+          2
+        ],
+        [
+          9,
+          2
+        ],
+        [
+          10,
+          2
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          5,
+          3
+        ],
+        [
+          6,
+          3
+        ],
+        [
+          7,
+          3
+        ],
+        [
+          8,
+          3
+        ],
+        [
+          9,
+          3
+        ],
+        [
+          10,
+          3
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          5,
+          4
+        ],
+        [
+          6,
+          4
+        ],
+        [
+          7,
+          4
+        ],
+        [
+          8,
+          4
+        ],
+        [
+          9,
+          4
+        ],
+        [
+          10,
+          4
+        ],
+        [
+          2,
+          5
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          5,
+          5
+        ],
+        [
+          6,
+          5
+        ],
+        [
+          7,
+          5
+        ],
+        [
+          8,
+          5
+        ],
+        [
+          9,
+          5
+        ],
+        [
+          10,
+          5
+        ]
+      ]
+    },
+    {
+      "key": "oosterbeek-perimeter",
+      "label": "Oosterbeek Perimeter",
+      "description": "Western perimeter anchoring the bridge force.",
+      "capacity": 32,
+      "faction": "Player",
+      "hexes": [
+        [
+          2,
+          6
+        ],
+        [
+          3,
+          6
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          6,
+          6
+        ],
+        [
+          7,
+          6
+        ],
+        [
+          8,
+          6
+        ],
+        [
+          9,
+          6
+        ],
+        [
+          10,
+          6
+        ],
+        [
+          2,
+          7
+        ],
+        [
+          3,
+          7
+        ],
+        [
+          4,
+          7
+        ],
+        [
+          5,
+          7
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          7,
+          7
+        ],
+        [
+          8,
+          7
+        ],
+        [
+          9,
+          7
+        ],
+        [
+          10,
+          7
+        ],
+        [
+          2,
+          8
+        ],
+        [
+          3,
+          8
+        ],
+        [
+          4,
+          8
+        ],
+        [
+          5,
+          8
+        ],
+        [
+          6,
+          8
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          8,
+          8
+        ],
+        [
+          9,
+          8
+        ],
+        [
+          10,
+          8
+        ],
+        [
+          2,
+          9
+        ],
+        [
+          3,
+          9
+        ],
+        [
+          4,
+          9
+        ],
+        [
+          5,
+          9
+        ],
+        [
+          6,
+          9
+        ],
+        [
+          7,
+          9
+        ],
+        [
+          8,
+          9
+        ],
+        [
+          9,
+          9
+        ],
+        [
+          10,
+          9
+        ]
+      ]
+    },
+    {
+      "key": "arnhem-city-garrison",
+      "label": "Arnhem City Garrison",
+      "description": "German city positions around the north bridge approaches.",
+      "capacity": 30,
+      "faction": "Bot",
+      "hexes": [
+        [
+          17,
+          5
+        ],
+        [
+          18,
+          5
+        ],
+        [
+          19,
+          5
+        ],
+        [
+          20,
+          5
+        ],
+        [
+          21,
+          5
+        ],
+        [
+          22,
+          5
+        ],
+        [
+          23,
+          5
+        ],
+        [
+          24,
+          5
+        ],
+        [
+          25,
+          5
+        ],
+        [
+          26,
+          5
+        ],
+        [
+          27,
+          5
+        ],
+        [
+          28,
+          5
+        ],
+        [
+          17,
+          6
+        ],
+        [
+          18,
+          6
+        ],
+        [
+          19,
+          6
+        ],
+        [
+          20,
+          6
+        ],
+        [
+          21,
+          6
+        ],
+        [
+          22,
+          6
+        ],
+        [
+          23,
+          6
+        ],
+        [
+          24,
+          6
+        ],
+        [
+          25,
+          6
+        ],
+        [
+          26,
+          6
+        ],
+        [
+          27,
+          6
+        ],
+        [
+          28,
+          6
+        ],
+        [
+          17,
+          7
+        ],
+        [
+          18,
+          7
+        ],
+        [
+          19,
+          7
+        ],
+        [
+          20,
+          7
+        ],
+        [
+          21,
+          7
+        ],
+        [
+          22,
+          7
+        ],
+        [
+          23,
+          7
+        ],
+        [
+          24,
+          7
+        ],
+        [
+          25,
+          7
+        ],
+        [
+          26,
+          7
+        ],
+        [
+          27,
+          7
+        ],
+        [
+          28,
+          7
+        ],
+        [
+          17,
+          8
+        ],
+        [
+          18,
+          8
+        ],
+        [
+          19,
+          8
+        ],
+        [
+          20,
+          8
+        ],
+        [
+          21,
+          8
+        ],
+        [
+          22,
+          8
+        ],
+        [
+          23,
+          8
+        ],
+        [
+          24,
+          8
+        ],
+        [
+          25,
+          8
+        ],
+        [
+          26,
+          8
+        ],
+        [
+          27,
+          8
+        ],
+        [
+          28,
+          8
+        ],
+        [
+          17,
+          9
+        ],
+        [
+          18,
+          9
+        ],
+        [
+          19,
+          9
+        ],
+        [
+          20,
+          9
+        ],
+        [
+          21,
+          9
+        ],
+        [
+          22,
+          9
+        ],
+        [
+          23,
+          9
+        ],
+        [
+          24,
+          9
+        ],
+        [
+          25,
+          9
+        ],
+        [
+          26,
+          9
+        ],
+        [
+          27,
+          9
+        ],
+        [
+          28,
+          9
+        ]
+      ]
+    },
+    {
+      "key": "south-bank-blocking-line",
+      "label": "South Bank Blocking Line",
+      "description": "Armor and guns south of the Rhine crossing.",
+      "capacity": 34,
+      "faction": "Bot",
+      "hexes": [
+        [
+          17,
+          12
+        ],
+        [
+          18,
+          12
+        ],
+        [
+          19,
+          12
+        ],
+        [
+          20,
+          12
+        ],
+        [
+          21,
+          12
+        ],
+        [
+          22,
+          12
+        ],
+        [
+          23,
+          12
+        ],
+        [
+          24,
+          12
+        ],
+        [
+          25,
+          12
+        ],
+        [
+          26,
+          12
+        ],
+        [
+          27,
+          12
+        ],
+        [
+          28,
+          12
+        ],
+        [
+          29,
+          12
+        ],
+        [
+          17,
+          13
+        ],
+        [
+          18,
+          13
+        ],
+        [
+          19,
+          13
+        ],
+        [
+          20,
+          13
+        ],
+        [
+          21,
+          13
+        ],
+        [
+          22,
+          13
+        ],
+        [
+          23,
+          13
+        ],
+        [
+          24,
+          13
+        ],
+        [
+          25,
+          13
+        ],
+        [
+          26,
+          13
+        ],
+        [
+          27,
+          13
+        ],
+        [
+          28,
+          13
+        ],
+        [
+          29,
+          13
+        ],
+        [
+          17,
+          14
+        ],
+        [
+          18,
+          14
+        ],
+        [
+          19,
+          14
+        ],
+        [
+          20,
+          14
+        ],
+        [
+          21,
+          14
+        ],
+        [
+          22,
+          14
+        ],
+        [
+          23,
+          14
+        ],
+        [
+          24,
+          14
+        ],
+        [
+          25,
+          14
+        ],
+        [
+          26,
+          14
+        ],
+        [
+          27,
+          14
+        ],
+        [
+          28,
+          14
+        ],
+        [
+          29,
+          14
+        ],
+        [
+          17,
+          15
+        ],
+        [
+          18,
+          15
+        ],
+        [
+          19,
+          15
+        ],
+        [
+          20,
+          15
+        ],
+        [
+          21,
+          15
+        ],
+        [
+          22,
+          15
+        ],
+        [
+          23,
+          15
+        ],
+        [
+          24,
+          15
+        ],
+        [
+          25,
+          15
+        ],
+        [
+          26,
+          15
+        ],
+        [
+          27,
+          15
+        ],
+        [
+          28,
+          15
+        ],
+        [
+          29,
+          15
+        ],
+        [
+          17,
+          16
+        ],
+        [
+          18,
+          16
+        ],
+        [
+          19,
+          16
+        ],
+        [
+          20,
+          16
+        ],
+        [
+          21,
+          16
+        ],
+        [
+          22,
+          16
+        ],
+        [
+          23,
+          16
+        ],
+        [
+          24,
+          16
+        ],
+        [
+          25,
+          16
+        ],
+        [
+          26,
+          16
+        ],
+        [
+          27,
+          16
+        ],
+        [
+          28,
+          16
+        ],
+        [
+          29,
+          16
+        ]
+      ]
+    }
+  ],
+  "turnLimit": 18,
+  "playerBudget": 2800,
+  "allowedUnits": [
+    "infantry",
+    "airborneDetachment",
+    "engineer",
+    "tank",
+    "heavyTankCompany",
+    "tankDestroyerCompany",
+    "assaultGunBattalion",
+    "howitzer",
+    "rocketArtilleryBattalion",
+    "spArtilleryGroup",
+    "antiTankBattery",
+    "flakBattery",
+    "recon",
+    "reconBike",
+    "fighter",
+    "interceptorWing",
+    "groundAttackWing",
+    "bomber",
+    "apcHalftrackCompany",
+    "supplyConvoy",
+    "ammo",
+    "fuel",
+    "medic",
+    "maintenance"
+  ],
+  "restrictedUnits": [],
+  "sides": {
+    "Player": {
+      "hq": [
+        7,
+        7
+      ],
+      "general": {
+        "accBonus": 5,
+        "dmgBonus": 3,
+        "moveBonus": 3,
+        "supplyBonus": 4
+      },
+      "units": [
+        {
+          "type": "Paratrooper",
+          "hex": [
+            15,
+            9
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 8,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Engineer",
+          "hex": [
+            14,
+            9
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Paratrooper",
+          "hex": [
+            7,
+            7
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 8,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Paratrooper",
+          "hex": [
+            6,
+            3
+          ],
+          "strength": 100,
+          "experience": 2,
+          "ammo": 8,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "AT_Gun_50mm",
+          "hex": [
+            8,
+            8
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Recon_Bike",
+          "hex": [
+            10,
+            7
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 5,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            5,
+            5
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 8,
+          "fuel": 2,
+          "entrench": 1,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Supply_Truck",
+          "hex": [
+            5,
+            7
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 0,
+          "fuel": 70,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        },
+        {
+          "type": "Fighter",
+          "hex": [
+            9,
+            3
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 50,
+          "entrench": 0,
+          "facing": "E",
+          "preDeployed": true
+        }
+      ]
+    },
+    "Bot": {
+      "hq": [
+        21,
+        13
+      ],
+      "general": {
+        "accBonus": 7,
+        "dmgBonus": 5,
+        "moveBonus": 4,
+        "supplyBonus": 4
+      },
+      "units": [
+        {
+          "type": "Infantry_42",
+          "hex": [
+            18,
+            8
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "W"
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            20,
+            13
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "W"
+        },
+        {
+          "type": "Panzer_IV",
+          "hex": [
+            21,
+            14
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 7,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Heavy_Tank",
+          "hex": [
+            25,
+            13
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 35,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Assault_Gun",
+          "hex": [
+            19,
+            9
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Flak_88",
+          "hex": [
+            23,
+            6
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "W"
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            26,
+            15
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 8,
+          "fuel": 2,
+          "entrench": 1,
+          "facing": "W"
+        },
+        {
+          "type": "Recon_Bike",
+          "hex": [
+            18,
+            12
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 5,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "AT_Gun_50mm",
+          "hex": [
+            16,
+            13
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "W"
+        },
+        {
+          "type": "Ground_Attack",
+          "hex": [
+            24,
+            7
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 1,
+          "fuel": 55,
+          "entrench": 0,
+          "facing": "W"
+        }
+      ]
+    }
+  }
+}

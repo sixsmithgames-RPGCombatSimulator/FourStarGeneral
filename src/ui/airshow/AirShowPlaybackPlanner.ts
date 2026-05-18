@@ -646,13 +646,79 @@ export function planResolvedAirCombatShowScene(
     const alignment =
       (boundaryVector.dx * firstVector.dx + boundaryVector.dy * firstVector.dy)
       / (boundaryLength * firstVectorLength);
-    if (alignment >= -0.05) {
+    if (alignment >= 0.78) {
       return [...path];
     }
     const normalizedBoundary = {
       dx: boundaryVector.dx / boundaryLength,
       dy: boundaryVector.dy / boundaryLength
     };
+    const transitionTargetDistancePx = host.clamp(carryDistancePx * 2.7, 132, 240);
+    let transitionEndIndex = 1;
+    let traversedPx = 0;
+    for (let index = 1; index < path.length; index += 1) {
+      const previousPoint = path[index - 1];
+      const currentPoint = path[index];
+      if (!previousPoint || !currentPoint) {
+        continue;
+      }
+      traversedPx += Math.hypot(currentPoint.cx - previousPoint.cx, currentPoint.cy - previousPoint.cy);
+      transitionEndIndex = index;
+      if (traversedPx >= transitionTargetDistancePx) {
+        break;
+      }
+    }
+    const transitionEnd = path[transitionEndIndex];
+    if (transitionEnd && transitionEndIndex > 1) {
+      const previousEnd = path[Math.max(0, transitionEndIndex - 1)] ?? start;
+      const nextEnd = path[Math.min(path.length - 1, transitionEndIndex + 1)] ?? transitionEnd;
+      const exitForward = normalizeVector(
+        nextEnd.cx - previousEnd.cx,
+        nextEnd.cy - previousEnd.cy,
+        transitionEnd.cx - start.cx,
+        transitionEnd.cy - start.cy
+      );
+      const transitionDistancePx = Math.max(
+        1,
+        Math.hypot(transitionEnd.cx - start.cx, transitionEnd.cy - start.cy)
+      );
+      const entryHandlePx = host.clamp(transitionDistancePx * 0.42, 78, 178);
+      const exitHandlePx = host.clamp(transitionDistancePx * 0.34, 68, 158);
+      const firstControl = {
+        cx: start.cx + normalizedBoundary.dx * entryHandlePx,
+        cy: start.cy + normalizedBoundary.dy * entryHandlePx
+      };
+      const secondControl = {
+        cx: transitionEnd.cx - exitForward.x * exitHandlePx,
+        cy: transitionEnd.cy - exitForward.y * exitHandlePx
+      };
+      const transitionSamples = Array.from({ length: 17 }, (_, stepIndex) => {
+        const t = stepIndex / 16;
+        const inv = 1 - t;
+        return {
+          cx:
+            start.cx * inv * inv * inv
+            + firstControl.cx * 3 * inv * inv * t
+            + secondControl.cx * 3 * inv * t * t
+            + transitionEnd.cx * t * t * t,
+          cy:
+            start.cy * inv * inv * inv
+            + firstControl.cy * 3 * inv * inv * t
+            + secondControl.cy * 3 * inv * t * t
+            + transitionEnd.cy * t * t * t
+        };
+      });
+      return [
+        ...transitionSamples,
+        ...path.slice(transitionEndIndex + 1)
+      ].filter((point, index, points) => {
+        if (index === 0) {
+          return true;
+        }
+        const previousPoint = points[index - 1];
+        return !previousPoint || Math.hypot(point.cx - previousPoint.cx, point.cy - previousPoint.cy) > 0.5;
+      });
+    }
     const carryPx = host.clamp(
       Math.min(carryDistancePx, firstVectorLength * 0.7),
       18,
@@ -1842,34 +1908,44 @@ export function planResolvedAirCombatShowScene(
         sampledBoundaryHeadingDegrees
         ?? egressHeadingByFlightId.get(flight.spec.id)
         ?? host.resolveAirShowFlightHeadingDegrees(flight);
-      const phaseBoundaryHeadingDegrees =
-        sampledBoundaryHeadingDegrees ?? host.resolveAirShowFlightHeadingDegrees(flight);
+      const boundaryForward =
+        sampledBoundaryVector && Math.hypot(sampledBoundaryVector.dx, sampledBoundaryVector.dy) > 0.5
+          ? normalizeVector(sampledBoundaryVector.dx, sampledBoundaryVector.dy, corridor.axis.x, corridor.axis.y)
+          : resolveHeadingVector(egressHeadingDegrees, corridor.axis);
       const egressPoint = (() => {
         const originCenter =
           hqAxis
             ? (flight.spec.faction === "Bot" ? hqAxis.botOrigin : hqAxis.playerOrigin)
             : host.resolveHexCenterByKey(flight.spec.originHexKey);
         if (visibleBounds) {
-          const homeSideSign =
-            originCenter
-              ? (
-                  hqMidX === null
-                    ? (originCenter.cx >= center.cx ? 1 : -1)
-                    : (originCenter.cx >= hqMidX ? 1 : -1)
-                )
-              : (flight.spec.faction === "Bot" ? 1 : -1);
-          const boundaryX = homeSideSign < 0 ? visibleBounds.minX : visibleBounds.maxX;
           const laneOffsetPx = (index - (bomberFlightsForPhase.length - 1) / 2) * 14;
-          const egressY = host.clamp(
-            current.cy
-              + corridor.axis.y * (92 + rand() * 36)
-              + corridor.normal.y * laneOffsetPx,
-            visibleBounds.minY - host.offMapDistancePx * 0.45,
-            visibleBounds.maxY + host.offMapDistancePx * 0.45
-          );
+          const boundaryPoint =
+            resolveAirShowBoundsRayIntersection(current, boundaryForward, visibleBounds)
+            ?? {
+              cx: host.clamp(
+                current.cx + boundaryForward.x * host.offMapDistancePx,
+                visibleBounds.minX,
+                visibleBounds.maxX
+              ),
+              cy: host.clamp(
+                current.cy + boundaryForward.y * host.offMapDistancePx,
+                visibleBounds.minY,
+                visibleBounds.maxY
+              )
+            };
+          const lateral = { x: -boundaryForward.y, y: boundaryForward.x };
+          const egressOffMapDistancePx = host.offMapDistancePx * 0.38;
           return {
-            cx: boundaryX + homeSideSign * host.offMapDistancePx * 0.72 + (rand() - 0.5) * 12,
-            cy: egressY
+            cx:
+              boundaryPoint.cx
+              + boundaryForward.x * egressOffMapDistancePx
+              + lateral.x * laneOffsetPx
+              + (rand() - 0.5) * 8,
+            cy:
+              boundaryPoint.cy
+              + boundaryForward.y * egressOffMapDistancePx
+              + lateral.y * laneOffsetPx
+              + (rand() - 0.5) * 8
           };
         }
         if (originCenter) {
@@ -1891,10 +1967,7 @@ export function planResolvedAirCombatShowScene(
       const homeDy = egressPoint.cy - current.cy;
       const homeDistancePx = Math.max(1, Math.hypot(homeDx, homeDy));
       const homeForward = normalizeVector(homeDx, homeDy, 0, -1);
-      const headingForward =
-        sampledBoundaryVector && Math.hypot(sampledBoundaryVector.dx, sampledBoundaryVector.dy) > 0.5
-          ? normalizeVector(sampledBoundaryVector.dx, sampledBoundaryVector.dy, homeForward.x, homeForward.y)
-          : resolveHeadingVector(phaseBoundaryHeadingDegrees, homeForward);
+      const headingForward = boundaryForward;
       const headingRouteDot = headingForward.x * homeForward.x + headingForward.y * homeForward.y;
       const rawEgressPath =
         headingRouteDot > -0.18 && homeDistancePx <= 380
@@ -2053,6 +2126,62 @@ export function planResolvedAirCombatShowScene(
       }
       rounded.push(points[points.length - 1]!);
       return dedupePath(rounded);
+    };
+    const simplifyShortInteriorSegments = (
+      points: ReadonlyArray<AirShowPoint>,
+      minSegmentPx: number
+    ): AirShowPoint[] => {
+      if (points.length <= 2 || minSegmentPx <= 0) {
+        return dedupePath(points);
+      }
+      const simplified: AirShowPoint[] = [points[0]!];
+      for (let index = 1; index < points.length - 1; index += 1) {
+        const point = points[index];
+        const previousKept = simplified[simplified.length - 1];
+        if (!point || !previousKept) {
+          continue;
+        }
+        if (Math.hypot(point.cx - previousKept.cx, point.cy - previousKept.cy) >= minSegmentPx) {
+          simplified.push(point);
+        }
+      }
+      const finalPoint = points[points.length - 1]!;
+      if (Math.hypot(finalPoint.cx - simplified[simplified.length - 1]!.cx, finalPoint.cy - simplified[simplified.length - 1]!.cy) > 0.5) {
+        simplified.push(finalPoint);
+      }
+      return dedupePath(simplified);
+    };
+    const softenAirShowPathCorners = (
+      points: ReadonlyArray<AirShowPoint>,
+      iterations: number
+    ): AirShowPoint[] => {
+      let softened = dedupePath(points);
+      for (let iteration = 0; iteration < iterations; iteration += 1) {
+        if (softened.length <= 2) {
+          return softened;
+        }
+        const nextPoints: AirShowPoint[] = [softened[0]!];
+        for (let index = 0; index < softened.length - 1; index += 1) {
+          const current = softened[index];
+          const next = softened[index + 1];
+          if (!current || !next) {
+            continue;
+          }
+          nextPoints.push(
+            {
+              cx: current.cx * 0.72 + next.cx * 0.28,
+              cy: current.cy * 0.72 + next.cy * 0.28
+            },
+            {
+              cx: current.cx * 0.28 + next.cx * 0.72,
+              cy: current.cy * 0.28 + next.cy * 0.72
+            }
+          );
+        }
+        nextPoints.push(softened[softened.length - 1]!);
+        softened = dedupePath(nextPoints);
+      }
+      return softened;
     };
     const buildCubicAirShowPath = (
       start: AirShowPoint,
@@ -2817,29 +2946,29 @@ export function planResolvedAirCombatShowScene(
         attackNormal.x * laneOffsetPx,
         attackNormal.y * laneOffsetPx
       );
-      const turnApex = host.offsetAirShowPoint(
+      const postReleasePoint = host.offsetAirShowPoint(
         targetCenter,
-        attackForward.x * 42 + attackNormal.x * (laneOffsetPx + turnSideSign * 116),
-        attackForward.y * 42 + attackNormal.y * (laneOffsetPx + turnSideSign * 116)
+        attackForward.x * 112 + attackNormal.x * (laneOffsetPx + turnSideSign * 18),
+        attackForward.y * 112 + attackNormal.y * (laneOffsetPx + turnSideSign * 18)
       );
-      const turnExit = host.offsetAirShowPoint(
+      const targetRunExit = host.offsetAirShowPoint(
         targetCenter,
-        attackForward.x * 76 + attackNormal.x * (laneOffsetPx + turnSideSign * 176),
-        attackForward.y * 76 + attackNormal.y * (laneOffsetPx + turnSideSign * 176)
+        attackForward.x * 196 + attackNormal.x * (laneOffsetPx + turnSideSign * 28),
+        attackForward.y * 196 + attackNormal.y * (laneOffsetPx + turnSideSign * 28)
       );
       const turnControlEntry = host.offsetAirShowPoint(
         targetCenter,
-        attackForward.x * 54 + attackNormal.x * (laneOffsetPx + turnSideSign * 42),
-        attackForward.y * 54 + attackNormal.y * (laneOffsetPx + turnSideSign * 42)
+        attackForward.x * 54 + attackNormal.x * (laneOffsetPx + turnSideSign * 8),
+        attackForward.y * 54 + attackNormal.y * (laneOffsetPx + turnSideSign * 8)
       );
       const turnControlExit = {
-        cx: turnApex.cx * 0.42 + turnExit.cx * 0.58,
-        cy: turnApex.cy * 0.42 + turnExit.cy * 0.58
+        cx: postReleasePoint.cx * 0.46 + targetRunExit.cx * 0.54,
+        cy: postReleasePoint.cy * 0.46 + targetRunExit.cy * 0.54
       };
       const targetRunPath = roundPathCorners(
         dedupePath([
           ...roundPathCorners(dedupePath([turnEntry, nearTarget, releasePoint]), 30, 8),
-          ...buildCubicAirShowPath(releasePoint, turnControlEntry, turnControlExit, turnExit, 20).slice(1)
+          ...buildCubicAirShowPath(releasePoint, turnControlEntry, turnControlExit, targetRunExit, 18).slice(1)
         ]),
         42,
         10
@@ -3210,56 +3339,29 @@ export function planResolvedAirCombatShowScene(
       const roleSpeedPxPerMs = roleSpeeds.get(assignment.actor.role) ?? host.airShowFighterSpeedPxPerMs;
       const targetProjection = resolveAirShowRailCoordinates(corridor, target);
       let escortVisibleEntryProgress: number | null = null;
-      let points = assignment.actor.role === "interceptor"
-        ? (() => {
-            const lateralKickSign = targetProjection.lateralPx < 0 ? -1 : 1;
-            const directDx = target.cx - start.cx;
-            const directDy = target.cy - start.cy;
-            const directDistancePx = Math.hypot(target.cx - start.cx, target.cy - start.cy);
-            const forward = normalizeVector(directDx, directDy, corridor.axis.x, corridor.axis.y);
-            const bendNormal = { x: -forward.y, y: forward.x };
-            const bendLateralPx = host.clamp(directDistancePx * 0.11, 42, 128);
-            return dedupePath([
-              start,
-              {
-                cx: start.cx + directDx * 0.44 + bendNormal.x * lateralKickSign * bendLateralPx,
-                cy: start.cy + directDy * 0.44 + bendNormal.y * lateralKickSign * bendLateralPx
-              },
-              target
-            ]);
-          })()
-        : (() => {
-            const basePoints = dedupePath(buildAirShowPresetRailPath(corridor, start, target, {
-              lateralPx: targetProjection.lateralPx,
-              midLateralPx: targetProjection.lateralPx,
-              entryProgress: 0.34,
-              exitProgress: 0.72
-            }));
-            const startsLeftOfMap = !!visibleBounds && start.cx < visibleBounds.minX - 48 && target.cx > visibleBounds.minX + 80;
-            const startsRightOfMap = !!visibleBounds && start.cx > visibleBounds.maxX + 48 && target.cx < visibleBounds.maxX - 80;
-            if (!visibleBounds || sceneVisibleWidthPx <= 1500 || (!startsLeftOfMap && !startsRightOfMap)) {
-              return basePoints;
-            }
-            const visibleEntryX = startsLeftOfMap
-              ? visibleBounds.minX + 26
-              : visibleBounds.maxX - 26;
-            const directT = Math.abs(target.cx - start.cx) > 1
-              ? host.clamp((visibleEntryX - start.cx) / (target.cx - start.cx), 0.08, 0.32)
-              : 0.18;
-            const visibleEntryPoint = {
-              cx: visibleEntryX,
-              cy:
-                start.cy
-                + (target.cy - start.cy) * directT
-                + corridor.normal.y * targetProjection.lateralPx * 0.08
-            };
-            const candidatePoints = dedupePath([start, visibleEntryPoint, ...basePoints.slice(1)]);
-            const candidateLengthPx = measurePathLength(candidatePoints);
-            escortVisibleEntryProgress = candidateLengthPx > 0
-              ? host.clamp(measurePathLength(candidatePoints.slice(0, 2)) / candidateLengthPx, 0, 1)
-              : null;
-            return candidatePoints;
-          })();
+      const directDx = target.cx - start.cx;
+      const directDy = target.cy - start.cy;
+      const directDistancePx = Math.max(1, Math.hypot(directDx, directDy));
+      const forward = normalizeVector(directDx, directDy, corridor.axis.x, corridor.axis.y);
+      const bendNormal = { x: -forward.y, y: forward.x };
+      const lateralKickSign = targetProjection.lateralPx < 0 ? -1 : 1;
+      const bendLateralPx =
+        assignment.actor.role === "interceptor"
+          ? host.clamp(directDistancePx * 0.07, 32, 92)
+          : host.clamp(directDistancePx * 0.035, 18, 54);
+      let points = buildCubicAirShowPath(
+        start,
+        {
+          cx: start.cx + directDx * 0.34 + bendNormal.x * lateralKickSign * bendLateralPx,
+          cy: start.cy + directDy * 0.34 + bendNormal.y * lateralKickSign * bendLateralPx
+        },
+        {
+          cx: start.cx + directDx * 0.68 + bendNormal.x * lateralKickSign * bendLateralPx * 0.42,
+          cy: start.cy + directDy * 0.68 + bendNormal.y * lateralKickSign * bendLateralPx * 0.42
+        },
+        target,
+        18
+      );
       let pathLengthPx = measurePathLength(points);
       const maxGovernedTravelPx = durationMs * roleSpeedPxPerMs;
       if (pathLengthPx > maxGovernedTravelPx + 1) {
@@ -3637,12 +3739,12 @@ export function planResolvedAirCombatShowScene(
           tracers.push(...host.buildAirShowDynamicTracerVolley(assignments, interceptorFlight, escortTarget, {
             emitter: "nose",
             color: "#fff5cf",
-            width: 0.7,
-            lifetimeMs: 42,
-            spreadPx: 8,
-            streakLengthPx: 142,
-            visibleLengthPx: 12,
-            fanHalfAngleDeg: 2.6,
+            width: 0.56,
+            lifetimeMs: 34,
+            spreadPx: 10,
+            streakLengthPx: 108,
+            visibleLengthPx: 7,
+            fanHalfAngleDeg: 1.8,
             burstCount: isMerge ? 3 : 4,
             maxAlignmentDeg: isMerge ? 32 : 32,
             maxRangePx: isMerge ? 330 : 338,
@@ -3667,12 +3769,12 @@ export function planResolvedAirCombatShowScene(
             tracers.push(...host.buildAirShowDynamicTracerVolley(assignments, escortFlight, interceptorTarget, {
               emitter: "nose",
               color: "#ffd98a",
-              width: 0.66,
-              lifetimeMs: 42,
-              spreadPx: 8,
-              streakLengthPx: 136,
-              visibleLengthPx: 12,
-              fanHalfAngleDeg: 2.4,
+              width: 0.54,
+              lifetimeMs: 34,
+              spreadPx: 10,
+              streakLengthPx: 102,
+              visibleLengthPx: 7,
+              fanHalfAngleDeg: 1.7,
               burstCount: isMerge ? 3 : 4,
               maxAlignmentDeg: isMerge ? 32 : 32,
               maxRangePx: isMerge ? 330 : 344,
@@ -3695,12 +3797,12 @@ export function planResolvedAirCombatShowScene(
                   {
                     emitter: "nose",
                     color: "#ffd98a",
-                    width: 0.66,
-                    lifetimeMs: 42,
-                    spreadPx: 8,
-                    streakLengthPx: 136,
-                    visibleLengthPx: 12,
-                    fanHalfAngleDeg: 2.4,
+                    width: 0.54,
+                    lifetimeMs: 34,
+                    spreadPx: 10,
+                    streakLengthPx: 102,
+                    visibleLengthPx: 7,
+                    fanHalfAngleDeg: 1.7,
                     burstCount: 4
                   }
                 )
@@ -3718,12 +3820,12 @@ export function planResolvedAirCombatShowScene(
                     {
                       emitter: "nose",
                       color: "#fff5cf",
-                      width: 0.7,
-                      lifetimeMs: 42,
-                      spreadPx: 8,
-                      streakLengthPx: 142,
-                      visibleLengthPx: 12,
-                      fanHalfAngleDeg: 2.6,
+                      width: 0.56,
+                      lifetimeMs: 34,
+                      spreadPx: 10,
+                      streakLengthPx: 108,
+                      visibleLengthPx: 7,
+                      fanHalfAngleDeg: 1.8,
                       burstCount: 4
                     }
                   )
@@ -5413,12 +5515,12 @@ export function planResolvedAirCombatShowScene(
           ...host.buildAirShowDynamicTracerVolley(bomberDefenseAssignments, interceptorFlight, targetBomber, {
             emitter: "nose",
             color: "#fff5cf",
-            width: 0.66,
-            lifetimeMs: 40,
-            spreadPx: 7,
-            streakLengthPx: 138,
-            visibleLengthPx: 11,
-            fanHalfAngleDeg: 2.2,
+            width: 0.54,
+            lifetimeMs: 34,
+            spreadPx: 9,
+            streakLengthPx: 104,
+            visibleLengthPx: 7,
+            fanHalfAngleDeg: 1.7,
             burstCount: 4,
             maxAlignmentDeg: 42,
             maxRangePx: 204,
@@ -5429,12 +5531,12 @@ export function planResolvedAirCombatShowScene(
           ...host.buildAirShowDynamicTracerVolley(bomberDefenseAssignments, targetBomber, interceptorFlight, {
             emitter: "center",
             color: "#fff1c8",
-            width: 0.5,
-            lifetimeMs: 42,
-            spreadPx: 5,
-            streakLengthPx: 112,
-            visibleLengthPx: 10,
-            fanHalfAngleDeg: 1.2,
+            width: 0.44,
+            lifetimeMs: 36,
+            spreadPx: 7,
+            streakLengthPx: 86,
+            visibleLengthPx: 6,
+            fanHalfAngleDeg: 0.9,
             burstCount: 3,
             maxAlignmentDeg: 96,
             maxRangePx: 204,
@@ -5624,42 +5726,25 @@ export function planResolvedAirCombatShowScene(
       const pairCount = Math.ceil(actorCount / 2);
       const sideSign = assignment.actor.formationIndex % 2 === 0 ? -1 : 1;
       const pairSlot = pairIndex - (pairCount - 1) / 2;
-      const alongBoostPx = pairSlot * 72;
-      const lateralBoostPx = sideSign * (220 + pairIndex * 18);
+      const alongBoostPx = pairSlot * 78 + sideSign * 7;
+      const lateralBoostPx = sideSign * (92 + pairIndex * 16);
       return dedupePath(points.map((point, index) => {
         const progress = index / Math.max(1, points.length - 1);
-        const spread = Math.sin(progress * Math.PI * 0.5);
-        const previous = points[Math.max(0, index - 1)] ?? point;
-        const next = points[Math.min(points.length - 1, index + 1)] ?? point;
-        const tangent = normalizeVector(
-          next.cx - previous.cx,
-          next.cy - previous.cy,
-          corridor.axis.x,
-          corridor.axis.y
-        );
-        const pathNormal = { x: -tangent.y, y: tangent.x };
-        const orientedPathNormal =
-          pathNormal.x * corridor.normal.x + pathNormal.y * corridor.normal.y < 0
-            ? { x: -pathNormal.x, y: -pathNormal.y }
-            : pathNormal;
         const entryRamp = progress <= 0 ? 0 : host.clamp(progress / 0.35, 0, 1);
-        const staticSpread = 0.56 * entryRamp;
-        const dynamicSpread = spread * 0.44;
-        const alongSpread = (0.64 + spread * 0.36) * entryRamp;
+        const spreadWeight = entryRamp;
+        const alongWeight = (0.72 + 0.28 * spreadWeight) * entryRamp;
         return {
           cx:
             point.cx
             + (
-              corridor.axis.x * alongBoostPx * alongSpread
-              + corridor.normal.x * lateralBoostPx * staticSpread
-              + orientedPathNormal.x * lateralBoostPx * dynamicSpread
+              corridor.axis.x * alongBoostPx * alongWeight
+              + corridor.normal.x * lateralBoostPx * spreadWeight
             ),
           cy:
             point.cy
             + (
-              corridor.axis.y * alongBoostPx * alongSpread
-              + corridor.normal.y * lateralBoostPx * staticSpread
-              + orientedPathNormal.y * lateralBoostPx * dynamicSpread
+              corridor.axis.y * alongBoostPx * alongWeight
+              + corridor.normal.y * lateralBoostPx * spreadWeight
             )
         };
       }));
@@ -5780,8 +5865,15 @@ export function planResolvedAirCombatShowScene(
         const bridgedPoints = sourceFlight
           ? bridgePathToPreviousPhaseMotion(sourceFlight, smoothedPoints, 72)
           : smoothedPoints;
+        const softenedTargetRunPoints = softenAirShowPathCorners(
+          simplifyShortInteriorSegments(
+            widenTargetRunBomberSpacing(assignment, bridgedPoints),
+            10
+          ),
+          2
+        );
         const spacedPoints = host.sanitizeAirShowEntryPath(
-          roundPathCorners(widenTargetRunBomberSpacing(assignment, bridgedPoints), 56, 10),
+          roundPathCorners(softenedTargetRunPoints, 66, 12),
           {
             maxTurnDeg: 42,
             strongTurnDeg: 82,
@@ -5950,7 +6042,7 @@ export function planResolvedAirCombatShowScene(
           1,
           Math.hypot(finalPoint.cx - boundaryMotion.start.cx, finalPoint.cy - boundaryMotion.start.cy)
         );
-        const carryForwardPx = Math.min(260, Math.max(120, distancePx * 0.1));
+        const carryForwardPx = host.clamp(distancePx * 0.22, 72, 150);
         const entryCarryPoint = host.offsetAirShowPoint(
           boundaryMotion.start,
           entryForward.x * carryForwardPx,
@@ -5963,10 +6055,10 @@ export function planResolvedAirCombatShowScene(
             startHeadingDegrees: entryHeadingDegrees,
             lateralSign,
             minRouteDot: -0.72,
-            carryForwardPx: Math.min(220, Math.max(92, distancePx * 0.08)),
-            earlyAlongPx: Math.max(carryForwardPx + 96, distancePx * 0.34),
-            midAlongPx: Math.max(carryForwardPx + 220, distancePx * 0.58),
-            lateAlongPx: Math.max(carryForwardPx + 340, distancePx * 0.84),
+            carryForwardPx: host.clamp(distancePx * 0.14, 58, 132),
+            earlyAlongPx: Math.max(carryForwardPx + 72, distancePx * 0.34),
+            midAlongPx: Math.max(carryForwardPx + 154, distancePx * 0.58),
+            lateAlongPx: Math.max(carryForwardPx + 226, distancePx * 0.84),
             entryLateralPx: 6,
             midLateralPx: 6,
             lateLateralPx: 4
@@ -6009,7 +6101,7 @@ export function planResolvedAirCombatShowScene(
       const minimumDurationMs = Math.max(2800, Math.round(referenceTargetRunDurationMs * 0.42));
       const maximumDurationMs = Math.max(
         minimumDurationMs + 1600,
-        Math.min(16000, Math.round(referenceTargetRunDurationMs * 1.12))
+        Math.min(12000, Math.round(referenceTargetRunDurationMs * 1.12))
       );
       return host.clamp(resolvedDurationMs, minimumDurationMs, maximumDurationMs);
     };
@@ -6208,16 +6300,60 @@ export function planResolvedAirCombatShowScene(
           0
         );
         const routeNormal = { x: -routeForward.y, y: routeForward.x };
+        const entryRouteDot = entryForward.x * routeForward.x + entryForward.y * routeForward.y;
+        const reverseHomeTurn = entryRouteDot < -0.18;
+        const turnSideSign =
+          assignment.actor.formationIndex % 2 === 0
+            ? -1
+            : 1;
+        const reverseBreakawayForward = normalizeVector(
+          entryForward.x * 0.28 + routeForward.x * 0.72,
+          entryForward.y * 0.28 + routeForward.y * 0.72,
+          routeForward.x,
+          routeForward.y
+        );
+        const reverseTurnNormal = {
+          x: routeNormal.x * turnSideSign,
+          y: routeNormal.y * turnSideSign
+        };
         const exitControlDistancePx = host.clamp(targetLengthPx * 0.14, 260, 680);
-        const firstControl = {
-          cx: start.cx + entryForward.x * entryControlDistancePx + routeNormal.x * laneOffsetPx * 0.12,
-          cy: start.cy + entryForward.y * entryControlDistancePx + routeNormal.y * laneOffsetPx * 0.12
-        };
-        const secondControl = {
-          cx: exitPoint.cx - routeForward.x * exitControlDistancePx + routeNormal.x * laneOffsetPx * 0.42,
-          cy: exitPoint.cy - routeForward.y * exitControlDistancePx + routeNormal.y * laneOffsetPx * 0.42
-        };
-        const rebuiltPoints = buildCubicAirShowPath(start, firstControl, secondControl, exitPoint, 28);
+        const reverseTurnLateralPx = host.clamp(
+          targetLengthPx * 0.2 + Math.abs(laneOffsetPx),
+          132,
+          280
+        );
+        const reverseEntryControlDistancePx = host.clamp(targetLengthPx * 0.24, 184, 360);
+        const firstControl = reverseHomeTurn
+          ? {
+              cx:
+                start.cx
+                + reverseBreakawayForward.x * reverseEntryControlDistancePx
+                + reverseTurnNormal.x * reverseTurnLateralPx * 0.38,
+              cy:
+                start.cy
+                + reverseBreakawayForward.y * reverseEntryControlDistancePx
+                + reverseTurnNormal.y * reverseTurnLateralPx * 0.38
+            }
+          : {
+              cx: start.cx + entryForward.x * entryControlDistancePx + routeNormal.x * laneOffsetPx * 0.12,
+              cy: start.cy + entryForward.y * entryControlDistancePx + routeNormal.y * laneOffsetPx * 0.12
+            };
+        const secondControl = reverseHomeTurn
+          ? {
+              cx:
+                exitPoint.cx
+                - routeForward.x * exitControlDistancePx
+                + reverseTurnNormal.x * reverseTurnLateralPx * 0.46,
+              cy:
+                exitPoint.cy
+                - routeForward.y * exitControlDistancePx
+                + reverseTurnNormal.y * reverseTurnLateralPx * 0.46
+            }
+          : {
+              cx: exitPoint.cx - routeForward.x * exitControlDistancePx + routeNormal.x * laneOffsetPx * 0.42,
+              cy: exitPoint.cy - routeForward.y * exitControlDistancePx + routeNormal.y * laneOffsetPx * 0.42
+            };
+        const rebuiltPoints = buildCubicAirShowPath(start, firstControl, secondControl, exitPoint, 32);
         return {
           ...assignment,
           points: host.sanitizeAirShowEntryPath(
