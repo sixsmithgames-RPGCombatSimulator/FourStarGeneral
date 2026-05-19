@@ -10430,14 +10430,19 @@ private automateSupplyConvoys(
         }
 
         const terrain = this.terrainAt(neighbor);
-      const moveCost = this.resolveMoveCost(moveType, terrain, neighbor, current.hex);
+        const moveCost = this.resolveMoveCost(moveType, terrain, neighbor, current.hex);
         if (moveCost >= 999) {
           continue;
         }
         const newCost = current.cost + moveCost;
         const newFuelCost = current.fuelCost + this.resolveMovementFuelStep(moveType, neighbor);
 
-        if (newCost <= remaining && (!Number.isFinite(availableFuel) || newFuelCost <= availableFuel + 1e-6)) {
+        // All units may move at least 1 hex per turn regardless of terrain cost.
+        // This mirrors the bot AI guarantee and prevents heavy/towed units from being
+        // stranded on beaches or other high-cost terrain when their allowance is small.
+        const isFirstStep = current.cost === 0;
+        const withinBudget = newCost <= remaining && (!Number.isFinite(availableFuel) || newFuelCost <= availableFuel + 1e-6);
+        if (withinBudget || isFirstStep) {
           queue.push({ hex: neighbor, cost: newCost, fuelCost: newFuelCost });
           if (nKey !== originKey && !reachableKeys.has(nKey) && (!occupied || canEnterOccupiedHex)) {
             reachableKeys.add(nKey);
@@ -10631,7 +10636,10 @@ private automateSupplyConvoys(
     const moveSummary = movePlan.summary;
     const moveCost = moveSummary.cost;
 
-    if (moveCost > remaining) {
+    // Guarantee every unit can always move at least 1 hex per turn even when terrain cost exceeds
+    // their movement allowance. This matches the getReachableHexes BFS and bot AI logic.
+    const isFirstMove = flags.movementPointsUsed === 0 && moveSummary.steps === 1;
+    if (!isFirstMove && moveCost > remaining) {
       throw new Error(`Not enough movement points. Cost: ${moveCost}, Remaining: ${Math.max(0, remaining).toFixed(1)}`);
     }
     if (Number.isFinite(availableFuel) && moveSummary.fuelCost > availableFuel + 1e-6) {
@@ -10639,7 +10647,7 @@ private automateSupplyConvoys(
     }
 
     const newTotalMovement = flags.movementPointsUsed + moveCost;
-    if (newTotalMovement > max) {
+    if (!isFirstMove && newTotalMovement > max) {
       const leftover = Math.max(0, max - flags.movementPointsUsed);
       throw new Error(`Not enough movement points. Cost: ${moveCost}, Remaining: ${leftover.toFixed(1)}`);
     }

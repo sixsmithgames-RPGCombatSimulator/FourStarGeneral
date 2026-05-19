@@ -4877,7 +4877,28 @@ export class HexMapRenderer implements IMapRenderer {
     const tooltip = this.terrainRenderer.generateHexTooltip(tile);
     const hexKey = CoordinateSystem.makeHexKey(col, row);
     const clipId = `clip-${hexKey.replace(/[^a-z0-9]/gi, "-")}`;
-    const sprite = this.terrainRenderer.getTerrainSprite(tile, col, row);
+    let sprite = this.terrainRenderer.getTerrainSprite(tile, col, row);
+    // Beach water-edge detection: rotate Terrain_Beach_Water.png to face the nearest sea neighbour.
+    // Rotation degrees are clockwise from the art's native NW-water orientation.
+    const BEACH_WATER_ROTATION_DEG = [120, 60, 0, 300, 240, 180] as const;
+    let beachWaterRotationDeg: number | null = null;
+    if (tile.terrain.toLowerCase() === "beach") {
+      const currentAxial = CoordinateSystem.offsetToAxial(col, row);
+      for (let dirIdx = 0; dirIdx < axialDirections.length; dirIdx += 1) {
+        const dir = axialDirections[dirIdx];
+        const nq = currentAxial.q + dir.q;
+        const nr = currentAxial.r + dir.r;
+        const { col: nCol, row: nRow } = CoordinateSystem.axialToOffset(nq, nr);
+        if (nRow >= 0 && nRow < data.tiles.length && nCol >= 0 && nCol < data.tiles[nRow].length) {
+          const neighborTile = CoordinateSystem.resolveTile(data.tiles[nRow][nCol], data.tilePalette);
+          if (neighborTile && neighborTile.terrain.toLowerCase() === "sea") {
+            sprite = this.terrainRenderer.getBeachWaterSprite();
+            beachWaterRotationDeg = BEACH_WATER_ROTATION_DEG[dirIdx];
+            break;
+          }
+        }
+      }
+    }
 
     // Look up terrain definition for LOS and combat stats
     const terrainDef = (terrainData as TerrainDictionary)[tile.terrain as keyof TerrainDictionary];
@@ -4919,7 +4940,7 @@ export class HexMapRenderer implements IMapRenderer {
             <polygon points="${points}"></polygon>
           </clipPath>
         </defs>
-        ${sprite ? `<image href="${sprite}" x="${imageX}" y="${imageY}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})" class="terrain-sprite" />` : ""}
+        ${sprite ? `<image href="${sprite}" x="${imageX}" y="${imageY}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})" class="terrain-sprite"${beachWaterRotationDeg !== null ? ` transform="rotate(${beachWaterRotationDeg},${cx},${cy})"` : ""} />` : ""}
         <polygon class="hex-tile" points="${points}" fill="${fill}" fill-opacity="${sprite ? 0.35 : 1}" stroke="${HEX_DEFAULT_STROKE}" stroke-width="${HEX_DEFAULT_STROKE_WIDTH}"></polygon>
         ${roadOverlay}
         ${riverOverlay}
