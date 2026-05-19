@@ -4941,7 +4941,7 @@ export class HexMapRenderer implements IMapRenderer {
           </clipPath>
         </defs>
         ${sprite ? `<image href="${sprite}" x="${imageX}" y="${imageY}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})" class="terrain-sprite"${beachWaterRotationDeg !== null ? ` transform="rotate(${beachWaterRotationDeg},${cx},${cy})"` : ""} />` : ""}
-        <polygon class="hex-tile" points="${points}" fill="${fill}" fill-opacity="${sprite ? 0.35 : 1}" stroke="${HEX_DEFAULT_STROKE}" stroke-width="${HEX_DEFAULT_STROKE_WIDTH}"></polygon>
+        <polygon class="hex-tile" points="${points}" fill="${fill}" fill-opacity="${sprite ? (tile.terrain.toLowerCase() === "sea" || beachWaterRotationDeg !== null ? 0.08 : 0.35) : 1}" stroke="${HEX_DEFAULT_STROKE}" stroke-width="${HEX_DEFAULT_STROKE_WIDTH}"></polygon>
         ${roadOverlay}
         ${riverOverlay}
         ${featureOverlay}
