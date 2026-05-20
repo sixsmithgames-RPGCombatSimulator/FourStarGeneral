@@ -215,36 +215,33 @@ function capPersonnelEffect(
       killed: capped.killed * casualtyScalar
     };
   }
-  const casualtyThreshold = effect.casualtyRoundingThreshold ?? 0.35;
-  const fatalityThreshold = effect.fatalityRoundingThreshold ?? casualtyThreshold;
-  const rounded = {
-    injured: outcomeRound(capped.injured, casualtyThreshold),
-    wounded: outcomeRound(capped.wounded, casualtyThreshold),
-    severelyWounded: outcomeRound(capped.severelyWounded, casualtyThreshold),
-    killed: outcomeRound(capped.killed, fatalityThreshold)
-  };
+  const raw2 = { ...capped };
 
   const contactHits = Math.max(0, options.contactHits ?? 0);
   if (contactHits > 0) {
-    const minimumKilled = outcomeRound((effect.minimumKilledPerHit ?? 0) * contactHits, fatalityThreshold);
-    if (rounded.killed < minimumKilled) {
-      rounded.killed = minimumKilled;
+    const fatalityThreshold = effect.fatalityRoundingThreshold ?? (effect.casualtyRoundingThreshold ?? 0.35);
+    const casualtyThreshold = effect.casualtyRoundingThreshold ?? 0.35;
+    const minimumKilled = (effect.minimumKilledPerHit ?? 0) * contactHits;
+    if (raw2.killed < minimumKilled) {
+      raw2.killed = minimumKilled;
     }
 
-    const minimumWounded = outcomeRound((effect.minimumWoundedPerHit ?? 0) * contactHits, casualtyThreshold);
-    const nonfatalWounded = rounded.wounded + rounded.severelyWounded;
+    const minimumWounded = (effect.minimumWoundedPerHit ?? 0) * contactHits;
+    const nonfatalWounded = raw2.wounded + raw2.severelyWounded;
     if (nonfatalWounded < minimumWounded) {
-      rounded.wounded += minimumWounded - nonfatalWounded;
+      raw2.wounded += minimumWounded - nonfatalWounded;
     }
 
-    const minimumCasualties = outcomeRound((effect.minimumCasualtiesPerHit ?? 0) * contactHits, casualtyThreshold);
-    const totalCasualties = countPersonnelDelta(rounded);
+    const minimumCasualties = (effect.minimumCasualtiesPerHit ?? 0) * contactHits;
+    const totalCasualties = raw2.injured + raw2.wounded + raw2.severelyWounded + raw2.killed;
     if (totalCasualties < minimumCasualties) {
-      rounded.injured += minimumCasualties - totalCasualties;
+      raw2.injured += minimumCasualties - totalCasualties;
     }
+    void fatalityThreshold;
+    void casualtyThreshold;
   }
 
-  return rounded;
+  return raw2;
 }
 
 function penetrationEffectScalar(effect: EquipmentDamageEffect, group: WeaponShotGroup, request: DamagePacketRequest): number {
@@ -973,7 +970,17 @@ function scaleEquipmentDeltaToCapacity(delta: EquipmentDamageDelta, capacity: nu
 function applyPersonnelDelta(status: FormationStatus, delta: PersonnelDamageDelta): PersonnelDamageDelta {
   const applied: PersonnelDamageDelta = { ...EMPTY_PERSONNEL_DELTA };
   const capacity = livingPersonnel(status);
-  const requested = scalePersonnelDeltaToCapacity(delta, capacity);
+  // Round once here after all weapon-group floats have been accumulated in the
+  // caller, then scale to the available pool.  Do NOT use outcomeRound with a
+  // suppress-below-0.35 threshold here — use plain Math.round so that any
+  // accumulated value ≥ 0.5 survives regardless of pool size.
+  const accumulated: PersonnelDamageDelta = {
+    injured: Math.max(0, Math.round(delta.injured)),
+    wounded: Math.max(0, Math.round(delta.wounded)),
+    severelyWounded: Math.max(0, Math.round(delta.severelyWounded)),
+    killed: Math.max(0, Math.round(delta.killed))
+  };
+  const requested = scalePersonnelDeltaToCapacity(accumulated, capacity);
   const directOrder: readonly PersonnelDamageKey[] = ["injured", "wounded", "severelyWounded", "killed"];
 
   const applyTransition = (key: PersonnelDamageKey, amount: number): number => {
