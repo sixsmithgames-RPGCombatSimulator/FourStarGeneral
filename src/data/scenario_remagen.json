@@ -1853,7 +1853,7 @@
       },
       "units": [
         {
-          "type": "Light_Tank",
+          "type": "Medium_Tank",
           "hex": [
             7,
             10

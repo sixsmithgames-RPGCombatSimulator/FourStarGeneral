@@ -156,6 +156,14 @@ const weaponModels = {
       { id: "light-tank-ap", label: "Armor-piercing rounds", role: "antiTank", shots: 22, accuracyMultiplier: 0.9, softEffect: { injured: 0.15, wounded: 0.05, severelyWounded: 0.012, killed: 0.01 }, hardEffect: { damaged: 0.30, disabled: 0.06, destroyed: 0.015, armorPenetration: 12, damageType: "kinetic" }, suppressionPerHit: 0.1, fortificationDamagePerHit: 0.2, hitDistribution: { vsInfantry: { nonEffect: 0.25, softComponent: 0.35, penetrating: 0.40, areaEffect: 0 }, vsArmorButtoned: { nonEffect: 0.20, softComponent: 0.25, penetrating: 0.55, areaEffect: 0 }, vsArtillery: { nonEffect: 0.15, softComponent: 0.20, penetrating: 0.65, areaEffect: 0 } } }
     ]
   }, 20),
+  stuartLightTank: scaleWeaponModel({
+    doctrine: "M3/M5 Stuart light tanks with 37mm M6 gun. Fast and agile with limited firepower suitable for reconnaissance and screening. The 37mm gun can engage light armor but struggles against medium tanks.",
+    groups: [
+      { id: "stuart-he", label: "37mm HE rounds", role: "directHe", shots: 35, accuracyMultiplier: 0.90, softEffect: { injured: 0.55, wounded: 0.5, severelyWounded: 0.12, killed: 0.14, maxKilledPerHit: 5, maxCasualtiesPerHit: 6, blastMultiplier: 0.35, casualtyRoundingThreshold: 0.3 }, hardEffect: { damaged: 0.05, disabled: 0.02, destroyed: 0.005, armorPenetration: 5, damageType: "explosive" }, suppressionPerHit: 0.42, fortificationDamagePerHit: 0.55, hitDistribution: { vsInfantry: { nonEffect: 0, softComponent: 0, penetrating: 0, areaEffect: 1.0 }, vsArmorButtoned: { nonEffect: 0.60, softComponent: 0.28, penetrating: 0.12, areaEffect: 0 }, vsArtillery: { nonEffect: 0.35, softComponent: 0.38, penetrating: 0.27, areaEffect: 0 } } },
+      { id: "stuart-mg", label: "Coaxial and hull .30 cal MGs", role: "machineGun", shots: 220, accuracyMultiplier: 0.88, softEffect: { injured: 0.40, wounded: 0.17, severelyWounded: 0.024, killed: 0.016 }, hardEffect: { damaged: 0.0025, disabled: 0, destroyed: 0, armorPenetration: 2, damageType: "bullet" }, suppressionPerHit: 0.038, hitDistribution: { vsInfantry: { nonEffect: 0.01, softComponent: 0, penetrating: 0.99, areaEffect: 0 }, vsArmorButtoned: { nonEffect: 0.94, softComponent: 0.06, penetrating: 0, areaEffect: 0 }, vsArtillery: { nonEffect: 0.08, softComponent: 0.17, penetrating: 0.75, areaEffect: 0 } } },
+      { id: "stuart-ap", label: "37mm APC rounds", role: "antiTank", shots: 26, accuracyMultiplier: 0.88, softEffect: { injured: 0.14, wounded: 0.045, severelyWounded: 0.010, killed: 0.008 }, hardEffect: { damaged: 0.22, disabled: 0.045, destroyed: 0.010, armorPenetration: 10, damageType: "kinetic" }, suppressionPerHit: 0.085, fortificationDamagePerHit: 0.18, hitDistribution: { vsInfantry: { nonEffect: 0.28, softComponent: 0.38, penetrating: 0.34, areaEffect: 0 }, vsArmorButtoned: { nonEffect: 0.28, softComponent: 0.28, penetrating: 0.44, areaEffect: 0 }, vsArtillery: { nonEffect: 0.20, softComponent: 0.22, penetrating: 0.58, areaEffect: 0 } } }
+    ]
+  }, 24),
   mediumTank: scaleWeaponModel({
     doctrine: "Medium tank company fire separates HE and AP main-gun shots from coaxial machine-gun suppression.",
     groups: [
@@ -583,6 +591,29 @@ const tactical = {
     fortificationDamage: "medium",
     suppressionRole: "medium",
     weaponModel: weaponModels.lightTank
+  }),
+  Medium_Tank: unit({
+    class: "tank",
+    combat: { category: "tank", weight: "medium", role: "normal", signature: "medium" },
+    weaponEffectType: "cannon",
+    movement: 4,
+    moveType: "track",
+    vision: 4,
+    ammo: 6,
+    fuel: 45,
+    rangeMin: 1,
+    rangeMax: 5,
+    initiative: 4,
+    armor: { front: 15, side: 8, top: 4 },
+    hardAttack: 29,
+    softAttack: 36,
+    accuracyBase: 59,
+    traits: ["zoc"],
+    cost: 260,
+    baseExperience: 1,
+    fortificationDamage: "medium",
+    suppressionRole: "medium",
+    weaponModel: weaponModels.mediumTank
   }),
   Heavy_Tank: unit({
     class: "tank",

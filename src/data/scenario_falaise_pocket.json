@@ -2050,7 +2050,7 @@
           "preDeployed": true
         },
         {
-          "type": "Light_Tank",
+          "type": "Medium_Tank",
           "hex": [
             11,
             5

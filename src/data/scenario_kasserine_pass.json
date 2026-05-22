@@ -1324,6 +1324,7 @@
   "allowedUnits": [
     "infantry",
     "engineer",
+    "lightTankCompany",
     "tank",
     "heavyTankCompany",
     "tankDestroyerCompany",
@@ -1417,7 +1418,7 @@
           "preDeployed": true
         },
         {
-          "type": "Light_Tank",
+          "type": "Medium_Tank",
           "hex": [
             4,
             10

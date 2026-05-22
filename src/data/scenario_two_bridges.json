@@ -1,133 +1,1225 @@
 {
   "name": "Two Bridges",
-  "size": { "cols": 20, "rows": 16 },
+  "size": {
+    "cols": 20,
+    "rows": 16
+  },
   "mainSupplyDistanceTurns": 3,
   "battleRequisitionStartingPoints": 90,
   "battleRequisitionPointsPerTurn": 25,
-  "allowedBattleRequisitions": ["ammo", "fuel", "supplyConvoy", "corpsArtilleryGroup", "infantry", "engineer", "recon", "reconBike"],
+  "allowedBattleRequisitions": [
+    "ammo",
+    "fuel",
+    "supplyConvoy",
+    "corpsArtilleryGroup",
+    "infantry",
+    "engineer",
+    "recon",
+    "reconBike"
+  ],
   "tilePalette": {
-    "SEA": { "terrain": "sea", "terrainType": "water", "density": "sparse", "features": [], "recon": "aerial" },
-    "PLAINS_AVG_INT": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["pastures"], "recon": "intel" },
-    "PLAINS_AVG_FIRST": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["pastures"], "recon": "firsthand" },
-    "PLAINS_AVG_NONE": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["pastures"], "recon": "none" },
-    "FOREST_DENSE_INT": { "terrain": "forest", "terrainType": "rural", "density": "dense", "features": ["trees", "shrubs"], "recon": "intel" },
-    "FOREST_DENSE_FIRST": { "terrain": "forest", "terrainType": "rural", "density": "dense", "features": ["trees", "shrubs"], "recon": "firsthand" },
-    "HILL_AVG_INT": { "terrain": "hill", "terrainType": "rural", "density": "average", "features": ["foothills"], "recon": "intel" },
-    "HILL_AVG_FIRST": { "terrain": "hill", "terrainType": "rural", "density": "average", "features": ["foothills"], "recon": "firsthand" },
-    "ROAD_CLEAR_INT": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["pastures", "road"], "recon": "intel" },
-    "ROAD_CLEAR_FIRST": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["pastures", "road"], "recon": "firsthand" },
-    "ROAD_BRIDGE_INT": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["pastures", "road", "bridge"], "recon": "intel" },
-    "ROAD_BRIDGE_FIRST": { "terrain": "plains", "terrainType": "grass", "density": "average", "features": ["pastures", "road", "bridge"], "recon": "firsthand" },
-    "CITY_DEF_INT": { "terrain": "city", "terrainType": "urban", "density": "dense", "features": ["walls", "moderate fortifications"], "recon": "intel" },
-    "CITY_DEF_FIRST": { "terrain": "city", "terrainType": "urban", "density": "dense", "features": ["walls", "moderate fortifications"], "recon": "firsthand" },
-    "CITY_CENTER_INT": { "terrain": "city", "terrainType": "urban", "density": "dense", "features": ["walls", "moderate fortifications"], "recon": "intel", "spriteVariant": "center" },
-    "CITY_CENTER_FIRST": { "terrain": "city", "terrainType": "urban", "density": "dense", "features": ["walls", "moderate fortifications"], "recon": "firsthand", "spriteVariant": "center" },
-    "MOUNTAIN_DENSE_INT": { "terrain": "mountain", "terrainType": "mountain", "density": "dense", "features": ["cliffs"], "recon": "intel" },
-    "MOUNTAIN_DENSE_NONE": { "terrain": "mountain", "terrainType": "mountain", "density": "dense", "features": ["cliffs"], "recon": "none" }
+    "SEA": {
+      "terrain": "sea",
+      "terrainType": "water",
+      "density": "sparse",
+      "features": [],
+      "recon": "aerial"
+    },
+    "PLAINS_AVG_INT": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "pastures"
+      ],
+      "recon": "intel"
+    },
+    "PLAINS_AVG_FIRST": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "pastures"
+      ],
+      "recon": "firsthand"
+    },
+    "PLAINS_AVG_NONE": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "pastures"
+      ],
+      "recon": "none"
+    },
+    "FOREST_DENSE_INT": {
+      "terrain": "forest",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "trees",
+        "shrubs"
+      ],
+      "recon": "intel"
+    },
+    "FOREST_DENSE_FIRST": {
+      "terrain": "forest",
+      "terrainType": "rural",
+      "density": "dense",
+      "features": [
+        "trees",
+        "shrubs"
+      ],
+      "recon": "firsthand"
+    },
+    "HILL_AVG_INT": {
+      "terrain": "hill",
+      "terrainType": "rural",
+      "density": "average",
+      "features": [
+        "foothills"
+      ],
+      "recon": "intel"
+    },
+    "HILL_AVG_FIRST": {
+      "terrain": "hill",
+      "terrainType": "rural",
+      "density": "average",
+      "features": [
+        "foothills"
+      ],
+      "recon": "firsthand"
+    },
+    "ROAD_CLEAR_INT": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "pastures",
+        "road"
+      ],
+      "recon": "intel"
+    },
+    "ROAD_CLEAR_FIRST": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "pastures",
+        "road"
+      ],
+      "recon": "firsthand"
+    },
+    "ROAD_BRIDGE_INT": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "pastures",
+        "road",
+        "bridge"
+      ],
+      "recon": "intel"
+    },
+    "ROAD_BRIDGE_FIRST": {
+      "terrain": "plains",
+      "terrainType": "grass",
+      "density": "average",
+      "features": [
+        "pastures",
+        "road",
+        "bridge"
+      ],
+      "recon": "firsthand"
+    },
+    "CITY_DEF_INT": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "walls",
+        "moderate fortifications"
+      ],
+      "recon": "intel"
+    },
+    "CITY_DEF_FIRST": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "walls",
+        "moderate fortifications"
+      ],
+      "recon": "firsthand"
+    },
+    "CITY_CENTER_INT": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "walls",
+        "moderate fortifications"
+      ],
+      "recon": "intel",
+      "spriteVariant": "center"
+    },
+    "CITY_CENTER_FIRST": {
+      "terrain": "city",
+      "terrainType": "urban",
+      "density": "dense",
+      "features": [
+        "walls",
+        "moderate fortifications"
+      ],
+      "recon": "firsthand",
+      "spriteVariant": "center"
+    },
+    "MOUNTAIN_DENSE_INT": {
+      "terrain": "mountain",
+      "terrainType": "mountain",
+      "density": "dense",
+      "features": [
+        "cliffs"
+      ],
+      "recon": "intel"
+    },
+    "MOUNTAIN_DENSE_NONE": {
+      "terrain": "mountain",
+      "terrainType": "mountain",
+      "density": "dense",
+      "features": [
+        "cliffs"
+      ],
+      "recon": "none"
+    }
   },
   "tiles": [
     [
-      { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" },
-      { "tile": "HILL_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_BRIDGE_INT" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "ROAD_BRIDGE_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "HILL_AVG_INT" },
-      { "tile": "PLAINS_AVG_INT" }, { "tile": "CITY_DEF_INT" }, { "tile": "CITY_DEF_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "FOREST_DENSE_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "ROAD_BRIDGE_INT"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "ROAD_BRIDGE_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      }
     ],
     [
-      { "tile": "HILL_AVG_INT" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" },
-      { "tile": "PLAINS_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "HILL_AVG_INT" },
-      { "tile": "CITY_DEF_INT" }, { "tile": "CITY_DEF_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "MOUNTAIN_DENSE_INT" }, { "tile": "MOUNTAIN_DENSE_INT" }
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "FOREST_DENSE_INT"
+      },
+      {
+        "tile": "FOREST_DENSE_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_INT"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_INT"
+      }
     ],
     [
-      { "tile": "FOREST_DENSE_INT" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "HILL_AVG_INT" },
-      { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" },
-      { "tile": "CITY_DEF_INT" }, { "tile": "CITY_DEF_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "MOUNTAIN_DENSE_INT" }, { "tile": "MOUNTAIN_DENSE_INT" }
+      {
+        "tile": "FOREST_DENSE_INT"
+      },
+      {
+        "tile": "FOREST_DENSE_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_INT"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_INT"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" },
-      { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "ROAD_BRIDGE_INT" }, { "tile": "ROAD_BRIDGE_INT" },
-      { "tile": "ROAD_BRIDGE_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "CITY_DEF_INT" },
-      { "tile": "CITY_DEF_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "MOUNTAIN_DENSE_INT" }, { "tile": "MOUNTAIN_DENSE_INT" }
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "FOREST_DENSE_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_BRIDGE_INT"
+      },
+      {
+        "tile": "ROAD_BRIDGE_INT"
+      },
+      {
+        "tile": "ROAD_BRIDGE_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_INT"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_INT"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "FOREST_DENSE_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" },
-      { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "CITY_DEF_FIRST" },
-      { "tile": "CITY_DEF_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "FOREST_DENSE_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "ROAD_CLEAR_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "ROAD_CLEAR_FIRST"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "CITY_DEF_FIRST"
+      },
+      {
+        "tile": "CITY_DEF_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "FOREST_DENSE_FIRST" }, { "tile": "FOREST_DENSE_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" },
-      { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "CITY_DEF_FIRST" },
-      { "tile": "CITY_CENTER_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "FOREST_DENSE_FIRST"
+      },
+      {
+        "tile": "FOREST_DENSE_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "ROAD_CLEAR_FIRST"
+      },
+      {
+        "tile": "ROAD_CLEAR_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "ROAD_CLEAR_FIRST"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "CITY_DEF_FIRST"
+      },
+      {
+        "tile": "CITY_CENTER_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "FOREST_DENSE_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" },
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "ROAD_BRIDGE_FIRST" }, { "tile": "ROAD_BRIDGE_FIRST" }, { "tile": "ROAD_BRIDGE_FIRST" },
-      { "tile": "ROAD_BRIDGE_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "CITY_DEF_FIRST" },
-      { "tile": "CITY_DEF_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "FOREST_DENSE_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "ROAD_CLEAR_FIRST"
+      },
+      {
+        "tile": "ROAD_CLEAR_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "ROAD_BRIDGE_FIRST"
+      },
+      {
+        "tile": "ROAD_BRIDGE_FIRST"
+      },
+      {
+        "tile": "ROAD_BRIDGE_FIRST"
+      },
+      {
+        "tile": "ROAD_BRIDGE_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "CITY_DEF_FIRST"
+      },
+      {
+        "tile": "CITY_DEF_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "FOREST_DENSE_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" },
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "SEA" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" },
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "FOREST_DENSE_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "FOREST_DENSE_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" },
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "SEA" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" },
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "FOREST_DENSE_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "ROAD_CLEAR_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "ROAD_CLEAR_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "FOREST_DENSE_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" },
-      { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "ROAD_CLEAR_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "ROAD_BRIDGE_FIRST" }, { "tile": "ROAD_BRIDGE_FIRST" },
-      { "tile": "ROAD_BRIDGE_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" },
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "FOREST_DENSE_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "ROAD_CLEAR_FIRST"
+      },
+      {
+        "tile": "ROAD_CLEAR_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "ROAD_BRIDGE_FIRST"
+      },
+      {
+        "tile": "ROAD_BRIDGE_FIRST"
+      },
+      {
+        "tile": "ROAD_BRIDGE_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "FOREST_DENSE_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" },
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "SEA" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "PLAINS_AVG_FIRST" },
-      { "tile": "PLAINS_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "HILL_AVG_FIRST" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "FOREST_DENSE_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "PLAINS_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "HILL_AVG_FIRST"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_NONE" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" },
-      { "tile": "PLAINS_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "SEA" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "PLAINS_AVG_INT" },
-      { "tile": "PLAINS_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_NONE"
+      },
+      {
+        "tile": "FOREST_DENSE_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_NONE" }, { "tile": "FOREST_DENSE_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" },
-      { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "CITY_DEF_INT" },
-      { "tile": "CITY_DEF_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_NONE"
+      },
+      {
+        "tile": "FOREST_DENSE_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_NONE" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "HILL_AVG_INT" },
-      { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "CITY_DEF_INT" },
-      { "tile": "CITY_DEF_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_NONE"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "CITY_DEF_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_NONE" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" },
-      { "tile": "PLAINS_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "HILL_AVG_INT" },
-      { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_NONE"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ],
     [
-      { "tile": "PLAINS_AVG_NONE" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" },
-      { "tile": "PLAINS_AVG_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_CLEAR_INT" }, { "tile": "ROAD_BRIDGE_INT" }, { "tile": "SEA" },
-      { "tile": "SEA" }, { "tile": "ROAD_BRIDGE_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "PLAINS_AVG_INT" }, { "tile": "HILL_AVG_INT" },
-      { "tile": "HILL_AVG_INT" }, { "tile": "HILL_AVG_INT" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }, { "tile": "MOUNTAIN_DENSE_NONE" }
+      {
+        "tile": "PLAINS_AVG_NONE"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "ROAD_CLEAR_INT"
+      },
+      {
+        "tile": "ROAD_BRIDGE_INT"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "SEA"
+      },
+      {
+        "tile": "ROAD_BRIDGE_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "PLAINS_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "HILL_AVG_INT"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      },
+      {
+        "tile": "MOUNTAIN_DENSE_NONE"
+      }
     ]
   ],
   "objectives": [
-    { "hex": [8, 3], "owner": "Bot", "vp": 120 },
-    { "hex": [9, 9], "owner": "Bot", "vp": 120 },
-    { "hex": [15, 5], "owner": "Bot", "vp": 150 },
-    { "hex": [2, 13], "owner": "Player", "vp": 60 }
+    {
+      "hex": [
+        8,
+        3
+      ],
+      "owner": "Bot",
+      "vp": 120
+    },
+    {
+      "hex": [
+        9,
+        9
+      ],
+      "owner": "Bot",
+      "vp": 120
+    },
+    {
+      "hex": [
+        15,
+        5
+      ],
+      "owner": "Bot",
+      "vp": 150
+    },
+    {
+      "hex": [
+        2,
+        13
+      ],
+      "owner": "Player",
+      "vp": 60
+    }
   ],
   "deploymentZones": [
     {
@@ -136,7 +1228,88 @@
       "description": "Primary assault assembly behind the western ridge line, close enough to pressure both bridges without exposing reserves on turn one.",
       "capacity": 20,
       "faction": "Player",
-      "hexes": [[3,8],[4,8],[5,8],[6,8],[7,8],[3,9],[4,9],[5,9],[6,9],[7,9],[3,10],[4,10],[5,10],[6,10],[7,10],[3,11],[4,11],[5,11],[6,11],[7,11]]
+      "hexes": [
+        [
+          3,
+          8
+        ],
+        [
+          4,
+          8
+        ],
+        [
+          5,
+          8
+        ],
+        [
+          6,
+          8
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          3,
+          9
+        ],
+        [
+          4,
+          9
+        ],
+        [
+          5,
+          9
+        ],
+        [
+          6,
+          9
+        ],
+        [
+          7,
+          9
+        ],
+        [
+          3,
+          10
+        ],
+        [
+          4,
+          10
+        ],
+        [
+          5,
+          10
+        ],
+        [
+          6,
+          10
+        ],
+        [
+          7,
+          10
+        ],
+        [
+          3,
+          11
+        ],
+        [
+          4,
+          11
+        ],
+        [
+          5,
+          11
+        ],
+        [
+          6,
+          11
+        ],
+        [
+          7,
+          11
+        ]
+      ]
     },
     {
       "key": "zone-bravo",
@@ -144,7 +1317,104 @@
       "description": "Covered reserve area around the western supply base for engineers, artillery, and follow-on armor.",
       "capacity": 20,
       "faction": "Player",
-      "hexes": [[0,12],[1,12],[2,12],[3,12],[4,12],[5,12],[0,13],[1,13],[2,13],[3,13],[4,13],[5,13],[0,14],[1,14],[2,14],[3,14],[4,14],[5,14],[0,15],[1,15],[2,15],[3,15],[4,15],[5,15]]
+      "hexes": [
+        [
+          0,
+          12
+        ],
+        [
+          1,
+          12
+        ],
+        [
+          2,
+          12
+        ],
+        [
+          3,
+          12
+        ],
+        [
+          4,
+          12
+        ],
+        [
+          5,
+          12
+        ],
+        [
+          0,
+          13
+        ],
+        [
+          1,
+          13
+        ],
+        [
+          2,
+          13
+        ],
+        [
+          3,
+          13
+        ],
+        [
+          4,
+          13
+        ],
+        [
+          5,
+          13
+        ],
+        [
+          0,
+          14
+        ],
+        [
+          1,
+          14
+        ],
+        [
+          2,
+          14
+        ],
+        [
+          3,
+          14
+        ],
+        [
+          4,
+          14
+        ],
+        [
+          5,
+          14
+        ],
+        [
+          0,
+          15
+        ],
+        [
+          1,
+          15
+        ],
+        [
+          2,
+          15
+        ],
+        [
+          3,
+          15
+        ],
+        [
+          4,
+          15
+        ],
+        [
+          5,
+          15
+        ]
+      ]
     },
     {
       "key": "north-bridge-screen",
@@ -152,7 +1422,56 @@
       "description": "Forward German screen covering the northern bridge road and river bend.",
       "capacity": 12,
       "faction": "Bot",
-      "hexes": [[8,0],[11,0],[8,1],[11,1],[8,2],[11,2],[8,3],[9,3],[10,3],[11,3],[11,4],[12,4]]
+      "hexes": [
+        [
+          8,
+          0
+        ],
+        [
+          11,
+          0
+        ],
+        [
+          8,
+          1
+        ],
+        [
+          11,
+          1
+        ],
+        [
+          8,
+          2
+        ],
+        [
+          11,
+          2
+        ],
+        [
+          8,
+          3
+        ],
+        [
+          9,
+          3
+        ],
+        [
+          10,
+          3
+        ],
+        [
+          11,
+          3
+        ],
+        [
+          11,
+          4
+        ],
+        [
+          12,
+          4
+        ]
+      ]
     },
     {
       "key": "bastion-defense",
@@ -160,45 +1479,367 @@
       "description": "German hardpoint around the city, artillery park, and armored counterattack reserve.",
       "capacity": 16,
       "faction": "Bot",
-      "hexes": [[14,4],[15,4],[16,4],[17,4],[14,5],[15,5],[16,5],[17,5],[14,6],[15,6],[16,6],[17,6],[14,7],[15,7],[16,7],[17,7]]
+      "hexes": [
+        [
+          14,
+          4
+        ],
+        [
+          15,
+          4
+        ],
+        [
+          16,
+          4
+        ],
+        [
+          17,
+          4
+        ],
+        [
+          14,
+          5
+        ],
+        [
+          15,
+          5
+        ],
+        [
+          16,
+          5
+        ],
+        [
+          17,
+          5
+        ],
+        [
+          14,
+          6
+        ],
+        [
+          15,
+          6
+        ],
+        [
+          16,
+          6
+        ],
+        [
+          17,
+          6
+        ],
+        [
+          14,
+          7
+        ],
+        [
+          15,
+          7
+        ],
+        [
+          16,
+          7
+        ],
+        [
+          17,
+          7
+        ]
+      ]
     }
   ],
   "turnLimit": 20,
   "playerBudget": 1200,
-  "allowedUnits": ["infantry", "engineer", "tank", "heavyTankCompany", "tankDestroyerCompany", "howitzer", "antiTankBattery", "flakBattery", "reconBike", "fighter", "groundAttackWing", "bomber", "supplyConvoy", "ammo", "fuel", "medic", "maintenance"],
+  "allowedUnits": [
+    "infantry",
+    "engineer",
+    "tank",
+    "heavyTankCompany",
+    "tankDestroyerCompany",
+    "howitzer",
+    "antiTankBattery",
+    "flakBattery",
+    "reconBike",
+    "fighter",
+    "groundAttackWing",
+    "bomber",
+    "supplyConvoy",
+    "ammo",
+    "fuel",
+    "medic",
+    "maintenance"
+  ],
   "restrictedUnits": [],
   "sides": {
     "Player": {
-      "hq": [2, 13],
-      "general": { "accBonus": 5, "dmgBonus": 1, "moveBonus": 1, "supplyBonus": 3 },
+      "hq": [
+        2,
+        13
+      ],
+      "general": {
+        "accBonus": 5,
+        "dmgBonus": 1,
+        "moveBonus": 1,
+        "supplyBonus": 3
+      },
       "units": [
-        { "type": "Light_Tank", "hex": [5, 12], "strength": 100, "experience": 1, "ammo": 7, "fuel": 40, "entrench": 0, "facing": "NW", "preDeployed": true },
-        { "type": "Infantry_42", "hex": [2, 13], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 1, "facing": "NW", "preDeployed": true },
-        { "type": "Engineer", "hex": [4, 12], "strength": 100, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "NW", "preDeployed": true },
-        { "type": "Recon_Bike", "hex": [3, 11], "strength": 89, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "NW", "preDeployed": true },
-        { "type": "Howitzer_105", "hex": [1, 14], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "NW", "preDeployed": true },
-        { "type": "Flak_88", "hex": [2, 12], "strength": 89, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "NW", "preDeployed": true },
-        { "type": "Heavy_Tank", "hex": [4, 11], "strength": 100, "experience": 0, "ammo": 6, "fuel": 35, "entrench": 0, "facing": "NW", "preDeployed": true }
+        {
+          "type": "Medium_Tank",
+          "hex": [
+            5,
+            12
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 7,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "NW",
+          "preDeployed": true
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            2,
+            13
+          ],
+          "strength": 100,
+          "experience": 0,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 1,
+          "facing": "NW",
+          "preDeployed": true
+        },
+        {
+          "type": "Engineer",
+          "hex": [
+            4,
+            12
+          ],
+          "strength": 100,
+          "experience": 0,
+          "ammo": 5,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "NW",
+          "preDeployed": true
+        },
+        {
+          "type": "Recon_Bike",
+          "hex": [
+            3,
+            11
+          ],
+          "strength": 89,
+          "experience": 0,
+          "ammo": 5,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "NW",
+          "preDeployed": true
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            1,
+            14
+          ],
+          "strength": 100,
+          "experience": 0,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "NW",
+          "preDeployed": true
+        },
+        {
+          "type": "Flak_88",
+          "hex": [
+            2,
+            12
+          ],
+          "strength": 89,
+          "experience": 0,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "NW",
+          "preDeployed": true
+        },
+        {
+          "type": "Heavy_Tank",
+          "hex": [
+            4,
+            11
+          ],
+          "strength": 100,
+          "experience": 0,
+          "ammo": 6,
+          "fuel": 35,
+          "entrench": 0,
+          "facing": "NW",
+          "preDeployed": true
+        }
       ]
     },
     "Bot": {
-      "hq": [16, 4],
-      "general": { "accBonus": 3, "dmgBonus": 0, "moveBonus": 0, "supplyBonus": 2 },
+      "hq": [
+        16,
+        4
+      ],
+      "general": {
+        "accBonus": 3,
+        "dmgBonus": 0,
+        "moveBonus": 0,
+        "supplyBonus": 2
+      },
       "goal": "Hold both bridges and the bastion city until relief arrives.",
       "strategy": "Entrench infantry near bridgeheads, use armor to counterattack crossings, and keep air assets circling the bastion.",
       "resources": 600,
       "units": [
-        { "type": "AT_Gun_50mm", "hex": [11, 4], "strength": 89, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "W" },
-        { "type": "Howitzer_105", "hex": [14, 5], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" },
-        { "type": "Infantry_42", "hex": [13, 5], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 2, "facing": "W" },
-        { "type": "Infantry_42", "hex": [15, 6], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 2, "facing": "W" },
-        { "type": "Engineer", "hex": [12, 4], "strength": 89, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "W" },
-        { "type": "Panzer_IV", "hex": [16, 5], "strength": 100, "experience": 0, "ammo": 7, "fuel": 40, "entrench": 0, "facing": "W" },
-        { "type": "Heavy_Tank", "hex": [17, 6], "strength": 100, "experience": 0, "ammo": 6, "fuel": 35, "entrench": 0, "facing": "W" },
-        { "type": "Recon_Bike", "hex": [13, 6], "strength": 89, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "W" },
-        { "type": "Fighter", "hex": [17, 4], "strength": 100, "experience": 0, "ammo": 6, "fuel": 50, "entrench": 0, "facing": "W" },
-        { "type": "Bomber", "hex": [18, 5], "strength": 100, "experience": 0, "ammo": 4, "fuel": 60, "entrench": 0, "facing": "W" },
-        { "type": "Flak_88", "hex": [15, 4], "strength": 89, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "W" }
+        {
+          "type": "AT_Gun_50mm",
+          "hex": [
+            11,
+            4
+          ],
+          "strength": 89,
+          "experience": 0,
+          "ammo": 5,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Howitzer_105",
+          "hex": [
+            14,
+            5
+          ],
+          "strength": 100,
+          "experience": 0,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            13,
+            5
+          ],
+          "strength": 100,
+          "experience": 0,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "W"
+        },
+        {
+          "type": "Infantry_42",
+          "hex": [
+            15,
+            6
+          ],
+          "strength": 100,
+          "experience": 0,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 2,
+          "facing": "W"
+        },
+        {
+          "type": "Engineer",
+          "hex": [
+            12,
+            4
+          ],
+          "strength": 89,
+          "experience": 0,
+          "ammo": 5,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Panzer_IV",
+          "hex": [
+            16,
+            5
+          ],
+          "strength": 100,
+          "experience": 0,
+          "ammo": 7,
+          "fuel": 40,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Heavy_Tank",
+          "hex": [
+            17,
+            6
+          ],
+          "strength": 100,
+          "experience": 0,
+          "ammo": 6,
+          "fuel": 35,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Recon_Bike",
+          "hex": [
+            13,
+            6
+          ],
+          "strength": 89,
+          "experience": 0,
+          "ammo": 5,
+          "fuel": 30,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Fighter",
+          "hex": [
+            17,
+            4
+          ],
+          "strength": 100,
+          "experience": 0,
+          "ammo": 6,
+          "fuel": 50,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Bomber",
+          "hex": [
+            18,
+            5
+          ],
+          "strength": 100,
+          "experience": 0,
+          "ammo": 4,
+          "fuel": 60,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Flak_88",
+          "hex": [
+            15,
+            4
+          ],
+          "strength": 89,
+          "experience": 0,
+          "ammo": 6,
+          "fuel": 0,
+          "entrench": 0,
+          "facing": "W"
+        }
       ]
     }
   }

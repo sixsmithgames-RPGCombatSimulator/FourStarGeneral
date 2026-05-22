@@ -1325,6 +1325,7 @@
     "infantry",
     "airborneDetachment",
     "engineer",
+    "lightTankCompany",
     "tank",
     "tankDestroyerCompany",
     "howitzer",
@@ -1398,7 +1399,7 @@
           "preDeployed": true
         },
         {
-          "type": "Light_Tank",
+          "type": "Medium_Tank",
           "hex": [
             14,
             15
