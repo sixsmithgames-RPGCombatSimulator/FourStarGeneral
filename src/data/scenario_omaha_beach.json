@@ -1528,20 +1528,6 @@
           "entrench": 0,
           "facing": "N",
           "preDeployed": true
-        },
-        {
-          "type": "Fighter",
-          "hex": [
-            18,
-            13
-          ],
-          "strength": 100,
-          "experience": 1,
-          "ammo": 6,
-          "fuel": 55,
-          "entrench": 0,
-          "facing": "N",
-          "preDeployed": true
         }
       ]
     },

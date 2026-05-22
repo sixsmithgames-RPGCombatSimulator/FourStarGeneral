@@ -1987,20 +1987,6 @@
           "entrench": 0,
           "facing": "NE",
           "preDeployed": true
-        },
-        {
-          "type": "Fighter",
-          "hex": [
-            8,
-            12
-          ],
-          "strength": 100,
-          "experience": 1,
-          "ammo": 6,
-          "fuel": 50,
-          "entrench": 0,
-          "facing": "NE",
-          "preDeployed": true
         }
       ]
     },
@@ -2134,6 +2120,19 @@
           "facing": "SW"
         },
         {
+          "type": "Fighter",
+          "hex": [
+            8,
+            12
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 6,
+          "fuel": 55,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
           "type": "Ground_Attack",
           "hex": [
             27,
@@ -2141,10 +2140,10 @@
           ],
           "strength": 100,
           "experience": 1,
-          "ammo": 1,
+          "ammo": 2,
           "fuel": 55,
           "entrench": 0,
-          "facing": "SW"
+          "facing": "W"
         }
       ]
     }

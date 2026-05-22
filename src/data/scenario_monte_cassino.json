@@ -2142,34 +2142,6 @@
           "entrench": 0,
           "facing": "E",
           "preDeployed": true
-        },
-        {
-          "type": "Ground_Attack",
-          "hex": [
-            3,
-            7
-          ],
-          "strength": 100,
-          "experience": 1,
-          "ammo": 1,
-          "fuel": 55,
-          "entrench": 0,
-          "facing": "E",
-          "preDeployed": true
-        },
-        {
-          "type": "Bomber",
-          "hex": [
-            2,
-            6
-          ],
-          "strength": 100,
-          "experience": 1,
-          "ammo": 1,
-          "fuel": 60,
-          "entrench": 0,
-          "facing": "E",
-          "preDeployed": true
         }
       ]
     },
@@ -2311,7 +2283,20 @@
           "strength": 100,
           "experience": 1,
           "ammo": 6,
-          "fuel": 50,
+          "fuel": 55,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Ground_Attack",
+          "hex": [
+            3,
+            7
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 2,
+          "fuel": 55,
           "entrench": 0,
           "facing": "W"
         }

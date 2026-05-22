@@ -177,8 +177,6 @@
         { "type": "Engineer", "hex": [4, 12], "strength": 100, "experience": 0, "ammo": 5, "fuel": 0, "entrench": 0, "facing": "NW", "preDeployed": true },
         { "type": "Recon_Bike", "hex": [3, 11], "strength": 89, "experience": 0, "ammo": 5, "fuel": 30, "entrench": 0, "facing": "NW", "preDeployed": true },
         { "type": "Howitzer_105", "hex": [1, 14], "strength": 100, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "NW", "preDeployed": true },
-        { "type": "Fighter", "hex": [6, 10], "strength": 100, "experience": 0, "ammo": 6, "fuel": 50, "entrench": 0, "facing": "NW", "preDeployed": true },
-        { "type": "Bomber", "hex": [5, 9], "strength": 100, "experience": 0, "ammo": 4, "fuel": 60, "entrench": 0, "facing": "NW", "preDeployed": true },
         { "type": "Flak_88", "hex": [2, 12], "strength": 89, "experience": 0, "ammo": 6, "fuel": 0, "entrench": 0, "facing": "NW", "preDeployed": true },
         { "type": "Heavy_Tank", "hex": [4, 11], "strength": 100, "experience": 0, "ammo": 6, "fuel": 35, "entrench": 0, "facing": "NW", "preDeployed": true }
       ]

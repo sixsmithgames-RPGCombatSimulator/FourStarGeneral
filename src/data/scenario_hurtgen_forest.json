@@ -2202,20 +2202,6 @@
           "entrench": 0,
           "facing": "E",
           "preDeployed": true
-        },
-        {
-          "type": "Ground_Attack",
-          "hex": [
-            4,
-            8
-          ],
-          "strength": 100,
-          "experience": 1,
-          "ammo": 1,
-          "fuel": 55,
-          "entrench": 0,
-          "facing": "E",
-          "preDeployed": true
         }
       ]
     },
@@ -2370,7 +2356,20 @@
           "strength": 100,
           "experience": 1,
           "ammo": 6,
-          "fuel": 50,
+          "fuel": 55,
+          "entrench": 0,
+          "facing": "W"
+        },
+        {
+          "type": "Ground_Attack",
+          "hex": [
+            4,
+            8
+          ],
+          "strength": 100,
+          "experience": 1,
+          "ammo": 2,
+          "fuel": 55,
           "entrench": 0,
           "facing": "W"
         }

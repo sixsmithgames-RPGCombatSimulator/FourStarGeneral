@@ -1935,34 +1935,6 @@
           "entrench": 0,
           "facing": "E",
           "preDeployed": true
-        },
-        {
-          "type": "Fighter",
-          "hex": [
-            5,
-            8
-          ],
-          "strength": 100,
-          "experience": 1,
-          "ammo": 6,
-          "fuel": 55,
-          "entrench": 0,
-          "facing": "E",
-          "preDeployed": true
-        },
-        {
-          "type": "Ground_Attack",
-          "hex": [
-            3,
-            9
-          ],
-          "strength": 100,
-          "experience": 1,
-          "ammo": 2,
-          "fuel": 55,
-          "entrench": 0,
-          "facing": "E",
-          "preDeployed": true
         }
       ]
     },
