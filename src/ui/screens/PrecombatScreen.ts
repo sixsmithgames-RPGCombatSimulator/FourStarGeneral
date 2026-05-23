@@ -80,9 +80,32 @@ const TOWN_DEFENSE_ALLOCATION_PRESET: AllocationPresetDefinition = {
   ]
 };
 
+const GELA_LANDINGS_ALLOCATION_PRESET: AllocationPresetDefinition = {
+  missionKeys: ["assault_gela_landings"],
+  label: "Use Preset Allocations",
+  appliedMessage: "Gela Landings preset allocations applied.",
+  entries: [
+    { key: "infantry", quantity: 4 },
+    { key: "engineer", quantity: 2 },
+    { key: "tank", quantity: 5 },
+    { key: "tankDestroyerCompany", quantity: 3 },
+    { key: "howitzer", quantity: 2 },
+    { key: "antiTankBattery", quantity: 1 },
+    { key: "flakBattery", quantity: 2 },
+    { key: "reconBike", quantity: 1 },
+    { key: "airborneDetachment", quantity: 3 },
+    { key: "transportWing", quantity: 1 },
+    { key: "shoreFireControlParty", quantity: 1 },
+    { key: "supplyConvoy", quantity: 2 },
+    { key: "medic", quantity: 1 },
+    { key: "maintenance", quantity: 1 }
+  ]
+};
+
 const ALLOCATION_PRESETS: readonly AllocationPresetDefinition[] = [
   TRAINING_ALLOCATION_PRESET,
-  TOWN_DEFENSE_ALLOCATION_PRESET
+  TOWN_DEFENSE_ALLOCATION_PRESET,
+  GELA_LANDINGS_ALLOCATION_PRESET
 ];
 
 export class PrecombatScreen {
