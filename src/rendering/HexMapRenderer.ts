@@ -14747,12 +14747,12 @@ export class HexMapRenderer implements IMapRenderer {
       return "plain"; // Fallback
     }
 
-    const tileInstance = rowTiles[col];
-    if (!tileInstance) {
+    const tileEntry = rowTiles[col];
+    if (!tileEntry) {
       return "plain"; // Fallback
     }
 
-    const tileDef = this.scenarioData.tilePalette[tileInstance.tile];
+    const tileDef = CoordinateSystem.resolveTile(tileEntry, this.scenarioData.tilePalette);
     if (!tileDef) {
       return "plain"; // Fallback
     }
