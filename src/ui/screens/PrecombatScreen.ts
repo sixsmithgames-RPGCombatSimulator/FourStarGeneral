@@ -167,6 +167,8 @@ export class PrecombatScreen {
   private readonly predeployedRoster = new Map<string, { label: string; scenarioType: string; count: number }>();
   private readonly unlockState = ensureUnlockState();
   private miniMapRenderFrame: number | null = null;
+  private miniMapRetryTimer: number | null = null;
+  private readonly miniMapRetryLimit = 8;
   private readonly screenShownListener = (event: Event): void => {
     const shownEvent = event as CustomEvent<ScreenShownEventDetail>;
     if (shownEvent.detail?.id === "precombat") {
@@ -290,6 +292,7 @@ export class PrecombatScreen {
     this.primeAllocationState();
     this.seedDeploymentCaches();
     this.registerScenarioDeploymentZones();
+    this.renderMiniMap();
     this.requestMiniMapRender();
     this.renderMissionSummary(missionKey, selectedDifficulty);
     this.seedPredeployedAllocations();
@@ -1512,11 +1515,7 @@ export class PrecombatScreen {
     return supplies.filter((item) => duplicateAssetPatterns.every((pattern) => !pattern.test(item.label.trim())));
   }
 
-  private renderMiniMap(): void {
-    if (!this.isMiniMapVisible()) {
-      return;
-    }
-
+  private renderMiniMap(): boolean {
     this.miniMapRenderer.render(this.miniMapSvg, this.miniMapCanvas, this.miniMapScenario);
     const mapPreview = this.miniMapCanvas.closest<HTMLElement>(".map-preview");
     if (mapPreview) {
@@ -1546,9 +1545,10 @@ export class PrecombatScreen {
     });
     const terrainOverlays = Array.from(this.miniMapSvg.querySelectorAll<SVGElement>(".terrain-feature-overlay"));
     terrainOverlays.forEach((overlay) => overlay.setAttribute("opacity", "0.9"));
+    return true;
   }
 
-  private requestMiniMapRender(): void {
+  private requestMiniMapRender(attempt = 0): void {
     if (typeof window === "undefined") {
       this.renderMiniMap();
       return;
@@ -1556,23 +1556,26 @@ export class PrecombatScreen {
 
     if (this.miniMapRenderFrame !== null) {
       window.cancelAnimationFrame(this.miniMapRenderFrame);
+      this.miniMapRenderFrame = null;
+    }
+
+    if (this.miniMapRetryTimer !== null) {
+      window.clearTimeout(this.miniMapRetryTimer);
+      this.miniMapRetryTimer = null;
     }
 
     this.miniMapRenderFrame = window.requestAnimationFrame(() => {
       this.miniMapRenderFrame = window.requestAnimationFrame(() => {
         this.miniMapRenderFrame = null;
-        this.renderMiniMap();
+        const rendered = this.renderMiniMap();
+        if (!rendered && attempt < this.miniMapRetryLimit) {
+          this.miniMapRetryTimer = window.setTimeout(() => {
+            this.miniMapRetryTimer = null;
+            this.requestMiniMapRender(attempt + 1);
+          }, 50);
+        }
       });
     });
-  }
-
-  private isMiniMapVisible(): boolean {
-    if (this.element.classList.contains("hidden")) {
-      return false;
-    }
-
-    const bounds = this.miniMapCanvas.getBoundingClientRect();
-    return bounds.width > 0 && bounds.height > 0;
   }
 
   private getMiniMapTerrainFill(terrainKey: string, fallbackFill: string | null): string {

@@ -6,11 +6,15 @@ import { getAllocationOption } from "../data/unitAllocation";
 import type { GameEngineAPI, ReserveUnit } from "../game/GameEngine";
 import unitTypesSource from "../data/unitSystem/derivedUnitTypes";
 
- function axialToOffsetKey(hex: { q: number; r: number }): string {
+const scenarioTypeToAllocationKeyAliases = new Map<string, string>([
+  ["Medium_Tank", "tank"]
+]);
+
+function axialToOffsetKey(hex: { q: number; r: number }): string {
   const col = hex.q;
   const row = hex.r + Math.floor(hex.q / 2);
   return `${col},${row}`;
- }
+}
 
 export interface DeploymentPoolEntry {
   key: string;
@@ -194,6 +198,16 @@ export class DeploymentState {
       const sprite = getSpriteForAllocationKey(template.key, "Player") ?? getSpriteForScenarioType(scenarioType, "Player");
       if (sprite && !this.spriteMap.has(template.key)) {
         this.spriteMap.set(template.key, sprite);
+      }
+    });
+
+    scenarioTypeToAllocationKeyAliases.forEach((unitKey, scenarioType) => {
+      if (!this.scenarioTypeAlias.has(scenarioType)) {
+        this.scenarioTypeAlias.set(scenarioType, unitKey);
+      }
+      const sprite = getSpriteForAllocationKey(unitKey, "Player") ?? getSpriteForScenarioType(scenarioType, "Player");
+      if (sprite && !this.spriteMap.has(unitKey)) {
+        this.spriteMap.set(unitKey, sprite);
       }
     });
   }

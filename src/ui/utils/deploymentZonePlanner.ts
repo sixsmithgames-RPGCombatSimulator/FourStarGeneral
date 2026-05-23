@@ -57,9 +57,16 @@ function resolveTileDefinition(
   if (!rowData) {
     throw new Error(`Tile row ${row} is out of bounds for deployment zone calculation.`);
   }
-  const entry = rowData[col] as TileInstance | (TileDefinition & Partial<TileInstance>);
+  const entry = rowData[col] as string | TileInstance | (TileDefinition & Partial<TileInstance>);
   if (!entry) {
     throw new Error(`Tile column ${col} is out of bounds for deployment zone calculation.`);
+  }
+  if (typeof entry === "string") {
+    const definition = (scenario.tilePalette as TilePalette)[entry];
+    if (!definition) {
+      throw new Error(`Palette key '${entry}' missing while resolving deployment zone terrain.`);
+    }
+    return definition as TileDefinition;
   }
   const paletteKey = (entry as TileInstance).tile;
   if (paletteKey) {

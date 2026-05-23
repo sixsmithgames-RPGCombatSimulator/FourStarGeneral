@@ -150,6 +150,13 @@ export function validateGameplayCanon(): void {
 
   scenarioData.tiles.forEach((row, rowIndex) => {
     row.forEach((tile, colIndex) => {
+      if (typeof tile === "string") {
+        if (!paletteKeys.has(tile)) {
+          throw new Error(`scenario tiles[${rowIndex}][${colIndex}] references unknown tile palette key "${tile}"`);
+        }
+        return;
+      }
+
       if ((tile as { tile?: string }).tile) {
         const tileId = (tile as { tile: string }).tile;
         if (!paletteKeys.has(tileId)) {

@@ -189,6 +189,7 @@ export interface MovementBudget {
 }
 
 type AircraftAmmoState = { air: number; ground: number; needsRearm: boolean };
+type ScenarioTileEntry = string | TileInstance;
 
 import {
   createScenarioUnitFromTemplate,
@@ -15599,7 +15600,7 @@ private automateSupplyConvoys(
   }
 
   /** Lookup helper returning the tile entry (palette reference) for a given hex. */
-  private lookupTileEntry(hex: Axial): TileInstance | null {
+  private lookupTileEntry(hex: Axial): ScenarioTileEntry | null {
     // Convert axial to offset coordinates for tile array lookup
     const col = hex.q;
     const row = hex.r + Math.floor(hex.q / 2);
@@ -15608,7 +15609,7 @@ private automateSupplyConvoys(
     if (!tileRow) {
       return null;
     }
-    const entry = tileRow[col];
+    const entry = tileRow[col] as ScenarioTileEntry | undefined;
     return entry ?? null;
   }
 
@@ -15617,6 +15618,17 @@ private automateSupplyConvoys(
     if (!entry) {
       return null;
     }
+    if (typeof entry === "string") {
+      const paletteEntry = this.scenario.tilePalette[entry];
+      if (!paletteEntry) {
+        return null;
+      }
+      return {
+        ...paletteEntry,
+        features: paletteEntry.features ? [...paletteEntry.features] : []
+      };
+    }
+
     const paletteEntry = this.scenario.tilePalette[entry.tile];
     if (!paletteEntry) {
       return null;

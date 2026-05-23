@@ -13,7 +13,7 @@ export interface GridCoordinate {
  * Re-export types for convenience.
  */
 export type TileDetails = TileDefinition;
-export type TileEntry = TileInstance | TileDetails;
+export type TileEntry = string | TileInstance | TileDetails;
 
 /**
  * Coordinate system utilities for hex grid operations.
@@ -194,6 +194,18 @@ export class CoordinateSystem {
     entry: TileEntry,
     palette: TilePalette
   ): TileDetails | null {
+    if (typeof entry === "string") {
+      const reference = palette[entry];
+      if (!reference) {
+        return null;
+      }
+
+      return {
+        ...reference,
+        features: reference.features ? [...reference.features] : []
+      };
+    }
+
     if (this.isTileReference(entry)) {
       // Clone the palette definition and layer any overrides carried on the tile instance for density,
       // features, or recon flags. The clone avoids mutating shared palette state.
@@ -230,13 +242,13 @@ export class CoordinateSystem {
    * Checks whether the tile entry is a palette reference (the common case in scenario JSON).
    */
   static isTileReference(entry: TileEntry): entry is TileInstance {
-    return typeof (entry as { tile?: unknown }).tile === "string";
+    return typeof entry === "object" && entry !== null && typeof (entry as { tile?: unknown }).tile === "string";
   }
 
   /**
    * Guards direct tile definitions embedded in the scenario grid.
    */
   private static isTileDefinition(entry: TileEntry): entry is TileDetails {
-    return typeof (entry as { terrain?: unknown }).terrain === "string";
+    return typeof entry === "object" && entry !== null && typeof (entry as { terrain?: unknown }).terrain === "string";
   }
 }

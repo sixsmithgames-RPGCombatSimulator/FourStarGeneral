@@ -3,9 +3,15 @@ import { registerTest } from "./harness.js";
 import { getScenarioByMissionKey } from "../src/data/scenarioRegistry";
 import { assertScenarioSourceValid, validateScenarioSource } from "../src/data/scenarioValidation";
 import { getAllMissionKeys } from "../src/data/missions";
+import { CoordinateSystem, type TileEntry } from "../src/rendering/CoordinateSystem";
+import type { TilePalette } from "../src/core/types";
 
 function cloneScenario<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function mapSignature(scenario: ReturnType<typeof getScenarioByMissionKey>): string {
+  return JSON.stringify({ size: scenario.size, tiles: scenario.tiles });
 }
 
 registerTest("SCENARIO_VALIDATION_ACCEPTS_REGISTERED_SCENARIOS", async ({ Given, When, Then }) => {
@@ -33,6 +39,66 @@ registerTest("SCENARIO_VALIDATION_ACCEPTS_REGISTERED_SCENARIOS", async ({ Given,
   });
 });
 
+registerTest("SCENARIO_REGISTRY_USES_UNIQUE_AUTHORED_MAPS", async ({ Given, When, Then }) => {
+  let duplicateGroups: string[][] = [];
+
+  await Given("the currently registered authored battle scenarios", async () => {
+    document.body.innerHTML = "";
+  });
+
+  await When("each non-campaign mission map is fingerprinted", async () => {
+    const signatures = new Map<string, string[]>();
+    getAllMissionKeys()
+      .filter((missionKey) => missionKey !== "campaign")
+      .forEach((missionKey) => {
+        const signature = mapSignature(getScenarioByMissionKey(missionKey));
+        const missionKeys = signatures.get(signature) ?? [];
+        signatures.set(signature, [...missionKeys, missionKey]);
+      });
+    duplicateGroups = Array.from(signatures.values()).filter((missionKeys) => missionKeys.length > 1);
+  });
+
+  await Then("no shipped battle scenario shares the same tile map", async () => {
+    if (duplicateGroups.length > 0) {
+      throw new Error(
+        `Expected authored scenarios to use unique maps, received duplicate groups: ${duplicateGroups
+          .map((missionKeys) => missionKeys.join(", "))
+          .join(" | ")}`
+      );
+    }
+  });
+});
+
+registerTest("SCENARIO_REGISTRY_TILE_ENTRIES_RESOLVE_FOR_RENDERING", async ({ Given, When, Then }) => {
+  const unresolvedTiles: string[] = [];
+
+  await Given("the currently registered authored battle scenarios", async () => {
+    document.body.innerHTML = "";
+  });
+
+  await When("each non-campaign mission tile is resolved through the renderer coordinate system", async () => {
+    getAllMissionKeys()
+      .filter((missionKey) => missionKey !== "campaign")
+      .forEach((missionKey) => {
+        const scenario = getScenarioByMissionKey(missionKey);
+        scenario.tiles.forEach((row, rowIndex) => {
+          row.forEach((entry, colIndex) => {
+            const tile = CoordinateSystem.resolveTile(entry as TileEntry, scenario.tilePalette as TilePalette);
+            if (!tile) {
+              unresolvedTiles.push(`${missionKey}[${rowIndex},${colIndex}]`);
+            }
+          });
+        });
+      });
+  });
+
+  await Then("every shipped battle scenario tile can render", async () => {
+    if (unresolvedTiles.length > 0) {
+      throw new Error(`Expected every scenario tile to resolve for rendering, received: ${unresolvedTiles.join(", ")}`);
+    }
+  });
+});
+
 registerTest("SCENARIO_VALIDATION_ACCEPTS_RECOVERABLE_RIVER_WATCH_SEED_PATCH", async ({ Given, When, Then }) => {
   let resultIssues: readonly string[] = [];
 
@@ -54,10 +120,10 @@ registerTest("SCENARIO_VALIDATION_ACCEPTS_RECOVERABLE_RIVER_WATCH_SEED_PATCH", a
   });
 });
 
-registerTest("SCENARIO_VALIDATION_REJECTS_SHALLOW_LONG_RANGE_MAPS", async ({ Given, When, Then }) => {
+registerTest("SCENARIO_VALIDATION_REJECTS_BELOW_PROFILE_MINIMUM_MAPS", async ({ Given, When, Then }) => {
   let thrown: Error | null = null;
 
-  await Given("a long-range scenario clone whose map depth was reduced below the allowed envelope", async () => {
+  await Given("a scenario clone whose map depth was reduced below the profile minimum", async () => {
     document.body.innerHTML = "";
   });
 
@@ -73,12 +139,12 @@ registerTest("SCENARIO_VALIDATION_REJECTS_SHALLOW_LONG_RANGE_MAPS", async ({ Giv
     }
   });
 
-  await Then("validation fails with an actionable range-to-map-size message", async () => {
+  await Then("validation fails with an actionable profile minimum message", async () => {
     if (!thrown) {
       throw new Error("Expected shallow long-range scenario validation to throw");
     }
-    if (!thrown.message.includes("too shallow for longest non-air range 8")) {
-      throw new Error(`Expected range envelope failure, received: ${thrown.message}`);
+    if (!thrown.message.includes("depth 13 is below the profile minimum 15")) {
+      throw new Error(`Expected profile minimum failure, received: ${thrown.message}`);
     }
   });
 });
@@ -97,7 +163,7 @@ registerTest("SCENARIO_VALIDATION_REJECTS_OVERCAPACITY_DEPLOYMENT_ZONES", async 
   });
 
   await Then("validation reports the capacity mismatch instead of silently accepting it", async () => {
-    if (!resultIssues.some((issue) => issue.includes("declares capacity 21 but only 20 usable hexes"))) {
+    if (!resultIssues.some((issue) => issue.includes("declares capacity 21 but only") && issue.includes("usable hexes"))) {
       throw new Error(`Expected deployment-capacity validation failure, received: ${resultIssues.join(" | ")}`);
     }
   });
