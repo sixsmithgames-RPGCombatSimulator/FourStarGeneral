@@ -2597,12 +2597,19 @@ export class HexMapRenderer implements IMapRenderer {
 
     // Process all tiles and calculate bounds
     const realAxialKeys = new Set<string>();
+    let resolvedTileCount = 0;
+    let unresolvedTileCount = 0;
     data.tiles.forEach((rowTiles, rowIndex) => {
       rowTiles.forEach((entry, columnIndex) => {
         const tile = CoordinateSystem.resolveTile(entry, data.tilePalette);
         if (!tile) {
+          unresolvedTileCount++;
+          if (unresolvedTileCount <= 5) {
+            console.warn(`[HexMapRenderer] Failed to resolve tile at [${rowIndex}][${columnIndex}]`, { entry, paletteKeys: Object.keys(data.tilePalette).slice(0, 10) });
+          }
           return;
         }
+        resolvedTileCount++;
 
         const { q, r } = CoordinateSystem.offsetToAxial(columnIndex, rowIndex);
         const { x, y } = CoordinateSystem.axialToPixel(q, r);
@@ -2620,6 +2627,7 @@ export class HexMapRenderer implements IMapRenderer {
       });
     });
 
+    console.info(`[HexMapRenderer] Tile resolution: ${resolvedTileCount} resolved, ${unresolvedTileCount} unresolved, ${hexes.length} hexes to render`);
     if (hexes.length === 0) {
       svg.innerHTML = "";
       return;
