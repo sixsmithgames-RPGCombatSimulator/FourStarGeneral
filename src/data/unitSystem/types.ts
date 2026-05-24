@@ -57,6 +57,7 @@ export type UnitTypeKey =
   | "Panzer_IV"
   | "Heavy_Tank"
   | "Light_Tank"
+  | "Medium_Tank"
   | "Assault_Gun"
   | "Tank_Destroyer"
   | "Howitzer_105"

@@ -1449,6 +1449,11 @@ export const scenarioOnlyTacticalDefinitions = [
     historicalDescription: "Assault engineer element with heavier breaching, demolition, and close-assault equipment."
   },
   {
+    type: "Medium_Tank",
+    tactical: tactical.Medium_Tank,
+    historicalDescription: "Medium tank with balanced armor and firepower for breakthrough and mobile operations."
+  },
+  {
     type: "Panzer_IV",
     tactical: unit({
       ...tactical.Light_Tank,
