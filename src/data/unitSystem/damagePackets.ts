@@ -104,6 +104,7 @@ export interface DamagePacketRequest {
   defenderHex: Axial;
   attackResult: AttackResult;
   targetFacing: ScenarioUnit["facing"];
+  attackerStance?: AttackerContext["stance"];
   defenderCtx?: AttackerContext;
   effectScalar?: number;
   suppressionScalar?: number;
@@ -251,7 +252,8 @@ function penetrationEffectScalar(effect: EquipmentDamageEffect, group: WeaponSho
     request.defenderHex,
     request.targetFacing,
     request.defenderDefinition,
-    request.attackerDefinition.class
+    request.attackerDefinition.class,
+    resolvePacketAttackerStance(request)
   );
   if (facingArmor <= 0) {
     return 1;
@@ -302,7 +304,9 @@ function calculatePersonnelCasualties(
     ? (hitTypeCounts.penetrating + hitTypeCounts.areaEffect) *
       effectScalar *
       personnelTargetExposureScalar(group.role, defender)
-    : 0;
+    : group.role === "antiTank"
+      ? (hitTypeCounts.penetrating + hitTypeCounts.softComponent * 0.5 + hitTypeCounts.areaEffect * 0.25) * effectScalar
+      : 0;
   const directPersonnelContacts = effectiveHits * effectScalar;
 
   const delta = capPersonnelEffect(
@@ -311,10 +315,15 @@ function calculatePersonnelCasualties(
     effectScalar * personnelStatusOutcomeScalar(group.role, defender, softEffect),
     { contactHits }
   );
+  const roundedOutcomeCount =
+    roundDamageCount(delta.injured) +
+    roundDamageCount(delta.wounded) +
+    roundDamageCount(delta.severelyWounded) +
+    roundDamageCount(delta.killed);
   if (
     group.role === "antiTank" &&
-    directPersonnelContacts >= 0.45 &&
-    countPersonnelDelta(delta) <= 0 &&
+    directPersonnelContacts >= 0.35 &&
+    roundedOutcomeCount <= 0 &&
     ["infantry", "specialist", "artillery", "recon"].includes(defender.class)
   ) {
     return { ...delta, wounded: 1 };
@@ -452,6 +461,57 @@ function roundDamageCount(value: number): number {
   return Math.max(0, Math.round(Number.isFinite(value) ? value : 0));
 }
 
+function roundPersonnelDeltaPreservingMass(delta: PersonnelDamageDelta): PersonnelDamageDelta {
+  const sanitized: PersonnelDamageDelta = {
+    injured: Math.max(0, Number.isFinite(delta.injured) ? delta.injured : 0),
+    wounded: Math.max(0, Number.isFinite(delta.wounded) ? delta.wounded : 0),
+    severelyWounded: Math.max(0, Number.isFinite(delta.severelyWounded) ? delta.severelyWounded : 0),
+    killed: Math.max(0, Number.isFinite(delta.killed) ? delta.killed : 0)
+  };
+  const roundedTotal = roundDamageCount(
+    sanitized.injured + sanitized.wounded + sanitized.severelyWounded + sanitized.killed
+  );
+  if (roundedTotal <= 0) {
+    return { ...EMPTY_PERSONNEL_DELTA };
+  }
+  const allocation = allocate(roundedTotal, [
+    sanitized.killed,
+    sanitized.severelyWounded,
+    sanitized.wounded,
+    sanitized.injured
+  ]);
+  return {
+    killed: allocation[0] ?? 0,
+    severelyWounded: allocation[1] ?? 0,
+    wounded: allocation[2] ?? 0,
+    injured: allocation[3] ?? 0
+  };
+}
+
+function roundEquipmentDeltaPreservingMass(delta: EquipmentDamageDelta): EquipmentDamageDelta {
+  const sanitized: EquipmentDamageDelta = {
+    damaged: Math.max(0, Number.isFinite(delta.damaged) ? delta.damaged : 0),
+    disabled: Math.max(0, Number.isFinite(delta.disabled) ? delta.disabled : 0),
+    destroyed: Math.max(0, Number.isFinite(delta.destroyed) ? delta.destroyed : 0)
+  };
+  const roundedTotal = roundDamageCount(
+    sanitized.damaged + sanitized.disabled + sanitized.destroyed
+  );
+  if (roundedTotal <= 0) {
+    return { ...EMPTY_EQUIPMENT_DELTA };
+  }
+  const allocation = allocate(roundedTotal, [
+    sanitized.destroyed,
+    sanitized.disabled,
+    sanitized.damaged
+  ]);
+  return {
+    destroyed: allocation[0] ?? 0,
+    disabled: allocation[1] ?? 0,
+    damaged: allocation[2] ?? 0
+  };
+}
+
 function eligiblePersonnelForTransition(
   pool: PersonnelStatusPool,
   transition: PersonnelTransition
@@ -548,6 +608,13 @@ function resolveShotBudget(request: DamagePacketRequest): number {
     return request.attackResult.shots;
   }
   return request.attackerDefinition.weaponModel?.groups.reduce((sum, group) => sum + Math.max(0, group.shots), 0) ?? 0;
+}
+
+function resolvePacketAttackerStance(request: DamagePacketRequest): AttackerContext["stance"] | undefined {
+  if (request.attackerStance) {
+    return request.attackerStance;
+  }
+  return request.attackResult.shotBreakdown?.posture === "assault" ? "assault" : undefined;
 }
 
 /**
@@ -769,6 +836,7 @@ export function resolveDamagePacket(request: DamagePacketRequest): DamagePacket 
   const suppressionScalar = clamp(request.suppressionScalar ?? 1, 0, 12);
   const accuracy = clamp(request.attackResult.accuracy / 100, 0, 1);
   const shotBudget = Math.max(0, resolveShotBudget(request));
+  const attackerStance = resolvePacketAttackerStance(request);
   const shotCountTotal = model?.groups.reduce((sum, group) => sum + Math.max(0, group.shots), 0) ?? 0;
 
   if (!model || model.groups.length === 0 || accuracy <= 0 || shotBudget <= 0 || shotCountTotal <= 0) {
@@ -804,7 +872,8 @@ export function resolveDamagePacket(request: DamagePacketRequest): DamagePacket 
       request.defenderHex,
       request.targetFacing,
       request.defenderDefinition,
-      request.attackerDefinition.class
+      request.attackerDefinition.class,
+      attackerStance
     );
     const effectiveDistribution = adjustHitDistributionForArmor(
       hitDistribution,
@@ -970,18 +1039,9 @@ function scaleEquipmentDeltaToCapacity(delta: EquipmentDamageDelta, capacity: nu
 function applyPersonnelDelta(status: FormationStatus, delta: PersonnelDamageDelta): PersonnelDamageDelta {
   const applied: PersonnelDamageDelta = { ...EMPTY_PERSONNEL_DELTA };
   const capacity = livingPersonnel(status);
-  // Round once here after all weapon-group floats have been accumulated in the
-  // caller, then scale to the available pool.  Do NOT use outcomeRound with a
-  // suppress-below-0.35 threshold here — use plain Math.round so that any
-  // accumulated value ≥ 0.5 survives regardless of pool size.
-  const accumulated: PersonnelDamageDelta = {
-    injured: Math.max(0, Math.round(delta.injured)),
-    wounded: Math.max(0, Math.round(delta.wounded)),
-    severelyWounded: Math.max(0, Math.round(delta.severelyWounded)),
-    killed: Math.max(0, Math.round(delta.killed))
-  };
+  const accumulated = roundPersonnelDeltaPreservingMass(delta);
   const requested = scalePersonnelDeltaToCapacity(accumulated, capacity);
-  const directOrder: readonly PersonnelDamageKey[] = ["injured", "wounded", "severelyWounded", "killed"];
+  const directOrder: readonly PersonnelDamageKey[] = ["killed", "severelyWounded", "wounded", "injured"];
 
   const applyTransition = (key: PersonnelDamageKey, amount: number): number => {
     if (amount <= 0) return 0;
@@ -1008,8 +1068,8 @@ function applyPersonnelDelta(status: FormationStatus, delta: PersonnelDamageDelt
 function applyEquipmentDelta(status: FormationStatus, delta: EquipmentDamageDelta): EquipmentDamageDelta {
   const applied: EquipmentDamageDelta = { ...EMPTY_EQUIPMENT_DELTA };
   const capacity = nonDestroyedEquipment(status);
-  const requested = scaleEquipmentDeltaToCapacity(delta, capacity);
-  const directOrder: readonly EquipmentDamageKey[] = ["damaged", "disabled", "destroyed"];
+  const requested = scaleEquipmentDeltaToCapacity(roundEquipmentDeltaPreservingMass(delta), capacity);
+  const directOrder: readonly EquipmentDamageKey[] = ["destroyed", "disabled", "damaged"];
 
   const applyTransition = (key: EquipmentDamageKey, amount: number): number => {
     if (amount <= 0) return 0;

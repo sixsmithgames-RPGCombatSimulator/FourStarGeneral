@@ -362,7 +362,8 @@ export function pickFacingArmor(
   defenderHex: Axial,
   defenderFacing: Facing,
   defenderUnit: UnitTypeDefinition,
-  attackerClass: UnitClass
+  attackerClass: UnitClass,
+  attackerStance?: AttackerContext["stance"]
 ): number {
   if (combatBalance.penetration.topAttackClasses.has(attackerClass)) {
     return defenderUnit.armor.top;
@@ -372,14 +373,33 @@ export function pickFacingArmor(
   const inboundIndex = directionIndex(defenderHex, attackerHex);
   const delta = (inboundIndex - defenderFacingIndex + axialDirections.length) % axialDirections.length;
 
-  if (delta === 0) {
-    return defenderUnit.armor.front;
-  }
-  if (delta === 3) {
-    return defenderUnit.armor.rear ?? Math.max(1, Math.round(defenderUnit.armor.side * 0.75));
+  const frontArmor = defenderUnit.armor.front;
+  const sideArmor = defenderUnit.armor.side;
+  const rearArmor = defenderUnit.armor.rear ?? Math.max(1, Math.round(sideArmor * 0.75));
+  const arcArmor = delta === 0 ? frontArmor : delta === 3 ? rearArmor : sideArmor;
+
+  const assaultFlankEligible =
+    attackerStance === "assault" &&
+    defenderUnit.class === "tank" &&
+    (attackerClass === "infantry" || attackerClass === "specialist" || attackerClass === "recon");
+
+  if (!assaultFlankEligible) {
+    return arcArmor;
   }
 
-  return defenderUnit.armor.side;
+  // Historical close-assault doctrine emphasized stalking into dead space and
+  // striking side/rear aspects rather than fighting the front plate head-on.
+  // We preserve directional fidelity when already on side/rear arcs, and only
+  // reinterpret frontal assaults as partial side/rear exposure.
+  if (arcArmor === frontArmor) {
+    const rearBlend = combatBalance.penetration.assaultFlankRearBlendFromFront;
+    return sideArmor * (1 - rearBlend) + rearArmor * rearBlend;
+  }
+  if (arcArmor === sideArmor) {
+    const rearBlend = combatBalance.penetration.assaultFlankRearBlendFromSide;
+    return sideArmor * (1 - rearBlend) + rearArmor * rearBlend;
+  }
+  return rearArmor;
 }
 
 /**
@@ -401,7 +421,10 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const combatProfile = resolveCombatProfile(attacker.unit);
   let distance = hexDistance(attackerCtx.hex, defenderCtx.hex);
 
-  // If attacker is using assault stance, engagement happens at close range (0-50m, use 25m midpoint)
+  // If attacker is using assault stance, engagement happens at close range (0-50m, use 25m midpoint).
+  // This approximates WWII close anti-tank drill where assault teams were trained to let tanks close
+  // to very short distance before exposing themselves and striking.
+  // Source context: Tactical and Technical Trends No. 23 (Apr 22, 1943), close assault at 7-20 m.
   const isAssault = attackerCtx.stance === "assault";
   const ASSAULT_CLOSE_RANGE_METERS = 25;
   if (isAssault) {
@@ -448,10 +471,20 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const spottedMultiplier = defenderCtx.isSpottedOnly ? 0.5 : 1.0;
   const afterSpotted = afterTerrain * spottedMultiplier;
 
+  // Assaulting infantry that closes into tank-kill distance is unusually exposed.
+  // Apply a dedicated close-defense boost for tanks firing on assaulting infantry
+  // so flank attempts carry meaningful risk, especially in return fire exchanges.
+  const assaultExposureScalar =
+    attackerCtx.stance === "assault" &&
+    attacker.unit.class === "tank" &&
+    (defender.unit.class === "infantry" || defender.unit.class === "specialist" || defender.unit.class === "recon")
+      ? combatBalance.accuracy.tankVsAssaultingInfantryExposureScalar
+      : 1;
+
   // Assault already benefits from the forced 25m engagement range above; applying
   // a second multiplier here overstates close-assault lethality and breaks parity
   // between preview and expected battlefield outcomes.
-  const finalPreClamp = afterSpotted;
+  const finalPreClamp = afterSpotted * assaultExposureScalar;
 
   // Step 7: Clamp to bounds
   const finalAccuracy = clamp(finalPreClamp, combatBalance.accuracy.min, combatBalance.accuracy.max);
@@ -1000,7 +1033,8 @@ export function resolveAttack(request: AttackRequest): AttackResult {
     request.defenderCtx.hex,
     request.targetFacing,
     request.defender.unit,
-    request.attacker.unit.class
+    request.attacker.unit.class,
+    request.attackerCtx.stance
   );
   const shotBreakdown = calculateShotBreakdown(request);
   

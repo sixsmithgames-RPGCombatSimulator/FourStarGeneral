@@ -27,6 +27,29 @@ function scaleWeaponModel(model: UnitWeaponModel, platformCount: number): UnitWe
   };
 }
 
+const bazookaPersonnelDamagePackage = Object.freeze({
+  injured: 0.2,
+  wounded: 0.08,
+  severelyWounded: 0.02,
+  killed: 0.02,
+  casualtyRoundingThreshold: 0.15,
+  minimumCasualtiesPerHit: 1
+});
+
+const bazookaEquipmentDamagePackage = Object.freeze({
+  damaged: 2.4,
+  disabled: 0.9,
+  destroyed: 0.25,
+  armorPenetration: 12,
+  damageType: "shapedCharge" as const
+});
+
+const bazookaHitDistributionPackage = Object.freeze({
+  vsInfantry: { nonEffect: 0.20, softComponent: 0.30, penetrating: 0.50, areaEffect: 0 },
+  vsArmorButtoned: { nonEffect: 0.15, softComponent: 0.25, penetrating: 0.60, areaEffect: 0 },
+  vsArtillery: { nonEffect: 0.10, softComponent: 0.20, penetrating: 0.70, areaEffect: 0 }
+});
+
 /**
  * WWII US Infantry Battalion TO&E (Feb 1944) - 770 men
  * 
@@ -70,7 +93,7 @@ const weaponModels = {
   bazookaTeam: {
     doctrine: "2-man bazooka team (gunner + loader). Cannot operate rifles simultaneously. ~6 shots per 5-minute engagement.",
     groups: [
-      { id: "bazooka", label: "M9A1 Bazooka (2 crew)", role: "antiTank", shots: 6, accuracyMultiplier: 0.72, softEffect: { injured: 0.2, wounded: 0.08, severelyWounded: 0.02, killed: 0.02 }, hardEffect: { damaged: 2.4, disabled: 0.9, destroyed: 0.25, armorPenetration: 12, damageType: "shapedCharge" }, suppressionPerHit: 0.08, fortificationDamagePerHit: 0.2, hitDistribution: { vsInfantry: { nonEffect: 0.20, softComponent: 0.30, penetrating: 0.50, areaEffect: 0 }, vsArmorButtoned: { nonEffect: 0.15, softComponent: 0.25, penetrating: 0.60, areaEffect: 0 }, vsArtillery: { nonEffect: 0.10, softComponent: 0.20, penetrating: 0.70, areaEffect: 0 } } }
+      { id: "bazooka", label: "M9A1 Bazooka (2 crew)", role: "antiTank", shots: 6, accuracyMultiplier: 0.72, softEffect: bazookaPersonnelDamagePackage, hardEffect: bazookaEquipmentDamagePackage, suppressionPerHit: 0.08, fortificationDamagePerHit: 0.2, hitDistribution: bazookaHitDistributionPackage }
     ]
   },
   lmgTeam: {
@@ -102,7 +125,7 @@ const weaponModels = {
       // 6 LMG teams × 150 = 900, 8 HMG teams × 200 = 1600, total 2,500
       { id: "machine-guns", label: "MGs (6 LMG + 8 HMG teams)", role: "machineGun", shots: 2500, accuracyMultiplier: 0.94, softEffect: { injured: 0.78, wounded: 0.34, severelyWounded: 0.055, killed: 0.045 }, hardEffect: { damaged: 0.0045, disabled: 0.0015, destroyed: 0, armorPenetration: 2, damageType: "bullet" }, suppressionPerHit: 0.05, hitDistribution: { vsInfantry: { nonEffect: 0.01, softComponent: 0, penetrating: 0.99, areaEffect: 0 }, vsArmorButtoned: { nonEffect: 0.935, softComponent: 0.065, penetrating: 0, areaEffect: 0 }, vsArtillery: { nonEffect: 0.075, softComponent: 0.175, penetrating: 0.75, areaEffect: 0 } } },
       // 6 bazooka teams × 6 = 36
-      { id: "bazooka-teams", label: "Bazooka Teams (6 teams × 2 men)", role: "antiTank", shots: 36, accuracyMultiplier: 0.72, softEffect: { injured: 0.2, wounded: 0.08, severelyWounded: 0.02, killed: 0.02, casualtyRoundingThreshold: 0.15, minimumCasualtiesPerHit: 1 }, hardEffect: { damaged: 2.4, disabled: 0.9, destroyed: 0.25, armorPenetration: 12, damageType: "shapedCharge" }, suppressionPerHit: 0.08, fortificationDamagePerHit: 0.2, hitDistribution: { vsInfantry: { nonEffect: 0.20, softComponent: 0.30, penetrating: 0.50, areaEffect: 0 }, vsArmorButtoned: { nonEffect: 0.15, softComponent: 0.25, penetrating: 0.60, areaEffect: 0 }, vsArtillery: { nonEffect: 0.10, softComponent: 0.20, penetrating: 0.70, areaEffect: 0 } } },
+      { id: "bazooka-teams", label: "Bazooka Teams (6 teams × 2 men)", role: "antiTank", shots: 36, accuracyMultiplier: 0.72, softEffect: bazookaPersonnelDamagePackage, hardEffect: bazookaEquipmentDamagePackage, suppressionPerHit: 0.08, fortificationDamagePerHit: 0.2, hitDistribution: bazookaHitDistributionPackage },
       // 6 mortar81 teams × 8 = 48
       { id: "mortar-81s", label: "81mm Mortars (6 tubes)", role: "indirectHe", shots: 48, accuracyMultiplier: 0.75, softEffect: { injured: 3.5, wounded: 2.5, severelyWounded: 0.6, killed: 0.7, maxKilledPerHit: 12, maxCasualtiesPerHit: 16, blastMultiplier: 0.95, casualtyRoundingThreshold: 0.25, fatalityRoundingThreshold: 0.3 }, hardEffect: { damaged: 0.12, disabled: 0.04, destroyed: 0.01, armorPenetration: 5, damageType: "explosive" }, suppressionPerHit: 1.2, fortificationDamagePerHit: 0.8, hitDistribution: { vsInfantry: { nonEffect: 0, softComponent: 0, penetrating: 0, areaEffect: 1.0 }, vsArmorButtoned: { nonEffect: 0.45, softComponent: 0.35, penetrating: 0.20, areaEffect: 0 }, vsArtillery: { nonEffect: 0.15, softComponent: 0.30, penetrating: 0.55, areaEffect: 0 } } }
     ]
@@ -118,7 +141,7 @@ const weaponModels = {
       // 4 LMG × 150 + 16 HMG × 200 = 600 + 3,200 = 3,800
       { id: "at-battalion-mgs", label: "MGs (4 LMG + 16 HMG teams)", role: "machineGun", shots: 3800, accuracyMultiplier: 0.94, softEffect: { injured: 0.78, wounded: 0.34, severelyWounded: 0.055, killed: 0.045 }, hardEffect: { damaged: 0.0045, disabled: 0.0015, destroyed: 0, armorPenetration: 2, damageType: "bullet" }, suppressionPerHit: 0.05, hitDistribution: { vsInfantry: { nonEffect: 0.01, softComponent: 0, penetrating: 0.99, areaEffect: 0 }, vsArmorButtoned: { nonEffect: 0.935, softComponent: 0.065, penetrating: 0, areaEffect: 0 }, vsArtillery: { nonEffect: 0.075, softComponent: 0.175, penetrating: 0.75, areaEffect: 0 } } },
       // 18 bazooka teams × 6 = 108 (6 in rifle companies + 12 additional)
-      { id: "at-battalion-bazookas", label: "Bazooka Teams (18 teams)", role: "antiTank", shots: 108, accuracyMultiplier: 0.72, softEffect: { injured: 0.2, wounded: 0.08, severelyWounded: 0.02, killed: 0.02 }, hardEffect: { damaged: 2.4, disabled: 0.9, destroyed: 0.25, armorPenetration: 12, damageType: "shapedCharge" }, suppressionPerHit: 0.08, fortificationDamagePerHit: 0.2, hitDistribution: { vsInfantry: { nonEffect: 0.20, softComponent: 0.30, penetrating: 0.50, areaEffect: 0 }, vsArmorButtoned: { nonEffect: 0.15, softComponent: 0.25, penetrating: 0.60, areaEffect: 0 }, vsArtillery: { nonEffect: 0.10, softComponent: 0.20, penetrating: 0.70, areaEffect: 0 } } },
+      { id: "at-battalion-bazookas", label: "Bazooka Teams (18 teams)", role: "antiTank", shots: 108, accuracyMultiplier: 0.72, softEffect: bazookaPersonnelDamagePackage, hardEffect: bazookaEquipmentDamagePackage, suppressionPerHit: 0.08, fortificationDamagePerHit: 0.2, hitDistribution: bazookaHitDistributionPackage },
       // 12 mortar81 teams × 8 = 96 (6 per heavy weapons company × 2)
       { id: "at-battalion-mortars", label: "81mm Mortars (12 tubes)", role: "indirectHe", shots: 96, accuracyMultiplier: 0.75, softEffect: { injured: 3.5, wounded: 2.5, severelyWounded: 0.6, killed: 0.7, maxKilledPerHit: 12, maxCasualtiesPerHit: 16, blastMultiplier: 0.95, casualtyRoundingThreshold: 0.25, fatalityRoundingThreshold: 0.3 }, hardEffect: { damaged: 0.12, disabled: 0.04, destroyed: 0.01, armorPenetration: 5, damageType: "explosive" }, suppressionPerHit: 1.2, fortificationDamagePerHit: 0.8, hitDistribution: { vsInfantry: { nonEffect: 0, softComponent: 0, penetrating: 0, areaEffect: 1.0 }, vsArmorButtoned: { nonEffect: 0.45, softComponent: 0.35, penetrating: 0.20, areaEffect: 0 }, vsArtillery: { nonEffect: 0.15, softComponent: 0.30, penetrating: 0.55, areaEffect: 0 } } }
     ]

@@ -45,10 +45,17 @@ nul
 
 # Airshow test results
 airshow-*.txt
-test-results/airshow-*/
+test-results/
 diagnostics/
-tests/
 **/animation-*.txt
+
+# Test outputs (keep test source files accessible)
+tests/reports/
+tests/screenshots/
+tests/*.png
+tests/*.jpg
+tests/*.log
+tests/*.html
 
 # Temporary review assets
 tmp/
