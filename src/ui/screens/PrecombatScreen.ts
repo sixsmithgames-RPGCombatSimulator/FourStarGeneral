@@ -164,7 +164,6 @@ export class PrecombatScreen {
   private readonly allocationCounts = new Map<string, number>();
   private allocationBudget = 10_000;
   private allocationDirty = false;
-  private readonly predeployedCounts = new Map<string, number>();
   private readonly predeployedRoster = new Map<string, { label: string; scenarioType: string; count: number }>();
   private readonly unlockState = ensureUnlockState();
   private miniMapRenderFrame: number | null = null;
@@ -570,9 +569,7 @@ export class PrecombatScreen {
     const deploymentState = ensureDeploymentState();
     const entries: DeploymentPoolEntry[] = [];
     for (const [key, quantity] of this.allocationCounts.entries()) {
-      const baseline = this.predeployedCounts.get(key) ?? 0;
-      const requisitionQuantity = quantity - baseline;
-      if (requisitionQuantity <= 0) {
+      if (quantity <= 0) {
         continue;
       }
       const option = getAllocationOption(key);
@@ -592,7 +589,7 @@ export class PrecombatScreen {
       entries.push({
         key,
         label: option.label,
-        remaining: requisitionQuantity,
+        remaining: quantity,
         sprite: option.spriteUrl
       });
     }
@@ -614,9 +611,7 @@ export class PrecombatScreen {
     const allocationSnapshots: Array<PrecombatAllocationSummary["allocations"][number]> = [];
 
     for (const [key, quantity] of this.allocationCounts.entries()) {
-      const baseline = this.predeployedCounts.get(key) ?? 0;
-      const requisitionQuantity = quantity - baseline;
-      if (requisitionQuantity <= 0) {
+      if (quantity <= 0) {
         continue;
       }
 
@@ -625,21 +620,21 @@ export class PrecombatScreen {
         throw new Error(`Allocation option missing during summary build: ${key}`);
       }
 
-      totalSpend += option.costPerUnit * requisitionQuantity;
+      totalSpend += option.costPerUnit * quantity;
       allocationSnapshots.push({
         key,
         label: option.label,
-        quantity: requisitionQuantity,
+        quantity,
         costPerUnit: option.costPerUnit,
         category: option.category
       });
 
       const depotPayload = option.depotPayload;
       if (depotPayload) {
-        depotPackage.ammo += (depotPayload.ammo ?? 0) * requisitionQuantity;
-        depotPackage.fuel += (depotPayload.fuel ?? 0) * requisitionQuantity;
-        depotPackage.rations += (depotPayload.rations ?? 0) * requisitionQuantity;
-        depotPackage.parts += (depotPayload.parts ?? 0) * requisitionQuantity;
+        depotPackage.ammo += (depotPayload.ammo ?? 0) * quantity;
+        depotPackage.fuel += (depotPayload.fuel ?? 0) * quantity;
+        depotPackage.rations += (depotPayload.rations ?? 0) * quantity;
+        depotPackage.parts += (depotPayload.parts ?? 0) * quantity;
       }
     }
 
@@ -782,23 +777,17 @@ export class PrecombatScreen {
   }
 
   private renderAllocationItem(option: UnitAllocationOption, quantity: number): string {
-    const lockedBaseline = this.predeployedCounts.get(option.key) ?? 0;
     const missionMinimum = this.getMissionMinimumAllocationCount(option.key);
-    const quantityFloor = Math.max(lockedBaseline, missionMinimum);
     const unavailable = !this.isAllocationImplemented(option);
     const locked = this.unlockState.isUnitLocked(option.key);
-    const decrementDisabled = unavailable || locked || quantity <= quantityFloor;
+    const decrementDisabled = unavailable || locked || quantity <= missionMinimum;
     const incrementDisabled = unavailable || locked || quantity >= option.maxQuantity;
-    const requisitionQuantity = Math.max(0, quantity - lockedBaseline);
-    const totalCost = option.costPerUnit * requisitionQuantity;
+    const totalCost = option.costPerUnit * quantity;
     const composition = Object.prototype.hasOwnProperty.call(unitComposition, option.key)
       ? unitComposition[option.key as keyof typeof unitComposition]
       : null;
     const compositionDisplay = buildAllocationCompositionDisplay(composition, { maxDetails: 5 });
-    const baselineBadge = lockedBaseline > 0
-      ? `<span class="allocation-lock" aria-label="Scenario provides ${lockedBaseline} ${option.label} unit${lockedBaseline === 1 ? "" : "s"}.">Scenario asset ×${lockedBaseline}</span>`
-      : "";
-    const missionMinimumBadge = missionMinimum > lockedBaseline
+    const missionMinimumBadge = missionMinimum > 0
       ? `<span class="allocation-lock" aria-label="${option.label} has a mission minimum of ${missionMinimum}.">Mission minimum ×${missionMinimum}</span>`
       : "";
     const availabilityBadge = unavailable
@@ -833,7 +822,7 @@ export class PrecombatScreen {
               ${incrementDisabled ? "disabled" : ""}
             >+</button>
           </div>`;
-    const statusBadges = [baselineBadge, missionMinimumBadge, availabilityBadge, unlockBadge]
+    const statusBadges = [missionMinimumBadge, availabilityBadge, unlockBadge]
       .filter((badge) => badge.length > 0)
       .join("");
     return `
@@ -994,8 +983,7 @@ export class PrecombatScreen {
   }
 
   private getAllocationQuantityFloor(optionKey: string): number {
-    const baseline = this.predeployedCounts.get(optionKey) ?? 0;
-    return Math.max(baseline, this.getMissionMinimumAllocationCount(optionKey));
+    return this.getMissionMinimumAllocationCount(optionKey);
   }
 
   private restoreAllocationCountsToFloors(): void {
@@ -1115,8 +1103,7 @@ export class PrecombatScreen {
     }
 
     const current = this.allocationCounts.get(optionKey) ?? 0;
-    const baseline = this.predeployedCounts.get(optionKey) ?? 0;
-    const quantityFloor = Math.max(baseline, this.getMissionMinimumAllocationCount(optionKey));
+    const quantityFloor = this.getMissionMinimumAllocationCount(optionKey);
     const next = Math.max(quantityFloor, Math.min(option.maxQuantity, current + delta));
     if (next === current) {
       return;
@@ -1189,17 +1176,13 @@ export class PrecombatScreen {
       const unitOptions = ALLOCATION_BY_CATEGORY.get("units") ?? [];
       let requestedUnits = 0;
       unitOptions.forEach((option) => {
-        const qty = this.allocationCounts.get(option.key) ?? 0;
-        const baseline = this.predeployedCounts.get(option.key) ?? 0;
-        requestedUnits += Math.max(0, qty - baseline);
+        requestedUnits += this.allocationCounts.get(option.key) ?? 0;
       });
 
       const airKeys = ["scoutPlaneWing", "fighter", "interceptorWing", "groundAttackWing", "bomber", "transportWing"];
       let requestedAir = 0;
       airKeys.forEach((key) => {
-        const qty = this.allocationCounts.get(key) ?? 0;
-        const baseline = this.predeployedCounts.get(key) ?? 0;
-        requestedAir += Math.max(0, qty - baseline);
+        requestedAir += this.allocationCounts.get(key) ?? 0;
       });
 
       const requestedAmmo = this.allocationCounts.get("ammo") ?? 0;
@@ -1234,8 +1217,7 @@ export class PrecombatScreen {
     }
 
     const current = this.allocationCounts.get(convoyOption.key) ?? 0;
-    const baseline = this.predeployedCounts.get(convoyOption.key) ?? 0;
-    const recommended = Math.max(baseline, this.getRecommendedSupplyConvoyCount(convoyOption.maxQuantity));
+    const recommended = this.getRecommendedSupplyConvoyCount(convoyOption.maxQuantity);
     if (current < recommended) {
       this.allocationCounts.set(convoyOption.key, recommended);
     }
@@ -1250,7 +1232,7 @@ export class PrecombatScreen {
       if (option.key === "supplyConvoy" || !this.isUnitAllowedByScenario(option.key)) {
         return;
       }
-      plannedFrontlineUnits += this.predeployedCounts.get(option.key) ?? 0;
+      plannedFrontlineUnits += this.allocationCounts.get(option.key) ?? 0;
     });
 
     const recommended = plannedFrontlineUnits > 0
@@ -1306,19 +1288,16 @@ export class PrecombatScreen {
         console.warn("Missing allocation option during budget update", key);
         continue;
       }
-      const baseline = this.predeployedCounts.get(key) ?? 0;
-      const requisitionQty = Math.max(0, quantity - baseline);
-      spent += option.costPerUnit * requisitionQty;
+      spent += option.costPerUnit * quantity;
     }
     return spent;
   }
 
   /**
-   * Aggregates scenario-provided player units so the precombat panel can surface locked allocations
-   * and convey that these troops are already in theater at mission start.
+   * Aggregates scenario-provided player and allied units into a read-only roster for display
+   * in the objectives panel. These units are NOT surfaced as interactive requisition tiles.
    */
   private seedPredeployedAllocations(): void {
-    this.predeployedCounts.clear();
     this.predeployedRoster.clear();
 
     const rawUnits = ((this.scenarioSource.sides as { Player?: { units?: ScenarioUnit[] } } | undefined)?.Player?.units ?? []) as unknown as Array<
@@ -1329,22 +1308,20 @@ export class PrecombatScreen {
 
     const deploymentState = ensureDeploymentState();
 
+    // Predeployed Player units are placed by the engine via scenario data. They are tracked here
+    // for read-only display only — they must NOT appear as interactive requisition tiles.
     playerUnits.forEach((unit) => {
       const scenarioType = unit.type as string;
       const allocationKey = deploymentState.getUnitKeyForScenarioType(scenarioType) ?? scenarioType;
       const option = getAllocationOption(allocationKey);
       const label = option?.label ?? this.formatScenarioLabel(scenarioType);
-
-      const nextCount = (this.predeployedCounts.get(allocationKey) ?? 0) + 1;
-      this.predeployedCounts.set(allocationKey, nextCount);
-      this.predeployedRoster.set(`Player:${allocationKey}`, {
+      const rosterKey = `Player:${allocationKey}`;
+      const existing = this.predeployedRoster.get(rosterKey);
+      this.predeployedRoster.set(rosterKey, {
         label,
         scenarioType,
-        count: nextCount
+        count: (existing?.count ?? 0) + 1
       });
-
-      const current = this.allocationCounts.get(allocationKey) ?? 0;
-      this.allocationCounts.set(allocationKey, Math.max(current, nextCount));
     });
 
     alliedUnits.forEach((unit) => {
@@ -1401,18 +1378,46 @@ export class PrecombatScreen {
    * remains the single source of mission context without a separate panel.
    */
   private appendAlliedForcesObjective(): void {
+    const playerEntries = Array.from(this.predeployedRoster.entries())
+      .filter(([key]) => key.startsWith("Player:"))
+      .map(([, entry]) => entry);
     const alliedEntries = Array.from(this.predeployedRoster.entries())
       .filter(([key]) => key.startsWith("Ally:"))
       .map(([, entry]) => entry);
-    if (alliedEntries.length === 0) {
+    const allEntries = [...playerEntries, ...alliedEntries];
+    if (allEntries.length === 0) {
       return;
     }
-    const names = alliedEntries.map((e) => e.label.replace(/^Allied\s+/i, "")).join(", ");
-    const objectiveText = `Make contact with and take command of allied forces in theater: ${names}.`;
+
+    // Build a compact RP-value summary so the player understands the balance context without
+    // confusing predeployed forces for requisitioned ones.
+    let totalRpValue = 0;
+    const unitDescriptions: string[] = [];
+    allEntries.forEach((entry) => {
+      const option = getAllocationOption(this.resolveAllocationKeyFromLabel(entry.scenarioType));
+      const rpPerUnit = option?.costPerUnit ?? 0;
+      totalRpValue += rpPerUnit * entry.count;
+      const displayLabel = entry.label.replace(/^Allied\s+/i, "");
+      unitDescriptions.push(entry.count > 1 ? `${entry.count}× ${displayLabel}` : displayLabel);
+    });
+
+    const rpNote = totalRpValue > 0 ? ` (RP value: ${totalRpValue.toLocaleString()})` : "";
+    const alliedPrefix = alliedEntries.length > 0 && playerEntries.length === 0
+      ? "Make contact with and take command of allied forces in theater"
+      : "Forces already in theater";
+    const objectiveText = `${alliedPrefix}: ${unitDescriptions.join(", ")}${rpNote}.`;
     const li = document.createElement("li");
     li.className = "mission-order-item mission-order-item--secondary";
     li.innerHTML = `<strong>Secondary:</strong> <span class="mission-order-copy">${objectiveText}</span>`;
     this.objectiveListElement.appendChild(li);
+  }
+
+  /**
+   * Resolves an allocation key from a scenario unit type string for RP cost lookups.
+   */
+  private resolveAllocationKeyFromLabel(scenarioType: string): string {
+    const deploymentState = ensureDeploymentState();
+    return deploymentState.getUnitKeyForScenarioType(scenarioType) ?? scenarioType;
   }
 
   /**
