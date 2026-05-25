@@ -10150,12 +10150,15 @@ private automateSupplyConvoys(
       return null;
     }
     const definition = this.getUnitDefinition(unit.type);
-    const moveType = definition.moveType ?? "track";
+    // Towed units are transported by trucks, so use truck moveType for terrain costs
+    const baseMoveType = definition.moveType ?? "track";
+    const moveType = this.resolveTowState(unit) === "towed" ? "truck" : baseMoveType;
     const flags = this.getUnitActionFlags("Player", unit);
 
     const adjustedMax = this.resolveBaseMovementAllowance(definition, flags, unit);
 
-    const remaining = Math.max(0, adjustedMax - flags.movementPointsUsed);
+    // Towed units can always move at least 1 hex even after hookup cost
+    const remaining = Math.max(this.resolveTowState(unit) === "towed" ? 1 : 0, adjustedMax - flags.movementPointsUsed);
     return {
       unit,
       definition,
