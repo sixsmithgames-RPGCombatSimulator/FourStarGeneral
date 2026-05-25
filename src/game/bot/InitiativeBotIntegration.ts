@@ -8,6 +8,10 @@
  */
 
 import { planHeuristicBotTurn, type BotPlannerInput, type PlannedBotAction, type PlannerUnitSnapshot } from './BotPlanner';
+import { AdvancedBotPlanner, type AdvancedBotAction, planAdvancedBotTurn } from './AdvancedBotPlanner';
+import { TacticalAnalysisEngine } from './TacticalAnalysisEngine';
+import { ThreatAssessmentModule } from './ThreatAssessmentModule';
+import { TerrainAnalysisModule } from './TerrainAnalysisModule';
 import type { UnitActivation } from '../../core/InitiativeQueue';
 import type { ScenarioUnit } from '../../core/types';
 import type { Axial } from '../../core/Hex';
@@ -33,9 +37,27 @@ export interface BotDecisionResult {
 export class InitiativeBotIntegration {
   private gameEngine: any; // GameEngine instance
   private lastDecisionTime: number = 0;
+  private tacticalEngine: TacticalAnalysisEngine;
+  private advancedPlanner: AdvancedBotPlanner;
+  private threatAssessment: ThreatAssessmentModule;
+  private terrainAnalysis: TerrainAnalysisModule;
+  private useAdvancedAI: boolean;
 
-  constructor(gameEngine: any) {
+  constructor(gameEngine: any, useAdvancedAI: boolean = true) {
     this.gameEngine = gameEngine;
+    this.tacticalEngine = new TacticalAnalysisEngine();
+    this.advancedPlanner = new AdvancedBotPlanner({
+      maxLookaheadDepth: 3,
+      decisionTimeLimit: 800,
+      enableTacticalAnalysis: true,
+      enableSmokeTactics: true,
+      enableTerrainAnalysis: true,
+      aggressiveness: 60,
+      riskTolerance: 40
+    });
+    this.threatAssessment = new ThreatAssessmentModule();
+    this.terrainAnalysis = new TerrainAnalysisModule();
+    this.useAdvancedAI = useAdvancedAI;
   }
 
   /**
@@ -51,11 +73,35 @@ export class InitiativeBotIntegration {
       // Convert game state to BotPlanner input format
       const plannerInput = this.createPlannerInput(activation);
       
-      // Get bot decision from existing planner
-      const botActions = planHeuristicBotTurn(plannerInput);
+      let currentUnitAction: PlannedBotAction | null = null;
       
-      // Find the action for the current unit
-      const currentUnitAction = botActions.find(action => action.unitKey === activation.unitId);
+      if (this.useAdvancedAI) {
+        // Use advanced AI with tactical lookahead
+        try {
+          const advancedActions = this.advancedPlanner.planAdvancedBotTurn(plannerInput);
+          const advancedAction = advancedActions.find(action => action.unitKey === activation.unitId);
+          
+          if (advancedAction) {
+            console.log(`Advanced AI selected action for ${activation.unitId}:`, {
+              score: advancedAction.tacticalAnalysis.outcome.total,
+              confidence: advancedAction.confidence,
+              lookaheadDepth: advancedAction.lookaheadDepth,
+              rationale: advancedAction.rationale
+            });
+            
+            currentUnitAction = this.convertAdvancedAction(advancedAction);
+          }
+        } catch (advancedError) {
+          console.warn('Advanced AI failed, falling back to heuristic:', advancedError);
+          // Fall back to heuristic planning
+        }
+      }
+      
+      // Fallback to heuristic planning if advanced AI didn't find an action
+      if (!currentUnitAction) {
+        const botActions = planHeuristicBotTurn(plannerInput);
+        currentUnitAction = botActions.find(action => action.unitKey === activation.unitId) || null;
+      }
       
       const executionTime = Date.now() - startTime;
       this.lastDecisionTime = executionTime;
@@ -285,6 +331,24 @@ export class InitiativeBotIntegration {
       }
       
       return this.gameEngine.estimateAttack(attackerUnit, defenderUnit, attackerHex, defenderHex);
+    };
+  }
+
+  /**
+   * Convert AdvancedBotAction to PlannedBotAction
+   */
+  private convertAdvancedAction(advancedAction: AdvancedBotAction): PlannedBotAction {
+    return {
+      unit: advancedAction.unit,
+      unitKey: advancedAction.unitKey,
+      origin: advancedAction.origin,
+      destination: advancedAction.destination,
+      path: advancedAction.path,
+      attackTarget: advancedAction.attackTarget,
+      expectedDamage: advancedAction.expectedDamage,
+      expectedRetaliation: advancedAction.expectedRetaliation,
+      score: advancedAction.tacticalAnalysis.outcome.total,
+      rationale: `Advanced AI (${advancedAction.confidence}% confidence): ${advancedAction.rationale}`
     };
   }
 

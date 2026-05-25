@@ -30,7 +30,7 @@ export class GameEngineInitiativeMethods {
     this.gameEngine = gameEngine;
     this.integration = new GameEngineInitiativeIntegration(gameEngine);
     this.validator = new InitiativeActionValidator();
-    this.botIntegration = new InitiativeBotIntegration(gameEngine);
+    this.botIntegration = new InitiativeBotIntegration(gameEngine, true); // Enable advanced AI
   }
 
   /**

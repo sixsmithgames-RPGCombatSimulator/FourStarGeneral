@@ -430,6 +430,7 @@ export class HexMapRenderer implements IMapRenderer {
   private readonly moveOptionHighlightKeys = new Set<string>();
   private readonly attackTargetHighlightKeys = new Set<string>();
   private readonly idleUnitHighlightKeys = new Set<string>();
+  private readonly initiativeGroupHighlightKeys = new Set<string>();
   /** Tracks the unit class occupying each hex so effects can vary by attacker/defender type. */
   private readonly hexUnitClassMap: Map<string, UnitClass> = new Map();
   /** Tracks the unit scenario type occupying each hex so visuals can vary beyond the broad UnitClass. */
@@ -4058,6 +4059,44 @@ export class HexMapRenderer implements IMapRenderer {
   clearIdleUnitHighlights(): void {
     this.idleUnitHighlightKeys.forEach((key) => this.toggleIdleUnitHighlight(key, false));
     this.idleUnitHighlightKeys.clear();
+  }
+
+  /**
+   * Applies initiative group highlighting to specified hex keys.
+   * Units in the current initiative group get a distinctive highlight.
+   */
+  setInitiativeGroupHighlights(keys: Iterable<string>): void {
+    const nextKeys = new Set<string>();
+    for (const key of keys) {
+      nextKeys.add(key);
+      if (!this.initiativeGroupHighlightKeys.has(key)) {
+        this.toggleInitiativeGroupHighlight(key, true);
+      }
+    }
+
+    this.initiativeGroupHighlightKeys.forEach((key) => {
+      if (!nextKeys.has(key)) {
+        this.toggleInitiativeGroupHighlight(key, false);
+      }
+    });
+
+    this.initiativeGroupHighlightKeys.clear();
+    nextKeys.forEach((key) => this.initiativeGroupHighlightKeys.add(key));
+  }
+
+  /**
+   * Clears all initiative group highlights.
+   */
+  clearInitiativeGroupHighlights(): void {
+    this.initiativeGroupHighlightKeys.forEach((key) => this.toggleInitiativeGroupHighlight(key, false));
+    this.initiativeGroupHighlightKeys.clear();
+  }
+
+  /**
+   * Toggles initiative group highlight for a specific hex.
+   */
+  private toggleInitiativeGroupHighlight(hexKey: string, enabled: boolean): void {
+    this.toggleHexHighlightClass(hexKey, 'initiative-group-highlight', enabled);
   }
 
   private toggleZoneOutline(hexKey: string, enabled: boolean): void {

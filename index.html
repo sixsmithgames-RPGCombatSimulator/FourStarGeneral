@@ -1278,6 +1278,101 @@
       background: rgba(30, 42, 68, 0.85);
       outline: none;
     }
+
+    /* Initiative turn controls styling to match top bar */
+    .initiative-turn-controls-container {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: nowrap;
+    }
+
+    .initiative-turn-controls-container .compact-button,
+    .initiative-turn-controls-container .primary-button,
+    .initiative-turn-controls-container .secondary-button {
+      padding: 0.5rem 0.85rem;
+      font-size: 0.76rem;
+      font-weight: 600;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(15, 20, 32, 0.6);
+      color: #fff;
+      transition: transform 0.2s ease, border 0.2s ease, background 0.2s ease;
+    }
+
+    .initiative-turn-controls-container .compact-button:hover,
+    .initiative-turn-controls-container .compact-button:focus-visible,
+    .initiative-turn-controls-container .primary-button:hover,
+    .initiative-turn-controls-container .primary-button:focus-visible,
+    .initiative-turn-controls-container .secondary-button:hover,
+    .initiative-turn-controls-container .secondary-button:focus-visible {
+      transform: translateY(-1px);
+      border-color: var(--accent-strong);
+      background: rgba(30, 42, 68, 0.85);
+      outline: none;
+    }
+
+    .initiative-turn-controls-container .initiative-status {
+      padding: 0.4rem 0.6rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--accent-strong);
+      background: rgba(15, 20, 32, 0.4);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      white-space: nowrap;
+    }
+
+    /* Initiative group highlighting */
+    .hex-group.initiative-group-highlight {
+      filter: brightness(1.3) saturate(1.2);
+      transition: filter 0.3s ease;
+    }
+
+    .hex-group.initiative-group-highlight .hex-polygon {
+      stroke: var(--accent-strong);
+      stroke-width: 3px;
+      filter: drop-shadow(0 0 8px rgba(100, 200, 255, 0.6));
+      animation: initiativePulse 2s ease-in-out infinite;
+    }
+
+    @keyframes initiativePulse {
+      0%, 100% { 
+        stroke-opacity: 0.8;
+        filter: drop-shadow(0 0 8px rgba(100, 200, 255, 0.6));
+      }
+      50% { 
+        stroke-opacity: 1;
+        filter: drop-shadow(0 0 12px rgba(100, 200, 255, 0.9));
+      }
+    }
+
+    /* Initiative message styling */
+    .initiative-message {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      text-align: center;
+      line-height: 1.4;
+      max-width: 400px;
+    }
+
+    /* Responsive adjustments for initiative controls */
+    @media (max-width: 768px) {
+      .initiative-turn-controls-container {
+        gap: 0.3rem;
+      }
+      
+      .initiative-turn-controls-container .compact-button,
+      .initiative-turn-controls-container .primary-button,
+      .initiative-turn-controls-container .secondary-button {
+        padding: 0.42rem 0.58rem;
+        font-size: 0.64rem;
+      }
+      
+      .initiative-turn-controls-container .initiative-status {
+        padding: 0.3rem 0.4rem;
+        font-size: 0.62rem;
+      }
+    }
     .primary-button:disabled {
       cursor: not-allowed;
       opacity: 0.55;

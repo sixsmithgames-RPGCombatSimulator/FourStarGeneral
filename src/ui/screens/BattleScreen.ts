@@ -8037,6 +8037,9 @@ export class BattleScreen {
       // Initialize enhanced turn controls UI
       this.initializeInitiativeTurnControls();
       
+      // Initialize initiative group highlighting
+      this.highlightCurrentInitiativeGroup();
+      
       console.log('Initiative system initialized successfully');
       
     } catch (error) {
@@ -8059,9 +8062,15 @@ export class BattleScreen {
         controlsContainer = document.createElement('div');
         controlsContainer.className = 'initiative-turn-controls-container';
         
-        // Insert into the battle UI
-        const battleControls = document.querySelector('.battle-controls') || document.body;
-        battleControls.appendChild(controlsContainer);
+        // Insert into the top bar command group (where sound toggle and end turn button are)
+        const commandGroup = document.querySelector('.battle-map-header__command-group');
+        if (commandGroup) {
+          commandGroup.appendChild(controlsContainer);
+        } else {
+          // Fallback to battle controls if command group not found
+          const battleControls = document.querySelector('.battle-controls') || document.body;
+          battleControls.appendChild(controlsContainer);
+        }
       }
       
       // Initialize enhanced turn controls
@@ -8157,6 +8166,9 @@ export class BattleScreen {
     try {
       // Process next activation
       this.initiativeMethods.processNextInitiativeActivation();
+      
+      // Update initiative group highlighting
+      this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to process next activation:', error);
     }
@@ -8191,9 +8203,166 @@ export class BattleScreen {
     try {
       // Complete the unit activation
       this.initiativeMethods.completeUnitActivation(unitId);
+      
+      // Update initiative group highlighting
+      this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to complete activation:', error);
     }
+  }
+
+  /**
+   * Highlight units in the current initiative group
+   */
+  private highlightCurrentInitiativeGroup(): void {
+    if (!this.initiativeMethods) {
+      return;
+    }
+
+    try {
+      // Get current initiative group
+      const currentGroup = this.initiativeMethods.getCurrentInitiativeGroup();
+      if (!currentGroup) {
+        this.clearInitiativeGroupHighlights();
+        return;
+      }
+
+      // Get unit IDs in current group
+      const unitIds = currentGroup.units.map(unit => unit.unitId);
+      
+      // Convert unit IDs to hex positions
+      const engine = this.battleState.ensureGameEngine();
+      const unitHexes: string[] = [];
+      
+      for (const unitId of unitIds) {
+        const unit = engine.getUnitById(unitId);
+        if (unit && unit.hex) {
+          const hexKey = CoordinateSystem.axialToKey(unit.hex);
+          unitHexes.push(hexKey);
+        }
+      }
+
+      // Apply highlights to the map renderer
+      this.hexMapRenderer?.setInitiativeGroupHighlights(unitHexes);
+      
+    } catch (error) {
+      console.error('Failed to highlight initiative group:', error);
+    }
+  }
+
+  /**
+   * Clear initiative group highlights
+   */
+  private clearInitiativeGroupHighlights(): void {
+    this.hexMapRenderer?.clearInitiativeGroupHighlights();
+  }
+
+  /**
+   * Check if a unit is in the current initiative group
+   */
+  private isUnitInCurrentInitiativeGroup(unitId: string): boolean {
+    if (!this.initiativeMethods) {
+      return true; // Fallback: allow all units if initiative system not available
+    }
+
+    try {
+      const currentGroup = this.initiativeMethods.getCurrentInitiativeGroup();
+      if (!currentGroup) {
+        return true; // Fallback: allow all units if no current group
+      }
+
+      return currentGroup.units.some(unit => unit.unitId === unitId);
+    } catch (error) {
+      console.error('Failed to check unit initiative group:', error);
+      return true; // Fallback: allow unit on error
+    }
+  }
+
+  /**
+   * Show elegant message when attempting to move unit not in current initiative group
+   */
+  private showInitiativeGroupMessage(unitId: string): void {
+    if (!this.initiativeMethods) {
+      return;
+    }
+
+    try {
+      const unit = this.battleState.ensureGameEngine().getUnitById(unitId);
+      if (!unit) {
+        return;
+      }
+
+      const unitLabel = this.resolveUnitLabelForHex(CoordinateSystem.axialToKey(unit.hex));
+      const currentGroup = this.initiativeMethods.getCurrentInitiativeGroup();
+      
+      if (currentGroup) {
+        const groupName = this.getInitiativeGroupName(currentGroup);
+        const message = `${unitLabel} belongs to ${groupName}. Wait for this initiative group to be active.`;
+        this.showElegantInitiativeMessage(message);
+      }
+    } catch (error) {
+      console.error('Failed to show initiative group message:', error);
+    }
+  }
+
+  /**
+   * Get a user-friendly name for the initiative group
+   */
+  private getInitiativeGroupName(group: any): string {
+    if (group.groupType === 'player') {
+      return `Player Initiative Group ${group.groupIndex + 1}`;
+    } else if (group.groupType === 'bot') {
+      return `Bot Initiative Group ${group.groupIndex + 1}`;
+    }
+    return `Initiative Group ${group.groupIndex + 1}`;
+  }
+
+  /**
+   * Show an elegant initiative message
+   */
+  private showElegantInitiativeMessage(message: string): void {
+    // Create a temporary message element
+    const messageElement = document.createElement('div');
+    messageElement.className = 'initiative-message';
+    messageElement.textContent = message;
+    messageElement.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(15, 20, 32, 0.95);
+      color: #fff;
+      padding: 1rem 1.5rem;
+      border-radius: 12px;
+      border: 2px solid var(--accent-strong);
+      font-size: 0.9rem;
+      font-weight: 600;
+      z-index: 10000;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      animation: fadeInOut 3s ease-in-out;
+      pointer-events: none;
+    `;
+
+    // Add fade animation
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes fadeInOut {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+        20% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+      }
+    `;
+    document.head.appendChild(style);
+
+    // Show message
+    document.body.appendChild(messageElement);
+
+    // Remove after animation
+    setTimeout(() => {
+      messageElement.remove();
+      style.remove();
+    }, 3000);
   }
 
   /**
@@ -8501,6 +8670,21 @@ export class BattleScreen {
       if (transferResult) {
         return;
       }
+      
+      // Check initiative group validation if system is enabled
+      if (this.isInitiativeSystemEnabled) {
+        const parsed = CoordinateSystem.parseHexKey(key);
+        if (parsed) {
+          const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+          const unit = engine.playerUnits.find((u) => `${u.hex.q},${u.hex.r}` === `${axial.q},${axial.r}`);
+          
+          if (unit && !this.isUnitInCurrentInitiativeGroup(unit.key)) {
+            this.showInitiativeGroupMessage(unit.key);
+            return; // Don't proceed with the action
+          }
+        }
+      }
+      
       this.onPlayerTurnMapClick(key);
       return;
     }
