@@ -273,70 +273,28 @@ export class EnhancedInitiativeTurnControls {
   private initializeControls(): void {
     this.container.className = 'enhanced-initiative-turn-controls';
     this.container.innerHTML = `
-      <div class="turn-controls-header">
-        <h4 class="turn-phase-title">Deployment</h4>
-        <div class="turn-status-message" style="display: none;"></div>
-      </div>
-      
-      ${this.config.showGroupInfo ? `
-        <div class="current-group-info" style="display: none;">
-          <div class="group-label">Current Initiative:</div>
-          <div class="group-initiative">-</div>
-          <div class="group-progress">
-            <div class="progress-bar">
-              <div class="progress-fill"></div>
-            </div>
-            <div class="progress-text">0/0</div>
-          </div>
-        </div>
-      ` : ''}
-      
-      ${this.config.showCurrentUnitInfo ? `
-        <div class="current-unit-info" style="display: none;">
-          <div class="current-unit-label">Current Unit:</div>
-          <div class="current-unit-name">-</div>
-          <div class="current-unit-owner">-</div>
-          <div class="unit-actions-status">
-            <div class="action-status move-status">🚶 Not moved</div>
-            <div class="action-status attack-status">⚔️ Not attacked</div>
-            <div class="action-status ability-status">✨ No abilities used</div>
-          </div>
-        </div>
-      ` : ''}
-
       <div class="turn-controls-buttons">
         ${this.config.showProceedButton ? `
-          <button class="turn-btn proceed-btn" disabled title="Proceed to next unit (Space)">
-            <span class="btn-icon">▶</span>
-            <span class="btn-text">Proceed</span>
+          <button class="compact-button proceed-btn" disabled title="Proceed to next unit (Space)">
+            Proceed
           </button>
         ` : ''}
         
         ${this.config.showSkipTurn ? `
-          <button class="turn-btn skip-group-btn" disabled title="Skip remaining units in group (Shift+Space)">
-            <span class="btn-icon">⏭</span>
-            <span class="btn-text">Skip Group</span>
+          <button class="compact-button skip-group-btn" disabled title="Skip remaining units in group (Shift+Space)">
+            Skip Group
           </button>
         ` : ''}
+        
+        <button class="compact-button next-activation-btn" disabled title="Next activation (Tab)">
+          Next Unit
+        </button>
         
         ${this.config.showEndTurn ? `
-          <button class="turn-btn end-turn-btn" disabled title="End turn (Enter)">
-            <span class="btn-icon">✓</span>
-            <span class="btn-text">End Turn</span>
+          <button class="secondary-button end-turn-btn" disabled title="End current turn (Enter)">
+            End Turn
           </button>
         ` : ''}
-        
-        <button class="turn-btn next-activation-btn" disabled title="Next activation (Tab)">
-          <span class="btn-icon">⏩</span>
-          <span class="btn-text">Next</span>
-        </button>
-      </div>
-
-      <div class="turn-controls-footer">
-        <div class="turn-indicator">
-          <span class="indicator-dot indicator-inactive"></span>
-          <span class="indicator-text">Ready</span>
-        </div>
       </div>
     `;
   }

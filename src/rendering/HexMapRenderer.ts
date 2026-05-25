@@ -4096,7 +4096,7 @@ export class HexMapRenderer implements IMapRenderer {
    * Toggles initiative group highlight for a specific hex.
    */
   private toggleInitiativeGroupHighlight(hexKey: string, enabled: boolean): void {
-    this.toggleHexHighlightClass(hexKey, 'initiative-group-highlight', enabled);
+    this.toggleHexHighlightClass(hexKey, IDLE_UNIT_HIGHLIGHT_CLASS, enabled);
   }
 
   private toggleZoneOutline(hexKey: string, enabled: boolean): void {

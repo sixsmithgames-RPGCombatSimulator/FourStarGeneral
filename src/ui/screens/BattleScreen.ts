@@ -8034,11 +8034,13 @@ export class BattleScreen {
       this.initiativeMethods = new GameEngineInitiativeMethods(engine);
       this.isInitiativeSystemEnabled = true;
       
-      // Initialize enhanced turn controls UI
-      this.initializeInitiativeTurnControls();
-      
       // Initialize initiative group highlighting
       this.highlightCurrentInitiativeGroup();
+      
+      // Initialize enhanced turn controls UI after a short delay to ensure DOM is ready
+      setTimeout(() => {
+        this.initializeInitiativeTurnControls();
+      }, 100);
       
       console.log('Initiative system initialized successfully');
       
@@ -8055,27 +8057,32 @@ export class BattleScreen {
    */
   private initializeInitiativeTurnControls(): void {
     try {
-      // Find or create the turn controls container
-      let controlsContainer = document.querySelector('.initiative-turn-controls-container');
+      // Remove any existing initiative controls from deployment panel or other locations
+      const existingControls = document.querySelectorAll('.enhanced-initiative-turn-controls, .initiative-turn-controls-container');
+      existingControls.forEach(control => {
+        console.log('Removing existing initiative controls from:', control.parentElement);
+        control.remove();
+      });
       
-      if (!controlsContainer) {
-        controlsContainer = document.createElement('div');
-        controlsContainer.className = 'initiative-turn-controls-container';
-        
-        // Insert into the top bar command group (where sound toggle and end turn button are)
-        const commandGroup = document.querySelector('.battle-map-header__command-group');
-        if (commandGroup) {
-          commandGroup.appendChild(controlsContainer);
-        } else {
-          // Fallback to battle controls if command group not found
-          const battleControls = document.querySelector('.battle-controls') || document.body;
-          battleControls.appendChild(controlsContainer);
-        }
+      // Create a container for the enhanced turn controls
+      const controlsContainer = document.createElement('div');
+      controlsContainer.className = 'initiative-turn-controls-container';
+      
+      // Insert into the top bar command group (where sound toggle and end turn button are)
+      const commandGroup = document.querySelector('.battle-map-header__command-group');
+      if (commandGroup) {
+        commandGroup.appendChild(controlsContainer);
+        console.log('Initiative controls container added to top bar command group');
+      } else {
+        // Fallback to battle controls if command group not found
+        const battleControls = document.querySelector('.battle-controls') || document.body;
+        battleControls.appendChild(controlsContainer);
+        console.log('Initiative controls container added to fallback location');
       }
       
       // Initialize enhanced turn controls
       this.initiativeTurnControls = new EnhancedInitiativeTurnControls(
-        controlsContainer as HTMLElement,
+        controlsContainer,
         {
           onSkipTurn: () => this.handleSkipTurn(),
           onEndTurn: () => this.handleInitiativeEndTurn(),
@@ -8094,7 +8101,7 @@ export class BattleScreen {
         }
       );
       
-      console.log('Enhanced turn controls initialized');
+      console.log('Enhanced turn controls initialized in top bar');
       
     } catch (error) {
       console.error('Failed to initialize enhanced turn controls:', error);
@@ -8130,8 +8137,29 @@ export class BattleScreen {
     }
 
     try {
+      // Get current initiative queue to determine which group to put on sentry
+      const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
+      if (currentQueue && currentQueue.activations && currentQueue.activations.length > 0) {
+        const currentActivation = currentQueue.activations[currentQueue.currentIndex];
+        if (currentActivation) {
+          // Put all units of the current faction on sentry mode
+          const engine = this.battleState.ensureGameEngine();
+          const allUnits = currentActivation.ownerId === 'player' ? engine.playerUnits : engine.botUnits;
+          
+          for (const unit of allUnits) {
+            if (!unit.onSentry) {
+              unit.onSentry = true;
+              console.log(`Putting unit ${unit.unitId} on sentry mode (skip group)`);
+            }
+          }
+        }
+      }
+
       // Skip the current group
       this.initiativeMethods.skipCurrentGroup();
+      
+      // Update initiative group highlighting
+      this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to skip group:', error);
     }
@@ -8184,8 +8212,28 @@ export class BattleScreen {
     }
 
     try {
-      // Skip remaining player activations
-      this.initiativeMethods.skipRemainingPlayerActivations();
+      // Get current initiative queue to find the current unit
+      const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
+      if (currentQueue && currentQueue.activations && currentQueue.activations.length > 0) {
+        const currentActivation = currentQueue.activations[currentQueue.currentIndex];
+        if (currentActivation) {
+          // Put the current unit on sentry mode
+          const engine = this.battleState.ensureGameEngine();
+          const allUnits = currentActivation.ownerId === 'player' ? engine.playerUnits : engine.botUnits;
+          const currentUnit = allUnits.find(u => u.unitId === currentActivation.unitId);
+          
+          if (currentUnit && !currentUnit.onSentry) {
+            currentUnit.onSentry = true;
+            console.log(`Putting unit ${currentUnit.unitId} on sentry mode (skip unit)`);
+          }
+        }
+      }
+
+      // Move to next activation instead of skipping all remaining
+      this.initiativeMethods.processNextInitiativeActivation();
+      
+      // Update initiative group highlighting
+      this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to skip turn:', error);
     }
@@ -8227,26 +8275,30 @@ export class BattleScreen {
         return;
       }
 
-      // Get current activation units
+      // Get current activation to determine which group we're in
       const currentActivation = currentQueue.activations[currentQueue.currentIndex];
       if (!currentActivation) {
         this.clearInitiativeGroupHighlights();
         return;
       }
 
-      // Convert unit ID to hex position
+      // Find all units in the same initiative group (same ownerId)
       const engine = this.battleState.ensureGameEngine();
       const unitHexes: string[] = [];
       
-      // Find the unit using public methods
+      // Get all units for the current faction
       const allUnits = currentActivation.ownerId === 'player' ? engine.playerUnits : engine.botUnits;
-      const unit = allUnits.find(u => u.unitId === currentActivation.unitId);
-      if (unit && unit.hex) {
-        const hexKey = CoordinateSystem.makeHexKey(
-          unit.hex.q,
-          unit.hex.r
-        );
-        unitHexes.push(hexKey);
+      
+      // Filter units that are in the current initiative phase and not on sentry
+      for (const unit of allUnits) {
+        // Only highlight units that are not on sentry mode
+        if (!unit.onSentry && unit.hex) {
+          const hexKey = CoordinateSystem.makeHexKey(
+            unit.hex.q,
+            unit.hex.r
+          );
+          unitHexes.push(hexKey);
+        }
       }
 
       // Apply highlights to the map renderer
