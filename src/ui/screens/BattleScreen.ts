@@ -8220,26 +8220,33 @@ export class BattleScreen {
     }
 
     try {
-      // Get current initiative group
-      const currentGroup = this.initiativeMethods.getCurrentInitiativeGroup();
-      if (!currentGroup) {
+      // Get current initiative queue
+      const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
+      if (!currentQueue || !currentQueue.activations || currentQueue.activations.length === 0) {
         this.clearInitiativeGroupHighlights();
         return;
       }
 
-      // Get unit IDs in current group
-      const unitIds = currentGroup.units.map(unit => unit.unitId);
-      
-      // Convert unit IDs to hex positions
+      // Get current activation units
+      const currentActivation = currentQueue.activations[currentQueue.currentIndex];
+      if (!currentActivation) {
+        this.clearInitiativeGroupHighlights();
+        return;
+      }
+
+      // Convert unit ID to hex position
       const engine = this.battleState.ensureGameEngine();
       const unitHexes: string[] = [];
       
-      for (const unitId of unitIds) {
-        const unit = engine.getUnitById(unitId);
-        if (unit && unit.hex) {
-          const hexKey = CoordinateSystem.axialToKey(unit.hex);
-          unitHexes.push(hexKey);
-        }
+      // Find the unit using public methods
+      const allUnits = currentActivation.ownerId === 'player' ? engine.playerUnits : engine.botUnits;
+      const unit = allUnits.find(u => u.unitId === currentActivation.unitId);
+      if (unit && unit.hex) {
+        const hexKey = CoordinateSystem.makeHexKey(
+          unit.hex.q,
+          unit.hex.r
+        );
+        unitHexes.push(hexKey);
       }
 
       // Apply highlights to the map renderer
@@ -8266,12 +8273,17 @@ export class BattleScreen {
     }
 
     try {
-      const currentGroup = this.initiativeMethods.getCurrentInitiativeGroup();
-      if (!currentGroup) {
-        return true; // Fallback: allow all units if no current group
+      const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
+      if (!currentQueue || !currentQueue.activations || currentQueue.activations.length === 0) {
+        return true; // Fallback: allow all units if no current queue
       }
 
-      return currentGroup.units.some(unit => unit.unitId === unitId);
+      const currentActivation = currentQueue.activations[currentQueue.currentIndex];
+      if (!currentActivation) {
+        return true; // Fallback: allow all units if no current activation
+      }
+
+      return currentActivation.unitId === unitId;
     } catch (error) {
       console.error('Failed to check unit initiative group:', error);
       return true; // Fallback: allow unit on error
@@ -8287,18 +8299,27 @@ export class BattleScreen {
     }
 
     try {
-      const unit = this.battleState.ensureGameEngine().getUnitById(unitId);
+      const engine = this.battleState.ensureGameEngine();
+      const unit = engine.playerUnits.find(u => u.unitId === unitId);
       if (!unit) {
         return;
       }
 
-      const unitLabel = this.resolveUnitLabelForHex(CoordinateSystem.axialToKey(unit.hex));
-      const currentGroup = this.initiativeMethods.getCurrentInitiativeGroup();
+      const hexKey = CoordinateSystem.makeHexKey(
+        unit.hex.q,
+        unit.hex.r
+      );
+      const unitLabel = this.resolveUnitLabelForHex(hexKey);
       
-      if (currentGroup) {
-        const groupName = this.getInitiativeGroupName(currentGroup);
-        const message = `${unitLabel} belongs to ${groupName}. Wait for this initiative group to be active.`;
-        this.showElegantInitiativeMessage(message);
+      const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
+      
+      if (currentQueue && currentQueue.activations && currentQueue.activations.length > 0) {
+        const currentActivation = currentQueue.activations[currentQueue.currentIndex];
+        if (currentActivation) {
+          const groupName = this.getInitiativeGroupName(currentActivation);
+          const message = `${unitLabel} belongs to ${groupName}. Wait for this initiative group to be active.`;
+          this.showElegantInitiativeMessage(message);
+        }
       }
     } catch (error) {
       console.error('Failed to show initiative group message:', error);
@@ -8308,13 +8329,13 @@ export class BattleScreen {
   /**
    * Get a user-friendly name for the initiative group
    */
-  private getInitiativeGroupName(group: any): string {
-    if (group.groupType === 'player') {
-      return `Player Initiative Group ${group.groupIndex + 1}`;
-    } else if (group.groupType === 'bot') {
-      return `Bot Initiative Group ${group.groupIndex + 1}`;
+  private getInitiativeGroupName(activation: any): string {
+    if (activation.ownerId === 'player') {
+      return `Player Initiative Unit ${activation.unitId}`;
+    } else if (activation.ownerId === 'bot') {
+      return `Bot Initiative Unit ${activation.unitId}`;
     }
-    return `Initiative Group ${group.groupIndex + 1}`;
+    return `Initiative Unit ${activation.unitId}`;
   }
 
   /**
@@ -8678,8 +8699,8 @@ export class BattleScreen {
           const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
           const unit = engine.playerUnits.find((u) => `${u.hex.q},${u.hex.r}` === `${axial.q},${axial.r}`);
           
-          if (unit && !this.isUnitInCurrentInitiativeGroup(unit.key)) {
-            this.showInitiativeGroupMessage(unit.key);
+          if (unit && unit.unitId && !this.isUnitInCurrentInitiativeGroup(unit.unitId)) {
+            this.showInitiativeGroupMessage(unit.unitId);
             return; // Don't proceed with the action
           }
         }
