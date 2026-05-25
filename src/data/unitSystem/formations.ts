@@ -1090,7 +1090,7 @@ export const unitFormations = {
     equipmentSummary: ["6 towed 105mm howitzers", "12 prime movers"],
     tacticalUnitType: "Howitzer_105",
     tactical: tactical.Howitzer_105,
-    startingLoadout: { strength: 100, ammo: 8, fuel: 2, entrench: 0, facing: "NW", baseExperience: 1 },
+    startingLoadout: { strength: 100, ammo: 8, fuel: 3, entrench: 0, facing: "NW", baseExperience: 1 },
     requisition: { category: "units", costPerUnit: 180, maxQuantity: 6 },
     spriteUrl: sprite("Artillery_Howitzer_USA_Sideview.png")
   },
@@ -1144,7 +1144,7 @@ export const unitFormations = {
     equipmentSummary: ["6 57mm AT guns", "12 towing trucks"],
     tacticalUnitType: "AT_Gun_50mm",
     tactical: tactical.AT_Gun_50mm,
-    startingLoadout: { strength: 100, ammo: 6, fuel: 0, entrench: 1, facing: "NW", baseExperience: 1 },
+    startingLoadout: { strength: 100, ammo: 6, fuel: 3, entrench: 1, facing: "NW", baseExperience: 1 },
     requisition: { category: "units", costPerUnit: 80, maxQuantity: 6 },
     spriteUrl: sprite("Wheeled_AT_Gun_USA_Sideview.png")
   },
@@ -1162,7 +1162,7 @@ export const unitFormations = {
     equipmentSummary: ["4 heavy AA guns", "Radar trailer", "Ammunition loaders"],
     tacticalUnitType: "Flak_88",
     tactical: tactical.Flak_88,
-    startingLoadout: { strength: 100, ammo: 6, fuel: 0, entrench: 1, facing: "NW", baseExperience: 1 },
+    startingLoadout: { strength: 100, ammo: 6, fuel: 3, entrench: 1, facing: "NW", baseExperience: 1 },
     requisition: { category: "units", costPerUnit: 210, maxQuantity: 6 },
     spriteUrl: sprite("Flak_88_USA_Sideview.png")
   },
