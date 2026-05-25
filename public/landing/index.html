@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Four Star General - Play Free Tactical Warfare</title>
+  <meta name="description" content="Four Star General - Play the tactical core free. No Steam or Epic install required. Command your forces in strategic World War II battles." />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --color-bg: #0a0f14;
+      --color-bg-elevated: #111820;
+      --color-bg-card: #151e26;
+      --color-border: #1e2a35;
+      --color-border-hover: #2a3a47;
+      --color-text: #e8ecf1;
+      --color-text-muted: #8b9aab;
+      --color-accent: #c9a227;
+      --color-accent-hover: #d4b43a;
+      --color-accent-glow: rgba(201, 162, 39, 0.3);
+      --color-success: #4ade80;
+      --color-olive: #5a6b4a;
+      --color-olive-light: #7a8b6a;
+      --gradient-hero: linear-gradient(135deg, #0a0f14 0%, #111820 50%, #1a252f 100%);
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+      --shadow-glow: 0 0 40px rgba(201, 162, 39, 0.15);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--color-bg);
+      color: var(--color-text);
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Navigation */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(10, 15, 20, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--color-border);
+      padding: 0 2rem;
+    }
+
+    .nav-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 700;
+      font-size: 1.25rem;
+      color: var(--color-text);
+      text-decoration: none;
+      letter-spacing: -0.02em;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--color-olive) 0%, var(--color-olive-light) 100%);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--color-text-muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: color 0.2s ease;
+    }
+
+    .nav-links a:hover {
+      color: var(--color-text);
+    }
+
+    /* Hero Section */
+    .hero {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 8rem 2rem 4rem;
+      background: var(--gradient-hero);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: 
+        radial-gradient(ellipse at 20% 50%, rgba(201, 162, 39, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 30%, rgba(90, 107, 74, 0.1) 0%, transparent 40%);
+      pointer-events: none;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(201, 162, 39, 0.1);
+      border: 1px solid rgba(201, 162, 39, 0.3);
+      color: var(--color-accent);
+      padding: 0.5rem 1rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-badge::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: var(--color-success);
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .hero h1 {
+      font-size: clamp(2.5rem, 6vw, 4rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.5rem;
+      max-width: 800px;
+    }
+
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--color-text) 0%, var(--color-accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-subtitle {
+      font-size: clamp(1.125rem, 2vw, 1.375rem);
+      color: var(--color-text-muted);
+      max-width: 600px;
+      margin-bottom: 2.5rem;
+      font-weight: 400;
+    }
+
+    .hero-cta {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-hover) 100%);
+      color: var(--color-bg);
+      padding: 1rem 2rem;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 700;
+      text-decoration: none;
+      box-shadow: var(--shadow-md), 0 0 30px var(--color-accent-glow);
+      transition: all 0.2s ease;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md), 0 0 50px var(--color-accent-glow);
+    }
+
+    .btn-primary svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .hero-note {
+      font-size: 0.875rem;
+      color: var(--color-text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .hero-note::before {
+      content: '✓';
+      color: var(--color-success);
+      font-weight: 700;
+    }
+
+    /* Features */
+    .features {
+      padding: 4rem 2rem;
+      background: var(--color-bg);
+    }
+
+    .features-grid {
+      max-width: 900px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .feature-card {
+      background: var(--color-bg-card);
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      transition: all 0.2s ease;
+    }
+
+    .feature-card:hover {
+      border-color: var(--color-border-hover);
+      transform: translateY(-2px);
+    }
+
+    .feature-icon {
+      width: 40px;
+      height: 40px;
+      background: rgba(201, 162, 39, 0.1);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+      font-size: 1.25rem;
+    }
+
+    .feature-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: var(--color-text);
+    }
+
+    .feature-card p {
+      font-size: 0.875rem;
+      color: var(--color-text-muted);
+      line-height: 1.5;
+    }
+
+    /* Footer */
+    footer {
+      background: var(--color-bg-elevated);
+      border-top: 1px solid var(--color-border);
+      padding: 3rem 2rem;
+    }
+
+    .footer-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .footer-links a {
+      color: var(--color-text-muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: color 0.2s ease;
+    }
+
+    .footer-links a:hover {
+      color: var(--color-accent);
+    }
+
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--color-text-muted);
+      font-size: 0.875rem;
+    }
+
+    .footer-brand .logo-icon {
+      width: 24px;
+      height: 24px;
+      font-size: 0.75rem;
+    }
+
+    /* Mobile */
+    @media (max-width: 640px) {
+      .nav-links {
+        display: none;
+      }
+
+      .hero {
+        padding: 6rem 1.5rem 3rem;
+      }
+
+      .features {
+        padding: 3rem 1.5rem;
+      }
+
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .footer-links {
+        gap: 1rem 1.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="nav-content">
+      <a href="/" class="logo">
+        <div class="logo-icon">4</div>
+        <span>Four Star General</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="https://sixsmithgames.com/product">Product</a></li>
+        <li><a href="https://sixsmithgames.com/facts">Facts</a></li>
+        <li><a href="https://sixsmithgames.com/help">Help</a></li>
+        <li><a href="https://sixsmithgames.com/pricing">Pricing</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="hero">
+    <div class="hero-badge">Now Playable</div>
+    <h1>Four Star General is <span>playable here</span>.</h1>
+    <p class="hero-subtitle">Play the tactical core free. No Steam or Epic install is required. Command your forces in strategic World War II battles directly in your browser.</p>
+    <div class="hero-cta">
+      <a href="/play" class="btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        Play Now
+      </a>
+      <span class="hero-note">Free to play — no installation required</span>
+    </div>
+  </main>
+
+  <section class="features">
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">⚔</div>
+        <h3>Tactical Warfare</h3>
+        <p>Command infantry, armor, and artillery across detailed hex-based battlefields with realistic combat mechanics.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Instant Access</h3>
+        <p>Jump straight into the action. No downloads, no launchers, no waiting — just open your browser and play.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🎯</div>
+        <h3>Strategic Depth</h3>
+        <p>Plan your approach, manage supplies, and outmaneuver your opponent in challenging mission scenarios.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="footer-content">
+      <ul class="footer-links">
+        <li><a href="https://sixsmithgames.com/product">Official Product Page</a></li>
+        <li><a href="https://sixsmithgames.com/facts">Facts</a></li>
+        <li><a href="https://sixsmithgames.com/help">Help</a></li>
+        <li><a href="https://sixsmithgames.com/pricing">Pricing</a></li>
+      </ul>
+      <div class="footer-brand">
+        <div class="logo-icon">4</div>
+        <span>Made by Sixsmith Games</span>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
