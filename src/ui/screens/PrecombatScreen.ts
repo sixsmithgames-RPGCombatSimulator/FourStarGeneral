@@ -87,7 +87,7 @@ const GELA_LANDINGS_ALLOCATION_PRESET: AllocationPresetDefinition = {
   appliedMessage: "Gela Landings preset allocations applied.",
   entries: [
     { key: "infantry", quantity: 4 },
-    { key: "engineer", quantity: 2 },
+    { key: "engineer", quantity: 1 },
     { key: "tank", quantity: 5 },
     { key: "tankDestroyerCompany", quantity: 3 },
     { key: "howitzer", quantity: 2 },
