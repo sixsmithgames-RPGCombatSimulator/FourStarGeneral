@@ -18,6 +18,8 @@ import {
   type SupportImpactEvent,
   type SupportAssetSnapshot
 } from "../../game/GameEngine";
+import { GameEngineInitiativeMethods } from "../../game/GameEngineInitiativeIntegration";
+import { EnhancedInitiativeTurnControls } from "../components/EnhancedInitiativeTurnControls";
 import type { CombatDamageSummary, CombatPreview, AttackResolution } from "../../game/GameEngine";
 import type {
   Axial,
@@ -299,6 +301,11 @@ export class BattleScreen {
   private static readonly ACTIVITY_EVENT_LIMIT = 120;
   private static readonly AIR_FORMATION_SPACING_PX = 27;
   private static readonly AIR_PLAYBACK_CLUSTER_LINK_DISTANCE_HEX = 8;
+
+  // Initiative system integration
+  private initiativeMethods: GameEngineInitiativeMethods | null = null;
+  private initiativeTurnControls: EnhancedInitiativeTurnControls | null = null;
+  private isInitiativeSystemEnabled = false;
 
   // DOM element references
   private battleAnnouncements: HTMLElement | null = null;
@@ -6899,8 +6906,9 @@ export class BattleScreen {
       const reserves = engine.finalizeDeployment();
       console.log("Deployment finalized. Reserves:", reserves);
 
-      // Move engine state from deployment to active combat so UI can present normal turn controls immediately.
-      engine.startPlayerTurnPhase();
+      // Initialize initiative system and move to initiative turn phase
+      this.initializeInitiativeSystem(engine);
+      this.initiativeMethods?.startInitiativeTurnPhase(true); // Enable initiative system
 
       this.refreshDeploymentMirrors("sync");
 
@@ -8011,6 +8019,204 @@ export class BattleScreen {
       this.deploymentPanelToggleButton.setAttribute("aria-expanded", "false");
     }
     this.showActivityLogAfterDeployment();
+  }
+
+  /**
+   * Initialize the initiative system for this battle
+   * 
+   * @param engine - The game engine instance
+   */
+  private initializeInitiativeSystem(engine: GameEngine): void {
+    try {
+      console.log('Initializing initiative system...');
+      
+      // Initialize initiative methods
+      this.initiativeMethods = new GameEngineInitiativeMethods(engine);
+      this.isInitiativeSystemEnabled = true;
+      
+      // Initialize enhanced turn controls UI
+      this.initializeInitiativeTurnControls();
+      
+      console.log('Initiative system initialized successfully');
+      
+    } catch (error) {
+      console.error('Failed to initialize initiative system:', error);
+      this.isInitiativeSystemEnabled = false;
+      // Fall back to traditional turn management
+      engine.startPlayerTurnPhase();
+    }
+  }
+
+  /**
+   * Initialize the enhanced turn controls UI
+   */
+  private initializeInitiativeTurnControls(): void {
+    try {
+      // Find or create the turn controls container
+      let controlsContainer = document.querySelector('.initiative-turn-controls-container');
+      
+      if (!controlsContainer) {
+        controlsContainer = document.createElement('div');
+        controlsContainer.className = 'initiative-turn-controls-container';
+        
+        // Insert into the battle UI
+        const battleControls = document.querySelector('.battle-controls') || document.body;
+        battleControls.appendChild(controlsContainer);
+      }
+      
+      // Initialize enhanced turn controls
+      this.initiativeTurnControls = new EnhancedInitiativeTurnControls(
+        controlsContainer as HTMLElement,
+        {
+          onSkipTurn: () => this.handleSkipTurn(),
+          onEndTurn: () => this.handleInitiativeEndTurn(),
+          onNextActivation: () => this.handleNextActivation(),
+          onCompleteActivation: (unitId: string) => this.handleCompleteActivation(unitId),
+          onProceedToNext: () => this.handleProceedToNext(),
+          onSkipGroup: () => this.handleSkipGroup()
+        },
+        {
+          showSkipTurn: true,
+          showEndTurn: true,
+          showProceedButton: true,
+          showCurrentUnitInfo: true,
+          showGroupInfo: true,
+          enableKeyboardShortcuts: true
+        }
+      );
+      
+      console.log('Enhanced turn controls initialized');
+      
+    } catch (error) {
+      console.error('Failed to initialize enhanced turn controls:', error);
+    }
+  }
+
+  /**
+   * Handle proceed to next unit action
+   */
+  private handleProceedToNext(): void {
+    if (!this.initiativeMethods) {
+      console.warn('Initiative methods not available');
+      return;
+    }
+
+    const currentActivation = this.getCurrentActivation();
+    if (currentActivation && currentActivation.ownerId === 'player') {
+      try {
+        this.initiativeMethods.completeUnitActivation(currentActivation.unitId);
+      } catch (error) {
+        console.error('Failed to complete unit activation:', error);
+      }
+    }
+  }
+
+  /**
+   * Handle skip group action
+   */
+  private handleSkipGroup(): void {
+    if (!this.initiativeMethods) {
+      console.warn('Initiative methods not available');
+      return;
+    }
+
+    try {
+      // Skip the current group
+      this.initiativeMethods.skipCurrentGroup();
+    } catch (error) {
+      console.error('Failed to skip group:', error);
+    }
+  }
+
+  /**
+   * Handle end turn action for initiative system
+   */
+  private handleInitiativeEndTurn(): void {
+    if (!this.initiativeMethods) {
+      console.warn('Initiative methods not available');
+      return;
+    }
+
+    try {
+      // End the current turn
+      this.initiativeMethods.endCurrentTurn();
+    } catch (error) {
+      console.error('Failed to end turn:', error);
+    }
+  }
+
+  /**
+   * Handle next activation action
+   */
+  private handleNextActivation(): void {
+    if (!this.initiativeMethods) {
+      console.warn('Initiative methods not available');
+      return;
+    }
+
+    try {
+      // Process next activation
+      this.initiativeMethods.processNextInitiativeActivation();
+    } catch (error) {
+      console.error('Failed to process next activation:', error);
+    }
+  }
+
+  /**
+   * Handle skip turn action
+   */
+  private handleSkipTurn(): void {
+    if (!this.initiativeMethods) {
+      console.warn('Initiative methods not available');
+      return;
+    }
+
+    try {
+      // Skip remaining player activations
+      this.initiativeMethods.skipRemainingPlayerActivations();
+    } catch (error) {
+      console.error('Failed to skip turn:', error);
+    }
+  }
+
+  /**
+   * Handle complete activation action
+   */
+  private handleCompleteActivation(unitId: string): void {
+    if (!this.initiativeMethods) {
+      console.warn('Initiative methods not available');
+      return;
+    }
+
+    try {
+      // Complete the unit activation
+      this.initiativeMethods.completeUnitActivation(unitId);
+    } catch (error) {
+      console.error('Failed to complete activation:', error);
+    }
+  }
+
+  /**
+   * Get the current activation from the initiative system
+   */
+  private getCurrentActivation(): { unitId: string; ownerId: string } | null {
+    if (!this.initiativeMethods) {
+      return null;
+    }
+
+    try {
+      const activation = this.initiativeMethods.getCurrentActivation();
+      if (activation) {
+        return {
+          unitId: activation.unitId,
+          ownerId: activation.ownerId
+        };
+      }
+    } catch (error) {
+      console.error('Failed to get current activation:', error);
+    }
+
+    return null;
   }
 
   /**

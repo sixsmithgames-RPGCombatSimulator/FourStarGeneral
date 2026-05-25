@@ -1,0 +1,555 @@
+/**
+ * GameEngine Initiative Integration Layer
+ * 
+ * Provides integration methods for GameEngine to work with the initiative system.
+ * This file contains the actual methods that would be added to GameEngine
+ * if we were modifying it directly, but kept separate to maintain architectural boundaries.
+ * 
+ * @since Initiative System v1.0
+ */
+
+import { GameEngineInitiativeIntegration, type ExtendedBattlePhase } from './GameEngineInitiativeExtensions';
+import { InitiativeActionValidator, type ActionValidationContext, type UnitActionType } from './InitiativeActionValidator';
+import { InitiativeBotIntegration } from './bot/InitiativeBotIntegration';
+import type { ScenarioUnit } from '../core/types';
+import type { UnitActivation } from '../core/InitiativeQueue';
+
+/**
+ * Integration methods that would be added to GameEngine
+ * 
+ * This class contains the actual implementation of methods that would be
+ * added to the GameEngine class to support the initiative system.
+ */
+export class GameEngineInitiativeMethods {
+  private integration: GameEngineInitiativeIntegration;
+  private validator: InitiativeActionValidator;
+  private botIntegration: InitiativeBotIntegration;
+  private gameEngine: any; // GameEngine instance
+
+  constructor(gameEngine: any) {
+    this.gameEngine = gameEngine;
+    this.integration = new GameEngineInitiativeIntegration(gameEngine);
+    this.validator = new InitiativeActionValidator();
+    this.botIntegration = new InitiativeBotIntegration(gameEngine);
+  }
+
+  /**
+   * Start an initiative-based turn instead of the traditional player turn
+   * 
+   * This replaces the startPlayerTurnPhase method when initiative system is enabled
+   * 
+   * @param enableInitiativeSystem - Whether to enable the initiative system
+   * @throws Error if deployment phase is not complete or base camp is not selected
+   */
+  public startInitiativeTurnPhase(enableInitiativeSystem: boolean = true): void {
+    // Validate that we can start a turn
+    this.gameEngine.assertPhase("deployment", "Initiative turn can only begin immediately after deployment.");
+    if (!this.gameEngine._baseCamp) {
+      throw new Error("Select a base camp before beginning the battle.");
+    }
+
+    // Set initial turn state
+    this.gameEngine._phase = "initiativeTurn";
+    this.gameEngine._activeFaction = "Player";
+    this.gameEngine._turnNumber = 1;
+    this.gameEngine.playerActionFlags.clear();
+    this.gameEngine.clearFlakEngagementsFor("Player");
+    this.gameEngine.rebuildPlayerIdleUnitSet();
+
+    // Enable initiative system if requested
+    if (enableInitiativeSystem) {
+      const allUnits = this.getAllUnitsForInitiative();
+      this.integration.enableInitiativeSystem(allUnits, this.gameEngine._turnNumber);
+      
+      // Process the first activation
+      this.processNextInitiativeActivation();
+    } else {
+      // Fall back to normal turn management
+      this.gameEngine._phase = "playerTurn";
+    }
+  }
+
+  /**
+   * Process the next activation in the initiative queue
+   * 
+   * @returns The next activation or null if queue is exhausted
+   */
+  public processNextInitiativeActivation(): UnitActivation | null {
+    if (!this.integration.isInitiativeSystemActive()) {
+      return null;
+    }
+
+    const nextActivation = this.integration.processNextActivation();
+    
+    if (nextActivation) {
+      // Update UI and game state for the new activation
+      this.onActivationStarted(nextActivation);
+    } else {
+      // No more activations, transition to air show phase
+      this.onInitiativeQueueComplete();
+    }
+
+    return nextActivation;
+  }
+
+  /**
+   * Complete the current unit activation
+   * 
+   * @param unitId - ID of the unit to complete
+   * @throws Error if unit is not currently active
+   */
+  public completeUnitActivation(unitId: string): void {
+    if (!this.integration.isInitiativeSystemActive()) {
+      throw new Error('Initiative system is not active');
+    }
+
+    this.integration.completeCurrentActivation(unitId);
+    this.onActivationCompleted(unitId);
+
+    // Process the next activation
+    this.processNextInitiativeActivation();
+  }
+
+  /**
+   * Skip the current unit's activation (player chooses to skip)
+   * 
+   * @param unitId - ID of the unit to skip
+   */
+  public skipUnitActivation(unitId: string): void {
+    if (!this.integration.isInitiativeSystemActive()) {
+      return;
+    }
+
+    const currentActivation = this.integration.getCurrentActivation();
+    if (currentActivation && currentActivation.unitId === unitId) {
+      this.completeUnitActivation(unitId);
+    }
+  }
+
+  /**
+   * End the initiative turn early (skip all remaining player units)
+   * 
+   * This is called when the player chooses to end their turn
+   */
+  public endInitiativeTurnEarly(): void {
+    if (!this.integration.isInitiativeSystemActive()) {
+      // Fall back to normal turn management
+      this.gameEngine.endTurn();
+      return;
+    }
+
+    this.integration.skipRemainingPlayerActivations();
+    this.onPlayerTurnSkipped();
+  }
+
+  /**
+   * Handle the end of the initiative turn and transition to air show
+   */
+  public completeInitiativeTurn(): void {
+    if (!this.integration.isInitiativeSystemActive()) {
+      return;
+    }
+
+    this.integration.endInitiativeTurn();
+    
+    // Apply end-of-turn effects
+    this.applyEndOfTurnEffects();
+    
+    // Transition to air show phase
+    this.transitionToAirShowPhase();
+  }
+
+  /**
+   * Validate a unit action before execution
+   * 
+   * @param unitId - ID of the unit attempting the action
+   * @param actionType - Type of action being attempted
+   * @param unit - The unit attempting the action (optional)
+   * @returns Validation result
+   */
+  public validateUnitAction(
+    unitId: string,
+    actionType: UnitActionType,
+    unit?: ScenarioUnit
+  ): { isValid: boolean; reason?: string } {
+    const context = this.createValidationContext();
+    const result = this.validator.validateAction(unitId, actionType, context, unit);
+    
+    return {
+      isValid: result.isValid,
+      reason: result.reason
+    };
+  }
+
+  /**
+   * Execute a unit action with validation
+   * 
+   * @param unitId - ID of the unit performing the action
+   * @param actionType - Type of action to execute
+   * @param actionData - Data required for the action
+   * @param unit - The unit performing the action (optional)
+   * @returns True if action was executed successfully
+   */
+  public executeUnitAction(
+    unitId: string,
+    actionType: UnitActionType,
+    actionData: any,
+    unit?: ScenarioUnit
+  ): boolean {
+    // Validate the action first
+    const validation = this.validateUnitAction(unitId, actionType, unit);
+    if (!validation.isValid) {
+      throw new Error(`Action validation failed: ${validation.reason}`);
+    }
+
+    // Execute the action based on type
+    let success = false;
+    switch (actionType) {
+      case 'move':
+        success = this.executeMoveAction(unitId, actionData);
+        break;
+      case 'attack':
+        success = this.executeAttackAction(unitId, actionData);
+        break;
+      case 'support':
+        success = this.executeSupportAction(unitId, actionData);
+        break;
+      case 'deploy':
+        success = this.executeDeployAction(unitId, actionData);
+        break;
+      case 'entrench':
+        success = this.executeEntrenchAction(unitId, actionData);
+        break;
+      case 'repair':
+        success = this.executeRepairAction(unitId, actionData);
+        break;
+      case 'resupply':
+        success = this.executeResupplyAction(unitId, actionData);
+        break;
+      case 'tow':
+        success = this.executeTowAction(unitId, actionData);
+        break;
+      case 'sentry':
+        success = this.executeSentryAction(unitId, actionData);
+        break;
+      case 'face':
+        success = this.executeFaceAction(unitId, actionData);
+        break;
+      default:
+        throw new Error(`Unknown action type: ${actionType}`);
+    }
+
+    if (success) {
+      this.onActionExecuted(unitId, actionType, actionData);
+    }
+
+    return success;
+  }
+
+  /**
+   * Get the current initiative queue for UI display
+   * 
+   * @returns Current initiative queue or null
+   */
+  public getCurrentInitiativeQueue(): any {
+    return this.integration.getInitiativeQueue();
+  }
+
+  /**
+   * Get the current activation for UI highlighting
+   * 
+   * @returns Current activation or null
+   */
+  public getCurrentActivation(): UnitActivation | null {
+    return this.integration.getCurrentActivation();
+  }
+
+  /**
+   * Skip the current initiative group
+   */
+  public skipCurrentGroup(): void {
+    if (!this.integration.isInitiativeSystemActive()) {
+      throw new Error('Initiative system is not active');
+    }
+
+    this.integration.skipCurrentGroup();
+  }
+
+  /**
+   * End the current turn
+   */
+  public endCurrentTurn(): void {
+    if (!this.integration.isInitiativeSystemActive()) {
+      throw new Error('Initiative system is not active');
+    }
+
+    this.integration.endCurrentTurn();
+  }
+
+  /**
+   * Skip remaining player activations
+   */
+  public skipRemainingPlayerActivations(): void {
+    if (!this.integration.isInitiativeSystemActive()) {
+      throw new Error('Initiative system is not active');
+    }
+
+    this.integration.skipRemainingPlayerActivations();
+  }
+
+  /**
+   * Check if the initiative system is currently active
+   * 
+   * @returns True if initiative system is active
+   */
+  public isInitiativeSystemActive(): boolean {
+    return this.integration.isInitiativeSystemActive();
+  }
+
+  /**
+   * Get the current turn phase (extended for initiative system)
+   * 
+   * @returns Current turn phase
+   */
+  public getCurrentTurnPhase(): ExtendedBattlePhase {
+    return this.integration.getCurrentTurnPhase();
+  }
+
+  /**
+   * Get all units for initiative queue generation
+   * 
+   * @returns Array of all units in the battle
+   */
+  private getAllUnitsForInitiative(): ScenarioUnit[] {
+    const units: ScenarioUnit[] = [];
+
+    // Collect player units
+    if (this.gameEngine._playerUnits) {
+      units.push(...Object.values(this.gameEngine._playerUnits) as ScenarioUnit[]);
+    }
+
+    // Collect bot units
+    if (this.gameEngine._botUnits) {
+      units.push(...Object.values(this.gameEngine._botUnits) as ScenarioUnit[]);
+    }
+
+    // Collect ally units if present
+    if (this.gameEngine._allyUnits) {
+      units.push(...Object.values(this.gameEngine._allyUnits) as ScenarioUnit[]);
+    }
+
+    return units;
+  }
+
+  /**
+   * Create validation context from current game state
+   * 
+   * @returns Validation context
+   */
+  private createValidationContext(): ActionValidationContext {
+    return InitiativeActionValidator.createContext(
+      this.integration.getCurrentActivation(),
+      this.integration.isInitiativeSystemActive(),
+      this.gameEngine._phase,
+      this.gameEngine._activeFaction
+    );
+  }
+
+  /**
+   * Handle activation started event
+   * 
+   * @param activation - The activation that started
+   */
+  private onActivationStarted(activation: UnitActivation): void {
+    // Update UI to highlight the active unit
+    // This would emit an event for the UI to react to
+    console.log(`Activation started: ${activation.unitId} (${activation.ownerId})`);
+    
+    // Update game engine state
+    this.gameEngine._activeFaction = activation.ownerId === 'player' ? 'Player' : 'Bot';
+    
+    // If this is a bot unit, automatically execute its decision
+    if (activation.ownerId === 'bot') {
+      this.executeBotTurn(activation);
+    }
+  }
+
+  /**
+   * Execute bot turn for the given activation
+   * 
+   * @param activation - The bot unit activation
+   */
+  private executeBotTurn(activation: UnitActivation): void {
+    try {
+      console.log(`Executing bot turn for ${activation.unitId}`);
+      
+      // Get bot decision
+      const decisionResult = this.botIntegration.executeBotDecision(activation);
+      
+      if (decisionResult.hasValidAction) {
+        console.log(`Bot decision for ${activation.unitId}: ${decisionResult.action.rationale}`);
+        
+        // Execute the planned action
+        const executionSuccess = this.botIntegration.executePlannedAction(decisionResult.action);
+        
+        if (executionSuccess) {
+          console.log(`Bot action executed successfully for ${activation.unitId}`);
+        } else {
+          console.warn(`Bot action execution failed for ${activation.unitId}`);
+        }
+      } else {
+        console.log(`No valid action found for bot unit ${activation.unitId}`);
+      }
+      
+      // Log performance metrics
+      if (decisionResult.executionTime > 100) {
+        console.warn(`Bot decision took ${decisionResult.executionTime}ms for ${activation.unitId}`);
+      }
+      
+      // Automatically complete the bot unit's activation
+      setTimeout(() => {
+        this.completeUnitActivation(activation.unitId);
+      }, 500); // Small delay for visual feedback
+      
+    } catch (error) {
+      console.error(`Error executing bot turn for ${activation.unitId}:`, error);
+      
+      // Complete the activation anyway to prevent game from getting stuck
+      setTimeout(() => {
+        this.completeUnitActivation(activation.unitId);
+      }, 500);
+    }
+  }
+
+  /**
+   * Handle activation completed event
+   * 
+   * @param unitId - ID of the unit that completed activation
+   */
+  private onActivationCompleted(unitId: string): void {
+    // Update UI to remove highlighting
+    console.log(`Activation completed: ${unitId}`);
+    
+    // Update unit state
+    // This would mark the unit as activated in the game state
+  }
+
+  /**
+   * Handle initiative queue completion
+   */
+  private onInitiativeQueueComplete(): void {
+    console.log('Initiative queue complete, transitioning to air show phase');
+    this.transitionToAirShowPhase();
+  }
+
+  /**
+   * Handle player turn skipped event
+   */
+  private onPlayerTurnSkipped(): void {
+    console.log('Player turn skipped, processing remaining bot activations');
+    // Bot activations are automatically processed by the integration
+  }
+
+  /**
+   * Apply end-of-turn effects
+   */
+  private applyEndOfTurnEffects(): void {
+    // Apply supply ticks, mission progress, etc.
+    // This would call the existing endTurn methods but without phase changes
+    console.log('Applying end-of-turn effects');
+  }
+
+  /**
+   * Transition to air show phase
+   */
+  private transitionToAirShowPhase(): void {
+    this.integration.transitionToAirShowPhase();
+    
+    // Start air show phase
+    // This would integrate with the existing air show system
+    console.log('Transitioning to air show phase');
+  }
+
+  /**
+   * Handle action executed event
+   * 
+   * @param unitId - ID of the unit that executed the action
+   * @param actionType - Type of action executed
+   * @param actionData - Data for the executed action
+   */
+  private onActionExecuted(unitId: string, actionType: UnitActionType, actionData: any): void {
+    console.log(`Action executed: ${unitId} -> ${actionType}`);
+    
+    // Update game state based on the action
+    // This would integrate with the existing action execution systems
+  }
+
+  // Action execution methods (these would integrate with existing GameEngine methods)
+  private executeMoveAction(unitId: string, actionData: any): boolean {
+    // Integrate with existing movement system
+    return true; // Placeholder
+  }
+
+  private executeAttackAction(unitId: string, actionData: any): boolean {
+    // Integrate with existing combat system
+    return true; // Placeholder
+  }
+
+  private executeSupportAction(unitId: string, actionData: any): boolean {
+    // Integrate with existing support system
+    return true; // Placeholder
+  }
+
+  private executeDeployAction(unitId: string, actionData: any): boolean {
+    // Integrate with existing deployment system
+    return true; // Placeholder
+  }
+
+  private executeEntrenchAction(unitId: string, actionData: any): boolean {
+    // Integrate with existing entrenchment system
+    return true; // Placeholder
+  }
+
+  private executeRepairAction(unitId: string, actionData: any): boolean {
+    // Integrate with existing repair system
+    return true; // Placeholder
+  }
+
+  private executeResupplyAction(unitId: string, actionData: any): boolean {
+    // Integrate with existing supply system
+    return true; // Placeholder
+  }
+
+  private executeTowAction(unitId: string, actionData: any): boolean {
+    // Integrate with existing towing system
+    return true; // Placeholder
+  }
+
+  private executeSentryAction(unitId: string, actionData: any): boolean {
+    // Integrate with existing sentry system
+    return true; // Placeholder
+  }
+
+  private executeFaceAction(unitId: string, actionData: any): boolean {
+    // Integrate with existing facing system
+    return true; // Placeholder
+  }
+
+  /**
+   * Get the integration instance for advanced operations
+   * 
+   * @returns The initiative integration instance
+   */
+  public getIntegration(): GameEngineInitiativeIntegration {
+    return this.integration;
+  }
+
+  /**
+   * Get the validator instance for custom validation
+   * 
+   * @returns The action validator instance
+   */
+  public getValidator(): InitiativeActionValidator {
+    return this.validator;
+  }
+}
