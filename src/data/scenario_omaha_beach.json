@@ -109,13 +109,11 @@
       "recon": "firsthand"
     },
     "W": {
-      "terrain": "river",
+      "terrain": "sea",
       "terrainType": "water",
       "density": "sparse",
-      "features": [
-        "river"
-      ],
-      "recon": "intel"
+      "features": [],
+      "recon": "aerial"
     },
     "D": {
       "terrain": "plains",

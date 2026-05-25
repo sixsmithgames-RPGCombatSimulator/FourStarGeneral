@@ -25,15 +25,10 @@ import type {
   ScenarioData,
   ScenarioSide,
   ScenarioUnit,
-  ScenarioDeploymentZone,
   TerrainDensity,
   TerrainDictionary,
   TerrainFeature,
-  TerrainKey,
-  TerrainType,
-  TileDefinition,
   TileInstance,
-  TilePalette,
   HexEdgeFacing,
   HexModification,
   UnitClass,
@@ -88,6 +83,7 @@ import {
 } from "../../state/DeploymentState";
 import type { BattleAnimationMode, UIState } from "../../state/UIState";
 import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
+import { normalizeScenarioSource, type RawScenarioInput } from "../../data/scenarioNormalizer";
 import { getMissionDeploymentProfile, getMissionTurnLimit } from "../../data/missions";
 import { getCombatProfile } from "../../data/combatProfiles";
 import { combat } from "../../core/balance";
@@ -10858,166 +10854,11 @@ export class BattleScreen {
 
   private buildScenarioData(): ScenarioData {
     const missionKey = this.uiState?.selectedMission ?? "training";
-    const raw = this.deepCloneValue(this.scenarioSource) as {
-      name?: unknown;
-      size?: { cols?: unknown; rows?: unknown } | unknown;
-      tilePalette: Record<string, unknown>;
-      tiles: unknown[];
-      objectives: unknown[];
-      turnLimit?: unknown;
-      playerBudget?: unknown;
-      restrictedUnits?: unknown[];
-      allowedUnits?: unknown[];
-      mainSupplyDistanceTurns?: unknown;
-      allowedBattleRequisitions?: unknown[];
-      battleRequisitionPointsPerTurn?: unknown;
-      battleRequisitionStartingPoints?: unknown;
-      sides?: Record<string, unknown>;
-      deploymentZones?: unknown[];
-    };
-
-    const paletteEntries = Object.entries(raw.tilePalette ?? {}).map(([key, definition]) => {
-      return [key, this.normalizeTileDefinition(definition as { terrain: string; terrainType: string; density: string; features: string[]; recon: string })];
-    });
-    const palette: TilePalette = Object.fromEntries(paletteEntries);
-
-    const tiles: TileInstance[][] = (raw.tiles as unknown[] ?? []).map((row: unknown, rowIndex: number) =>
-      (row as unknown[]).map((entry: unknown, columnIndex: number) => {
-        if (typeof entry === "string") {
-          return { tile: entry } satisfies TileInstance;
-        }
-
-        if ((entry as { tile?: string }).tile) {
-          return this.normalizeTileInstance(entry as { tile: string; recon?: string; density?: string; features?: string[] });
-        }
-
-        const inlineKey = `inline_${rowIndex}_${columnIndex}`;
-        const inlineDefinition = entry as unknown as TileDefinition;
-        palette[inlineKey] = this.normalizeTileDefinition(inlineDefinition);
-        return { tile: inlineKey } satisfies TileInstance;
-      })
+    return normalizeScenarioSource(
+      this.deepCloneValue(this.scenarioSource) as RawScenarioInput,
+      { turnLimit: getMissionTurnLimit(missionKey, this.uiState?.selectedDifficulty ?? "Normal") }
     );
-
-    const objectives = (raw.objectives as unknown[] ?? []).map((objective: unknown) => {
-      const obj = objective as { owner?: unknown; vp?: unknown; hex?: unknown };
-      return {
-        owner: (obj.owner as "Player" | "Bot") ?? "Bot",
-        vp: Number(obj.vp ?? 0),
-        hex: this.tupleToAxial((obj.hex as [number, number]) ?? [0, 0])
-      };
-    });
-
-    const convertSide = (sideKey: "Player" | "Bot" | "Ally"): ScenarioSide => {
-      const sidesRecord = raw.sides as unknown as Record<"Player" | "Bot" | "Ally", {
-        hq?: [number, number] | Axial;
-        general?: ScenarioSide["general"];
-        units?: Array<Partial<ScenarioUnit> & { type?: unknown; hex?: unknown }>;
-        goal?: string;
-        strategy?: string;
-        resources?: number;
-        objectives?: string[];
-      } | undefined>;
-      const side = sidesRecord[sideKey];
-      if (!side) {
-        // Provide an empty scaffold to keep typing satisfied when optional Ally side is absent.
-        return {
-          hq: this.tupleToAxial([0, 0]),
-          general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 },
-          units: []
-        } satisfies ScenarioSide;
-      }
-      const general = side.general ?? { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 };
-      const hqTuple: [number, number] = Array.isArray(side.hq)
-        ? [Number(side.hq[0] ?? 0), Number(side.hq[1] ?? 0)]
-        : [0, 0];
-      const normalized: ScenarioSide = {
-        hq: this.tupleToAxial(hqTuple),
-        general: this.deepCloneValue(general),
-        units: (side.units ?? []).map((unit) =>
-          this.normalizeScenarioUnit({
-            type: (unit.type as string) ?? "Unknown_Unit",
-            hex: Array.isArray(unit.hex)
-              ? [Number(unit.hex[0] ?? 0), Number(unit.hex[1] ?? 0)]
-              : [0, 0],
-            strength: (unit.strength as number) ?? 0,
-            experience: (unit.experience as number) ?? 0,
-            ammo: (unit.ammo as number) ?? 0,
-            fuel: (unit.fuel as number) ?? 0,
-            entrench: (unit.entrench as number) ?? 0,
-            facing: unit.facing as ScenarioUnit["facing"],
-            preDeployed: (unit as { preDeployed?: boolean }).preDeployed,
-            unitId: (unit as { unitId?: string }).unitId
-          })
-        )
-      } satisfies ScenarioSide;
-
-      const optionalSide = side as {
-        goal?: string;
-        strategy?: string;
-        resources?: number;
-        objectives?: string[];
-      };
-
-      if (optionalSide.goal !== undefined) {
-        normalized.goal = optionalSide.goal;
-      }
-      if (optionalSide.strategy !== undefined) {
-        normalized.strategy = optionalSide.strategy;
-      }
-      if (optionalSide.resources !== undefined) {
-        normalized.resources = optionalSide.resources;
-      }
-      if (optionalSide.objectives !== undefined) {
-        normalized.objectives = optionalSide.objectives;
-      }
-
-      return normalized;
-    };
-
-    return {
-      name: (raw.name as string) ?? "Unnamed Scenario",
-      size: { cols: Number((raw.size as { cols?: unknown })?.cols ?? 0), rows: Number((raw.size as { rows?: unknown })?.rows ?? 0) },
-      tilePalette: palette,
-      tiles,
-      objectives,
-      turnLimit: getMissionTurnLimit(missionKey, this.uiState?.selectedDifficulty ?? "Normal"),
-      playerBudget: typeof raw.playerBudget === "number" ? raw.playerBudget : undefined,
-      restrictedUnits: Array.isArray(raw.restrictedUnits) ? raw.restrictedUnits.map((unitKey: unknown) => String(unitKey)) : undefined,
-      allowedUnits: Array.isArray(raw.allowedUnits) ? raw.allowedUnits.map((unitKey: unknown) => String(unitKey)) : undefined,
-      mainSupplyDistanceTurns: typeof raw.mainSupplyDistanceTurns === "number" ? raw.mainSupplyDistanceTurns : undefined,
-      allowedBattleRequisitions: Array.isArray(raw.allowedBattleRequisitions)
-        ? raw.allowedBattleRequisitions.map((unitKey: unknown) => String(unitKey))
-        : undefined,
-      battleRequisitionPointsPerTurn: typeof raw.battleRequisitionPointsPerTurn === "number"
-        ? raw.battleRequisitionPointsPerTurn
-        : undefined,
-      battleRequisitionStartingPoints: typeof raw.battleRequisitionStartingPoints === "number"
-        ? raw.battleRequisitionStartingPoints
-        : undefined,
-      sides: {
-        Player: convertSide("Player"),
-        Bot: convertSide("Bot"),
-        Ally: convertSide("Ally")
-      },
-      deploymentZones: (raw.deploymentZones as unknown[] | undefined)?.map((zone: unknown): ScenarioDeploymentZone => {
-        const z = zone as { key?: string; label?: string; description?: string; capacity?: number; faction?: string; hexes?: Array<[number, number]> };
-        const hexes: readonly [number, number][] = (z.hexes ?? []).map((hex) => {
-          const tuple: [number, number] = Array.isArray(hex)
-            ? [Number(hex[0] ?? 0), Number(hex[1] ?? 0)]
-            : [0, 0];
-          return tuple;
-        });
-        return {
-          key: z.key ?? "unknown-zone",
-          label: z.label ?? "",
-          description: z.description ?? "",
-          capacity: z.capacity ?? 0,
-          faction: (z.faction as "Player" | "Bot" | "Ally") ?? "Player",
-          hexes
-        } satisfies ScenarioDeploymentZone;
-      })
-    } satisfies ScenarioData;
-  };
+  }
 
   /**
    * Provides a defensive copy of the unit type dictionary so downstream systems remain immutable.
@@ -11034,20 +10875,8 @@ export class BattleScreen {
   }
 
   /**
-   * Coerces palette definitions into typed terrain entries while preserving feature metadata.
-   */
-  private normalizeTileDefinition(definition: { terrain: string; terrainType: string; density: string; features: string[]; recon: string }): TileDefinition {
-    return {
-      terrain: definition.terrain as TerrainKey,
-      terrainType: definition.terrainType as TerrainType,
-      density: definition.density as TerrainDensity,
-      features: (definition.features ?? []).map((feature) => feature as TerrainFeature),
-      recon: definition.recon as ReconStatus
-    } satisfies TileDefinition;
-  }
-
-  /**
    * Normalizes tile instance overrides so recon and density adjustments flow through correctly.
+   * Used by non-scenario-load paths (e.g. dynamic deployment state merges).
    */
   private normalizeTileInstance(entry: { tile: string; recon?: string; density?: string; features?: string[] }): TileInstance {
     return {
@@ -11059,40 +10888,10 @@ export class BattleScreen {
   }
 
   /**
-   * Converts raw unit payloads into axial coordinates understood by the engine and renderer.
-   */
-  private normalizeScenarioUnit(unit: {
-    type: string;
-    hex: [number, number];
-    strength: number;
-    experience: number;
-    ammo: number;
-    fuel: number;
-    entrench: number;
-    facing: ScenarioUnit["facing"];
-    preDeployed?: boolean;
-    unitId?: string;
-  }): ScenarioUnit {
-    return {
-      type: unit.type as ScenarioUnit["type"],
-      hex: this.tupleToAxial(unit.hex),
-      strength: unit.strength,
-      experience: unit.experience,
-      ammo: unit.ammo,
-      fuel: unit.fuel,
-      entrench: unit.entrench,
-      facing: unit.facing,
-      // Preserve optional fields so pre-placed units remain on the map and IDs stay stable when present.
-      preDeployed: unit.preDeployed,
-      unitId: unit.unitId
-    } satisfies ScenarioUnit;
-  }
-
-  /**
    * Adapts [q, r] tuples from JSON into the Axial structure shared across engine modules.
+   * Scenario JSON encodes hexes as offset coordinates [col, row]; convert to axial for engine/rendering.
    */
   private tupleToAxial(coord: [number, number] | Axial): Axial {
-    // Scenario JSON encodes hexes as offset coordinates [col, row]; convert to axial for engine/rendering.
     if (Array.isArray(coord)) {
       const [col, row] = coord;
       return CoordinateSystem.offsetToAxial(Number(col ?? 0), Number(row ?? 0));

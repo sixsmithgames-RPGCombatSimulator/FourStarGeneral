@@ -23,9 +23,9 @@ import { ensureTutorialState, isTrainingMission } from "../../state/TutorialStat
 import { getNextPhase } from "../../data/tutorialSteps";
 import { createMissionRulesController } from "../../state/missionRules";
 import { HexMapRenderer } from "../../rendering/HexMapRenderer";
-import type { ScenarioData, ScenarioDeploymentZone, ScenarioUnit, TileDefinition, TileInstance, TilePalette } from "../../core/types";
-import type { ReconStatus, TerrainDensity, TerrainFeature } from "../../core/types";
+import type { ScenarioData, ScenarioDeploymentZone, ScenarioUnit } from "../../core/types";
 import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
+import { normalizeScenarioSource, type RawScenarioInput } from "../../data/scenarioNormalizer";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 
 type AllocationListElement = HTMLElement & {
@@ -144,8 +144,9 @@ export class PrecombatScreen {
 
   private scenarioSource: ScenarioSource;
 
-  // Campaign integration: active mission and dynamic caps derived from campaign economy when applicable.
+  // Campaign integration: active mission, difficulty, and dynamic caps derived from campaign economy when applicable.
   private activeMissionKey: MissionKey | null = null;
+  private activeDifficulty: BotDifficulty = "Normal";
   private campaignCaps: { manpowerUnits: number; airSlots: number; ammo: number; fuel: number } | null = null;
 
   /**
@@ -271,6 +272,7 @@ export class PrecombatScreen {
    */
   setup(missionKey: MissionKey, selectedGeneralId: string | null, selectedDifficulty: BotDifficulty): void {
     this.activeMissionKey = missionKey;
+    this.activeDifficulty = selectedDifficulty;
     this.scenarioSource = getScenarioByMissionKey(missionKey);
 
     console.info("[PrecombatScreen] setup mission", {
@@ -1623,95 +1625,17 @@ export class PrecombatScreen {
   }
 
   /**
-   * Builds a normalized ScenarioData for the minimap renderer.
-   * Converts compact string tile entries (like "P", "B", "H") to full TileInstance
-   * objects so the renderer and HexMapRenderer.getTerrainTypeAt work consistently.
-   * This ensures the precombat minimap matches the main battle map exactly.
+   * Builds a normalized ScenarioData for the minimap renderer using the shared scenarioNormalizer.
+   * Delegates to normalizeScenarioSource so the minimap and battle screen use identical tile, palette,
+   * unit, and objective normalization — eliminating the previous split-brain where each screen had
+   * its own divergent copy of this logic.
    */
   private buildMiniMapScenario(source: ScenarioSource): ScenarioData {
-    const raw = JSON.parse(JSON.stringify(source)) as {
-      name?: unknown;
-      size?: { cols?: unknown; rows?: unknown } | unknown;
-      tilePalette: Record<string, unknown>;
-      tiles: unknown[];
-      objectives: unknown[];
-      turnLimit?: unknown;
-      sides?: unknown;
-    };
-
-    const paletteEntries = Object.entries(raw.tilePalette ?? {}).map(([key, definition]) => {
-      return [key, this.normalizeTileDefinition(definition as { terrain: string; terrainType: string; density: string; features: string[]; recon: string })];
-    });
-    const palette: TilePalette = Object.fromEntries(paletteEntries);
-
-    const tiles: TileInstance[][] = (raw.tiles as unknown[] ?? []).map((row: unknown, rowIndex: number) =>
-      (row as unknown[]).map((entry: unknown, columnIndex: number) => {
-        if (typeof entry === "string") {
-          return { tile: entry } satisfies TileInstance;
-        }
-
-        if ((entry as { tile?: string }).tile) {
-          return this.normalizeTileInstance(entry as { tile: string; recon?: string; density?: string; features?: string[] });
-        }
-
-        const inlineKey = `inline_${rowIndex}_${columnIndex}`;
-        const inlineDefinition = entry as unknown as TileDefinition;
-        palette[inlineKey] = this.normalizeTileDefinition(inlineDefinition);
-        return { tile: inlineKey } satisfies TileInstance;
-      })
+    const missionKey = this.activeMissionKey ?? "training";
+    return normalizeScenarioSource(
+      JSON.parse(JSON.stringify(source)) as RawScenarioInput,
+      { turnLimit: getMissionTurnLimit(missionKey, this.activeDifficulty) }
     );
-
-    return {
-      name: (raw.name as string) ?? "Unnamed Scenario",
-      size: {
-        cols: Number((raw.size as { cols?: unknown })?.cols ?? 0),
-        rows: Number((raw.size as { rows?: unknown })?.rows ?? 0)
-      },
-      tilePalette: palette,
-      tiles,
-      objectives: (raw.objectives as unknown[] ?? []).map((obj: unknown) => {
-        const o = obj as { owner?: unknown; vp?: unknown; hex?: unknown };
-        return {
-          owner: (o.owner as "Player" | "Bot") ?? "Bot",
-          vp: Number(o.vp ?? 0),
-          hex: this.tupleToAxial((o.hex as [number, number]) ?? [0, 0])
-        };
-      }),
-      turnLimit: Number(raw.turnLimit ?? 0),
-      sides: (raw.sides ?? { Player: { hq: [0, 0], units: [] }, Bot: { hq: [0, 0], units: [] } }) as ScenarioData["sides"]
-    };
-  }
-
-  /**
-   * Normalizes a raw tile definition into a canonical TileDefinition.
-   */
-  private normalizeTileDefinition(definition: { terrain: string; terrainType: string; density: string; features: string[]; recon: string }): TileDefinition {
-    return {
-      terrain: definition.terrain as TileDefinition["terrain"],
-      terrainType: definition.terrainType as TileDefinition["terrainType"],
-      density: definition.density as TileDefinition["density"],
-      features: (definition.features ?? []) as TileDefinition["features"],
-      recon: definition.recon as ReconStatus
-    } satisfies TileDefinition;
-  }
-
-  /**
-   * Normalizes a tile instance override (with possible recon/density/feature overrides).
-   */
-  private normalizeTileInstance(entry: { tile: string; recon?: string; density?: string; features?: string[] }): TileInstance {
-    return {
-      tile: entry.tile,
-      recon: entry.recon as ReconStatus | undefined,
-      density: entry.density as TerrainDensity | undefined,
-      features: entry.features?.map((feature) => feature as TerrainFeature)
-    } satisfies TileInstance;
-  }
-
-  /**
-   * Converts a [col, row] tuple to the axial coordinate format used by ScenarioData.
-   */
-  private tupleToAxial(tuple: [number, number]): { q: number; r: number } {
-    return { q: tuple[0], r: tuple[1] };
   }
 
   /**
