@@ -8307,7 +8307,7 @@ export class BattleScreen {
         }
       }
 
-      this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative);
+      this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative, true);
       this.focusCurrentInitiativeActivation();
       this.highlightCurrentInitiativeGroup();
     } catch (error) {
@@ -8598,7 +8598,11 @@ export class BattleScreen {
     }
 
     const groupedActivations = currentQueue.activations.filter(
-      (activation: { ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }) =>
+      (
+        activation: { ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number },
+        index: number
+      ) =>
+        index >= startIndex &&
         !activation.isActivated &&
         activation.ownerId === activeActivation.ownerId &&
         activation.initiative === activeActivation.initiative
@@ -8765,6 +8769,35 @@ export class BattleScreen {
     this.focusInitiativeUnit(activation.unitId);
   }
 
+  private ensureFocusedPlayerInitiativeUnit(
+    activeGroup: {
+      initiative: number;
+      ownerId: "player" | "bot";
+      activations: Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }>;
+    } | null
+  ): void {
+    if (!activeGroup || activeGroup.ownerId !== "player") {
+      return;
+    }
+
+    const candidates = activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
+    if (candidates.length === 0) {
+      return;
+    }
+
+    const candidateIds = new Set(candidates.map((activation) => activation.unitId));
+    const selectedUnitId = this.selectedPlayerUnitId;
+    if (!selectedUnitId || !candidateIds.has(selectedUnitId)) {
+      this.initiativeGroupCursorUnitId = null;
+      this.focusCurrentInitiativeActivation();
+      return;
+    }
+
+    if (!this.initiativeGroupCursorUnitId || !candidateIds.has(this.initiativeGroupCursorUnitId)) {
+      this.initiativeGroupCursorUnitId = selectedUnitId;
+    }
+  }
+
   private async handleInitiativeBotActivation(event: InitiativeBotActivationResult): Promise<void> {
     if (!this.isInitiativeSystemEnabled) {
       return;
@@ -8899,6 +8932,7 @@ export class BattleScreen {
       const activation = this.initiativeMethods.getCurrentActivation();
       const queue = this.initiativeMethods.getCurrentInitiativeQueue();
       const activeGroup = this.resolveActiveInitiativeGroup(queue);
+      this.ensureFocusedPlayerInitiativeUnit(activeGroup);
       let displayActivation = activation;
       if (activeGroup?.ownerId === "player" && this.initiativeGroupCursorUnitId) {
         const cursorActivation = activeGroup.activations.find(
