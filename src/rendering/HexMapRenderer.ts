@@ -134,6 +134,7 @@ const ACTIVE_ZONE_CLASS = "deployment-zone";
 const MOVE_OPTION_HIGHLIGHT_CLASS = "move-option-highlight";
 const ATTACK_TARGET_HIGHLIGHT_CLASS = "attack-target-highlight";
 const IDLE_UNIT_HIGHLIGHT_CLASS = "idle-unit-highlight";
+const INITIATIVE_GROUP_HIGHLIGHT_CLASS = "initiative-group-highlight";
 /**
  * Static sprite used for the base camp marker. Using new URL ensures bundlers resolve the asset with type safety.
  */
@@ -4096,7 +4097,7 @@ export class HexMapRenderer implements IMapRenderer {
    * Toggles initiative group highlight for a specific hex.
    */
   private toggleInitiativeGroupHighlight(hexKey: string, enabled: boolean): void {
-    this.toggleHexHighlightClass(hexKey, IDLE_UNIT_HIGHLIGHT_CLASS, enabled);
+    this.toggleHexHighlightClass(hexKey, INITIATIVE_GROUP_HIGHLIGHT_CLASS, enabled);
   }
 
   private toggleZoneOutline(hexKey: string, enabled: boolean): void {

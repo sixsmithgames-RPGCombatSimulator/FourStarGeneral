@@ -432,11 +432,11 @@ export class EnhancedInitiativeTurnControls {
     }
 
     if (endBtn) {
-      endBtn.disabled = !isInInitiativePhase;
+      endBtn.disabled = !isInInitiativePhase || !this.isPlayerTurn;
     }
 
     if (nextBtn) {
-      nextBtn.disabled = !isInInitiativePhase;
+      nextBtn.disabled = !isInInitiativePhase || !hasCurrentUnit || !isPlayerUnit;
     }
 
     // Update turn indicator

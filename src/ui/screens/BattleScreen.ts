@@ -306,6 +306,8 @@ export class BattleScreen {
   private initiativeMethods: GameEngineInitiativeMethods | null = null;
   private initiativeTurnControls: EnhancedInitiativeTurnControls | null = null;
   private isInitiativeSystemEnabled = false;
+  private initiativeControlsInitTimerId: number | null = null;
+  private initiativeUiSyncIntervalId: number | null = null;
 
   // DOM element references
   private battleAnnouncements: HTMLElement | null = null;
@@ -3423,6 +3425,9 @@ export class BattleScreen {
     this.updateTurnStatusDisplay(summary);
     this.updateTurnControls(summary);
     this.refreshIdleUnitHighlights(summary);
+    if (this.isInitiativeSystemEnabled) {
+      this.highlightCurrentInitiativeGroup();
+    }
   }
 
   private evaluateMissionRules(): void {
@@ -3745,6 +3750,16 @@ export class BattleScreen {
     const renderer = this.hexMapRenderer;
     if (!renderer) {
       this.idleUnitHighlightKeys.clear();
+      return;
+    }
+
+    const initiativeActive =
+      this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
+    if (initiativeActive) {
+      if (this.idleUnitHighlightKeys.size > 0) {
+        renderer.clearIdleUnitHighlights();
+        this.idleUnitHighlightKeys.clear();
+      }
       return;
     }
 
@@ -5302,14 +5317,53 @@ export class BattleScreen {
   }
 
   private updateTurnControls(summary: TurnSummary): void {
+    const initiativeActive =
+      this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
+    if (initiativeActive) {
+      this.syncLegacyEndTurnButton();
+      return;
+    }
+
     const isPlayerTurn = summary.activeFaction === "Player" && summary.phase === "playerTurn";
     if (this.endTurnButton) {
       this.endTurnButton.disabled = !isPlayerTurn;
+      this.endTurnButton.hidden = false;
+      this.endTurnButton.removeAttribute("aria-hidden");
       if (isPlayerTurn) {
         this.endTurnButton.removeAttribute("aria-disabled");
       } else {
         this.endTurnButton.setAttribute("aria-disabled", "true");
       }
+    }
+  }
+
+  private syncLegacyEndTurnButton(summary?: TurnSummary): void {
+    if (!this.endTurnButton) {
+      return;
+    }
+
+    const initiativeActive =
+      this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
+    if (initiativeActive) {
+      this.endTurnButton.hidden = true;
+      this.endTurnButton.disabled = true;
+      this.endTurnButton.setAttribute("aria-hidden", "true");
+      this.endTurnButton.setAttribute("aria-disabled", "true");
+      return;
+    }
+
+    this.endTurnButton.hidden = false;
+    this.endTurnButton.removeAttribute("aria-hidden");
+
+    const effectiveSummary = summary ?? (this.battleState.hasEngine() ? this.battleState.getCurrentTurnSummary() : null);
+    const isPlayerTurn = effectiveSummary
+      ? effectiveSummary.activeFaction === "Player" && effectiveSummary.phase === "playerTurn"
+      : false;
+    this.endTurnButton.disabled = !isPlayerTurn;
+    if (isPlayerTurn) {
+      this.endTurnButton.removeAttribute("aria-disabled");
+    } else {
+      this.endTurnButton.setAttribute("aria-disabled", "true");
     }
   }
 
@@ -6473,6 +6527,7 @@ export class BattleScreen {
       this.tutorialUpdateUnsubscribe();
       this.tutorialUpdateUnsubscribe = null;
     }
+    this.teardownInitiativeSystemUi();
     this.queuedTargetMarkerActions.clear();
     this.hexMapRenderer?.syncQueuedTargetMarkers([]);
 
@@ -6911,6 +6966,7 @@ export class BattleScreen {
       this.initializeInitiativeSystem(engine);
       this.initiativeMethods?.startInitiativeTurnPhase(true); // Enable initiative system
       this.syncInitiativeTurnControlsState();
+      this.focusCurrentInitiativeActivation();
 
       this.refreshDeploymentMirrors("sync");
 
@@ -7062,6 +7118,11 @@ export class BattleScreen {
    */
   private async handleEndTurn(): Promise<void> {
     try {
+      if (this.isInitiativeSystemEnabled && this.initiativeMethods?.isInitiativeSystemActive()) {
+        this.handleInitiativeEndTurn();
+        return;
+      }
+
       const preflightSummary = this.battleState.getCurrentTurnSummary();
       const isPlayerTurn = preflightSummary.activeFaction === "Player" && preflightSummary.phase === "playerTurn";
 
@@ -7959,11 +8020,6 @@ export class BattleScreen {
       this.beginBattleButton.setAttribute("aria-disabled", "true");
     }
 
-    if (this.endTurnButton) {
-      this.endTurnButton.disabled = false;
-      this.endTurnButton.removeAttribute("aria-disabled");
-    }
-
     const { turnNumber, activeFaction, reserveCount, phase } = args;
     this.announceBattleUpdate(
       `Battle phase engaged. Turn ${turnNumber} (${phase}) is ready for the ${activeFaction}. Reserves standing by: ${reserveCount}.`
@@ -8031,27 +8087,95 @@ export class BattleScreen {
   private initializeInitiativeSystem(engine: GameEngine): void {
     try {
       console.log('Initializing initiative system...');
-      
+
+      if (this.initiativeControlsInitTimerId !== null) {
+        window.clearTimeout(this.initiativeControlsInitTimerId);
+        this.initiativeControlsInitTimerId = null;
+      }
+
       // Initialize initiative methods
       this.initiativeMethods = new GameEngineInitiativeMethods(engine);
       this.isInitiativeSystemEnabled = true;
-      
+      this.syncLegacyEndTurnButton();
+      this.ensureInitiativeUiSyncLoop();
+
       // Initialize initiative group highlighting
       this.highlightCurrentInitiativeGroup();
-      
+
       // Initialize enhanced turn controls UI after a short delay to ensure DOM is ready
-      setTimeout(() => {
+      this.initiativeControlsInitTimerId = window.setTimeout(() => {
+        this.initiativeControlsInitTimerId = null;
         this.initializeInitiativeTurnControls();
       }, 100);
-      
+
       console.log('Initiative system initialized successfully');
-      
+
     } catch (error) {
       console.error('Failed to initialize initiative system:', error);
+      if (this.initiativeUiSyncIntervalId !== null) {
+        window.clearInterval(this.initiativeUiSyncIntervalId);
+        this.initiativeUiSyncIntervalId = null;
+      }
+      this.initiativeMethods = null;
       this.isInitiativeSystemEnabled = false;
+      this.syncLegacyEndTurnButton();
       // Fall back to traditional turn management
       engine.startPlayerTurnPhase();
     }
+  }
+
+  private teardownInitiativeSystemUi(): void {
+    if (this.initiativeControlsInitTimerId !== null) {
+      window.clearTimeout(this.initiativeControlsInitTimerId);
+      this.initiativeControlsInitTimerId = null;
+    }
+
+    if (this.initiativeUiSyncIntervalId !== null) {
+      window.clearInterval(this.initiativeUiSyncIntervalId);
+      this.initiativeUiSyncIntervalId = null;
+    }
+
+    if (this.initiativeTurnControls) {
+      this.initiativeTurnControls.dispose();
+      this.initiativeTurnControls = null;
+    }
+
+    const existingControls = document.querySelectorAll('.enhanced-initiative-turn-controls, .initiative-turn-controls-container');
+    existingControls.forEach((control) => control.remove());
+
+    document
+      .querySelectorAll('.battle-map-header__command-group.initiative-controls-active')
+      .forEach((group) => group.classList.remove('initiative-controls-active'));
+
+    this.clearInitiativeGroupHighlights();
+    this.initiativeMethods = null;
+    this.isInitiativeSystemEnabled = false;
+    this.syncLegacyEndTurnButton();
+  }
+
+  private ensureInitiativeUiSyncLoop(): void {
+    if (this.initiativeUiSyncIntervalId !== null) {
+      return;
+    }
+
+    this.initiativeUiSyncIntervalId = window.setInterval(() => {
+      if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
+        if (this.initiativeUiSyncIntervalId !== null) {
+          window.clearInterval(this.initiativeUiSyncIntervalId);
+          this.initiativeUiSyncIntervalId = null;
+        }
+        return;
+      }
+
+      const initiativeActive = this.initiativeMethods.isInitiativeSystemActive();
+      this.syncInitiativeTurnControlsState();
+      this.refreshIdleUnitHighlights();
+      this.highlightCurrentInitiativeGroup();
+      if (!initiativeActive && this.initiativeUiSyncIntervalId !== null) {
+        window.clearInterval(this.initiativeUiSyncIntervalId);
+        this.initiativeUiSyncIntervalId = null;
+      }
+    }, 200);
   }
 
   /**
@@ -8059,6 +8183,15 @@ export class BattleScreen {
    */
   private initializeInitiativeTurnControls(): void {
     try {
+      if (this.initiativeTurnControls) {
+        this.initiativeTurnControls.dispose();
+        this.initiativeTurnControls = null;
+      }
+
+      document
+        .querySelectorAll('.battle-map-header__command-group.initiative-controls-active')
+        .forEach((group) => group.classList.remove('initiative-controls-active'));
+
       // Remove any existing initiative controls from deployment panel or other locations
       const existingControls = document.querySelectorAll('.enhanced-initiative-turn-controls, .initiative-turn-controls-container');
       existingControls.forEach(control => {
@@ -8531,6 +8664,8 @@ export class BattleScreen {
    * Synchronize initiative turn controls with current queue/activation state.
    */
   private syncInitiativeTurnControlsState(): void {
+    this.syncLegacyEndTurnButton();
+
     if (!this.initiativeTurnControls) {
       return;
     }
@@ -8540,6 +8675,7 @@ export class BattleScreen {
       this.initiativeTurnControls.updatePlayerTurn(false);
       this.initiativeTurnControls.updatePhase('turnEnded');
       this.initiativeTurnControls.setControlsEnabled(false);
+      this.syncLegacyEndTurnButton();
       return;
     }
 
@@ -8557,6 +8693,7 @@ export class BattleScreen {
       this.initiativeTurnControls.updatePlayerTurn(activation?.ownerId === 'player');
       this.initiativeTurnControls.updatePhase(controlsPhase);
       this.initiativeTurnControls.setControlsEnabled(controlsPhase === 'initiativeTurn');
+      this.syncLegacyEndTurnButton();
     } catch (error) {
       console.error('Failed to sync initiative turn controls state:', error);
     }
@@ -11264,6 +11401,9 @@ export class BattleScreen {
 
     // Ensure idle formations retain their blue outline after sprite redraws.
     this.refreshIdleUnitHighlights();
+    if (this.isInitiativeSystemEnabled) {
+      this.highlightCurrentInitiativeGroup();
+    }
     this.syncQueuedTargetMarkers();
   }
 
@@ -11375,6 +11515,7 @@ export class BattleScreen {
   }
 
   private resetMissionDerivedUiState(): void {
+    this.teardownInitiativeSystemUi();
     this.hideAttackDialog();
     this.pendingAttack = null;
     this.attackConfirmationLocked = false;

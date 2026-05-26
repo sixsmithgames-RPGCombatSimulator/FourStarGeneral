@@ -72,10 +72,27 @@ export class GameEngineInitiativeMethods {
       
       // Check initial queue state
       const initialQueue = this.integration.getInitiativeQueue();
+      const initiativeBands = (initialQueue?.activations ?? []).reduce(
+        (bands, activation) => {
+          const key = `initiative_${activation.initiative}`;
+          const entry = bands[key] ?? { player: 0, bot: 0 };
+          if (activation.ownerId === 'player') {
+            entry.player += 1;
+          } else {
+            entry.bot += 1;
+          }
+          bands[key] = entry;
+          return bands;
+        },
+        {} as Record<string, { player: number; bot: number }>
+      );
+      const firstActivation = initialQueue?.activations?.find((activation) => !activation.isActivated) ?? null;
       console.log('Initial initiative queue:', {
         hasQueue: !!initialQueue,
         activations: initialQueue?.activations?.length || 0,
-        currentIndex: initialQueue?.currentIndex || 0
+        currentIndex: initialQueue?.currentIndex || 0,
+        firstActivation,
+        initiativeBands
       });
       
       // Process the first activation
