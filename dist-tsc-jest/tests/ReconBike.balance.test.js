@@ -1,6 +1,6 @@
 import { registerTest } from "./harness.js";
 import { resolveAttack } from "../src/core/Combat";
-import unitTypesData from "../src/data/unitTypes.json";
+import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
 const plains = {
     moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
     defense: 0,

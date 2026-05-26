@@ -143,8 +143,9 @@ export function renderShockRing(ctx, config) {
     const params = config.params;
     const progress = easeOutCubic(ctx.phaseProgress);
     const { minRadius, maxRadius, strokeWidth, ringCount } = params;
+    const ringColor = params.color ?? "#ff8d2a";
+    const radiusYScale = clamp(params.radiusYScale ?? 1, 0.45, 1.25);
     const elements = [];
-    const rng = new SeededRandom(ctx.seed);
     const zoomAdjustedRingCount = zoomScaledCount(ringCount, ctx.zoomTier, 0.5, 0.75);
     for (let i = 0; i < zoomAdjustedRingCount; i++) {
         const ringProgress = Math.max(0, Math.min(1, progress - i * 0.15));
@@ -152,15 +153,28 @@ export function renderShockRing(ctx, config) {
             continue;
         const radius = minRadius + ringProgress * (maxRadius - minRadius);
         const opacity = 1.0 - ringProgress;
-        const circle = document.createElementNS(SVG_NS, "circle");
-        circle.setAttribute("cx", ctx.anchorX.toString());
-        circle.setAttribute("cy", ctx.anchorY.toString());
-        circle.setAttribute("r", radius.toString());
-        circle.setAttribute("stroke", "#ff8d2a");
-        circle.setAttribute("stroke-width", strokeWidth.toString());
-        circle.setAttribute("fill", "none");
-        circle.setAttribute("opacity", opacity.toString());
-        elements.push(circle);
+        if (Math.abs(radiusYScale - 1) <= 0.001) {
+            const circle = document.createElementNS(SVG_NS, "circle");
+            circle.setAttribute("cx", ctx.anchorX.toString());
+            circle.setAttribute("cy", ctx.anchorY.toString());
+            circle.setAttribute("r", radius.toString());
+            circle.setAttribute("stroke", ringColor);
+            circle.setAttribute("stroke-width", strokeWidth.toString());
+            circle.setAttribute("fill", "none");
+            circle.setAttribute("opacity", opacity.toString());
+            elements.push(circle);
+            continue;
+        }
+        const ellipse = document.createElementNS(SVG_NS, "ellipse");
+        ellipse.setAttribute("cx", ctx.anchorX.toString());
+        ellipse.setAttribute("cy", ctx.anchorY.toString());
+        ellipse.setAttribute("rx", radius.toString());
+        ellipse.setAttribute("ry", (radius * radiusYScale).toString());
+        ellipse.setAttribute("stroke", ringColor);
+        ellipse.setAttribute("stroke-width", strokeWidth.toString());
+        ellipse.setAttribute("fill", "none");
+        ellipse.setAttribute("opacity", opacity.toString());
+        elements.push(ellipse);
     }
     return elements;
 }
@@ -173,23 +187,39 @@ export function renderSparks(ctx, config) {
     const { sparkCount, minLength, maxLength, strokeWidth } = params;
     const rng = new SeededRandom(ctx.seed);
     const elements = [];
+    const providedColors = Array.isArray(params.colors) && params.colors.length > 0
+        ? params.colors.filter((color) => typeof color === "string" && color.length > 0)
+        : [];
+    const colors = providedColors.length > 0 ? providedColors : ["#ffd76a"];
+    const sourceRadius = Math.max(0, params.sourceRadius ?? 0);
+    const angleMin = typeof params.angleMinDeg === "number" && Number.isFinite(params.angleMinDeg)
+        ? (params.angleMinDeg * Math.PI) / 180
+        : 0;
+    const angleMax = typeof params.angleMaxDeg === "number" && Number.isFinite(params.angleMaxDeg)
+        ? (params.angleMaxDeg * Math.PI) / 180
+        : Math.PI * 2;
+    const gravityPx = params.gravityPx ?? 0;
+    const fadePower = Math.max(0.2, params.fadePower ?? 1);
     const nodeCount = ctx.zoomTier === 'far' ? Math.floor(sparkCount * 0.5) :
         ctx.zoomTier === 'near' ? sparkCount :
             Math.floor(sparkCount * 0.75);
     for (let i = 0; i < nodeCount; i++) {
-        const angle = rng.range(0, Math.PI * 2);
+        const angle = rng.range(Math.min(angleMin, angleMax), Math.max(angleMin, angleMax));
         const length = rng.range(minLength, maxLength);
         const sparkProgress = easeOutCubic(ctx.phaseProgress);
+        const originDistance = sourceRadius * Math.sqrt(rng.next());
+        const originX = ctx.anchorX + Math.cos(angle) * originDistance * 0.35;
+        const originY = ctx.anchorY + Math.sin(angle) * originDistance * 0.2;
         const currentLength = length * sparkProgress;
-        const x2 = ctx.anchorX + Math.cos(angle) * currentLength;
-        const y2 = ctx.anchorY + Math.sin(angle) * currentLength;
-        const opacity = 1.0 - sparkProgress;
+        const x2 = originX + Math.cos(angle) * currentLength;
+        const y2 = originY + Math.sin(angle) * currentLength + gravityPx * sparkProgress * sparkProgress;
+        const opacity = Math.pow(1.0 - sparkProgress, fadePower);
         const line = document.createElementNS(SVG_NS, "line");
-        line.setAttribute("x1", ctx.anchorX.toString());
-        line.setAttribute("y1", ctx.anchorY.toString());
+        line.setAttribute("x1", originX.toString());
+        line.setAttribute("y1", originY.toString());
         line.setAttribute("x2", x2.toString());
         line.setAttribute("y2", y2.toString());
-        line.setAttribute("stroke", "#ffd76a");
+        line.setAttribute("stroke", colors[i % colors.length] ?? "#ffd76a");
         line.setAttribute("stroke-width", strokeWidth.toString());
         line.setAttribute("opacity", opacity.toString());
         line.setAttribute("stroke-linecap", "round");
@@ -210,21 +240,30 @@ export function renderDebris(ctx, config) {
         ctx.zoomTier === 'near' ? particleCount :
             Math.floor(particleCount * 0.6);
     const baseColor = ctx.terrainTint ?? "#4a3c28";
+    const hotColor = mixHexColors(baseColor, "#ff9d2f", 0.62);
+    const angleMin = typeof params.angleMinDeg === "number" && Number.isFinite(params.angleMinDeg)
+        ? (params.angleMinDeg * Math.PI) / 180
+        : -Math.PI * 2 / 3;
+    const angleMax = typeof params.angleMaxDeg === "number" && Number.isFinite(params.angleMaxDeg)
+        ? (params.angleMaxDeg * Math.PI) / 180
+        : -Math.PI / 3;
+    const gravityPx = params.gravityPx ?? 50;
+    const fadePower = Math.max(0.2, params.fadePower ?? 1);
+    const hotParticleRatio = clamp(params.hotParticleRatio ?? 0, 0, 0.6);
     for (let i = 0; i < nodeCount; i++) {
-        const angle = rng.range(-Math.PI / 3, -Math.PI * 2 / 3);
+        const angle = rng.range(Math.min(angleMin, angleMax), Math.max(angleMin, angleMax));
         const velocity = rng.range(minVelocity, maxVelocity);
         const progress = easeInCubic(ctx.phaseProgress);
         // Ballistic trajectory
         const distance = velocity * progress;
-        const gravity = 0.5;
         const x = ctx.anchorX + Math.cos(angle) * distance;
-        const y = ctx.anchorY + Math.sin(angle) * distance + gravity * progress * progress * 50;
-        const opacity = 1.0 - progress;
+        const y = ctx.anchorY + Math.sin(angle) * distance + progress * progress * gravityPx;
+        const opacity = Math.pow(1.0 - progress, fadePower);
         const particle = document.createElementNS(SVG_NS, "circle");
         particle.setAttribute("cx", x.toString());
         particle.setAttribute("cy", y.toString());
         particle.setAttribute("r", particleSize.toString());
-        particle.setAttribute("fill", baseColor);
+        particle.setAttribute("fill", rng.next() < hotParticleRatio ? hotColor : baseColor);
         particle.setAttribute("opacity", opacity.toString());
         elements.push(particle);
     }

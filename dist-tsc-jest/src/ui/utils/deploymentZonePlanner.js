@@ -32,6 +32,13 @@ function resolveTileDefinition(scenario, col, row) {
     if (!entry) {
         throw new Error(`Tile column ${col} is out of bounds for deployment zone calculation.`);
     }
+    if (typeof entry === "string") {
+        const definition = scenario.tilePalette[entry];
+        if (!definition) {
+            throw new Error(`Palette key '${entry}' missing while resolving deployment zone terrain.`);
+        }
+        return definition;
+    }
     const paletteKey = entry.tile;
     if (paletteKey) {
         const definition = scenario.tilePalette[paletteKey];

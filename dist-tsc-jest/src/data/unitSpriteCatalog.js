@@ -31,6 +31,23 @@ const unitSprite = (fileName) => {
     UNIT_SPRITE_FILE_BY_URL.set(resolved, fileName);
     return resolved;
 };
+const directionalSprite = (baseFileName) => unitSprite(`${baseFileName}_Southview.png`);
+function factionDirectionalSprites(files) {
+    const sprites = {
+        Player: directionalSprite(files.Player),
+        Ally: directionalSprite(files.Ally ?? files.Player),
+        fallback: directionalSprite(files.fallback ?? files.Player)
+    };
+    return files.Bot ? { ...sprites, Bot: directionalSprite(files.Bot) } : sprites;
+}
+function factionStaticSprites(files) {
+    const sprites = {
+        Player: unitSprite(files.Player),
+        Ally: unitSprite(files.Ally ?? files.Player),
+        fallback: unitSprite(files.fallback ?? files.Player)
+    };
+    return files.Bot ? { ...sprites, Bot: unitSprite(files.Bot) } : sprites;
+}
 /**
  * Composite sprite sequences for units whose formation is made up of mixed figure types.
  * The array length is always 4 (full strength). resolveCompositeSprites slices it to stackCount.
@@ -48,178 +65,145 @@ const unitSprite = (fileName) => {
 const COMPOSITE_GROUND_SPRITES = {
     Infantry_42: {
         Player: [
-            unitSprite("Infantry_Light_USA_Southview.png"), // pos 0 — core rifleman, last survivor
-            unitSprite("Infantry_Mortar_USA_Southview.png"), // pos 1 — mortar
-            unitSprite("Infantry_Light_USA_Southview.png"), // pos 2 — rifleman pose-1 (reuses pose-0 until variants exist)
-            unitSprite("Infantry_AT_USA_Southview.png") // pos 3 — AT specialist, drops first
+            directionalSprite("Infantry_Light_USA"), // pos 0 — core rifleman, last survivor
+            directionalSprite("Infantry_Mortar_USA"), // pos 1 — mortar
+            directionalSprite("Infantry_Light_USA"), // pos 2 — rifleman pose-1 (reuses pose-0 until variants exist)
+            directionalSprite("Infantry_AT_USA") // pos 3 — AT specialist, drops first
         ],
         Bot: [
-            unitSprite("Infantry_Basic_German_Southview.png"), // pos 0 — core rifleman, last survivor
-            unitSprite("Infantry_Mortar_German_Southview.png"), // pos 1 — mortar
-            unitSprite("Infantry_Basic_German_Southview.png"), // pos 2 — rifleman pose-1 (reuses pose-0 until variants exist)
-            unitSprite("Infantry_AT_German_Southview.png") // pos 3 — AT specialist, drops first
+            directionalSprite("Infantry_Basic_German"), // pos 0 — core rifleman, last survivor
+            directionalSprite("Infantry_Mortar_German"), // pos 1 — mortar
+            directionalSprite("Infantry_Basic_German"), // pos 2 — rifleman pose-1 (reuses pose-0 until variants exist)
+            directionalSprite("Infantry_AT_German") // pos 3 — AT specialist, drops first
         ],
         Ally: [
-            unitSprite("Infantry_Light_USA_Southview.png"),
-            unitSprite("Infantry_Mortar_USA_Southview.png"),
-            unitSprite("Infantry_Light_USA_Southview.png"),
-            unitSprite("Infantry_AT_USA_Southview.png")
+            directionalSprite("Infantry_Light_USA"),
+            directionalSprite("Infantry_Mortar_USA"),
+            directionalSprite("Infantry_Light_USA"),
+            directionalSprite("Infantry_AT_USA")
         ]
     },
     AT_Infantry: {
         Player: [
-            unitSprite("Infantry_AT_USA_Southview.png"), // pos 0 — core AT, last survivor
-            unitSprite("Infantry_Mortar_USA_Southview.png"), // pos 1 — mortar support
-            unitSprite("Infantry_AT_USA_Southview.png"), // pos 2 — AT pose-1 (reuses pose-0 until variants exist)
-            unitSprite("Infantry_AT_USA_Southview.png") // pos 3 — AT pose-2, drops first (reuses pose-0)
+            directionalSprite("Infantry_AT_USA"), // pos 0 — core AT, last survivor
+            directionalSprite("Infantry_Mortar_USA"), // pos 1 — mortar support
+            directionalSprite("Infantry_AT_USA"), // pos 2 — AT pose-1 (reuses pose-0 until variants exist)
+            directionalSprite("Infantry_AT_USA") // pos 3 — AT pose-2, drops first (reuses pose-0)
         ],
         Bot: [
-            unitSprite("Infantry_AT_German_Southview.png"), // pos 0 — core AT, last survivor
-            unitSprite("Infantry_Mortar_German_Southview.png"), // pos 1 — mortar support
-            unitSprite("Infantry_AT_German_Southview.png"), // pos 2 — AT pose-1 (reuses pose-0 until variants exist)
-            unitSprite("Infantry_AT_German_Southview.png") // pos 3 — AT pose-2, drops first (reuses pose-0)
+            directionalSprite("Infantry_AT_German"), // pos 0 — core AT, last survivor
+            directionalSprite("Infantry_Mortar_German"), // pos 1 — mortar support
+            directionalSprite("Infantry_AT_German"), // pos 2 — AT pose-1 (reuses pose-0 until variants exist)
+            directionalSprite("Infantry_AT_German") // pos 3 — AT pose-2, drops first (reuses pose-0)
         ],
         Ally: [
-            unitSprite("Infantry_AT_USA_Southview.png"),
-            unitSprite("Infantry_Mortar_USA_Southview.png"),
-            unitSprite("Infantry_AT_USA_Southview.png"),
-            unitSprite("Infantry_AT_USA_Southview.png")
+            directionalSprite("Infantry_AT_USA"),
+            directionalSprite("Infantry_Mortar_USA"),
+            directionalSprite("Infantry_AT_USA"),
+            directionalSprite("Infantry_AT_USA")
         ]
     }
 };
 /**
- * Faction-aware ground sprites. Only units that genuinely exist for both factions belong here.
- * Single-faction unit types (e.g., Light_Tank=USA, Panzer_IV=German) are NOT listed here;
- * their SCENARIO_SPRITES entry points to the correct faction-specific art directly.
+ * Scenario unit sprites grouped by role. Entries are either a single concrete asset or a
+ * faction map when the same scenario type has distinct USA/Allied and German art.
  */
-const FACTION_GROUND_SPRITES = {
-    Heavy_Tank: {
-        Player: unitSprite("Tank_M26_USA_Southview.png"),
-        Ally: unitSprite("Tank_M26_USA_Southview.png"),
-        Bot: unitSprite("Tank_Tiger_German_Southview.png"),
-        fallback: unitSprite("Tank_M26_USA_Southview.png")
-    },
-    Tank_Destroyer: {
-        Player: unitSprite("Tankkiller_M10_USA_Southview.png"),
-        Ally: unitSprite("Tankkiller_M10_USA_Southview.png"),
-        Bot: unitSprite("Tankkiller_MarderIII_German_Southview.png"),
-        fallback: unitSprite("Tankkiller_M10_USA_Southview.png")
-    },
-    SP_Artillery: {
-        Player: unitSprite("Artillery_M7_USA_Southview.png"),
-        Ally: unitSprite("Artillery_M7_USA_Southview.png"),
-        Bot: unitSprite("Artillery_Hummel_German_Southview.png"),
-        fallback: unitSprite("Artillery_M7_USA_Southview.png")
-    },
-    Flak_88: {
-        Player: unitSprite("Flak_88_USA_Southview.png"),
-        Ally: unitSprite("Flak_88_USA_Southview.png"),
-        Bot: unitSprite("Flak_88_Germany_Southview.png"),
-        fallback: unitSprite("Flak_88_USA_Southview.png")
-    },
-    Recon_Bike: {
-        Player: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png"),
-        Ally: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png"),
-        Bot: unitSprite("Wheeled_Bikes_Recon_German_Southview.png"),
-        fallback: unitSprite("Wheeled_Bikes_Recon_USA_Southview.png")
-    },
-    Recon_ArmoredCar: {
-        Player: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png"),
-        Ally: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png"),
-        Bot: unitSprite("Wheeled_Recon_Armored_Car_SdKfz222_German_Southview.png"),
-        fallback: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png")
-    },
-    Engineer: {
-        Player: unitSprite("Infantry_Engineers_USA_Southview.png"),
-        Ally: unitSprite("Infantry_Engineers_USA_Southview.png"),
-        Bot: unitSprite("Infantry_Basic_German_Southview.png"),
-        fallback: unitSprite("Infantry_Engineers_USA_Southview.png")
-    },
-    Assault_Gun: {
-        Player: unitSprite("Tank_Assault_M8_USA_Southview.png"),
-        Ally: unitSprite("Tank_Assault_M8_USA_Southview.png"),
-        Bot: unitSprite("Tank_Assault_StuG_German_Southview.png"),
-        fallback: unitSprite("Tank_Assault_M8_USA_Southview.png")
-    },
-    Rocket_Artillery: {
-        Player: unitSprite("Artillery_Calliope_USA_Southview.png"),
-        Ally: unitSprite("Artillery_Calliope_USA_Southview.png"),
-        Bot: unitSprite("Artillery_Nebelwerfer_German_Southview.png"),
-        fallback: unitSprite("Artillery_Calliope_USA_Southview.png")
-    },
-    APC_Halftrack: {
-        Player: unitSprite("APC_Halftrack_USA_Southview.png"),
-        Ally: unitSprite("APC_Halftrack_USA_Southview.png"),
-        Bot: unitSprite("APC_Halftrack_German_Southview.png"),
-        fallback: unitSprite("APC_Halftrack_USA_Southview.png")
-    }
-};
-/**
- * Direct mapping from engine `ScenarioUnit.type` values to concrete sprite assets.
- * This table mirrors the art catalogue so both AI and player-owned units render consistently.
- * NOTE: For units defined in FACTION_GROUND_SPRITES, those faction-aware mappings take precedence.
- */
-const SCENARIO_SPRITES = {
-    Infantry_42: unitSprite("Infantry_Light_USA_Southview.png"),
-    AT_Infantry: unitSprite("Infantry_AT_USA_Southview.png"),
-    Paratrooper: unitSprite("Paratrooper.png"),
-    Combat_Engineer: unitSprite("Infantry_Engineers_USA_Southview.png"),
-    AT_Gun_50mm: unitSprite("Wheeled_AT_Gun_USA_Southview.png"),
-    Recon_ArmoredCar: unitSprite("Wheeled_Recon_Armored_Car_Greyhound_USA_Southview.png"),
-    Supply_Truck: unitSprite("Supply_Truck.png"),
-    Panzer_IV: unitSprite("Tank_PanzerIV_German_Southview.png"),
-    Howitzer_105: unitSprite("Artillery_Howitzer_USA_Southview.png"),
-    Scout_Plane: unitSprite("Scout_Plane.png"),
-    Fighter: unitSprite("Fighter.png"),
-    Interceptor: unitSprite("Interceptor.png"),
-    Ground_Attack: unitSprite("Ground_Attack.png"),
-    Bomber: unitSprite("Bomber.png"),
-    Transport_Plane: unitSprite("Transport_Plane.png"),
-    Infantry: unitSprite("Infantry_Light_USA_Southview.png"),
-    Howitzer: unitSprite("Artillery_Howitzer_USA_Southview.png"),
-    Panzer_V: unitSprite("Panzer_V.png"),
-    Light_Tank: unitSprite("Tank_M4_USA_Southview.png"),
-    Anti_Tank_Tank: unitSprite("Tankkiller_M10_USA_Southview.png"),
-    SPAA: unitSprite("Flak_88_USA_Southview.png"),
-    Recon: unitSprite("Recon_ArmoredCar.png"),
-    Bomber_Elite: unitSprite("Bomber.png"),
-    Transport_Ship: unitSprite("Transport_Ship.png"),
-    Battleship: unitSprite("Battleship.png"),
+const GROUND_UNIT_SPRITES = {
+    // Infantry and support weapons
+    Infantry_42: directionalSprite("Infantry_Light_USA"),
+    Infantry: directionalSprite("Infantry_Light_USA"),
     Infantry_Elite: unitSprite("Infantry_Elite.png"),
-    Artillery_155mm: unitSprite("Artillery_Howitzer_USA_Southview.png"),
-    Artillery_105mm: unitSprite("Artillery_Howitzer_USA_Southview.png")
+    Infantry_mg: directionalSprite("Infantry_Light_USA"),
+    Infantry_bazooka: directionalSprite("Infantry_AT_USA"),
+    Infantry_mortar: directionalSprite("Infantry_Mortar_USA"),
+    AT_Infantry: directionalSprite("Infantry_AT_USA"),
+    Paratrooper: unitSprite("Paratrooper.png"),
+    Engineer: factionDirectionalSprites({
+        Player: "Infantry_Engineers_USA",
+        Bot: "Infantry_Basic_German"
+    }),
+    Combat_Engineer: directionalSprite("Infantry_Engineers_USA"),
+    AT_Gun_50mm: directionalSprite("Wheeled_AT_Gun_USA"),
+    Flak_88: factionDirectionalSprites({
+        Player: "Flak_88_USA",
+        Bot: "Flak_88_Germany"
+    }),
+    SPAA: directionalSprite("Flak_88_USA"),
+    // Recon, logistics, and carriers
+    Recon_ArmoredCar: factionDirectionalSprites({
+        Player: "Wheeled_Recon_Armored_Car_Greyhound_USA",
+        Bot: "Wheeled_Recon_Armored_Car_SdKfz222_German"
+    }),
+    Recon: directionalSprite("Wheeled_Recon_Armored_Car_Greyhound_USA"),
+    Recon_Bike: factionDirectionalSprites({
+        Player: "Wheeled_Bikes_Recon_USA",
+        Bot: "Wheeled_Bikes_Recon_German"
+    }),
+    Supply_Truck: factionDirectionalSprites({
+        Player: "Wheeled_Supply_USA",
+        Bot: "Wheeled_Supply_German"
+    }),
+    APC_Halftrack: factionDirectionalSprites({
+        Player: "APC_Halftrack_USA",
+        Bot: "APC_Halftrack_German"
+    }),
+    // Armor
+    Light_Tank: directionalSprite("Tank_M4_USA"),
+    Panzer_IV: directionalSprite("Tank_PanzerIV_German"),
+    Panzer_V: unitSprite("Panzer_V.png"),
+    Heavy_Tank: factionDirectionalSprites({
+        Player: "Tank_M26_USA",
+        Bot: "Tank_Tiger_German"
+    }),
+    Assault_Gun: factionDirectionalSprites({
+        Player: "Tank_Assault_M8_USA",
+        Bot: "Tank_Assault_StuG_German"
+    }),
+    Tank_Destroyer: factionDirectionalSprites({
+        Player: "Tankkiller_M10_USA",
+        Bot: "Tankkiller_MarderIII_German"
+    }),
+    Anti_Tank_Tank: directionalSprite("Tankkiller_M10_USA"),
+    // Artillery
+    Howitzer_105: directionalSprite("Artillery_Howitzer_USA"),
+    Howitzer: directionalSprite("Artillery_Howitzer_USA"),
+    Artillery_105mm: directionalSprite("Artillery_Howitzer_USA"),
+    Artillery_155mm: directionalSprite("Artillery_Howitzer_USA"),
+    Rocket_Artillery: factionDirectionalSprites({
+        Player: "Artillery_Calliope_USA",
+        Bot: "Artillery_Nebelwerfer_German"
+    }),
+    SP_Artillery: factionDirectionalSprites({
+        Player: "Artillery_M7_USA",
+        Bot: "Artillery_Hummel_German"
+    }),
+    // Naval and legacy assets
+    Transport_Ship: unitSprite("Transport_Ship.png"),
+    Battleship: unitSprite("Battleship.png")
 };
-const FACTION_AIRCRAFT_SPRITES = {
-    Fighter: {
-        Player: unitSprite("Aircraft_USA_P51.png"),
-        Ally: unitSprite("Aircraft_USA_P51.png"),
-        Bot: unitSprite("Aircraft_German_BF109.png"),
-        fallback: unitSprite("Aircraft_USA_P51.png")
-    },
-    Interceptor: {
-        Player: unitSprite("Aircraft_England_Spitfire.png"),
-        Ally: unitSprite("Aircraft_England_Spitfire.png"),
-        Bot: unitSprite("Aircraft_German_FW190.png"),
-        fallback: unitSprite("Aircraft_England_Spitfire.png")
-    },
-    Ground_Attack: {
-        Player: unitSprite("Aircraft_USA_B25.png"),
-        Ally: unitSprite("Aircraft_USA_B25.png"),
-        Bot: unitSprite("Aircraft_German_JU87.png"),
-        fallback: unitSprite("Aircraft_USA_B25.png")
-    },
-    Bomber: {
-        Player: unitSprite("Aircraft_USA_B17.png"),
-        Ally: unitSprite("Aircraft_USA_B17.png"),
-        Bot: unitSprite("Aircraft_German_HE177.png"),
-        fallback: unitSprite("Aircraft_USA_B17.png")
-    },
-    Bomber_Elite: {
-        Player: unitSprite("Aircraft_USA_B17.png"),
-        Ally: unitSprite("Aircraft_USA_B17.png"),
-        Bot: unitSprite("Aircraft_German_HE177.png"),
-        fallback: unitSprite("Aircraft_USA_B17.png")
-    }
+const AIRCRAFT_UNIT_SPRITES = {
+    Scout_Plane: unitSprite("Scout_Plane.png"),
+    Fighter: factionStaticSprites({
+        Player: "Aircraft_USA_P51.png",
+        Bot: "Aircraft_German_BF109.png"
+    }),
+    Interceptor: factionStaticSprites({
+        Player: "Aircraft_England_Spitfire.png",
+        Bot: "Aircraft_German_FW190.png"
+    }),
+    Ground_Attack: factionStaticSprites({
+        Player: "Aircraft_USA_B25.png",
+        Bot: "Aircraft_German_JU87.png"
+    }),
+    Bomber: factionStaticSprites({
+        Player: "Aircraft_USA_B17.png",
+        Bot: "Aircraft_German_HE177.png"
+    }),
+    Bomber_Elite: factionStaticSprites({
+        Player: "Aircraft_USA_B17.png",
+        Bot: "Aircraft_German_HE177.png"
+    }),
+    Transport_Plane: unitSprite("Transport_Plane.png")
 };
 function normalizeSpriteFaction(faction) {
     if (faction === "Bot") {
@@ -233,26 +217,22 @@ function normalizeSpriteFaction(faction) {
     }
     return null;
 }
+function resolveCatalogEntry(entry, faction) {
+    if (!entry) {
+        return undefined;
+    }
+    if (typeof entry === "string") {
+        return entry;
+    }
+    const spriteFaction = normalizeSpriteFaction(faction);
+    if (spriteFaction && entry[spriteFaction]) {
+        return entry[spriteFaction];
+    }
+    return entry.Player ?? entry.Ally ?? entry.Bot ?? entry.fallback;
+}
 function resolveScenarioSprite(scenarioType, faction) {
-    // Check faction-aware aircraft sprites first
-    const aircraftSpriteSet = FACTION_AIRCRAFT_SPRITES[scenarioType];
-    if (aircraftSpriteSet) {
-        const spriteFaction = normalizeSpriteFaction(faction);
-        if (spriteFaction && aircraftSpriteSet[spriteFaction]) {
-            return aircraftSpriteSet[spriteFaction];
-        }
-        return aircraftSpriteSet.Player ?? aircraftSpriteSet.Ally ?? aircraftSpriteSet.Bot ?? aircraftSpriteSet.fallback;
-    }
-    // Check faction-aware ground sprites next (tanks, artillery, etc.)
-    const groundSpriteSet = FACTION_GROUND_SPRITES[scenarioType];
-    if (groundSpriteSet) {
-        const spriteFaction = normalizeSpriteFaction(faction);
-        if (spriteFaction && groundSpriteSet[spriteFaction]) {
-            return groundSpriteSet[spriteFaction];
-        }
-        return groundSpriteSet.Player ?? groundSpriteSet.Ally ?? groundSpriteSet.Bot ?? groundSpriteSet.fallback;
-    }
-    return SCENARIO_SPRITES[scenarioType];
+    return (resolveCatalogEntry(AIRCRAFT_UNIT_SPRITES[scenarioType], faction)
+        ?? resolveCatalogEntry(GROUND_UNIT_SPRITES[scenarioType], faction));
 }
 /**
  * Maps facing direction to directional view suffix.

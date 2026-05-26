@@ -163,6 +163,16 @@ export class CoordinateSystem {
      * @returns TileDetails or null if not found
      */
     static resolveTile(entry, palette) {
+        if (typeof entry === "string") {
+            const reference = palette[entry];
+            if (!reference) {
+                return null;
+            }
+            return {
+                ...reference,
+                features: reference.features ? [...reference.features] : []
+            };
+        }
         if (this.isTileReference(entry)) {
             // Clone the palette definition and layer any overrides carried on the tile instance for density,
             // features, or recon flags. The clone avoids mutating shared palette state.
@@ -194,12 +204,12 @@ export class CoordinateSystem {
      * Checks whether the tile entry is a palette reference (the common case in scenario JSON).
      */
     static isTileReference(entry) {
-        return typeof entry.tile === "string";
+        return typeof entry === "object" && entry !== null && typeof entry.tile === "string";
     }
     /**
      * Guards direct tile definitions embedded in the scenario grid.
      */
     static isTileDefinition(entry) {
-        return typeof entry.terrain === "string";
+        return typeof entry === "object" && entry !== null && typeof entry.terrain === "string";
     }
 }

@@ -1,5 +1,6 @@
 import { ALLOCATION_BY_CATEGORY, allocationOptions, getAllocationOption } from "../../data/unitAllocation";
 import { unitComposition } from "../../data/unitComposition";
+import { buildAllocationCompositionDisplay } from "../../data/unitSystem/formationPresentation";
 import { getMissionBriefing, getMissionSummaryPackage, getMissionTitle, getMissionTurnLimit } from "../../data/missions";
 import { ensureDeploymentState } from "../../state/DeploymentState";
 import { ensureUnlockState } from "../../state/UnlockState";
@@ -9,13 +10,70 @@ import { getNextPhase } from "../../data/tutorialSteps";
 import { createMissionRulesController } from "../../state/missionRules";
 import { HexMapRenderer } from "../../rendering/HexMapRenderer";
 import { getScenarioByMissionKey } from "../../data/scenarioRegistry";
+import { normalizeScenarioSource } from "../../data/scenarioNormalizer";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
+const ALLOCATION_RESET_LABEL = "Reset Allocations";
+const TRAINING_ALLOCATION_PRESET = {
+    missionKeys: ["training"],
+    label: "Use Preset Allocations",
+    appliedMessage: "Training preset allocations applied.",
+    entries: [
+        { key: "infantry", quantity: 3 },
+        { key: "engineer", quantity: 1 },
+        { key: "tank", quantity: 1 },
+        { key: "heavyTankCompany", quantity: 1 },
+        { key: "tankDestroyerCompany", quantity: 1 },
+        { key: "flakBattery", quantity: 2 },
+        { key: "reconBike", quantity: 1 },
+        { key: "supplyConvoy", quantity: 1 },
+        { key: "ammo", quantity: 1 },
+        { key: "medic", quantity: 1 },
+        { key: "maintenance", quantity: 1 }
+    ]
+};
+const TOWN_DEFENSE_ALLOCATION_PRESET = {
+    missionKeys: ["patrol"],
+    label: "Use Preset Allocations",
+    appliedMessage: "Town Defense preset allocations applied.",
+    entries: [
+        { key: "flakBattery", quantity: 4 },
+        { key: "howitzer", quantity: 4 },
+        { key: "interceptorWing", quantity: 3 }
+    ]
+};
+const GELA_LANDINGS_ALLOCATION_PRESET = {
+    missionKeys: ["assault_gela_landings"],
+    label: "Use Preset Allocations",
+    appliedMessage: "Gela Landings preset allocations applied.",
+    entries: [
+        { key: "infantry", quantity: 4 },
+        { key: "engineer", quantity: 1 },
+        { key: "tank", quantity: 5 },
+        { key: "tankDestroyerCompany", quantity: 3 },
+        { key: "howitzer", quantity: 2 },
+        { key: "antiTankBattery", quantity: 1 },
+        { key: "flakBattery", quantity: 2 },
+        { key: "reconBike", quantity: 1 },
+        { key: "airborneDetachment", quantity: 3 },
+        { key: "transportWing", quantity: 1 },
+        { key: "shoreFireControlParty", quantity: 1 },
+        { key: "supplyConvoy", quantity: 2 },
+        { key: "medic", quantity: 1 },
+        { key: "maintenance", quantity: 1 }
+    ]
+};
+const ALLOCATION_PRESETS = [
+    TRAINING_ALLOCATION_PRESET,
+    TOWN_DEFENSE_ALLOCATION_PRESET,
+    GELA_LANDINGS_ALLOCATION_PRESET
+];
 export class PrecombatScreen {
     constructor(screenManager, battleState) {
         this.baselineSupplySectionElement = null;
         this.miniMapRenderer = new HexMapRenderer();
-        // Campaign integration: active mission and dynamic caps derived from campaign economy when applicable.
+        // Campaign integration: active mission, difficulty, and dynamic caps derived from campaign economy when applicable.
         this.activeMissionKey = null;
+        this.activeDifficulty = "Normal";
         this.campaignCaps = null;
         /**
          * Allocation state containers required by interaction TODO.
@@ -33,10 +91,11 @@ export class PrecombatScreen {
         this.allocationCounts = new Map();
         this.allocationBudget = 10000;
         this.allocationDirty = false;
-        this.predeployedCounts = new Map();
         this.predeployedRoster = new Map();
         this.unlockState = ensureUnlockState();
         this.miniMapRenderFrame = null;
+        this.miniMapRetryTimer = null;
+        this.miniMapRetryLimit = 8;
         this.screenShownListener = (event) => {
             const shownEvent = event;
             if (shownEvent.detail?.id === "precombat") {
@@ -51,7 +110,7 @@ export class PrecombatScreen {
         this.screenManager = screenManager;
         this.battleState = battleState;
         this.scenarioSource = getScenarioByMissionKey("training");
-        this.miniMapScenario = JSON.parse(JSON.stringify(this.scenarioSource));
+        this.miniMapScenario = this.buildMiniMapScenario(this.scenarioSource);
         const precombatScreen = document.getElementById("precombatScreen");
         if (!precombatScreen) {
             throw new Error("Precombat screen element (#precombatScreen) not found in DOM");
@@ -122,7 +181,7 @@ export class PrecombatScreen {
         this.proceedToBattleButton.addEventListener("click", () => this.handleProceedToBattle());
         this.allocationWarningReturn.addEventListener("click", () => this.handleAllocationWarningReturn());
         this.allocationWarningProceed.addEventListener("click", () => this.handleAllocationWarningProceed());
-        this.allocationResetButton.addEventListener("click", () => this.resetAllocations());
+        this.allocationResetButton.addEventListener("click", () => this.handleAllocationActionButton());
         document.addEventListener("screen:shown", this.screenShownListener);
         window.addEventListener("resize", this.resizeListener);
     }
@@ -131,6 +190,7 @@ export class PrecombatScreen {
      */
     setup(missionKey, selectedGeneralId, selectedDifficulty) {
         this.activeMissionKey = missionKey;
+        this.activeDifficulty = selectedDifficulty;
         this.scenarioSource = getScenarioByMissionKey(missionKey);
         console.info("[PrecombatScreen] setup mission", {
             missionKey,
@@ -145,10 +205,11 @@ export class PrecombatScreen {
                 throw new Error(message);
             }
         }
-        this.miniMapScenario = JSON.parse(JSON.stringify(this.scenarioSource));
+        this.miniMapScenario = this.buildMiniMapScenario(this.scenarioSource);
         this.primeAllocationState();
         this.seedDeploymentCaches();
         this.registerScenarioDeploymentZones();
+        this.renderMiniMap();
         this.requestMiniMapRender();
         this.renderMissionSummary(missionKey, selectedDifficulty);
         this.seedPredeployedAllocations();
@@ -190,7 +251,8 @@ export class PrecombatScreen {
         if (!tutorialState.isTutorialActive())
             return;
         const currentPhase = tutorialState.getCurrentPhase();
-        if (currentPhase === "select_infantry" && optionKey === "infantry" && newQuantity >= 2) {
+        const hasAllocation = (key, minimum) => (this.allocationCounts.get(key) ?? 0) >= minimum;
+        if (currentPhase === "select_infantry" && optionKey === "infantry" && newQuantity >= 3) {
             tutorialState.setCanProceed(true);
             setTimeout(() => {
                 const nextPhase = getNextPhase("select_infantry");
@@ -198,7 +260,11 @@ export class PrecombatScreen {
                     tutorialState.advancePhase(nextPhase);
             }, 800);
         }
-        if (currentPhase === "select_tanks" && optionKey === "tank" && newQuantity > 0) {
+        if (currentPhase === "select_tanks" &&
+            ["tank", "heavyTankCompany", "tankDestroyerCompany"].includes(optionKey) &&
+            hasAllocation("tank", 1) &&
+            hasAllocation("heavyTankCompany", 1) &&
+            hasAllocation("tankDestroyerCompany", 1)) {
             tutorialState.setCanProceed(true);
             setTimeout(() => {
                 const nextPhase = getNextPhase("select_tanks");
@@ -214,7 +280,7 @@ export class PrecombatScreen {
                     tutorialState.advancePhase(nextPhase);
             }, 800);
         }
-        if (currentPhase === "select_flak" && optionKey === "flakBattery" && newQuantity > 0) {
+        if (currentPhase === "select_flak" && optionKey === "flakBattery" && newQuantity >= 2) {
             tutorialState.setCanProceed(true);
             setTimeout(() => {
                 const nextPhase = getNextPhase("select_flak");
@@ -222,10 +288,29 @@ export class PrecombatScreen {
                     tutorialState.advancePhase(nextPhase);
             }, 800);
         }
-        if (currentPhase === "select_air_wing" && optionKey === "fighter" && newQuantity > 0) {
+        if (currentPhase === "select_air_wing" && ["reconBike", "recon"].includes(optionKey) && newQuantity > 0) {
             tutorialState.setCanProceed(true);
             setTimeout(() => {
                 const nextPhase = getNextPhase("select_air_wing");
+                if (nextPhase)
+                    tutorialState.advancePhase(nextPhase);
+            }, 800);
+        }
+        if (currentPhase === "select_ammo" && optionKey === "ammo" && newQuantity > 0) {
+            tutorialState.setCanProceed(true);
+            setTimeout(() => {
+                const nextPhase = getNextPhase("select_ammo");
+                if (nextPhase)
+                    tutorialState.advancePhase(nextPhase);
+            }, 800);
+        }
+        if (currentPhase === "select_fuel" &&
+            ["medic", "maintenance"].includes(optionKey) &&
+            hasAllocation("medic", 1) &&
+            hasAllocation("maintenance", 1)) {
+            tutorialState.setCanProceed(true);
+            setTimeout(() => {
+                const nextPhase = getNextPhase("select_fuel");
                 if (nextPhase)
                     tutorialState.advancePhase(nextPhase);
             }, 800);
@@ -364,9 +449,7 @@ export class PrecombatScreen {
         const deploymentState = ensureDeploymentState();
         const entries = [];
         for (const [key, quantity] of this.allocationCounts.entries()) {
-            const baseline = this.predeployedCounts.get(key) ?? 0;
-            const requisitionQuantity = quantity - baseline;
-            if (requisitionQuantity <= 0) {
+            if (quantity <= 0) {
                 continue;
             }
             const option = getAllocationOption(key);
@@ -383,7 +466,7 @@ export class PrecombatScreen {
             entries.push({
                 key,
                 label: option.label,
-                remaining: requisitionQuantity,
+                remaining: quantity,
                 sprite: option.spriteUrl
             });
         }
@@ -403,29 +486,27 @@ export class PrecombatScreen {
         };
         const allocationSnapshots = [];
         for (const [key, quantity] of this.allocationCounts.entries()) {
-            const baseline = this.predeployedCounts.get(key) ?? 0;
-            const requisitionQuantity = quantity - baseline;
-            if (requisitionQuantity <= 0) {
+            if (quantity <= 0) {
                 continue;
             }
             const option = getAllocationOption(key);
             if (!option) {
                 throw new Error(`Allocation option missing during summary build: ${key}`);
             }
-            totalSpend += option.costPerUnit * requisitionQuantity;
+            totalSpend += option.costPerUnit * quantity;
             allocationSnapshots.push({
                 key,
                 label: option.label,
-                quantity: requisitionQuantity,
+                quantity,
                 costPerUnit: option.costPerUnit,
                 category: option.category
             });
             const depotPayload = option.depotPayload;
             if (depotPayload) {
-                depotPackage.ammo += (depotPayload.ammo ?? 0) * requisitionQuantity;
-                depotPackage.fuel += (depotPayload.fuel ?? 0) * requisitionQuantity;
-                depotPackage.rations += (depotPayload.rations ?? 0) * requisitionQuantity;
-                depotPackage.parts += (depotPayload.parts ?? 0) * requisitionQuantity;
+                depotPackage.ammo += (depotPayload.ammo ?? 0) * quantity;
+                depotPackage.fuel += (depotPayload.fuel ?? 0) * quantity;
+                depotPackage.rations += (depotPayload.rations ?? 0) * quantity;
+                depotPackage.parts += (depotPayload.parts ?? 0) * quantity;
             }
         }
         return {
@@ -496,8 +577,12 @@ export class PrecombatScreen {
             if (!container) {
                 return;
             }
+            const { restrictedUnits } = this.getScenarioUnitRestrictions();
             const filteredAllocations = allocationOptions.filter((option) => categories.includes(option.category)).filter((option) => {
                 if (!this.isAllocationVisible(option)) {
+                    return false;
+                }
+                if (restrictedUnits.includes(option.key)) {
                     return false;
                 }
                 if (!this.shouldApplyScenarioRestrictions(option)) {
@@ -522,25 +607,39 @@ export class PrecombatScreen {
     /**
      * Produces markup for a single allocation row including controls with accessibility metadata.
      */
+    escapeAllocationHtml(value) {
+        return value.replace(/[&<>"']/g, (char) => {
+            switch (char) {
+                case "&":
+                    return "&amp;";
+                case "<":
+                    return "&lt;";
+                case ">":
+                    return "&gt;";
+                case "\"":
+                    return "&quot;";
+                case "'":
+                    return "&#39;";
+                default:
+                    return char;
+            }
+        });
+    }
+    renderAllocationChip(detail) {
+        return `<span>${this.escapeAllocationHtml(detail)}</span>`;
+    }
     renderAllocationItem(option, quantity) {
-        const lockedBaseline = this.predeployedCounts.get(option.key) ?? 0;
         const missionMinimum = this.getMissionMinimumAllocationCount(option.key);
-        const quantityFloor = Math.max(lockedBaseline, missionMinimum);
         const unavailable = !this.isAllocationImplemented(option);
         const locked = this.unlockState.isUnitLocked(option.key);
-        const decrementDisabled = unavailable || locked || quantity <= quantityFloor;
+        const decrementDisabled = unavailable || locked || quantity <= missionMinimum;
         const incrementDisabled = unavailable || locked || quantity >= option.maxQuantity;
-        const requisitionQuantity = Math.max(0, quantity - lockedBaseline);
-        const totalCost = option.costPerUnit * requisitionQuantity;
+        const totalCost = option.costPerUnit * quantity;
         const composition = Object.prototype.hasOwnProperty.call(unitComposition, option.key)
             ? unitComposition[option.key]
             : null;
-        const compositionSummary = [];
-        const equipmentSummary = composition?.equipmentSummary.slice(0, 2) ?? [];
-        const baselineBadge = lockedBaseline > 0
-            ? `<span class="allocation-lock" aria-label="Scenario provides ${lockedBaseline} ${option.label} unit${lockedBaseline === 1 ? "" : "s"}.">Scenario asset ×${lockedBaseline}</span>`
-            : "";
-        const missionMinimumBadge = missionMinimum > lockedBaseline
+        const compositionDisplay = buildAllocationCompositionDisplay(composition, { maxDetails: 5 });
+        const missionMinimumBadge = missionMinimum > 0
             ? `<span class="allocation-lock" aria-label="${option.label} has a mission minimum of ${missionMinimum}.">Mission minimum ×${missionMinimum}</span>`
             : "";
         const availabilityBadge = unavailable
@@ -575,7 +674,7 @@ export class PrecombatScreen {
               ${incrementDisabled ? "disabled" : ""}
             >+</button>
           </div>`;
-        const statusBadges = [baselineBadge, missionMinimumBadge, availabilityBadge, unlockBadge]
+        const statusBadges = [missionMinimumBadge, availabilityBadge, unlockBadge]
             .filter((badge) => badge.length > 0)
             .join("");
         return `
@@ -590,11 +689,11 @@ export class PrecombatScreen {
               <span class="allocation-cost">${option.costPerUnit.toLocaleString()} RP</span>
             </div>
             <p class="allocation-copy__description">${option.description}</p>
-            ${compositionSummary.length > 0
-            ? `<div class="allocation-copy__details">${compositionSummary.map((detail) => `<span>${detail}</span>`).join("")}</div>`
+            ${compositionDisplay.summary.length > 0
+            ? `<div class="allocation-copy__details">${compositionDisplay.summary.map((detail) => this.renderAllocationChip(detail)).join("")}</div>`
             : ""}
-            ${equipmentSummary.length > 0
-            ? `<div class="allocation-copy__equipment">${equipmentSummary.map((detail) => `<span>${detail}</span>`).join("")}</div>`
+            ${compositionDisplay.details.length > 0
+            ? `<div class="allocation-copy__equipment">${compositionDisplay.details.map((detail) => this.renderAllocationChip(detail)).join("")}</div>`
             : ""}
             ${statusBadges.length > 0 ? `<div class="allocation-status-row">${statusBadges}</div>` : ""}
           </div>
@@ -689,6 +788,111 @@ export class PrecombatScreen {
             }
         }
     }
+    handleAllocationActionButton() {
+        const preset = this.getActiveAllocationPreset();
+        if (preset && !this.allocationDirty) {
+            this.applyAllocationPreset(preset);
+            return;
+        }
+        this.resetAllocations();
+    }
+    getActiveAllocationPreset() {
+        if (!this.activeMissionKey) {
+            return null;
+        }
+        return ALLOCATION_PRESETS.find((preset) => preset.missionKeys.includes(this.activeMissionKey)) ?? null;
+    }
+    syncAllocationActionButton() {
+        if (!this.allocationResetButton) {
+            return;
+        }
+        const preset = this.getActiveAllocationPreset();
+        const shouldOfferPreset = preset !== null && !this.allocationDirty;
+        const label = shouldOfferPreset ? preset.label : ALLOCATION_RESET_LABEL;
+        this.allocationResetButton.textContent = label;
+        this.allocationResetButton.setAttribute("aria-label", label);
+        this.allocationResetButton.dataset.mode = shouldOfferPreset ? "preset" : "reset";
+    }
+    getAllocationQuantityFloor(optionKey) {
+        return this.getMissionMinimumAllocationCount(optionKey);
+    }
+    restoreAllocationCountsToFloors() {
+        for (const key of this.allocationCounts.keys()) {
+            this.allocationCounts.set(key, this.getAllocationQuantityFloor(key));
+        }
+    }
+    isAllocationAvailableForPreset(option) {
+        if (!this.isAllocationVisible(option) || !this.isAllocationImplemented(option) || this.unlockState.isUnitLocked(option.key)) {
+            return false;
+        }
+        const { restrictedUnits } = this.getScenarioUnitRestrictions();
+        if (restrictedUnits.includes(option.key)) {
+            return false;
+        }
+        if (this.shouldApplyScenarioRestrictions(option)) {
+            return this.isUnitAllowedByScenario(option.key);
+        }
+        return true;
+    }
+    applyAllocationPreset(preset) {
+        this.restoreAllocationCountsToFloors();
+        this.seedRecommendedLogisticsAllocations();
+        const skipped = [];
+        const capped = [];
+        preset.entries.forEach((entry) => {
+            const option = getAllocationOption(entry.key);
+            if (!option || !this.isAllocationAvailableForPreset(option)) {
+                skipped.push(entry.key);
+                return;
+            }
+            const floor = this.getAllocationQuantityFloor(entry.key);
+            const requested = Math.max(floor, entry.quantity);
+            const applied = Math.min(option.maxQuantity, requested);
+            if (applied < requested) {
+                capped.push(option.label);
+            }
+            this.allocationCounts.set(entry.key, applied);
+        });
+        this.allocationDirty = true;
+        this.rerenderAllocations();
+        this.updateBudgetDisplay();
+        this.completeTutorialAfterPresetAllocation();
+        if (skipped.length > 0 || capped.length > 0) {
+            const skippedText = skipped.length > 0 ? `Unavailable: ${skipped.join(", ")}.` : "";
+            const cappedText = capped.length > 0 ? `Capped at maximum: ${capped.join(", ")}.` : "";
+            this.allocationFeedbackElement.textContent = [preset.appliedMessage, skippedText, cappedText].filter(Boolean).join(" ");
+            this.allocationFeedbackElement.classList.remove("feedback--ready");
+            this.allocationFeedbackElement.classList.add("feedback--warning");
+            return;
+        }
+        if (this.allocationBudget - this.calculateSpend() >= 0 && this.hasOperationalCombatForces()) {
+            this.allocationFeedbackElement.textContent = preset.appliedMessage;
+            this.allocationFeedbackElement.classList.remove("feedback--warning");
+            this.allocationFeedbackElement.classList.add("feedback--ready");
+        }
+    }
+    completeTutorialAfterPresetAllocation() {
+        const tutorialState = ensureTutorialState();
+        if (!tutorialState.isTutorialActive()) {
+            return;
+        }
+        const currentPhase = tutorialState.getCurrentPhase();
+        const presetEligiblePhases = [
+            "budget_overview",
+            "unit_categories",
+            "select_infantry",
+            "select_tanks",
+            "select_engineers",
+            "select_flak",
+            "select_air_wing",
+            "select_ammo",
+            "select_fuel",
+            "review_allocation"
+        ];
+        if (presetEligiblePhases.includes(currentPhase)) {
+            tutorialState.jumpToPhase("mission_objectives");
+        }
+    }
     /**
      * Adjusts allocation counts with clamping and triggers re-render flows.
      */
@@ -711,8 +915,7 @@ export class PrecombatScreen {
             return;
         }
         const current = this.allocationCounts.get(optionKey) ?? 0;
-        const baseline = this.predeployedCounts.get(optionKey) ?? 0;
-        const quantityFloor = Math.max(baseline, this.getMissionMinimumAllocationCount(optionKey));
+        const quantityFloor = this.getMissionMinimumAllocationCount(optionKey);
         const next = Math.max(quantityFloor, Math.min(option.maxQuantity, current + delta));
         if (next === current) {
             return;
@@ -736,13 +939,10 @@ export class PrecombatScreen {
         this.advanceTutorialIfNeeded(optionKey, next);
     }
     /**
-     * Resets all allocation counts to zero and refreshes the UI.
+     * Resets all allocation counts to mission floors and refreshes the UI.
      */
     resetAllocations() {
-        for (const key of this.allocationCounts.keys()) {
-            const baseline = this.predeployedCounts.get(key) ?? 0;
-            this.allocationCounts.set(key, baseline);
-        }
+        this.restoreAllocationCountsToFloors();
         this.seedRecommendedLogisticsAllocations();
         this.allocationDirty = false;
         this.rerenderAllocations();
@@ -758,6 +958,7 @@ export class PrecombatScreen {
         this.budgetSpentElement.textContent = `Spent: ${spent.toLocaleString()} RP`;
         this.budgetRemainingElement.textContent = `Budget Remaining: ${Math.max(remaining, 0).toLocaleString()} requisition points`;
         this.budgetPanel.dataset.state = remaining < 0 ? "over-budget" : "within-budget";
+        this.syncAllocationActionButton();
         const hasAnyForces = this.hasOperationalCombatForces();
         this.proceedToBattleButton.disabled = remaining < 0 || !hasAnyForces;
         // Normalize feedback styling before we decide which state to present so repeated calls cannot accumulate stale classes.
@@ -779,16 +980,12 @@ export class PrecombatScreen {
             const unitOptions = ALLOCATION_BY_CATEGORY.get("units") ?? [];
             let requestedUnits = 0;
             unitOptions.forEach((option) => {
-                const qty = this.allocationCounts.get(option.key) ?? 0;
-                const baseline = this.predeployedCounts.get(option.key) ?? 0;
-                requestedUnits += Math.max(0, qty - baseline);
+                requestedUnits += this.allocationCounts.get(option.key) ?? 0;
             });
             const airKeys = ["scoutPlaneWing", "fighter", "interceptorWing", "groundAttackWing", "bomber", "transportWing"];
             let requestedAir = 0;
             airKeys.forEach((key) => {
-                const qty = this.allocationCounts.get(key) ?? 0;
-                const baseline = this.predeployedCounts.get(key) ?? 0;
-                requestedAir += Math.max(0, qty - baseline);
+                requestedAir += this.allocationCounts.get(key) ?? 0;
             });
             const requestedAmmo = this.allocationCounts.get("ammo") ?? 0;
             const requestedFuel = this.allocationCounts.get("fuel") ?? 0;
@@ -823,8 +1020,7 @@ export class PrecombatScreen {
             return;
         }
         const current = this.allocationCounts.get(convoyOption.key) ?? 0;
-        const baseline = this.predeployedCounts.get(convoyOption.key) ?? 0;
-        const recommended = Math.max(baseline, this.getRecommendedSupplyConvoyCount(convoyOption.maxQuantity));
+        const recommended = this.getRecommendedSupplyConvoyCount(convoyOption.maxQuantity);
         if (current < recommended) {
             this.allocationCounts.set(convoyOption.key, recommended);
         }
@@ -838,7 +1034,7 @@ export class PrecombatScreen {
             if (option.key === "supplyConvoy" || !this.isUnitAllowedByScenario(option.key)) {
                 return;
             }
-            plannedFrontlineUnits += this.predeployedCounts.get(option.key) ?? 0;
+            plannedFrontlineUnits += this.allocationCounts.get(option.key) ?? 0;
         });
         const recommended = plannedFrontlineUnits > 0
             ? Math.max(1, Math.ceil(plannedFrontlineUnits / 4))
@@ -890,37 +1086,34 @@ export class PrecombatScreen {
                 console.warn("Missing allocation option during budget update", key);
                 continue;
             }
-            const baseline = this.predeployedCounts.get(key) ?? 0;
-            const requisitionQty = Math.max(0, quantity - baseline);
-            spent += option.costPerUnit * requisitionQty;
+            spent += option.costPerUnit * quantity;
         }
         return spent;
     }
     /**
-     * Aggregates scenario-provided player units so the precombat panel can surface locked allocations
-     * and convey that these troops are already in theater at mission start.
+     * Aggregates scenario-provided player and allied units into a read-only roster for display
+     * in the objectives panel. These units are NOT surfaced as interactive requisition tiles.
      */
     seedPredeployedAllocations() {
-        this.predeployedCounts.clear();
         this.predeployedRoster.clear();
         const rawUnits = (this.scenarioSource.sides?.Player?.units ?? []);
         const playerUnits = rawUnits.filter((u) => u.preDeployed === true);
         const alliedUnits = (this.scenarioSource.sides?.Ally?.units ?? []);
         const deploymentState = ensureDeploymentState();
+        // Predeployed Player units are placed by the engine via scenario data. They are tracked here
+        // for read-only display only — they must NOT appear as interactive requisition tiles.
         playerUnits.forEach((unit) => {
             const scenarioType = unit.type;
             const allocationKey = deploymentState.getUnitKeyForScenarioType(scenarioType) ?? scenarioType;
             const option = getAllocationOption(allocationKey);
             const label = option?.label ?? this.formatScenarioLabel(scenarioType);
-            const nextCount = (this.predeployedCounts.get(allocationKey) ?? 0) + 1;
-            this.predeployedCounts.set(allocationKey, nextCount);
-            this.predeployedRoster.set(`Player:${allocationKey}`, {
+            const rosterKey = `Player:${allocationKey}`;
+            const existing = this.predeployedRoster.get(rosterKey);
+            this.predeployedRoster.set(rosterKey, {
                 label,
                 scenarioType,
-                count: nextCount
+                count: (existing?.count ?? 0) + 1
             });
-            const current = this.allocationCounts.get(allocationKey) ?? 0;
-            this.allocationCounts.set(allocationKey, Math.max(current, nextCount));
         });
         alliedUnits.forEach((unit) => {
             const scenarioType = unit.type;
@@ -972,18 +1165,43 @@ export class PrecombatScreen {
      * remains the single source of mission context without a separate panel.
      */
     appendAlliedForcesObjective() {
+        const playerEntries = Array.from(this.predeployedRoster.entries())
+            .filter(([key]) => key.startsWith("Player:"))
+            .map(([, entry]) => entry);
         const alliedEntries = Array.from(this.predeployedRoster.entries())
             .filter(([key]) => key.startsWith("Ally:"))
             .map(([, entry]) => entry);
-        if (alliedEntries.length === 0) {
+        const allEntries = [...playerEntries, ...alliedEntries];
+        if (allEntries.length === 0) {
             return;
         }
-        const names = alliedEntries.map((e) => e.label.replace(/^Allied\s+/i, "")).join(", ");
-        const objectiveText = `Make contact with and take command of allied forces in theater: ${names}.`;
+        // Build a compact RP-value summary so the player understands the balance context without
+        // confusing predeployed forces for requisitioned ones.
+        let totalRpValue = 0;
+        const unitDescriptions = [];
+        allEntries.forEach((entry) => {
+            const option = getAllocationOption(this.resolveAllocationKeyFromLabel(entry.scenarioType));
+            const rpPerUnit = option?.costPerUnit ?? 0;
+            totalRpValue += rpPerUnit * entry.count;
+            const displayLabel = entry.label.replace(/^Allied\s+/i, "");
+            unitDescriptions.push(entry.count > 1 ? `${entry.count}× ${displayLabel}` : displayLabel);
+        });
+        const rpNote = totalRpValue > 0 ? ` (RP value: ${totalRpValue.toLocaleString()})` : "";
+        const alliedPrefix = alliedEntries.length > 0 && playerEntries.length === 0
+            ? "Make contact with and take command of allied forces in theater"
+            : "Forces already in theater";
+        const objectiveText = `${alliedPrefix}: ${unitDescriptions.join(", ")}${rpNote}.`;
         const li = document.createElement("li");
         li.className = "mission-order-item mission-order-item--secondary";
         li.innerHTML = `<strong>Secondary:</strong> <span class="mission-order-copy">${objectiveText}</span>`;
         this.objectiveListElement.appendChild(li);
+    }
+    /**
+     * Resolves an allocation key from a scenario unit type string for RP cost lookups.
+     */
+    resolveAllocationKeyFromLabel(scenarioType) {
+        const deploymentState = ensureDeploymentState();
+        return deploymentState.getUnitKeyForScenarioType(scenarioType) ?? scenarioType;
     }
     /**
      * Provides a readable fallback label when allocation metadata is unavailable for a scenario unit type.
@@ -1073,9 +1291,6 @@ export class PrecombatScreen {
         return supplies.filter((item) => duplicateAssetPatterns.every((pattern) => !pattern.test(item.label.trim())));
     }
     renderMiniMap() {
-        if (!this.isMiniMapVisible()) {
-            return;
-        }
         this.miniMapRenderer.render(this.miniMapSvg, this.miniMapCanvas, this.miniMapScenario);
         const mapPreview = this.miniMapCanvas.closest(".map-preview");
         if (mapPreview) {
@@ -1105,28 +1320,33 @@ export class PrecombatScreen {
         });
         const terrainOverlays = Array.from(this.miniMapSvg.querySelectorAll(".terrain-feature-overlay"));
         terrainOverlays.forEach((overlay) => overlay.setAttribute("opacity", "0.9"));
+        return true;
     }
-    requestMiniMapRender() {
+    requestMiniMapRender(attempt = 0) {
         if (typeof window === "undefined") {
             this.renderMiniMap();
             return;
         }
         if (this.miniMapRenderFrame !== null) {
             window.cancelAnimationFrame(this.miniMapRenderFrame);
+            this.miniMapRenderFrame = null;
+        }
+        if (this.miniMapRetryTimer !== null) {
+            window.clearTimeout(this.miniMapRetryTimer);
+            this.miniMapRetryTimer = null;
         }
         this.miniMapRenderFrame = window.requestAnimationFrame(() => {
             this.miniMapRenderFrame = window.requestAnimationFrame(() => {
                 this.miniMapRenderFrame = null;
-                this.renderMiniMap();
+                const rendered = this.renderMiniMap();
+                if (!rendered && attempt < this.miniMapRetryLimit) {
+                    this.miniMapRetryTimer = window.setTimeout(() => {
+                        this.miniMapRetryTimer = null;
+                        this.requestMiniMapRender(attempt + 1);
+                    }, 50);
+                }
             });
         });
-    }
-    isMiniMapVisible() {
-        if (this.element.classList.contains("hidden")) {
-            return false;
-        }
-        const bounds = this.miniMapCanvas.getBoundingClientRect();
-        return bounds.width > 0 && bounds.height > 0;
     }
     getMiniMapTerrainFill(terrainKey, fallbackFill) {
         const normalized = terrainKey.trim().toLowerCase();
@@ -1162,6 +1382,16 @@ export class PrecombatScreen {
             return "#867950";
         }
         return fallbackFill ?? "#7f7250";
+    }
+    /**
+     * Builds a normalized ScenarioData for the minimap renderer using the shared scenarioNormalizer.
+     * Delegates to normalizeScenarioSource so the minimap and battle screen use identical tile, palette,
+     * unit, and objective normalization — eliminating the previous split-brain where each screen had
+     * its own divergent copy of this logic.
+     */
+    buildMiniMapScenario(source) {
+        const missionKey = this.activeMissionKey ?? "training";
+        return normalizeScenarioSource(JSON.parse(JSON.stringify(source)), { turnLimit: getMissionTurnLimit(missionKey, this.activeDifficulty) });
     }
     /**
      * Helper that throws when required DOM is missing so initialization fails fast.

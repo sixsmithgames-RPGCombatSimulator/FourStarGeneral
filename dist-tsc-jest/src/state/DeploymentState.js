@@ -2,7 +2,10 @@ import { axialKey } from "../core/Hex";
 import { createScenarioUnitFromTemplate, deploymentTemplates, findTemplateForUnitKey } from "../game/adapters";
 import { getSpriteForAllocationKey, getSpriteForScenarioType } from "../data/unitSpriteCatalog";
 import { getAllocationOption } from "../data/unitAllocation";
-import unitTypesSource from "../data/unitTypes.json";
+import unitTypesSource from "../data/unitSystem/derivedUnitTypes";
+const scenarioTypeToAllocationKeyAliases = new Map([
+    ["Medium_Tank", "tank"]
+]);
 function axialToOffsetKey(hex) {
     const col = hex.q;
     const row = hex.r + Math.floor(hex.q / 2);
@@ -32,6 +35,8 @@ export class DeploymentState {
         this.hexToZoneKey = new Map();
         this.scenarioTypeAlias = new Map();
         this.unitKeyToScenarioType = new Map();
+        /** Tracks which exhausted unit keys have been warned about to reduce console noise */
+        this.hasLoggedExhaustedWarning = new Set();
         // Pre-seed scenario → allocation aliases so player rosters derived directly from scenario data still resolve UI keys.
         this.primeSpriteCatalog();
     }
@@ -104,6 +109,15 @@ export class DeploymentState {
             const sprite = getSpriteForAllocationKey(template.key, "Player") ?? getSpriteForScenarioType(scenarioType, "Player");
             if (sprite && !this.spriteMap.has(template.key)) {
                 this.spriteMap.set(template.key, sprite);
+            }
+        });
+        scenarioTypeToAllocationKeyAliases.forEach((unitKey, scenarioType) => {
+            if (!this.scenarioTypeAlias.has(scenarioType)) {
+                this.scenarioTypeAlias.set(scenarioType, unitKey);
+            }
+            const sprite = getSpriteForAllocationKey(unitKey, "Player") ?? getSpriteForScenarioType(scenarioType, "Player");
+            if (sprite && !this.spriteMap.has(unitKey)) {
+                this.spriteMap.set(unitKey, sprite);
             }
         });
     }
@@ -502,11 +516,15 @@ export class DeploymentState {
             let engineRemaining = this.reserveCountMap.get(entry.key);
             if (engineRemaining === undefined) {
                 const deployedCount = placementCounts.get(entry.key) ?? 0;
-                console.warn("[DeploymentState] Engine snapshot omitted exhausted unit key; normalizing totals.", {
-                    unitKey: entry.key,
-                    totalBudget: this.getUnitCount(entry.key),
-                    deployedCount
-                });
+                // Only warn once per unit key to reduce console noise
+                if (!this.hasLoggedExhaustedWarning.has(entry.key)) {
+                    this.hasLoggedExhaustedWarning.add(entry.key);
+                    console.warn("[DeploymentState] Engine snapshot omitted exhausted unit key; normalizing totals.", {
+                        unitKey: entry.key,
+                        totalBudget: this.getUnitCount(entry.key),
+                        deployedCount
+                    });
+                }
                 if (deployedCount <= 0) {
                     // No reserves and no placements: remove from pool and ensure totals do not inflate deployed counts.
                     this.totalAllocationMap.set(entry.key, 0);

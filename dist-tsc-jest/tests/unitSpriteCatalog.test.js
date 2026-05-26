@@ -17,6 +17,11 @@ registerTest("UNITSPRITECATALOG_RESOLVES_FACTION_AND_DIRECTIONAL_VARIANTS", asyn
         resolved.botReconNorth = getSpriteForScenarioType("Recon_Bike", "Bot", "NE");
         resolved.botReconWest = getSpriteForScenarioType("Recon_Bike", "Bot", "W");
         resolved.playerReconSouth = getSpriteForScenarioType("Recon_Bike", "Player", "SE");
+        resolved.botArmoredReconWest = getSpriteForScenarioType("Recon_ArmoredCar", "Bot", "W");
+        resolved.playerReconAliasNorth = getSpriteForScenarioType("Recon", "Player", "NE");
+        resolved.playerSupplyNorth = getSpriteForScenarioType("Supply_Truck", "Player", "NE");
+        resolved.botSupplyWest = getSpriteForScenarioType("Supply_Truck", "Bot", "W");
+        resolved.playerSupplyAllocation = getSpriteForAllocationKey("supplyConvoy", "Player", "W");
     });
     await Then("the catalog should resolve faction-specific aircraft and directional ground sprites", async () => {
         if (!resolved.playerBomber?.includes("Aircraft_USA_B17.png")) {
@@ -60,6 +65,21 @@ registerTest("UNITSPRITECATALOG_RESOLVES_FACTION_AND_DIRECTIONAL_VARIANTS", asyn
         }
         if (!resolved.playerReconSouth?.includes("Wheeled_Bikes_Recon_USA_Southview")) {
             throw new Error(`Expected player recon south view to use USA Southview art, saw ${String(resolved.playerReconSouth)}.`);
+        }
+        if (!resolved.botArmoredReconWest?.includes("Wheeled_Recon_Armored_Car_SdKfz222_German_Sideview")) {
+            throw new Error(`Expected bot armored recon west view to use German SdKfz222 Sideview art, saw ${String(resolved.botArmoredReconWest)}.`);
+        }
+        if (!resolved.playerReconAliasNorth?.includes("Wheeled_Recon_Armored_Car_Greyhound_USA_Northview")) {
+            throw new Error(`Expected recon alias north view to use USA Greyhound Northview art, saw ${String(resolved.playerReconAliasNorth)}.`);
+        }
+        if (!resolved.playerSupplyNorth?.includes("Wheeled_Supply_USA_Northview")) {
+            throw new Error(`Expected player supply north view to use USA supply Northview art, saw ${String(resolved.playerSupplyNorth)}.`);
+        }
+        if (!resolved.botSupplyWest?.includes("Wheeled_Supply_German_Sideview")) {
+            throw new Error(`Expected bot supply west view to use German supply Sideview art, saw ${String(resolved.botSupplyWest)}.`);
+        }
+        if (!resolved.playerSupplyAllocation?.includes("Wheeled_Supply_USA_Sideview")) {
+            throw new Error(`Expected supply allocation west view to use USA supply Sideview art, saw ${String(resolved.playerSupplyAllocation)}.`);
         }
     });
 });

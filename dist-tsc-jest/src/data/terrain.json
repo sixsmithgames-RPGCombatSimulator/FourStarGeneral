@@ -66,7 +66,7 @@
         "blocksLOS": false
     },
     "beach": {
-        "moveCost": { "leg": 1, "wheel": 1.5, "track": 1.2, "air": 1 },
+        "moveCost": { "leg": 1, "wheel": 1.5, "track": 1.2, "truck": 1.5, "air": 1 },
         "defense": -2,
         "accMod": 16,
         "blocksLOS": false

@@ -4,6 +4,7 @@
  */
 import { ensureTutorialState } from "../../state/TutorialState";
 import { getTutorialStep, getNextPhase, getPreviousPhase, isFirstPhase } from "../../data/tutorialSteps";
+import { getSidebarMiniTutorial, SIDEBAR_MINI_TUTORIAL_EVENT } from "../../data/sidebarMiniTutorials";
 /**
  * Creates and manages the tutorial overlay UI.
  */
@@ -26,6 +27,9 @@ export class TutorialOverlay {
         this.lastResolvedAnchorSelector = null;
         this.lastAnchoredSelector = null;
         this.suppressCurrentPhaseDisplay = false;
+        this.activeMiniTutorial = null;
+        this.sidebarMiniTutorialListener = null;
+        this.sidebarMiniTutorialStorageKey = "four-star-general.sidebar-mini-tutorials.v1";
     }
     getHighlightTargets(selector) {
         return Array.from(document.querySelectorAll(selector)).filter((element) => {
@@ -76,6 +80,12 @@ export class TutorialOverlay {
         if (progress.isActive) {
             this.handleProgressUpdate(progress);
         }
+        if (!this.sidebarMiniTutorialListener) {
+            this.sidebarMiniTutorialListener = (event) => {
+                this.handleSidebarMiniTutorialRequest(event);
+            };
+            document.addEventListener(SIDEBAR_MINI_TUTORIAL_EVENT, this.sidebarMiniTutorialListener);
+        }
     }
     /**
      * Cleans up the overlay and unsubscribes from state.
@@ -92,6 +102,10 @@ export class TutorialOverlay {
         }
         this.stopDomObserver();
         this.clearAnchorRetry();
+        if (this.sidebarMiniTutorialListener) {
+            document.removeEventListener(SIDEBAR_MINI_TUTORIAL_EVENT, this.sidebarMiniTutorialListener);
+            this.sidebarMiniTutorialListener = null;
+        }
         this.removeOverlayElements();
     }
     /**
@@ -190,6 +204,7 @@ export class TutorialOverlay {
             this.hide();
             return;
         }
+        this.activeMiniTutorial = null;
         if (this.suppressCurrentPhaseDisplay && progress.currentPhase === "review_allocation") {
             // Stay hidden after the user dismisses the free-review step. We'll re-enable when phase changes.
             this.lastRenderedPhase = progress.currentPhase;
@@ -218,12 +233,85 @@ export class TutorialOverlay {
         this.show();
         this.renderStep(step, progress);
     }
+    handleSidebarMiniTutorialRequest(event) {
+        const request = event.detail;
+        const tutorial = request?.key ? getSidebarMiniTutorial(request.key) : null;
+        if (!tutorial) {
+            return;
+        }
+        const tutorialState = ensureTutorialState();
+        if (tutorialState.isTutorialActive() && request.force !== true) {
+            return;
+        }
+        if (request.force !== true && this.hasSeenSidebarMiniTutorial(tutorial.key)) {
+            return;
+        }
+        this.activeMiniTutorial = tutorial;
+        this.currentStep = {
+            phase: "inactive",
+            title: tutorial.title,
+            content: tutorial.content,
+            highlightSelector: tutorial.highlightSelector,
+            position: tutorial.position,
+            arrowDirection: tutorial.arrowDirection,
+            actionLabel: tutorial.actionLabel
+        };
+        this.show();
+        this.renderSidebarMiniTutorial(tutorial);
+        this.markSidebarMiniTutorialSeen(tutorial.key);
+    }
+    renderSidebarMiniTutorial(tutorial) {
+        if (!this.panelElement || !this.currentStep) {
+            return;
+        }
+        if (this.backdropElement) {
+            this.backdropElement.style.background = "rgba(0, 0, 0, 0)";
+            this.backdropElement.style.pointerEvents = "auto";
+        }
+        if (this.container) {
+            this.container.style.pointerEvents = "";
+        }
+        if (this.spotlightElement) {
+            this.spotlightElement.style.pointerEvents = "";
+        }
+        this.panelElement.style.pointerEvents = "";
+        const stepIndicator = this.panelElement.querySelector(".tutorial-step-indicator");
+        if (stepIndicator) {
+            stepIndicator.textContent = "Command Brief";
+        }
+        const backBtn = this.panelElement.querySelector(".tutorial-back-btn");
+        if (backBtn) {
+            backBtn.style.display = "none";
+        }
+        const skipBtn = this.panelElement.querySelector(".tutorial-skip-btn");
+        if (skipBtn) {
+            skipBtn.style.display = "";
+            skipBtn.textContent = "Close";
+        }
+        const titleEl = this.panelElement.querySelector(".tutorial-title");
+        const descEl = this.panelElement.querySelector(".tutorial-description");
+        if (titleEl)
+            titleEl.textContent = tutorial.title;
+        if (descEl)
+            descEl.textContent = tutorial.content;
+        const actionBtn = this.panelElement.querySelector(".tutorial-action-btn");
+        if (actionBtn) {
+            actionBtn.textContent = tutorial.actionLabel;
+            actionBtn.disabled = false;
+            actionBtn.classList.remove("waiting");
+        }
+        ensureTutorialState().clearHighlight();
+        this.ensureAnchorTarget(tutorial.highlightSelector);
+        this.positionPanel(this.currentStep);
+        this.updateArrow(this.currentStep);
+    }
     /**
      * Renders the current tutorial step.
      */
     renderStep(step, progress) {
         if (!this.panelElement)
             return;
+        this.activeMiniTutorial = null;
         const tutorialState = ensureTutorialState();
         if (this.backdropElement) {
             this.backdropElement.style.background = step.highlightSelector ? "rgba(0, 0, 0, 0)" : "";
@@ -243,6 +331,11 @@ export class TutorialOverlay {
             else {
                 backBtn.style.display = "";
             }
+        }
+        const skipBtn = this.panelElement.querySelector(".tutorial-skip-btn");
+        if (skipBtn) {
+            skipBtn.style.display = "";
+            skipBtn.textContent = "Skip";
         }
         // Update title and description
         const titleEl = this.panelElement.querySelector(".tutorial-title");
@@ -384,8 +477,6 @@ export class TutorialOverlay {
             this.anchorToTarget(selector);
             return;
         }
-        // Context-aware assist: try to open the correct UI surface if we can infer it.
-        this.tryAutoOpenContextForSelector(selector);
         // Start observing DOM mutations so the spotlight snaps in as soon as the target appears.
         this.startDomObserver();
         // Retry loop: poll briefly because some UI updates are async and don't always produce a mutation we can rely on.
@@ -424,43 +515,6 @@ export class TutorialOverlay {
         this.positionSpotlight(selector);
         if (this.currentStep) {
             this.positionPanel(this.currentStep);
-        }
-    }
-    tryAutoOpenContextForSelector(selector) {
-        // If selector includes an obvious popup/panel, attempt to open it.
-        // This is deliberately conservative: we only auto-open when we can infer intent.
-        if (selector.includes("#deploymentPanel")) {
-            return;
-        }
-        // Sidebar popups use [data-popup="..."] triggers.
-        if (selector.includes("armyRoster") || selector.includes("data-popup='armyRoster'") || selector.includes("data-popup=\"armyRoster\"")) {
-            this.clickIfPresent(".control-sidebar [data-popup=\"armyRoster\"]");
-            return;
-        }
-        if (selector.includes("logisticsPanel") || selector.includes("data-popup='logistics'") || selector.includes("data-popup=\"logistics\"")) {
-            this.clickIfPresent(".control-sidebar [data-popup=\"logistics\"]");
-            return;
-        }
-        if (selector.includes("airSupport") || selector.includes("airHudWidget") || selector.includes("data-popup='airSupport'") || selector.includes("data-popup=\"airSupport\"")) {
-            // Prefer the Air HUD widget if present (it exists in the battle header), otherwise fall back to sidebar popup.
-            this.clickIfPresent("[data-airhud-open]");
-            this.clickIfPresent(".control-sidebar [data-popup=\"airSupport\"]");
-            return;
-        }
-        if (selector.includes("data-air-panel")) {
-            this.clickIfPresent("[data-airhud-open]");
-            this.clickIfPresent(".control-sidebar [data-popup=\"airSupport\"]");
-        }
-    }
-    clickIfPresent(selector) {
-        const el = document.querySelector(selector);
-        if (el && typeof el.click === "function") {
-            try {
-                el.click();
-            }
-            catch {
-                // ignore
-            }
         }
     }
     /**
@@ -572,7 +626,9 @@ export class TutorialOverlay {
         this.panelElement.style.removeProperty("top");
         this.panelElement.style.removeProperty("bottom");
         this.panelElement.style.removeProperty("transform");
-        this.panelElement.className = `tutorial-panel tutorial-position-${step.position}`;
+        const phaseClass = `tutorial-phase-${step.phase.replace(/[^a-z0-9_-]/gi, "-")}`;
+        const waitClass = step.waitForAction === true ? " tutorial-wait-step" : "";
+        this.panelElement.className = `tutorial-panel tutorial-position-${step.position} ${phaseClass}${waitClass}`;
         // Viewport boundaries with minimum margin
         const viewportMargin = 20;
         const viewportWidth = window.innerWidth;
@@ -787,19 +843,70 @@ export class TutorialOverlay {
         if (this.container) {
             this.container.classList.add("hidden");
         }
+        this.activeMiniTutorial = null;
         this.hideSpotlight();
         ensureTutorialState().clearHighlight();
+    }
+    dismissSidebarMiniTutorial() {
+        this.activeMiniTutorial = null;
+        this.currentStep = null;
+        this.stopDomObserver();
+        this.clearAnchorRetry();
+        this.hide();
+    }
+    getSeenSidebarMiniTutorials() {
+        if (typeof window === "undefined" || !window.sessionStorage) {
+            return new Set();
+        }
+        try {
+            const rawValue = window.sessionStorage.getItem(this.sidebarMiniTutorialStorageKey);
+            if (!rawValue) {
+                return new Set();
+            }
+            const parsed = JSON.parse(rawValue);
+            if (!Array.isArray(parsed)) {
+                return new Set();
+            }
+            return new Set(parsed.filter((key) => typeof key === "string" && getSidebarMiniTutorial(key) !== null));
+        }
+        catch {
+            return new Set();
+        }
+    }
+    hasSeenSidebarMiniTutorial(key) {
+        return this.getSeenSidebarMiniTutorials().has(key);
+    }
+    markSidebarMiniTutorialSeen(key) {
+        if (typeof window === "undefined" || !window.sessionStorage) {
+            return;
+        }
+        try {
+            const seen = this.getSeenSidebarMiniTutorials();
+            seen.add(key);
+            window.sessionStorage.setItem(this.sidebarMiniTutorialStorageKey, JSON.stringify(Array.from(seen)));
+        }
+        catch {
+            // Storage can be disabled in private contexts; the brief can still run without persistence.
+        }
     }
     /**
      * Handles the skip button click.
      */
     handleSkip() {
+        if (this.activeMiniTutorial) {
+            this.dismissSidebarMiniTutorial();
+            return;
+        }
         ensureTutorialState().skipTutorial();
     }
     /**
      * Handles the back button click.
      */
     handleBack() {
+        if (this.activeMiniTutorial) {
+            this.dismissSidebarMiniTutorial();
+            return;
+        }
         if (!this.currentStep)
             return;
         const previousPhase = getPreviousPhase(this.currentStep.phase);
@@ -812,6 +919,10 @@ export class TutorialOverlay {
      * Handles the action button click.
      */
     handleAction() {
+        if (this.activeMiniTutorial) {
+            this.dismissSidebarMiniTutorial();
+            return;
+        }
         if (!this.currentStep)
             return;
         const tutorialState = ensureTutorialState();

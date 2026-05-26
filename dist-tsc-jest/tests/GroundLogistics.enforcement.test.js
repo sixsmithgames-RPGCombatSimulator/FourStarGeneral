@@ -1,5 +1,6 @@
 import { registerTest } from "./harness.js";
 import { GameEngine } from "../src/game/GameEngine";
+import { createInitialFormationStatus } from "../src/data/unitSystem/status";
 const plains = {
     moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
     defense: 0,
@@ -207,6 +208,83 @@ function createSupplyTruck(hex = { q: 1, r: 0 }) {
         facing: "NW"
     };
 }
+function createSupportTruck(formationKey, hex) {
+    return {
+        type: "Supply_Truck",
+        formationKey,
+        hex,
+        strength: 100,
+        experience: 0,
+        ammo: 0,
+        fuel: 12,
+        entrench: 0,
+        facing: "NW"
+    };
+}
+function createStatusDamagedVehicle(hex = { q: 2, r: 0 }) {
+    const status = createInitialFormationStatus("TestVehicle", "tank");
+    const personnelPool = Object.values(status.personnel)[0];
+    if (!personnelPool || personnelPool.fit < 30) {
+        throw new Error("Expected the tank formation status to include a personnel pool.");
+    }
+    personnelPool.fit -= 30;
+    personnelPool.injured += 18;
+    personnelPool.wounded += 8;
+    personnelPool.severelyWounded += 4;
+    const equipmentPool = Object.values(status.equipment)[0];
+    if (!equipmentPool || equipmentPool.operational < 8) {
+        throw new Error("Expected the tank formation status to include a vehicle pool.");
+    }
+    equipmentPool.operational -= 8;
+    equipmentPool.damaged += 5;
+    equipmentPool.disabled += 3;
+    return {
+        type: "TestVehicle",
+        formationKey: "tank",
+        status,
+        hex,
+        strength: 100,
+        experience: 0,
+        ammo: 10,
+        fuel: 10,
+        entrench: 0,
+        facing: "NW"
+    };
+}
+registerTest("LOGISTICS_MODAL_DATA_EXPOSES_MEDICAL_AND_REPAIR_TEAMS_FROM_STATUS_DAMAGE", async ({ Given, Then }) => {
+    let engine;
+    let logisticsSnapshot = null;
+    await Given("a damaged battalion with medical and maintenance detachments on the supply network", async () => {
+        engine = createEngine([
+            createSupportTruck("medic", { q: 1, r: 0 }),
+            createSupportTruck("maintenance", { q: 1, r: 1 }),
+            createStatusDamagedVehicle({ q: 2, r: 0 }),
+            createDepotSeeder({ q: 3, r: 0 })
+        ]);
+        logisticsSnapshot = engine.getLogisticsSnapshot();
+    });
+    await Then("the logistics snapshot reports both support teams and the detailed care queue", async () => {
+        if (!logisticsSnapshot) {
+            throw new Error("Expected a logistics snapshot after deployment.");
+        }
+        const medicalTeam = logisticsSnapshot.supportTeamStatuses.find((entry) => entry.type === "medical");
+        const repairTeam = logisticsSnapshot.supportTeamStatuses.find((entry) => entry.type === "repair");
+        if (!medicalTeam || medicalTeam.status !== "treating" || medicalTeam.need <= 0) {
+            throw new Error(`Expected a medical support team treating real personnel damage, saw ${JSON.stringify(medicalTeam)}.`);
+        }
+        if (!repairTeam || repairTeam.status !== "repairing" || repairTeam.need <= 0) {
+            throw new Error(`Expected a maintenance support team repairing real equipment damage, saw ${JSON.stringify(repairTeam)}.`);
+        }
+        const medicalRequest = logisticsSnapshot.careTargets.find((entry) => entry.type === "medical");
+        const repairRequest = logisticsSnapshot.careTargets.find((entry) => entry.type === "repair");
+        if (!medicalRequest || medicalRequest.assignedAssets < 1 || medicalRequest.need <= 0) {
+            throw new Error(`Expected a medical care request with an assigned asset, saw ${JSON.stringify(medicalRequest)}.`);
+        }
+        if (!repairRequest || repairRequest.assignedAssets < 1 || repairRequest.need <= 0) {
+            throw new Error(`Expected a repair care request with an assigned asset, saw ${JSON.stringify(repairRequest)}.`);
+        }
+    });
+});
 registerTest("GROUND_UNITS_STOP_ATTACKING_OR_MOVING_WITHOUT_CARRIED_STOCK", async ({ Given, Then }) => {
     let engine;
     await Given("a vehicle with no onboard ammo or fuel and an adjacent target", async () => {

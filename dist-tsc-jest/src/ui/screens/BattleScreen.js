@@ -1,4 +1,6 @@
 import { GameEngine } from "../../game/GameEngine";
+import { GameEngineInitiativeMethods } from "../../game/GameEngineInitiativeIntegration";
+import { EnhancedInitiativeTurnControls } from "../components/EnhancedInitiativeTurnControls";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { hexDistance } from "../../core/Hex";
 import { SelectionIntelOverlay } from "../announcements/SelectionIntelOverlay";
@@ -8,11 +10,12 @@ import { getNextPhase } from "../../data/tutorialSteps";
 import { findGeneralById, updateGeneral, saveRosterToLocalStorage } from "../../utils/rosterStorage";
 import { ensureDeploymentState } from "../../state/DeploymentState";
 import { getScenarioByMissionKey } from "../../data/scenarioRegistry";
+import { normalizeScenarioSource } from "../../data/scenarioNormalizer";
 import { getMissionDeploymentProfile, getMissionTurnLimit } from "../../data/missions";
 import { getCombatProfile } from "../../data/combatProfiles";
 import { combat } from "../../core/balance";
 import terrainSource from "../../data/terrain.json";
-import unitTypesSource from "../../data/unitTypes.json";
+import unitTypesSource from "../../data/unitSystem/derivedUnitTypes";
 import { createMissionRulesController } from "../../state/missionRules";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { setMissionStartedUI } from "../utils/missionUi";
@@ -26,6 +29,133 @@ import { recordAirShowPlaybackCapture } from "../airshow/AirShowPlaybackCapture"
  * Handles turn management, deployment finalization, and mission completion.
  */
 export class BattleScreen {
+    formatReadinessValue(value) {
+        const safeValue = Number.isFinite(value) ? value : 0;
+        if (Number.isInteger(safeValue))
+            return safeValue.toFixed(0);
+        const roundedTenths = Math.round(safeValue * 10) / 10;
+        return Math.abs(safeValue - roundedTenths) < 0.001 ? safeValue.toFixed(1) : safeValue.toFixed(2);
+    }
+    formatDamageAmount(value) {
+        return this.formatReadinessValue(this.clampDisplayedDamage(value));
+    }
+    formatPersonnelDelta(damage) {
+        if (!damage) {
+            return "No personnel projection";
+        }
+        const parts = [];
+        if (damage.personnel.killed > 0)
+            parts.push(`${damage.personnel.killed} KIA`);
+        if (damage.personnel.severelyWounded > 0)
+            parts.push(`${damage.personnel.severelyWounded} severe`);
+        if (damage.personnel.wounded > 0)
+            parts.push(`${damage.personnel.wounded} wounded`);
+        if (damage.personnel.injured > 0)
+            parts.push(`${damage.personnel.injured} injured`);
+        return parts.length > 0 ? parts.join(", ") : "No personnel losses";
+    }
+    formatEquipmentDelta(damage) {
+        if (!damage) {
+            return "No equipment projection";
+        }
+        const parts = [];
+        if (damage.equipment.destroyed > 0)
+            parts.push(`${damage.equipment.destroyed} destroyed`);
+        if (damage.equipment.disabled > 0)
+            parts.push(`${damage.equipment.disabled} disabled`);
+        if (damage.equipment.damaged > 0)
+            parts.push(`${damage.equipment.damaged} damaged`);
+        return parts.length > 0 ? parts.join(", ") : "No equipment losses";
+    }
+    formatComponentDelta(damage) {
+        if (!damage?.componentDamage) {
+            return "No component damage";
+        }
+        const parts = [];
+        const append = (label, values) => {
+            Object.entries(values)
+                .filter(([, count]) => typeof count === "number" && count > 0)
+                .forEach(([component, count]) => parts.push(`${count} ${component} ${label}`));
+        };
+        append("damaged", damage.componentDamage.damaged);
+        append("disabled", damage.componentDamage.disabled);
+        append("destroyed", damage.componentDamage.destroyed);
+        return parts.length > 0 ? parts.join(", ") : "No component damage";
+    }
+    formatDamageTypes(damage) {
+        if (!damage || damage.damageTypesUsed.length === 0) {
+            return "Not classified";
+        }
+        return damage.damageTypesUsed.map((type) => this.toTitleCase(type)).join(", ");
+    }
+    renderReadinessProjectionRows(damage) {
+        if (!damage) {
+            return "";
+        }
+        const before = damage.statusBefore.readinessBreakdown;
+        const after = damage.statusAfter.readinessBreakdown;
+        const equipmentBefore = before.equipment;
+        const equipmentAfter = after.equipment;
+        const equipmentRow = equipmentBefore && equipmentAfter
+            ? `
+        <div class="damage-projection-row">
+          <span>Equipment readiness</span>
+          <strong>${this.formatReadinessValue(equipmentBefore.readiness)}% -> ${this.formatReadinessValue(equipmentAfter.readiness)}%</strong>
+        </div>
+      `
+            : "";
+        return `
+      <div class="damage-projection">
+        <div class="damage-projection-row damage-projection-row--primary">
+          <span>Combat readiness</span>
+          <strong>${this.formatReadinessValue(damage.strengthBefore)}% -> ${this.formatReadinessValue(damage.strengthAfter)}%</strong>
+        </div>
+        <div class="damage-projection-row">
+          <span>Personnel readiness</span>
+          <strong>${this.formatReadinessValue(before.personnel.readiness)}% -> ${this.formatReadinessValue(after.personnel.readiness)}%</strong>
+        </div>
+        ${equipmentRow}
+        <div class="damage-projection-row">
+          <span>Personnel effects</span>
+          <strong>${this.escapeHtml(this.formatPersonnelDelta(damage))}</strong>
+        </div>
+        <div class="damage-projection-row">
+          <span>Equipment effects</span>
+          <strong>${this.escapeHtml(this.formatEquipmentDelta(damage))}</strong>
+        </div>
+      </div>
+    `;
+    }
+    renderWeaponStatusEffects(damage) {
+        if (!damage || damage.weaponHits.length === 0) {
+            return `<p><strong>Status Effects by Weapon:</strong> No weapon-level status effects projected.</p>`;
+        }
+        const rows = damage.weaponHits.map((hit) => {
+            const personnel = this.formatPersonnelDelta({
+                ...damage,
+                personnel: hit.personnel,
+                equipment: { damaged: 0, disabled: 0, destroyed: 0 }
+            });
+            const equipment = this.formatEquipmentDelta({
+                ...damage,
+                personnel: { injured: 0, wounded: 0, severelyWounded: 0, killed: 0 },
+                equipment: hit.equipment
+            });
+            return `
+        <div class="weapon-group-item">
+          <span class="weapon-name">${this.escapeHtml(hit.label)}:</span>
+          <span class="weapon-stats">${hit.shots} shots, ${hit.expectedHits.toFixed(1)} hits</span>
+          <span class="weapon-overmatch">${this.escapeHtml(personnel)}; ${this.escapeHtml(equipment)}</span>
+        </div>
+      `;
+        }).join("");
+        return `
+      <div class="weapon-groups-detail">
+        <strong>Status Effects by Weapon:</strong>
+        ${rows}
+      </div>
+    `;
+    }
     /**
      * Prepares and displays the attack confirmation dialog so the commander can approve or cancel combat resolution.
      * Stores the pending attacker/target hexes to be replayed once the user confirms.
@@ -51,14 +181,14 @@ export class BattleScreen {
         const attackerUnit = this.resolvePlayerUnitSnapshot(attackerHex, attackerUnitId);
         const commandState = attackerUnit ? engine.getUnitCommandState(attacker, attackerUnitId ?? undefined) : null;
         const supportsStances = attackerUnit ? this.canUnitUseCombatStances(attackerUnit) : false;
-        const assaultAvailable = attackerUnit ? this.canUnitAssault(attackerUnit, commandState) : false;
+        const assaultAvailable = attackerUnit ? this.canUnitAssault(attackerUnit, commandState, attacker, defender) : false;
         if (!supportsStances) {
             this.currentAttackStance = null;
         }
         else if (!options.preserveStance ||
             this.currentAttackStance === null ||
             (this.currentAttackStance === "assault" && !assaultAvailable)) {
-            this.currentAttackStance = "suppressive";
+            this.currentAttackStance = "fireAtWill";
         }
         const preview = engine.previewAttack(attacker, defender, this.currentAttackStance ?? undefined, attackerUnitId ?? undefined, defenderUnitId ?? undefined);
         this.pendingAttack = {
@@ -77,7 +207,7 @@ export class BattleScreen {
           <span>Cannot attack this target. Line of sight may be blocked or the target may be out of range.</span>
         </div>
       `;
-            this.configureAttackStanceControls(attackerUnit, commandState);
+            this.configureAttackStanceControls(attackerUnit, commandState, attacker, defender);
             this.showAttackDialog();
             return;
         }
@@ -109,20 +239,16 @@ export class BattleScreen {
         const expectedHits = preview.result.expectedHits.toFixed(1);
         const effectiveAP = Math.round(preview.result.effectiveAP);
         const facingArmor = Math.round(preview.result.facingArmor);
-        const attackerStrength = Math.round(preview.attacker.strength);
-        const defenderStrength = Math.round(preview.defender.strength);
+        const attackerStrength = preview.attacker.strength;
+        const defenderStrength = preview.defender.strength;
         const baseDamagePerHit = damageDetails.baseTableValue;
         const damageExperienceScalar = damageDetails.experienceScalar;
         const preCommanderDamagePerHit = damageDetails.afterExperience;
         const commanderDamageScalar = damageDetails.commanderScalar;
         const prePayloadDamagePerHit = damageDetails.final;
-        const postPayloadDamagePerHit = preview.finalDamagePerHit;
-        const damagePerHitSummary = `${prePayloadDamagePerHit.toFixed(3)}% -> ${postPayloadDamagePerHit.toFixed(3)}%`;
-        const baseExpectedDamage = this.clampDisplayedDamage(preview.result.expectedDamage);
         const postPayloadExpectedDamage = this.clampDisplayedDamage(preview.finalExpectedDamage);
         const baseExpectedSuppression = preview.result.expectedSuppression;
         const postPayloadExpectedSuppression = preview.finalExpectedSuppression;
-        const expectedDamageSummary = `${baseExpectedDamage.toFixed(1)}% -> ${postPayloadExpectedDamage.toFixed(1)}%`;
         const suppressionSummary = `${baseExpectedSuppression.toFixed(1)} -> ${postPayloadExpectedSuppression.toFixed(1)}`;
         const damageMultiplier = preview.damageMultiplier;
         const suppressionMultiplier = preview.suppressionMultiplier;
@@ -168,7 +294,9 @@ export class BattleScreen {
                 : Math.max(0.1, 1 + (penetrationMargin * 0.15))
             : 1;
         const afterPenetrationDamagePerHit = afterAttackScalarDamagePerHit * penetrationScalar;
-        const weaponStatsLine = `Accuracy base ${attackerDef.accuracyBase}% • ${attackStatLabel} ${attackStatValue} • AP ${attackerDef.ap}`;
+        // Generate per-weapon breakdown for detailed UI display
+        const weaponBreakdown = this.generateWeaponBreakdown(attackerDef, facingArmor, preview.result.shotBreakdown ?? null);
+        const weaponStatsLine = `Accuracy base ${attackerDef.accuracyBase}% • ${attackStatLabel} ${attackStatValue} • Mixed weapon load (${weaponBreakdown.groups.length} systems)`;
         const penetrationMathLine = facingArmor > 0
             ? `Pen x${penetrationScalar.toFixed(2)} (AP ${effectiveAP} vs Armor ${facingArmor}, margin ${penetrationMargin >= 0 ? "+" : ""}${penetrationMargin})`
             : "Pen x1.00 (target has no armor)";
@@ -179,7 +307,7 @@ export class BattleScreen {
             `Base ${baseAccuracyPercent.toFixed(1)}% x Cmd +${commanderBonusPct}% = ${afterCommander.toFixed(1)}%, ` +
             `After Cmd ${afterCommander.toFixed(1)}% x Exp +${experienceBonusPct}% = ${afterExperience.toFixed(1)}%, ` +
             `After Exp ${afterExperience.toFixed(1)}% x Signature ${signatureMultiplier.toFixed(2)} (${defenderDef.combat.signature}) = ${afterSignature.toFixed(1)}% x Terrain ${terrainMultiplier.toFixed(2)} (${terrainDeltaText}) = ${afterTerrain.toFixed(1)}% x Spot ${spottedMultiplier.toFixed(2)} = ${finalPreClamp.toFixed(1)}% -> Final ${accuracyDetails.final.toFixed(1)}%`;
-        const damageBreakdownLine = `Table ${baseDamagePerHit.toFixed(3)}% x Exp x${damageExperienceScalar.toFixed(2)} = ${preCommanderDamagePerHit.toFixed(3)}% x ${attackStatLabel} x${attackScalar.toFixed(2)} (${attackStatValue}/${attackReference}) = ${afterAttackScalarDamagePerHit.toFixed(3)}% x ${penetrationMathLine} = ${afterPenetrationDamagePerHit.toFixed(3)}% x Cmd x${commanderDamageScalar.toFixed(2)} = ${prePayloadDamagePerHit.toFixed(3)}%`;
+        const statusConversionLine = `Contact model ${baseDamagePerHit.toFixed(3)} x Exp x${damageExperienceScalar.toFixed(2)} = ${preCommanderDamagePerHit.toFixed(3)} x ${attackStatLabel} x${attackScalar.toFixed(2)} (${attackStatValue}/${attackReference}) = ${afterAttackScalarDamagePerHit.toFixed(3)} x ${penetrationMathLine} = ${afterPenetrationDamagePerHit.toFixed(3)} x Cmd x${commanderDamageScalar.toFixed(2)} = ${prePayloadDamagePerHit.toFixed(3)}; status effects come from per-weapon hit distributions and the target's current personnel/equipment pools`;
         const distance = Math.abs(attacker.q - defender.q) + Math.abs(attacker.r - defender.r) + Math.abs((-attacker.q - attacker.r) - (-defender.q - defender.r));
         const range = Math.floor(distance / 2);
         const attackerRangeMin = attackerDef?.rangeMin ?? 1;
@@ -198,30 +326,38 @@ export class BattleScreen {
                 : effectiveAP === facingArmor
                     ? "Armor Dampens Fire"
                     : "Armor Holds";
-        const projectedDefenderStrength = Math.max(0, defenderStrength - postPayloadExpectedDamage);
-        const projectedAttackerStrength = Math.max(0, attackerStrength - preview.expectedRetaliation);
+        const projectedTargetDamage = preview.projectedDamage?.readinessLoss ?? postPayloadExpectedDamage;
+        const projectedReturnFireDamage = preview.projectedRetaliationDamage?.readinessLoss ?? preview.expectedRetaliation;
+        const projectedDefenderStrength = preview.projectedDamage?.strengthAfter ?? Math.max(0, defenderStrength - projectedTargetDamage);
+        const projectedAttackerStrength = preview.projectedRetaliationDamage?.strengthAfter ?? Math.max(0, attackerStrength - projectedReturnFireDamage);
+        const projectedTargetSummary = preview.projectedDamage?.summary ?? `${this.formatReadinessValue(projectedTargetDamage)}% readiness loss`;
+        const projectedRetaliationSummary = preview.projectedRetaliationDamage?.summary ?? `${this.formatReadinessValue(projectedReturnFireDamage)}% readiness loss`;
+        const targetPersonnelEffects = this.formatPersonnelDelta(preview.projectedDamage);
+        const targetEquipmentEffects = this.formatEquipmentDelta(preview.projectedDamage);
+        const targetComponentEffects = this.formatComponentDelta(preview.projectedDamage);
+        const targetDamageTypes = this.formatDamageTypes(preview.projectedDamage);
         const accuracyToneClass = roundedAccuracy >= 75
             ? "attack-preview-outcome__value--good"
             : roundedAccuracy >= 50
                 ? "attack-preview-outcome__value--warning"
                 : "attack-preview-outcome__value--danger";
-        const defenderDamageToneClass = postPayloadExpectedDamage >= 20
+        const defenderDamageToneClass = projectedTargetDamage >= 20
             ? "attack-preview-outcome__value--good"
-            : postPayloadExpectedDamage >= 8
+            : projectedTargetDamage >= 8
                 ? "attack-preview-outcome__value--warning"
                 : "attack-preview-outcome__value--neutral";
         const retaliationToneClass = !preview.retaliationPossible
             ? "attack-preview-outcome__value--muted"
-            : preview.expectedRetaliation >= 15
+            : projectedReturnFireDamage >= 15
                 ? "attack-preview-outcome__value--danger"
-                : preview.expectedRetaliation >= 6
+                : projectedReturnFireDamage >= 6
                     ? "attack-preview-outcome__value--warning"
                     : "attack-preview-outcome__value--neutral";
-        const retaliationValue = preview.retaliationPossible ? `${preview.expectedRetaliation.toFixed(1)}%` : "0.0%";
+        const retaliationValue = preview.retaliationPossible ? `${this.formatReadinessValue(projectedReturnFireDamage)}%` : "0.0%";
         const retaliationSummary = preview.retaliationPossible
             ? preview.retaliationNote
-                ? `Projected attacker strength: ${projectedAttackerStrength.toFixed(1)}%. ${preview.retaliationNote}`
-                : `Projected attacker strength: ${projectedAttackerStrength.toFixed(1)}%`
+                ? `Projected attacker strength: ${this.formatReadinessValue(projectedAttackerStrength)}%. ${projectedRetaliationSummary}. ${preview.retaliationNote}`
+                : `Projected attacker strength: ${this.formatReadinessValue(projectedAttackerStrength)}%. ${projectedRetaliationSummary}`
             : preview.retaliationNote ?? "No return fire expected.";
         const accuracySummary = supportsStances
             ? `${profile.title} stance selected.`
@@ -244,7 +380,7 @@ export class BattleScreen {
             <div class="attack-preview-card__stats">
               <div class="attack-preview-stat">
                 <span>Current strength</span>
-                <strong>${attackerStrength}%</strong>
+                <strong>${this.formatReadinessValue(attackerStrength)}%</strong>
               </div>
               <div class="attack-preview-stat">
                 <span>Effective range</span>
@@ -260,7 +396,7 @@ export class BattleScreen {
             <div class="attack-preview-card__stats">
               <div class="attack-preview-stat">
                 <span>Current strength</span>
-                <strong>${defenderStrength}%</strong>
+                <strong>${this.formatReadinessValue(defenderStrength)}%</strong>
               </div>
               <div class="attack-preview-stat">
                 <span>Armor</span>
@@ -277,9 +413,9 @@ export class BattleScreen {
           </div>
           <div class="attack-preview-outcome__grid">
             <article class="attack-preview-outcome__metric">
-              <span class="attack-preview-outcome__label">Damage to target</span>
-              <strong class="attack-preview-outcome__value ${defenderDamageToneClass}">${postPayloadExpectedDamage.toFixed(1)}%</strong>
-              <span class="attack-preview-outcome__subtext">Projected defender strength: ${projectedDefenderStrength.toFixed(1)}%</span>
+              <span class="attack-preview-outcome__label">Target readiness loss</span>
+              <strong class="attack-preview-outcome__value ${defenderDamageToneClass}">${this.formatReadinessValue(projectedTargetDamage)}%</strong>
+              <span class="attack-preview-outcome__subtext">Projected defender strength: ${this.formatReadinessValue(projectedDefenderStrength)}%. ${this.escapeHtml(projectedTargetSummary)}</span>
             </article>
 
             <article class="attack-preview-outcome__metric">
@@ -301,53 +437,179 @@ export class BattleScreen {
         <details class="attack-preview-details"${detailsExpanded ? " open" : ""}>
           <summary>Detailed Breakdown</summary>
           <div class="attack-preview-details__content">
-            <div class="attack-preview-detail-grid">
-              <div class="attack-preview-detail-row">
-                <span>Shots</span>
-                <strong>${shots}</strong>
-              </div>
-              <div class="attack-preview-detail-row">
-                <span>Expected Hits</span>
-                <strong>${expectedHits}</strong>
-              </div>
-              <div class="attack-preview-detail-row">
-                <span>Damage / Hit</span>
-                <strong>${postPayloadDamagePerHit.toFixed(3)}%</strong>
-              </div>
-              <div class="attack-preview-detail-row">
-                <span>Expected Suppression</span>
-                <strong>${postPayloadExpectedSuppression.toFixed(1)}</strong>
-              </div>
-              <div class="attack-preview-detail-row">
-                <span>Penetration</span>
-                <strong>${effectiveAP} vs ${facingArmor}</strong>
-              </div>
-              <div class="attack-preview-detail-row">
-                <span>Armor Outlook</span>
-                <strong>${penetrationSummary}</strong>
+            <!-- Mode Toggle -->
+            <div class="attack-preview-mode-toggle">
+              <button type="button" class="attack-preview-mode-btn attack-preview-mode-btn--active" data-mode="player" onclick="this.closest('.attack-preview-details').querySelectorAll('.attack-preview-mode-content').forEach(el => el.hidden = el.dataset.mode !== 'player'); this.closest('.attack-preview-mode-toggle').querySelectorAll('.attack-preview-mode-btn').forEach(btn => btn.classList.toggle('attack-preview-mode-btn--active', btn.dataset.mode === 'player'));">
+                <span class="mode-icon">👁️</span> Commander View
+              </button>
+              <button type="button" class="attack-preview-mode-btn" data-mode="dev" onclick="this.closest('.attack-preview-details').querySelectorAll('.attack-preview-mode-content').forEach(el => el.hidden = el.dataset.mode !== 'dev'); this.closest('.attack-preview-mode-toggle').querySelectorAll('.attack-preview-mode-btn').forEach(btn => btn.classList.toggle('attack-preview-mode-btn--active', btn.dataset.mode === 'dev'));">
+                <span class="mode-icon">🔧</span> Technical Data
+              </button>
+            </div>
+
+            <!-- Player-Facing Format (Default) -->
+            <div class="attack-preview-mode-content" data-mode="player">
+              <div class="combat-summary-card">
+                <header class="combat-summary-header">
+                  <h4 class="combat-summary-title">Combat Assessment</h4>
+                  <span class="combat-summary-subtitle">${weaponBreakdown.groups.length} weapon systems engaged</span>
+                </header>
+                
+                <div class="combat-metrics-grid">
+                  <div class="combat-metric combat-metric--primary">
+                    <span class="combat-metric__label">Fire Volume</span>
+                    <strong class="combat-metric__value">${Number(shots).toLocaleString()}</strong>
+                    <span class="combat-metric__unit">rounds</span>
+                  </div>
+                  <div class="combat-metric combat-metric--primary">
+                    <span class="combat-metric__label">Expected Hits</span>
+                    <strong class="combat-metric__value">${Math.round(Number(expectedHits))}</strong>
+                    <span class="combat-metric__unit">impacts</span>
+                  </div>
+                  <div class="combat-metric">
+                    <span class="combat-metric__label">Personnel Effects</span>
+                    <strong class="combat-metric__value combat-metric__value--text">${this.escapeHtml(targetPersonnelEffects)}</strong>
+                  </div>
+                  <div class="combat-metric">
+                    <span class="combat-metric__label">Equipment Effects</span>
+                    <strong class="combat-metric__value combat-metric__value--text">${this.escapeHtml(targetEquipmentEffects)}</strong>
+                  </div>
+                </div>
+
+                ${this.renderReadinessProjectionRows(preview.projectedDamage)}
+
+                <div class="penetration-assessment">
+                  <div class="penetration-bar">
+                    <div class="penetration-fill" style="--penetration-width: ${Math.min(100, Math.max(0, (effectiveAP / Math.max(facingArmor, 1)) * 50))}%"></div>
+                    <span class="penetration-label">Penetration: ${effectiveAP} AP vs ${facingArmor} Armor</span>
+                    <span class="penetration-outcome">${penetrationSummary}</span>
+                  </div>
+                </div>
+
+                <div class="weapon-loadout-summary">
+                  <h5 class="weapon-loadout-title">Weapon Loadout</h5>
+                  <div class="weapon-chips">
+                    ${weaponBreakdown.groups.map(group => {
+            const margin = group.ap - facingArmor;
+            return `
+                      <div class="weapon-chip weapon-chip--${margin > 5 ? 'advantage' : margin < -5 ? 'disadvantage' : 'neutral'}">
+                        <span class="weapon-chip__name">${this.escapeHtml(group.name)}</span>
+                        <span class="weapon-chip__stats">${group.shots}× AP${group.ap}</span>
+                        ${margin !== 0 ? `<span class="weapon-chip__overmatch">${margin > 0 ? '+' : ''}${margin}</span>` : ''}
+                      </div>
+                    `;
+        }).join('')}
+                  </div>
+                </div>
+
+                <div class="combat-factors">
+                  <h5 class="combat-factors-title">Combat Factors</h5>
+                  <ul class="combat-factors-list">
+                    <li class="combat-factor">
+                      <span class="combat-factor__label">Range Table</span>
+                      <span class="combat-factor__value">${baseAccuracyPercent.toFixed(1)}% base accuracy</span>
+                    </li>
+                    <li class="combat-factor">
+                      <span class="combat-factor__label">Unit Proficiency</span>
+                      <span class="combat-factor__value">${(unitAccuracyScalar * 100 - 100).toFixed(0)}% modifier</span>
+                    </li>
+                    ${commanderAccuracyBonus > 0 ? `
+                    <li class="combat-factor combat-factor--bonus">
+                      <span class="combat-factor__label">Command Direction</span>
+                      <span class="combat-factor__value">+${commanderAccuracyBonus}% accuracy</span>
+                    </li>
+                    ` : ''}
+                    ${commanderDamageBonus > 0 ? `
+                    <li class="combat-factor combat-factor--bonus">
+                      <span class="combat-factor__label">Command Focus</span>
+                      <span class="combat-factor__value">+${commanderDamageBonus}% damage</span>
+                    </li>
+                    ` : ''}
+                    <li class="combat-factor">
+                      <span class="combat-factor__label">Final Accuracy</span>
+                      <span class="combat-factor__value combat-factor__value--final">${roundedAccuracy}%</span>
+                    </li>
+                  </ul>
+                </div>
               </div>
             </div>
 
-            <div class="attack-preview-breakdown">
-              <p><strong>Profile:</strong> ${this.escapeHtml(profile.description)}</p>
-              <p><strong>Weapon Inputs:</strong> ${this.escapeHtml(weaponStatsLine)}</p>
-              <p><strong>Engagement Math:</strong> ${this.escapeHtml(profile.mathLine)}</p>
-              <p><strong>Accuracy Math:</strong> ${this.escapeHtml(accuracyBreakdownLine)}</p>
-              <p><strong>Damage Math:</strong> ${this.escapeHtml(damageBreakdownLine)}</p>
-              <p><strong>Commander Bonuses:</strong> Accuracy +${commanderAccuracyBonus}% • Damage +${commanderDamageBonus}%</p>
-              <p><strong>Payload:</strong> x${damageMultiplier} (${this.escapeHtml(damageMultiplierDescription)}) • Suppression x${suppressionMultiplier} (${this.escapeHtml(suppressionMultiplierDescription)})</p>
-              <p><strong>Damage / Hit:</strong> ${damagePerHitSummary}</p>
-              <p><strong>Expected Damage:</strong> ${expectedDamageSummary}</p>
-              <p><strong>Expected Suppression:</strong> ${suppressionSummary}</p>
-              ${preview.retaliationNote
-            ? `<p><strong>Return Fire Note:</strong> ${this.escapeHtml(preview.retaliationNote)}</p>`
+            <!-- Dev/Test Format -->
+            <div class="attack-preview-mode-content" data-mode="dev" hidden>
+              <div class="attack-preview-detail-grid">
+                <div class="attack-preview-detail-row">
+                  <span>Shots</span>
+                  <strong>${shots}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Expected Hits</span>
+                  <strong>${expectedHits}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Readiness Loss</span>
+                  <strong>${this.formatReadinessValue(projectedTargetDamage)}%</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Expected Suppression</span>
+                  <strong>${postPayloadExpectedSuppression.toFixed(1)}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Penetration</span>
+                  <strong>${effectiveAP} vs ${facingArmor}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Armor Outlook</span>
+                  <strong>${penetrationSummary}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Damage Types</span>
+                  <strong>${this.escapeHtml(targetDamageTypes)}</strong>
+                </div>
+                <div class="attack-preview-detail-row">
+                  <span>Components</span>
+                  <strong>${this.escapeHtml(targetComponentEffects)}</strong>
+                </div>
+              </div>
+
+              <div class="attack-preview-breakdown">
+                <p><strong>Profile:</strong> ${this.escapeHtml(profile.description)}</p>
+                <p><strong>Weapon Inputs:</strong> ${this.escapeHtml(weaponStatsLine)}</p>
+                <p><strong>Weapon Systems:</strong> ${this.escapeHtml(weaponBreakdown.summary)}</p>
+                
+                <div class="weapon-groups-detail">
+                  <strong>Per-Weapon Breakdown:</strong>
+                  ${weaponBreakdown.groups.map(group => `
+                    <div class="weapon-group-item">
+                      <span class="weapon-name">${this.escapeHtml(group.name)}:</span>
+                      <span class="weapon-stats">${group.shots} shots, AP${group.ap}</span>
+                      <span class="weapon-overmatch">${group.effectiveness}</span>
+                    </div>
+                  `).join('')}
+                </div>
+                
+                <p><strong>Engagement Math:</strong> ${this.escapeHtml(profile.mathLine)}</p>
+                <p><strong>Accuracy Math:</strong> ${this.escapeHtml(accuracyBreakdownLine)}</p>
+                <p><strong>Status Conversion:</strong> ${this.escapeHtml(statusConversionLine)}</p>
+                <p><strong>Commander Bonuses:</strong> Accuracy +${commanderAccuracyBonus}% • Damage +${commanderDamageBonus}%</p>
+                <p><strong>Payload:</strong> x${damageMultiplier} (${this.escapeHtml(damageMultiplierDescription)}) • Suppression x${suppressionMultiplier} (${this.escapeHtml(suppressionMultiplierDescription)})</p>
+                <p><strong>Projected Status Effects:</strong> ${this.escapeHtml(projectedTargetSummary)}</p>
+                <p><strong>Personnel Effects:</strong> ${this.escapeHtml(targetPersonnelEffects)}</p>
+                <p><strong>Equipment Effects:</strong> ${this.escapeHtml(targetEquipmentEffects)}</p>
+                <p><strong>Component Effects:</strong> ${this.escapeHtml(targetComponentEffects)}</p>
+                <p><strong>Damage Types:</strong> ${this.escapeHtml(targetDamageTypes)}</p>
+                ${this.renderWeaponStatusEffects(preview.projectedDamage)}
+                ${preview.retaliationPossible ? `<p><strong>Return Fire Projection:</strong> ${this.escapeHtml(projectedRetaliationSummary)}</p>` : ""}
+                <p><strong>Expected Suppression:</strong> ${suppressionSummary}</p>
+                ${preview.retaliationNote
+            ? `<p class="attack-preview-breakdown__note">${this.escapeHtml(preview.retaliationNote)}</p>`
             : ""}
+              </div>
             </div>
           </div>
         </details>
       </div>
     `;
-        this.configureAttackStanceControls(attackerUnit ?? preview.attacker, commandState);
+        this.configureAttackStanceControls(attackerUnit ?? preview.attacker, commandState, attacker, defender);
         this.showAttackDialog();
     }
     canUnitUseCombatStances(unit) {
@@ -360,26 +622,35 @@ export class BattleScreen {
         }
         return unit.type === "Recon_Bike";
     }
-    canUnitAssault(unit, commandState) {
-        return this.canUnitUseCombatStances(unit) && commandState?.suppressionState === "clear";
+    canUnitAssault(unit, commandState, attackerHex, defenderHex) {
+        return (this.canUnitUseCombatStances(unit)
+            && commandState?.suppressionState === "clear"
+            && (!attackerHex || !defenderHex || hexDistance(attackerHex, defenderHex) <= 1));
     }
-    configureAttackStanceControls(attackerUnit, commandState) {
+    isPinnedOrBrokenCommandState(commandState) {
+        return commandState?.suppressionState === "pinned" || commandState?.suppressionState === "broken";
+    }
+    configureAttackStanceControls(attackerUnit, commandState, attackerHex, defenderHex) {
         const selector = this.attackConfirmDialog?.querySelector(".attack-stance-selector");
+        const fireAtWillBtn = this.attackConfirmDialog?.querySelector("#stanceFireAtWill");
         const assaultBtn = this.attackConfirmDialog?.querySelector("#stanceAssault");
         const suppressiveBtn = this.attackConfirmDialog?.querySelector("#stanceSuppressive");
-        if (!selector || !assaultBtn || !suppressiveBtn) {
+        if (!selector || !fireAtWillBtn || !assaultBtn || !suppressiveBtn) {
             return;
         }
         const supportsStances = attackerUnit ? this.canUnitUseCombatStances(attackerUnit) : false;
         selector.classList.toggle("attack-stance-selector--hidden", !supportsStances);
         if (!supportsStances) {
             this.currentAttackStance = null;
+            fireAtWillBtn.disabled = true;
             assaultBtn.disabled = true;
             suppressiveBtn.disabled = true;
             this.updateStanceButtonStates();
             return;
         }
-        const assaultAvailable = attackerUnit ? this.canUnitAssault(attackerUnit, commandState) : false;
+        const assaultAvailable = attackerUnit ? this.canUnitAssault(attackerUnit, commandState, attackerHex, defenderHex) : false;
+        fireAtWillBtn.disabled = false;
+        fireAtWillBtn.classList.remove("stance-disabled");
         assaultBtn.disabled = !assaultAvailable;
         assaultBtn.classList.toggle("stance-disabled", !assaultAvailable);
         suppressiveBtn.disabled = false;
@@ -387,10 +658,14 @@ export class BattleScreen {
         const assaultNote = assaultBtn.querySelector(".stance-note");
         if (assaultNote) {
             assaultNote.textContent = assaultAvailable
-                ? "Point-blank attack. Closes to knife-fight range for the strongest hit chance."
-                : commandState?.suppressionState === "pinned"
-                    ? "Blocked while pinned."
-                    : "Blocked while suppressed.";
+                ? "Adjacent attack. Resolves at point-blank range for the strongest hit chance."
+                : attackerHex && defenderHex && hexDistance(attackerHex, defenderHex) > 1
+                    ? "Requires an adjacent target."
+                    : commandState?.suppressionState === "broken"
+                        ? "Blocked while broken."
+                        : commandState?.suppressionState === "pinned"
+                            ? "Blocked while pinned."
+                            : "Blocked while suppressed.";
         }
         this.bindStanceButtons();
         this.updateStanceButtonStates();
@@ -399,7 +674,7 @@ export class BattleScreen {
         if (!this.canUnitUseCombatStances(unit)) {
             return {
                 title: "Direct Fire",
-                description: "This formation uses its standard direct-fire profile. Vehicles do not switch between assault and suppressive stances.",
+                description: "This formation uses its standard direct-fire profile. Vehicles do not switch between assault and suppressing-fire orders.",
                 note: "Accuracy reflects the normal range, terrain, and spotting calculation for this weapon system.",
                 mathLine: "Standard direct-fire calculation. No assault multiplier is in effect."
             };
@@ -407,21 +682,31 @@ export class BattleScreen {
         if (this.currentAttackStance === "assault") {
             return {
                 title: "Assault",
-                description: "The battalion closes to point-blank range and trades protection for a much better chance to hit.",
+                description: "The battalion attacks an adjacent target at point-blank range and trades protection for a much better chance to hit.",
                 note: "Assault resolves at point-blank range, so the battalion benefits from the short-range accuracy curve instead of a separate hit multiplier.",
                 mathLine: "Point-blank range uses the 25m midpoint, then runs the standard range, terrain, and spotting math."
             };
         }
-        const suppressionNote = commandState?.suppressionState === "pinned"
-            ? "Pinned formations cannot move, retaliate, or initiate assault fire until the pin is broken."
-            : commandState?.suppressionState === "suppressed"
-                ? "Suppressed formations may still move and fire, but assault is unavailable this turn."
-                : "Suppressive fire keeps the battalion in ranged posture and can stack suppression on the target.";
+        if (this.currentAttackStance === "suppressive") {
+            const suppressionNote = commandState?.suppressionState === "broken"
+                ? "Broken formations are below 25 readiness under heavy suppression and cannot move, retaliate, or initiate assault fire."
+                : commandState?.suppressionState === "pinned"
+                    ? "Pinned formations cannot move, retaliate, or initiate assault fire until the pin is broken."
+                    : commandState?.suppressionState === "suppressed"
+                        ? "Suppressed formations may still move and fire, but assault is unavailable this turn."
+                        : "Suppressing fire doubles suppression output and ammunition cost without changing shot volume or accuracy.";
+            return {
+                title: "Suppressing Fire",
+                description: "The battalion stays in ranged posture and prioritizes disruption without reducing its normal shot volume or accuracy.",
+                note: suppressionNote,
+                mathLine: "Standard range calculation. Readiness damage is unchanged; packet suppression is doubled and ammo cost is doubled."
+            };
+        }
         return {
-            title: "Suppressive",
-            description: "The battalion stays in ranged posture and trades lethality for disruption and battlefield control.",
-            note: suppressionNote,
-            mathLine: "Standard range calculation. No assault multiplier is in effect."
+            title: "Fire at Will",
+            description: "The formation uses its normal direct-fire profile against the selected target.",
+            note: "Standard attack order. Shots, accuracy, damage, suppression, and ammo cost use the baseline fire profile.",
+            mathLine: "Standard range calculation. No assault range override or suppression surcharge is in effect."
         };
     }
     /** Handles air:previewRange and paints a temporary overlay of hexes within the aircraft's radius. */
@@ -652,10 +937,11 @@ export class BattleScreen {
         if (!commandState || commandState.isAutomated || !this.canUnitObserveArtillery(unit)) {
             return { available: false, reason: null, assetId: null, targetHexKeys: [] };
         }
-        if (commandState.suppressionState === "pinned") {
+        if (this.isPinnedOrBrokenCommandState(commandState)) {
+            const label = commandState.suppressionState === "broken" ? "Broken" : "Pinned";
             return {
                 available: false,
-                reason: "Pinned battalions cannot adjust heavy artillery fire until the pin is broken.",
+                reason: `${label} battalions cannot adjust heavy artillery fire until the suppression is broken.`,
                 assetId: null,
                 targetHexKeys: []
             };
@@ -1230,45 +1516,52 @@ export class BattleScreen {
                 this.clearSelectedHexAfterAction();
                 // Compose battle update lines summarizing attack outcome and any counter-fire so commanders get full context.
                 const announcements = [];
-                const inflicted = this.clampDisplayedDamageRounded(resolution.result.expectedDamage);
+                const inflictedDamage = this.clampDisplayedDamage(resolution.defenderDamage?.readinessLoss ?? resolution.result.expectedDamage);
+                const inflicted = this.formatDamageAmount(inflictedDamage);
                 let primaryReport = `Attack confirmed. Damage dealt ${inflicted}.`;
                 if (resolution.defenderDestroyed) {
                     primaryReport += " Target destroyed.";
                 }
                 else {
-                    primaryReport += ` Defender strength now ${Math.max(0, resolution.defenderRemainingStrength)}.`;
+                    primaryReport += ` Defender strength now ${this.formatReadinessValue(Math.max(0, resolution.defenderRemainingStrength))}.`;
+                }
+                if (resolution.defenderDamage?.summary) {
+                    primaryReport += ` Effects: ${resolution.defenderDamage.summary}.`;
                 }
                 if (typeof resolution.attackerRemainingStrength === "number") {
                     primaryReport += ` Attacking unit strength now ${Math.max(0, resolution.attackerRemainingStrength)}.`;
                 }
                 announcements.push(primaryReport);
                 if (resolution.retaliationOccurred) {
-                    const retaliationDamage = Math.max(0, Math.round(resolution.retaliationResult?.expectedDamage ?? 0));
-                    let retaliationReport = `Enemy retaliation dealt ${retaliationDamage} damage.`;
+                    const retaliationDamage = this.clampDisplayedDamage(resolution.retaliationDamage?.readinessLoss ?? resolution.retaliationResult?.expectedDamage ?? 0);
+                    let retaliationReport = `Enemy retaliation dealt ${this.formatDamageAmount(retaliationDamage)} damage.`;
                     const attackerRemaining = resolution.attackerRemainingStrength;
                     if (typeof attackerRemaining === "number") {
                         if (attackerRemaining <= 0) {
                             retaliationReport += " Attacking unit destroyed.";
                         }
                         else {
-                            retaliationReport += ` Attacking unit strength now ${attackerRemaining}.`;
+                            retaliationReport += ` Attacking unit strength now ${this.formatReadinessValue(attackerRemaining)}.`;
                         }
+                    }
+                    if (resolution.retaliationDamage?.summary) {
+                        retaliationReport += ` Effects: ${resolution.retaliationDamage.summary}.`;
                     }
                     announcements.push(retaliationReport);
                 }
                 announcements.forEach((text) => this.announceBattleUpdate(text));
                 const retaliationDamage = resolution.retaliationOccurred
-                    ? this.clampDisplayedDamageRounded(resolution.retaliationResult ? resolution.retaliationResult.expectedDamage : 0)
+                    ? this.clampDisplayedDamage(resolution.retaliationDamage?.readinessLoss ?? (resolution.retaliationResult ? resolution.retaliationResult.expectedDamage : 0))
                     : 0;
                 const defenderDestroyedNote = resolution.defenderDestroyed ? " Target destroyed." : "";
                 const retaliationSummary = resolution.retaliationOccurred
-                    ? ` Enemy retaliation dealt ${retaliationDamage} damage.`
+                    ? ` Enemy retaliation dealt ${this.formatDamageAmount(retaliationDamage)} damage.`
                     : "";
                 const attackSummary = `Player attack from ${attackerHex} to ${defenderHex} dealt ${inflicted} damage.${defenderDestroyedNote}${retaliationSummary}`;
                 const detailSections = this.buildPlayerAttackDetails(resolution, this.pendingAttack?.preview ?? null, {
                     attackerHex,
                     defenderHex,
-                    inflictedDamage: inflicted,
+                    inflictedDamage,
                     retaliationDamage
                 });
                 this.publishActivityEvent({
@@ -1276,7 +1569,7 @@ export class BattleScreen {
                     type: "attack",
                     summary: attackSummary,
                     details: {
-                        inflictedDamage: inflicted,
+                        inflictedDamage,
                         defenderRemaining: resolution.defenderRemainingStrength,
                         attackerRemaining: resolution.attackerRemainingStrength,
                         retaliationDamage: retaliationDamage,
@@ -1329,17 +1622,26 @@ export class BattleScreen {
             if (!fromKey || !toKey) {
                 continue;
             }
-            const moveHandle = this.hexMapRenderer.primeUnitMove(fromKey, toKey);
+            const pathKeys = this.toMovePathKeys(move.path, fromKey, toKey);
+            const moveHandle = this.hexMapRenderer.primeUnitMove(fromKey, toKey, {
+                path: pathKeys,
+                unitId: move.unitId ?? null
+            });
             if (!moveHandle) {
                 continue;
             }
+            const visibleBefore = move.unitId ? this.isBotUnitVisibleToPlayer(move.unitId, move.from) : false;
+            const visibleAfter = move.unitId ? this.isBotUnitVisibleToPlayer(move.unitId, move.to) : false;
+            const focusAnchorKey = visibleBefore ? fromKey : visibleAfter ? toKey : null;
             // Keep the camera tracking the unit before and after the renderer handles sprite duplication/animation.
-            if (canFocusCamera) {
-                this.focusCameraOnHex(fromKey);
+            if (focusAnchorKey && canFocusCamera && this.battleAnimationMode !== "quick") {
+                this.focusCameraOnHex(focusAnchorKey);
             }
-            await new Promise((resolve) => setTimeout(resolve, 200));
+            if (this.battleAnimationMode !== "quick") {
+                await this.waitMs(200);
+            }
             try {
-                await moveHandle.play(BattleScreen.BOT_MOVE_ANIMATION_MS);
+                await moveHandle.play(this.resolveMoveAnimationDuration(pathKeys, BattleScreen.BOT_MOVE_ANIMATION_MS));
             }
             catch (animationError) {
                 console.warn("Bot move animation failed; continuing without playback.", {
@@ -1352,7 +1654,9 @@ export class BattleScreen {
                 moveHandle.dispose();
             }
             // Small pause between moves so sequential ghosts don't overlap visually.
-            await new Promise((resolve) => setTimeout(resolve, 150));
+            if (this.battleAnimationMode !== "quick") {
+                await this.waitMs(150);
+            }
         }
         // Animate bot attacks
         for (const attack of botSummary.attacks) {
@@ -1461,11 +1765,20 @@ export class BattleScreen {
      * Binds click handlers to stance selection buttons in the attack confirmation dialog.
      */
     bindStanceButtons() {
+        const fireAtWillBtn = this.attackConfirmDialog?.querySelector("#stanceFireAtWill");
         const assaultBtn = this.attackConfirmDialog?.querySelector("#stanceAssault");
         const suppressiveBtn = this.attackConfirmDialog?.querySelector("#stanceSuppressive");
-        if (!assaultBtn || !suppressiveBtn) {
+        if (!fireAtWillBtn || !assaultBtn || !suppressiveBtn) {
             return;
         }
+        fireAtWillBtn.onclick = () => {
+            if (fireAtWillBtn.disabled) {
+                return;
+            }
+            this.currentAttackStance = "fireAtWill";
+            this.updateStanceButtonStates();
+            this.refreshAttackPreview();
+        };
         assaultBtn.onclick = () => {
             if (assaultBtn.disabled) {
                 return;
@@ -1487,10 +1800,19 @@ export class BattleScreen {
      * Updates the visual state of stance buttons to reflect the current selection.
      */
     updateStanceButtonStates() {
+        const fireAtWillBtn = this.attackConfirmDialog?.querySelector("#stanceFireAtWill");
         const assaultBtn = this.attackConfirmDialog?.querySelector("#stanceAssault");
         const suppressiveBtn = this.attackConfirmDialog?.querySelector("#stanceSuppressive");
+        const fireAtWillSelected = this.currentAttackStance === "fireAtWill";
         const assaultSelected = this.currentAttackStance === "assault";
         const suppressiveSelected = this.currentAttackStance === "suppressive";
+        fireAtWillBtn?.classList.toggle("stance-active", fireAtWillSelected);
+        fireAtWillBtn?.setAttribute("aria-pressed", String(fireAtWillSelected));
+        fireAtWillBtn?.setAttribute("data-selected", String(fireAtWillSelected));
+        const fireAtWillState = fireAtWillBtn?.querySelector(".stance-state");
+        if (fireAtWillState) {
+            fireAtWillState.textContent = fireAtWillSelected ? "Selected" : "";
+        }
         assaultBtn?.classList.toggle("stance-active", assaultSelected);
         assaultBtn?.setAttribute("aria-pressed", String(assaultSelected));
         assaultBtn?.setAttribute("data-selected", String(assaultSelected));
@@ -1557,6 +1879,26 @@ export class BattleScreen {
             return null;
         }
         return CoordinateSystem.makeHexKey(col, row);
+    }
+    toMovePathKeys(path, fromKey, toKey) {
+        const keys = [];
+        const appendKey = (key) => {
+            if (!key || keys[keys.length - 1] === key) {
+                return;
+            }
+            keys.push(key);
+        };
+        appendKey(fromKey);
+        path?.forEach((hex) => appendKey(this.toHexKey(hex)));
+        appendKey(toKey);
+        return keys;
+    }
+    resolveMoveAnimationDuration(pathKeys, fallbackMs) {
+        if (this.battleAnimationMode === "quick") {
+            return 0;
+        }
+        const steps = Math.max(1, pathKeys.length - 1);
+        return Math.min(1200, Math.max(fallbackMs, 160 + steps * 190));
     }
     /**
      * Hides the confirmation dialog and restores map focus.
@@ -1770,6 +2112,7 @@ export class BattleScreen {
             const smokeSummary = `${unitLabel} laid a smoke screen on the ${facing} edge at ${hexKey}.`;
             this.announceBattleUpdate(smokeSummary);
             this.publishActivityEvent({ category: "player", type: "log", summary: smokeSummary });
+            this.completeTutorialPhase("smoke_demo");
             this.battleState.emitBattleUpdate("manual");
             return;
         }
@@ -1861,6 +2204,52 @@ export class BattleScreen {
         if (!progress.isActive || progress.currentPhase !== phase || progress.canProceed) {
             return;
         }
+        if (phase !== "base_camp") {
+            this.tutorialBaseCampSelectionCleared = false;
+        }
+        if (phase !== "movement_intro") {
+            this.tutorialMovementFocusKey = null;
+            this.tutorialMovementSelectionCleared = false;
+        }
+        if (phase !== "select_smoke_unit") {
+            this.tutorialSmokeFocusKey = null;
+        }
+        if (phase === "base_camp") {
+            if (!this.tutorialBaseCampSelectionCleared) {
+                this.tutorialBaseCampSelectionCleared = true;
+                this.defaultSelectionKey = null;
+                this.clearSelectedHex();
+                const deploymentZoneHexes = this.getPlayerDeploymentZoneHexes();
+                this.hexMapRenderer?.setZoneHighlights(deploymentZoneHexes);
+                const focusKey = deploymentZoneHexes.values().next().value;
+                if (focusKey) {
+                    this.focusTutorialHex(focusKey);
+                }
+            }
+            return;
+        }
+        if (phase === "movement_intro") {
+            if (!this.tutorialMovementSelectionCleared) {
+                this.tutorialMovementSelectionCleared = true;
+                this.clearSelectedHexAfterAction();
+            }
+            const playerUnitHexKeys = this.getManualPlayerUnitHexKeys();
+            this.hexMapRenderer?.setZoneHighlights(playerUnitHexKeys);
+            if (this.selectedUnitIsManualPlayerUnit()) {
+                this.completeTutorialPhase("movement_intro");
+                return;
+            }
+            const focusKey = playerUnitHexKeys.values().next().value;
+            if (focusKey && this.tutorialMovementFocusKey !== focusKey) {
+                this.tutorialMovementFocusKey = focusKey;
+                this.focusTutorialHex(focusKey);
+            }
+            return;
+        }
+        if (phase === "attack_intro") {
+            this.hexMapRenderer?.setZoneHighlights(new Set());
+            return;
+        }
         if ((phase === "engineer_intro" || phase === "flak_intro") && this.selectedHexKey) {
             const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
             if (!selectedMember || selectedMember.isAutomated) {
@@ -1875,6 +2264,31 @@ export class BattleScreen {
                 return;
             }
         }
+        if (phase === "select_smoke_unit") {
+            const smokeCapableHexKeys = this.getSmokeCapableUnitHexKeys();
+            this.hexMapRenderer?.setZoneHighlights(smokeCapableHexKeys);
+            if (this.selectedUnitCanLaySmoke()) {
+                this.completeTutorialPhase("select_smoke_unit");
+                return;
+            }
+            if (this.selectedHexKey) {
+                this.clearSelectedHexAfterAction();
+                this.hexMapRenderer?.setZoneHighlights(smokeCapableHexKeys);
+            }
+            const focusKey = smokeCapableHexKeys.values().next().value;
+            if (focusKey && this.tutorialSmokeFocusKey !== focusKey) {
+                this.tutorialSmokeFocusKey = focusKey;
+                this.focusTutorialHex(focusKey);
+            }
+            return;
+        }
+        if (phase === "intel_overlay_expand") {
+            this.hexMapRenderer?.setZoneHighlights(new Set());
+            if (this.isBattleIntelOverlayExpanded()) {
+                this.completeTutorialPhase("intel_overlay_expand");
+            }
+            return;
+        }
         if (phase === "air_missions") {
             const summary = this.battleState.ensureGameEngine().getAirSupportSummary();
             const sortiesFlown = summary.queued + summary.inFlight + summary.resolving + summary.completed + summary.refit;
@@ -1882,6 +2296,85 @@ export class BattleScreen {
                 this.completeTutorialPhase("air_missions");
             }
         }
+    }
+    selectedUnitCanLaySmoke() {
+        if (!this.selectedHexKey) {
+            return false;
+        }
+        const parsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
+        if (!parsed) {
+            return false;
+        }
+        const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
+        if (!selectedMember || selectedMember.isAutomated) {
+            return false;
+        }
+        const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+        const commandState = this.battleState.ensureGameEngine().getUnitCommandState(axial, selectedMember.unitId ?? this.selectedPlayerUnitId ?? undefined);
+        return commandState?.canLaySmoke === true;
+    }
+    selectedUnitIsManualPlayerUnit() {
+        if (!this.selectedHexKey) {
+            return false;
+        }
+        const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
+        return !!selectedMember && !selectedMember.isAutomated;
+    }
+    isBattleIntelOverlayExpanded() {
+        const overlay = this.battleIntelOverlayRoot ?? document.getElementById("battleIntelOverlay");
+        if (!overlay || overlay.classList.contains("hidden") || overlay.getAttribute("aria-hidden") === "true") {
+            return false;
+        }
+        return overlay.dataset.collapsed === "false";
+    }
+    getSmokeCapableUnitHexKeys() {
+        const engine = this.battleState.ensureGameEngine();
+        const keys = new Set();
+        engine.playerUnits.forEach((unit) => {
+            const commandState = engine.getUnitCommandState(unit.hex, unit.unitId ?? undefined);
+            if (commandState?.canLaySmoke !== true) {
+                return;
+            }
+            const offset = CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r);
+            keys.add(CoordinateSystem.makeHexKey(offset.col, offset.row));
+        });
+        return keys;
+    }
+    getManualPlayerUnitHexKeys() {
+        const engine = this.battleState.ensureGameEngine();
+        const keys = new Set();
+        engine.playerUnits.forEach((unit) => {
+            const commandState = engine.getUnitCommandState(unit.hex, unit.unitId ?? undefined);
+            if (commandState?.isAutomated) {
+                return;
+            }
+            const offset = CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r);
+            keys.add(CoordinateSystem.makeHexKey(offset.col, offset.row));
+        });
+        return keys;
+    }
+    focusTutorialHex(hexKey) {
+        this.bringTutorialHexIntoView(hexKey);
+        this.hexMapRenderer?.focusOnHex(hexKey, { behavior: "auto", padding: 80 });
+        window.setTimeout(() => this.bringTutorialHexIntoView(hexKey), 0);
+        window.setTimeout(() => this.bringTutorialHexIntoView(hexKey), 120);
+        void this.focusCameraOnHex(hexKey).then(() => this.bringTutorialHexIntoView(hexKey), () => this.bringTutorialHexIntoView(hexKey));
+    }
+    bringTutorialHexIntoView(hexKey) {
+        const cell = this.hexMapRenderer?.getHexElement(hexKey);
+        if (!cell) {
+            return;
+        }
+        const viewport = document.querySelector(".map-viewport");
+        if (viewport && viewport.scrollHeight > viewport.clientHeight) {
+            const cellRect = cell.getBoundingClientRect();
+            const viewportRect = viewport.getBoundingClientRect();
+            const cellCenterY = viewport.scrollTop + cellRect.top - viewportRect.top + cellRect.height / 2;
+            const maxTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+            viewport.scrollTop = Math.max(0, Math.min(maxTop, cellCenterY - viewport.clientHeight / 2));
+            return;
+        }
+        cell.scrollIntoView({ behavior: "auto", block: "center", inline: "center" });
     }
     /**
      * WHAT: Wires deployment-panel events into battle-screen engine actions exactly once.
@@ -1983,10 +2476,10 @@ export class BattleScreen {
                         this.deploymentPanel?.setCriticalError(null);
                         this.announceBattleUpdate(`Deployed ${label} to ${hexKey}.`);
                         this.refreshDeploymentMirrors("deploy", { unitKey, hexKey, label });
-                        // Only unlock the place_units tutorial step once every reserve has been placed.
-                        // Advancing after the first deploy would skip the step before the player has
-                        // had a chance to deploy their full force.
-                        if (engine.getReserveSnapshot().length === 0) {
+                        // Only unlock once every requisitioned deployable entry is placed. The engine
+                        // reserve snapshot can still include support or non-pool entries that should
+                        // not trap the deployment tutorial on Place The Line.
+                        if (this.countRemainingDeploymentPoolUnits() === 0) {
                             this.completeTutorialPhase("place_units");
                         }
                     }
@@ -2204,6 +2697,9 @@ export class BattleScreen {
         this.updateTurnStatusDisplay(summary);
         this.updateTurnControls(summary);
         this.refreshIdleUnitHighlights(summary);
+        if (this.isInitiativeSystemEnabled) {
+            this.highlightCurrentInitiativeGroup();
+        }
     }
     evaluateMissionRules() {
         if (!this.missionRulesController || !this.battleState.hasEngine()) {
@@ -2485,6 +2981,14 @@ export class BattleScreen {
         const renderer = this.hexMapRenderer;
         if (!renderer) {
             this.idleUnitHighlightKeys.clear();
+            return;
+        }
+        const initiativeActive = this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
+        if (initiativeActive) {
+            if (this.idleUnitHighlightKeys.size > 0) {
+                renderer.clearIdleUnitHighlights();
+                this.idleUnitHighlightKeys.clear();
+            }
             return;
         }
         if (!this.battleState.hasEngine()) {
@@ -3166,7 +3670,14 @@ export class BattleScreen {
         this.publishActivityEvent({
             category: event.interceptors[0]?.faction === "Player" ? "player" : "enemy",
             type: "log",
-            summary
+            summary,
+            details: {
+                batteryCount,
+                bomberLabel,
+                flakDamage,
+                bomberStrengthAfter: strengthAfter,
+                bomberDestroyed: event.bomberDestroyed === true
+            }
         });
     }
     announceAirInterceptEngagement(event) {
@@ -3211,8 +3722,16 @@ export class BattleScreen {
                     exchangeIndex: index,
                     attackerUnitKey: exchange.attackerUnitKey,
                     defenderUnitKey: exchange.defenderUnitKey,
+                    attackerStrengthBefore: this.formatReadinessValue(exchange.attackerStrengthBefore),
+                    attackerStrengthAfter: this.formatReadinessValue(exchange.attackerStrengthAfter),
+                    defenderStrengthBefore: this.formatReadinessValue(exchange.defenderStrengthBefore),
+                    defenderStrengthAfter: this.formatReadinessValue(exchange.defenderStrengthAfter),
                     damageToPatrol: Math.max(0, Math.round(exchange.damageToDefender)),
-                    retaliationDamage: Math.max(0, Math.round(exchange.retaliationDamage))
+                    retaliationDamage: Math.max(0, Math.round(exchange.retaliationDamage)),
+                    attackerDestroyed: exchange.attackerDestroyed,
+                    defenderDestroyed: exchange.defenderDestroyed,
+                    damageSummaryToDefender: exchange.damageSummaryToDefender?.summary,
+                    retaliationDamageSummary: exchange.retaliationDamageSummary?.summary
                 });
             });
             (event.bomberPassExchanges ?? []).forEach((exchange, index) => {
@@ -3230,9 +3749,16 @@ export class BattleScreen {
                     exchangeIndex: index,
                     attackerUnitKey: exchange.attackerUnitKey,
                     defenderUnitKey: exchange.defenderUnitKey,
+                    attackerStrengthBefore: this.formatReadinessValue(exchange.attackerStrengthBefore),
+                    attackerStrengthAfter: this.formatReadinessValue(exchange.attackerStrengthAfter),
+                    bomberStrengthBefore: this.formatReadinessValue(exchange.defenderStrengthBefore),
                     damageToBomber: Math.max(0, Math.round(exchange.damageToDefender)),
                     retaliationDamage: Math.max(0, Math.round(exchange.retaliationDamage)),
-                    bomberStrengthAfter: Math.max(0, Math.round(exchange.defenderStrengthAfter))
+                    bomberStrengthAfter: Math.max(0, Math.round(exchange.defenderStrengthAfter)),
+                    attackerDestroyed: exchange.attackerDestroyed,
+                    bomberDestroyed: exchange.defenderDestroyed,
+                    damageSummaryToDefender: exchange.damageSummaryToDefender?.summary,
+                    retaliationDamageSummary: exchange.retaliationDamageSummary?.summary
                 });
             });
             return;
@@ -3534,15 +4060,48 @@ export class BattleScreen {
         }
     }
     updateTurnControls(summary) {
+        const initiativeActive = this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
+        if (initiativeActive) {
+            this.syncLegacyEndTurnButton();
+            return;
+        }
         const isPlayerTurn = summary.activeFaction === "Player" && summary.phase === "playerTurn";
         if (this.endTurnButton) {
             this.endTurnButton.disabled = !isPlayerTurn;
+            this.endTurnButton.hidden = false;
+            this.endTurnButton.removeAttribute("aria-hidden");
             if (isPlayerTurn) {
                 this.endTurnButton.removeAttribute("aria-disabled");
             }
             else {
                 this.endTurnButton.setAttribute("aria-disabled", "true");
             }
+        }
+    }
+    syncLegacyEndTurnButton(summary) {
+        if (!this.endTurnButton) {
+            return;
+        }
+        const initiativeActive = this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
+        if (initiativeActive) {
+            // Initiative mode uses dedicated controls in the top bar, so hide the legacy button
+            // to prevent duplicate "End Turn" actions from appearing.
+            this.endTurnButton.hidden = true;
+            this.endTurnButton.setAttribute("aria-hidden", "true");
+            return;
+        }
+        this.endTurnButton.hidden = false;
+        this.endTurnButton.removeAttribute("aria-hidden");
+        const effectiveSummary = summary ?? (this.battleState.hasEngine() ? this.battleState.getCurrentTurnSummary() : null);
+        const isPlayerTurn = effectiveSummary
+            ? effectiveSummary.activeFaction === "Player" && effectiveSummary.phase === "playerTurn"
+            : false;
+        this.endTurnButton.disabled = !isPlayerTurn;
+        if (isPlayerTurn) {
+            this.endTurnButton.removeAttribute("aria-disabled");
+        }
+        else {
+            this.endTurnButton.setAttribute("aria-disabled", "true");
         }
     }
     announceSupplyAttrition(report) {
@@ -3569,18 +4128,21 @@ export class BattleScreen {
      * Announces the bot's moves and attacks during their turn.
      */
     describeBotAttackCounterfire(attack) {
-        const retaliationDamage = this.clampDisplayedDamageRounded(attack.retaliation?.damage ?? 0);
+        const retaliationDamage = this.clampDisplayedDamage(attack.retaliation?.damage ?? 0);
         if (retaliationDamage <= 0) {
             return "";
         }
         const attackerStrengthAfter = attack.retaliation?.attackerStrengthAfter;
+        const effects = attack.retaliation?.summary
+            ? ` Effects: ${attack.retaliation.summary}.`
+            : "";
         if (typeof attackerStrengthAfter === "number") {
             if (attackerStrengthAfter <= 0) {
-                return ` Counterfire dealt ${retaliationDamage} damage and destroyed the attacker.`;
+                return ` Counterfire dealt ${this.formatDamageAmount(retaliationDamage)} damage.${effects} Attacker destroyed.`;
             }
-            return ` Counterfire dealt ${retaliationDamage} damage; attacker strength now ${Math.round(attackerStrengthAfter)}.`;
+            return ` Counterfire dealt ${this.formatDamageAmount(retaliationDamage)} damage.${effects} Attacker strength now ${this.formatReadinessValue(attackerStrengthAfter)}.`;
         }
-        return ` Counterfire dealt ${retaliationDamage} damage.`;
+        return ` Counterfire dealt ${this.formatDamageAmount(retaliationDamage)} damage.${effects}`;
     }
     announceBotTurnActions(botSummary) {
         // Announce bot moves
@@ -3592,10 +4154,11 @@ export class BattleScreen {
             botSummary.attacks.forEach((attack) => {
                 const attackerLabel = this.toTitleCase(attack.attackerType);
                 const defenderLabel = this.toTitleCase(attack.defenderType);
-                const damage = this.clampDisplayedDamageRounded(attack.inflictedDamage);
+                const damage = this.formatDamageAmount(attack.inflictedDamage);
                 const destroyed = attack.defenderDestroyed ? " Target destroyed!" : "";
+                const effects = attack.damageSummary ? ` Effects: ${attack.damageSummary}.` : "";
                 const counterfire = this.describeBotAttackCounterfire(attack);
-                this.announceBattleUpdate(`Enemy ${attackerLabel} attacked ${defenderLabel}. Damage: ${damage}.${destroyed}${counterfire}`);
+                this.announceBattleUpdate(`Enemy ${attackerLabel} attacked ${defenderLabel}. Damage: ${damage}.${effects}${destroyed}${counterfire}`);
             });
         }
         // If no actions, announce bot passed
@@ -3627,22 +4190,25 @@ export class BattleScreen {
             const targetKey = CoordinateSystem.makeHexKey(targetOffset.col, targetOffset.row);
             const attackerLabel = this.toTitleCase(attack.attackerType);
             const defenderLabel = this.toTitleCase(attack.defenderType);
-            const damage = this.clampDisplayedDamageRounded(attack.inflictedDamage);
-            const retaliationDamage = this.clampDisplayedDamageRounded(attack.retaliation?.damage ?? 0);
+            const damage = this.formatDamageAmount(attack.inflictedDamage);
+            const retaliationDamage = this.clampDisplayedDamage(attack.retaliation?.damage ?? 0);
             const attackerStrengthAfter = attack.retaliation?.attackerStrengthAfter;
             const destructionNote = attack.defenderDestroyed ? " Target destroyed." : "";
+            const effects = attack.damageSummary ? ` Effects: ${attack.damageSummary}.` : "";
             const counterfire = this.describeBotAttackCounterfire(attack);
             this.publishActivityEvent({
                 category: "enemy",
                 type: "attack",
-                summary: `Enemy ${attackerLabel} attacked ${defenderLabel} from ${originKey} to ${targetKey} for ${damage} damage.${destructionNote}${counterfire}`,
+                summary: `Enemy ${attackerLabel} attacked ${defenderLabel} from ${originKey} to ${targetKey} for ${damage} damage.${effects}${destructionNote}${counterfire}`,
                 details: {
                     attackerType: attack.attackerType,
                     defenderType: attack.defenderType,
                     attackerHex: originKey,
                     defenderHex: targetKey,
-                    inflictedDamage: damage,
+                    inflictedDamage: attack.inflictedDamage,
+                    damageSummary: attack.damageSummary,
                     retaliationDamage,
+                    retaliationSummary: attack.retaliation?.summary,
                     attackerStrengthAfter,
                     defenderDestroyed: attack.defenderDestroyed
                 }
@@ -4333,12 +4899,17 @@ export class BattleScreen {
                 default:
                     break;
             }
+            this.syncInitiativeTurnControlsState();
             this.syncQueuedTargetMarkers();
         });
     }
     constructor(screenManager, battleState, popupManager, hexMapRenderer, deploymentPanel, battleLoadout, reservePresenter, mapViewport, zoomPanControls, battleActivityLog = null, uiState = null) {
         this.deploymentPrimed = false;
         this.panelEventsBound = false;
+        this.tutorialBaseCampSelectionCleared = false;
+        this.tutorialMovementFocusKey = null;
+        this.tutorialMovementSelectionCleared = false;
+        this.tutorialSmokeFocusKey = null;
         this.battleUpdateUnsubscribe = null;
         this.tutorialUpdateUnsubscribe = null;
         this.missionRulesController = null;
@@ -4346,6 +4917,15 @@ export class BattleScreen {
         this.lastMissionPhaseId = null;
         this.missionEndPrompted = false;
         this.missionEndModal = null;
+        // Initiative system integration
+        this.initiativeMethods = null;
+        this.initiativeTurnControls = null;
+        this.isInitiativeSystemEnabled = false;
+        this.initiativeControlsInitTimerId = null;
+        this.initiativeUiSyncIntervalId = null;
+        this.initiativeGroupCursorUnitId = null;
+        this.initiativeGroupSessionId = null;
+        this.initiativeSkippedUnitIds = new Set();
         // DOM element references
         this.battleAnnouncements = null;
         this.battleActivityLogToggleButton = null;
@@ -4367,6 +4947,9 @@ export class BattleScreen {
         this.airPreviewListener = null;
         this.airClearPreviewListener = null;
         this.targetMarkerClickListener = null;
+        this.reserveSelectionListener = null;
+        this.requisitionRequestListener = null;
+        this.sentryPipClickListener = null;
         this.seenAirReportIds = new Set();
         this.detailedAirCombatTurnUnitKeys = new Set();
         this.activeAirShowPlaybackCaptureContext = null;
@@ -4378,6 +4961,7 @@ export class BattleScreen {
         this.smokeTargetingState = null;
         this.beginBattleButton = null;
         this.soundToggleButton = null;
+        this.animationToggleButton = null;
         this.endTurnButton = null;
         this.endMissionButton = null;
         this.baseCampStatus = null;
@@ -4414,6 +4998,7 @@ export class BattleScreen {
         this.lastViewportTransform = null;
         this.cameraFrozen = false;
         this.soundEnabled = true;
+        this.battleAnimationMode = "regular";
         // Hex selection state
         this.selectedHexKey = null;
         this.selectedPlayerUnitId = null;
@@ -4465,17 +5050,26 @@ export class BattleScreen {
         this.airPreviewListener = (ev) => this.handleAirPreviewRange(ev);
         this.airClearPreviewListener = () => this.clearAirPreviewOverlay();
         this.targetMarkerClickListener = (ev) => this.handleQueuedTargetMarkerClick(ev);
-        document.addEventListener("air:previewRange", this.airPreviewListener);
-        document.addEventListener("air:clearPreview", this.airClearPreviewListener);
-        document.addEventListener("battle:targetMarkerClicked", this.targetMarkerClickListener);
-        document.addEventListener("battle:sentryPipClicked", this.handleSentryPipClick.bind(this));
-        // Wire reserve deployment from the Army Roster popup
-        document.addEventListener("battle:selectReserve", (event) => {
+        this.sentryPipClickListener = (ev) => this.handleSentryPipClick(ev);
+        this.reserveSelectionListener = (event) => {
             const detail = event.detail;
             if (detail?.unitKey) {
                 this.handleReserveCallupRequest(detail.unitKey);
             }
-        });
+        };
+        this.requisitionRequestListener = (event) => {
+            const detail = event.detail;
+            if (detail?.unitKey) {
+                this.handleBattleRequisitionRequest(detail.unitKey, detail.useTransportAirlift === true);
+            }
+        };
+        document.addEventListener("air:previewRange", this.airPreviewListener);
+        document.addEventListener("air:clearPreview", this.airClearPreviewListener);
+        document.addEventListener("battle:targetMarkerClicked", this.targetMarkerClickListener);
+        document.addEventListener("battle:sentryPipClicked", this.sentryPipClickListener);
+        // Wire reserve deployment and battle requisitions from roster/requisition popups.
+        document.addEventListener("battle:selectReserve", this.reserveSelectionListener);
+        document.addEventListener("battle:requestRequisition", this.requisitionRequestListener);
     }
     /**
      * Initializes the battle screen.
@@ -4488,6 +5082,7 @@ export class BattleScreen {
         this.cacheElements();
         this.soundEnabled = this.loadSoundEnabledPreference();
         this.applySoundPreference(this.soundEnabled);
+        this.applyBattleAnimationMode(this.uiState?.battleAnimationMode ?? "regular");
         this.hydrateMissionBriefing();
         this.bindEvents();
         // Initialize child components so their DOM scaffolding is ready before map renders.
@@ -4543,11 +5138,24 @@ export class BattleScreen {
         if (this.targetMarkerClickListener) {
             document.removeEventListener("battle:targetMarkerClicked", this.targetMarkerClickListener);
         }
+        if (this.sentryPipClickListener) {
+            document.removeEventListener("battle:sentryPipClicked", this.sentryPipClickListener);
+            this.sentryPipClickListener = null;
+        }
+        if (this.reserveSelectionListener) {
+            document.removeEventListener("battle:selectReserve", this.reserveSelectionListener);
+            this.reserveSelectionListener = null;
+        }
+        if (this.requisitionRequestListener) {
+            document.removeEventListener("battle:requestRequisition", this.requisitionRequestListener);
+            this.requisitionRequestListener = null;
+        }
         document.removeEventListener("tutorial:airMissionQueued", this.tutorialAirMissionQueuedListener);
         if (this.tutorialUpdateUnsubscribe) {
             this.tutorialUpdateUnsubscribe();
             this.tutorialUpdateUnsubscribe = null;
         }
+        this.teardownInitiativeSystemUi();
         this.queuedTargetMarkerActions.clear();
         this.hexMapRenderer?.syncQueuedTargetMarkers([]);
         // Clear any lingering visual announcements and pending timers when the screen unloads.
@@ -4569,6 +5177,7 @@ export class BattleScreen {
     cacheElements() {
         this.beginBattleButton = this.element.querySelector("#beginBattle");
         this.soundToggleButton = this.element.querySelector("#battleSoundToggle");
+        this.animationToggleButton = this.element.querySelector("#battleAnimationToggle");
         this.endTurnButton = this.element.querySelector("#endTurn");
         this.endMissionButton = this.element.querySelector("#endMissionButton");
         this.baseCampStatus = this.element.querySelector("#baseCampStatus");
@@ -4646,6 +5255,7 @@ export class BattleScreen {
     bindEvents() {
         this.beginBattleButton?.addEventListener("click", () => this.handleBeginBattle());
         this.soundToggleButton?.addEventListener("click", () => this.handleToggleSound());
+        this.animationToggleButton?.addEventListener("click", () => this.handleToggleBattleAnimationMode());
         this.endTurnButton?.addEventListener("click", () => {
             void this.handleEndTurn();
         });
@@ -4751,13 +5361,13 @@ export class BattleScreen {
                 this.announceBattleUpdate("Auto-deployment aborted due to placement errors. Check console for details.");
                 return;
             }
-            const remainingReserves = engine.getReserveSnapshot().length;
             this.refreshDeploymentMirrors("deploy");
-            if (remainingReserves === 0) {
+            const remainingDeployableUnits = this.countRemainingDeploymentPoolUnits();
+            if (remainingDeployableUnits === 0) {
                 this.finishDeploymentAfterAutoPlacement(engine);
             }
             else {
-                this.announceBattleUpdate(`Auto-deploy complete. ${remainingReserves} unit${remainingReserves === 1 ? "" : "s"} remain in reserve.`);
+                this.announceBattleUpdate(`Auto-deploy complete. ${remainingDeployableUnits} unit${remainingDeployableUnits === 1 ? "" : "s"} remain in reserve.`);
             }
         }
         catch (error) {
@@ -4885,6 +5495,12 @@ export class BattleScreen {
         }
         return true;
     }
+    countRemainingDeploymentPoolUnits() {
+        const deploymentState = ensureDeploymentState();
+        return deploymentState.pool.reduce((sum, entry) => {
+            return sum + Math.max(0, deploymentState.getReserveCount(entry.key));
+        }, 0);
+    }
     /**
      * Finalizes deployment and transitions to the battle phase once auto-deploy places every unit.
      */
@@ -4919,8 +5535,11 @@ export class BattleScreen {
             this.assertBattleReady(engine);
             const reserves = engine.finalizeDeployment();
             console.log("Deployment finalized. Reserves:", reserves);
-            // Move engine state from deployment to active combat so UI can present normal turn controls immediately.
-            engine.startPlayerTurnPhase();
+            // Initialize initiative system and move to initiative turn phase
+            this.initializeInitiativeSystem(engine);
+            this.initiativeMethods?.startInitiativeTurnPhase(true); // Enable initiative system
+            this.syncInitiativeTurnControlsState();
+            this.focusCurrentInitiativeActivation();
             this.refreshDeploymentMirrors("sync");
             const deploymentState = ensureDeploymentState();
             deploymentState.cacheFrozenReserves(reserves);
@@ -5046,6 +5665,10 @@ export class BattleScreen {
      */
     async handleEndTurn() {
         try {
+            if (this.isInitiativeSystemEnabled && this.initiativeMethods?.isInitiativeSystemActive()) {
+                this.handleInitiativeEndTurn();
+                return;
+            }
             const preflightSummary = this.battleState.getCurrentTurnSummary();
             const isPlayerTurn = preflightSummary.activeFaction === "Player" && preflightSummary.phase === "playerTurn";
             if (isPlayerTurn) {
@@ -5650,7 +6273,9 @@ export class BattleScreen {
      * Handles assigning the base camp location.
      */
     handleAssignBaseCamp() {
-        const selectedHexKey = this.selectedHexKey ?? this.defaultSelectionKey ?? this.tryResolveFallbackDeploymentHexKey();
+        const tutorialState = ensureTutorialState();
+        const requiresExplicitTutorialSelection = tutorialState.isTutorialActive() && tutorialState.getCurrentPhase() === "base_camp";
+        const selectedHexKey = this.selectedHexKey ?? (requiresExplicitTutorialSelection ? null : this.defaultSelectionKey);
         if (!selectedHexKey) {
             this.reportDeploymentPanelError({
                 title: "Base camp assignment failed.",
@@ -5710,21 +6335,6 @@ export class BattleScreen {
                 action: "Retry with a valid deployment hex. If the issue persists, reload the mission.",
                 recoverable: true
             }, { mirrorToBaseCampStatus: true });
-        }
-    }
-    tryResolveFallbackDeploymentHexKey() {
-        try {
-            const fallbackHexKey = this.computeDefaultSelectionKey();
-            this.defaultSelectionKey = fallbackHexKey;
-            return fallbackHexKey;
-        }
-        catch (error) {
-            console.warn("[BattleScreen] unable to resolve fallback deployment hex for base camp assignment", {
-                missionKey: this.uiState?.selectedMission ?? "training",
-                scenarioName: this.scenario.name,
-                error
-            });
-            return null;
         }
     }
     /**
@@ -5862,10 +6472,6 @@ export class BattleScreen {
             this.beginBattleButton.disabled = true;
             this.beginBattleButton.setAttribute("aria-disabled", "true");
         }
-        if (this.endTurnButton) {
-            this.endTurnButton.disabled = false;
-            this.endTurnButton.removeAttribute("aria-disabled");
-        }
         const { turnNumber, activeFaction, reserveCount, phase } = args;
         this.announceBattleUpdate(`Battle phase engaged. Turn ${turnNumber} (${phase}) is ready for the ${activeFaction}. Reserves standing by: ${reserveCount}.`);
         const summary = {
@@ -5920,6 +6526,775 @@ export class BattleScreen {
             this.deploymentPanelToggleButton.setAttribute("aria-expanded", "false");
         }
         this.showActivityLogAfterDeployment();
+    }
+    /**
+     * Initialize the initiative system for this battle
+     *
+     * @param engine - The game engine instance
+     */
+    initializeInitiativeSystem(engine) {
+        try {
+            console.log('Initializing initiative system...');
+            if (this.initiativeControlsInitTimerId !== null) {
+                window.clearTimeout(this.initiativeControlsInitTimerId);
+                this.initiativeControlsInitTimerId = null;
+            }
+            // Initialize initiative methods
+            this.initiativeMethods = new GameEngineInitiativeMethods(engine);
+            this.initiativeMethods.setBotActivationListener((event) => {
+                void this.handleInitiativeBotActivation(event);
+            });
+            this.isInitiativeSystemEnabled = true;
+            this.initiativeGroupCursorUnitId = null;
+            this.initiativeGroupSessionId = null;
+            this.initiativeSkippedUnitIds.clear();
+            this.syncLegacyEndTurnButton();
+            this.ensureInitiativeUiSyncLoop();
+            // Initialize initiative group highlighting
+            this.highlightCurrentInitiativeGroup();
+            // Initialize enhanced turn controls UI after a short delay to ensure DOM is ready
+            this.initiativeControlsInitTimerId = window.setTimeout(() => {
+                this.initiativeControlsInitTimerId = null;
+                this.initializeInitiativeTurnControls();
+            }, 100);
+            console.log('Initiative system initialized successfully');
+        }
+        catch (error) {
+            console.error('Failed to initialize initiative system:', error);
+            if (this.initiativeUiSyncIntervalId !== null) {
+                window.clearInterval(this.initiativeUiSyncIntervalId);
+                this.initiativeUiSyncIntervalId = null;
+            }
+            this.initiativeMethods = null;
+            this.isInitiativeSystemEnabled = false;
+            this.syncLegacyEndTurnButton();
+            // Fall back to traditional turn management
+            engine.startPlayerTurnPhase();
+        }
+    }
+    teardownInitiativeSystemUi() {
+        if (this.initiativeControlsInitTimerId !== null) {
+            window.clearTimeout(this.initiativeControlsInitTimerId);
+            this.initiativeControlsInitTimerId = null;
+        }
+        if (this.initiativeUiSyncIntervalId !== null) {
+            window.clearInterval(this.initiativeUiSyncIntervalId);
+            this.initiativeUiSyncIntervalId = null;
+        }
+        if (this.initiativeTurnControls) {
+            this.initiativeTurnControls.dispose();
+            this.initiativeTurnControls = null;
+        }
+        const existingControls = document.querySelectorAll('.enhanced-initiative-turn-controls, .initiative-turn-controls-container');
+        existingControls.forEach((control) => control.remove());
+        document
+            .querySelectorAll('.battle-map-header__command-group.initiative-controls-active')
+            .forEach((group) => group.classList.remove('initiative-controls-active'));
+        this.clearInitiativeGroupHighlights();
+        this.initiativeGroupCursorUnitId = null;
+        this.initiativeGroupSessionId = null;
+        this.initiativeSkippedUnitIds.clear();
+        this.initiativeMethods?.setBotActivationListener(null);
+        this.initiativeMethods = null;
+        this.isInitiativeSystemEnabled = false;
+        this.syncLegacyEndTurnButton();
+    }
+    ensureInitiativeUiSyncLoop() {
+        if (this.initiativeUiSyncIntervalId !== null) {
+            return;
+        }
+        this.initiativeUiSyncIntervalId = window.setInterval(() => {
+            if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
+                if (this.initiativeUiSyncIntervalId !== null) {
+                    window.clearInterval(this.initiativeUiSyncIntervalId);
+                    this.initiativeUiSyncIntervalId = null;
+                }
+                return;
+            }
+            const initiativeActive = this.initiativeMethods.isInitiativeSystemActive();
+            this.syncInitiativeTurnControlsState();
+            this.refreshIdleUnitHighlights();
+            this.highlightCurrentInitiativeGroup();
+            if (!initiativeActive && this.initiativeUiSyncIntervalId !== null) {
+                window.clearInterval(this.initiativeUiSyncIntervalId);
+                this.initiativeUiSyncIntervalId = null;
+            }
+        }, 200);
+    }
+    /**
+     * Initialize the enhanced turn controls UI
+     */
+    initializeInitiativeTurnControls() {
+        try {
+            if (this.initiativeTurnControls) {
+                this.initiativeTurnControls.dispose();
+                this.initiativeTurnControls = null;
+            }
+            document
+                .querySelectorAll('.battle-map-header__command-group.initiative-controls-active')
+                .forEach((group) => group.classList.remove('initiative-controls-active'));
+            // Remove any existing initiative controls from deployment panel or other locations
+            const existingControls = document.querySelectorAll('.enhanced-initiative-turn-controls, .initiative-turn-controls-container');
+            existingControls.forEach(control => {
+                console.log('Removing existing initiative controls from:', control.parentElement);
+                control.remove();
+            });
+            // Create a container for the enhanced turn controls
+            const controlsContainer = document.createElement('div');
+            controlsContainer.className = 'initiative-turn-controls-container';
+            // Insert into the top bar command group (where sound toggle and end turn button are)
+            const commandGroup = document.querySelector('.battle-map-header__command-group');
+            if (commandGroup) {
+                commandGroup.classList.add('initiative-controls-active');
+                commandGroup.appendChild(controlsContainer);
+                console.log('Initiative controls container added to top bar command group');
+            }
+            else {
+                // Fallback to battle controls if command group not found
+                const battleControls = document.querySelector('.battle-controls') || document.body;
+                battleControls.appendChild(controlsContainer);
+                console.log('Initiative controls container added to fallback location');
+            }
+            // Initialize enhanced turn controls
+            this.initiativeTurnControls = new EnhancedInitiativeTurnControls(controlsContainer, {
+                onSkipTurn: () => this.handleSkipTurn(),
+                onEndTurn: () => this.handleInitiativeEndTurn(),
+                onNextActivation: () => this.handleNextActivation(),
+                onCompleteActivation: (unitId) => this.handleCompleteActivation(unitId),
+                onProceedToNext: () => this.handleProceedToNext(),
+                onSkipGroup: () => this.handleSkipGroup()
+            }, {
+                showSkipTurn: true,
+                showEndTurn: false,
+                showProceedButton: true,
+                showCurrentUnitInfo: true,
+                showGroupInfo: true,
+                enableKeyboardShortcuts: true
+            });
+            this.syncInitiativeTurnControlsState();
+            console.log('Enhanced turn controls initialized in top bar');
+        }
+        catch (error) {
+            console.error('Failed to initialize enhanced turn controls:', error);
+        }
+    }
+    /**
+     * Handle proceed to next unit action
+     */
+    handleProceedToNext() {
+        if (!this.initiativeMethods) {
+            console.warn('Initiative methods not available');
+            return;
+        }
+        try {
+            const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+            const activeGroup = this.resolveActiveInitiativeGroup(queue);
+            if (!activeGroup || activeGroup.ownerId !== "player") {
+                this.syncInitiativeTurnControlsState();
+                return;
+            }
+            const uncommittedUnits = this.resolveUncommittedPlayerInitiativeUnits(activeGroup);
+            const currentActivation = this.initiativeMethods.getCurrentActivation();
+            const remainingOtherUnits = currentActivation
+                ? uncommittedUnits.filter((unit) => unit.unitId !== currentActivation.unitId)
+                : uncommittedUnits;
+            const shouldConfirmProceed = uncommittedUnits.length > 0 && (remainingOtherUnits.length > 0 ||
+                !currentActivation ||
+                uncommittedUnits.some((unit) => unit.unitId === currentActivation.unitId));
+            if (shouldConfirmProceed) {
+                const confirmProceed = window.confirm(`${uncommittedUnits.length} unit${uncommittedUnits.length === 1 ? "" : "s"} in this initiative group have not acted. Proceed anyway?`);
+                if (!confirmProceed) {
+                    this.syncInitiativeTurnControlsState();
+                    return;
+                }
+                this.markRemainingPlayerInitiativeUnitsSkipped(activeGroup, currentActivation?.unitId ?? null);
+            }
+            this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative, false);
+            this.focusCurrentInitiativeActivation();
+            this.highlightCurrentInitiativeGroup();
+        }
+        catch (error) {
+            console.error('Failed to proceed from initiative group:', error);
+        }
+        finally {
+            this.syncInitiativeTurnControlsState();
+        }
+    }
+    /**
+     * Handle skip group action
+     */
+    handleSkipGroup() {
+        if (!this.initiativeMethods) {
+            console.warn('Initiative methods not available');
+            return;
+        }
+        try {
+            const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+            const activeGroup = this.resolveActiveInitiativeGroup(queue);
+            if (!activeGroup || activeGroup.ownerId !== "player") {
+                return;
+            }
+            const engine = this.battleState.ensureGameEngine();
+            activeGroup.activations.forEach((activation) => {
+                const unit = engine.playerUnits.find((entry) => entry.unitId === activation.unitId);
+                if (unit && !unit.onSentry) {
+                    engine.enterSentry(unit.hex, unit.unitId ?? undefined);
+                }
+                this.initiativeSkippedUnitIds.add(activation.unitId);
+            });
+            this.initiativeGroupCursorUnitId = null;
+            this.showElegantInitiativeMessage("Group marked to skip. Press Proceed to continue.");
+            this.highlightCurrentInitiativeGroup();
+        }
+        catch (error) {
+            console.error('Failed to skip group:', error);
+        }
+        finally {
+            this.syncInitiativeTurnControlsState();
+        }
+    }
+    /**
+     * Handle end turn action for initiative system
+     */
+    handleInitiativeEndTurn() {
+        if (!this.initiativeMethods) {
+            console.warn('Initiative methods not available');
+            return;
+        }
+        try {
+            // End the current turn
+            this.initiativeMethods.endCurrentTurn();
+        }
+        catch (error) {
+            console.error('Failed to end turn:', error);
+        }
+        finally {
+            this.syncInitiativeTurnControlsState();
+        }
+    }
+    /**
+     * Handle next activation action
+     */
+    handleNextActivation() {
+        if (!this.initiativeMethods) {
+            console.warn('Initiative methods not available');
+            return;
+        }
+        try {
+            this.selectNextInitiativeGroupUnit();
+            this.highlightCurrentInitiativeGroup();
+        }
+        catch (error) {
+            console.error('Failed to process next activation:', error);
+        }
+        finally {
+            this.syncInitiativeTurnControlsState();
+        }
+    }
+    /**
+     * Handle skip turn action
+     */
+    handleSkipTurn() {
+        if (!this.initiativeMethods) {
+            console.warn('Initiative methods not available');
+            return;
+        }
+        try {
+            // Get current initiative queue to find the current unit
+            const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
+            if (currentQueue && currentQueue.activations && currentQueue.activations.length > 0) {
+                const currentActivation = currentQueue.activations[currentQueue.currentIndex];
+                if (currentActivation) {
+                    // Put the current unit on sentry mode
+                    const engine = this.battleState.ensureGameEngine();
+                    const allUnits = currentActivation.ownerId === 'player' ? engine.playerUnits : engine.botUnits;
+                    const currentUnit = allUnits.find(u => u.unitId === currentActivation.unitId);
+                    if (currentUnit && !currentUnit.onSentry) {
+                        const placedOnSentry = engine.enterSentry(currentUnit.hex, currentUnit.unitId ?? undefined);
+                        if (placedOnSentry) {
+                            console.log(`Putting unit ${currentUnit.unitId} on sentry mode (skip unit)`);
+                        }
+                    }
+                }
+            }
+            // Move to next activation instead of skipping all remaining
+            this.initiativeMethods.processNextInitiativeActivation();
+            // Update initiative group highlighting
+            this.highlightCurrentInitiativeGroup();
+        }
+        catch (error) {
+            console.error('Failed to skip turn:', error);
+        }
+        finally {
+            this.syncInitiativeTurnControlsState();
+        }
+    }
+    /**
+     * Handle complete activation action
+     */
+    handleCompleteActivation(unitId) {
+        if (!this.initiativeMethods) {
+            console.warn('Initiative methods not available');
+            return;
+        }
+        try {
+            // Complete the unit activation
+            this.initiativeMethods.completeUnitActivation(unitId);
+            // Update initiative group highlighting
+            this.highlightCurrentInitiativeGroup();
+        }
+        catch (error) {
+            console.error('Failed to complete activation:', error);
+        }
+        finally {
+            this.syncInitiativeTurnControlsState();
+        }
+    }
+    /**
+     * Highlight units in the current initiative group
+     */
+    highlightCurrentInitiativeGroup() {
+        if (!this.initiativeMethods) {
+            return;
+        }
+        try {
+            const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
+            const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
+            if (!activeGroup) {
+                this.initiativeGroupSessionId = null;
+                this.initiativeGroupCursorUnitId = null;
+                this.initiativeSkippedUnitIds.clear();
+                this.clearInitiativeGroupHighlights();
+                return;
+            }
+            this.syncInitiativeGroupSession(activeGroup);
+            const highlightActivations = activeGroup.ownerId === "player"
+                ? activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId))
+                : [activeGroup.activations[0]].filter((activation) => Boolean(activation));
+            const unitHexes = highlightActivations
+                .map((activation) => this.resolveActivationOffsetHexKey(activation.unitId, activation.ownerId))
+                .filter((hexKey) => Boolean(hexKey));
+            // Apply highlights to the map renderer
+            this.hexMapRenderer?.setInitiativeGroupHighlights(unitHexes);
+        }
+        catch (error) {
+            console.error('Failed to highlight initiative group:', error);
+        }
+    }
+    /**
+     * Clear initiative group highlights
+     */
+    clearInitiativeGroupHighlights() {
+        this.hexMapRenderer?.clearInitiativeGroupHighlights();
+    }
+    /**
+     * Check if a unit is in the current initiative group
+     */
+    isUnitInCurrentInitiativeGroup(unitId) {
+        if (!this.initiativeMethods) {
+            return true; // Fallback: allow all units if initiative system not available
+        }
+        try {
+            const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
+            const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
+            if (!activeGroup) {
+                return true; // Fallback: allow all units if no current queue
+            }
+            return activeGroup.activations.some((activation) => activation.unitId === unitId)
+                && !this.initiativeSkippedUnitIds.has(unitId);
+        }
+        catch (error) {
+            console.error('Failed to check unit initiative group:', error);
+            return true; // Fallback: allow unit on error
+        }
+    }
+    /**
+     * Show elegant message when attempting to move unit not in current initiative group
+     */
+    showInitiativeGroupMessage(unitId) {
+        if (!this.initiativeMethods) {
+            return;
+        }
+        try {
+            const engine = this.battleState.ensureGameEngine();
+            const unit = engine.playerUnits.find(u => u.unitId === unitId);
+            if (!unit) {
+                return;
+            }
+            const unitLabel = this.resolveReadableUnitLabel(unit);
+            const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
+            const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
+            if (!activeGroup) {
+                this.showElegantInitiativeMessage(`${unitLabel} cannot act right now. No initiative group is currently active.`);
+                return;
+            }
+            const unitDefinition = this.unitTypes?.[unit.type];
+            const unitInitiative = unitDefinition?.initiative ?? null;
+            const activeInitiative = activeGroup.initiative;
+            const message = unitInitiative === null
+                ? `${unitLabel} is waiting. The active initiative group is ${activeInitiative}.`
+                : `${unitLabel} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
+            this.showElegantInitiativeMessage(message);
+        }
+        catch (error) {
+            console.error('Failed to show initiative group message:', error);
+        }
+    }
+    resolveReadableUnitLabel(unit) {
+        try {
+            const rawLabel = this.resolveUnitLabelForUnit(unit) ?? this.toTitleCase(unit.type);
+            const label = typeof rawLabel === "string" ? rawLabel.trim() : "";
+            if (!label || label.toLowerCase() === "null" || label.toLowerCase() === "undefined") {
+                return this.toTitleCase(unit.type);
+            }
+            return label;
+        }
+        catch {
+            return this.toTitleCase(unit.type);
+        }
+    }
+    resolveActivationOffsetHexKey(unitId, ownerId) {
+        const engine = this.battleState.ensureGameEngine();
+        const units = ownerId === "player" ? engine.playerUnits : engine.botUnits;
+        const unit = units.find((entry) => entry.unitId === unitId);
+        return this.toOffsetHexKey(unit?.hex);
+    }
+    resolveActiveInitiativeGroup(currentQueue) {
+        if (!currentQueue || !Array.isArray(currentQueue.activations) || currentQueue.activations.length === 0) {
+            return null;
+        }
+        const startIndex = typeof currentQueue.currentIndex === "number" ? currentQueue.currentIndex : 0;
+        const activeActivation = currentQueue.activations.find((activation, index) => index >= startIndex && !activation.isActivated);
+        if (!activeActivation) {
+            return null;
+        }
+        const groupedActivations = currentQueue.activations.filter((activation, index) => index >= startIndex &&
+            !activation.isActivated &&
+            activation.ownerId === activeActivation.ownerId &&
+            activation.initiative === activeActivation.initiative);
+        return {
+            initiative: activeActivation.initiative,
+            ownerId: activeActivation.ownerId,
+            activations: groupedActivations
+        };
+    }
+    syncInitiativeGroupSession(activeGroup) {
+        const nextSessionId = `${activeGroup.ownerId}:${activeGroup.initiative}`;
+        if (this.initiativeGroupSessionId === nextSessionId) {
+            return;
+        }
+        this.initiativeGroupSessionId = nextSessionId;
+        this.initiativeGroupCursorUnitId = null;
+        this.initiativeSkippedUnitIds.clear();
+    }
+    resolveUncommittedPlayerInitiativeUnits(activeGroup) {
+        if (activeGroup.ownerId !== "player") {
+            return [];
+        }
+        const engine = this.battleState.ensureGameEngine();
+        return activeGroup.activations
+            .filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId))
+            .map((activation) => engine.playerUnits.find((unit) => unit.unitId === activation.unitId) ?? null)
+            .filter((unit) => Boolean(unit))
+            .filter((unit) => !this.hasUnitCommittedOrders(unit));
+    }
+    markRemainingPlayerInitiativeUnitsSkipped(activeGroup, currentUnitId) {
+        if (activeGroup.ownerId !== "player") {
+            return;
+        }
+        const engine = this.battleState.ensureGameEngine();
+        activeGroup.activations.forEach((activation) => {
+            if (activation.unitId === currentUnitId) {
+                return;
+            }
+            this.initiativeSkippedUnitIds.add(activation.unitId);
+            const unit = engine.playerUnits.find((entry) => entry.unitId === activation.unitId);
+            if (unit && !unit.onSentry) {
+                engine.enterSentry(unit.hex, unit.unitId ?? undefined);
+            }
+        });
+    }
+    hasUnitCommittedOrders(unit) {
+        if (unit.onSentry) {
+            return true;
+        }
+        const engineAny = this.battleState.ensureGameEngine();
+        const flags = engineAny.playerActionFlags?.get(unit.unitId ?? "");
+        if (!flags) {
+            return false;
+        }
+        return (flags.movementPointsUsed ?? 0) > 0 || (flags.attacksUsed ?? 0) > 0;
+    }
+    selectNextInitiativeGroupUnit() {
+        if (!this.initiativeMethods) {
+            return;
+        }
+        const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+        const activeGroup = this.resolveActiveInitiativeGroup(queue);
+        if (!activeGroup || activeGroup.ownerId !== "player") {
+            return;
+        }
+        this.syncInitiativeGroupSession(activeGroup);
+        const candidateActivations = activeGroup.activations
+            .filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
+        if (candidateActivations.length === 0) {
+            return;
+        }
+        const currentIndex = this.initiativeGroupCursorUnitId
+            ? candidateActivations.findIndex((activation) => activation.unitId === this.initiativeGroupCursorUnitId)
+            : -1;
+        const nextIndex = (currentIndex + 1 + candidateActivations.length) % candidateActivations.length;
+        const nextActivation = candidateActivations[nextIndex];
+        this.initiativeGroupCursorUnitId = nextActivation.unitId;
+        this.focusInitiativeUnit(nextActivation.unitId);
+    }
+    focusInitiativeUnit(unitId) {
+        const engine = this.battleState.ensureGameEngine();
+        const unit = engine.playerUnits.find((entry) => entry.unitId === unitId);
+        const hexKey = this.toOffsetHexKey(unit?.hex);
+        if (!hexKey) {
+            return;
+        }
+        this.applySelectedHex(hexKey);
+        this.selectedPlayerUnitId = unitId;
+        this.applySelectedHex(hexKey, true);
+        void this.focusCameraOnHex(hexKey).catch(() => { });
+    }
+    commitCurrentPlayerInitiativeGroup(initiative, completeEntireGroup = false) {
+        if (!this.initiativeMethods) {
+            return;
+        }
+        let guard = 0;
+        let lastCompletedUnitId = null;
+        while (guard < 128) {
+            guard += 1;
+            const activation = this.initiativeMethods.getCurrentActivation();
+            if (!activation || activation.ownerId !== "player" || activation.initiative !== initiative) {
+                break;
+            }
+            const autoSkipped = this.initiativeSkippedUnitIds.has(activation.unitId);
+            lastCompletedUnitId = activation.unitId;
+            this.initiativeMethods.completeUnitActivation(activation.unitId);
+            if (!completeEntireGroup && !autoSkipped) {
+                break;
+            }
+        }
+        const nextActivation = this.initiativeMethods.getCurrentActivation();
+        const stillInSamePlayerGroup = Boolean(nextActivation) &&
+            nextActivation?.ownerId === "player" &&
+            nextActivation?.initiative === initiative;
+        if (!stillInSamePlayerGroup) {
+            this.initiativeGroupCursorUnitId = null;
+            this.initiativeGroupSessionId = null;
+            this.initiativeSkippedUnitIds.clear();
+            return;
+        }
+        if (lastCompletedUnitId && this.initiativeGroupCursorUnitId === lastCompletedUnitId) {
+            this.initiativeGroupCursorUnitId = null;
+        }
+    }
+    focusCurrentInitiativeActivation() {
+        if (!this.initiativeMethods) {
+            return;
+        }
+        const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+        const activeGroup = this.resolveActiveInitiativeGroup(queue);
+        if (!activeGroup || activeGroup.ownerId !== "player") {
+            return;
+        }
+        this.syncInitiativeGroupSession(activeGroup);
+        const candidates = activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
+        if (candidates.length === 0) {
+            return;
+        }
+        const selectedFromCursor = this.initiativeGroupCursorUnitId
+            ? candidates.find((activation) => activation.unitId === this.initiativeGroupCursorUnitId) ?? null
+            : null;
+        const activation = selectedFromCursor ?? candidates[0];
+        this.initiativeGroupCursorUnitId = activation.unitId;
+        this.focusInitiativeUnit(activation.unitId);
+    }
+    ensureFocusedPlayerInitiativeUnit(activeGroup) {
+        if (!activeGroup || activeGroup.ownerId !== "player") {
+            return;
+        }
+        const candidates = activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
+        if (candidates.length === 0) {
+            return;
+        }
+        const candidateIds = new Set(candidates.map((activation) => activation.unitId));
+        const selectedUnitId = this.selectedPlayerUnitId;
+        if (!selectedUnitId || !candidateIds.has(selectedUnitId)) {
+            this.initiativeGroupCursorUnitId = null;
+            this.focusCurrentInitiativeActivation();
+            return;
+        }
+        if (!this.initiativeGroupCursorUnitId || !candidateIds.has(this.initiativeGroupCursorUnitId)) {
+            this.initiativeGroupCursorUnitId = selectedUnitId;
+        }
+    }
+    async handleInitiativeBotActivation(event) {
+        if (!this.isInitiativeSystemEnabled) {
+            return;
+        }
+        const focusBefore = this.isBotUnitVisibleToPlayer(event.unitId, event.fromHex);
+        this.renderEngineUnits();
+        const focusAfter = this.isBotUnitVisibleToPlayer(event.unitId, event.toHex);
+        if (!focusBefore && !focusAfter) {
+            return;
+        }
+        const focusHex = focusBefore ? event.fromHex : event.toHex;
+        const focusKey = this.toOffsetHexKey(focusHex);
+        if (!focusKey) {
+            return;
+        }
+        try {
+            await this.focusCameraOnHex(focusKey);
+        }
+        catch {
+            // Ignore camera focus failures during automated initiative bot movement.
+        }
+    }
+    isBotUnitVisibleToPlayer(unitId, expectedHex) {
+        const engine = this.battleState.ensureGameEngine();
+        const contacts = engine.getEnemyContactSnapshot();
+        return contacts.some((contact) => {
+            if (contact.unitId !== unitId || contact.state !== "visible") {
+                return false;
+            }
+            if (!expectedHex) {
+                return true;
+            }
+            return contact.hex.q === expectedHex.q && contact.hex.r === expectedHex.r;
+        });
+    }
+    /**
+     * Show an elegant initiative message
+     */
+    showElegantInitiativeMessage(message) {
+        // Create a temporary message element
+        const messageElement = document.createElement('div');
+        messageElement.className = 'initiative-message';
+        messageElement.textContent = message;
+        messageElement.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(15, 20, 32, 0.95);
+      color: #fff;
+      padding: 1rem 1.5rem;
+      border-radius: 12px;
+      border: 2px solid var(--accent-strong);
+      font-size: 0.9rem;
+      font-weight: 600;
+      z-index: 10000;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      animation: fadeInOut 3s ease-in-out;
+      pointer-events: none;
+    `;
+        // Add fade animation
+        const style = document.createElement('style');
+        style.textContent = `
+      @keyframes fadeInOut {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+        20% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+      }
+    `;
+        document.head.appendChild(style);
+        // Show message
+        document.body.appendChild(messageElement);
+        // Remove after animation
+        setTimeout(() => {
+            messageElement.remove();
+            style.remove();
+        }, 3000);
+    }
+    /**
+     * Get the current activation from the initiative system
+     */
+    getCurrentActivation() {
+        if (!this.initiativeMethods) {
+            return null;
+        }
+        try {
+            const activation = this.initiativeMethods.getCurrentActivation();
+            if (activation) {
+                return {
+                    unitId: activation.unitId,
+                    ownerId: activation.ownerId
+                };
+            }
+        }
+        catch (error) {
+            console.error('Failed to get current activation:', error);
+        }
+        return null;
+    }
+    /**
+     * Synchronize initiative turn controls with current queue/activation state.
+     */
+    syncInitiativeTurnControlsState() {
+        this.syncLegacyEndTurnButton();
+        if (!this.initiativeTurnControls) {
+            return;
+        }
+        if (!this.initiativeMethods || !this.isInitiativeSystemEnabled) {
+            this.initiativeTurnControls.updateCurrentUnit(null);
+            this.initiativeTurnControls.updatePlayerTurn(false);
+            this.initiativeTurnControls.updatePhase('turnEnded');
+            this.initiativeTurnControls.setControlsEnabled(false);
+            this.syncLegacyEndTurnButton();
+            return;
+        }
+        try {
+            this.flushSkippedInitiativeActivations();
+            const activation = this.initiativeMethods.getCurrentActivation();
+            const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+            const activeGroup = this.resolveActiveInitiativeGroup(queue);
+            this.ensureFocusedPlayerInitiativeUnit(activeGroup);
+            let displayActivation = activation;
+            if (activeGroup?.ownerId === "player" && this.initiativeGroupCursorUnitId) {
+                const cursorActivation = activeGroup.activations.find((entry) => entry.unitId === this.initiativeGroupCursorUnitId);
+                if (cursorActivation) {
+                    displayActivation = {
+                        ...cursorActivation,
+                        sortOrder: typeof cursorActivation.sortOrder === "number"
+                            ? cursorActivation.sortOrder
+                            : (activation?.sortOrder ?? 0)
+                    };
+                }
+            }
+            const hasRemainingActivations = Boolean(queue?.activations?.some((entry) => !entry.isActivated));
+            const initiativeActive = this.initiativeMethods.isInitiativeSystemActive();
+            const controlsPhase = initiativeActive && (hasRemainingActivations || Boolean(activation))
+                ? 'initiativeTurn'
+                : 'turnEnded';
+            this.initiativeTurnControls.updateCurrentUnit(displayActivation);
+            this.initiativeTurnControls.updatePlayerTurn((activeGroup?.ownerId ?? activation?.ownerId) === 'player');
+            this.initiativeTurnControls.updatePhase(controlsPhase);
+            this.initiativeTurnControls.setControlsEnabled(controlsPhase === 'initiativeTurn');
+            this.syncLegacyEndTurnButton();
+        }
+        catch (error) {
+            console.error('Failed to sync initiative turn controls state:', error);
+        }
+    }
+    flushSkippedInitiativeActivations() {
+        if (!this.initiativeMethods || !this.isInitiativeSystemEnabled) {
+            return;
+        }
+        let guard = 0;
+        while (guard < 64) {
+            guard += 1;
+            const activation = this.initiativeMethods.getCurrentActivation();
+            if (!activation || activation.ownerId !== "player" || !this.initiativeSkippedUnitIds.has(activation.unitId)) {
+                break;
+            }
+            this.initiativeMethods.completeUnitActivation(activation.unitId);
+        }
     }
     /**
      * Reveals the activity log column once the battle phase begins so commanders can monitor events.
@@ -6016,6 +7391,34 @@ export class BattleScreen {
         this.soundToggleButton.title = enabled ? "Turn sound off" : "Turn sound on";
         this.soundToggleButton.dataset.soundEnabled = enabled ? "true" : "false";
         this.soundToggleButton.disabled = !this.hexMapRenderer;
+    }
+    handleToggleBattleAnimationMode() {
+        const nextMode = this.battleAnimationMode === "regular" ? "quick" : "regular";
+        if (this.uiState) {
+            this.uiState.battleAnimationMode = nextMode;
+        }
+        this.applyBattleAnimationMode(nextMode);
+        this.announceBattleUpdate(nextMode === "quick"
+            ? "Movement animations set to quick."
+            : "Movement animations set to regular pathing.");
+    }
+    applyBattleAnimationMode(mode) {
+        this.battleAnimationMode = mode;
+        this.updateBattleAnimationToggleButton(mode);
+    }
+    updateBattleAnimationToggleButton(mode) {
+        if (!this.animationToggleButton) {
+            return;
+        }
+        const quick = mode === "quick";
+        this.animationToggleButton.textContent = quick ? "Quick Anim" : "Path Anim";
+        this.animationToggleButton.setAttribute("aria-pressed", quick ? "true" : "false");
+        this.animationToggleButton.setAttribute("aria-label", quick ? "Use regular path movement animations" : "Use quick movement animations");
+        this.animationToggleButton.title = quick
+            ? "Use regular path movement animations"
+            : "Use quick movement animations";
+        this.animationToggleButton.dataset.animationMode = mode;
+        this.animationToggleButton.disabled = !this.hexMapRenderer;
     }
     loadSoundEnabledPreference() {
         if (typeof window === "undefined" || !window.localStorage) {
@@ -6132,10 +7535,28 @@ export class BattleScreen {
     handleHexSelection(key) {
         const engine = this.battleState.ensureGameEngine();
         const summary = engine.getTurnSummary();
-        if (summary.phase === "playerTurn") {
+        const summaryPhase = summary.phase;
+        const isPlayerControlPhase = summaryPhase === "playerTurn" ||
+            (this.isInitiativeSystemEnabled && summaryPhase === "initiativeTurn");
+        if (isPlayerControlPhase) {
             const transferResult = this.tryTransferAllyControl(key);
             if (transferResult) {
                 return;
+            }
+            // Check initiative group validation if system is enabled
+            if (this.isInitiativeSystemEnabled) {
+                const parsed = CoordinateSystem.parseHexKey(key);
+                if (parsed) {
+                    const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+                    const unit = engine.playerUnits.find((u) => `${u.hex.q},${u.hex.r}` === `${axial.q},${axial.r}`);
+                    const isActionDestination = (this.selectedHexKey !== null && (this.playerMoveHexes.has(key) || this.playerAttackHexes.has(key))) ||
+                        (this.smokeTargetingState !== null && (this.smokeTargetingState.targetHexKeys.has(key) || key === this.smokeTargetingState.callerHexKey)) ||
+                        (this.artilleryTargetingState !== null && (this.artilleryTargetingState.targetHexKeys.has(key) || key === this.artilleryTargetingState.callerHexKey));
+                    if (unit && unit.unitId && !isActionDestination && !this.isUnitInCurrentInitiativeGroup(unit.unitId)) {
+                        this.showInitiativeGroupMessage(unit.unitId);
+                        return; // Don't proceed with the action
+                    }
+                }
             }
             this.onPlayerTurnMapClick(key);
             return;
@@ -6189,6 +7610,23 @@ export class BattleScreen {
      * Handles reserve call-up requests emitted by the deployment panel so cooldown rules, selection validation,
      * and engine integration remain centralized. Expects the caller to provide a stable allocation key.
      */
+    handleBattleRequisitionRequest(unitKey, useTransportAirlift) {
+        const engine = this.battleState.ensureGameEngine();
+        const result = engine.requestBattleRequisition(unitKey, { useTransportAirlift });
+        if (!result.ok) {
+            this.announceBattleUpdate(result.reason);
+            return;
+        }
+        const arrivalMode = result.requisition.airlifted ? "airlift" : "main supply route";
+        const summary = `${result.requisition.label} requested for ${result.requisition.cost} RP. Arrival turn ${result.requisition.arrivalTurn} by ${arrivalMode}.`;
+        this.announceBattleUpdate(summary);
+        this.publishActivityEvent({
+            category: "player",
+            type: result.requisition.kind === "supplies" ? "supply" : "deployment",
+            summary
+        });
+        this.battleState.emitBattleUpdate("manual");
+    }
     handleReserveCallupRequest(unitKey) {
         const engine = this.battleState.ensureGameEngine();
         const turnSummary = engine.getTurnSummary();
@@ -6499,11 +7937,14 @@ export class BattleScreen {
                     statusMessage += ammoStatusMessage;
                 }
             }
-            if (commandState?.suppressionState === "pinned") {
+            if (commandState?.suppressionState === "broken") {
+                statusMessage += ` Broken by ${commandState.suppressorCount} suppressing units while below 25 readiness. This battalion cannot move or retaliate.`;
+            }
+            else if (commandState?.suppressionState === "pinned") {
                 statusMessage += ` Pinned by ${commandState.suppressorCount} suppressing units. This battalion cannot move or retaliate.`;
             }
             else if (commandState?.suppressionState === "suppressed") {
-                statusMessage += " Under suppressive fire. It may still move and fire, but it cannot assault.";
+                statusMessage += " Under suppressing fire. It may still move and fire, but it cannot assault.";
             }
             const existingHexModifications = commandState?.existingHexModifications ?? [];
             if (existingHexModifications.length > 0) {
@@ -6563,16 +8004,20 @@ export class BattleScreen {
     async executeAnimatedPlayerMove(fromKey, toKey, fromAxial, toAxial, unitId) {
         this.closeSelectionIntelForAnimation();
         const engine = this.battleState.ensureGameEngine();
-        // Prime the animation before updating engine state
         const renderer = this.hexMapRenderer;
-        const moveHandle = renderer?.primeUnitMove(fromKey, toKey) ?? null;
+        let moveHandle = null;
         try {
             // Update engine state
-            engine.moveUnit(fromAxial, toAxial, unitId ?? undefined);
+            const resolution = engine.moveUnit(fromAxial, toAxial, unitId ?? undefined);
+            const pathKeys = this.toMovePathKeys(resolution.path, fromKey, toKey);
+            moveHandle = renderer?.primeUnitMove(fromKey, toKey, {
+                path: pathKeys,
+                unitId: resolution.unit.unitId ?? unitId ?? null
+            }) ?? null;
             // Play the animation if available
             if (moveHandle) {
                 try {
-                    await moveHandle.play(BattleScreen.PLAYER_MOVE_ANIMATION_MS);
+                    await moveHandle.play(this.resolveMoveAnimationDuration(pathKeys, BattleScreen.PLAYER_MOVE_ANIMATION_MS));
                 }
                 catch (animationError) {
                     console.warn("[BattleScreen] Player move animation failed; continuing without playback.", animationError);
@@ -6713,6 +8158,11 @@ export class BattleScreen {
     }
     handleSelectionIntelOverlayClick(event) {
         const target = event.target;
+        const toggleButton = target?.closest("#battleIntelOverlayToggle");
+        if (toggleButton) {
+            window.setTimeout(() => this.syncTutorialPhaseWithCurrentContext("intel_overlay_expand"), 0);
+            return;
+        }
         const actionButton = target?.closest("[data-selection-action]");
         if (!actionButton || actionButton.disabled) {
             return;
@@ -6736,6 +8186,31 @@ export class BattleScreen {
             }
             this.selectedPlayerUnitId = unitId;
             this.updateSelectionFeedback(this.selectedHexKey);
+            return;
+        }
+        if (actionId.startsWith("consolidate:")) {
+            const secondaryUnitId = actionId.slice("consolidate:".length).trim();
+            if (!secondaryUnitId || !this.selectedPlayerUnitId) {
+                return;
+            }
+            const engine = this.battleState.ensureGameEngine();
+            const folded = engine.combinePlayerUnits(this.selectedPlayerUnitId, secondaryUnitId);
+            if (!folded) {
+                this.announceBattleUpdate("These formations cannot be folded together. They must share a hex, match type, and stay at or below 100% combined strength.");
+                return;
+            }
+            this.selectedPlayerUnitId = folded.unitId ?? this.selectedPlayerUnitId;
+            const unitLabel = this.resolveUnitLabel(folded.type);
+            const summary = `${unitLabel} consolidated at ${this.selectedHexKey}. Strength now ${Math.round(folded.strength)}%.`;
+            this.renderEngineUnits();
+            this.applySelectedHex(this.selectedHexKey, true);
+            this.announceBattleUpdate(summary);
+            this.publishActivityEvent({
+                category: "player",
+                type: "log",
+                summary
+            });
+            this.battleState.emitBattleUpdate("manual");
             return;
         }
         const parsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
@@ -7159,11 +8634,70 @@ export class BattleScreen {
         }
         this.announceBattleUpdate(`${error.title} ${error.action}`);
     }
+    formatActivityDetailLabel(key) {
+        return key
+            .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+            .replace(/[_-]+/g, " ")
+            .trim()
+            .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+    formatActivityDetailValue(value) {
+        if (value === null || value === undefined) {
+            return "-";
+        }
+        if (typeof value === "string") {
+            return value;
+        }
+        if (typeof value === "number") {
+            if (!Number.isFinite(value)) {
+                return "-";
+            }
+            return Number.isInteger(value) ? value.toString() : this.formatReadinessValue(value);
+        }
+        if (typeof value === "boolean") {
+            return value ? "Yes" : "No";
+        }
+        if (Array.isArray(value)) {
+            if (value.length <= 0) {
+                return "-";
+            }
+            const rendered = value.map((entry) => this.formatActivityDetailValue(entry));
+            const joined = rendered.join(", ");
+            return joined.length > 280 ? `${joined.slice(0, 277)}...` : joined;
+        }
+        try {
+            const json = JSON.stringify(value);
+            if (!json) {
+                return "-";
+            }
+            return json.length > 280 ? `${json.slice(0, 277)}...` : json;
+        }
+        catch {
+            return String(value);
+        }
+    }
+    buildGenericActivityDetailSections(details) {
+        if (!details) {
+            return undefined;
+        }
+        const entries = Object.entries(details).filter(([, value]) => value !== undefined);
+        if (entries.length <= 0) {
+            return undefined;
+        }
+        return [{
+                title: "Technical Data",
+                entries: entries.map(([key, value]) => ({
+                    label: this.formatActivityDetailLabel(key),
+                    value: this.formatActivityDetailValue(value)
+                }))
+            }];
+    }
     /**
      * Records a battle activity event while respecting log caps and updating the sidebar feed.
      */
     publishActivityEvent(event) {
         this.activityEventSequence += 1;
+        const detailSections = event.detailSections ?? this.buildGenericActivityDetailSections(event.details);
         const activity = {
             id: `activity_${this.activityEventSequence}`,
             timestamp: new Date().toISOString(),
@@ -7171,13 +8705,56 @@ export class BattleScreen {
             type: event.type,
             summary: event.summary,
             details: event.details,
-            detailSections: event.detailSections
+            detailSections
         };
         this.activityEvents.push(activity);
         if (this.activityEvents.length > BattleScreen.ACTIVITY_EVENT_LIMIT) {
             this.activityEvents.shift();
         }
         this.battleActivityLog?.append(activity);
+    }
+    /** Generate detailed weapon breakdown for mixed weapon loads */
+    generateWeaponBreakdown(attackerDef, facingArmor, shotBreakdown) {
+        const weaponModel = attackerDef.weaponModel;
+        if (!weaponModel || weaponModel.groups.length === 0) {
+            // Fallback for units without weapon model
+            return {
+                groups: [{
+                        name: this.toTitleCase(attackerDef.class),
+                        shots: shotBreakdown?.final ?? 0,
+                        ap: attackerDef.ap ?? 0,
+                        damage: "Profile fire",
+                        effectiveness: "Single weapon system"
+                    }],
+                summary: "Single weapon system"
+            };
+        }
+        const groups = weaponModel.groups.map((group) => {
+            const groupShots = Math.max(0, group.shots) * (shotBreakdown?.finalScalar ?? 1);
+            const groupAP = group.armorPenetration ?? group.hardEffect?.armorPenetration ?? 0;
+            const penetrationMargin = groupAP - facingArmor;
+            let effectiveness = "Standard";
+            if (facingArmor > 0) {
+                if (penetrationMargin >= 0) {
+                    effectiveness = `Overmatch (+${penetrationMargin})`;
+                }
+                else {
+                    effectiveness = `Undermatched (${penetrationMargin})`;
+                }
+            }
+            else {
+                effectiveness = "No armor target";
+            }
+            return {
+                name: group.id.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                shots: Math.round(groupShots),
+                ap: groupAP,
+                damage: groupAP > facingArmor ? "Effective" : "Reduced",
+                effectiveness
+            };
+        });
+        const summary = `${groups.length} weapon systems: ${groups.map(g => `${g.name} (${g.shots} shots, AP${g.ap})`).join(", ")}`;
+        return { groups, summary };
     }
     /** Builds structured activity detail sections so the activity log can surface full attack context on demand. */
     buildPlayerAttackDetails(resolution, preview, meta) {
@@ -7192,51 +8769,83 @@ export class BattleScreen {
         if (preview) {
             const attackerLabel = this.toTitleCase(preview.attacker.type);
             const defenderLabel = this.toTitleCase(preview.defender.type);
+            // Determine attack type based on defender class
+            const defenderDef = this.unitTypes?.[preview.defender.type];
+            const isSoftTarget = defenderDef ? (defenderDef.class === "infantry" || defenderDef.class === "specialist") : false;
             sections.push({
                 title: "Units",
                 entries: [
                     { label: "Attacker Type", value: attackerLabel },
                     { label: "Defender Type", value: defenderLabel },
-                    { label: "Attacker Strength", value: `${Math.round(preview.attacker.strength)}%` },
-                    { label: "Defender Strength", value: `${Math.round(preview.defender.strength)}%` }
+                    { label: "Attacker Strength", value: `${this.formatReadinessValue(preview.attacker.strength)}%` },
+                    { label: "Defender Strength", value: `${this.formatReadinessValue(preview.defender.strength)}%` }
                 ]
             });
             const accuracy = Math.round(preview.result.accuracy);
-            const expectedDamage = this.clampDisplayedDamage(preview.finalExpectedDamage).toFixed(1);
+            const projectedDamage = this.formatDamageAmount(preview.projectedDamage?.readinessLoss ?? preview.finalExpectedDamage);
+            const projectedRetaliation = this.formatDamageAmount(preview.projectedRetaliationDamage?.readinessLoss ?? preview.expectedRetaliation);
             const expectedHits = preview.result.expectedHits.toFixed(1);
-            const damagePerHit = preview.finalDamagePerHit.toFixed(2);
             const shots = preview.result.shots;
             const effectiveAP = Math.round(preview.result.effectiveAP);
             const facingArmor = Math.round(preview.result.facingArmor);
+            const personnelEffects = this.formatPersonnelDelta(preview.projectedDamage);
+            const equipmentEffects = this.formatEquipmentDelta(preview.projectedDamage);
             sections.push({
                 title: "Preview Odds",
                 entries: [
                     { label: "Accuracy", value: `${accuracy}%` },
                     { label: "Shots", value: shots.toString() },
                     { label: "Expected Hits", value: expectedHits },
-                    { label: "Damage / Hit", value: `${damagePerHit}%` },
-                    { label: "Expected Damage", value: `${expectedDamage}%` },
-                    { label: "Penetration", value: `${effectiveAP} vs ${facingArmor}` }
+                    { label: "Projected Readiness Loss", value: `${projectedDamage}%` },
+                    { label: "Projected Return Fire", value: preview.retaliationPossible ? `${projectedRetaliation}%` : "None" },
+                    { label: "Personnel Effects", value: personnelEffects },
+                    { label: "Equipment Effects", value: equipmentEffects },
+                    { label: "Armor Penetration", value: `${effectiveAP} vs ${facingArmor} armor` }
                 ]
+            });
+            // Add detailed weapon model details section
+            const attackerDef = this.unitTypes?.[preview.attacker.type];
+            const weaponBreakdown = this.generateWeaponBreakdown(attackerDef, facingArmor, preview.result.shotBreakdown ?? null);
+            const weaponEntries = [
+                { label: "Platform", value: attackerLabel },
+                { label: "Attack Type", value: isSoftTarget ? "Soft Attack" : "Hard Attack" },
+                { label: "Weapon Systems", value: `${weaponBreakdown.groups.length} systems` },
+                { label: "Target Armor", value: `${facingArmor}` }
+            ];
+            // Add per-weapon details
+            weaponBreakdown.groups.forEach((group) => {
+                weaponEntries.push({ label: `  ${group.name}`, value: `${group.shots} shots, AP${group.ap}` }, { label: `    Effectiveness`, value: group.effectiveness });
+            });
+            sections.push({
+                title: "Weapon Systems",
+                entries: weaponEntries
             });
         }
         sections.push({
             title: "Outcome",
             entries: [
-                { label: "Damage Dealt", value: `${this.clampDisplayedDamageRounded(meta.inflictedDamage)}` },
+                { label: "Damage Dealt", value: this.formatDamageAmount(meta.inflictedDamage) },
+                {
+                    label: "Target Effects",
+                    value: resolution.defenderDamage?.summary ?? "--"
+                },
                 {
                     label: "Defender Remaining",
-                    value: `${Math.max(0, resolution.defenderRemainingStrength)}%`
+                    value: `${this.formatReadinessValue(Math.max(0, resolution.defenderRemainingStrength))}%`
                 },
                 {
                     label: "Attacker Remaining",
                     value: typeof resolution.attackerRemainingStrength === "number"
-                        ? `${Math.max(0, resolution.attackerRemainingStrength)}%`
+                        ? `${this.formatReadinessValue(Math.max(0, resolution.attackerRemainingStrength))}%`
                         : "--"
                 },
                 {
                     label: "Retaliation",
-                    value: resolution.retaliationOccurred ? `${this.clampDisplayedDamageRounded(meta.retaliationDamage)}` : "None"
+                    value: resolution.retaliationOccurred ? this.formatDamageAmount(meta.retaliationDamage) : "None"
+                },
+                {
+                    label: "Retaliation Effects",
+                    value: resolution.retaliationOccurred ? (resolution.retaliationDamage?.summary ?? "--") : "None"
                 }
             ]
         });
@@ -7387,7 +8996,10 @@ export class BattleScreen {
             if (commandState.isOnSentry) {
                 chips.push({ label: "On Sentry", tone: "neutral" });
             }
-            if (commandState.suppressionState === "pinned") {
+            if (commandState.suppressionState === "broken") {
+                chips.push({ label: `Broken x${commandState.suppressorCount}`, tone: "danger" });
+            }
+            else if (commandState.suppressionState === "pinned") {
                 chips.push({ label: `Pinned x${commandState.suppressorCount}`, tone: "danger" });
             }
             else if (commandState.suppressionState === "suppressed") {
@@ -7464,6 +9076,19 @@ export class BattleScreen {
             available: commandState.canEnterSentry,
             reason: commandState.sentryReason
         });
+        const consolidation = this.resolveConsolidationActionState(hexKey, unit, commandState);
+        if (consolidation.targetUnitId) {
+            actions.push({
+                id: `consolidate:${consolidation.targetUnitId}`,
+                label: "Fold In",
+                detail: consolidation.available
+                    ? `Merge with ${consolidation.targetLabel ?? "matching unit"} into one command at ${consolidation.combinedStrength ?? "?"}% strength. Ammo and fuel are pooled.`
+                    : "Same-type units may fold together only when the combined strength is 100% or less.",
+                tone: "mobility",
+                available: consolidation.available,
+                reason: consolidation.reason
+            });
+        }
         if (this.canUnitDigIn(unit)) {
             actions.push({
                 id: "digIn",
@@ -7521,16 +9146,43 @@ export class BattleScreen {
         }
         return actions;
     }
+    resolveConsolidationActionState(hexKey, unit, commandState) {
+        const members = this.getPlayerStackMembersAtHex(hexKey).filter((member) => !member.isAutomated);
+        const companion = members.find((member) => member.unitId !== commandState.unitId && member.unit.type === unit.type) ?? null;
+        if (!companion) {
+            return { available: false, reason: null, targetUnitId: null, targetLabel: null, combinedStrength: null };
+        }
+        const combinedStrength = Math.round((unit.strength ?? 0) + (companion.unit.strength ?? 0));
+        if (combinedStrength > 100) {
+            return {
+                available: false,
+                reason: `Combined strength would be ${combinedStrength}%. Fold-in is capped at 100%.`,
+                targetUnitId: companion.unitId,
+                targetLabel: this.resolveUnitLabelForUnit(companion.unit) ?? this.toTitleCase(companion.unit.type),
+                combinedStrength
+            };
+        }
+        return {
+            available: true,
+            reason: null,
+            targetUnitId: companion.unitId,
+            targetLabel: this.resolveUnitLabelForUnit(companion.unit) ?? this.toTitleCase(companion.unit.type),
+            combinedStrength
+        };
+    }
     buildBattleIntelNotes(unit, commandState) {
         const notes = [];
         if (!commandState) {
             return notes;
         }
-        if (commandState.suppressionState === "pinned") {
+        if (commandState.suppressionState === "broken") {
+            notes.push(`Broken by ${commandState.suppressorCount} enemy suppressors while below 25 readiness. This battalion cannot move or retaliate until the suppression is broken, and assault fire is unavailable.`);
+        }
+        else if (commandState.suppressionState === "pinned") {
             notes.push(`Pinned by ${commandState.suppressorCount} enemy suppressors. This battalion cannot move or retaliate until the pin is broken, and assault fire is unavailable.`);
         }
         else if (commandState.suppressionState === "suppressed") {
-            notes.push("Under suppressive fire this turn. The battalion may still move and fire, but it cannot initiate assault fire until the next friendly turn begins.");
+            notes.push("Under suppressing fire this turn. The battalion may still move and fire, but it cannot initiate assault fire until the next friendly turn begins.");
         }
         if (commandState.towState === "deployed") {
             notes.push("This battery is deployed for fire. Choose Move Out to limber the guns before towing to a new position.");
@@ -8076,6 +9728,9 @@ export class BattleScreen {
         }
         // Ensure idle formations retain their blue outline after sprite redraws.
         this.refreshIdleUnitHighlights();
+        if (this.isInitiativeSystemEnabled) {
+            this.highlightCurrentInitiativeGroup();
+        }
         this.syncQueuedTargetMarkers();
     }
     buildEnemyContactRenderUnit(contact, liveUnits) {
@@ -8086,9 +9741,6 @@ export class BattleScreen {
             return null;
         }
         const suppressedBy = liveUnit?.suppressedBy ? [...liveUnit.suppressedBy] : undefined;
-        if (suppressedBy && suppressedBy.length > 0) {
-            console.log(`[BattleScreen] buildEnemyContactRenderUnit - Bot unit ${scenarioType} has suppressedBy:`, suppressedBy);
-        }
         return {
             type: scenarioType,
             hex: { ...contact.hex },
@@ -8128,9 +9780,6 @@ export class BattleScreen {
     }
     clampDisplayedDamage(value) {
         return Math.min(100, Math.max(0, value));
-    }
-    clampDisplayedDamageRounded(value) {
-        return Math.round(this.clampDisplayedDamage(value));
     }
     /**
      * Removes unit icons from every hex so subsequent renders accurately reflect deployment changes.
@@ -8177,6 +9826,7 @@ export class BattleScreen {
         this.setupObjectiveCycling();
     }
     resetMissionDerivedUiState() {
+        this.teardownInitiativeSystemUi();
         this.hideAttackDialog();
         this.pendingAttack = null;
         this.attackConfirmationLocked = false;
@@ -8223,114 +9873,8 @@ export class BattleScreen {
     }
     buildScenarioData() {
         const missionKey = this.uiState?.selectedMission ?? "training";
-        const raw = this.deepCloneValue(this.scenarioSource);
-        const paletteEntries = Object.entries(raw.tilePalette ?? {}).map(([key, definition]) => {
-            return [key, this.normalizeTileDefinition(definition)];
-        });
-        const palette = Object.fromEntries(paletteEntries);
-        const tiles = (raw.tiles ?? []).map((row, rowIndex) => row.map((entry, columnIndex) => {
-            if (typeof entry === "string") {
-                return { tile: entry };
-            }
-            if (entry.tile) {
-                return this.normalizeTileInstance(entry);
-            }
-            const inlineKey = `inline_${rowIndex}_${columnIndex}`;
-            const inlineDefinition = entry;
-            palette[inlineKey] = this.normalizeTileDefinition(inlineDefinition);
-            return { tile: inlineKey };
-        }));
-        const objectives = (raw.objectives ?? []).map((objective) => {
-            const obj = objective;
-            return {
-                owner: obj.owner ?? "Bot",
-                vp: Number(obj.vp ?? 0),
-                hex: this.tupleToAxial(obj.hex ?? [0, 0])
-            };
-        });
-        const convertSide = (sideKey) => {
-            const sidesRecord = raw.sides;
-            const side = sidesRecord[sideKey];
-            if (!side) {
-                // Provide an empty scaffold to keep typing satisfied when optional Ally side is absent.
-                return {
-                    hq: this.tupleToAxial([0, 0]),
-                    general: { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 },
-                    units: []
-                };
-            }
-            const general = side.general ?? { accBonus: 0, dmgBonus: 0, moveBonus: 0, supplyBonus: 0 };
-            const hqTuple = Array.isArray(side.hq)
-                ? [Number(side.hq[0] ?? 0), Number(side.hq[1] ?? 0)]
-                : [0, 0];
-            const normalized = {
-                hq: this.tupleToAxial(hqTuple),
-                general: this.deepCloneValue(general),
-                units: (side.units ?? []).map((unit) => this.normalizeScenarioUnit({
-                    type: unit.type ?? "Unknown_Unit",
-                    hex: Array.isArray(unit.hex)
-                        ? [Number(unit.hex[0] ?? 0), Number(unit.hex[1] ?? 0)]
-                        : [0, 0],
-                    strength: unit.strength ?? 0,
-                    experience: unit.experience ?? 0,
-                    ammo: unit.ammo ?? 0,
-                    fuel: unit.fuel ?? 0,
-                    entrench: unit.entrench ?? 0,
-                    facing: unit.facing,
-                    preDeployed: unit.preDeployed,
-                    unitId: unit.unitId
-                }))
-            };
-            const optionalSide = side;
-            if (optionalSide.goal !== undefined) {
-                normalized.goal = optionalSide.goal;
-            }
-            if (optionalSide.strategy !== undefined) {
-                normalized.strategy = optionalSide.strategy;
-            }
-            if (optionalSide.resources !== undefined) {
-                normalized.resources = optionalSide.resources;
-            }
-            if (optionalSide.objectives !== undefined) {
-                normalized.objectives = optionalSide.objectives;
-            }
-            return normalized;
-        };
-        return {
-            name: raw.name ?? "Unnamed Scenario",
-            size: { cols: Number(raw.size?.cols ?? 0), rows: Number(raw.size?.rows ?? 0) },
-            tilePalette: palette,
-            tiles,
-            objectives,
-            turnLimit: getMissionTurnLimit(missionKey, this.uiState?.selectedDifficulty ?? "Normal"),
-            playerBudget: typeof raw.playerBudget === "number" ? raw.playerBudget : undefined,
-            restrictedUnits: Array.isArray(raw.restrictedUnits) ? raw.restrictedUnits.map((unitKey) => String(unitKey)) : undefined,
-            allowedUnits: Array.isArray(raw.allowedUnits) ? raw.allowedUnits.map((unitKey) => String(unitKey)) : undefined,
-            sides: {
-                Player: convertSide("Player"),
-                Bot: convertSide("Bot"),
-                Ally: convertSide("Ally")
-            },
-            deploymentZones: raw.deploymentZones?.map((zone) => {
-                const z = zone;
-                const hexes = (z.hexes ?? []).map((hex) => {
-                    const tuple = Array.isArray(hex)
-                        ? [Number(hex[0] ?? 0), Number(hex[1] ?? 0)]
-                        : [0, 0];
-                    return tuple;
-                });
-                return {
-                    key: z.key ?? "unknown-zone",
-                    label: z.label ?? "",
-                    description: z.description ?? "",
-                    capacity: z.capacity ?? 0,
-                    faction: z.faction ?? "Player",
-                    hexes
-                };
-            })
-        };
+        return normalizeScenarioSource(this.deepCloneValue(this.scenarioSource), { turnLimit: getMissionTurnLimit(missionKey, this.uiState?.selectedDifficulty ?? "Normal") });
     }
-    ;
     /**
      * Provides a defensive copy of the unit type dictionary so downstream systems remain immutable.
      */
@@ -8344,19 +9888,8 @@ export class BattleScreen {
         return this.deepCloneValue(terrainSource);
     }
     /**
-     * Coerces palette definitions into typed terrain entries while preserving feature metadata.
-     */
-    normalizeTileDefinition(definition) {
-        return {
-            terrain: definition.terrain,
-            terrainType: definition.terrainType,
-            density: definition.density,
-            features: (definition.features ?? []).map((feature) => feature),
-            recon: definition.recon
-        };
-    }
-    /**
      * Normalizes tile instance overrides so recon and density adjustments flow through correctly.
+     * Used by non-scenario-load paths (e.g. dynamic deployment state merges).
      */
     normalizeTileInstance(entry) {
         return {
@@ -8367,28 +9900,10 @@ export class BattleScreen {
         };
     }
     /**
-     * Converts raw unit payloads into axial coordinates understood by the engine and renderer.
-     */
-    normalizeScenarioUnit(unit) {
-        return {
-            type: unit.type,
-            hex: this.tupleToAxial(unit.hex),
-            strength: unit.strength,
-            experience: unit.experience,
-            ammo: unit.ammo,
-            fuel: unit.fuel,
-            entrench: unit.entrench,
-            facing: unit.facing,
-            // Preserve optional fields so pre-placed units remain on the map and IDs stay stable when present.
-            preDeployed: unit.preDeployed,
-            unitId: unit.unitId
-        };
-    }
-    /**
      * Adapts [q, r] tuples from JSON into the Axial structure shared across engine modules.
+     * Scenario JSON encodes hexes as offset coordinates [col, row]; convert to axial for engine/rendering.
      */
     tupleToAxial(coord) {
-        // Scenario JSON encodes hexes as offset coordinates [col, row]; convert to axial for engine/rendering.
         if (Array.isArray(coord)) {
             const [col, row] = coord;
             return CoordinateSystem.offsetToAxial(Number(col ?? 0), Number(row ?? 0));

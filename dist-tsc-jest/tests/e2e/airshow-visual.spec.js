@@ -31,16 +31,21 @@ async function pauseScenarioAtPhaseProgress(page, phaseLabel, progress) {
         await pauseReady;
     }, { targetPhaseLabel: phaseLabel, targetProgress: progress });
 }
-async function expectPaintedPhaseMotionFrame(page, testInfo, phaseLabel, snapshotName) {
+async function expectPaintedPhaseMotionFrame(page, testInfo, phaseLabel, snapshotName, progress = PAINTED_FRAME_PROGRESS) {
     prepareLatestPaintedFrameDir();
-    await pauseScenarioAtPhaseProgress(page, phaseLabel, PAINTED_FRAME_PROGRESS);
+    await pauseScenarioAtPhaseProgress(page, phaseLabel, progress);
     const snapshotState = await page.evaluate(() => {
         const svg = document.getElementById("battleHexMap");
         if (!svg) {
             return null;
         }
         document.querySelectorAll(".combat-effects-layer").forEach((layer) => {
-            layer.style.visibility = "hidden";
+            Array.from(layer.children).forEach((child) => {
+                if (child.getAttribute("data-testid") === "airshow-actor") {
+                    return;
+                }
+                child.style.visibility = "hidden";
+            });
         });
         const rect = svg.getBoundingClientRect();
         const activeActors = Array.from(document.querySelectorAll('[data-testid="airshow-actor"][data-airshow-active="true"]')).filter((actor) => {
@@ -56,8 +61,11 @@ async function expectPaintedPhaseMotionFrame(page, testInfo, phaseLabel, snapsho
                 && Number.isFinite(y));
         });
         const visibleActorCount = activeActors.filter((actor) => {
+            const style = window.getComputedStyle(actor);
             const actorRect = actor.getBoundingClientRect();
-            return (actorRect.right > rect.left
+            return (style.visibility !== "hidden"
+                && style.display !== "none"
+                && actorRect.right > rect.left
                 && actorRect.left < rect.right
                 && actorRect.bottom > rect.top
                 && actorRect.top < rect.bottom);
@@ -372,7 +380,7 @@ test.describe("AirShow Browser Harness", () => {
         test("captures painted target run frame @painted-frame", async ({ page, browserName }, testInfo) => {
             test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
             test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
-            await expectPaintedPhaseMotionFrame(page, testInfo, "target-run", "airshow-painted-target-run-mid.png");
+            await expectPaintedPhaseMotionFrame(page, testInfo, "target-run", "airshow-painted-target-run-mid.png", 0.35);
         });
         test("captures painted escort clash scramble frame @painted-frame", async ({ page, browserName }, testInfo) => {
             test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);

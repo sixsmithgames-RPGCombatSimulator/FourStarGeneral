@@ -5352,15 +5352,17 @@ export class BattleScreen {
     const initiativeActive =
       this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
     if (initiativeActive) {
-      this.endTurnButton.hidden = false;
-      this.endTurnButton.removeAttribute("aria-hidden");
-      const activation = this.initiativeMethods?.getCurrentActivation() ?? null;
-      const canEndInitiativeTurn = activation?.ownerId === "player";
-      this.endTurnButton.disabled = !canEndInitiativeTurn;
-      if (canEndInitiativeTurn) {
-        this.endTurnButton.removeAttribute("aria-disabled");
+      const hasEnhancedControls =
+        Boolean(this.initiativeTurnControls) ||
+        Boolean(document.querySelector(".initiative-turn-controls-container"));
+
+      // Initiative mode uses dedicated controls in the top bar, so hide the legacy button
+      // when enhanced controls are available to prevent duplicate "End Turn" actions.
+      this.endTurnButton.hidden = hasEnhancedControls;
+      if (hasEnhancedControls) {
+        this.endTurnButton.setAttribute("aria-hidden", "true");
       } else {
-        this.endTurnButton.setAttribute("aria-disabled", "true");
+        this.endTurnButton.removeAttribute("aria-hidden");
       }
       return;
     }
@@ -8305,9 +8307,14 @@ export class BattleScreen {
           this.syncInitiativeTurnControlsState();
           return;
         }
+
+        this.markRemainingPlayerInitiativeUnitsSkipped(
+          activeGroup,
+          currentActivation?.unitId ?? null
+        );
       }
 
-      this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative, true);
+      this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative, false);
       this.focusCurrentInitiativeActivation();
       this.highlightCurrentInitiativeGroup();
     } catch (error) {
@@ -8647,6 +8654,31 @@ export class BattleScreen {
       .filter((unit) => !this.hasUnitCommittedOrders(unit));
   }
 
+  private markRemainingPlayerInitiativeUnitsSkipped(
+    activeGroup: {
+      initiative: number;
+      ownerId: "player" | "bot";
+      activations: Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }>;
+    },
+    currentUnitId: string | null
+  ): void {
+    if (activeGroup.ownerId !== "player") {
+      return;
+    }
+
+    const engine = this.battleState.ensureGameEngine();
+    activeGroup.activations.forEach((activation) => {
+      if (activation.unitId === currentUnitId) {
+        return;
+      }
+      this.initiativeSkippedUnitIds.add(activation.unitId);
+      const unit = engine.playerUnits.find((entry) => entry.unitId === activation.unitId);
+      if (unit && !unit.onSentry) {
+        engine.enterSentry(unit.hex, unit.unitId ?? undefined);
+      }
+    });
+  }
+
   private hasUnitCommittedOrders(unit: ScenarioUnit): boolean {
     if (unit.onSentry) {
       return true;
@@ -8915,6 +8947,10 @@ export class BattleScreen {
   private syncInitiativeTurnControlsState(): void {
     this.syncLegacyEndTurnButton();
 
+    if (this.initiativeMethods && this.isInitiativeSystemEnabled) {
+      this.flushSkippedInitiativeActivations();
+    }
+
     if (!this.initiativeTurnControls) {
       return;
     }
@@ -8961,6 +8997,22 @@ export class BattleScreen {
       this.syncLegacyEndTurnButton();
     } catch (error) {
       console.error('Failed to sync initiative turn controls state:', error);
+    }
+  }
+
+  private flushSkippedInitiativeActivations(): void {
+    if (!this.initiativeMethods || !this.isInitiativeSystemEnabled) {
+      return;
+    }
+
+    let guard = 0;
+    while (guard < 64) {
+      guard += 1;
+      const activation = this.initiativeMethods.getCurrentActivation();
+      if (!activation || activation.ownerId !== "player" || !this.initiativeSkippedUnitIds.has(activation.unitId)) {
+        break;
+      }
+      this.initiativeMethods.completeUnitActivation(activation.unitId);
     }
   }
 
@@ -9258,8 +9310,13 @@ export class BattleScreen {
         if (parsed) {
           const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
           const unit = engine.playerUnits.find((u) => `${u.hex.q},${u.hex.r}` === `${axial.q},${axial.r}`);
-          
-          if (unit && unit.unitId && !this.isUnitInCurrentInitiativeGroup(unit.unitId)) {
+
+          const isActionDestination =
+            (this.selectedHexKey !== null && (this.playerMoveHexes.has(key) || this.playerAttackHexes.has(key))) ||
+            (this.smokeTargetingState !== null && (this.smokeTargetingState.targetHexKeys.has(key) || key === this.smokeTargetingState.callerHexKey)) ||
+            (this.artilleryTargetingState !== null && (this.artilleryTargetingState.targetHexKeys.has(key) || key === this.artilleryTargetingState.callerHexKey));
+
+          if (unit && unit.unitId && !isActionDestination && !this.isUnitInCurrentInitiativeGroup(unit.unitId)) {
             this.showInitiativeGroupMessage(unit.unitId);
             return; // Don't proceed with the action
           }

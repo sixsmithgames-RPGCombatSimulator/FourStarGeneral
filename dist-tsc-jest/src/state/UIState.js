@@ -9,9 +9,11 @@ export class UIState {
         this._selectedGeneralId = null;
         this._activePopup = null;
         this._selectedDifficulty = "Normal";
+        this._battleAnimationMode = "regular";
         this._isFromCampaign = false;
         this.loadGeneralSelectionFromStorage();
         this.loadDifficultyFromStorage();
+        this.loadBattleAnimationModeFromStorage();
     }
     /**
      * Gets the currently selected mission.
@@ -76,12 +78,37 @@ export class UIState {
         window.localStorage.setItem(UIState.DIFFICULTY_STORAGE_KEY, difficulty);
     }
     /**
+     * Gets the current battle movement animation mode.
+     */
+    get battleAnimationMode() {
+        return this._battleAnimationMode;
+    }
+    /**
+     * Sets the battle movement animation mode and persists it for future missions.
+     */
+    set battleAnimationMode(mode) {
+        if (!UIState.isBattleAnimationMode(mode)) {
+            throw new Error(`Attempted to select unknown battle animation mode: ${mode}`);
+        }
+        this._battleAnimationMode = mode;
+        window.localStorage.setItem(UIState.BATTLE_ANIMATION_MODE_STORAGE_KEY, mode);
+    }
+    /**
      * Loads the difficulty setting from localStorage on initialization.
      */
     loadDifficultyFromStorage() {
         const stored = window.localStorage.getItem(UIState.DIFFICULTY_STORAGE_KEY);
         if (stored && (stored === "Easy" || stored === "Normal" || stored === "Hard")) {
             this._selectedDifficulty = stored;
+        }
+    }
+    /**
+     * Loads the battle animation mode from localStorage on initialization.
+     */
+    loadBattleAnimationModeFromStorage() {
+        const stored = window.localStorage.getItem(UIState.BATTLE_ANIMATION_MODE_STORAGE_KEY);
+        if (UIState.isBattleAnimationMode(stored)) {
+            this._battleAnimationMode = stored;
         }
     }
     /**
@@ -162,6 +189,9 @@ export class UIState {
     static isValidMission(key) {
         return isValidMission(key);
     }
+    static isBattleAnimationMode(value) {
+        return value === "regular" || value === "quick";
+    }
     /**
      * Retrieves all available mission keys.
      * Enables UI layers to iterate missions without duplicating data imports.
@@ -172,3 +202,4 @@ export class UIState {
 }
 UIState.SELECTED_GENERAL_STORAGE_KEY = "selectedGeneralId";
 UIState.DIFFICULTY_STORAGE_KEY = "selectedDifficulty";
+UIState.BATTLE_ANIMATION_MODE_STORAGE_KEY = "battleAnimationMode";

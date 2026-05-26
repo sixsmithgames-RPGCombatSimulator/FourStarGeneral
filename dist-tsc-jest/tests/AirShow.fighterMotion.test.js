@@ -27,6 +27,34 @@ function headingDeltaDeg(a, b) {
     const raw = Math.abs(a - b);
     return raw > 180 ? 360 - raw : raw;
 }
+function maxMovingTurnDegrees(sampledPositions) {
+    let maxTurnDeg = 0;
+    let previousVector = null;
+    for (let index = 1; index < sampledPositions.length; index += 1) {
+        const previous = sampledPositions[index - 1];
+        const current = sampledPositions[index];
+        if (!previous || !current) {
+            continue;
+        }
+        const vector = {
+            x: current.cx - previous.cx,
+            y: current.cy - previous.cy
+        };
+        if (Math.hypot(vector.x, vector.y) < 4) {
+            continue;
+        }
+        if (previousVector) {
+            const previousLength = Math.hypot(previousVector.x, previousVector.y);
+            const currentLength = Math.hypot(vector.x, vector.y);
+            const dot = previousLength > 0 && currentLength > 0
+                ? (previousVector.x * vector.x + previousVector.y * vector.y) / (previousLength * currentLength)
+                : 1;
+            maxTurnDeg = Math.max(maxTurnDeg, (Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI);
+        }
+        previousVector = vector;
+    }
+    return maxTurnDeg;
+}
 function assertBoundaryPointOnTileEnvelope(point, bounds, label) {
     const epsilon = 0.001;
     const onVerticalEdge = Math.abs(point.cx - bounds.minX) <= epsilon || Math.abs(point.cx - bounds.maxX) <= epsilon;
@@ -38,7 +66,7 @@ function assertBoundaryPointOnTileEnvelope(point, bounds, label) {
 function projectedOffsetFromBoundary(origin, boundary, axis) {
     return (origin.cx - boundary.cx) * axis.x + (origin.cy - boundary.cy) * axis.y;
 }
-registerTest("AIR_SHOW_HQ_ORIGINS_ARE_500PX_OUTSIDE_TILE_ENVELOPE", async ({ Given, When, Then }) => {
+registerTest("AIR_SHOW_HQ_ORIGINS_USE_CONFIGURED_OUTSIDE_TILE_ENVELOPE_OFFSET", async ({ Given, When, Then }) => {
     const centers = [];
     for (let row = 0; row < 7; row += 1) {
         for (let col = 0; col < 11; col += 1) {
@@ -55,7 +83,7 @@ registerTest("AIR_SHOW_HQ_ORIGINS_ARE_500PX_OUTSIDE_TILE_ENVELOPE", async ({ Giv
         bounds = buildAirShowMapBounds(centers, HEX_WIDTH, HEX_HEIGHT);
         originPlan = resolveAirShowHqAxis(centers[5] ?? null, centers[centers.length - 6] ?? null, bounds, AIR_SHOW_OFF_MAP_DISTANCE_PX);
     });
-    await Then("each faction origin should be exactly 500px beyond the map tile boundary on the HQ axis", async () => {
+    await Then("each faction origin should use the configured offset beyond the map tile boundary on the HQ axis", async () => {
         if (!bounds || !originPlan) {
             throw new Error("Expected air show HQ origin plan.");
         }
@@ -64,10 +92,10 @@ registerTest("AIR_SHOW_HQ_ORIGINS_ARE_500PX_OUTSIDE_TILE_ENVELOPE", async ({ Giv
         const playerOffset = projectedOffsetFromBoundary(originPlan.playerOrigin, originPlan.playerBoundary, originPlan.axis);
         const botOffset = projectedOffsetFromBoundary(originPlan.botOrigin, originPlan.botBoundary, { x: -originPlan.axis.x, y: -originPlan.axis.y });
         if (Math.abs(playerOffset - AIR_SHOW_OFF_MAP_DISTANCE_PX) > 0.001) {
-            throw new Error(`Expected player origin 500px outside tile envelope, saw ${playerOffset.toFixed(3)}px.`);
+            throw new Error(`Expected player origin ${AIR_SHOW_OFF_MAP_DISTANCE_PX}px outside tile envelope, saw ${playerOffset.toFixed(3)}px.`);
         }
         if (Math.abs(botOffset - AIR_SHOW_OFF_MAP_DISTANCE_PX) > 0.001) {
-            throw new Error(`Expected bot origin 500px outside tile envelope, saw ${botOffset.toFixed(3)}px.`);
+            throw new Error(`Expected bot origin ${AIR_SHOW_OFF_MAP_DISTANCE_PX}px outside tile envelope, saw ${botOffset.toFixed(3)}px.`);
         }
     });
 });
@@ -688,6 +716,42 @@ registerTest("AIR_SHOW_SYNTHETIC_STACK_PACKAGE_AVOIDS_CURRENT_GOVERNED_MOTION_AN
             throw new Error(`Expected the synthetic stack package to clear the governed motion/flak findings, still saw: ${matchingFindings
                 .map((finding) => `${finding.code}: ${finding.message}`)
                 .join(" | ")}`);
+        }
+    });
+});
+registerTest("AIR_SHOW_SYNTHETIC_STACK_PACKAGE_AVOIDS_HARD_SAMPLED_TURNS", async ({ Given, When, Then }) => {
+    let result = null;
+    await Given("the dense synthetic stack package exercises bomber target-run and egress continuity", async () => { });
+    await When("the governed air scenario report is generated", async () => {
+        result = runAirScenario();
+    });
+    await Then("sampled assignments should stay below the broad-turn threshold in non-dogfight phases", async () => {
+        const inspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" && entry.missionId === "synthetic-scenario-5-three-cap-two-escort-four-bomber-stack");
+        if (!inspection) {
+            throw new Error("Expected the governed synthetic stack package inspection to be present.");
+        }
+        const checkedPhaseLabels = new Set([
+            "fighter-ingress",
+            "bomber-defense-pass",
+            "target-run",
+            "egress"
+        ]);
+        const violations = [];
+        inspection.report.phases
+            .filter((phase) => checkedPhaseLabels.has(phase.label))
+            .forEach((phase) => {
+            phase.assignments.forEach((assignment) => {
+                const maxTurnDeg = maxMovingTurnDegrees(assignment.sampledPositions);
+                const thresholdDeg = phase.label === "target-run" || phase.label === "egress"
+                    ? 88
+                    : 94;
+                if (maxTurnDeg > thresholdDeg) {
+                    violations.push(`${phase.label}/${assignment.actorId}: ${maxTurnDeg.toFixed(1)}deg > ${thresholdDeg}deg`);
+                }
+            });
+        });
+        if (violations.length > 0) {
+            throw new Error(`Expected synthetic stack sampled turns to stay broad:\n${violations.join("\n")}`);
         }
     });
 });

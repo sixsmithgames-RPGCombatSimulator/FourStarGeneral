@@ -5,7 +5,7 @@ import { getAllGenerals } from "../../utils/rosterStorage";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { supply as supplyBalance } from "../../core/balance";
 import { axialKey } from "../../core/Hex";
-import unitTypesSource from "../../data/unitTypes.json";
+import unitTypesSource from "../../data/unitSystem/derivedUnitTypes";
 /**
  * Manages popup dialogs and overlays throughout the application.
  * Handles opening, closing, focus management, and content rendering.
@@ -1225,7 +1225,8 @@ export class PopupManager {
             list.innerHTML = "<li class=\"army-roster-empty\">No units recorded.</li>";
             return;
         }
-        list.innerHTML = entries
+        const displayEntries = this.disambiguateRosterEntries(entries);
+        list.innerHTML = displayEntries
             .map((entry) => this.composeRosterEntryMarkup(entry))
             .join("");
         if (listKey === "reserves") {
@@ -1258,6 +1259,25 @@ export class PopupManager {
                 });
             });
         }
+    }
+    disambiguateRosterEntries(entries) {
+        const labelTotals = entries.reduce((totals, entry) => {
+            totals.set(entry.label, (totals.get(entry.label) ?? 0) + 1);
+            return totals;
+        }, new Map());
+        const labelSeen = new Map();
+        return entries.map((entry) => {
+            const total = labelTotals.get(entry.label) ?? 0;
+            if (total <= 1) {
+                return entry;
+            }
+            const index = (labelSeen.get(entry.label) ?? 0) + 1;
+            labelSeen.set(entry.label, index);
+            return {
+                ...entry,
+                label: `${entry.label} #${index}`
+            };
+        });
     }
     composeRosterEntryMarkup(entry) {
         const spriteMarkup = entry.sprite
@@ -1342,6 +1362,19 @@ export class PopupManager {
             })
                 .join("");
         }
+        const roleMarkup = entry.logisticsRole
+            ? `<span class="army-roster-detail army-roster-detail--role">${this.escapeHtml(entry.logisticsRole === "repair" ? "Repair logistics" : entry.logisticsRole === "medical" ? "Medical logistics" : "Supply logistics")}</span>`
+            : "";
+        const personnelMarkup = entry.personnelStatus && entry.personnelStatus.total > 0
+            ? `<span class="army-roster-detail" title="Personnel status">P ${entry.personnelStatus.fit}/${entry.personnelStatus.total} fit · ${entry.personnelStatus.injured} inj · ${entry.personnelStatus.wounded} wnd · ${entry.personnelStatus.severelyWounded} sev · ${entry.personnelStatus.killed} KIA · ${entry.personnelStatus.readiness ?? 0}% ready</span>`
+            : "";
+        const equipmentMarkup = entry.equipmentStatus && entry.equipmentStatus.total > 0
+            ? `<span class="army-roster-detail" title="Vehicle and equipment status">Eq ${entry.equipmentStatus.operational}/${entry.equipmentStatus.total} op · ${entry.equipmentStatus.damaged} dmg · ${entry.equipmentStatus.disabled} dis · ${entry.equipmentStatus.destroyed} lost · ${entry.equipmentStatus.readiness ?? 0}% ready</span>`
+            : "";
+        const suppressionMarkup = typeof entry.suppression === "number" && entry.suppression > 0
+            ? `<span class="army-roster-detail army-roster-detail--suppression">Supp ${entry.suppression}</span>`
+            : "";
+        const detailMarkup = [roleMarkup, personnelMarkup, equipmentMarkup, suppressionMarkup].filter(Boolean).join("");
         const selectableClass = entry.status === "reserves" ? " reserves-selectable" : "";
         // Add deploy button for reserve units
         const deployButtonMarkup = entry.status === "reserves"
@@ -1357,6 +1390,7 @@ export class PopupManager {
               <span class="army-roster-status ${statusClass}">${this.escapeHtml(statusCopy)}</span>
             </div>
             <div class="army-roster-stats">${statsMarkup}</div>
+            ${detailMarkup ? `<div class="army-roster-details">${detailMarkup}</div>` : ""}
           </div>
           ${deployButtonMarkup ? `<div class="roster-actions">${deployButtonMarkup}</div>` : ""}
         </div>
@@ -1732,6 +1766,10 @@ export class PopupManager {
             fuel: unit.fuel === null ? null : Math.max(0, unit.fuel),
             status,
             supportCategory,
+            personnelStatus: unit.statusSummary?.personnel,
+            equipmentStatus: unit.statusSummary?.equipment,
+            suppression: unit.statusSummary?.suppression,
+            logisticsRole: unit.logisticsRole ?? null,
             sprite: unit.sprite
         };
     }
@@ -2009,13 +2047,15 @@ export class PopupManager {
         const supplySnapshot = this.pullSupplySnapshot("Player");
         if (!snapshot) {
             const emptyMessage = `<div class="logistics-panel__empty">Logistics data becomes available once the battle engine initializes and units are deployed.</div>`;
-            panel.querySelectorAll("[data-logistics-overview], [data-logistics-supply-categories], [data-logistics-priorities], [data-logistics-sources], [data-logistics-stockpiles], [data-logistics-convoys], [data-logistics-delays], [data-logistics-alerts], [data-logistics-trend], [data-logistics-ledger]")
+            panel.querySelectorAll("[data-logistics-overview], [data-logistics-supply-categories], [data-logistics-priorities], [data-logistics-care-teams], [data-logistics-care], [data-logistics-sources], [data-logistics-stockpiles], [data-logistics-convoys], [data-logistics-delays], [data-logistics-alerts], [data-logistics-trend], [data-logistics-ledger]")
                 .forEach((container) => { container.innerHTML = emptyMessage; });
             return;
         }
         const overviewContainer = panel.querySelector("[data-logistics-overview]");
         const supplyCategoriesContainer = panel.querySelector("[data-logistics-supply-categories]");
         const prioritiesContainer = panel.querySelector("[data-logistics-priorities]");
+        const careTeamsContainer = panel.querySelector("[data-logistics-care-teams]");
+        const careContainer = panel.querySelector("[data-logistics-care]");
         const sourcesContainer = panel.querySelector("[data-logistics-sources]");
         const stockpilesContainer = panel.querySelector("[data-logistics-stockpiles]");
         const convoysContainer = panel.querySelector("[data-logistics-convoys]");
@@ -2035,6 +2075,16 @@ export class PopupManager {
             prioritiesContainer.innerHTML = snapshot.priorityTargets.length === 0
                 ? '<div class="logistics-panel__empty">No frontline unit is currently requesting ammo or fuel.</div>'
                 : snapshot.priorityTargets.map((entry) => this.composePriorityItem(entry)).join("");
+        }
+        if (careTeamsContainer) {
+            careTeamsContainer.innerHTML = snapshot.supportTeamStatuses.length === 0
+                ? '<li class="logistics-panel__empty">No medical or repair teams deployed.</li>'
+                : snapshot.supportTeamStatuses.map((entry) => this.composeSupportTeamItem(entry)).join("");
+        }
+        if (careContainer) {
+            careContainer.innerHTML = snapshot.careTargets.length === 0
+                ? '<li class="logistics-panel__empty">No medical or repair requests.</li>'
+                : snapshot.careTargets.map((entry) => this.composeCareItem(entry)).join("");
         }
         if (sourcesContainer) {
             sourcesContainer.innerHTML = snapshot.supplySources.length === 0
@@ -2117,6 +2167,11 @@ export class PopupManager {
             <strong>${snapshot.priorityTargets.length}</strong>
             <small>${snapshot.connectedUnits} in network</small>
           </article>
+          <article class="logistics-overview__metric">
+            <span>Recovery</span>
+            <strong>${snapshot.supportTeamStatuses.length}</strong>
+            <small>${snapshot.careTargets.length} care requests</small>
+          </article>
         </div>
         <div class="logistics-overview__stock">
           <span class="logistics-overview__stock-item"><strong>Depot Ammo</strong> ${this.formatQuantity(snapshot.depotStock.ammo)}</span>
@@ -2132,6 +2187,7 @@ export class PopupManager {
             <li>Convoys are live map units for both sides. They return to Base Camp or HQ to reload before running the next delivery.</li>
             <li>Each convoy carries up to ${supplyBalance.convoy.ammoCapacity} ammo and ${supplyBalance.convoy.fuelCapacity} fuel, unloading up to ${supplyBalance.convoy.unloadAmmoPerTurn}/${supplyBalance.convoy.unloadFuelPerTurn} per turn.</li>
             <li>Ground attacks spend onboard ammo. Motorized movement spends onboard fuel. Infantry do not burn fuel to move.</li>
+            <li>Medical and repair teams read the detailed status pools to treat wounded personnel and return damaged or disabled equipment to service.</li>
             <li>Use the resupply queue below to raise or lower delivery priority. Forward battalions wait on convoy service instead of abstract depot teleportation.</li>
           </ul>
         </div>
@@ -2243,6 +2299,51 @@ export class PopupManager {
       </li>
     `;
     }
+    composeSupportTeamItem(team) {
+        const statusLabel = this.formatSupportTeamStatusLabel(team.status);
+        const etaLabel = team.etaHours > 0 ? `${team.etaHours}h` : "Now";
+        const careLabel = team.type === "medical" ? "Medical" : "Repair";
+        const assignmentLabel = team.assignedUnitLabel && team.assignedHex
+            ? `${careLabel} need ${this.formatQuantity(team.need)} at ${this.escapeHtml(team.assignedUnitLabel)} (${this.escapeHtml(team.assignedHex)})`
+            : `${careLabel} team available`;
+        const effectMarkup = team.lastTurnEffect
+            ? `<div class="logistics-convoy-item__cargo">Last turn: ${this.escapeHtml(team.lastTurnEffect)}</div>`
+            : "";
+        const incidentMarkup = team.incident
+            ? `<div class="logistics-convoy-item__incident">${this.escapeHtml(team.incident)}</div>`
+            : "";
+        return `
+      <li class="logistics-convoy-item logistics-support-team-item logistics-support-team-item--${team.type}">
+        <div class="logistics-convoy-item__main">
+          <div class="logistics-convoy-item__heading">${this.escapeHtml(team.teamLabel)}</div>
+          <div class="logistics-convoy-item__route">${this.escapeHtml(team.route)}</div>
+          <div class="logistics-convoy-item__cargo">${assignmentLabel}</div>
+          ${effectMarkup}
+          ${incidentMarkup}
+        </div>
+        <span class="logistics-convoy-item__status logistics-convoy-item__status--${team.status}">${statusLabel}</span>
+        <span class="logistics-convoy-item__eta">ETA ${etaLabel}</span>
+      </li>
+    `;
+    }
+    composeCareItem(entry) {
+        const careLabel = entry.type === "medical" ? "Medical" : "Repair";
+        const assignedLabel = entry.assignedAssets > 0 ? `${entry.assignedAssets} assigned` : "Awaiting asset";
+        const lastEffectMarkup = entry.lastTurnEffect
+            ? `<div class="logistics-care-item__effect">${this.escapeHtml(entry.lastTurnEffect)}</div>`
+            : "";
+        return `
+      <li class="logistics-care-item logistics-care-item--${entry.type}">
+        <div class="logistics-care-item__main">
+          <div class="logistics-care-item__heading">${this.escapeHtml(entry.unitLabel)}</div>
+          <div class="logistics-care-item__detail">${this.escapeHtml(entry.hex)} · ${careLabel} need ${this.formatQuantity(entry.need)} · Priority ${this.escapeHtml(this.formatSupplyPriorityLabel(entry.priority))}</div>
+          ${lastEffectMarkup}
+        </div>
+        <span class="logistics-care-item__type">${careLabel}</span>
+        <span class="logistics-care-item__assigned">${assignedLabel}</span>
+      </li>
+    `;
+    }
     /**
      * Renders a delay node item.
      */
@@ -2341,6 +2442,19 @@ export class PopupManager {
                 return "Returning";
             case "idle":
                 return "Idle";
+            case "blocked":
+            default:
+                return "Blocked";
+        }
+    }
+    formatSupportTeamStatusLabel(status) {
+        switch (status) {
+            case "treating":
+                return "Treating";
+            case "repairing":
+                return "Repairing";
+            case "available":
+                return "Available";
             case "blocked":
             default:
                 return "Blocked";

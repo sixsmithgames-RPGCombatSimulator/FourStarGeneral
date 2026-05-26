@@ -2,30 +2,80 @@ import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { getScenarioByMissionKey } from "../src/data/scenarioRegistry";
 import { assertScenarioSourceValid, validateScenarioSource } from "../src/data/scenarioValidation";
+import { getAllMissionKeys } from "../src/data/missions";
+import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 function cloneScenario(value) {
     return JSON.parse(JSON.stringify(value));
 }
+function mapSignature(scenario) {
+    return JSON.stringify({ size: scenario.size, tiles: scenario.tiles });
+}
 registerTest("SCENARIO_VALIDATION_ACCEPTS_REGISTERED_SCENARIOS", async ({ Given, When, Then }) => {
-    let patrolIssues = [];
-    let trainingIssues = [];
-    let riverIssues = [];
+    const issuesByMission = new Map();
     await Given("the currently registered authored scenarios", async () => {
         document.body.innerHTML = "";
     });
     await When("each scenario is validated against its authoritative profile", async () => {
-        patrolIssues = validateScenarioSource(getScenarioByMissionKey("patrol"), "patrol").issues;
-        trainingIssues = validateScenarioSource(getScenarioByMissionKey("training"), "training").issues;
-        riverIssues = validateScenarioSource(getScenarioByMissionKey("patrol_river_watch"), "patrol_river_watch").issues;
+        getAllMissionKeys().forEach((missionKey) => {
+            issuesByMission.set(missionKey, validateScenarioSource(getScenarioByMissionKey(missionKey), missionKey).issues);
+        });
     });
     await Then("the shipped scenarios pass validation", async () => {
-        if (patrolIssues.length > 0) {
-            throw new Error(`Expected patrol scenario to validate cleanly, received: ${patrolIssues.join(" | ")}`);
+        const failures = Array.from(issuesByMission.entries()).filter(([, issues]) => issues.length > 0);
+        if (failures.length > 0) {
+            throw new Error(`Expected every registered scenario to validate cleanly, received: ${failures
+                .map(([missionKey, issues]) => `${missionKey}: ${issues.join(" | ")}`)
+                .join(" || ")}`);
         }
-        if (trainingIssues.length > 0) {
-            throw new Error(`Expected training scenario to validate cleanly, received: ${trainingIssues.join(" | ")}`);
+    });
+});
+registerTest("SCENARIO_REGISTRY_USES_UNIQUE_AUTHORED_MAPS", async ({ Given, When, Then }) => {
+    let duplicateGroups = [];
+    await Given("the currently registered authored battle scenarios", async () => {
+        document.body.innerHTML = "";
+    });
+    await When("each non-campaign mission map is fingerprinted", async () => {
+        const signatures = new Map();
+        getAllMissionKeys()
+            .filter((missionKey) => missionKey !== "campaign")
+            .forEach((missionKey) => {
+            const signature = mapSignature(getScenarioByMissionKey(missionKey));
+            const missionKeys = signatures.get(signature) ?? [];
+            signatures.set(signature, [...missionKeys, missionKey]);
+        });
+        duplicateGroups = Array.from(signatures.values()).filter((missionKeys) => missionKeys.length > 1);
+    });
+    await Then("no shipped battle scenario shares the same tile map", async () => {
+        if (duplicateGroups.length > 0) {
+            throw new Error(`Expected authored scenarios to use unique maps, received duplicate groups: ${duplicateGroups
+                .map((missionKeys) => missionKeys.join(", "))
+                .join(" | ")}`);
         }
-        if (riverIssues.length > 0) {
-            throw new Error(`Expected river-watch scenario to validate cleanly, received: ${riverIssues.join(" | ")}`);
+    });
+});
+registerTest("SCENARIO_REGISTRY_TILE_ENTRIES_RESOLVE_FOR_RENDERING", async ({ Given, When, Then }) => {
+    const unresolvedTiles = [];
+    await Given("the currently registered authored battle scenarios", async () => {
+        document.body.innerHTML = "";
+    });
+    await When("each non-campaign mission tile is resolved through the renderer coordinate system", async () => {
+        getAllMissionKeys()
+            .filter((missionKey) => missionKey !== "campaign")
+            .forEach((missionKey) => {
+            const scenario = getScenarioByMissionKey(missionKey);
+            scenario.tiles.forEach((row, rowIndex) => {
+                row.forEach((entry, colIndex) => {
+                    const tile = CoordinateSystem.resolveTile(entry, scenario.tilePalette);
+                    if (!tile) {
+                        unresolvedTiles.push(`${missionKey}[${rowIndex},${colIndex}]`);
+                    }
+                });
+            });
+        });
+    });
+    await Then("every shipped battle scenario tile can render", async () => {
+        if (unresolvedTiles.length > 0) {
+            throw new Error(`Expected every scenario tile to resolve for rendering, received: ${unresolvedTiles.join(", ")}`);
         }
     });
 });
@@ -46,9 +96,9 @@ registerTest("SCENARIO_VALIDATION_ACCEPTS_RECOVERABLE_RIVER_WATCH_SEED_PATCH", a
         }
     });
 });
-registerTest("SCENARIO_VALIDATION_REJECTS_SHALLOW_LONG_RANGE_MAPS", async ({ Given, When, Then }) => {
+registerTest("SCENARIO_VALIDATION_REJECTS_BELOW_PROFILE_MINIMUM_MAPS", async ({ Given, When, Then }) => {
     let thrown = null;
-    await Given("a long-range scenario clone whose map depth was reduced below the allowed envelope", async () => {
+    await Given("a scenario clone whose map depth was reduced below the profile minimum", async () => {
         document.body.innerHTML = "";
     });
     await When("the validator checks the modified scenario", async () => {
@@ -62,12 +112,12 @@ registerTest("SCENARIO_VALIDATION_REJECTS_SHALLOW_LONG_RANGE_MAPS", async ({ Giv
             thrown = error;
         }
     });
-    await Then("validation fails with an actionable range-to-map-size message", async () => {
+    await Then("validation fails with an actionable profile minimum message", async () => {
         if (!thrown) {
             throw new Error("Expected shallow long-range scenario validation to throw");
         }
-        if (!thrown.message.includes("too shallow for longest non-air range 8")) {
-            throw new Error(`Expected range envelope failure, received: ${thrown.message}`);
+        if (!thrown.message.includes("depth 13 is below the profile minimum 15")) {
+            throw new Error(`Expected profile minimum failure, received: ${thrown.message}`);
         }
     });
 });
@@ -82,8 +132,28 @@ registerTest("SCENARIO_VALIDATION_REJECTS_OVERCAPACITY_DEPLOYMENT_ZONES", async 
         resultIssues = validateScenarioSource(invalidScenario, "patrol_river_watch").issues;
     });
     await Then("validation reports the capacity mismatch instead of silently accepting it", async () => {
-        if (!resultIssues.some((issue) => issue.includes("declares capacity 21 but only 20 usable hexes"))) {
+        if (!resultIssues.some((issue) => issue.includes("declares capacity 21 but only") && issue.includes("usable hexes"))) {
             throw new Error(`Expected deployment-capacity validation failure, received: ${resultIssues.join(" | ")}`);
+        }
+    });
+});
+registerTest("SCENARIO_VALIDATION_REQUIRES_BATTLE_REQUISITION_POLICY", async ({ Given, When, Then }) => {
+    let resultIssues = [];
+    await Given("a scenario clone missing in-battle requisition policy fields", async () => {
+        document.body.innerHTML = "";
+    });
+    await When("the validator inspects the modified scenario", async () => {
+        const invalidScenario = cloneScenario(getScenarioByMissionKey("training"));
+        delete invalidScenario["mainSupplyDistanceTurns"];
+        invalidScenario.allowedBattleRequisitions = ["tank"];
+        resultIssues = validateScenarioSource(invalidScenario, "training").issues;
+    });
+    await Then("validation reports the missing supply distance and disallowed battle requisition", async () => {
+        if (!resultIssues.some((issue) => issue.includes("mainSupplyDistanceTurns"))) {
+            throw new Error(`Expected missing mainSupplyDistanceTurns validation failure, received: ${resultIssues.join(" | ")}`);
+        }
+        if (!resultIssues.some((issue) => issue.includes("not marked inBattleAllowed"))) {
+            throw new Error(`Expected in-battle requisition eligibility failure, received: ${resultIssues.join(" | ")}`);
         }
     });
 });

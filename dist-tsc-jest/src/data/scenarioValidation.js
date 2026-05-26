@@ -1,5 +1,6 @@
 import { hexDistance } from "../core/Hex";
 import { getMissionDeploymentProfile, isValidMission } from "./missions";
+import { getFormation, isUnitAllocationKey } from "./unitSystem/formations";
 import { finalizeDeploymentZone, measureDeploymentZoneGeometry } from "../ui/utils/deploymentZonePlanner";
 /** Maximum allowed hexes (cols × rows bounding rectangle) for a tactical scenario. Keeps SVG DOM node count and AI pathfinding within browser performance bounds. */
 const MAX_HEX_COUNT = 2000;
@@ -48,6 +49,123 @@ const scenarioProfilesByName = {
         minObjectiveCount: 4,
         minObjectiveSpacing: 3,
         minRangeBuffer: 6
+    },
+    "El Alamein": {
+        scenarioName: "El Alamein",
+        allowedMissionKeys: ["assault_el_alamein"],
+        minCols: 30,
+        minRows: 20,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Kasserine Pass": {
+        scenarioName: "Kasserine Pass",
+        allowedMissionKeys: ["assault_kasserine_pass"],
+        minCols: 26,
+        minRows: 20,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Gela Landings": {
+        scenarioName: "Gela Landings",
+        allowedMissionKeys: ["assault_gela_landings"],
+        minCols: 28,
+        minRows: 18,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Anzio Beachhead": {
+        scenarioName: "Anzio Beachhead",
+        allowedMissionKeys: ["assault_anzio_beachhead"],
+        minCols: 30,
+        minRows: 20,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Monte Cassino": {
+        scenarioName: "Monte Cassino",
+        allowedMissionKeys: ["assault_monte_cassino"],
+        minCols: 28,
+        minRows: 22,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Omaha Beach": {
+        scenarioName: "Omaha Beach",
+        allowedMissionKeys: ["assault_omaha_beach"],
+        minCols: 30,
+        minRows: 18,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Carentan": {
+        scenarioName: "Carentan",
+        allowedMissionKeys: ["assault_carentan"],
+        minCols: 26,
+        minRows: 18,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Arnhem Bridge": {
+        scenarioName: "Arnhem Bridge",
+        allowedMissionKeys: ["assault_arnhem_bridge"],
+        minCols: 30,
+        minRows: 18,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Falaise Pocket": {
+        scenarioName: "Falaise Pocket",
+        allowedMissionKeys: ["assault_falaise_pocket"],
+        minCols: 30,
+        minRows: 22,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Hurtgen Forest": {
+        scenarioName: "Hurtgen Forest",
+        allowedMissionKeys: ["assault_hurtgen_forest"],
+        minCols: 28,
+        minRows: 22,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Bastogne": {
+        scenarioName: "Bastogne",
+        allowedMissionKeys: ["assault_bastogne"],
+        minCols: 28,
+        minRows: 22,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Remagen": {
+        scenarioName: "Remagen",
+        allowedMissionKeys: ["assault_remagen"],
+        minCols: 30,
+        minRows: 20,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 4,
+        minRangeBuffer: 6
+    },
+    "Two Bridges": {
+        scenarioName: "Two Bridges",
+        allowedMissionKeys: ["assault"],
+        minCols: 20,
+        minRows: 16,
+        minObjectiveCount: 4,
+        minObjectiveSpacing: 3,
+        minRangeBuffer: 6
     }
 };
 export function validateScenarioSource(source, missionKey) {
@@ -73,12 +191,57 @@ export function validateScenarioSource(source, missionKey) {
     validateObjectives(record, issues, missionKey, scenarioName, size, profile);
     validateDeploymentZones(record, issues, missionKey, scenarioName, size, tilePalette, tiles);
     validateRangeEnvelope(record, issues, missionKey, scenarioName, size, profile);
+    validateBattleRequisitionPolicy(record, issues, missionKey, scenarioName);
     validateSides(record, issues, missionKey, scenarioName, size);
     return {
         missionKey,
         scenarioName,
         issues
     };
+}
+function validateBattleRequisitionPolicy(record, issues, missionKey, scenarioName) {
+    const label = scenarioName ?? missionKey;
+    const distance = readInteger(record?.mainSupplyDistanceTurns);
+    if (distance === null || distance <= 0) {
+        issues.push(`Scenario ${label} must declare a positive mainSupplyDistanceTurns value for in-battle requisitions.`);
+    }
+    const passiveIncome = readInteger(record?.battleRequisitionPointsPerTurn);
+    if (record?.battleRequisitionPointsPerTurn !== undefined && passiveIncome === null) {
+        issues.push(`Scenario ${label} battleRequisitionPointsPerTurn must be an integer when declared.`);
+    }
+    else if (passiveIncome !== null && passiveIncome < 0) {
+        issues.push(`Scenario ${label} battleRequisitionPointsPerTurn cannot be negative.`);
+    }
+    const startingPoints = readInteger(record?.battleRequisitionStartingPoints);
+    if (record?.battleRequisitionStartingPoints !== undefined && startingPoints === null) {
+        issues.push(`Scenario ${label} battleRequisitionStartingPoints must be an integer when declared.`);
+    }
+    else if (startingPoints !== null && startingPoints < 0) {
+        issues.push(`Scenario ${label} battleRequisitionStartingPoints cannot be negative.`);
+    }
+    const allowed = record?.allowedBattleRequisitions;
+    if (!Array.isArray(allowed) || allowed.length === 0) {
+        issues.push(`Scenario ${label} must declare at least one allowedBattleRequisitions entry.`);
+        return;
+    }
+    allowed.forEach((entry, index) => {
+        const key = readString(entry);
+        if (!key || !isUnitAllocationKey(key)) {
+            issues.push(`Scenario ${label} allowedBattleRequisitions[${index}] must be a valid formation allocation key.`);
+            return;
+        }
+        const formation = getFormation(key);
+        if (!formation) {
+            issues.push(`Scenario ${label} allowedBattleRequisitions[${index}] references missing formation ${key}.`);
+            return;
+        }
+        if (formation.requisition.inBattleAllowed !== true) {
+            issues.push(`Scenario ${label} allows ${key} for in-battle requisition, but that formation is not marked inBattleAllowed.`);
+        }
+        if (formation.requisition.implemented === false) {
+            issues.push(`Scenario ${label} allows ${key} for in-battle requisition, but that formation is not implemented.`);
+        }
+    });
 }
 export function assertScenarioSourceValid(source, missionKey) {
     const result = validateScenarioSource(source, missionKey);

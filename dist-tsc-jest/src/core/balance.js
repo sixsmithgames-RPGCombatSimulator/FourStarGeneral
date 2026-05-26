@@ -52,7 +52,7 @@ export const combat = {
         max: 95,
         // Veteran crews improve their hit chance quickly because shot placement and fire control are
         // learned skills. Causing materially greater damage after impact improves more slowly.
-        expPerStar: 10,
+        expPerStar: 3,
         commanderScalar: 0.01,
         /**
          * Signature scales the final hit probability before cover and spotting are applied.
@@ -64,9 +64,19 @@ export const combat = {
             medium: 1,
             large: 1.25
         },
+        /**
+         * Infantry closing to tank-killing distance is highly exposed to defensive fire.
+         * Historical close-assault guidance emphasizes that tank hunters must approach to
+         * very short range under heavy risk while crews can still defend with close weapons.
+         *
+         * See:
+         * - Tactical and Technical Trends No. 23 (Apr 22, 1943): close assault at 7-20 m,
+         *   side/rear approach into dead space, and active crew defense during assault.
+         */
+        tankVsAssaultingInfantryExposureScalar: 1.35,
         // Ground-based AA has a much harder time hitting fast aircraft than ground targets.
         // This scalar is applied after normal attack resolution for flak-vs-aircraft engagements.
-        groundAntiAirVsAircraftScalar: 0.125
+        groundAntiAirVsAircraftScalar: 0.2
     },
     /**
      * Cover reduces exposed target area and therefore belongs entirely in the hit-chance phase.
@@ -86,7 +96,18 @@ export const combat = {
         topAttackClasses: new Set(["artillery", "air"]),
         positiveDamageBonusPerPoint: 0.05,
         negativeDamagePenaltyPerPoint: 0.15,
-        minimumDamageScalar: 0.1
+        minimumDamageScalar: 0.1,
+        /**
+         * Close-assault infantry attacks on tanks are modeled as side/rear-biased armor
+         * engagements instead of pure frontal duels. This reflects historical doctrine:
+         * assault teams stalked to very short range and attacked flanks/rear through dead space.
+         *
+         * See:
+         * - Tactical and Technical Trends No. 23 (Apr 22, 1943), guidance to attack from
+         *   side or rear and exploit tank dead space.
+         */
+        assaultFlankRearBlendFromFront: 0.25,
+        assaultFlankRearBlendFromSide: 0.1
     },
     /**
      * Damage uses the defender's current armor as a continuous blending signal between the unit's
@@ -102,7 +123,7 @@ export const combat = {
             antiInfantry: { soft: 1.2, hard: 0.8 },
             support: { soft: 0.7, hard: 0.7 }
         },
-        experienceScalarPerStar: 0.03
+        experienceScalarPerStar: 0
     },
     /**
      * Counter-fire policy toggles. Adjust retaliation availability and its accuracy impact here.

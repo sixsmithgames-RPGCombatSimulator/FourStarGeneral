@@ -8,6 +8,7 @@ import { resolveAirInterceptBomberArrivalDelayMs } from "../src/ui/airshow/AirSh
 import { buildCoordinatedAirClusterTimingPolicy, buildResolvedAirCombatSceneTimingPolicy } from "../src/ui/airshow/AirShowTimingPolicies.js";
 import { sampleAirShowWaypointPath, sampleAirShowWaypointPoints } from "../src/ui/airshow/AirShowPathMath.js";
 import { HEX_WIDTH } from "../src/core/balance.js";
+import { getFormation } from "../src/data/unitSystem/formations.js";
 const plains = {
     moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
     defense: 0,
@@ -15,99 +16,18 @@ const plains = {
     blocksLOS: false
 };
 const terrain = { plains };
-const fighterDef = {
-    class: "air",
-    combat: { category: "air", weight: "light", role: "normal", signature: "large" },
-    movement: 5,
-    moveType: "air",
-    vision: 5,
-    ammo: 6,
-    fuel: 50,
-    rangeMin: 1,
-    rangeMax: 2,
-    initiative: 6,
-    armor: { front: 6, side: 5, top: 5 },
-    hardAttack: 12,
-    softAttack: 18,
-    ap: 6,
-    accuracyBase: 64,
-    traits: ["skirmish"],
-    cost: 320,
-    airSupport: {
-        roles: ["escort", "cap"],
-        cruiseSpeedKph: 540,
-        combatRadiusKm: 250,
-        refitTurns: 1
+function tacticalUnitDefinition(formationKey, unitType) {
+    const tactical = getFormation(formationKey)?.tactical;
+    if (!tactical) {
+        throw new Error(`Air scenario harness missing canonical formation ${formationKey} for ${unitType}.`);
     }
-};
-const interceptorDef = {
-    ...fighterDef,
-    initiative: 7,
-    accuracyBase: 68
-};
-const bomberDef = {
-    class: "air",
-    combat: { category: "air", weight: "light", role: "normal", signature: "large" },
-    movement: 4,
-    moveType: "air",
-    vision: 4,
-    ammo: 4,
-    fuel: 60,
-    rangeMin: 1,
-    rangeMax: 1,
-    initiative: 1,
-    armor: { front: 8, side: 8, top: 8 },
-    hardAttack: 16,
-    softAttack: 45,
-    ap: 8,
-    accuracyBase: 55,
-    traits: ["indirect", "carpet"],
-    cost: 380,
-    airSupport: {
-        roles: ["strike"],
-        cruiseSpeedKph: 450,
-        combatRadiusKm: 250,
-        refitTurns: 2
-    }
-};
-const flakDef = {
-    class: "vehicle",
-    combat: { category: "artillery", weight: "medium", role: "normal", signature: "large" },
-    movement: 1,
-    moveType: "wheel",
-    vision: 3,
-    ammo: 6,
-    fuel: 20,
-    rangeMin: 1,
-    rangeMax: 2,
-    initiative: 4,
-    armor: { front: 2, side: 1, top: 1 },
-    hardAttack: 12,
-    softAttack: 4,
-    ap: 10,
-    accuracyBase: 62,
-    traits: ["intercept"],
-    cost: 240
-};
-const infantryDef = {
-    class: "infantry",
-    combat: { category: "infantry", weight: "light", role: "normal", signature: "small" },
-    movement: 1,
-    moveType: "leg",
-    vision: 2,
-    ammo: 6,
-    fuel: 0,
-    rangeMin: 1,
-    rangeMax: 1,
-    initiative: 3,
-    armor: { front: 1, side: 1, top: 1 },
-    hardAttack: 2,
-    softAttack: 8,
-    ap: 1,
-    accuracyBase: 55,
-    traits: [],
-    cost: 80
-};
+    return tactical;
+}
+const fighterDef = tacticalUnitDefinition("fighter", "Fighter");
+const interceptorDef = tacticalUnitDefinition("interceptorWing", "Interceptor");
+const bomberDef = tacticalUnitDefinition("bomber", "Bomber");
+const flakDef = tacticalUnitDefinition("flakBattery", "Flak_88");
+const infantryDef = tacticalUnitDefinition("infantry", "Infantry_42");
 const unitTypes = {
     Fighter: fighterDef,
     Interceptor: interceptorDef,
@@ -388,7 +308,7 @@ function snapshotExpectedFlakCoverage(engine) {
                 const definition = unitTypes[unit.type];
                 return unitDefinitionHasTrait(definition, "intercept")
                     && (remainingShotsByUnitId.get(resolveUnitKey(unit)) ?? 0) > 0
-                    && axialDistance(unit.hex, mission.targetHex) <= 2;
+                    && axialDistance(unit.hex, mission.targetHex) <= Math.max(0, definition.rangeMax ?? 0);
             });
             coveringUnits.forEach((unit) => {
                 const unitKey = resolveUnitKey(unit);
@@ -989,11 +909,16 @@ function buildPlaybackProjection(engine, arrivals, engagements) {
         };
     })
         .filter(Boolean);
+    const coordinatedCoveredMissionIds = new Set(coordinatedPlans.flatMap((plan) => plan.coveredMissionIds));
     return {
         preparedFlights,
         linkedStrikeMissionIds: linkedStrikeFlights.map((entry) => entry.flight.missionId),
-        standaloneFlightMissionIds: standaloneFlights.map((flight) => flight.missionId),
-        standaloneEventMissionIds: standaloneEvents.map((event) => event.missionId ?? event.type),
+        standaloneFlightMissionIds: standaloneFlights
+            .map((flight) => flight.missionId)
+            .filter((missionId) => !coordinatedCoveredMissionIds.has(missionId)),
+        standaloneEventMissionIds: standaloneEvents
+            .map((event) => event.missionId ?? event.type)
+            .filter((missionId) => !coordinatedCoveredMissionIds.has(missionId)),
         clusters,
         coordinatedPlans
     };
@@ -2054,7 +1979,7 @@ function detectAnomalies(engine, missionReports, engagements, expectedFlakCovera
             if (engagements >= engagementLimit) {
                 return false;
             }
-            return axialDistance(unit.hex, report.targetHex) <= 2;
+            return axialDistance(unit.hex, report.targetHex) <= Math.max(0, definition.rangeMax ?? 0);
         });
     };
     missionReports

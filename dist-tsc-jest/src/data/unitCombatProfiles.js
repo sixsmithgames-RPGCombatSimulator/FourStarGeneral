@@ -1,5 +1,5 @@
 // Pull in the canonical unit stat definitions so we can annotate each allocation entry with combat metrics.
-import unitTypes from "./unitTypes.json";
+import unitTypes from "./unitSystem/derivedUnitTypes";
 import { getCombatProfile } from "./combatProfiles";
 /**
  * Canonical armor fallback used when an allocation entry has no matching combat unit definition.
@@ -69,7 +69,8 @@ export const unitCombatProfiles = COMBAT_MAPPING.map(([key, unitType]) => {
     }
     const stats = unitTypes[unitType];
     const combatProfile = getCombatProfile(stats.combat); // JSON import loses literal types
-    const shotsPerTurn = combatProfile.shotsPerTurn;
+    const shotsPerTurn = stats.weaponModel?.groups.reduce((sum, group) => sum + Math.max(0, group.shots), 0)
+        ?? combatProfile.shotsPerTurn;
     const { fuelPerTurn, ammoPerEngagement } = estimateConsumption(stats);
     return {
         key,

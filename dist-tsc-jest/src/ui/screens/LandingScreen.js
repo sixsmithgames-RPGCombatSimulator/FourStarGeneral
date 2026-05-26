@@ -804,7 +804,26 @@ export class LandingScreen {
         }
         const noGeneralSelected = !selectedGeneral;
         // Show ALL non-campaign missions in canonical order (campaigns have their own section)
-        const canonicalOrder = ["training", "patrol", "patrol_river_watch", "patrol_pointe_du_hoc", "assault", "assault_citadel_ridge"];
+        const canonicalOrder = [
+            "training",
+            "patrol",
+            "patrol_river_watch",
+            "patrol_pointe_du_hoc",
+            "assault_el_alamein",
+            "assault_kasserine_pass",
+            "assault_gela_landings",
+            "assault_anzio_beachhead",
+            "assault_monte_cassino",
+            "assault_omaha_beach",
+            "assault_carentan",
+            "assault_arnhem_bridge",
+            "assault_falaise_pocket",
+            "assault_hurtgen_forest",
+            "assault",
+            "assault_citadel_ridge",
+            "assault_bastogne",
+            "assault_remagen"
+        ];
         const missionMarkup = canonicalOrder
             .map((missionKey) => {
             const title = getMissionTitle(missionKey);

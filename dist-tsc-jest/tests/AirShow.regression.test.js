@@ -18,6 +18,17 @@ import { HEX_WIDTH } from "../src/core/balance.js";
 function findContestedInspection(result) {
     return result?.airshowInspections.find((entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-")) ?? null;
 }
+function findContestedInspectionWithBomberEgress(result) {
+    return result?.airshowInspections.find((entry) => {
+        if (entry.eventType !== "airToAir" || !entry.missionId?.startsWith("bot-strike-")) {
+            return false;
+        }
+        const targetRunPhase = entry.report.phases.find((phase) => phase.label === "target-run");
+        const egressPhase = entry.report.phases.find((phase) => phase.label === "egress");
+        return ((targetRunPhase?.assignments.some((assignment) => assignment.role === "bomber") ?? false)
+            && (egressPhase?.assignments.some((assignment) => assignment.role === "bomber") ?? false));
+    }) ?? null;
+}
 function headingChangeDeg(ax, ay, bx, by) {
     const aMagnitude = Math.hypot(ax, ay);
     const bMagnitude = Math.hypot(bx, by);
@@ -124,8 +135,10 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_SPEED_DIFFERENTIATION", async ({ Given,
         if (!fighterAssignment || !bomberAssignment) {
             throw new Error("Expected fighter and bomber assignments.");
         }
-        // Calculate ACTUAL observed speeds from position samples
-        function calcAvgSpeed(samples) {
+        // Calculate ACTUAL observed speeds from moving samples. Fighter ingress may
+        // include a deterministic origin hold before release; the governed speed is
+        // the moving rail segment, not the pre-release wait.
+        function calcMovingAvgSpeed(samples) {
             if (samples.length < 3)
                 return 0;
             let totalDistance = 0;
@@ -134,15 +147,16 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_SPEED_DIFFERENTIATION", async ({ Given,
                 const dx = samples[i].cx - samples[i - 1].cx;
                 const dy = samples[i].cy - samples[i - 1].cy;
                 const dt = samples[i].timeMs - samples[i - 1].timeMs;
-                if (dt > 0) {
-                    totalDistance += Math.hypot(dx, dy);
+                const distance = Math.hypot(dx, dy);
+                if (dt > 0 && distance > 0.5) {
+                    totalDistance += distance;
                     totalTime += dt;
                 }
             }
             return totalTime > 0 ? totalDistance / totalTime : 0;
         }
-        const fighterSpeed = calcAvgSpeed(fighterAssignment.sampledPositions);
-        const bomberSpeed = calcAvgSpeed(bomberAssignment.sampledPositions);
+        const fighterSpeed = calcMovingAvgSpeed(fighterAssignment.sampledPositions);
+        const bomberSpeed = calcMovingAvgSpeed(bomberAssignment.sampledPositions);
         console.log(`[REGRESSION: SPEED] Fighter actual speed: ${fighterSpeed.toFixed(3)} px/ms`);
         console.log(`[REGRESSION: SPEED] Bomber actual speed: ${bomberSpeed.toFixed(3)} px/ms`);
         const expectedBomberSpeed = AIR_SHOW_BOMBER_SPEED_PX_PER_MS;
@@ -578,7 +592,7 @@ registerTest("AIR_SHOW_REGRESSION_BOMBER_ORDNANCE_TO_EGRESS_REMAINS_CONTINUOUS",
         result = runAirScenario();
     });
     await Then("surviving bombers should carry continuous position and heading through the ordnance-to-egress boundary", async () => {
-        const inspection = findContestedInspection(result);
+        const inspection = findContestedInspectionWithBomberEgress(result) ?? findContestedInspection(result);
         if (!inspection) {
             console.log("[REGRESSION: ORDNANCE CONTINUITY] No contested package found - skipping");
             return;
@@ -631,9 +645,9 @@ registerTest("AIR_SHOW_REGRESSION_FINAL_EGRESS_CARRIES_SURVIVING_PACKAGE_ACTORS"
         result = runAirScenario();
     });
     await Then("the final egress beat should carry the surviving fighters and bombers from the package", async () => {
-        const inspection = result?.airshowInspections.find((entry) => entry.eventType === "airToAir" && entry.missionId?.startsWith("bot-strike-"));
+        const inspection = findContestedInspectionWithBomberEgress(result);
         if (!inspection) {
-            console.log("[REGRESSION: PACKAGE EGRESS] No contested package found - skipping");
+            console.log("[REGRESSION: PACKAGE EGRESS] No contested package with surviving bomber egress found - skipping");
             return;
         }
         const targetRunPhase = inspection.report.phases.find(p => p.label === "target-run");

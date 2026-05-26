@@ -18,7 +18,7 @@ import { resolveResolvedAirShowBombers } from "../ui/airshow/AirShowPlaybackScen
 import { beginAirShowRuntimeTrace, completeAirShowRuntimeTrace, recordAirShowRuntimeTraceEvent } from "../ui/airshow/AirShowRuntimeTrace";
 import { logAirShowPackageStart, logAirShowBeatStart, logAirShowOwnershipAssert, logAirShowPackageEnd, debugAirShowPhase, debugAirShowEffect, debugAirShowActor } from "../ui/airshow/AirShowLogger";
 import terrainData from "../data/terrain.json";
-import unitTypesData from "../data/unitTypes.json";
+import unitTypesData from "../data/unitSystem/derivedUnitTypes";
 import { axialDirections, hexLine } from "../core/Hex";
 /**
  * Hex rendering configuration constants.
@@ -31,6 +31,7 @@ const ACTIVE_ZONE_CLASS = "deployment-zone";
 const MOVE_OPTION_HIGHLIGHT_CLASS = "move-option-highlight";
 const ATTACK_TARGET_HIGHLIGHT_CLASS = "attack-target-highlight";
 const IDLE_UNIT_HIGHLIGHT_CLASS = "idle-unit-highlight";
+const INITIATIVE_GROUP_HIGHLIGHT_CLASS = "initiative-group-highlight";
 /**
  * Static sprite used for the base camp marker. Using new URL ensures bundlers resolve the asset with type safety.
  */
@@ -42,6 +43,26 @@ const UNKNOWN_CONTACT_SPRITE = `data:image/svg+xml;utf8,${encodeURIComponent(`<s
     <circle cx="32" cy="32" r="12" fill="#0d1017" opacity="0.9"/>
     <text x="32" y="39" text-anchor="middle" font-size="28" font-family="Arial, sans-serif" font-weight="700" fill="#f9d49a">?</text>
   </svg>`)}`;
+const FORMATION_SMALL_ARMS_IMPACT_OFFSETS = [
+    [-12, -4],
+    [9, 2],
+    [-3, 7],
+    [14, -6],
+    [-17, 5],
+    [4, -9]
+];
+const FORMATION_MG_IMPACT_OFFSETS = [
+    [-8, -2],
+    [7, 1],
+    [1, 6],
+    [12, -4],
+    [-13, 4]
+];
+const FORMATION_HE_IMPACT_OFFSETS = [
+    [-18, -6],
+    [13, 8],
+    [-3, 14]
+];
 /**
  * Main hex map renderer responsible for generating SVG markup.
  * Coordinates terrain rendering, road overlays, and hex element management.
@@ -74,6 +95,7 @@ export class HexMapRenderer {
         this.moveOptionHighlightKeys = new Set();
         this.attackTargetHighlightKeys = new Set();
         this.idleUnitHighlightKeys = new Set();
+        this.initiativeGroupHighlightKeys = new Set();
         /** Tracks the unit class occupying each hex so effects can vary by attacker/defender type. */
         this.hexUnitClassMap = new Map();
         /** Tracks the unit scenario type occupying each hex so visuals can vary beyond the broad UnitClass. */
@@ -731,9 +753,7 @@ export class HexMapRenderer {
             resolveAirShowAssignmentTraversedPathLengthPx: bind(this.resolveAirShowAssignmentTraversedPathLengthPx),
             resolveAirShowAssignmentActiveDurationMs: bind(this.resolveAirShowAssignmentActiveDurationMs),
             applyPlannedAirShowAssignments: bind(this.applyPlannedAirShowAssignments),
-            buildContestedFighterIngressPlan: bind(this.buildContestedFighterIngressPlan),
             resolveAirShowContestedBomberPhaseDurations: bind(this.resolveAirShowContestedBomberPhaseDurations),
-            retimeContestedFighterIngressPlan: bind(this.retimeContestedFighterIngressPlan),
             buildContestedBomberMasterPaths: bind(this.buildContestedBomberMasterPaths),
             buildContestedBomberPhaseSliceAssignments: bind(this.buildContestedBomberPhaseSliceAssignments),
             extendAirShowPhaseAssignmentsForSpeed: bind(this.extendAirShowPhaseAssignmentsForSpeed),
@@ -1482,11 +1502,11 @@ export class HexMapRenderer {
      * Plays a temporary sprite animation that travels from one hex to another.
      * Callers should re-render units once the promise resolves so canonical engine state is reflected.
      */
-    async animateUnitMove(fromKey, toKey, durationMs = 500) {
+    async animateUnitMove(fromKey, toKey, durationMs = 500, options) {
         if (durationMs < 0) {
             durationMs = 0;
         }
-        const handle = this.primeUnitMove(fromKey, toKey);
+        const handle = this.primeUnitMove(fromKey, toKey, options);
         if (!handle) {
             return;
         }
@@ -1498,11 +1518,11 @@ export class HexMapRenderer {
         }
     }
     /**
-     * Prepares the SVG state for a future move animation by hiding the destination sprite and
+     * Prepares the SVG state for a future move animation by hiding the moving source sprite and
      * planting a ghost image on the origin hex. Call `play()` on the returned handle once the camera settles.
      */
-    primeUnitMove(fromKey, toKey) {
-        const context = this.createMoveAnimationContext(fromKey, toKey);
+    primeUnitMove(fromKey, toKey, options) {
+        const context = this.createMoveAnimationContext(fromKey, toKey, options);
         if (!context) {
             return null;
         }
@@ -1513,7 +1533,7 @@ export class HexMapRenderer {
                 return;
             }
             settled = true;
-            this.cleanupMoveGhost(context.ghost, context.movingGroup, context.restoreOpacity);
+            this.cleanupMoveGhost(context.ghost, context.hiddenGroup, context.restoreOpacity);
         };
         return {
             play: async (duration) => {
@@ -1531,7 +1551,7 @@ export class HexMapRenderer {
             dispose: finalize
         };
     }
-    createMoveAnimationContext(fromKey, toKey) {
+    createMoveAnimationContext(fromKey, toKey, options) {
         if (!this.svgElement) {
             return null;
         }
@@ -1545,35 +1565,65 @@ export class HexMapRenderer {
         if (!startCenter || !endCenter) {
             return null;
         }
-        const destinationGroup = this.hexUnitImageMap.get(toKey) ?? null;
-        const sourceGroup = destinationGroup ?? this.hexUnitImageMap.get(fromKey) ?? null;
-        if (!sourceGroup) {
+        const sourceStack = this.hexUnitImageMap.get(fromKey) ?? null;
+        const destinationStack = this.hexUnitImageMap.get(toKey) ?? null;
+        const movingSubject = this.resolveMoveAnimationSubject(sourceStack, options?.unitId)
+            ?? this.resolveMoveAnimationSubject(destinationStack, options?.unitId);
+        if (!movingSubject) {
             return null;
         }
-        const ghost = sourceGroup.cloneNode(true);
+        const ghost = movingSubject.cloneSource.cloneNode(true);
         ghost.classList.add("unit-move-ghost");
         ghost.querySelectorAll("image").forEach((node) => node.classList.add("unit-move-ghost"));
         ghost.style.pointerEvents = "none";
         ghost.style.transition = "";
         ghost.style.transform = "";
         this.positionUnitStack(ghost, startCenter.cx, startCenter.cy);
-        let movingGroup = destinationGroup;
-        if (!movingGroup) {
-            const originGroup = this.hexUnitImageMap.get(fromKey) ?? null;
-            if (!originGroup) {
-                ghost.remove();
-                return null;
+        let hiddenGroup = movingSubject.hiddenGroup;
+        // Preserve per-move visual continuity for empty-target moves (especially bot turns):
+        // stage a hidden clone at the destination so revealing it at animation end does not
+        // make the formation snap back to its origin until a later full re-render.
+        if (!destinationStack && sourceStack && fromKey !== toKey) {
+            const movingSubjectLivesInSourceStack = movingSubject.hiddenGroup === sourceStack || sourceStack.contains(movingSubject.hiddenGroup);
+            if (movingSubjectLivesInSourceStack) {
+                if (movingSubject.hiddenGroup === sourceStack) {
+                    const stagedDestinationGroup = sourceStack.cloneNode(true);
+                    this.positionUnitStack(stagedDestinationGroup, endCenter.cx, endCenter.cy);
+                    toCell.appendChild(stagedDestinationGroup);
+                    this.hexUnitImageMap.set(toKey, stagedDestinationGroup);
+                    this.hexUnitImageMap.delete(fromKey);
+                    sourceStack.remove();
+                    hiddenGroup = stagedDestinationGroup;
+                }
+                else {
+                    const stagedDestinationGroup = document.createElementNS(SVG_NS, "g");
+                    stagedDestinationGroup.classList.add("unit-stack");
+                    stagedDestinationGroup.dataset.stackCount = "1";
+                    stagedDestinationGroup.dataset.reconStatus =
+                        movingSubject.hiddenGroup.dataset.reconStatus
+                            ?? sourceStack.dataset.reconStatus
+                            ?? "visible";
+                    const stagedFormation = movingSubject.hiddenGroup.cloneNode(true);
+                    stagedFormation.dataset.slot = "0";
+                    stagedDestinationGroup.appendChild(stagedFormation);
+                    this.positionUnitStack(stagedDestinationGroup, endCenter.cx, endCenter.cy);
+                    toCell.appendChild(stagedDestinationGroup);
+                    this.hexUnitImageMap.set(toKey, stagedDestinationGroup);
+                    movingSubject.hiddenGroup.style.opacity = "0";
+                    const remainingVisibleCount = Array.from(sourceStack.querySelectorAll(":scope > g.unit-stack-formation")).reduce((count, formation) => (formation.style.opacity === "0" ? count : count + 1), 0);
+                    if (remainingVisibleCount <= 0) {
+                        this.hexUnitImageMap.delete(fromKey);
+                        sourceStack.remove();
+                    }
+                    else {
+                        sourceStack.dataset.stackCount = String(remainingVisibleCount);
+                    }
+                    hiddenGroup = stagedDestinationGroup;
+                }
             }
-            const clone = originGroup.cloneNode(true);
-            this.positionUnitStack(clone, endCenter.cx, endCenter.cy);
-            toCell.appendChild(clone);
-            this.hexUnitImageMap.set(toKey, clone);
-            this.hexUnitImageMap.delete(fromKey);
-            originGroup.remove();
-            movingGroup = clone;
         }
-        const restoreOpacity = movingGroup.style.opacity || "";
-        movingGroup.style.opacity = "0";
+        const restoreOpacity = hiddenGroup.style.opacity || "";
+        hiddenGroup.style.opacity = "0";
         const effectsLayer = this.ensureCombatEffectsLayer();
         if (effectsLayer) {
             effectsLayer.appendChild(ghost);
@@ -1581,23 +1631,121 @@ export class HexMapRenderer {
         else {
             this.svgElement.appendChild(ghost);
         }
-        const dx = endCenter.cx - startCenter.cx;
-        const dy = endCenter.cy - startCenter.cy;
-        const angleDeg = this.resolveAngleDegFromVector(dx, dy);
+        const pathPoints = this.resolveMovePathPoints(fromKey, toKey, options?.path);
+        const finalSegment = this.resolveMovePathSample(pathPoints, 1);
+        const angleDeg = finalSegment.angleDeg;
         this.applyFacingAngleToGroup(ghost, startCenter.cx, startCenter.cy, angleDeg);
-        this.applyFacingAngleToGroup(movingGroup, endCenter.cx, endCenter.cy, angleDeg);
+        this.applyFacingAngleToGroup(hiddenGroup, endCenter.cx, endCenter.cy, angleDeg);
         if (fromKey !== toKey) {
             this.hexUnitFacingAngleMap.delete(fromKey);
         }
         this.hexUnitFacingAngleMap.set(toKey, angleDeg);
         const setGhostProgress = (progress) => {
-            ghost.style.transform = `translate(${dx * progress}px, ${dy * progress}px)`;
+            const sample = this.resolveMovePathSample(pathPoints, progress);
+            ghost.style.transform = `translate(${sample.cx - startCenter.cx}px, ${sample.cy - startCenter.cy}px)`;
+            this.applyFacingAngleToGroup(ghost, startCenter.cx, startCenter.cy, sample.angleDeg);
         };
         return {
             ghost,
-            movingGroup,
+            hiddenGroup,
             restoreOpacity,
             setGhostProgress
+        };
+    }
+    resolveMoveAnimationSubject(stackGroup, unitId) {
+        if (!stackGroup) {
+            return null;
+        }
+        const normalizedUnitId = unitId?.trim() ?? "";
+        if (normalizedUnitId) {
+            const matchingFormation = Array.from(stackGroup.querySelectorAll(":scope > g.unit-stack-formation")).find((formationGroup) => formationGroup.dataset.unitId === normalizedUnitId);
+            if (matchingFormation) {
+                return {
+                    cloneSource: matchingFormation,
+                    hiddenGroup: matchingFormation
+                };
+            }
+        }
+        return {
+            cloneSource: stackGroup,
+            hiddenGroup: stackGroup
+        };
+    }
+    resolveMovePathPoints(fromKey, toKey, path) {
+        const normalizedKeys = [];
+        const appendKey = (key) => {
+            if (!key) {
+                return;
+            }
+            if (normalizedKeys[normalizedKeys.length - 1] === key) {
+                return;
+            }
+            normalizedKeys.push(key);
+        };
+        appendKey(fromKey);
+        path?.forEach((key) => appendKey(key));
+        appendKey(toKey);
+        const points = normalizedKeys
+            .map((key) => {
+            const cell = this.hexElementMap.get(key);
+            const center = cell ? this.extractHexCenter(cell) : null;
+            return center ? { key, cx: center.cx, cy: center.cy } : null;
+        })
+            .filter((point) => point !== null);
+        const startCell = this.hexElementMap.get(fromKey);
+        const endCell = this.hexElementMap.get(toKey);
+        const startCenter = startCell ? this.extractHexCenter(startCell) : null;
+        const endCenter = endCell ? this.extractHexCenter(endCell) : null;
+        if (startCenter && points[0]?.key !== fromKey) {
+            points.unshift({ key: fromKey, cx: startCenter.cx, cy: startCenter.cy });
+        }
+        if (endCenter && points[points.length - 1]?.key !== toKey) {
+            points.push({ key: toKey, cx: endCenter.cx, cy: endCenter.cy });
+        }
+        return points.length >= 2 ? points : [
+            { key: fromKey, cx: startCenter?.cx ?? 0, cy: startCenter?.cy ?? 0 },
+            { key: toKey, cx: endCenter?.cx ?? startCenter?.cx ?? 0, cy: endCenter?.cy ?? startCenter?.cy ?? 0 }
+        ];
+    }
+    resolveMovePathSample(points, progress) {
+        const fallback = points[0] ?? { key: "", cx: 0, cy: 0 };
+        if (points.length <= 1) {
+            return { cx: fallback.cx, cy: fallback.cy, angleDeg: 0 };
+        }
+        const segmentLengths = [];
+        let totalDistance = 0;
+        for (let index = 1; index < points.length; index += 1) {
+            const previous = points[index - 1];
+            const current = points[index];
+            const length = Math.hypot(current.cx - previous.cx, current.cy - previous.cy);
+            segmentLengths.push(length);
+            totalDistance += length;
+        }
+        if (totalDistance <= 0) {
+            return { cx: fallback.cx, cy: fallback.cy, angleDeg: 0 };
+        }
+        const targetDistance = this.clamp(progress, 0, 1) * totalDistance;
+        let traversed = 0;
+        for (let index = 0; index < segmentLengths.length; index += 1) {
+            const length = segmentLengths[index];
+            const start = points[index];
+            const end = points[index + 1];
+            const isFinalSegment = index === segmentLengths.length - 1;
+            if (targetDistance <= traversed + length || isFinalSegment) {
+                const localProgress = length <= 0 ? 1 : this.clamp((targetDistance - traversed) / length, 0, 1);
+                const cx = start.cx + (end.cx - start.cx) * localProgress;
+                const cy = start.cy + (end.cy - start.cy) * localProgress;
+                const angleDeg = this.resolveAngleDegFromVector(end.cx - start.cx, end.cy - start.cy);
+                return { cx, cy, angleDeg };
+            }
+            traversed += length;
+        }
+        const penultimate = points[points.length - 2];
+        const last = points[points.length - 1];
+        return {
+            cx: last.cx,
+            cy: last.cy,
+            angleDeg: this.resolveAngleDegFromVector(last.cx - penultimate.cx, last.cy - penultimate.cy)
         };
     }
     runMoveAnimation(context, durationMs) {
@@ -1633,16 +1781,33 @@ export class HexMapRenderer {
         if (!a || !b) {
             return;
         }
-        const dx = b.cx - a.cx;
-        const dy = b.cy - a.cy;
+        const endCx = b.cx + (options?.targetOffsetX ?? 0);
+        const endCy = b.cy + (options?.targetOffsetY ?? 0);
+        const dx = endCx - a.cx;
+        const dy = endCy - a.cy;
         const dist = Math.hypot(dx, dy) || 1;
         const arcHeight = options?.arcHeight ?? this.clamp(dist * 0.35, 18, 64);
         const nx = -dy / dist;
         const ny = dx / dist;
-        const ctrlX = (a.cx + b.cx) / 2 + nx * arcHeight;
-        const ctrlY = (a.cy + b.cy) / 2 + ny * arcHeight;
+        const ctrlX = (a.cx + endCx) / 2 + nx * arcHeight;
+        const ctrlY = (a.cy + endCy) / 2 + ny * arcHeight;
         const color = options?.color ?? "#ffcf5a";
         const radius = options?.radius ?? 3;
+        const trail = document.createElementNS(SVG_NS, "path");
+        trail.setAttribute("fill", "none");
+        trail.setAttribute("stroke", color);
+        trail.setAttribute("stroke-width", String(Math.max(1.1, radius * 0.72)));
+        trail.setAttribute("stroke-linecap", "round");
+        trail.setAttribute("vector-effect", "non-scaling-stroke");
+        trail.style.opacity = "0";
+        trail.style.pointerEvents = "none";
+        layer.appendChild(trail);
+        const glow = document.createElementNS(SVG_NS, "circle");
+        glow.setAttribute("r", String(radius * 2.4));
+        glow.setAttribute("fill", color);
+        glow.style.opacity = "0.18";
+        glow.style.pointerEvents = "none";
+        layer.appendChild(glow);
         const shell = document.createElementNS(SVG_NS, "circle");
         shell.setAttribute("r", String(radius));
         shell.setAttribute("fill", color);
@@ -1655,11 +1820,22 @@ export class HexMapRenderer {
                 const t = this.clamp(elapsed / durationMs, 0, 1);
                 const eased = this.easeInOut(t);
                 const omt = 1 - eased;
-                const x = omt * omt * a.cx + 2 * omt * eased * ctrlX + eased * eased * b.cx;
-                const y = omt * omt * a.cy + 2 * omt * eased * ctrlY + eased * eased * b.cy;
+                const x = omt * omt * a.cx + 2 * omt * eased * ctrlX + eased * eased * endCx;
+                const y = omt * omt * a.cy + 2 * omt * eased * ctrlY + eased * eased * endCy;
+                const trailT = this.clamp(eased - 0.1, 0, 1);
+                const trailOmt = 1 - trailT;
+                const trailX = trailOmt * trailOmt * a.cx + 2 * trailOmt * trailT * ctrlX + trailT * trailT * endCx;
+                const trailY = trailOmt * trailOmt * a.cy + 2 * trailOmt * trailT * ctrlY + trailT * trailT * endCy;
                 shell.setAttribute("cx", String(x));
                 shell.setAttribute("cy", String(y));
+                glow.setAttribute("cx", String(x));
+                glow.setAttribute("cy", String(y));
+                trail.setAttribute("d", `M ${trailX} ${trailY} L ${x} ${y}`);
+                trail.style.opacity = String(0.22 * (1 - t * 0.45));
+                glow.style.opacity = String(0.18 * (1 - t * 0.35));
                 if (t >= 1) {
+                    trail.remove();
+                    glow.remove();
                     shell.remove();
                     resolve();
                     return;
@@ -1698,12 +1874,19 @@ export class HexMapRenderer {
         let maxY = Number.NEGATIVE_INFINITY;
         // Process all tiles and calculate bounds
         const realAxialKeys = new Set();
+        let resolvedTileCount = 0;
+        let unresolvedTileCount = 0;
         data.tiles.forEach((rowTiles, rowIndex) => {
             rowTiles.forEach((entry, columnIndex) => {
                 const tile = CoordinateSystem.resolveTile(entry, data.tilePalette);
                 if (!tile) {
+                    unresolvedTileCount++;
+                    if (unresolvedTileCount <= 5) {
+                        console.warn(`[HexMapRenderer] Failed to resolve tile at [${rowIndex}][${columnIndex}]`, { entry, paletteKeys: Object.keys(data.tilePalette).slice(0, 10) });
+                    }
                     return;
                 }
+                resolvedTileCount++;
                 const { q, r } = CoordinateSystem.offsetToAxial(columnIndex, rowIndex);
                 const { x, y } = CoordinateSystem.axialToPixel(q, r);
                 minX = Math.min(minX, x);
@@ -1717,6 +1900,7 @@ export class HexMapRenderer {
                 hexes.push({ tile, x, y, col: columnIndex, row: rowIndex, recon: reconStatus });
             });
         });
+        console.info(`[HexMapRenderer] Tile resolution: ${resolvedTileCount} resolved, ${unresolvedTileCount} unresolved, ${hexes.length} hexes to render`);
         if (hexes.length === 0) {
             svg.innerHTML = "";
             return;
@@ -2474,19 +2658,14 @@ export class HexMapRenderer {
         if (entrenchment > 0) {
             decorations.appendChild(this.renderEntrenchmentPips(cx, cy, entrenchment));
         }
-        const suppressorCount = unit.suppressedBy?.length ?? 0;
-        const suppressionState = suppressorCount >= 2 ? "pinned" : suppressorCount === 1 ? "suppressed" : "clear";
-        // Log suppression state to debug pip visibility
-        if (suppressionState !== "clear") {
-            console.log("[HexMapRenderer] renderUnitDecorations - unit:", unit.type, "unitId:", unit.unitId, "suppressedBy:", unit.suppressedBy, "suppressorCount:", suppressorCount, "suppressionState:", suppressionState, "statusPips will include:", suppressionState);
-        }
+        const suppressionState = this.resolveRenderedSuppressionState(unit);
         // Note: suppression/sentry/entrench state is set on the main unit-stack group in renderUnitStack
         // This method only renders visual decorations
         const statusPips = [];
         if (unit.onSentry) {
             statusPips.push("sentry");
         }
-        if (suppressionState === "suppressed" || suppressionState === "pinned") {
+        if (suppressionState !== "clear") {
             statusPips.push(suppressionState);
         }
         if (statusPips.length > 0) {
@@ -2513,6 +2692,13 @@ export class HexMapRenderer {
             group.appendChild(pip);
         }
         return group;
+    }
+    resolveRenderedSuppressionState(unit) {
+        const suppressorCount = unit.suppressedBy?.length ?? 0;
+        if (suppressorCount >= 2) {
+            return unit.strength < 25 ? "broken" : "pinned";
+        }
+        return suppressorCount === 1 ? "suppressed" : "clear";
     }
     renderStatusPips(cx, cy, statuses) {
         const group = document.createElementNS(SVG_NS, "g");
@@ -2580,8 +2766,8 @@ export class HexMapRenderer {
             group.appendChild(slash);
             return group;
         }
-        backdrop.setAttribute("fill", "rgba(132, 27, 27, 0.94)");
-        backdrop.setAttribute("stroke", "#ff9e99");
+        backdrop.setAttribute("fill", status === "broken" ? "rgba(78, 12, 15, 0.97)" : "rgba(132, 27, 27, 0.94)");
+        backdrop.setAttribute("stroke", status === "broken" ? "#ffcbc6" : "#ff9e99");
         group.appendChild(backdrop);
         const cross = document.createElementNS(SVG_NS, "path");
         cross.setAttribute("d", `M ${x - 2.6} ${y - 2.6} L ${x + 2.6} ${y + 2.6} M ${x + 2.6} ${y - 2.6} L ${x - 2.6} ${y + 2.6}`);
@@ -2590,6 +2776,15 @@ export class HexMapRenderer {
         cross.setAttribute("stroke-width", "1.35");
         cross.setAttribute("stroke-linecap", "round");
         group.appendChild(cross);
+        if (status === "broken") {
+            const lowerBar = document.createElementNS(SVG_NS, "path");
+            lowerBar.setAttribute("d", `M ${x - 2.8} ${y + 3.4} L ${x + 2.8} ${y + 3.4}`);
+            lowerBar.setAttribute("fill", "none");
+            lowerBar.setAttribute("stroke", "#fff1ef");
+            lowerBar.setAttribute("stroke-width", "1.2");
+            lowerBar.setAttribute("stroke-linecap", "round");
+            group.appendChild(lowerBar);
+        }
         return group;
     }
     applyFacingAngleToGroup(group, cx, cy, angleDeg) {
@@ -2942,6 +3137,39 @@ export class HexMapRenderer {
         this.idleUnitHighlightKeys.forEach((key) => this.toggleIdleUnitHighlight(key, false));
         this.idleUnitHighlightKeys.clear();
     }
+    /**
+     * Applies initiative group highlighting to specified hex keys.
+     * Units in the current initiative group get a distinctive highlight.
+     */
+    setInitiativeGroupHighlights(keys) {
+        const nextKeys = new Set();
+        for (const key of keys) {
+            nextKeys.add(key);
+            if (!this.initiativeGroupHighlightKeys.has(key)) {
+                this.toggleInitiativeGroupHighlight(key, true);
+            }
+        }
+        this.initiativeGroupHighlightKeys.forEach((key) => {
+            if (!nextKeys.has(key)) {
+                this.toggleInitiativeGroupHighlight(key, false);
+            }
+        });
+        this.initiativeGroupHighlightKeys.clear();
+        nextKeys.forEach((key) => this.initiativeGroupHighlightKeys.add(key));
+    }
+    /**
+     * Clears all initiative group highlights.
+     */
+    clearInitiativeGroupHighlights() {
+        this.initiativeGroupHighlightKeys.forEach((key) => this.toggleInitiativeGroupHighlight(key, false));
+        this.initiativeGroupHighlightKeys.clear();
+    }
+    /**
+     * Toggles initiative group highlight for a specific hex.
+     */
+    toggleInitiativeGroupHighlight(hexKey, enabled) {
+        this.toggleHexHighlightClass(hexKey, INITIATIVE_GROUP_HIGHLIGHT_CLASS, enabled);
+    }
     toggleZoneOutline(hexKey, enabled) {
         this.toggleHexHighlightClass(hexKey, ACTIVE_ZONE_CLASS, enabled);
     }
@@ -3206,7 +3434,21 @@ export class HexMapRenderer {
                 ? null
                 : getCompositeSpritesForUnit(member.unit.type, member.faction, stackCount, reconStatus, normalizedFacing);
             if (!compositeSprites && reconStatus !== "spotted") {
-                console.error("[HexMapRenderer] renderUnitStack: no sprite registered for unit type+faction — unit will render blank.", { type: member.unit.type, faction: member.faction, hexKey });
+                console.error("[HexMapRenderer] renderUnitStack: no sprite registered for unit type+faction — unit will render blank.", {
+                    type: member.unit.type,
+                    faction: member.faction,
+                    hexKey,
+                    unitId: member.unit.unitId,
+                    controlledBy: member.unit.controlledBy,
+                    // Debug info to help identify missing sprites
+                    debug: {
+                        hasUnitId: !!member.unit.unitId,
+                        hasControlledBy: !!member.unit.controlledBy,
+                        isScenarioUnit: !!member.unit.type,
+                        possibleFaction: member.unit.controlledBy === 'Player' ? 'Player' :
+                            member.unit.controlledBy === 'AI' ? 'Bot' : 'Unknown'
+                    }
+                });
             }
             const layout = this.resolveUnitStackLayout(stackCount, variant, visibleMembers.length > 1 ? 0.74 : 1, visibleMembers.length > 1 ? 0.72 : 1);
             const formationGroup = document.createElementNS(SVG_NS, "g");
@@ -3259,13 +3501,15 @@ export class HexMapRenderer {
         });
         // Calculate and set suppression/sentry state on main unit-stack group
         const primaryUnit = primaryMember.unit;
-        const suppressorCount = primaryUnit.suppressedBy?.length ?? 0;
-        const suppressionState = suppressorCount >= 2 ? "pinned" : suppressorCount === 1 ? "suppressed" : "clear";
+        const suppressionState = this.resolveRenderedSuppressionState(primaryUnit);
         group.dataset.suppressionState = suppressionState;
         group.dataset.sentryState = primaryUnit.onSentry ? "on" : "off";
         group.dataset.entrenchLevel = String(Math.max(0, Math.min(2, Math.round(primaryUnit.entrench ?? 0))));
-        if (suppressionState === "suppressed" || suppressionState === "pinned") {
-            group.classList.add(suppressionState === "pinned" ? "unit-stack--pinned" : "unit-stack--suppressed");
+        if (suppressionState === "suppressed") {
+            group.classList.add("unit-stack--suppressed");
+        }
+        else if (suppressionState === "pinned" || suppressionState === "broken") {
+            group.classList.add(suppressionState === "broken" ? "unit-stack--broken" : "unit-stack--pinned");
         }
         this.positionUnitStack(group, cx, cy);
         const storedAngle = this.hexUnitFacingAngleMap.get(hexKey) ?? null;
@@ -3642,7 +3886,28 @@ export class HexMapRenderer {
         const tooltip = this.terrainRenderer.generateHexTooltip(tile);
         const hexKey = CoordinateSystem.makeHexKey(col, row);
         const clipId = `clip-${hexKey.replace(/[^a-z0-9]/gi, "-")}`;
-        const sprite = this.terrainRenderer.getTerrainSprite(tile, col, row);
+        let sprite = this.terrainRenderer.getTerrainSprite(tile, col, row);
+        // Beach water-edge detection: rotate Terrain_Beach_Water.png to face the nearest sea neighbour.
+        // Rotation degrees are clockwise from the art's native NW-water orientation.
+        const BEACH_WATER_ROTATION_DEG = [120, 60, 0, 300, 240, 180];
+        let beachWaterRotationDeg = null;
+        if (tile.terrain.toLowerCase() === "beach") {
+            const currentAxial = CoordinateSystem.offsetToAxial(col, row);
+            for (let dirIdx = 0; dirIdx < axialDirections.length; dirIdx += 1) {
+                const dir = axialDirections[dirIdx];
+                const nq = currentAxial.q + dir.q;
+                const nr = currentAxial.r + dir.r;
+                const { col: nCol, row: nRow } = CoordinateSystem.axialToOffset(nq, nr);
+                if (nRow >= 0 && nRow < data.tiles.length && nCol >= 0 && nCol < data.tiles[nRow].length) {
+                    const neighborTile = CoordinateSystem.resolveTile(data.tiles[nRow][nCol], data.tilePalette);
+                    if (neighborTile && neighborTile.terrain.toLowerCase() === "sea") {
+                        sprite = this.terrainRenderer.getBeachWaterSprite();
+                        beachWaterRotationDeg = BEACH_WATER_ROTATION_DEG[dirIdx];
+                        break;
+                    }
+                }
+            }
+        }
         // Look up terrain definition for LOS and combat stats
         const terrainDef = terrainData[tile.terrain];
         const defense = terrainDef?.defense ?? 0;
@@ -3664,8 +3929,8 @@ export class HexMapRenderer {
             <polygon points="${points}"></polygon>
           </clipPath>
         </defs>
-        ${sprite ? `<image href="${sprite}" x="${imageX}" y="${imageY}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})" class="terrain-sprite" />` : ""}
-        <polygon class="hex-tile" points="${points}" fill="${fill}" fill-opacity="${sprite ? 0.35 : 1}" stroke="${HEX_DEFAULT_STROKE}" stroke-width="${HEX_DEFAULT_STROKE_WIDTH}"></polygon>
+        ${sprite ? `<image href="${sprite}" x="${imageX}" y="${imageY}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})" class="terrain-sprite"${beachWaterRotationDeg !== null ? ` transform="rotate(${beachWaterRotationDeg},${cx},${cy})"` : ""} />` : ""}
+        <polygon class="hex-tile" points="${points}" fill="${fill}" fill-opacity="${sprite ? (tile.terrain.toLowerCase() === "sea" || beachWaterRotationDeg !== null ? 0.08 : 0.35) : 1}" stroke="${HEX_DEFAULT_STROKE}" stroke-width="${HEX_DEFAULT_STROKE_WIDTH}"></polygon>
         ${roadOverlay}
         ${riverOverlay}
         ${featureOverlay}
@@ -4212,12 +4477,14 @@ export class HexMapRenderer {
         const distance = Math.max(0.001, Math.hypot(end.cx - start.cx, end.cy - start.cy));
         const lifetimeMs = Math.max(24, options.lifetimeMs ?? 48);
         const strokeColor = options.color ?? (options.reverse ? "#fff0b8" : "#ffbf47");
-        const strokeWidth = Math.max(0.42, options.width ?? (options.reverse ? 0.48 : 0.56));
-        const visibleLengthPx = this.clamp(options.visibleLengthPx ?? Math.min(18, distance * 0.16), 4, Math.min(distance, 28));
+        const strokeWidth = Math.max(0.38, options.width ?? (options.reverse ? 0.42 : 0.5));
+        const visibleLengthPx = this.clamp(options.visibleLengthPx ?? Math.min(10, distance * 0.1), 3, Math.min(distance, 14));
         const visibleRatio = this.clamp(visibleLengthPx / distance, 0.04, 0.48);
+        const wake = document.createElementNS(SVG_NS, "line");
         const glow = document.createElementNS(SVG_NS, "line");
         const tracer = document.createElementNS(SVG_NS, "line");
-        [glow, tracer].forEach((line) => {
+        const headFlare = document.createElementNS(SVG_NS, "ellipse");
+        [wake, glow, tracer].forEach((line) => {
             line.setAttribute("x1", String(start.cx));
             line.setAttribute("y1", String(start.cy));
             line.setAttribute("x2", String(start.cx));
@@ -4226,18 +4493,29 @@ export class HexMapRenderer {
             line.setAttribute("vector-effect", "non-scaling-stroke");
             line.style.opacity = "0";
         });
+        wake.setAttribute("stroke", options.reverse ? "#fff6d2" : "#ffc15a");
+        wake.setAttribute("stroke-width", String(Math.max(strokeWidth * 0.9, strokeWidth + 0.08)));
         glow.setAttribute("stroke", options.reverse ? "#ffe39a" : "#ff9d1f");
-        glow.setAttribute("stroke-width", String(Math.max(strokeWidth * 1.8, strokeWidth + 0.6)));
+        glow.setAttribute("stroke-width", String(Math.max(strokeWidth * 1.45, strokeWidth + 0.22)));
         glow.style.opacity = "0";
         tracer.setAttribute("stroke", strokeColor);
         tracer.setAttribute("stroke-width", String(strokeWidth));
+        tracer.setAttribute("stroke-linecap", "butt");
+        headFlare.setAttribute("fill", options.reverse ? "#fff8df" : "#fff1b8");
+        headFlare.setAttribute("rx", String(Math.max(0.58, strokeWidth * 0.92)));
+        headFlare.setAttribute("ry", String(Math.max(0.3, strokeWidth * 0.5)));
+        headFlare.setAttribute("vector-effect", "non-scaling-stroke");
+        headFlare.style.opacity = "0";
+        effectsLayer.appendChild(wake);
         effectsLayer.appendChild(glow);
         effectsLayer.appendChild(tracer);
+        effectsLayer.appendChild(headFlare);
         const animationStart = performance.now();
         const step = (now) => {
             const progress = Math.min(1, (now - animationStart) / lifetimeMs);
             const headProgress = this.clamp(progress * 1.42, 0, 1);
             const tailProgress = this.clamp(headProgress - visibleRatio, 0, 1);
+            const wakeProgress = this.clamp(headProgress - visibleRatio * 2.75, 0, 1);
             const head = {
                 cx: start.cx + (end.cx - start.cx) * headProgress,
                 cy: start.cy + (end.cy - start.cy) * headProgress
@@ -4245,6 +4523,10 @@ export class HexMapRenderer {
             const tail = {
                 cx: start.cx + (end.cx - start.cx) * tailProgress,
                 cy: start.cy + (end.cy - start.cy) * tailProgress
+            };
+            const wakeTail = {
+                cx: start.cx + (end.cx - start.cx) * wakeProgress,
+                cy: start.cy + (end.cy - start.cy) * wakeProgress
             };
             const rise = this.clamp(progress / 0.04, 0, 1);
             const decay = progress < 0.26 ? 1 : 1 - (progress - 0.26) / 0.74;
@@ -4255,11 +4537,22 @@ export class HexMapRenderer {
                 line.setAttribute("x2", String(head.cx));
                 line.setAttribute("y2", String(head.cy));
             });
-            glow.style.opacity = `${0.18 * opacity}`;
-            tracer.style.opacity = `${0.98 * opacity}`;
+            wake.setAttribute("x1", String(wakeTail.cx));
+            wake.setAttribute("y1", String(wakeTail.cy));
+            wake.setAttribute("x2", String(tail.cx));
+            wake.setAttribute("y2", String(tail.cy));
+            wake.style.opacity = `${0.08 * opacity}`;
+            glow.style.opacity = `${0.1 * opacity}`;
+            tracer.style.opacity = `${0.92 * opacity}`;
+            headFlare.setAttribute("cx", String(head.cx));
+            headFlare.setAttribute("cy", String(head.cy));
+            headFlare.setAttribute("transform", `rotate(${Math.atan2(end.cy - start.cy, end.cx - start.cx) * 180 / Math.PI} ${head.cx} ${head.cy})`);
+            headFlare.style.opacity = `${0.56 * opacity}`;
             if (progress >= 1) {
+                wake.remove();
                 glow.remove();
                 tracer.remove();
+                headFlare.remove();
                 return;
             }
             window.requestAnimationFrame(step);
@@ -4791,6 +5084,15 @@ export class HexMapRenderer {
         const egress = hqAxis?.playerOrigin ?? target ?? { cx: center.cx + 220, cy: center.cy - 24 };
         const axis = this.normalizeAircraftVector(egress.cx - approach.cx, egress.cy - approach.cy, 1, 0);
         const normal = { x: -axis.y, y: axis.x };
+        const merge = hqAxis
+            ? {
+                cx: (approach.cx + egress.cx) / 2,
+                cy: (approach.cy + egress.cy) / 2
+            }
+            : {
+                cx: center.cx - axis.x * 44,
+                cy: center.cy - axis.y * 44
+            };
         return {
             center,
             axis,
@@ -4799,10 +5101,7 @@ export class HexMapRenderer {
                 cx: center.cx - axis.x * 126,
                 cy: center.cy - axis.y * 126
             },
-            merge: {
-                cx: center.cx - axis.x * 44,
-                cy: center.cy - axis.y * 44
-            },
+            merge,
             strike: {
                 cx: center.cx + axis.x * 52,
                 cy: center.cy + axis.y * 52
@@ -6552,191 +6851,6 @@ export class HexMapRenderer {
             alongStepPx: 30
         };
     }
-    buildContestedFighterIngressPlan(scene, corridor, interceptorFlights, escortFlights, fighterIngressTargetDurationMs, stageRandom) {
-        const ingressClashCenter = this.resolveAirShowEscortClashCenter(corridor, interceptorFlights, escortFlights, 0);
-        const rawEscortPairs = (scene.escortExchanges ?? [])
-            .map((exchange) => {
-            const directInterceptor = interceptorFlights.find((flight) => flight.spec.id === exchange.attackerUnitKey) ?? null;
-            const directEscort = escortFlights.find((flight) => flight.spec.id === exchange.defenderUnitKey) ?? null;
-            if (directInterceptor && directEscort) {
-                return {
-                    interceptorFlight: directInterceptor,
-                    escortFlight: directEscort
-                };
-            }
-            const reverseInterceptor = interceptorFlights.find((flight) => flight.spec.id === exchange.defenderUnitKey) ?? null;
-            const reverseEscort = escortFlights.find((flight) => flight.spec.id === exchange.attackerUnitKey) ?? null;
-            if (reverseInterceptor && reverseEscort) {
-                return {
-                    interceptorFlight: reverseInterceptor,
-                    escortFlight: reverseEscort
-                };
-            }
-            return null;
-        })
-            .filter((pair) => !!pair);
-        const uniqueEscortPairs = Array.from(new Map(rawEscortPairs.map((pair) => [
-            `${pair.interceptorFlight.spec.id}:${pair.escortFlight.spec.id}`,
-            pair
-        ])).values());
-        const pairedInterceptorIds = new Set(uniqueEscortPairs.map((pair) => pair.interceptorFlight.spec.id));
-        const pairedEscortIds = new Set(uniqueEscortPairs.map((pair) => pair.escortFlight.spec.id));
-        const resolveEscortPairIngressCenter = (pair, pairIndex) => {
-            const clashProjection = this.resolveAirShowCorridorCoordinates(corridor, ingressClashCenter);
-            const pairLane = uniqueEscortPairs.length <= 1
-                ? 0
-                : pairIndex - (uniqueEscortPairs.length - 1) / 2;
-            return this.projectAirShowCorridorPoint(corridor, clashProjection.alongPx + pairLane * 8, clashProjection.lateralPx + pairLane * 26);
-        };
-        const pairIngressAssignments = uniqueEscortPairs.flatMap((pair, pairIndex) => {
-            const interceptorCurrent = this.averageAirShowPosition(pair.interceptorFlight.actors) ?? pair.interceptorFlight.anchor;
-            const escortCurrent = this.averageAirShowPosition(pair.escortFlight.actors) ?? pair.escortFlight.anchor;
-            const pairIngressCenter = resolveEscortPairIngressCenter(pair, pairIndex);
-            const interceptorHoldTarget = this.resolveAirShowContestedIngressHoldTarget(corridor, interceptorCurrent, "interceptor", pairIngressCenter, 0);
-            const escortHoldTarget = this.resolveAirShowContestedIngressHoldTarget(corridor, escortCurrent, "escort", pairIngressCenter, 0);
-            const interceptorHoldProjection = this.resolveAirShowCorridorCoordinates(corridor, interceptorHoldTarget);
-            const escortHoldProjection = this.resolveAirShowCorridorCoordinates(corridor, escortHoldTarget);
-            const interceptorPath = this.sanitizeAirShowEntryPath(this.buildAirShowScreenRunPath(interceptorCurrent, corridor, {
-                endAlongPx: interceptorHoldProjection.alongPx,
-                baseLateralPx: interceptorHoldProjection.lateralPx,
-                laneIndex: 0,
-                sideSign: -1,
-                alongStepPx: 0,
-                lateralStepPx: 0,
-                corridorWidthPx: 14,
-                driftPx: 12,
-                startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(pair.interceptorFlight)
-            }), {
-                maxTurnDeg: 46,
-                strongTurnDeg: 88,
-                maxFirstSegmentPx: 78,
-                maxSharpTurnDeg: 116,
-                maxWaypointsToRemove: 2
-            });
-            const escortPath = this.sanitizeAirShowEntryPath(this.buildAirShowScreenRunPath(escortCurrent, corridor, {
-                endAlongPx: escortHoldProjection.alongPx,
-                baseLateralPx: escortHoldProjection.lateralPx,
-                laneIndex: 0,
-                sideSign: 1,
-                alongStepPx: 0,
-                lateralStepPx: 0,
-                corridorWidthPx: 12,
-                driftPx: 10,
-                startHeadingDegrees: this.resolveAirShowFlightHeadingDegrees(pair.escortFlight)
-            }), {
-                maxTurnDeg: 44,
-                strongTurnDeg: 84,
-                maxFirstSegmentPx: 74,
-                maxSharpTurnDeg: 112,
-                maxWaypointsToRemove: 2
-            });
-            return [
-                ...this.buildAirShowFlightAssignments(pair.interceptorFlight, interceptorPath, 0.22, 0, 1).map((assignment) => ({
-                    ...assignment,
-                    distanceBudgetPx: this.measureAirShowPathLength(assignment.points)
-                })),
-                ...this.buildAirShowFlightAssignments(pair.escortFlight, escortPath, 0.22, 0, 1).map((assignment) => ({
-                    ...assignment,
-                    distanceBudgetPx: this.measureAirShowPathLength(assignment.points)
-                }))
-            ];
-        });
-        const pairAssignmentsByFlightId = new Map();
-        pairIngressAssignments.forEach((assignment) => {
-            const existing = pairAssignmentsByFlightId.get(assignment.actor.flightId) ?? [];
-            existing.push(assignment);
-            pairAssignmentsByFlightId.set(assignment.actor.flightId, existing);
-        });
-        const interceptorIngressAssignments = [
-            ...interceptorFlights
-                .filter((flight) => pairedInterceptorIds.has(flight.spec.id))
-                .flatMap((flight) => pairAssignmentsByFlightId.get(flight.spec.id) ?? []),
-            ...this.buildAirShowBandAssignments(interceptorFlights.filter((flight) => !pairedInterceptorIds.has(flight.spec.id)), "ingress:interceptors", corridor, scene.kind, stageRandom, {
-                role: "interceptor",
-                ...this.resolveAirShowIngressBandPlan(scene.kind, "interceptor"),
-                resolveHoldTarget: (lane, _index, current) => this.resolveAirShowContestedIngressHoldTarget(corridor, current, "interceptor", this.resolveAirShowEscortClashFocusPoint(corridor, "interceptor", 0, lane, ingressClashCenter), lane),
-                resolveHeadingTarget: (lane) => this.resolveAirShowEscortClashFocusPoint(corridor, "interceptor", 0, lane, ingressClashCenter)
-            })
-        ];
-        const escortIngressAssignments = [
-            ...escortFlights
-                .filter((flight) => pairedEscortIds.has(flight.spec.id))
-                .flatMap((flight) => pairAssignmentsByFlightId.get(flight.spec.id) ?? []),
-            ...this.buildAirShowBandAssignments(escortFlights.filter((flight) => !pairedEscortIds.has(flight.spec.id)), "ingress:escorts", corridor, scene.kind, stageRandom, {
-                role: "escort",
-                ...this.resolveAirShowIngressBandPlan(scene.kind, "escort"),
-                resolveHoldTarget: (lane, _index, current) => this.resolveAirShowContestedIngressHoldTarget(corridor, current, "escort", this.resolveAirShowEscortClashFocusPoint(corridor, "escort", 0, lane, ingressClashCenter), lane),
-                resolveHeadingTarget: (lane) => this.resolveAirShowEscortClashFocusPoint(corridor, "escort", 0, lane, ingressClashCenter)
-            })
-        ];
-        let fighterIngressDurationMs = this.resolveAirShowFighterPhaseDurationMs([
-            ...interceptorIngressAssignments,
-            ...escortIngressAssignments
-        ], fighterIngressTargetDurationMs, 1250, 13250);
-        const phaseProgressSamplePoints = [0.18, 0.42, 0.68, 0.9];
-        const fighterIngressRoleSpeeds = this.resolveAirShowRoleSpeedMap({
-            interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-            escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-            bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
-        });
-        const assignments = [
-            ...interceptorIngressAssignments.map((assignment) => ({
-                ...assignment
-            })),
-            ...escortIngressAssignments.map((assignment) => ({
-                ...assignment
-            }))
-        ];
-        return {
-            assignments,
-            durationMs: fighterIngressDurationMs,
-            roleSpeeds: fighterIngressRoleSpeeds,
-            progressSamplePoints: phaseProgressSamplePoints
-        };
-    }
-    retimeContestedFighterIngressPlan(plan, governedDurationMs) {
-        const safeGovernedDurationMs = Math.max(1, Math.round(governedDurationMs));
-        const roleSpeeds = this.resolveAirShowRoleSpeedMap({
-            interceptor: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-            escort: HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS,
-            bomber: HexMapRenderer.AIR_SHOW_BOMBER_SPEED_PX_PER_MS
-        });
-        // Preserve deterministic HQ-origin ingress geometry. If a governed duration is too short
-        // for the authored fighter paths, extend duration instead of trimming path starts.
-        const requiredDurationMs = plan.assignments.reduce((longestDurationMs, assignment) => {
-            if (assignment.actor.role !== "interceptor" && assignment.actor.role !== "escort") {
-                return longestDurationMs;
-            }
-            const pathLengthPx = this.measureAirShowPathLength(assignment.points);
-            if (!Number.isFinite(pathLengthPx) || pathLengthPx <= 0.5) {
-                return longestDurationMs;
-            }
-            const speedPxPerMs = roleSpeeds.get(assignment.actor.role) ?? HexMapRenderer.AIR_SHOW_FIGHTER_SPEED_PX_PER_MS;
-            if (!Number.isFinite(speedPxPerMs) || speedPxPerMs <= 0.0001) {
-                return longestDurationMs;
-            }
-            return Math.max(longestDurationMs, Math.ceil(pathLengthPx / speedPxPerMs));
-        }, 0);
-        const resolvedDurationMs = this.clamp(Math.max(safeGovernedDurationMs, requiredDurationMs), 1, 13250);
-        const speedBalancedAssignments = plan.assignments.map((assignment) => {
-            if (assignment.actor.role !== "interceptor" && assignment.actor.role !== "escort") {
-                return { ...assignment };
-            }
-            const currentPathLengthPx = this.measureAirShowPathLength(assignment.points);
-            return {
-                ...assignment,
-                distanceBudgetPx: Number.isFinite(currentPathLengthPx) && currentPathLengthPx > 0
-                    ? currentPathLengthPx
-                    : assignment.distanceBudgetPx
-            };
-        });
-        return {
-            assignments: speedBalancedAssignments,
-            durationMs: resolvedDurationMs,
-            roleSpeeds,
-            progressSamplePoints: plan.progressSamplePoints
-        };
-    }
     buildAirShowBandAssignments(flights, label, corridor, sceneKind, randomForLabel, options) {
         return flights.flatMap((flight, index) => {
             const rand = randomForLabel(`band:${label}:${flight.spec.id}:${index}`);
@@ -7390,7 +7504,9 @@ export class HexMapRenderer {
                     : point.cy + actor.biasY
             })),
             headingBlend,
-            progressOffset: (actor.formationIndex - (flight.actors.length - 1) / 2) * 0.018,
+            // Formation spread must stay spatial. Per-aircraft progress offsets make
+            // actors on the same governed rail visibly accelerate/decelerate.
+            progressOffset: 0,
             multiFlightOffsetPx
         }));
     }
@@ -7403,6 +7519,27 @@ export class HexMapRenderer {
                 continue;
             }
             lengthPx += Math.hypot(current.cx - previous.cx, current.cy - previous.cy);
+        }
+        return lengthPx;
+    }
+    measureAirShowRenderedPathLength(points, startProgress = 0, endProgress = 1) {
+        if (points.length < 2) {
+            return 0;
+        }
+        const clampedStart = this.clamp(startProgress, 0, 1);
+        const clampedEnd = this.clamp(endProgress, clampedStart, 1);
+        const progressSpan = clampedEnd - clampedStart;
+        if (progressSpan <= 0.0001) {
+            return 0;
+        }
+        const sampleCount = Math.max(8, Math.ceil(48 * progressSpan));
+        let previous = this.sampleAircraftWaypointPath(points, clampedStart).point;
+        let lengthPx = 0;
+        for (let index = 1; index <= sampleCount; index += 1) {
+            const progress = clampedStart + progressSpan * (index / sampleCount);
+            const current = this.sampleAircraftWaypointPath(points, progress).point;
+            lengthPx += Math.hypot(current.cx - previous.cx, current.cy - previous.cy);
+            previous = current;
         }
         return lengthPx;
     }
@@ -7958,7 +8095,7 @@ export class HexMapRenderer {
         if (endProgress <= startProgress + 0.0001) {
             return 0;
         }
-        return this.measureAirShowPathLength(this.sliceAirShowPathByProgressRange(assignment.points, startProgress, endProgress));
+        return this.measureAirShowRenderedPathLength(assignment.points, startProgress, endProgress);
     }
     isAirShowPointWithinMapBounds(point, mapBounds, marginPx = 0) {
         return (point.cx >= mapBounds.minX - marginPx
@@ -8367,32 +8504,6 @@ export class HexMapRenderer {
             }
             return best;
         };
-        const resolveShockEntryProgressTimeline = (points, durationMs, entryTurnDeg) => {
-            if (points.length < 3 || durationMs <= 0 || entryTurnDeg <= maxTurnDeg) {
-                return undefined;
-            }
-            const totalLengthPx = this.measureAirShowPathLength(points);
-            if (!Number.isFinite(totalLengthPx) || totalLengthPx <= 24) {
-                return undefined;
-            }
-            const earlyPointCount = Math.min(points.length, entryTurnDeg >= 150 ? 5 : 4);
-            const earlyLeadLengthPx = this.measureAirShowPathLength(points.slice(0, earlyPointCount));
-            const earlyProgress = this.clamp(earlyLeadLengthPx / totalLengthPx, 0.08, 0.24);
-            const earlyTimeMs = Math.round(durationMs * (entryTurnDeg >= 150 ? 0.24 : 0.18));
-            const settleTimeMs = Math.round(durationMs * (entryTurnDeg >= 150 ? 0.46 : 0.38));
-            if (earlyTimeMs <= 0 || settleTimeMs <= earlyTimeMs) {
-                return undefined;
-            }
-            return [
-                { timeMs: 0, progress: 0 },
-                { timeMs: earlyTimeMs, progress: this.clamp(earlyProgress * 0.7, 0.06, 0.18) },
-                {
-                    timeMs: settleTimeMs,
-                    progress: this.clamp(Math.max(earlyProgress + 0.16, earlyProgress * 1.65), 0.28, 0.56)
-                },
-                { timeMs: durationMs, progress: 1 }
-            ];
-        };
         const contestedInterceptorRolesPresent = currentAssignments.some((candidate) => candidate.actor.role === "interceptor")
             || previousAssignments.some((candidate) => candidate.actor.role === "interceptor");
         const adjustedAssignments = currentAssignments.map((assignment) => {
@@ -8530,11 +8641,10 @@ export class HexMapRenderer {
                 })
                 : resolvedAdjustedPoints;
             const finalPoints = roleScopedAdjustedPoints.length >= 2 ? roleScopedAdjustedPoints : adjustedPoints;
-            const shockEntryTimeline = resolveShockEntryProgressTimeline(finalPoints, currentDurationMs, entryTurnDeg);
             return {
                 ...assignment,
                 points: finalPoints,
-                progressTimeline: shockEntryTimeline ?? assignment.progressTimeline
+                progressTimeline: assignment.progressTimeline
             };
         });
         const smoothedAssignments = this.smoothAirShowAssignmentEntries(adjustedAssignments.filter((assignment) => !preserveBridgeEntryActorIds.has(assignment.actor.id)), Math.min(52, maxTurnDeg * 0.42));
@@ -8723,6 +8833,18 @@ export class HexMapRenderer {
             ? this.clamp(constraints.maxAlignmentDeg ?? 90, 6, 90)
             : 180;
         const maxRangePx = constraints.maxRangePx ?? (emitter === "center" ? 176 : 138);
+        const minTargetHeadingDot = typeof constraints.minTargetHeadingDot === "number" && Number.isFinite(constraints.minTargetHeadingDot)
+            ? this.clamp(constraints.minTargetHeadingDot, -1, 1)
+            : null;
+        const maxTargetHeadingDot = typeof constraints.maxTargetHeadingDot === "number" && Number.isFinite(constraints.maxTargetHeadingDot)
+            ? this.clamp(constraints.maxTargetHeadingDot, -1, 1)
+            : null;
+        const durationMs = typeof constraints.durationMs === "number" && Number.isFinite(constraints.durationMs) && constraints.durationMs > 0
+            ? constraints.durationMs
+            : null;
+        const sampleAssignment = (assignment, sampleProgress) => durationMs
+            ? this.sampleAirShowAssignmentAtTime(assignment, sampleProgress * durationMs, durationMs)
+            : this.sampleAirShowAssignmentAtProgress(assignment, sampleProgress);
         sourceFlight.actors
             .filter((actor) => actor.active)
             .forEach((sourceActor) => {
@@ -8730,7 +8852,7 @@ export class HexMapRenderer {
             if (!sourceAssignment) {
                 return;
             }
-            const sampledSource = this.sampleAirShowAssignmentAtProgress(sourceAssignment, progress);
+            const sampledSource = sampleAssignment(sourceAssignment, progress);
             const emitterPoint = this.resolveAirShowEmitterPoint(sampledSource, emitter);
             const headingVector = enforceForwardAlignment
                 ? this.resolveAirShowHeadingVector(sampledSource.headingDegrees)
@@ -8742,7 +8864,7 @@ export class HexMapRenderer {
                 if (!targetAssignment) {
                     return;
                 }
-                const sampledTarget = this.sampleAirShowAssignmentAtProgress(targetAssignment, progress);
+                const sampledTarget = sampleAssignment(targetAssignment, progress);
                 const targetVector = {
                     x: sampledTarget.position.cx - emitterPoint.cx,
                     y: sampledTarget.position.cy - emitterPoint.cy
@@ -8754,6 +8876,16 @@ export class HexMapRenderer {
                 const alignmentDeg = headingVector
                     ? this.resolveAirShowVectorAngleDegrees(headingVector, targetVector)
                     : 0;
+                if (headingVector && (minTargetHeadingDot !== null || maxTargetHeadingDot !== null)) {
+                    const targetHeadingVector = this.resolveAirShowHeadingVector(sampledTarget.headingDegrees);
+                    const targetHeadingDot = headingVector.x * targetHeadingVector.x + headingVector.y * targetHeadingVector.y;
+                    if (minTargetHeadingDot !== null && targetHeadingDot < minTargetHeadingDot) {
+                        return;
+                    }
+                    if (maxTargetHeadingDot !== null && targetHeadingDot > maxTargetHeadingDot) {
+                        return;
+                    }
+                }
                 if ((enforceForwardAlignment && alignmentDeg > maxAlignmentDeg) || distance > maxRangePx) {
                     return;
                 }
@@ -8775,11 +8907,17 @@ export class HexMapRenderer {
             targetActor: bestTarget
         };
     }
-    selectClosestAirShowTracerActors(sourceFlight, targetFlight, assignments, progress, emitter = "nose") {
+    selectClosestAirShowTracerActors(sourceFlight, targetFlight, assignments, progress, emitter = "nose", durationMs) {
         const assignmentsByActorId = this.buildAirShowAssignmentLookup(assignments);
         let bestSource = null;
         let bestTarget = null;
         let bestScore = Number.POSITIVE_INFINITY;
+        const resolvedDurationMs = typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs > 0
+            ? durationMs
+            : null;
+        const sampleAssignment = (assignment, sampleProgress) => resolvedDurationMs
+            ? this.sampleAirShowAssignmentAtTime(assignment, sampleProgress * resolvedDurationMs, resolvedDurationMs)
+            : this.sampleAirShowAssignmentAtProgress(assignment, sampleProgress);
         sourceFlight.actors
             .filter((actor) => actor.active)
             .forEach((sourceActor) => {
@@ -8787,7 +8925,7 @@ export class HexMapRenderer {
             if (!sourceAssignment) {
                 return;
             }
-            const sampledSource = this.sampleAirShowAssignmentAtProgress(sourceAssignment, progress);
+            const sampledSource = sampleAssignment(sourceAssignment, progress);
             const emitterPoint = this.resolveAirShowEmitterPoint(sampledSource, emitter);
             const sourceHeading = this.resolveAirShowHeadingVector(sampledSource.headingDegrees);
             targetFlight.actors
@@ -8797,7 +8935,7 @@ export class HexMapRenderer {
                 if (!targetAssignment) {
                     return;
                 }
-                const sampledTarget = this.sampleAirShowAssignmentAtProgress(targetAssignment, progress);
+                const sampledTarget = sampleAssignment(targetAssignment, progress);
                 const targetVector = {
                     x: sampledTarget.position.cx - emitterPoint.cx,
                     y: sampledTarget.position.cy - emitterPoint.cy
@@ -8864,7 +9002,7 @@ export class HexMapRenderer {
             : null;
         const requestedStreakLengthPx = burst.streakLengthPx ?? actor.size * (burst.emitter === "center" ? 4.6 : 5.4);
         const streakLengthCapPx = typeof targetDistancePx === "number"
-            ? Math.max(16, targetDistancePx * 0.96)
+            ? Math.max(96, targetDistancePx * 1.35)
             : Math.max(36, requestedStreakLengthPx);
         const streakLengthPx = this.clamp(Math.min(requestedStreakLengthPx, streakLengthCapPx), 16, Math.max(18, streakLengthCapPx));
         const visibleLengthPx = this.clamp(burst.visibleLengthPx ?? Math.min(14, streakLengthPx * 0.16), 5, Math.min(streakLengthPx, 20));
@@ -8964,7 +9102,10 @@ export class HexMapRenderer {
             for (const probeProgress of probeProgresses) {
                 const candidatePair = this.selectAirShowTracerActors(sourceFlight, targetFlight, assignments, probeProgress, emitter, {
                     maxAlignmentDeg: options.maxAlignmentDeg,
-                    maxRangePx: options.maxRangePx
+                    maxRangePx: options.maxRangePx,
+                    minTargetHeadingDot: options.minTargetHeadingDot,
+                    maxTargetHeadingDot: options.maxTargetHeadingDot,
+                    durationMs: options.durationMs
                 });
                 if (!candidatePair) {
                     continue;
@@ -8974,7 +9115,7 @@ export class HexMapRenderer {
                 break;
             }
             if (!pair && options.fallbackToNearest) {
-                pair = this.selectClosestAirShowTracerActors(sourceFlight, targetFlight, assignments, resolvedProgress, emitter);
+                pair = this.selectClosestAirShowTracerActors(sourceFlight, targetFlight, assignments, resolvedProgress, emitter, options.durationMs);
             }
             if (pair) {
                 return [{
@@ -8993,7 +9134,7 @@ export class HexMapRenderer {
                     }];
             }
             if (!pair && options.fallbackToNearest) {
-                const closestPair = this.selectClosestAirShowTracerActors(sourceFlight, targetFlight, assignments, resolvedProgress, emitter);
+                const closestPair = this.selectClosestAirShowTracerActors(sourceFlight, targetFlight, assignments, resolvedProgress, emitter, options.durationMs);
                 const sourceActor = closestPair?.sourceActor ?? sourceFlight.actors.find((actor) => actor.active);
                 const sourceCentroid = sourceActor
                     ? this.sampleAirShowFlightCentroidAtProgress(sourceFlight, assignments, resolvedProgress)
@@ -9149,14 +9290,14 @@ export class HexMapRenderer {
             ...this.buildAirShowDynamicTracerVolley(assignments, bomberFlight, interceptorFlight, {
                 emitter: "center",
                 color: "#fff1c8",
-                width: 0.3,
-                lifetimeMs: 36,
-                spreadPx: 3,
-                streakLengthPx: 66,
-                visibleLengthPx: 5,
-                fanHalfAngleDeg: 0.8,
-                burstCount: 2,
-                maxRangePx: 124,
+                width: 0.5,
+                lifetimeMs: 42,
+                spreadPx: 5,
+                streakLengthPx: 112,
+                visibleLengthPx: 10,
+                fanHalfAngleDeg: 1.2,
+                burstCount: 3,
+                maxRangePx: 250,
                 timings: defensiveTimings,
                 fallbackToNearest,
                 fallbackTarget: "target-centroid"
@@ -9280,16 +9421,30 @@ export class HexMapRenderer {
         }
         const geometry = this.resolveAirShowTracerBurstGeometry(burst.source, burst, targetPoint);
         geometry.segments.forEach((segment, index) => {
-            const pulseCount = burst.emitter === "nose" ? 3 : 2;
+            const pulseCount = 2;
+            const dx = segment.end.cx - segment.start.cx;
+            const dy = segment.end.cy - segment.start.cy;
+            const distance = Math.max(0.001, Math.hypot(dx, dy));
+            const normal = { x: -dy / distance, y: dx / distance };
             for (let pulseIndex = 0; pulseIndex < pulseCount; pulseIndex += 1) {
+                const laneOffsetPx = (pulseIndex - (pulseCount - 1) / 2) * 2.8
+                    + (index - (geometry.segments.length - 1) / 2) * 0.8;
+                const laneStart = {
+                    cx: segment.start.cx + normal.x * laneOffsetPx,
+                    cy: segment.start.cy + normal.y * laneOffsetPx
+                };
+                const laneEnd = {
+                    cx: segment.end.cx + normal.x * laneOffsetPx,
+                    cy: segment.end.cy + normal.y * laneOffsetPx
+                };
                 window.setTimeout(() => {
-                    this.playAirTracerExchange(segment.start, segment.end, {
+                    this.playAirTracerExchange(laneStart, laneEnd, {
                         color: burst.color,
                         width: burst.width,
                         lifetimeMs: burst.lifetimeMs,
                         visibleLengthPx: geometry.visibleLengthPx
                     });
-                }, index * 14 + pulseIndex * 16);
+                }, index * 18 + pulseIndex * 24);
             }
         });
     }
@@ -9856,7 +10011,9 @@ export class HexMapRenderer {
     isSmallArmsAttack(attackerHexKey) {
         const attackerClass = this.getUnitClassAt(attackerHexKey);
         const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
-        return attackerClass === "infantry" || attackerClass === "recon" || attackerType === "Assault_Gun";
+        const weaponModel = this.getUnitTypeDefinition(attackerType)?.weaponModel;
+        const hasInfantryFireGroup = weaponModel?.groups.some((group) => group.role === "smallArms" || group.role === "machineGun" || group.role === "demolition") ?? false;
+        return attackerClass === "infantry" || attackerClass === "recon" || (attackerClass === "specialist" && hasInfantryFireGroup);
     }
     isArcingArtilleryAttack(attackerHexKey) {
         const attackerClass = this.getUnitClassAt(attackerHexKey);
@@ -9881,17 +10038,17 @@ export class HexMapRenderer {
         switch (attackerClass) {
             case "infantry":
             case "specialist":
-                return { color: "#ffd37a", width: 1.1 }; // small arms – warm yellow, thin streak
+                return { color: "#ffd37a", width: 0.72 }; // small arms - warm yellow, thin streak
             case "vehicle":
-                return { color: "#ffe08a", width: 1.5 }; // autocannon – bright yellow
+                return { color: "#ffe08a", width: 1.05 }; // autocannon - bright yellow
             case "tank":
-                return { color: "#ffcf5a", width: 2.0 }; // main gun – still not a beam
+                return { color: "#ffcf5a", width: 1.25 }; // main gun trace, not a beam
             case "artillery":
-                return { color: "#ff9e5a", width: 2.5 }; // shells – orange
+                return { color: "#ff9e5a", width: 1.35 }; // shells - orange
             case "air":
-                return { color: "#aee1ff", width: 1.5 }; // MGs/cannons – cool cyan, very thin
+                return { color: "#aee1ff", width: 0.95 }; // MGs/cannons - cool cyan, very thin
             default:
-                return { color: "#ffd37a", width: 1.9 };
+                return { color: "#ffd37a", width: 0.9 };
         }
     }
     chooseTracerCount(attackerClass) {
@@ -9900,11 +10057,11 @@ export class HexMapRenderer {
             case "specialist":
                 return 4;
             case "vehicle":
-                return 3;
-            case "tank":
                 return 2;
+            case "tank":
+                return 1;
             case "artillery":
-                return 3;
+                return 1;
             case "air":
                 return 3;
             default:
@@ -9926,6 +10083,177 @@ export class HexMapRenderer {
             default:
                 return 2;
         }
+    }
+    resolveFormationFireMix(attackerHexKey) {
+        const attackerType = this.getUnitScenarioTypeAt(attackerHexKey);
+        const attackerClass = this.getUnitClassAt(attackerHexKey);
+        const weaponModel = this.getUnitTypeDefinition(attackerType)?.weaponModel;
+        const shotsByRole = {};
+        weaponModel?.groups.forEach((group) => {
+            shotsByRole[group.role] = (shotsByRole[group.role] ?? 0) + Math.max(0, group.shots);
+        });
+        const totalShots = Object.values(shotsByRole).reduce((sum, shots) => sum + (shots ?? 0), 0);
+        return {
+            attackerType,
+            attackerClass,
+            hasWeaponModel: Boolean(weaponModel),
+            totalShots,
+            shotsByRole
+        };
+    }
+    getRoleShots(mix, roles) {
+        return roles.reduce((sum, role) => sum + (mix.shotsByRole[role] ?? 0), 0);
+    }
+    chooseVisibleWeaponBurstCount(shots, minCount, maxCount, scalar = 1) {
+        if (shots <= 0) {
+            return 0;
+        }
+        return Math.round(this.clamp(Math.log10(shots + 1) * scalar, minCount, maxCount));
+    }
+    buildFormationTracerLayers(mix, targetIsHardTarget, defenderIsAir) {
+        const smallArmsShots = this.getRoleShots(mix, ["smallArms"]);
+        const machineGunShots = this.getRoleShots(mix, ["machineGun"]);
+        const antiTankShots = this.getRoleShots(mix, ["antiTank"]);
+        const directHeShots = this.getRoleShots(mix, ["directHe", "demolition"]);
+        const layers = [];
+        const smallArmsCount = this.chooseVisibleWeaponBurstCount(smallArmsShots, 2, mix.attackerClass === "recon" ? 4 : 5, 1.18);
+        if (smallArmsCount > 0) {
+            layers.push({
+                count: smallArmsCount,
+                delayMs: 0,
+                staggerMs: 26,
+                durationMs: 62,
+                jitterPx: defenderIsAir ? 9 : 12,
+                segLenScalar: 0.07,
+                style: { color: "#ffdba0", width: 0.52 }
+            });
+        }
+        const machineGunCount = this.chooseVisibleWeaponBurstCount(machineGunShots, 1, mix.attackerClass === "recon" ? 3 : 4, 0.98);
+        if (machineGunCount > 0) {
+            layers.push({
+                count: machineGunCount,
+                delayMs: 18,
+                staggerMs: 18,
+                durationMs: 76,
+                jitterPx: defenderIsAir ? 6 : 8,
+                segLenScalar: 0.11,
+                style: { color: "#fff0b8", width: 0.78 }
+            });
+        }
+        const shouldShowLauncherTrace = targetIsHardTarget || mix.attackerType === "AT_Infantry" || directHeShots > 0;
+        const launcherCount = shouldShowLauncherTrace
+            ? this.chooseVisibleWeaponBurstCount(antiTankShots + directHeShots, 1, targetIsHardTarget ? 2 : 1, 0.58)
+            : 0;
+        if (launcherCount > 0) {
+            layers.push({
+                count: launcherCount,
+                delayMs: 72,
+                staggerMs: 82,
+                durationMs: 116,
+                jitterPx: 4,
+                segLenScalar: 0.2,
+                style: { color: "#ffc16b", width: 1.08 }
+            });
+        }
+        if (layers.length > 0 || mix.hasWeaponModel) {
+            return layers;
+        }
+        return [{
+                count: mix.attackerClass === "recon" ? 4 : 5,
+                delayMs: 0,
+                staggerMs: 24,
+                durationMs: 68,
+                jitterPx: 9,
+                segLenScalar: 0.08,
+                style: { color: "#ffdba0", width: 0.58 }
+            }];
+    }
+    async playTracerLayer(attackerHexKey, defenderHexKey, layer) {
+        const tracerPromises = Array.from({ length: layer.count }).map((_, index) => new Promise((resolve) => {
+            window.setTimeout(() => {
+                void this.playProjectileTracer(attackerHexKey, defenderHexKey, layer.durationMs, {
+                    style: { color: layer.style.color, width: layer.style.width },
+                    jitterPx: layer.jitterPx,
+                    segLenScalar: layer.segLenScalar
+                }).then(() => resolve());
+            }, layer.delayMs + index * layer.staggerMs);
+        }));
+        await Promise.all(tracerPromises);
+    }
+    async playFormationTracerLayers(attackerHexKey, defenderHexKey, mix, targetIsHardTarget, defenderIsAir) {
+        const layers = this.buildFormationTracerLayers(mix, targetIsHardTarget, defenderIsAir);
+        await Promise.all(layers.map((layer) => this.playTracerLayer(attackerHexKey, defenderHexKey, layer)));
+    }
+    async playFormationImpactDetails(attackerHexKey, defenderHexKey, mix, targetIsHardTarget, defenderIsAir) {
+        const smallArmsShots = this.getRoleShots(mix, ["smallArms"]);
+        const machineGunShots = this.getRoleShots(mix, ["machineGun"]);
+        const antiTankShots = this.getRoleShots(mix, ["antiTank"]);
+        const heShots = this.getRoleShots(mix, ["directHe", "indirectHe", "demolition"]);
+        const promises = [];
+        const smallImpactCount = this.chooseVisibleWeaponBurstCount(smallArmsShots, 1, 4, 0.72);
+        for (let index = 0; index < smallImpactCount; index += 1) {
+            const [offsetX, offsetY] = FORMATION_SMALL_ARMS_IMPACT_OFFSETS[index % FORMATION_SMALL_ARMS_IMPACT_OFFSETS.length];
+            promises.push(new Promise((resolve) => {
+                window.setTimeout(() => {
+                    void this.playCombatAnimation("small_arms", defenderHexKey, offsetX, offsetY, targetIsHardTarget ? 0.22 : 0.28, false).then(() => resolve());
+                }, 52 + index * 34);
+            }));
+        }
+        const mgImpactCount = this.chooseVisibleWeaponBurstCount(machineGunShots, 1, 3, 0.62);
+        for (let index = 0; index < mgImpactCount; index += 1) {
+            const [offsetX, offsetY] = FORMATION_MG_IMPACT_OFFSETS[index % FORMATION_MG_IMPACT_OFFSETS.length];
+            promises.push(new Promise((resolve) => {
+                window.setTimeout(() => {
+                    void this.playCombatAnimation("mg", defenderHexKey, offsetX, offsetY, targetIsHardTarget ? 0.24 : 0.31, false).then(() => resolve());
+                }, 68 + index * 30);
+            }));
+        }
+        const heImpactCount = defenderIsAir ? 0 : this.chooseVisibleWeaponBurstCount(heShots, 1, mix.attackerType === "AT_Infantry" ? 3 : 2, 0.78);
+        for (let index = 0; index < heImpactCount; index += 1) {
+            const [offsetX, offsetY] = FORMATION_HE_IMPACT_OFFSETS[index % FORMATION_HE_IMPACT_OFFSETS.length];
+            promises.push(new Promise((resolve) => {
+                window.setTimeout(() => {
+                    void Promise.all([
+                        this.playArcedProjectile(attackerHexKey, defenderHexKey, 430 + index * 24, {
+                            color: "#e7d4a2",
+                            radius: 1.45,
+                            arcHeight: 34 + index * 4,
+                            targetOffsetX: offsetX,
+                            targetOffsetY: offsetY
+                        }),
+                        new Promise((impactResolve) => {
+                            window.setTimeout(() => {
+                                void this.playCombatAnimation("explosionSmall", defenderHexKey, offsetX, offsetY, targetIsHardTarget ? 0.42 : 0.5, false).then(() => impactResolve());
+                            }, 190 + index * 28);
+                        })
+                    ]).then(() => resolve());
+                }, 126 + index * 82);
+            }));
+        }
+        const antiTankImpactCount = targetIsHardTarget ? this.chooseVisibleWeaponBurstCount(antiTankShots, 1, 1, 0.52) : 0;
+        for (let index = 0; index < antiTankImpactCount; index += 1) {
+            const offsetX = 10 + index * 6;
+            const offsetY = -7 + index * 5;
+            promises.push(new Promise((resolve) => {
+                window.setTimeout(() => {
+                    void Promise.all([
+                        this.playArcedProjectile(attackerHexKey, defenderHexKey, 320, {
+                            color: "#f4a858",
+                            radius: 1.75,
+                            arcHeight: 18,
+                            targetOffsetX: offsetX,
+                            targetOffsetY: offsetY
+                        }),
+                        new Promise((impactResolve) => {
+                            window.setTimeout(() => {
+                                void this.playCombatAnimation("cannon", defenderHexKey, offsetX, offsetY, 0.36, false).then(() => impactResolve());
+                            }, 150);
+                        })
+                    ]).then(() => resolve());
+                }, 118 + index * 90);
+            }));
+        }
+        await Promise.all(promises);
     }
     /** Maps attacker class to a subtle recoil magnitude in pixels. */
     chooseRecoilMagnitude(attackerClass) {
@@ -10271,7 +10599,7 @@ export class HexMapRenderer {
             case "mg":
                 return {
                     animationType: "mg",
-                    baseScale: targetIsHardTarget ? 0.68 : 0.58,
+                    baseScale: targetIsHardTarget ? 0.42 : 0.36,
                     impactOffsets: targetIsHardTarget
                         ? [
                             [-10, -4],
@@ -10289,16 +10617,14 @@ export class HexMapRenderer {
             case "cannon":
                 return {
                     animationType: "cannon",
-                    baseScale: targetIsHardTarget ? 0.8 : 0.7,
+                    baseScale: targetIsHardTarget ? 0.58 : 0.48,
                     impactOffsets: targetIsHardTarget
                         ? [
                             [-12, -4],
-                            [9, 1],
-                            [-4, 7]
+                            [9, 1]
                         ]
                         : [
-                            [-9, -3],
-                            [7, 2]
+                            [-9, -3]
                         ],
                     staggerMs: 78
                 };
@@ -10306,7 +10632,7 @@ export class HexMapRenderer {
             default:
                 return {
                     animationType: "small_arms",
-                    baseScale: targetIsHardTarget ? 0.56 : 0.48,
+                    baseScale: targetIsHardTarget ? 0.34 : 0.28,
                     impactOffsets: targetIsHardTarget
                         ? [
                             [-7, -2],
@@ -10365,6 +10691,55 @@ export class HexMapRenderer {
                 };
         }
     }
+    chooseMuzzleFlashProfiles(attackerHexKey) {
+        const mix = this.resolveFormationFireMix(attackerHexKey);
+        if (!mix.hasWeaponModel) {
+            return [this.chooseMuzzleFlashProfile(attackerHexKey)];
+        }
+        const profiles = [];
+        const smallArmsCount = this.chooseVisibleWeaponBurstCount(this.getRoleShots(mix, ["smallArms"]), 2, 4, 0.9);
+        if (smallArmsCount > 0) {
+            const smallArmsOffsets = [
+                [0, 0],
+                [-3, 1],
+                [2, -2],
+                [4, 1]
+            ];
+            profiles.push({
+                animationType: "small_arms_muzzle",
+                baseScale: 0.18,
+                offsets: smallArmsOffsets.slice(0, smallArmsCount),
+                staggerMs: 18,
+                delayMs: 0
+            });
+        }
+        const machineGunCount = this.chooseVisibleWeaponBurstCount(this.getRoleShots(mix, ["machineGun"]), 1, 3, 0.82);
+        if (machineGunCount > 0) {
+            const machineGunOffsets = [
+                [-4, -1],
+                [1, 3],
+                [5, 0]
+            ];
+            profiles.push({
+                animationType: "mg_muzzle",
+                baseScale: 0.21,
+                offsets: machineGunOffsets.slice(0, machineGunCount),
+                staggerMs: 16,
+                delayMs: 14
+            });
+        }
+        const launcherShots = this.getRoleShots(mix, ["antiTank", "directHe", "indirectHe", "demolition", "airRocket"]);
+        if (launcherShots > 0) {
+            profiles.push({
+                animationType: "cannon_muzzle",
+                baseScale: mix.attackerClass === "artillery" ? 0.32 : 0.24,
+                offsets: [[5, -1]],
+                staggerMs: 24,
+                delayMs: mix.attackerClass === "artillery" ? 0 : 54
+            });
+        }
+        return profiles.length > 0 ? profiles : [this.chooseMuzzleFlashProfile(attackerHexKey)];
+    }
     /**
      * Get terrain type at the specified hex for terrain-responsive effects.
      */
@@ -10385,11 +10760,11 @@ export class HexMapRenderer {
         if (!rowTiles) {
             return "plain"; // Fallback
         }
-        const tileInstance = rowTiles[col];
-        if (!tileInstance) {
+        const tileEntry = rowTiles[col];
+        if (!tileEntry) {
             return "plain"; // Fallback
         }
-        const tileDef = this.scenarioData.tilePalette[tileInstance.tile];
+        const tileDef = CoordinateSystem.resolveTile(tileEntry, this.scenarioData.tilePalette);
         if (!tileDef) {
             return "plain"; // Fallback
         }
@@ -10399,13 +10774,13 @@ export class HexMapRenderer {
      * Plays a muzzle flash animation at the attacker's hex using the unit's weapon type.
      */
     async playMuzzleFlash(attackerHexKey, soundBursts = 1, soundIntervalMs = 0, gainMultiplier = 1) {
-        const profile = this.chooseMuzzleFlashProfile(attackerHexKey);
-        const visualBursts = profile.offsets.map(([offsetX, offsetY], index) => new Promise((resolve) => {
+        const profiles = this.chooseMuzzleFlashProfiles(attackerHexKey);
+        const visualBursts = profiles.flatMap((profile) => profile.offsets.map(([offsetX, offsetY], index) => new Promise((resolve) => {
             window.setTimeout(() => {
                 const scale = index === 0 ? profile.baseScale : profile.baseScale * Math.max(0.72, 0.94 - index * 0.05);
                 void this.playCombatAnimation(profile.animationType, attackerHexKey, offsetX, offsetY, scale, false).then(() => resolve());
-            }, index * profile.staggerMs);
-        }));
+            }, (profile.delayMs ?? 0) + index * profile.staggerMs);
+        })));
         await Promise.all([
             Promise.all(visualBursts).then(() => undefined),
             this.playWeaponSoundBurst(attackerHexKey, soundBursts, soundIntervalMs, gainMultiplier)
@@ -10413,9 +10788,15 @@ export class HexMapRenderer {
     }
     /**
      * Plays an explosion animation at the defender's hex.
-     * Uses small explosion for infantry, large for tanks/vehicles.
+     * Large bombing calls fan out into a stick of smaller impacts.
      */
     async playExplosion(defenderHexKey, isLargeExplosion = false) {
+        if (isLargeExplosion) {
+            console.log(`[HexMapRenderer] playExplosion called - hex: ${defenderHexKey}, type: bombStick`);
+            await this.playBombImpactStick(defenderHexKey, "Bomber", this.getUnitClassAt(defenderHexKey));
+            console.log(`[HexMapRenderer] playExplosion completed for hex: ${defenderHexKey}`);
+            return;
+        }
         const animType = isLargeExplosion ? "explosionLarge" : "explosionSmall";
         const scale = isLargeExplosion ? 1.6 : 1.2;
         console.log(`[HexMapRenderer] playExplosion called - hex: ${defenderHexKey}, type: ${animType}, scale: ${scale}`);
@@ -10457,7 +10838,7 @@ export class HexMapRenderer {
     async playDustCloudLinger(hexKey, _opacity = 0.6) {
         await this.playDustCloud(hexKey);
     }
-    /** Renders a fast, thin tracer streak from attacker to defender and removes it quickly. */
+    /** Renders a fast, layered tracer streak from attacker to defender and removes it quickly. */
     async playProjectileTracer(attackerHexKey, defenderHexKey, durationMs = 90, options) {
         const layer = this.ensureCombatEffectsLayer();
         if (!this.svgElement || !layer) {
@@ -10475,7 +10856,10 @@ export class HexMapRenderer {
         }
         const dx = b.cx - a.cx;
         const dy = b.cy - a.cy;
-        const length = Math.hypot(dx, dy);
+        const baseLength = Math.hypot(dx, dy);
+        if (baseLength <= 0.001) {
+            return;
+        }
         const style = options?.style ?? this.chooseTracerStyle(this.getUnitClassAt(attackerHexKey));
         const jitter = Math.max(0, options?.jitterPx ?? 0);
         const startJx = jitter > 0 ? (Math.random() - 0.5) * 2 * jitter : 0;
@@ -10486,35 +10870,86 @@ export class HexMapRenderer {
         const y1 = a.cy + startJy;
         const x2 = b.cx + endJx;
         const y2 = b.cy + endJy;
-        const line = document.createElementNS(SVG_NS, "line");
-        line.setAttribute("x1", String(x1));
-        line.setAttribute("y1", String(y1));
-        line.setAttribute("x2", String(x2));
-        line.setAttribute("y2", String(y2));
-        line.setAttribute("stroke", style.color);
-        line.setAttribute("stroke-width", String(style.width));
-        line.setAttribute("stroke-linecap", "round");
-        line.style.pointerEvents = "none";
-        line.style.opacity = "1";
-        // Animate a short dash that travels along the path rather than drawing the entire beam.
+        const shotDx = x2 - x1;
+        const shotDy = y2 - y1;
+        const length = Math.max(1, Math.hypot(shotDx, shotDy));
+        const unitX = shotDx / length;
+        const unitY = shotDy / length;
+        const normalX = -unitY;
+        const normalY = unitX;
+        const angleDeg = Math.atan2(shotDy, shotDx) * 180 / Math.PI;
         const segScalar = options?.segLenScalar ?? 0.18;
-        const segLen = this.clamp(length * segScalar, 6, 24);
-        line.style.strokeDasharray = `${segLen} ${length}`;
-        line.style.strokeDashoffset = String(length + segLen);
-        layer.appendChild(line);
+        const coreLength = this.clamp(length * segScalar, 6, 24);
+        const wakeLength = this.clamp(coreLength * 2.8, coreLength + 8, 58);
+        const travelMs = Math.max(30, durationMs);
+        const group = document.createElementNS(SVG_NS, "g");
+        group.classList.add("combat-projectile-tracer");
+        group.style.pointerEvents = "none";
+        const createLine = (stroke, width, opacity) => {
+            const line = document.createElementNS(SVG_NS, "line");
+            line.setAttribute("x1", String(x1));
+            line.setAttribute("y1", String(y1));
+            line.setAttribute("x2", String(x1));
+            line.setAttribute("y2", String(y1));
+            line.setAttribute("stroke", stroke);
+            line.setAttribute("stroke-width", String(width));
+            line.setAttribute("stroke-linecap", "round");
+            line.setAttribute("vector-effect", "non-scaling-stroke");
+            line.style.opacity = String(opacity);
+            group.appendChild(line);
+            return line;
+        };
+        const wake = createLine(style.color, Math.max(style.width * 1.25, style.width + 0.45), 0);
+        const glow = createLine(style.color, Math.max(style.width * 3.1, style.width + 1.4), 0);
+        const core = createLine(style.color, style.width, 0);
+        const hotCore = createLine("#fff7d0", Math.max(0.46, style.width * 0.46), 0);
+        const head = document.createElementNS(SVG_NS, "ellipse");
+        head.setAttribute("fill", "#fff4c7");
+        head.setAttribute("rx", String(Math.max(1, style.width * 1.35)));
+        head.setAttribute("ry", String(Math.max(0.45, style.width * 0.62)));
+        head.style.opacity = "0";
+        group.appendChild(head);
+        layer.appendChild(group);
+        const setSegment = (line, fromDistance, toDistance, lateralOffset = 0) => {
+            const from = this.clamp(fromDistance, 0, length);
+            const to = this.clamp(toDistance, 0, length);
+            line.setAttribute("x1", String(x1 + unitX * from + normalX * lateralOffset));
+            line.setAttribute("y1", String(y1 + unitY * from + normalY * lateralOffset));
+            line.setAttribute("x2", String(x1 + unitX * to + normalX * lateralOffset));
+            line.setAttribute("y2", String(y1 + unitY * to + normalY * lateralOffset));
+        };
         return new Promise((resolve) => {
-            requestAnimationFrame(() => {
-                line.style.transition = `stroke-dashoffset ${durationMs}ms linear`;
-                line.style.strokeDashoffset = "0";
-                window.setTimeout(() => {
-                    line.style.transition = `opacity 60ms ease-out`;
-                    line.style.opacity = "0";
-                    window.setTimeout(() => {
-                        line.remove();
-                        resolve();
-                    }, 70);
-                }, durationMs);
-            });
+            const startTime = performance.now();
+            const step = (now) => {
+                const progress = this.clamp((now - startTime) / travelMs, 0, 1);
+                const headDistance = this.clamp(progress * (length + coreLength) - coreLength * 0.35, 0, length);
+                const tailDistance = headDistance - coreLength;
+                const wakeTailDistance = headDistance - wakeLength;
+                const rise = this.clamp(progress / 0.12, 0, 1);
+                const fade = progress < 0.72 ? 1 : this.clamp(1 - (progress - 0.72) / 0.28, 0, 1);
+                const opacity = rise * fade;
+                setSegment(wake, wakeTailDistance, tailDistance, 0);
+                setSegment(glow, tailDistance, headDistance, 0);
+                setSegment(core, tailDistance, headDistance, 0);
+                setSegment(hotCore, Math.max(tailDistance, headDistance - coreLength * 0.54), headDistance, 0);
+                wake.style.opacity = String(0.18 * opacity);
+                glow.style.opacity = String(0.2 * opacity);
+                core.style.opacity = String(0.94 * opacity);
+                hotCore.style.opacity = String(0.9 * opacity);
+                const headX = x1 + unitX * headDistance;
+                const headY = y1 + unitY * headDistance;
+                head.setAttribute("cx", String(headX));
+                head.setAttribute("cy", String(headY));
+                head.setAttribute("transform", `rotate(${angleDeg} ${headX} ${headY})`);
+                head.style.opacity = String(0.78 * opacity);
+                if (progress >= 1) {
+                    group.remove();
+                    resolve();
+                    return;
+                }
+                this.scheduleAnimationFrame(step);
+            };
+            this.scheduleAnimationFrame(step);
         });
     }
     /** Briefly nudges the attacker sprite backward opposite the shot vector and returns to rest. */
@@ -10666,6 +11101,99 @@ export class HexMapRenderer {
         }));
         await Promise.all(burstPromises);
     }
+    resolveBombImpactPattern(attackerType, defenderClass) {
+        const defenderIsAir = defenderClass === "air";
+        const hardTargetScale = defenderClass === "vehicle" || defenderClass === "tank" ? 1.06 : 1;
+        if (defenderIsAir) {
+            return {
+                impacts: [
+                    { offsetX: -8, offsetY: -4, scale: 0.84 },
+                    { offsetX: 8, offsetY: 3, scale: 0.7 }
+                ],
+                staggerMs: 70,
+                projectileDurationMs: 520,
+                projectileStaggerMs: 64,
+                projectileRadius: 2.1,
+                projectileArcHeight: 44,
+                projectileCount: 2,
+                dustScale: 0
+            };
+        }
+        if (attackerType === "Bomber") {
+            return {
+                impacts: [
+                    { offsetX: -31, offsetY: -9, scale: 0.96 * hardTargetScale },
+                    { offsetX: -15, offsetY: 7, scale: 0.82 * hardTargetScale },
+                    { offsetX: 2, offsetY: -5, scale: 0.9 * hardTargetScale },
+                    { offsetX: 18, offsetY: 8, scale: 0.84 * hardTargetScale },
+                    { offsetX: 32, offsetY: -3, scale: 0.76 * hardTargetScale }
+                ],
+                staggerMs: 86,
+                projectileDurationMs: 650,
+                projectileStaggerMs: 66,
+                projectileRadius: 2.35,
+                projectileArcHeight: 58,
+                projectileCount: 4,
+                dustScale: 1.18
+            };
+        }
+        return {
+            impacts: [
+                { offsetX: -17, offsetY: -6, scale: 0.86 * hardTargetScale },
+                { offsetX: 3, offsetY: 7, scale: 0.78 * hardTargetScale },
+                { offsetX: 19, offsetY: -2, scale: 0.72 * hardTargetScale }
+            ],
+            staggerMs: 78,
+            projectileDurationMs: 560,
+            projectileStaggerMs: 72,
+            projectileRadius: 2.05,
+            projectileArcHeight: 46,
+            projectileCount: 2,
+            dustScale: 1.04
+        };
+    }
+    createBombImpactSoundRequest(attackerType, impactIndex) {
+        if (impactIndex === 0) {
+            return {
+                weaponClass: attackerType === "Bomber" ? "large_bomb" : "small_bomb",
+                targetMaterial: "earth",
+                playbackMode: "impact_only",
+                gainMultiplier: attackerType === "Bomber" ? 0.62 : 0.54
+            };
+        }
+        if (attackerType === "Bomber" && impactIndex === 2) {
+            return {
+                weaponClass: "small_bomb",
+                targetMaterial: "earth",
+                playbackMode: "impact_only",
+                gainMultiplier: 0.36
+            };
+        }
+        return false;
+    }
+    async playBombImpactStick(defenderHexKey, attackerType, defenderClass, pattern = this.resolveBombImpactPattern(attackerType, defenderClass)) {
+        const impactPromises = pattern.impacts.map((impact, index) => new Promise((resolve) => {
+            window.setTimeout(() => {
+                void this.playCombatAnimation("explosionSmall", defenderHexKey, impact.offsetX, impact.offsetY, impact.scale, this.createBombImpactSoundRequest(attackerType, index)).then(() => resolve());
+            }, index * pattern.staggerMs);
+        }));
+        await Promise.all(impactPromises);
+    }
+    async playBombReleaseArcs(attackerHexKey, defenderHexKey, pattern) {
+        const projectileImpacts = pattern.impacts.slice(0, Math.min(pattern.projectileCount, pattern.impacts.length));
+        const projectilePromises = projectileImpacts.map((impact, index) => new Promise((resolve) => {
+            window.setTimeout(() => {
+                void this.playArcedProjectile(attackerHexKey, defenderHexKey, pattern.projectileDurationMs, {
+                    color: "#2b2b2b",
+                    radius: pattern.projectileRadius,
+                    arcHeight: pattern.projectileArcHeight + index * 3,
+                    targetOffsetX: impact.offsetX,
+                    targetOffsetY: impact.offsetY
+                }).then(() => resolve());
+            }, index * pattern.projectileStaggerMs);
+        }));
+        await Promise.all(projectilePromises);
+    }
     async playArtilleryImpactBurst(defenderHexKey, targetIsHardTarget, options) {
         const spreadPx = (targetIsHardTarget ? HEX_RADIUS * 0.42 : HEX_RADIUS * 0.54) * (options?.spreadScale ?? 1);
         const roundedSpread = Math.max(10, Math.round(spreadPx));
@@ -10751,13 +11279,14 @@ export class HexMapRenderer {
         const useAirStrafingVisuals = this.isAirStrafingAttack(attackerHexKey);
         const useAirBombingVisuals = this.isAirBombingAttack(attackerHexKey);
         const defenderIsAir = defenderClass === "air";
+        const formationFireMix = this.resolveFormationFireMix(attackerHexKey);
         const suppressImpactFlash = useArcingArtilleryVisuals;
         const defenderElement = this.hexElementMap.get(defenderHexKey);
         const defenderCenter = defenderElement ? this.extractHexCenter(defenderElement) : null;
-        const flashRadius = HEX_RADIUS * (useArcingArtilleryVisuals || useAirBombingVisuals ? 1.55 : targetIsHardTarget ? 1.25 : 1.0);
-        const flashIntensity = useArcingArtilleryVisuals || useAirBombingVisuals ? 0.62 : targetIsHardTarget ? 0.55 : 0.4;
+        const flashRadius = HEX_RADIUS * (useArcingArtilleryVisuals ? 1.55 : useAirBombingVisuals ? 1.08 : targetIsHardTarget ? 1.25 : 1.0);
+        const flashIntensity = useArcingArtilleryVisuals ? 0.62 : useAirBombingVisuals ? 0.38 : targetIsHardTarget ? 0.55 : 0.4;
         const flashOverlayPromise = !suppressImpactFlash && defenderCenter
-            ? this.playFlashOverlay(defenderCenter, flashRadius, flashIntensity, useArcingArtilleryVisuals || useAirBombingVisuals ? 210 : targetIsHardTarget ? 160 : 130)
+            ? this.playFlashOverlay(defenderCenter, flashRadius, flashIntensity, useArcingArtilleryVisuals ? 210 : useAirBombingVisuals ? 150 : targetIsHardTarget ? 160 : 130)
             : Promise.resolve();
         const muzzleSoundBursts = useAirStrafingVisuals ? 3 : useSmallArmsVisuals ? attackerClass === "recon" ? 2 : 3 : 1;
         const muzzleSoundIntervalMs = useAirStrafingVisuals ? 88 : useSmallArmsVisuals ? 72 : 0;
@@ -10815,33 +11344,27 @@ export class HexMapRenderer {
             return;
         }
         if (useAirBombingVisuals) {
-            const bombPromise = this.playArcedProjectile(attackerHexKey, defenderHexKey, 720, {
-                color: "#2b2b2b",
-                radius: 3.8,
-                arcHeight: 72
-            });
-            await new Promise((resolve) => setTimeout(resolve, 420));
-            const hitShakePromise = this.playHitShake(defenderHexKey, defenderIsAir ? 8 : targetIsHardTarget ? 7 : 6);
-            const impactAnim = defenderIsAir ? "explosionSmall" : "explosionLarge";
-            const baseImpactScale = attackerType === "Bomber" ? 2.6 : 2.25;
-            const impactScale = defenderIsAir ? 1.75 : targetIsHardTarget ? baseImpactScale * 1.05 : baseImpactScale;
-            const impactPromise = this.playCombatAnimation(impactAnim, defenderHexKey, 0, 0, impactScale);
+            const bombPattern = this.resolveBombImpactPattern(attackerType, defenderClass);
+            const bombPromise = this.playBombReleaseArcs(attackerHexKey, defenderHexKey, bombPattern);
+            await new Promise((resolve) => setTimeout(resolve, attackerType === "Bomber" ? 360 : 320));
+            const hitShakePromise = this.playHitShake(defenderHexKey, defenderIsAir ? 6 : targetIsHardTarget ? 6 : 5);
+            const impactPromise = this.playBombImpactStick(defenderHexKey, attackerType, defenderClass, bombPattern);
             const sparksPromise = !defenderIsAir && targetIsHardTarget
                 ? this.playSparkBurst(defenderHexKey, {
                     attackerHexKey,
                     attackerType,
                     attackerClass,
                     defenderClass,
-                    durationMs: 160,
-                    burstCount: 3,
-                    scaleMultiplier: 1.18
+                    durationMs: 140,
+                    burstCount: attackerType === "Bomber" ? 2 : 1,
+                    scaleMultiplier: 0.9
                 })
                 : Promise.resolve();
             const dustPromise = !defenderIsAir
                 ? new Promise((resolve) => {
                     window.setTimeout(() => {
-                        void this.playCombatAnimation("dustCloud", defenderHexKey, 0, 0, 1.8).then(() => resolve());
-                    }, 90);
+                        void this.playCombatAnimation("dustCloud", defenderHexKey, 0, 0, bombPattern.dustScale).then(() => resolve());
+                    }, 120);
                 })
                 : Promise.resolve();
             await Promise.all([
@@ -10912,46 +11435,51 @@ export class HexMapRenderer {
             ]);
             return;
         }
-        const tracerStyle = useSmallArmsVisuals
-            ? { color: "#ffe9a8", width: attackerClass === "recon" ? 1.1 : 1.2 }
-            : this.chooseTracerStyle(attackerClass);
-        const tracerCount = useSmallArmsVisuals ? (attackerClass === "recon" ? 9 : 8) : this.chooseTracerCount(attackerClass);
-        const tracerPromises = Array.from({ length: tracerCount }).map((_, index) => new Promise((resolve) => {
-            window.setTimeout(() => {
-                void this.playProjectileTracer(attackerHexKey, defenderHexKey, useSmallArmsVisuals ? 70 : index === 0 ? 90 : 110, {
-                    style: tracerStyle,
-                    jitterPx: useSmallArmsVisuals ? 6 : 0,
-                    segLenScalar: useSmallArmsVisuals ? 0.12 : 0.18
-                }).then(() => resolve());
-            }, index * (useSmallArmsVisuals ? 28 : 55));
-        }));
+        const tracerStyle = this.chooseTracerStyle(attackerClass);
+        const tracerCount = this.chooseTracerCount(attackerClass);
+        const tracerPromise = useSmallArmsVisuals
+            ? this.playFormationTracerLayers(attackerHexKey, defenderHexKey, formationFireMix, targetIsHardTarget, defenderIsAir)
+            : Promise.all(Array.from({ length: tracerCount }).map((_, index) => new Promise((resolve) => {
+                window.setTimeout(() => {
+                    void this.playProjectileTracer(attackerHexKey, defenderHexKey, index === 0 ? 92 : 108, {
+                        style: tracerStyle,
+                        jitterPx: attackerClass === "vehicle" ? 2 : 0,
+                        segLenScalar: attackerClass === "tank" || attackerClass === "artillery" ? 0.24 : 0.16
+                    }).then(() => resolve());
+                }, index * 58);
+            }))).then(() => undefined);
         await new Promise((resolve) => setTimeout(resolve, useSmallArmsVisuals ? 90 : 110));
         const hitShakePromise = this.playHitShake(defenderHexKey, targetIsHardTarget ? 5 : 4);
         if (useSmallArmsVisuals) {
-            const sparksPromise = this.playSparkBurst(defenderHexKey, {
-                attackerHexKey,
-                attackerType,
-                attackerClass,
-                defenderClass,
-                durationMs: 140,
-                rayCount: targetIsHardTarget ? 8 : 6
-            });
-            const airBurstPromise = defenderIsAir ? this.playCombatAnimation("explosionSmall", defenderHexKey, 0, 0, 1.35) : Promise.resolve();
+            const formationImpactPromise = this.playFormationImpactDetails(attackerHexKey, defenderHexKey, formationFireMix, targetIsHardTarget, defenderIsAir);
+            const sparksPromise = defenderIsAir || targetIsHardTarget
+                ? this.playSparkBurst(defenderHexKey, {
+                    attackerHexKey,
+                    attackerType,
+                    attackerClass,
+                    defenderClass,
+                    durationMs: 120,
+                    rayCount: targetIsHardTarget ? 6 : 5,
+                    scaleMultiplier: 0.72
+                })
+                : Promise.resolve();
+            const airBurstPromise = defenderIsAir ? this.playCombatAnimation("explosionSmall", defenderHexKey, 0, 0, 0.78, false) : Promise.resolve();
             const dustPromise = new Promise((resolve) => {
                 window.setTimeout(() => {
                     if (defenderIsAir) {
                         resolve();
                         return;
                     }
-                    void this.playDustCloudLinger(defenderHexKey, 0.55).then(() => resolve());
-                }, 70);
+                    void this.playCombatAnimation("dustCloud", defenderHexKey, 0, 0, 0.58, false).then(() => resolve());
+                }, 95);
             });
             await Promise.all([
                 flashPromise,
-                ...tracerPromises,
+                tracerPromise,
                 recoilPromise,
                 markerPromise,
                 hitShakePromise,
+                formationImpactPromise,
                 sparksPromise,
                 airBurstPromise,
                 dustPromise,
@@ -10992,7 +11520,7 @@ export class HexMapRenderer {
             : Promise.resolve();
         await Promise.all([
             flashPromise,
-            ...tracerPromises,
+            tracerPromise,
             recoilPromise,
             markerPromise,
             hitShakePromise,
@@ -11025,5 +11553,5 @@ HexMapRenderer.AIRCRAFT_MAX_OVERLAP_STACK = 3; // max silhouettes before depth c
 HexMapRenderer.AIRCRAFT_ALTITUDE_LANE_OFFSET_PX = 45; // layered spacing for high density
 HexMapRenderer.effectSpecsLoaded = false;
 // Airshow origins must sit outside the rendered tile envelope, not merely outside the
-// current viewBox. We push the HQ-side ray to the tile boundary and then another 500px.
+// current viewBox. We push the HQ-side ray to the tile boundary and then the configured outside offset.
 HexMapRenderer.OFF_MAP_DISTANCE_PX = AIR_SHOW_OFF_MAP_DISTANCE_PX;

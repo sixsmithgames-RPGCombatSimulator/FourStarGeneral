@@ -1,4 +1,5 @@
 import { getPopupContent } from "../../data/popupContent";
+import { SIDEBAR_MINI_TUTORIAL_EVENT } from "../../data/sidebarMiniTutorials";
 import { ensureBattleState } from "../../state/BattleState";
 import { getReconIntelSnapshot as buildFallbackReconIntelSnapshot } from "../../data/reconIntelSnapshot";
 import { getAllGenerals } from "../../utils/rosterStorage";
@@ -6,8 +7,9 @@ import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { supply as supplyBalance } from "../../core/balance";
 import { axialKey } from "../../core/Hex";
 import { ensureTutorialState } from "../../state/TutorialState";
-import unitTypesSource from "../../data/unitTypes.json";
+import unitTypesSource from "../../data/unitSystem/derivedUnitTypes";
 import { getSpriteForScenarioType } from "../../data/unitSpriteCatalog";
+import { getFormation } from "../../data/unitSystem/formations";
 /**
  * Manages popup dialogs and overlays throughout the application.
  * Handles opening, closing, focus management, and content rendering.
@@ -67,6 +69,9 @@ export class PopupManager {
             this.onBattleHexClicked(event);
         };
         document.addEventListener("battle:hexClicked", this.airPickListener);
+        document.addEventListener("warroom:openBattleRequisitions", () => {
+            this.handleWarRoomOpenBattleRequisitions();
+        });
         this.bindGlobalEvents();
         if (this.warRoomOverlay) {
             this.warRoomOverlay.registerCloseListener(() => this.handleWarRoomOverlayClosed());
@@ -81,6 +86,9 @@ export class PopupManager {
             }
             if (this.activePopup === "armyRoster" && this.shouldRefreshRosterPanel(reason)) {
                 this.renderArmyRoster();
+            }
+            if (this.activePopup === "battleRequisitions" && this.shouldRefreshBattleRequisitionPanel(reason)) {
+                this.renderBattleRequisitionsPanel();
             }
             if (this.activePopup === "recon") {
                 this.renderReconPanel();
@@ -749,6 +757,9 @@ export class PopupManager {
         if (key === "armyRoster") {
             this.renderArmyRoster();
         }
+        if (key === "battleRequisitions") {
+            this.renderBattleRequisitionsPanel();
+        }
         if (key === "generalProfile") {
             this.renderGeneralProfile();
         }
@@ -759,6 +770,9 @@ export class PopupManager {
             this.renderLogisticsPanel();
         }
         this.popupDialog.focus();
+        if (trigger) {
+            this.requestSidebarMiniTutorial(key);
+        }
     }
     /** Opens the Air Support panel and renders its contents (summary, mission roster, scheduler). */
     openAirSupportPopup(key, trigger) {
@@ -2036,6 +2050,14 @@ export class PopupManager {
         this.lastTriggerButton = trigger ?? null;
         this.syncSidebarButtons(key);
         this.warRoomOverlay?.open();
+        if (trigger) {
+            this.requestSidebarMiniTutorial(key);
+        }
+    }
+    requestSidebarMiniTutorial(key) {
+        document.dispatchEvent(new CustomEvent(SIDEBAR_MINI_TUTORIAL_EVENT, {
+            detail: { key }
+        }));
     }
     /**
      * Opens the recon popup and renders direct observation reports from player recon assets.
@@ -2142,6 +2164,11 @@ export class PopupManager {
         <p>Reserves remaining: <strong>${snapshot.totalReserves}</strong></p>
         <p>Support units: <strong>${snapshot.totalSupport}</strong></p>
       </section>
+      <section class="army-roster-actions">
+        <button type="button" class="army-roster-requisition-link" data-open-battle-requisitions>
+          Open Battle Requisitions
+        </button>
+      </section>
       <section class="army-roster-section" data-roster-section="frontline">
         <header><h4>Frontline</h4></header>
         <ul class="army-roster-list" data-roster-list="frontline"></ul>
@@ -2166,7 +2193,137 @@ export class PopupManager {
         this.renderRosterSection(rosterContainer, "reserves", snapshot.reserves);
         this.renderRosterSection(rosterContainer, "support", snapshot.support);
         this.renderRosterSection(rosterContainer, "exhausted", snapshot.exhausted);
+        this.bindOpenBattleRequisitionButtons(rosterContainer);
         this.syncTutorialProgressForActivePopup(ensureTutorialState().getCurrentPhase());
+    }
+    renderBattleRequisitionsPanel() {
+        const requisitionContainer = this.popupBody.querySelector("#battleRequisitionContent") ?? this.popupBody;
+        const snapshot = this.pullBattleRequisitionSnapshot();
+        requisitionContainer.innerHTML = this.composeBattleRequisitionMarkup(snapshot);
+        this.bindBattleRequisitionControls(requisitionContainer);
+    }
+    composeBattleRequisitionMarkup(snapshot) {
+        if (!snapshot) {
+            return `
+        <section class="battle-requisition-board">
+          <header class="battle-requisition-board__header">
+            <div>
+              <h4>Battle Requisitions</h4>
+              <p>Earn RP from combat and objectives once the engagement begins.</p>
+            </div>
+          </header>
+        </section>
+      `;
+        }
+        const pendingMarkup = snapshot.pending.length > 0
+            ? snapshot.pending
+                .map((entry) => `
+          <li>
+            <strong>${this.escapeHtml(entry.label)}</strong>
+            <span>Turn ${entry.arrivalTurn}</span>
+          </li>
+        `)
+                .join("")
+            : '<li class="battle-requisition-board__empty">No pending arrivals.</li>';
+        const optionsMarkup = snapshot.allowed.length > 0
+            ? snapshot.allowed.map((option) => this.composeBattleRequisitionOptionMarkup(option, snapshot)).join("")
+            : '<article class="battle-requisition-card battle-requisition-card--empty">No in-battle requisitions are authorized for this scenario.</article>';
+        return `
+      <section class="battle-requisition-board" aria-label="Battle requisitions">
+        <header class="battle-requisition-board__header">
+          <div>
+            <h4>Battle Requisitions</h4>
+            <p>Spend combat-earned RP on supply shipments, off-map fires, and reserve formations.</p>
+          </div>
+          <div class="battle-requisition-board__points">
+            <span>Available RP</span>
+            <strong>${snapshot.points}</strong>
+          </div>
+        </header>
+        <div class="battle-requisition-board__meta">
+          <span>Earned ${snapshot.earned}</span>
+          <span>Spent ${snapshot.spent}</span>
+          <span>Main supply ${snapshot.mainSupplyDistanceTurns} turn${snapshot.mainSupplyDistanceTurns === 1 ? "" : "s"}</span>
+          <span>Transport lifts ${snapshot.availableTransportFlights}</span>
+        </div>
+        <div class="battle-requisition-board__options">${optionsMarkup}</div>
+        <details class="battle-requisition-board__pending">
+          <summary>Pending arrivals (${snapshot.pending.length})</summary>
+          <ul>${pendingMarkup}</ul>
+        </details>
+      </section>
+    `;
+    }
+    composeBattleRequisitionOptionMarkup(option, snapshot) {
+        const formation = getFormation(option.unitKey);
+        const affordable = snapshot.points >= option.cost;
+        const canAirlift = option.airliftEligible && snapshot.availableTransportFlights > 0;
+        const disabledReason = affordable ? "" : `Need ${option.cost} RP`;
+        const categoryLabel = option.kind === "supplies" ? "Supply" : option.kind === "support" ? "Support" : "Unit";
+        const description = formation?.gameplayDescription ?? "Battlefield requisition.";
+        const payload = formation?.requisition.depotPayload
+            ? Object.entries(formation.requisition.depotPayload)
+                .map(([resource, amount]) => `${amount} ${resource}`)
+                .join(" / ")
+            : formation?.tacticalUnitType ?? "Off-map";
+        const primaryLabel = option.requiresTransportFlight ? "Airlift" : "Request";
+        const primaryUsesAirlift = option.requiresTransportFlight;
+        return `
+      <article class="battle-requisition-card" data-requisition-kind="${option.kind}">
+        <div class="battle-requisition-card__copy">
+          <span class="battle-requisition-card__eyebrow">${this.escapeHtml(categoryLabel)} · ${option.cost} RP</span>
+          <strong>${this.escapeHtml(option.label)}</strong>
+          <p>${this.escapeHtml(description)}</p>
+          <span class="battle-requisition-card__payload">${this.escapeHtml(payload)}</span>
+        </div>
+        <div class="battle-requisition-card__actions">
+          <button
+            type="button"
+            data-battle-requisition="${this.escapeHtml(option.unitKey)}"
+            data-battle-requisition-airlift="${primaryUsesAirlift ? "true" : "false"}"
+            ${!affordable ? "disabled" : ""}
+            title="${this.escapeHtml(disabledReason || `Request ${option.label}`)}"
+          >${primaryLabel}</button>
+          ${option.airliftEligible && !option.requiresTransportFlight ? `
+            <button
+              type="button"
+              data-battle-requisition="${this.escapeHtml(option.unitKey)}"
+              data-battle-requisition-airlift="true"
+              ${!affordable || !canAirlift ? "disabled" : ""}
+              title="${this.escapeHtml(!affordable ? disabledReason : canAirlift ? `Airlift ${option.label} next turn` : "No transport lift available")}"
+            >Airlift</button>
+          ` : ""}
+        </div>
+      </article>
+    `;
+    }
+    bindBattleRequisitionControls(container) {
+        container.querySelectorAll("[data-battle-requisition]")
+            .forEach((button) => {
+            button.addEventListener("click", (event) => {
+                event.stopPropagation();
+                const unitKey = button.dataset.battleRequisition;
+                if (!unitKey) {
+                    return;
+                }
+                document.dispatchEvent(new CustomEvent("battle:requestRequisition", {
+                    detail: {
+                        unitKey,
+                        useTransportAirlift: button.dataset.battleRequisitionAirlift === "true"
+                    }
+                }));
+            });
+        });
+    }
+    bindOpenBattleRequisitionButtons(container) {
+        container.querySelectorAll("[data-open-battle-requisitions]")
+            .forEach((button) => {
+            button.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                this.openPopup("battleRequisitions");
+            });
+        });
     }
     renderRosterSection(container, listKey, entries) {
         const list = container.querySelector(`[data-roster-list="${listKey}"]`);
@@ -2177,7 +2334,8 @@ export class PopupManager {
             list.innerHTML = "<li class=\"army-roster-empty\">No units recorded.</li>";
             return;
         }
-        list.innerHTML = entries
+        const displayEntries = this.disambiguateRosterEntries(entries);
+        list.innerHTML = displayEntries
             .map((entry) => this.composeRosterEntryMarkup(entry))
             .join("");
         if (listKey === "reserves") {
@@ -2210,6 +2368,25 @@ export class PopupManager {
                 });
             });
         }
+    }
+    disambiguateRosterEntries(entries) {
+        const labelTotals = entries.reduce((totals, entry) => {
+            totals.set(entry.label, (totals.get(entry.label) ?? 0) + 1);
+            return totals;
+        }, new Map());
+        const labelSeen = new Map();
+        return entries.map((entry) => {
+            const total = labelTotals.get(entry.label) ?? 0;
+            if (total <= 1) {
+                return entry;
+            }
+            const index = (labelSeen.get(entry.label) ?? 0) + 1;
+            labelSeen.set(entry.label, index);
+            return {
+                ...entry,
+                label: `${entry.label} #${index}`
+            };
+        });
     }
     composeRosterEntryMarkup(entry) {
         const spriteMarkup = entry.sprite
@@ -2294,6 +2471,19 @@ export class PopupManager {
             })
                 .join("");
         }
+        const roleMarkup = entry.logisticsRole
+            ? `<span class="army-roster-detail army-roster-detail--role">${this.escapeHtml(entry.logisticsRole === "repair" ? "Repair logistics" : entry.logisticsRole === "medical" ? "Medical logistics" : "Supply logistics")}</span>`
+            : "";
+        const personnelMarkup = entry.personnelStatus && entry.personnelStatus.total > 0
+            ? `<span class="army-roster-detail" title="Personnel status">P ${entry.personnelStatus.fit}/${entry.personnelStatus.total} fit · ${entry.personnelStatus.injured} inj · ${entry.personnelStatus.wounded} wnd · ${entry.personnelStatus.severelyWounded} sev · ${entry.personnelStatus.killed} KIA · ${entry.personnelStatus.readiness ?? 0}% ready</span>`
+            : "";
+        const equipmentMarkup = entry.equipmentStatus && entry.equipmentStatus.total > 0
+            ? `<span class="army-roster-detail" title="Vehicle and equipment status">Eq ${entry.equipmentStatus.operational}/${entry.equipmentStatus.total} op · ${entry.equipmentStatus.damaged} dmg · ${entry.equipmentStatus.disabled} dis · ${entry.equipmentStatus.destroyed} lost · ${entry.equipmentStatus.readiness ?? 0}% ready</span>`
+            : "";
+        const suppressionMarkup = typeof entry.suppression === "number" && entry.suppression > 0
+            ? `<span class="army-roster-detail army-roster-detail--suppression">Supp ${entry.suppression}</span>`
+            : "";
+        const detailMarkup = [roleMarkup, personnelMarkup, equipmentMarkup, suppressionMarkup].filter(Boolean).join("");
         const selectableClass = entry.status === "reserves" ? " reserves-selectable" : "";
         // Add deploy button for reserve units
         const deployButtonMarkup = entry.status === "reserves"
@@ -2309,6 +2499,7 @@ export class PopupManager {
               <span class="army-roster-status ${statusClass}">${this.escapeHtml(statusCopy)}</span>
             </div>
             <div class="army-roster-stats">${statsMarkup}</div>
+            ${detailMarkup ? `<div class="army-roster-details">${detailMarkup}</div>` : ""}
           </div>
           ${deployButtonMarkup ? `<div class="roster-actions">${deployButtonMarkup}</div>` : ""}
         </div>
@@ -2318,6 +2509,10 @@ export class PopupManager {
     /** Returns true when roster should refresh on a battle update. */
     shouldRefreshRosterPanel(reason) {
         return ["deploymentUpdated", "turnAdvanced", "engineInitialized", "manual"].includes(reason);
+    }
+    /** Returns true when battle requisitions should refresh on a battle update. */
+    shouldRefreshBattleRequisitionPanel(reason) {
+        return ["deploymentUpdated", "turnAdvanced", "engineInitialized", "missionUpdated", "manual"].includes(reason);
     }
     renderGeneralProfile() {
         const container = this.popupBody.querySelector("#generalProfileContent");
@@ -2698,6 +2893,10 @@ export class PopupManager {
             fuel: unit.fuel === null ? null : Math.max(0, unit.fuel),
             status,
             supportCategory,
+            personnelStatus: unit.statusSummary?.personnel,
+            equipmentStatus: unit.statusSummary?.equipment,
+            suppression: unit.statusSummary?.suppression,
+            logisticsRole: unit.logisticsRole ?? null,
             sprite: unit.sprite
         };
     }
@@ -2707,6 +2906,18 @@ export class PopupManager {
         }
         catch (error) {
             console.warn("PopupManager: Unable to retrieve battle roster snapshot.", error);
+            return null;
+        }
+    }
+    pullBattleRequisitionSnapshot() {
+        try {
+            if (!this.battleState.hasEngine()) {
+                return null;
+            }
+            return this.battleState.ensureGameEngine().getBattleRequisitionSnapshot();
+        }
+        catch (error) {
+            console.warn("PopupManager: Unable to retrieve battle requisition snapshot.", error);
             return null;
         }
     }
@@ -2975,7 +3186,7 @@ export class PopupManager {
         const supplySnapshot = this.pullSupplySnapshot("Player");
         if (!snapshot) {
             const emptyMessage = `<div class="logistics-panel__empty">Logistics data becomes available once the battle engine initializes and units are deployed.</div>`;
-            panel.querySelectorAll("[data-logistics-overview], [data-logistics-info], [data-logistics-supply-categories], [data-logistics-priorities], [data-logistics-convoys], [data-logistics-ledger]")
+            panel.querySelectorAll("[data-logistics-overview], [data-logistics-info], [data-logistics-supply-categories], [data-logistics-priorities], [data-logistics-care-teams], [data-logistics-care], [data-logistics-convoys], [data-logistics-ledger]")
                 .forEach((container) => { container.innerHTML = emptyMessage; });
             const alertsStrip = panel.querySelector("[data-logistics-alerts]");
             if (alertsStrip) {
@@ -2989,6 +3200,8 @@ export class PopupManager {
         const infoContainer = panel.querySelector("[data-logistics-info]");
         const supplyCategoriesContainer = panel.querySelector("[data-logistics-supply-categories]");
         const prioritiesContainer = panel.querySelector("[data-logistics-priorities]");
+        const careTeamsContainer = panel.querySelector("[data-logistics-care-teams]");
+        const careContainer = panel.querySelector("[data-logistics-care]");
         const convoysContainer = panel.querySelector("[data-logistics-convoys]");
         const ledgerContainer = panel.querySelector("[data-logistics-ledger]");
         if (alertsContainer) {
@@ -3009,6 +3222,16 @@ export class PopupManager {
             prioritiesContainer.innerHTML = snapshot.priorityTargets.length === 0
                 ? '<div class="logistics-panel__empty">No frontline unit is currently requesting ammo or fuel.</div>'
                 : snapshot.priorityTargets.map((entry) => this.composePriorityItem(entry)).join("");
+        }
+        if (careTeamsContainer) {
+            careTeamsContainer.innerHTML = snapshot.supportTeamStatuses.length === 0
+                ? '<li class="logistics-panel__empty">No medical or repair teams deployed.</li>'
+                : snapshot.supportTeamStatuses.map((entry) => this.composeSupportTeamItem(entry)).join("");
+        }
+        if (careContainer) {
+            careContainer.innerHTML = snapshot.careTargets.length === 0
+                ? '<li class="logistics-panel__empty">No personnel treatment or equipment repair requests.</li>'
+                : snapshot.careTargets.map((entry) => this.composeCareItem(entry)).join("");
         }
         if (convoysContainer) {
             convoysContainer.innerHTML = snapshot.convoyStatuses.length === 0
@@ -3052,6 +3275,7 @@ export class PopupManager {
         <span class="logistics-summary__chip"><strong>Ammo</strong> ${this.formatQuantity(theaterAmmo)} total</span>
         <span class="logistics-summary__chip"><strong>Fuel</strong> ${this.formatQuantity(theaterFuel)} total</span>
         <span class="logistics-summary__chip"><strong>Convoys</strong> ${snapshot.convoyUnits} active · ${snapshot.loadedConvoys} loaded</span>
+        <span class="logistics-summary__chip"><strong>Recovery</strong> ${snapshot.supportTeamStatuses.length} teams · ${snapshot.careTargets.length} requests</span>
         <span class="logistics-summary__chip"><strong>Queue</strong> ${snapshot.priorityTargets.length} waiting</span>
         <span class="logistics-summary__chip"><strong>Network</strong> ${snapshot.connectedUnits} supplied · ${snapshot.isolatedUnits} cut off</span>
       </div>
@@ -3067,6 +3291,7 @@ export class PopupManager {
             <li>Convoys are live map units. They reload at Base Camp, move forward, unload, then return for the next run.</li>
             <li>Each convoy carries up to ${supplyBalance.convoy.ammoCapacity} ammo and ${supplyBalance.convoy.fuelCapacity} fuel.</li>
             <li>Ground attacks spend carried ammo. Motorized movement spends carried fuel. Foot infantry movement does not.</li>
+            <li>Medical and repair teams use detailed unit status pools to treat wounded personnel and restore damaged or disabled equipment.</li>
           </ul>
         </div>
       </details>
@@ -3077,7 +3302,7 @@ export class PopupManager {
         const tiles = categories.flatMap((category) => {
             const depotTotal = category.resource === "ammo" ? snapshot.depotStock.ammo : snapshot.depotStock.fuel;
             const convoyTotal = category.resource === "ammo" ? snapshot.convoyCargo.ammo : snapshot.convoyCargo.fuel;
-            const shouldWarn = category.status !== "stable" || depotTotal <= 0;
+            const shouldWarn = snapshot.deployedUnits > 0 && (category.status !== "stable" || depotTotal <= 0);
             if (!shouldWarn) {
                 return [];
             }
@@ -3134,10 +3359,32 @@ export class PopupManager {
           <div><dt>Burn / Turn</dt><dd>${this.formatDelta(category.consumptionPerTurn)}</dd></div>
           <div><dt>Outlook</dt><dd>${theaterOutlook === null ? (theaterTotal > 0 ? "Holding" : "Empty") : `${theaterOutlook} turns`}</dd></div>
         </dl>
+        ${this.composeLogisticsResourceGauge(unitTotal, convoyTotal, depotTotal)}
         <p class="logistics-resource-card__note">${category.resource === "ammo"
             ? "Battalions need carried ammo to fire. Convoys move ammo forward from Base Camp."
             : "Motor formations need carried fuel to move. Foot infantry do not spend fuel."}</p>
       </article>
+    `;
+    }
+    composeLogisticsResourceGauge(unitTotal, convoyTotal, depotTotal) {
+        const theaterTotal = Math.max(0, unitTotal + convoyTotal + depotTotal);
+        if (theaterTotal <= 0) {
+            return `
+        <div class="logistics-resource-card__gauge" role="img" aria-label="No stock recorded">
+          <span class="logistics-resource-card__gauge-bar logistics-resource-card__gauge-bar--empty" style="width: 100%"></span>
+        </div>
+      `;
+        }
+        const unitPercent = Math.max(0, Math.min(100, (unitTotal / theaterTotal) * 100));
+        const convoyPercent = Math.max(0, Math.min(100 - unitPercent, (convoyTotal / theaterTotal) * 100));
+        const depotPercent = Math.max(0, 100 - unitPercent - convoyPercent);
+        const label = `Units ${Math.round(unitPercent)}%, convoys ${Math.round(convoyPercent)}%, depot ${Math.round(depotPercent)}%`;
+        return `
+      <div class="logistics-resource-card__gauge" role="img" aria-label="${this.escapeHtml(label)}">
+        <span class="logistics-resource-card__gauge-bar logistics-resource-card__gauge-bar--units" style="width: ${unitPercent}%"></span>
+        <span class="logistics-resource-card__gauge-bar logistics-resource-card__gauge-bar--convoys" style="width: ${convoyPercent}%"></span>
+        <span class="logistics-resource-card__gauge-bar logistics-resource-card__gauge-bar--depot" style="width: ${depotPercent}%"></span>
+      </div>
     `;
     }
     selectLogisticsResourceCategories(supplySnapshot) {
@@ -3251,6 +3498,51 @@ export class PopupManager {
       </li>
     `;
     }
+    composeSupportTeamItem(team) {
+        const statusLabel = this.formatSupportTeamStatusLabel(team.status);
+        const etaLabel = team.etaHours > 0 ? `${team.etaHours}h` : "Now";
+        const careLabel = team.type === "medical" ? "Medical" : "Repair";
+        const assignmentLabel = team.assignedUnitLabel && team.assignedHex
+            ? `${careLabel} need ${this.formatQuantity(team.need)} at ${this.escapeHtml(team.assignedUnitLabel)} (${this.escapeHtml(team.assignedHex)})`
+            : `${careLabel} team available`;
+        const effectMarkup = team.lastTurnEffect
+            ? `<div class="logistics-convoy-item__cargo">Last turn: ${this.escapeHtml(team.lastTurnEffect)}</div>`
+            : "";
+        const incidentMarkup = team.incident
+            ? `<div class="logistics-convoy-item__incident">${this.escapeHtml(team.incident)}</div>`
+            : "";
+        return `
+      <li class="logistics-convoy-item logistics-support-team-item logistics-support-team-item--${team.type}">
+        <div class="logistics-convoy-item__main">
+          <div class="logistics-convoy-item__heading">${this.escapeHtml(team.teamLabel)}</div>
+          <div class="logistics-convoy-item__route">${this.escapeHtml(team.route)}</div>
+          <div class="logistics-convoy-item__cargo">${assignmentLabel}</div>
+          ${effectMarkup}
+          ${incidentMarkup}
+        </div>
+        <span class="logistics-convoy-item__status logistics-convoy-item__status--${team.status}">${statusLabel}</span>
+        <span class="logistics-convoy-item__eta">ETA ${etaLabel}</span>
+      </li>
+    `;
+    }
+    composeCareItem(entry) {
+        const careLabel = entry.type === "medical" ? "Medical" : "Repair";
+        const assignedLabel = entry.assignedAssets > 0 ? `${entry.assignedAssets} assigned` : "Awaiting asset";
+        const lastEffectMarkup = entry.lastTurnEffect
+            ? `<div class="logistics-care-item__effect">${this.escapeHtml(entry.lastTurnEffect)}</div>`
+            : "";
+        return `
+      <li class="logistics-care-item logistics-care-item--${entry.type}">
+        <div class="logistics-care-item__main">
+          <div class="logistics-care-item__heading">${this.escapeHtml(entry.unitLabel)}</div>
+          <div class="logistics-care-item__detail">${this.escapeHtml(entry.hex)} · ${careLabel} need ${this.formatQuantity(entry.need)} · Priority ${this.escapeHtml(this.formatSupplyPriorityLabel(entry.priority))}</div>
+          ${lastEffectMarkup}
+        </div>
+        <span class="logistics-care-item__type">${careLabel}</span>
+        <span class="logistics-care-item__assigned">${assignedLabel}</span>
+      </li>
+    `;
+    }
     /**
      * Renders a delay node item.
      */
@@ -3349,6 +3641,19 @@ export class PopupManager {
                 return "Returning";
             case "idle":
                 return "Idle";
+            case "blocked":
+            default:
+                return "Blocked";
+        }
+    }
+    formatSupportTeamStatusLabel(status) {
+        switch (status) {
+            case "treating":
+                return "Treating";
+            case "repairing":
+                return "Repairing";
+            case "available":
+                return "Available";
             case "blocked":
             default:
                 return "Blocked";
@@ -3698,5 +4003,12 @@ export class PopupManager {
         if (trigger) {
             trigger.focus();
         }
+    }
+    handleWarRoomOpenBattleRequisitions() {
+        const trigger = this.lastTriggerButton ?? undefined;
+        if (this.activePopup === "baseOperations") {
+            this.warRoomOverlay?.close();
+        }
+        this.openPopup("battleRequisitions", trigger);
     }
 }

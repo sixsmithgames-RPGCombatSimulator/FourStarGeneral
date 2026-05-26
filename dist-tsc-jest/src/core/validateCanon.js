@@ -1,5 +1,5 @@
 import terrainData from "../data/terrain.json";
-import unitTypes from "../data/unitTypes.json";
+import unitTypes from "../data/unitSystem/derivedUnitTypes";
 import scenarioData from "../data/scenario01.json";
 import { GENERAL_MODIFIER_KEYS, UNIT_PROPERTY_KEYS, UNIT_ARMOR_FACING_KEYS, UNIT_CLASS_KEYS, UNIT_TRAIT_KEYS, MOVE_PROFILE_KEYS, TERRAIN_NAME_KEYS, TERRAIN_PROPERTY_KEYS, TERRAIN_TYPE_KEYS, TERRAIN_DENSITY_KEYS, TERRAIN_FEATURE_KEYS, SCENARIO_TILE_PROPERTY_KEYS, SCENARIO_RECON_KEYS, SCENARIO_UNIT_PROPERTY_KEYS, SCENARIO_UNIT_FACING_KEYS } from "../data/gameplayCanon";
 import { COMMANDER_DEFAULTS, FUEL_COST, TRAIT_EFFECTS } from "./balance";
@@ -94,6 +94,12 @@ export function validateGameplayCanon() {
     const paletteKeys = new Set(Object.keys(scenarioData.tilePalette));
     scenarioData.tiles.forEach((row, rowIndex) => {
         row.forEach((tile, colIndex) => {
+            if (typeof tile === "string") {
+                if (!paletteKeys.has(tile)) {
+                    throw new Error(`scenario tiles[${rowIndex}][${colIndex}] references unknown tile palette key "${tile}"`);
+                }
+                return;
+            }
             if (tile.tile) {
                 const tileId = tile.tile;
                 if (!paletteKeys.has(tileId)) {

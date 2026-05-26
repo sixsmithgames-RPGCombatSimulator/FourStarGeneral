@@ -1,6 +1,14 @@
-import unitTypesData from "../data/unitTypes.json";
+import unitTypesData from "../data/unitSystem/derivedUnitTypes";
 function makeKey(hex) {
     return `${hex.q},${hex.r}`;
+}
+function normalizeObjectiveHex(hex) {
+    if (Array.isArray(hex)) {
+        const [col, row] = hex;
+        return { q: col, r: row - Math.floor(col / 2) };
+    }
+    const axial = hex;
+    return { q: axial.q, r: axial.r };
 }
 function isFriendlyOccupant(faction) {
     return faction === "Player" || faction === "Ally";
@@ -336,8 +344,8 @@ function createPointeDuHocPhase(turnNumber, counterattackAnnounced) {
     return {
         id: "phase1_probe",
         label: "Phase 1: Assault",
-        detail: "Clear the entrenched garrison from the casemates. Engineers are needed to reduce the fortified positions.",
-        announcement: "Rangers are at the cliff top — assault the battery before the garrison can reinforce."
+        detail: "Break through the forward ridge line and clear each gun emplacement before the inland reserve can counterattack.",
+        announcement: "Assault force is in position. Seize the battery line before reinforcements arrive."
     };
 }
 function createPointeDuHocController(scenario, difficulty) {
@@ -347,6 +355,8 @@ function createPointeDuHocController(scenario, difficulty) {
         label: `Gun Position ${index + 1}`,
         hex: objective.hex
     }));
+    const gunPositionKeys = new Set(gunPositions.map(({ key }) => key));
+    const batteryUnitTypes = new Set(["Howitzer_105", "Flak_88", "AT_Gun_50mm"]);
     const tracker = {
         holdStreak: 0,
         outcome: { state: "inProgress" },
@@ -368,37 +378,37 @@ function createPointeDuHocController(scenario, difficulty) {
                 ? `Assault phase: ${capturedCount}/${gunPositions.length} gun positions captured. All three must be held simultaneously to start the hold clock.`
                 : `Hold phase: ${tracker.holdStreak}/${HOLD_TARGET} turns. All three positions must remain in friendly hands.`
         };
-        const mgNestEliminated = botUnits.every((unit) => unit.type !== "Infantry_42" || unit.hex.q !== 5 || unit.hex.r !== 0);
+        const batteryUnitsRemaining = botUnits.filter((unit) => batteryUnitTypes.has(unit.type) && gunPositionKeys.has(makeKey(unit.hex))).length;
         const secondary = {
-            id: "secondary_mg_nest",
-            label: "Destroy the MG nest at the cliff edge",
+            id: "secondary_battery_kills",
+            label: "Neutralize all battery emplacements",
             tier: "secondary",
-            state: mgNestEliminated
+            state: batteryUnitsRemaining <= 0
                 ? "completed"
                 : outcome.state === "inProgress"
                     ? "inProgress"
                     : "failed",
-            detail: mgNestEliminated
-                ? "The cliff-edge MG nest has been neutralised."
+            detail: batteryUnitsRemaining <= 0
+                ? "All gun emplacements on the ridge have been silenced."
                 : outcome.state === "inProgress"
-                    ? "The MG nest at the cliff edge is still active."
-                    : "The MG nest survived the Ranger assault."
+                    ? `${batteryUnitsRemaining} battery emplacement${batteryUnitsRemaining === 1 ? "" : "s"} still firing.`
+                    : "At least one battery emplacement survived the assault."
         };
-        const rangersAlive = playerUnits.length >= 3;
+        const assaultForceOperational = playerUnits.length >= 3;
         const tertiary = {
-            id: "tertiary_ranger_strength",
-            label: "Keep at least three Ranger units alive",
+            id: "tertiary_assault_force",
+            label: "Keep at least three assault units operational",
             tier: "tertiary",
-            state: rangersAlive
+            state: assaultForceOperational
                 ? outcome.state === "inProgress"
                     ? "inProgress"
                     : "completed"
                 : "failed",
-            detail: rangersAlive
+            detail: assaultForceOperational
                 ? outcome.state === "inProgress"
-                    ? `${playerUnits.length} Rangers remain operational.`
-                    : `${playerUnits.length} Rangers survived the mission.`
-                : "Fewer than three Rangers remain — the assault cost too many."
+                    ? `${playerUnits.length} assault units remain operational.`
+                    : `${playerUnits.length} assault units survived the mission.`
+                : "Fewer than three assault units remain operational."
         };
         return [primary, secondary, tertiary];
     };
@@ -427,7 +437,7 @@ function createPointeDuHocController(scenario, difficulty) {
             return {
                 hex,
                 status: "unoccupied",
-                tooltip: `${label} — Unoccupied. Assault the casemate to capture this position.`
+                tooltip: `${label} — Unoccupied. Move a unit onto the emplacement to capture this position.`
             };
         });
     };
@@ -445,7 +455,7 @@ function createPointeDuHocController(scenario, difficulty) {
                 outcome = { state: "playerVictory", reason: "All German forces eliminated." };
             }
             else if (playerUnits.length === 0) {
-                outcome = { state: "playerDefeat", reason: "All Ranger units were lost." };
+                outcome = { state: "playerDefeat", reason: "All assault units were lost." };
             }
         }
         if (outcome.state === "inProgress") {
@@ -485,6 +495,796 @@ function createPointeDuHocController(scenario, difficulty) {
                 outcome: tracker.outcome,
                 phase: tracker.phase,
                 markers: buildMarkers(tracker.outcome, emptyOccupancy)
+            };
+        }
+    };
+}
+function createTwoBridgesPhase(turnNumber, capturedObjectiveCount, bastionCaptured) {
+    if (turnNumber >= 12 || bastionCaptured || capturedObjectiveCount >= 2) {
+        return {
+            id: "phase3_escalation",
+            label: "Phase 3: Bastion Push",
+            detail: "Bridge control has opened the approach. Commit reserves against the bastion before the defenders rebuild the line.",
+            announcement: "Two Bridges escalation: the bastion is exposed. Drive the assault home."
+        };
+    }
+    if (turnNumber >= 5 || capturedObjectiveCount >= 1) {
+        return {
+            id: "phase2_commitment",
+            label: "Phase 2: Bridge Fight",
+            detail: "The crossing fight is fully joined. Hold captured bridgeheads while armor and engineers force the second route.",
+            announcement: "Two Bridges escalation: bridgehead fighting has begun."
+        };
+    }
+    return {
+        id: "phase1_probe",
+        label: "Phase 1: Approach",
+        detail: "Reconnoiter both crossings, suppress the near bank, and choose where the main assault will break through.",
+        announcement: "Two Bridges assault has begun. Recon the crossings and prepare the breach."
+    };
+}
+function createTwoBridgesController(scenario, _difficulty) {
+    const assaultObjectives = (scenario.objectives ?? []).slice(0, 3).map((objective, index) => {
+        const hex = normalizeObjectiveHex(objective.hex);
+        const labels = ["North Bridge", "South Bridge", "Bastion City"];
+        return {
+            key: makeKey(hex),
+            label: labels[index] ?? `Objective ${index + 1}`,
+            hex
+        };
+    });
+    const supplyObjective = scenario.objectives?.[3]
+        ? {
+            key: makeKey(normalizeObjectiveHex(scenario.objectives[3].hex)),
+            label: "Western Supply Base",
+            hex: normalizeObjectiveHex(scenario.objectives[3].hex)
+        }
+        : null;
+    const tracker = {
+        outcome: { state: "inProgress" },
+        phase: createTwoBridgesPhase(0, 0, false)
+    };
+    const countCapturedAssaultObjectives = (occupancy) => assaultObjectives.filter(({ key }) => isFriendlyOccupant(occupancy.get(key))).length;
+    const buildObjectives = (outcome, playerUnits, botUnits, occupancy) => {
+        const capturedCount = countCapturedAssaultObjectives(occupancy);
+        const primary = {
+            id: "primary_secure_crossings",
+            label: "Seize both bridges and the bastion city",
+            tier: "primary",
+            state: outcome.state === "playerVictory"
+                ? "completed"
+                : outcome.state === "playerDefeat"
+                    ? "failed"
+                    : "inProgress",
+            detail: `Captured ${capturedCount}/${assaultObjectives.length}: ${assaultObjectives
+                .map(({ key, label }) => `${isFriendlyOccupant(occupancy.get(key)) ? "[X]" : "[ ]"} ${label}`)
+                .join(", ")}`
+        };
+        const supplyHeld = supplyObjective ? isFriendlyOccupant(occupancy.get(supplyObjective.key)) : playerUnits.length > 0;
+        const secondary = {
+            id: "secondary_hold_supply_base",
+            label: "Keep the western supply base in friendly hands",
+            tier: "secondary",
+            state: supplyHeld
+                ? outcome.state === "inProgress"
+                    ? "inProgress"
+                    : "completed"
+                : "failed",
+            detail: supplyHeld
+                ? "The western supply base remains available for the bridge assault."
+                : "The western supply base is no longer held by friendly forces."
+        };
+        const fireSupportRemaining = botUnits.filter((unit) => unit.type === "Howitzer_105" || unit.type === "Flak_88").length;
+        const tertiary = {
+            id: "tertiary_silence_fire_support",
+            label: "Silence enemy artillery and air-defense guns",
+            tier: "tertiary",
+            state: fireSupportRemaining === 0
+                ? "completed"
+                : outcome.state === "inProgress"
+                    ? "inProgress"
+                    : "failed",
+            detail: fireSupportRemaining === 0
+                ? "Enemy fire-support guns are out of action."
+                : `${fireSupportRemaining} enemy fire-support guns remain operational.`
+        };
+        return [primary, secondary, tertiary];
+    };
+    const buildMarkers = (occupancy) => {
+        const capturedCount = countCapturedAssaultObjectives(occupancy);
+        const assaultMarkers = assaultObjectives.map(({ key, label, hex }) => {
+            const occupant = occupancy.get(key);
+            const status = isFriendlyOccupant(occupant) ? "player" : occupant === "Bot" ? "enemy" : "unoccupied";
+            return {
+                hex,
+                status,
+                counter: `${capturedCount}/${assaultObjectives.length}`,
+                tooltip: `${label} - ${status === "player" ? "secured" : status === "enemy" ? "enemy-held" : "unoccupied"}.`
+            };
+        });
+        if (!supplyObjective) {
+            return assaultMarkers;
+        }
+        const supplyOccupant = occupancy.get(supplyObjective.key);
+        const supplyStatus = isFriendlyOccupant(supplyOccupant) ? "player" : supplyOccupant === "Bot" ? "enemy" : "unoccupied";
+        return [
+            ...assaultMarkers,
+            {
+                hex: supplyObjective.hex,
+                status: supplyStatus,
+                tooltip: `${supplyObjective.label} - ${supplyStatus === "player" ? "secure" : "threatened"}.`
+            }
+        ];
+    };
+    const deriveStatus = (snapshot) => {
+        const { turnSummary, occupancy, playerUnits, botUnits, scenario: snapScenario } = snapshot;
+        const turnLimit = snapScenario.turnLimit ?? null;
+        let outcome = tracker.outcome;
+        const capturedCount = countCapturedAssaultObjectives(occupancy);
+        const bastionCaptured = assaultObjectives[2] ? isFriendlyOccupant(occupancy.get(assaultObjectives[2].key)) : false;
+        tracker.phase = createTwoBridgesPhase(turnSummary.turnNumber, capturedCount, bastionCaptured);
+        if (outcome.state === "inProgress") {
+            if (botUnits.length === 0) {
+                outcome = { state: "playerVictory", reason: "Enemy bridge defense collapsed." };
+            }
+            else if (playerUnits.length === 0) {
+                outcome = { state: "playerDefeat", reason: "All friendly assault forces were destroyed." };
+            }
+            else if (capturedCount >= assaultObjectives.length) {
+                outcome = { state: "playerVictory", reason: "Both bridges and the bastion city are secured." };
+            }
+            else if (turnLimit !== null && turnSummary.turnNumber >= turnLimit) {
+                outcome = { state: "playerDefeat", reason: "Assault window closed before both bridges and the bastion were secured." };
+            }
+        }
+        tracker.outcome = outcome;
+        return {
+            turn: turnSummary.turnNumber,
+            objectives: buildObjectives(outcome, playerUnits, botUnits, occupancy),
+            outcome,
+            phase: tracker.phase,
+            markers: buildMarkers(occupancy)
+        };
+    };
+    return {
+        onTurnAdvanced(snapshot) {
+            return deriveStatus(snapshot);
+        },
+        getStatus() {
+            const emptyOccupancy = new Map();
+            return {
+                turn: 0,
+                objectives: buildObjectives(tracker.outcome, scenario.sides.Player.units, scenario.sides.Bot.units, emptyOccupancy),
+                outcome: tracker.outcome,
+                phase: tracker.phase,
+                markers: buildMarkers(emptyOccupancy)
+            };
+        }
+    };
+}
+const historicalBattleConfigs = {
+    assault_el_alamein: {
+        victoryMode: "capture",
+        primaryId: "primary_break_el_alamein_line",
+        primaryLabel: "Break the El Alamein ridge and minefield line",
+        objectiveLabels: ["Miteiriya Ridge", "Minefield Gap", "Tel el Eisa", "Axis Supply Track"],
+        primaryObjectiveIndexes: [0, 1, 2, 3],
+        secondary: {
+            kind: "destroyTypes",
+            id: "secondary_destroy_axis_reserve",
+            label: "Destroy the Axis armored reserve",
+            targetTypes: ["Panzer_IV", "Heavy_Tank", "Assault_Gun"]
+        },
+        tertiary: {
+            kind: "unitTypeAlive",
+            id: "tertiary_keep_breach_engineers",
+            label: "Keep an engineer formation operational",
+            unitTypes: ["Engineer"],
+            minCount: 1
+        },
+        phase1Label: "Phase 1: Minefield Contact",
+        phase1Detail: "The ridges are under observation. Put engineers on the breach lanes and keep armor behind the gun line.",
+        phase1Announcement: "El Alamein: contact along the mine belt. Prepare the breach.",
+        phase2Label: "Phase 2: Ridge Breach",
+        phase2Detail: "The minefield gap is contested. Commit armor only where infantry and guns have opened the corridor.",
+        phase2Announcement: "El Alamein escalation: the ridge fight is fully engaged.",
+        phase3Label: "Phase 3: Desert Breakout",
+        phase3Detail: "Axis reserves are reacting. Cut the supply track before the line can reform.",
+        phase3Announcement: "El Alamein final phase: drive through the gap and sever the Axis track.",
+        victoryReason: "The El Alamein line is breached and the Axis supply track is cut.",
+        timerDefeatReason: "The desert line held until the assault window closed.",
+        eliminationDefeatReason: "All friendly El Alamein assault forces were destroyed."
+    },
+    assault_kasserine_pass: {
+        victoryMode: "hold",
+        primaryId: "primary_hold_pass_line",
+        primaryLabel: "Hold Tebessa road and enough pass objectives",
+        objectiveLabels: ["Tebessa Supply Road", "Northern Pass", "Southern Pass", "Axis Assembly Valley"],
+        primaryObjectiveIndexes: [0, 1, 2],
+        requiredPrimaryCount: 2,
+        mandatoryObjectiveIndexes: [0],
+        instantDefeatObjectiveIndexes: [0],
+        secondary: {
+            kind: "destroyTypes",
+            id: "secondary_destroy_spearhead",
+            label: "Destroy the German armored spearhead",
+            targetTypes: ["Panzer_IV", "Heavy_Tank", "Assault_Gun"]
+        },
+        tertiary: {
+            kind: "surviveCount",
+            id: "tertiary_preserve_blocking_force",
+            label: "Keep at least five friendly formations operational",
+            minCount: 5
+        },
+        phase1Label: "Phase 1: Contact",
+        phase1Detail: "Enemy scouts are entering the valley. Confirm roadblocks and keep armor in reserve.",
+        phase1Announcement: "Kasserine Pass: German reconnaissance is probing the road line.",
+        phase2Label: "Phase 2: Armored Commitment",
+        phase2Detail: "The panzer spearhead is committed into the pass lanes. Stop the armor before it reaches Tebessa road.",
+        phase2Announcement: "Kasserine Pass escalation: the armored thrust is in the valley.",
+        phase3Label: "Phase 3: Breakthrough Check",
+        phase3Detail: "The decisive pressure is on the supply road. Hold the line until the attack loses momentum.",
+        phase3Announcement: "Kasserine Pass final phase: hold Tebessa road at all costs.",
+        victoryReason: "Kasserine Pass held and the supply road remains open.",
+        timerDefeatReason: "The pass defense failed its final hold check.",
+        eliminationDefeatReason: "All friendly pass-defense forces were destroyed."
+    },
+    assault_gela_landings: {
+        victoryMode: "capture",
+        primaryId: "primary_expand_gela_beachhead",
+        primaryLabel: "Capture Gela, Ponte Olivo, and Highway 115",
+        objectiveLabels: ["Gela Port", "Ponte Olivo Airfield", "Highway 115", "Beachhead Anchor"],
+        primaryObjectiveIndexes: [0, 1, 2],
+        secondary: {
+            kind: "protectObjectives",
+            id: "secondary_hold_beachhead",
+            label: "Keep the beachhead anchor in friendly hands",
+            indexes: [3],
+            requiredCount: 1
+        },
+        tertiary: {
+            kind: "unitTypeAlive",
+            id: "tertiary_keep_engineers",
+            label: "Keep an engineer formation operational",
+            unitTypes: ["Engineer"],
+            minCount: 1
+        },
+        phase1Label: "Phase 1: Beachhead",
+        phase1Detail: "The landing line is ashore. Hold the sand while the first inland push forms.",
+        phase1Announcement: "Gela: beachhead established. Prepare for the armored counterattack.",
+        phase2Label: "Phase 2: Counterattack",
+        phase2Detail: "German armor is pressing the highway. Break the attack and keep moving inland.",
+        phase2Announcement: "Gela escalation: German armor is moving on the beachhead.",
+        phase3Label: "Phase 3: Inland Breakout",
+        phase3Detail: "The beachhead has room to breathe. Secure the airfield and highway before the window closes.",
+        phase3Announcement: "Gela final phase: drive inland and seal the beachhead.",
+        victoryReason: "Gela, Ponte Olivo, and Highway 115 are secured.",
+        timerDefeatReason: "The Gela beachhead was not expanded before the assault window closed.",
+        eliminationDefeatReason: "All friendly beachhead forces were destroyed."
+    },
+    assault_anzio_beachhead: {
+        victoryMode: "hold",
+        primaryId: "primary_hold_anzio_beachhead",
+        primaryLabel: "Hold Anzio port and enough beachhead objectives",
+        objectiveLabels: ["Anzio Port", "Beachhead Perimeter", "Alban Hills Road", "Campoleone Station"],
+        primaryObjectiveIndexes: [0, 1, 2, 3],
+        requiredPrimaryCount: 3,
+        mandatoryObjectiveIndexes: [0],
+        instantDefeatObjectiveIndexes: [0],
+        secondary: {
+            kind: "protectObjectives",
+            id: "secondary_preserve_perimeter",
+            label: "Keep the perimeter and Campoleone line in friendly hands",
+            indexes: [1, 3],
+            requiredCount: 2
+        },
+        tertiary: {
+            kind: "surviveCount",
+            id: "tertiary_preserve_beachhead_force",
+            label: "Keep at least seven friendly formations operational",
+            minCount: 7
+        },
+        phase1Label: "Phase 1: Beachhead Shelling",
+        phase1Detail: "The lodgment is shallow. Keep the port secure and site guns before the hill attack forms.",
+        phase1Announcement: "Anzio: the beachhead is under pressure from the Alban Hills.",
+        phase2Label: "Phase 2: Counterattack",
+        phase2Detail: "Enemy armor is driving for the port roads. Hold the perimeter and counterpunch at Campoleone.",
+        phase2Announcement: "Anzio escalation: German armor is entering the beachhead perimeter.",
+        phase3Label: "Phase 3: Final Hold",
+        phase3Detail: "The defense window is closing. Keep Anzio port and enough inland ground in friendly hands.",
+        phase3Announcement: "Anzio final phase: hold the port and perimeter.",
+        victoryReason: "Anzio port held and the beachhead remains viable.",
+        timerDefeatReason: "The Anzio beachhead failed its final hold check.",
+        eliminationDefeatReason: "All friendly Anzio defenders were destroyed."
+    },
+    assault_monte_cassino: {
+        victoryMode: "capture",
+        primaryId: "primary_open_route_six",
+        primaryLabel: "Capture Cassino, the Rapido crossing, monastery heights, and Route 6",
+        objectiveLabels: ["Cassino Town", "Rapido Crossing", "Monastery Heights", "Route 6"],
+        primaryObjectiveIndexes: [0, 1, 2, 3],
+        secondary: {
+            kind: "destroyTypes",
+            id: "secondary_silence_cassino_guns",
+            label: "Destroy enemy guns on the heights and approaches",
+            targetTypes: ["Flak_88", "Howitzer_105", "AT_Gun_50mm"]
+        },
+        tertiary: {
+            kind: "unitTypeAlive",
+            id: "tertiary_keep_crossing_engineers",
+            label: "Keep an engineer formation operational",
+            unitTypes: ["Engineer"],
+            minCount: 1
+        },
+        phase1Label: "Phase 1: Rapido Line",
+        phase1Detail: "The river crossing is under fire from town and heights. Suppress before the engineers move.",
+        phase1Announcement: "Monte Cassino: the Rapido line is under observation.",
+        phase2Label: "Phase 2: Town Fight",
+        phase2Detail: "Cassino is shattered but defended. Clear blocks before armor moves onto Route 6.",
+        phase2Announcement: "Monte Cassino escalation: the fight has entered the town.",
+        phase3Label: "Phase 3: Heights Assault",
+        phase3Detail: "Route 6 will not open until the monastery heights are cleared.",
+        phase3Announcement: "Monte Cassino final phase: take the heights and open Route 6.",
+        victoryReason: "Cassino is cleared and Route 6 is open.",
+        timerDefeatReason: "Route 6 remained closed when the assault window ended.",
+        eliminationDefeatReason: "All friendly Monte Cassino assault forces were destroyed."
+    },
+    assault_omaha_beach: {
+        victoryMode: "capture",
+        primaryId: "primary_open_omaha_exits",
+        primaryLabel: "Open every Omaha beach exit and seize the ridge",
+        objectiveLabels: ["Vierville Draw", "D-1 Exit", "Colleville Ridge", "Battery Control"],
+        primaryObjectiveIndexes: [0, 1, 2, 3],
+        secondary: {
+            kind: "destroyTypes",
+            id: "secondary_silence_beach_guns",
+            label: "Destroy enemy artillery and flak covering the beach",
+            targetTypes: ["Howitzer_105", "Flak_88"]
+        },
+        tertiary: {
+            kind: "surviveCount",
+            id: "tertiary_preserve_assault_waves",
+            label: "Keep at least four assault formations operational",
+            minCount: 4
+        },
+        phase1Label: "Phase 1: Beach Under Fire",
+        phase1Detail: "Assault waves are exposed below the bluffs. Clear lanes and get engineers to the draws.",
+        phase1Announcement: "Omaha Beach: assault waves are under the guns.",
+        phase2Label: "Phase 2: Draw Fight",
+        phase2Detail: "The draws are contested. Push infantry through any breach before the defenders reset.",
+        phase2Announcement: "Omaha Beach escalation: the draw fight is fully joined.",
+        phase3Label: "Phase 3: Ridge Push",
+        phase3Detail: "The beach exits are opening. Seize the ridge controls and silence the remaining guns.",
+        phase3Announcement: "Omaha Beach final phase: get off the beach and secure the ridge.",
+        victoryReason: "Omaha beach exits are open for follow-on forces.",
+        timerDefeatReason: "The assault stalled before the exits could be opened.",
+        eliminationDefeatReason: "All friendly assault waves were destroyed."
+    },
+    assault_carentan: {
+        victoryMode: "capture",
+        primaryId: "primary_link_beachheads",
+        primaryLabel: "Capture the causeway, Carentan, and rail station",
+        objectiveLabels: ["Northern Causeway", "Carentan Town Center", "Rail Station", "Douve Bridgehead"],
+        primaryObjectiveIndexes: [0, 1, 2],
+        secondary: {
+            kind: "protectObjectives",
+            id: "secondary_hold_douve_bridgehead",
+            label: "Keep the Douve bridgehead secure",
+            indexes: [3],
+            requiredCount: 1
+        },
+        tertiary: {
+            kind: "destroyTypes",
+            id: "tertiary_destroy_town_guns",
+            label: "Destroy enemy assault guns and anti-tank guns",
+            targetTypes: ["Assault_Gun", "AT_Gun_50mm"]
+        },
+        phase1Label: "Phase 1: Causeway",
+        phase1Detail: "The approach is narrow and exposed. Keep engineers close to the bridgehead.",
+        phase1Announcement: "Carentan: advance along the causeway and keep the bridgehead open.",
+        phase2Label: "Phase 2: Town Fight",
+        phase2Detail: "The town is engaged. Infantry must clear blocks before armor can move freely.",
+        phase2Announcement: "Carentan escalation: the fight has moved into the town.",
+        phase3Label: "Phase 3: Corridor Link",
+        phase3Detail: "The beachhead corridor is within reach. Secure the station and prevent a counterattack.",
+        phase3Announcement: "Carentan final phase: link the beachheads through the town.",
+        victoryReason: "Carentan is secured and the beachheads are linked.",
+        timerDefeatReason: "The corridor remained broken when the operation window closed.",
+        eliminationDefeatReason: "All friendly Carentan assault forces were destroyed."
+    },
+    assault_arnhem_bridge: {
+        victoryMode: "hold",
+        primaryId: "primary_hold_arnhem_bridge",
+        primaryLabel: "Hold Arnhem Bridge and enough airborne objectives",
+        objectiveLabels: ["Arnhem Bridge", "Oosterbeek Perimeter", "Drop Zone Y", "Southern Relief Road"],
+        primaryObjectiveIndexes: [0, 1, 2, 3],
+        requiredPrimaryCount: 3,
+        mandatoryObjectiveIndexes: [0],
+        instantDefeatObjectiveIndexes: [0],
+        secondary: {
+            kind: "protectObjectives",
+            id: "secondary_preserve_airborne_line",
+            label: "Keep Oosterbeek perimeter and Drop Zone Y in friendly hands",
+            indexes: [1, 2],
+            requiredCount: 2
+        },
+        tertiary: {
+            kind: "unitTypeAlive",
+            id: "tertiary_preserve_airborne_companies",
+            label: "Keep at least four airborne or engineer formations operational",
+            unitTypes: ["Paratrooper", "Engineer"],
+            minCount: 4
+        },
+        phase1Label: "Phase 1: Bridge Seizure",
+        phase1Detail: "The bridge party is isolated. Keep the crossing held while the perimeter consolidates.",
+        phase1Announcement: "Arnhem: airborne forces hold the bridge. Prepare for armor from the south.",
+        phase2Label: "Phase 2: Perimeter Pressure",
+        phase2Detail: "Enemy armor is closing. Hold Oosterbeek and keep the drop zone open.",
+        phase2Announcement: "Arnhem escalation: the airborne perimeter is under heavy pressure.",
+        phase3Label: "Phase 3: Relief Window",
+        phase3Detail: "Relief is still fighting up the road. The bridge must stay in friendly hands.",
+        phase3Announcement: "Arnhem final phase: hold the bridge until relief can break through.",
+        victoryReason: "Arnhem Bridge held long enough for the relief corridor to remain possible.",
+        timerDefeatReason: "Arnhem Bridge or the airborne line failed before relief could arrive.",
+        eliminationDefeatReason: "All friendly Arnhem airborne forces were destroyed."
+    },
+    assault_falaise_pocket: {
+        victoryMode: "capture",
+        primaryId: "primary_close_falaise_pocket",
+        primaryLabel: "Close the Falaise pocket at every control point",
+        objectiveLabels: ["Chambois", "Trun", "Argentan Road", "Escape Gap"],
+        primaryObjectiveIndexes: [0, 1, 2, 3],
+        secondary: {
+            kind: "destroyTypes",
+            id: "secondary_destroy_trapped_armor",
+            label: "Destroy enemy armor trapped inside the pocket",
+            targetTypes: ["Panzer_IV", "Heavy_Tank", "Assault_Gun", "Tank_Destroyer"]
+        },
+        tertiary: {
+            kind: "surviveCount",
+            id: "tertiary_preserve_pincer_force",
+            label: "Keep at least seven friendly formations operational",
+            minCount: 7
+        },
+        phase1Label: "Phase 1: Jaw Movement",
+        phase1Detail: "Both Allied pincers are moving. Keep pressure on Trun and Argentan Road.",
+        phase1Announcement: "Falaise: the pocket is forming. Close both jaws.",
+        phase2Label: "Phase 2: Pocket Compression",
+        phase2Detail: "The trapped force is bunching on the roads. Block Chambois before the armor escapes.",
+        phase2Announcement: "Falaise escalation: enemy columns are pushing for the eastern gap.",
+        phase3Label: "Phase 3: Escape Gap",
+        phase3Detail: "The pocket is nearly closed. Seal the escape gap and destroy remaining armor.",
+        phase3Announcement: "Falaise final phase: close the last exit.",
+        victoryReason: "The Falaise pocket is closed and the escape route is cut.",
+        timerDefeatReason: "Enemy forces kept the Falaise escape route open.",
+        eliminationDefeatReason: "All friendly Falaise pincer forces were destroyed."
+    },
+    assault_hurtgen_forest: {
+        victoryMode: "capture",
+        primaryId: "primary_clear_hurtgen_forest",
+        primaryLabel: "Capture Huertgen village, Kall Trail, Hill 400, and Roer Dam road",
+        objectiveLabels: ["Huertgen Village", "Kall Trail", "Hill 400", "Roer Dam Road"],
+        primaryObjectiveIndexes: [0, 1, 2, 3],
+        secondary: {
+            kind: "destroyTypes",
+            id: "secondary_silence_forest_guns",
+            label: "Destroy enemy guns and armor covering the forest roads",
+            targetTypes: ["Flak_88", "Howitzer_105", "AT_Gun_50mm", "Assault_Gun", "Panzer_IV", "Heavy_Tank"]
+        },
+        tertiary: {
+            kind: "surviveCount",
+            id: "tertiary_preserve_forest_force",
+            label: "Keep at least six friendly formations operational",
+            minCount: 6
+        },
+        phase1Label: "Phase 1: Tree Line",
+        phase1Detail: "The forest hides the main defense. Advance in bounds and keep guns close to the road.",
+        phase1Announcement: "Hurtgen Forest: contact at the tree line.",
+        phase2Label: "Phase 2: Kall Trail",
+        phase2Detail: "The trail network is contested. Engineers must keep the route open for armor and supply.",
+        phase2Announcement: "Hurtgen Forest escalation: fighting has reached the Kall Trail.",
+        phase3Label: "Phase 3: Ridge And Dam Road",
+        phase3Detail: "Hill 400 and the Roer road are the decisive ground. Clear them before attrition stalls the assault.",
+        phase3Announcement: "Hurtgen Forest final phase: take the ridge and dam road.",
+        victoryReason: "The Hurtgen objectives are cleared and the Roer approach is open.",
+        timerDefeatReason: "The forest line held until the operation window closed.",
+        eliminationDefeatReason: "All friendly Hurtgen assault forces were destroyed."
+    },
+    assault_bastogne: {
+        victoryMode: "hold",
+        primaryId: "primary_hold_bastogne",
+        primaryLabel: "Hold Bastogne until relief arrives",
+        objectiveLabels: ["Bastogne Center", "Neffe Road", "Mardasson Ridge", "Southern Relief Road"],
+        primaryObjectiveIndexes: [0, 1, 2, 3],
+        requiredPrimaryCount: 3,
+        mandatoryObjectiveIndexes: [0],
+        instantDefeatObjectiveIndexes: [0],
+        secondary: {
+            kind: "protectObjectives",
+            id: "secondary_preserve_road_net",
+            label: "Keep at least two road junctions in friendly hands",
+            indexes: [1, 2, 3],
+            requiredCount: 2
+        },
+        tertiary: {
+            kind: "surviveCount",
+            id: "tertiary_preserve_garrison",
+            label: "Keep at least seven friendly formations operational",
+            minCount: 7
+        },
+        phase1Label: "Phase 1: Encirclement",
+        phase1Detail: "German probes are testing the outer roads. Keep the town center supplied.",
+        phase1Announcement: "Bastogne: the perimeter is surrounded. Hold the road hub.",
+        phase2Label: "Phase 2: Panzer Pressure",
+        phase2Detail: "Armored attacks are converging on the roads. Shift reserves through the town center.",
+        phase2Announcement: "Bastogne escalation: German armor is pressing the perimeter.",
+        phase3Label: "Phase 3: Relief Window",
+        phase3Detail: "Relief is approaching. Hold Bastogne and enough roads until the line reconnects.",
+        phase3Announcement: "Bastogne final phase: relief is near. Hold the center.",
+        victoryReason: "Bastogne held until relief reached the perimeter.",
+        timerDefeatReason: "Bastogne failed the relief hold check.",
+        eliminationDefeatReason: "All friendly Bastogne defenders were destroyed."
+    },
+    assault_remagen: {
+        victoryMode: "capture",
+        primaryId: "primary_secure_rhine_bridgehead",
+        primaryLabel: "Capture the bridge, tunnel, ridge, and engineer park",
+        objectiveLabels: ["Ludendorff Bridge", "East-Bank Tunnel", "Erpeler Ley Ridge", "Engineer Park"],
+        primaryObjectiveIndexes: [0, 1, 2, 3],
+        secondary: {
+            kind: "destroyTypes",
+            id: "secondary_silence_demolition_support",
+            label: "Destroy enemy engineers, flak, and artillery",
+            targetTypes: ["Engineer", "Flak_88", "Howitzer_105"]
+        },
+        tertiary: {
+            kind: "unitTypeAlive",
+            id: "tertiary_keep_engineers",
+            label: "Keep an engineer formation operational",
+            unitTypes: ["Engineer"],
+            minCount: 1
+        },
+        phase1Label: "Phase 1: Bridge Rush",
+        phase1Detail: "The bridge is still standing. Move fast before demolition and ridge fire seal it.",
+        phase1Announcement: "Remagen: rush the Ludendorff Bridge before the enemy can close the crossing.",
+        phase2Label: "Phase 2: East Bank",
+        phase2Detail: "The crossing fight is open. Clear the tunnel and engineer park while armor holds the bridge.",
+        phase2Announcement: "Remagen escalation: east-bank fighting has begun.",
+        phase3Label: "Phase 3: Bridgehead Expansion",
+        phase3Detail: "The bridgehead must expand beyond the river road. Secure the ridge before counterattack.",
+        phase3Announcement: "Remagen final phase: expand the Rhine bridgehead.",
+        victoryReason: "The Rhine bridgehead is secure and expanding.",
+        timerDefeatReason: "The bridgehead was not secured before the crossing window closed.",
+        eliminationDefeatReason: "All friendly Remagen assault forces were destroyed."
+    }
+};
+function createHistoricalBattlePhase(config, turnNumber, primaryFriendlyCount, turnLimit) {
+    const limit = turnLimit ?? 18;
+    const phase2Turn = Math.max(4, Math.floor(limit * 0.33));
+    const phase3Turn = Math.max(8, Math.floor(limit * 0.66));
+    const required = config.requiredPrimaryCount ?? config.primaryObjectiveIndexes.length;
+    if (turnNumber >= phase3Turn || primaryFriendlyCount >= required) {
+        return {
+            id: "phase3_escalation",
+            label: config.phase3Label,
+            detail: config.phase3Detail,
+            announcement: config.phase3Announcement
+        };
+    }
+    if (turnNumber >= phase2Turn || primaryFriendlyCount > 0) {
+        return {
+            id: "phase2_commitment",
+            label: config.phase2Label,
+            detail: config.phase2Detail,
+            announcement: config.phase2Announcement
+        };
+    }
+    return {
+        id: "phase1_probe",
+        label: config.phase1Label,
+        detail: config.phase1Detail,
+        announcement: config.phase1Announcement
+    };
+}
+function createHistoricalBattleController(scenario, config) {
+    const objectivePoints = (scenario.objectives ?? []).map((objective, index) => {
+        const hex = normalizeObjectiveHex(objective.hex);
+        return {
+            index,
+            key: makeKey(hex),
+            label: config.objectiveLabels[index] ?? `Objective ${index + 1}`,
+            hex
+        };
+    });
+    const primaryIndexes = new Set(config.primaryObjectiveIndexes);
+    const mandatoryIndexes = new Set(config.mandatoryObjectiveIndexes ?? []);
+    const instantDefeatIndexes = new Set(config.instantDefeatObjectiveIndexes ?? []);
+    let currentOutcome = { state: "inProgress" };
+    let currentPhase = createHistoricalBattlePhase(config, 0, 0, scenario.turnLimit ?? null);
+    const isObjectiveFriendly = (occupancy, index) => {
+        const point = objectivePoints.find((objective) => objective.index === index);
+        return point ? isFriendlyOccupant(occupancy.get(point.key)) : false;
+    };
+    const countFriendlyObjectives = (occupancy, indexes) => indexes.filter((index) => isObjectiveFriendly(occupancy, index)).length;
+    const buildSecondary = (outcome, occupancy, botUnits) => {
+        const rule = config.secondary;
+        if (rule.kind === "destroyTypes") {
+            const remaining = botUnits.filter((unit) => rule.targetTypes.includes(unit.type)).length;
+            return {
+                id: rule.id,
+                label: rule.label,
+                tier: "secondary",
+                state: remaining === 0
+                    ? "completed"
+                    : outcome.state === "inProgress"
+                        ? "inProgress"
+                        : "failed",
+                detail: remaining === 0
+                    ? "Target formations are out of action."
+                    : `${remaining} target formation${remaining === 1 ? "" : "s"} remain operational.`
+            };
+        }
+        const held = countFriendlyObjectives(occupancy, rule.indexes);
+        const targetMet = held >= rule.requiredCount;
+        return {
+            id: rule.id,
+            label: rule.label,
+            tier: "secondary",
+            state: targetMet
+                ? outcome.state === "inProgress"
+                    ? "inProgress"
+                    : "completed"
+                : outcome.state === "inProgress"
+                    ? "inProgress"
+                    : "failed",
+            detail: `${held}/${rule.requiredCount} protected objective${rule.requiredCount === 1 ? "" : "s"} held.`
+        };
+    };
+    const buildTertiary = (outcome, playerUnits, botUnits) => {
+        const rule = config.tertiary;
+        if (!rule) {
+            return null;
+        }
+        if (rule.kind === "destroyTypes") {
+            const remaining = botUnits.filter((unit) => rule.targetTypes.includes(unit.type)).length;
+            return {
+                id: rule.id,
+                label: rule.label,
+                tier: "tertiary",
+                state: remaining === 0
+                    ? "completed"
+                    : outcome.state === "inProgress"
+                        ? "inProgress"
+                        : "failed",
+                detail: remaining === 0
+                    ? "Target formations are out of action."
+                    : `${remaining} target formation${remaining === 1 ? "" : "s"} began the battle as priority targets.`
+            };
+        }
+        if (rule.kind === "surviveCount") {
+            const survives = playerUnits.length >= rule.minCount;
+            return {
+                id: rule.id,
+                label: rule.label,
+                tier: "tertiary",
+                state: survives
+                    ? outcome.state === "inProgress"
+                        ? "inProgress"
+                        : "completed"
+                    : "failed",
+                detail: `${playerUnits.length}/${rule.minCount} friendly formation${rule.minCount === 1 ? "" : "s"} operational.`
+            };
+        }
+        const alive = playerUnits.filter((unit) => rule.unitTypes.includes(unit.type)).length;
+        const targetMet = alive >= rule.minCount;
+        return {
+            id: rule.id,
+            label: rule.label,
+            tier: "tertiary",
+            state: targetMet
+                ? outcome.state === "inProgress"
+                    ? "inProgress"
+                    : "completed"
+                : "failed",
+            detail: `${alive}/${rule.minCount} required formation${rule.minCount === 1 ? "" : "s"} operational.`
+        };
+    };
+    const buildObjectives = (outcome, occupancy, playerUnits, botUnits) => {
+        const primaryFriendlyCount = countFriendlyObjectives(occupancy, config.primaryObjectiveIndexes);
+        const required = config.requiredPrimaryCount ?? config.primaryObjectiveIndexes.length;
+        const mandatoryHeld = Array.from(mandatoryIndexes).every((index) => isObjectiveFriendly(occupancy, index));
+        const primaryComplete = config.victoryMode === "capture"
+            ? primaryFriendlyCount >= required && mandatoryHeld
+            : outcome.state === "playerVictory";
+        const primary = {
+            id: config.primaryId,
+            label: config.primaryLabel,
+            tier: "primary",
+            state: primaryComplete || outcome.state === "playerVictory"
+                ? "completed"
+                : outcome.state === "playerDefeat"
+                    ? "failed"
+                    : "inProgress",
+            detail: `${primaryFriendlyCount}/${required} required objective${required === 1 ? "" : "s"} friendly-held. ${objectivePoints
+                .filter((objective) => primaryIndexes.has(objective.index))
+                .map(({ index, label }) => `${isObjectiveFriendly(occupancy, index) ? "[X]" : "[ ]"} ${label}`)
+                .join(", ")}`
+        };
+        const objectives = [primary, buildSecondary(outcome, occupancy, botUnits)];
+        const tertiary = buildTertiary(outcome, playerUnits, botUnits);
+        if (tertiary) {
+            objectives.push(tertiary);
+        }
+        return objectives;
+    };
+    const buildMarkers = (occupancy) => objectivePoints.map(({ key, label, hex }) => {
+        const occupant = occupancy.get(key);
+        const status = isFriendlyOccupant(occupant) ? "player" : occupant === "Bot" ? "enemy" : "unoccupied";
+        return {
+            hex,
+            status,
+            tooltip: `${label} - ${status === "player" ? "friendly-held" : status === "enemy" ? "enemy-held" : "unoccupied"}.`
+        };
+    });
+    const deriveStatus = (snapshot) => {
+        const { turnSummary, occupancy, playerUnits, botUnits, scenario: snapScenario } = snapshot;
+        const turnLimit = snapScenario.turnLimit ?? null;
+        const primaryFriendlyCount = countFriendlyObjectives(occupancy, config.primaryObjectiveIndexes);
+        const required = config.requiredPrimaryCount ?? config.primaryObjectiveIndexes.length;
+        const mandatoryHeld = Array.from(mandatoryIndexes).every((index) => isObjectiveFriendly(occupancy, index));
+        currentPhase = createHistoricalBattlePhase(config, turnSummary.turnNumber, primaryFriendlyCount, turnLimit);
+        let outcome = currentOutcome;
+        if (outcome.state === "inProgress") {
+            if (botUnits.length === 0) {
+                outcome = { state: "playerVictory", reason: "All enemy forces eliminated." };
+            }
+            else if (playerUnits.length === 0) {
+                outcome = { state: "playerDefeat", reason: config.eliminationDefeatReason };
+            }
+        }
+        if (outcome.state === "inProgress" && config.victoryMode === "hold") {
+            const instantLoss = Array.from(instantDefeatIndexes).some((index) => {
+                const point = objectivePoints.find((objective) => objective.index === index);
+                return point ? occupancy.get(point.key) === "Bot" : false;
+            });
+            if (instantLoss) {
+                outcome = { state: "playerDefeat", reason: config.timerDefeatReason };
+            }
+            else if (turnLimit !== null && turnSummary.turnNumber >= turnLimit) {
+                outcome = primaryFriendlyCount >= required && mandatoryHeld
+                    ? { state: "playerVictory", reason: config.victoryReason }
+                    : { state: "playerDefeat", reason: config.timerDefeatReason };
+            }
+        }
+        if (outcome.state === "inProgress" && config.victoryMode === "capture") {
+            if (primaryFriendlyCount >= required && mandatoryHeld) {
+                outcome = { state: "playerVictory", reason: config.victoryReason };
+            }
+            else if (turnLimit !== null && turnSummary.turnNumber >= turnLimit) {
+                outcome = { state: "playerDefeat", reason: config.timerDefeatReason };
+            }
+        }
+        currentOutcome = outcome;
+        return {
+            turn: turnSummary.turnNumber,
+            objectives: buildObjectives(outcome, occupancy, playerUnits, botUnits),
+            outcome,
+            phase: currentPhase,
+            markers: buildMarkers(occupancy)
+        };
+    };
+    return {
+        onTurnAdvanced(snapshot) {
+            return deriveStatus(snapshot);
+        },
+        getStatus() {
+            const emptyOccupancy = new Map();
+            return {
+                turn: 0,
+                objectives: buildObjectives(currentOutcome, emptyOccupancy, scenario.sides.Player.units, scenario.sides.Bot.units),
+                outcome: currentOutcome,
+                phase: currentPhase,
+                markers: buildMarkers(emptyOccupancy)
             };
         }
     };
@@ -610,6 +1410,13 @@ export function createMissionRulesController(missionKey, scenario, difficulty = 
     }
     if (missionKey === "patrol_pointe_du_hoc") {
         return createPointeDuHocController(scenario, difficulty);
+    }
+    if (missionKey === "assault") {
+        return createTwoBridgesController(scenario, difficulty);
+    }
+    const historicalConfig = historicalBattleConfigs[missionKey];
+    if (historicalConfig) {
+        return createHistoricalBattleController(scenario, historicalConfig);
     }
     if (missionKey === "assault_citadel_ridge") {
         return createCitadelRidgeController(scenario, difficulty);

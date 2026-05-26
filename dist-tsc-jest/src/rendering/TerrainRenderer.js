@@ -95,7 +95,14 @@ const TERRAIN_SPRITE_SETS = {
     },
     beach: {
         variants: [
-            new URL("../assets/terrain/Beach.png", import.meta.url).href
+            new URL("../assets/terrain/Terrain_Beach_1.png", import.meta.url).href,
+            new URL("../assets/terrain/Terrain_Beach_2.png", import.meta.url).href,
+            new URL("../assets/terrain/Terrain_Beach_3.png", import.meta.url).href
+        ]
+    },
+    beach_water: {
+        variants: [
+            new URL("../assets/terrain/Terrain_Beach_Water.png", import.meta.url).href
         ]
     }
 };
@@ -176,6 +183,14 @@ export class TerrainRenderer {
         // Default: deterministic position-based selection.
         const index = variantIndexForHex(col, row, set.variants.length);
         return set.variants[index];
+    }
+    /**
+     * Returns the beach water-edge sprite URL for use when a beach tile is adjacent to sea.
+     * The caller (HexMapRenderer) is responsible for applying the correct SVG rotation so that
+     * the water edge faces the sea neighbor direction.
+     */
+    getBeachWaterSprite() {
+        return TERRAIN_SPRITE_SETS["beach_water"].variants[0];
     }
     /**
      * Generates tooltip text for a hex tile.

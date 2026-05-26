@@ -12,6 +12,8 @@ export class MapViewport {
         /** The single transform owner - all pan/zoom transforms ONLY this group */
         this.viewportRoot = null;
         this.wheelZoomStep = 0.18;
+        /** Tracks whether viewportRoot warning has been logged to reduce console noise */
+        this.hasLoggedViewportWarning = false;
         /** Timestamp of last user camera input (wheel/drag) to suppress auto-focus */
         this.lastUserCameraInputAt = 0;
         /** Tracks middle-mouse drag state so panning only occurs while the wheel button stays depressed. */
@@ -123,7 +125,11 @@ export class MapViewport {
         // Find viewportRoot - this is the ONLY element we transform
         this.viewportRoot = element.querySelector("#viewportRoot");
         if (!this.viewportRoot) {
-            console.warn("[MapViewport] viewportRoot not found in SVG - transforms will not work until next render");
+            // Only warn once to reduce console noise during initial loading
+            if (!this.hasLoggedViewportWarning) {
+                this.hasLoggedViewportWarning = true;
+                console.warn("[MapViewport] viewportRoot not found in SVG - transforms will not work until next render");
+            }
         }
         this.bindWheelInteractions();
         this.bindPointerInteractions();
@@ -293,7 +299,11 @@ export class MapViewport {
         if (!this.viewportRoot) {
             this.viewportRoot = this.mapElement.querySelector("#viewportRoot");
             if (!this.viewportRoot) {
-                console.warn("[MapViewport] updateTransform: viewportRoot not found - map may not be rendered yet");
+                // Only warn once to reduce console noise during initial loading
+                if (!this.hasLoggedViewportWarning) {
+                    this.hasLoggedViewportWarning = true;
+                    console.warn("[MapViewport] updateTransform: viewportRoot not found - map may not be rendered yet");
+                }
                 return;
             }
         }
