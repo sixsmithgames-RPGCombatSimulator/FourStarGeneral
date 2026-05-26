@@ -11,8 +11,17 @@
 import { GameEngineInitiativeIntegration, type ExtendedBattlePhase } from './GameEngineInitiativeExtensions';
 import { InitiativeActionValidator, type ActionValidationContext, type UnitActionType } from './InitiativeActionValidator';
 import { InitiativeBotIntegration } from './bot/InitiativeBotIntegration';
+import { hexDistance, neighbors, type Axial } from '../core/Hex';
 import type { ScenarioUnit } from '../core/types';
 import type { UnitActivation } from '../core/InitiativeQueue';
+
+export interface InitiativeBotActivationResult {
+  readonly unitId: string;
+  readonly ownerId: 'player' | 'bot';
+  readonly moved: boolean;
+  readonly fromHex: Axial | null;
+  readonly toHex: Axial | null;
+}
 
 /**
  * Integration methods that would be added to GameEngine
@@ -25,6 +34,7 @@ export class GameEngineInitiativeMethods {
   private validator: InitiativeActionValidator;
   private botIntegration: InitiativeBotIntegration;
   private gameEngine: any; // GameEngine instance
+  private botActivationObservers = new Set<(result: InitiativeBotActivationResult) => void>();
 
   constructor(gameEngine: any) {
     this.gameEngine = gameEngine;
@@ -311,6 +321,13 @@ export class GameEngineInitiativeMethods {
     return this.integration.getCurrentActivation();
   }
 
+  public setBotActivationListener(listener: ((result: InitiativeBotActivationResult) => void) | null): void {
+    this.botActivationObservers.clear();
+    if (listener) {
+      this.botActivationObservers.add(listener);
+    }
+  }
+
   /**
    * Skip the current initiative group
    */
@@ -375,7 +392,7 @@ export class GameEngineInitiativeMethods {
       units.push(
         ...(this.gameEngine.playerUnits as ScenarioUnit[]).map((unit) => ({
           ...unit,
-          controlledBy: "Player" as const
+          controlledBy: this.isAutomatedPlayerUnit(unit) ? "AI" as const : "Player" as const
         }))
       );
     }
@@ -405,7 +422,7 @@ export class GameEngineInitiativeMethods {
         units.push(
           ...((Object.values(this.gameEngine._playerUnits) as ScenarioUnit[]).map((unit) => ({
             ...unit,
-            controlledBy: "Player" as const
+            controlledBy: this.isAutomatedPlayerUnit(unit) ? "AI" as const : "Player" as const
           })))
         );
       }
@@ -469,11 +486,15 @@ export class GameEngineInitiativeMethods {
    * @param activation - The bot unit activation
    */
   private executeBotTurn(activation: UnitActivation): void {
+    const beforeState = this.resolveActivationUnit(activation);
+    const beforeHex = this.cloneHex(beforeState?.unit.hex ?? null);
+
     try {
       console.log(`Executing bot turn for ${activation.unitId}`);
       
       // Get bot decision
       const decisionResult = this.botIntegration.executeBotDecision(activation);
+      let executed = false;
       
       if (decisionResult.hasValidAction) {
         console.log(`Bot decision for ${activation.unitId}: ${decisionResult.action.rationale}`);
@@ -483,17 +504,26 @@ export class GameEngineInitiativeMethods {
         
         if (executionSuccess) {
           console.log(`Bot action executed successfully for ${activation.unitId}`);
+          executed = true;
         } else {
           console.warn(`Bot action execution failed for ${activation.unitId}`);
         }
       } else {
         console.log(`No valid action found for bot unit ${activation.unitId}`);
       }
+
+      if (!executed) {
+        executed = this.executeFallbackBotActivation(activation);
+      }
       
       // Log performance metrics
       if (decisionResult.executionTime > 100) {
         console.warn(`Bot decision took ${decisionResult.executionTime}ms for ${activation.unitId}`);
       }
+
+      const afterState = this.resolveActivationUnit(activation);
+      const afterHex = this.cloneHex(afterState?.unit.hex ?? null);
+      this.emitBotActivationResult(activation, beforeHex, afterHex);
       
       // Automatically complete the bot unit's activation
       setTimeout(() => {
@@ -502,12 +532,224 @@ export class GameEngineInitiativeMethods {
       
     } catch (error) {
       console.error(`Error executing bot turn for ${activation.unitId}:`, error);
+      this.executeFallbackBotActivation(activation);
+      const afterState = this.resolveActivationUnit(activation);
+      const afterHex = this.cloneHex(afterState?.unit.hex ?? null);
+      this.emitBotActivationResult(activation, beforeHex, afterHex);
       
       // Complete the activation anyway to prevent game from getting stuck
       setTimeout(() => {
         this.completeUnitActivation(activation.unitId);
       }, 500);
     }
+  }
+
+  private cloneHex(hex: Axial | null | undefined): Axial | null {
+    return hex ? { q: hex.q, r: hex.r } : null;
+  }
+
+  private emitBotActivationResult(
+    activation: UnitActivation,
+    beforeHex: Axial | null,
+    afterHex: Axial | null
+  ): void {
+    const moved = Boolean(beforeHex && afterHex && (beforeHex.q !== afterHex.q || beforeHex.r !== afterHex.r));
+    const result: InitiativeBotActivationResult = {
+      unitId: activation.unitId,
+      ownerId: activation.ownerId,
+      moved,
+      fromHex: beforeHex,
+      toHex: afterHex
+    };
+    this.botActivationObservers.forEach((observer) => {
+      try {
+        observer(result);
+      } catch (error) {
+        console.warn('Bot activation observer failed:', error);
+      }
+    });
+  }
+
+  private resolveActivationUnit(
+    activation: UnitActivation
+  ): { unit: ScenarioUnit; faction: 'Player' | 'Bot' } | null {
+    if (Array.isArray(this.gameEngine.botUnits)) {
+      const botUnit = (this.gameEngine.botUnits as ScenarioUnit[]).find((entry) => entry.unitId === activation.unitId) ?? null;
+      if (botUnit) {
+        return { unit: botUnit, faction: 'Bot' };
+      }
+    }
+
+    if (Array.isArray(this.gameEngine.playerUnits)) {
+      const playerUnit = (this.gameEngine.playerUnits as ScenarioUnit[]).find((entry) => entry.unitId === activation.unitId) ?? null;
+      if (playerUnit) {
+        return { unit: playerUnit, faction: 'Player' };
+      }
+    }
+
+    return null;
+  }
+
+  private executeFallbackBotActivation(activation: UnitActivation): boolean {
+    const resolved = this.resolveActivationUnit(activation);
+    if (!resolved) {
+      return false;
+    }
+
+    const engine = this.gameEngine as any;
+    const unitDefinition = typeof engine.getUnitDefinition === 'function'
+      ? engine.getUnitDefinition(resolved.unit.type)
+      : null;
+
+    if (!unitDefinition || unitDefinition.moveType === 'air') {
+      return false;
+    }
+
+    if (resolved.faction === 'Player' && resolved.unit.type === 'Supply_Truck') {
+      const logistics = typeof engine.getLogisticsSnapshot === 'function' ? engine.getLogisticsSnapshot() : null;
+      const priorityTargets = Array.isArray(logistics?.priorityTargets) ? logistics.priorityTargets : [];
+      const nextTarget = priorityTargets.find((entry: { status?: string }) => entry.status !== 'resupplied');
+      const targetHex = this.parseAxialKey(nextTarget?.hex ?? null) ?? this.cloneHex(engine._baseCamp?.hex ?? null);
+      if (!targetHex) {
+        return false;
+      }
+      return this.moveSingleHexToward(resolved.unit, resolved.faction, targetHex);
+    }
+
+    const perceivedTargets = typeof engine.buildBotPerceivedTargets === 'function'
+      ? engine.buildBotPerceivedTargets()
+      : [];
+    if (!Array.isArray(perceivedTargets) || perceivedTargets.length === 0) {
+      return false;
+    }
+
+    const selectedTarget = typeof engine.selectBotPerceivedTarget === 'function'
+      ? engine.selectBotPerceivedTarget(resolved.unit.hex, perceivedTargets)
+      : perceivedTargets[0];
+
+    if (!selectedTarget?.hex) {
+      return false;
+    }
+
+    const targetHex = this.cloneHex(selectedTarget.hex) ?? selectedTarget.hex;
+    const deceptionTarget = selectedTarget.isDeception === true;
+    const origin = this.cloneHex(resolved.unit.hex);
+    if (!origin) {
+      return false;
+    }
+
+    if (!deceptionTarget && hexDistance(origin, targetHex) <= 1) {
+      return this.tryResolveBotAttack(resolved.unit, origin, targetHex);
+    }
+
+    const moved = this.moveSingleHexToward(resolved.unit, resolved.faction, targetHex);
+    if (!moved) {
+      return false;
+    }
+
+    const refreshed = this.resolveActivationUnit(activation);
+    const newOrigin = this.cloneHex(refreshed?.unit.hex ?? null);
+    if (!deceptionTarget && refreshed?.faction === 'Bot' && newOrigin && hexDistance(newOrigin, targetHex) <= 1) {
+      this.tryResolveBotAttack(refreshed.unit, newOrigin, targetHex);
+    }
+
+    return true;
+  }
+
+  private moveSingleHexToward(unit: ScenarioUnit, faction: 'Player' | 'Bot', targetHex: Axial): boolean {
+    const engine = this.gameEngine as any;
+    const origin = this.cloneHex(unit.hex);
+    if (!origin) {
+      return false;
+    }
+
+    let step: Axial | null = null;
+    if (faction === 'Bot' && typeof engine.selectBotStepToward === 'function') {
+      step = engine.selectBotStepToward(origin, targetHex);
+    }
+
+    if (!step) {
+      const candidateSteps = neighbors(origin)
+        .filter((candidate) => typeof engine.inBounds === 'function' ? engine.inBounds(candidate) : true)
+        .filter((candidate) => !(typeof engine.isOccupied === 'function' && engine.isOccupied(candidate)))
+        .sort((left, right) => hexDistance(left, targetHex) - hexDistance(right, targetHex));
+      step = candidateSteps[0] ?? null;
+    }
+
+    if (!step) {
+      return false;
+    }
+
+    const moved = structuredClone(unit) as ScenarioUnit;
+    moved.facing = typeof engine.resolveFacingToward === 'function'
+      ? engine.resolveFacingToward(origin, step, unit.facing)
+      : unit.facing;
+    moved.hex = this.cloneHex(step) ?? step;
+    moved.entrench = 0;
+
+    if (typeof engine.removeUnitFromFactionHex !== 'function' || typeof engine.addUnitToFactionHex !== 'function') {
+      return false;
+    }
+
+    engine.removeUnitFromFactionHex(faction, origin, moved.unitId ?? undefined);
+    engine.addUnitToFactionHex(faction, moved);
+
+    const fuelStep = typeof engine.resolveMovementFuelStep === 'function' && engine.getUnitDefinition
+      ? engine.resolveMovementFuelStep(engine.getUnitDefinition(unit.type).moveType, step)
+      : 0;
+    if (Number.isFinite(fuelStep) && fuelStep > 0) {
+      moved.fuel = Math.max(0, Number((moved.fuel - fuelStep).toFixed(2)));
+    }
+
+    if (typeof engine.updateSupplyPositionForFaction === 'function') {
+      engine.updateSupplyPositionForFaction(faction, origin, moved.hex, moved.unitId ?? undefined);
+    }
+    if (typeof engine.syncFuelForFaction === 'function') {
+      engine.syncFuelForFaction(faction, moved.hex, moved.fuel, moved.unitId ?? undefined);
+    }
+    if (typeof engine.syncEntrenchForFaction === 'function') {
+      engine.syncEntrenchForFaction(faction, moved.hex, moved.entrench, moved.unitId ?? undefined);
+    }
+
+    return true;
+  }
+
+  private tryResolveBotAttack(unit: ScenarioUnit, fromHex: Axial, targetHex: Axial): boolean {
+    const engine = this.gameEngine as any;
+    if (typeof engine.resolveBotAttack !== 'function') {
+      return false;
+    }
+
+    const stance = typeof engine.chooseBotStance === 'function'
+      ? engine.chooseBotStance(unit, targetHex)
+      : 'fireAtWill';
+    const result = engine.resolveBotAttack(unit, fromHex, targetHex, stance);
+    return Boolean(result);
+  }
+
+  private parseAxialKey(value: string | null | undefined): Axial | null {
+    if (!value || typeof value !== 'string') {
+      return null;
+    }
+    const [qRaw, rRaw] = value.split(',');
+    const q = Number.parseInt(qRaw ?? '', 10);
+    const r = Number.parseInt(rRaw ?? '', 10);
+    if (!Number.isFinite(q) || !Number.isFinite(r)) {
+      return null;
+    }
+    return { q, r };
+  }
+
+  private isAutomatedPlayerUnit(unit: ScenarioUnit): boolean {
+    const engine = this.gameEngine as any;
+    if (typeof engine.isAutomatedPlayerUnit === 'function') {
+      try {
+        return engine.isAutomatedPlayerUnit(unit) === true;
+      } catch {
+        // fall through to static heuristic
+      }
+    }
+    return unit.type === 'Supply_Truck' || unit.controlledBy === 'AI';
   }
 
   /**

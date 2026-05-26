@@ -85,22 +85,43 @@ export class InitiativeQueueManager {
         };
       });
 
-    // Sort by initiative (descending), then by owner (player first), then by original order
-    activations.sort((a, b) => {
-      // Primary sort: initiative (higher first)
-      if (b.initiative !== a.initiative) {
-        return b.initiative - a.initiative;
+    // Group by initiative and interleave player/bot activations within each initiative band.
+    const groupedByInitiative = new Map<number, { player: UnitActivation[]; bot: UnitActivation[] }>();
+    activations.forEach((activation) => {
+      const existing = groupedByInitiative.get(activation.initiative) ?? { player: [], bot: [] };
+      if (activation.ownerId === 'player') {
+        existing.player.push(activation);
+      } else {
+        existing.bot.push(activation);
       }
-      // Secondary sort: player units go first in ties
-      if (a.ownerId !== b.ownerId) {
-        return a.ownerId === 'player' ? -1 : 1;
+      groupedByInitiative.set(activation.initiative, existing);
+    });
+
+    const initiativesDescending = Array.from(groupedByInitiative.keys()).sort((left, right) => right - left);
+    const interleavedActivations: UnitActivation[] = [];
+
+    initiativesDescending.forEach((initiative) => {
+      const group = groupedByInitiative.get(initiative);
+      if (!group) {
+        return;
       }
-      // Tertiary sort: maintain original order for consistency
-      return a.sortOrder - b.sortOrder;
+      const playerQueue = [...group.player].sort((left, right) => left.sortOrder - right.sortOrder);
+      const botQueue = [...group.bot].sort((left, right) => left.sortOrder - right.sortOrder);
+
+      while (playerQueue.length > 0 || botQueue.length > 0) {
+        const nextPlayer = playerQueue.shift();
+        if (nextPlayer) {
+          interleavedActivations.push(nextPlayer);
+        }
+        const nextBot = botQueue.shift();
+        if (nextBot) {
+          interleavedActivations.push(nextBot);
+        }
+      }
     });
 
     return {
-      activations: Object.freeze(activations),
+      activations: Object.freeze(interleavedActivations),
       currentIndex: 0,
       currentTurn: turn
     };

@@ -464,7 +464,7 @@ export class EnhancedInitiativeTurnControls {
 
     if (this.currentUnit) {
       unitInfo.style.display = 'block';
-      unitName.textContent = `Unit ${this.currentUnit.unitId}`;
+      unitName.textContent = this.currentUnit.ownerId === 'player' ? 'Player Unit' : 'Enemy Unit';
       unitOwner.textContent = `${this.currentUnit.ownerId === 'player' ? 'Player' : 'Bot'} (Initiative ${this.currentUnit.initiative})`;
 
       // Update action status
