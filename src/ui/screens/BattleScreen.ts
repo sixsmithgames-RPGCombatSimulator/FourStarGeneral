@@ -8209,10 +8209,16 @@ export class BattleScreen {
     }
 
     try {
-      // Process next activation
-      this.initiativeMethods.processNextInitiativeActivation();
-      
-      // Update initiative group highlighting
+      const currentActivation = this.initiativeMethods.getCurrentActivation();
+      if (currentActivation) {
+        // Advance to the next activation by completing the current one.
+        this.initiativeMethods.completeUnitActivation(currentActivation.unitId);
+      } else {
+        this.initiativeMethods.processNextInitiativeActivation();
+      }
+
+      // Focus the newly active unit so "Next Unit" is visually meaningful.
+      this.focusCurrentInitiativeActivation();
       this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to process next activation:', error);
@@ -8293,38 +8299,16 @@ export class BattleScreen {
     }
 
     try {
-      // Get current initiative queue
       const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
-      if (!currentQueue || !currentQueue.activations || currentQueue.activations.length === 0) {
+      const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
+      if (!activeGroup) {
         this.clearInitiativeGroupHighlights();
         return;
       }
 
-      // Get current activation to determine which group we're in
-      const currentActivation = currentQueue.activations[currentQueue.currentIndex];
-      if (!currentActivation) {
-        this.clearInitiativeGroupHighlights();
-        return;
-      }
-
-      // Find all units in the same initiative group (same ownerId)
-      const engine = this.battleState.ensureGameEngine();
-      const unitHexes: string[] = [];
-      
-      // Get all units for the current faction
-      const allUnits = currentActivation.ownerId === 'player' ? engine.playerUnits : engine.botUnits;
-      
-      // Filter units that are in the current initiative phase and not on sentry
-      for (const unit of allUnits) {
-        // Only highlight units that are not on sentry mode
-        if (!unit.onSentry && unit.hex) {
-          const hexKey = CoordinateSystem.makeHexKey(
-            unit.hex.q,
-            unit.hex.r
-          );
-          unitHexes.push(hexKey);
-        }
-      }
+      const unitHexes = activeGroup.activations
+        .map((activation) => this.resolveActivationOffsetHexKey(activation.unitId, activation.ownerId))
+        .filter((hexKey): hexKey is string => Boolean(hexKey));
 
       // Apply highlights to the map renderer
       this.hexMapRenderer?.setInitiativeGroupHighlights(unitHexes);
@@ -8351,16 +8335,12 @@ export class BattleScreen {
 
     try {
       const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
-      if (!currentQueue || !currentQueue.activations || currentQueue.activations.length === 0) {
+      const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
+      if (!activeGroup) {
         return true; // Fallback: allow all units if no current queue
       }
 
-      const currentActivation = currentQueue.activations[currentQueue.currentIndex];
-      if (!currentActivation) {
-        return true; // Fallback: allow all units if no current activation
-      }
-
-      return currentActivation.unitId === unitId;
+      return activeGroup.activations.some((activation) => activation.unitId === unitId);
     } catch (error) {
       console.error('Failed to check unit initiative group:', error);
       return true; // Fallback: allow unit on error
@@ -8382,37 +8362,98 @@ export class BattleScreen {
         return;
       }
 
-      const hexKey = CoordinateSystem.makeHexKey(
-        unit.hex.q,
-        unit.hex.r
-      );
-      const unitLabel = this.resolveUnitLabelForHex(hexKey);
+      const unitLabel = this.resolveReadableUnitLabel(unit);
       
       const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
-      
-      if (currentQueue && currentQueue.activations && currentQueue.activations.length > 0) {
-        const currentActivation = currentQueue.activations[currentQueue.currentIndex];
-        if (currentActivation) {
-          const groupName = this.getInitiativeGroupName(currentActivation);
-          const message = `${unitLabel} belongs to ${groupName}. Wait for this initiative group to be active.`;
-          this.showElegantInitiativeMessage(message);
-        }
+      const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
+      if (!activeGroup) {
+        this.showElegantInitiativeMessage(
+          `${unitLabel} cannot act right now. No initiative group is currently active.`
+        );
+        return;
       }
+
+      const unitDefinition = this.unitTypes?.[unit.type as keyof UnitTypeDictionary];
+      const unitInitiative = unitDefinition?.initiative ?? null;
+      const activeInitiative = activeGroup.initiative;
+
+      const message = unitInitiative === null
+        ? `${unitLabel} is waiting. The active initiative group is ${activeInitiative}.`
+        : `${unitLabel} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
+      this.showElegantInitiativeMessage(message);
     } catch (error) {
       console.error('Failed to show initiative group message:', error);
     }
   }
 
-  /**
-   * Get a user-friendly name for the initiative group
-   */
-  private getInitiativeGroupName(activation: any): string {
-    if (activation.ownerId === 'player') {
-      return `Player Initiative Unit ${activation.unitId}`;
-    } else if (activation.ownerId === 'bot') {
-      return `Bot Initiative Unit ${activation.unitId}`;
+  private resolveReadableUnitLabel(unit: ScenarioUnit): string {
+    try {
+      return this.resolveUnitLabelForUnit(unit) ?? this.toTitleCase(unit.type as string);
+    } catch {
+      return this.toTitleCase(unit.type as string);
     }
-    return `Initiative Unit ${activation.unitId}`;
+  }
+
+  private resolveActivationOffsetHexKey(unitId: string, ownerId: "player" | "bot"): string | null {
+    const engine = this.battleState.ensureGameEngine();
+    const units = ownerId === "player" ? engine.playerUnits : engine.botUnits;
+    const unit = units.find((entry) => entry.unitId === unitId);
+    return this.toOffsetHexKey(unit?.hex);
+  }
+
+  private resolveActiveInitiativeGroup(currentQueue: any): {
+    initiative: number;
+    ownerId: "player" | "bot";
+    activations: Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean }>;
+  } | null {
+    if (!currentQueue || !Array.isArray(currentQueue.activations) || currentQueue.activations.length === 0) {
+      return null;
+    }
+
+    const startIndex = typeof currentQueue.currentIndex === "number" ? currentQueue.currentIndex : 0;
+    const activeActivation = currentQueue.activations.find(
+      (activation: { isActivated: boolean }, index: number) => index >= startIndex && !activation.isActivated
+    );
+
+    if (!activeActivation) {
+      return null;
+    }
+
+    const groupedActivations = currentQueue.activations.filter(
+      (activation: { ownerId: "player" | "bot"; initiative: number; isActivated: boolean }) =>
+        !activation.isActivated &&
+        activation.ownerId === activeActivation.ownerId &&
+        activation.initiative === activeActivation.initiative
+    );
+
+    return {
+      initiative: activeActivation.initiative,
+      ownerId: activeActivation.ownerId,
+      activations: groupedActivations
+    };
+  }
+
+  private focusCurrentInitiativeActivation(): void {
+    if (!this.initiativeMethods) {
+      return;
+    }
+
+    const activation = this.initiativeMethods.getCurrentActivation();
+    if (!activation || activation.ownerId !== "player") {
+      return;
+    }
+
+    const engine = this.battleState.ensureGameEngine();
+    const unit = engine.playerUnits.find((entry) => entry.unitId === activation.unitId);
+    const hexKey = this.toOffsetHexKey(unit?.hex);
+    if (!hexKey) {
+      return;
+    }
+
+    this.applySelectedHex(hexKey);
+    this.selectedPlayerUnitId = activation.unitId;
+    this.applySelectedHex(hexKey, true);
+    void this.focusCameraOnHex(hexKey).catch(() => {});
   }
 
   /**
