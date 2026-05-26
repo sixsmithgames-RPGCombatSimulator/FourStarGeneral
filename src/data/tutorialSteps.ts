@@ -165,7 +165,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "deployment_intro",
     title: "Deployment Plan",
     content:
-      "First establish base camp. Then use Deploy Evenly to spread the line, Deploy Grouped to mass formations, or place units by hand for exact control.",
+      "First establish base camp. Deploy Evenly places one unit per hex from lowest to highest initiative. Deploy Grouped follows the same initiative order but places two units per hex before moving outward.",
     highlightSelector: "#assignBaseCamp, #autoDeployEvenly, #autoDeployGrouped",
     position: "left",
     arrowDirection: "right",

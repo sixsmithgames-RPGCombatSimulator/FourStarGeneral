@@ -1347,12 +1347,14 @@
     }
 
     /* Initiative group highlighting */
-    .hex-group.initiative-group-highlight {
+    .hex-cell.initiative-group-highlight,
+    .hex-tile.initiative-group-highlight {
       filter: brightness(1.3) saturate(1.2);
       transition: filter 0.3s ease;
     }
 
-    .hex-group.initiative-group-highlight .hex-polygon {
+    .hex-cell.initiative-group-highlight .hex-tile,
+    .hex-tile.initiative-group-highlight {
       stroke: var(--accent-strong);
       stroke-width: 3px;
       filter: drop-shadow(0 0 8px rgba(100, 200, 255, 0.6));

@@ -6829,55 +6829,78 @@ export class BattleScreen {
       return a.localeCompare(b);
     });
 
-    const unitQueue = this.buildUnitQueue(mode);
+    const unitQueue = this.buildInitiativeOrderedUnitQueue();
+    if (unitQueue.length === 0) {
+      return [];
+    }
+
     const plannedPlacements: Array<{ hexKey: string; unitKey: string }> = [];
 
-    const hexIterator = sortedHexes[Symbol.iterator]();
-    let nextHex = hexIterator.next();
-    let nextUnit = unitQueue.next();
+    if (mode === "grouped") {
+      let unitIndex = 0;
+      for (const hexKey of sortedHexes) {
+        for (let slot = 0; slot < 2 && unitIndex < unitQueue.length; slot += 1) {
+          plannedPlacements.push({ hexKey, unitKey: unitQueue[unitIndex]! });
+          unitIndex += 1;
+        }
+        if (unitIndex >= unitQueue.length) {
+          break;
+        }
+      }
+      return plannedPlacements;
+    }
 
-    while (!nextHex.done && !nextUnit.done) {
-      plannedPlacements.push({ hexKey: nextHex.value, unitKey: nextUnit.value });
-      nextHex = hexIterator.next();
-      nextUnit = unitQueue.next();
+    const placementCount = Math.min(sortedHexes.length, unitQueue.length);
+    for (let index = 0; index < placementCount; index += 1) {
+      plannedPlacements.push({
+        hexKey: sortedHexes[index]!,
+        unitKey: unitQueue[index]!
+      });
     }
 
     return plannedPlacements;
   }
 
   /**
-   * Builds an iterator of unit keys based on the desired auto-deploy mode.
+   * Builds a deployment queue sorted by initiative from lowest to highest.
+   * Units with matching initiative are ordered alphabetically by unit key.
    */
-  private * buildUnitQueue(mode: "even" | "grouped"): Generator<string, void, void> {
+  private buildInitiativeOrderedUnitQueue(): string[] {
     const deploymentState = ensureDeploymentState();
     const entries = deploymentState.pool
       .map((entry) => ({ key: entry.key, remaining: deploymentState.getReserveCount(entry.key) }))
       .filter((entry) => entry.remaining > 0);
 
     if (entries.length === 0) {
-      return;
+      return [];
     }
 
-    if (mode === "grouped") {
-      entries.sort((a, b) => b.remaining - a.remaining || a.key.localeCompare(b.key));
-      for (const entry of entries) {
-        for (let index = 0; index < entry.remaining; index += 1) {
-          yield entry.key;
-        }
+    entries.sort((a, b) => {
+      const initiativeA = this.resolveInitiativeForDeploymentUnitKey(a.key);
+      const initiativeB = this.resolveInitiativeForDeploymentUnitKey(b.key);
+      if (initiativeA !== initiativeB) {
+        return initiativeA - initiativeB;
       }
-      return;
-    }
+      return a.key.localeCompare(b.key);
+    });
 
-    // Even mode: rotate through unit keys so each type deploys one at a time.
-    const queue = entries.map((entry) => ({ ...entry }));
-    while (queue.some((entry) => entry.remaining > 0)) {
-      for (const entry of queue) {
-        if (entry.remaining > 0) {
-          entry.remaining -= 1;
-          yield entry.key;
-        }
+    const queue: string[] = [];
+    entries.forEach((entry) => {
+      for (let count = 0; count < entry.remaining; count += 1) {
+        queue.push(entry.key);
       }
+    });
+    return queue;
+  }
+
+  private resolveInitiativeForDeploymentUnitKey(unitKey: string): number {
+    const deploymentState = ensureDeploymentState();
+    const scenarioType = deploymentState.getScenarioTypeForUnitKey(unitKey) ?? unitKey;
+    const definition = this.unitTypes[scenarioType as keyof UnitTypeDictionary] as UnitTypeDefinition | undefined;
+    if (definition && typeof definition.initiative === "number") {
+      return definition.initiative;
     }
+    return Number.POSITIVE_INFINITY;
   }
 
   /**
@@ -8290,14 +8313,7 @@ export class BattleScreen {
 
       const uncommittedUnits = this.resolveUncommittedPlayerInitiativeUnits(activeGroup);
       const currentActivation = this.initiativeMethods.getCurrentActivation();
-      const remainingOtherUnits = currentActivation
-        ? uncommittedUnits.filter((unit) => unit.unitId !== currentActivation.unitId)
-        : uncommittedUnits;
-      const shouldConfirmProceed = uncommittedUnits.length > 0 && (
-        remainingOtherUnits.length > 0 ||
-        !currentActivation ||
-        uncommittedUnits.some((unit) => unit.unitId === currentActivation.unitId)
-      );
+      const shouldConfirmProceed = uncommittedUnits.length > 0;
 
       if (shouldConfirmProceed) {
         const confirmProceed = window.confirm(
@@ -8308,12 +8324,18 @@ export class BattleScreen {
           return;
         }
 
-        this.markRemainingPlayerInitiativeUnitsSkipped(
-          activeGroup,
-          currentActivation?.unitId ?? null
-        );
       }
 
+      const currentUnitId = currentActivation?.unitId ?? null;
+      if (currentUnitId && uncommittedUnits.some((unit) => unit.unitId === currentUnitId)) {
+        const engine = this.battleState.ensureGameEngine();
+        const currentUnit = engine.playerUnits.find((entry) => entry.unitId === currentUnitId);
+        if (currentUnit && !currentUnit.onSentry) {
+          engine.enterSentry(currentUnit.hex, currentUnit.unitId ?? undefined);
+        }
+      }
+
+      this.markRemainingPlayerInitiativeUnitsSkipped(activeGroup, currentUnitId);
       this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative, false);
       this.focusCurrentInitiativeActivation();
       this.highlightCurrentInitiativeGroup();
@@ -8482,7 +8504,7 @@ export class BattleScreen {
       this.syncInitiativeGroupSession(activeGroup);
 
       const highlightActivations = activeGroup.ownerId === "player"
-        ? activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId))
+        ? this.resolveSelectablePlayerInitiativeActivations(activeGroup)
         : [activeGroup.activations[0]].filter((activation): activation is { unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number } => Boolean(activation));
 
       const unitHexes = highlightActivations
@@ -8519,8 +8541,12 @@ export class BattleScreen {
         return true; // Fallback: allow all units if no current queue
       }
 
-      return activeGroup.activations.some((activation) => activation.unitId === unitId)
-        && !this.initiativeSkippedUnitIds.has(unitId);
+      if (activeGroup.ownerId !== "player") {
+        return false;
+      }
+
+      return this.resolveSelectablePlayerInitiativeActivations(activeGroup)
+        .some((activation) => activation.unitId === unitId);
     } catch (error) {
       console.error('Failed to check unit initiative group:', error);
       return true; // Fallback: allow unit on error
@@ -8654,6 +8680,91 @@ export class BattleScreen {
       .filter((unit) => !this.hasUnitCommittedOrders(unit));
   }
 
+  private resolveSelectablePlayerInitiativeActivations(activeGroup: {
+    initiative: number;
+    ownerId: "player" | "bot";
+    activations: Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }>;
+  }): Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }> {
+    if (activeGroup.ownerId !== "player") {
+      return [];
+    }
+
+    const engine = this.battleState.ensureGameEngine();
+    const actionable = activeGroup.activations.filter((activation) => {
+      if (this.initiativeSkippedUnitIds.has(activation.unitId)) {
+        return false;
+      }
+      const unit = engine.playerUnits.find((entry) => entry.unitId === activation.unitId);
+      if (!unit) {
+        return true;
+      }
+      return !this.hasUnitCommittedOrders(unit);
+    });
+
+    if (actionable.length > 0) {
+      return actionable;
+    }
+
+    return activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
+  }
+
+  private focusNextSelectablePlayerInitiativeUnit(
+    activeGroup: {
+      initiative: number;
+      ownerId: "player" | "bot";
+      activations: Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }>;
+    },
+    anchorUnitId: string | null
+  ): boolean {
+    if (activeGroup.ownerId !== "player") {
+      return false;
+    }
+
+    const orderedActivations = activeGroup.activations.filter(
+      (activation) => !this.initiativeSkippedUnitIds.has(activation.unitId)
+    );
+    if (orderedActivations.length === 0) {
+      return false;
+    }
+
+    const selectableActivations = this.resolveSelectablePlayerInitiativeActivations(activeGroup);
+    if (selectableActivations.length === 0) {
+      return false;
+    }
+
+    const selectableIds = new Set(selectableActivations.map((activation) => activation.unitId));
+    const orderedCount = orderedActivations.length;
+    let anchorIndex = anchorUnitId
+      ? orderedActivations.findIndex((activation) => activation.unitId === anchorUnitId)
+      : -1;
+    if (anchorIndex < 0 && this.initiativeGroupCursorUnitId) {
+      anchorIndex = orderedActivations.findIndex(
+        (activation) => activation.unitId === this.initiativeGroupCursorUnitId
+      );
+    }
+
+    let nextActivation: { unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number } | null = null;
+    for (let offset = 1; offset <= orderedCount; offset += 1) {
+      const index = (anchorIndex + offset + orderedCount) % orderedCount;
+      const candidate = orderedActivations[index];
+      if (candidate && selectableIds.has(candidate.unitId)) {
+        nextActivation = candidate;
+        break;
+      }
+    }
+
+    if (!nextActivation) {
+      nextActivation = selectableActivations[0] ?? null;
+    }
+    if (!nextActivation) {
+      return false;
+    }
+
+    this.initiativeGroupCursorUnitId = nextActivation.unitId;
+    this.focusInitiativeUnit(nextActivation.unitId);
+    return true;
+  }
+
   private markRemainingPlayerInitiativeUnitsSkipped(
     activeGroup: {
       initiative: number;
@@ -8673,7 +8784,7 @@ export class BattleScreen {
       }
       this.initiativeSkippedUnitIds.add(activation.unitId);
       const unit = engine.playerUnits.find((entry) => entry.unitId === activation.unitId);
-      if (unit && !unit.onSentry) {
+      if (unit && !unit.onSentry && !this.hasUnitCommittedOrders(unit)) {
         engine.enterSentry(unit.hex, unit.unitId ?? undefined);
       }
     });
@@ -8707,20 +8818,7 @@ export class BattleScreen {
     }
 
     this.syncInitiativeGroupSession(activeGroup);
-
-    const candidateActivations = activeGroup.activations
-      .filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
-    if (candidateActivations.length === 0) {
-      return;
-    }
-
-    const currentIndex = this.initiativeGroupCursorUnitId
-      ? candidateActivations.findIndex((activation) => activation.unitId === this.initiativeGroupCursorUnitId)
-      : -1;
-    const nextIndex = (currentIndex + 1 + candidateActivations.length) % candidateActivations.length;
-    const nextActivation = candidateActivations[nextIndex];
-    this.initiativeGroupCursorUnitId = nextActivation.unitId;
-    this.focusInitiativeUnit(nextActivation.unitId);
+    this.focusNextSelectablePlayerInitiativeUnit(activeGroup, this.initiativeGroupCursorUnitId);
   }
 
   private focusInitiativeUnit(unitId: string): void {
@@ -8788,7 +8886,7 @@ export class BattleScreen {
     }
 
     this.syncInitiativeGroupSession(activeGroup);
-    const candidates = activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
+    const candidates = this.resolveSelectablePlayerInitiativeActivations(activeGroup);
     if (candidates.length === 0) {
       return;
     }
@@ -8796,6 +8894,9 @@ export class BattleScreen {
     const selectedFromCursor = this.initiativeGroupCursorUnitId
       ? candidates.find((activation) => activation.unitId === this.initiativeGroupCursorUnitId) ?? null
       : null;
+    if (!selectedFromCursor && this.focusNextSelectablePlayerInitiativeUnit(activeGroup, this.initiativeGroupCursorUnitId)) {
+      return;
+    }
     const activation = selectedFromCursor ?? candidates[0];
     this.initiativeGroupCursorUnitId = activation.unitId;
     this.focusInitiativeUnit(activation.unitId);
@@ -8812,7 +8913,7 @@ export class BattleScreen {
       return;
     }
 
-    const candidates = activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
+    const candidates = this.resolveSelectablePlayerInitiativeActivations(activeGroup);
     if (candidates.length === 0) {
       return;
     }
@@ -8820,6 +8921,14 @@ export class BattleScreen {
     const candidateIds = new Set(candidates.map((activation) => activation.unitId));
     const selectedUnitId = this.selectedPlayerUnitId;
     if (!selectedUnitId || !candidateIds.has(selectedUnitId)) {
+      // Keep the existing initiative cursor stable when selection is briefly cleared
+      // after an action so "Next Unit" advances from the player's last position.
+      if (this.initiativeGroupCursorUnitId && candidateIds.has(this.initiativeGroupCursorUnitId)) {
+        return;
+      }
+      if (this.initiativeGroupCursorUnitId && this.focusNextSelectablePlayerInitiativeUnit(activeGroup, this.initiativeGroupCursorUnitId)) {
+        return;
+      }
       this.initiativeGroupCursorUnitId = null;
       this.focusCurrentInitiativeActivation();
       return;
