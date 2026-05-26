@@ -8,6 +8,7 @@
  */
 
 import type { ScenarioUnit } from './types';
+import { unitTypesData } from '../data/unitSystem/derivedUnitTypes';
 
 /**
  * Represents a single unit's activation in the turn queue
@@ -68,14 +69,21 @@ export class InitiativeQueueManager {
 
     // Filter out aircraft (initiative 0) and create activation entries
     const activations: UnitActivation[] = units
-      .filter(unit => unit.initiative > 0) // Exclude aircraft
-      .map((unit, index) => ({
-        unitId: unit.unitId || `${unit.type}-${index}`, // Fallback ID if unitId is missing
-        ownerId: unit.controlledBy === 'Player' ? 'player' : 'bot',
-        initiative: unit.initiative,
-        isActivated: false,
-        sortOrder: index
-      }));
+      .filter(unit => {
+        // Get initiative from unit type definition
+        const unitDef = unitTypesData[unit.type as keyof typeof unitTypesData];
+        return unitDef && unitDef.initiative > 0; // Exclude aircraft
+      })
+      .map((unit, index) => {
+        const unitDef = unitTypesData[unit.type as keyof typeof unitTypesData];
+        return {
+          unitId: unit.unitId || `${unit.type}-${index}`, // Fallback ID if unitId is missing
+          ownerId: unit.controlledBy === 'Player' ? 'player' : 'bot',
+          initiative: unitDef?.initiative || 0,
+          isActivated: false,
+          sortOrder: index
+        };
+      });
 
     // Sort by initiative (descending), then by owner (player first), then by original order
     activations.sort((a, b) => {

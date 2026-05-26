@@ -59,7 +59,22 @@ export class GameEngineInitiativeMethods {
     // Enable initiative system if requested
     if (enableInitiativeSystem) {
       const allUnits = this.getAllUnitsForInitiative();
+      console.log('Initiative system starting with units:', {
+        totalUnits: allUnits.length,
+        playerUnits: this.gameEngine.playerUnits.length,
+        botUnits: this.gameEngine.botUnits.length,
+        unitTypes: allUnits.map(u => u.type)
+      });
+      
       this.integration.enableInitiativeSystem(allUnits, this.gameEngine._turnNumber);
+      
+      // Check initial queue state
+      const initialQueue = this.integration.getInitiativeQueue();
+      console.log('Initial initiative queue:', {
+        hasQueue: !!initialQueue,
+        activations: initialQueue?.activations?.length || 0,
+        currentIndex: initialQueue?.currentIndex || 0
+      });
       
       // Process the first activation
       this.processNextInitiativeActivation();
@@ -76,15 +91,28 @@ export class GameEngineInitiativeMethods {
    */
   public processNextInitiativeActivation(): UnitActivation | null {
     if (!this.integration.isInitiativeSystemActive()) {
+      console.log('Initiative system not active');
       return null;
     }
+
+    const queueBefore = this.integration.getInitiativeQueue();
+    console.log('Processing next activation:', {
+      queueExists: !!queueBefore,
+      currentActivations: queueBefore?.activations?.length || 0,
+      currentIndex: queueBefore?.currentIndex || 0
+    });
 
     const nextActivation = this.integration.processNextActivation();
     
     if (nextActivation) {
+      console.log('Next activation found:', {
+        unitId: nextActivation.unitId,
+        ownerId: nextActivation.ownerId
+      });
       // Update UI and game state for the new activation
       this.onActivationStarted(nextActivation);
     } else {
+      console.log('No more activations, queue complete');
       // No more activations, transition to air show phase
       this.onInitiativeQueueComplete();
     }

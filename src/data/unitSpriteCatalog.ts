@@ -152,6 +152,9 @@ const GROUND_UNIT_SPRITES: Record<string, SpriteCatalogEntry> = {
   Infantry_42: directionalSprite("Infantry_Light_USA"),
   Infantry: directionalSprite("Infantry_Light_USA"),
   Infantry_Elite: unitSprite("Infantry_Elite.png"),
+  Infantry_mg: directionalSprite("Infantry_Light_USA"),
+  Infantry_bazooka: directionalSprite("Infantry_AT_USA"),
+  Infantry_mortar: directionalSprite("Infantry_Mortar_USA"),
   AT_Infantry: directionalSprite("Infantry_AT_USA"),
   Paratrooper: unitSprite("Paratrooper.png"),
   Engineer: factionDirectionalSprites({

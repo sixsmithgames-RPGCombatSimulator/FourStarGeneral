@@ -10,6 +10,7 @@
 
 import type { ScenarioUnit } from './types';
 import { InitiativeQueueManager, type UnitActivation, type InitiativeQueue } from './InitiativeQueue';
+import { unitTypesData } from '../data/unitSystem/derivedUnitTypes';
 
 /**
  * Represents a group of units with the same initiative value
@@ -79,14 +80,21 @@ export class GroupedInitiativeQueueManager extends InitiativeQueueManager {
 
     // Filter out aircraft (initiative 0) and create activation entries
     const activations: UnitActivation[] = units
-      .filter(unit => unit.initiative > 0) // Exclude aircraft
-      .map((unit, index) => ({
-        unitId: unit.unitId || `${unit.type}-${index}`,
-        ownerId: unit.controlledBy === 'Player' ? 'player' : 'bot',
-        initiative: unit.initiative,
-        isActivated: false,
-        sortOrder: index
-      }));
+      .filter(unit => {
+        // Get initiative from unit type definition
+        const unitDef = unitTypesData[unit.type as keyof typeof unitTypesData];
+        return unitDef && unitDef.initiative > 0; // Exclude aircraft
+      })
+      .map((unit, index) => {
+        const unitDef = unitTypesData[unit.type as keyof typeof unitTypesData];
+        return {
+          unitId: unit.unitId || `${unit.type}-${index}`,
+          ownerId: unit.controlledBy === 'Player' ? 'player' : 'bot',
+          initiative: unitDef?.initiative || 0,
+          isActivated: false,
+          sortOrder: index
+        };
+      });
 
     // Group units by initiative value
     const groupMap = new Map<number, UnitActivation[]>();
