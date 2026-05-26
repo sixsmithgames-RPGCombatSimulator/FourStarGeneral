@@ -49,7 +49,9 @@ export class GameEngineInitiativeMethods {
     }
 
     // Set initial turn state
-    this.gameEngine._phase = "initiativeTurn";
+    // Keep the engine in playerTurn for command-system compatibility.
+    // Initiative sequencing is tracked by the integration layer.
+    this.gameEngine._phase = "playerTurn";
     this.gameEngine._activeFaction = "Player";
     this.gameEngine._turnNumber = 1;
     this.gameEngine.playerActionFlags.clear();
@@ -351,22 +353,64 @@ export class GameEngineInitiativeMethods {
   private getAllUnitsForInitiative(): ScenarioUnit[] {
     const units: ScenarioUnit[] = [];
 
-    // Collect player units
-    if (this.gameEngine._playerUnits) {
-      units.push(...Object.values(this.gameEngine._playerUnits) as ScenarioUnit[]);
+    // Prefer public getters from GameEngine. These are the canonical unit collections.
+    if (Array.isArray(this.gameEngine.playerUnits)) {
+      units.push(
+        ...(this.gameEngine.playerUnits as ScenarioUnit[]).map((unit) => ({
+          ...unit,
+          controlledBy: "Player" as const
+        }))
+      );
     }
 
-    // Collect bot units
-    if (this.gameEngine._botUnits) {
-      units.push(...Object.values(this.gameEngine._botUnits) as ScenarioUnit[]);
+    if (Array.isArray(this.gameEngine.botUnits)) {
+      units.push(
+        ...(this.gameEngine.botUnits as ScenarioUnit[]).map((unit) => ({
+          ...unit,
+          controlledBy: "AI" as const
+        }))
+      );
     }
 
-    // Collect ally units if present
-    if (this.gameEngine._allyUnits) {
-      units.push(...Object.values(this.gameEngine._allyUnits) as ScenarioUnit[]);
+    // Ally units act as non-player activations in the current initiative model.
+    if (Array.isArray(this.gameEngine.allyUnits)) {
+      units.push(
+        ...(this.gameEngine.allyUnits as ScenarioUnit[]).map((unit) => ({
+          ...unit,
+          controlledBy: "AI" as const
+        }))
+      );
     }
 
-    return units;
+    // Backward-compatible fallback for older/alternate engine shapes.
+    if (units.length === 0) {
+      if (this.gameEngine._playerUnits) {
+        units.push(
+          ...((Object.values(this.gameEngine._playerUnits) as ScenarioUnit[]).map((unit) => ({
+            ...unit,
+            controlledBy: "Player" as const
+          })))
+        );
+      }
+      if (this.gameEngine._botUnits) {
+        units.push(
+          ...((Object.values(this.gameEngine._botUnits) as ScenarioUnit[]).map((unit) => ({
+            ...unit,
+            controlledBy: "AI" as const
+          })))
+        );
+      }
+      if (this.gameEngine._allyUnits) {
+        units.push(
+          ...((Object.values(this.gameEngine._allyUnits) as ScenarioUnit[]).map((unit) => ({
+            ...unit,
+            controlledBy: "AI" as const
+          })))
+        );
+      }
+    }
+
+    return units.filter((unit) => Boolean(unit?.type) && Boolean(unit?.hex));
   }
 
   /**

@@ -6300,6 +6300,7 @@ export class BattleScreen {
         default:
           break;
       }
+      this.syncInitiativeTurnControlsState();
       this.syncQueuedTargetMarkers();
     });
   }
@@ -6909,6 +6910,7 @@ export class BattleScreen {
       // Initialize initiative system and move to initiative turn phase
       this.initializeInitiativeSystem(engine);
       this.initiativeMethods?.startInitiativeTurnPhase(true); // Enable initiative system
+      this.syncInitiativeTurnControlsState();
 
       this.refreshDeploymentMirrors("sync");
 
@@ -8071,6 +8073,7 @@ export class BattleScreen {
       // Insert into the top bar command group (where sound toggle and end turn button are)
       const commandGroup = document.querySelector('.battle-map-header__command-group');
       if (commandGroup) {
+        commandGroup.classList.add('initiative-controls-active');
         commandGroup.appendChild(controlsContainer);
         console.log('Initiative controls container added to top bar command group');
       } else {
@@ -8101,6 +8104,8 @@ export class BattleScreen {
         }
       );
       
+      this.syncInitiativeTurnControlsState();
+
       console.log('Enhanced turn controls initialized in top bar');
       
     } catch (error) {
@@ -8121,10 +8126,16 @@ export class BattleScreen {
     if (currentActivation && currentActivation.ownerId === 'player') {
       try {
         this.initiativeMethods.completeUnitActivation(currentActivation.unitId);
+        this.highlightCurrentInitiativeGroup();
       } catch (error) {
         console.error('Failed to complete unit activation:', error);
+      } finally {
+        this.syncInitiativeTurnControlsState();
       }
+      return;
     }
+
+    this.syncInitiativeTurnControlsState();
   }
 
   /**
@@ -8148,8 +8159,10 @@ export class BattleScreen {
           
           for (const unit of allUnits) {
             if (!unit.onSentry) {
-              unit.onSentry = true;
-              console.log(`Putting unit ${unit.unitId} on sentry mode (skip group)`);
+              const placedOnSentry = engine.enterSentry(unit.hex, unit.unitId ?? undefined);
+              if (placedOnSentry) {
+                console.log(`Putting unit ${unit.unitId} on sentry mode (skip group)`);
+              }
             }
           }
         }
@@ -8162,6 +8175,8 @@ export class BattleScreen {
       this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to skip group:', error);
+    } finally {
+      this.syncInitiativeTurnControlsState();
     }
   }
 
@@ -8179,6 +8194,8 @@ export class BattleScreen {
       this.initiativeMethods.endCurrentTurn();
     } catch (error) {
       console.error('Failed to end turn:', error);
+    } finally {
+      this.syncInitiativeTurnControlsState();
     }
   }
 
@@ -8199,6 +8216,8 @@ export class BattleScreen {
       this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to process next activation:', error);
+    } finally {
+      this.syncInitiativeTurnControlsState();
     }
   }
 
@@ -8223,8 +8242,10 @@ export class BattleScreen {
           const currentUnit = allUnits.find(u => u.unitId === currentActivation.unitId);
           
           if (currentUnit && !currentUnit.onSentry) {
-            currentUnit.onSentry = true;
-            console.log(`Putting unit ${currentUnit.unitId} on sentry mode (skip unit)`);
+            const placedOnSentry = engine.enterSentry(currentUnit.hex, currentUnit.unitId ?? undefined);
+            if (placedOnSentry) {
+              console.log(`Putting unit ${currentUnit.unitId} on sentry mode (skip unit)`);
+            }
           }
         }
       }
@@ -8236,6 +8257,8 @@ export class BattleScreen {
       this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to skip turn:', error);
+    } finally {
+      this.syncInitiativeTurnControlsState();
     }
   }
 
@@ -8256,6 +8279,8 @@ export class BattleScreen {
       this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to complete activation:', error);
+    } finally {
+      this.syncInitiativeTurnControlsState();
     }
   }
 
@@ -8459,6 +8484,41 @@ export class BattleScreen {
     }
 
     return null;
+  }
+
+  /**
+   * Synchronize initiative turn controls with current queue/activation state.
+   */
+  private syncInitiativeTurnControlsState(): void {
+    if (!this.initiativeTurnControls) {
+      return;
+    }
+
+    if (!this.initiativeMethods || !this.isInitiativeSystemEnabled) {
+      this.initiativeTurnControls.updateCurrentUnit(null);
+      this.initiativeTurnControls.updatePlayerTurn(false);
+      this.initiativeTurnControls.updatePhase('turnEnded');
+      this.initiativeTurnControls.setControlsEnabled(false);
+      return;
+    }
+
+    try {
+      const activation = this.initiativeMethods.getCurrentActivation();
+      const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+      const hasRemainingActivations = Boolean(queue?.activations?.some((entry: { isActivated: boolean }) => !entry.isActivated));
+      const initiativeActive = this.initiativeMethods.isInitiativeSystemActive();
+      const controlsPhase: 'initiativeTurn' | 'airShowPhase' | 'turnEnded' =
+        initiativeActive && (hasRemainingActivations || Boolean(activation))
+          ? 'initiativeTurn'
+          : 'turnEnded';
+
+      this.initiativeTurnControls.updateCurrentUnit(activation);
+      this.initiativeTurnControls.updatePlayerTurn(activation?.ownerId === 'player');
+      this.initiativeTurnControls.updatePhase(controlsPhase);
+      this.initiativeTurnControls.setControlsEnabled(controlsPhase === 'initiativeTurn');
+    } catch (error) {
+      console.error('Failed to sync initiative turn controls state:', error);
+    }
   }
 
   /**
@@ -8738,7 +8798,12 @@ export class BattleScreen {
     const engine = this.battleState.ensureGameEngine();
     const summary = engine.getTurnSummary();
 
-    if (summary.phase === "playerTurn") {
+    const summaryPhase = summary.phase as string;
+    const isPlayerControlPhase =
+      summaryPhase === "playerTurn" ||
+      (this.isInitiativeSystemEnabled && summaryPhase === "initiativeTurn");
+
+    if (isPlayerControlPhase) {
       const transferResult = this.tryTransferAllyControl(key);
       if (transferResult) {
         return;

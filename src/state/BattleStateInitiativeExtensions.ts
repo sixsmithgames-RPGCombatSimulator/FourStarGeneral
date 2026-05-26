@@ -9,7 +9,6 @@
 
 import type { InitiativeQueue, UnitActivation } from "../core/InitiativeQueue";
 import { initiativeQueueManager } from "../core/InitiativeQueue";
-import { GroupedInitiativeQueueManager } from "../core/GroupedInitiativeQueue";
 import type { ScenarioUnit } from "../core/types";
 import { isInitiativeUnit, type InitiativeUnit, toInitiativeUnit, resetUnitActivation, activateUnit } from "../core/InitiativeTypes";
 
@@ -202,12 +201,34 @@ export class BattleStateInitiativeManager {
       throw new Error('No initiative queue available');
     }
 
-    // Skip the current group in the queue
-    // Create a GroupedInitiativeQueueManager instance to handle the operation
-    const groupedManager = new GroupedInitiativeQueueManager();
-    groupedManager.skipCurrentGroup(this.state.initiativeQueue as any);
-    
-    // Clear current activation
+    const queue = this.state.initiativeQueue;
+    const currentActivation = initiativeQueueManager.getNextActivation(queue);
+    if (!currentActivation) {
+      this.state.currentActivation = null;
+      return;
+    }
+
+    // In the standard queue model, a "group" is treated as contiguous
+    // unactivated entries with the same initiative + owner.
+    for (let i = queue.currentIndex; i < queue.activations.length; i += 1) {
+      const activation = queue.activations[i];
+      if (activation.isActivated) {
+        continue;
+      }
+
+      if (
+        activation.initiative !== currentActivation.initiative ||
+        activation.ownerId !== currentActivation.ownerId
+      ) {
+        break;
+      }
+
+      (activation as UnitActivation).isActivated = true;
+      if (queue.currentIndex <= i) {
+        queue.currentIndex = i + 1;
+      }
+    }
+
     this.state.currentActivation = null;
   }
 

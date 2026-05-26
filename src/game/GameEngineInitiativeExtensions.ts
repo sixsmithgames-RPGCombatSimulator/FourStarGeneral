@@ -291,25 +291,40 @@ export class GameEngineInitiativeIntegration {
    * @returns Array of current units
    */
   private getCurrentUnitsFromEngine(): ScenarioUnit[] {
-    // This would need to be implemented based on how the GameEngine exposes units
-    // For now, return empty array as placeholder
-    if (this.gameEngine && typeof this.gameEngine.getAllUnits === 'function') {
+    if (!this.gameEngine) {
+      return [];
+    }
+
+    // Prefer public API if available.
+    if (typeof this.gameEngine.getAllUnits === 'function') {
       return this.gameEngine.getAllUnits();
     }
-    
-    // Fallback: try to access units through known properties
+
     const units: ScenarioUnit[] = [];
-    
-    // Try player units
-    if (this.gameEngine._playerUnits) {
-      units.push(...Object.values(this.gameEngine._playerUnits) as ScenarioUnit[]);
+
+    if (Array.isArray(this.gameEngine.playerUnits)) {
+      units.push(...(this.gameEngine.playerUnits as ScenarioUnit[]));
     }
-    
-    // Try bot units
-    if (this.gameEngine._botUnits) {
-      units.push(...Object.values(this.gameEngine._botUnits) as ScenarioUnit[]);
+    if (Array.isArray(this.gameEngine.botUnits)) {
+      units.push(...(this.gameEngine.botUnits as ScenarioUnit[]));
     }
-    
+    if (Array.isArray(this.gameEngine.allyUnits)) {
+      units.push(...(this.gameEngine.allyUnits as ScenarioUnit[]));
+    }
+
+    // Backward-compatible fallback for older engine shapes.
+    if (units.length === 0) {
+      if (this.gameEngine._playerUnits) {
+        units.push(...Object.values(this.gameEngine._playerUnits) as ScenarioUnit[]);
+      }
+      if (this.gameEngine._botUnits) {
+        units.push(...Object.values(this.gameEngine._botUnits) as ScenarioUnit[]);
+      }
+      if (this.gameEngine._allyUnits) {
+        units.push(...Object.values(this.gameEngine._allyUnits) as ScenarioUnit[]);
+      }
+    }
+
     return units;
   }
 
