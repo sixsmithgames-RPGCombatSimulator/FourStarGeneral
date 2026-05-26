@@ -16,6 +16,8 @@ export class MapViewport implements IMapViewport {
   private viewportRoot: SVGGElement | null = null;
   private readonly wheelZoomStep = 0.18;
   private readonly wheelEventTarget: HTMLElement | SVGSVGElement;
+  /** Tracks whether viewportRoot warning has been logged to reduce console noise */
+  private hasLoggedViewportWarning = false;
   /** Timestamp of last user camera input (wheel/drag) to suppress auto-focus */
   private lastUserCameraInputAt = 0;
   /** Tracks middle-mouse drag state so panning only occurs while the wheel button stays depressed. */
@@ -152,7 +154,11 @@ export class MapViewport implements IMapViewport {
     // Find viewportRoot - this is the ONLY element we transform
     this.viewportRoot = element.querySelector<SVGGElement>("#viewportRoot");
     if (!this.viewportRoot) {
-      console.warn("[MapViewport] viewportRoot not found in SVG - transforms will not work until next render");
+      // Only warn once to reduce console noise during initial loading
+      if (!this.hasLoggedViewportWarning) {
+        this.hasLoggedViewportWarning = true;
+        console.warn("[MapViewport] viewportRoot not found in SVG - transforms will not work until next render");
+      }
     }
 
     this.bindWheelInteractions();
@@ -376,7 +382,11 @@ export class MapViewport implements IMapViewport {
     if (!this.viewportRoot) {
       this.viewportRoot = this.mapElement.querySelector<SVGGElement>("#viewportRoot");
       if (!this.viewportRoot) {
-        console.warn("[MapViewport] updateTransform: viewportRoot not found - map may not be rendered yet");
+        // Only warn once to reduce console noise during initial loading
+        if (!this.hasLoggedViewportWarning) {
+          this.hasLoggedViewportWarning = true;
+          console.warn("[MapViewport] updateTransform: viewportRoot not found - map may not be rendered yet");
+        }
         return;
       }
     }

@@ -116,6 +116,8 @@ export class DeploymentState {
   private hexToZoneKey = new Map<string, string>();
   private scenarioTypeAlias = new Map<string, string>();
   private unitKeyToScenarioType = new Map<string, string>();
+  /** Tracks which exhausted unit keys have been warned about to reduce console noise */
+  private hasLoggedExhaustedWarning = new Set<string>();
 
   constructor() {
     // Pre-seed scenario → allocation aliases so player rosters derived directly from scenario data still resolve UI keys.
@@ -648,11 +650,15 @@ export class DeploymentState {
       let engineRemaining = this.reserveCountMap.get(entry.key);
       if (engineRemaining === undefined) {
         const deployedCount = placementCounts.get(entry.key) ?? 0;
-        console.warn("[DeploymentState] Engine snapshot omitted exhausted unit key; normalizing totals.", {
-          unitKey: entry.key,
-          totalBudget: this.getUnitCount(entry.key),
-          deployedCount
-        });
+        // Only warn once per unit key to reduce console noise
+        if (!this.hasLoggedExhaustedWarning.has(entry.key)) {
+          this.hasLoggedExhaustedWarning.add(entry.key);
+          console.warn("[DeploymentState] Engine snapshot omitted exhausted unit key; normalizing totals.", {
+            unitKey: entry.key,
+            totalBudget: this.getUnitCount(entry.key),
+            deployedCount
+          });
+        }
         if (deployedCount <= 0) {
           // No reserves and no placements: remove from pool and ensure totals do not inflate deployed counts.
           this.totalAllocationMap.set(entry.key, 0);

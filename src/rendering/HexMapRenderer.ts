@@ -4403,7 +4403,21 @@ export class HexMapRenderer implements IMapRenderer {
       if (!compositeSprites && reconStatus !== "spotted") {
         console.error(
           "[HexMapRenderer] renderUnitStack: no sprite registered for unit type+faction — unit will render blank.",
-          { type: member.unit.type, faction: member.faction, hexKey }
+          { 
+            type: member.unit.type, 
+            faction: member.faction, 
+            hexKey,
+            unitId: member.unit.unitId,
+            controlledBy: member.unit.controlledBy,
+            // Debug info to help identify missing sprites
+            debug: {
+              hasUnitId: !!member.unit.unitId,
+              hasControlledBy: !!member.unit.controlledBy,
+              isScenarioUnit: !!member.unit.type,
+              possibleFaction: member.unit.controlledBy === 'Player' ? 'Player' : 
+                             member.unit.controlledBy === 'AI' ? 'Bot' : 'Unknown'
+            }
+          }
         );
       }
       const layout = this.resolveUnitStackLayout(
