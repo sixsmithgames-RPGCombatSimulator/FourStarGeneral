@@ -35,6 +35,8 @@ export class GameEngineInitiativeMethods {
   private botIntegration: InitiativeBotIntegration;
   private gameEngine: any; // GameEngine instance
   private botActivationObservers = new Set<(result: InitiativeBotActivationResult) => void>();
+  private plannerIntegrationUnavailableLogged = false;
+  private plannerBotIntegrationDisabled = false;
 
   constructor(gameEngine: any) {
     this.gameEngine = gameEngine;
@@ -491,34 +493,49 @@ export class GameEngineInitiativeMethods {
 
     try {
       console.log(`Executing bot turn for ${activation.unitId}`);
-      
-      // Get bot decision
-      const decisionResult = this.botIntegration.executeBotDecision(activation);
+
       let executed = false;
-      
-      if (decisionResult.hasValidAction) {
-        console.log(`Bot decision for ${activation.unitId}: ${decisionResult.action.rationale}`);
-        
-        // Execute the planned action
-        const executionSuccess = this.botIntegration.executePlannedAction(decisionResult.action);
-        
-        if (executionSuccess) {
-          console.log(`Bot action executed successfully for ${activation.unitId}`);
-          executed = true;
-        } else {
-          console.warn(`Bot action execution failed for ${activation.unitId}`);
+
+      if (!this.plannerBotIntegrationDisabled && this.supportsPlannerBotIntegration()) {
+        try {
+          // Get bot decision
+          const decisionResult = this.botIntegration.executeBotDecision(activation);
+
+          if (decisionResult.hasValidAction) {
+            console.log(`Bot decision for ${activation.unitId}: ${decisionResult.action.rationale}`);
+
+            // Execute the planned action
+            const executionSuccess = this.botIntegration.executePlannedAction(decisionResult.action);
+
+            if (executionSuccess) {
+              console.log(`Bot action executed successfully for ${activation.unitId}`);
+              executed = true;
+            } else {
+              console.warn(`Bot action execution failed for ${activation.unitId}`);
+            }
+          } else {
+            console.log(`No valid action found for bot unit ${activation.unitId}`);
+          }
+
+          // Log performance metrics
+          if (decisionResult.executionTime > 100) {
+            console.warn(`Bot decision took ${decisionResult.executionTime}ms for ${activation.unitId}`);
+          }
+        } catch (plannerError) {
+          this.plannerBotIntegrationDisabled = true;
+          if (!this.plannerIntegrationUnavailableLogged) {
+            this.plannerIntegrationUnavailableLogged = true;
+            console.info("[Initiative] Planner bot adapter failed during execution; using deterministic fallback bot activations for the remainder of this battle.");
+          }
+          console.warn("[Initiative] Planner bot adapter error:", plannerError);
         }
-      } else {
-        console.log(`No valid action found for bot unit ${activation.unitId}`);
+      } else if (!this.plannerIntegrationUnavailableLogged) {
+        this.plannerIntegrationUnavailableLogged = true;
+        console.info("[Initiative] Planner bot adapter unavailable on current engine shape; using deterministic fallback bot activations.");
       }
 
       if (!executed) {
         executed = this.executeFallbackBotActivation(activation);
-      }
-      
-      // Log performance metrics
-      if (decisionResult.executionTime > 100) {
-        console.warn(`Bot decision took ${decisionResult.executionTime}ms for ${activation.unitId}`);
       }
 
       const afterState = this.resolveActivationUnit(activation);
@@ -542,6 +559,42 @@ export class GameEngineInitiativeMethods {
         this.completeUnitActivation(activation.unitId);
       }, 500);
     }
+  }
+
+  private supportsPlannerBotIntegration(): boolean {
+    const plannerEngine = (this.botIntegration as unknown as { gameEngine?: Record<string, unknown> | null })?.gameEngine;
+    const candidateEngines: Record<string, unknown>[] = [];
+    if (plannerEngine && typeof plannerEngine === 'object') {
+      candidateEngines.push(plannerEngine);
+    }
+    if (this.gameEngine && typeof this.gameEngine === 'object') {
+      candidateEngines.push(this.gameEngine as Record<string, unknown>);
+    }
+    if (candidateEngines.length === 0) {
+      return false;
+    }
+
+    const requiredMethods = [
+      'getUnitsForFaction',
+      'getUnit',
+      'getUnitAt',
+      'executeUnitMove',
+      'executeUnitAttack',
+      'executeUnitDigIn',
+      'isInBounds',
+      'getTerrainAt',
+      'getMovementCost',
+      'getFeaturesAt',
+      'isRoad',
+      'getHexModificationsAt',
+      'checkLineOfSight',
+      'estimateAttack',
+      'getObjectives'
+    ] as const;
+
+    return candidateEngines.every((engine) =>
+      requiredMethods.every((name) => typeof engine[name] === 'function')
+    );
   }
 
   private cloneHex(hex: Axial | null | undefined): Axial | null {
