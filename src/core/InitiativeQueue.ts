@@ -132,10 +132,11 @@ export class InitiativeQueueManager {
    * 
    * @param queue - Current initiative queue (will be mutated)
    * @param unitId - ID of unit to mark as activated
+   * @param expectedSortOrder - Optional sort-order hint to disambiguate duplicate unit IDs
    * 
    * @throws Error if unitId is not found or already activated
    */
-  public markActivated(queue: InitiativeQueue, unitId: string): void {
+  public markActivated(queue: InitiativeQueue, unitId: string, expectedSortOrder?: number): void {
     if (!queue || !Array.isArray(queue.activations)) {
       throw new Error('Invalid queue provided');
     }
@@ -143,10 +144,26 @@ export class InitiativeQueueManager {
       throw new Error('Unit ID must be a non-empty string');
     }
 
-    // Find the activation entry
-    const activationIndex = queue.activations.findIndex(
-      activation => activation.unitId === unitId
-    );
+    // Find the activation entry. Prefer an exact unitId+sortOrder match when available
+    // so duplicate unit IDs do not advance the queue to the wrong position.
+    let activationIndex = -1;
+    if (typeof expectedSortOrder === 'number') {
+      activationIndex = queue.activations.findIndex(
+        (activation) => activation.unitId === unitId && activation.sortOrder === expectedSortOrder
+      );
+    }
+
+    if (activationIndex === -1) {
+      activationIndex = queue.activations.findIndex(
+        (activation) => activation.unitId === unitId && !activation.isActivated
+      );
+    }
+
+    if (activationIndex === -1) {
+      activationIndex = queue.activations.findIndex(
+        (activation) => activation.unitId === unitId
+      );
+    }
 
     if (activationIndex === -1) {
       throw new Error(`Unit ${unitId} not found in initiative queue`);
@@ -163,6 +180,10 @@ export class InitiativeQueueManager {
     // Update current index to point to next unactivated unit
     if (queue.currentIndex <= activationIndex) {
       queue.currentIndex = activationIndex + 1;
+    }
+
+    while (queue.currentIndex < queue.activations.length && queue.activations[queue.currentIndex]?.isActivated) {
+      queue.currentIndex += 1;
     }
   }
 

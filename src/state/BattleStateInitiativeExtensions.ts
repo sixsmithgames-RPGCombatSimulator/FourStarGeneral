@@ -144,13 +144,15 @@ export class BattleStateInitiativeManager {
       throw new Error('No initiative queue available');
     }
 
+    const activeSortOrder = this.state.currentActivation.sortOrder;
+
     // Mark as activated in the queue
-    initiativeQueueManager.markActivated(this.state.initiativeQueue, unitId);
+    initiativeQueueManager.markActivated(this.state.initiativeQueue, unitId, activeSortOrder);
 
     // Update the unit's activation state
     const unit = units.find(u => u.unitId === unitId);
     if (unit && isInitiativeUnit(unit)) {
-      activateUnit(unit, this.state.currentActivation.sortOrder);
+      activateUnit(unit, activeSortOrder);
     }
 
     // Clear current activation
