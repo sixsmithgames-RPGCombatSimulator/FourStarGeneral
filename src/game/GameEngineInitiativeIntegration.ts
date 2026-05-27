@@ -53,7 +53,7 @@ export class GameEngineInitiativeMethods {
   private validator: InitiativeActionValidator;
   private botIntegration: InitiativeBotIntegration;
   private gameEngine: any; // GameEngine instance
-  private botActivationObservers = new Set<(result: InitiativeBotActivationResult) => void>();
+  private botActivationObservers = new Set<(result: InitiativeBotActivationResult) => void | Promise<void>>();
   private plannerIntegrationUnavailableLogged = false;
   private plannerBotIntegrationDisabled = false;
 
@@ -342,7 +342,7 @@ export class GameEngineInitiativeMethods {
     return this.integration.getCurrentActivation();
   }
 
-  public setBotActivationListener(listener: ((result: InitiativeBotActivationResult) => void) | null): void {
+  public setBotActivationListener(listener: ((result: InitiativeBotActivationResult) => void | Promise<void>) | null): void {
     this.botActivationObservers.clear();
     if (listener) {
       this.botActivationObservers.add(listener);
@@ -574,12 +574,7 @@ export class GameEngineInitiativeMethods {
         visibleAfter,
         attacks
       };
-      this.emitBotActivationResult(result);
-      
-      // Automatically complete the bot unit's activation
-      setTimeout(() => {
-        this.completeUnitActivation(activation.unitId);
-      }, this.resolveBotActivationCompletionDelay(result));
+      void this.finalizeBotActivation(activation, result);
       
     } catch (error) {
       console.error(`Error executing bot turn for ${activation.unitId}:`, error);
@@ -599,12 +594,23 @@ export class GameEngineInitiativeMethods {
         visibleAfter,
         attacks
       };
-      this.emitBotActivationResult(result);
-      
-      // Complete the activation anyway to prevent game from getting stuck
-      setTimeout(() => {
-        this.completeUnitActivation(activation.unitId);
-      }, this.resolveBotActivationCompletionDelay(result));
+      void this.finalizeBotActivation(activation, result);
+    }
+  }
+
+  private async finalizeBotActivation(activation: UnitActivation, result: InitiativeBotActivationResult): Promise<void> {
+    const completionDelayMs = this.resolveBotActivationCompletionDelay(result);
+    const startTime = Date.now();
+    await this.emitBotActivationResult(result);
+    const elapsedMs = Date.now() - startTime;
+    const remainingDelayMs = Math.max(0, completionDelayMs - elapsedMs);
+    if (remainingDelayMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, remainingDelayMs));
+    }
+    try {
+      this.completeUnitActivation(activation.unitId);
+    } catch (error) {
+      console.error(`Failed to complete bot activation for ${activation.unitId}:`, error);
     }
   }
 
@@ -648,24 +654,31 @@ export class GameEngineInitiativeMethods {
     return hex ? { q: hex.q, r: hex.r } : null;
   }
 
-  private emitBotActivationResult(result: InitiativeBotActivationResult): void {
-    this.botActivationObservers.forEach((observer) => {
+  private async emitBotActivationResult(result: InitiativeBotActivationResult): Promise<void> {
+    const observers = Array.from(this.botActivationObservers);
+    for (const observer of observers) {
       try {
-        observer(result);
+        await observer(result);
       } catch (error) {
         console.warn('Bot activation observer failed:', error);
       }
-    });
+    }
   }
 
   private resolveBotActivationCompletionDelay(result: InitiativeBotActivationResult): number {
-    if (result.attacks.length > 0) {
-      return 1200;
-    }
+    // Provide a minimum pacing floor when no UI animation listener is attached.
+    // When listeners do animate, finalizeBotActivation waits for that promise first.
+    let delayMs = 220;
     if (result.moved) {
-      return 650;
+      delayMs += 380;
     }
-    return 350;
+    result.attacks.forEach((attack) => {
+      delayMs += 520;
+      if (attack.retaliation && attack.retaliation.damage > 0) {
+        delayMs += 320;
+      }
+    });
+    return Math.min(2800, Math.max(220, delayMs));
   }
 
   private isBotUnitVisibleToPlayer(unitId: string, expectedHex: Axial | null): boolean {

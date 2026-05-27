@@ -148,6 +148,11 @@ Engine logic must not attempt to "recover" from impossible states silently. If s
 1.  Throw error in development.
 2.  Log and revert to last safe state in production (if feasible).
 
+### 6.3 In-Game Messaging Only
+Player-facing confirmations, prompts, and warnings must use in-game UI components (modal/dialog/panel) styled within the game experience.
+* Do **not** use browser-native dialogs (`window.alert`, `window.confirm`, `window.prompt`) for gameplay messaging.
+* Every user-facing message must include actionable copy: what happened, why it matters, and what to do next.
+
 ## 7. Manual Verification Checklist (Visual Integrity)
 Because this is a visual strategy game, the following must be manually verified after relevant changes:
 - [ ] Map panning and zoom stability

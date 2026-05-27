@@ -3729,7 +3729,7 @@ export class BattleScreen {
 
     container.querySelector<HTMLButtonElement>("[data-mission-end='confirm']")?.addEventListener("click", () => {
       this.disposeMissionEndModal();
-      this.handleEndMission();
+      void this.handleEndMission();
     });
 
     container.querySelector<HTMLButtonElement>("[data-mission-end='continue']")?.addEventListener("click", () => {
@@ -6655,7 +6655,9 @@ export class BattleScreen {
     this.endTurnButton?.addEventListener("click", () => {
       void this.handleEndTurn();
     });
-    this.endMissionButton?.addEventListener("click", () => this.handleEndMission());
+    this.endMissionButton?.addEventListener("click", () => {
+      void this.handleEndMission();
+    });
     this.attackConfirmAccept?.addEventListener("click", () => void this.handleConfirmAttack());
     this.attackConfirmCancel?.addEventListener("click", () => this.handleCancelAttack());
     this.baseCampAssignButton?.addEventListener("click", () => this.handleAssignBaseCamp());
@@ -7353,12 +7355,8 @@ export class BattleScreen {
   /**
    * Handles ending the mission and returning to headquarters.
    */
-  private handleEndMission(): void {
-    const confirmed = window.confirm(
-      "End this mission and return to headquarters?\n\n" +
-      "This will record your performance in your service record."
-    );
-
+  private async handleEndMission(): Promise<void> {
+    const confirmed = await this.confirmMissionEndRequest();
     if (!confirmed) {
       return;
     }
@@ -7463,6 +7461,78 @@ export class BattleScreen {
     }
   }
 
+  private async confirmMissionEndRequest(): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const modalRoot = document.createElement("div");
+      modalRoot.className = "initiative-proceed-modal";
+      modalRoot.setAttribute("role", "dialog");
+      modalRoot.setAttribute("aria-modal", "true");
+      modalRoot.setAttribute("aria-labelledby", "missionEndConfirmTitle");
+      modalRoot.innerHTML = `
+        <div class="initiative-proceed-modal__backdrop"></div>
+        <section class="initiative-proceed-modal__content">
+          <h3 class="initiative-proceed-modal__title" id="missionEndConfirmTitle">End Mission?</h3>
+          <p class="initiative-proceed-modal__copy">
+            This will close the battle and record your results in the service record.
+          </p>
+          <footer class="initiative-proceed-modal__actions">
+            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--secondary" data-action="cancel">Keep Fighting</button>
+            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--primary" data-action="confirm">Return To HQ</button>
+          </footer>
+        </section>
+      `;
+
+      const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const confirmButton = modalRoot.querySelector<HTMLButtonElement>('[data-action="confirm"]');
+      const cancelButton = modalRoot.querySelector<HTMLButtonElement>('[data-action="cancel"]');
+      let finalized = false;
+
+      const finalize = (confirmed: boolean): void => {
+        if (finalized) {
+          return;
+        }
+        finalized = true;
+        document.removeEventListener("keydown", handleKeydown, true);
+        modalRoot.remove();
+        previousFocus?.focus();
+        resolve(confirmed);
+      };
+
+      const handleKeydown = (event: KeyboardEvent): void => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          finalize(false);
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          const focusedAction = (document.activeElement as HTMLElement | null)
+            ?.closest<HTMLElement>("[data-action]")
+            ?.getAttribute("data-action");
+          finalize(focusedAction === "cancel" ? false : true);
+        }
+      };
+
+      modalRoot.addEventListener("click", (event) => {
+        const target = event.target as HTMLElement | null;
+        if (target === modalRoot.querySelector(".initiative-proceed-modal__backdrop")) {
+          finalize(false);
+          return;
+        }
+        const action = target?.closest<HTMLElement>("[data-action]")?.getAttribute("data-action");
+        if (action === "confirm") {
+          finalize(true);
+        } else if (action === "cancel") {
+          finalize(false);
+        }
+      });
+
+      document.addEventListener("keydown", handleKeydown, true);
+      document.body.appendChild(modalRoot);
+      (cancelButton ?? confirmButton)?.focus();
+    });
+  }
+
   /**
    * Updates the selected general's service record with mission completion data.
    */
@@ -7537,25 +7607,9 @@ export class BattleScreen {
       };
     }
 
-    const objectivesInput = window.prompt("Objectives completed (0-10):", "0");
-    const casualtiesInput = window.prompt("Units lost:", "0");
-    if (objectivesInput === null || casualtiesInput === null) {
-      return {
-        success: false,
-        objectivesCompleted: 0,
-        objectivesFailed: 0,
-        objectivesContested: 0,
-        casualties: 0,
-        reason: "Mission report was cancelled before headquarters metrics were confirmed.",
-        headquartersTitle: "Mission ended.",
-        headquartersAction: "Re-open the debrief and confirm the mission report when ready.",
-        aborted: true
-      };
-    }
-
-    const objectivesCompleted = Math.max(0, Math.min(10, parseInt(objectivesInput) || 0));
-    const casualties = Math.max(0, parseInt(casualtiesInput) || 0);
-    const success = objectivesCompleted >= 5;
+    const casualties = this.computePlayerCasualties();
+    const objectivesCompleted = 0;
+    const success = false;
     return {
       success,
       objectivesCompleted,
@@ -8133,9 +8187,7 @@ export class BattleScreen {
 
       // Initialize initiative methods
       this.initiativeMethods = new GameEngineInitiativeMethods(engine);
-      this.initiativeMethods.setBotActivationListener((event) => {
-        void this.handleInitiativeBotActivation(event);
-      });
+      this.initiativeMethods.setBotActivationListener((event) => this.handleInitiativeBotActivation(event));
       this.isInitiativeSystemEnabled = true;
       this.initiativeGroupCursorUnitId = null;
       this.initiativeGroupSessionId = null;
@@ -8272,7 +8324,9 @@ export class BattleScreen {
           onEndTurn: () => this.handleInitiativeEndTurn(),
           onNextActivation: () => this.handleNextActivation(),
           onCompleteActivation: (unitId: string) => this.handleCompleteActivation(unitId),
-          onProceedToNext: () => this.handleProceedToNext(),
+          onProceedToNext: () => {
+            void this.handleProceedToNext();
+          },
           onSkipGroup: () => this.handleSkipGroup()
         },
         {
@@ -8297,7 +8351,7 @@ export class BattleScreen {
   /**
    * Handle proceed to next unit action
    */
-  private handleProceedToNext(): void {
+  private async handleProceedToNext(): Promise<void> {
     if (!this.initiativeMethods) {
       console.warn('Initiative methods not available');
       return;
@@ -8306,31 +8360,30 @@ export class BattleScreen {
     try {
       const queue = this.initiativeMethods.getCurrentInitiativeQueue();
       const activeGroup = this.resolveActiveInitiativeGroup(queue);
-      if (!activeGroup || activeGroup.ownerId !== "player") {
+      const currentActivation = this.initiativeMethods.getCurrentActivation();
+      if (!activeGroup || activeGroup.ownerId !== "player" || !currentActivation || currentActivation.ownerId !== "player") {
         this.syncInitiativeTurnControlsState();
         return;
       }
 
-      const uncommittedUnits = this.resolveUncommittedPlayerInitiativeUnits(activeGroup);
-      const currentActivation = this.initiativeMethods.getCurrentActivation();
-      const shouldConfirmProceed = uncommittedUnits.length > 0;
+      const pendingUnits = this.resolveUncommittedPlayerInitiativeUnits(activeGroup);
+      const currentUnitId = currentActivation.unitId;
+      const currentUnitIsPending = pendingUnits.some((unit) => unit.unitId === currentUnitId);
+      const hasPendingUnits = pendingUnits.length > 0;
 
-      if (shouldConfirmProceed) {
-        const unitList = uncommittedUnits
-          .map((unit) => `- ${this.resolveReadableUnitLabel(unit)}`)
-          .join("\n");
-        const confirmProceed = window.confirm(
-          `${uncommittedUnits.length} unit${uncommittedUnits.length === 1 ? "" : "s"} in this initiative group still have actions available:\n${unitList}\n\nProceed anyway?`
+      if (hasPendingUnits) {
+        const confirmProceed = await this.confirmInitiativeProceedWithPendingUnits(
+          pendingUnits,
+          currentUnitId,
+          currentUnitIsPending
         );
         if (!confirmProceed) {
           this.syncInitiativeTurnControlsState();
           return;
         }
-
       }
 
-      const currentUnitId = currentActivation?.unitId ?? null;
-      if (currentUnitId && uncommittedUnits.some((unit) => unit.unitId === currentUnitId)) {
+      if (currentUnitIsPending) {
         const engine = this.battleState.ensureGameEngine();
         const currentUnit = engine.playerUnits.find((entry) => entry.unitId === currentUnitId);
         if (currentUnit && !currentUnit.onSentry) {
@@ -8338,7 +8391,6 @@ export class BattleScreen {
         }
       }
 
-      this.markRemainingPlayerInitiativeUnitsSkipped(activeGroup, currentUnitId);
       this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative, false);
       this.focusCurrentInitiativeActivation();
       this.highlightCurrentInitiativeGroup();
@@ -8451,8 +8503,10 @@ export class BattleScreen {
         }
       }
 
-      // Move to next activation instead of skipping all remaining
-      this.initiativeMethods.processNextInitiativeActivation();
+      const activationToComplete = this.initiativeMethods.getCurrentActivation();
+      if (activationToComplete) {
+        this.initiativeMethods.completeUnitActivation(activationToComplete.unitId);
+      }
       
       // Update initiative group highlighting
       this.highlightCurrentInitiativeGroup();
@@ -8538,18 +8592,16 @@ export class BattleScreen {
     }
 
     try {
-      const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
-      const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
-      if (!activeGroup) {
-        return true; // Fallback: allow all units if no current queue
-      }
-
-      if (activeGroup.ownerId !== "player") {
+      const currentActivation = this.initiativeMethods.getCurrentActivation();
+      if (!currentActivation) {
         return false;
       }
 
-      return this.resolveSelectablePlayerInitiativeActivations(activeGroup)
-        .some((activation) => activation.unitId === unitId);
+      if (currentActivation.ownerId !== "player") {
+        return false;
+      }
+
+      return currentActivation.unitId === unitId;
     } catch (error) {
       console.error('Failed to check unit initiative group:', error);
       return true; // Fallback: allow unit on error
@@ -8585,10 +8637,17 @@ export class BattleScreen {
       const unitDefinition = this.unitTypes?.[unit.type as keyof UnitTypeDictionary];
       const unitInitiative = unitDefinition?.initiative ?? null;
       const activeInitiative = activeGroup.initiative;
+      const currentActivation = this.initiativeMethods.getCurrentActivation();
+      const currentActivationUnit = currentActivation?.ownerId === "player"
+        ? engine.playerUnits.find((entry) => entry.unitId === currentActivation.unitId) ?? null
+        : null;
+      const currentActivationLabel = currentActivationUnit ? this.resolveReadableUnitLabel(currentActivationUnit) : "the active formation";
 
-      const message = unitInitiative === null
-        ? `${unitLabel} is waiting. The active initiative group is ${activeInitiative}.`
-        : `${unitLabel} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
+      const message = unitInitiative === activeInitiative && currentActivation?.ownerId === "player" && currentActivation.unitId !== unitId
+        ? `${unitLabel} is in initiative ${activeInitiative}, but ${currentActivationLabel} is currently acting. Press Proceed to hand off the next activation.`
+        : unitInitiative === null
+          ? `${unitLabel} is waiting. The active initiative group is ${activeInitiative}.`
+          : `${unitLabel} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
       this.showElegantInitiativeMessage(message);
     } catch (error) {
       console.error('Failed to show initiative group message:', error);
@@ -8606,6 +8665,106 @@ export class BattleScreen {
     } catch {
       return this.toTitleCase(unit.type as string);
     }
+  }
+
+  private resolveReadableInitiativeUnitEntry(unit: ScenarioUnit): string {
+    const label = this.resolveReadableUnitLabel(unit);
+    const hexKey = this.toOffsetHexKey(unit.hex);
+    return hexKey ? `${label} (${hexKey})` : label;
+  }
+
+  private async confirmInitiativeProceedWithPendingUnits(
+    pendingUnits: readonly ScenarioUnit[],
+    currentUnitId: string,
+    currentUnitIsPending: boolean
+  ): Promise<boolean> {
+    const currentUnit = pendingUnits.find((unit) => unit.unitId === currentUnitId) ?? null;
+    const currentLabel = currentUnit ? this.resolveReadableUnitLabel(currentUnit) : "This formation";
+    const leadCopy = currentUnitIsPending
+      ? `${this.escapeHtml(currentLabel)} still has actions available. Proceeding now will place it on sentry and advance initiative.`
+      : "Other formations in this initiative band still have actions available.";
+    const items = pendingUnits
+      .slice(0, 8)
+      .map((unit) => `<li>${this.escapeHtml(this.resolveReadableInitiativeUnitEntry(unit))}</li>`)
+      .join("");
+    const overflowCount = Math.max(0, pendingUnits.length - 8);
+    const overflowItem = overflowCount > 0
+      ? `<li>...and ${overflowCount} more formation${overflowCount === 1 ? "" : "s"}.</li>`
+      : "";
+
+    return new Promise<boolean>((resolve) => {
+      const modalRoot = document.createElement("div");
+      modalRoot.className = "initiative-proceed-modal";
+      modalRoot.setAttribute("role", "dialog");
+      modalRoot.setAttribute("aria-modal", "true");
+      modalRoot.setAttribute("aria-labelledby", "initiativeProceedTitle");
+      modalRoot.innerHTML = `
+        <div class="initiative-proceed-modal__backdrop"></div>
+        <section class="initiative-proceed-modal__content">
+          <h3 class="initiative-proceed-modal__title" id="initiativeProceedTitle">Units Still Awaiting Orders</h3>
+          <p class="initiative-proceed-modal__copy">
+            ${leadCopy}
+          </p>
+          <p class="initiative-proceed-modal__copy">
+            ${pendingUnits.length} unit${pendingUnits.length === 1 ? "" : "s"} in this initiative band can still act:
+          </p>
+          <ul class="initiative-proceed-modal__list">${items}${overflowItem}</ul>
+          <footer class="initiative-proceed-modal__actions">
+            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--secondary" data-action="cancel">Keep Commanding</button>
+            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--primary" data-action="confirm">Proceed Anyway</button>
+          </footer>
+        </section>
+      `;
+
+      const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const confirmButton = modalRoot.querySelector<HTMLButtonElement>('[data-action="confirm"]');
+      const cancelButton = modalRoot.querySelector<HTMLButtonElement>('[data-action="cancel"]');
+      let finalized = false;
+
+      const finalize = (confirmed: boolean): void => {
+        if (finalized) {
+          return;
+        }
+        finalized = true;
+        document.removeEventListener("keydown", handleKeydown, true);
+        modalRoot.remove();
+        previousFocus?.focus();
+        resolve(confirmed);
+      };
+
+      const handleKeydown = (event: KeyboardEvent): void => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          finalize(false);
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          const focusedAction = (document.activeElement as HTMLElement | null)
+            ?.closest<HTMLElement>("[data-action]")
+            ?.getAttribute("data-action");
+          finalize(focusedAction === "cancel" ? false : true);
+        }
+      };
+
+      modalRoot.addEventListener("click", (event) => {
+        const target = event.target as HTMLElement | null;
+        if (target === modalRoot.querySelector(".initiative-proceed-modal__backdrop")) {
+          finalize(false);
+          return;
+        }
+        const action = target?.closest<HTMLElement>("[data-action]")?.getAttribute("data-action");
+        if (action === "confirm") {
+          finalize(true);
+        } else if (action === "cancel") {
+          finalize(false);
+        }
+      });
+
+      document.addEventListener("keydown", handleKeydown, true);
+      document.body.appendChild(modalRoot);
+      (cancelButton ?? confirmButton)?.focus();
+    });
   }
 
   private resolveActivationOffsetHexKey(unitId: string, ownerId: "player" | "bot"): string | null {
@@ -8897,6 +9056,13 @@ export class BattleScreen {
     }
 
     this.syncInitiativeGroupSession(activeGroup);
+    const currentActivation = this.initiativeMethods.getCurrentActivation();
+    if (currentActivation?.ownerId === "player") {
+      this.initiativeGroupCursorUnitId = currentActivation.unitId;
+      this.focusInitiativeUnit(currentActivation.unitId);
+      return;
+    }
+
     const candidates = this.resolveSelectablePlayerInitiativeActivations(activeGroup);
     if (candidates.length === 0) {
       return;
@@ -8930,6 +9096,24 @@ export class BattleScreen {
     }
 
     const candidateIds = new Set(candidates.map((activation) => activation.unitId));
+    const currentActivation = this.initiativeMethods?.getCurrentActivation();
+    if (currentActivation?.ownerId === "player" && candidateIds.has(currentActivation.unitId)) {
+      const cursorUnitId = this.initiativeGroupCursorUnitId;
+      if (cursorUnitId && cursorUnitId !== currentActivation.unitId && candidateIds.has(cursorUnitId)) {
+        if (this.selectedPlayerUnitId !== cursorUnitId) {
+          this.focusInitiativeUnit(cursorUnitId);
+        }
+        return;
+      }
+      if (this.selectedPlayerUnitId !== currentActivation.unitId) {
+        this.initiativeGroupCursorUnitId = currentActivation.unitId;
+        this.focusInitiativeUnit(currentActivation.unitId);
+        return;
+      }
+      this.initiativeGroupCursorUnitId = currentActivation.unitId;
+      return;
+    }
+
     const selectedUnitId = this.selectedPlayerUnitId;
     if (!selectedUnitId || !candidateIds.has(selectedUnitId)) {
       // Keep the existing initiative cursor stable when selection is briefly cleared
@@ -8958,8 +9142,22 @@ export class BattleScreen {
     const renderer = this.hexMapRenderer;
     const fromKey = this.toOffsetHexKey(event.fromHex);
     const toKey = this.toOffsetHexKey(event.toHex);
-    const focusMoveKey = event.visibleBefore ? fromKey : event.visibleAfter ? toKey : null;
+    const visibleBefore = event.visibleBefore || (event.fromHex ? this.isBotUnitVisibleToPlayer(event.unitId, event.fromHex) : false);
+    const visibleAfter = event.visibleAfter || (event.toHex ? this.isBotUnitVisibleToPlayer(event.unitId, event.toHex) : false);
+    const focusBeforeMoveKey = visibleBefore ? fromKey : null;
+    const focusAfterMoveKey = !visibleBefore && visibleAfter ? toKey : null;
+    const fallbackFocusKey = visibleBefore ? fromKey : visibleAfter ? toKey : null;
     const canFocusCamera = Boolean(this.mapViewport);
+    const shouldFocusCamera = canFocusCamera && this.battleAnimationMode !== "quick";
+    let cameraFocused = false;
+    const focusCameraForActivation = async (focusKey: string | null): Promise<void> => {
+      if (!shouldFocusCamera || cameraFocused || !focusKey) {
+        return;
+      }
+      await this.focusCameraOnHex(focusKey);
+      cameraFocused = true;
+      await this.waitMs(140);
+    };
 
     const fromHex = event.fromHex;
     const toHex = event.toHex;
@@ -8972,10 +9170,7 @@ export class BattleScreen {
 
       if (moveHandle) {
         try {
-          if (focusMoveKey && canFocusCamera && this.battleAnimationMode !== "quick") {
-            await this.focusCameraOnHex(focusMoveKey);
-            await this.waitMs(140);
-          }
+          await focusCameraForActivation(focusBeforeMoveKey);
           await moveHandle.play(this.resolveMoveAnimationDuration(movePath, BattleScreen.BOT_MOVE_ANIMATION_MS));
         } catch (animationError) {
           console.warn("[BattleScreen] Initiative bot move animation failed; continuing.", {
@@ -8989,6 +9184,7 @@ export class BattleScreen {
     }
 
     this.renderEngineUnits();
+    await focusCameraForActivation(focusAfterMoveKey);
 
     if (renderer && event.attacks.length > 0) {
       for (const attack of event.attacks) {
@@ -8999,10 +9195,7 @@ export class BattleScreen {
         }
 
         try {
-          if (focusMoveKey && canFocusCamera && this.battleAnimationMode !== "quick") {
-            await this.focusCameraOnHex(focusMoveKey);
-            await this.waitMs(160);
-          }
+          await focusCameraForActivation(fallbackFocusKey);
           const defenderDefinition = this.unitTypes?.[attack.defenderType as keyof UnitTypeDictionary];
           const defenderClass = defenderDefinition?.class;
           const targetIsHardTarget = defenderClass === "vehicle" || defenderClass === "tank" || defenderClass === "air";
@@ -9021,15 +9214,16 @@ export class BattleScreen {
             const attackerClass = attackerDefinition?.class;
             const retaliationTargetIsHardTarget = attackerClass === "vehicle" || attackerClass === "tank" || attackerClass === "air";
             await renderer.playAttackSequence(targetKey, attackerKey, retaliationTargetIsHardTarget);
+            await this.waitForNextFrame();
           } catch (animationError) {
             console.warn("[BattleScreen] Initiative bot retaliation animation failed; continuing.", animationError);
           }
         }
       }
       this.renderEngineUnits();
-    } else if (focusMoveKey && canFocusCamera) {
+    } else if (fallbackFocusKey && canFocusCamera && this.battleAnimationMode !== "quick") {
       try {
-        await this.focusCameraOnHex(focusMoveKey);
+        await this.focusCameraOnHex(fallbackFocusKey);
       } catch {
         // Ignore camera focus failures during automated initiative bot movement.
       }
@@ -9184,20 +9378,7 @@ export class BattleScreen {
       const queue = this.initiativeMethods.getCurrentInitiativeQueue();
       const activeGroup = this.resolveActiveInitiativeGroup(queue);
       this.ensureFocusedPlayerInitiativeUnit(activeGroup);
-      let displayActivation = activation;
-      if (activeGroup?.ownerId === "player" && this.initiativeGroupCursorUnitId) {
-        const cursorActivation = activeGroup.activations.find(
-          (entry) => entry.unitId === this.initiativeGroupCursorUnitId
-        );
-        if (cursorActivation) {
-          displayActivation = {
-            ...cursorActivation,
-            sortOrder: typeof cursorActivation.sortOrder === "number"
-              ? cursorActivation.sortOrder
-              : (activation?.sortOrder ?? 0)
-          };
-        }
-      }
+      const displayActivation = activation;
       const hasRemainingActivations = Boolean(queue?.activations?.some((entry: { isActivated: boolean }) => !entry.isActivated));
       const initiativeActive = this.initiativeMethods.isInitiativeSystemActive();
       const controlsPhase: 'initiativeTurn' | 'airShowPhase' | 'turnEnded' =
@@ -10168,6 +10349,18 @@ export class BattleScreen {
 
     // If there is an active selection and the user clicked a move/attack destination, execute the action.
     if (this.selectedHexKey) {
+      const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
+      const actionableUnitId = selectedMember?.unitId ?? this.selectedPlayerUnitId ?? null;
+      if (this.isInitiativeSystemEnabled) {
+        if (!actionableUnitId) {
+          this.showElegantInitiativeMessage("Select the active formation before issuing orders.");
+          return;
+        }
+        if (!this.isUnitInCurrentInitiativeGroup(actionableUnitId)) {
+          this.showInitiativeGroupMessage(actionableUnitId);
+          return;
+        }
+      }
       if (this.playerMoveHexes.has(key)) {
         const selParsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
         if (!selParsed) return;
@@ -10175,14 +10368,14 @@ export class BattleScreen {
         const originKey = this.selectedHexKey ?? CoordinateSystem.makeHexKey(selParsed.col, selParsed.row);
 
         // Execute animated player move
-        void this.executeAnimatedPlayerMove(originKey, key, selAxial, clickedAxial, this.selectedPlayerUnitId);
+        void this.executeAnimatedPlayerMove(originKey, key, selAxial, clickedAxial, actionableUnitId);
         return;
       }
       if (this.playerAttackHexes.has(key)) {
         const selParsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
         if (!selParsed) return;
         const selAxial = CoordinateSystem.offsetToAxial(selParsed.col, selParsed.row);
-        this.promptAttackConfirmation(selAxial, clickedAxial, { attackerUnitId: this.selectedPlayerUnitId });
+        this.promptAttackConfirmation(selAxial, clickedAxial, { attackerUnitId: actionableUnitId });
         return;
       }
     }
@@ -10221,6 +10414,10 @@ export class BattleScreen {
       if (!unitId) {
         return;
       }
+      if (this.isInitiativeSystemEnabled && !this.isUnitInCurrentInitiativeGroup(unitId)) {
+        this.showInitiativeGroupMessage(unitId);
+        return;
+      }
       const stackMembers = this.getPlayerStackMembersAtHex(this.selectedHexKey);
       if (!stackMembers.some((member) => member.unitId === unitId)) {
         return;
@@ -10232,6 +10429,10 @@ export class BattleScreen {
     if (actionId.startsWith("consolidate:")) {
       const secondaryUnitId = actionId.slice("consolidate:".length).trim();
       if (!secondaryUnitId || !this.selectedPlayerUnitId) {
+        return;
+      }
+      if (this.isInitiativeSystemEnabled && !this.isUnitInCurrentInitiativeGroup(this.selectedPlayerUnitId)) {
+        this.showInitiativeGroupMessage(this.selectedPlayerUnitId);
         return;
       }
       const engine = this.battleState.ensureGameEngine();
@@ -10256,6 +10457,10 @@ export class BattleScreen {
     }
     const parsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
     if (!parsed) {
+      return;
+    }
+    if (this.isInitiativeSystemEnabled && this.selectedPlayerUnitId && !this.isUnitInCurrentInitiativeGroup(this.selectedPlayerUnitId)) {
+      this.showInitiativeGroupMessage(this.selectedPlayerUnitId);
       return;
     }
     const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
@@ -11008,6 +11213,15 @@ export class BattleScreen {
     if (members.length === 0) {
       this.selectedPlayerUnitId = null;
       return null;
+    }
+
+    const currentActivation = this.initiativeMethods?.getCurrentActivation();
+    if (this.isInitiativeSystemEnabled && currentActivation?.ownerId === "player") {
+      const activeMember = members.find((member) => member.unitId === currentActivation.unitId) ?? null;
+      if (activeMember) {
+        this.selectedPlayerUnitId = activeMember.unitId;
+        return activeMember;
+      }
     }
 
     const matched = this.selectedPlayerUnitId

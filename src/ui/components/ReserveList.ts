@@ -837,11 +837,11 @@ export class PopupManager implements IPopupManager {
           request.escortTargetHex = parsedTarget;
         }
 
-        // Confirmation: summarize mission parameters and potential refit impact so the commander explicitly approves.
+        // Summarize mission parameters and refit impact directly in the panel to avoid browser-native dialogs.
         try {
           const refitTurns = engine.getAircraftRefitTurns(unitHex as any);
           const parts: string[] = [];
-          parts.push(`Confirm ${String(kind)} mission`);
+          parts.push(`Scheduling ${String(kind)} mission`);
           parts.push(`Unit: ${this.formatDisplayHex(unitHex)}`);
           if (request.targetHex) {
             parts.push(`Target: ${this.formatDisplayHex(request.targetHex)}`);
@@ -852,13 +852,9 @@ export class PopupManager implements IPopupManager {
           if (typeof refitTurns === "number") {
             parts.push(`Refit: ${refitTurns} turn(s) after sortie`);
           }
-          const confirmed = window.confirm(parts.join("\n"));
-          if (!confirmed) {
-            feedback && (feedback.textContent = "Scheduling cancelled.");
-            return;
-          }
+          feedback && (feedback.textContent = `${parts.join(" · ")}.`);
         } catch {
-          // If refit preview fails, proceed without blocking but still try to schedule.
+          // If refit preview fails, proceed without blocking.
         }
 
         const result = engine.tryScheduleAirMission(request);

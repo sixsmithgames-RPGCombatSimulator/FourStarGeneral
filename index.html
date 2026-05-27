@@ -7360,6 +7360,109 @@
       transform: translateY(-2px);
     }
 
+    .initiative-proceed-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 10010;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .initiative-proceed-modal__backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(1, 6, 16, 0.84);
+      backdrop-filter: blur(2px);
+    }
+
+    .initiative-proceed-modal__content {
+      position: relative;
+      width: min(560px, 92vw);
+      max-height: 82vh;
+      overflow: auto;
+      border-radius: 16px;
+      border: 1px solid rgba(245, 196, 109, 0.35);
+      background: linear-gradient(145deg, rgba(18, 27, 44, 0.98), rgba(9, 13, 22, 0.96));
+      box-shadow: 0 24px 56px rgba(0, 0, 0, 0.5);
+      color: rgba(248, 249, 251, 0.95);
+      padding: 1.6rem 1.7rem;
+      display: grid;
+      gap: 0.8rem;
+    }
+
+    .initiative-proceed-modal__title {
+      margin: 0;
+      font-size: 1.25rem;
+      letter-spacing: 0.02em;
+      color: var(--accent-strong, #f5c46d);
+    }
+
+    .initiative-proceed-modal__copy {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      color: rgba(248, 249, 251, 0.88);
+    }
+
+    .initiative-proceed-modal__list {
+      margin: 0.1rem 0 0;
+      padding-left: 1.2rem;
+      display: grid;
+      gap: 0.35rem;
+      max-height: 30vh;
+      overflow: auto;
+      font-size: 0.9rem;
+    }
+
+    .initiative-proceed-modal__actions {
+      margin-top: 0.4rem;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 0.75rem;
+    }
+
+    .initiative-proceed-modal__button {
+      min-width: 180px;
+      padding: 0.7rem 1.2rem;
+      border-radius: 999px;
+      font-size: 0.86rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+    }
+
+    .initiative-proceed-modal__button:focus-visible {
+      outline: 2px solid rgba(245, 196, 109, 0.7);
+      outline-offset: 2px;
+    }
+
+    .initiative-proceed-modal__button--secondary {
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(248, 249, 251, 0.94);
+    }
+
+    .initiative-proceed-modal__button--secondary:hover {
+      background: rgba(255, 255, 255, 0.14);
+      transform: translateY(-1px);
+    }
+
+    .initiative-proceed-modal__button--primary {
+      border: 1px solid rgba(245, 196, 109, 0.45);
+      background: linear-gradient(135deg, rgba(168, 92, 18, 0.95), rgba(245, 196, 109, 0.95));
+      color: #090d14;
+      box-shadow: 0 6px 18px rgba(245, 196, 109, 0.26);
+    }
+
+    .initiative-proceed-modal__button--primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 22px rgba(245, 196, 109, 0.35);
+    }
+
     @keyframes fadeIn {
       from {
         opacity: 0;
