@@ -8316,8 +8316,11 @@ export class BattleScreen {
       const shouldConfirmProceed = uncommittedUnits.length > 0;
 
       if (shouldConfirmProceed) {
+        const unitList = uncommittedUnits
+          .map((unit) => `- ${this.resolveReadableUnitLabel(unit)}`)
+          .join("\n");
         const confirmProceed = window.confirm(
-          `${uncommittedUnits.length} unit${uncommittedUnits.length === 1 ? "" : "s"} in this initiative group have not acted. Proceed anyway?`
+          `${uncommittedUnits.length} unit${uncommittedUnits.length === 1 ? "" : "s"} in this initiative group still have actions available:\n${unitList}\n\nProceed anyway?`
         );
         if (!confirmProceed) {
           this.syncInitiativeTurnControlsState();
@@ -8653,7 +8656,11 @@ export class BattleScreen {
     ownerId: "player" | "bot";
     activations: Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }>;
   }): void {
-    const nextSessionId = `${activeGroup.ownerId}:${activeGroup.initiative}`;
+    const queue = this.initiativeMethods?.getCurrentInitiativeQueue();
+    const turn = typeof queue?.currentTurn === "number" ? queue.currentTurn : 0;
+    // Track session by turn + initiative band, not by owner, so player-skip state
+    // survives interleaved bot activations inside the same initiative value.
+    const nextSessionId = `${turn}:${activeGroup.initiative}`;
     if (this.initiativeGroupSessionId === nextSessionId) {
       return;
     }
@@ -8856,13 +8863,17 @@ export class BattleScreen {
       }
     }
 
-    const nextActivation = this.initiativeMethods.getCurrentActivation();
-    const stillInSamePlayerGroup =
-      Boolean(nextActivation) &&
-      nextActivation?.ownerId === "player" &&
-      nextActivation?.initiative === initiative;
+    const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+    const stillInSamePlayerInitiativeBand = Boolean(
+      queue?.activations?.some(
+        (activation: { ownerId: "player" | "bot"; initiative: number; isActivated: boolean }) =>
+          activation.ownerId === "player" &&
+          activation.initiative === initiative &&
+          !activation.isActivated
+      )
+    );
 
-    if (!stillInSamePlayerGroup) {
+    if (!stillInSamePlayerInitiativeBand) {
       this.initiativeGroupCursorUnitId = null;
       this.initiativeGroupSessionId = null;
       this.initiativeSkippedUnitIds.clear();
@@ -8944,25 +8955,120 @@ export class BattleScreen {
       return;
     }
 
-    const focusBefore = this.isBotUnitVisibleToPlayer(event.unitId, event.fromHex);
+    const renderer = this.hexMapRenderer;
+    const fromKey = this.toOffsetHexKey(event.fromHex);
+    const toKey = this.toOffsetHexKey(event.toHex);
+    const focusMoveKey = event.visibleBefore ? fromKey : event.visibleAfter ? toKey : null;
+    const canFocusCamera = Boolean(this.mapViewport);
+
+    const fromHex = event.fromHex;
+    const toHex = event.toHex;
+    if (renderer && event.moved && fromKey && toKey && fromHex && toHex) {
+      const movePath = this.toMovePathKeys([fromHex, toHex], fromKey, toKey);
+      const moveHandle: MoveAnimationHandle | null = renderer.primeUnitMove(fromKey, toKey, {
+        path: movePath,
+        unitId: event.unitId
+      });
+
+      if (moveHandle) {
+        try {
+          if (focusMoveKey && canFocusCamera && this.battleAnimationMode !== "quick") {
+            await this.focusCameraOnHex(focusMoveKey);
+            await this.waitMs(140);
+          }
+          await moveHandle.play(this.resolveMoveAnimationDuration(movePath, BattleScreen.BOT_MOVE_ANIMATION_MS));
+        } catch (animationError) {
+          console.warn("[BattleScreen] Initiative bot move animation failed; continuing.", {
+            event,
+            animationError
+          });
+        } finally {
+          moveHandle.dispose();
+        }
+      }
+    }
+
     this.renderEngineUnits();
-    const focusAfter = this.isBotUnitVisibleToPlayer(event.unitId, event.toHex);
 
-    if (!focusBefore && !focusAfter) {
-      return;
+    if (renderer && event.attacks.length > 0) {
+      for (const attack of event.attacks) {
+        const attackerKey = this.toOffsetHexKey(attack.fromHex);
+        const targetKey = this.toOffsetHexKey(attack.targetHex);
+        if (!attackerKey || !targetKey) {
+          continue;
+        }
+
+        try {
+          if (focusMoveKey && canFocusCamera && this.battleAnimationMode !== "quick") {
+            await this.focusCameraOnHex(focusMoveKey);
+            await this.waitMs(160);
+          }
+          const defenderDefinition = this.unitTypes?.[attack.defenderType as keyof UnitTypeDictionary];
+          const defenderClass = defenderDefinition?.class;
+          const targetIsHardTarget = defenderClass === "vehicle" || defenderClass === "tank" || defenderClass === "air";
+          await renderer.playAttackSequence(attackerKey, targetKey, targetIsHardTarget);
+          await this.waitForNextFrame();
+        } catch (animationError) {
+          console.warn("[BattleScreen] Initiative bot attack animation failed; continuing.", {
+            attack,
+            animationError
+          });
+        }
+
+        if (attack.retaliation && attack.retaliation.damage > 0) {
+          try {
+            const attackerDefinition = this.unitTypes?.[attack.attackerType as keyof UnitTypeDictionary];
+            const attackerClass = attackerDefinition?.class;
+            const retaliationTargetIsHardTarget = attackerClass === "vehicle" || attackerClass === "tank" || attackerClass === "air";
+            await renderer.playAttackSequence(targetKey, attackerKey, retaliationTargetIsHardTarget);
+          } catch (animationError) {
+            console.warn("[BattleScreen] Initiative bot retaliation animation failed; continuing.", animationError);
+          }
+        }
+      }
+      this.renderEngineUnits();
+    } else if (focusMoveKey && canFocusCamera) {
+      try {
+        await this.focusCameraOnHex(focusMoveKey);
+      } catch {
+        // Ignore camera focus failures during automated initiative bot movement.
+      }
     }
 
-    const focusHex = focusBefore ? event.fromHex : event.toHex;
-    const focusKey = this.toOffsetHexKey(focusHex);
-    if (!focusKey) {
-      return;
+    this.logInitiativeBotActivationActivity(event, fromKey, toKey);
+  }
+
+  private logInitiativeBotActivationActivity(
+    event: InitiativeBotActivationResult,
+    fromKey: string | null,
+    toKey: string | null
+  ): void {
+    const unitLabel = this.toTitleCase(event.unitType ?? "Enemy Unit");
+    if (event.moved && fromKey && toKey) {
+      this.publishActivityEvent({
+        category: "enemy",
+        type: "move",
+        summary: `Enemy ${unitLabel} repositioned from ${fromKey} to ${toKey}.`
+      });
     }
 
-    try {
-      await this.focusCameraOnHex(focusKey);
-    } catch {
-      // Ignore camera focus failures during automated initiative bot movement.
-    }
+    event.attacks.forEach((attack) => {
+      const attackerHex = this.toOffsetHexKey(attack.fromHex) ?? "unknown";
+      const targetHex = this.toOffsetHexKey(attack.targetHex) ?? "unknown";
+      const damage = this.formatDamageAmount(attack.inflictedDamage);
+      const destructionNote = attack.defenderDestroyed ? " Target destroyed." : "";
+      const effects = attack.damageSummary ? ` Effects: ${attack.damageSummary}.` : "";
+      const retaliationDamage = attack.retaliation ? this.formatDamageAmount(attack.retaliation.damage) : null;
+      const retaliationSummary = retaliationDamage ? ` Counterfire dealt ${retaliationDamage} damage.` : "";
+      const attackerLabel = this.toTitleCase(attack.attackerType);
+      const defenderLabel = this.toTitleCase(attack.defenderType);
+
+      this.publishActivityEvent({
+        category: "enemy",
+        type: "attack",
+        summary: `Enemy ${attackerLabel} attacked ${defenderLabel} from ${attackerHex} to ${targetHex} for ${damage} damage.${effects}${destructionNote}${retaliationSummary}`
+      });
+    });
   }
 
   private isBotUnitVisibleToPlayer(unitId: string, expectedHex: Axial | null): boolean {
