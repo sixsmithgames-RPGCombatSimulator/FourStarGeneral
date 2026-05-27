@@ -2008,6 +2008,7 @@ export class BattleScreen {
       const defenderOffset = CoordinateSystem.axialToOffset(defender.q, defender.r);
       const attackerHex = CoordinateSystem.makeHexKey(attackerOffset.col, attackerOffset.row);
       const defenderHex = CoordinateSystem.makeHexKey(defenderOffset.col, defenderOffset.row);
+      const actingUnitId = attackerUnitId ?? this.pendingAttack?.attackerUnitId ?? this.selectedPlayerUnitId ?? null;
 
       let preview: ReturnType<typeof engine.previewAttack> | null = null;
 
@@ -2184,6 +2185,7 @@ export class BattleScreen {
         });
 
         this.battleState.emitBattleUpdate("manual");
+        this.completeInitiativeActivationAfterPlayerOrder(actingUnitId);
       } else {
         this.applySelectedHex(attackerHex);
         this.announceBattleUpdate("No valid attack (LOS or range).");
@@ -2798,6 +2800,7 @@ export class BattleScreen {
       this.publishActivityEvent({ category: "player", type: "log", summary: smokeSummary });
       this.completeTutorialPhase("smoke_demo");
       this.battleState.emitBattleUpdate("manual");
+      this.completeInitiativeActivationAfterPlayerOrder(unitId ?? null);
       return;
     }
 
@@ -2860,6 +2863,7 @@ export class BattleScreen {
     });
     this.completeTutorialPhase("engineer_orders");
     this.battleState.emitBattleUpdate("manual");
+    this.completeInitiativeActivationAfterPlayerOrder(unitId ?? null);
   }
 
   /** Escapes HTML-sensitive characters when composing dialog copy. */
@@ -5311,15 +5315,26 @@ export class BattleScreen {
   }
 
   private updateTurnStatusDisplay(summary: TurnSummary): void {
+    const initiativeActive =
+      this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
+    const initiativeActivation = initiativeActive ? this.initiativeMethods?.getCurrentActivation() ?? null : null;
+
     if (this.turnIndicatorElement) {
       const label = summary.phase === "deployment" ? "Deployment" : `Turn ${summary.turnNumber}`;
       this.turnIndicatorElement.textContent = label;
     }
     if (this.factionIndicatorElement) {
-      this.factionIndicatorElement.textContent = this.formatFactionLabel(summary.activeFaction);
+      this.factionIndicatorElement.textContent =
+        initiativeActivation?.ownerId === "player"
+          ? "Player"
+          : initiativeActivation?.ownerId === "bot"
+            ? "Enemy"
+            : this.formatFactionLabel(summary.activeFaction);
     }
     if (this.phaseIndicatorElement) {
-      this.phaseIndicatorElement.textContent = this.formatPhaseLabel(summary.phase);
+      this.phaseIndicatorElement.textContent = initiativeActive
+        ? "Initiative Turn"
+        : this.formatPhaseLabel(summary.phase);
     }
   }
 
@@ -8623,13 +8638,13 @@ export class BattleScreen {
         return;
       }
 
-      const unitLabel = this.resolveReadableUnitLabel(unit);
+      const unitReference = this.resolveReadableInitiativeUnitEntry(unit);
       
       const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
       const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
       if (!activeGroup) {
         this.showElegantInitiativeMessage(
-          `${unitLabel} cannot act right now. No initiative group is currently active.`
+          `${unitReference} cannot act right now. No initiative group is currently active.`
         );
         return;
       }
@@ -8641,13 +8656,15 @@ export class BattleScreen {
       const currentActivationUnit = currentActivation?.ownerId === "player"
         ? engine.playerUnits.find((entry) => entry.unitId === currentActivation.unitId) ?? null
         : null;
-      const currentActivationLabel = currentActivationUnit ? this.resolveReadableUnitLabel(currentActivationUnit) : "the active formation";
+      const currentActivationLabel = currentActivationUnit
+        ? this.resolveReadableInitiativeUnitEntry(currentActivationUnit)
+        : "the active formation";
 
       const message = unitInitiative === activeInitiative && currentActivation?.ownerId === "player" && currentActivation.unitId !== unitId
-        ? `${unitLabel} is in initiative ${activeInitiative}, but ${currentActivationLabel} is currently acting. Press Proceed to hand off the next activation.`
+        ? `${unitReference} is in initiative ${activeInitiative}, but ${currentActivationLabel} is currently acting. Complete that order or press Proceed to hand off the next activation.`
         : unitInitiative === null
-          ? `${unitLabel} is waiting. The active initiative group is ${activeInitiative}.`
-          : `${unitLabel} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
+          ? `${unitReference} is waiting. The active initiative group is ${activeInitiative}.`
+          : `${unitReference} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
       this.showElegantInitiativeMessage(message);
     } catch (error) {
       console.error('Failed to show initiative group message:', error);
@@ -8970,6 +8987,27 @@ export class BattleScreen {
     }
 
     return (flags.movementPointsUsed ?? 0) > 0 || (flags.attacksUsed ?? 0) > 0;
+  }
+
+  private completeInitiativeActivationAfterPlayerOrder(unitId: string | null | undefined): void {
+    if (!this.isInitiativeSystemEnabled || !this.initiativeMethods || !unitId) {
+      return;
+    }
+
+    try {
+      const currentActivation = this.initiativeMethods.getCurrentActivation();
+      if (!currentActivation || currentActivation.ownerId !== "player" || currentActivation.unitId !== unitId) {
+        return;
+      }
+
+      this.initiativeMethods.completeUnitActivation(unitId);
+      this.highlightCurrentInitiativeGroup();
+      this.focusCurrentInitiativeActivation();
+    } catch (error) {
+      console.error("Failed to auto-complete player initiative activation:", error);
+    } finally {
+      this.syncInitiativeTurnControlsState();
+    }
   }
 
   private selectNextInitiativeGroupUnit(): void {
@@ -9702,20 +9740,20 @@ export class BattleScreen {
       
       // Check initiative group validation if system is enabled
       if (this.isInitiativeSystemEnabled) {
-        const parsed = CoordinateSystem.parseHexKey(key);
-        if (parsed) {
-          const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
-          const unit = engine.playerUnits.find((u) => `${u.hex.q},${u.hex.r}` === `${axial.q},${axial.r}`);
+        const isActionDestination =
+          (this.selectedHexKey !== null && (this.playerMoveHexes.has(key) || this.playerAttackHexes.has(key))) ||
+          (this.smokeTargetingState !== null && (this.smokeTargetingState.targetHexKeys.has(key) || key === this.smokeTargetingState.callerHexKey)) ||
+          (this.artilleryTargetingState !== null && (this.artilleryTargetingState.targetHexKeys.has(key) || key === this.artilleryTargetingState.callerHexKey));
+        const unitForInitiativeGate = this.resolveInitiativeGateUnitForHex(key);
 
-          const isActionDestination =
-            (this.selectedHexKey !== null && (this.playerMoveHexes.has(key) || this.playerAttackHexes.has(key))) ||
-            (this.smokeTargetingState !== null && (this.smokeTargetingState.targetHexKeys.has(key) || key === this.smokeTargetingState.callerHexKey)) ||
-            (this.artilleryTargetingState !== null && (this.artilleryTargetingState.targetHexKeys.has(key) || key === this.artilleryTargetingState.callerHexKey));
-
-          if (unit && unit.unitId && !isActionDestination && !this.isUnitInCurrentInitiativeGroup(unit.unitId)) {
-            this.showInitiativeGroupMessage(unit.unitId);
-            return; // Don't proceed with the action
-          }
+        if (
+          unitForInitiativeGate &&
+          unitForInitiativeGate.unitId &&
+          !isActionDestination &&
+          !this.isUnitInCurrentInitiativeGroup(unitForInitiativeGate.unitId)
+        ) {
+          this.showInitiativeGroupMessage(unitForInitiativeGate.unitId);
+          return; // Don't proceed with the action
         }
       }
       
@@ -9723,6 +9761,36 @@ export class BattleScreen {
       return;
     }
     this.applySelectedHex(key);
+  }
+
+  /**
+   * Resolves the player unit used for initiative-gate checks on a clicked hex.
+   * In stacked hexes we must prioritize the currently active activation to avoid
+   * blocking legal actions behind an inactive stack member.
+   */
+  private resolveInitiativeGateUnitForHex(key: string): ScenarioUnit | null {
+    const members = this.getPlayerStackMembersAtHex(key);
+    if (members.length === 0) {
+      return null;
+    }
+
+    const currentActivation = this.initiativeMethods?.getCurrentActivation();
+    if (currentActivation?.ownerId === "player") {
+      const activeMember = members.find((member) => member.unitId === currentActivation.unitId) ?? null;
+      if (activeMember) {
+        return activeMember.unit;
+      }
+    }
+
+    if (this.selectedPlayerUnitId) {
+      const selectedMember = members.find((member) => member.unitId === this.selectedPlayerUnitId) ?? null;
+      if (selectedMember) {
+        return selectedMember.unit;
+      }
+    }
+
+    const playerMember = members.find((member) => !member.isAutomated) ?? members[0];
+    return playerMember?.unit ?? null;
   }
 
   /**
@@ -10227,6 +10295,7 @@ export class BattleScreen {
     try {
       // Update engine state
       const resolution = engine.moveUnit(fromAxial, toAxial, unitId ?? undefined);
+      const movedUnitId = resolution.unit.unitId ?? unitId ?? this.selectedPlayerUnitId ?? null;
       const pathKeys = this.toMovePathKeys(resolution.path, fromKey, toKey);
       moveHandle = renderer?.primeUnitMove(fromKey, toKey, {
         path: pathKeys,
@@ -10256,6 +10325,7 @@ export class BattleScreen {
       });
 
       this.battleState.emitBattleUpdate("manual");
+      this.completeInitiativeActivationAfterPlayerOrder(movedUnitId);
     } catch (err) {
       console.error("Failed to move unit", {
         error: err,
@@ -10471,6 +10541,7 @@ export class BattleScreen {
     if (!unit) {
       return;
     }
+    const actedUnitId = unit.unitId ?? this.selectedPlayerUnitId ?? null;
 
     let succeeded = false;
     let summary = "";
@@ -10588,6 +10659,7 @@ export class BattleScreen {
       this.completeTutorialPhase("engineer_orders");
     }
     this.battleState.emitBattleUpdate("manual");
+    this.completeInitiativeActivationAfterPlayerOrder(actedUnitId);
   }
 
   private collectAirOperationsSummary(engine: GameEngine): AirOperationsSummary | undefined {

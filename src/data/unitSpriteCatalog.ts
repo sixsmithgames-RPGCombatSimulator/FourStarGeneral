@@ -190,6 +190,10 @@ const GROUND_UNIT_SPRITES: Record<string, SpriteCatalogEntry> = {
 
   // Armor
   Light_Tank: directionalSprite("Tank_M4_USA"),
+  Medium_Tank: factionDirectionalSprites({
+    Player: "Tank_M4_USA",
+    Bot: "Tank_PanzerIV_German"
+  }),
   Panzer_IV: directionalSprite("Tank_PanzerIV_German"),
   Panzer_V: unitSprite("Panzer_V.png"),
   Heavy_Tank: factionDirectionalSprites({

@@ -162,3 +162,117 @@ registerTest("BATTLESCREEN_INITIATIVE_PROCEED_ADVANCES_ONLY_CURRENT_ACTIVATION",
     }
   });
 });
+
+registerTest("BATTLESCREEN_INITIATIVE_AUTO_COMPLETES_PLAYER_ACTIVATION_AFTER_ORDER", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let completedUnitId: string | null = null;
+  let highlightCalls = 0;
+  let focusCalls = 0;
+  let syncCalls = 0;
+
+  await Given("initiative mode with a current player activation and completion hooks", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).initiativeMethods = {
+      getCurrentActivation: () => ({
+        unitId: "u_player_1",
+        ownerId: "player",
+        initiative: 6,
+        isActivated: false,
+        sortOrder: 0
+      }),
+      completeUnitActivation: (unitId: string) => {
+        completedUnitId = unitId;
+      }
+    };
+    (screen as any).highlightCurrentInitiativeGroup = () => {
+      highlightCalls += 1;
+    };
+    (screen as any).focusCurrentInitiativeActivation = () => {
+      focusCalls += 1;
+    };
+    (screen as any).syncInitiativeTurnControlsState = () => {
+      syncCalls += 1;
+    };
+  });
+
+  await When("a completed player order reports the current activation unit id", async () => {
+    (screen as any).completeInitiativeActivationAfterPlayerOrder("u_player_1");
+  });
+
+  await Then("the current activation completes and initiative UI refreshes", async () => {
+    if (completedUnitId !== "u_player_1") {
+      throw new Error(`Expected activation to complete for u_player_1, received ${completedUnitId ?? "none"}.`);
+    }
+    if (highlightCalls !== 1 || focusCalls !== 1 || syncCalls !== 1) {
+      throw new Error(
+        `Expected highlight/focus/sync to run once each; received highlight=${highlightCalls}, focus=${focusCalls}, sync=${syncCalls}.`
+      );
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_INITIATIVE_STACKED_HEX_GATE_PREFERS_ACTIVE_MEMBER", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let blockedUnitId: string | null = null;
+  let playerClickCalls = 0;
+
+  await Given("initiative mode with two stacked player units where the second is currently active", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).selectedHexKey = null;
+    (screen as any).selectedPlayerUnitId = null;
+    (screen as any).playerMoveHexes = new Set<string>();
+    (screen as any).playerAttackHexes = new Set<string>();
+    (screen as any).smokeTargetingState = null;
+    (screen as any).artilleryTargetingState = null;
+
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({
+        getTurnSummary: () => ({
+          phase: "playerTurn",
+          activeFaction: "Player",
+          turnNumber: 1
+        })
+      })
+    };
+
+    (screen as any).initiativeMethods = {
+      getCurrentActivation: () => ({
+        unitId: "u_engineer_active",
+        ownerId: "player",
+        initiative: 6,
+        isActivated: false,
+        sortOrder: 1
+      })
+    };
+
+    (screen as any).tryTransferAllyControl = () => false;
+    (screen as any).onPlayerTurnMapClick = () => {
+      playerClickCalls += 1;
+    };
+    (screen as any).showInitiativeGroupMessage = (unitId: string) => {
+      blockedUnitId = unitId;
+    };
+    (screen as any).isUnitInCurrentInitiativeGroup = (unitId: string) => unitId === "u_engineer_active";
+    (screen as any).getPlayerStackMembersAtHex = () => [
+      { unitId: "u_engineer_first", isAutomated: false, unit: createPlayerUnit("u_engineer_first", 11, 15) },
+      { unitId: "u_engineer_active", isAutomated: false, unit: createPlayerUnit("u_engineer_active", 11, 15) }
+    ];
+  });
+
+  await When("the stacked hex is clicked for selection", async () => {
+    (screen as any).handleHexSelection("11,15");
+  });
+
+  await Then("the active stacked member is allowed through instead of being blocked by the first member", async () => {
+    if (blockedUnitId !== null) {
+      throw new Error(`Expected no initiative gate block, but blocked ${blockedUnitId}.`);
+    }
+    if (playerClickCalls !== 1) {
+      throw new Error(`Expected one onPlayerTurnMapClick call, received ${playerClickCalls}.`);
+    }
+  });
+});
