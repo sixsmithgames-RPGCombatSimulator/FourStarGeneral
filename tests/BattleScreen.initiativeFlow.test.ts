@@ -213,6 +213,43 @@ registerTest("BATTLESCREEN_INITIATIVE_AUTO_COMPLETES_PLAYER_ACTIVATION_AFTER_ORD
   });
 });
 
+registerTest("BATTLESCREEN_INITIATIVE_COMPLETION_FALLS_BACK_TO_ACTIVE_UNIT_ON_MISMATCH", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let completedUnitId: string | null = null;
+
+  await Given("initiative mode where the reported acted unit differs from the active activation", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).initiativeMethods = {
+      getCurrentActivation: () => ({
+        unitId: "u_engineer_active",
+        ownerId: "player",
+        initiative: 6,
+        isActivated: false,
+        sortOrder: 0
+      }),
+      completeUnitActivation: (unitId: string) => {
+        completedUnitId = unitId;
+      }
+    };
+    (screen as any).highlightCurrentInitiativeGroup = () => {};
+    (screen as any).focusCurrentInitiativeActivation = () => {};
+    (screen as any).syncInitiativeTurnControlsState = () => {};
+    (screen as any).recoverInitiativeQueueStall = () => false;
+  });
+
+  await When("the action completion callback receives a mismatched unit id", async () => {
+    (screen as any).completeInitiativeActivationAfterPlayerOrder("u_engineer_wrong");
+  });
+
+  await Then("the active activation still completes to prevent initiative deadlock", async () => {
+    if (completedUnitId !== "u_engineer_active") {
+      throw new Error(`Expected active activation id to complete, received ${completedUnitId ?? "none"}.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_INITIATIVE_STACKED_HEX_GATE_PREFERS_ACTIVE_MEMBER", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let blockedUnitId: string | null = null;

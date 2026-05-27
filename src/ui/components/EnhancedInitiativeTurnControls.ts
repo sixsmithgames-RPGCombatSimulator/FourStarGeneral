@@ -84,6 +84,7 @@ export class EnhancedInitiativeTurnControls {
   private currentGroup: InitiativeGroup | null = null;
   private currentPhase: ExtendedBattlePhase = 'deployment';
   private isPlayerTurn = false;
+  private roundAdvanceReady = false;
   private unitCompletionStates: Map<string, UnitCompletionState> = new Map();
 
   /**
@@ -147,6 +148,16 @@ export class EnhancedInitiativeTurnControls {
    */
   public updatePlayerTurn(isPlayerTurn: boolean): void {
     this.isPlayerTurn = isPlayerTurn;
+    this.updateControlStates();
+  }
+
+  /**
+   * Update whether the round is ready to advance to the next turn.
+   *
+   * @param ready - True when no activations remain and the commander can end the round.
+   */
+  public updateRoundAdvanceReady(ready: boolean): void {
+    this.roundAdvanceReady = ready;
     this.updateControlStates();
   }
 
@@ -275,23 +286,23 @@ export class EnhancedInitiativeTurnControls {
     this.container.innerHTML = `
       <div class="turn-controls-buttons">
         ${this.config.showProceedButton ? `
-          <button class="compact-button proceed-btn" disabled title="Proceed to next unit (Space)">
-            Proceed
+          <button class="compact-button proceed-btn" disabled title="End the active unit's orders and hand off initiative (Space)">
+            End Turn
           </button>
         ` : ''}
         
         ${this.config.showSkipTurn ? `
-          <button class="compact-button skip-group-btn" disabled title="Skip remaining units in group (Shift+Space)">
+          <button class="compact-button skip-group-btn" disabled title="Order remaining friendly units in this initiative band to hold/sentry and pass initiative (Shift+Space)">
             Skip Group
           </button>
         ` : ''}
         
-        <button class="compact-button next-activation-btn" disabled title="Next activation (Tab)">
+        <button class="compact-button next-activation-btn" disabled title="Cycle selection to another unit in the current initiative band (Tab)">
           Next Unit
         </button>
         
         ${this.config.showEndTurn ? `
-          <button class="secondary-button end-turn-btn" disabled title="End current turn (Enter)">
+          <button class="compact-button end-turn-btn" disabled title="End this initiative step. If activations are finished, advance to the next battle turn (Enter)">
             End Turn
           </button>
         ` : ''}
@@ -422,21 +433,22 @@ export class EnhancedInitiativeTurnControls {
     const isInInitiativePhase = this.currentPhase === 'initiativeTurn';
     const hasCurrentUnit = this.currentUnit !== null;
     const isPlayerUnit = this.currentUnit?.ownerId === 'player';
+    const canAdvanceRound = this.roundAdvanceReady;
 
     if (proceedBtn) {
-      proceedBtn.disabled = !isInInitiativePhase || !hasCurrentUnit || !isPlayerUnit;
+      proceedBtn.disabled = !isInInitiativePhase || !hasCurrentUnit || !isPlayerUnit || canAdvanceRound;
     }
 
     if (skipGroupBtn) {
-      skipGroupBtn.disabled = !isInInitiativePhase || !this.isPlayerTurn;
+      skipGroupBtn.disabled = !isInInitiativePhase || !this.isPlayerTurn || canAdvanceRound;
     }
 
     if (endBtn) {
-      endBtn.disabled = !isInInitiativePhase || !this.isPlayerTurn;
+      endBtn.disabled = !((isInInitiativePhase && this.isPlayerTurn) || canAdvanceRound);
     }
 
     if (nextBtn) {
-      nextBtn.disabled = !isInInitiativePhase || !hasCurrentUnit || !isPlayerUnit;
+      nextBtn.disabled = !isInInitiativePhase || !hasCurrentUnit || !isPlayerUnit || canAdvanceRound;
     }
 
     // Update turn indicator

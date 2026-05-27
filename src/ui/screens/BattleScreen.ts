@@ -310,6 +310,7 @@ export class BattleScreen {
   private initiativeUiSyncIntervalId: number | null = null;
   private initiativeGroupCursorUnitId: string | null = null;
   private initiativeGroupSessionId: string | null = null;
+  private initiativeTurnAdvanceInProgress = false;
   private readonly initiativeSkippedUnitIds = new Set<string>();
 
   // DOM element references
@@ -5332,9 +5333,19 @@ export class BattleScreen {
             : this.formatFactionLabel(summary.activeFaction);
     }
     if (this.phaseIndicatorElement) {
-      this.phaseIndicatorElement.textContent = initiativeActive
-        ? "Initiative Turn"
-        : this.formatPhaseLabel(summary.phase);
+      if (initiativeActive) {
+        const queue = this.initiativeMethods?.getCurrentInitiativeQueue();
+        const hasPendingActivations = this.hasPendingInitiativeActivations(queue);
+        this.phaseIndicatorElement.textContent = initiativeActivation
+          ? initiativeActivation.ownerId === "player"
+            ? "Initiative Turn"
+            : "Enemy Activation"
+          : hasPendingActivations
+            ? "Initiative Sync"
+            : "End Turn Ready";
+      } else {
+        this.phaseIndicatorElement.textContent = this.formatPhaseLabel(summary.phase);
+      }
     }
   }
 
@@ -7174,7 +7185,7 @@ export class BattleScreen {
   private async handleEndTurn(): Promise<void> {
     try {
       if (this.isInitiativeSystemEnabled && this.initiativeMethods?.isInitiativeSystemActive()) {
-        this.handleInitiativeEndTurn();
+        await this.handleInitiativeEndTurn();
         return;
       }
 
@@ -8336,7 +8347,9 @@ export class BattleScreen {
         controlsContainer,
         {
           onSkipTurn: () => this.handleSkipTurn(),
-          onEndTurn: () => this.handleInitiativeEndTurn(),
+          onEndTurn: () => {
+            void this.handleInitiativeEndTurn();
+          },
           onNextActivation: () => this.handleNextActivation(),
           onCompleteActivation: (unitId: string) => this.handleCompleteActivation(unitId),
           onProceedToNext: () => {
@@ -8346,8 +8359,8 @@ export class BattleScreen {
         },
         {
           showSkipTurn: true,
-          showEndTurn: false,
-          showProceedButton: true,
+          showEndTurn: true,
+          showProceedButton: false,
           showCurrentUnitInfo: true,
           showGroupInfo: true,
           enableKeyboardShortcuts: true
@@ -8442,7 +8455,7 @@ export class BattleScreen {
       });
       this.initiativeGroupCursorUnitId = null;
       
-      this.showElegantInitiativeMessage("Group marked to skip. Press Proceed to continue.");
+      this.showElegantInitiativeMessage("Group marked to hold. Press End Turn to continue.");
       this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to skip group:', error);
@@ -8454,18 +8467,113 @@ export class BattleScreen {
   /**
    * Handle end turn action for initiative system
    */
-  private handleInitiativeEndTurn(): void {
+  private async handleInitiativeEndTurn(): Promise<void> {
     if (!this.initiativeMethods) {
       console.warn('Initiative methods not available');
       return;
     }
 
     try {
-      // End the current turn
-      this.initiativeMethods.endCurrentTurn();
+      const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+      const currentActivation = this.initiativeMethods.getCurrentActivation();
+      const hasPendingActivations = this.hasPendingInitiativeActivations(queue);
+
+      if (currentActivation?.ownerId === "player") {
+        await this.handleProceedToNext();
+        return;
+      }
+
+      if (!currentActivation && hasPendingActivations) {
+        const recovered = this.recoverInitiativeQueueStall(queue);
+        if (!recovered) {
+          this.showElegantInitiativeMessage("Initiative sequencing is catching up. Please try End Turn again.");
+        }
+        return;
+      }
+
+      if (!hasPendingActivations) {
+        await this.advanceInitiativeRound();
+        return;
+      }
+
+      this.showElegantInitiativeMessage("Enemy activations are resolving. Wait for the current movement/combat sequence.");
     } catch (error) {
       console.error('Failed to end turn:', error);
     } finally {
+      this.syncInitiativeTurnControlsState();
+    }
+  }
+
+  private hasPendingInitiativeActivations(queue: any): boolean {
+    return Boolean(queue?.activations?.some((entry: { isActivated: boolean }) => !entry.isActivated));
+  }
+
+  private recoverInitiativeQueueStall(queueOverride?: any): boolean {
+    if (!this.initiativeMethods || !this.isInitiativeSystemEnabled || this.initiativeTurnAdvanceInProgress) {
+      return false;
+    }
+
+    const queue = queueOverride ?? this.initiativeMethods.getCurrentInitiativeQueue();
+    if (!this.hasPendingInitiativeActivations(queue)) {
+      return false;
+    }
+
+    const currentActivation = this.initiativeMethods.getCurrentActivation();
+    if (currentActivation) {
+      return false;
+    }
+
+    try {
+      const resumed = this.initiativeMethods.processNextInitiativeActivation();
+      if (!resumed) {
+        return false;
+      }
+      this.focusCurrentInitiativeActivation();
+      this.highlightCurrentInitiativeGroup();
+      return true;
+    } catch (error) {
+      console.error("Failed to recover stalled initiative queue:", error);
+      return false;
+    }
+  }
+
+  private async advanceInitiativeRound(): Promise<void> {
+    if (!this.initiativeMethods || this.initiativeTurnAdvanceInProgress) {
+      return;
+    }
+
+    this.initiativeTurnAdvanceInProgress = true;
+    try {
+      const engine = this.battleState.ensureGameEngine() as unknown as {
+        _phase: string;
+        _activeFaction: "Player" | "Bot" | "Ally";
+      };
+      // Initiative mode already resolved tactical bot activations this round.
+      // Force round advancement through the post-bot path so endTurn applies
+      // supply/air bookkeeping without executing a second full bot ground turn.
+      engine._phase = "botTurn";
+      engine._activeFaction = "Bot";
+
+      const preflight = this.battleState.getCurrentTurnSummary();
+      await this.executeTurnAdvance(preflight);
+
+      const postAdvanceSummary = this.battleState.getCurrentTurnSummary();
+      if (postAdvanceSummary.phase === "completed") {
+        this.teardownInitiativeSystemUi();
+        return;
+      }
+
+      this.initiativeGroupCursorUnitId = null;
+      this.initiativeGroupSessionId = null;
+      this.initiativeSkippedUnitIds.clear();
+      this.initiativeMethods.startNextInitiativeTurnPhase();
+      this.focusCurrentInitiativeActivation();
+      this.highlightCurrentInitiativeGroup();
+    } catch (error) {
+      console.error("Failed to advance initiative round:", error);
+      this.announceBattleUpdate("Unable to advance initiative round. Check console for details.");
+    } finally {
+      this.initiativeTurnAdvanceInProgress = false;
       this.syncInitiativeTurnControlsState();
     }
   }
@@ -8643,8 +8751,11 @@ export class BattleScreen {
       const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
       const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
       if (!activeGroup) {
+        const hasPendingActivations = this.hasPendingInitiativeActivations(currentQueue);
         this.showElegantInitiativeMessage(
-          `${unitReference} cannot act right now. No initiative group is currently active.`
+          hasPendingActivations
+            ? `${unitReference} cannot act yet. Initiative sequencing is still resolving another activation.`
+            : `${unitReference} cannot act right now. This round is complete. Press End Turn to advance.`
         );
         return;
       }
@@ -8661,7 +8772,7 @@ export class BattleScreen {
         : "the active formation";
 
       const message = unitInitiative === activeInitiative && currentActivation?.ownerId === "player" && currentActivation.unitId !== unitId
-        ? `${unitReference} is in initiative ${activeInitiative}, but ${currentActivationLabel} is currently acting. Complete that order or press Proceed to hand off the next activation.`
+        ? `${unitReference} is in initiative ${activeInitiative}, but ${currentActivationLabel} is currently acting. Complete that order or press End Turn to hand off the next activation.`
         : unitInitiative === null
           ? `${unitReference} is waiting. The active initiative group is ${activeInitiative}.`
           : `${unitReference} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
@@ -8698,7 +8809,7 @@ export class BattleScreen {
     const currentUnit = pendingUnits.find((unit) => unit.unitId === currentUnitId) ?? null;
     const currentLabel = currentUnit ? this.resolveReadableUnitLabel(currentUnit) : "This formation";
     const leadCopy = currentUnitIsPending
-      ? `${this.escapeHtml(currentLabel)} still has actions available. Proceeding now will place it on sentry and advance initiative.`
+      ? `${this.escapeHtml(currentLabel)} still has actions available. Ending now will place it on sentry and advance initiative.`
       : "Other formations in this initiative band still have actions available.";
     const items = pendingUnits
       .slice(0, 8)
@@ -8728,7 +8839,7 @@ export class BattleScreen {
           <ul class="initiative-proceed-modal__list">${items}${overflowItem}</ul>
           <footer class="initiative-proceed-modal__actions">
             <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--secondary" data-action="cancel">Keep Commanding</button>
-            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--primary" data-action="confirm">Proceed Anyway</button>
+            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--primary" data-action="confirm">End Turn Anyway</button>
           </footer>
         </section>
       `;
@@ -8990,21 +9101,30 @@ export class BattleScreen {
   }
 
   private completeInitiativeActivationAfterPlayerOrder(unitId: string | null | undefined): void {
-    if (!this.isInitiativeSystemEnabled || !this.initiativeMethods || !unitId) {
+    if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
       return;
     }
 
     try {
       const currentActivation = this.initiativeMethods.getCurrentActivation();
-      if (!currentActivation || currentActivation.ownerId !== "player" || currentActivation.unitId !== unitId) {
+      if (!currentActivation || currentActivation.ownerId !== "player") {
         return;
       }
 
-      this.initiativeMethods.completeUnitActivation(unitId);
+      const activationUnitId = currentActivation.unitId;
+      if (unitId && unitId !== activationUnitId) {
+        console.warn("[BattleScreen] Initiative completion unit mismatch; falling back to active activation.", {
+          requestedUnitId: unitId,
+          activeUnitId: activationUnitId
+        });
+      }
+
+      this.initiativeMethods.completeUnitActivation(activationUnitId);
       this.highlightCurrentInitiativeGroup();
       this.focusCurrentInitiativeActivation();
     } catch (error) {
       console.error("Failed to auto-complete player initiative activation:", error);
+      this.recoverInitiativeQueueStall();
     } finally {
       this.syncInitiativeTurnControlsState();
     }
@@ -9180,8 +9300,13 @@ export class BattleScreen {
     const renderer = this.hexMapRenderer;
     const fromKey = this.toOffsetHexKey(event.fromHex);
     const toKey = this.toOffsetHexKey(event.toHex);
-    const visibleBefore = event.visibleBefore || (event.fromHex ? this.isBotUnitVisibleToPlayer(event.unitId, event.fromHex) : false);
-    const visibleAfter = event.visibleAfter || (event.toHex ? this.isBotUnitVisibleToPlayer(event.unitId, event.toHex) : false);
+    const isEnemyActivation = event.ownerId === "bot";
+    const visibleBefore = isEnemyActivation
+      ? (event.visibleBefore || (event.fromHex ? this.isBotUnitVisibleToPlayer(event.unitId, event.fromHex) : false))
+      : true;
+    const visibleAfter = isEnemyActivation
+      ? (event.visibleAfter || (event.toHex ? this.isBotUnitVisibleToPlayer(event.unitId, event.toHex) : false))
+      : true;
     const focusBeforeMoveKey = visibleBefore ? fromKey : null;
     const focusAfterMoveKey = !visibleBefore && visibleAfter ? toKey : null;
     const fallbackFocusKey = visibleBefore ? fromKey : visibleAfter ? toKey : null;
@@ -9275,16 +9400,43 @@ export class BattleScreen {
     fromKey: string | null,
     toKey: string | null
   ): void {
-    const unitLabel = this.toTitleCase(event.unitType ?? "Enemy Unit");
-    if (event.moved && fromKey && toKey) {
+    const unitLabel = this.toTitleCase(event.unitType ?? "Unit");
+    const eventVisibleBefore = Boolean(event.visibleBefore);
+    const eventVisibleAfter = Boolean(event.visibleAfter);
+
+    if (event.ownerId === "player") {
+      if (event.moved) {
+        const moveSummary = fromKey && toKey
+          ? `Friendly ${unitLabel} repositioned from ${fromKey} to ${toKey}.`
+          : `Friendly ${unitLabel} repositioned.`;
+        this.publishActivityEvent({
+          category: "player",
+          type: "move",
+          summary: moveSummary
+        });
+      }
+      return;
+    }
+
+    const contact = this.resolveEnemyContactSnapshot(event.unitId);
+    const contactHexKey = this.toOffsetHexKey(contact?.hex ?? null);
+    if (event.moved) {
+      const moveSummary = eventVisibleBefore || eventVisibleAfter
+        ? `Enemy ${unitLabel} repositioned from ${fromKey ?? "unknown"} to ${toKey ?? "unknown"}.`
+        : contact?.state === "identified" && contactHexKey
+          ? `Identified enemy ${unitLabel} maneuvered near ${contactHexKey}.`
+          : contactHexKey
+            ? `Enemy movement detected near ${contactHexKey}.`
+            : "Enemy movement detected outside direct observation.";
       this.publishActivityEvent({
         category: "enemy",
         type: "move",
-        summary: `Enemy ${unitLabel} repositioned from ${fromKey} to ${toKey}.`
+        summary: moveSummary
       });
     }
 
     event.attacks.forEach((attack) => {
+      const attackerVisible = eventVisibleBefore || eventVisibleAfter || this.isBotUnitVisibleToPlayer(event.unitId, attack.fromHex);
       const attackerHex = this.toOffsetHexKey(attack.fromHex) ?? "unknown";
       const targetHex = this.toOffsetHexKey(attack.targetHex) ?? "unknown";
       const damage = this.formatDamageAmount(attack.inflictedDamage);
@@ -9294,13 +9446,22 @@ export class BattleScreen {
       const retaliationSummary = retaliationDamage ? ` Counterfire dealt ${retaliationDamage} damage.` : "";
       const attackerLabel = this.toTitleCase(attack.attackerType);
       const defenderLabel = this.toTitleCase(attack.defenderType);
+      const summary = attackerVisible
+        ? `Enemy ${attackerLabel} attacked ${defenderLabel} from ${attackerHex} to ${targetHex} for ${damage} damage.${effects}${destructionNote}${retaliationSummary}`
+        : `Enemy fire was detected against ${defenderLabel}. Damage: ${damage}.${effects}${destructionNote}${retaliationSummary}`;
 
       this.publishActivityEvent({
         category: "enemy",
         type: "attack",
-        summary: `Enemy ${attackerLabel} attacked ${defenderLabel} from ${attackerHex} to ${targetHex} for ${damage} damage.${effects}${destructionNote}${retaliationSummary}`
+        summary
       });
     });
+  }
+
+  private resolveEnemyContactSnapshot(unitId: string): EnemyContactSnapshot | null {
+    const engine = this.battleState.ensureGameEngine();
+    const contacts = engine.getEnemyContactSnapshot();
+    return contacts.find((contact) => contact.unitId === unitId) ?? null;
   }
 
   private isBotUnitVisibleToPlayer(unitId: string, expectedHex: Axial | null): boolean {
@@ -9405,6 +9566,7 @@ export class BattleScreen {
     if (!this.initiativeMethods || !this.isInitiativeSystemEnabled) {
       this.initiativeTurnControls.updateCurrentUnit(null);
       this.initiativeTurnControls.updatePlayerTurn(false);
+      this.initiativeTurnControls.updateRoundAdvanceReady(false);
       this.initiativeTurnControls.updatePhase('turnEnded');
       this.initiativeTurnControls.setControlsEnabled(false);
       this.syncLegacyEndTurnButton();
@@ -9412,22 +9574,28 @@ export class BattleScreen {
     }
 
     try {
+      let queue = this.initiativeMethods.getCurrentInitiativeQueue();
+      this.recoverInitiativeQueueStall(queue);
+      queue = this.initiativeMethods.getCurrentInitiativeQueue();
       const activation = this.initiativeMethods.getCurrentActivation();
-      const queue = this.initiativeMethods.getCurrentInitiativeQueue();
       const activeGroup = this.resolveActiveInitiativeGroup(queue);
       this.ensureFocusedPlayerInitiativeUnit(activeGroup);
       const displayActivation = activation;
-      const hasRemainingActivations = Boolean(queue?.activations?.some((entry: { isActivated: boolean }) => !entry.isActivated));
+      const hasRemainingActivations = this.hasPendingInitiativeActivations(queue);
       const initiativeActive = this.initiativeMethods.isInitiativeSystemActive();
+      const canAdvanceRound = initiativeActive && !hasRemainingActivations && !activation;
       const controlsPhase: 'initiativeTurn' | 'airShowPhase' | 'turnEnded' =
         initiativeActive && (hasRemainingActivations || Boolean(activation))
           ? 'initiativeTurn'
+          : initiativeActive
+            ? 'airShowPhase'
           : 'turnEnded';
 
       this.initiativeTurnControls.updateCurrentUnit(displayActivation);
       this.initiativeTurnControls.updatePlayerTurn((activeGroup?.ownerId ?? activation?.ownerId) === 'player');
+      this.initiativeTurnControls.updateRoundAdvanceReady(canAdvanceRound);
       this.initiativeTurnControls.updatePhase(controlsPhase);
-      this.initiativeTurnControls.setControlsEnabled(controlsPhase === 'initiativeTurn');
+      this.initiativeTurnControls.setControlsEnabled(controlsPhase !== 'turnEnded');
       this.syncLegacyEndTurnButton();
     } catch (error) {
       console.error('Failed to sync initiative turn controls state:', error);
@@ -9728,9 +9896,12 @@ export class BattleScreen {
     const summary = engine.getTurnSummary();
 
     const summaryPhase = summary.phase as string;
-    const isPlayerControlPhase =
-      summaryPhase === "playerTurn" ||
-      (this.isInitiativeSystemEnabled && summaryPhase === "initiativeTurn");
+    const initiativeActivation = this.isInitiativeSystemEnabled
+      ? this.initiativeMethods?.getCurrentActivation() ?? null
+      : null;
+    const isPlayerControlPhase = this.isInitiativeSystemEnabled
+      ? initiativeActivation?.ownerId === "player"
+      : summaryPhase === "playerTurn";
 
     if (isPlayerControlPhase) {
       const transferResult = this.tryTransferAllyControl(key);

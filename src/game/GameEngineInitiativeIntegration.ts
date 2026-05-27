@@ -372,6 +372,21 @@ export class GameEngineInitiativeMethods {
   }
 
   /**
+   * Rebuilds initiative activations for the current engine turn after round-end bookkeeping.
+   */
+  public startNextInitiativeTurnPhase(): UnitActivation | null {
+    const turnNumber = Number.isFinite(this.gameEngine?._turnNumber) ? this.gameEngine._turnNumber : 1;
+    const units = this.getAllUnitsForInitiative();
+
+    if (this.integration.isInitiativeSystemActive()) {
+      this.integration.disableInitiativeSystem();
+    }
+
+    this.integration.enableInitiativeSystem(units, turnNumber);
+    return this.processNextInitiativeActivation();
+  }
+
+  /**
    * Skip remaining player activations
    */
   public skipRemainingPlayerActivations(): void {
@@ -495,8 +510,8 @@ export class GameEngineInitiativeMethods {
     // Update game engine state
     this.gameEngine._activeFaction = activation.ownerId === 'player' ? 'Player' : 'Bot';
     
-    // If this is a bot unit, automatically execute its decision
-    if (activation.ownerId === 'bot') {
+    // Bot units and automated player logistics units execute without manual commands.
+    if (activation.ownerId === 'bot' || this.isAutomatedPlayerActivation(activation)) {
       this.executeBotTurn(activation);
     }
   }
@@ -509,7 +524,10 @@ export class GameEngineInitiativeMethods {
   private executeBotTurn(activation: UnitActivation): void {
     const beforeState = this.resolveActivationUnit(activation);
     const beforeHex = this.cloneHex(beforeState?.unit.hex ?? null);
-    const visibleBefore = this.isBotUnitVisibleToPlayer(activation.unitId, beforeHex);
+    const activationIsEnemy = activation.ownerId === 'bot';
+    const visibleBefore = activationIsEnemy
+      ? this.isBotUnitVisibleToPlayer(activation.unitId, beforeHex)
+      : true;
     const combatReportStartIndex = this.getCombatReportCount();
 
     try {
@@ -517,7 +535,8 @@ export class GameEngineInitiativeMethods {
 
       let executed = false;
 
-      if (!this.plannerBotIntegrationDisabled && this.supportsPlannerBotIntegration()) {
+      const shouldUsePlannerIntegration = activation.ownerId === 'bot' && beforeState?.faction === 'Bot';
+      if (shouldUsePlannerIntegration && !this.plannerBotIntegrationDisabled && this.supportsPlannerBotIntegration()) {
         try {
           // Get bot decision
           const decisionResult = this.botIntegration.executeBotDecision(activation);
@@ -550,7 +569,7 @@ export class GameEngineInitiativeMethods {
           }
           console.warn("[Initiative] Planner bot adapter error:", plannerError);
         }
-      } else if (!this.plannerIntegrationUnavailableLogged) {
+      } else if (shouldUsePlannerIntegration && !this.plannerIntegrationUnavailableLogged) {
         this.plannerIntegrationUnavailableLogged = true;
         console.info("[Initiative] Planner bot adapter unavailable on current engine shape; using deterministic fallback bot activations.");
       }
@@ -561,7 +580,9 @@ export class GameEngineInitiativeMethods {
 
       const afterState = this.resolveActivationUnit(activation);
       const afterHex = this.cloneHex(afterState?.unit.hex ?? null);
-      const visibleAfter = this.isBotUnitVisibleToPlayer(activation.unitId, afterHex);
+      const visibleAfter = activationIsEnemy
+        ? this.isBotUnitVisibleToPlayer(activation.unitId, afterHex)
+        : true;
       const attacks = this.collectBotCombatReportDelta(combatReportStartIndex);
       const result: InitiativeBotActivationResult = {
         unitId: activation.unitId,
@@ -581,7 +602,9 @@ export class GameEngineInitiativeMethods {
       this.executeFallbackBotActivation(activation);
       const afterState = this.resolveActivationUnit(activation);
       const afterHex = this.cloneHex(afterState?.unit.hex ?? null);
-      const visibleAfter = this.isBotUnitVisibleToPlayer(activation.unitId, afterHex);
+      const visibleAfter = activationIsEnemy
+        ? this.isBotUnitVisibleToPlayer(activation.unitId, afterHex)
+        : true;
       const attacks = this.collectBotCombatReportDelta(combatReportStartIndex);
       const result: InitiativeBotActivationResult = {
         unitId: activation.unitId,
@@ -652,6 +675,17 @@ export class GameEngineInitiativeMethods {
 
   private cloneHex(hex: Axial | null | undefined): Axial | null {
     return hex ? { q: hex.q, r: hex.r } : null;
+  }
+
+  private isAutomatedPlayerActivation(activation: UnitActivation): boolean {
+    if (activation.ownerId !== 'player') {
+      return false;
+    }
+    const resolved = this.resolveActivationUnit(activation);
+    if (!resolved || resolved.faction !== 'Player') {
+      return false;
+    }
+    return this.isAutomatedPlayerUnit(resolved.unit);
   }
 
   private async emitBotActivationResult(result: InitiativeBotActivationResult): Promise<void> {
