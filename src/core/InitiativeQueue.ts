@@ -198,8 +198,11 @@ export class InitiativeQueueManager {
     // Mark as activated and advance position if needed
     (activation as UnitActivation).isActivated = true;
     
-    // Update current index to point to next unactivated unit
-    if (queue.currentIndex <= activationIndex) {
+    // Update current index to point to next unactivated unit.
+    // When completing an activation out of order within a group, keep the cursor anchored
+    // so earlier unactivated entries remain available.
+    const originalIndex = queue.currentIndex;
+    if (activationIndex === originalIndex) {
       queue.currentIndex = activationIndex + 1;
     }
 

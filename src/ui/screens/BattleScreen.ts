@@ -8711,20 +8711,17 @@ export class BattleScreen {
    */
   private isUnitInCurrentInitiativeGroup(unitId: string): boolean {
     if (!this.initiativeMethods) {
-      return true; // Fallback: allow all units if initiative system not available
+      return true; // Initiative system not available, defer to normal turn rules.
     }
 
     try {
-      const currentActivation = this.initiativeMethods.getCurrentActivation();
-      if (!currentActivation) {
+      const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+      const activeGroup = this.resolveActiveInitiativeGroup(queue);
+      if (!activeGroup || activeGroup.ownerId !== "player") {
         return false;
       }
 
-      if (currentActivation.ownerId !== "player") {
-        return false;
-      }
-
-      return currentActivation.unitId === unitId;
+      return activeGroup.activations.some((activation) => activation.unitId === unitId);
     } catch (error) {
       console.error('Failed to check unit initiative group:', error);
       return true; // Fallback: allow unit on error
@@ -9106,17 +9103,28 @@ export class BattleScreen {
     }
 
     try {
-      const currentActivation = this.initiativeMethods.getCurrentActivation();
-      if (!currentActivation || currentActivation.ownerId !== "player") {
+      const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+      const activeGroup = this.resolveActiveInitiativeGroup(queue);
+      if (!activeGroup || activeGroup.ownerId !== "player") {
         return;
       }
 
-      const activationUnitId = currentActivation.unitId;
-      if (unitId && unitId !== activationUnitId) {
-        console.warn("[BattleScreen] Initiative completion unit mismatch; falling back to active activation.", {
-          requestedUnitId: unitId,
-          activeUnitId: activationUnitId
+      const currentActivation = this.initiativeMethods.getCurrentActivation();
+      const activationUnitId = unitId ?? currentActivation?.unitId ?? null;
+      if (!activationUnitId) {
+        return;
+      }
+
+      const isInActiveGroup = activeGroup.activations.some(
+        (activation) => activation.unitId === activationUnitId
+      );
+      if (!isInActiveGroup) {
+        console.error("[BattleScreen] Initiative completion requested for unit outside the active group.", {
+          requestedUnitId: activationUnitId,
+          activeGroupInitiative: activeGroup.initiative,
+          activeGroupOwner: activeGroup.ownerId
         });
+        return;
       }
 
       this.initiativeMethods.completeUnitActivation(activationUnitId);
@@ -11458,18 +11466,30 @@ export class BattleScreen {
       return null;
     }
 
-    const currentActivation = this.initiativeMethods?.getCurrentActivation();
-    if (this.isInitiativeSystemEnabled && currentActivation?.ownerId === "player") {
-      const activeMember = members.find((member) => member.unitId === currentActivation.unitId) ?? null;
-      if (activeMember) {
-        this.selectedPlayerUnitId = activeMember.unitId;
-        return activeMember;
-      }
-    }
-
     const matched = this.selectedPlayerUnitId
       ? members.find((member) => member.unitId === this.selectedPlayerUnitId) ?? null
       : null;
+
+    if (this.isInitiativeSystemEnabled && this.initiativeMethods) {
+      const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+      const activeGroup = this.resolveActiveInitiativeGroup(queue);
+      if (activeGroup?.ownerId === "player") {
+        if (matched && activeGroup.activations.some((activation) => activation.unitId === matched.unitId)) {
+          this.initiativeGroupCursorUnitId = matched.unitId;
+          return matched;
+        }
+
+        const currentActivation = this.initiativeMethods.getCurrentActivation();
+        const activeMember = currentActivation
+          ? members.find((member) => member.unitId === currentActivation.unitId) ?? null
+          : null;
+        if (activeMember) {
+          this.selectedPlayerUnitId = activeMember.unitId;
+          this.initiativeGroupCursorUnitId = activeMember.unitId;
+          return activeMember;
+        }
+      }
+    }
     const preferred = matched
       ?? members.find((member) => !member.isAutomated)
       ?? members[0]

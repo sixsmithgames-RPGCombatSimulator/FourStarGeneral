@@ -131,20 +131,34 @@ export class BattleStateInitiativeManager {
    * 
    * @param unitId - ID of the unit to mark as activated
    * @param units - Current unit state to update activation on
-   * @throws Error if unitId doesn't match current activation
+   * @throws Error if unitId is not in the active initiative group
    */
   public completeCurrentActivation(unitId: string, units: ScenarioUnit[]): void {
     if (!this.state.currentActivation) {
       throw new Error('No current activation to complete');
     }
-    if (this.state.currentActivation.unitId !== unitId) {
-      throw new Error(`Cannot complete activation for unit ${unitId}: current activation is ${this.state.currentActivation.unitId}`);
-    }
     if (!this.state.initiativeQueue) {
       throw new Error('No initiative queue available');
     }
 
-    const activeSortOrder = this.state.currentActivation.sortOrder;
+    const currentActivation = this.state.currentActivation;
+    const targetActivation = currentActivation.unitId === unitId
+      ? currentActivation
+      : this.state.initiativeQueue.activations.find(
+          activation =>
+            activation.unitId === unitId
+            && !activation.isActivated
+            && activation.ownerId === currentActivation.ownerId
+            && activation.initiative === currentActivation.initiative
+        );
+
+    if (!targetActivation) {
+      throw new Error(
+        `Cannot complete activation for unit ${unitId}: unit is not in the active initiative group (${currentActivation.unitId}).`
+      );
+    }
+
+    const activeSortOrder = targetActivation.sortOrder;
 
     // Mark as activated in the queue
     initiativeQueueManager.markActivated(this.state.initiativeQueue, unitId, activeSortOrder);
