@@ -267,6 +267,41 @@ HexMapRenderer and GameEngine are high-risk. Changes are additive only — no ex
 - Ran `npm run test` successfully.
 - Ran `npm run lint`; existing repository-wide warnings remain, with no new errors introduced.
 
+## Initiative Retaliation Pacing And Skip-Copy Plan
+
+### Intended behavior
+- Initiative bot attack and retaliation sequences should fully play, with readable camera focus transitions, before the queue advances to the next activation.
+- Skip-group messaging should describe skipped activations/sentry behavior without "hold" or "waiting" phrasing.
+
+### Current behavior
+- Initiative retaliation playback had minimal settle pacing and did not explicitly refocus on the retaliating impact target before continuation.
+- Skip-group UI messaging used "hold" language and some initiative-gate copy used "waiting" language after skip scenarios.
+
+### Expected new behavior
+- Initiative bot combat flow should include explicit focus/settle beats for attacker, target, and retaliation impact before completion.
+- Skip-group message should read as a skip/continue instruction, and null-initiative gate messaging should avoid "waiting" phrasing.
+
+### Scope
+- `src/ui/screens/BattleScreen.ts`
+- `src/ui/components/EnhancedInitiativeTurnControls.ts`
+- `tests/BattleScreen.animations.test.ts`
+- `tests/BattleScreen.initiativeFlow.test.ts`
+
+### Impact analysis
+- Systems consuming this output:
+  - Initiative bot activation playback in `BattleScreen`
+  - Initiative command controls copy in `EnhancedInitiativeTurnControls`
+- Events depending on this structure:
+  - Bot activation listener sequencing from `GameEngineInitiativeMethods`
+- Visual behaviors that could shift:
+  - Slower, clearer camera settles around retaliation moments.
+  - Updated skip-group and initiative-gate wording in commander-facing prompts.
+
+### Verification
+- Added regression test: `BATTLESCREEN_INITIATIVE_BOT_RETALIATION_WAITS_FOR_FOCUS_PACING`.
+- Added regression test: `BATTLESCREEN_INITIATIVE_SKIP_GROUP_USES_SKIP_COPY_NOT_HOLD`.
+- Run `npm run test`.
+
 ## Experience AP Plan
 
 ### Intended behavior

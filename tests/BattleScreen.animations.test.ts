@@ -1273,3 +1273,89 @@ registerTest("BATTLESCREEN_STRIKE_USES_CONTINUOUS_SORTIE_WHEN_RENDERER_SUPPORTS_
     }
   });
 });
+
+registerTest("BATTLESCREEN_INITIATIVE_BOT_RETALIATION_WAITS_FOR_FOCUS_PACING", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  const focusCalls: string[] = [];
+  const sequenceCalls: string[] = [];
+  const waitDurations: number[] = [];
+
+  await Given("an initiative bot activation that includes retaliation", async () => {
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).battleAnimationMode = "regular";
+    (screen as any).mapViewport = {};
+    (screen as any).hexMapRenderer = {
+      playAttackSequence: async (attackerHexKey: string, defenderHexKey: string, isHardTarget: boolean): Promise<void> => {
+        sequenceCalls.push(`${attackerHexKey}->${defenderHexKey}:${isHardTarget ? "hard" : "soft"}`);
+      }
+    };
+    (screen as any).unitTypes = {
+      Infantry_42: { class: "infantry" },
+      Panzer_IV: { class: "tank" }
+    };
+    (screen as any).toOffsetHexKey = (hex: { q: number; r: number } | null) => (hex ? `${hex.q},${hex.r}` : null);
+    (screen as any).isBotUnitVisibleToPlayer = () => false;
+    (screen as any).waitForNextFrame = async (): Promise<void> => {};
+    (screen as any).waitMs = async (durationMs: number): Promise<void> => {
+      waitDurations.push(durationMs);
+    };
+    (screen as any).focusCameraOnHex = async (hexKey: string): Promise<void> => {
+      focusCalls.push(hexKey);
+    };
+    (screen as any).renderEngineUnits = () => {};
+    (screen as any).logInitiativeBotActivationActivity = () => {};
+    (screen as any).toMovePathKeys = () => [];
+    (screen as any).resolveMoveAnimationDuration = () => 0;
+  });
+
+  await When("the activation animation pipeline runs", async () => {
+    await (screen as any).handleInitiativeBotActivation({
+      unitId: "u_bot_1",
+      ownerId: "bot",
+      unitType: "Infantry_42",
+      moved: false,
+      fromHex: { q: 4, r: 4 },
+      toHex: { q: 4, r: 4 },
+      visibleBefore: false,
+      visibleAfter: false,
+      attacks: [
+        {
+          attackerType: "Infantry_42",
+          defenderType: "Panzer_IV",
+          fromHex: { q: 4, r: 4 },
+          targetHex: { q: 4, r: 5 },
+          inflictedDamage: 9,
+          defenderDestroyed: false,
+          retaliation: {
+            damage: 6,
+            attackerStrengthAfter: 84
+          }
+        }
+      ]
+    });
+  });
+
+  await Then("camera focus and pacing include a retaliation beat before completion", async () => {
+    const expectedFocus = ["4,4", "4,5", "4,4"];
+    if (focusCalls.length !== expectedFocus.length || focusCalls.some((value, index) => value !== expectedFocus[index])) {
+      throw new Error(`Expected focus order ${JSON.stringify(expectedFocus)}, received ${JSON.stringify(focusCalls)}.`);
+    }
+
+    const expectedSequences = ["4,4->4,5:hard", "4,5->4,4:soft"];
+    if (
+      sequenceCalls.length !== expectedSequences.length ||
+      sequenceCalls.some((value, index) => value !== expectedSequences[index])
+    ) {
+      throw new Error(`Expected attack sequence order ${JSON.stringify(expectedSequences)}, received ${JSON.stringify(sequenceCalls)}.`);
+    }
+
+    const hasTargetSettlePause = waitDurations.includes(240);
+    const retaliationPauseCount = waitDurations.filter((duration) => duration === 220).length;
+    if (!hasTargetSettlePause || retaliationPauseCount < 2) {
+      throw new Error(
+        `Expected pacing waits to include target settle (240ms) and retaliation beats (>=2x220ms), received ${JSON.stringify(waitDurations)}.`
+      );
+    }
+  });
+});

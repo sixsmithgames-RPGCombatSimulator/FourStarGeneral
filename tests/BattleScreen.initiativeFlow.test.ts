@@ -361,3 +361,45 @@ registerTest("BATTLESCREEN_INITIATIVE_SYNC_PRESERVES_EXPLICIT_NON_CURRENT_GROUP_
     }
   });
 });
+
+registerTest("BATTLESCREEN_INITIATIVE_SKIP_GROUP_USES_SKIP_COPY_NOT_HOLD", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let message: string | null = null;
+
+  await Given("a player initiative group that is being skipped", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).initiativeSkippedUnitIds = new Set<string>();
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => ({})
+    };
+    (screen as any).resolveActiveInitiativeGroup = () => ({
+      initiative: 6,
+      ownerId: "player",
+      activations: [
+        { unitId: "u_player_1", ownerId: "player", initiative: 6, isActivated: false, sortOrder: 0 }
+      ]
+    });
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({
+        playerUnits: [createPlayerUnit("u_player_1", 2, 2)],
+        enterSentry: () => true
+      })
+    };
+    (screen as any).showElegantInitiativeMessage = (text: string) => {
+      message = text;
+    };
+    (screen as any).highlightCurrentInitiativeGroup = () => {};
+    (screen as any).syncInitiativeTurnControlsState = () => {};
+  });
+
+  await When("skip-group is executed", async () => {
+    (screen as any).handleSkipGroup();
+  });
+
+  await Then("the commander-facing message uses skip wording instead of hold wording", async () => {
+    if (message !== "Group skipped. Press End Turn to continue initiative.") {
+      throw new Error(`Expected skip-group copy to avoid hold wording, received '${message ?? "null"}'.`);
+    }
+  });
+});

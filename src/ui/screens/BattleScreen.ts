@@ -8455,7 +8455,7 @@ export class BattleScreen {
       });
       this.initiativeGroupCursorUnitId = null;
       
-      this.showElegantInitiativeMessage("Group marked to hold. Press End Turn to continue.");
+      this.showElegantInitiativeMessage("Group skipped. Press End Turn to continue initiative.");
       this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to skip group:', error);
@@ -8771,7 +8771,7 @@ export class BattleScreen {
       const message = unitInitiative === activeInitiative && currentActivation?.ownerId === "player" && currentActivation.unitId !== unitId
         ? `${unitReference} is in initiative ${activeInitiative}, but ${currentActivationLabel} is currently acting. Complete that order or press End Turn to hand off the next activation.`
         : unitInitiative === null
-          ? `${unitReference} is waiting. The active initiative group is ${activeInitiative}.`
+          ? `${unitReference} cannot act in the current initiative band. Active initiative is ${activeInitiative}. Press End Turn to continue.`
           : `${unitReference} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
       this.showElegantInitiativeMessage(message);
     } catch (error) {
@@ -9330,14 +9330,22 @@ export class BattleScreen {
     const fallbackFocusKey = visibleBefore ? fromKey : visibleAfter ? toKey : null;
     const canFocusCamera = Boolean(this.mapViewport);
     const shouldFocusCamera = canFocusCamera && this.battleAnimationMode !== "quick";
-    let cameraFocused = false;
-    const focusCameraForActivation = async (focusKey: string | null): Promise<void> => {
-      if (!shouldFocusCamera || cameraFocused || !focusKey) {
+    let lastFocusedKey: string | null = null;
+    const paceForAnimationStep = async (durationMs: number): Promise<void> => {
+      await this.waitForNextFrame();
+      if (this.battleAnimationMode !== "quick") {
+        await this.waitMs(durationMs);
+      }
+    };
+    const focusCameraForActivation = async (focusKey: string | null, settleMs: number): Promise<void> => {
+      if (!shouldFocusCamera || !focusKey) {
         return;
       }
-      await this.focusCameraOnHex(focusKey);
-      cameraFocused = true;
-      await this.waitMs(140);
+      if (lastFocusedKey !== focusKey) {
+        await this.focusCameraOnHex(focusKey);
+        lastFocusedKey = focusKey;
+      }
+      await paceForAnimationStep(settleMs);
     };
 
     const fromHex = event.fromHex;
@@ -9351,7 +9359,7 @@ export class BattleScreen {
 
       if (moveHandle) {
         try {
-          await focusCameraForActivation(focusBeforeMoveKey);
+          await focusCameraForActivation(focusBeforeMoveKey, 180);
           await moveHandle.play(this.resolveMoveAnimationDuration(movePath, BattleScreen.BOT_MOVE_ANIMATION_MS));
         } catch (animationError) {
           console.warn("[BattleScreen] Initiative bot move animation failed; continuing.", {
@@ -9365,7 +9373,7 @@ export class BattleScreen {
     }
 
     this.renderEngineUnits();
-    await focusCameraForActivation(focusAfterMoveKey);
+    await focusCameraForActivation(focusAfterMoveKey, 160);
 
     if (renderer && event.attacks.length > 0) {
       for (const attack of event.attacks) {
@@ -9376,12 +9384,13 @@ export class BattleScreen {
         }
 
         try {
-          await focusCameraForActivation(fallbackFocusKey);
+          await focusCameraForActivation(attackerKey, 180);
+          await focusCameraForActivation(targetKey, 240);
           const defenderDefinition = this.unitTypes?.[attack.defenderType as keyof UnitTypeDictionary];
           const defenderClass = defenderDefinition?.class;
           const targetIsHardTarget = defenderClass === "vehicle" || defenderClass === "tank" || defenderClass === "air";
           await renderer.playAttackSequence(attackerKey, targetKey, targetIsHardTarget);
-          await this.waitForNextFrame();
+          await paceForAnimationStep(180);
         } catch (animationError) {
           console.warn("[BattleScreen] Initiative bot attack animation failed; continuing.", {
             attack,
@@ -9394,8 +9403,9 @@ export class BattleScreen {
             const attackerDefinition = this.unitTypes?.[attack.attackerType as keyof UnitTypeDictionary];
             const attackerClass = attackerDefinition?.class;
             const retaliationTargetIsHardTarget = attackerClass === "vehicle" || attackerClass === "tank" || attackerClass === "air";
+            await focusCameraForActivation(attackerKey, 220);
             await renderer.playAttackSequence(targetKey, attackerKey, retaliationTargetIsHardTarget);
-            await this.waitForNextFrame();
+            await paceForAnimationStep(220);
           } catch (animationError) {
             console.warn("[BattleScreen] Initiative bot retaliation animation failed; continuing.", animationError);
           }
@@ -9405,6 +9415,7 @@ export class BattleScreen {
     } else if (fallbackFocusKey && canFocusCamera && this.battleAnimationMode !== "quick") {
       try {
         await this.focusCameraOnHex(fallbackFocusKey);
+        await paceForAnimationStep(160);
       } catch {
         // Ignore camera focus failures during automated initiative bot movement.
       }

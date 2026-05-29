@@ -292,7 +292,7 @@ export class EnhancedInitiativeTurnControls {
         ` : ''}
         
         ${this.config.showSkipTurn ? `
-          <button class="compact-button skip-group-btn" disabled title="Order remaining friendly units in this initiative band to hold/sentry and pass initiative (Shift+Space)">
+          <button class="compact-button skip-group-btn" disabled title="Skip remaining friendly units in this initiative band, place them on sentry, and pass initiative (Shift+Space)">
             Skip Group
           </button>
         ` : ''}
