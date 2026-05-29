@@ -235,6 +235,38 @@ HexMapRenderer and GameEngine are high-risk. Changes are additive only — no ex
 - Run `npm run build`.
 - Run a focused compiled harness for the selection-intel overlay test.
 
+## Initiative Group Selection Cursor Stability Plan
+
+### Intended behavior
+- During an active player initiative group, selecting a different eligible unit in that same group should persist.
+- UI sync should not force selection back to the queue head unless the current selection is no longer eligible.
+
+### Current behavior
+- `BattleScreen.ensureFocusedPlayerInitiativeUnit(...)` can overwrite an explicit non-current selection if the initiative cursor still points at the current activation.
+- The result is visible "snap back" to the current unit after the player clicks another in-group unit.
+
+### Expected new behavior
+- If the player has explicitly selected a unit that is still in the active selectable initiative set, the initiative cursor should follow that unit and remain stable across sync ticks.
+- Automatic refocus to current activation should occur only when the explicit selection is missing or no longer valid for the group.
+
+### Scope
+- `src/ui/screens/BattleScreen.ts`
+- `tests/BattleScreen.initiativeFlow.test.ts`
+
+### Impact analysis
+- Systems consuming this output:
+  - Initiative selection sync in `BattleScreen`
+  - Initiative UI controls that read cursor/selection state
+- Events depending on this structure:
+  - Periodic initiative control sync that calls `ensureFocusedPlayerInitiativeUnit(...)`
+- Visual behaviors that could shift:
+  - Selecting a non-current unit inside the active initiative group now remains selected instead of snapping back.
+
+### Verification
+- Added regression test: `BATTLESCREEN_INITIATIVE_SYNC_PRESERVES_EXPLICIT_NON_CURRENT_GROUP_SELECTION`.
+- Ran `npm run test` successfully.
+- Ran `npm run lint`; existing repository-wide warnings remain, with no new errors introduced.
+
 ## Experience AP Plan
 
 ### Intended behavior

@@ -9262,8 +9262,19 @@ export class BattleScreen {
     }
 
     const candidateIds = new Set(candidates.map((activation) => activation.unitId));
+    const selectedUnitId = this.selectedPlayerUnitId;
     const currentActivation = this.initiativeMethods?.getCurrentActivation();
     if (currentActivation?.ownerId === "player" && candidateIds.has(currentActivation.unitId)) {
+      if (
+        selectedUnitId &&
+        selectedUnitId !== currentActivation.unitId &&
+        candidateIds.has(selectedUnitId)
+      ) {
+        // Respect explicit commander selection within the active initiative group
+        // instead of snapping focus back to the queue head every sync tick.
+        this.initiativeGroupCursorUnitId = selectedUnitId;
+        return;
+      }
       const cursorUnitId = this.initiativeGroupCursorUnitId;
       if (cursorUnitId && cursorUnitId !== currentActivation.unitId && candidateIds.has(cursorUnitId)) {
         if (this.selectedPlayerUnitId !== cursorUnitId) {
@@ -9271,7 +9282,7 @@ export class BattleScreen {
         }
         return;
       }
-      if (this.selectedPlayerUnitId !== currentActivation.unitId) {
+      if (selectedUnitId !== currentActivation.unitId) {
         this.initiativeGroupCursorUnitId = currentActivation.unitId;
         this.focusInitiativeUnit(currentActivation.unitId);
         return;
@@ -9280,7 +9291,6 @@ export class BattleScreen {
       return;
     }
 
-    const selectedUnitId = this.selectedPlayerUnitId;
     if (!selectedUnitId || !candidateIds.has(selectedUnitId)) {
       // Keep the existing initiative cursor stable when selection is briefly cleared
       // after an action so "Next Unit" advances from the player's last position.

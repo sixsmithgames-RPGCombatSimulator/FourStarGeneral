@@ -313,3 +313,51 @@ registerTest("BATTLESCREEN_INITIATIVE_STACKED_HEX_GATE_PREFERS_ACTIVE_MEMBER", a
     }
   });
 });
+
+registerTest("BATTLESCREEN_INITIATIVE_SYNC_PRESERVES_EXPLICIT_NON_CURRENT_GROUP_SELECTION", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  const focusCalls: string[] = [];
+  const activeGroup = {
+    initiative: 6,
+    ownerId: "player" as const,
+    activations: [
+      { unitId: "u_player_lead", ownerId: "player" as const, initiative: 6, isActivated: false, sortOrder: 0 },
+      { unitId: "u_player_wing", ownerId: "player" as const, initiative: 6, isActivated: false, sortOrder: 1 }
+    ]
+  };
+
+  await Given("initiative sync with current activation on lead but explicit selection on wing", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).selectedPlayerUnitId = "u_player_wing";
+    (screen as any).initiativeGroupCursorUnitId = "u_player_lead";
+    (screen as any).initiativeMethods = {
+      getCurrentActivation: () => ({
+        unitId: "u_player_lead",
+        ownerId: "player",
+        initiative: 6,
+        isActivated: false,
+        sortOrder: 0
+      })
+    };
+    (screen as any).resolveSelectablePlayerInitiativeActivations = () => activeGroup.activations;
+    (screen as any).focusInitiativeUnit = (unitId: string) => {
+      focusCalls.push(unitId);
+    };
+  });
+
+  await When("focused-unit enforcement runs during UI sync", async () => {
+    (screen as any).ensureFocusedPlayerInitiativeUnit(activeGroup);
+  });
+
+  await Then("the explicit in-group selection remains active instead of snapping back to current activation", async () => {
+    if ((screen as any).initiativeGroupCursorUnitId !== "u_player_wing") {
+      throw new Error(
+        `Expected initiative cursor to stay on u_player_wing, received ${(screen as any).initiativeGroupCursorUnitId ?? "none"}.`
+      );
+    }
+    if (focusCalls.length > 0) {
+      throw new Error(`Expected no forced focus reset, received ${JSON.stringify(focusCalls)}.`);
+    }
+  });
+});
