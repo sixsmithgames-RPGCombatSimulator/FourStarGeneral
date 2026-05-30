@@ -2824,6 +2824,7 @@ export class BattleScreen {
       this.announceBattleUpdate(facingSummary);
       this.publishActivityEvent({ category: "player", type: "log", summary: facingSummary });
       this.battleState.emitBattleUpdate("manual");
+      this.completeInitiativeActivationAfterPlayerOrder(unitId ?? null);
       return;
     }
 
@@ -8963,10 +8964,9 @@ export class BattleScreen {
       return [];
     }
 
-    const engine = this.battleState.ensureGameEngine();
     return activeGroup.activations
       .filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId))
-      .map((activation) => engine.playerUnits.find((unit) => unit.unitId === activation.unitId) ?? null)
+      .map((activation) => this.resolvePlayerUnitForInitiativeActivation(activation.unitId))
       .filter((unit): unit is ScenarioUnit => Boolean(unit))
       .filter((unit) => !this.hasUnitCommittedOrders(unit));
   }
@@ -8980,23 +8980,18 @@ export class BattleScreen {
       return [];
     }
 
-    const engine = this.battleState.ensureGameEngine();
     const actionable = activeGroup.activations.filter((activation) => {
       if (this.initiativeSkippedUnitIds.has(activation.unitId)) {
         return false;
       }
-      const unit = engine.playerUnits.find((entry) => entry.unitId === activation.unitId);
+      const unit = this.resolvePlayerUnitForInitiativeActivation(activation.unitId);
       if (!unit) {
-        return true;
+        return false;
       }
       return !this.hasUnitCommittedOrders(unit);
     });
 
-    if (actionable.length > 0) {
-      return actionable;
-    }
-
-    return activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
+    return actionable;
   }
 
   private focusNextSelectablePlayerInitiativeUnit(
@@ -9074,11 +9069,45 @@ export class BattleScreen {
         return;
       }
       this.initiativeSkippedUnitIds.add(activation.unitId);
-      const unit = engine.playerUnits.find((entry) => entry.unitId === activation.unitId);
+      const unit = this.resolvePlayerUnitForInitiativeActivation(activation.unitId);
       if (unit && !unit.onSentry && !this.hasUnitCommittedOrders(unit)) {
         engine.enterSentry(unit.hex, unit.unitId ?? undefined);
       }
     });
+  }
+
+  private resolvePlayerUnitForInitiativeActivation(activationUnitId: string): ScenarioUnit | null {
+    const engine = this.battleState.ensureGameEngine();
+    const directMatch = engine.playerUnits.find((entry) => entry.unitId === activationUnitId) ?? null;
+    if (directMatch) {
+      return directMatch;
+    }
+
+    const legacyActivationMatch = /^(.+)-(\d+)$/.exec(activationUnitId);
+    if (!legacyActivationMatch) {
+      return null;
+    }
+
+    const [, activationType, activationIndexRaw] = legacyActivationMatch;
+    const activationIndex = Number.parseInt(activationIndexRaw, 10);
+    if (!Number.isFinite(activationIndex)) {
+      return null;
+    }
+
+    const allUnitsForQueueOrder = [
+      ...engine.playerUnits.map((unit) => ({ owner: "player" as const, unit })),
+      ...engine.botUnits.map((unit) => ({ owner: "bot" as const, unit })),
+      ...engine.allyUnits.map((unit) => ({ owner: "bot" as const, unit }))
+    ].filter((entry) => {
+      const definition = this.unitTypes?.[entry.unit.type as keyof UnitTypeDictionary];
+      return Boolean(definition && typeof definition.initiative === "number" && definition.initiative > 0);
+    });
+
+    const target = allUnitsForQueueOrder[activationIndex];
+    if (!target || target.owner !== "player" || target.unit.type !== activationType) {
+      return null;
+    }
+    return target.unit;
   }
 
   private hasUnitCommittedOrders(unit: ScenarioUnit): boolean {
@@ -9087,14 +9116,31 @@ export class BattleScreen {
     }
 
     const engineAny = this.battleState.ensureGameEngine() as unknown as {
-      playerActionFlags?: Map<string, { movementPointsUsed?: number; attacksUsed?: number }>;
+      playerActionFlags?: Map<string, {
+        movementPointsUsed?: number;
+        attacksUsed?: number;
+        smokeUsed?: boolean;
+        facingSet?: boolean;
+      }>;
     };
-    const flags = engineAny.playerActionFlags?.get(unit.unitId ?? "");
+    const actionFlags = engineAny.playerActionFlags;
+    if (!actionFlags) {
+      return false;
+    }
+
+    const primaryKey = unit.unitId ?? "";
+    const fallbackKey = `${unit.type}@${unit.hex.q},${unit.hex.r}`;
+    const flags = (primaryKey ? actionFlags.get(primaryKey) : undefined) ?? actionFlags.get(fallbackKey);
     if (!flags) {
       return false;
     }
 
-    return (flags.movementPointsUsed ?? 0) > 0 || (flags.attacksUsed ?? 0) > 0;
+    return (
+      (flags.movementPointsUsed ?? 0) > 0 ||
+      (flags.attacksUsed ?? 0) > 0 ||
+      flags.smokeUsed === true ||
+      flags.facingSet === true
+    );
   }
 
   private completeInitiativeActivationAfterPlayerOrder(unitId: string | null | undefined): void {
@@ -9115,19 +9161,26 @@ export class BattleScreen {
         return;
       }
 
-      const isInActiveGroup = activeGroup.activations.some(
-        (activation) => activation.unitId === activationUnitId
-      );
+      let completionUnitId = activationUnitId;
+      const isInActiveGroup = activeGroup.activations.some((activation) => activation.unitId === completionUnitId);
       if (!isInActiveGroup) {
-        console.error("[BattleScreen] Initiative completion requested for unit outside the active group.", {
-          requestedUnitId: activationUnitId,
-          activeGroupInitiative: activeGroup.initiative,
-          activeGroupOwner: activeGroup.ownerId
-        });
-        return;
+        const fallbackUnitId = currentActivation?.unitId ?? null;
+        const fallbackIsInGroup = fallbackUnitId
+          ? activeGroup.activations.some((activation) => activation.unitId === fallbackUnitId)
+          : false;
+        if (!fallbackIsInGroup || !fallbackUnitId) {
+          console.error("[BattleScreen] Initiative completion requested for unit outside the active group.", {
+            requestedUnitId: activationUnitId,
+            fallbackUnitId,
+            activeGroupInitiative: activeGroup.initiative,
+            activeGroupOwner: activeGroup.ownerId
+          });
+          return;
+        }
+        completionUnitId = fallbackUnitId;
       }
 
-      this.initiativeMethods.completeUnitActivation(activationUnitId);
+      this.initiativeMethods.completeUnitActivation(completionUnitId);
       this.highlightCurrentInitiativeGroup();
       this.focusCurrentInitiativeActivation();
     } catch (error) {

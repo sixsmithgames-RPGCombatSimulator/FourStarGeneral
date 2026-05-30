@@ -28,30 +28,43 @@ function createPlayerUnit(unitId: string, q: number, r: number): ScenarioUnit {
   };
 }
 
-registerTest("BATTLESCREEN_INITIATIVE_ACTIONS_REQUIRE_CURRENT_ACTIVATION_UNIT", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_INITIATIVE_ACTIONS_ALLOW_ANY_UNIT_IN_ACTIVE_PLAYER_GROUP", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
-  let activeAllowed = false;
-  let inactiveAllowed = true;
+  let leadAllowed = false;
+  let wingAllowed = false;
+  let otherBandBlocked = false;
 
-  await Given("initiative mode with a current player activation", async () => {
+  await Given("initiative mode with an active player group containing two formations", async () => {
     mountBattleScreenRoot();
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    const queue = {
+      currentIndex: 0,
+      currentTurn: 1,
+      activations: [
+        { unitId: "u_player_1", ownerId: "player" as const, initiative: 5, isActivated: false, sortOrder: 0 },
+        { unitId: "u_bot_1", ownerId: "bot" as const, initiative: 5, isActivated: false, sortOrder: 1 },
+        { unitId: "u_player_2", ownerId: "player" as const, initiative: 5, isActivated: false, sortOrder: 2 },
+        { unitId: "u_player_3", ownerId: "player" as const, initiative: 4, isActivated: false, sortOrder: 3 }
+      ]
+    };
     (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => queue,
       getCurrentActivation: () => ({ unitId: "u_player_1", ownerId: "player", initiative: 5, isActivated: false, sortOrder: 0 })
     };
   });
 
-  await When("eligibility is checked for the active and inactive unit ids", async () => {
-    activeAllowed = (screen as any).isUnitInCurrentInitiativeGroup("u_player_1");
-    inactiveAllowed = (screen as any).isUnitInCurrentInitiativeGroup("u_player_2");
+  await When("eligibility is checked for units in and out of the active group", async () => {
+    leadAllowed = (screen as any).isUnitInCurrentInitiativeGroup("u_player_1");
+    wingAllowed = (screen as any).isUnitInCurrentInitiativeGroup("u_player_2");
+    otherBandBlocked = !(screen as any).isUnitInCurrentInitiativeGroup("u_player_3");
   });
 
-  await Then("only the current activation unit can act", async () => {
-    if (!activeAllowed) {
-      throw new Error("Expected current activation unit to be eligible for initiative actions.");
+  await Then("all units in the active player group are eligible while other initiative bands stay blocked", async () => {
+    if (!leadAllowed || !wingAllowed) {
+      throw new Error(`Expected both in-group units to be eligible, received lead=${leadAllowed}, wing=${wingAllowed}.`);
     }
-    if (inactiveAllowed) {
-      throw new Error("Expected non-active units to be blocked during initiative actions.");
+    if (!otherBandBlocked) {
+      throw new Error("Expected units outside the active initiative group to be blocked.");
     }
   });
 });
@@ -174,7 +187,15 @@ registerTest("BATTLESCREEN_INITIATIVE_AUTO_COMPLETES_PLAYER_ACTIVATION_AFTER_ORD
     mountBattleScreenRoot();
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
     (screen as any).isInitiativeSystemEnabled = true;
+    const queue = {
+      currentIndex: 0,
+      currentTurn: 1,
+      activations: [
+        { unitId: "u_player_1", ownerId: "player" as const, initiative: 6, isActivated: false, sortOrder: 0 }
+      ]
+    };
     (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => queue,
       getCurrentActivation: () => ({
         unitId: "u_player_1",
         ownerId: "player",
@@ -221,7 +242,15 @@ registerTest("BATTLESCREEN_INITIATIVE_COMPLETION_FALLS_BACK_TO_ACTIVE_UNIT_ON_MI
     mountBattleScreenRoot();
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
     (screen as any).isInitiativeSystemEnabled = true;
+    const queue = {
+      currentIndex: 0,
+      currentTurn: 1,
+      activations: [
+        { unitId: "u_engineer_active", ownerId: "player" as const, initiative: 6, isActivated: false, sortOrder: 0 }
+      ]
+    };
     (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => queue,
       getCurrentActivation: () => ({
         unitId: "u_engineer_active",
         ownerId: "player",
@@ -400,6 +429,100 @@ registerTest("BATTLESCREEN_INITIATIVE_SKIP_GROUP_USES_SKIP_COPY_NOT_HOLD", async
   await Then("the commander-facing message uses skip wording instead of hold wording", async () => {
     if (message !== "Group skipped. Press End Turn to continue initiative.") {
       throw new Error(`Expected skip-group copy to avoid hold wording, received '${message ?? "null"}'.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_INITIATIVE_SELECTION_EXCLUDES_SMOKE_AND_FACING_COMMITTED_UNITS", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let selectableIds: string[] = [];
+
+  await Given("an active player group where each unit has already committed an order", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).initiativeSkippedUnitIds = new Set<string>();
+
+    const lead = createPlayerUnit("u_player_lead", 2, 2);
+    const wing = createPlayerUnit("u_player_wing", 3, 2);
+    const playerActionFlags = new Map<string, {
+      movementPointsUsed?: number;
+      attacksUsed?: number;
+      smokeUsed?: boolean;
+      facingSet?: boolean;
+    }>();
+    playerActionFlags.set("u_player_lead", { movementPointsUsed: 0, attacksUsed: 0, smokeUsed: true });
+    playerActionFlags.set("u_player_wing", { movementPointsUsed: 0, attacksUsed: 0, facingSet: true });
+
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({
+        playerUnits: [lead, wing],
+        botUnits: [],
+        allyUnits: [],
+        playerActionFlags
+      })
+    };
+  });
+
+  await When("selectable activations are resolved for that group", async () => {
+    const activeGroup = {
+      initiative: 6,
+      ownerId: "player" as const,
+      activations: [
+        { unitId: "u_player_lead", ownerId: "player" as const, initiative: 6, isActivated: false, sortOrder: 0 },
+        { unitId: "u_player_wing", ownerId: "player" as const, initiative: 6, isActivated: false, sortOrder: 1 }
+      ]
+    };
+    selectableIds = ((screen as any).resolveSelectablePlayerInitiativeActivations(activeGroup) as Array<{ unitId: string }>).map(
+      (entry) => entry.unitId
+    );
+  });
+
+  await Then("no committed unit is re-offered as selectable", async () => {
+    if (selectableIds.length !== 0) {
+      throw new Error(`Expected zero selectable committed units, received ${JSON.stringify(selectableIds)}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_INITIATIVE_SET_FACING_COMPLETES_ACTIVATION", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let completedUnitId: string | null = null;
+
+  await Given("a pending facing order in initiative mode", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).pendingFortificationBuild = {
+      hex: { q: 4, r: 2 },
+      hexKey: "4,2",
+      unitLabel: "Lead Infantry",
+      unitId: "u_player_1",
+      modificationType: "facing"
+    };
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({
+        setUnitFacing: () => true
+      }),
+      emitBattleUpdate: () => {}
+    };
+    (screen as any).hideFortificationFacingDialog = () => {};
+    (screen as any).renderEngineUnits = () => {};
+    (screen as any).applySelectedHex = () => {};
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+    (screen as any).hexMapRenderer = { clearUnitFacingAngle: () => {} };
+    (screen as any).completeInitiativeActivationAfterPlayerOrder = (unitId: string | null | undefined) => {
+      completedUnitId = unitId ?? null;
+    };
+  });
+
+  await When("the commander confirms a new facing", async () => {
+    await (screen as any).handleConfirmFortificationFacing("E");
+  });
+
+  await Then("the facing order consumes the initiative activation", async () => {
+    if (completedUnitId !== "u_player_1") {
+      throw new Error(`Expected facing confirmation to complete u_player_1, received ${completedUnitId ?? "none"}.`);
     }
   });
 });

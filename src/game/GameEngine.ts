@@ -962,6 +962,8 @@ type UnitActionFlags = {
   retaliationLimit?: number;
   /** True once the unit has deployed smoke this turn — prevents a second smoke action. */
   smokeUsed?: boolean;
+  /** True once the unit has explicitly changed facing this turn. */
+  facingSet?: boolean;
 };
 
 /** Describes a single bot movement so UI layers can narrate progress. */
@@ -17039,6 +17041,7 @@ private automateSupplyConvoys(
     }
     unit.facing = facing;
     this.replaceUnitInFactionHex("Player", unit);
+    this.setUnitActionFlags("Player", unit, { ...flags, facingSet: true });
     this.updateIdleRegistryFor(axialKey(hex));
     this.invalidateRosterCache();
     return true;
