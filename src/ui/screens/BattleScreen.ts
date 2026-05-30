@@ -312,6 +312,7 @@ export class BattleScreen {
   private initiativeGroupSessionId: string | null = null;
   private initiativeTurnAdvanceInProgress = false;
   private readonly initiativeSkippedUnitIds = new Set<string>();
+  private initiativeEndTurnSkipModeActive = false;
 
   // DOM element references
   private battleAnnouncements: HTMLElement | null = null;
@@ -8227,7 +8228,7 @@ export class BattleScreen {
       this.isInitiativeSystemEnabled = true;
       this.initiativeGroupCursorUnitId = null;
       this.initiativeGroupSessionId = null;
-      this.initiativeSkippedUnitIds.clear();
+      this.clearInitiativeSkipState();
       this.syncLegacyEndTurnButton();
       this.ensureInitiativeUiSyncLoop();
 
@@ -8282,7 +8283,7 @@ export class BattleScreen {
     this.clearInitiativeGroupHighlights();
     this.initiativeGroupCursorUnitId = null;
     this.initiativeGroupSessionId = null;
-    this.initiativeSkippedUnitIds.clear();
+    this.clearInitiativeSkipState();
     this.initiativeMethods?.setBotActivationListener(null);
     this.initiativeMethods = null;
     this.isInitiativeSystemEnabled = false;
@@ -8429,6 +8430,7 @@ export class BattleScreen {
         }
       }
 
+      this.initiativeEndTurnSkipModeActive = false;
       this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative, false);
       this.focusCurrentInitiativeActivation();
       this.highlightCurrentInitiativeGroup();
@@ -8485,16 +8487,34 @@ export class BattleScreen {
 
     try {
       const queue = this.initiativeMethods.getCurrentInitiativeQueue();
-      const currentActivation = this.initiativeMethods.getCurrentActivation();
-      const hasPendingActivations = this.hasPendingInitiativeActivations(queue);
+      const skippedPlayerActivationCount = this.skipRemainingPlayerInitiativeTurnActivations(queue);
+      if (skippedPlayerActivationCount > 0) {
+        this.initiativeEndTurnSkipModeActive = true;
+      }
+      if (this.initiativeEndTurnSkipModeActive) {
+        this.flushSkippedInitiativeActivations();
+      }
+
+      const refreshedQueue = this.initiativeMethods.getCurrentInitiativeQueue();
+      let currentActivation = this.initiativeMethods.getCurrentActivation();
+      const hasPendingActivations = this.hasPendingInitiativeActivations(refreshedQueue);
 
       if (currentActivation?.ownerId === "player") {
+        if (this.initiativeEndTurnSkipModeActive) {
+          this.initiativeSkippedUnitIds.add(currentActivation.unitId);
+          this.flushSkippedInitiativeActivations();
+          currentActivation = this.initiativeMethods.getCurrentActivation();
+          if (currentActivation?.ownerId === "player") {
+            this.showElegantInitiativeMessage("Remaining formations are being set to sentry. Enemy activations are resolving.");
+          }
+          return;
+        }
         await this.handleProceedToNext();
         return;
       }
 
       if (!currentActivation && hasPendingActivations) {
-        const recovered = this.recoverInitiativeQueueStall(queue);
+        const recovered = this.recoverInitiativeQueueStall(refreshedQueue);
         if (!recovered) {
           this.showElegantInitiativeMessage("Initiative sequencing is catching up. Please try End Turn again.");
         }
@@ -8506,12 +8526,43 @@ export class BattleScreen {
         return;
       }
 
+      if (skippedPlayerActivationCount > 0 || this.initiativeEndTurnSkipModeActive) {
+        this.showElegantInitiativeMessage("Remaining formations set to sentry. Enemy activations are resolving.");
+        return;
+      }
+
       this.showElegantInitiativeMessage("Enemy activations are resolving. Wait for the current movement/combat sequence.");
     } catch (error) {
       console.error('Failed to end turn:', error);
     } finally {
       this.syncInitiativeTurnControlsState();
     }
+  }
+
+  private skipRemainingPlayerInitiativeTurnActivations(queueOverride?: any): number {
+    const queue = queueOverride ?? this.initiativeMethods?.getCurrentInitiativeQueue();
+    if (!queue || !Array.isArray(queue.activations)) {
+      return 0;
+    }
+
+    const engine = this.battleState.ensureGameEngine();
+    let skippedCount = 0;
+
+    queue.activations.forEach((activation: { unitId: string; ownerId: "player" | "bot"; isActivated: boolean }) => {
+      if (activation.ownerId !== "player" || activation.isActivated) {
+        return;
+      }
+
+      this.initiativeSkippedUnitIds.add(activation.unitId);
+      skippedCount += 1;
+
+      const unit = this.resolvePlayerUnitForInitiativeActivation(activation.unitId);
+      if (unit && !unit.onSentry && !this.hasUnitCommittedOrders(unit)) {
+        engine.enterSentry(unit.hex, unit.unitId ?? undefined);
+      }
+    });
+
+    return skippedCount;
   }
 
   private hasPendingInitiativeActivations(queue: any): boolean {
@@ -8575,7 +8626,7 @@ export class BattleScreen {
 
       this.initiativeGroupCursorUnitId = null;
       this.initiativeGroupSessionId = null;
-      this.initiativeSkippedUnitIds.clear();
+      this.clearInitiativeSkipState();
       this.initiativeMethods.startNextInitiativeTurnPhase();
       this.focusCurrentInitiativeActivation();
       this.highlightCurrentInitiativeGroup();
@@ -8686,7 +8737,9 @@ export class BattleScreen {
       if (!activeGroup) {
         this.initiativeGroupSessionId = null;
         this.initiativeGroupCursorUnitId = null;
-        this.initiativeSkippedUnitIds.clear();
+        if (!this.hasPendingInitiativeActivations(currentQueue)) {
+          this.clearInitiativeSkipState();
+        }
         this.clearInitiativeGroupHighlights();
         return;
       }
@@ -8961,7 +9014,9 @@ export class BattleScreen {
 
     this.initiativeGroupSessionId = nextSessionId;
     this.initiativeGroupCursorUnitId = null;
-    this.initiativeSkippedUnitIds.clear();
+    if (!this.initiativeEndTurnSkipModeActive) {
+      this.initiativeSkippedUnitIds.clear();
+    }
   }
 
   private resolveUncommittedPlayerInitiativeUnits(activeGroup: {
@@ -9265,7 +9320,9 @@ export class BattleScreen {
     if (!stillInSamePlayerInitiativeBand) {
       this.initiativeGroupCursorUnitId = null;
       this.initiativeGroupSessionId = null;
-      this.initiativeSkippedUnitIds.clear();
+      if (!this.initiativeEndTurnSkipModeActive) {
+        this.initiativeSkippedUnitIds.clear();
+      }
       return;
     }
 
@@ -9704,11 +9761,21 @@ export class BattleScreen {
     while (guard < 64) {
       guard += 1;
       const activation = this.initiativeMethods.getCurrentActivation();
-      if (!activation || activation.ownerId !== "player" || !this.initiativeSkippedUnitIds.has(activation.unitId)) {
+      if (!activation || activation.ownerId !== "player") {
         break;
       }
+      const shouldAutoSkip = this.initiativeSkippedUnitIds.has(activation.unitId) || this.initiativeEndTurnSkipModeActive;
+      if (!shouldAutoSkip) {
+        break;
+      }
+      this.initiativeSkippedUnitIds.add(activation.unitId);
       this.initiativeMethods.completeUnitActivation(activation.unitId);
     }
+  }
+
+  private clearInitiativeSkipState(): void {
+    this.initiativeEndTurnSkipModeActive = false;
+    this.initiativeSkippedUnitIds.clear();
   }
 
   /**

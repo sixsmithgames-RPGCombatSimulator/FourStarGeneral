@@ -433,6 +433,105 @@ registerTest("BATTLESCREEN_INITIATIVE_SKIP_GROUP_USES_SKIP_COPY_NOT_HOLD", async
   });
 });
 
+registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_PERSISTS_ACROSS_INITIATIVE_BANDS", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let preservedAcrossBandSwap = false;
+  let clearedOnceSkipModeEnds = false;
+
+  await Given("an initiative session where end-turn skip mode is active", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => ({ currentTurn: 3 })
+    };
+    (screen as any).initiativeGroupSessionId = "3:6";
+    (screen as any).initiativeGroupCursorUnitId = "u_player_lead";
+    (screen as any).initiativeEndTurnSkipModeActive = true;
+    (screen as any).initiativeSkippedUnitIds = new Set<string>(["u_player_lead", "u_player_wing"]);
+  });
+
+  await When("the active initiative band changes while skip mode remains active", async () => {
+    (screen as any).syncInitiativeGroupSession({
+      initiative: 5,
+      ownerId: "bot",
+      activations: []
+    });
+    preservedAcrossBandSwap = (screen as any).initiativeSkippedUnitIds.has("u_player_wing");
+
+    (screen as any).initiativeEndTurnSkipModeActive = false;
+    (screen as any).syncInitiativeGroupSession({
+      initiative: 4,
+      ownerId: "player",
+      activations: []
+    });
+    clearedOnceSkipModeEnds = (screen as any).initiativeSkippedUnitIds.size === 0;
+  });
+
+  await Then("skip-state persists during end-turn auto-skip and clears again for normal play", async () => {
+    if (!preservedAcrossBandSwap) {
+      throw new Error("Expected skipped unit ids to persist across initiative-band swaps while end-turn skip mode is active.");
+    }
+    if (!clearedOnceSkipModeEnds) {
+      throw new Error("Expected skipped unit ids to clear once end-turn skip mode is no longer active.");
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_BYPASSES_PROCEED_CONFIRMATION", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let proceedCalls = 0;
+  let announcement: string | null = null;
+
+  await Given("a player activation that remains current while end-turn skip mode is being applied", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).initiativeEndTurnSkipModeActive = false;
+    (screen as any).initiativeSkippedUnitIds = new Set<string>();
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => ({
+        currentIndex: 0,
+        currentTurn: 1,
+        activations: [
+          { unitId: "u_player_1", ownerId: "player", initiative: 6, isActivated: false, sortOrder: 0 }
+        ]
+      }),
+      getCurrentActivation: () => ({
+        unitId: "u_player_1",
+        ownerId: "player",
+        initiative: 6,
+        isActivated: false,
+        sortOrder: 0
+      }),
+      isInitiativeSystemActive: () => true
+    };
+    (screen as any).skipRemainingPlayerInitiativeTurnActivations = () => 1;
+    (screen as any).flushSkippedInitiativeActivations = () => {};
+    (screen as any).handleProceedToNext = async () => {
+      proceedCalls += 1;
+    };
+    (screen as any).showElegantInitiativeMessage = (text: string) => {
+      announcement = text;
+    };
+    (screen as any).syncInitiativeTurnControlsState = () => {};
+  });
+
+  await When("end turn is requested", async () => {
+    await (screen as any).handleInitiativeEndTurn();
+  });
+
+  await Then("the flow remains in skip mode without reopening proceed confirmation", async () => {
+    if ((screen as any).initiativeEndTurnSkipModeActive !== true) {
+      throw new Error("Expected end-turn skip mode to remain active.");
+    }
+    if (proceedCalls !== 0) {
+      throw new Error(`Expected no proceed confirmation calls while skip mode is active, received ${proceedCalls}.`);
+    }
+    if (announcement !== "Remaining formations are being set to sentry. Enemy activations are resolving.") {
+      throw new Error(`Expected skip-mode status announcement, received '${announcement ?? "null"}'.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_INITIATIVE_SELECTION_EXCLUDES_SMOKE_FACING_AND_SUPPORT_COMMITTED_UNITS", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let selectableIds: string[] = [];
