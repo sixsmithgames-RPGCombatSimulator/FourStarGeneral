@@ -964,6 +964,8 @@ type UnitActionFlags = {
   smokeUsed?: boolean;
   /** True once the unit has explicitly changed facing this turn. */
   facingSet?: boolean;
+  /** True once the unit has queued a support strike this turn. */
+  supportQueued?: boolean;
 };
 
 /** Describes a single bot movement so UI layers can narrate progress. */
@@ -2118,7 +2120,7 @@ export class GameEngine implements GameEngineAPI {
     }
   }
 
-  private refreshStrikeTargetHex(mission: ScheduledAirMission, maxFollowDistanceHex: number): void {
+  private refreshStrikeTargetHex(mission: ScheduledAirMission, _maxFollowDistanceHex: number): void {
     if (mission.template.kind !== "strike") {
       return;
     }
@@ -2132,10 +2134,6 @@ export class GameEngine implements GameEngineAPI {
       return;
     }
     const candidateHex = targetLookup.unit.hex;
-    if (hexDistance(mission.targetHex, candidateHex) > maxFollowDistanceHex) {
-      return;
-    }
-
     const attackerLookup = this.lookupUnitBySquadronId(mission.unitKey, mission.faction);
     const attackerUnit = attackerLookup?.unit;
     if (!attackerUnit) {
@@ -6853,12 +6851,23 @@ private automateSupplyConvoys(
     const units = this.getUnitsAtHexForFaction(hex, "Player").filter((unit) => this.shouldTrackAsPlayerIdle(unit));
     if (units.some((unit) => {
       const flags = this.getUnitActionFlags("Player", unit);
-      return flags.movementPointsUsed === 0 && flags.attacksUsed === 0 && !unit.onSentry;
+      return this.isTrackedPlayerUnitIdle(unit, flags);
     })) {
       this.playerIdleUnitKeys.add(hexKey);
     } else {
       this.playerIdleUnitKeys.delete(hexKey);
     }
+  }
+
+  private isTrackedPlayerUnitIdle(unit: ScenarioUnit, flags: UnitActionFlags): boolean {
+    return (
+      flags.movementPointsUsed === 0
+      && flags.attacksUsed === 0
+      && flags.smokeUsed !== true
+      && flags.facingSet !== true
+      && flags.supportQueued !== true
+      && !unit.onSentry
+    );
   }
 
   private rebuildPlayerIdleUnitSet(): void {
@@ -6916,7 +6925,7 @@ private automateSupplyConvoys(
       const activeUnits = this.getUnitsAtHexForFaction(hex, "Player").filter((unit) => this.shouldTrackAsPlayerIdle(unit));
       if (!activeUnits.some((unit) => {
         const flags = this.getUnitActionFlags("Player", unit);
-        return flags.movementPointsUsed === 0 && flags.attacksUsed === 0 && !unit.onSentry;
+        return this.isTrackedPlayerUnitIdle(unit, flags);
       })) {
         this.playerIdleUnitKeys.delete(key);
       }
@@ -8173,7 +8182,7 @@ private automateSupplyConvoys(
       return false;
     }
     const callerKey = axialKey(callerHex);
-    const flags = this.playerActionFlags.get(callerKey) ?? this.createDefaultActionFlags();
+    const flags = this.getUnitActionFlags("Player", caller);
     const halfMovement = Math.floor(callerDefinition.movement / 2);
     if (flags.attacksUsed > 0 || flags.movementPointsUsed > halfMovement) {
       return false;
@@ -8185,6 +8194,8 @@ private automateSupplyConvoys(
     asset.queuedHex = axialKey(targetHex);
     asset.queuedByHex = callerKey;
     asset.status = "queued";
+    this.setUnitActionFlags("Player", caller, { ...flags, supportQueued: true });
+    this.updateIdleRegistryFor(callerKey);
     this.invalidateSupportSnapshot();
     this.invalidateRosterCache();
     return true;
@@ -8326,7 +8337,8 @@ private automateSupplyConvoys(
     if (this._phase === "deployment" || this._phase === "completed") {
       return { ok: false, code: "PHASE_INVALID", reason: "Air missions can only be scheduled during an active battle." };
     }
-    if (request.faction !== this._activeFaction) {
+    const allowPlayerPlanningWindow = this._phase === "playerTurn" && request.faction === "Player";
+    if (request.faction !== this._activeFaction && !allowPlayerPlanningWindow) {
       return { ok: false, code: "WRONG_FACTION", reason: "Only the active faction may schedule missions during its turn." };
     }
 
@@ -8504,11 +8516,10 @@ private automateSupplyConvoys(
     const missionId = this.nextAirMissionId();
     let targetUnitKey: string | undefined;
     if (template.kind === "strike" && request.targetHex) {
-      const opponentPlacements = request.faction === "Player" ? this.botPlacements : this.playerPlacements;
-      const defender = opponentPlacements.get(axialKey(request.targetHex));
-      if (defender) {
-        this.ensureUnitId(defender);
-        targetUnitKey = defender.unitId;
+      const defenders = this.getHostileUnitsAtHex(request.targetHex, request.faction);
+      const primaryDefender = defenders[0]?.unit ?? null;
+      if (primaryDefender) {
+        targetUnitKey = this.getSquadronId(primaryDefender);
       }
     }
     const mission: ScheduledAirMission = {
@@ -9601,6 +9612,12 @@ private automateSupplyConvoys(
   endTurn(): SupplyTickReport | null {
     if (this._phase === "deployment" || this._phase === "completed") {
       return null;
+    }
+
+    if (this._phase === "botTurn") {
+      // Initiative-mode round advancement enters through botTurn without running executeBotTurn.
+      // Schedule bot air tasks here so enemy aircraft still launch before round resolution.
+      this.maybeScheduleHeuristicAirOps();
     }
 
     this.stepAirMissionsForFaction(this._activeFaction);
@@ -16586,6 +16603,9 @@ private automateSupplyConvoys(
     }
     if (!this.isSmokeCapableUnit(unit, definition)) {
       return { available: false, reason: "Only tanks, vehicles, artillery, and smoke-equipped infantry can deploy smoke." };
+    }
+    if (this.resolveTowState(unit) === "towed") {
+      return { available: false, reason: "Deploy the battery before laying smoke." };
     }
     if (unit.ammo <= 0) {
       return { available: false, reason: "No ammunition remaining — smoke rounds require the unit to have ammo." };

@@ -433,7 +433,7 @@ registerTest("BATTLESCREEN_INITIATIVE_SKIP_GROUP_USES_SKIP_COPY_NOT_HOLD", async
   });
 });
 
-registerTest("BATTLESCREEN_INITIATIVE_SELECTION_EXCLUDES_SMOKE_AND_FACING_COMMITTED_UNITS", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_INITIATIVE_SELECTION_EXCLUDES_SMOKE_FACING_AND_SUPPORT_COMMITTED_UNITS", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let selectableIds: string[] = [];
 
@@ -444,18 +444,21 @@ registerTest("BATTLESCREEN_INITIATIVE_SELECTION_EXCLUDES_SMOKE_AND_FACING_COMMIT
 
     const lead = createPlayerUnit("u_player_lead", 2, 2);
     const wing = createPlayerUnit("u_player_wing", 3, 2);
+    const rear = createPlayerUnit("u_player_rear", 4, 2);
     const playerActionFlags = new Map<string, {
       movementPointsUsed?: number;
       attacksUsed?: number;
       smokeUsed?: boolean;
       facingSet?: boolean;
+      supportQueued?: boolean;
     }>();
     playerActionFlags.set("u_player_lead", { movementPointsUsed: 0, attacksUsed: 0, smokeUsed: true });
     playerActionFlags.set("u_player_wing", { movementPointsUsed: 0, attacksUsed: 0, facingSet: true });
+    playerActionFlags.set("u_player_rear", { movementPointsUsed: 0, attacksUsed: 0, supportQueued: true });
 
     (screen as any).battleState = {
       ensureGameEngine: () => ({
-        playerUnits: [lead, wing],
+        playerUnits: [lead, wing, rear],
         botUnits: [],
         allyUnits: [],
         playerActionFlags
@@ -469,7 +472,8 @@ registerTest("BATTLESCREEN_INITIATIVE_SELECTION_EXCLUDES_SMOKE_AND_FACING_COMMIT
       ownerId: "player" as const,
       activations: [
         { unitId: "u_player_lead", ownerId: "player" as const, initiative: 6, isActivated: false, sortOrder: 0 },
-        { unitId: "u_player_wing", ownerId: "player" as const, initiative: 6, isActivated: false, sortOrder: 1 }
+        { unitId: "u_player_wing", ownerId: "player" as const, initiative: 6, isActivated: false, sortOrder: 1 },
+        { unitId: "u_player_rear", ownerId: "player" as const, initiative: 6, isActivated: false, sortOrder: 2 }
       ]
     };
     selectableIds = ((screen as any).resolveSelectablePlayerInitiativeActivations(activeGroup) as Array<{ unitId: string }>).map(

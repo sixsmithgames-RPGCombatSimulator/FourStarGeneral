@@ -810,7 +810,7 @@ export class PopupManager implements IPopupManager {
           return;
         }
 
-        const request: any = { kind, faction: engine.activeFaction, unitHex };
+        const request: any = { kind, faction: this.resolveAirPlanningFaction(engine), unitHex };
         // Determine template requirements
         let requiresTarget = false;
         let requiresEscort = false;
@@ -883,7 +883,7 @@ export class PopupManager implements IPopupManager {
   /** Disables Escort mission until at least one bomber strike is scheduled for the active faction. */
   private disableEscortUnlessBomberScheduled(kindSelect: HTMLSelectElement, engine: GameEngineAPI): void {
     try {
-      const missions = engine.getScheduledAirMissions(engine.activeFaction);
+      const missions = engine.getScheduledAirMissions(this.resolveAirPlanningFaction(engine));
       const hasBomberStrike = missions.some((m) => m.kind === "strike");
       const escortOption = Array.from(kindSelect.options).find((o) => o.value === "escort");
       if (escortOption) {
@@ -957,7 +957,9 @@ export class PopupManager implements IPopupManager {
       }
 
       if (kind === "escort") {
-        const missions = engine.getScheduledAirMissions(engine.activeFaction).filter((m) => m.kind === "strike");
+        const missions = engine
+          .getScheduledAirMissions(this.resolveAirPlanningFaction(engine))
+          .filter((m) => m.kind === "strike");
         if (missions.length === 0) {
           select.innerHTML = `<option value="" disabled selected>Schedule a bomber strike first</option>`;
           select.disabled = true;
@@ -1002,7 +1004,8 @@ export class PopupManager implements IPopupManager {
 
       // Air Cover: target is optional, add "Base CAP" as the default option.
       if (kind === "airCover") {
-        const targets = (engine.activeFaction === "Player" ? engine.playerUnits : engine.botUnits) ?? [];
+        const planningFaction = this.resolveAirPlanningFaction(engine);
+        const targets = (planningFaction === "Player" ? engine.playerUnits : engine.botUnits) ?? [];
         const options: string[] = [];
         // Base CAP option: no target hex means the squadron covers its own base.
         options.push(`<option value="">Base CAP (cover home base)</option>`);
@@ -1046,7 +1049,9 @@ export class PopupManager implements IPopupManager {
 
   /** Renders the mission roster with cancel actions for queued sorties. */
   private renderAirMissionList(list: HTMLUListElement, engine: GameEngineAPI): void {
-    const missions = engine.getScheduledAirMissions().filter((mission) => mission.status !== "completed");
+    const missions = engine
+      .getScheduledAirMissions(this.resolveAirPlanningFaction(engine))
+      .filter((mission) => mission.status !== "completed");
     if (!missions || missions.length === 0) {
       list.innerHTML = '<li class="air-mission-item">No air missions scheduled.</li>';
       return;
@@ -1124,6 +1129,13 @@ export class PopupManager implements IPopupManager {
         }
       };
     });
+  }
+
+  private resolveAirPlanningFaction(engine: GameEngineAPI): TurnFaction {
+    if (engine.phase === "playerTurn") {
+      return "Player";
+    }
+    return engine.activeFaction;
   }
 
   /** Parses "q,r" into an axial coordinate. Returns null when invalid. */

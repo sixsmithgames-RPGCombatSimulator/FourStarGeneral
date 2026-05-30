@@ -424,17 +424,19 @@ const PERSONNEL_TRANSITIONS: Record<PersonnelDamageKey, PersonnelTransition> = {
   killed: {
     sources: ["fit", "injured", "wounded", "severelyWounded"],
     target: "killed",
-    sourceWeights: { fit: 1, injured: 0.75, wounded: 0.3, severelyWounded: 0.15 }
+    // Combat contacts should primarily attrit currently effective personnel.
+    // Existing casualties remain vulnerable, but at materially lower exposure.
+    sourceWeights: { fit: 1, injured: 0.25, wounded: 0.08, severelyWounded: 0.04 }
   },
   severelyWounded: {
     sources: ["fit", "injured", "wounded"],
     target: "severelyWounded",
-    sourceWeights: { fit: 1, injured: 0.75, wounded: 0.3 }
+    sourceWeights: { fit: 1, injured: 0.3, wounded: 0.1 }
   },
   wounded: {
     sources: ["fit", "injured"],
     target: "wounded",
-    sourceWeights: { fit: 1, injured: 0.7 }
+    sourceWeights: { fit: 1, injured: 0.25 }
   },
   injured: { sources: ["fit"], target: "injured", sourceWeights: { fit: 1 } }
 };
@@ -443,12 +445,12 @@ const EQUIPMENT_TRANSITIONS: Record<EquipmentDamageKey, EquipmentTransition> = {
   destroyed: {
     sources: ["operational", "damaged", "disabled"],
     target: "destroyed",
-    sourceWeights: { operational: 1, damaged: 0.75, disabled: 0.25 }
+    sourceWeights: { operational: 1, damaged: 0.45, disabled: 0.15 }
   },
   disabled: {
     sources: ["operational", "damaged"],
     target: "disabled",
-    sourceWeights: { operational: 1, damaged: 0.8 }
+    sourceWeights: { operational: 1, damaged: 0.5 }
   },
   damaged: { sources: ["operational"], target: "damaged", sourceWeights: { operational: 1 } }
 };

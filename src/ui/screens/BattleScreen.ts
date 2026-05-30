@@ -352,6 +352,7 @@ export class BattleScreen {
   private artilleryTargetingState: {
     callerHexKey: string;
     callerLabel: string;
+    callerUnitId: string | null;
     assetId: string;
     targetHexKeys: Set<string>;
   } | null = null;
@@ -1329,7 +1330,7 @@ export class BattleScreen {
       this.announceBattleUpdate(artilleryState.reason ?? `${callerLabel} cannot retask heavy artillery right now.`);
       return false;
     }
-    this.beginArtilleryTargeting(callerHexKey, callerLabel, readyAssetId, artilleryState.targetHexKeys);
+    this.beginArtilleryTargeting(callerHexKey, callerLabel, unit.unitId ?? null, readyAssetId, artilleryState.targetHexKeys);
     return true;
   }
 
@@ -1544,10 +1545,17 @@ export class BattleScreen {
     this.showFortificationFacingDialog();
   }
 
-  private beginArtilleryTargeting(callerHexKey: string, callerLabel: string, assetId: string, targetHexKeys: readonly string[]): void {
+  private beginArtilleryTargeting(
+    callerHexKey: string,
+    callerLabel: string,
+    callerUnitId: string | null,
+    assetId: string,
+    targetHexKeys: readonly string[]
+  ): void {
     this.artilleryTargetingState = {
       callerHexKey,
       callerLabel,
+      callerUnitId,
       assetId,
       targetHexKeys: new Set(targetHexKeys)
     };
@@ -1599,6 +1607,7 @@ export class BattleScreen {
     });
     this.completeTutorialPhase("artillery_intro");
     this.battleState.emitBattleUpdate("manual");
+    this.completeInitiativeActivationAfterPlayerOrder(targetingState.callerUnitId);
   }
 
   private async triggerSupportImpacts(): Promise<void> {
@@ -9121,6 +9130,7 @@ export class BattleScreen {
         attacksUsed?: number;
         smokeUsed?: boolean;
         facingSet?: boolean;
+        supportQueued?: boolean;
       }>;
     };
     const actionFlags = engineAny.playerActionFlags;
@@ -9139,7 +9149,8 @@ export class BattleScreen {
       (flags.movementPointsUsed ?? 0) > 0 ||
       (flags.attacksUsed ?? 0) > 0 ||
       flags.smokeUsed === true ||
-      flags.facingSet === true
+      flags.facingSet === true ||
+      flags.supportQueued === true
     );
   }
 
@@ -10818,7 +10829,13 @@ export class BattleScreen {
         this.announceBattleUpdate(artilleryState.reason ?? "Heavy artillery is not available right now.");
         return;
       }
-      this.beginArtilleryTargeting(this.selectedHexKey, unitLabel, artilleryState.assetId, artilleryState.targetHexKeys);
+      this.beginArtilleryTargeting(
+        this.selectedHexKey,
+        unitLabel,
+        actedUnitId,
+        artilleryState.assetId,
+        artilleryState.targetHexKeys
+      );
       return;
     }
     if (actionId === "enterSentry") {
