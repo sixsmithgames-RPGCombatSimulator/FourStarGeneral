@@ -155,3 +155,57 @@ registerTest("BOT_PHASE_END_TURN_SCHEDULES_HEURISTIC_AIR_OPS_BEFORE_ROUND_ADVANC
     }
   });
 });
+
+registerTest("BOT_PHASE_END_TURN_ADVANCES_PLAYER_AIR_MISSIONS_DURING_INITIATIVE_ROUND_WRAP", async ({ Given, When, Then }) => {
+  let engine: GameEngine;
+  const playerFighterHex: Axial = { q: 3, r: 0 };
+  const patrolHex: Axial = { q: 3, r: 0 };
+
+  await Given("a queued player CAP mission exists when initiative round wrap enters via botTurn", async () => {
+    const config: GameEngineConfig = {
+      scenario: scenario(),
+      unitTypes,
+      terrain,
+      playerSide: side(),
+      botSide: side()
+    };
+    engine = new GameEngine(config);
+    engine.beginDeployment();
+    engine.initializeFromAllocations([]);
+    engine.setBaseCamp({ q: 0, r: 0 });
+    engine.finalizeDeployment();
+    engine.startPlayerTurnPhase();
+    (engine as any).playerPlacements.set("3,0", make("Fighter", playerFighterHex, "player-cap"));
+    (engine as any).botPlacements.set("2,1", make("Fighter", { q: 2, r: 1 }, "bot-target"));
+
+    const scheduled = engine.tryScheduleAirMission({
+      kind: "airCover",
+      faction: "Player",
+      unitHex: playerFighterHex,
+      targetHex: patrolHex,
+      unitId: "player-cap"
+    });
+    if (!scheduled.ok) {
+      throw new Error(`Expected player CAP mission to schedule successfully, received ${JSON.stringify(scheduled)}.`);
+    }
+
+    (engine as any)._phase = "botTurn";
+    (engine as any)._activeFaction = "Bot";
+  });
+
+  await When("endTurn executes via the bot-phase initiative round-wrap path", async () => {
+    engine.endTurn();
+  });
+
+  await Then("the queued player mission should launch into flight instead of remaining queued", async () => {
+    const arrivals = engine.consumeAirMissionArrivals().filter((entry) => entry.faction === "Player");
+    if (arrivals.length === 0) {
+      throw new Error("Expected at least one player air mission arrival when ending turn through bot-phase wrap.");
+    }
+
+    const playerMissions = engine.getScheduledAirMissions("Player");
+    if (!playerMissions.some((mission) => mission.status === "inFlight" || mission.status === "resolving" || mission.status === "completed")) {
+      throw new Error(`Expected player mission lifecycle to advance beyond queued, saw ${playerMissions.map((mission) => mission.status).join(", ") || "none"}.`);
+    }
+  });
+});

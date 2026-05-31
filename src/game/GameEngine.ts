@@ -9676,6 +9676,10 @@ private automateSupplyConvoys(
 
     // Bot turn was already resolved, so simply advance to the player's next turn.
     if (this._phase === "botTurn" || this._phase === "allyTurn") {
+      // Initiative-mode round advancement can enter through bot/ally phases without flowing through
+      // the player-turn branch; still advance player sortie lifecycles so queued player flights launch.
+      this.stepAirMissionsForFaction("Player");
+      this.advanceAirMissionRefits("Player");
       this.resolveReadyAirMissionsForRound();
       this._phase = "playerTurn";
       this._activeFaction = "Player";

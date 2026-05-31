@@ -9750,6 +9750,9 @@ export class BattleScreen {
       const hasRemainingActivations = this.hasPendingInitiativeActivations(queue);
       const initiativeActive = this.initiativeMethods.isInitiativeSystemActive();
       const canAdvanceRound = initiativeActive && !hasRemainingActivations && !activation;
+      if (this.initiativeEndTurnSkipModeActive && canAdvanceRound && !this.initiativeTurnAdvanceInProgress) {
+        void this.advanceInitiativeRound();
+      }
       const controlsPhase: 'initiativeTurn' | 'airShowPhase' | 'turnEnded' =
         initiativeActive && (hasRemainingActivations || Boolean(activation))
           ? 'initiativeTurn'

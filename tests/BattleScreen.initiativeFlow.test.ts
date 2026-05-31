@@ -537,6 +537,57 @@ registerTest("BATTLESCREEN_INITIATIVE_END_TURN_ROUTES_THROUGH_PROCEED_CONFIRMATI
   });
 });
 
+registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_AUTO_ADVANCES_ROUND_WHEN_QUEUE_DRAINS", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let advanceCalls = 0;
+
+  await Given("initiative skip mode is active and no activations remain", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).initiativeEndTurnSkipModeActive = true;
+    (screen as any).initiativeTurnAdvanceInProgress = false;
+    (screen as any).syncLegacyEndTurnButton = () => {};
+    (screen as any).flushSkippedInitiativeActivations = () => {};
+    (screen as any).recoverInitiativeQueueStall = () => false;
+    (screen as any).ensureFocusedPlayerInitiativeUnit = () => {};
+    (screen as any).resolveActiveInitiativeGroup = () => null;
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => ({
+        currentIndex: 3,
+        currentTurn: 2,
+        activations: [
+          { unitId: "u_player_1", ownerId: "player", initiative: 6, isActivated: true, sortOrder: 0 },
+          { unitId: "u_bot_1", ownerId: "bot", initiative: 6, isActivated: true, sortOrder: 1 },
+          { unitId: "u_player_2", ownerId: "player", initiative: 5, isActivated: true, sortOrder: 2 }
+        ]
+      }),
+      getCurrentActivation: () => null,
+      isInitiativeSystemActive: () => true
+    };
+    (screen as any).initiativeTurnControls = {
+      updateCurrentUnit: () => {},
+      updatePlayerTurn: () => {},
+      updateRoundAdvanceReady: () => {},
+      updatePhase: () => {},
+      setControlsEnabled: () => {}
+    };
+    (screen as any).advanceInitiativeRound = async () => {
+      advanceCalls += 1;
+    };
+  });
+
+  await When("initiative controls sync after the queue is fully drained", async () => {
+    (screen as any).syncInitiativeTurnControlsState();
+  });
+
+  await Then("round advancement is triggered automatically without requiring another end-turn click", async () => {
+    if (advanceCalls !== 1) {
+      throw new Error(`Expected one auto-advance trigger after drained queue, received ${advanceCalls}.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_INITIATIVE_SELECTION_EXCLUDES_SMOKE_FACING_AND_SUPPORT_COMMITTED_UNITS", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let selectableIds: string[] = [];
