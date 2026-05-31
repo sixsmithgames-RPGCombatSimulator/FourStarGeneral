@@ -51,11 +51,23 @@ type AllocationPresetDefinition = {
 
 const ALLOCATION_RESET_LABEL = "Reset Allocations";
 
-const TRAINING_ALLOCATION_PRESET: AllocationPresetDefinition = {
-  missionKeys: ["training"],
-  label: "Use Preset Allocations",
-  appliedMessage: "Training preset allocations applied.",
-  entries: [
+function createAllocationPreset(
+  missionKey: MissionKey,
+  missionName: string,
+  entries: readonly AllocationPresetEntry[]
+): AllocationPresetDefinition {
+  return {
+    missionKeys: [missionKey],
+    label: "Use Preset Allocations",
+    appliedMessage: `${missionName} preset allocations applied.`,
+    entries
+  };
+}
+
+const TRAINING_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "training",
+  "Training",
+  [
     { key: "infantry", quantity: 3 },
     { key: "engineer", quantity: 1 },
     { key: "tank", quantity: 1 },
@@ -68,24 +80,84 @@ const TRAINING_ALLOCATION_PRESET: AllocationPresetDefinition = {
     { key: "medic", quantity: 1 },
     { key: "maintenance", quantity: 1 }
   ]
-};
+);
 
-const TOWN_DEFENSE_ALLOCATION_PRESET: AllocationPresetDefinition = {
-  missionKeys: ["patrol"],
-  label: "Use Preset Allocations",
-  appliedMessage: "Town Defense preset allocations applied.",
-  entries: [
+const TOWN_DEFENSE_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "patrol",
+  "Town Defense",
+  [
     { key: "flakBattery", quantity: 4 },
     { key: "howitzer", quantity: 4 },
     { key: "interceptorWing", quantity: 3 }
   ]
-};
+);
 
-const GELA_LANDINGS_ALLOCATION_PRESET: AllocationPresetDefinition = {
-  missionKeys: ["assault_gela_landings"],
-  label: "Use Preset Allocations",
-  appliedMessage: "Gela Landings preset allocations applied.",
-  entries: [
+const RIVER_CROSSING_WATCH_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "patrol_river_watch",
+  "River Crossing Watch",
+  [
+    { key: "infantry", quantity: 1 },
+    { key: "engineer", quantity: 1 },
+    { key: "reconBike", quantity: 1 },
+    { key: "supplyConvoy", quantity: 1 },
+    { key: "fuel", quantity: 1 }
+  ]
+);
+
+const POINTE_DU_HOC_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "patrol_pointe_du_hoc",
+  "Pointe du Hoc",
+  [
+    { key: "infantry", quantity: 3 },
+    { key: "engineer", quantity: 1 },
+    { key: "shoreFireControlParty", quantity: 1 }
+  ]
+);
+
+const EL_ALAMEIN_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_el_alamein",
+  "El Alamein",
+  [
+    { key: "infantry", quantity: 6 },
+    { key: "engineer", quantity: 4 },
+    { key: "tank", quantity: 6 },
+    { key: "heavyTankCompany", quantity: 1 },
+    { key: "tankDestroyerCompany", quantity: 1 },
+    { key: "howitzer", quantity: 3 },
+    { key: "flakBattery", quantity: 1 },
+    { key: "reconBike", quantity: 1 },
+    { key: "fighter", quantity: 1 },
+    { key: "groundAttackWing", quantity: 1 },
+    { key: "bomber", quantity: 1 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 1 },
+    { key: "fuel", quantity: 2 }
+  ]
+);
+
+const KASSERINE_PASS_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_kasserine_pass",
+  "Kasserine Pass",
+  [
+    { key: "infantry", quantity: 5 },
+    { key: "engineer", quantity: 2 },
+    { key: "tank", quantity: 3 },
+    { key: "tankDestroyerCompany", quantity: 4 },
+    { key: "howitzer", quantity: 1 },
+    { key: "antiTankBattery", quantity: 4 },
+    { key: "reconBike", quantity: 2 },
+    { key: "fighter", quantity: 1 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 3 },
+    { key: "fuel", quantity: 3 },
+    { key: "maintenance", quantity: 1 }
+  ]
+);
+
+const GELA_LANDINGS_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_gela_landings",
+  "Gela Landings",
+  [
     { key: "infantry", quantity: 4 },
     { key: "engineer", quantity: 1 },
     { key: "tank", quantity: 5 },
@@ -101,12 +173,249 @@ const GELA_LANDINGS_ALLOCATION_PRESET: AllocationPresetDefinition = {
     { key: "medic", quantity: 1 },
     { key: "maintenance", quantity: 1 }
   ]
-};
+);
+
+const ANZIO_BEACHHEAD_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_anzio_beachhead",
+  "Anzio Beachhead",
+  [
+    { key: "infantry", quantity: 6 },
+    { key: "airborneDetachment", quantity: 1 },
+    { key: "engineer", quantity: 3 },
+    { key: "tank", quantity: 3 },
+    { key: "heavyTankCompany", quantity: 1 },
+    { key: "tankDestroyerCompany", quantity: 4 },
+    { key: "howitzer", quantity: 3 },
+    { key: "flakBattery", quantity: 1 },
+    { key: "reconBike", quantity: 2 },
+    { key: "fighter", quantity: 1 },
+    { key: "groundAttackWing", quantity: 1 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 1 },
+    { key: "fuel", quantity: 2 },
+    { key: "medic", quantity: 1 },
+    { key: "maintenance", quantity: 1 }
+  ]
+);
+
+const MONTE_CASSINO_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_monte_cassino",
+  "Monte Cassino",
+  [
+    { key: "infantry", quantity: 8 },
+    { key: "airborneDetachment", quantity: 1 },
+    { key: "engineer", quantity: 5 },
+    { key: "tank", quantity: 1 },
+    { key: "howitzer", quantity: 6 },
+    { key: "reconBike", quantity: 2 },
+    { key: "groundAttackWing", quantity: 1 },
+    { key: "bomber", quantity: 1 },
+    { key: "corpsArtilleryGroup", quantity: 2 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 2 },
+    { key: "fuel", quantity: 3 },
+    { key: "medic", quantity: 2 },
+    { key: "maintenance", quantity: 2 }
+  ]
+);
+
+const OMAHA_BEACH_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_omaha_beach",
+  "Omaha Beach",
+  [
+    { key: "infantry", quantity: 9 },
+    { key: "engineer", quantity: 5 },
+    { key: "tank", quantity: 5 },
+    { key: "howitzer", quantity: 2 },
+    { key: "fighter", quantity: 1 },
+    { key: "groundAttackWing", quantity: 1 },
+    { key: "bomber", quantity: 1 },
+    { key: "shoreFireControlParty", quantity: 1 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 3 },
+    { key: "fuel", quantity: 3 },
+    { key: "medic", quantity: 1 },
+    { key: "maintenance", quantity: 2 }
+  ]
+);
+
+const CARENTAN_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_carentan",
+  "Carentan",
+  [
+    { key: "infantry", quantity: 6 },
+    { key: "airborneDetachment", quantity: 4 },
+    { key: "engineer", quantity: 3 },
+    { key: "tank", quantity: 2 },
+    { key: "tankDestroyerCompany", quantity: 2 },
+    { key: "howitzer", quantity: 2 },
+    { key: "antiTankBattery", quantity: 2 },
+    { key: "reconBike", quantity: 3 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 2 },
+    { key: "fuel", quantity: 3 },
+    { key: "medic", quantity: 2 },
+    { key: "maintenance", quantity: 2 }
+  ]
+);
+
+const ARNHEM_BRIDGE_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_arnhem_bridge",
+  "Arnhem Bridge",
+  [
+    { key: "infantry", quantity: 4 },
+    { key: "airborneDetachment", quantity: 4 },
+    { key: "engineer", quantity: 2 },
+    { key: "tank", quantity: 4 },
+    { key: "tankDestroyerCompany", quantity: 3 },
+    { key: "howitzer", quantity: 1 },
+    { key: "antiTankBattery", quantity: 4 },
+    { key: "reconBike", quantity: 2 },
+    { key: "fighter", quantity: 1 },
+    { key: "transportWing", quantity: 2 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 3 },
+    { key: "fuel", quantity: 2 },
+    { key: "medic", quantity: 1 },
+    { key: "maintenance", quantity: 2 }
+  ]
+);
+
+const FALAISE_POCKET_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_falaise_pocket",
+  "Falaise Pocket",
+  [
+    { key: "infantry", quantity: 5 },
+    { key: "engineer", quantity: 1 },
+    { key: "tank", quantity: 7 },
+    { key: "heavyTankCompany", quantity: 1 },
+    { key: "tankDestroyerCompany", quantity: 3 },
+    { key: "howitzer", quantity: 2 },
+    { key: "reconBike", quantity: 3 },
+    { key: "scoutPlaneWing", quantity: 1 },
+    { key: "fighter", quantity: 1 },
+    { key: "groundAttackWing", quantity: 2 },
+    { key: "bomber", quantity: 1 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 1 },
+    { key: "fuel", quantity: 3 },
+    { key: "maintenance", quantity: 1 }
+  ]
+);
+
+const HURTGEN_FOREST_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_hurtgen_forest",
+  "Hurtgen Forest",
+  [
+    { key: "infantry", quantity: 9 },
+    { key: "engineer", quantity: 5 },
+    { key: "tank", quantity: 2 },
+    { key: "howitzer", quantity: 6 },
+    { key: "antiTankBattery", quantity: 3 },
+    { key: "reconBike", quantity: 2 },
+    { key: "corpsArtilleryGroup", quantity: 2 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 3 },
+    { key: "fuel", quantity: 3 },
+    { key: "medic", quantity: 2 },
+    { key: "maintenance", quantity: 1 }
+  ]
+);
+
+const TWO_BRIDGES_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault",
+  "Two Bridges",
+  [
+    { key: "infantry", quantity: 4 },
+    { key: "engineer", quantity: 2 },
+    { key: "tank", quantity: 3 },
+    { key: "tankDestroyerCompany", quantity: 1 },
+    { key: "howitzer", quantity: 1 },
+    { key: "reconBike", quantity: 2 },
+    { key: "supplyConvoy", quantity: 2 },
+    { key: "ammo", quantity: 2 },
+    { key: "fuel", quantity: 2 }
+  ]
+);
+
+const CITADEL_RIDGE_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_citadel_ridge",
+  "Citadel Ridge",
+  [
+    { key: "infantry", quantity: 5 },
+    { key: "engineer", quantity: 4 },
+    { key: "tank", quantity: 5 },
+    { key: "heavyTankCompany", quantity: 1 },
+    { key: "tankDestroyerCompany", quantity: 1 },
+    { key: "howitzer", quantity: 3 },
+    { key: "flakBattery", quantity: 1 },
+    { key: "reconBike", quantity: 1 },
+    { key: "bomber", quantity: 1 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 2 },
+    { key: "fuel", quantity: 3 }
+  ]
+);
+
+const BASTOGNE_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_bastogne",
+  "Bastogne",
+  [
+    { key: "infantry", quantity: 7 },
+    { key: "airborneDetachment", quantity: 2 },
+    { key: "engineer", quantity: 1 },
+    { key: "tank", quantity: 1 },
+    { key: "tankDestroyerCompany", quantity: 4 },
+    { key: "howitzer", quantity: 1 },
+    { key: "antiTankBattery", quantity: 4 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 2 },
+    { key: "fuel", quantity: 3 },
+    { key: "medic", quantity: 1 },
+    { key: "maintenance", quantity: 1 }
+  ]
+);
+
+const REMAGEN_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationPreset(
+  "assault_remagen",
+  "Remagen",
+  [
+    { key: "infantry", quantity: 6 },
+    { key: "engineer", quantity: 4 },
+    { key: "tank", quantity: 3 },
+    { key: "heavyTankCompany", quantity: 1 },
+    { key: "tankDestroyerCompany", quantity: 3 },
+    { key: "howitzer", quantity: 2 },
+    { key: "flakBattery", quantity: 1 },
+    { key: "reconBike", quantity: 3 },
+    { key: "fighter", quantity: 1 },
+    { key: "groundAttackWing", quantity: 1 },
+    { key: "supplyConvoy", quantity: 3 },
+    { key: "ammo", quantity: 3 },
+    { key: "fuel", quantity: 1 },
+    { key: "maintenance", quantity: 1 }
+  ]
+);
 
 const ALLOCATION_PRESETS: readonly AllocationPresetDefinition[] = [
   TRAINING_ALLOCATION_PRESET,
   TOWN_DEFENSE_ALLOCATION_PRESET,
-  GELA_LANDINGS_ALLOCATION_PRESET
+  RIVER_CROSSING_WATCH_ALLOCATION_PRESET,
+  POINTE_DU_HOC_ALLOCATION_PRESET,
+  EL_ALAMEIN_ALLOCATION_PRESET,
+  KASSERINE_PASS_ALLOCATION_PRESET,
+  GELA_LANDINGS_ALLOCATION_PRESET,
+  ANZIO_BEACHHEAD_ALLOCATION_PRESET,
+  MONTE_CASSINO_ALLOCATION_PRESET,
+  OMAHA_BEACH_ALLOCATION_PRESET,
+  CARENTAN_ALLOCATION_PRESET,
+  ARNHEM_BRIDGE_ALLOCATION_PRESET,
+  FALAISE_POCKET_ALLOCATION_PRESET,
+  HURTGEN_FOREST_ALLOCATION_PRESET,
+  TWO_BRIDGES_ALLOCATION_PRESET,
+  CITADEL_RIDGE_ALLOCATION_PRESET,
+  BASTOGNE_ALLOCATION_PRESET,
+  REMAGEN_ALLOCATION_PRESET
 ];
 
 export class PrecombatScreen {

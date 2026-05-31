@@ -31,6 +31,7 @@ export type TutorialPhase =
   | "active_group_units"
   | "movement_intro"
   | "attack_intro"
+  | "select_smoke_unit"
   | "intel_overlay_expand"
   | "smoke_demo"
   | "spend_activation"
