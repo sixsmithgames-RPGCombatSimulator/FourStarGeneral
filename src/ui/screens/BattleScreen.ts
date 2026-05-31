@@ -8390,11 +8390,14 @@ export class BattleScreen {
   /**
    * Handle proceed to next unit action
    */
-  private async handleProceedToNext(): Promise<void> {
+  private async handleProceedToNext(options?: { endTurnSkipAll?: boolean; bypassConfirmation?: boolean }): Promise<boolean> {
     if (!this.initiativeMethods) {
       console.warn('Initiative methods not available');
-      return;
+      return false;
     }
+
+    const endTurnSkipAll = options?.endTurnSkipAll === true;
+    const bypassConfirmation = options?.bypassConfirmation === true;
 
     try {
       const queue = this.initiativeMethods.getCurrentInitiativeQueue();
@@ -8402,7 +8405,7 @@ export class BattleScreen {
       const currentActivation = this.initiativeMethods.getCurrentActivation();
       if (!activeGroup || activeGroup.ownerId !== "player" || !currentActivation || currentActivation.ownerId !== "player") {
         this.syncInitiativeTurnControlsState();
-        return;
+        return false;
       }
 
       const pendingUnits = this.resolveUncommittedPlayerInitiativeUnits(activeGroup);
@@ -8410,7 +8413,7 @@ export class BattleScreen {
       const currentUnitIsPending = pendingUnits.some((unit) => unit.unitId === currentUnitId);
       const hasPendingUnits = pendingUnits.length > 0;
 
-      if (hasPendingUnits) {
+      if (hasPendingUnits && !bypassConfirmation) {
         const confirmProceed = await this.confirmInitiativeProceedWithPendingUnits(
           pendingUnits,
           currentUnitId,
@@ -8418,7 +8421,7 @@ export class BattleScreen {
         );
         if (!confirmProceed) {
           this.syncInitiativeTurnControlsState();
-          return;
+          return false;
         }
       }
 
@@ -8430,12 +8433,22 @@ export class BattleScreen {
         }
       }
 
-      this.initiativeEndTurnSkipModeActive = false;
+      if (endTurnSkipAll) {
+        const skippedPlayerActivationCount = this.skipRemainingPlayerInitiativeTurnActivations(queue);
+        this.initiativeEndTurnSkipModeActive = skippedPlayerActivationCount > 0;
+      } else {
+        this.initiativeEndTurnSkipModeActive = false;
+      }
       this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative, false);
+      if (endTurnSkipAll && this.initiativeEndTurnSkipModeActive) {
+        this.flushSkippedInitiativeActivations();
+      }
       this.focusCurrentInitiativeActivation();
       this.highlightCurrentInitiativeGroup();
+      return true;
     } catch (error) {
       console.error('Failed to proceed from initiative group:', error);
+      return false;
     } finally {
       this.syncInitiativeTurnControlsState();
     }
@@ -8486,17 +8499,20 @@ export class BattleScreen {
     }
 
     try {
-      const queue = this.initiativeMethods.getCurrentInitiativeQueue();
-      const skippedPlayerActivationCount = this.skipRemainingPlayerInitiativeTurnActivations(queue);
-      if (skippedPlayerActivationCount > 0) {
-        this.initiativeEndTurnSkipModeActive = true;
+      let currentActivation = this.initiativeMethods.getCurrentActivation();
+      if (currentActivation?.ownerId === "player") {
+        const proceeded = await this.handleProceedToNext({ endTurnSkipAll: true });
+        if (!proceeded) {
+          return;
+        }
       }
+
       if (this.initiativeEndTurnSkipModeActive) {
         this.flushSkippedInitiativeActivations();
       }
 
       const refreshedQueue = this.initiativeMethods.getCurrentInitiativeQueue();
-      let currentActivation = this.initiativeMethods.getCurrentActivation();
+      currentActivation = this.initiativeMethods.getCurrentActivation();
       const hasPendingActivations = this.hasPendingInitiativeActivations(refreshedQueue);
 
       if (currentActivation?.ownerId === "player") {
@@ -8509,7 +8525,7 @@ export class BattleScreen {
           }
           return;
         }
-        await this.handleProceedToNext();
+        this.showElegantInitiativeMessage("Complete this activation or press End Turn again to confirm the handoff.");
         return;
       }
 
@@ -8526,7 +8542,7 @@ export class BattleScreen {
         return;
       }
 
-      if (skippedPlayerActivationCount > 0 || this.initiativeEndTurnSkipModeActive) {
+      if (this.initiativeEndTurnSkipModeActive) {
         this.showElegantInitiativeMessage("Remaining formations set to sentry. Enemy activations are resolving.");
         return;
       }

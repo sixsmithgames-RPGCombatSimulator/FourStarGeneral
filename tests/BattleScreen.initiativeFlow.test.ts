@@ -78,6 +78,7 @@ registerTest("BATTLESCREEN_INITIATIVE_PROCEED_ADVANCES_ONLY_CURRENT_ACTIVATION",
   };
   let playerLead: ScenarioUnit;
   let playerWing: ScenarioUnit;
+  let confirmCalls = 0;
 
   await Given("an interleaved initiative queue with two player units in one initiative band", async () => {
     mountBattleScreenRoot();
@@ -89,7 +90,10 @@ registerTest("BATTLESCREEN_INITIATIVE_PROCEED_ADVANCES_ONLY_CURRENT_ACTIVATION",
     (screen as any).syncInitiativeTurnControlsState = () => {};
     (screen as any).focusCurrentInitiativeActivation = () => {};
     (screen as any).highlightCurrentInitiativeGroup = () => {};
-    (screen as any).confirmInitiativeProceedWithPendingUnits = async () => true;
+    (screen as any).confirmInitiativeProceedWithPendingUnits = async () => {
+      confirmCalls += 1;
+      return true;
+    };
 
     playerLead = createPlayerUnit("u_player_1", 2, 2);
     playerWing = createPlayerUnit("u_player_2", 3, 2);
@@ -172,6 +176,9 @@ registerTest("BATTLESCREEN_INITIATIVE_PROCEED_ADVANCES_ONLY_CURRENT_ACTIVATION",
     }
     if (playerWing.onSentry) {
       throw new Error("Expected untouched player wing unit to remain off sentry.");
+    }
+    if (confirmCalls !== 1) {
+      throw new Error(`Expected proceed confirmation to be requested once, received ${confirmCalls}.`);
     }
   });
 });
@@ -477,16 +484,16 @@ registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_PERSISTS_ACROSS_INITIAT
   });
 });
 
-registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_BYPASSES_PROCEED_CONFIRMATION", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_INITIATIVE_END_TURN_ROUTES_THROUGH_PROCEED_CONFIRMATION_PATH", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let proceedCalls = 0;
-  let announcement: string | null = null;
+  let observedOptions: { endTurnSkipAll?: boolean; bypassConfirmation?: boolean } | undefined;
+  let skipModeChanged = false;
 
-  await Given("a player activation that remains current while end-turn skip mode is being applied", async () => {
+  await Given("an active player activation when the commander presses end turn", async () => {
     mountBattleScreenRoot();
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
     (screen as any).initiativeEndTurnSkipModeActive = false;
-    (screen as any).initiativeSkippedUnitIds = new Set<string>();
     (screen as any).initiativeMethods = {
       getCurrentInitiativeQueue: () => ({
         currentIndex: 0,
@@ -504,13 +511,11 @@ registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_BYPASSES_PROCEED_CONFIR
       }),
       isInitiativeSystemActive: () => true
     };
-    (screen as any).skipRemainingPlayerInitiativeTurnActivations = () => 1;
-    (screen as any).flushSkippedInitiativeActivations = () => {};
-    (screen as any).handleProceedToNext = async () => {
+    (screen as any).handleProceedToNext = async (options?: { endTurnSkipAll?: boolean; bypassConfirmation?: boolean }) => {
       proceedCalls += 1;
-    };
-    (screen as any).showElegantInitiativeMessage = (text: string) => {
-      announcement = text;
+      observedOptions = options;
+      skipModeChanged = (screen as any).initiativeEndTurnSkipModeActive === true;
+      return false;
     };
     (screen as any).syncInitiativeTurnControlsState = () => {};
   });
@@ -519,15 +524,15 @@ registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_BYPASSES_PROCEED_CONFIR
     await (screen as any).handleInitiativeEndTurn();
   });
 
-  await Then("the flow remains in skip mode without reopening proceed confirmation", async () => {
-    if ((screen as any).initiativeEndTurnSkipModeActive !== true) {
-      throw new Error("Expected end-turn skip mode to remain active.");
+  await Then("end turn delegates to the proceed confirmation path before enabling skip mode", async () => {
+    if (proceedCalls !== 1) {
+      throw new Error(`Expected end turn to delegate to proceed once, received ${proceedCalls}.`);
     }
-    if (proceedCalls !== 0) {
-      throw new Error(`Expected no proceed confirmation calls while skip mode is active, received ${proceedCalls}.`);
+    if (!observedOptions || observedOptions.endTurnSkipAll !== true) {
+      throw new Error(`Expected end turn to call proceed with endTurnSkipAll=true, received ${JSON.stringify(observedOptions)}.`);
     }
-    if (announcement !== "Remaining formations are being set to sentry. Enemy activations are resolving.") {
-      throw new Error(`Expected skip-mode status announcement, received '${announcement ?? "null"}'.`);
+    if (skipModeChanged || (screen as any).initiativeEndTurnSkipModeActive === true) {
+      throw new Error("Expected skip mode to remain disabled until proceed/confirmation succeeds.");
     }
   });
 });
