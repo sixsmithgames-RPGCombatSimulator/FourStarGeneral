@@ -26,17 +26,24 @@ export type TutorialPhase =
   | "roster_intro"
   | "air_support_intro"
   | "begin_battle"
+  | "initiative_order"
+  | "initiative_group"
+  | "active_group_units"
   | "movement_intro"
   | "attack_intro"
-  | "select_smoke_unit"
   | "intel_overlay_expand"
   | "smoke_demo"
+  | "spend_activation"
+  | "enemy_activation"
+  | "next_unit"
+  | "skip_group"
   | "engineer_intro"
   | "engineer_orders"
   | "artillery_intro"
   | "flak_intro"
   | "air_missions"
   | "logistics_intro"
+  | "round_handoff"
   | "turn_end"
   | "complete";
 
@@ -111,10 +118,6 @@ class TutorialStateManager {
     this.completedPhases.add(this.currentPhase);
     this.currentPhase = nextPhase;
     this.canProceed = true;
-
-    if (nextPhase === "complete") {
-      this.isActive = false;
-    }
 
     this.notifyListeners();
   }

@@ -8,7 +8,7 @@
  */
 
 import type { UnitActivation } from '../../core/InitiativeQueue';
-import type { GroupedInitiativeQueue, InitiativeGroup } from '../../core/GroupedInitiativeQueue';
+import type { InitiativeGroup } from '../../core/GroupedInitiativeQueue';
 import type { ExtendedBattlePhase } from '../../game/GameEngineInitiativeExtensions';
 
 /**
@@ -117,6 +117,7 @@ export class EnhancedInitiativeTurnControls {
     this.currentUnit = activation;
     this.updateControlStates();
     this.updateCurrentUnitDisplay();
+    this.updateStatusSummary();
   }
 
   /**
@@ -128,6 +129,7 @@ export class EnhancedInitiativeTurnControls {
     this.currentGroup = group;
     this.updateControlStates();
     this.updateGroupDisplay();
+    this.updateStatusSummary();
   }
 
   /**
@@ -139,6 +141,7 @@ export class EnhancedInitiativeTurnControls {
     this.currentPhase = phase;
     this.updateControlStates();
     this.updatePhaseDisplay();
+    this.updateStatusSummary();
   }
 
   /**
@@ -149,6 +152,7 @@ export class EnhancedInitiativeTurnControls {
   public updatePlayerTurn(isPlayerTurn: boolean): void {
     this.isPlayerTurn = isPlayerTurn;
     this.updateControlStates();
+    this.updateStatusSummary();
   }
 
   /**
@@ -159,6 +163,7 @@ export class EnhancedInitiativeTurnControls {
   public updateRoundAdvanceReady(ready: boolean): void {
     this.roundAdvanceReady = ready;
     this.updateControlStates();
+    this.updateStatusSummary();
   }
 
   /**
@@ -284,6 +289,11 @@ export class EnhancedInitiativeTurnControls {
   private initializeControls(): void {
     this.container.className = 'enhanced-initiative-turn-controls';
     this.container.innerHTML = `
+      <div class="initiative-status" data-initiative-status data-current-initiative-group="">
+        <span class="initiative-status__label">Initiative</span>
+        <strong class="initiative-status__value">Awaiting orders</strong>
+        <span class="initiative-status__detail">Deploy to begin the battle clock.</span>
+      </div>
       <div class="turn-controls-buttons">
         ${this.config.showProceedButton ? `
           <button class="compact-button proceed-btn" disabled title="End the active unit's orders and hand off initiative (Space)">
@@ -553,6 +563,53 @@ export class EnhancedInitiativeTurnControls {
     };
 
     phaseTitle.textContent = phaseNames[this.currentPhase] || 'Unknown Phase';
+  }
+
+  private updateStatusSummary(): void {
+    const statusElement = this.container.querySelector<HTMLElement>('[data-initiative-status]');
+    const valueElement = statusElement?.querySelector<HTMLElement>('.initiative-status__value');
+    const detailElement = statusElement?.querySelector<HTMLElement>('.initiative-status__detail');
+    if (!statusElement || !valueElement || !detailElement) {
+      return;
+    }
+
+    if (this.roundAdvanceReady) {
+      statusElement.dataset.currentInitiativeGroup = "";
+      valueElement.textContent = "Round clear";
+      detailElement.textContent = "End Turn advances the battle round.";
+      return;
+    }
+
+    if (this.currentGroup) {
+      const remaining = this.currentGroup.units.filter((unit) => !unit.isActivated).length;
+      const ownerLabel = this.currentUnit?.ownerId === 'bot'
+        ? "Enemy group"
+        : this.currentUnit?.ownerId === 'player'
+          ? "Your group"
+          : this.isPlayerTurn
+            ? "Your group"
+            : "Active group";
+      statusElement.dataset.currentInitiativeGroup = String(this.currentGroup.initiative);
+      valueElement.textContent = `Init ${this.currentGroup.initiative} - ${ownerLabel}`;
+      detailElement.textContent = `${remaining} formation${remaining === 1 ? "" : "s"} still in this band.`;
+      return;
+    }
+
+    if (this.currentUnit) {
+      const ownerLabel = this.currentUnit.ownerId === 'player' ? "Your formation" : "Enemy formation";
+      statusElement.dataset.currentInitiativeGroup = String(this.currentUnit.initiative);
+      valueElement.textContent = `Init ${this.currentUnit.initiative} - ${ownerLabel}`;
+      detailElement.textContent = this.currentUnit.ownerId === 'player'
+        ? "Awaiting orders."
+        : "Enemy activation resolving.";
+      return;
+    }
+
+    statusElement.dataset.currentInitiativeGroup = "";
+    valueElement.textContent = this.currentPhase === 'turnEnded' ? "Initiative closed" : "Awaiting orders";
+    detailElement.textContent = this.currentPhase === 'deployment'
+      ? "Deploy to begin the battle clock."
+      : "No active formation.";
   }
 
   /**

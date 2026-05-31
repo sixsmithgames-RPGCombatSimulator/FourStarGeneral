@@ -64,11 +64,22 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     const combatPhases = getCombatPhases();
 
     expect(getNextPhase("place_units") === "begin_battle", "Main deployment tutorial should go from deployment to Begin Battle.");
+    expect(getNextPhase("begin_battle") === "initiative_order", "Battle start should lead into the initiative order lesson.");
+    expect(getNextPhase("initiative_order") === "initiative_group", "Initiative order should lead into active group teaching.");
+    expect(getNextPhase("initiative_group") === "active_group_units", "Active group teaching should lead into selecting an eligible formation.");
+    expect(getNextPhase("active_group_units") === "movement_intro", "Selecting an active formation should lead into movement teaching.");
     expect(!deploymentPhases.includes("roster_intro"), "Roster should be taught only by its sidebar mini tutorial.");
     expect(!deploymentPhases.includes("air_support_intro"), "Air Support should be taught only by its sidebar mini tutorial.");
-    expect(getNextPhase("attack_intro") === "select_smoke_unit", "Fire Orders should lead into selecting a smoke-capable unit.");
-    expect(getNextPhase("select_smoke_unit") === "intel_overlay_expand", "Smoke flow should explain the intel card before Lay Smoke.");
-    expect(getNextPhase("intel_overlay_expand") === "smoke_demo", "Expanded intel should lead directly to the Lay Smoke order.");
+    expect(getNextPhase("attack_intro") === "intel_overlay_expand", "Fire Orders should lead into the unit intel card before Lay Smoke.");
+    expect(getNextPhase("intel_overlay_expand") === "smoke_demo", "Expanded intel should teach where Lay Smoke appears.");
+    expect(getNextPhase("smoke_demo") === "spend_activation", "Smoke should not block the first recon activation.");
+    expect(getNextPhase("spend_activation") === "enemy_activation", "The tutorial should spend the first activation before enemy tempo.");
+    expect(combatPhases.includes("spend_activation"), "Combat tutorial should include a real activation-spend gate.");
+    expect(getNextPhase("turn_end") === "complete", "Command loop should advance to the final certification step.");
+    expect(getNextPhase("complete") === null, "Final certification should dismiss instead of looping.");
+    expect(combatPhases.includes("next_unit"), "Combat tutorial should explain cycling active initiative groups.");
+    expect(combatPhases.includes("skip_group"), "Combat tutorial should explain skipping an initiative group.");
+    expect(combatPhases.includes("round_handoff"), "Combat tutorial should explain the initiative round handoff.");
     expect(!combatPhases.includes("air_missions"), "Air missions should not auto-open the Air sidebar during the main tutorial.");
     expect(!combatPhases.includes("logistics_intro"), "Logistics should not auto-open during the main tutorial.");
   });
@@ -102,6 +113,46 @@ registerTest("TUTORIAL_OVERLAY_DOES_NOT_CLICK_SIDEBAR_PANELS_TO_FIND_TARGETS", a
 
   await Then("the tutorial waits instead of opening the sidebar itself", async () => {
     expect(!airClicked, "Tutorial anchoring should not click the Air Support sidebar button.");
+    overlay.dispose();
+  });
+});
+
+registerTest("TUTORIAL_FINAL_CERTIFICATION_RENDERS_BEFORE_DISMISSAL", async ({ Given, When, Then }) => {
+  let overlay: TutorialOverlay;
+  const tutorialState = ensureTutorialState();
+
+  await Given("the command loop step is visible with a highlight target", async () => {
+    tutorialState.endTutorial();
+    (globalThis as { MutationObserver?: typeof MutationObserver }).MutationObserver = window.MutationObserver;
+    document.body.innerHTML = `
+      <div class="initiative-turn-controls-container">Initiative controls</div>
+      <div id="battleMapCanvas">Map</div>
+    `;
+    const initiativeControls = document.querySelector<HTMLElement>(".initiative-turn-controls-container");
+    if (!initiativeControls) {
+      throw new Error("Missing initiative controls fixture.");
+    }
+    setRect(initiativeControls, { left: 600, top: 80, width: 320, height: 80 });
+    overlay = new TutorialOverlay();
+    overlay.initialize();
+    tutorialState.jumpToPhase("turn_end");
+  });
+
+  await When("the player confirms the command loop", async () => {
+    const actionButton = document.querySelector<HTMLButtonElement>(".tutorial-action-btn");
+    expect(actionButton?.textContent === "Command On", "Expected Command On action on the command loop step.");
+    actionButton?.click();
+  });
+
+  await Then("the certification step is rendered and then dismisses the tutorial", async () => {
+    const actionButton = document.querySelector<HTMLButtonElement>(".tutorial-action-btn");
+    const title = document.querySelector<HTMLElement>(".tutorial-title")?.textContent ?? "";
+    expect(title === "Command Certified", "Expected final certification title to render.");
+    expect(actionButton?.textContent === "Dismiss", "Expected Dismiss action on final certification.");
+    expect(tutorialState.getProgress().isActive, "Tutorial should remain active while final certification is visible.");
+
+    actionButton?.click();
+    expect(!tutorialState.getProgress().isActive, "Dismissing certification should end the tutorial.");
     overlay.dispose();
   });
 });

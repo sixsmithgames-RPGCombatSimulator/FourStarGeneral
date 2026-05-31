@@ -1336,14 +1336,38 @@
     }
 
     .initiative-turn-controls-container .initiative-status {
-      padding: 0.4rem 0.6rem;
-      font-size: 0.72rem;
+      display: grid;
+      gap: 0.08rem;
+      min-width: min(18rem, 100%);
+      padding: 0.42rem 0.65rem;
       font-weight: 600;
       color: var(--accent-strong);
       background: rgba(15, 20, 32, 0.4);
       border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.1);
       white-space: nowrap;
+    }
+
+    .initiative-status__label {
+      font-family: var(--font-label);
+      font-size: 0.52rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: rgba(226, 205, 154, 0.68);
+    }
+
+    .initiative-status__value {
+      font-size: 0.76rem;
+      line-height: 1.1;
+      color: #f4e6bb;
+    }
+
+    .initiative-status__detail {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 0.62rem;
+      line-height: 1.2;
+      color: rgba(229, 236, 255, 0.74);
     }
 
     /* Initiative group highlighting */
@@ -1395,7 +1419,11 @@
       
       .initiative-turn-controls-container .initiative-status {
         padding: 0.3rem 0.4rem;
-        font-size: 0.62rem;
+        min-width: 100%;
+      }
+
+      .initiative-status__detail {
+        white-space: normal;
       }
     }
     .primary-button:disabled {

@@ -30,7 +30,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "unit_categories",
     title: "Build The Task Force",
     content:
-      "For this fight, the preset loads three Infantry Battalions, Engineers, medium and heavy armor, tank destroyers, two Flak Batteries, recon, supply, ammo, medical, and maintenance teams.",
+      "For this fight, the preset loads a balanced force: fast scouts, engineers, infantry, armor, flak, supply, ammo, medical, and maintenance teams.",
     highlightSelector: "#allocationUnitList, #allocationSupportList, #allocationLogisticsList",
     position: "right",
     arrowDirection: "left",
@@ -126,7 +126,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "review_allocation",
     title: "Final Check",
     content:
-      "Confirm the force: three Infantry, Engineers, medium and heavy armor, tank destroyers, two Flak, recon, supply, ammo, medical, and maintenance. When it looks right, deploy.",
+      "Confirm the force. Initiative matters now: scouts seize tempo, infantry and engineers shape the fight, armor hits later, and logistics keeps the line alive.",
     highlightSelector: "#resetAllocations, #proceedToBattle",
     position: "center",
     actionLabel: "Deploy to Field"
@@ -197,7 +197,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "begin_battle",
     title: "Begin Battle",
     content:
-      "Enemy movement is reported northeast. Begin operations. The next steps cover movement, fire orders, engineers, artillery, air, and supply under contact.",
+      "Enemy movement is reported northeast. Begin operations. The next brief teaches the initiative clock: who acts now, who waits, and when to hand off tempo.",
     highlightSelector: "#beginBattle",
     position: "bottom",
     arrowDirection: "up",
@@ -205,42 +205,61 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Engage Enemy"
   },
   {
-    phase: "movement_intro",
-    title: "Movement",
+    phase: "initiative_order",
+    title: "Initiative Order",
     content:
-      "Select a friendly unit. Blue hexes are movement, red hexes are attack options. Terrain, fuel, towing, and suppression all matter.",
+      "Initiative is the battle clock, General. Higher ratings act first: recon and engineers seize tempo, line units follow, armor and guns answer later. Aircraft stay on the Air board.",
+    highlightSelector: ".initiative-turn-controls-container [data-initiative-status], .battle-map-header__phase",
+    position: "bottom",
+    arrowDirection: "up",
+    actionLabel: "Read The Clock"
+  },
+  {
+    phase: "initiative_group",
+    title: "Active Group",
+    content:
+      "The highlighted formations are the active group. Work the useful orders in this initiative band before lower bands answer. If the enemy shares the tempo, their activations will cut in.",
+    highlightSelector: "#battleMapCanvas",
+    position: "right",
+    arrowDirection: "left",
+    actionLabel: "Hold Tempo"
+  },
+  {
+    phase: "active_group_units",
+    title: "Choose A Formation",
+    content:
+      "Select a highlighted friendly formation. Only the active group can take orders now; other units will report when their initiative comes up.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "movement_intro",
+    title: "Movement",
+    content:
+      "Blue hexes are movement. Roads, terrain, fuel, towing, suppression, and facing decide whether a move is worth spending this activation.",
+    highlightSelector: "#battleMapCanvas",
+    position: "right",
+    arrowDirection: "left",
     actionLabel: "Continue"
   },
   {
     phase: "attack_intro",
     title: "Fire Orders",
     content:
-      "Click a red target to attack. Check the preview before firing: armor, suppression, expected damage, and retaliation decide whether the shot is worth it.",
+      "Red hexes are fire options. Check the preview before firing: armor, suppression, expected damage, and retaliation decide whether the shot is worth the tempo.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
-    actionLabel: "Continue"
-  },
-  {
-    phase: "select_smoke_unit",
-    title: "Pick Smoke",
-    content:
-      "Select one of the highlighted formations that can throw smoke. Smoke orders live on the unit intel card, not the sidebar.",
-    highlightSelector: "#battleMapCanvas",
-    position: "right",
-    arrowDirection: "left",
-    waitForAction: true,
     actionLabel: "Continue"
   },
   {
     phase: "intel_overlay_expand",
     title: "Unit Intel",
     content:
-      "This card is the unit's command board: status, orders, and detailed readiness. Click Expand before issuing special orders.",
+      "This card is the formation's command board: readiness, orders, initiative, and special actions. Expand it before issuing smoke or engineer work.",
     highlightSelector: "#battleIntelOverlay, #battleIntelOverlayToggle",
     position: "right",
     arrowDirection: "left",
@@ -249,69 +268,114 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "smoke_demo",
-    title: "Lay Smoke",
+    title: "Smoke Orders",
     content:
-      "Click Lay Smoke, then choose your own hex or an in-range target hex and pick the edge to screen. Use smoke to break sight before you move.",
+      "Smoke is not a universal order. When infantry or engineers activate, select that formation, expand this card, and use Lay Smoke to screen a hex edge.",
     highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke']",
     position: "right",
     arrowDirection: "left",
+    actionLabel: "Continue"
+  },
+  {
+    phase: "spend_activation",
+    title: "Spend The Activation",
+    content:
+      "Put the active recon patrol on Sentry. Sentry spends the activation, keeps eyes forward, and lets the next initiative band report in.",
+    highlightSelector: "#battleIntelOverlay [data-selection-action='enterSentry']",
+    position: "right",
+    arrowDirection: "left",
     waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "enemy_activation",
+    title: "Enemy Tempo",
+    content:
+      "Enemy formations act when their place in the order arrives. Watch the initiative status after every order so you know whether the next move is yours or theirs.",
+    highlightSelector: ".initiative-turn-controls-container [data-initiative-status], #battleMapCanvas",
+    position: "bottom",
+    arrowDirection: "up",
+    actionLabel: "Continue"
+  },
+  {
+    phase: "next_unit",
+    title: "Cycle The Group",
+    content:
+      "Use Next Unit to cycle eligible formations in the active band before committing an order. A General checks the whole group before spending tempo.",
+    highlightSelector: ".initiative-turn-controls-container .next-activation-btn",
+    position: "bottom",
+    arrowDirection: "up",
+    actionLabel: "Continue"
+  },
+  {
+    phase: "skip_group",
+    title: "Skip With Intent",
+    content:
+      "Skip Group puts the remaining friendly formations in this initiative band on sentry. Use it when the line is set, not because the clock feels loud.",
+    highlightSelector: ".initiative-turn-controls-container .skip-group-btn",
+    position: "bottom",
+    arrowDirection: "up",
     actionLabel: "Continue"
   },
   {
     phase: "engineer_intro",
     title: "Engineers",
     content:
-      "Select an Engineering Corps. Engineers control terrain: dig in, fortify, lay traps, and open lanes for the main body.",
-    highlightSelector: "#battleMapCanvas",
+      "When engineers activate, spend them on terrain control: dig in, fortify, lay tank traps, or clear a route for the main body.",
+    highlightSelector: "#battleIntelOverlay",
     position: "right",
     arrowDirection: "left",
-    waitForAction: true,
     actionLabel: "Continue"
   },
   {
     phase: "engineer_orders",
     title: "Engineer Work",
     content:
-      "Issue one engineer order from the unit card. Dig In, Fortify, Lay Tank Traps, or Clear Path all count.",
+      "Engineer orders live on the expanded unit card. They are not glamorous, General, but terrain work wins battles before the first shell lands.",
     highlightSelector: "#battleIntelOverlay",
     position: "left",
     arrowDirection: "right",
-    waitForAction: true,
     actionLabel: "Continue"
   },
   {
     phase: "artillery_intro",
     title: "Artillery",
     content:
-      "Use an infantry or recon spotter, call artillery, then click an observed enemy hex. Off-map guns queue the mission and punish fixed targets.",
+      "Use infantry or recon spotters before calling artillery. Guns act best against observed, fixed targets; blind fire spends ammunition and initiative poorly.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
-    waitForAction: true,
     actionLabel: "Continue"
   },
   {
     phase: "flak_intro",
     title: "Flak Coverage",
     content:
-      "Select the Flak Battery. Its main job is automatic air defense, so position it where coverage protects headquarters, reserves, and guns.",
+      "Flak batteries are slow on the initiative clock, but their air defense is automatic. Place coverage over base camp, guns, reserves, and road approaches.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
-    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "round_handoff",
+    title: "Round Handoff",
+    content:
+      "End Turn is the hard pass. In initiative mode it can place unused formations on sentry and release the rest of the round. Press it when you mean it.",
+    highlightSelector: ".initiative-turn-controls-container .end-turn-btn",
+    position: "bottom",
+    arrowDirection: "up",
     actionLabel: "Continue"
   },
   {
     phase: "turn_end",
-    title: "End Turn",
+    title: "Command Loop",
     content:
-      "When movement, fire, support, and supply checks are done, end the turn. The idle warning catches formations still waiting for orders.",
-    highlightSelector: "#endTurn",
+      "That is the loop: read initiative, command the active group, spend useful orders, watch enemy tempo, then hand off the round only when the line is set.",
+    highlightSelector: ".initiative-turn-controls-container, #battleMapCanvas",
     position: "left",
     arrowDirection: "right",
-    waitForAction: true,
-    actionLabel: "Continue"
+    actionLabel: "Command On"
   },
   {
     phase: "complete",
@@ -336,6 +400,7 @@ export function getTutorialStep(phase: TutorialPhase): TutorialStep | null {
 export function getNextPhase(currentPhase: TutorialPhase): TutorialPhase | null {
   const currentIndex = PHASE_INDEX_MAP.get(currentPhase);
   if (currentIndex === undefined) return null;
+  if (currentPhase === "complete") return null;
 
   const nextIndex = currentIndex + 1;
   if (nextIndex >= TUTORIAL_STEPS.length) return "complete";
@@ -385,15 +450,22 @@ export function getDeploymentPhases(): TutorialPhase[] {
 
 export function getCombatPhases(): TutorialPhase[] {
   return [
+    "initiative_order",
+    "initiative_group",
+    "active_group_units",
     "movement_intro",
     "attack_intro",
-    "select_smoke_unit",
     "intel_overlay_expand",
     "smoke_demo",
+    "spend_activation",
+    "enemy_activation",
+    "next_unit",
+    "skip_group",
     "engineer_intro",
     "engineer_orders",
     "artillery_intro",
     "flak_intro",
+    "round_handoff",
     "turn_end",
     "complete"
   ];

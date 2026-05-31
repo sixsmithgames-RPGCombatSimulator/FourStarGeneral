@@ -30,7 +30,7 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
     key: "baseOperations",
     title: "OPS: Command Post",
     content:
-      "General, this is the command post. Confirm objectives, turn pressure, readiness, and war-room hotspots before you commit the next move.",
+      "General, this is the command post. Check objectives, round pressure, and theater reports before committing the next initiative group.",
     highlightSelector: "#warRoomOverlay .war-room-surface",
     position: "center",
     actionLabel: "Close Brief"
@@ -39,7 +39,7 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
     key: "generalProfile",
     title: "GEN: Your Commander",
     content:
-      "Your command traits shape the fight. Check bonuses and directives here before choosing how hard to push the line.",
+      "Your command traits shape tempo. Check bonuses and directives before deciding whether to press, hold, or conserve the line.",
     highlightSelector: ".battle-popup[data-popup-key=\"generalProfile\"] #generalProfileContent",
     position: "left",
     arrowDirection: "right",
@@ -49,7 +49,7 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
     key: "recon",
     title: "REC: Contact Picture",
     content:
-      "Recon turns fog into targets. Use this board to see who has eyes on the enemy, what they spotted, and where confidence is thin.",
+      "Recon acts early and turns fog into targets. Use fast eyes to reveal threats before slower guns and armor commit.",
     highlightSelector: ".battle-popup[data-popup-key=\"recon\"] [data-recon-panel]",
     position: "left",
     arrowDirection: "right",
@@ -59,7 +59,7 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
     key: "airSupport",
     title: "AIR: Sortie Board",
     content:
-      "Air power is off-map until you task it. Pick a mission, assign a squadron, choose a target or patrol zone, then launch the order.",
+      "Aircraft sit outside the ground initiative clock. Task sorties here, choose targets or patrol zones, then let air resolve on its own timing.",
     highlightSelector: ".battle-popup[data-popup-key=\"airSupport\"] [data-air-panel]",
     position: "left",
     arrowDirection: "right",
@@ -69,7 +69,7 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
     key: "logistics",
     title: "LOG: Keep Guns Fed",
     content:
-      "Logistics decides who keeps moving and firing. Watch ammo, fuel, convoy status, and priority so the front does not outrun the depot.",
+      "Logistics is slow tempo, decisive effect. Set priorities, watch ammo and fuel, and keep convoys from chasing a front they cannot reach.",
     highlightSelector: ".battle-popup[data-popup-key=\"logistics\"] #logisticsPanel",
     position: "left",
     arrowDirection: "right",
@@ -79,7 +79,7 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
     key: "armyRoster",
     title: "ROSTER: Order of Battle",
     content:
-      "This is your force ledger: deployed units, reserves, support, casualties, and current readiness. Use it before committing reserves.",
+      "Your force ledger shows deployed units, reserves, losses, readiness, and initiative values. Use it before committing the next group.",
     highlightSelector: ".battle-popup[data-popup-key=\"armyRoster\"] #armyRosterContent",
     position: "left",
     arrowDirection: "right",
