@@ -105,6 +105,8 @@ export interface AttackerContext {
   movementAttackWindow?: number;
   isRetaliation?: boolean;
   isOnSentry?: boolean;
+  /** Tow posture for limbered gun batteries when modeled by the caller. */
+  towState?: "deployed" | "towed" | null;
   suppressionState?: ShotSuppressionState;
 }
 
@@ -157,7 +159,7 @@ export interface ShotBreakdown {
   readonly theoreticalProfileShots: number;
   readonly formationScalar: number;
   readonly strengthScalar: number;
-  readonly posture: "standard" | "suppressive" | "assault" | "retaliation" | "sentry" | "airSortie";
+  readonly posture: "standard" | "suppressive" | "assault" | "retaliation" | "sentry" | "airSortie" | "deployedBattery";
   readonly postureScalar: number;
   readonly movementScalar: number;
   readonly suppressionState: ShotSuppressionState;
@@ -468,7 +470,12 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
   const afterTerrain = afterDefenderExperience * terrainMultiplier;
 
   // Step 6: Apply spotted target penalty as multiplier
-  const spottedMultiplier = defenderCtx.isSpottedOnly ? 0.5 : 1.0;
+  const attackerUsesObserverDirectedIndirectFire =
+    attacker.unit.moveType !== "air" &&
+    (attacker.unit.class === "artillery" || attacker.unit.traits.includes("indirect"));
+  const spottedMultiplier = defenderCtx.isSpottedOnly
+    ? (attackerUsesObserverDirectedIndirectFire ? 1.0 : 0.5)
+    : 1.0;
   const afterSpotted = afterTerrain * spottedMultiplier;
 
   // Assaulting infantry that closes into tank-kill distance is unusually exposed.
@@ -586,10 +593,12 @@ function mitigateReduction(scalar: number, experience: number, maxRestoredLoss: 
  * 1. Air units: Always use full theoretical shots (airSortie: 1.0) - MAXIMUM
  * 2. Retaliation: Defensive fire with limited preparation (sentry: 0.35, retaliation: 0.12)
  * 3. Explicit stances: Offensive tactical choices (assault: 0.25, suppressive: 0.18)
- * 4. Standard: Fresh, stationary, deliberate attack (standard: 0.18) - BASELINE
+ * 4. Deployed towed batteries: Prepared gun line fire (deployedBattery: 0.24-0.26)
+ * 5. Standard: Fresh, stationary, deliberate attack (standard: 0.18) - BASELINE
  * 
  * Shot volume comparison (highest to lowest):
- * airSortie (1.0) > sentry (0.35) > assault (0.25) > standard (0.18) = suppressive (0.18) > retaliation (0.12)
+ * airSortie (1.0) > sentry (0.35) > deployedBattery (0.24-0.26) > assault (0.25)
+ *   > standard (0.18) = suppressive (0.18) > retaliation (0.12)
  * 
  * SUPPRESSION SYSTEM:
  * - Suppressive stance: Same shot volume as standard, but adds attacker to target's suppressedBy array
@@ -617,6 +626,18 @@ function resolveShotPosture(
   if (context.stance === "suppressive") {
     // Suppressive fire - same shot volume as standard but focuses on suppression effects
     return { posture: "suppressive", postureScalar: 0.18 };
+  }
+
+  // Deployed towed gun batteries have pre-laid sights and prepared drill states.
+  // They still do not fire at theoretical maximum, but they sustain materially higher
+  // practical output than maneuver formations using the same five-minute baseline.
+  if (context.towState === "deployed") {
+    if (attacker.class === "artillery") {
+      return { posture: "deployedBattery", postureScalar: 0.24 };
+    }
+    if (attacker.class === "specialist" && attacker.combat.role === "antiTank") {
+      return { posture: "deployedBattery", postureScalar: 0.26 };
+    }
   }
   
   // Standard posture: Fresh, stationary, deliberate attack

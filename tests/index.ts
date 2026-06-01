@@ -65,6 +65,7 @@ import "./ReconLOS.directFire.test.js";
 import "./ReconBike.balance.test.js";
 import "./InfantryTankAssault.autoflank.test.js";
 import "./ATGun.combatMath.test.js";
+import "./DeployedTowedFireVolume.test.js";
 import "./BotTargeting.heuristic.test.js";
 import "./precombatLogisticsMinimum.test.js";
 import "./AirShow.fighterMotion.test.js";

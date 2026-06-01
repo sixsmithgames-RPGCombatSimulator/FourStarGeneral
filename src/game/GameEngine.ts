@@ -3768,7 +3768,10 @@ export class GameEngine implements GameEngineAPI {
     return {
       attacker: attackerState,
       defender: defenderState,
-      attackerCtx: { hex: structuredClone(attacker.hex) },
+      attackerCtx: {
+        hex: structuredClone(attacker.hex),
+        towState: this.resolveTowState(attacker)
+      },
       defenderCtx: {
         terrain: this.terrainAt(defender.hex) ?? this.defaultTerrain(),
         class: defenderDefinition.class,
@@ -12517,6 +12520,9 @@ private automateSupplyConvoys(
     });
 
     const canAttackWithoutDirectLOS = this.canAttackWithoutDirectLOS(attackerType);
+    const isObserverDirectedIndirectFire =
+      attackerType.moveType !== "air" &&
+      (attackerType.class === "artillery" || attackerType.traits.includes("indirect"));
     let isSpottedOnly = false;
     if (!hasDirectLOS) {
       if (!canAttackWithoutDirectLOS) {
@@ -12526,7 +12532,9 @@ private automateSupplyConvoys(
       if (!hasSpotting) {
         return null;
       }
-      isSpottedOnly = true;
+      // Indirect fires still require a valid spot/observer, but they do not receive
+      // the direct-fire-only spotted penalty once the fire mission is coordinated.
+      isSpottedOnly = !isObserverDirectedIndirectFire;
     }
 
     const attackerGeneral = attackerFaction === "Player" ? this.playerSide.general : this.botSide.general;
@@ -12562,6 +12570,7 @@ private automateSupplyConvoys(
       movementAttackWindow,
       isRetaliation: options?.isRetaliation === true,
       isOnSentry: options?.isOnSentry === true || attacker.onSentry === true,
+      towState: this.resolveTowState(attacker),
       suppressionState: attackerSuppression
     };
 
@@ -15060,12 +15069,17 @@ private automateSupplyConvoys(
       lister,
       purpose: "direct-fire"
     });
+    const isObserverDirectedIndirectFire =
+      attackerDef.moveType !== "air" &&
+      (attackerDef.class === "artillery" || attackerDef.traits.includes("indirect"));
     let isSpottedOnly = false;
     if (!hasDirectLOS) {
       if (!this.canAttackWithoutDirectLOS(attackerDef) || !this.checkTargetSpotted(targetHex, "Bot")) {
         return null;
       }
-      isSpottedOnly = true;
+      // Coordinated indirect fires use spotting to authorize the mission, but once
+      // observer corrections are available they are not treated as blind direct fire.
+      isSpottedOnly = !isObserverDirectedIndirectFire;
     }
 
     const distance = hexDistance(attackerHex, targetHex);
@@ -15326,7 +15340,8 @@ private automateSupplyConvoys(
         },
         attackerCtx: {
           hex: attackRequestSource.hex,
-          stance: effectiveStance
+          stance: effectiveStance,
+          towState: this.resolveTowState(attackRequestSource)
         },
         defenderCtx: {
           terrain: this.terrainAt(defenderBefore.hex) ?? this.defaultTerrain(),

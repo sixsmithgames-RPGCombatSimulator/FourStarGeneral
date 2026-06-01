@@ -644,7 +644,9 @@ export class BattleScreen {
     if (!attackerDef || !defenderDef) {
       throw new Error(`Attack preview missing unit definition(s) for '${attackerType}' or '${defenderType}'.`);
     }
-    const attackerLabel = this.toTitleCase(attackerType);
+    const attackerLabel = attackerUnit
+      ? this.resolveReadableUnitLabel(attackerUnit)
+      : this.toTitleCase(attackerType);
     const defenderLabel = this.toTitleCase(defenderType);
 
     const accuracyDetails = preview.result.accuracyBreakdown;
@@ -664,7 +666,8 @@ export class BattleScreen {
     const finalPreClamp = accuracyDetails.finalPreClamp;
 
     const shots = preview.result.shots;
-    const expectedHits = preview.result.expectedHits.toFixed(1);
+    const expectedHitsValue = Math.max(0, preview.result.expectedHits);
+    const expectedHits = expectedHitsValue.toFixed(1);
     const effectiveAP = Math.round(preview.result.effectiveAP);
     const facingArmor = Math.round(preview.result.facingArmor);
     const attackerStrength = preview.attacker.strength;
@@ -750,6 +753,10 @@ export class BattleScreen {
 
     const statusConversionLine =
       `Contact model ${baseDamagePerHit.toFixed(3)} x Exp x${damageExperienceScalar.toFixed(2)} = ${preCommanderDamagePerHit.toFixed(3)} x ${attackStatLabel} x${attackScalar.toFixed(2)} (${attackStatValue}/${attackReference}) = ${afterAttackScalarDamagePerHit.toFixed(3)} x ${penetrationMathLine} = ${afterPenetrationDamagePerHit.toFixed(3)} x Cmd x${commanderDamageScalar.toFixed(2)} = ${prePayloadDamagePerHit.toFixed(3)}; status effects come from per-weapon hit distributions and the target's current personnel/equipment pools`;
+    const shotBreakdown = preview.result.shotBreakdown ?? null;
+    const shotVolumeLine = shotBreakdown
+      ? `${Math.round(shotBreakdown.theoreticalProfileShots)} theoretical shots x readiness ${shotBreakdown.strengthScalar.toFixed(2)} x posture ${shotBreakdown.postureScalar.toFixed(2)} x movement ${shotBreakdown.movementScalar.toFixed(2)} x suppression ${shotBreakdown.suppressionScalar.toFixed(2)} = ${shotBreakdown.final} shots`
+      : "Fire volume is derived from weapon-model shot capacity scaled by readiness and firing posture.";
 
     const distance = Math.abs(attacker.q - defender.q) + Math.abs(attacker.r - defender.r) + Math.abs((-attacker.q - attacker.r) - (-defender.q - defender.r));
     const range = Math.floor(distance / 2);
@@ -780,6 +787,9 @@ export class BattleScreen {
     const targetEquipmentEffects = this.formatEquipmentDelta(preview.projectedDamage);
     const targetComponentEffects = this.formatComponentDelta(preview.projectedDamage);
     const targetDamageTypes = this.formatDamageTypes(preview.projectedDamage);
+    const lowLethalityNote = expectedHitsValue > 0 && projectedTargetDamage <= 0
+      ? "Low-probability volley: suppression is likely, but confirmed losses are unlikely without more hits."
+      : null;
 
     const accuracyToneClass = roundedAccuracy >= 75
       ? "attack-preview-outcome__value--good"
@@ -909,7 +919,7 @@ export class BattleScreen {
                   </div>
                   <div class="combat-metric combat-metric--primary">
                     <span class="combat-metric__label">Expected Hits</span>
-                    <strong class="combat-metric__value">${Math.round(Number(expectedHits))}</strong>
+                    <strong class="combat-metric__value">${expectedHits}</strong>
                     <span class="combat-metric__unit">impacts</span>
                   </div>
                   <div class="combat-metric">
@@ -921,6 +931,7 @@ export class BattleScreen {
                     <strong class="combat-metric__value combat-metric__value--text">${this.escapeHtml(targetEquipmentEffects)}</strong>
                   </div>
                 </div>
+                ${lowLethalityNote ? `<p class="attack-preview-footnote">${this.escapeHtml(lowLethalityNote)}</p>` : ""}
 
                 ${this.renderReadinessProjectionRows(preview.projectedDamage)}
 
@@ -1019,6 +1030,7 @@ export class BattleScreen {
               <div class="attack-preview-breakdown">
                 <p><strong>Profile:</strong> ${this.escapeHtml(profile.description)}</p>
                 <p><strong>Weapon Inputs:</strong> ${this.escapeHtml(weaponStatsLine)}</p>
+                <p><strong>Shot Volume:</strong> ${this.escapeHtml(shotVolumeLine)}</p>
                 <p><strong>Weapon Systems:</strong> ${this.escapeHtml(weaponBreakdown.summary)}</p>
                 
                 <div class="weapon-groups-detail">
