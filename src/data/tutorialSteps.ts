@@ -12,7 +12,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "welcome",
     title: "Field Command",
     content:
-      "General, enemy scouts are probing the sector. Assemble a task force, establish a blocking position, and break the patrol before it reaches the road net.",
+      "Enemy scouts are probing this sector. Build your force, set your base camp, and stop the patrol before it reaches the road.",
     position: "center",
     actionLabel: "Accept Command"
   },
@@ -20,7 +20,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "budget_overview",
     title: "Requisition Order",
     content:
-      "You have 1,200 RP. Use the Training preset for a balanced field package, or build the same mix by hand if you want to learn each requisition lane.",
+      "You have 1,200 RP. Use the Training preset for a ready force, or build it by hand to learn each category.",
     highlightSelector: "#precombatBudgetPanel",
     position: "left",
     arrowDirection: "right",
@@ -30,7 +30,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "unit_categories",
     title: "Build The Task Force",
     content:
-      "For this fight, the preset loads a balanced force: fast scouts, engineers, infantry, armor, flak, supply, ammo, medical, and maintenance teams.",
+      "This mission needs infantry, armor, engineers, recon, air defense, and logistics. Each category supports the line in a different way.",
     highlightSelector: "#allocationUnitList, #allocationSupportList, #allocationLogisticsList",
     position: "right",
     arrowDirection: "left",
@@ -40,7 +40,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_infantry",
     title: "Form The Line",
     content:
-      "Add three Infantry Battalions. They take ground, hold villages and woods, and give the rest of the force something solid to fight around.",
+      "Add three Infantry Battalions. They hold ground and anchor the front.",
     highlightSelector: "[data-key='infantry']",
     position: "right",
     arrowDirection: "left",
@@ -51,7 +51,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_tanks",
     title: "Attach Armor",
     content:
-      "Add one Medium Tank Company, one Heavy Tank Company, and one Tank Destroyer Company. The mix gives you shock, staying power, and anti-armor reach.",
+      "Add one Medium Tank Company, one Heavy Tank Company, and one Tank Destroyer Company. This gives you breakthrough power and anti-tank fire.",
     highlightSelector: "[data-key='tank'], [data-key='heavyTankCompany'], [data-key='tankDestroyerCompany']",
     position: "right",
     arrowDirection: "left",
@@ -62,7 +62,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_engineers",
     title: "Bring Engineers",
     content:
-      "Add one Engineering Corps. Engineers dig, breach, fortify, and keep the advance from stalling at the first obstacle.",
+      "Add one Engineering Corps. Engineers dig in, breach obstacles, and fortify key hexes.",
     highlightSelector: "[data-key='engineer']",
     position: "right",
     arrowDirection: "left",
@@ -73,7 +73,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_flak",
     title: "Cover The Rear",
     content:
-      "Add two Flak Batteries. Keep base camp, reserves, and road approaches under an air-defense umbrella.",
+      "Add two Flak Batteries. Keep base camp and supply routes under air cover.",
     highlightSelector: "[data-key='flakBattery']",
     position: "right",
     arrowDirection: "left",
@@ -84,7 +84,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_air_wing",
     title: "Send Recon",
     content:
-      "Add one Recon Bike Patrol. Scouts widen your sight picture and make the enemy pay for moving blind.",
+      "Add one Recon Bike Patrol. Recon finds enemy positions before your main force commits.",
     highlightSelector: "[data-key='reconBike']",
     position: "right",
     arrowDirection: "left",
@@ -95,7 +95,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_ammo",
     title: "Stock Shells",
     content:
-      "Add one Ammunition Dump. Guns win time only while the depot keeps them fed.",
+      "Add one Ammunition Dump. Without ammo, your guns fall silent.",
     highlightSelector: "[data-key='ammo']",
     position: "left",
     arrowDirection: "right",
@@ -106,7 +106,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_fuel",
     title: "Recovery Teams",
     content:
-      "Add one Medical Detachment and one Recovery & Repair Section. Casualties and damaged vehicles need real teams assigned before the battle starts.",
+      "Add one Medical Detachment and one Recovery & Repair Section. Treat casualties and recover damaged vehicles during the fight.",
     highlightSelector: "[data-key='medic'], [data-key='maintenance']",
     position: "left",
     arrowDirection: "right",
@@ -117,7 +117,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "mission_objectives",
     title: "Mission Orders",
     content:
-      "Primary objective: stop the enemy patrol before it reaches the coastal road. Expect a small mobile force. Use engineers, smoke, recon, supply, and recovery teams as one plan.",
+      "Primary objective: stop the enemy patrol before it reaches the coastal road. Expect a mobile enemy force.",
     highlightSelector: "#precombatMissionSummary",
     position: "center",
     actionLabel: "Understood"
@@ -126,7 +126,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "review_allocation",
     title: "Final Check",
     content:
-      "Confirm the force. Initiative matters now: scouts seize tempo, infantry and engineers shape the fight, armor hits later, and logistics keeps the line alive.",
+      "Check your force, then deploy. You are ready to move to the field.",
     highlightSelector: "#resetAllocations, #proceedToBattle",
     position: "center",
     actionLabel: "Deploy to Field"
@@ -135,7 +135,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "ui_overview",
     title: "Command Rail",
     content:
-      "The sidebar is your command rail. Open those boards when you need them; each one gives its own command brief the first time you click it.",
+      "These sidebar buttons open your command boards. Each board gives a short first-time brief.",
     highlightSelector: ".control-sidebar",
     position: "right",
     arrowDirection: "left",
@@ -145,7 +145,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "mission_briefing",
     title: "Battle Header",
     content:
-      "The header tracks the objective, turn state, air activity, and the main battle actions. Use it to keep tempo.",
+      "The header shows objective status, turn phase, and key battle buttons.",
     highlightSelector: ".battle-map-header",
     position: "bottom",
     arrowDirection: "up",
@@ -155,7 +155,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "deployment_panel_intro",
     title: "Deployment Board",
     content:
-      "This board places base camp and your opening formations. It shows what is staged, what zones are legal, and who still needs orders.",
+      "Use this board to set base camp and deploy your opening force.",
     highlightSelector: "#deploymentPanel",
     position: "left",
     arrowDirection: "right",
@@ -165,7 +165,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "deployment_intro",
     title: "Deployment Plan",
     content:
-      "First establish base camp. Deploy Evenly places one unit per hex from lowest to highest initiative. Deploy Grouped follows the same initiative order but places two units per hex before moving outward.",
+      "Set base camp first. Deploy Evenly spreads units out. Deploy Grouped places units in tighter stacks.",
     highlightSelector: "#assignBaseCamp, #autoDeployEvenly, #autoDeployGrouped",
     position: "left",
     arrowDirection: "right",
@@ -175,7 +175,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "base_camp",
     title: "Establish Base Camp",
     content:
-      "Click Zone Alpha on the deployment board to center the camera, pick a highlighted hex in that zone, then click Assign Base Camp. Zone Alpha is your only deployment sector here; Bravo is enemy ground.",
+      "Click Zone Alpha in the deployment list to center the camera. Pick a highlighted hex, then click Assign Base Camp. Zone Alpha is your only deployment sector; Bravo is enemy ground.",
     highlightSelector: "#battleMapCanvas, #assignBaseCamp",
     position: "right",
     arrowDirection: "left",
@@ -186,7 +186,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "place_units",
     title: "Place The Line",
     content:
-      "Choose a deployment mode. Deploy Evenly spreads across open hexes; Deploy Grouped packs formations into tighter stacks. For full control, deploy units one by one onto legal hexes.",
+      "Choose a deployment mode. You can also place units one by one for full control.",
     highlightSelector: "#autoDeployEvenly, #autoDeployGrouped",
     position: "top",
     arrowDirection: "down",
@@ -197,7 +197,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "begin_battle",
     title: "Begin Battle",
     content:
-      "Enemy movement is reported northeast. Begin operations. The next brief teaches the initiative clock: who acts now, who waits, and when to hand off tempo.",
+      "Enemy movement is reported to the northeast. Click Begin Mission when deployment is complete.",
     highlightSelector: "#beginBattle",
     position: "bottom",
     arrowDirection: "up",
@@ -208,7 +208,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "initiative_order",
     title: "Initiative Order",
     content:
-      "Initiative is the battle clock, General. Higher ratings act first: recon and engineers seize tempo, line units follow, armor and guns answer later. Aircraft stay on the Air board.",
+      "Initiative decides who acts first. Units with higher initiative act before slower units. Air missions are managed from the Air board.",
     highlightSelector: ".initiative-turn-controls-container [data-initiative-status], .battle-map-header__phase",
     position: "bottom",
     arrowDirection: "up",
@@ -218,7 +218,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "initiative_group",
     title: "Active Group",
     content:
-      "The highlighted formations are the active group. Work the useful orders in this initiative band before lower bands answer. If the enemy shares the tempo, their activations will cut in.",
+      "Highlighted units are the active initiative group. Give orders to these units before the next group takes its turn.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
@@ -228,7 +228,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "active_group_units",
     title: "Choose A Formation",
     content:
-      "Select a highlighted friendly formation. Only the active group can take orders now; other units will report when their initiative comes up.",
+      "Select a highlighted friendly unit. Only highlighted units can act right now.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
@@ -239,7 +239,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "movement_intro",
     title: "Movement",
     content:
-      "Blue hexes are movement. Roads, terrain, fuel, towing, suppression, and facing decide whether a move is worth spending this activation.",
+      "Blue hexes show where the unit can move this turn. Terrain, fuel, and suppression can reduce movement.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
@@ -249,7 +249,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "attack_intro",
     title: "Fire Orders",
     content:
-      "Red hexes are fire options. Check the preview before firing: armor, suppression, expected damage, and retaliation decide whether the shot is worth the tempo.",
+      "Red hexes are valid targets. Check the fire preview before you attack.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
@@ -259,7 +259,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "intel_overlay_expand",
     title: "Unit Intel",
     content:
-      "This card is the formation's command board: readiness, orders, initiative, and special actions. Expand it before issuing smoke or engineer work.",
+      "This unit card shows readiness, ammo, fuel, and special orders. Expand it now.",
     highlightSelector: "#battleIntelOverlay, #battleIntelOverlayToggle",
     position: "right",
     arrowDirection: "left",
@@ -270,7 +270,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "smoke_demo",
     title: "Smoke Orders",
     content:
-      "Smoke is not a universal order. When infantry or engineers activate, select that formation, expand this card, and use Lay Smoke to screen a hex edge.",
+      "Not every unit can lay smoke. Select infantry or engineers, expand the unit card, then use Lay Smoke.",
     highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke']",
     position: "right",
     arrowDirection: "left",
@@ -280,7 +280,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "spend_activation",
     title: "Spend The Activation",
     content:
-      "Put the active recon patrol on Sentry. Sentry spends the activation, keeps eyes forward, and lets the next initiative band report in.",
+      "Set the active recon unit to Sentry. This ends its action and passes play to the next unit.",
     highlightSelector: "#battleIntelOverlay [data-selection-action='enterSentry']",
     position: "right",
     arrowDirection: "left",
@@ -291,7 +291,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "enemy_activation",
     title: "Enemy Tempo",
     content:
-      "Enemy formations act when their place in the order arrives. Watch the initiative status after every order so you know whether the next move is yours or theirs.",
+      "When enemy units are next in initiative order, they act automatically. Watch the status line and activity log.",
     highlightSelector: ".initiative-turn-controls-container [data-initiative-status], #battleMapCanvas",
     position: "bottom",
     arrowDirection: "up",
@@ -301,7 +301,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "next_unit",
     title: "Cycle The Group",
     content:
-      "Use Next Unit to cycle eligible formations in the active band before committing an order. A General checks the whole group before spending tempo.",
+      "Use Next Unit to cycle friendly units in the active group before committing an order.",
     highlightSelector: ".initiative-turn-controls-container .next-activation-btn",
     position: "bottom",
     arrowDirection: "up",
@@ -311,7 +311,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "skip_group",
     title: "Skip With Intent",
     content:
-      "Skip Group puts the remaining friendly formations in this initiative band on sentry. Use it when the line is set, not because the clock feels loud.",
+      "Skip Group sets the remaining friendly units in this group to sentry.",
     highlightSelector: ".initiative-turn-controls-container .skip-group-btn",
     position: "bottom",
     arrowDirection: "up",
@@ -321,7 +321,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "engineer_intro",
     title: "Engineers",
     content:
-      "When engineers activate, spend them on terrain control: dig in, fortify, lay tank traps, or clear a route for the main body.",
+      "Engineers can dig in, fortify edges, lay obstacles, and clear routes.",
     highlightSelector: "#battleIntelOverlay",
     position: "right",
     arrowDirection: "left",
@@ -331,7 +331,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "engineer_orders",
     title: "Engineer Work",
     content:
-      "Engineer orders live on the expanded unit card. They are not glamorous, General, but terrain work wins battles before the first shell lands.",
+      "Engineer actions are on the expanded unit card. Use them to shape the battlefield before the enemy closes.",
     highlightSelector: "#battleIntelOverlay",
     position: "left",
     arrowDirection: "right",
@@ -341,7 +341,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "artillery_intro",
     title: "Artillery",
     content:
-      "Use infantry or recon spotters before calling artillery. Guns act best against observed, fixed targets; blind fire spends ammunition and initiative poorly.",
+      "Spot with infantry or recon before calling artillery. Observed targets are hit more reliably.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
@@ -351,7 +351,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "flak_intro",
     title: "Flak Coverage",
     content:
-      "Flak batteries are slow on the initiative clock, but their air defense is automatic. Place coverage over base camp, guns, reserves, and road approaches.",
+      "Flak fires at enemy aircraft automatically. Keep flak near base camp, guns, and road approaches.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
@@ -361,7 +361,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "round_handoff",
     title: "Round Handoff",
     content:
-      "End Turn is the hard pass. In initiative mode it can place unused formations on sentry and release the rest of the round. Press it when you mean it.",
+      "Use End Turn when your current orders are complete and you are ready to hand off.",
     highlightSelector: ".initiative-turn-controls-container .end-turn-btn",
     position: "bottom",
     arrowDirection: "up",
@@ -371,7 +371,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "turn_end",
     title: "Command Loop",
     content:
-      "That is the loop: read initiative, command the active group, spend useful orders, watch enemy tempo, then hand off the round only when the line is set.",
+      "Battle routine: check initiative, command active units, watch enemy actions, then end turn when your line is set.",
     highlightSelector: ".initiative-turn-controls-container, #battleMapCanvas",
     position: "left",
     arrowDirection: "right",
@@ -381,7 +381,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "complete",
     title: "Command Certified",
     content:
-      "You have the command loop: requisition, deploy, maneuver, strike, support, and resupply. Win by combining systems, not by treating them as separate menus.",
+      "You are ready: requisition, deploy, fight, and resupply. Hold the objective and keep your force supplied.",
     position: "center",
     actionLabel: "Dismiss"
   }
