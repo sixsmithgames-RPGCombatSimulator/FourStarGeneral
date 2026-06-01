@@ -349,7 +349,7 @@
       "key": "zone-alpha",
       "label": "Zone Alpha",
       "description": "Primary beachhead corridor prepared for rapid armored deployment.",
-      "capacity": 12,
+      "capacity": 13,
       "faction": "Player",
       "hexes": [
         [5, 5],
@@ -363,7 +363,8 @@
         [6, 8],
         [7, 8],
         [8, 8],
-        [9, 8]
+        [9, 8],
+        [9, 7]
       ]
     },
     {

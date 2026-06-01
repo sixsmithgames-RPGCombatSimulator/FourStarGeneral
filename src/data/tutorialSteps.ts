@@ -175,7 +175,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "base_camp",
     title: "Establish Base Camp",
     content:
-      "Click a highlighted hex inside Zone Alpha, then click Assign Base Camp. Zone Alpha is your only deployment sector in this operation; Bravo is enemy ground.",
+      "Click Zone Alpha on the deployment board to center the camera, pick a highlighted hex in that zone, then click Assign Base Camp. Zone Alpha is your only deployment sector here; Bravo is enemy ground.",
     highlightSelector: "#battleMapCanvas, #assignBaseCamp",
     position: "right",
     arrowDirection: "left",

@@ -4355,7 +4355,7 @@ export class HexMapRenderer implements IMapRenderer {
 
     const cx = Number(cell.dataset.cx ?? 0);
     const cy = Number(cell.dataset.cy ?? 0);
-    const iconSize = 40;
+    const iconSize = 46;
     const existing = this.hexUnitImageMap.get(hexKey) ?? null;
     if (existing) {
       existing.remove();

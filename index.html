@@ -6495,14 +6495,18 @@
 
     @keyframes deployment-zone-pulse {
       0%, 100% {
-        stroke: #ff4444;
-        stroke-width: 3;
-        stroke-opacity: 1;
+        stroke: rgba(246, 207, 122, 0.96);
+        stroke-width: 3.1;
+        stroke-opacity: 0.95;
+        fill: rgba(246, 207, 122, 0.16);
+        fill-opacity: 0.24;
       }
       50% {
-        stroke: #ff8888;
-        stroke-width: 4;
-        stroke-opacity: 0.7;
+        stroke: rgba(255, 234, 185, 1);
+        stroke-width: 3.8;
+        stroke-opacity: 1;
+        fill: rgba(246, 207, 122, 0.24);
+        fill-opacity: 0.36;
       }
     }
 
@@ -6578,7 +6582,14 @@
     }
 
     .hex-cell.idle-unit-highlight .unit-icon {
-      filter: drop-shadow(0 0 4px rgba(94, 173, 255, 0.35));
+      filter:
+        brightness(1.16)
+        contrast(1.15)
+        saturate(1.18)
+        drop-shadow(0 0 1px rgba(6, 10, 18, 0.92))
+        drop-shadow(0 0 4px rgba(5, 8, 14, 0.65))
+        drop-shadow(0 0 5px var(--unit-faction-glow, rgba(255, 255, 255, 0.28)))
+        drop-shadow(0 0 4px rgba(94, 173, 255, 0.35));
     }
 
     .hex-tile.move-option-highlight,
@@ -6597,9 +6608,27 @@
       filter: drop-shadow(0 0 6px rgba(255, 87, 138, 0.3));
     }
 
-    /* Ally faction styling */
+    .unit-icon {
+      --unit-faction-glow: rgba(255, 255, 255, 0.28);
+      filter:
+        brightness(1.16)
+        contrast(1.15)
+        saturate(1.18)
+        drop-shadow(0 0 1px rgba(6, 10, 18, 0.92))
+        drop-shadow(0 0 4px rgba(5, 8, 14, 0.65))
+        drop-shadow(0 0 5px var(--unit-faction-glow));
+    }
+
+    .unit-icon.faction-player {
+      --unit-faction-glow: rgba(86, 191, 255, 0.62);
+    }
+
+    .unit-icon.faction-bot {
+      --unit-faction-glow: rgba(255, 126, 126, 0.58);
+    }
+
     .unit-icon.faction-ally {
-      filter: drop-shadow(0 0 4px rgba(82, 196, 26, 0.6));
+      --unit-faction-glow: rgba(130, 231, 92, 0.68);
     }
     .unit-stack--suppressed {
       filter: drop-shadow(0 0 6px rgba(255, 196, 109, 0.34));
@@ -6608,11 +6637,12 @@
       filter: drop-shadow(0 0 7px rgba(255, 112, 112, 0.38));
     }
 
-    .hex-tile.deployment-zone {
+    .hex-tile.deployment-zone,
+    .hex-cell.deployment-zone .hex-tile {
       animation: deployment-zone-pulse 2s ease-in-out infinite;
-      stroke-dasharray: 4 3;
-      stroke-width: 2.5;
-      filter: drop-shadow(0 0 6px rgba(255, 87, 138, 0.3));
+      stroke-dasharray: 8 5;
+      stroke-width: 3;
+      filter: drop-shadow(0 0 8px rgba(245, 202, 105, 0.55));
     }
 
     /* Campaign Map Editor Styles */

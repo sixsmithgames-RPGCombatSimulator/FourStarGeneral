@@ -494,14 +494,14 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
     preferredZoneKey: "zone-alpha",
     focusLabel: "training line",
     validation: {
-      minimumPlayerZoneCapacityTotal: 12,
+      minimumPlayerZoneCapacityTotal: 13,
       minimumPlayerZoneFrontage: 5,
       minimumPlayerZoneDepth: 4
     },
     zoneDoctrine: [
       {
         zoneKey: "zone-alpha",
-        minimumCapacity: 12,
+        minimumCapacity: 13,
         minimumFrontage: 5,
         minimumDepth: 4
       }

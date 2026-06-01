@@ -2949,6 +2949,7 @@ export class BattleScreen {
         this.clearSelectedHex();
         const deploymentZoneHexes = this.getPlayerDeploymentZoneHexes();
         this.hexMapRenderer?.setZoneHighlights(deploymentZoneHexes);
+        void this.centerCameraOnZone(deploymentZoneHexes).catch(() => {});
         const focusKey = deploymentZoneHexes.values().next().value as string | undefined;
         if (focusKey) {
           this.tutorialBaseCampFocusKey = focusKey;
@@ -3199,7 +3200,7 @@ export class BattleScreen {
             this.reportDeploymentPanelError({
               title: "Deployment failed.",
               detail: `${zoneName} is already at capacity.`,
-              action: "Choose a different open hex in a player deployment zone and try again.",
+              action: this.buildDeploymentCapacityAction(zoneName),
               recoverable: true
             });
             return;
@@ -7985,6 +7986,23 @@ export class BattleScreen {
   }
 
   /**
+   * Builds actionable deployment-capacity guidance that adapts to single-zone missions.
+   */
+  private buildDeploymentCapacityAction(zoneName: string): string {
+    const deploymentState = ensureDeploymentState();
+    const playerZones = deploymentState
+      .getZoneUsageSummaries()
+      .filter((zone) => zone.faction === "Player");
+    if (playerZones.length <= 1) {
+      return `${zoneName} is full. Recall a deployed formation or reduce allocations before placing more units.`;
+    }
+    const zoneSummary = playerZones
+      .map((zone) => `${zone.name ?? zone.zoneKey} ${zone.remaining}/${zone.capacity} open`)
+      .join("; ");
+    return `Choose an open hex in another player zone (${zoneSummary}).`;
+  }
+
+  /**
    * Handles assigning the base camp location.
    */
   private handleAssignBaseCamp(): void {
@@ -8026,7 +8044,7 @@ export class BattleScreen {
       this.reportDeploymentPanelError({
         title: "Base camp assignment failed.",
         detail: `Hex ${selectedHexKey} is outside the registered player deployment zones.${zoneSummary}`,
-        action: "Select a highlighted player deployment hex and try again.",
+        action: "Select a highlighted player deployment hex and try again. Tip: click Zone Alpha in the deployment list to center on legal hexes.",
         recoverable: true
       }, { mirrorToBaseCampStatus: true });
       return;
@@ -8599,10 +8617,20 @@ export class BattleScreen {
       }
 
       if (this.initiativeEndTurnSkipModeActive) {
+        this.publishActivityEvent({
+          category: "enemy",
+          type: "log",
+          summary: "Enemy activations are resolving. Stand by for movement and fire reports."
+        });
         this.showElegantInitiativeMessage("Remaining formations set to sentry. Enemy activations are resolving.");
         return;
       }
 
+      this.publishActivityEvent({
+        category: "enemy",
+        type: "log",
+        summary: "Enemy activations are resolving. Stand by for movement and fire reports."
+      });
       this.showElegantInitiativeMessage("Enemy activations are resolving. Wait for the current movement/combat sequence.");
     } catch (error) {
       console.error('Failed to end turn:', error);
@@ -9688,6 +9716,17 @@ export class BattleScreen {
         summary
       });
     });
+
+    if (!event.moved && event.attacks.length === 0) {
+      const holdSummary = eventVisibleBefore || eventVisibleAfter
+        ? `Enemy ${unitLabel} held position and reported no fire this activation.`
+        : "Enemy activation resolved with no observed movement or fire.";
+      this.publishActivityEvent({
+        category: "enemy",
+        type: "log",
+        summary: holdSummary
+      });
+    }
   }
 
   private resolveEnemyContactSnapshot(unitId: string): EnemyContactSnapshot | null {
@@ -10548,7 +10587,7 @@ export class BattleScreen {
         if (selection.zoneKey && selection.remainingCapacity !== null && selection.totalCapacity !== null) {
           this.baseCampStatus.textContent = `Selected hex: ${key} in ${selection.zoneLabel ?? "deployment zone"}.`;
         } else {
-          this.baseCampStatus.textContent = `Selected hex: ${key}. Outside the deployment area.`;
+          this.baseCampStatus.textContent = `Selected hex: ${key}. Outside player deployment zones. Use Zone Alpha from the deployment list to refocus on legal hexes.`;
         }
       }
       this.hexMapRenderer?.setZoneHighlights(zoneHexes);
