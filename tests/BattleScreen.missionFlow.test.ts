@@ -245,6 +245,70 @@ registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_IGNORES_DEFAULT_SELECTION", async 
   });
 });
 
+registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_REFOCUSES_ON_SELECTED_ZONE_HEX", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let focusedHex: string | null = null;
+
+  await Given("the base-camp tutorial is active in deployment with multiple valid Zone Alpha hexes", async () => {
+    mountBattleScreenRoot();
+    resetDeploymentState();
+    ensureDeploymentState().registerZones([
+      {
+        zoneKey: "zone-alpha",
+        capacity: 4,
+        hexKeys: ["14,2", "15,2", "14,1", "15,1"],
+        name: "Town Perimeter",
+        description: "Town deployment ring",
+        faction: "Player"
+      }
+    ]);
+
+    const fakeEngine = {
+      getTurnSummary() {
+        return { phase: "deployment", activeFaction: "Player", turnNumber: 1 };
+      }
+    } as any;
+
+    screen = new BattleScreen(
+      {} as any,
+      { ensureGameEngine: () => fakeEngine } as any,
+      {} as any,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      { selectedMission: "training" } as any
+    );
+
+    (screen as any).baseCampStatus = document.createElement("div");
+    (screen as any).focusTutorialHex = (hexKey: string) => {
+      focusedHex = hexKey;
+    };
+    (screen as any).tutorialBaseCampFocusKey = "14,2";
+
+    ensureTutorialState().startTutorial();
+    ensureTutorialState().jumpToPhase("base_camp");
+  });
+
+  await When("the commander selects another valid deployment hex in Zone Alpha", async () => {
+    (screen as any).updateSelectionFeedback("15,2");
+  });
+
+  await Then("tutorial camera focus is refreshed to that newly selected deployment hex", async () => {
+    if (focusedHex !== "15,2") {
+      throw new Error(`Expected base-camp tutorial focus to move to 15,2, received ${focusedHex ?? "<none>"}`);
+    }
+    if ((screen as any).tutorialBaseCampFocusKey !== "15,2") {
+      throw new Error(`Expected tutorial base-camp focus key to update to 15,2, received ${(screen as any).tutorialBaseCampFocusKey}`);
+    }
+    ensureTutorialState().endTutorial();
+    resetDeploymentState();
+  });
+});
+
 registerTest("BATTLESCREEN_DEFAULT_SELECTION_USES_PLAYER_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let defaultSelectionKey: string | null = null;

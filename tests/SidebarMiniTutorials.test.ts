@@ -5,7 +5,7 @@ import {
   SIDEBAR_MINI_TUTORIAL_EVENT,
   normalizeSidebarMiniTutorialKey
 } from "../src/data/sidebarMiniTutorials";
-import { getCombatPhases, getDeploymentPhases, getNextPhase } from "../src/data/tutorialSteps";
+import { getCombatPhases, getDeploymentPhases, getNextPhase, getTutorialStep } from "../src/data/tutorialSteps";
 import { ensureTutorialState } from "../src/state/TutorialState";
 import { TutorialOverlay } from "../src/ui/components/TutorialOverlay";
 
@@ -82,6 +82,13 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(combatPhases.includes("round_handoff"), "Combat tutorial should explain the initiative round handoff.");
     expect(!combatPhases.includes("air_missions"), "Air missions should not auto-open the Air sidebar during the main tutorial.");
     expect(!combatPhases.includes("logistics_intro"), "Logistics should not auto-open during the main tutorial.");
+    expect((getTutorialStep("base_camp")?.content.includes("Zone Alpha") ?? false), "Base-camp instructions should direct the player to Zone Alpha.");
+    expect(
+      getTutorialStep("place_units")?.highlightSelector === "#autoDeployEvenly, #autoDeployGrouped",
+      "Placement instructions should anchor near the deploy-mode buttons."
+    );
+    expect(getTutorialStep("place_units")?.position === "top", "Placement instructions should render above the deploy-mode controls.");
+    expect(getTutorialStep("place_units")?.arrowDirection === "down", "Placement instructions should point directly at the deploy-mode controls.");
   });
 });
 

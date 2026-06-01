@@ -369,9 +369,9 @@
     {
       "key": "zone-bravo",
       "label": "Zone Bravo",
-      "description": "Secondary push aimed at the inland highway and railyard.",
+      "description": "Enemy staging corridor guarding the inland highway and railyard.",
       "capacity": 16,
-      "faction": "Player",
+      "faction": "Bot",
       "hexes": [
         [12, 7],
         [13, 7],

@@ -286,6 +286,7 @@ export class BattleScreen {
   private deploymentPrimed = false;
   private panelEventsBound = false;
   private tutorialBaseCampSelectionCleared = false;
+  private tutorialBaseCampFocusKey: string | null = null;
   private tutorialActiveGroupSelectionCleared = false;
   private tutorialActiveGroupFocusKey: string | null = null;
   private tutorialMovementFocusKey: string | null = null;
@@ -2930,6 +2931,7 @@ export class BattleScreen {
 
     if (phase !== "base_camp") {
       this.tutorialBaseCampSelectionCleared = false;
+      this.tutorialBaseCampFocusKey = null;
     }
     if (phase !== "active_group_units") {
       this.tutorialActiveGroupSelectionCleared = false;
@@ -2949,6 +2951,7 @@ export class BattleScreen {
         this.hexMapRenderer?.setZoneHighlights(deploymentZoneHexes);
         const focusKey = deploymentZoneHexes.values().next().value as string | undefined;
         if (focusKey) {
+          this.tutorialBaseCampFocusKey = focusKey;
           this.focusTutorialHex(focusKey);
         }
       }
@@ -10532,6 +10535,13 @@ export class BattleScreen {
       const selection = this.resolvePlayerDeploymentSelection(key);
       const zoneHexes = selection.zoneKey ? selection.zoneHexes : this.getPlayerDeploymentZoneHexes();
       this.syncBaseCampAssignButton(phase, selection.zoneKey !== null);
+      const tutorialState = ensureTutorialState();
+      const baseCampTutorialActive =
+        tutorialState.isTutorialActive() && tutorialState.getCurrentPhase() === "base_camp";
+      if (baseCampTutorialActive && selection.zoneKey && this.tutorialBaseCampFocusKey !== key) {
+        this.tutorialBaseCampFocusKey = key;
+        this.focusTutorialHex(key);
+      }
 
       if (this.baseCampStatus) {
         this.baseCampStatus.setAttribute("aria-live", "polite");

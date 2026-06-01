@@ -494,7 +494,7 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
     preferredZoneKey: "zone-alpha",
     focusLabel: "training line",
     validation: {
-      minimumPlayerZoneCapacityTotal: 20,
+      minimumPlayerZoneCapacityTotal: 12,
       minimumPlayerZoneFrontage: 5,
       minimumPlayerZoneDepth: 4
     },
@@ -502,12 +502,6 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
       {
         zoneKey: "zone-alpha",
         minimumCapacity: 12,
-        minimumFrontage: 5,
-        minimumDepth: 4
-      },
-      {
-        zoneKey: "zone-bravo",
-        minimumCapacity: 16,
         minimumFrontage: 5,
         minimumDepth: 4
       }
@@ -891,7 +885,7 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
     preferredZoneKey: "zone-alpha",
     focusLabel: "forward line",
     validation: {
-      minimumPlayerZoneCapacityTotal: 20,
+      minimumPlayerZoneCapacityTotal: 12,
       minimumPlayerZoneFrontage: 5,
       minimumPlayerZoneDepth: 4
     },
@@ -899,12 +893,6 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
       {
         zoneKey: "zone-alpha",
         minimumCapacity: 12,
-        minimumFrontage: 5,
-        minimumDepth: 4
-      },
-      {
-        zoneKey: "zone-bravo",
-        minimumCapacity: 16,
         minimumFrontage: 5,
         minimumDepth: 4
       }

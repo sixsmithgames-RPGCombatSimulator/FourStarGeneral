@@ -175,7 +175,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "base_camp",
     title: "Establish Base Camp",
     content:
-      "Choose a highlighted deployment-zone hex on the map, then click Assign Base Camp. Keep headquarters behind the first line; reserves and convoys route through it.",
+      "Click a highlighted hex inside Zone Alpha, then click Assign Base Camp. Zone Alpha is your only deployment sector in this operation; Bravo is enemy ground.",
     highlightSelector: "#battleMapCanvas, #assignBaseCamp",
     position: "right",
     arrowDirection: "left",
@@ -186,10 +186,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "place_units",
     title: "Place The Line",
     content:
-      "Deploy the force. Evenly spreads units across legal hexes; Grouped keeps formations together. For full control, select a unit and click legal hexes one by one.",
-    highlightSelector: "#battleMapCanvas, #deploymentUnitList, #autoDeployEvenly, #autoDeployGrouped",
-    position: "right",
-    arrowDirection: "left",
+      "Choose a deployment mode. Deploy Evenly spreads across open hexes; Deploy Grouped packs formations into tighter stacks. For full control, deploy units one by one onto legal hexes.",
+    highlightSelector: "#autoDeployEvenly, #autoDeployGrouped",
+    position: "top",
+    arrowDirection: "down",
     waitForAction: true,
     actionLabel: "Continue"
   },
