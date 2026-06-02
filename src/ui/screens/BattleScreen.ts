@@ -286,10 +286,8 @@ export class BattleScreen {
   private deploymentPrimed = false;
   private panelEventsBound = false;
   private tutorialBaseCampSelectionCleared = false;
-  private tutorialBaseCampFocusKey: string | null = null;
+  private tutorialInitiativeGroupSelectionCleared = false;
   private tutorialActiveGroupSelectionCleared = false;
-  private tutorialActiveGroupFocusKey: string | null = null;
-  private tutorialMovementFocusKey: string | null = null;
   private battleUpdateUnsubscribe: (() => void) | null = null;
   private tutorialUpdateUnsubscribe: (() => void) | null = null;
   private missionRulesController: MissionRulesController | null = null;
@@ -2941,14 +2939,12 @@ export class BattleScreen {
 
     if (phase !== "base_camp") {
       this.tutorialBaseCampSelectionCleared = false;
-      this.tutorialBaseCampFocusKey = null;
+    }
+    if (phase !== "initiative_group") {
+      this.tutorialInitiativeGroupSelectionCleared = false;
     }
     if (phase !== "active_group_units") {
       this.tutorialActiveGroupSelectionCleared = false;
-      this.tutorialActiveGroupFocusKey = null;
-    }
-    if (phase !== "movement_intro") {
-      this.tutorialMovementFocusKey = null;
     }
 
     if (phase === "base_camp") {
@@ -2959,11 +2955,6 @@ export class BattleScreen {
         const deploymentZoneHexes = this.getPlayerDeploymentZoneHexes();
         this.hexMapRenderer?.setZoneHighlights(deploymentZoneHexes);
         void this.centerCameraOnZone(deploymentZoneHexes).catch(() => {});
-        const focusKey = deploymentZoneHexes.values().next().value as string | undefined;
-        if (focusKey) {
-          this.tutorialBaseCampFocusKey = focusKey;
-          this.focusTutorialHex(focusKey);
-        }
       }
       return;
     }
@@ -2971,10 +2962,10 @@ export class BattleScreen {
     if (phase === "initiative_group") {
       const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
       this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
-      const focusKey = activeGroupHexKeys.values().next().value as string | undefined;
-      if (focusKey && this.tutorialActiveGroupFocusKey !== focusKey) {
-        this.tutorialActiveGroupFocusKey = focusKey;
-        this.focusTutorialHex(focusKey);
+      if (!this.tutorialInitiativeGroupSelectionCleared) {
+        this.tutorialInitiativeGroupSelectionCleared = true;
+        this.clearSelectedHexAfterAction();
+        this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
       }
       return;
     }
@@ -2991,40 +2982,23 @@ export class BattleScreen {
         this.completeTutorialPhase("active_group_units");
         return;
       }
-      const focusKey = activeGroupHexKeys.values().next().value as string | undefined;
-      if (focusKey && this.tutorialActiveGroupFocusKey !== focusKey) {
-        this.tutorialActiveGroupFocusKey = focusKey;
-        this.focusTutorialHex(focusKey);
-      }
       return;
     }
 
     if (phase === "movement_intro") {
       if (this.selectedUnitIsManualPlayerUnit()) {
         this.hexMapRenderer?.setZoneHighlights(new Set());
-        if (this.selectedHexKey && this.tutorialMovementFocusKey !== this.selectedHexKey) {
-          this.tutorialMovementFocusKey = this.selectedHexKey;
-          this.focusTutorialHex(this.selectedHexKey);
-        }
         return;
       }
 
       const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
       const playerUnitHexKeys = activeGroupHexKeys.size > 0 ? activeGroupHexKeys : this.getManualPlayerUnitHexKeys();
       this.hexMapRenderer?.setZoneHighlights(playerUnitHexKeys);
-      const focusKey = playerUnitHexKeys.values().next().value as string | undefined;
-      if (focusKey && this.tutorialMovementFocusKey !== focusKey) {
-        this.tutorialMovementFocusKey = focusKey;
-        this.focusTutorialHex(focusKey);
-      }
       return;
     }
 
     if (phase === "attack_intro") {
       this.hexMapRenderer?.setZoneHighlights(new Set());
-      if (this.selectedHexKey && this.selectedUnitIsManualPlayerUnit()) {
-        this.focusTutorialHex(this.selectedHexKey);
-      }
       return;
     }
 
@@ -3032,12 +3006,6 @@ export class BattleScreen {
       const activeSmokeHexKeys = this.getSmokeCapableUnitHexKeys(true);
       if (activeSmokeHexKeys.size > 0) {
         this.hexMapRenderer?.setZoneHighlights(activeSmokeHexKeys);
-        if (!this.selectedUnitCanLaySmoke()) {
-          const focusKey = activeSmokeHexKeys.values().next().value as string | undefined;
-          if (focusKey) {
-            this.focusTutorialHex(focusKey);
-          }
-        }
       } else {
         this.hexMapRenderer?.setZoneHighlights(new Set());
       }
@@ -3054,6 +3022,36 @@ export class BattleScreen {
         this.completeTutorialPhase("air_missions");
       }
     }
+  }
+
+  private shouldAllowTutorialHexCameraFocus(phase: TutorialPhase): boolean {
+    return phase === "base_camp";
+  }
+
+  private shouldDeferTutorialInitiativeAutoFocus(): boolean {
+    const progress = ensureTutorialState().getProgress();
+    return progress.isActive && (
+      progress.currentPhase === "begin_battle" ||
+      progress.currentPhase === "initiative_order" ||
+      progress.currentPhase === "initiative_group" ||
+      progress.currentPhase === "active_group_units"
+    );
+  }
+
+  private queueTutorialCombatOverviewCamera(): void {
+    const focusHexes = this.getManualPlayerUnitHexKeys();
+    if (focusHexes.size === 0) {
+      return;
+    }
+
+    const centerOverview = () => {
+      void this.centerCameraOnZone(focusHexes).catch((error) => {
+        console.warn("[BattleScreen] Failed to center tutorial combat overview", error);
+      });
+    };
+
+    window.setTimeout(centerOverview, 0);
+    window.setTimeout(centerOverview, 160);
   }
 
   private selectedUnitCanLaySmoke(): boolean {
@@ -3160,34 +3158,6 @@ export class BattleScreen {
       keys.add(CoordinateSystem.makeHexKey(offset.col, offset.row));
     });
     return keys;
-  }
-
-  private focusTutorialHex(hexKey: string): void {
-    this.bringTutorialHexIntoView(hexKey);
-    this.hexMapRenderer?.focusOnHex(hexKey, { behavior: "auto", padding: 80 });
-    window.setTimeout(() => this.bringTutorialHexIntoView(hexKey), 0);
-    window.setTimeout(() => this.bringTutorialHexIntoView(hexKey), 120);
-    void this.focusCameraOnHex(hexKey).then(
-      () => this.bringTutorialHexIntoView(hexKey),
-      () => this.bringTutorialHexIntoView(hexKey)
-    );
-  }
-
-  private bringTutorialHexIntoView(hexKey: string): void {
-    const cell = this.hexMapRenderer?.getHexElement(hexKey);
-    if (!cell) {
-      return;
-    }
-    const viewport = document.querySelector<HTMLElement>(".map-viewport");
-    if (viewport && viewport.scrollHeight > viewport.clientHeight) {
-      const cellRect = cell.getBoundingClientRect();
-      const viewportRect = viewport.getBoundingClientRect();
-      const cellCenterY = viewport.scrollTop + cellRect.top - viewportRect.top + cellRect.height / 2;
-      const maxTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-      viewport.scrollTop = Math.max(0, Math.min(maxTop, cellCenterY - viewport.clientHeight / 2));
-      return;
-    }
-    cell.scrollIntoView({ behavior: "auto", block: "center", inline: "center" });
   }
 
   /**
@@ -3410,6 +3380,15 @@ export class BattleScreen {
         }
 
         if (hexKey) {
+          const tutorialPhase = ensureTutorialState().getCurrentPhase();
+          if (!this.shouldAllowTutorialHexCameraFocus(tutorialPhase)) {
+            console.log("[BattleScreen][tutorial:focusHex] preserving combat tutorial camera", {
+              hexKey,
+              tutorialPhase
+            });
+            return;
+          }
+
           // Safe programmatic pan via the established battle canvas methods.
           this.focusCameraOnHex(hexKey);
         } else {
@@ -7105,6 +7084,8 @@ export class BattleScreen {
    */
   private handleBeginBattle(): void {
     try {
+      const shouldStageTutorialCombatOverview = this.shouldDeferTutorialInitiativeAutoFocus();
+
       // Lock reserves directly from the commander-approved allocations to avoid stale mirrors.
       const engine = this.prepareBattleState(true);
 
@@ -7147,6 +7128,12 @@ export class BattleScreen {
       });
       this.collapseDeploymentPanelForBattlePhase();
       this.renderEngineUnits();
+
+      if (shouldStageTutorialCombatOverview) {
+        this.clearSelectedHexAfterAction();
+        this.hexMapRenderer?.setZoneHighlights(this.getActivePlayerInitiativeGroupHexKeys());
+        this.queueTutorialCombatOverviewCamera();
+      }
 
       // Update UI to show mission has started
       setMissionStartedUI(true);
@@ -9457,6 +9444,10 @@ export class BattleScreen {
   }
 
   private focusCurrentInitiativeActivation(): void {
+    if (this.shouldDeferTutorialInitiativeAutoFocus()) {
+      return;
+    }
+
     if (!this.initiativeMethods) {
       return;
     }
@@ -9504,6 +9495,10 @@ export class BattleScreen {
 
     const candidates = this.resolveSelectablePlayerInitiativeActivations(activeGroup);
     if (candidates.length === 0) {
+      return;
+    }
+
+    if (this.shouldDeferTutorialInitiativeAutoFocus()) {
       return;
     }
 
@@ -10599,13 +10594,6 @@ export class BattleScreen {
       const selection = this.resolvePlayerDeploymentSelection(key);
       const zoneHexes = selection.zoneKey ? selection.zoneHexes : this.getPlayerDeploymentZoneHexes();
       this.syncBaseCampAssignButton(phase, selection.zoneKey !== null);
-      const tutorialState = ensureTutorialState();
-      const baseCampTutorialActive =
-        tutorialState.isTutorialActive() && tutorialState.getCurrentPhase() === "base_camp";
-      if (baseCampTutorialActive && selection.zoneKey && this.tutorialBaseCampFocusKey !== key) {
-        this.tutorialBaseCampFocusKey = key;
-        this.focusTutorialHex(key);
-      }
 
       if (this.baseCampStatus) {
         this.baseCampStatus.setAttribute("aria-live", "polite");
