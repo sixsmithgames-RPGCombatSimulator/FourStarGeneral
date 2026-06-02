@@ -126,9 +126,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "review_allocation",
     title: "Final Check",
     content:
-      "Check your force, then deploy. You are ready to move to the field.",
+      "Check your force, then click Begin Battle to move to the field.",
     highlightSelector: "#resetAllocations, #proceedToBattle",
     position: "center",
+    waitForAction: true,
     actionLabel: "Deploy to Field"
   },
   {
@@ -165,7 +166,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "deployment_intro",
     title: "Deployment Plan",
     content:
-      "Set base camp first. Deploy Evenly spreads units out. Deploy Grouped places units in tighter stacks.",
+      "Set base camp first. Deploy Evenly spreads units across open hexes. Deploy Grouped keeps them closer together.",
     highlightSelector: "#assignBaseCamp, #autoDeployEvenly, #autoDeployGrouped",
     position: "left",
     arrowDirection: "right",
@@ -175,7 +176,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "base_camp",
     title: "Establish Base Camp",
     content:
-      "Click Zone Alpha in the deployment list to center the camera. Pick a highlighted hex, then click Assign Base Camp. Zone Alpha is your only deployment sector; Bravo is enemy ground.",
+      "Click Zone Alpha in the deployment list to center the camera. Pick one highlighted hex, then click Assign Base Camp.",
     highlightSelector: "#battleMapCanvas, #assignBaseCamp",
     position: "right",
     arrowDirection: "left",
@@ -206,30 +207,30 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "initiative_order",
-    title: "Initiative Order",
+    title: "Initiative Status",
     content:
-      "Initiative decides who acts first. Units with higher initiative act before slower units. Air missions are managed from the Air board.",
-    highlightSelector: ".initiative-turn-controls-container [data-initiative-status], .battle-map-header__phase",
+      "Read the status line at the top. Higher initiative numbers act first. When it says Your group, the highlighted friendly units are waiting for orders.",
+    highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status]",
     position: "bottom",
     arrowDirection: "up",
-    actionLabel: "Read The Clock"
+    actionLabel: "Continue"
   },
   {
     phase: "initiative_group",
     title: "Active Group",
     content:
-      "Highlighted units are the active initiative group. Give orders to these units before the next group takes its turn.",
-    highlightSelector: "#battleMapCanvas",
+      "These highlighted formations act now. Enemy formations and slower friendly units wait until their initiative comes up.",
+    highlightSelector: "#battleMapCanvas .hex-cell.initiative-group-highlight, #battleMapCanvas .hex-tile.initiative-group-highlight",
     position: "right",
     arrowDirection: "left",
-    actionLabel: "Hold Tempo"
+    actionLabel: "Continue"
   },
   {
     phase: "active_group_units",
     title: "Choose A Formation",
     content:
-      "Select a highlighted friendly unit. Only highlighted units can act right now.",
-    highlightSelector: "#battleMapCanvas",
+      "Click a highlighted friendly formation. Its unit card will show movement, fire, and field orders.",
+    highlightSelector: "#battleMapCanvas .hex-cell.initiative-group-highlight, #battleMapCanvas .hex-tile.initiative-group-highlight",
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
@@ -239,8 +240,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "movement_intro",
     title: "Movement",
     content:
-      "Blue hexes show where the unit can move this turn. Terrain, fuel, and suppression can reduce movement.",
-    highlightSelector: "#battleMapCanvas",
+      "Blue hexes show legal moves for the selected formation. Click one to move, or continue if you want it to hold position.",
+    highlightSelector: "#battleMapCanvas .hex-cell.move-option-highlight, #battleMapCanvas .hex-tile.move-option-highlight",
     position: "right",
     arrowDirection: "left",
     actionLabel: "Continue"
@@ -249,8 +250,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "attack_intro",
     title: "Fire Orders",
     content:
-      "Red hexes are valid targets. Check the fire preview before you attack.",
-    highlightSelector: "#battleMapCanvas",
+      "If enemies are in range, red hexes appear on the map. Click one to preview the shot before you fire. If none appear, this formation has no shot from here.",
+    highlightSelector: "#battleIntelOverlay",
     position: "right",
     arrowDirection: "left",
     actionLabel: "Continue"
@@ -259,7 +260,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "intel_overlay_expand",
     title: "Unit Intel",
     content:
-      "This unit card shows readiness, ammo, fuel, and special orders. Expand it now.",
+      "The unit card shows readiness, ammo, fuel, and orders. Click Expand to see the full command list.",
     highlightSelector: "#battleIntelOverlay, #battleIntelOverlayToggle",
     position: "right",
     arrowDirection: "left",
@@ -270,17 +271,17 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "smoke_demo",
     title: "Smoke Orders",
     content:
-      "Not every unit can lay smoke. Select infantry or engineers, expand the unit card, then use Lay Smoke.",
-    highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke']",
+      "Smoke orders live on the expanded unit card. They appear only for formations that carry smoke, usually infantry or engineers. Use smoke to block sight before a move or cover a damaged unit.",
+    highlightSelector: "#battleIntelOverlay",
     position: "right",
     arrowDirection: "left",
     actionLabel: "Continue"
   },
   {
     phase: "spend_activation",
-    title: "Spend The Activation",
+    title: "Finish This Formation",
     content:
-      "Set the active recon unit to Sentry. This ends its action and passes play to the next unit.",
+      "Use Sentry when this formation is done. It holds position and stays ready to return fire.",
     highlightSelector: "#battleIntelOverlay [data-selection-action='enterSentry']",
     position: "right",
     arrowDirection: "left",
@@ -289,10 +290,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "enemy_activation",
-    title: "Enemy Tempo",
+    title: "Enemy Action",
     content:
-      "When enemy units are next in initiative order, they act automatically. Watch the status line and activity log.",
-    highlightSelector: ".initiative-turn-controls-container [data-initiative-status], #battleMapCanvas",
+      "When the enemy is next, their orders resolve automatically. Watch the map and Activity Log for movement, fire, or no-contact reports.",
+    highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status], .battle-activity-log",
     position: "bottom",
     arrowDirection: "up",
     actionLabel: "Continue"
@@ -301,18 +302,18 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "next_unit",
     title: "Cycle The Group",
     content:
-      "Use Next Unit to cycle friendly units in the active group before committing an order.",
-    highlightSelector: ".initiative-turn-controls-container .next-activation-btn",
+      "Use Next Unit to jump between friendly formations that can still act in the current initiative group.",
+    highlightSelector: ".enhanced-initiative-turn-controls .next-activation-btn, .initiative-turn-controls-container .next-activation-btn, .next-activation-btn",
     position: "bottom",
     arrowDirection: "up",
     actionLabel: "Continue"
   },
   {
     phase: "skip_group",
-    title: "Skip With Intent",
+    title: "Skip Group",
     content:
-      "Skip Group sets the remaining friendly units in this group to sentry.",
-    highlightSelector: ".initiative-turn-controls-container .skip-group-btn",
+      "Skip Group sets the remaining friendly formations in this initiative group to Sentry. Use it when the group is already in good position.",
+    highlightSelector: ".enhanced-initiative-turn-controls .skip-group-btn, .initiative-turn-controls-container .skip-group-btn, .skip-group-btn",
     position: "bottom",
     arrowDirection: "up",
     actionLabel: "Continue"
@@ -321,7 +322,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "engineer_intro",
     title: "Engineers",
     content:
-      "Engineers can dig in, fortify edges, lay obstacles, and clear routes.",
+      "Engineers build the hard points: trenches, fortified edges, obstacles, and cleared routes.",
     highlightSelector: "#battleIntelOverlay",
     position: "right",
     arrowDirection: "left",
@@ -331,7 +332,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "engineer_orders",
     title: "Engineer Work",
     content:
-      "Engineer actions are on the expanded unit card. Use them to shape the battlefield before the enemy closes.",
+      "Engineer orders live on the expanded unit card. Build before the enemy closes; field work takes time.",
     highlightSelector: "#battleIntelOverlay",
     position: "left",
     arrowDirection: "right",
@@ -341,7 +342,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "artillery_intro",
     title: "Artillery",
     content:
-      "Spot with infantry or recon before calling artillery. Observed targets are hit more reliably.",
+      "Artillery is strongest when infantry or recon can see the target. Observed fire lands more reliably.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
@@ -351,7 +352,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "flak_intro",
     title: "Flak Coverage",
     content:
-      "Flak fires at enemy aircraft automatically. Keep flak near base camp, guns, and road approaches.",
+      "Flak fires at enemy aircraft automatically. Keep it near base camp, guns, and key roads.",
     highlightSelector: "#battleMapCanvas",
     position: "right",
     arrowDirection: "left",
@@ -359,29 +360,29 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "round_handoff",
-    title: "Round Handoff",
+    title: "End The Turn",
     content:
-      "Use End Turn when your current orders are complete and you are ready to hand off.",
-    highlightSelector: ".initiative-turn-controls-container .end-turn-btn",
+      "Use End Turn after your formations have moved, fired, or taken Sentry positions.",
+    highlightSelector: ".enhanced-initiative-turn-controls .end-turn-btn, .initiative-turn-controls-container .end-turn-btn, .end-turn-btn",
     position: "bottom",
     arrowDirection: "up",
     actionLabel: "Continue"
   },
   {
     phase: "turn_end",
-    title: "Command Loop",
+    title: "Battle Routine",
     content:
-      "Battle routine: check initiative, command active units, watch enemy actions, then end turn when your line is set.",
-    highlightSelector: ".initiative-turn-controls-container, #battleMapCanvas",
+      "Each turn follows the same routine: check whose initiative is active, order the highlighted formations, watch enemy action, then end the turn.",
+    highlightSelector: ".enhanced-initiative-turn-controls, .initiative-turn-controls-container",
     position: "left",
     arrowDirection: "right",
-    actionLabel: "Command On"
+    actionLabel: "Finish"
   },
   {
     phase: "complete",
-    title: "Command Certified",
+    title: "Ready For Battle",
     content:
-      "You are ready: requisition, deploy, fight, and resupply. Hold the objective and keep your force supplied.",
+      "You are ready: requisition the force, deploy the line, give orders by initiative, and keep the objective supplied.",
     position: "center",
     actionLabel: "Dismiss"
   }

@@ -7111,8 +7111,98 @@
       padding: 0 1.1rem 1rem;
     }
 
+    .tutorial-panel:is(
+      .tutorial-phase-initiative_order,
+      .tutorial-phase-initiative_group,
+      .tutorial-phase-active_group_units,
+      .tutorial-phase-enemy_activation,
+      .tutorial-phase-next_unit,
+      .tutorial-phase-skip_group,
+      .tutorial-phase-spend_activation,
+      .tutorial-phase-round_handoff,
+      .tutorial-phase-turn_end
+    ) {
+      width: 340px;
+      border-radius: 16px;
+    }
+
+    .tutorial-panel:is(
+      .tutorial-phase-initiative_order,
+      .tutorial-phase-initiative_group,
+      .tutorial-phase-active_group_units,
+      .tutorial-phase-enemy_activation,
+      .tutorial-phase-next_unit,
+      .tutorial-phase-skip_group,
+      .tutorial-phase-spend_activation,
+      .tutorial-phase-round_handoff,
+      .tutorial-phase-turn_end
+    ) .tutorial-panel-header {
+      padding: 0.75rem 1rem;
+      border-radius: 16px 16px 0 0;
+    }
+
+    .tutorial-panel:is(
+      .tutorial-phase-initiative_order,
+      .tutorial-phase-initiative_group,
+      .tutorial-phase-active_group_units,
+      .tutorial-phase-enemy_activation,
+      .tutorial-phase-next_unit,
+      .tutorial-phase-skip_group,
+      .tutorial-phase-spend_activation,
+      .tutorial-phase-round_handoff,
+      .tutorial-phase-turn_end
+    ) .tutorial-panel-content {
+      padding: 1rem 1.1rem 0.9rem;
+    }
+
+    .tutorial-panel:is(
+      .tutorial-phase-initiative_order,
+      .tutorial-phase-initiative_group,
+      .tutorial-phase-active_group_units,
+      .tutorial-phase-enemy_activation,
+      .tutorial-phase-next_unit,
+      .tutorial-phase-skip_group,
+      .tutorial-phase-spend_activation,
+      .tutorial-phase-round_handoff,
+      .tutorial-phase-turn_end
+    ) .tutorial-title {
+      font-size: 1.08rem;
+      margin-bottom: 0.45rem;
+    }
+
+    .tutorial-panel:is(
+      .tutorial-phase-initiative_order,
+      .tutorial-phase-initiative_group,
+      .tutorial-phase-active_group_units,
+      .tutorial-phase-enemy_activation,
+      .tutorial-phase-next_unit,
+      .tutorial-phase-skip_group,
+      .tutorial-phase-spend_activation,
+      .tutorial-phase-round_handoff,
+      .tutorial-phase-turn_end
+    ) .tutorial-description {
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+
+    .tutorial-panel:is(
+      .tutorial-phase-initiative_order,
+      .tutorial-phase-initiative_group,
+      .tutorial-phase-active_group_units,
+      .tutorial-phase-enemy_activation,
+      .tutorial-phase-next_unit,
+      .tutorial-phase-skip_group,
+      .tutorial-phase-spend_activation,
+      .tutorial-phase-round_handoff,
+      .tutorial-phase-turn_end
+    ) .tutorial-panel-footer {
+      padding: 0 1.1rem 1rem;
+    }
+
     @media (min-width: 769px) {
       .tutorial-panel.tutorial-phase-base_camp,
+      .tutorial-panel.tutorial-phase-initiative_group,
+      .tutorial-panel.tutorial-phase-active_group_units,
       .tutorial-panel.tutorial-phase-movement_intro,
       .tutorial-panel.tutorial-phase-attack_intro,
       .tutorial-panel.tutorial-phase-select_smoke_unit,
@@ -7129,7 +7219,13 @@
       }
 
       .tutorial-panel.tutorial-phase-intel_overlay_expand,
-      .tutorial-panel.tutorial-phase-smoke_demo {
+      .tutorial-panel.tutorial-phase-smoke_demo,
+      .tutorial-panel.tutorial-phase-spend_activation,
+      .tutorial-panel.tutorial-phase-enemy_activation,
+      .tutorial-panel.tutorial-phase-next_unit,
+      .tutorial-panel.tutorial-phase-skip_group,
+      .tutorial-panel.tutorial-phase-round_handoff,
+      .tutorial-panel.tutorial-phase-turn_end {
         left: auto !important;
         right: 20px !important;
         top: auto !important;
@@ -7141,10 +7237,12 @@
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-active_group_units .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-spend_activation .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-panel-footer {
@@ -7153,11 +7251,19 @@
 
       .tutorial-panel.tutorial-phase-base_camp .tutorial-arrow,
       .tutorial-panel.tutorial-phase-place_units .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-initiative_group .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-active_group_units .tutorial-arrow,
       .tutorial-panel.tutorial-phase-movement_intro .tutorial-arrow,
       .tutorial-panel.tutorial-phase-attack_intro .tutorial-arrow,
       .tutorial-panel.tutorial-phase-select_smoke_unit .tutorial-arrow,
       .tutorial-panel.tutorial-phase-intel_overlay_expand .tutorial-arrow,
       .tutorial-panel.tutorial-phase-smoke_demo .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-spend_activation .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-enemy_activation .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-next_unit .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-skip_group .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-round_handoff .tutorial-arrow,
+      .tutorial-panel.tutorial-phase-turn_end .tutorial-arrow,
       .tutorial-panel.tutorial-phase-engineer_intro .tutorial-arrow,
       .tutorial-panel.tutorial-phase-artillery_intro .tutorial-arrow,
       .tutorial-panel.tutorial-phase-flak_intro .tutorial-arrow {
@@ -7179,10 +7285,12 @@
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-active_group_units,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-spend_activation,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro {
@@ -7195,10 +7303,12 @@
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-panel-header,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-header,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-active_group_units .tutorial-panel-header,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-panel-header,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-panel-header,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-panel-header,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-panel-header,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-spend_activation .tutorial-panel-header,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-panel-header,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-panel-header,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-panel-header {
@@ -7208,10 +7318,12 @@
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-step-indicator,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-step-indicator,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-active_group_units .tutorial-step-indicator,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-step-indicator,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-step-indicator,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-step-indicator,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-step-indicator,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-spend_activation .tutorial-step-indicator,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-step-indicator,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-step-indicator,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-step-indicator {
@@ -7223,6 +7335,8 @@
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-skip-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-back-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-skip-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-active_group_units .tutorial-back-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-active_group_units .tutorial-skip-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-back-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-skip-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-back-btn,
@@ -7231,6 +7345,8 @@
       .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-skip-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-back-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-skip-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-spend_activation .tutorial-back-btn,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-spend_activation .tutorial-skip-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-back-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-skip-btn,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-back-btn,
@@ -7244,10 +7360,12 @@
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-panel-content,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-content,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-active_group_units .tutorial-panel-content,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-panel-content,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-panel-content,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-panel-content,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-panel-content,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-spend_activation .tutorial-panel-content,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-panel-content,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-panel-content,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-panel-content {
@@ -7258,10 +7376,12 @@
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-title,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-title,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-active_group_units .tutorial-title,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-title,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-title,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-title,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-title,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-spend_activation .tutorial-title,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-title,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-title,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-title {
@@ -7272,10 +7392,12 @@
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-description,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-description,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-active_group_units .tutorial-description,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-description,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-description,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-description,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-description,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-spend_activation .tutorial-description,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-description,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-description,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-description {
@@ -7285,10 +7407,12 @@
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-active_group_units .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-movement_intro .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-select_smoke_unit .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-intel_overlay_expand .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-smoke_demo .tutorial-panel-footer,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-spend_activation .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-engineer_intro .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-panel-footer,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-panel-footer {

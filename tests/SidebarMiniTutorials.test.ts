@@ -147,14 +147,14 @@ registerTest("TUTORIAL_FINAL_CERTIFICATION_RENDERS_BEFORE_DISMISSAL", async ({ G
 
   await When("the player confirms the command loop", async () => {
     const actionButton = document.querySelector<HTMLButtonElement>(".tutorial-action-btn");
-    expect(actionButton?.textContent === "Command On", "Expected Command On action on the command loop step.");
+    expect(actionButton?.textContent === "Finish", "Expected Finish action on the battle routine step.");
     actionButton?.click();
   });
 
   await Then("the certification step is rendered and then dismisses the tutorial", async () => {
     const actionButton = document.querySelector<HTMLButtonElement>(".tutorial-action-btn");
     const title = document.querySelector<HTMLElement>(".tutorial-title")?.textContent ?? "";
-    expect(title === "Command Certified", "Expected final certification title to render.");
+    expect(title === "Ready For Battle", "Expected final tutorial title to render.");
     expect(actionButton?.textContent === "Dismiss", "Expected Dismiss action on final certification.");
     expect(tutorialState.getProgress().isActive, "Tutorial should remain active while final certification is visible.");
 
