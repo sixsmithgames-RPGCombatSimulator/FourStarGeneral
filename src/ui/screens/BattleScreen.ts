@@ -127,6 +127,13 @@ import {
 type ActivityCategory = "player" | "enemy" | "system";
 type ActivityType = "attack" | "move" | "deployment" | "supply" | "turn" | "log";
 
+const TUTORIAL_DEPLOYMENT_CAMERA_ZOOM = 1.9;
+const TUTORIAL_GROUP_CAMERA_ZOOM = 3.0;
+const TUTORIAL_ORDER_CAMERA_ZOOM = 2.85;
+const TUTORIAL_MOVEMENT_CAMERA_ZOOM = 2.65;
+const TUTORIAL_ATTACK_CAMERA_ZOOM = 2.75;
+const TUTORIAL_OVERVIEW_CAMERA_ZOOM = 2.55;
+
 /**
  * Represents a battle log line destined for the sidebar activity feed so commanders can review past actions.
  */
@@ -242,6 +249,12 @@ type ActivityEventInput = {
   readonly detailSections?: readonly ActivityDetailSection[];
 };
 
+type TutorialUnitTarget = {
+  readonly unit: ScenarioUnit;
+  readonly commandState: UnitCommandState | null;
+  readonly hexKey: string;
+};
+
 type QueuedTargetMarkerAction =
   | {
       readonly type: "artillery";
@@ -288,6 +301,9 @@ export class BattleScreen {
   private tutorialBaseCampSelectionCleared = false;
   private tutorialInitiativeGroupSelectionCleared = false;
   private tutorialActiveGroupSelectionCleared = false;
+  private tutorialCameraSyncKey: string | null = null;
+  private tutorialLastSyncedPhase: TutorialPhase | null = null;
+  private tutorialSelectionSyncInProgress = false;
   private battleUpdateUnsubscribe: (() => void) | null = null;
   private tutorialUpdateUnsubscribe: (() => void) | null = null;
   private missionRulesController: MissionRulesController | null = null;
@@ -2920,18 +2936,34 @@ export class BattleScreen {
   }
 
   private syncTutorialPhaseWithCurrentContext(phase: TutorialPhase): void {
+    if (this.tutorialSelectionSyncInProgress) {
+      return;
+    }
+
     const tutorialState = ensureTutorialState();
     const progress = tutorialState.getProgress();
     const contextSensitivePhases = new Set<TutorialPhase>([
+      "place_units",
+      "initiative_order",
       "initiative_group",
       "active_group_units",
       "movement_intro",
       "attack_intro",
       "intel_overlay_expand",
-      "smoke_demo"
+      "smoke_demo",
+      "spend_activation",
+      "engineer_intro",
+      "engineer_orders",
+      "artillery_intro",
+      "flak_intro",
+      "round_handoff"
     ]);
     if (!progress.isActive || progress.currentPhase !== phase) {
       return;
+    }
+    if (this.tutorialLastSyncedPhase !== phase) {
+      this.tutorialLastSyncedPhase = phase;
+      this.tutorialCameraSyncKey = null;
     }
     if (progress.canProceed && !contextSensitivePhases.has(phase)) {
       return;
@@ -2954,8 +2986,23 @@ export class BattleScreen {
         this.clearSelectedHex();
         const deploymentZoneHexes = this.getPlayerDeploymentZoneHexes();
         this.hexMapRenderer?.setZoneHighlights(deploymentZoneHexes);
-        void this.centerCameraOnZone(deploymentZoneHexes).catch(() => {});
+        this.queueTutorialCameraForPhase(phase, deploymentZoneHexes, TUTORIAL_DEPLOYMENT_CAMERA_ZOOM);
       }
+      return;
+    }
+
+    if (phase === "place_units") {
+      const deploymentZoneHexes = this.getPlayerDeploymentZoneHexes();
+      this.hexMapRenderer?.setZoneHighlights(deploymentZoneHexes);
+      this.queueTutorialCameraForPhase(phase, deploymentZoneHexes, TUTORIAL_DEPLOYMENT_CAMERA_ZOOM);
+      return;
+    }
+
+    if (phase === "initiative_order") {
+      const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
+      const focusHexKeys = activeGroupHexKeys.size > 0 ? activeGroupHexKeys : this.getManualPlayerUnitHexKeys();
+      this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
+      this.queueTutorialCameraForPhase(phase, focusHexKeys, TUTORIAL_GROUP_CAMERA_ZOOM);
       return;
     }
 
@@ -2967,6 +3014,7 @@ export class BattleScreen {
         this.clearSelectedHexAfterAction();
         this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
       }
+      this.queueTutorialCameraForPhase(phase, activeGroupHexKeys, TUTORIAL_GROUP_CAMERA_ZOOM);
       return;
     }
 
@@ -2982,36 +3030,112 @@ export class BattleScreen {
         this.completeTutorialPhase("active_group_units");
         return;
       }
+      this.queueTutorialCameraForPhase(phase, activeGroupHexKeys, TUTORIAL_GROUP_CAMERA_ZOOM);
       return;
     }
 
     if (phase === "movement_intro") {
-      if (this.selectedUnitIsManualPlayerUnit()) {
-        this.hexMapRenderer?.setZoneHighlights(new Set());
-        return;
+      if (!this.selectedUnitIsManualPlayerUnit()) {
+        this.selectFirstTutorialUnitTarget(phase, (_unit, commandState) => commandState?.isAutomated !== true, {
+          activeGroupOnly: true
+        });
       }
 
-      const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
-      const playerUnitHexKeys = activeGroupHexKeys.size > 0 ? activeGroupHexKeys : this.getManualPlayerUnitHexKeys();
-      this.hexMapRenderer?.setZoneHighlights(playerUnitHexKeys);
+      this.hexMapRenderer?.setZoneHighlights(new Set());
+      this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(this.playerMoveHexes), TUTORIAL_MOVEMENT_CAMERA_ZOOM);
       return;
     }
 
     if (phase === "attack_intro") {
+      if (!this.selectedUnitIsManualPlayerUnit()) {
+        this.selectFirstTutorialUnitTarget(phase, (_unit, commandState) => commandState?.isAutomated !== true, {
+          activeGroupOnly: true
+        });
+      }
       this.hexMapRenderer?.setZoneHighlights(new Set());
+      this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(this.playerAttackHexes), TUTORIAL_ATTACK_CAMERA_ZOOM);
       return;
     }
 
     if (phase === "intel_overlay_expand") {
-      const activeSmokeHexKeys = this.getSmokeCapableUnitHexKeys(true);
-      if (activeSmokeHexKeys.size > 0) {
-        this.hexMapRenderer?.setZoneHighlights(activeSmokeHexKeys);
-      } else {
-        this.hexMapRenderer?.setZoneHighlights(new Set());
+      if (!this.selectedUnitIsManualPlayerUnit()) {
+        this.selectFirstTutorialUnitTarget(phase, (_unit, commandState) => commandState?.isAutomated !== true, {
+          activeGroupOnly: true
+        });
       }
+      this.hexMapRenderer?.setZoneHighlights(this.selectedHexKey ? new Set([this.selectedHexKey]) : new Set());
+      this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(), TUTORIAL_ORDER_CAMERA_ZOOM);
       if (this.isBattleIntelOverlayExpanded()) {
         this.completeTutorialPhase("intel_overlay_expand");
       }
+      return;
+    }
+
+    if (phase === "smoke_demo") {
+      const smokeTarget =
+        this.selectFirstTutorialUnitTarget(phase, (_unit, commandState) => commandState?.isAutomated !== true && commandState?.isSmokeCapable === true, {
+          activeGroupOnly: true,
+          expandIntel: true
+        }) ??
+        this.selectFirstTutorialUnitTarget(phase, (_unit, commandState) => commandState?.isAutomated !== true && commandState?.isSmokeCapable === true, {
+          expandIntel: true
+        });
+      this.hexMapRenderer?.setZoneHighlights(smokeTarget ? new Set([smokeTarget.hexKey]) : new Set());
+      this.queueTutorialCameraForPhase(phase, smokeTarget ? [smokeTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
+      return;
+    }
+
+    if (phase === "spend_activation") {
+      const sentryTarget = this.selectFirstTutorialUnitTarget(
+        phase,
+        (_unit, commandState) => commandState?.isAutomated !== true,
+        { activeGroupOnly: true, expandIntel: true }
+      );
+      this.hexMapRenderer?.setZoneHighlights(sentryTarget ? new Set([sentryTarget.hexKey]) : new Set());
+      this.queueTutorialCameraForPhase(phase, sentryTarget ? [sentryTarget.hexKey] : this.getSelectedTutorialFocusHexes(), TUTORIAL_ORDER_CAMERA_ZOOM);
+      return;
+    }
+
+    if (phase === "engineer_intro" || phase === "engineer_orders") {
+      const engineerTarget = this.selectFirstTutorialUnitTarget(
+        phase,
+        (unit, commandState) => commandState?.isAutomated !== true && this.isEngineerBattleUnit(unit),
+        { expandIntel: phase === "engineer_orders" }
+      );
+      this.hexMapRenderer?.setZoneHighlights(engineerTarget ? new Set([engineerTarget.hexKey]) : new Set());
+      this.queueTutorialCameraForPhase(phase, engineerTarget ? [engineerTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
+      return;
+    }
+
+    if (phase === "artillery_intro") {
+      const artilleryTarget = this.selectFirstTutorialUnitTarget(
+        phase,
+        (unit, commandState) => commandState?.isAutomated !== true && this.canUnitObserveArtillery(unit),
+        { expandIntel: true }
+      );
+      this.hexMapRenderer?.setZoneHighlights(artilleryTarget ? new Set([artilleryTarget.hexKey]) : new Set());
+      this.queueTutorialCameraForPhase(phase, artilleryTarget ? [artilleryTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
+      return;
+    }
+
+    if (phase === "flak_intro") {
+      const flakTarget = this.selectFirstTutorialUnitTarget(
+        phase,
+        (unit, commandState) => commandState?.isAutomated !== true && this.isFlakBattleUnit(unit),
+        { expandIntel: true }
+      );
+      this.hexMapRenderer?.setZoneHighlights(flakTarget ? new Set([flakTarget.hexKey]) : new Set());
+      this.queueTutorialCameraForPhase(phase, flakTarget ? [flakTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
+      return;
+    }
+
+    if (phase === "round_handoff") {
+      const focusHexes = this.getActivePlayerInitiativeGroupHexKeys();
+      this.queueTutorialCameraForPhase(
+        phase,
+        focusHexes.size > 0 ? focusHexes : this.getManualPlayerUnitHexKeys(),
+        TUTORIAL_OVERVIEW_CAMERA_ZOOM
+      );
       return;
     }
 
@@ -3024,6 +3148,107 @@ export class BattleScreen {
     }
   }
 
+  private queueTutorialCameraForPhase(phase: TutorialPhase, hexes: Iterable<string>, zoom: number): void {
+    const hexArray = Array.from(new Set(hexes)).filter(Boolean).sort();
+    if (hexArray.length === 0) {
+      return;
+    }
+
+    const syncKey = `${phase}:${zoom.toFixed(2)}:${hexArray.join("|")}`;
+    if (this.tutorialCameraSyncKey === syncKey) {
+      return;
+    }
+    this.tutorialCameraSyncKey = syncKey;
+
+    const centerTutorialCamera = () => {
+      void this.centerCameraOnZone(hexArray, zoom).catch((error) => {
+        console.warn("[BattleScreen] Failed to center tutorial camera", { phase, zoom, error });
+      });
+    };
+    window.setTimeout(centerTutorialCamera, 0);
+    window.setTimeout(centerTutorialCamera, 180);
+  }
+
+  private getSelectedTutorialFocusHexes(extraHexes: Iterable<string> = []): Set<string> {
+    const focusHexes = new Set<string>();
+    if (this.selectedHexKey) {
+      focusHexes.add(this.selectedHexKey);
+    }
+    for (const hexKey of extraHexes) {
+      if (hexKey) {
+        focusHexes.add(hexKey);
+      }
+    }
+    return focusHexes;
+  }
+
+  private selectFirstTutorialUnitTarget(
+    phase: TutorialPhase,
+    predicate: (unit: ScenarioUnit, commandState: UnitCommandState | null, hexKey: string) => boolean,
+    options: { activeGroupOnly?: boolean; expandIntel?: boolean } = {}
+  ): TutorialUnitTarget | null {
+    const target = this.findFirstTutorialUnitTarget(predicate, options.activeGroupOnly === true);
+    if (!target) {
+      return null;
+    }
+
+    this.selectTutorialUnitTarget(target, options.expandIntel === true);
+    this.queueTutorialCameraForPhase(phase, [target.hexKey], TUTORIAL_ORDER_CAMERA_ZOOM);
+    return target;
+  }
+
+  private findFirstTutorialUnitTarget(
+    predicate: (unit: ScenarioUnit, commandState: UnitCommandState | null, hexKey: string) => boolean,
+    activeGroupOnly = false
+  ): TutorialUnitTarget | null {
+    const engine = this.battleState.ensureGameEngine();
+    for (const unit of engine.playerUnits) {
+      if (activeGroupOnly && (!unit.unitId || !this.isUnitInCurrentInitiativeGroup(unit.unitId))) {
+        continue;
+      }
+      const hexKey = this.toOffsetHexKey(unit.hex);
+      if (!hexKey) {
+        continue;
+      }
+      const commandState = engine.getUnitCommandState(unit.hex, unit.unitId ?? undefined);
+      if (predicate(unit, commandState, hexKey)) {
+        return { unit, commandState, hexKey };
+      }
+    }
+    return null;
+  }
+
+  private selectTutorialUnitTarget(target: TutorialUnitTarget, expandIntel: boolean): void {
+    const targetUnitId = target.unit.unitId ?? null;
+    const alreadySelected =
+      this.selectedHexKey === target.hexKey &&
+      (targetUnitId === null || this.selectedPlayerUnitId === targetUnitId);
+
+    if (!alreadySelected) {
+      this.tutorialSelectionSyncInProgress = true;
+      try {
+        this.applySelectedHex(target.hexKey);
+        this.selectedPlayerUnitId = targetUnitId;
+        this.applySelectedHex(target.hexKey, true);
+      } finally {
+        this.tutorialSelectionSyncInProgress = false;
+      }
+    }
+
+    if (expandIntel) {
+      window.setTimeout(() => this.expandBattleIntelOverlayIfCollapsed(), 0);
+    }
+  }
+
+  private expandBattleIntelOverlayIfCollapsed(): void {
+    const overlay = this.battleIntelOverlayRoot ?? document.getElementById("battleIntelOverlay");
+    if (!overlay || overlay.classList.contains("hidden") || overlay.dataset.collapsed === "false") {
+      return;
+    }
+    const toggleButton = document.getElementById("battleIntelOverlayToggle") as HTMLButtonElement | null;
+    toggleButton?.click();
+  }
+
   private shouldAllowTutorialHexCameraFocus(phase: TutorialPhase): boolean {
     return phase === "base_camp";
   }
@@ -3034,7 +3259,17 @@ export class BattleScreen {
       progress.currentPhase === "begin_battle" ||
       progress.currentPhase === "initiative_order" ||
       progress.currentPhase === "initiative_group" ||
-      progress.currentPhase === "active_group_units"
+      progress.currentPhase === "active_group_units" ||
+      progress.currentPhase === "movement_intro" ||
+      progress.currentPhase === "attack_intro" ||
+      progress.currentPhase === "intel_overlay_expand" ||
+      progress.currentPhase === "smoke_demo" ||
+      progress.currentPhase === "spend_activation" ||
+      progress.currentPhase === "engineer_intro" ||
+      progress.currentPhase === "engineer_orders" ||
+      progress.currentPhase === "artillery_intro" ||
+      progress.currentPhase === "flak_intro" ||
+      progress.currentPhase === "round_handoff"
     );
   }
 
@@ -3045,7 +3280,7 @@ export class BattleScreen {
     }
 
     const centerOverview = () => {
-      void this.centerCameraOnZone(focusHexes).catch((error) => {
+      void this.centerCameraOnZone(focusHexes, TUTORIAL_OVERVIEW_CAMERA_ZOOM).catch((error) => {
         console.warn("[BattleScreen] Failed to center tutorial combat overview", error);
       });
     };
@@ -6204,7 +6439,7 @@ export class BattleScreen {
    * @param hexKey - Hex key in "col,row" format (offset coordinates)
    * @returns Promise that resolves when camera centering is complete
    */
-  private async focusCameraOnHex(hexKey: string): Promise<void> {
+  private async focusCameraOnHex(hexKey: string, zoom?: number): Promise<void> {
 
     if (!this.mapViewport || !this.hexMapRenderer) {
       console.warn("[BattleScreen] focusCameraOnHex: mapViewport or hexMapRenderer is null");
@@ -6238,6 +6473,10 @@ export class BattleScreen {
     }
 
     // Only apply centering if camera is not frozen from user input
+    if (zoom !== undefined) {
+      const currentTransform = this.mapViewport.getTransform();
+      this.mapViewport.setTransform(zoom, currentTransform.panX, currentTransform.panY);
+    }
     if (!this.cameraFrozen) {
       this.mapViewport.centerOn(cx, cy);
     } else {
@@ -6319,7 +6558,7 @@ export class BattleScreen {
   /**
    * Centers the camera on the center of a deployment zone.
    */
-  private async centerCameraOnZone(zoneHexes: Iterable<string>): Promise<void> {
+  private async centerCameraOnZone(zoneHexes: Iterable<string>, zoom?: number): Promise<void> {
     console.log("[BattleScreen] centerCameraOnZone called");
 
     if (!this.mapViewport || !this.hexMapRenderer) {
@@ -6379,9 +6618,18 @@ export class BattleScreen {
     const avgX = totalX / count;
     const avgY = totalY / count;
 
-    console.log("[BattleScreen] Calling mapViewport.centerOn for zone:", { avgX, avgY });
+    if (zoom !== undefined) {
+      const currentTransform = this.mapViewport.getTransform();
+      this.mapViewport.setTransform(zoom, currentTransform.panX, currentTransform.panY);
+    }
+
+    console.log("[BattleScreen] Calling mapViewport.centerOn for zone:", { avgX, avgY, zoom });
     // Center the viewport on the zone's average position
     this.mapViewport.centerOn(avgX, avgY);
+    this.lastViewportTransform = this.mapViewport.getTransform();
+    if (hexArray.length === 1) {
+      this.lastFocusedHexKey = hexArray[0] ?? null;
+    }
   }
 
   /**

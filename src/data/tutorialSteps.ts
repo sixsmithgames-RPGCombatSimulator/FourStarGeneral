@@ -209,7 +209,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "initiative_order",
     title: "Initiative Status",
     content:
-      "Read the status line at the top. Higher initiative numbers act first. When it says Your group, the highlighted friendly units are waiting for orders.",
+      "The top line shows whose turn it is now. Higher initiative acts earlier. When it says Your group, the highlighted friendly formations are ready for orders.",
     highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status]",
     position: "bottom",
     arrowDirection: "up",
@@ -219,7 +219,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "initiative_group",
     title: "Active Group",
     content:
-      "These highlighted formations act now. Enemy formations and slower friendly units wait until their initiative comes up.",
+      "These highlighted formations share the current initiative. Order them now; the rest of the force waits its turn.",
     highlightSelector: "#battleMapCanvas .hex-cell.initiative-group-highlight, #battleMapCanvas .hex-tile.initiative-group-highlight",
     position: "right",
     arrowDirection: "left",
@@ -229,7 +229,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "active_group_units",
     title: "Choose A Formation",
     content:
-      "Click a highlighted friendly formation. Its unit card will show movement, fire, and field orders.",
+      "Click one highlighted friendly formation. Its unit card opens with the orders available right now.",
     highlightSelector: "#battleMapCanvas .hex-cell.initiative-group-highlight, #battleMapCanvas .hex-tile.initiative-group-highlight",
     position: "right",
     arrowDirection: "left",
@@ -240,7 +240,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "movement_intro",
     title: "Movement",
     content:
-      "Blue hexes show legal moves for the selected formation. Click one to move, or continue if you want it to hold position.",
+      "Green dashed hexes show legal moves for the selected formation. Click one to move, or continue if it should hold.",
     highlightSelector: "#battleMapCanvas .hex-cell.move-option-highlight, #battleMapCanvas .hex-tile.move-option-highlight",
     position: "right",
     arrowDirection: "left",
@@ -251,7 +251,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     title: "Fire Orders",
     content:
       "If enemies are in range, red hexes appear on the map. Click one to preview the shot before you fire. If none appear, this formation has no shot from here.",
-    highlightSelector: "#battleIntelOverlay",
+    highlightSelector: "#battleMapCanvas .hex-cell.attack-target-highlight, #battleMapCanvas .hex-tile.attack-target-highlight",
     position: "right",
     arrowDirection: "left",
     actionLabel: "Continue"
@@ -271,8 +271,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "smoke_demo",
     title: "Smoke Orders",
     content:
-      "Smoke orders live on the expanded unit card. They appear only for formations that carry smoke, usually infantry or engineers. Use smoke to block sight before a move or cover a damaged unit.",
-    highlightSelector: "#battleIntelOverlay",
+      "Smoke appears on formations that carry smoke rounds. Use it to block line of sight before a move or cover a unit under pressure.",
+    highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke'], #battleIntelOverlay",
     position: "right",
     arrowDirection: "left",
     actionLabel: "Continue"
@@ -322,7 +322,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "engineer_intro",
     title: "Engineers",
     content:
-      "Engineers build the hard points: trenches, fortified edges, obstacles, and cleared routes.",
+      "Engineers prepare the ground: stronger defenses, obstacles, and cleared routes.",
     highlightSelector: "#battleIntelOverlay",
     position: "right",
     arrowDirection: "left",
@@ -332,8 +332,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "engineer_orders",
     title: "Engineer Work",
     content:
-      "Engineer orders live on the expanded unit card. Build before the enemy closes; field work takes time.",
-    highlightSelector: "#battleIntelOverlay",
+      "Engineer orders are on the expanded unit card. Build early; field work takes the formation's action.",
+    highlightSelector: "#battleIntelOverlay [data-selection-action='fortifications'], #battleIntelOverlay [data-selection-action='tankTraps'], #battleIntelOverlay [data-selection-action='clearedPath'], #battleIntelOverlay",
     position: "left",
     arrowDirection: "right",
     actionLabel: "Continue"
@@ -342,8 +342,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "artillery_intro",
     title: "Artillery",
     content:
-      "Artillery is strongest when infantry or recon can see the target. Observed fire lands more reliably.",
-    highlightSelector: "#battleMapCanvas",
+      "Infantry and recon can call heavy artillery on observed enemies. If no target is observed, wait for better contact.",
+    highlightSelector: "#battleIntelOverlay [data-selection-action='callArtillery'], #battleIntelOverlay",
     position: "right",
     arrowDirection: "left",
     actionLabel: "Continue"
@@ -352,8 +352,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "flak_intro",
     title: "Flak Coverage",
     content:
-      "Flak fires at enemy aircraft automatically. Keep it near base camp, guns, and key roads.",
-    highlightSelector: "#battleMapCanvas",
+      "Flak fires on enemy aircraft automatically. Keep it near base camp, guns, and key roads.",
+    highlightSelector: "#battleIntelOverlay, #battleMapCanvas",
     position: "right",
     arrowDirection: "left",
     actionLabel: "Continue"
@@ -369,20 +369,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Continue"
   },
   {
-    phase: "turn_end",
-    title: "Battle Routine",
-    content:
-      "Each turn follows the same routine: check whose initiative is active, order the highlighted formations, watch enemy action, then end the turn.",
-    highlightSelector: ".enhanced-initiative-turn-controls, .initiative-turn-controls-container",
-    position: "left",
-    arrowDirection: "right",
-    actionLabel: "Finish"
-  },
-  {
     phase: "complete",
     title: "Ready For Battle",
     content:
-      "You are ready: requisition the force, deploy the line, give orders by initiative, and keep the objective supplied.",
+      "Good luck, General{generalName}.",
     position: "center",
     actionLabel: "Dismiss"
   }
@@ -467,7 +457,6 @@ export function getCombatPhases(): TutorialPhase[] {
     "artillery_intro",
     "flak_intro",
     "round_handoff",
-    "turn_end",
     "complete"
   ];
 }

@@ -23,3 +23,17 @@ Post-deployment tutorial steps drifted out of alignment once initiative play beg
 - Active Group and Choose A Formation steps highlight only units that can act.
 - Movement, Fire Orders, Unit Intel, Smoke Orders, and Finish This Formation stay near the edge of the battlefield and avoid covering the target area.
 - Mobile layout keeps tutorial panels compact and below the current map/action focus.
+
+## June 2026 Follow-up
+
+Post-deployment tutorial QA found that several combat steps still used broad camera framing after the initiative system landed. The player could see the parchment background instead of the hex map, or the map was too far out to read unit counters. Fire and smoke steps could also select a formation that did not have the order being taught.
+
+Additional fixes:
+
+- Deployment camera focus now stays on Zone Alpha and the visible hex tile map.
+- Initiative and active-group steps zoom to the friendly formations instead of the whole battlefield.
+- Movement copy now matches the actual legal-move treatment: green dashed hexes.
+- Fire, smoke, engineer, artillery, and flak steps select a formation that can demonstrate the order when possible.
+- Smoke instruction expands a smoke-capable unit card before pointing at Lay Smoke.
+- The redundant battle-routine step was removed; the final message is a short sendoff.
+- Visual QA should include desktop and narrow viewport screenshots for steps 18, 20, 21, 23, 24, 26, 33, 34, and the final step.

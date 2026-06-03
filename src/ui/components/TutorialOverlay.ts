@@ -16,6 +16,7 @@ import {
   type SidebarMiniTutorialKey,
   type SidebarMiniTutorialRequest
 } from "../../data/sidebarMiniTutorials";
+import { ensureRosterInitialized, findGeneralById } from "../../utils/rosterStorage";
 
 /**
  * Creates and manages the tutorial overlay UI.
@@ -401,7 +402,7 @@ export class TutorialOverlay {
     const descEl = this.panelElement.querySelector(".tutorial-description");
 
     if (titleEl) titleEl.textContent = step.title;
-    if (descEl) descEl.textContent = step.content;
+    if (descEl) descEl.textContent = this.resolveStepContent(step);
 
     const waitingForAction = step.waitForAction === true && !progress.canProceed;
 
@@ -624,20 +625,6 @@ export class TutorialOverlay {
     // Map tiles use SVG `<g>` elements and typically have `data-hex` or `data-q` attributes.
     // The native `.scrollIntoView` interacts poorly with our custom ZoomPanControls viewport.
     if (selector.includes("[data-hex=") || selector.includes("[data-q=") || targetElement.tagName.toLowerCase() === "g") {
-      let hexKey: string | null = null;
-      if (targetElement.hasAttribute("data-hex")) {
-        hexKey = targetElement.getAttribute("data-hex");
-      } else if (targetElement.hasAttribute("data-q") && targetElement.hasAttribute("data-r")) {
-        const q = targetElement.getAttribute("data-q");
-        const r = targetElement.getAttribute("data-r");
-        if (q && r) {
-          // Hex keys in this codebase are typically "<col>,<row>". We may need to convert axial or assume col,row.
-          // Fallback: dispatch the selector itself if we can't extract the exact key cleanly here,
-          // though BattleScreen will need to parse it. 
-          // For now, let's just pass the selector so BattleScreen can query it or we can pass the key if available.
-        }
-      }
-
       // Dispatch a generic event so BattleScreen can hook into it.
       const event = new CustomEvent("tutorial:focusHex", {
         detail: { selector, element: targetElement }
@@ -1116,6 +1103,24 @@ export class TutorialOverlay {
    */
   isOnPhase(phase: TutorialPhase): boolean {
     return ensureTutorialState().getCurrentPhase() === phase;
+  }
+
+  private resolveStepContent(step: TutorialStep): string {
+    if (step.phase !== "complete" || !step.content.includes("{generalName}")) {
+      return step.content;
+    }
+
+    let generalName = "";
+    try {
+      ensureRosterInitialized();
+      const selectedGeneralId = window.localStorage.getItem("selectedGeneralId");
+      const general = selectedGeneralId ? findGeneralById(selectedGeneralId) : null;
+      generalName = general?.identity?.name?.trim() ?? "";
+    } catch {
+      generalName = "";
+    }
+
+    return step.content.replace("{generalName}", generalName ? ` ${generalName}` : "");
   }
 }
 

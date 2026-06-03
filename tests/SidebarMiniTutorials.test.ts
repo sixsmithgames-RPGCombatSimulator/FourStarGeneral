@@ -75,11 +75,12 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getNextPhase("smoke_demo") === "spend_activation", "Smoke should not block the first recon activation.");
     expect(getNextPhase("spend_activation") === "enemy_activation", "The tutorial should spend the first activation before enemy tempo.");
     expect(combatPhases.includes("spend_activation"), "Combat tutorial should include a real activation-spend gate.");
-    expect(getNextPhase("turn_end") === "complete", "Command loop should advance to the final certification step.");
+    expect(getNextPhase("round_handoff") === "complete", "Command loop should advance to the final certification step.");
     expect(getNextPhase("complete") === null, "Final certification should dismiss instead of looping.");
     expect(combatPhases.includes("next_unit"), "Combat tutorial should explain cycling active initiative groups.");
     expect(combatPhases.includes("skip_group"), "Combat tutorial should explain skipping an initiative group.");
     expect(combatPhases.includes("round_handoff"), "Combat tutorial should explain the initiative round handoff.");
+    expect(!combatPhases.includes("turn_end"), "The redundant battle routine step should stay out of the main tutorial.");
     expect(!combatPhases.includes("air_missions"), "Air missions should not auto-open the Air sidebar during the main tutorial.");
     expect(!combatPhases.includes("logistics_intro"), "Logistics should not auto-open during the main tutorial.");
     expect((getTutorialStep("base_camp")?.content.includes("Zone Alpha") ?? false), "Base-camp instructions should direct the player to Zone Alpha.");
@@ -142,12 +143,12 @@ registerTest("TUTORIAL_FINAL_CERTIFICATION_RENDERS_BEFORE_DISMISSAL", async ({ G
     setRect(initiativeControls, { left: 600, top: 80, width: 320, height: 80 });
     overlay = new TutorialOverlay();
     overlay.initialize();
-    tutorialState.jumpToPhase("turn_end");
+    tutorialState.jumpToPhase("round_handoff");
   });
 
   await When("the player confirms the command loop", async () => {
     const actionButton = document.querySelector<HTMLButtonElement>(".tutorial-action-btn");
-    expect(actionButton?.textContent === "Finish", "Expected Finish action on the battle routine step.");
+    expect(actionButton?.textContent === "Continue", "Expected Continue action on the end-turn step.");
     actionButton?.click();
   });
 
