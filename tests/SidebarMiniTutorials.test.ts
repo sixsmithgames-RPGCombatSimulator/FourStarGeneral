@@ -65,8 +65,7 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
 
     expect(getNextPhase("place_units") === "begin_battle", "Main deployment tutorial should go from deployment to Begin Battle.");
     expect(getNextPhase("begin_battle") === "initiative_order", "Battle start should lead into the initiative order lesson.");
-    expect(getNextPhase("initiative_order") === "initiative_group", "Initiative order should lead into active group teaching.");
-    expect(getNextPhase("initiative_group") === "active_group_units", "Active group teaching should lead into selecting an eligible formation.");
+    expect(getNextPhase("initiative_order") === "active_group_units", "Initiative order should lead into selecting an eligible formation.");
     expect(getNextPhase("active_group_units") === "movement_intro", "Selecting an active formation should lead into movement teaching.");
     expect(!deploymentPhases.includes("roster_intro"), "Roster should be taught only by its sidebar mini tutorial.");
     expect(!deploymentPhases.includes("air_support_intro"), "Air Support should be taught only by its sidebar mini tutorial.");
@@ -75,7 +74,8 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getNextPhase("smoke_demo") === "spend_activation", "Smoke should not block the first recon activation.");
     expect(getNextPhase("spend_activation") === "enemy_activation", "The tutorial should spend the first activation before enemy tempo.");
     expect(combatPhases.includes("spend_activation"), "Combat tutorial should include a real activation-spend gate.");
-    expect(getNextPhase("round_handoff") === "complete", "Command loop should advance to the final certification step.");
+    expect(getNextPhase("round_handoff") === "mission_objectives", "Command loop should advance to final mission orders.");
+    expect(getNextPhase("mission_objectives") === "complete", "Final mission orders should advance to the dismissal step.");
     expect(getNextPhase("complete") === null, "Final certification should dismiss instead of looping.");
     expect(combatPhases.includes("next_unit"), "Combat tutorial should explain cycling active initiative groups.");
     expect(combatPhases.includes("skip_group"), "Combat tutorial should explain skipping an initiative group.");
@@ -143,12 +143,12 @@ registerTest("TUTORIAL_FINAL_CERTIFICATION_RENDERS_BEFORE_DISMISSAL", async ({ G
     setRect(initiativeControls, { left: 600, top: 80, width: 320, height: 80 });
     overlay = new TutorialOverlay();
     overlay.initialize();
-    tutorialState.jumpToPhase("round_handoff");
+    tutorialState.jumpToPhase("mission_objectives");
   });
 
-  await When("the player confirms the command loop", async () => {
+  await When("the player confirms the final mission orders", async () => {
     const actionButton = document.querySelector<HTMLButtonElement>(".tutorial-action-btn");
-    expect(actionButton?.textContent === "Continue", "Expected Continue action on the end-turn step.");
+    expect(actionButton?.textContent === "Continue", "Expected Continue action on final mission orders.");
     actionButton?.click();
   });
 
@@ -251,7 +251,7 @@ registerTest("SIDEBAR_MINI_TUTORIALS_DO_NOT_INTERRUPT_ACTIVE_TRAINING", async ({
   await Then("the full training tutorial keeps control of the overlay", async () => {
     const title = document.querySelector<HTMLElement>(".tutorial-title");
     const indicator = document.querySelector<HTMLElement>(".tutorial-step-indicator");
-    expect(title?.textContent === "Field Command", `Expected active training title, received ${title?.textContent ?? "<missing>"}.`);
+    expect(title?.textContent === "Requisition Order", `Expected active training title, received ${title?.textContent ?? "<missing>"}.`);
     expect(indicator?.textContent?.startsWith("Step") === true, `Expected normal step indicator, received ${indicator?.textContent ?? "<missing>"}.`);
 
     overlay.dispose();

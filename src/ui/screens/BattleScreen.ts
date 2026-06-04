@@ -3020,17 +3020,25 @@ export class BattleScreen {
 
     if (phase === "active_group_units") {
       const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
-      this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
+      const reconTarget = this.findFirstTutorialUnitTarget(
+        (unit, commandState) => commandState?.isAutomated !== true && this.isReconBikeBattleUnit(unit),
+        true
+      );
+      const focusHexKeys = reconTarget ? new Set([reconTarget.hexKey]) : activeGroupHexKeys;
+      this.hexMapRenderer?.setZoneHighlights(focusHexKeys);
       if (!this.tutorialActiveGroupSelectionCleared) {
         this.tutorialActiveGroupSelectionCleared = true;
         this.clearSelectedHexAfterAction();
-        this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
+        this.hexMapRenderer?.setZoneHighlights(focusHexKeys);
       }
-      if (this.selectedUnitIsInActiveInitiativeGroup()) {
+      if (
+        this.selectedUnitMatchesTutorialTarget((unit) => this.isReconBikeBattleUnit(unit), true) ||
+        (!reconTarget && this.selectedUnitIsInActiveInitiativeGroup())
+      ) {
         this.completeTutorialPhase("active_group_units");
         return;
       }
-      this.queueTutorialCameraForPhase(phase, activeGroupHexKeys, TUTORIAL_GROUP_CAMERA_ZOOM);
+      this.queueTutorialCameraForPhase(phase, focusHexKeys, TUTORIAL_GROUP_CAMERA_ZOOM);
       return;
     }
 
@@ -3333,6 +3341,28 @@ export class BattleScreen {
       return false;
     }
     return !this.isInitiativeSystemEnabled || this.isUnitInCurrentInitiativeGroup(selectedMember.unitId);
+  }
+
+  private selectedUnitMatchesTutorialTarget(
+    predicate: (unit: ScenarioUnit) => boolean,
+    activeGroupOnly = false
+  ): boolean {
+    if (!this.selectedHexKey) {
+      return false;
+    }
+    const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
+    if (!selectedMember || selectedMember.isAutomated) {
+      return false;
+    }
+    if (
+      activeGroupOnly &&
+      this.isInitiativeSystemEnabled &&
+      selectedMember.unitId &&
+      !this.isUnitInCurrentInitiativeGroup(selectedMember.unitId)
+    ) {
+      return false;
+    }
+    return predicate(selectedMember.unit);
   }
 
   private isBattleIntelOverlayExpanded(): boolean {
@@ -12587,6 +12617,16 @@ export class BattleScreen {
     const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
     const traits = (definition?.traits ?? []) as readonly string[];
     return unit.type.toLowerCase().includes("engineer") || traits.includes("engineer");
+  }
+
+  private isReconBikeBattleUnit(unit: ScenarioUnit): boolean {
+    const definition = this.unitTypes[unit.type as keyof UnitTypeDictionary];
+    const traits = (definition?.traits ?? []) as readonly string[];
+    const normalizedType = unit.type.toLowerCase();
+    const normalizedLabel = (this.resolveUnitLabelForUnit(unit) ?? "").toLowerCase();
+    return (normalizedType.includes("recon") && normalizedType.includes("bike"))
+      || normalizedLabel.includes("recon bike")
+      || traits.includes("reconBike");
   }
 
   private isFlakBattleUnit(unit: ScenarioUnit): boolean {

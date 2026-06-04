@@ -84,7 +84,7 @@ class TutorialStateManager {
    */
   startTutorial(): void {
     this.isActive = true;
-    this.currentPhase = "welcome";
+    this.currentPhase = "budget_overview";
     this.completedPhases.clear();
     this.canProceed = true;
     this.notifyListeners();

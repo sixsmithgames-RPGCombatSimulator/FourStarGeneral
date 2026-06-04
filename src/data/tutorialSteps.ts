@@ -9,18 +9,10 @@ export type { TutorialStep };
 
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   {
-    phase: "welcome",
-    title: "Field Command",
-    content:
-      "Enemy scouts are probing this sector. Build your force, set your base camp, and stop the patrol before it reaches the road.",
-    position: "center",
-    actionLabel: "Accept Command"
-  },
-  {
     phase: "budget_overview",
     title: "Requisition Order",
     content:
-      "You have 1,200 RP. Use the Training preset for a ready force, or build it by hand to learn each category.",
+      "Welcome, General. This tutorial starts with requisition points (RP): the budget used to raise formations and supplies for the mission.",
     highlightSelector: "#precombatBudgetPanel",
     position: "left",
     arrowDirection: "right",
@@ -114,23 +106,14 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Continue"
   },
   {
-    phase: "mission_objectives",
-    title: "Mission Orders",
-    content:
-      "Primary objective: stop the enemy patrol before it reaches the coastal road. Expect a mobile enemy force.",
-    highlightSelector: "#precombatMissionSummary",
-    position: "center",
-    actionLabel: "Understood"
-  },
-  {
     phase: "review_allocation",
-    title: "Final Check",
+    title: "Begin Deployment",
     content:
-      "Check your force, then click Begin Battle to move to the field.",
-    highlightSelector: "#resetAllocations, #proceedToBattle",
+      "Click Begin Battle to lock this force and open the deployment map.",
+    highlightSelector: "#proceedToBattle",
     position: "center",
     waitForAction: true,
-    actionLabel: "Deploy to Field"
+    actionLabel: "Begin Battle"
   },
   {
     phase: "ui_overview",
@@ -216,20 +199,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Continue"
   },
   {
-    phase: "initiative_group",
-    title: "Active Group",
-    content:
-      "These highlighted formations share the current initiative. Order them now; the rest of the force waits its turn.",
-    highlightSelector: "#battleMapCanvas .hex-cell.initiative-group-highlight, #battleMapCanvas .hex-tile.initiative-group-highlight",
-    position: "right",
-    arrowDirection: "left",
-    actionLabel: "Continue"
-  },
-  {
     phase: "active_group_units",
     title: "Choose A Formation",
     content:
-      "Click one highlighted friendly formation. Its unit card opens with the orders available right now.",
+      "Click the Recon Bike Patrol. Its unit card opens with the orders available right now.",
     highlightSelector: "#battleMapCanvas .hex-cell.initiative-group-highlight, #battleMapCanvas .hex-tile.initiative-group-highlight",
     position: "right",
     arrowDirection: "left",
@@ -369,6 +342,15 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Continue"
   },
   {
+    phase: "mission_objectives",
+    title: "Mission Orders",
+    content:
+      "Objective: stop the enemy patrol before it reaches the coastal road.",
+    highlightSelector: ".mission-summary-panel, .battle-map-header",
+    position: "center",
+    actionLabel: "Continue"
+  },
+  {
     phase: "complete",
     title: "Ready For Battle",
     content:
@@ -386,6 +368,11 @@ export function getTutorialStep(phase: TutorialPhase): TutorialStep | null {
   const index = PHASE_INDEX_MAP.get(phase);
   if (index === undefined) return null;
   return TUTORIAL_STEPS[index];
+}
+
+export function getTutorialStepNumber(phase: TutorialPhase): number | null {
+  const index = PHASE_INDEX_MAP.get(phase);
+  return index === undefined ? null : index + 1;
 }
 
 export function getNextPhase(currentPhase: TutorialPhase): TutorialPhase | null {
@@ -407,12 +394,11 @@ export function getPreviousPhase(currentPhase: TutorialPhase): TutorialPhase | n
 }
 
 export function isFirstPhase(phase: TutorialPhase): boolean {
-  return phase === "welcome";
+  return phase === "budget_overview";
 }
 
 export function getPrecombatPhases(): TutorialPhase[] {
   return [
-    "welcome",
     "budget_overview",
     "unit_categories",
     "select_infantry",
@@ -422,7 +408,6 @@ export function getPrecombatPhases(): TutorialPhase[] {
     "select_air_wing",
     "select_ammo",
     "select_fuel",
-    "mission_objectives",
     "review_allocation"
   ];
 }
@@ -442,7 +427,6 @@ export function getDeploymentPhases(): TutorialPhase[] {
 export function getCombatPhases(): TutorialPhase[] {
   return [
     "initiative_order",
-    "initiative_group",
     "active_group_units",
     "movement_intro",
     "attack_intro",
@@ -457,6 +441,7 @@ export function getCombatPhases(): TutorialPhase[] {
     "artillery_intro",
     "flak_intro",
     "round_handoff",
+    "mission_objectives",
     "complete"
   ];
 }

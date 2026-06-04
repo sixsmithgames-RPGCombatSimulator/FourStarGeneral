@@ -10,6 +10,7 @@ Post-deployment tutorial steps drifted out of alignment once initiative play beg
 - The player should not be addressed with inconsistent labels inside ordinary tutorial text.
 - Each step should anchor to the actual UI element or tactical area being taught.
 - Wait-gated steps must leave the real battlefield control clickable.
+- Wait-gated steps must not flash an enabled Continue button during automatic advancement.
 - If an order is conditional, such as fire or smoke, the tutorial must say when the order may not appear.
 - Deployment should identify Zone Alpha as the only valid deployment sector for this mission.
 - Post-deployment camera focus should stay on the active friendly group until the player has enough context to act.
@@ -17,10 +18,12 @@ Post-deployment tutorial steps drifted out of alignment once initiative play beg
 ## Visual Checklist
 
 - Base camp step highlights Zone Alpha and does not cover the map hexes or Assign Base Camp.
+- First requisition step combines the welcome and budget explanation, spells out requisition points (RP), and does not push presets.
+- Requisition handoff step tells the player to click Begin Battle and highlights only that button.
 - Deployment options step sits near Deploy Evenly and Deploy Grouped.
 - Begin Battle step highlights the real button and allows the player to click it.
 - Initiative Status step points to the initiative status line and explains who acts now.
-- Active Group and Choose A Formation steps highlight only units that can act.
+- Choose A Formation highlights the Recon Bike Patrol when it is the intended first formation.
 - Movement, Fire Orders, Unit Intel, Smoke Orders, and Finish This Formation stay near the edge of the battlefield and avoid covering the target area.
 - Mobile layout keeps tutorial panels compact and below the current map/action focus.
 

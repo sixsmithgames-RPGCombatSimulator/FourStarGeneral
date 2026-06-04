@@ -167,9 +167,8 @@ describe('Tutorial UI Enhancements', () => {
 });
 
 describe('Tutorial Steps Validation', () => {
-  it('should include new mission_objectives phase', () => {
+  it('should keep mission_objectives as the final mission-orders phase', () => {
     const phases = [
-      'welcome',
       'budget_overview',
       'unit_categories',
       'select_infantry',
@@ -178,8 +177,8 @@ describe('Tutorial Steps Validation', () => {
       'select_engineers',
       'select_flak',
       'select_air_wing',
-      'mission_objectives', // New phase
-      'review_allocation'
+      'review_allocation',
+      'mission_objectives'
     ];
     
     expect(phases).toContain('mission_objectives');
@@ -194,9 +193,8 @@ describe('Tutorial Steps Validation', () => {
       'engineer_orders',
       'artillery_intro',
       'flak_intro',
-      'air_missions',
-      'logistics_intro',
-      'turn_end',
+      'round_handoff',
+      'mission_objectives',
       'complete'
     ];
     

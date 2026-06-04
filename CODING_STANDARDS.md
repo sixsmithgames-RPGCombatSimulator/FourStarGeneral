@@ -153,6 +153,12 @@ Player-facing confirmations, prompts, and warnings must use in-game UI component
 * Do **not** use browser-native dialogs (`window.alert`, `window.confirm`, `window.prompt`) for gameplay messaging.
 * Every user-facing message must include actionable copy: what happened, why it matters, and what to do next.
 
+### 6.4 Tutorial Wait-State UX
+Required-action tutorial steps must point players to the real game control or map action that advances the lesson.
+* Disabled tutorial buttons must give direct instruction, such as "To continue, complete the action above"; do not append parenthetical hints to an unrelated button label.
+* If the required game action automatically advances the tutorial, the tutorial button must not switch into a live "Continue" button during the transition. Keep the disabled state stable until the next step renders.
+* Do not create tutorial steps where the player starts moving toward a transient button that disappears because the actual action has already completed.
+
 ## 7. Manual Verification Checklist (Visual Integrity)
 Because this is a visual strategy game, the following must be manually verified after relevant changes:
 - [ ] Map panning and zoom stability

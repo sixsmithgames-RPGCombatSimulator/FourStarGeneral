@@ -8,7 +8,7 @@ import {
   type TutorialPhase,
   type TutorialProgress
 } from "../../state/TutorialState";
-import { getTutorialStep, getNextPhase, getPreviousPhase, isFirstPhase, type TutorialStep } from "../../data/tutorialSteps";
+import { getTutorialStep, getNextPhase, getPreviousPhase, getTutorialStepNumber, isFirstPhase, type TutorialStep } from "../../data/tutorialSteps";
 import {
   getSidebarMiniTutorial,
   SIDEBAR_MINI_TUTORIAL_EVENT,
@@ -38,7 +38,6 @@ export class TutorialOverlay {
   private anchorTimeoutId: number | null = null;
   private lastResolvedAnchorSelector: string | null = null;
   private lastAnchoredSelector: string | null = null;
-  private suppressCurrentPhaseDisplay = false;
   private activeMiniTutorial: SidebarMiniTutorialDefinition | null = null;
   private sidebarMiniTutorialListener: ((event: Event) => void) | null = null;
   private readonly sidebarMiniTutorialStorageKey = "four-star-general.sidebar-mini-tutorials.v1";
@@ -244,16 +243,6 @@ export class TutorialOverlay {
 
     this.activeMiniTutorial = null;
 
-    if (this.suppressCurrentPhaseDisplay && progress.currentPhase === "review_allocation") {
-      // Stay hidden after the user dismisses the free-review step. We'll re-enable when phase changes.
-      this.lastRenderedPhase = progress.currentPhase;
-      return;
-    }
-
-    if (this.suppressCurrentPhaseDisplay && progress.currentPhase !== "review_allocation") {
-      this.suppressCurrentPhaseDisplay = false;
-    }
-
     const step = getTutorialStep(progress.currentPhase);
     if (!step) {
       this.hide();
@@ -275,7 +264,7 @@ export class TutorialOverlay {
     this.currentStep = step;
     this.lastRenderedPhase = progress.currentPhase;
     this.show();
-    this.renderStep(step, progress);
+    this.renderStep(step);
   }
 
   private handleSidebarMiniTutorialRequest(event: CustomEvent<SidebarMiniTutorialRequest>): void {
@@ -364,7 +353,7 @@ export class TutorialOverlay {
   /**
    * Renders the current tutorial step.
    */
-  private renderStep(step: TutorialStep, progress: TutorialProgress): void {
+  private renderStep(step: TutorialStep): void {
     if (!this.panelElement) return;
 
     this.activeMiniTutorial = null;
@@ -377,8 +366,8 @@ export class TutorialOverlay {
     // Update step indicator
     const stepIndicator = this.panelElement.querySelector(".tutorial-step-indicator");
     if (stepIndicator) {
-      const completedCount = progress.completedPhases.length;
-      stepIndicator.textContent = `Step ${completedCount + 1}`;
+      const stepNumber = getTutorialStepNumber(step.phase);
+      stepIndicator.textContent = stepNumber ? `Step ${stepNumber}` : "Step";
     }
 
     // Update back button visibility - hide on first step
@@ -404,15 +393,17 @@ export class TutorialOverlay {
     if (titleEl) titleEl.textContent = step.title;
     if (descEl) descEl.textContent = this.resolveStepContent(step);
 
-    const waitingForAction = step.waitForAction === true && !progress.canProceed;
+    const isActionStep = step.waitForAction === true;
 
     // Update action button
     const actionBtn = this.panelElement.querySelector<HTMLButtonElement>(".tutorial-action-btn");
     if (actionBtn) {
-      actionBtn.textContent = step.actionLabel ?? "Continue";
-      actionBtn.disabled = waitingForAction;
+      actionBtn.textContent = isActionStep
+        ? "To continue, complete the action above"
+        : step.actionLabel ?? "Continue";
+      actionBtn.disabled = isActionStep;
 
-      if (waitingForAction) {
+      if (isActionStep) {
         actionBtn.classList.add("waiting");
       } else {
         actionBtn.classList.remove("waiting");
@@ -1066,17 +1057,9 @@ export class TutorialOverlay {
     if (!this.currentStep) return;
 
     const tutorialState = ensureTutorialState();
-    const progress = tutorialState.getProgress();
 
-    // If waiting for action and can't proceed yet, do nothing
-    if (this.currentStep.waitForAction && !progress.canProceed) {
-      return;
-    }
-
-    // Special case: review_allocation is a dismiss-only overlay. Hide and wait for Begin Battle to advance.
-    if (this.currentStep.phase === "review_allocation") {
-      this.suppressCurrentPhaseDisplay = true;
-      this.hide();
+    // Required-action steps advance from the highlighted UI action, not from this button.
+    if (this.currentStep.waitForAction) {
       return;
     }
 

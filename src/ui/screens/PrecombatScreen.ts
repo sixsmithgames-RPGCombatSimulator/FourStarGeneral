@@ -1385,7 +1385,7 @@ export class PrecombatScreen {
     ];
 
     if (presetEligiblePhases.includes(currentPhase)) {
-      tutorialState.jumpToPhase("mission_objectives");
+      tutorialState.jumpToPhase("review_allocation");
     }
   }
 
