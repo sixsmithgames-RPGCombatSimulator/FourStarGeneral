@@ -2861,7 +2861,6 @@ export class BattleScreen {
       this.announceBattleUpdate(facingSummary);
       this.publishActivityEvent({ category: "player", type: "log", summary: facingSummary });
       this.battleState.emitBattleUpdate("manual");
-      this.completeInitiativeActivationAfterPlayerOrder(unitId ?? null);
       return;
     }
 
@@ -9594,9 +9593,27 @@ export class BattleScreen {
       (flags.movementPointsUsed ?? 0) > 0 ||
       (flags.attacksUsed ?? 0) > 0 ||
       flags.smokeUsed === true ||
-      flags.facingSet === true ||
       flags.supportQueued === true
     );
+  }
+
+  private canPlayerUnitContinueAfterMove(destination: Axial, unitId: string | null): boolean {
+    if (!this.isInitiativeSystemEnabled || !unitId) {
+      return false;
+    }
+
+    const engine = this.battleState.ensureGameEngine();
+    if (
+      engine.getReachableHexes(destination, unitId).length > 0 ||
+      engine.getAttackableTargets(destination, unitId).length > 0
+    ) {
+      return true;
+    }
+
+    const commandState = engine.getUnitCommandState(destination, unitId);
+    return commandState?.canLaySmoke === true ||
+      commandState?.canSetFacing === true ||
+      commandState?.canDeployTow === true;
   }
 
   private completeInitiativeActivationAfterPlayerOrder(unitId: string | null | undefined): void {
@@ -11079,10 +11096,16 @@ export class BattleScreen {
         }
       }
 
-      // Render the final state and update selection
+      // Render the final state and keep partially spent initiative units active.
+      const canContinueActivation = this.canPlayerUnitContinueAfterMove(toAxial, movedUnitId);
       this.renderEngineUnits();
-      this.selectedPlayerUnitId = unitId ?? this.selectedPlayerUnitId;
-      this.clearSelectedHexAfterAction();
+      if (canContinueActivation) {
+        this.selectedHexKey = toKey;
+        this.selectedPlayerUnitId = movedUnitId;
+        this.applySelectedHex(toKey, true);
+      } else {
+        this.clearSelectedHexAfterAction();
+      }
       this.announceBattleUpdate(`Moved unit to ${toKey}.`);
       this.publishActivityEvent({
         category: "player",
@@ -11091,7 +11114,9 @@ export class BattleScreen {
       });
 
       this.battleState.emitBattleUpdate("manual");
-      this.completeInitiativeActivationAfterPlayerOrder(movedUnitId);
+      if (!canContinueActivation) {
+        this.completeInitiativeActivationAfterPlayerOrder(movedUnitId);
+      }
     } catch (err) {
       console.error("Failed to move unit", {
         error: err,

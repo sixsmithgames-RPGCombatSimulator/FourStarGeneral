@@ -2,7 +2,9 @@ import { registerTest } from "./harness.js";
 import { resolveAttack } from "../src/core/Combat";
 import type { AttackRequest, UnitCombatState } from "../src/core/Combat";
 import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
-import type { TerrainDefinition, UnitTypeDefinition } from "../src/core/types";
+import type { Axial, ScenarioUnit, TerrainDefinition, UnitTypeDefinition } from "../src/core/types";
+import { resolveDamagePacket, type DamagePacket } from "../src/data/unitSystem/damagePackets";
+import { createInitialFormationStatus } from "../src/data/unitSystem/status";
 
 const plains: TerrainDefinition = {
   moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
@@ -23,6 +25,27 @@ function makeUnitState(typeKey: "Infantry_42" | "Recon_Bike"): UnitCombatState {
     strength: 100,
     experience: 0,
     general: { accBonus: 0, dmgBonus: 0 }
+  };
+}
+
+function makeScenarioUnit(typeKey: "Infantry_42" | "Recon_Bike", hex: Axial, id: string): ScenarioUnit {
+  const definition = unitTypes[typeKey];
+  if (!definition) {
+    throw new Error(`Missing unit type '${typeKey}' for recon bike packet test.`);
+  }
+  return {
+    type: typeKey,
+    hex: structuredClone(hex),
+    strength: 100,
+    experience: definition.baseExperience ?? 0,
+    baseExperience: definition.baseExperience ?? 0,
+    earnedExperience: 0,
+    ammo: definition.ammo,
+    fuel: definition.fuel,
+    entrench: 0,
+    facing: "SE",
+    unitId: id,
+    status: createInitialFormationStatus(typeKey)
   };
 }
 
@@ -73,6 +96,26 @@ function makeReconBikeTargetRequest(options?: { stance?: "assault" | "suppressiv
   };
 }
 
+function resolvePacketForRequest(
+  attackerType: "Infantry_42",
+  defenderType: "Infantry_42" | "Recon_Bike",
+  request: AttackRequest
+): DamagePacket {
+  const attacker = makeScenarioUnit(attackerType, request.attackerCtx.hex, `${attackerType}-packet-attacker`);
+  const defender = makeScenarioUnit(defenderType, request.defenderCtx.hex, `${defenderType}-packet-defender`);
+  const result = resolveAttack(request);
+  return resolveDamagePacket({
+    attacker,
+    attackerDefinition: unitTypes[attackerType],
+    attackerHex: attacker.hex,
+    defender,
+    defenderDefinition: unitTypes[defenderType],
+    defenderHex: defender.hex,
+    attackResult: result,
+    targetFacing: defender.facing
+  });
+}
+
 registerTest("RECON_BIKE_BALANCE_TRACKS_INFANTRY_RANGE_BUT_NOT_INFANTRY_FIREPOWER", async ({ Then }) => {
   const infantryDef = unitTypes.Infantry_42;
   const reconBikeDef = unitTypes.Recon_Bike;
@@ -109,17 +152,26 @@ registerTest("RECON_BIKE_BALANCE_TRACKS_INFANTRY_RANGE_BUT_NOT_INFANTRY_FIREPOWE
 });
 
 registerTest("LIGHT_ARMOR_DAMPENS_SMALL_ARMS_DAMAGE_WITHOUT_NULLIFYING_IT", async ({ Then }) => {
-  const infantryVsInfantry = resolveAttack(makeSoftTargetRequest("Infantry_42", { stance: "assault" }));
-  const infantryVsReconBike = resolveAttack(makeReconBikeTargetRequest({ stance: "assault" }));
+  const infantryVsInfantryRequest = makeSoftTargetRequest("Infantry_42", { stance: "assault" });
+  const infantryVsReconBikeRequest = makeReconBikeTargetRequest({ stance: "assault" });
+  const infantryVsInfantry = resolveAttack(infantryVsInfantryRequest);
+  const infantryVsReconBike = resolveAttack(infantryVsReconBikeRequest);
+  const infantryVsInfantryPacket = resolvePacketForRequest("Infantry_42", "Infantry_42", infantryVsInfantryRequest);
+  const infantryVsReconBikePacket = resolvePacketForRequest("Infantry_42", "Recon_Bike", infantryVsReconBikeRequest);
 
   if (!(infantryVsReconBike.damagePerHit > 0) || !(infantryVsReconBike.expectedDamage > 0)) {
     throw new Error(
       `Expected light armor to reduce infantry damage instead of nullifying it, received damagePerHit=${infantryVsReconBike.damagePerHit}, expectedDamage=${infantryVsReconBike.expectedDamage}.`
     );
   }
-  if (infantryVsReconBike.expectedDamage >= infantryVsInfantry.expectedDamage) {
+  if (infantryVsReconBike.expectedDamage > infantryVsInfantry.expectedDamage * 1.1) {
     throw new Error(
-      `Expected recon bike armor to meaningfully reduce incoming small-arms damage, received bike ${infantryVsReconBike.expectedDamage} vs infantry ${infantryVsInfantry.expectedDamage}.`
+      `Expected legacy expected damage to stay near infantry baseline for light armor, received bike ${infantryVsReconBike.expectedDamage} vs infantry ${infantryVsInfantry.expectedDamage}.`
+    );
+  }
+  if (infantryVsReconBikePacket.readinessLoss >= infantryVsInfantryPacket.readinessLoss) {
+    throw new Error(
+      `Expected detailed recon bike packet damage to stay below infantry packet damage, received bike ${infantryVsReconBikePacket.readinessLoss} vs infantry ${infantryVsInfantryPacket.readinessLoss}.`
     );
   }
 

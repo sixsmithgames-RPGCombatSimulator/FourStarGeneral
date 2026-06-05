@@ -246,6 +246,21 @@ function defaultHitDistributionForRole(
   return { nonEffect: 0.1, softComponent: 0.15, penetrating: 0.75, areaEffect: 0 };
 }
 
+function blendHitDistribution(
+  baseline: HitDistribution,
+  exposed: HitDistribution,
+  exposedShare: number
+): HitDistribution {
+  const share = clamp(exposedShare, 0, 1);
+  const baseShare = 1 - share;
+  return {
+    nonEffect: baseline.nonEffect * baseShare + exposed.nonEffect * share,
+    softComponent: baseline.softComponent * baseShare + exposed.softComponent * share,
+    penetrating: baseline.penetrating * baseShare + exposed.penetrating * share,
+    areaEffect: baseline.areaEffect * baseShare + exposed.areaEffect * share
+  };
+}
+
 export function resolveWeaponHitDistribution(
   group: WeaponShotGroup,
   defender: UnitTypeDefinition
@@ -261,7 +276,22 @@ export function resolveWeaponHitDistribution(
     if (defender.class === "vehicle") {
       return isSoftSkinnedSupportVehicle(defender) ? authored.vsArtillery : authored.vsArmorButtoned;
     }
-    if (defender.class === "artillery" || defender.class === "recon") {
+    if (defender.class === "recon") {
+      const lightRecon = defender.combat.weight === "light" && (defender.armor?.front ?? 0) <= 2;
+      if (lightRecon && (group.role === "smallArms" || group.role === "machineGun" || group.role === "airGun")) {
+        // Motorcycle scouts are exposed, but not equivalent to static gun crews:
+        // most small-arms fire misses, glances off equipment, or forces dispersion.
+        return blendHitDistribution(authored.vsArmorButtoned, authored.vsArtillery, 0.01);
+      }
+      if (lightRecon && group.role === "antiTank") {
+        return blendHitDistribution(authored.vsArmorButtoned, authored.vsArtillery, 0.1);
+      }
+      if (lightRecon && isHighExplosivePersonnelRole(group.role)) {
+        return blendHitDistribution(authored.vsArmorButtoned, authored.vsArtillery, 0.03);
+      }
+      return lightRecon ? authored.vsArtillery : authored.vsArmorButtoned;
+    }
+    if (defender.class === "artillery") {
       return authored.vsArtillery;
     }
     return authored.vsInfantry;

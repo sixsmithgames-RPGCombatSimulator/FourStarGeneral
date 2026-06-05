@@ -478,7 +478,7 @@ const tactical = {
     ammo: 5,
     fuel: 30,
     rangeMin: 1,
-    rangeMax: 1,
+    rangeMax: 4,
     initiative: 7,
     armor: { front: 2, side: 1, top: 1 },
     hardAttack: 3,

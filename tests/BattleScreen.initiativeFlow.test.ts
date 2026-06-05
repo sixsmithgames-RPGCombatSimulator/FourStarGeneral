@@ -588,7 +588,7 @@ registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_AUTO_ADVANCES_ROUND_WHE
   });
 });
 
-registerTest("BATTLESCREEN_INITIATIVE_SELECTION_EXCLUDES_SMOKE_FACING_AND_SUPPORT_COMMITTED_UNITS", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_INITIATIVE_SELECTION_KEEPS_FACING_ONLY_UNITS_ACTIONABLE", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let selectableIds: string[] = [];
 
@@ -636,16 +636,17 @@ registerTest("BATTLESCREEN_INITIATIVE_SELECTION_EXCLUDES_SMOKE_FACING_AND_SUPPOR
     );
   });
 
-  await Then("no committed unit is re-offered as selectable", async () => {
-    if (selectableIds.length !== 0) {
-      throw new Error(`Expected zero selectable committed units, received ${JSON.stringify(selectableIds)}.`);
+  await Then("smoke and support orders stay committed while facing alone does not spend the unit", async () => {
+    if (selectableIds.length !== 1 || selectableIds[0] !== "u_player_wing") {
+      throw new Error(`Expected only the facing-adjusted unit to remain selectable, received ${JSON.stringify(selectableIds)}.`);
     }
   });
 });
 
-registerTest("BATTLESCREEN_INITIATIVE_SET_FACING_COMPLETES_ACTIVATION", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_INITIATIVE_SET_FACING_PRESERVES_ACTIVATION", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let completedUnitId: string | null = null;
+  let refreshedHexKey: string | null = null;
 
   await Given("a pending facing order in initiative mode", async () => {
     mountBattleScreenRoot();
@@ -666,7 +667,9 @@ registerTest("BATTLESCREEN_INITIATIVE_SET_FACING_COMPLETES_ACTIVATION", async ({
     };
     (screen as any).hideFortificationFacingDialog = () => {};
     (screen as any).renderEngineUnits = () => {};
-    (screen as any).applySelectedHex = () => {};
+    (screen as any).applySelectedHex = (hexKey: string) => {
+      refreshedHexKey = hexKey;
+    };
     (screen as any).announceBattleUpdate = () => {};
     (screen as any).publishActivityEvent = () => {};
     (screen as any).hexMapRenderer = { clearUnitFacingAngle: () => {} };
@@ -679,9 +682,83 @@ registerTest("BATTLESCREEN_INITIATIVE_SET_FACING_COMPLETES_ACTIVATION", async ({
     await (screen as any).handleConfirmFortificationFacing("E");
   });
 
-  await Then("the facing order consumes the initiative activation", async () => {
-    if (completedUnitId !== "u_player_1") {
-      throw new Error(`Expected facing confirmation to complete u_player_1, received ${completedUnitId ?? "none"}.`);
+  await Then("the facing order refreshes the unit without consuming its activation", async () => {
+    if (completedUnitId !== null) {
+      throw new Error(`Expected facing confirmation to preserve the activation, but completed ${completedUnitId}.`);
+    }
+    if (refreshedHexKey !== "4,2") {
+      throw new Error(`Expected facing confirmation to refresh selection at 4,2, received ${refreshedHexKey ?? "none"}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_INITIATIVE_SHORT_MOVE_PRESERVES_REMAINING_ACTIONS", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let completedUnitId: string | null = null;
+  let clearedSelection = false;
+  let refreshedHexKey: string | null = null;
+
+  await Given("an initiative unit with legal movement remaining after moving one hex", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).selectedHexKey = "2,2";
+    (screen as any).selectedPlayerUnitId = "u_player_1";
+    (screen as any).hexMapRenderer = null;
+
+    const movedUnit = createPlayerUnit("u_player_1", 3, 2);
+    const engine = {
+      moveUnit: () => ({
+        unit: movedUnit,
+        from: { q: 2, r: 2 },
+        to: { q: 3, r: 2 },
+        path: [{ q: 2, r: 2 }, { q: 3, r: 2 }]
+      }),
+      getReachableHexes: () => [{ q: 4, r: 2 }],
+      getAttackableTargets: () => [],
+      getUnitCommandState: () => null,
+      getTurnSummary: () => ({ phase: "playerTurn", activeFaction: "Player", turnNumber: 1 })
+    };
+    (screen as any).battleState = {
+      ensureGameEngine: () => engine,
+      emitBattleUpdate: () => {}
+    };
+    (screen as any).renderEngineUnits = () => {};
+    (screen as any).clearSelectedHexAfterAction = () => {
+      clearedSelection = true;
+    };
+    (screen as any).applySelectedHex = (hexKey: string) => {
+      refreshedHexKey = hexKey;
+    };
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+    (screen as any).completeInitiativeActivationAfterPlayerOrder = (unitId: string | null | undefined) => {
+      completedUnitId = unitId ?? null;
+    };
+  });
+
+  await When("the unit moves a single hex", async () => {
+    await (screen as any).executeAnimatedPlayerMove(
+      "2,2",
+      "3,2",
+      { q: 2, r: 2 },
+      { q: 3, r: 2 },
+      "u_player_1"
+    );
+  });
+
+  await Then("the unit remains selected and initiative does not advance", async () => {
+    if (completedUnitId !== null) {
+      throw new Error(`Expected the short move to preserve initiative, but completed ${completedUnitId}.`);
+    }
+    if (clearedSelection) {
+      throw new Error("Expected the moved unit selection to remain active.");
+    }
+    if (refreshedHexKey !== "3,2") {
+      throw new Error(`Expected selection to follow the moved unit to 3,2, received ${refreshedHexKey ?? "none"}.`);
+    }
+    if ((screen as any).selectedPlayerUnitId !== "u_player_1") {
+      throw new Error("Expected the moved unit to remain the selected stack member.");
     }
   });
 });

@@ -33,6 +33,41 @@ const bomberDef: UnitTypeDefinition = {
     cruiseSpeedKph: 450,
     combatRadiusKm: 200,
     refitTurns: 2
+  },
+  weaponModel: {
+    doctrine: "Test bomber profile with a small authored bomb load for deterministic strike damage.",
+    groups: [{
+      id: "test-bomber-bombs",
+      label: "Bomb load",
+      role: "airBomb",
+      shots: 12,
+      accuracyMultiplier: 0.5,
+      softEffect: {
+        injured: 5,
+        wounded: 4,
+        severelyWounded: 1,
+        killed: 1,
+        maxKilledPerHit: 12,
+        maxCasualtiesPerHit: 24,
+        blastMultiplier: 1.1,
+        casualtyRoundingThreshold: 0.25,
+        fatalityRoundingThreshold: 0.3
+      },
+      hardEffect: {
+        damaged: 0.8,
+        disabled: 0.35,
+        destroyed: 0.12,
+        armorPenetration: 10,
+        damageType: "explosive"
+      },
+      suppressionPerHit: 2.8,
+      fortificationDamagePerHit: 3.4,
+      hitDistribution: {
+        vsInfantry: { nonEffect: 0, softComponent: 0, penetrating: 0, areaEffect: 1 },
+        vsArmorButtoned: { nonEffect: 0.15, softComponent: 0.3, penetrating: 0.55, areaEffect: 0 },
+        vsArtillery: { nonEffect: 0.12, softComponent: 0.23, penetrating: 0.65, areaEffect: 0 }
+      }
+    }]
   }
 };
 
@@ -141,6 +176,7 @@ registerTest("AIR_STRIKE_BOMBER_DAMAGE_NEVER_ROUNDS_TO_ZERO", async ({ Given, Wh
 
     (engine as any).stepAirMissionsForFaction("Bot");
     (engine as any).stepAirMissionsForFaction("Bot");
+    (engine as any).resolveReadyAirMissionsForRound();
   });
 
   await Then("the defender loses at least 1 strength", async () => {
@@ -206,6 +242,7 @@ registerTest("AIR_STRIKE_TARGET_RICH_DAMAGE_HITS_EVERY_STACKED_DEFENDER_BUT_SPEN
 
     (engine as any).stepAirMissionsForFaction("Bot");
     (engine as any).stepAirMissionsForFaction("Bot");
+    (engine as any).resolveReadyAirMissionsForRound();
   });
 
   await Then("both defenders should be damaged while the bomber only spends one ammo salvo", async () => {

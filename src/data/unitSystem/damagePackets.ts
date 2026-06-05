@@ -328,6 +328,18 @@ function calculatePersonnelCasualties(
   ) {
     return { ...delta, wounded: 1 };
   }
+  const blastMinimumContact = group.role === "airBomb" || group.role === "airRocket" ? 0.01 : 0.08;
+  if (
+    isHighExplosivePersonnelRole(group.role) &&
+    contactHits >= blastMinimumContact &&
+    roundedOutcomeCount <= 0 &&
+    ["infantry", "specialist", "artillery", "recon", "vehicle"].includes(defender.class)
+  ) {
+    // Deterministic combat still needs low-probability blast contacts to leave a trace.
+    // Near misses from bombs, rockets, mortars, and HE can produce a light casualty even
+    // when the fractional casualty model would otherwise round every severity bucket to 0.
+    return { ...delta, injured: 1 };
+  }
   return delta;
 }
 
@@ -983,6 +995,81 @@ function allocate(total: number, weights: readonly number[]): number[] {
   });
 }
 
+function contactPressurePromotionBudget(totalRequested: number, capacity: number): number {
+  const maxCapacity = Math.max(1, Math.round(capacity));
+  const pressureRatio = Math.max(0, totalRequested) / maxCapacity;
+  if (pressureRatio <= 1) {
+    return 0;
+  }
+  // Once contacts exceed available targets, the surplus represents repeat impacts on
+  // already-hit people or vehicles. Convert part of that surplus into severity upgrades
+  // instead of dropping it at the capacity cap.
+  return Math.round(maxCapacity * clamp((pressureRatio - 1) * 0.25, 0, 2));
+}
+
+function promotePersonnelSeverityForContactPressure(
+  capped: PersonnelDamageDelta,
+  totalRequested: number,
+  capacity: number
+): PersonnelDamageDelta {
+  const promoted = { ...capped };
+  let budget = contactPressurePromotionBudget(totalRequested, capacity);
+
+  const promote = (from: PersonnelTargetKey, to: PersonnelTargetKey): void => {
+    if (budget <= 0) {
+      return;
+    }
+    const count = Math.min(promoted[from], budget);
+    promoted[from] -= count;
+    promoted[to] += count;
+    budget -= count;
+  };
+
+  // Extra contacts in a saturated target cannot invent more people, but they can
+  // represent second and third impacts that push existing effects up the severity chain.
+  while (budget > 0 && (promoted.injured > 0 || promoted.wounded > 0 || promoted.severelyWounded > 0)) {
+    const before = budget;
+    promote("injured", "wounded");
+    promote("wounded", "severelyWounded");
+    promote("severelyWounded", "killed");
+    if (budget === before) {
+      break;
+    }
+  }
+
+  return promoted;
+}
+
+function promoteEquipmentSeverityForContactPressure(
+  capped: EquipmentDamageDelta,
+  totalRequested: number,
+  capacity: number
+): EquipmentDamageDelta {
+  const promoted = { ...capped };
+  let budget = contactPressurePromotionBudget(totalRequested, capacity);
+
+  const promote = (from: EquipmentTargetKey, to: EquipmentTargetKey): void => {
+    if (budget <= 0) {
+      return;
+    }
+    const count = Math.min(promoted[from], budget);
+    promoted[from] -= count;
+    promoted[to] += count;
+    budget -= count;
+  };
+
+  while (budget > 0 && (promoted.damaged > 0 || promoted.disabled > 0)) {
+    const before = budget;
+    promote("damaged", "disabled");
+    promote("disabled", "destroyed");
+    if (budget === before) {
+      break;
+    }
+  }
+
+  return promoted;
+}
+
 function scalePersonnelDeltaToCapacity(delta: PersonnelDamageDelta, capacity: number): PersonnelDamageDelta {
   const rounded: PersonnelDamageDelta = {
     injured: roundDamageCount(delta.injured),
@@ -1004,12 +1091,12 @@ function scalePersonnelDeltaToCapacity(delta: PersonnelDamageDelta, capacity: nu
     rounded.severelyWounded,
     rounded.killed
   ]);
-  return {
+  return promotePersonnelSeverityForContactPressure({
     injured: scaled[0] ?? 0,
     wounded: scaled[1] ?? 0,
     severelyWounded: scaled[2] ?? 0,
     killed: scaled[3] ?? 0
-  };
+  }, totalRequested, maxCapacity);
 }
 
 function scaleEquipmentDeltaToCapacity(delta: EquipmentDamageDelta, capacity: number): EquipmentDamageDelta {
@@ -1031,11 +1118,11 @@ function scaleEquipmentDeltaToCapacity(delta: EquipmentDamageDelta, capacity: nu
     rounded.disabled,
     rounded.destroyed
   ]);
-  return {
+  return promoteEquipmentSeverityForContactPressure({
     damaged: scaled[0] ?? 0,
     disabled: scaled[1] ?? 0,
     destroyed: scaled[2] ?? 0
-  };
+  }, totalRequested, maxCapacity);
 }
 
 function applyPersonnelDelta(status: FormationStatus, delta: PersonnelDamageDelta): PersonnelDamageDelta {
