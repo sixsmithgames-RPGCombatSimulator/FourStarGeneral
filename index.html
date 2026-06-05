@@ -1373,26 +1373,24 @@
     /* Initiative group highlighting */
     .hex-cell.initiative-group-highlight,
     .hex-tile.initiative-group-highlight {
-      filter: brightness(1.3) saturate(1.2);
-      transition: filter 0.3s ease;
+      filter: none;
+      transition: stroke 120ms ease, stroke-opacity 120ms ease;
     }
 
     .hex-cell.initiative-group-highlight .hex-tile,
     .hex-tile.initiative-group-highlight {
       stroke: var(--accent-strong);
       stroke-width: 3px;
-      filter: drop-shadow(0 0 8px rgba(100, 200, 255, 0.6));
+      filter: none;
       animation: initiativePulse 2s ease-in-out infinite;
     }
 
     @keyframes initiativePulse {
       0%, 100% { 
         stroke-opacity: 0.8;
-        filter: drop-shadow(0 0 8px rgba(100, 200, 255, 0.6));
       }
       50% { 
         stroke-opacity: 1;
-        filter: drop-shadow(0 0 12px rgba(100, 200, 255, 0.9));
       }
     }
 
@@ -6572,24 +6570,17 @@
       filter: drop-shadow(0 0 6px rgba(245, 196, 109, 0.45));
     }
 
-    /* Idle unit outlines: bright blue stroke with a subtle glow so idle hexes pop above terrain and sprites. */
+    /* Idle unit outlines: bright blue stroke only; avoid glow filters that soften sprites and terrain. */
     .hex-tile.idle-unit-highlight,
     .hex-cell.idle-unit-highlight .hex-tile {
       stroke: rgba(94, 173, 255, 0.95);
       stroke-width: 3;
-      filter: drop-shadow(0 0 5px rgba(94, 173, 255, 0.55));
-      transition: filter 120ms ease, stroke 120ms ease;
+      filter: none;
+      transition: stroke 120ms ease, stroke-opacity 120ms ease;
     }
 
     .hex-cell.idle-unit-highlight .unit-icon {
-      filter:
-        brightness(1.16)
-        contrast(1.15)
-        saturate(1.18)
-        drop-shadow(0 0 1px rgba(6, 10, 18, 0.92))
-        drop-shadow(0 0 4px rgba(5, 8, 14, 0.65))
-        drop-shadow(0 0 5px var(--unit-faction-glow, rgba(255, 255, 255, 0.28)))
-        drop-shadow(0 0 4px rgba(94, 173, 255, 0.35));
+      filter: none;
     }
 
     .hex-tile.move-option-highlight,
@@ -6597,7 +6588,7 @@
       animation: move-option-pulse 2s ease-in-out infinite;
       stroke-dasharray: 4 3;
       stroke-width: 2.5;
-      filter: drop-shadow(0 0 6px rgba(116, 186, 96, 0.34));
+      filter: none;
     }
 
     .hex-tile.attack-target-highlight,
@@ -6605,36 +6596,19 @@
       animation: attack-target-pulse 2s ease-in-out infinite;
       stroke-dasharray: 4 3;
       stroke-width: 2.5;
-      filter: drop-shadow(0 0 6px rgba(255, 87, 138, 0.3));
+      filter: none;
     }
 
     .unit-icon {
-      --unit-faction-glow: rgba(255, 255, 255, 0.28);
-      filter:
-        brightness(1.16)
-        contrast(1.15)
-        saturate(1.18)
-        drop-shadow(0 0 1px rgba(6, 10, 18, 0.92))
-        drop-shadow(0 0 4px rgba(5, 8, 14, 0.65))
-        drop-shadow(0 0 5px var(--unit-faction-glow));
+      filter: none;
+      image-rendering: auto;
     }
 
-    .unit-icon.faction-player {
-      --unit-faction-glow: rgba(86, 191, 255, 0.62);
-    }
-
-    .unit-icon.faction-bot {
-      --unit-faction-glow: rgba(255, 126, 126, 0.58);
-    }
-
-    .unit-icon.faction-ally {
-      --unit-faction-glow: rgba(130, 231, 92, 0.68);
-    }
     .unit-stack--suppressed {
-      filter: drop-shadow(0 0 6px rgba(255, 196, 109, 0.34));
+      filter: none;
     }
     .unit-stack--pinned {
-      filter: drop-shadow(0 0 7px rgba(255, 112, 112, 0.38));
+      filter: none;
     }
 
     .hex-tile.deployment-zone,

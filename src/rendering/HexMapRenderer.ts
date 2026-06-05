@@ -4461,7 +4461,7 @@ export class HexMapRenderer implements IMapRenderer {
           image.classList.add("spotted-only");
         } else if (reconStatus === "identified") {
           image.style.opacity = "0.78";
-          image.style.filter = "saturate(0.55) brightness(0.95)";
+          image.style.removeProperty("filter");
           image.classList.add("recon-identified");
         } else {
           image.style.removeProperty("opacity");

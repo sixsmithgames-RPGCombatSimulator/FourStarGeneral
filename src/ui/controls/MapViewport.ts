@@ -141,7 +141,7 @@ export class MapViewport implements IMapViewport {
 
   // Zoom limits keep interactions bounded; a higher max lets commanders inspect the map closely.
   private readonly MIN_ZOOM = 0.5;
-  private readonly MAX_ZOOM = 6.0;
+  private readonly MAX_ZOOM = 7.5;
 
   constructor(mapElementSelector: string = "#battleHexMap") {
     const element = document.querySelector<SVGSVGElement>(mapElementSelector);
