@@ -8,7 +8,7 @@
  * - Sidebar tooltip enhancements
  */
 
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 
 // Mock the DOM environment
 describe('Tutorial UI Enhancements', () => {
@@ -172,11 +172,12 @@ describe('Tutorial Steps Validation', () => {
       'budget_overview',
       'unit_categories',
       'select_infantry',
-      'adjust_quantity',
       'select_tanks',
       'select_engineers',
       'select_flak',
       'select_air_wing',
+      'select_ammo',
+      'select_fuel',
       'review_allocation',
       'mission_objectives'
     ];
@@ -186,9 +187,16 @@ describe('Tutorial Steps Validation', () => {
 
   it('should include new smoke_demo phase', () => {
     const combatPhases = [
+      'initiative_order',
+      'active_group_units',
       'movement_intro',
       'attack_intro',
+      'intel_overlay_expand',
       'smoke_demo', // New phase
+      'spend_activation',
+      'enemy_activation',
+      'next_unit',
+      'skip_group',
       'engineer_intro',
       'engineer_orders',
       'artillery_intro',

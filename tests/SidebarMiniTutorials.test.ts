@@ -5,7 +5,7 @@ import {
   SIDEBAR_MINI_TUTORIAL_EVENT,
   normalizeSidebarMiniTutorialKey
 } from "../src/data/sidebarMiniTutorials";
-import { getCombatPhases, getDeploymentPhases, getNextPhase, getTutorialStep } from "../src/data/tutorialSteps";
+import { getCombatPhases, getDeploymentPhases, getNextPhase, getPrecombatPhases, getTutorialStep, getTutorialStepNumber } from "../src/data/tutorialSteps";
 import { ensureTutorialState } from "../src/state/TutorialState";
 import { TutorialOverlay } from "../src/ui/components/TutorialOverlay";
 
@@ -84,12 +84,52 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(!combatPhases.includes("air_missions"), "Air missions should not auto-open the Air sidebar during the main tutorial.");
     expect(!combatPhases.includes("logistics_intro"), "Logistics should not auto-open during the main tutorial.");
     expect((getTutorialStep("base_camp")?.content.includes("Zone Alpha") ?? false), "Base-camp instructions should direct the player to Zone Alpha.");
+    expect((getTutorialStep("movement_intro")?.content.includes("For now, keep the patrol in place") ?? false), "Movement tutorial should not imply the player must move during the walkthrough.");
+    expect((getTutorialStep("attack_intro")?.content.includes("If none appear") ?? false), "Fire tutorial should explain the no-target case directly.");
+    expect(getTutorialStep("enemy_activation")?.waitForAction === true, "Enemy Action should wait for initiative handoff instead of showing a premature Continue button.");
+    expect((getTutorialStep("initiative_order")?.content.includes("battle clock") ?? false) === false, "Initiative copy should explain the UI without mystifying phrases.");
+    expect((getTutorialStep("smoke_demo")?.content.includes("opened on one now") ?? false) === false, "Smoke copy should avoid mechanical developer phrasing.");
     expect(
       getTutorialStep("place_units")?.highlightSelector === "#autoDeployEvenly, #autoDeployGrouped",
       "Placement instructions should anchor near the deploy-mode buttons."
     );
     expect(getTutorialStep("place_units")?.position === "top", "Placement instructions should render above the deploy-mode controls.");
     expect(getTutorialStep("place_units")?.arrowDirection === "down", "Placement instructions should point directly at the deploy-mode controls.");
+  });
+});
+
+registerTest("MAIN_TUTORIAL_STEP_NUMBERS_ARE_STATIC_AND_UNIQUE", async ({ Then }) => {
+  await Then("every rendered main phase maps to one stable visible step number", async () => {
+    const phases = [...getPrecombatPhases(), ...getDeploymentPhases(), ...getCombatPhases()];
+    const numbers = phases.map((phase) => getTutorialStepNumber(phase));
+    expect(numbers.every((number) => typeof number === "number"), "Every main tutorial phase should have a static step number.");
+    expect(new Set(numbers).size === numbers.length, "Main tutorial phases should not reuse visible step numbers.");
+    expect(numbers[0] === 1, "The first visible tutorial phase should be Step 1.");
+    expect(numbers[numbers.length - 1] === phases.length, "The final visible step number should match the phase count.");
+  });
+});
+
+registerTest("TUTORIAL_WAIT_BUTTON_USES_DIRECT_DISABLED_COPY", async ({ Given, Then }) => {
+  let overlay: TutorialOverlay;
+  const tutorialState = ensureTutorialState();
+
+  await Given("a required-action tutorial step is visible", async () => {
+    tutorialState.endTutorial();
+    (globalThis as { MutationObserver?: typeof MutationObserver }).MutationObserver = window.MutationObserver;
+    document.body.innerHTML = `<div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight">Recon Bike Patrol</div></div>`;
+    setRect(document.querySelector<HTMLElement>(".initiative-group-highlight") as HTMLElement, { left: 160, top: 180, width: 80, height: 72 });
+    overlay = new TutorialOverlay();
+    overlay.initialize();
+    tutorialState.jumpToPhase("active_group_units");
+  });
+
+  await Then("the disabled button is the full instruction and does not use the legacy waiting class", async () => {
+    const actionButton = document.querySelector<HTMLButtonElement>(".tutorial-action-btn");
+    expect(actionButton?.disabled === true, "Required-action tutorial steps should disable the tutorial button.");
+    expect(actionButton?.textContent === "To continue, complete the action above", `Unexpected wait text: ${actionButton?.textContent ?? "<missing>"}.`);
+    expect(actionButton?.classList.contains("waiting") === false, "Wait buttons should not use the legacy waiting class with appended copy.");
+    overlay.dispose();
+    tutorialState.endTutorial();
   });
 });
 

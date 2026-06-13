@@ -402,12 +402,9 @@ export class TutorialOverlay {
         ? "To continue, complete the action above"
         : step.actionLabel ?? "Continue";
       actionBtn.disabled = isActionStep;
-
-      if (isActionStep) {
-        actionBtn.classList.add("waiting");
-      } else {
-        actionBtn.classList.remove("waiting");
-      }
+      // Disabled wait steps use the button's actual text as the full instruction.
+      // Avoid the legacy waiting class because its CSS appends a stale parenthetical hint.
+      actionBtn.classList.remove("waiting");
     }
 
     if (step.waitForAction === true) {
@@ -605,7 +602,7 @@ export class TutorialOverlay {
 
   /**
    * Scrolls the target element into view if it's not visible in the viewport.
-   * Uses smooth scrolling for a better user experience.
+   * Uses immediate scrolling so spotlight and camera positioning stay in sync.
    * After scrolling completes, repositions the spotlight to match the new element location.
    */
   private scrollTargetIntoView(selector: string): void {
@@ -644,16 +641,34 @@ export class TutorialOverlay {
 
     if (isOutOfView) {
       // Avoid smooth-scroll loops that can repeatedly trigger observers/scroll handlers.
+      // Keep horizontal position stable; centering wide battle-header targets can shove
+      // the mobile map pane off-screen while the tutorial is trying to teach the map.
       targetElement.scrollIntoView({
         behavior: "auto",
         block: "center",
-        inline: "center"
+        inline: "nearest"
       });
+      this.resetBattlePaneHorizontalScroll();
 
       // Reposition immediately since auto scroll completes synchronously.
       this.positionSpotlight(selector);
       this.positionPanelForCurrentStep();
+      window.requestAnimationFrame(() => {
+        this.resetBattlePaneHorizontalScroll();
+        this.positionSpotlight(selector);
+        this.positionPanelForCurrentStep();
+      });
     }
+  }
+
+  private resetBattlePaneHorizontalScroll(): void {
+    document
+      .querySelectorAll<HTMLElement>(".battle-map-pane, .map-shell, .battle-main")
+      .forEach((element) => {
+        if (element.scrollLeft !== 0) {
+          element.scrollLeft = 0;
+        }
+      });
   }
 
   /**

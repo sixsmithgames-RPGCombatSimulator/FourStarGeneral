@@ -128,11 +128,11 @@ type ActivityCategory = "player" | "enemy" | "system";
 type ActivityType = "attack" | "move" | "deployment" | "supply" | "turn" | "log";
 
 const TUTORIAL_DEPLOYMENT_CAMERA_ZOOM = 1.9;
-const TUTORIAL_GROUP_CAMERA_ZOOM = 3.0;
-const TUTORIAL_ORDER_CAMERA_ZOOM = 2.85;
-const TUTORIAL_MOVEMENT_CAMERA_ZOOM = 2.65;
-const TUTORIAL_ATTACK_CAMERA_ZOOM = 2.75;
-const TUTORIAL_OVERVIEW_CAMERA_ZOOM = 2.55;
+const TUTORIAL_GROUP_CAMERA_ZOOM = 3.35;
+const TUTORIAL_ORDER_CAMERA_ZOOM = 3.25;
+const TUTORIAL_MOVEMENT_CAMERA_ZOOM = 3.15;
+const TUTORIAL_ATTACK_CAMERA_ZOOM = 3.15;
+const TUTORIAL_OVERVIEW_CAMERA_ZOOM = 3.0;
 
 /**
  * Represents a battle log line destined for the sidebar activity feed so commanders can review past actions.
@@ -304,6 +304,9 @@ export class BattleScreen {
   private tutorialCameraSyncKey: string | null = null;
   private tutorialLastSyncedPhase: TutorialPhase | null = null;
   private tutorialSelectionSyncInProgress = false;
+  private tutorialEnemyActivationMonitorActive = false;
+  private tutorialEnemyActivationStartedAt = 0;
+  private tutorialEnemyActivationSequenceStart = 0;
   private battleUpdateUnsubscribe: (() => void) | null = null;
   private tutorialUpdateUnsubscribe: (() => void) | null = null;
   private missionRulesController: MissionRulesController | null = null;
@@ -2951,11 +2954,15 @@ export class BattleScreen {
       "intel_overlay_expand",
       "smoke_demo",
       "spend_activation",
+      "enemy_activation",
+      "next_unit",
+      "skip_group",
       "engineer_intro",
       "engineer_orders",
       "artillery_intro",
       "flak_intro",
-      "round_handoff"
+      "round_handoff",
+      "mission_objectives"
     ]);
     if (!progress.isActive || progress.currentPhase !== phase) {
       return;
@@ -3042,30 +3049,30 @@ export class BattleScreen {
     }
 
     if (phase === "movement_intro") {
-      if (!this.selectedUnitIsManualPlayerUnit()) {
+      if (!this.selectedUnitIsInActiveInitiativeGroup()) {
         this.selectFirstTutorialUnitTarget(phase, (_unit, commandState) => commandState?.isAutomated !== true, {
           activeGroupOnly: true
         });
       }
 
       this.hexMapRenderer?.setZoneHighlights(new Set());
-      this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(this.playerMoveHexes), TUTORIAL_MOVEMENT_CAMERA_ZOOM);
+      this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(), TUTORIAL_MOVEMENT_CAMERA_ZOOM);
       return;
     }
 
     if (phase === "attack_intro") {
-      if (!this.selectedUnitIsManualPlayerUnit()) {
+      if (!this.selectedUnitIsInActiveInitiativeGroup()) {
         this.selectFirstTutorialUnitTarget(phase, (_unit, commandState) => commandState?.isAutomated !== true, {
           activeGroupOnly: true
         });
       }
       this.hexMapRenderer?.setZoneHighlights(new Set());
-      this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(this.playerAttackHexes), TUTORIAL_ATTACK_CAMERA_ZOOM);
+      this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(), TUTORIAL_ATTACK_CAMERA_ZOOM);
       return;
     }
 
     if (phase === "intel_overlay_expand") {
-      if (!this.selectedUnitIsManualPlayerUnit()) {
+      if (!this.selectedUnitIsInActiveInitiativeGroup()) {
         this.selectFirstTutorialUnitTarget(phase, (_unit, commandState) => commandState?.isAutomated !== true, {
           activeGroupOnly: true
         });
@@ -3095,6 +3102,10 @@ export class BattleScreen {
     if (phase === "spend_activation") {
       const sentryTarget = this.selectFirstTutorialUnitTarget(
         phase,
+        (unit, commandState) => commandState?.isAutomated !== true && this.isReconBikeBattleUnit(unit),
+        { activeGroupOnly: true, expandIntel: true }
+      ) ?? this.selectFirstTutorialUnitTarget(
+        phase,
         (_unit, commandState) => commandState?.isAutomated !== true,
         { activeGroupOnly: true, expandIntel: true }
       );
@@ -3103,11 +3114,26 @@ export class BattleScreen {
       return;
     }
 
+    if (phase === "enemy_activation") {
+      this.hexMapRenderer?.setZoneHighlights(new Set());
+      this.queueTutorialCameraForPhase(phase, this.getManualPlayerUnitHexKeys(), TUTORIAL_OVERVIEW_CAMERA_ZOOM);
+      this.monitorTutorialEnemyActivation();
+      return;
+    }
+
+    if (phase === "next_unit" || phase === "skip_group") {
+      const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
+      const focusHexKeys = activeGroupHexKeys.size > 0 ? activeGroupHexKeys : this.getManualPlayerUnitHexKeys();
+      this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
+      this.queueTutorialCameraForPhase(phase, focusHexKeys, TUTORIAL_GROUP_CAMERA_ZOOM);
+      return;
+    }
+
     if (phase === "engineer_intro" || phase === "engineer_orders") {
       const engineerTarget = this.selectFirstTutorialUnitTarget(
         phase,
         (unit, commandState) => commandState?.isAutomated !== true && this.isEngineerBattleUnit(unit),
-        { expandIntel: phase === "engineer_orders" }
+        { expandIntel: true }
       );
       this.hexMapRenderer?.setZoneHighlights(engineerTarget ? new Set([engineerTarget.hexKey]) : new Set());
       this.queueTutorialCameraForPhase(phase, engineerTarget ? [engineerTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
@@ -3126,11 +3152,12 @@ export class BattleScreen {
     }
 
     if (phase === "flak_intro") {
-      const flakTarget = this.selectFirstTutorialUnitTarget(
-        phase,
-        (unit, commandState) => commandState?.isAutomated !== true && this.isFlakBattleUnit(unit),
-        { expandIntel: true }
+      const flakTarget = this.findFirstTutorialUnitTarget(
+        (unit, commandState) => commandState?.isAutomated !== true && this.isFlakBattleUnit(unit)
       );
+      if (this.selectedHexKey || this.isBattleIntelOverlayExpanded()) {
+        this.clearSelectedHexAfterAction();
+      }
       this.hexMapRenderer?.setZoneHighlights(flakTarget ? new Set([flakTarget.hexKey]) : new Set());
       this.queueTutorialCameraForPhase(phase, flakTarget ? [flakTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
       return;
@@ -3143,6 +3170,12 @@ export class BattleScreen {
         focusHexes.size > 0 ? focusHexes : this.getManualPlayerUnitHexKeys(),
         TUTORIAL_OVERVIEW_CAMERA_ZOOM
       );
+      return;
+    }
+
+    if (phase === "mission_objectives") {
+      this.hexMapRenderer?.setZoneHighlights(new Set());
+      this.queueTutorialCameraForPhase(phase, this.getManualPlayerUnitHexKeys(), TUTORIAL_OVERVIEW_CAMERA_ZOOM);
       return;
     }
 
@@ -3168,12 +3201,108 @@ export class BattleScreen {
     this.tutorialCameraSyncKey = syncKey;
 
     const centerTutorialCamera = () => {
-      void this.centerCameraOnZone(hexArray, zoom).catch((error) => {
-        console.warn("[BattleScreen] Failed to center tutorial camera", { phase, zoom, error });
-      });
+      this.resetTutorialBattlePaneScroll();
+      void this.centerCameraOnZone(hexArray, zoom)
+        .then(() => {
+          this.resetTutorialBattlePaneScroll();
+          window.requestAnimationFrame(() => this.resetTutorialBattlePaneScroll());
+        })
+        .catch((error) => {
+          console.warn("[BattleScreen] Failed to center tutorial camera", { phase, zoom, error });
+        });
     };
-    window.setTimeout(centerTutorialCamera, 0);
-    window.setTimeout(centerTutorialCamera, 180);
+    [0, 180, 480, 900].forEach((delayMs) => {
+      window.setTimeout(centerTutorialCamera, delayMs);
+    });
+  }
+
+  private resetTutorialBattlePaneScroll(): void {
+    [".battle-map-pane", ".map-shell", ".battle-main"].forEach((selector) => {
+      const node = this.element.querySelector<HTMLElement>(selector);
+      if (node && node.scrollLeft !== 0) {
+        node.scrollLeft = 0;
+      }
+    });
+  }
+
+  private monitorTutorialEnemyActivation(): void {
+    if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
+      this.completeTutorialPhase("enemy_activation");
+      return;
+    }
+
+    const progress = ensureTutorialState().getProgress();
+    if (!progress.isActive || progress.currentPhase !== "enemy_activation") {
+      this.tutorialEnemyActivationMonitorActive = false;
+      return;
+    }
+
+    const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+    const activeGroup = this.resolveActiveInitiativeGroup(queue);
+    if (!activeGroup || activeGroup.ownerId === "player") {
+      this.finishTutorialEnemyActivation();
+      return;
+    }
+
+    if (!this.tutorialEnemyActivationMonitorActive) {
+      this.tutorialEnemyActivationMonitorActive = true;
+      this.tutorialEnemyActivationStartedAt = Date.now();
+      this.tutorialEnemyActivationSequenceStart = this.activityEventSequence;
+    }
+
+    const currentActivation = this.initiativeMethods.getCurrentActivation();
+    if (!currentActivation && this.hasPendingInitiativeActivations(queue)) {
+      try {
+        this.initiativeMethods.processNextInitiativeActivation();
+      } catch (error) {
+        console.warn("[BattleScreen] Failed to resume tutorial enemy activation.", error);
+      }
+    }
+
+    const elapsedMs = Date.now() - this.tutorialEnemyActivationStartedAt;
+    if (elapsedMs >= 3600) {
+      this.resolveTutorialEnemyActivationFallback();
+      return;
+    }
+
+    window.setTimeout(() => this.monitorTutorialEnemyActivation(), 220);
+  }
+
+  private finishTutorialEnemyActivation(): void {
+    this.tutorialEnemyActivationMonitorActive = false;
+    this.highlightCurrentInitiativeGroup();
+    this.syncInitiativeTurnControlsState();
+    this.completeTutorialPhase("enemy_activation");
+  }
+
+  private resolveTutorialEnemyActivationFallback(): void {
+    if (!this.initiativeMethods) {
+      this.finishTutorialEnemyActivation();
+      return;
+    }
+
+    const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+    const activeGroup = this.resolveActiveInitiativeGroup(queue);
+    if (!activeGroup || activeGroup.ownerId === "player") {
+      this.finishTutorialEnemyActivation();
+      return;
+    }
+
+    if (this.activityEventSequence === this.tutorialEnemyActivationSequenceStart) {
+      this.publishActivityEvent({
+        category: "enemy",
+        type: "log",
+        summary: "Enemy activation resolved with no observed movement or fire."
+      });
+    }
+
+    try {
+      this.initiativeMethods.skipCurrentGroup();
+    } catch (error) {
+      console.warn("[BattleScreen] Failed to skip stalled tutorial enemy group.", error);
+    }
+
+    this.finishTutorialEnemyActivation();
   }
 
   private getSelectedTutorialFocusHexes(extraHexes: Iterable<string> = []): Set<string> {
@@ -3272,11 +3401,15 @@ export class BattleScreen {
       progress.currentPhase === "intel_overlay_expand" ||
       progress.currentPhase === "smoke_demo" ||
       progress.currentPhase === "spend_activation" ||
+      progress.currentPhase === "enemy_activation" ||
+      progress.currentPhase === "next_unit" ||
+      progress.currentPhase === "skip_group" ||
       progress.currentPhase === "engineer_intro" ||
       progress.currentPhase === "engineer_orders" ||
       progress.currentPhase === "artillery_intro" ||
       progress.currentPhase === "flak_intro" ||
-      progress.currentPhase === "round_handoff"
+      progress.currentPhase === "round_handoff" ||
+      progress.currentPhase === "mission_objectives"
     );
   }
 
@@ -3292,8 +3425,9 @@ export class BattleScreen {
       });
     };
 
-    window.setTimeout(centerOverview, 0);
-    window.setTimeout(centerOverview, 160);
+    [0, 180, 480, 900].forEach((delayMs) => {
+      window.setTimeout(centerOverview, delayMs);
+    });
   }
 
   private selectedUnitCanLaySmoke(): boolean {
