@@ -56,6 +56,7 @@ export interface TutorialStep {
   readonly position: "top" | "bottom" | "left" | "right" | "center";
   readonly actionLabel?: string;
   readonly waitForAction?: boolean;
+  readonly allowBack?: boolean;
   readonly arrowDirection?: "up" | "down" | "left" | "right";
 }
 

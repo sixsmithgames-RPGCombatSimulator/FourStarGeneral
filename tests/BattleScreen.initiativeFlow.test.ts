@@ -2,6 +2,7 @@ import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
 import type { ScenarioUnit } from "../src/core/types";
+import { ensureTutorialState } from "../src/state/TutorialState";
 
 function mountBattleScreenRoot(): HTMLElement {
   document.body.innerHTML = "<div id=\"battleScreen\"></div>";
@@ -534,6 +535,198 @@ registerTest("BATTLESCREEN_INITIATIVE_END_TURN_ROUTES_THROUGH_PROCEED_CONFIRMATI
     if (skipModeChanged || (screen as any).initiativeEndTurnSkipModeActive === true) {
       throw new Error("Expected skip mode to remain disabled until proceed/confirmation succeeds.");
     }
+  });
+});
+
+registerTest("BATTLESCREEN_TUTORIAL_END_TURN_FINISHES_ONLY_THE_GUIDED_INITIATIVE_GROUP", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let observedOptions: { endTurnSkipAll?: boolean; bypassConfirmation?: boolean } | undefined;
+  let completedPhase: string | null = null;
+  const tutorialState = ensureTutorialState();
+
+  await Given("the tutorial is waiting for the moved patrol to finish its initiative group", async () => {
+    tutorialState.endTutorial();
+    tutorialState.startTutorial();
+    tutorialState.jumpToPhase("spend_activation");
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).handleProceedToNext = async (options?: { endTurnSkipAll?: boolean; bypassConfirmation?: boolean }) => {
+      observedOptions = options;
+      return true;
+    };
+    (screen as any).completeTutorialPhase = (phase: string) => {
+      completedPhase = phase;
+    };
+    (screen as any).handleInitiativeEndTurn = async () => {
+      throw new Error("The guided handoff must not skip every remaining player group.");
+    };
+  });
+
+  await When("the player clicks the highlighted End Turn control", async () => {
+    await (screen as any).handleTutorialAwareEndTurn();
+  });
+
+  await Then("the current group advances without the normal confirmation or a full-turn skip", async () => {
+    if (observedOptions?.bypassConfirmation !== true || observedOptions.endTurnSkipAll === true) {
+      throw new Error(`Expected a confirmation-free current-group handoff, received ${JSON.stringify(observedOptions)}.`);
+    }
+    if (completedPhase !== "spend_activation") {
+      throw new Error(`Expected spend_activation to complete, received ${completedPhase ?? "<none>"}.`);
+    }
+    tutorialState.endTutorial();
+  });
+});
+
+registerTest("BATTLESCREEN_MOVEMENT_TUTORIAL_CLEARS_INTEL_WITHOUT_LOSING_SELECTION", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let publishedIntel: unknown = "not-called";
+  let tacticalMoveCount = 0;
+
+  await Given("the recon patrol is selected with six nearby movement hexes", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).selectedHexKey = "6,5";
+    (screen as any).selectedPlayerUnitId = "recon_1";
+    (screen as any).playerMoveHexes = new Set(["5,4", "6,4", "5,5", "7,5", "5,6", "6,6"]);
+    (screen as any).playerAttackHexes = new Set<string>();
+    (screen as any).selectedUnitMatchesTutorialTarget = () => true;
+    (screen as any).getNearbyTutorialMoveHexes = (_origin: unknown, hexes: Set<string>) => hexes;
+    (screen as any).hexMapRenderer = {
+      setTacticalHighlights: (moveHexes: Set<string>) => {
+        tacticalMoveCount = moveHexes.size;
+      },
+      setZoneHighlights: () => {}
+    };
+    (screen as any).selectionIntelOverlay = {
+      update: (intel: unknown) => {
+        publishedIntel = intel;
+      }
+    };
+    (screen as any).battleState = {
+      tryGetGameEngine: () => ({
+        getTurnSummary: () => ({ phase: "playerTurn" })
+      })
+    };
+    (screen as any).queueTutorialCameraForPhase = () => {};
+  });
+
+  await When("the movement lesson prepares the battlefield", async () => {
+    (screen as any).syncTutorialPhaseWithCurrentContext("movement_intro");
+  });
+
+  await Then("the intel card closes while the recon patrol and legal moves remain active", async () => {
+    if (publishedIntel !== null) {
+      throw new Error("The movement lesson should close the intel card before asking for a map click.");
+    }
+    if ((screen as any).selectedHexKey !== "6,5" || (screen as any).selectedPlayerUnitId !== "recon_1") {
+      throw new Error("Closing tutorial intel must preserve the selected recon patrol.");
+    }
+    if (tacticalMoveCount !== 6) {
+      throw new Error(`Expected six nearby move choices, received ${tacticalMoveCount}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_UNIT_INTEL_TUTORIAL_RESTORES_SELECTION_WITHOUT_REENTERING", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let selectionRefreshCount = 0;
+
+  await Given("the selected tutorial unit remains active while its intel card is closed", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).selectedHexKey = "6,5";
+    (screen as any).tutorialSelectionSyncInProgress = false;
+    (screen as any).selectedUnitIsInActiveInitiativeGroup = () => true;
+    (screen as any).isBattleIntelOverlayVisible = () => false;
+    (screen as any).isBattleIntelOverlayExpanded = () => false;
+    (screen as any).getSelectedTutorialFocusHexes = () => new Set(["6,5"]);
+    (screen as any).queueTutorialCameraForPhase = () => {};
+    (screen as any).hexMapRenderer = {
+      setZoneHighlights: () => {}
+    };
+    (screen as any).applySelectedHex = () => {
+      selectionRefreshCount += 1;
+      (screen as any).syncTutorialPhaseWithCurrentContext("intel_overlay_expand");
+    };
+  });
+
+  await When("the Unit Intel lesson restores the selected unit card", async () => {
+    const tutorialState = ensureTutorialState();
+    tutorialState.endTutorial();
+    tutorialState.startTutorial();
+    tutorialState.jumpToPhase("intel_overlay_expand");
+    (screen as any).syncTutorialPhaseWithCurrentContext("intel_overlay_expand");
+  });
+
+  await Then("the nested selection callback is ignored and the guard is released", async () => {
+    if (selectionRefreshCount !== 1) {
+      throw new Error(`Expected one guarded selection refresh, received ${selectionRefreshCount}.`);
+    }
+    if ((screen as any).tutorialSelectionSyncInProgress !== false) {
+      throw new Error("Tutorial selection synchronization should release its reentrancy guard.");
+    }
+    ensureTutorialState().endTutorial();
+  });
+});
+
+registerTest("BATTLESCREEN_MOBILE_TUTORIAL_CAMERA_KEEPS_ACTION_HEXES_BELOW_THE_PROMPT", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let observedPanY = 0;
+
+  await Given("a mobile battle prompt overlaps the tutorial movement hexes", async () => {
+    mountBattleScreenRoot();
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 });
+
+    const panel = document.createElement("div");
+    panel.className = "tutorial-panel tutorial-battle-docked";
+    panel.getBoundingClientRect = () => ({
+      x: 38,
+      y: 245,
+      left: 38,
+      top: 245,
+      right: 378,
+      bottom: 363,
+      width: 340,
+      height: 118,
+      toJSON: () => ({})
+    }) as DOMRect;
+    document.body.appendChild(panel);
+
+    const focusHex = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    focusHex.getBoundingClientRect = () => ({
+      x: 160,
+      y: 305,
+      left: 160,
+      top: 305,
+      right: 205,
+      bottom: 357,
+      width: 45,
+      height: 52,
+      toJSON: () => ({})
+    }) as DOMRect;
+
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).mapViewport = {
+      pan: (_x: number, y: number) => {
+        observedPanY = y;
+      }
+    };
+    (screen as any).hexMapRenderer = {
+      getHexElement: () => focusHex
+    };
+  });
+
+  await When("the tutorial camera reserves room for the upper prompt", async () => {
+    (screen as any).offsetTutorialCameraBelowPrompt(["9,7"]);
+  });
+
+  await Then("the map pans down enough to expose the required hex", async () => {
+    if (observedPanY !== 78) {
+      throw new Error(`Expected an unobstructed 78px tutorial camera shift, received ${observedPanY}.`);
+    }
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
   });
 });
 

@@ -74,6 +74,14 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getNextPhase("smoke_demo") === "spend_activation", "Smoke should not block the first recon activation.");
     expect(getNextPhase("spend_activation") === "enemy_activation", "The tutorial should spend the first activation before enemy tempo.");
     expect(combatPhases.includes("spend_activation"), "Combat tutorial should include a real activation-spend gate.");
+    expect(
+      getTutorialStep("spend_activation")?.highlightSelector === ".enhanced-initiative-turn-controls .end-turn-btn",
+      "The activation handoff should point to the legal End Turn control."
+    );
+    expect(
+      getTutorialStep("spend_activation")?.content.includes("patrol has moved") === true,
+      "The activation handoff should explain why the patrol is ready to pass control."
+    );
     expect(getNextPhase("round_handoff") === "mission_objectives", "Command loop should advance to final mission orders.");
     expect(getNextPhase("mission_objectives") === "complete", "Final mission orders should advance to the dismissal step.");
     expect(getNextPhase("complete") === null, "Final certification should dismiss instead of looping.");
@@ -84,7 +92,8 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(!combatPhases.includes("air_missions"), "Air missions should not auto-open the Air sidebar during the main tutorial.");
     expect(!combatPhases.includes("logistics_intro"), "Logistics should not auto-open during the main tutorial.");
     expect((getTutorialStep("base_camp")?.content.includes("Zone Alpha") ?? false), "Base-camp instructions should direct the player to Zone Alpha.");
-    expect((getTutorialStep("movement_intro")?.content.includes("For now, keep the patrol in place") ?? false), "Movement tutorial should not imply the player must move during the walkthrough.");
+    expect(getTutorialStep("movement_intro")?.waitForAction === true, "Movement tutorial should require a successful map move.");
+    expect((getTutorialStep("movement_intro")?.content.includes("nearby green dashed hex") ?? false), "Movement tutorial should identify the short legal destinations directly.");
     expect((getTutorialStep("attack_intro")?.content.includes("If none appear") ?? false), "Fire tutorial should explain the no-target case directly.");
     expect(getTutorialStep("enemy_activation")?.waitForAction === true, "Enemy Action should wait for initiative handoff instead of showing a premature Continue button.");
     expect((getTutorialStep("initiative_order")?.content.includes("battle clock") ?? false) === false, "Initiative copy should explain the UI without mystifying phrases.");
@@ -130,6 +139,154 @@ registerTest("TUTORIAL_WAIT_BUTTON_USES_DIRECT_DISABLED_COPY", async ({ Given, T
     expect(actionButton?.classList.contains("waiting") === false, "Wait buttons should not use the legacy waiting class with appended copy.");
     overlay.dispose();
     tutorialState.endTutorial();
+  });
+});
+
+registerTest("TUTORIAL_BACK_IS_AVAILABLE_ONLY_ON_REVERSIBLE_INFORMATION_STEPS", async ({ Given, When, Then }) => {
+  let overlay: TutorialOverlay;
+  const tutorialState = ensureTutorialState();
+
+  await Given("the tutorial is on an early reversible briefing", async () => {
+    tutorialState.endTutorial();
+    (globalThis as { MutationObserver?: typeof MutationObserver }).MutationObserver = window.MutationObserver;
+    document.body.innerHTML = `
+      <div id="allocationUnitList">Units</div>
+      <div id="allocationSupportList">Support</div>
+      <div id="allocationLogisticsList">Logistics</div>
+      <div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight">Recon</div></div>
+    `;
+    document.querySelectorAll<HTMLElement>("div").forEach((element) => setRect(element, {}));
+    overlay = new TutorialOverlay();
+    overlay.initialize();
+    tutorialState.jumpToPhase("unit_categories");
+  });
+
+  await Then("Back is visible and returns to the opening briefing", async () => {
+    const backButton = document.querySelector<HTMLButtonElement>(".tutorial-back-btn");
+    expect(backButton?.style.display !== "none", "The reversible briefing should expose Back.");
+    backButton?.click();
+    expect(tutorialState.getCurrentPhase() === "budget_overview", "Back should return to the previous reversible briefing.");
+  });
+
+  await When("the tutorial reaches a stateful battle action", async () => {
+    tutorialState.jumpToPhase("active_group_units");
+  });
+
+  await Then("Back is hidden and cannot rewind the battle state", async () => {
+    const backButton = document.querySelector<HTMLButtonElement>(".tutorial-back-btn");
+    expect(backButton?.style.display === "none", "Stateful battle steps should hide Back.");
+    backButton?.click();
+    expect(tutorialState.getCurrentPhase() === "active_group_units", "A hidden Back control must not rewind a stateful phase.");
+    overlay.dispose();
+    tutorialState.endTutorial();
+  });
+});
+
+registerTest("TUTORIAL_ACTION_USES_THE_AUTHORITATIVE_CURRENT_PHASE", async ({ Given, When, Then }) => {
+  let overlay: TutorialOverlay;
+  const tutorialState = ensureTutorialState();
+
+  await Given("an automatic action advanced the state before the overlay cache caught up", async () => {
+    tutorialState.endTutorial();
+    (globalThis as { MutationObserver?: typeof MutationObserver }).MutationObserver = window.MutationObserver;
+    document.body.innerHTML = `
+      <header class="battle-map-header">Command header</header>
+      <div id="battleMapCanvas"></div>
+    `;
+    document.querySelectorAll<HTMLElement>("div, header").forEach((element) => setRect(element, {}));
+    overlay = new TutorialOverlay();
+    overlay.initialize();
+    tutorialState.startTutorial();
+    tutorialState.jumpToPhase("attack_intro");
+    (overlay as unknown as { currentStep: ReturnType<typeof getTutorialStep> }).currentStep = getTutorialStep("movement_intro");
+  });
+
+  await When("the player clicks Continue on Fire Orders", async () => {
+    document.querySelector<HTMLButtonElement>(".tutorial-action-btn")?.click();
+  });
+
+  await Then("the tutorial advances from the live phase instead of the stale cached step", async () => {
+    expect(tutorialState.getCurrentPhase() === "intel_overlay_expand", `Expected Unit Intel, received ${tutorialState.getCurrentPhase()}.`);
+    overlay.dispose();
+    tutorialState.endTutorial();
+  });
+});
+
+registerTest("BATTLE_TUTORIAL_PROMPTS_DOCK_BELOW_THE_COMMAND_HEADER", async ({ Given, Then }) => {
+  let overlay: TutorialOverlay;
+  const tutorialState = ensureTutorialState();
+
+  await Given("a battle tutorial step and command header are visible", async () => {
+    tutorialState.endTutorial();
+    (globalThis as { MutationObserver?: typeof MutationObserver }).MutationObserver = window.MutationObserver;
+    document.body.innerHTML = `
+      <header class="battle-map-header">Command header</header>
+      <div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight">Recon</div></div>
+    `;
+    setRect(document.querySelector<HTMLElement>(".battle-map-header") as HTMLElement, {
+      left: 120,
+      top: 40,
+      width: 980,
+      height: 100
+    });
+    setRect(document.querySelector<HTMLElement>(".initiative-group-highlight") as HTMLElement, {
+      left: 360,
+      top: 320,
+      width: 80,
+      height: 72
+    });
+    overlay = new TutorialOverlay();
+    overlay.initialize();
+    tutorialState.jumpToPhase("active_group_units");
+  });
+
+  await Then("the prompt uses the stable top dock instead of a lower corner", async () => {
+    const panel = document.querySelector<HTMLElement>(".tutorial-panel");
+    expect(panel?.classList.contains("tutorial-battle-docked") === true, "Battle prompts should use the shared top dock.");
+    expect(panel?.style.getPropertyValue("--tutorial-dock-top") === "152px", `Unexpected battle dock position: ${panel?.style.getPropertyValue("--tutorial-dock-top") ?? "<missing>"}.`);
+    overlay.dispose();
+    tutorialState.endTutorial();
+  });
+});
+
+registerTest("MOBILE_BATTLE_TUTORIAL_PROMPTS_DOCK_OVER_THE_HEADER", async ({ Given, Then }) => {
+  let overlay: TutorialOverlay;
+  const tutorialState = ensureTutorialState();
+
+  await Given("a mobile battle tutorial step and command header are visible", async () => {
+    tutorialState.endTutorial();
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 });
+    (globalThis as { MutationObserver?: typeof MutationObserver }).MutationObserver = window.MutationObserver;
+    document.body.innerHTML = `
+      <header class="battle-map-header">Command header</header>
+      <div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight">Recon</div></div>
+    `;
+    setRect(document.querySelector<HTMLElement>(".battle-map-header") as HTMLElement, {
+      left: 46,
+      top: 138,
+      width: 299,
+      height: 123
+    });
+    setRect(document.querySelector<HTMLElement>(".initiative-group-highlight") as HTMLElement, {
+      left: 180,
+      top: 340,
+      width: 44,
+      height: 40
+    });
+    overlay = new TutorialOverlay();
+    overlay.initialize();
+    tutorialState.jumpToPhase("active_group_units");
+  });
+
+  await Then("the prompt uses the header top so the short map remains visible", async () => {
+    const panel = document.querySelector<HTMLElement>(".tutorial-panel");
+    expect(panel?.classList.contains("tutorial-battle-docked") === true, "Mobile battle prompts should use the shared top dock.");
+    expect(panel?.style.getPropertyValue("--tutorial-dock-top") === "138px", `Unexpected mobile battle dock position: ${panel?.style.getPropertyValue("--tutorial-dock-top") ?? "<missing>"}.`);
+    overlay.dispose();
+    tutorialState.endTutorial();
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
   });
 });
 

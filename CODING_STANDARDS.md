@@ -158,6 +158,11 @@ Required-action tutorial steps must point players to the real game control or ma
 * Disabled tutorial buttons must give direct instruction, such as "To continue, complete the action above"; do not append parenthetical hints to an unrelated button label.
 * If the required game action automatically advances the tutorial, the tutorial button must not switch into a live "Continue" button during the transition. Keep the disabled state stable until the next step renders.
 * Do not create tutorial steps where the player starts moving toward a transient button that disappears because the actual action has already completed.
+* Map-action lessons must use a wait state that leaves the real map clickable and must advance only after the engine accepts the action.
+* A required tutorial control must remain legal after every action the tutorial previously required. Test the complete sequence, not the step in isolation.
+* Back navigation is opt-in. Show Back only between informational steps that can be reversed without rewinding deployment, selection, initiative, or order state.
+* Battle prompts should use one consistent upper-screen dock. Move the prompt only when the normal dock would block the required control.
+* Tutorial controls must keep a stable hit target on hover and focus. Do not translate or resize a button while the player is trying to click it.
 
 ## 7. Manual Verification Checklist (Visual Integrity)
 Because this is a visual strategy game, the following must be manually verified after relevant changes:

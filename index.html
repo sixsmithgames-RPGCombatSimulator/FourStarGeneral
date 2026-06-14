@@ -6869,7 +6869,7 @@
 
     .tutorial-action-btn:hover,
     .tutorial-action-btn:focus-visible {
-      transform: translateY(-2px);
+      transform: none;
       box-shadow: 0 12px 35px rgba(245, 196, 109, 0.4);
       outline: none;
     }
@@ -7173,6 +7173,10 @@
       padding: 0 1.1rem 1rem;
     }
 
+    .tutorial-panel.tutorial-battle-docked {
+      animation: none;
+    }
+
     @media (min-width: 769px) {
       .tutorial-panel.tutorial-phase-base_camp,
       .tutorial-panel.tutorial-phase-initiative_group,
@@ -7396,6 +7400,68 @@
       .tutorial-arrow {
         display: none;
       }
+    }
+
+    @media (min-width: 769px) {
+      .tutorial-panel.tutorial-battle-docked,
+      .tutorial-panel.tutorial-battle-docked.tutorial-wait-step {
+        left: auto !important;
+        right: 20px !important;
+        top: var(--tutorial-dock-top, 20px) !important;
+        bottom: auto !important;
+        transform: none !important;
+        max-height: min(34vh, 260px);
+        overflow: hidden;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .tutorial-panel.tutorial-battle-docked,
+      .tutorial-panel.tutorial-battle-docked.tutorial-wait-step {
+        width: min(340px, calc(100vw - 24px)) !important;
+        left: auto !important;
+        right: 12px !important;
+        top: var(--tutorial-dock-top, 12px) !important;
+        bottom: auto !important;
+        transform: none !important;
+      }
+
+      .tutorial-panel.tutorial-battle-docked .tutorial-panel-header {
+        padding: 0.55rem 0.75rem;
+      }
+
+      .tutorial-panel.tutorial-battle-docked .tutorial-panel-content {
+        padding: 0.7rem 0.85rem 0.55rem;
+      }
+
+      .tutorial-panel.tutorial-battle-docked .tutorial-title {
+        margin-bottom: 0.35rem;
+        font-size: 1.05rem;
+      }
+
+      .tutorial-panel.tutorial-battle-docked .tutorial-description {
+        font-size: 0.82rem;
+        line-height: 1.35;
+      }
+
+      .tutorial-panel.tutorial-battle-docked .tutorial-panel-footer {
+        padding: 0 0.85rem 0.75rem;
+      }
+
+      .tutorial-panel.tutorial-battle-docked .tutorial-action-btn {
+        min-height: 44px;
+        padding: 0.65rem 0.8rem;
+      }
+
+      .tutorial-panel.tutorial-phase-place_units,
+      .tutorial-panel.tutorial-wait-step.tutorial-phase-place_units {
+        top: auto !important;
+        bottom: var(--tutorial-target-bottom, 12px) !important;
+      }
+    }
+
+    .tutorial-panel.tutorial-battle-docked .tutorial-arrow {
+      display: none;
     }
 
     /* Mission End Modal - Professional, spacious design for victory/defeat announcements */

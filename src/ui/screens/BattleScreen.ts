@@ -3049,14 +3049,29 @@ export class BattleScreen {
     }
 
     if (phase === "movement_intro") {
-      if (!this.selectedUnitIsInActiveInitiativeGroup()) {
-        this.selectFirstTutorialUnitTarget(phase, (_unit, commandState) => commandState?.isAutomated !== true, {
-          activeGroupOnly: true
-        });
+      if (!this.selectedUnitMatchesTutorialTarget((unit) => this.isReconBikeBattleUnit(unit), true)) {
+        const reconTarget = this.findFirstTutorialUnitTarget(
+          (unit, commandState) => commandState?.isAutomated !== true && this.isReconBikeBattleUnit(unit),
+          true
+        );
+        if (reconTarget) {
+          this.selectTutorialUnitTarget(reconTarget, false);
+        }
       }
 
+      const selectedHex = this.selectedHexKey ? CoordinateSystem.parseHexKey(this.selectedHexKey) : null;
+      if (selectedHex) {
+        const origin = CoordinateSystem.offsetToAxial(selectedHex.col, selectedHex.row);
+        this.playerMoveHexes = this.getNearbyTutorialMoveHexes(origin, this.playerMoveHexes);
+        this.hexMapRenderer?.setTacticalHighlights(this.playerMoveHexes, this.playerAttackHexes);
+      }
+      this.closeSelectionIntelForAnimation();
       this.hexMapRenderer?.setZoneHighlights(new Set());
-      this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(), TUTORIAL_MOVEMENT_CAMERA_ZOOM);
+      this.queueTutorialCameraForPhase(
+        phase,
+        this.getSelectedTutorialFocusHexes(this.playerMoveHexes),
+        TUTORIAL_MOVEMENT_CAMERA_ZOOM
+      );
       return;
     }
 
@@ -3066,6 +3081,7 @@ export class BattleScreen {
           activeGroupOnly: true
         });
       }
+      this.closeSelectionIntelForAnimation();
       this.hexMapRenderer?.setZoneHighlights(new Set());
       this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(), TUTORIAL_ATTACK_CAMERA_ZOOM);
       return;
@@ -3076,6 +3092,14 @@ export class BattleScreen {
         this.selectFirstTutorialUnitTarget(phase, (_unit, commandState) => commandState?.isAutomated !== true, {
           activeGroupOnly: true
         });
+      }
+      if (!this.isBattleIntelOverlayVisible() && this.selectedHexKey) {
+        this.tutorialSelectionSyncInProgress = true;
+        try {
+          this.applySelectedHex(this.selectedHexKey, true);
+        } finally {
+          this.tutorialSelectionSyncInProgress = false;
+        }
       }
       this.hexMapRenderer?.setZoneHighlights(this.selectedHexKey ? new Set([this.selectedHexKey]) : new Set());
       this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(), TUTORIAL_ORDER_CAMERA_ZOOM);
@@ -3100,17 +3124,16 @@ export class BattleScreen {
     }
 
     if (phase === "spend_activation") {
-      const sentryTarget = this.selectFirstTutorialUnitTarget(
+      if (this.selectedHexKey || this.isBattleIntelOverlayExpanded()) {
+        this.clearSelectedHexAfterAction();
+      }
+      const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
+      this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
+      this.queueTutorialCameraForPhase(
         phase,
-        (unit, commandState) => commandState?.isAutomated !== true && this.isReconBikeBattleUnit(unit),
-        { activeGroupOnly: true, expandIntel: true }
-      ) ?? this.selectFirstTutorialUnitTarget(
-        phase,
-        (_unit, commandState) => commandState?.isAutomated !== true,
-        { activeGroupOnly: true, expandIntel: true }
+        activeGroupHexKeys.size > 0 ? activeGroupHexKeys : this.getManualPlayerUnitHexKeys(),
+        TUTORIAL_GROUP_CAMERA_ZOOM
       );
-      this.hexMapRenderer?.setZoneHighlights(sentryTarget ? new Set([sentryTarget.hexKey]) : new Set());
-      this.queueTutorialCameraForPhase(phase, sentryTarget ? [sentryTarget.hexKey] : this.getSelectedTutorialFocusHexes(), TUTORIAL_ORDER_CAMERA_ZOOM);
       return;
     }
 
@@ -3203,7 +3226,9 @@ export class BattleScreen {
     const centerTutorialCamera = () => {
       this.resetTutorialBattlePaneScroll();
       void this.centerCameraOnZone(hexArray, zoom)
-        .then(() => {
+        .then(async () => {
+          await this.waitForNextFrame();
+          this.offsetTutorialCameraBelowPrompt(hexArray);
           this.resetTutorialBattlePaneScroll();
           window.requestAnimationFrame(() => this.resetTutorialBattlePaneScroll());
         })
@@ -3214,6 +3239,34 @@ export class BattleScreen {
     [0, 180, 480, 900].forEach((delayMs) => {
       window.setTimeout(centerTutorialCamera, delayMs);
     });
+  }
+
+  private offsetTutorialCameraBelowPrompt(hexKeys: readonly string[]): void {
+    if (window.innerWidth > 768 || !this.mapViewport || !this.hexMapRenderer) {
+      return;
+    }
+
+    const panel = document.querySelector<HTMLElement>(".tutorial-panel.tutorial-battle-docked");
+    if (!panel) {
+      return;
+    }
+
+    const focusRects = hexKeys
+      .map((hexKey) => this.hexMapRenderer?.getHexElement(hexKey)?.getBoundingClientRect() ?? null)
+      .filter((rect): rect is DOMRect => rect !== null && rect.width > 0 && rect.height > 0);
+    if (focusRects.length === 0) {
+      return;
+    }
+
+    const panelRect = panel.getBoundingClientRect();
+    const focusTop = Math.min(...focusRects.map((rect) => rect.top));
+    const focusBottom = Math.max(...focusRects.map((rect) => rect.bottom));
+    const desiredTop = panelRect.bottom + 20;
+    const availableShift = window.innerHeight - focusBottom - 20;
+    const shiftY = Math.min(180, availableShift, desiredTop - focusTop);
+    if (shiftY > 4) {
+      this.mapViewport.pan(0, shiftY);
+    }
   }
 
   private resetTutorialBattlePaneScroll(): void {
@@ -3499,11 +3552,20 @@ export class BattleScreen {
   }
 
   private isBattleIntelOverlayExpanded(): boolean {
-    const overlay = this.battleIntelOverlayRoot ?? document.getElementById("battleIntelOverlay");
-    if (!overlay || overlay.classList.contains("hidden") || overlay.getAttribute("aria-hidden") === "true") {
+    if (!this.isBattleIntelOverlayVisible()) {
       return false;
     }
-    return overlay.dataset.collapsed === "false";
+    const overlay = this.battleIntelOverlayRoot ?? document.getElementById("battleIntelOverlay");
+    return overlay?.dataset.collapsed === "false";
+  }
+
+  private isBattleIntelOverlayVisible(): boolean {
+    const overlay = this.battleIntelOverlayRoot ?? document.getElementById("battleIntelOverlay");
+    return Boolean(
+      overlay &&
+      !overlay.classList.contains("hidden") &&
+      overlay.getAttribute("aria-hidden") !== "true"
+    );
   }
 
   private getSmokeCapableUnitHexKeys(activeGroupOnly = false): Set<string> {
@@ -8856,7 +8918,7 @@ export class BattleScreen {
         {
           onSkipTurn: () => this.handleSkipTurn(),
           onEndTurn: () => {
-            void this.handleInitiativeEndTurn();
+            void this.handleTutorialAwareEndTurn();
           },
           onNextActivation: () => this.handleNextActivation(),
           onCompleteActivation: (unitId: string) => this.handleCompleteActivation(unitId),
@@ -8984,6 +9046,25 @@ export class BattleScreen {
     } finally {
       this.syncInitiativeTurnControlsState();
     }
+  }
+
+  /**
+   * Handle end turn action for initiative system
+   */
+  private async handleTutorialAwareEndTurn(): Promise<void> {
+    const tutorialState = ensureTutorialState();
+    if (
+      tutorialState.isTutorialActive() &&
+      tutorialState.getCurrentPhase() === "spend_activation"
+    ) {
+      const proceeded = await this.handleProceedToNext({ bypassConfirmation: true });
+      if (proceeded) {
+        this.completeTutorialPhase("spend_activation");
+      }
+      return;
+    }
+
+    await this.handleInitiativeEndTurn();
   }
 
   /**
@@ -11081,6 +11162,12 @@ export class BattleScreen {
         const key = CoordinateSystem.makeHexKey(col, row);
         return key;
       }));
+      if (
+        ensureTutorialState().getProgress().isActive &&
+        ensureTutorialState().getCurrentPhase() === "movement_intro"
+      ) {
+        this.playerMoveHexes = this.getNearbyTutorialMoveHexes(axial, this.playerMoveHexes);
+      }
       this.playerAttackHexes = new Set(targets.map(({ q, r }) => {
         const { col, row } = CoordinateSystem.axialToOffset(q, r);
         const key = CoordinateSystem.makeHexKey(col, row);
@@ -11246,6 +11333,7 @@ export class BattleScreen {
         type: "move",
         summary: `Unit moved from ${fromKey} to ${toKey}.`
       });
+      this.completeTutorialPhase("movement_intro");
 
       this.battleState.emitBattleUpdate("manual");
       if (!canContinueActivation) {
@@ -11300,6 +11388,21 @@ export class BattleScreen {
     }
 
     return `Move failed: ${reason} ${correctiveAction}`;
+  }
+
+  private getNearbyTutorialMoveHexes(origin: Axial, moveHexes: Iterable<string>): Set<string> {
+    const nearbyHexes = new Set<string>();
+    for (const hexKey of moveHexes) {
+      const parsed = CoordinateSystem.parseHexKey(hexKey);
+      if (!parsed) {
+        continue;
+      }
+      const destination = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+      if (hexDistance(origin, destination) === 1) {
+        nearbyHexes.add(hexKey);
+      }
+    }
+    return nearbyHexes;
   }
 
   /**

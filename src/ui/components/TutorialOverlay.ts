@@ -8,7 +8,7 @@ import {
   type TutorialPhase,
   type TutorialProgress
 } from "../../state/TutorialState";
-import { getTutorialStep, getNextPhase, getPreviousPhase, getTutorialStepNumber, isFirstPhase, type TutorialStep } from "../../data/tutorialSteps";
+import { getTutorialStep, getNextPhase, getPreviousPhase, getTutorialStepNumber, type TutorialStep } from "../../data/tutorialSteps";
 import {
   getSidebarMiniTutorial,
   SIDEBAR_MINI_TUTORIAL_EVENT,
@@ -17,6 +17,29 @@ import {
   type SidebarMiniTutorialRequest
 } from "../../data/sidebarMiniTutorials";
 import { ensureRosterInitialized, findGeneralById } from "../../utils/rosterStorage";
+
+const TOP_DOCKED_BATTLE_PHASES = new Set<TutorialPhase>([
+  "initiative_order",
+  "initiative_group",
+  "active_group_units",
+  "movement_intro",
+  "attack_intro",
+  "select_smoke_unit",
+  "intel_overlay_expand",
+  "smoke_demo",
+  "spend_activation",
+  "enemy_activation",
+  "next_unit",
+  "skip_group",
+  "engineer_intro",
+  "engineer_orders",
+  "artillery_intro",
+  "flak_intro",
+  "round_handoff",
+  "turn_end",
+  "mission_objectives",
+  "complete"
+]);
 
 /**
  * Creates and manages the tutorial overlay UI.
@@ -203,11 +226,9 @@ export class TutorialOverlay {
 
     const backBtn = this.panelElement.querySelector(".tutorial-back-btn");
     const skipBtn = this.panelElement.querySelector(".tutorial-skip-btn");
-    const actionBtn = this.panelElement.querySelector(".tutorial-action-btn");
 
     backBtn?.addEventListener("click", () => this.handleBack());
     skipBtn?.addEventListener("click", () => this.handleSkip());
-    actionBtn?.addEventListener("click", () => this.handleAction());
 
     // Handle keyboard navigation
     this.container?.addEventListener("keydown", (e) => {
@@ -370,14 +391,10 @@ export class TutorialOverlay {
       stepIndicator.textContent = stepNumber ? `Step ${stepNumber}` : "Step";
     }
 
-    // Update back button visibility - hide on first step
+    // Back is opt-in because action and battle state cannot be safely rewound.
     const backBtn = this.panelElement.querySelector<HTMLButtonElement>(".tutorial-back-btn");
     if (backBtn) {
-      if (isFirstPhase(step.phase)) {
-        backBtn.style.display = "none";
-      } else {
-        backBtn.style.display = "";
-      }
+      backBtn.style.display = step.allowBack === true ? "" : "none";
     }
 
     const skipBtn = this.panelElement.querySelector<HTMLButtonElement>(".tutorial-skip-btn");
@@ -398,6 +415,7 @@ export class TutorialOverlay {
     // Update action button
     const actionBtn = this.panelElement.querySelector<HTMLButtonElement>(".tutorial-action-btn");
     if (actionBtn) {
+      actionBtn.onclick = () => this.handleAction();
       actionBtn.textContent = isActionStep
         ? "To continue, complete the action above"
         : step.actionLabel ?? "Continue";
@@ -727,10 +745,13 @@ export class TutorialOverlay {
     this.panelElement.style.removeProperty("top");
     this.panelElement.style.removeProperty("bottom");
     this.panelElement.style.removeProperty("transform");
+    this.panelElement.style.removeProperty("--tutorial-dock-top");
+    this.panelElement.style.removeProperty("--tutorial-target-bottom");
 
     const phaseClass = `tutorial-phase-${step.phase.replace(/[^a-z0-9_-]/gi, "-")}`;
     const waitClass = step.waitForAction === true ? " tutorial-wait-step" : "";
-    this.panelElement.className = `tutorial-panel tutorial-position-${step.position} ${phaseClass}${waitClass}`;
+    const battleDockClass = this.isTopDockedBattleStep(step) ? " tutorial-battle-docked" : "";
+    this.panelElement.className = `tutorial-panel tutorial-position-${step.position} ${phaseClass}${waitClass}${battleDockClass}`;
 
     // Viewport boundaries with minimum margin
     const viewportMargin = 20;
@@ -741,6 +762,21 @@ export class TutorialOverlay {
     const panelRect = this.panelElement.getBoundingClientRect();
     const panelWidth = Math.max(1, panelRect.width || 380);
     const panelHeight = Math.max(1, panelRect.height || 280);
+
+    if (this.isTopDockedBattleStep(step)) {
+      const battleHeader = document.querySelector<HTMLElement>(".battle-map-header");
+      const headerRect = battleHeader?.getBoundingClientRect();
+      const preferredTop =
+        viewportWidth <= 768
+          ? headerRect?.top ?? viewportMargin
+          : (headerRect?.bottom ?? viewportMargin) + 12;
+      const maxTop = Math.max(viewportMargin, viewportHeight - panelHeight - viewportMargin);
+      const dockTop = Math.max(viewportMargin, Math.min(preferredTop, maxTop));
+      this.panelElement.style.setProperty("--tutorial-dock-top", `${dockTop}px`);
+      this.panelElement.style.right = `${viewportMargin}px`;
+      this.panelElement.style.top = `${dockTop}px`;
+      return;
+    }
 
     if (step.position === "center") {
       this.panelElement.style.left = "50%";
@@ -853,6 +889,7 @@ export class TutorialOverlay {
 
             this.panelElement.style.left = `${clampedLeft}px`;
             this.panelElement.style.bottom = `${panelBottomInPx}px`;
+            this.panelElement.style.setProperty("--tutorial-target-bottom", `${panelBottomInPx}px`);
             break;
           }
           case "bottom": {
@@ -946,7 +983,7 @@ export class TutorialOverlay {
     const arrow = this.panelElement.querySelector<HTMLElement>(".tutorial-arrow");
     if (!arrow) return;
 
-    if (!step.arrowDirection) {
+    if (!step.arrowDirection || this.isTopDockedBattleStep(step)) {
       arrow.classList.add("hidden");
       return;
     }
@@ -1051,13 +1088,17 @@ export class TutorialOverlay {
       return;
     }
 
-    if (!this.currentStep) return;
+    if (!this.currentStep || this.currentStep.allowBack !== true) return;
 
     const previousPhase = getPreviousPhase(this.currentStep.phase);
     if (previousPhase) {
       const tutorialState = ensureTutorialState();
       tutorialState.jumpToPhase(previousPhase);
     }
+  }
+
+  private isTopDockedBattleStep(step: TutorialStep): boolean {
+    return TOP_DOCKED_BATTLE_PHASES.has(step.phase);
   }
 
   /**
@@ -1069,17 +1110,17 @@ export class TutorialOverlay {
       return;
     }
 
-    if (!this.currentStep) return;
-
     const tutorialState = ensureTutorialState();
+    const activeStep = getTutorialStep(tutorialState.getCurrentPhase()) ?? this.currentStep;
+    if (!activeStep) return;
 
     // Required-action steps advance from the highlighted UI action, not from this button.
-    if (this.currentStep.waitForAction) {
+    if (activeStep.waitForAction) {
       return;
     }
 
     // Get next phase and advance
-    const nextPhase = getNextPhase(this.currentStep.phase);
+    const nextPhase = getNextPhase(activeStep.phase);
     if (nextPhase) {
       tutorialState.advancePhase(nextPhase);
     } else {

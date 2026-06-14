@@ -26,6 +26,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightSelector: "#allocationUnitList, #allocationSupportList, #allocationLogisticsList",
     position: "right",
     arrowDirection: "left",
+    allowBack: true,
     actionLabel: "Continue"
   },
   {
@@ -213,10 +214,11 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "movement_intro",
     title: "Movement",
     content:
-      "Green dashed hexes are legal moves. For now, keep the patrol in place and continue. To move later, click one of those hexes.",
+      "Move the Recon Bike Patrol to a nearby green dashed hex. Click the destination to issue the order.",
     highlightSelector: "#battleMapCanvas .hex-cell.move-option-highlight, #battleMapCanvas .hex-tile.move-option-highlight",
     position: "right",
     arrowDirection: "left",
+    waitForAction: true,
     actionLabel: "Continue"
   },
   {
@@ -252,12 +254,12 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "spend_activation",
-    title: "Finish This Formation",
+    title: "Finish The Group",
     content:
-      "Return to the active patrol and click Sentry. It will hold position and fire back if attacked.",
-    highlightSelector: "#battleIntelOverlay [data-selection-action='enterSentry']",
-    position: "right",
-    arrowDirection: "left",
+      "The patrol has moved. Click End Turn to finish this initiative group and pass control.",
+    highlightSelector: ".enhanced-initiative-turn-controls .end-turn-btn",
+    position: "bottom",
+    arrowDirection: "up",
     waitForAction: true,
     actionLabel: "Continue"
   },
