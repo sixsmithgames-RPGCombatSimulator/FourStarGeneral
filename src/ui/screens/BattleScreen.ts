@@ -89,6 +89,7 @@ import { normalizeScenarioSource, type RawScenarioInput } from "../../data/scena
 import { getMissionDeploymentProfile, getMissionTurnLimit } from "../../data/missions";
 import { getCombatProfile } from "../../data/combatProfiles";
 import { combat } from "../../core/balance";
+import { isSoftCombatTarget } from "../../core/armorEffects";
 import terrainSource from "../../data/terrain.json";
 import unitTypesSource from "../../data/unitSystem/derivedUnitTypes";
 import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
@@ -731,7 +732,7 @@ export class BattleScreen {
     const attackerProfile = getCombatProfile(attackerDef.combat as UnitTypeDefinition["combat"]);
     const unitAccuracyScalar = Math.max(0.25, attackerDef.accuracyBase / attackerProfile.accuracyReference);
     const rangeTableAccuracy = baseAccuracyPercent / unitAccuracyScalar;
-    const targetUsesSoftAttack = defenderDef.class === "infantry" || defenderDef.class === "specialist";
+    const targetUsesSoftAttack = isSoftCombatTarget(defenderDef);
     const attackStatLabel = targetUsesSoftAttack ? "Soft attack" : "Hard attack";
     const attackStatValue = targetUsesSoftAttack ? attackerDef.softAttack : attackerDef.hardAttack;
     const attackReference = targetUsesSoftAttack
@@ -12448,9 +12449,9 @@ export class BattleScreen {
       const attackerLabel = this.toTitleCase(preview.attacker.type);
       const defenderLabel = this.toTitleCase(preview.defender.type);
       
-      // Determine attack type based on defender class
+      // Mirror the canonical engine classification so activity details cannot disagree with combat math.
       const defenderDef = this.unitTypes?.[preview.defender.type as keyof UnitTypeDictionary];
-      const isSoftTarget = defenderDef ? (defenderDef.class === "infantry" || defenderDef.class === "specialist") : false;
+      const isSoftTarget = defenderDef ? isSoftCombatTarget(defenderDef) : false;
       
       sections.push({
         title: "Units",

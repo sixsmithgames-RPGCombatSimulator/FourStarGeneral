@@ -281,8 +281,8 @@ registerTest("BATTLESCREEN_ATTACK_DETAILS_CAP_DAMAGE_DISPLAY_AT_100_PERCENT", as
     const expectedDamage = previewSection?.entries.find((entry) => entry.label === "Projected Readiness Loss")?.value;
     const dealtDamage = outcomeSection?.entries.find((entry) => entry.label === "Damage Dealt")?.value;
 
-    if (expectedDamage !== "100.0%") {
-      throw new Error(`Expected capped preview damage of 100.0%, received '${expectedDamage ?? "<missing>"}'.`);
+    if (expectedDamage !== "100%") {
+      throw new Error(`Expected exact capped preview damage of 100%, received '${expectedDamage ?? "<missing>"}'.`);
     }
     if (dealtDamage !== "100") {
       throw new Error(`Expected capped dealt damage of 100, received '${dealtDamage ?? "<missing>"}'.`);

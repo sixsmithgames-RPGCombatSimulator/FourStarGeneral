@@ -162,7 +162,7 @@ registerTest("ASSAULT_CONTACT_PRESSURE_INCREASES_SEVERITY_AGAINST_DAMAGED_RECON"
       weaponHits: []
     });
     const summary = summarizeFormationStatus(defender.status, defender.strength);
-    if (summary.personnel.fit !== 0 || Math.abs(summary.readiness - 48.61) > 0.01) {
+    if (summary.personnel.fit !== 0 || Math.abs(summary.readiness - 43.21) > 0.01) {
       throw new Error(`Unexpected damaged recon baseline: fit ${summary.personnel.fit}, readiness ${summary.readiness}.`);
     }
   });

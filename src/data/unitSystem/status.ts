@@ -224,7 +224,7 @@ function allocateToWeights(total: number, weights: readonly number[]): number[] 
   const weightTotal = sanitized.reduce((sum, weight) => sum + weight, 0);
   if (weightTotal <= 0) {
     const even = Math.floor(target / sanitized.length);
-    let remainder = target - even * sanitized.length;
+    const remainder = target - even * sanitized.length;
     return sanitized.map((_, index) => {
       if (index === sanitized.length - 1) {
         return even + remainder;
@@ -393,8 +393,11 @@ export function calculateFormationReadiness(
   } else if (equipment.total <= 0 || model.basis === "personnel") {
     readiness = personnel.total > 0 ? personnel.readiness : roundReadiness(fallbackStrength);
   } else if (model.basis === "platform") {
+    // A platform formation needs both serviceable equipment and effective personnel. Multiplying
+    // those independent availability shares preserves the full loss from either channel at 100%
+    // while ensuring later crew casualties cannot be hidden behind an existing equipment floor.
     readiness = personnel.total > 0
-      ? Math.min(personnel.readiness, equipment.readiness)
+      ? (personnel.readiness / 100) * (equipment.readiness / 100) * 100
       : equipment.readiness;
   } else {
     const availablePersonnelWeight = personnel.total > 0 ? model.personnelWeight : 0;

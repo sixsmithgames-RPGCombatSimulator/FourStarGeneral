@@ -1043,7 +1043,16 @@ function calculateMixedWeaponDamage(
     final: weightedDamagePerHit / Math.max(totalShots, 1)
   };
 
-  return { totalExpectedDamage, totalExpectedHits, totalExpectedSuppression, aggregatedDamageBreakdown };
+  // Detailed status estimates are expressed as readiness percentage. Small formations can generate
+  // raw overkill above 100%, but callers and AI scoring must never value more readiness than the
+  // defender still has available.
+  const boundedExpectedDamage = Math.min(Math.max(0, request.defender.strength), totalExpectedDamage);
+  return {
+    totalExpectedDamage: boundedExpectedDamage,
+    totalExpectedHits,
+    totalExpectedSuppression,
+    aggregatedDamageBreakdown
+  };
 }
 
 /** Aggregate helper delivering the full combat math breakdown. */

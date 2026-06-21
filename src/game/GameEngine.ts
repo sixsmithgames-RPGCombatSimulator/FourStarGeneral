@@ -77,6 +77,7 @@ import {
   type ReconIntelVerificationStatus
 } from "../data/reconIntelSnapshot";
 import { combat as combatBalance, FUEL_COST, supply as supplyBalance } from "../core/balance";
+import { isSoftCombatTarget } from "../core/armorEffects";
 import {
   accumulateProduction,
   advanceShipments,
@@ -3781,7 +3782,7 @@ export class GameEngine implements GameEngineAPI {
         isSpottedOnly: false
       },
       targetFacing: defender.facing,
-      isSoftTarget: defenderDefinition.class === "infantry" || defenderDefinition.class === "specialist"
+      isSoftTarget: isSoftCombatTarget(defenderDefinition)
     } satisfies AttackRequest;
   }
 
@@ -12602,7 +12603,7 @@ private automateSupplyConvoys(
       attackerCtx,
       defenderCtx,
       targetFacing: defender.facing,
-      isSoftTarget: defenderType.class === "infantry" || defenderType.class === "specialist"
+      isSoftTarget: isSoftCombatTarget(defenderType)
     };
   }
 
@@ -15355,7 +15356,7 @@ private automateSupplyConvoys(
           fortificationFacings: defenderFortificationFacings
         },
         targetFacing: defenderBefore.facing,
-        isSoftTarget: defenderDef.class === "infantry" || defenderDef.class === "specialist"
+        isSoftTarget: isSoftCombatTarget(defenderDef)
       } satisfies AttackRequest;
 
       const baseAttackResult = resolveAttack(request);

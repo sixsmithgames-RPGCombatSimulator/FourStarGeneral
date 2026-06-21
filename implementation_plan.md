@@ -17,6 +17,50 @@ HexMapRenderer and GameEngine are high-risk. Changes are additive only — no ex
 ### Verification
 `npm run build`, `npm run lint`, `npm run test` must all pass. Manual: lay smoke → edge visual appears → LOS blocked on next attack → smoke clears at turn start.
 
+## Recon Patrol Damage Integrity Plan
+
+### Intended behavior
+- Exposed motorcycle reconnaissance patrols use soft-target attack values and exposed-crew hit distributions rather than buttoned-armor treatment.
+- Every applied personnel or equipment status change contributes to formation strength, even when the other platform component was already the lower readiness value.
+- Previewed readiness loss, applied damage, activity details, and remaining strength all derive from the same engine classification and status model.
+
+### Current behavior
+- Combat requests classify only infantry and specialists as soft targets, so Recon Bike patrols use the attacker's hard-attack value.
+- Authored recon hit distributions are blended almost entirely toward buttoned armor for small arms, despite the shared hit-distribution contract assigning `vsArtillery` to exposed artillery and recon targets.
+- Platform readiness uses `min(personnel, equipment)`. When bike readiness is already lower than personnel readiness, a new personnel casualty is recorded but can produce exactly zero strength loss.
+
+### Expected new behavior
+- A canonical combat helper classifies targets from their actual protection: tanks, aircraft, and protected vehicles are hard targets; infantry, specialists, artillery, exposed light recon, and soft-skinned support vehicles are soft targets.
+- Light recon uses the authored exposed-target distribution. Armored recon cars remain protected hard targets.
+- Platform readiness represents the share of capability that has both effective personnel and effective equipment by multiplying the two readiness ratios. This preserves the full loss from a destroyed vehicle at full personnel readiness while ensuring later personnel casualties remain visible.
+
+### Edge cases
+- An already-damaged Recon Bike patrol at 88.89% equipment readiness receives one injured scout and must lose additional readiness.
+- Infantry firing at Recon Bikes at range must produce nonzero status damage when contacts exist.
+- Armored cars and tanks must remain hard targets and continue using protected hit distributions.
+- A full-strength platform formation must remain exactly 100% ready.
+
+### Impact analysis
+- Systems consuming this output:
+  - `GameEngine` previews, direct attacks, retaliation, bot combat, and mission combat requests
+  - `damagePackets` preview/application parity
+  - `BattleScreen` activity-log attack-type details
+  - HQ/logistics status summaries derived from formation readiness
+- Events depending on this structure:
+  - Battle update events emitted after previewed and resolved attacks retain their schema; only corrected values change.
+- Visual behaviors that could shift:
+  - Recon Bike previews show `Soft Attack` and meaningful casualty/readiness projections.
+  - Vehicle and aircraft strength can be lower when personnel and equipment are both degraded because neither status channel is masked.
+
+### Risk assessment
+- `Combat.ts`, `armorEffects.ts`, `status.ts`, and `GameEngine.ts` are high-risk deterministic engine modules.
+- The change is behavioral and intentionally avoids structural refactoring. Existing public packet and event schemas remain unchanged.
+
+### Verification
+- Add deterministic regressions for damaged recon casualty application, exposed recon hit conversion, and armored recon hard-target classification.
+- Run focused compiled combat tests, `npm run test`, `npm run lint`, and `npm run build`.
+- Verify the attack activity detail uses the canonical engine classification.
+
 ---
 
 ## Deployment Panel Reserve Guard Plan

@@ -34,10 +34,38 @@ export function isSoftSkinnedSupportVehicle(defender: UnitTypeDefinition): boole
     defender.combat.role === "support";
 }
 
+/**
+ * WHAT: Identifies exposed motorcycle-style recon formations that lack an enclosed fighting compartment.
+ * WHY: Light recon personnel and equipment are valid small-arms targets, unlike armored cars that share the recon class.
+ *
+ * @param defender - Target unit definition being classified for combat.
+ * @returns True when the target is exposed light recon rather than protected armored recon.
+ */
+function isExposedLightReconTarget(defender: UnitTypeDefinition): boolean {
+  return defender.class === "recon" &&
+    defender.combat.weight === "light" &&
+    (defender.armor?.front ?? 0) <= 2;
+}
+
+/**
+ * WHAT: Resolves whether combat should use the attacker's soft-target attack value.
+ * WHY: All combat request builders and UI reporting must agree that exposed motorcycle patrols are soft targets while armored recon remains hard.
+ *
+ * @param defender - Target unit definition being classified for combat.
+ * @returns True for infantry-like or exposed soft-skinned targets.
+ */
+export function isSoftCombatTarget(defender: UnitTypeDefinition): boolean {
+  return defender.class === "infantry" ||
+    defender.class === "specialist" ||
+    isExposedLightReconTarget(defender) ||
+    isSoftSkinnedSupportVehicle(defender);
+}
+
 export function isProtectedEquipmentTarget(defender: UnitTypeDefinition): boolean {
   return defender.class === "tank" ||
     defender.class === "air" ||
-    (defender.class === "vehicle" && !isSoftSkinnedSupportVehicle(defender));
+    (defender.class === "vehicle" && !isSoftSkinnedSupportVehicle(defender)) ||
+    (defender.class === "recon" && !isExposedLightReconTarget(defender));
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -246,21 +274,6 @@ function defaultHitDistributionForRole(
   return { nonEffect: 0.1, softComponent: 0.15, penetrating: 0.75, areaEffect: 0 };
 }
 
-function blendHitDistribution(
-  baseline: HitDistribution,
-  exposed: HitDistribution,
-  exposedShare: number
-): HitDistribution {
-  const share = clamp(exposedShare, 0, 1);
-  const baseShare = 1 - share;
-  return {
-    nonEffect: baseline.nonEffect * baseShare + exposed.nonEffect * share,
-    softComponent: baseline.softComponent * baseShare + exposed.softComponent * share,
-    penetrating: baseline.penetrating * baseShare + exposed.penetrating * share,
-    areaEffect: baseline.areaEffect * baseShare + exposed.areaEffect * share
-  };
-}
-
 export function resolveWeaponHitDistribution(
   group: WeaponShotGroup,
   defender: UnitTypeDefinition
@@ -277,19 +290,10 @@ export function resolveWeaponHitDistribution(
       return isSoftSkinnedSupportVehicle(defender) ? authored.vsArtillery : authored.vsArmorButtoned;
     }
     if (defender.class === "recon") {
-      const lightRecon = defender.combat.weight === "light" && (defender.armor?.front ?? 0) <= 2;
-      if (lightRecon && (group.role === "smallArms" || group.role === "machineGun" || group.role === "airGun")) {
-        // Motorcycle scouts are exposed, but not equivalent to static gun crews:
-        // most small-arms fire misses, glances off equipment, or forces dispersion.
-        return blendHitDistribution(authored.vsArmorButtoned, authored.vsArtillery, 0.01);
-      }
-      if (lightRecon && group.role === "antiTank") {
-        return blendHitDistribution(authored.vsArmorButtoned, authored.vsArtillery, 0.1);
-      }
-      if (lightRecon && isHighExplosivePersonnelRole(group.role)) {
-        return blendHitDistribution(authored.vsArmorButtoned, authored.vsArtillery, 0.03);
-      }
-      return lightRecon ? authored.vsArtillery : authored.vsArmorButtoned;
+      // Accuracy already determines whether fire contacts the patrol. Once contact occurs,
+      // exposed riders and motorcycles use the authored recon/artillery outcome distribution;
+      // applying the buttoned-armor miss model again made valid contacts disappear twice.
+      return isExposedLightReconTarget(defender) ? authored.vsArtillery : authored.vsArmorButtoned;
     }
     if (defender.class === "artillery") {
       return authored.vsArtillery;
