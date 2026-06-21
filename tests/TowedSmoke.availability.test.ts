@@ -9,6 +9,7 @@ import type {
   UnitTypeDefinition,
   UnitTypeDictionary
 } from "../src/core/types";
+import { unitFormations } from "../src/data/unitSystem/formations";
 
 const plains: TerrainDefinition = {
   moveCost: { leg: 1, wheel: 1, track: 1, air: 1 },
@@ -40,7 +41,8 @@ const towedSmokeGunDef: UnitTypeDefinition = {
 };
 
 const unitTypes: UnitTypeDictionary = {
-  AT_Gun_50mm: towedSmokeGunDef
+  AT_Gun_50mm: towedSmokeGunDef,
+  Infantry_42: unitFormations.infantry.tactical
 } as unknown as UnitTypeDictionary;
 
 function side(hq = { q: 0, r: 0 }, units: ScenarioUnit[] = []): ScenarioSide {
@@ -142,4 +144,27 @@ registerTest("TOWED_SMOKE_REQUIRES_DEPLOYMENT_BEFORE_FIRING_SMOKE", async ({ The
   }
 
   await Then("towed guns cannot lay smoke until they deploy", () => {});
+});
+
+registerTest("INFANTRY_BATTALION_MORTARS_SUPPORT_THE_TUTORIAL_SMOKE_ORDER", async ({ Then }) => {
+  const infantry: ScenarioUnit = {
+    unitId: "tutorial_infantry",
+    type: "Infantry_42",
+    hex: { q: 1, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 1,
+    facing: "NE",
+    controlledBy: "Player"
+  };
+  const engine = createEngine([infantry]);
+  const commandState = engine.getUnitCommandState(infantry.hex, infantry.unitId);
+
+  if (!commandState?.isSmokeCapable || !commandState.canLaySmoke) {
+    throw new Error(`Expected infantry mortar smoke to be available, received ${JSON.stringify(commandState)}.`);
+  }
+
+  await Then("line infantry can lay the smoke screen required by the training lesson", () => {});
 });

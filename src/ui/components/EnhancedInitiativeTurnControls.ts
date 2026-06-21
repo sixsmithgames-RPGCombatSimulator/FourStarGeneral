@@ -367,8 +367,16 @@ export class EnhancedInitiativeTurnControls {
    */
   private attachKeyboardListeners(): void {
     const keyHandler = (event: KeyboardEvent) => {
-      // Only handle keys when not in input fields
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        target?.closest(
+          "button, [role='button'], a, input, textarea, select, [contenteditable='true'], [aria-modal='true']"
+        )
+      ) {
         return;
       }
 

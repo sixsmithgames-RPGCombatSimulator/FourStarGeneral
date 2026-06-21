@@ -6884,12 +6884,7 @@
     }
 
     .tutorial-action-btn.waiting::after {
-      content: " (Complete the action above)";
-      font-size: 0.75rem;
-      font-weight: 400;
-      letter-spacing: 0.02em;
-      text-transform: none;
-      opacity: 0.8;
+      content: none;
     }
 
     /* Tutorial Arrow Indicators */
@@ -7274,8 +7269,8 @@
       .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro {
         top: auto !important;
         bottom: 12px !important;
-        max-height: 148px;
-        overflow: hidden;
+        max-height: none;
+        overflow: visible;
         border-radius: 14px;
       }
 
@@ -7348,8 +7343,8 @@
       .tutorial-panel.tutorial-wait-step.tutorial-phase-artillery_intro .tutorial-panel-content,
       .tutorial-panel.tutorial-wait-step.tutorial-phase-flak_intro .tutorial-panel-content {
         padding: 0.5rem 0.85rem 0.65rem;
-        max-height: 82px;
-        overflow-y: auto;
+        max-height: none;
+        overflow: visible;
       }
 
       .tutorial-panel.tutorial-wait-step.tutorial-phase-base_camp .tutorial-title,
@@ -7405,13 +7400,42 @@
     @media (min-width: 769px) {
       .tutorial-panel.tutorial-battle-docked,
       .tutorial-panel.tutorial-battle-docked.tutorial-wait-step {
+        width: 340px;
         left: auto !important;
         right: 20px !important;
         top: var(--tutorial-dock-top, 20px) !important;
         bottom: auto !important;
         transform: none !important;
-        max-height: min(34vh, 260px);
-        overflow: hidden;
+        max-height: min(46vh, 380px);
+        overflow-y: auto;
+        border-radius: 16px;
+      }
+
+      .tutorial-panel.tutorial-battle-docked .tutorial-panel-header {
+        padding: 0.75rem 1rem;
+        border-radius: 16px 16px 0 0;
+      }
+
+      .tutorial-panel.tutorial-battle-docked .tutorial-panel-content {
+        padding: 1rem 1.1rem 0.9rem;
+      }
+
+      .tutorial-panel.tutorial-battle-docked .tutorial-title {
+        margin-bottom: 0.45rem;
+        font-size: 1.08rem;
+      }
+
+      .tutorial-panel.tutorial-battle-docked .tutorial-description {
+        font-size: 0.86rem;
+        line-height: 1.45;
+      }
+
+      .tutorial-panel.tutorial-battle-docked .tutorial-panel-footer {
+        padding: 0 1.1rem 1rem;
+      }
+
+      .tutorial-panel.tutorial-battle-docked.tutorial-wait-step .tutorial-panel-footer {
+        display: none;
       }
     }
 
@@ -7424,6 +7448,8 @@
         top: var(--tutorial-dock-top, 12px) !important;
         bottom: auto !important;
         transform: none !important;
+        max-height: min(42vh, 300px);
+        overflow-y: auto;
       }
 
       .tutorial-panel.tutorial-battle-docked .tutorial-panel-header {
@@ -7451,6 +7477,10 @@
       .tutorial-panel.tutorial-battle-docked .tutorial-action-btn {
         min-height: 44px;
         padding: 0.65rem 0.8rem;
+      }
+
+      .tutorial-panel.tutorial-battle-docked.tutorial-wait-step .tutorial-panel-footer {
+        display: none;
       }
 
       .tutorial-panel.tutorial-phase-place_units,

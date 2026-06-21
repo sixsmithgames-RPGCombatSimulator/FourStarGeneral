@@ -29,11 +29,14 @@ const TOP_DOCKED_BATTLE_PHASES = new Set<TutorialPhase>([
   "smoke_demo",
   "spend_activation",
   "enemy_activation",
+  "enemy_response",
   "next_unit",
   "skip_group",
   "engineer_intro",
   "engineer_orders",
+  "select_attack_unit",
   "artillery_intro",
+  "select_artillery_observer",
   "flak_intro",
   "round_handoff",
   "turn_end",
@@ -61,15 +64,17 @@ export class TutorialOverlay {
   private anchorTimeoutId: number | null = null;
   private lastResolvedAnchorSelector: string | null = null;
   private lastAnchoredSelector: string | null = null;
+  private lastAnchoredTarget: HTMLElement | null = null;
   private activeMiniTutorial: SidebarMiniTutorialDefinition | null = null;
   private sidebarMiniTutorialListener: ((event: Event) => void) | null = null;
   private readonly sidebarMiniTutorialStorageKey = "four-star-general.sidebar-mini-tutorials.v1";
 
   private getHighlightTargets(selector: string): HTMLElement[] {
-    return Array.from(document.querySelectorAll<HTMLElement>(selector)).filter((element) => {
+    const visibleTargets = Array.from(document.querySelectorAll<HTMLElement>(selector)).filter((element) => {
       const rect = element.getBoundingClientRect();
       return rect.width > 0 && rect.height > 0;
     });
+    return this.currentStep?.highlightFirstMatch === true ? visibleTargets.slice(0, 1) : visibleTargets;
   }
 
   private getPrimaryHighlightTarget(selector: string): HTMLElement | null {
@@ -242,7 +247,7 @@ export class TutorialOverlay {
     if (!this.onViewportChange) {
       this.onViewportChange = () => {
         // Keep spotlight/panel aligned as the UI changes (scrolling, resize, popups opening)
-        if (this.currentStep?.highlightSelector) {
+        if (this.currentStep?.highlightSelector && this.currentStep.showSpotlight !== false) {
           this.positionSpotlight(this.currentStep.highlightSelector);
         }
         this.positionPanelForCurrentStep();
@@ -475,7 +480,7 @@ export class TutorialOverlay {
 
     // Handle highlighting
     tutorialState.clearHighlight();
-    if (step.highlightSelector) {
+    if (step.highlightSelector && step.showSpotlight !== false) {
       // Premium anchoring: attempt to ensure the target exists (panels may be closed / DOM may be async)
       this.ensureAnchorTarget(step.highlightSelector);
     } else {
@@ -533,7 +538,16 @@ export class TutorialOverlay {
         }
         const selector = this.currentStep.highlightSelector;
         if (this.lastAnchoredSelector === selector) {
-          // Still keep spotlight positioned in case layout shifted.
+          const primaryTarget = this.getPrimaryHighlightTarget(selector);
+          if (primaryTarget && primaryTarget !== this.lastAnchoredTarget) {
+            this.lastAnchoredTarget = primaryTarget;
+            this.scrollTargetIntoView(selector);
+          }
+          // Dynamic selectors can point to a different card after a row rerenders.
+          ensureTutorialState().highlightElement(
+            selector,
+            this.currentStep.highlightFirstMatch === true
+          );
           this.positionSpotlight(selector);
           this.positionPanelForCurrentStep();
           return;
@@ -557,6 +571,7 @@ export class TutorialOverlay {
   private ensureAnchorTarget(selector: string): void {
     this.lastResolvedAnchorSelector = selector;
     this.lastAnchoredSelector = null;
+    this.lastAnchoredTarget = null;
     this.anchorAttemptId += 1;
     const attemptId = this.anchorAttemptId;
 
@@ -605,12 +620,13 @@ export class TutorialOverlay {
 
     // Mark as anchored early to avoid mutation feedback loops.
     this.lastAnchoredSelector = selector;
+    this.lastAnchoredTarget = this.getPrimaryHighlightTarget(selector);
 
     // First scroll the target element into view so users can see and interact with it
     this.scrollTargetIntoView(selector);
 
     const tutorialState = ensureTutorialState();
-    tutorialState.highlightElement(selector);
+    tutorialState.highlightElement(selector, this.currentStep?.highlightFirstMatch === true);
     this.positionSpotlight(selector);
 
     if (this.currentStep) {
@@ -642,6 +658,8 @@ export class TutorialOverlay {
       this.positionPanelForCurrentStep();
       return;
     }
+
+    const scrolledAncestor = this.scrollNearestScrollableAncestorIntoView(targetElement);
 
     const rect = targetElement.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
@@ -676,7 +694,40 @@ export class TutorialOverlay {
         this.positionSpotlight(selector);
         this.positionPanelForCurrentStep();
       });
+    } else if (scrolledAncestor) {
+      this.positionSpotlight(selector);
+      this.positionPanelForCurrentStep();
+      window.requestAnimationFrame(() => {
+        this.positionSpotlight(selector);
+        this.positionPanelForCurrentStep();
+      });
     }
+  }
+
+  private scrollNearestScrollableAncestorIntoView(targetElement: HTMLElement): boolean {
+    let ancestor = targetElement.parentElement;
+    while (ancestor && ancestor !== document.body) {
+      const styles = window.getComputedStyle(ancestor);
+      const canScrollVertically =
+        /(auto|scroll)/.test(styles.overflowY) &&
+        ancestor.scrollHeight > ancestor.clientHeight + 1;
+
+      if (canScrollVertically) {
+        const targetRect = targetElement.getBoundingClientRect();
+        const ancestorRect = ancestor.getBoundingClientRect();
+        const targetTop = targetRect.top - ancestorRect.top + ancestor.scrollTop;
+        const centeredTop = targetTop - Math.max(0, (ancestor.clientHeight - targetRect.height) / 2);
+        const maxScroll = ancestor.scrollHeight - ancestor.clientHeight;
+        const nextScroll = Math.max(0, Math.min(maxScroll, centeredTop));
+        if (Math.abs(ancestor.scrollTop - nextScroll) > 1) {
+          ancestor.scrollTop = nextScroll;
+          return true;
+        }
+        return false;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    return false;
   }
 
   private resetBattlePaneHorizontalScroll(): void {

@@ -78,3 +78,74 @@ registerTest("TUTORIAL_OVERLAY_COMBINES_MULTI_TARGET_BOUNDS_AND_HIGHLIGHTS_EACH_
     overlay.dispose();
   });
 });
+
+registerTest("TUTORIAL_OVERLAY_CAN_FOLLOW_ONLY_THE_FIRST_INCOMPLETE_REQUISITION_CARD", async ({ Given, When, Then }) => {
+  let overlay: TutorialOverlay;
+  let firstTarget: HTMLElement;
+  let secondTarget: HTMLElement;
+  let spotlight: HTMLElement | null = null;
+
+  await Given("several required armor cards match the tutorial selector", async () => {
+    document.body.innerHTML = `
+      <div class="armor-card" data-quantity="0"></div>
+      <div class="armor-card" data-quantity="0"></div>
+    `;
+    [firstTarget, secondTarget] = Array.from(document.querySelectorAll<HTMLElement>(".armor-card"));
+    firstTarget.getBoundingClientRect = () =>
+      ({
+        left: 100,
+        top: 120,
+        right: 260,
+        bottom: 220,
+        width: 160,
+        height: 100,
+        x: 100,
+        y: 120,
+        toJSON: () => ({})
+      }) as DOMRect;
+    secondTarget.getBoundingClientRect = () =>
+      ({
+        left: 420,
+        top: 280,
+        right: 640,
+        bottom: 420,
+        width: 220,
+        height: 140,
+        x: 420,
+        y: 280,
+        toJSON: () => ({})
+      }) as DOMRect;
+
+    overlay = new TutorialOverlay();
+    overlay.initialize();
+    (overlay as unknown as { currentStep: { highlightFirstMatch: boolean } }).currentStep = {
+      highlightFirstMatch: true
+    };
+  });
+
+  await When("the armor lesson positions its spotlight", async () => {
+    ensureTutorialState().highlightElement(".armor-card[data-quantity='0']", true);
+    (
+      overlay as unknown as {
+        positionSpotlight: (selector: string) => void;
+      }
+    ).positionSpotlight(".armor-card[data-quantity='0']");
+    spotlight = document.querySelector<HTMLElement>(".tutorial-spotlight");
+  });
+
+  await Then("only the next required company is highlighted", async () => {
+    if (!spotlight) {
+      throw new Error("Expected tutorial spotlight element to exist after initialization.");
+    }
+    if (spotlight.style.left !== "92px" || spotlight.style.top !== "112px") {
+      throw new Error(`Expected spotlight to follow the first card, received left=${spotlight.style.left} top=${spotlight.style.top}.`);
+    }
+    if (spotlight.style.width !== "176px" || spotlight.style.height !== "116px") {
+      throw new Error(`Expected a single-card spotlight, received width=${spotlight.style.width} height=${spotlight.style.height}.`);
+    }
+    if (!firstTarget.classList.contains("tutorial-highlight") || secondTarget.classList.contains("tutorial-highlight")) {
+      throw new Error("Expected only the first incomplete armor card to receive tutorial-highlight styling.");
+    }
+    overlay.dispose();
+  });
+});

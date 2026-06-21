@@ -577,20 +577,23 @@ registerTest("BATTLESCREEN_TUTORIAL_END_TURN_FINISHES_ONLY_THE_GUIDED_INITIATIVE
   });
 });
 
-registerTest("BATTLESCREEN_MOVEMENT_TUTORIAL_CLEARS_INTEL_WITHOUT_LOSING_SELECTION", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_MOVEMENT_TUTORIAL_PRESERVES_THE_FULL_RECON_RANGE", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let publishedIntel: unknown = "not-called";
   let tacticalMoveCount = 0;
 
-  await Given("the recon patrol is selected with six nearby movement hexes", async () => {
+  await Given("the recon patrol is selected with its full movement range", async () => {
     mountBattleScreenRoot();
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
     (screen as any).selectedHexKey = "6,5";
     (screen as any).selectedPlayerUnitId = "recon_1";
-    (screen as any).playerMoveHexes = new Set(["5,4", "6,4", "5,5", "7,5", "5,6", "6,6"]);
+    (screen as any).playerMoveHexes = new Set([
+      "4,3", "5,3", "6,3", "7,3",
+      "4,4", "5,4", "6,4", "7,4",
+      "4,5", "5,5", "6,5", "7,5"
+    ]);
     (screen as any).playerAttackHexes = new Set<string>();
     (screen as any).selectedUnitMatchesTutorialTarget = () => true;
-    (screen as any).getNearbyTutorialMoveHexes = (_origin: unknown, hexes: Set<string>) => hexes;
     (screen as any).hexMapRenderer = {
       setTacticalHighlights: (moveHexes: Set<string>) => {
         tacticalMoveCount = moveHexes.size;
@@ -621,8 +624,8 @@ registerTest("BATTLESCREEN_MOVEMENT_TUTORIAL_CLEARS_INTEL_WITHOUT_LOSING_SELECTI
     if ((screen as any).selectedHexKey !== "6,5" || (screen as any).selectedPlayerUnitId !== "recon_1") {
       throw new Error("Closing tutorial intel must preserve the selected recon patrol.");
     }
-    if (tacticalMoveCount !== 6) {
-      throw new Error(`Expected six nearby move choices, received ${tacticalMoveCount}.`);
+    if (tacticalMoveCount !== 12) {
+      throw new Error(`Expected all twelve legal move choices, received ${tacticalMoveCount}.`);
     }
   });
 });
@@ -829,9 +832,10 @@ registerTest("BATTLESCREEN_INITIATIVE_SELECTION_KEEPS_FACING_ONLY_UNITS_ACTIONAB
     );
   });
 
-  await Then("smoke and support orders stay committed while facing alone does not spend the unit", async () => {
-    if (selectableIds.length !== 1 || selectableIds[0] !== "u_player_wing") {
-      throw new Error(`Expected only the facing-adjusted unit to remain selectable, received ${JSON.stringify(selectableIds)}.`);
+  await Then("free smoke and facing orders preserve the activation while support fire commits it", async () => {
+    const expected = ["u_player_lead", "u_player_wing"];
+    if (JSON.stringify(selectableIds) !== JSON.stringify(expected)) {
+      throw new Error(`Expected smoke and facing units to remain selectable, received ${JSON.stringify(selectableIds)}.`);
     }
   });
 });
@@ -881,6 +885,40 @@ registerTest("BATTLESCREEN_INITIATIVE_SET_FACING_PRESERVES_ACTIVATION", async ({
     }
     if (refreshedHexKey !== "4,2") {
       throw new Error(`Expected facing confirmation to refresh selection at 4,2, received ${refreshedHexKey ?? "none"}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_SMOKE_TARGETS_USE_MAP_COORDINATES", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let highlightedTargets: string[] = [];
+
+  await Given("a smoke-capable unit whose engine targets are axial keys", async () => {
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({
+        resolveSmokeTargetHexKeys: () => ["4,2", "5,2"]
+      })
+    };
+    (screen as any).beginSmokeTargeting = (
+      _callerHexKey: string,
+      _callerAxial: { q: number; r: number },
+      _callerLabel: string,
+      _callerUnitId: string | null,
+      targetHexKeys: string[]
+    ) => {
+      highlightedTargets = targetHexKeys;
+    };
+  });
+
+  await When("the smoke target overlay is opened", async () => {
+    (screen as any).promptSmokeMode({ q: 4, r: 2 }, "Infantry Battalion", "u_player_1");
+  });
+
+  await Then("axial engine keys are converted to offset map keys", async () => {
+    const expected = ["4,4", "5,4"];
+    if (JSON.stringify(highlightedTargets) !== JSON.stringify(expected)) {
+      throw new Error(`Expected offset smoke targets ${JSON.stringify(expected)}, received ${JSON.stringify(highlightedTargets)}.`);
     }
   });
 });
@@ -952,6 +990,195 @@ registerTest("BATTLESCREEN_INITIATIVE_SHORT_MOVE_PRESERVES_REMAINING_ACTIONS", a
     }
     if ((screen as any).selectedPlayerUnitId !== "u_player_1") {
       throw new Error("Expected the moved unit to remain the selected stack member.");
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_TUTORIAL_RECON_MOVE_HANDS_OFF_INITIATIVE", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let completedUnitId: string | null = null;
+  let completedPhase: string | null = null;
+  let clearedSelection = false;
+  const tutorialState = ensureTutorialState();
+
+  await Given("the guided recon patrol still has legal movement after its lesson move", async () => {
+    tutorialState.endTutorial();
+    tutorialState.startTutorial();
+    tutorialState.jumpToPhase("movement_intro");
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).selectedHexKey = "2,2";
+    (screen as any).selectedPlayerUnitId = "recon_1";
+    (screen as any).hexMapRenderer = null;
+    const movedUnit = createPlayerUnit("recon_1", 3, 2);
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({
+        moveUnit: () => ({
+          unit: movedUnit,
+          from: { q: 2, r: 2 },
+          to: { q: 3, r: 2 },
+          path: [{ q: 2, r: 2 }, { q: 3, r: 2 }]
+        }),
+        getReachableHexes: () => [{ q: 4, r: 2 }],
+        getAttackableTargets: () => [],
+        getUnitCommandState: () => null,
+        getTurnSummary: () => ({ phase: "playerTurn", activeFaction: "Player", turnNumber: 1 })
+      }),
+      emitBattleUpdate: () => {}
+    };
+    (screen as any).renderEngineUnits = () => {};
+    (screen as any).clearSelectedHexAfterAction = () => {
+      clearedSelection = true;
+    };
+    (screen as any).applySelectedHex = () => {};
+    (screen as any).announceBattleUpdate = () => {};
+    (screen as any).publishActivityEvent = () => {};
+    (screen as any).completeTutorialPhase = (phase: string) => {
+      completedPhase = phase;
+    };
+    (screen as any).completeInitiativeActivationAfterPlayerOrder = (unitId: string | null | undefined) => {
+      completedUnitId = unitId ?? null;
+    };
+  });
+
+  await When("the patrol completes the movement lesson", async () => {
+    await (screen as any).executeAnimatedPlayerMove(
+      "2,2",
+      "3,2",
+      { q: 2, r: 2 },
+      { q: 3, r: 2 },
+      "recon_1"
+    );
+  });
+
+  await Then("the lesson completes and initiative passes despite unused movement", async () => {
+    if (completedPhase !== "movement_intro") {
+      throw new Error(`Expected movement_intro to complete, received ${completedPhase ?? "none"}.`);
+    }
+    if (completedUnitId !== "recon_1") {
+      throw new Error(`Expected the guided patrol activation to complete, received ${completedUnitId ?? "none"}.`);
+    }
+    if (!clearedSelection) {
+      throw new Error("Expected guided movement to clear stale movement and attack outlines before initiative passes.");
+    }
+    tutorialState.endTutorial();
+  });
+});
+
+registerTest("BATTLESCREEN_TUTORIAL_REPLAYS_MAP_CLICKS_AFTER_CAMERA_SETTLES", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let selectionCalls = 0;
+  const tutorialState = ensureTutorialState();
+
+  await Given("the tutorial camera is still settling on a guided formation", async () => {
+    tutorialState.endTutorial();
+    tutorialState.startTutorial();
+    tutorialState.jumpToPhase("active_group_units");
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).tutorialMapInputBlockedUntil = Date.now() + 10;
+    (screen as any).tutorialQueuedMapClickTimerId = null;
+    (screen as any).selectedHexKey = null;
+    (screen as any).selectedPlayerUnitId = null;
+    (screen as any).smokeTargetingState = null;
+    (screen as any).artilleryTargetingState = null;
+    (screen as any).onPlayerTurnMapClick = () => {
+      selectionCalls += 1;
+    };
+    (screen as any).completeGuidedTutorialSelectionForClickedHex = () => {};
+  });
+
+  await When("a map click lands during the camera transition", async () => {
+    (screen as any).queueTutorialMapClickAfterCamera("6,5");
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 40));
+  });
+
+  await Then("the intended click is replayed once when the camera is ready", async () => {
+    if (selectionCalls !== 1) {
+      throw new Error(`Expected one queued selection after the tutorial camera settled, received ${selectionCalls}.`);
+    }
+    tutorialState.endTutorial();
+  });
+});
+
+registerTest("BATTLESCREEN_TUTORIAL_GUIDED_SELECTION_ACCEPTS_REPEAT_CLICK_ON_SELECTED_UNIT", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let completedPhase: string | null = null;
+  const tutorialState = ensureTutorialState();
+
+  await Given("the smoke lesson is waiting on a guided infantry unit that is already selected", async () => {
+    tutorialState.endTutorial();
+    tutorialState.startTutorial();
+    tutorialState.jumpToPhase("select_smoke_unit");
+    mountBattleScreenRoot();
+    const smokeUnit = createPlayerUnit("infantry_smoke_1", 8, 7);
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).tutorialUserMapClickInProgress = true;
+    (screen as any).tutorialGuidedHexKeys = new Set<string>(["8,7"]);
+    (screen as any).resolveSelectedPlayerStackMember = () => ({
+      unit: smokeUnit,
+      unitId: smokeUnit.unitId,
+      isAutomated: false
+    });
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({
+        getUnitCommandState: () => ({ canLaySmoke: true })
+      })
+    };
+    (screen as any).completeTutorialPhase = (phase: string) => {
+      completedPhase = phase;
+    };
+  });
+
+  await When("the player clicks that same highlighted hex again", async () => {
+    (screen as any).completeGuidedTutorialSelectionForClickedHex("8,7");
+  });
+
+  await Then("the selection lesson completes instead of stalling", async () => {
+    if (completedPhase !== "select_smoke_unit") {
+      throw new Error(`Expected select_smoke_unit to complete, received ${completedPhase ?? "none"}.`);
+    }
+    tutorialState.endTutorial();
+  });
+});
+
+registerTest("BATTLESCREEN_INACTIVE_SELECTION_DOES_NOT_BLOCK_THE_NEXT_INITIATIVE_GROUP", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let selectedHexKey: string | null = null;
+  let initiativeWarningShown = false;
+
+  await Given("a completed recon patrol remains selected when engineers become active", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).selectedHexKey = "3,8";
+    (screen as any).selectedPlayerUnitId = "recon_1";
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).smokeTargetingState = null;
+    (screen as any).artilleryTargetingState = null;
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({})
+    };
+    (screen as any).getPlayerStackMembersAtHex = (hexKey: string) =>
+      hexKey === "9,7" ? [{ unitId: "engineer_1" }] : [];
+    (screen as any).applySelectedHex = (hexKey: string) => {
+      selectedHexKey = hexKey;
+    };
+    (screen as any).showInitiativeGroupMessage = () => {
+      initiativeWarningShown = true;
+    };
+  });
+
+  await When("the commander clicks the active engineer formation", async () => {
+    (screen as any).onPlayerTurnMapClick("9,7");
+  });
+
+  await Then("selection changes before the old recon activation is validated", async () => {
+    if (selectedHexKey !== "9,7") {
+      throw new Error(`Expected the engineer hex to be selected, received ${selectedHexKey ?? "none"}.`);
+    }
+    if (initiativeWarningShown) {
+      throw new Error("The completed recon patrol should not block selection of the active engineer group.");
     }
   });
 });

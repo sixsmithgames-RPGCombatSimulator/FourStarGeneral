@@ -450,6 +450,61 @@ HexMapRenderer and GameEngine are high-risk. Changes are additive only — no ex
 - Run `npm run build`.
 - Run focused compiled harness passes for the updated selection-intel tests.
 
+## Training Tutorial First-Turn Plan
+
+### Intended behavior
+- The training operation should conduct the commander through a short, legal first-turn sequence instead of merely describing controls.
+- Recon should demonstrate its full movement reach and explain its speed, scouting value, and weak combat power.
+- Engineer fieldworks, smoke, direct fire, and observer-directed artillery should each require the player to issue the real order.
+- Tutorial camera framing should keep the acting formation and its legal targets visible while leaving map pan and zoom available.
+
+### Current behavior
+- The armor requisition spotlight spans three separated cards and visually includes unrelated rows.
+- Recon movement is artificially limited to adjacent hexes.
+- Fire Orders follows recon movement even when the patrol has no legal target.
+- Smoke, engineering, artillery, and flak lessons mostly describe action cards without requiring the player to use them.
+- The tutorial asks the player to end an initiative group before it has conducted a coherent first-turn lesson.
+- Battle prompt sizing is inconsistent for phases that are not listed in the older phase-specific CSS selectors.
+
+### Expected new behavior
+- The armor spotlight follows the next unfilled Medium Tank, Heavy Tank, or Tank Destroyer card within one tutorial step.
+- Recon receives its full legal movement area; the camera frames that area and the tutorial explains map navigation.
+- Enemy initiative resolves before the tutorial selects the next legal player group.
+- The tutorial guides the player to select an active engineer, expand its order card, build a fortification, select a smoke-capable infantry formation, lay smoke, select a formation with a legal fire target, confirm an attack, and call artillery with an eligible observer.
+- The main tutorial ends after those essential orders; it does not require a premature End Turn or explanation-only Skip Group sequence.
+- All battle tutorial prompts use one compact typography and sizing system.
+
+### Edge cases
+- The player deploys evenly, grouped, or manually.
+- The selected recon patrol has legal destinations at several ranges.
+- Enemy activation resolves before or after the tutorial phase transition.
+- A player group contains several formations, but only one currently has the required capability or legal target.
+- Smoke and artillery targeting open secondary map and facing choices before the action is accepted.
+- Desktop and mobile prompt placement must not cover the required unit, target, or action card.
+
+### Impact analysis
+- Systems consuming this output:
+  - `PrecombatScreen` allocation rendering and tutorial quantity progression
+  - `TutorialOverlay` spotlight targeting and battle prompt layout
+  - `TutorialState` phase definitions
+  - `BattleScreen` initiative selection, action completion, and tutorial camera framing
+- Events depending on this structure:
+  - Tutorial state update notifications
+  - Selection intel action clicks
+  - Map movement and attack clicks
+  - Enemy initiative activation callbacks
+- Visual behaviors that could shift:
+  - Allocation spotlight position after each armor purchase
+  - Battle camera zoom and center during movement, fieldworks, smoke, fire, and artillery
+  - Tutorial prompt height and typography on desktop and mobile
+
+### Verification
+- [x] Add focused regressions for sequential armor spotlighting, full recon movement reach, real action gates, phase order, coordinate conversion, keyboard isolation, and compact prompt styling.
+- [x] Walk the tutorial from requisition through dismissal at desktop and mobile viewport sizes using real controls and map actions.
+- [x] Review screenshots for recon movement, engineer work, smoke, fire, artillery, and the final message.
+- [x] Assert every tutorial panel remains inside the viewport and its copy is not clipped.
+- [x] Run `npm test`, `npm run build`, `npm run lint`, and `git diff --check`.
+
 ## Facing Direction Unification Plan
 
 ### Intended behavior

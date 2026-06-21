@@ -69,32 +69,37 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getNextPhase("active_group_units") === "movement_intro", "Selecting an active formation should lead into movement teaching.");
     expect(!deploymentPhases.includes("roster_intro"), "Roster should be taught only by its sidebar mini tutorial.");
     expect(!deploymentPhases.includes("air_support_intro"), "Air Support should be taught only by its sidebar mini tutorial.");
-    expect(getNextPhase("attack_intro") === "intel_overlay_expand", "Fire Orders should lead into the unit intel card before Lay Smoke.");
-    expect(getNextPhase("intel_overlay_expand") === "smoke_demo", "Expanded intel should teach where Lay Smoke appears.");
-    expect(getNextPhase("smoke_demo") === "spend_activation", "Smoke should not block the first recon activation.");
-    expect(getNextPhase("spend_activation") === "enemy_activation", "The tutorial should spend the first activation before enemy tempo.");
-    expect(combatPhases.includes("spend_activation"), "Combat tutorial should include a real activation-spend gate.");
-    expect(
-      getTutorialStep("spend_activation")?.highlightSelector === ".enhanced-initiative-turn-controls .end-turn-btn",
-      "The activation handoff should point to the legal End Turn control."
-    );
-    expect(
-      getTutorialStep("spend_activation")?.content.includes("patrol has moved") === true,
-      "The activation handoff should explain why the patrol is ready to pass control."
-    );
-    expect(getNextPhase("round_handoff") === "mission_objectives", "Command loop should advance to final mission orders.");
+    expect(getNextPhase("movement_intro") === "enemy_activation", "A successful recon move should hand initiative to the enemy.");
+    expect(getNextPhase("enemy_activation") === "engineer_intro", "Enemy movement should lead into the engineer lesson.");
+    expect(getNextPhase("engineer_intro") === "intel_overlay_expand", "Selecting engineers should lead into their order card.");
+    expect(getNextPhase("intel_overlay_expand") === "engineer_orders", "The expanded order card should lead into real fieldworks.");
+    expect(getNextPhase("engineer_orders") === "enemy_response", "Completed fieldworks should hand initiative back to the enemy.");
+    expect(getNextPhase("enemy_response") === "select_smoke_unit", "The next friendly group should begin with a smoke-capable formation.");
+    expect(getNextPhase("select_smoke_unit") === "smoke_demo", "Selecting infantry should lead into a real smoke order.");
+    expect(getNextPhase("smoke_demo") === "select_attack_unit", "Completed smoke should lead to a formation with a legal shot.");
+    expect(getNextPhase("select_attack_unit") === "attack_intro", "A legal firing unit should lead into a confirmed attack.");
+    expect(getNextPhase("attack_intro") === "select_artillery_observer", "A completed attack should lead into artillery observation.");
+    expect(getNextPhase("select_artillery_observer") === "artillery_intro", "A legal observer should lead into a real artillery request.");
+    expect(getNextPhase("artillery_intro") === "mission_objectives", "Queued artillery should lead into final mission orders.");
     expect(getNextPhase("mission_objectives") === "complete", "Final mission orders should advance to the dismissal step.");
     expect(getNextPhase("complete") === null, "Final certification should dismiss instead of looping.");
-    expect(combatPhases.includes("next_unit"), "Combat tutorial should explain cycling active initiative groups.");
-    expect(combatPhases.includes("skip_group"), "Combat tutorial should explain skipping an initiative group.");
-    expect(combatPhases.includes("round_handoff"), "Combat tutorial should explain the initiative round handoff.");
+    expect(!combatPhases.includes("spend_activation"), "The main tutorial should not require a premature End Turn handoff.");
+    expect(!combatPhases.includes("next_unit"), "The main tutorial should stay with the natural action sequence.");
+    expect(!combatPhases.includes("skip_group"), "The main tutorial should not interrupt the first turn with optional controls.");
+    expect(!combatPhases.includes("round_handoff"), "The main tutorial should end after teaching the essential orders.");
     expect(!combatPhases.includes("turn_end"), "The redundant battle routine step should stay out of the main tutorial.");
+    expect(!combatPhases.includes("flak_intro"), "Air-defense controls belong in their sidebar brief, not the first-turn lesson.");
     expect(!combatPhases.includes("air_missions"), "Air missions should not auto-open the Air sidebar during the main tutorial.");
     expect(!combatPhases.includes("logistics_intro"), "Logistics should not auto-open during the main tutorial.");
     expect((getTutorialStep("base_camp")?.content.includes("Zone Alpha") ?? false), "Base-camp instructions should direct the player to Zone Alpha.");
     expect(getTutorialStep("movement_intro")?.waitForAction === true, "Movement tutorial should require a successful map move.");
-    expect((getTutorialStep("movement_intro")?.content.includes("nearby green dashed hex") ?? false), "Movement tutorial should identify the short legal destinations directly.");
-    expect((getTutorialStep("attack_intro")?.content.includes("If none appear") ?? false), "Fire tutorial should explain the no-target case directly.");
+    expect((getTutorialStep("movement_intro")?.content.includes("moves quickly") ?? false), "Movement tutorial should explain recon's speed.");
+    expect((getTutorialStep("movement_intro")?.content.includes("lightly armed") ?? false), "Movement tutorial should explain recon's weakness.");
+    expect((getTutorialStep("movement_intro")?.content.includes("Drag the map") ?? false), "Movement tutorial should teach map navigation.");
+    expect(getTutorialStep("engineer_orders")?.waitForAction === true, "Fieldworks should require a successful engineer order.");
+    expect(getTutorialStep("smoke_demo")?.waitForAction === true, "Smoke should require a successful smoke order.");
+    expect(getTutorialStep("attack_intro")?.waitForAction === true, "Fire Orders should require a confirmed attack.");
+    expect(getTutorialStep("artillery_intro")?.waitForAction === true, "Artillery should require a queued support request.");
     expect(getTutorialStep("enemy_activation")?.waitForAction === true, "Enemy Action should wait for initiative handoff instead of showing a premature Continue button.");
     expect((getTutorialStep("initiative_order")?.content.includes("battle clock") ?? false) === false, "Initiative copy should explain the UI without mystifying phrases.");
     expect((getTutorialStep("smoke_demo")?.content.includes("opened on one now") ?? false) === false, "Smoke copy should avoid mechanical developer phrasing.");
@@ -104,6 +109,11 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     );
     expect(getTutorialStep("place_units")?.position === "top", "Placement instructions should render above the deploy-mode controls.");
     expect(getTutorialStep("place_units")?.arrowDirection === "down", "Placement instructions should point directly at the deploy-mode controls.");
+    expect(getTutorialStep("select_tanks")?.highlightFirstMatch === true, "Armor requisition should spotlight one required company at a time.");
+    expect(
+      getTutorialStep("select_tanks")?.highlightSelector?.includes("[data-quantity='0']") === true,
+      "Armor requisition should advance the spotlight as each company is added."
+    );
   });
 });
 
@@ -125,7 +135,7 @@ registerTest("TUTORIAL_WAIT_BUTTON_USES_DIRECT_DISABLED_COPY", async ({ Given, T
   await Given("a required-action tutorial step is visible", async () => {
     tutorialState.endTutorial();
     (globalThis as { MutationObserver?: typeof MutationObserver }).MutationObserver = window.MutationObserver;
-    document.body.innerHTML = `<div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight">Recon Bike Patrol</div></div>`;
+    document.body.innerHTML = `<div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight" data-tutorial-guided-hex="true">Recon Bike Patrol</div></div>`;
     setRect(document.querySelector<HTMLElement>(".initiative-group-highlight") as HTMLElement, { left: 160, top: 180, width: 80, height: 72 });
     overlay = new TutorialOverlay();
     overlay.initialize();
@@ -153,7 +163,7 @@ registerTest("TUTORIAL_BACK_IS_AVAILABLE_ONLY_ON_REVERSIBLE_INFORMATION_STEPS", 
       <div id="allocationUnitList">Units</div>
       <div id="allocationSupportList">Support</div>
       <div id="allocationLogisticsList">Logistics</div>
-      <div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight">Recon</div></div>
+      <div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight" data-tutorial-guided-hex="true">Recon</div></div>
     `;
     document.querySelectorAll<HTMLElement>("div").forEach((element) => setRect(element, {}));
     overlay = new TutorialOverlay();
@@ -206,7 +216,7 @@ registerTest("TUTORIAL_ACTION_USES_THE_AUTHORITATIVE_CURRENT_PHASE", async ({ Gi
   });
 
   await Then("the tutorial advances from the live phase instead of the stale cached step", async () => {
-    expect(tutorialState.getCurrentPhase() === "intel_overlay_expand", `Expected Unit Intel, received ${tutorialState.getCurrentPhase()}.`);
+    expect(tutorialState.getCurrentPhase() === "select_artillery_observer", `Expected artillery observer selection, received ${tutorialState.getCurrentPhase()}.`);
     overlay.dispose();
     tutorialState.endTutorial();
   });
@@ -221,7 +231,7 @@ registerTest("BATTLE_TUTORIAL_PROMPTS_DOCK_BELOW_THE_COMMAND_HEADER", async ({ G
     (globalThis as { MutationObserver?: typeof MutationObserver }).MutationObserver = window.MutationObserver;
     document.body.innerHTML = `
       <header class="battle-map-header">Command header</header>
-      <div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight">Recon</div></div>
+      <div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight" data-tutorial-guided-hex="true">Recon</div></div>
     `;
     setRect(document.querySelector<HTMLElement>(".battle-map-header") as HTMLElement, {
       left: 120,
@@ -260,7 +270,7 @@ registerTest("MOBILE_BATTLE_TUTORIAL_PROMPTS_DOCK_OVER_THE_HEADER", async ({ Giv
     (globalThis as { MutationObserver?: typeof MutationObserver }).MutationObserver = window.MutationObserver;
     document.body.innerHTML = `
       <header class="battle-map-header">Command header</header>
-      <div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight">Recon</div></div>
+      <div id="battleMapCanvas"><div class="hex-cell initiative-group-highlight" data-tutorial-guided-hex="true">Recon</div></div>
     `;
     setRect(document.querySelector<HTMLElement>(".battle-map-header") as HTMLElement, {
       left: 46,

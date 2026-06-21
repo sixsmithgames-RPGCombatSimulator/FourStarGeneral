@@ -2,69 +2,84 @@
 
 ## Issue Summary
 
-The training tutorial had drifted from the current battle UI. Several steps were technically present, but they interrupted play instead of teaching the command loop:
+The training tutorial had fallen out of step with the initiative battle system. The visible prompts, camera, and underlying turn state could disagree:
 
-1. Main tutorial anchoring could open sidebar panels while trying to find highlight targets, so Air Support or Roster appeared before the player clicked those sidebar icons.
-2. Map-action prompts were large fixed panels over the battlefield, especially during movement, fire, and smoke instruction.
-3. Base camp assignment accepted the default focused hex, so the player could advance without deliberately choosing a deployment-zone hex.
-4. Smoke instruction happened before the player had selected a smoke-capable unit or expanded the unit intel card.
-5. Deployment selection could leak into combat tutorial state, causing Movement to advance without a deliberate unit pick.
-6. Initiative order and initiative groups were not explained after the battle system changed, leaving the player without a clear "who acts now" command loop.
-7. On narrow mobile screens, the requisition toolbar forced the allocation cards wider than the viewport.
-8. The movement lesson was presented as ordinary information, so its modal backdrop intercepted the map when the player tried to move.
-9. Back navigation could reopen completed action phases without restoring the matching game state.
-10. Battle prompts used phase-specific lower corners, making the tutorial feel visually disconnected from one step to the next.
-11. After the tutorial required Recon movement, it asked that same formation to enter Sentry even though moving makes Sentry illegal for the rest of the turn.
-12. Restoring the Unit Intel card re-entered tutorial selection synchronization before the card was published, causing an infinite callback loop after Fire Orders.
-13. The shared primary-button hover transform moved the final Dismiss control under the pointer and made its hit target unstable.
+1. The armor requisition spotlight enclosed three distant cards as one oversized target.
+2. Recon movement was artificially restricted to adjacent hexes, hiding the unit's defining speed.
+3. The tutorial advanced after the recon moved but left its initiative activation open.
+4. Engineer, smoke, fire, and artillery lessons sometimes described controls without requiring a legal order.
+5. Fire and smoke could be shown on formations that lacked a valid target or capability.
+6. A premature End Turn lesson interrupted the natural first-turn sequence.
+7. Phase-specific prompt sizing caused inconsistent typography and clipped battle instructions.
+8. Repeated camera recentering could pull the map away while the player was inspecting it.
+9. Camera motion could reinterpret a quick second click as an unintended recon move.
+10. Recon movement outlines could remain visible after initiative passed.
+11. The training infantry did not expose smoke orders, leaving the smoke lesson without a legal actor.
+12. Enemy-response fallback timing could advance the tutorial before a visible enemy animation finished.
+13. Guided selection steps could stall when setup had already selected the required formation and the player clicked that same highlighted unit.
+14. Smoke target highlights used axial engine keys as offset DOM keys, so the visible target and the hex submitted to the engine could differ.
+15. Smoke was implemented as a free order but the initiative UI treated it as a spent activation, removing the only guaranteed firing unit from the lesson.
+16. Guided markers were attached before a zone-highlight repaint, which replaced the SVG node and erased the marker.
+17. A global Enter shortcut could fire through an edge-selection dialog and open an unrelated initiative warning.
+18. Compact mobile prompts imposed a fixed text height, clipping longer instructions instead of growing with their copy.
 
 ## Root Cause
 
-The tutorial controller tried to be helpful by opening missing UI targets automatically. That worked for simple anchored popups, but it broke the rule that sidebar command briefs should only start from deliberate sidebar clicks.
+The tutorial was organized as a list of UI explanations instead of a legal sequence of battle actions. Individual steps could look correct in isolation while the initiative queue, selected formation, available orders, and camera state had already moved elsewhere.
 
-The battle tutorial also treated map actions like ordinary modal steps. That forced players to interact with the map while the guidance panel occupied the same tactical space. Finally, deployment had a default selected hex for status context, and the tutorial did not distinguish that passive focus from an intentional player choice. The same stale selection could survive into the first combat step and satisfy Movement before the player acted.
+The requisition overlay also treated every selector match as one spotlight. That works for a compact control group, but not for three unit cards spread through a scrolling list.
 
-The initiative update added a new command language without a matching tutorial update. The player needed to understand initiative order, same-rating initiative groups, active friendly formations, enemy tempo, sentry/skip decisions, and round handoff before movement and fire orders could make sense.
+The battle UI also crossed two coordinate systems without converting at the boundary. Engine target lists are axial keys; map elements use offset keys. Because both serialize as `x,y`, the mismatch looked valid until the smoke order reached range validation.
 
 ## Fix
 
-- Sidebar mini tutorials now trigger only from real sidebar button opens.
-- The main tutorial no longer includes sidebar-only phases.
-- Map-action tutorial panels are compact and docked near the edge of the viewport on desktop and mobile.
-- Post-deployment prompts now share a stable upper-right dock below the command header.
-- Base camp tutorial flow clears the passive default selection and requires the player to pick a highlighted deployment-zone hex before assigning camp.
-- Base camp and combat action steps now focus the required map hexes after layout settles, so the legal target is in view before the player acts.
-- Combat tutorial now opens with initiative order, active group, and active formation selection before movement and fire.
-- Movement selects the active Recon Bike Patrol, exposes only nearby legal destinations, and advances only after the engine accepts the move.
-- Movement and Fire Orders temporarily close the unit card without clearing the selected formation, so the map targets stay visible and clickable.
-- On phone layouts, combat camera framing shifts actionable hexes below the upper tutorial prompt instead of centering them underneath it.
-- Back is available only on the reversible opening briefing; deployment and battle actions cannot be rewound through the overlay.
-- Smoke is now taught as a conditional unit-card order, not a forced gate.
-- Unit Intel restoration uses a reentrancy guard so publishing selection details cannot recursively restart the same tutorial phase.
-- After the patrol moves, the tutorial highlights End Turn and finishes only the current initiative group. It does not request an illegal Sentry order or skip every remaining player group.
-- Initiative controls now expose a concise status line showing the current initiative band, faction control, and remaining formations.
-- Enemy tempo, Next Unit, Skip Group, and round handoff are now explained in the main command loop.
-- Mission Orders and the final Ready For Battle step remain in the same upper battle dock as the preceding lessons.
-- Tutorial action buttons keep a stable hit target on hover and focus.
-- Mobile requisition layout now constrains the toolbar, allocation grid, and cards to the phone viewport.
+- Armor requisition now highlights only the next unfilled company card and follows the list as each company is added.
+- Recon receives its full legal movement range. The lesson explains speed, observation, weak protection, map panning, and zoom.
+- Completing the guided recon move also completes that formation's tutorial activation, allowing the enemy response and next initiative band to proceed.
+- The combat tutorial now follows one legal first-turn sequence:
+  1. Read the initiative status.
+  2. Select and move Recon.
+  3. Watch the enemy response.
+  4. Select Engineers, expand their order card, and build fieldworks.
+  5. Select smoke-capable infantry and lay smoke.
+  6. Select a formation with a legal target and confirm an attack.
+  7. Select an eligible observer and call artillery.
+  8. Receive mission orders and dismiss the tutorial.
+- Engineer, smoke, fire, and artillery phases advance only after the engine accepts the required action.
+- Optional initiative controls and the premature End Turn lesson were removed from the main walkthrough.
+- Battle prompts now share one compact upper dock and consistent typography on desktop and mobile.
+- Camera framing includes the acting unit and required targets, then stops recentering so the player can inspect the map.
+- Guided camera transitions queue one intended click and replay it after the view settles, preventing both accidental orders and silently discarded input.
+- Guided unit-selection steps mark one exact legal formation instead of spotlighting an entire initiative band.
+- The guided recon activation clears its selection and tactical outlines before the Engineer group begins.
+- Infantry battalions can use their integral mortar element to lay smoke, giving the training lesson a legal order.
+- Enemy-response fallback waits beyond the normal animation window and cannot race visible enemy movement.
+- Guided unit-selection steps advance on the player's click even if the intended formation was already selected by setup.
+- Smoke target keys convert from engine axial coordinates to map offset coordinates before highlighting or click handling.
+- Smoke remains a free order after consuming ammunition, so the same active infantry formation can proceed naturally into the direct-fire lesson.
+- Selection phases clear stale intel first, repaint tactical highlights, and attach the guided marker last so SVG updates cannot erase it.
+- Global initiative shortcuts ignore handled events and keyboard input originating from buttons, controls, or modal dialogs.
+- Map-targeting orders close the expanded unit card before asking the player to click a hex.
+- Mobile action prompts grow with their content; the walkthrough asserts that every panel fits the viewport and no tutorial copy is clipped.
+- Sidebar mini tutorials remain separate and open only when the player deliberately selects the matching command-rail icon.
 
 ## Verification Checklist
 
-- Requisition tutorial advances through each required allocation.
-- Proceeding to battle does not open Roster, Air Support, or Logistics panels.
-- Base camp cannot advance from the tutorial's passive default focus.
-- Deploy Evenly completes Place The Line and advances to Begin Battle.
-- Begin Battle advances to Initiative Order, then Active Group, then Choose A Formation.
-- Active group selection only advances from a fresh click on a currently active friendly initiative-group unit.
-- Movement keeps the Recon Bike Patrol and its nearby legal destinations visible, accepts a map click, and advances only after the move resolves.
-- Fire Orders advances to Unit Intel without recursion, and expanding Unit Intel advances to the smoke-capable formation lesson.
-- Back is absent from stateful requisition, deployment, and combat phases.
-- Post-deployment prompts remain in the upper dock on desktop and mobile instead of alternating between lower corners.
-- Mobile movement targets remain visible and clickable below the upper prompt.
-- Movement, Fire Orders, Smoke, Engineer, Artillery, Flak, initiative controls, and round handoff prompts stay compact and leave the battlefield clickable.
-- Smoke explanation does not require an impossible Lay Smoke action from a non-smoke-capable active unit.
-- The guided End Turn handoff advances the tutorial to enemy tempo without an extra confirmation or a full-turn skip.
-- Ready For Battle appears before the tutorial dismisses, and Dismiss is clickable without forced input.
-- Mobile requisition cards fit within a 390px viewport without horizontal clipping.
-- Sidebar mini tutorials remain available when the player clicks the relevant command rail icon outside the active main tutorial.
-- Complete walkthroughs pass at 390x844 and 1440x900, with screenshots reviewed for Place The Line, Movement, and Ready For Battle.
+- Requisition spotlight follows Medium Tank, Heavy Tank, and Tank Destroyer one card at a time.
+- Training allocation completes without an oversized multi-card border.
+- Deployment remains usable at desktop and phone widths.
+- Recon shows its full legal movement range and the map remains pannable and zoomable.
+- A guided click made while the camera is settling is replayed once after the camera stops.
+- A successful recon move hands initiative to the enemy without an extra End Turn click.
+- Recon movement and attack outlines clear before the Engineer lesson.
+- Enemy response returns control to the active Engineer group.
+- Fortify requires selecting an edge and advances only after fieldworks are built.
+- Smoke requires a smoke-capable active infantry formation, a target hex, and an edge.
+- Each guided selection spotlight identifies only the formation that can perform the next required order.
+- Clicking an already-selected guided formation advances the selection lesson.
+- Fire requires an active formation with a legal target and advances only after attack confirmation.
+- Artillery requires an eligible active observer and advances only after a target is queued.
+- No Air, Logistics, Roster, or other sidebar modal opens during the main tutorial.
+- Tutorial prompts remain near the upper command area without covering required map targets.
+- Desktop and mobile walkthroughs reach the final mission message without duplicate steps, stale selections, or camera jumps.
+- Every tutorial panel remains inside the viewport and its content has no hidden overflow at 1440x900 and 390x844.

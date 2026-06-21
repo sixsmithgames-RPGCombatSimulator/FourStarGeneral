@@ -160,9 +160,18 @@ Required-action tutorial steps must point players to the real game control or ma
 * Do not create tutorial steps where the player starts moving toward a transient button that disappears because the actual action has already completed.
 * Map-action lessons must use a wait state that leaves the real map clickable and must advance only after the engine accepts the action.
 * A required tutorial control must remain legal after every action the tutorial previously required. Test the complete sequence, not the step in isolation.
+* Capability lessons must select a currently active unit that can legally perform the order, then require the real engine action. Never teach smoke, fire, engineering, or support orders on a unit that cannot issue them.
+* Guided unit-selection lessons must require a player map click, even when setup has already selected the intended unit. Clicking the highlighted unit again must still advance the lesson.
+* Tutorial camera framing must include the acting unit and every required target while leaving pan and zoom available. Do not repeatedly recenter after the player begins inspecting the map.
+* While a guided camera transition is moving the map, queue at most one intended guided click and replay it only if the tutorial phase is unchanged. Never silently discard deliberate input or let a click aimed at the old camera position become an order on a newly positioned hex.
+* Convert engine axial keys to map offset keys at the engine-to-DOM boundary. Never pass serialized `q,r` keys directly to selectors or map highlight APIs that expect `col,row` keys.
+* Apply tutorial guidance attributes after any renderer call that can repaint or replace the target node.
+* Global keyboard shortcuts must respect `event.defaultPrevented` and must not fire from buttons, links, form controls, editable content, or modal dialogs.
+* Close or compact obstructive unit intel before beginning a map-targeting order.
 * Back navigation is opt-in. Show Back only between informational steps that can be reversed without rewinding deployment, selection, initiative, or order state.
 * Battle prompts should use one consistent upper-screen dock. Move the prompt only when the normal dock would block the required control.
 * Tutorial controls must keep a stable hit target on hover and focus. Do not translate or resize a button while the player is trying to click it.
+* Tutorial panels must fit the viewport and show all copy without hidden overflow at supported desktop and mobile widths.
 
 ## 7. Manual Verification Checklist (Visual Integrity)
 Because this is a visual strategy game, the following must be manually verified after relevant changes:

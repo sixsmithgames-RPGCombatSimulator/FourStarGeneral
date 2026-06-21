@@ -44,10 +44,11 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_tanks",
     title: "Attach Armor",
     content:
-      "Add one Medium Tank Company, one Heavy Tank Company, and one Tank Destroyer Company. This gives you breakthrough power and anti-tank fire.",
-    highlightSelector: "[data-key='tank'], [data-key='heavyTankCompany'], [data-key='tankDestroyerCompany']",
+      "Add one Medium Tank Company, one Heavy Tank Company, and one Tank Destroyer Company. The marker will move to each company in turn.",
+    highlightSelector: "[data-key='tank'][data-quantity='0'], [data-key='heavyTankCompany'][data-quantity='0'], [data-key='tankDestroyerCompany'][data-quantity='0']",
     position: "right",
     arrowDirection: "left",
+    highlightFirstMatch: true,
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -204,7 +205,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     title: "Choose A Formation",
     content:
       "Click the highlighted Recon Bike Patrol. It moves first in this training battle.",
-    highlightSelector: "#battleMapCanvas .hex-cell.initiative-group-highlight, #battleMapCanvas .hex-tile.initiative-group-highlight",
+    highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
@@ -212,10 +213,100 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "movement_intro",
-    title: "Movement",
+    title: "Scout Ahead",
     content:
-      "Move the Recon Bike Patrol to a nearby green dashed hex. Click the destination to issue the order.",
-    highlightSelector: "#battleMapCanvas .hex-cell.move-option-highlight, #battleMapCanvas .hex-tile.move-option-highlight",
+      "Recon moves quickly and sees far, but is lightly armed. Drag or scroll the map, then move to the highlighted green hex. Other green outlines are legal moves.",
+    highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "enemy_activation",
+    title: "Enemy Response",
+    content:
+      "The enemy now answers with formations in the same initiative band. Watch the map; command returns when their movement is complete.",
+    highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status], .battle-activity-log",
+    highlightFirstMatch: true,
+    position: "bottom",
+    arrowDirection: "up",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "engineer_intro",
+    title: "Select The Engineers",
+    content:
+      "The engineers are ready. Click the highlighted Engineering Corps to prepare fieldworks.",
+    highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "intel_overlay_expand",
+    title: "Open The Order Card",
+    content:
+      "The compact card shows readiness at a glance. Click Expand to open the engineer's full order card.",
+    highlightSelector: "#battleIntelOverlay, #battleIntelOverlayToggle",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "engineer_orders",
+    title: "Build Fieldworks",
+    content:
+      "Click Fortify, then choose the hex edge the works will protect. The build uses the engineer's action.",
+    highlightSelector: "#battleIntelOverlay [data-selection-action='fortifications']",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "enemy_response",
+    title: "Enemy Response",
+    content:
+      "Enemy formations in this band now act. Watch their movement; your infantry group is next.",
+    highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status], .battle-activity-log",
+    highlightFirstMatch: true,
+    position: "bottom",
+    arrowDirection: "up",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "select_smoke_unit",
+    title: "Select A Smoke Unit",
+    content:
+      "Click the highlighted infantry battalion. It carries smoke rounds and can screen the advance.",
+    highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "smoke_demo",
+    title: "Lay Smoke",
+    content:
+      "Click Lay Smoke. Choose a highlighted hex, then choose the edge the smoke will cover.",
+    highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke']",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "select_attack_unit",
+    title: "Select A Firing Unit",
+    content:
+      "Another formation has a clear shot. Click the highlighted friendly unit to prepare its fire order.",
+    highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
@@ -225,123 +316,34 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "attack_intro",
     title: "Fire Orders",
     content:
-      "Red hexes are legal fire targets. If none appear, this patrol has no clear shot yet.",
+      "Red outlines mark enemy formations in range. Click one, review the fire report, then confirm the attack.",
     highlightSelector: "#battleMapCanvas .hex-cell.attack-target-highlight, #battleMapCanvas .hex-tile.attack-target-highlight",
-    position: "right",
-    arrowDirection: "left",
-    actionLabel: "Continue"
-  },
-  {
-    phase: "intel_overlay_expand",
-    title: "Unit Intel",
-    content:
-      "The unit card shows readiness, ammo, fuel, movement, range, and facing. Click Expand to see its orders.",
-    highlightSelector: "#battleIntelOverlay, #battleIntelOverlayToggle",
+    showSpotlight: false,
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
     actionLabel: "Continue"
   },
   {
-    phase: "smoke_demo",
-    title: "Smoke Orders",
+    phase: "select_artillery_observer",
+    title: "Select An Observer",
     content:
-      "Smoke appears only on formations that carry smoke rounds. This formation has smoke; use it to block sight or cover a tired unit.",
-    highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke'], #battleIntelOverlay",
+      "One infantry battalion can see an enemy position and reach the corps guns. Click the highlighted observer.",
+    highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
     position: "right",
     arrowDirection: "left",
-    actionLabel: "Continue"
-  },
-  {
-    phase: "spend_activation",
-    title: "Finish The Group",
-    content:
-      "The patrol has moved. Click End Turn to finish this initiative group and pass control.",
-    highlightSelector: ".enhanced-initiative-turn-controls .end-turn-btn",
-    position: "bottom",
-    arrowDirection: "up",
     waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
-    phase: "enemy_activation",
-    title: "Enemy Action",
-    content:
-      "Enemy groups resolve automatically. Watch the map and Activity Log; the tutorial continues when your next group is ready.",
-    highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status], .battle-activity-log",
-    position: "bottom",
-    arrowDirection: "up",
-    waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
-    phase: "next_unit",
-    title: "Cycle The Group",
-    content:
-      "Next Unit jumps between formations in the active group. Use it when several friendly formations share the same initiative.",
-    highlightSelector: ".battle-map-header",
-    position: "bottom",
-    arrowDirection: "up",
-    actionLabel: "Continue"
-  },
-  {
-    phase: "skip_group",
-    title: "Skip Group",
-    content:
-      "Skip Group puts the rest of this active group on Sentry. Use it when they are already where you want them.",
-    highlightSelector: ".battle-map-header",
-    position: "bottom",
-    arrowDirection: "up",
-    actionLabel: "Continue"
-  },
-  {
-    phase: "engineer_intro",
-    title: "Engineers",
-    content:
-      "Engineers shape the ground. Their card is opened here so you can see fortify, obstacle, and clearing orders.",
-    highlightSelector: "#battleIntelOverlay",
-    position: "right",
-    arrowDirection: "left",
-    actionLabel: "Continue"
-  },
-  {
-    phase: "engineer_orders",
-    title: "Engineer Work",
-    content:
-      "Fortify, Lay Tank Traps, and Clear Path live on engineer cards. Field work spends the engineer's action.",
-    highlightSelector: "#battleIntelOverlay [data-selection-action='fortifications'], #battleIntelOverlay [data-selection-action='tankTraps'], #battleIntelOverlay [data-selection-action='clearedPath'], #battleIntelOverlay",
-    position: "left",
-    arrowDirection: "right",
     actionLabel: "Continue"
   },
   {
     phase: "artillery_intro",
-    title: "Artillery",
+    title: "Call Artillery",
     content:
-      "Infantry and recon can call off-map guns when they observe an enemy. If no target is observed, the card explains why.",
-    highlightSelector: "#battleIntelOverlay [data-selection-action='callArtillery'], #battleIntelOverlay",
+      "Click Call Artillery, then select a highlighted enemy hex. The shells arrive during the turn transition.",
+    highlightSelector: "#battleIntelOverlay [data-selection-action='callArtillery']",
     position: "right",
     arrowDirection: "left",
-    actionLabel: "Continue"
-  },
-  {
-    phase: "flak_intro",
-    title: "Flak Coverage",
-    content:
-      "Flak covers nearby troops against aircraft and can fight ground targets when needed. Keep it near camp, guns, or roads.",
-    highlightSelector: "#battleIntelOverlay, #battleMapCanvas",
-    position: "right",
-    arrowDirection: "left",
-    actionLabel: "Continue"
-  },
-  {
-    phase: "round_handoff",
-    title: "End The Turn",
-    content:
-      "End Turn hands off when your active groups are finished. The tutorial is ending; keep fighting from here.",
-    highlightSelector: ".battle-map-header",
-    position: "bottom",
-    arrowDirection: "up",
+    waitForAction: true,
     actionLabel: "Continue"
   },
   {
@@ -432,18 +434,17 @@ export function getCombatPhases(): TutorialPhase[] {
     "initiative_order",
     "active_group_units",
     "movement_intro",
-    "attack_intro",
-    "intel_overlay_expand",
-    "smoke_demo",
-    "spend_activation",
     "enemy_activation",
-    "next_unit",
-    "skip_group",
     "engineer_intro",
+    "intel_overlay_expand",
     "engineer_orders",
+    "enemy_response",
+    "select_smoke_unit",
+    "smoke_demo",
+    "select_attack_unit",
+    "attack_intro",
+    "select_artillery_observer",
     "artillery_intro",
-    "flak_intro",
-    "round_handoff",
     "mission_objectives",
     "complete"
   ];

@@ -36,11 +36,14 @@ export type TutorialPhase =
   | "smoke_demo"
   | "spend_activation"
   | "enemy_activation"
+  | "enemy_response"
   | "next_unit"
   | "skip_group"
   | "engineer_intro"
   | "engineer_orders"
+  | "select_attack_unit"
   | "artillery_intro"
+  | "select_artillery_observer"
   | "flak_intro"
   | "air_missions"
   | "logistics_intro"
@@ -57,6 +60,8 @@ export interface TutorialStep {
   readonly actionLabel?: string;
   readonly waitForAction?: boolean;
   readonly allowBack?: boolean;
+  readonly highlightFirstMatch?: boolean;
+  readonly showSpotlight?: boolean;
   readonly arrowDirection?: "up" | "down" | "left" | "right";
 }
 
@@ -173,10 +178,11 @@ class TutorialStateManager {
   /**
    * Highlights a DOM element for the current tutorial step.
    */
-  highlightElement(selector: string): void {
+  highlightElement(selector: string, firstMatchOnly = false): void {
     this.clearHighlight();
 
-    const elements = Array.from(document.querySelectorAll<HTMLElement>(selector));
+    const matches = Array.from(document.querySelectorAll<HTMLElement>(selector));
+    const elements = firstMatchOnly ? matches.slice(0, 1) : matches;
     if (elements.length > 0) {
       this.highlightedElements = elements;
       elements.forEach((element) => {

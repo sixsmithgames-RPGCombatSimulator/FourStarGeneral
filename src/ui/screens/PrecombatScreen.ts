@@ -1137,7 +1137,7 @@ export class PrecombatScreen {
       .filter((badge) => badge.length > 0)
       .join("");
     return `
-      <li class="allocation-item" data-key="${option.key}" data-locked="${locked ? "true" : "false"}" data-unavailable="${unavailable ? "true" : "false"}">
+      <li class="allocation-item" data-key="${option.key}" data-quantity="${quantity}" data-locked="${locked ? "true" : "false"}" data-unavailable="${unavailable ? "true" : "false"}">
         <div class="allocation-card-shell">
           <div class="allocation-visual">
             ${option.spriteUrl ? `<img src="${option.spriteUrl}" alt="${option.label}" class="allocation-thumb" />` : `<div class="allocation-fallback">${option.label.charAt(0)}</div>`}
