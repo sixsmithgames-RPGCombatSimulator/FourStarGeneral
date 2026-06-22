@@ -63,6 +63,26 @@ async function clickFirstAvailableEdge(page: Page): Promise<void> {
   await expect(dialog).toBeHidden();
 }
 
+async function expectSpotlightAround(page: Page, target: Locator): Promise<void> {
+  const spotlight = page.locator(".tutorial-spotlight:not(.hidden)");
+  await expect(spotlight).toBeVisible();
+  await expect.poll(async () => {
+    const targetBounds = await target.boundingBox();
+    const spotlightBounds = await spotlight.boundingBox();
+    if (!targetBounds || !spotlightBounds) {
+      return false;
+    }
+    return (
+      spotlightBounds.x <= targetBounds.x &&
+      spotlightBounds.y <= targetBounds.y &&
+      spotlightBounds.x + spotlightBounds.width >= targetBounds.x + targetBounds.width &&
+      spotlightBounds.y + spotlightBounds.height >= targetBounds.y + targetBounds.height &&
+      spotlightBounds.width <= targetBounds.width + 20 &&
+      spotlightBounds.height <= targetBounds.height + 20
+    );
+  }).toBe(true);
+}
+
 async function requisitionTrainingForce(page: Page): Promise<void> {
   await waitForTutorialPhase(page, "budget_overview");
   await continueTutorial(page);
@@ -141,14 +161,22 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await waitForTutorialPhase(page, "engineer_orders");
   await page.screenshot({ path: outputPath("engineer-work.png") });
   await page.locator('#battleIntelOverlay [data-selection-action="fortifications"]').click();
+  const fortificationHexagon = page.locator("#battleFortificationFacingPreview .fortification-facing-preview-svg");
+  await expect(fortificationHexagon).toHaveAttribute("data-tutorial-target", "true");
+  await expectSpotlightAround(page, fortificationHexagon);
+  await expect(tutorialPanel(page)).toContainText("Build Fortifications");
+  await expect(tutorialPanel(page)).toContainText("hex edge facing the enemy");
+  await page.screenshot({ path: outputPath("fortification-edge.png") });
   await clickFirstAvailableEdge(page);
 
   await waitForTutorialPhase(page, "select_smoke_unit", 20_000);
   await clickGuidedHex(page);
   await waitForTutorialPhase(page, "smoke_demo");
-  await expect(page.locator('#battleIntelOverlay [data-selection-action="laySmoke"]')).toBeVisible();
+  const laySmokeOrder = page.locator('#battleIntelOverlay [data-selection-action="laySmoke"]');
+  await expect(laySmokeOrder).toBeVisible();
+  await expect(laySmokeOrder).toContainText("battalion mortars");
   await page.screenshot({ path: outputPath("smoke-order.png") });
-  await page.locator('#battleIntelOverlay [data-selection-action="laySmoke"]').click();
+  await laySmokeOrder.click();
   const smokeTargets = page.locator("#battleMapCanvas .hex-cell.deployment-zone:not(.is-selected)");
   const smokeTargetCount = await smokeTargets.count();
   expect(smokeTargetCount, "Lay Smoke must expose a legal map target.").toBeGreaterThan(0);

@@ -258,10 +258,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "engineer_orders",
-    title: "Build Fieldworks",
+    title: "Build Fortifications",
     content:
-      "Click Fortify, then choose the hex edge the works will protect. The build uses the engineer's action.",
-    highlightSelector: "#battleIntelOverlay [data-selection-action='fortifications']",
+      "Click Fortify. Then choose the hex edge facing the enemy.",
+    highlightSelector: "#battleFortificationFacingPreview .fortification-facing-preview-svg",
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
@@ -283,7 +283,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_smoke_unit",
     title: "Select A Smoke Unit",
     content:
-      "Click the highlighted infantry battalion. It carries smoke rounds and can screen the advance.",
+      "Click the highlighted Infantry Battalion. Its mortar company carries smoke rounds.",
     highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
     position: "right",
     arrowDirection: "left",
@@ -294,7 +294,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "smoke_demo",
     title: "Lay Smoke",
     content:
-      "Click Lay Smoke. Choose a highlighted hex, then choose the edge the smoke will cover.",
+      "Click Lay Smoke to fire the battalion mortars. Choose a highlighted hex, then choose the edge to cover.",
     highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke']",
     position: "right",
     arrowDirection: "left",

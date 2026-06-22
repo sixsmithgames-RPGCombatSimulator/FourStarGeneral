@@ -58,6 +58,8 @@ The battle UI also crossed two coordinate systems without converting at the boun
 - Smoke target keys convert from engine axial coordinates to map offset coordinates before highlighting or click handling.
 - Smoke remains a free order after consuming ammunition, so the same active infantry formation can proceed naturally into the direct-fire lesson.
 - Selection phases clear stale intel first, repaint tactical highlights, and attach the guided marker last so SVG updates cannot erase it.
+- The fortification lesson uses direct language and retargets its spotlight to the interactive edge hexagon, where the player is told to fortify the side facing the enemy.
+- Infantry smoke copy identifies the battalion mortar company as the source of smoke rounds, distinguishing it from vehicle smoke systems.
 - Global initiative shortcuts ignore handled events and keyboard input originating from buttons, controls, or modal dialogs.
 - Map-targeting orders close the expanded unit card before asking the player to click a hex.
 - Mobile action prompts grow with their content; the walkthrough asserts that every panel fits the viewport and no tutorial copy is clipped.

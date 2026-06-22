@@ -2683,7 +2683,7 @@ export class BattleScreen {
             ? "Choose Tank-Trap Edge"
             : pendingBuild?.modificationType === "facing"
               ? "Choose Facing"
-              : "Choose Fortified Edge";
+              : "Choose Fortification Edge";
       }
       const fortifiedFacings = pendingBuild
         ? this.battleState.ensureGameEngine()
@@ -12835,10 +12835,16 @@ export class BattleScreen {
       });
     }
     if (commandState.isSmokeCapable) {
+      const unitDefinition = this.unitTypes?.[unit.type as keyof UnitTypeDictionary];
+      const usesInfantryMortars =
+        unitDefinition?.class === "infantry" &&
+        (unitDefinition.traits as readonly string[]).includes("smoke");
       actions.push({
         id: "laySmoke",
         label: "Lay Smoke",
-        detail: "Fire smoke rounds to cover a chosen hex edge. The screen blocks ground line of sight along that edge until the start of your next turn. Requires ammo but does not use movement or attacks.",
+        detail: usesInfantryMortars
+          ? "Fire smoke rounds from the battalion mortars to cover a chosen hex edge. The screen blocks ground line of sight until your next turn. Requires ammo but does not use movement or attacks."
+          : "Fire smoke rounds to cover a chosen hex edge. The screen blocks ground line of sight until your next turn. Requires ammo but does not use movement or attacks.",
         tone: "mobility",
         available: commandState.canLaySmoke,
         reason: commandState.smokeReason
