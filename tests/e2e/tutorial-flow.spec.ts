@@ -181,7 +181,7 @@ async function requisitionTrainingForce(page: Page): Promise<void> {
   await waitForTutorialPhase(page, "review_allocation");
 }
 
-async function enterBattle(page: Page): Promise<void> {
+async function enterBattle(page: Page, deploymentScreenshotPath?: string): Promise<void> {
   await page.locator("#proceedToBattle").click();
   await waitForTutorialPhase(page, "ui_overview");
   await continueTutorial(page);
@@ -203,6 +203,11 @@ async function enterBattle(page: Page): Promise<void> {
   await page.locator("#autoDeployEvenly").click();
   await waitForTutorialPhase(page, "begin_battle");
   await expect(page.locator("#deploymentZoneList")).toContainText("13/13");
+  await expect(page.locator("#deploymentPanel #beginBattle")).toBeVisible();
+  await expect(page.locator(".battle-map-title-row #beginBattle")).toHaveCount(0);
+  if (deploymentScreenshotPath) {
+    await page.screenshot({ path: deploymentScreenshotPath });
+  }
   await page.locator("#beginBattle").click();
   await waitForTutorialPhase(page, "initiative_order", 15_000);
 }
@@ -211,7 +216,7 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await page.goto("/");
   await page.getByRole("button", { name: /Training Exercise/ }).click();
   await requisitionTrainingForce(page);
-  await enterBattle(page);
+  await enterBattle(page, outputPath("deployment-begin-mission.png"));
   await expectBattleTopRailToFit(page);
 
   await expect(tutorialPanel(page)).toContainText("only the highlighted friendly formations can receive orders");

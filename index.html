@@ -3493,7 +3493,7 @@
 
     .battle-map-title-row {
       display: grid;
-      grid-template-columns: minmax(10rem, 0.65fr) minmax(18rem, 1.35fr) max-content max-content max-content;
+      grid-template-columns: minmax(10rem, 0.65fr) minmax(18rem, 1.35fr) max-content max-content;
       align-items: center;
       gap: 0.8rem;
       min-width: 0;
@@ -3783,7 +3783,7 @@
 
     @container battle-pane (max-width: 560px) {
       .battle-map-title-row {
-        grid-template-columns: minmax(0, 1fr) max-content max-content;
+        grid-template-columns: minmax(0, 1fr) max-content;
       }
 
       .battle-operation-identity {
@@ -6215,6 +6215,13 @@
     #assignBaseCamp {
       grid-column: 1 / -1;
     }
+    .deployment-begin-button {
+      grid-column: 1 / -1;
+      min-height: 44px;
+      margin-top: 0.12rem;
+      justify-content: center;
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+    }
     .deployment-collapse-button {
       display: inline-flex;
       width: 28px;
@@ -8230,9 +8237,6 @@
                       <span id="battlePhaseIndicator" class="sr-only">Deployment</span>
                       <span id="battleFactionIndicator" class="sr-only">Player</span>
                     </div>
-                    <div class="battle-map-header__mission-actions">
-                      <button id="beginBattle" type="button" class="attention-button">Begin Mission</button>
-                    </div>
                     <div class="battle-settings">
                       <button
                         id="battleSettingsToggle"
@@ -8388,6 +8392,7 @@
               <button id="assignBaseCamp" type="button" class="secondary-button" title="Lock a base camp to unlock unit placement">Assign Base Camp</button>
               <button id="autoDeployEvenly" type="button" class="compact-button" data-auto-deploy-mode="even" title="Place one of each unit across available hexes">Deploy Evenly</button>
               <button id="autoDeployGrouped" type="button" class="compact-button" data-auto-deploy-mode="grouped" title="Place units by type in sequence">Deploy Grouped</button>
+              <button id="beginBattle" type="button" class="attention-button deployment-begin-button">Begin Mission</button>
             </div>
           </div>
 
