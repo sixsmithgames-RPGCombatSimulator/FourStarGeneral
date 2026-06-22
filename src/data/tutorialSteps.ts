@@ -194,7 +194,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "initiative_order",
     title: "Initiative Order",
     content:
-      "Higher initiative groups act first. When the rail says Your group is active, only the highlighted friendly formations can receive orders.",
+      "Higher initiative groups act first. When the rail shows Your group, only the highlighted friendly formations can receive orders.",
     highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status]",
     position: "bottom",
     arrowDirection: "up",

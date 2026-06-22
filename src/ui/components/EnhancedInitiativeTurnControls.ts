@@ -589,8 +589,8 @@ export class EnhancedInitiativeTurnControls {
     if (this.roundAdvanceReady) {
       statusElement.dataset.currentInitiativeGroup = "";
       labelElement.textContent = "Initiative Complete";
-      valueElement.textContent = "Turn ready to end";
-      detailElement.textContent = "All formations have received their orders.";
+      valueElement.textContent = "Turn ready";
+      detailElement.textContent = "All formations ordered";
       return;
     }
 
@@ -605,10 +605,10 @@ export class EnhancedInitiativeTurnControls {
             : "Active group";
       statusElement.dataset.currentInitiativeGroup = String(this.currentGroup.initiative);
       labelElement.textContent = `Initiative ${this.currentGroup.initiative}`;
-      valueElement.textContent = `${ownerLabel} is active`;
+      valueElement.textContent = ownerLabel;
       detailElement.textContent = this.currentUnit?.ownerId === 'bot'
-        ? `${remaining} enemy formation${remaining === 1 ? "" : "s"} resolving orders.`
-        : `${remaining} formation${remaining === 1 ? "" : "s"} ready for orders.`;
+        ? `${remaining} formation${remaining === 1 ? "" : "s"} acting`
+        : `${remaining} formation${remaining === 1 ? "" : "s"} ready`;
       return;
     }
 
@@ -616,10 +616,10 @@ export class EnhancedInitiativeTurnControls {
       const ownerLabel = this.currentUnit.ownerId === 'player' ? "Your formation" : "Enemy formation";
       statusElement.dataset.currentInitiativeGroup = String(this.currentUnit.initiative);
       labelElement.textContent = `Initiative ${this.currentUnit.initiative}`;
-      valueElement.textContent = `${ownerLabel} is active`;
+      valueElement.textContent = ownerLabel;
       detailElement.textContent = this.currentUnit.ownerId === 'player'
-        ? "Awaiting orders."
-        : "Enemy activation resolving.";
+        ? "Ready for orders"
+        : "Orders resolving";
       return;
     }
 
@@ -627,8 +627,8 @@ export class EnhancedInitiativeTurnControls {
     labelElement.textContent = "Initiative";
     valueElement.textContent = this.currentPhase === 'turnEnded' ? "Order complete" : "Awaiting orders";
     detailElement.textContent = this.currentPhase === 'deployment'
-      ? "Initiative order begins when the battle starts."
-      : "No formation is active.";
+      ? "Begins after deployment"
+      : "No active formation";
   }
 
   /**

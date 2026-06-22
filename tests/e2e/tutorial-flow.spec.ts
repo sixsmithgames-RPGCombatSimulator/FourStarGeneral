@@ -84,8 +84,12 @@ async function expectSpotlightAround(page: Page, target: Locator): Promise<void>
 }
 
 async function expectBattleTopRailToFit(page: Page): Promise<void> {
+  const compactLayout = (page.viewportSize()?.width ?? 0) <= 600;
   const header = page.locator(".battle-map-header.initiative-controls-active");
   const titleRow = header.locator(".battle-map-title-block");
+  const operation = header.locator(".battle-operation-identity");
+  const objective = header.locator("#battleCycleObjective");
+  const turn = header.locator(".turn-status");
   const commandGroup = header.locator(".battle-map-header__command-group");
   const activityToggle = page.locator("#battleActivityLogToggle");
 
@@ -93,20 +97,28 @@ async function expectBattleTopRailToFit(page: Page): Promise<void> {
   await expect(commandGroup).toBeVisible();
   await expect.poll(async () => {
     const toggleVisible = await activityToggle.isVisible();
-    const [headerBounds, titleBounds, commandBounds, toggleBounds] = await Promise.all([
+    const [headerBounds, titleBounds, operationBounds, objectiveBounds, turnBounds, commandBounds, toggleBounds] = await Promise.all([
       header.boundingBox(),
       titleRow.boundingBox(),
+      operation.boundingBox(),
+      objective.boundingBox(),
+      turn.boundingBox(),
       commandGroup.boundingBox(),
       toggleVisible ? activityToggle.boundingBox() : Promise.resolve(null)
     ]);
-    if (!headerBounds || !titleBounds || !commandBounds) {
+    if (!headerBounds || !titleBounds || !operationBounds || !objectiveBounds || !turnBounds || !commandBounds) {
       return false;
     }
 
     const titleClearsCommands = titleBounds.y + titleBounds.height <= commandBounds.y + 1;
+    const objectiveSharesTitleRow = objectiveBounds.y < operationBounds.y + operationBounds.height
+      && operationBounds.y < objectiveBounds.y + objectiveBounds.height;
+    const turnSharesTitleRow = turnBounds.y < objectiveBounds.y + objectiveBounds.height
+      && objectiveBounds.y < turnBounds.y + turnBounds.height;
     const commandsFitHeader = commandBounds.x + commandBounds.width <= headerBounds.x + headerBounds.width + 1;
     const commandsClearToggle = !toggleBounds || commandBounds.x + commandBounds.width <= toggleBounds.x + 1;
-    return titleClearsCommands && commandsFitHeader && commandsClearToggle;
+    const contextAligned = compactLayout || (objectiveSharesTitleRow && turnSharesTitleRow);
+    return titleClearsCommands && contextAligned && commandsFitHeader && commandsClearToggle;
   }).toBe(true);
 }
 
@@ -121,6 +133,8 @@ async function expectBattleTopRailContent(page: Page, outputPath: string): Promi
   await settingsToggle.click();
   await expect(settingsToggle).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#battleSettingsMenu")).toBeVisible();
+  await expect(page.locator("#battleSettingsMenu #endMissionButton")).toBeVisible();
+  await expect(page.locator(".battle-map-title-row > #endMissionButton")).toHaveCount(0);
   await expect(page.locator("#battleSoundToggle")).toContainText("Battle Sound");
   await expect(page.locator("#battleAnimationToggle")).toContainText("Movement Animation");
   await page.locator("#battleSoundToggle").click();

@@ -1350,19 +1350,22 @@
     .initiative-turn-controls-container .initiative-status,
     .enhanced-initiative-turn-controls .initiative-status {
       display: grid;
-      gap: 0.08rem;
+      grid-template-columns: max-content minmax(7rem, 1fr) max-content;
+      align-items: center;
+      gap: 0.75rem;
       flex: 1 1 15rem;
       min-width: 0;
-      padding: 0.42rem 0.65rem;
+      padding: 0.5rem 0.72rem;
       font-weight: 600;
       color: var(--accent-strong);
       background: rgba(15, 20, 32, 0.4);
       border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      white-space: nowrap;
     }
 
     .initiative-status__label {
+      padding-right: 0.75rem;
+      border-right: 1px solid rgba(226, 205, 154, 0.18);
       font-family: var(--font-label);
       font-size: 0.52rem;
       letter-spacing: 0.16em;
@@ -1371,17 +1374,20 @@
     }
 
     .initiative-status__value {
-      font-size: 0.76rem;
+      font-size: 0.8rem;
       line-height: 1.1;
       color: #f4e6bb;
+      white-space: nowrap;
     }
 
     .initiative-status__detail {
       overflow: hidden;
       text-overflow: ellipsis;
-      font-size: 0.62rem;
+      font-size: 0.68rem;
       line-height: 1.2;
       color: rgba(229, 236, 255, 0.74);
+      text-align: right;
+      white-space: nowrap;
     }
 
     /* Initiative group highlighting */
@@ -3463,22 +3469,14 @@
 
     .battle-map-header.initiative-controls-active .battle-map-header__command-group {
       display: grid;
-      grid-template-columns: minmax(15rem, 0.9fr) minmax(25rem, 1.5fr) max-content;
+      grid-template-columns: minmax(0, 1fr);
       align-items: center;
-    }
-
-    .battle-map-header.initiative-controls-active .battle-objective-card {
-      grid-column: 1;
     }
 
     .battle-map-header.initiative-controls-active .initiative-turn-controls-container,
     .battle-map-header.initiative-controls-active .enhanced-initiative-turn-controls {
-      grid-column: 2;
+      grid-column: 1;
       grid-row: 1;
-    }
-
-    .battle-map-header.initiative-controls-active .battle-settings {
-      grid-column: 3;
     }
 
     .battle-map-header__primary {
@@ -3495,10 +3493,11 @@
 
     .battle-map-title-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) max-content max-content;
+      grid-template-columns: minmax(10rem, 0.65fr) minmax(18rem, 1.35fr) max-content max-content max-content;
       align-items: center;
       gap: 0.8rem;
       min-width: 0;
+      position: relative;
     }
 
     .battle-operation-identity {
@@ -3716,6 +3715,16 @@
       border-bottom: 0;
     }
 
+    .battle-settings__option--danger {
+      border-top: 1px solid rgba(224, 105, 116, 0.18);
+      color: #ef9ca5;
+    }
+
+    .battle-settings__option--danger:hover,
+    .battle-settings__option--danger:focus-visible {
+      background: rgba(140, 40, 49, 0.16);
+    }
+
     .battle-settings__option:hover,
     .battle-settings__option:focus-visible {
       background: rgba(233, 199, 123, 0.08);
@@ -3772,34 +3781,16 @@
       background: #f4d88e;
     }
 
-    @container battle-pane (max-width: 1100px) {
-      .battle-map-header.initiative-controls-active .battle-map-header__command-group {
-        grid-template-columns: minmax(0, 1fr) max-content;
-      }
-
-      .battle-map-header.initiative-controls-active .initiative-turn-controls-container,
-      .battle-map-header.initiative-controls-active .enhanced-initiative-turn-controls {
-        grid-row: 2;
-        grid-column: 1 / -1;
-      }
-
-      .battle-map-header.initiative-controls-active .battle-objective-card {
-        grid-row: 1;
-        grid-column: 1;
-      }
-
-      .battle-map-header.initiative-controls-active .battle-settings {
-        grid-row: 1;
-        grid-column: 2;
-      }
-    }
-
     @container battle-pane (max-width: 560px) {
       .battle-map-title-row {
-        grid-template-columns: minmax(0, 1fr) max-content;
+        grid-template-columns: minmax(0, 1fr) max-content max-content;
       }
 
       .battle-operation-identity {
+        grid-column: 1 / -1;
+      }
+
+      .battle-objective-card {
         grid-column: 1 / -1;
       }
 
@@ -3811,6 +3802,17 @@
       .battle-map-header.initiative-controls-active .turn-controls-buttons {
         justify-content: flex-start;
         flex-wrap: wrap;
+      }
+
+      .enhanced-initiative-turn-controls .initiative-status {
+        grid-template-columns: max-content minmax(0, 1fr);
+      }
+
+      .enhanced-initiative-turn-controls .initiative-status__detail {
+        grid-column: 1 / -1;
+        padding-top: 0.35rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.07);
+        text-align: left;
       }
 
       .battle-objective-card {
@@ -8215,6 +8217,13 @@
                         <span id="battleMissionTitle">Operation Pending</span>
                       </h2>
                     </div>
+                    <button id="battleCycleObjective" type="button" class="battle-objective-card" aria-label="Focus objective on the map">
+                      <span class="battle-objective-card__copy">
+                        <span id="battleObjectiveIndex" class="battle-objective-card__label">Primary Objective</span>
+                        <strong id="battleObjectiveTitle" class="battle-objective-card__title">Awaiting orders</strong>
+                      </span>
+                      <span id="battleObjectiveStatus" class="battle-objective-card__status" data-state="pending">Pending</span>
+                    </button>
                     <div class="turn-status" role="status" aria-live="polite">
                       <span class="turn-status__label">Turn</span>
                       <strong id="battleTurnIndicator" class="turn-indicator">Deployment</strong>
@@ -8223,72 +8232,70 @@
                     </div>
                     <div class="battle-map-header__mission-actions">
                       <button id="beginBattle" type="button" class="attention-button">Begin Mission</button>
-                      <button id="endMissionButton" type="button" class="danger-button hidden">End Mission</button>
+                    </div>
+                    <div class="battle-settings">
+                      <button
+                        id="battleSettingsToggle"
+                        type="button"
+                        class="battle-settings__toggle"
+                        aria-expanded="false"
+                        aria-haspopup="menu"
+                        aria-controls="battleSettingsMenu"
+                        aria-label="Open battle settings"
+                        title="Battle settings"
+                      >
+                        <span aria-hidden="true">&#9881;</span>
+                      </button>
+                      <div id="battleSettingsMenu" class="battle-settings__menu hidden" role="menu" aria-label="Battle settings">
+                        <div class="battle-settings__header">Battle Settings</div>
+                        <button
+                          id="battleSoundToggle"
+                          type="button"
+                          class="battle-settings__option battle-audio-toggle"
+                          role="menuitemcheckbox"
+                          aria-checked="true"
+                          aria-pressed="true"
+                        >
+                          <span class="battle-settings__option-copy">
+                            <strong>Battle Sound</strong>
+                            <span>Play movement, weapons, and battlefield effects.</span>
+                          </span>
+                          <span class="battle-settings__option-control">
+                            <span data-settings-value>On</span>
+                            <span class="battle-settings__switch" aria-hidden="true"><span></span></span>
+                          </span>
+                        </button>
+                        <button
+                          id="battleAnimationToggle"
+                          type="button"
+                          class="battle-settings__option battle-animation-toggle"
+                          role="menuitemcheckbox"
+                          aria-checked="false"
+                          aria-pressed="false"
+                        >
+                          <span class="battle-settings__option-copy">
+                            <strong>Movement Animation</strong>
+                            <span>Follow full movement routes or shorten their playback.</span>
+                          </span>
+                          <span class="battle-settings__option-control">
+                            <span data-settings-value>Full Paths</span>
+                            <span class="battle-settings__switch" aria-hidden="true"><span></span></span>
+                          </span>
+                        </button>
+                        <button id="endMissionButton" type="button" class="battle-settings__option battle-settings__option--danger hidden" role="menuitem">
+                          <span class="battle-settings__option-copy">
+                            <strong>End Mission</strong>
+                            <span>Withdraw from the current operation.</span>
+                          </span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
               <div class="battle-map-header__actions">
                 <div class="battle-map-header__command-group">
-                  <button id="battleCycleObjective" type="button" class="battle-objective-card" aria-label="Focus objective on the map">
-                    <span class="battle-objective-card__copy">
-                      <span id="battleObjectiveIndex" class="battle-objective-card__label">Primary Objective</span>
-                      <strong id="battleObjectiveTitle" class="battle-objective-card__title">Awaiting orders</strong>
-                    </span>
-                    <span id="battleObjectiveStatus" class="battle-objective-card__status" data-state="pending">Pending</span>
-                  </button>
                   <button id="endTurn" type="button" class="secondary-button" disabled>End Turn</button>
-                  <div class="battle-settings">
-                    <button
-                      id="battleSettingsToggle"
-                      type="button"
-                      class="battle-settings__toggle"
-                      aria-expanded="false"
-                      aria-haspopup="menu"
-                      aria-controls="battleSettingsMenu"
-                      aria-label="Open battle settings"
-                      title="Battle settings"
-                    >
-                      <span aria-hidden="true">&#9881;</span>
-                    </button>
-                    <div id="battleSettingsMenu" class="battle-settings__menu hidden" role="menu" aria-label="Battle settings">
-                      <div class="battle-settings__header">Battle Settings</div>
-                      <button
-                        id="battleSoundToggle"
-                        type="button"
-                        class="battle-settings__option battle-audio-toggle"
-                        role="menuitemcheckbox"
-                        aria-checked="true"
-                        aria-pressed="true"
-                      >
-                        <span class="battle-settings__option-copy">
-                          <strong>Battle Sound</strong>
-                          <span>Play movement, weapons, and battlefield effects.</span>
-                        </span>
-                        <span class="battle-settings__option-control">
-                          <span data-settings-value>On</span>
-                          <span class="battle-settings__switch" aria-hidden="true"><span></span></span>
-                        </span>
-                      </button>
-                      <button
-                        id="battleAnimationToggle"
-                        type="button"
-                        class="battle-settings__option battle-animation-toggle"
-                        role="menuitemcheckbox"
-                        aria-checked="false"
-                        aria-pressed="false"
-                      >
-                        <span class="battle-settings__option-copy">
-                          <strong>Movement Animation</strong>
-                          <span>Follow full movement routes or shorten their playback.</span>
-                        </span>
-                        <span class="battle-settings__option-control">
-                          <span data-settings-value>Full Paths</span>
-                          <span class="battle-settings__switch" aria-hidden="true"><span></span></span>
-                        </span>
-                      </button>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>

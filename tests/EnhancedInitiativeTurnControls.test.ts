@@ -51,8 +51,8 @@ registerTest("ENHANCED_INITIATIVE_CONTROLS_SURFACE_TUTORIAL_STATUS", async ({ Gi
     expect(Boolean(status), "Expected initiative status element to be rendered.");
     expect(status?.dataset.currentInitiativeGroup === "7", "Expected current initiative group data to be exposed.");
     expect(label?.textContent === "Initiative 7", `Unexpected initiative status label: ${label?.textContent ?? "<missing>"}.`);
-    expect(value?.textContent === "Your group is active", `Unexpected initiative status value: ${value?.textContent ?? "<missing>"}.`);
-    expect(detail?.textContent === "1 formation ready for orders.", `Unexpected initiative detail: ${detail?.textContent ?? "<missing>"}.`);
+    expect(value?.textContent === "Your group", `Unexpected initiative status value: ${value?.textContent ?? "<missing>"}.`);
+    expect(detail?.textContent === "1 formation ready", `Unexpected initiative detail: ${detail?.textContent ?? "<missing>"}.`);
     expect(container.querySelector(".next-activation-btn")?.textContent?.trim() === "Next Formation", "Expected a plain-language formation selector.");
     expect(container.querySelector(".skip-group-btn")?.textContent?.trim() === "Hold Group", "Expected a plain-language hold command.");
 
