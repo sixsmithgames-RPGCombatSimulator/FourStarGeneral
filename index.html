@@ -1285,15 +1285,15 @@
       align-items: center;
       gap: 0.5rem;
       flex-wrap: nowrap;
+      min-width: 0;
     }
 
     .battle-map-header__command-group.initiative-controls-active {
-      flex-wrap: wrap;
-      row-gap: 0.4rem;
+      flex-wrap: nowrap;
     }
 
     .battle-map-header__command-group.initiative-controls-active .initiative-turn-controls-container {
-      flex: 1 0 100%;
+      flex: 1 1 auto;
     }
 
     .enhanced-initiative-turn-controls {
@@ -1301,6 +1301,8 @@
       align-items: center;
       gap: 0.5rem;
       flex-wrap: nowrap;
+      width: 100%;
+      min-width: 0;
     }
 
     .enhanced-initiative-turn-controls .turn-controls-buttons {
@@ -1308,6 +1310,7 @@
       align-items: center;
       gap: 0.5rem;
       flex-wrap: nowrap;
+      flex: 0 0 auto;
     }
 
     .initiative-turn-controls-container .compact-button,
@@ -1338,7 +1341,8 @@
     .initiative-turn-controls-container .initiative-status {
       display: grid;
       gap: 0.08rem;
-      min-width: min(18rem, 100%);
+      flex: 1 1 15rem;
+      min-width: 0;
       padding: 0.42rem 0.65rem;
       font-weight: 600;
       color: var(--accent-strong);
@@ -2768,6 +2772,8 @@
       display: flex;
       flex-direction: column;
       min-height: 0;
+      container-name: battle-pane;
+      container-type: inline-size;
     }
     .deployment-toggle-floating {
       position: absolute;
@@ -3428,6 +3434,30 @@
       min-height: auto;
     }
 
+    .battle-map-header.initiative-controls-active {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.42rem;
+      padding-right: calc(var(--toggle-radius) + 0.65rem);
+    }
+
+    .battle-map-header.initiative-controls-active .battle-map-header__primary,
+    .battle-map-header.initiative-controls-active .battle-map-header__actions,
+    .battle-map-header.initiative-controls-active .battle-map-header__command-group {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .battle-map-header.initiative-controls-active .battle-map-header__actions {
+      justify-content: stretch;
+    }
+
+    .battle-map-header.initiative-controls-active .battle-map-header__command-group {
+      display: grid;
+      grid-template-columns: max-content max-content max-content minmax(0, 1fr);
+      align-items: center;
+    }
+
     .battle-map-header__primary {
       display: flex;
       align-items: flex-start;
@@ -3492,6 +3522,28 @@
       align-items: center;
       gap: 0.5rem;
       flex-wrap: nowrap;
+    }
+
+    @container battle-pane (max-width: 900px) {
+      .battle-map-header.initiative-controls-active .battle-map-header__command-group {
+        grid-template-columns: repeat(3, max-content);
+      }
+
+      .battle-map-header.initiative-controls-active .initiative-turn-controls-container {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @container battle-pane (max-width: 560px) {
+      .battle-map-header.initiative-controls-active .enhanced-initiative-turn-controls {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .battle-map-header.initiative-controls-active .turn-controls-buttons {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }
     }
 
     .battle-map-header__risk-group {

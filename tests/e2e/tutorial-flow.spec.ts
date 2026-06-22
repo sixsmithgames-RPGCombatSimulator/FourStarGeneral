@@ -83,6 +83,33 @@ async function expectSpotlightAround(page: Page, target: Locator): Promise<void>
   }).toBe(true);
 }
 
+async function expectBattleTopRailToFit(page: Page): Promise<void> {
+  const header = page.locator(".battle-map-header.initiative-controls-active");
+  const titleRow = header.locator(".battle-map-title-block");
+  const commandGroup = header.locator(".battle-map-header__command-group");
+  const activityToggle = page.locator("#battleActivityLogToggle");
+
+  await expect(header).toBeVisible();
+  await expect(commandGroup).toBeVisible();
+  await expect.poll(async () => {
+    const toggleVisible = await activityToggle.isVisible();
+    const [headerBounds, titleBounds, commandBounds, toggleBounds] = await Promise.all([
+      header.boundingBox(),
+      titleRow.boundingBox(),
+      commandGroup.boundingBox(),
+      toggleVisible ? activityToggle.boundingBox() : Promise.resolve(null)
+    ]);
+    if (!headerBounds || !titleBounds || !commandBounds) {
+      return false;
+    }
+
+    const titleClearsCommands = titleBounds.y + titleBounds.height <= commandBounds.y + 1;
+    const commandsFitHeader = commandBounds.x + commandBounds.width <= headerBounds.x + headerBounds.width + 1;
+    const commandsClearToggle = !toggleBounds || commandBounds.x + commandBounds.width <= toggleBounds.x + 1;
+    return titleClearsCommands && commandsFitHeader && commandsClearToggle;
+  }).toBe(true);
+}
+
 async function requisitionTrainingForce(page: Page): Promise<void> {
   await waitForTutorialPhase(page, "budget_overview");
   await continueTutorial(page);
@@ -140,6 +167,7 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await page.getByRole("button", { name: /Training Exercise/ }).click();
   await requisitionTrainingForce(page);
   await enterBattle(page);
+  await expectBattleTopRailToFit(page);
 
   await expect(tutorialPanel(page)).toContainText("only highlighted friendly formations can receive orders");
   await continueTutorial(page);
@@ -220,6 +248,7 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
 
 test.describe("Training tutorial", () => {
   const viewports = [
+    { name: "wide desktop", width: 1680, height: 857 },
     { name: "desktop", width: 1440, height: 900 },
     { name: "mobile", width: 390, height: 844 }
   ];

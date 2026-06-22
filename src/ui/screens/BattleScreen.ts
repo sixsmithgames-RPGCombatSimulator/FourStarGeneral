@@ -9097,6 +9097,9 @@ export class BattleScreen {
     document
       .querySelectorAll('.battle-map-header__command-group.initiative-controls-active')
       .forEach((group) => group.classList.remove('initiative-controls-active'));
+    document
+      .querySelectorAll('.battle-map-header.initiative-controls-active')
+      .forEach((header) => header.classList.remove('initiative-controls-active'));
 
     this.clearInitiativeGroupHighlights();
     this.initiativeGroupCursorUnitId = null;
@@ -9146,6 +9149,9 @@ export class BattleScreen {
       document
         .querySelectorAll('.battle-map-header__command-group.initiative-controls-active')
         .forEach((group) => group.classList.remove('initiative-controls-active'));
+      document
+        .querySelectorAll('.battle-map-header.initiative-controls-active')
+        .forEach((header) => header.classList.remove('initiative-controls-active'));
 
       // Remove any existing initiative controls from deployment panel or other locations
       const existingControls = document.querySelectorAll('.enhanced-initiative-turn-controls, .initiative-turn-controls-container');
@@ -9162,6 +9168,7 @@ export class BattleScreen {
       const commandGroup = document.querySelector('.battle-map-header__command-group');
       if (commandGroup) {
         commandGroup.classList.add('initiative-controls-active');
+        commandGroup.closest('.battle-map-header')?.classList.add('initiative-controls-active');
         commandGroup.appendChild(controlsContainer);
         console.log('Initiative controls container added to top bar command group');
       } else {
