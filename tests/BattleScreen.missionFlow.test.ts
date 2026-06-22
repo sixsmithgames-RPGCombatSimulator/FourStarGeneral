@@ -510,7 +510,10 @@ registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({
   await Given("a battle screen with a sound toggle button and renderer audio controls", async () => {
     document.body.innerHTML = `
       <div id="battleScreen">
-        <button id="battleSoundToggle" type="button">Sound On</button>
+        <button id="battleSoundToggle" type="button">
+          <span>Battle Sound</span>
+          <span data-settings-value>On</span>
+        </button>
       </div>
     `;
     window.localStorage.removeItem("fsg-sound-enabled");
@@ -556,11 +559,15 @@ registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({
     if (soundEnabled !== true) {
       throw new Error("Expected renderer sound state to be re-enabled after the second toggle.");
     }
-    if (toggleButton.textContent !== "Sound On") {
-      throw new Error(`Expected button label to be Sound On, received ${toggleButton.textContent}`);
+    const value = toggleButton.querySelector<HTMLElement>("[data-settings-value]")?.textContent;
+    if (value !== "On") {
+      throw new Error(`Expected Battle Sound value to be On, received ${value}`);
     }
     if (toggleButton.getAttribute("aria-pressed") !== "true") {
       throw new Error(`Expected aria-pressed to be true, received ${toggleButton.getAttribute("aria-pressed")}`);
+    }
+    if (toggleButton.getAttribute("aria-checked") !== "true") {
+      throw new Error(`Expected aria-checked to be true, received ${toggleButton.getAttribute("aria-checked")}`);
     }
     window.localStorage.removeItem("fsg-sound-enabled");
   });

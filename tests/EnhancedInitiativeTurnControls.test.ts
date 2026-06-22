@@ -44,15 +44,17 @@ registerTest("ENHANCED_INITIATIVE_CONTROLS_SURFACE_TUTORIAL_STATUS", async ({ Gi
 
   await Then("the compact status names the active initiative band for tutorial anchoring", async () => {
     const status = container.querySelector<HTMLElement>("[data-initiative-status]");
+    const label = status?.querySelector<HTMLElement>(".initiative-status__label");
     const value = status?.querySelector<HTMLElement>(".initiative-status__value");
     const detail = status?.querySelector<HTMLElement>(".initiative-status__detail");
 
     expect(Boolean(status), "Expected initiative status element to be rendered.");
     expect(status?.dataset.currentInitiativeGroup === "7", "Expected current initiative group data to be exposed.");
-    expect(value?.textContent === "Init 7 - Your group", `Unexpected initiative status value: ${value?.textContent ?? "<missing>"}.`);
-    expect(detail?.textContent === "1 formation still in this band.", `Unexpected initiative detail: ${detail?.textContent ?? "<missing>"}.`);
-    expect(Boolean(container.querySelector(".next-activation-btn")), "Expected Next Unit button for tutorial targeting.");
-    expect(Boolean(container.querySelector(".skip-group-btn")), "Expected Skip Group button for tutorial targeting.");
+    expect(label?.textContent === "Initiative 7", `Unexpected initiative status label: ${label?.textContent ?? "<missing>"}.`);
+    expect(value?.textContent === "Your group is active", `Unexpected initiative status value: ${value?.textContent ?? "<missing>"}.`);
+    expect(detail?.textContent === "1 formation ready for orders.", `Unexpected initiative detail: ${detail?.textContent ?? "<missing>"}.`);
+    expect(container.querySelector(".next-activation-btn")?.textContent?.trim() === "Next Formation", "Expected a plain-language formation selector.");
+    expect(container.querySelector(".skip-group-btn")?.textContent?.trim() === "Hold Group", "Expected a plain-language hold command.");
 
     controls.dispose();
   });

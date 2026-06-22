@@ -110,6 +110,37 @@ async function expectBattleTopRailToFit(page: Page): Promise<void> {
   }).toBe(true);
 }
 
+async function expectBattleTopRailContent(page: Page, outputPath: string): Promise<void> {
+  await expect(page.locator("#battleMissionTitle")).not.toHaveText(/Mission Briefing|Operation Pending/);
+  await expect(page.locator("#battleTurnIndicator")).toHaveText(/\d+ of \d+/);
+  await expect(page.locator("#battleObjectiveIndex")).toContainText(/Objective 1 of/);
+  await expect(page.locator("#battleObjectiveTitle")).not.toHaveText(/Awaiting orders|Objective awaiting confirmation/);
+  await expect(page.locator("#battleObjectiveStatus")).toHaveText(/In Progress|Secured/);
+
+  const settingsToggle = page.locator("#battleSettingsToggle");
+  await settingsToggle.click();
+  await expect(settingsToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#battleSettingsMenu")).toBeVisible();
+  await expect(page.locator("#battleSoundToggle")).toContainText("Battle Sound");
+  await expect(page.locator("#battleAnimationToggle")).toContainText("Movement Animation");
+  await page.locator("#battleSoundToggle").click();
+  await expect(page.locator("#battleSoundToggle [data-settings-value]")).toHaveText("Off");
+  await page.locator("#battleSoundToggle").click();
+  await expect(page.locator("#battleSoundToggle [data-settings-value]")).toHaveText("On");
+  await page.locator("#battleAnimationToggle").click();
+  await expect(page.locator("#battleAnimationToggle [data-settings-value]")).toHaveText("Quick Moves");
+  await page.locator("#battleAnimationToggle").click();
+  await expect(page.locator("#battleAnimationToggle [data-settings-value]")).toHaveText("Full Paths");
+  await page.screenshot({ path: outputPath });
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#battleSettingsMenu")).toBeHidden();
+
+  const objectiveLabel = page.locator("#battleObjectiveIndex");
+  await page.locator("#battleCycleObjective").click();
+  await page.locator("#battleCycleObjective").click();
+  await expect(objectiveLabel).toContainText("Objective 2 of");
+}
+
 async function requisitionTrainingForce(page: Page): Promise<void> {
   await waitForTutorialPhase(page, "budget_overview");
   await continueTutorial(page);
@@ -169,7 +200,7 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await enterBattle(page);
   await expectBattleTopRailToFit(page);
 
-  await expect(tutorialPanel(page)).toContainText("only highlighted friendly formations can receive orders");
+  await expect(tutorialPanel(page)).toContainText("only the highlighted friendly formations can receive orders");
   await continueTutorial(page);
   await waitForTutorialPhase(page, "active_group_units");
   await clickGuidedHex(page);
@@ -244,6 +275,7 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await continueTutorial(page);
   await expect(page.locator("#tutorialOverlayContainer")).toHaveClass(/hidden/);
   await expect(page.locator(".war-room-overlay:not(.hidden)")).toHaveCount(0);
+  await expectBattleTopRailContent(page, outputPath("command-rail-settings.png"));
 }
 
 test.describe("Training tutorial", () => {

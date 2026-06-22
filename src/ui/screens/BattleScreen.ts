@@ -393,6 +393,8 @@ export class BattleScreen {
   } | null = null;
 
   private beginBattleButton: HTMLButtonElement | null = null;
+  private settingsToggleButton: HTMLButtonElement | null = null;
+  private settingsMenu: HTMLElement | null = null;
   private soundToggleButton: HTMLButtonElement | null = null;
   private animationToggleButton: HTMLButtonElement | null = null;
   private endTurnButton: HTMLButtonElement | null = null;
@@ -416,6 +418,10 @@ export class BattleScreen {
   private missionDoctrineElement: HTMLElement | null = null;
   private missionTurnLimitElement: HTMLElement | null = null;
   private missionSuppliesList: HTMLUListElement | null = null;
+  private objectiveSummaryButton: HTMLButtonElement | null = null;
+  private objectiveIndexElement: HTMLElement | null = null;
+  private objectiveTitleElement: HTMLElement | null = null;
+  private objectiveStatusElement: HTMLElement | null = null;
   private turnIndicatorElement: HTMLElement | null = null;
   private factionIndicatorElement: HTMLElement | null = null;
   private phaseIndicatorElement: HTMLElement | null = null;
@@ -432,6 +438,20 @@ export class BattleScreen {
   private cameraFrozen: boolean = false;
   private soundEnabled = true;
   private battleAnimationMode: BattleAnimationMode = "regular";
+  private readonly settingsDocumentPointerHandler = (event: Event): void => {
+    const target = event.target instanceof Node ? event.target : null;
+    if (!target || this.settingsMenu?.contains(target) || this.settingsToggleButton?.contains(target)) {
+      return;
+    }
+    this.setBattleSettingsMenuOpen(false);
+  };
+  private readonly settingsDocumentKeydownHandler = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape" || this.settingsMenu?.classList.contains("hidden")) {
+      return;
+    }
+    this.setBattleSettingsMenuOpen(false);
+    this.settingsToggleButton?.focus();
+  };
 
   // Hex selection state
   private selectedHexKey: string | null = null;
@@ -441,7 +461,7 @@ export class BattleScreen {
   private pendingAttack: PendingAttackContext | null = null;
   private idleUnitHighlightKeys: Set<string> = new Set();
   private objectiveHexKeys: Set<string> = new Set();
-  private currentObjectiveIndex = 0;
+  private currentObjectiveIndex = -1;
   // Tracks focus management for the attack confirmation dialog so keyboard users remain within the modal context.
   private attackDialogPreviouslyFocused: HTMLElement | null = null;
   private attackDialogKeydownHandler: (event: KeyboardEvent) => void;
@@ -4296,7 +4316,8 @@ export class BattleScreen {
     }
 
     console.log(`[BattleScreen] setupObjectiveCycling: ${this.scenario.objectives.length} objectives found`);
-    this.currentObjectiveIndex = 0;
+    this.currentObjectiveIndex = -1;
+    this.renderBattleObjectiveSummary();
     this.zoomPanControls.onCycleObjective(async () => {
       if (!this.scenario.objectives || this.scenario.objectives.length === 0 || !this.mapViewport) {
         console.log("[BattleScreen] Cycle objective: No objectives available or viewport missing");
@@ -4306,6 +4327,7 @@ export class BattleScreen {
       // Cycle to next objective
       this.currentObjectiveIndex = (this.currentObjectiveIndex + 1) % this.scenario.objectives.length;
       const objective = this.scenario.objectives[this.currentObjectiveIndex];
+      this.renderBattleObjectiveSummary();
 
       console.log(`[BattleScreen] Cycling to objective ${this.currentObjectiveIndex + 1}/${this.scenario.objectives.length}`, objective.hex);
 
@@ -4399,7 +4421,45 @@ export class BattleScreen {
     }
   }
 
+  private renderBattleObjectiveSummary(): void {
+    if (!this.objectiveSummaryButton || !this.objectiveIndexElement || !this.objectiveTitleElement || !this.objectiveStatusElement) {
+      return;
+    }
+
+    const missionInfo = this.battleState.getPrecombatMissionInfo();
+    const trackedObjectives = this.missionStatus?.objectives ?? [];
+    const briefingObjectives = missionInfo?.objectives ?? [];
+    const totalObjectives = Math.max(trackedObjectives.length, briefingObjectives.length, this.scenario.objectives.length);
+    const displayIndex = Math.min(Math.max(this.currentObjectiveIndex, 0), Math.max(totalObjectives - 1, 0));
+    const trackedObjective = trackedObjectives[displayIndex];
+    const briefingObjective = briefingObjectives[displayIndex]?.replace(/^(Primary|Secondary|Tertiary):\s*/i, "");
+    const title = trackedObjective?.label ?? briefingObjective ?? "Objective awaiting confirmation";
+    const state = trackedObjective?.state ?? "pending";
+    const stateLabels: Record<string, string> = {
+      pending: "In Progress",
+      inProgress: "In Progress",
+      completed: "Secured",
+      failed: "Failed"
+    };
+    const tier = trackedObjective?.tier ?? (displayIndex === 0 ? "primary" : "secondary");
+    const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
+
+    this.objectiveIndexElement.textContent = totalObjectives > 0
+      ? `${tierLabel} Objective ${displayIndex + 1} of ${totalObjectives}`
+      : "Objective";
+    this.objectiveTitleElement.textContent = title;
+    this.objectiveStatusElement.textContent = stateLabels[state] ?? state;
+    this.objectiveStatusElement.dataset.state = state;
+    this.objectiveSummaryButton.disabled = this.scenario.objectives.length === 0;
+    this.objectiveSummaryButton.setAttribute(
+      "aria-label",
+      `${title}. Status: ${stateLabels[state] ?? state}. Focus this objective on the map.`
+    );
+    this.objectiveSummaryButton.title = `${title}. Status: ${stateLabels[state] ?? state}. Select to focus it on the map.`;
+  }
+
   private renderMissionStatus(): void {
+    this.renderBattleObjectiveSummary();
     const objectivesElement = this.missionObjectivesList;
     const doctrineElement = this.missionDoctrineElement;
     const turnLimitElement = this.missionTurnLimitElement;
@@ -6112,7 +6172,12 @@ export class BattleScreen {
     const initiativeActivation = initiativeActive ? this.initiativeMethods?.getCurrentActivation() ?? null : null;
 
     if (this.turnIndicatorElement) {
-      const label = summary.phase === "deployment" ? "Deployment" : `Turn ${summary.turnNumber}`;
+      const configuredTurnLimit = this.battleState.getPrecombatMissionInfo()?.turnLimit ?? this.scenario.turnLimit;
+      const label = summary.phase === "deployment"
+        ? "Deployment"
+        : configuredTurnLimit > 0
+          ? `${summary.turnNumber} of ${configuredTurnLimit}`
+          : String(summary.turnNumber);
       this.turnIndicatorElement.textContent = label;
     }
     if (this.factionIndicatorElement) {
@@ -6129,11 +6194,11 @@ export class BattleScreen {
         const hasPendingActivations = this.hasPendingInitiativeActivations(queue);
         this.phaseIndicatorElement.textContent = initiativeActivation
           ? initiativeActivation.ownerId === "player"
-            ? "Initiative Turn"
-            : "Enemy Activation"
+            ? "Your initiative group is active"
+            : "Enemy initiative group is active"
           : hasPendingActivations
-            ? "Initiative Sync"
-            : "End Turn Ready";
+            ? "Initiative order updating"
+            : "Turn ready to end";
       } else {
         this.phaseIndicatorElement.textContent = this.formatPhaseLabel(summary.phase);
       }
@@ -7346,6 +7411,8 @@ export class BattleScreen {
     }
     window.removeEventListener("keydown", this.keyboardNavigationHandler);
     document.removeEventListener("screen:shown", this.screenShownHandler);
+    document.removeEventListener("pointerdown", this.settingsDocumentPointerHandler);
+    document.removeEventListener("keydown", this.settingsDocumentKeydownHandler);
     if (this.airPreviewListener) {
       document.removeEventListener("air:previewRange", this.airPreviewListener);
     }
@@ -7397,6 +7464,8 @@ export class BattleScreen {
    */
   private cacheElements(): void {
     this.beginBattleButton = this.element.querySelector("#beginBattle");
+    this.settingsToggleButton = this.element.querySelector("#battleSettingsToggle");
+    this.settingsMenu = this.element.querySelector("#battleSettingsMenu");
     this.soundToggleButton = this.element.querySelector("#battleSoundToggle");
     this.animationToggleButton = this.element.querySelector("#battleAnimationToggle");
     this.endTurnButton = this.element.querySelector("#endTurn");
@@ -7421,6 +7490,10 @@ export class BattleScreen {
     this.missionDoctrineElement = this.element.querySelector("#battleMissionDoctrine");
     this.missionTurnLimitElement = this.element.querySelector("#battleMissionTurnLimit");
     this.missionSuppliesList = this.element.querySelector("#battleMissionSupplies");
+    this.objectiveSummaryButton = this.element.querySelector("#battleCycleObjective");
+    this.objectiveIndexElement = this.element.querySelector("#battleObjectiveIndex");
+    this.objectiveTitleElement = this.element.querySelector("#battleObjectiveTitle");
+    this.objectiveStatusElement = this.element.querySelector("#battleObjectiveStatus");
     this.battleAnnouncements = this.element.querySelector("#battleAnnouncements");
     this.battleIntelOverlayRoot = this.element.querySelector("#battleIntelOverlay");
     this.battleActivityLogToggleButton = this.element.querySelector("#battleActivityLogToggle");
@@ -7438,7 +7511,7 @@ export class BattleScreen {
   private hydrateMissionBriefing(announce = true): void {
     const missionInfo: PrecombatMissionInfo | null = this.battleState.getPrecombatMissionInfo();
 
-    const title = missionInfo?.title ?? "Mission Briefing";
+    const title = missionInfo?.title ?? this.scenario.name ?? "Operation Pending";
     const briefing = missionInfo?.briefing ?? "Mission details will synchronize once precombat data is available.";
     const objectives = missionInfo?.objectives ?? [];
     const doctrine = missionInfo?.doctrine ?? "Doctrine summary not yet provided.";
@@ -7467,6 +7540,7 @@ export class BattleScreen {
         ? supplies.map((item) => `<li><strong>${item.label}:</strong> ${item.amount}</li>`).join("")
         : "<li>Baseline supplies will be listed once confirmed.</li>";
     }
+    this.renderBattleObjectiveSummary();
 
     const announcementTitle = missionInfo?.title ?? "Mission ready";
     const announcementSummary = missionInfo?.briefing ?? "Awaiting mission briefing details.";
@@ -7480,6 +7554,14 @@ export class BattleScreen {
    */
   private bindEvents(): void {
     this.beginBattleButton?.addEventListener("click", () => this.handleBeginBattle());
+    if (this.settingsToggleButton && this.settingsMenu) {
+      this.settingsToggleButton.addEventListener("click", () => {
+        const open = this.settingsToggleButton?.getAttribute("aria-expanded") !== "true";
+        this.setBattleSettingsMenuOpen(open);
+      });
+      document.addEventListener("pointerdown", this.settingsDocumentPointerHandler);
+      document.addEventListener("keydown", this.settingsDocumentKeydownHandler);
+    }
     this.soundToggleButton?.addEventListener("click", () => this.handleToggleSound());
     this.animationToggleButton?.addEventListener("click", () => this.handleToggleBattleAnimationMode());
     this.endTurnButton?.addEventListener("click", () => {
@@ -9305,7 +9387,7 @@ export class BattleScreen {
       });
       this.initiativeGroupCursorUnitId = null;
       
-      this.showElegantInitiativeMessage("Group skipped. Press End Turn to continue initiative.");
+      this.showElegantInitiativeMessage("Group ordered to hold. Commit Orders to pass initiative.");
       this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to skip group:', error);
@@ -10791,6 +10873,15 @@ export class BattleScreen {
     this.updateAirHudWidget();
   }
 
+  private setBattleSettingsMenuOpen(open: boolean): void {
+    if (!this.settingsToggleButton || !this.settingsMenu) {
+      return;
+    }
+    this.settingsToggleButton.setAttribute("aria-expanded", open ? "true" : "false");
+    this.settingsToggleButton.setAttribute("aria-label", open ? "Close battle settings" : "Open battle settings");
+    this.settingsMenu.classList.toggle("hidden", !open);
+  }
+
   private handleToggleSound(): void {
     const nextEnabled = !this.soundEnabled;
     this.persistSoundEnabledPreference(nextEnabled);
@@ -10808,10 +10899,19 @@ export class BattleScreen {
       return;
     }
 
-    this.soundToggleButton.textContent = enabled ? "Sound On" : "Sound Off";
+    const valueElement = this.soundToggleButton.querySelector<HTMLElement>("[data-settings-value]");
+    if (valueElement) {
+      valueElement.textContent = enabled ? "On" : "Off";
+    } else {
+      this.soundToggleButton.textContent = `Battle Sound: ${enabled ? "On" : "Off"}`;
+    }
     this.soundToggleButton.setAttribute("aria-pressed", enabled ? "true" : "false");
-    this.soundToggleButton.setAttribute("aria-label", enabled ? "Turn sound off" : "Turn sound on");
-    this.soundToggleButton.title = enabled ? "Turn sound off" : "Turn sound on";
+    this.soundToggleButton.setAttribute("aria-checked", enabled ? "true" : "false");
+    this.soundToggleButton.setAttribute(
+      "aria-label",
+      `Battle Sound: ${enabled ? "On" : "Off"}. ${enabled ? "Turn off" : "Turn on"} movement, weapon, and battlefield effects.`
+    );
+    this.soundToggleButton.title = "Battle Sound plays movement, weapon, and battlefield effects.";
     this.soundToggleButton.dataset.soundEnabled = enabled ? "true" : "false";
     this.soundToggleButton.disabled = !this.hexMapRenderer;
   }
@@ -10840,15 +10940,23 @@ export class BattleScreen {
     }
 
     const quick = mode === "quick";
-    this.animationToggleButton.textContent = quick ? "Quick Anim" : "Path Anim";
+    const valueElement = this.animationToggleButton.querySelector<HTMLElement>("[data-settings-value]");
+    if (valueElement) {
+      valueElement.textContent = quick ? "Quick Moves" : "Full Paths";
+    } else {
+      this.animationToggleButton.textContent = `Movement Animation: ${quick ? "Quick Moves" : "Full Paths"}`;
+    }
     this.animationToggleButton.setAttribute("aria-pressed", quick ? "true" : "false");
+    this.animationToggleButton.setAttribute("aria-checked", quick ? "true" : "false");
     this.animationToggleButton.setAttribute(
       "aria-label",
-      quick ? "Use regular path movement animations" : "Use quick movement animations"
+      quick
+        ? "Movement Animation: Quick Moves. Show full movement routes."
+        : "Movement Animation: Full Paths. Shorten movement playback."
     );
     this.animationToggleButton.title = quick
-      ? "Use regular path movement animations"
-      : "Use quick movement animations";
+      ? "Quick Moves shortens travel playback. Select to follow full movement routes."
+      : "Full Paths follows each unit along its route. Select to shorten travel playback.";
     this.animationToggleButton.dataset.animationMode = mode;
     this.animationToggleButton.disabled = !this.hexMapRenderer;
   }

@@ -129,9 +129,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "mission_briefing",
-    title: "Battle Header",
+    title: "Command Rail",
     content:
-      "The header shows objective status, turn phase, and key battle buttons.",
+      "The command rail shows the operation, turn limit, current objective, and which formations can act.",
     highlightSelector: ".battle-map-header",
     position: "bottom",
     arrowDirection: "up",
@@ -192,9 +192,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "initiative_order",
-    title: "Initiative Status",
+    title: "Initiative Order",
     content:
-      "The top bar shows initiative: which group acts now. When it says Your group, only highlighted friendly formations can receive orders.",
+      "Higher initiative groups act first. When the rail says Your group is active, only the highlighted friendly formations can receive orders.",
     highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status]",
     position: "bottom",
     arrowDirection: "up",

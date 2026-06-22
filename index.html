@@ -1315,7 +1315,10 @@
 
     .initiative-turn-controls-container .compact-button,
     .initiative-turn-controls-container .primary-button,
-    .initiative-turn-controls-container .secondary-button {
+    .initiative-turn-controls-container .secondary-button,
+    .enhanced-initiative-turn-controls .compact-button,
+    .enhanced-initiative-turn-controls .primary-button,
+    .enhanced-initiative-turn-controls .secondary-button {
       padding: 0.5rem 0.85rem;
       font-size: 0.76rem;
       font-weight: 600;
@@ -1331,14 +1334,21 @@
     .initiative-turn-controls-container .primary-button:hover,
     .initiative-turn-controls-container .primary-button:focus-visible,
     .initiative-turn-controls-container .secondary-button:hover,
-    .initiative-turn-controls-container .secondary-button:focus-visible {
+    .initiative-turn-controls-container .secondary-button:focus-visible,
+    .enhanced-initiative-turn-controls .compact-button:hover,
+    .enhanced-initiative-turn-controls .compact-button:focus-visible,
+    .enhanced-initiative-turn-controls .primary-button:hover,
+    .enhanced-initiative-turn-controls .primary-button:focus-visible,
+    .enhanced-initiative-turn-controls .secondary-button:hover,
+    .enhanced-initiative-turn-controls .secondary-button:focus-visible {
       transform: translateY(-1px);
       border-color: var(--accent-strong);
       background: rgba(30, 42, 68, 0.85);
       outline: none;
     }
 
-    .initiative-turn-controls-container .initiative-status {
+    .initiative-turn-controls-container .initiative-status,
+    .enhanced-initiative-turn-controls .initiative-status {
       display: grid;
       gap: 0.08rem;
       flex: 1 1 15rem;
@@ -1414,12 +1424,16 @@
       
       .initiative-turn-controls-container .compact-button,
       .initiative-turn-controls-container .primary-button,
-      .initiative-turn-controls-container .secondary-button {
+      .initiative-turn-controls-container .secondary-button,
+      .enhanced-initiative-turn-controls .compact-button,
+      .enhanced-initiative-turn-controls .primary-button,
+      .enhanced-initiative-turn-controls .secondary-button {
         padding: 0.42rem 0.58rem;
         font-size: 0.64rem;
       }
       
-      .initiative-turn-controls-container .initiative-status {
+      .initiative-turn-controls-container .initiative-status,
+      .enhanced-initiative-turn-controls .initiative-status {
         padding: 0.3rem 0.4rem;
         min-width: 100%;
       }
@@ -3423,21 +3437,16 @@
       padding: 0.6rem 0.9rem;
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     }
-    /* Battlefield header condenses to a single row so the map retains vertical space. */
+    /* Battlefield command rail: mission context first, current orders second. */
     .battle-map-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 0.75rem;
-      flex-wrap: nowrap;
-      padding: 0.22rem 0.65rem;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.5rem;
+      padding: 0.5rem 0.65rem;
       min-height: auto;
     }
 
     .battle-map-header.initiative-controls-active {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.42rem;
       padding-right: calc(var(--toggle-radius) + 0.65rem);
     }
 
@@ -3454,8 +3463,22 @@
 
     .battle-map-header.initiative-controls-active .battle-map-header__command-group {
       display: grid;
-      grid-template-columns: max-content max-content max-content minmax(0, 1fr);
+      grid-template-columns: minmax(15rem, 0.9fr) minmax(25rem, 1.5fr) max-content;
       align-items: center;
+    }
+
+    .battle-map-header.initiative-controls-active .battle-objective-card {
+      grid-column: 1;
+    }
+
+    .battle-map-header.initiative-controls-active .initiative-turn-controls-container,
+    .battle-map-header.initiative-controls-active .enhanced-initiative-turn-controls {
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    .battle-map-header.initiative-controls-active .battle-settings {
+      grid-column: 3;
     }
 
     .battle-map-header__primary {
@@ -3466,22 +3489,39 @@
     }
 
     .battle-map-title-block {
-      display: grid;
-      gap: 0.18rem;
+      width: 100%;
       min-width: 0;
     }
 
     .battle-map-title-row {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) max-content max-content;
       align-items: center;
-      gap: 0.6rem;
+      gap: 0.8rem;
       min-width: 0;
-      flex-wrap: wrap;
+    }
+
+    .battle-operation-identity {
+      display: grid;
+      gap: 0.08rem;
+      min-width: 0;
+    }
+
+    .battle-operation-label,
+    .turn-status__label,
+    .battle-objective-card__label {
+      font-family: var(--font-label);
+      font-size: 0.56rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      line-height: 1;
+      text-transform: uppercase;
+      color: rgba(226, 205, 154, 0.72);
     }
 
     .battle-map-title {
       margin: 0;
-      font-size: clamp(1rem, 1vw + 0.88rem, 1.25rem);
+      font-size: clamp(1rem, 1vw + 0.78rem, 1.2rem);
       letter-spacing: 0.08em;
       text-transform: uppercase;
       white-space: nowrap;
@@ -3491,13 +3531,18 @@
     }
 
     .turn-status {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      color: var(--text-muted);
-      font-size: 0.82rem;
+      display: grid;
+      gap: 0.12rem;
+      min-width: 5.8rem;
+      padding-left: 0.8rem;
+      border-left: 1px solid rgba(226, 205, 154, 0.18);
       white-space: nowrap;
-      padding-left: 0.05rem;
+    }
+
+    .turn-indicator {
+      color: var(--text-primary);
+      font-size: 0.88rem;
+      line-height: 1.1;
     }
 
     .battle-map-header__mission-actions {
@@ -3510,31 +3555,254 @@
 
     .battle-map-header__actions {
       display: flex;
-      align-items: flex-start;
-      gap: 0.5rem;
-      flex: 0 0 auto;
-      justify-content: flex-end;
-      flex-wrap: nowrap;
+      align-items: center;
+      width: 100%;
+      min-width: 0;
     }
 
     .battle-map-header__command-group {
-      display: inline-flex;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) max-content max-content;
       align-items: center;
+      width: 100%;
+      min-width: 0;
       gap: 0.5rem;
-      flex-wrap: nowrap;
+      position: relative;
     }
 
-    @container battle-pane (max-width: 900px) {
+    .battle-objective-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) max-content;
+      align-items: center;
+      gap: 0.75rem;
+      min-width: 0;
+      min-height: 3rem;
+      padding: 0.46rem 0.7rem;
+      border: 1px solid rgba(216, 180, 93, 0.3);
+      border-radius: 8px;
+      background: rgba(17, 22, 18, 0.72);
+      color: var(--text-primary);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .battle-objective-card:hover,
+    .battle-objective-card:focus-visible {
+      border-color: rgba(233, 199, 123, 0.68);
+      background: rgba(34, 37, 25, 0.9);
+      outline: none;
+    }
+
+    .battle-objective-card:disabled {
+      cursor: default;
+      opacity: 0.62;
+    }
+
+    .battle-objective-card__copy {
+      display: grid;
+      gap: 0.16rem;
+      min-width: 0;
+    }
+
+    .battle-objective-card__title {
+      overflow: hidden;
+      color: #f4ecd8;
+      font-size: 0.82rem;
+      line-height: 1.15;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .battle-objective-card__status {
+      padding: 0.26rem 0.44rem;
+      border: 1px solid rgba(233, 199, 123, 0.24);
+      border-radius: 999px;
+      color: #e9c77b;
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .battle-objective-card__status[data-state="completed"] {
+      border-color: rgba(99, 213, 145, 0.4);
+      color: #8be5ae;
+    }
+
+    .battle-objective-card__status[data-state="failed"] {
+      border-color: rgba(224, 105, 116, 0.42);
+      color: #ee98a0;
+    }
+
+    .battle-objective-card__status[data-state="inProgress"] {
+      border-color: rgba(233, 199, 123, 0.42);
+      background: rgba(141, 111, 47, 0.14);
+      color: #f0cf82;
+    }
+
+    .battle-settings {
+      position: relative;
+      justify-self: end;
+    }
+
+    .battle-settings__toggle {
+      display: grid;
+      place-items: center;
+      width: 2.8rem;
+      height: 2.8rem;
+      padding: 0;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      background: rgba(15, 20, 32, 0.72);
+      color: #f4e6bb;
+      font-size: 1.15rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .battle-settings__toggle:hover,
+    .battle-settings__toggle:focus-visible,
+    .battle-settings__toggle[aria-expanded="true"] {
+      border-color: rgba(233, 199, 123, 0.58);
+      background: rgba(38, 39, 28, 0.96);
+      outline: none;
+    }
+
+    .battle-settings__menu {
+      position: absolute;
+      top: calc(100% + 0.45rem);
+      right: 0;
+      z-index: 80;
+      display: grid;
+      width: min(21rem, calc(100vw - 2rem));
+      overflow: hidden;
+      border: 1px solid rgba(233, 199, 123, 0.34);
+      border-radius: 8px;
+      background: rgba(11, 15, 22, 0.98);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.46);
+    }
+
+    .battle-settings__menu.hidden {
+      display: none;
+    }
+
+    .battle-settings__header {
+      padding: 0.72rem 0.8rem 0.58rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-family: var(--font-label);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #ead69f;
+    }
+
+    .battle-settings__option {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) max-content;
+      align-items: center;
+      gap: 0.8rem;
+      padding: 0.72rem 0.8rem;
+      border: 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background: transparent;
+      color: var(--text-primary);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .battle-settings__option:last-child {
+      border-bottom: 0;
+    }
+
+    .battle-settings__option:hover,
+    .battle-settings__option:focus-visible {
+      background: rgba(233, 199, 123, 0.08);
+      outline: none;
+    }
+
+    .battle-settings__option-copy,
+    .battle-settings__option-control {
+      display: grid;
+      gap: 0.2rem;
+    }
+
+    .battle-settings__option-copy strong {
+      font-size: 0.8rem;
+    }
+
+    .battle-settings__option-copy span,
+    .battle-settings__option-control > span:first-child {
+      color: rgba(235, 232, 219, 0.7);
+      font-size: 0.68rem;
+      line-height: 1.3;
+    }
+
+    .battle-settings__option-control {
+      justify-items: end;
+    }
+
+    .battle-settings__switch {
+      display: block;
+      width: 2.1rem;
+      height: 1.1rem;
+      padding: 0.12rem;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 999px;
+      background: rgba(70, 75, 82, 0.74);
+    }
+
+    .battle-settings__switch span {
+      display: block;
+      width: 0.72rem;
+      height: 0.72rem;
+      border-radius: 50%;
+      background: #d8d9dc;
+      transition: transform 0.16s ease, background 0.16s ease;
+    }
+
+    .battle-settings__option[aria-pressed="true"] .battle-settings__switch {
+      border-color: rgba(233, 199, 123, 0.52);
+      background: rgba(141, 111, 47, 0.64);
+    }
+
+    .battle-settings__option[aria-pressed="true"] .battle-settings__switch span {
+      transform: translateX(0.96rem);
+      background: #f4d88e;
+    }
+
+    @container battle-pane (max-width: 1100px) {
       .battle-map-header.initiative-controls-active .battle-map-header__command-group {
-        grid-template-columns: repeat(3, max-content);
+        grid-template-columns: minmax(0, 1fr) max-content;
       }
 
-      .battle-map-header.initiative-controls-active .initiative-turn-controls-container {
+      .battle-map-header.initiative-controls-active .initiative-turn-controls-container,
+      .battle-map-header.initiative-controls-active .enhanced-initiative-turn-controls {
+        grid-row: 2;
         grid-column: 1 / -1;
+      }
+
+      .battle-map-header.initiative-controls-active .battle-objective-card {
+        grid-row: 1;
+        grid-column: 1;
+      }
+
+      .battle-map-header.initiative-controls-active .battle-settings {
+        grid-row: 1;
+        grid-column: 2;
       }
     }
 
     @container battle-pane (max-width: 560px) {
+      .battle-map-title-row {
+        grid-template-columns: minmax(0, 1fr) max-content;
+      }
+
+      .battle-operation-identity {
+        grid-column: 1 / -1;
+      }
+
       .battle-map-header.initiative-controls-active .enhanced-initiative-turn-controls {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
@@ -3543,6 +3811,30 @@
       .battle-map-header.initiative-controls-active .turn-controls-buttons {
         justify-content: flex-start;
         flex-wrap: wrap;
+      }
+
+      .battle-objective-card {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.4rem;
+      }
+
+      .battle-objective-card__status {
+        justify-self: start;
+      }
+
+      .battle-objective-card__title {
+        white-space: normal;
+      }
+
+      .battle-settings {
+        position: static;
+      }
+
+      .battle-settings__menu {
+        top: calc(100% + 0.45rem);
+        right: 0;
+        left: 0;
+        width: auto;
       }
     }
 
@@ -3561,29 +3853,6 @@
       border-radius: 12px;
     }
 
-    .battle-audio-toggle[aria-pressed="false"] {
-      background: rgba(18, 23, 31, 0.78);
-      border-color: rgba(233, 199, 123, 0.2);
-      color: rgba(238, 228, 203, 0.82);
-    }
-
-    .battle-audio-toggle[aria-pressed="false"]:hover,
-    .battle-audio-toggle[aria-pressed="false"]:focus-visible {
-      border-color: rgba(241, 213, 149, 0.36);
-      color: #f1dfb2;
-    }
-
-    .battle-animation-toggle[data-animation-mode="quick"] {
-      background: rgba(67, 52, 31, 0.82);
-      border-color: rgba(245, 187, 89, 0.42);
-      color: #ffe0a6;
-    }
-
-    .battle-animation-toggle[data-animation-mode="quick"]:hover,
-    .battle-animation-toggle[data-animation-mode="quick"]:focus-visible {
-      border-color: rgba(255, 210, 132, 0.58);
-      color: #fff0c9;
-    }
     @media (max-width: 980px) {
       .battle-map-header {
         flex-wrap: wrap;
@@ -5751,7 +6020,7 @@
       .battle-main {
         grid-area: main;
         grid-template-columns: 1fr;
-        grid-template-rows: minmax(250px, 46vh) minmax(330px, 1fr);
+        grid-template-rows: minmax(520px, 68vh) minmax(330px, 1fr);
         overflow-y: auto;
         overflow-x: hidden;
         min-height: 0;
@@ -5760,7 +6029,7 @@
       .battle-main[data-activity-collapsed="true"],
       .battle-main[data-panel-collapsed="true"][data-activity-collapsed="true"] {
         grid-template-columns: 1fr;
-        grid-template-rows: minmax(250px, 46vh) minmax(330px, 1fr);
+        grid-template-rows: minmax(520px, 68vh) minmax(330px, 1fr);
       }
       .battle-main > .map-shell {
         grid-column: 1;
@@ -7940,46 +8209,86 @@
               <div class="battle-map-header__primary">
                 <div class="battle-map-title-block">
                   <div class="battle-map-title-row">
-                    <h2 id="battleScreenHeading" class="battle-map-title">
-                      <span id="battleMissionTitle">Operation Pending</span>
-                    </h2>
+                    <div class="battle-operation-identity">
+                      <span class="battle-operation-label">Operation</span>
+                      <h2 id="battleScreenHeading" class="battle-map-title">
+                        <span id="battleMissionTitle">Operation Pending</span>
+                      </h2>
+                    </div>
+                    <div class="turn-status" role="status" aria-live="polite">
+                      <span class="turn-status__label">Turn</span>
+                      <strong id="battleTurnIndicator" class="turn-indicator">Deployment</strong>
+                      <span id="battlePhaseIndicator" class="sr-only">Deployment</span>
+                      <span id="battleFactionIndicator" class="sr-only">Player</span>
+                    </div>
                     <div class="battle-map-header__mission-actions">
                       <button id="beginBattle" type="button" class="attention-button">Begin Mission</button>
                       <button id="endMissionButton" type="button" class="danger-button hidden">End Mission</button>
                     </div>
                   </div>
-                  <div class="turn-status" role="status" aria-live="polite">
-                    <span id="battleTurnIndicator" class="turn-indicator">Turn 1</span>
-                    <span class="turn-separator" aria-hidden="true">•</span>
-                    <span id="battlePhaseIndicator" class="phase-indicator">Player's Turn</span>
-                    <span id="battleFactionIndicator" class="faction-indicator hidden">Player</span>
-                  </div>
                 </div>
               </div>
               <div class="battle-map-header__actions">
                 <div class="battle-map-header__command-group">
-                  <button
-                    id="battleSoundToggle"
-                    type="button"
-                    class="compact-button battle-audio-toggle"
-                    aria-pressed="true"
-                    aria-label="Turn sound off"
-                    title="Turn sound off"
-                  >
-                    Sound On
+                  <button id="battleCycleObjective" type="button" class="battle-objective-card" aria-label="Focus objective on the map">
+                    <span class="battle-objective-card__copy">
+                      <span id="battleObjectiveIndex" class="battle-objective-card__label">Primary Objective</span>
+                      <strong id="battleObjectiveTitle" class="battle-objective-card__title">Awaiting orders</strong>
+                    </span>
+                    <span id="battleObjectiveStatus" class="battle-objective-card__status" data-state="pending">Pending</span>
                   </button>
-                  <button
-                    id="battleAnimationToggle"
-                    type="button"
-                    class="compact-button battle-animation-toggle"
-                    aria-pressed="false"
-                    aria-label="Use quick movement animations"
-                    title="Use quick movement animations"
-                  >
-                    Path Anim
-                  </button>
-                  <button id="battleCycleObjective" type="button" class="compact-button" aria-label="Cycle objective focus">Cycle Objective</button>
                   <button id="endTurn" type="button" class="secondary-button" disabled>End Turn</button>
+                  <div class="battle-settings">
+                    <button
+                      id="battleSettingsToggle"
+                      type="button"
+                      class="battle-settings__toggle"
+                      aria-expanded="false"
+                      aria-haspopup="menu"
+                      aria-controls="battleSettingsMenu"
+                      aria-label="Open battle settings"
+                      title="Battle settings"
+                    >
+                      <span aria-hidden="true">&#9881;</span>
+                    </button>
+                    <div id="battleSettingsMenu" class="battle-settings__menu hidden" role="menu" aria-label="Battle settings">
+                      <div class="battle-settings__header">Battle Settings</div>
+                      <button
+                        id="battleSoundToggle"
+                        type="button"
+                        class="battle-settings__option battle-audio-toggle"
+                        role="menuitemcheckbox"
+                        aria-checked="true"
+                        aria-pressed="true"
+                      >
+                        <span class="battle-settings__option-copy">
+                          <strong>Battle Sound</strong>
+                          <span>Play movement, weapons, and battlefield effects.</span>
+                        </span>
+                        <span class="battle-settings__option-control">
+                          <span data-settings-value>On</span>
+                          <span class="battle-settings__switch" aria-hidden="true"><span></span></span>
+                        </span>
+                      </button>
+                      <button
+                        id="battleAnimationToggle"
+                        type="button"
+                        class="battle-settings__option battle-animation-toggle"
+                        role="menuitemcheckbox"
+                        aria-checked="false"
+                        aria-pressed="false"
+                      >
+                        <span class="battle-settings__option-copy">
+                          <strong>Movement Animation</strong>
+                          <span>Follow full movement routes or shorten their playback.</span>
+                        </span>
+                        <span class="battle-settings__option-control">
+                          <span data-settings-value>Full Paths</span>
+                          <span class="battle-settings__switch" aria-hidden="true"><span></span></span>
+                        </span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

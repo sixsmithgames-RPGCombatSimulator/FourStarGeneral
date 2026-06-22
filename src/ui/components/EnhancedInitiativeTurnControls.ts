@@ -291,8 +291,8 @@ export class EnhancedInitiativeTurnControls {
     this.container.innerHTML = `
       <div class="initiative-status" data-initiative-status data-current-initiative-group="">
         <span class="initiative-status__label">Initiative</span>
-        <strong class="initiative-status__value">Awaiting orders</strong>
-        <span class="initiative-status__detail">Deploy to begin the battle clock.</span>
+        <strong class="initiative-status__value">Waiting for deployment</strong>
+        <span class="initiative-status__detail">Initiative order begins when the battle starts.</span>
       </div>
       <div class="turn-controls-buttons">
         ${this.config.showProceedButton ? `
@@ -302,18 +302,18 @@ export class EnhancedInitiativeTurnControls {
         ` : ''}
         
         ${this.config.showSkipTurn ? `
-          <button class="compact-button skip-group-btn" disabled title="Skip remaining friendly units in this initiative band, place them on sentry, and pass initiative (Shift+Space)">
-            Skip Group
+          <button class="compact-button skip-group-btn" disabled title="Order every remaining formation in this initiative group to hold on sentry, then pass initiative (Shift+Space)">
+            Hold Group
           </button>
         ` : ''}
         
-        <button class="compact-button next-activation-btn" disabled title="Cycle selection to another unit in the current initiative band (Tab)">
-          Next Unit
+        <button class="compact-button next-activation-btn" disabled title="Select the next formation that can receive orders in this initiative group (Tab)">
+          Next Formation
         </button>
         
         ${this.config.showEndTurn ? `
-          <button class="compact-button end-turn-btn" disabled title="End this initiative step. If activations are finished, advance to the next battle turn (Enter)">
-            End Turn
+          <button class="compact-button end-turn-btn" disabled title="Commit this group's orders and pass initiative (Enter)">
+            Commit Orders
           </button>
         ` : ''}
       </div>
@@ -463,6 +463,10 @@ export class EnhancedInitiativeTurnControls {
 
     if (endBtn) {
       endBtn.disabled = !((isInInitiativePhase && this.isPlayerTurn) || canAdvanceRound);
+      endBtn.textContent = canAdvanceRound ? "End Turn" : "Commit Orders";
+      endBtn.title = canAdvanceRound
+        ? "All initiative groups are complete. Advance to the next battle turn (Enter)"
+        : "Commit this group's orders and pass initiative (Enter)";
     }
 
     if (nextBtn) {
@@ -575,16 +579,18 @@ export class EnhancedInitiativeTurnControls {
 
   private updateStatusSummary(): void {
     const statusElement = this.container.querySelector<HTMLElement>('[data-initiative-status]');
+    const labelElement = statusElement?.querySelector<HTMLElement>('.initiative-status__label');
     const valueElement = statusElement?.querySelector<HTMLElement>('.initiative-status__value');
     const detailElement = statusElement?.querySelector<HTMLElement>('.initiative-status__detail');
-    if (!statusElement || !valueElement || !detailElement) {
+    if (!statusElement || !labelElement || !valueElement || !detailElement) {
       return;
     }
 
     if (this.roundAdvanceReady) {
       statusElement.dataset.currentInitiativeGroup = "";
-      valueElement.textContent = "Round clear";
-      detailElement.textContent = "End Turn advances the battle round.";
+      labelElement.textContent = "Initiative Complete";
+      valueElement.textContent = "Turn ready to end";
+      detailElement.textContent = "All formations have received their orders.";
       return;
     }
 
@@ -598,15 +604,19 @@ export class EnhancedInitiativeTurnControls {
             ? "Your group"
             : "Active group";
       statusElement.dataset.currentInitiativeGroup = String(this.currentGroup.initiative);
-      valueElement.textContent = `Init ${this.currentGroup.initiative} - ${ownerLabel}`;
-      detailElement.textContent = `${remaining} formation${remaining === 1 ? "" : "s"} still in this band.`;
+      labelElement.textContent = `Initiative ${this.currentGroup.initiative}`;
+      valueElement.textContent = `${ownerLabel} is active`;
+      detailElement.textContent = this.currentUnit?.ownerId === 'bot'
+        ? `${remaining} enemy formation${remaining === 1 ? "" : "s"} resolving orders.`
+        : `${remaining} formation${remaining === 1 ? "" : "s"} ready for orders.`;
       return;
     }
 
     if (this.currentUnit) {
       const ownerLabel = this.currentUnit.ownerId === 'player' ? "Your formation" : "Enemy formation";
       statusElement.dataset.currentInitiativeGroup = String(this.currentUnit.initiative);
-      valueElement.textContent = `Init ${this.currentUnit.initiative} - ${ownerLabel}`;
+      labelElement.textContent = `Initiative ${this.currentUnit.initiative}`;
+      valueElement.textContent = `${ownerLabel} is active`;
       detailElement.textContent = this.currentUnit.ownerId === 'player'
         ? "Awaiting orders."
         : "Enemy activation resolving.";
@@ -614,10 +624,11 @@ export class EnhancedInitiativeTurnControls {
     }
 
     statusElement.dataset.currentInitiativeGroup = "";
-    valueElement.textContent = this.currentPhase === 'turnEnded' ? "Initiative closed" : "Awaiting orders";
+    labelElement.textContent = "Initiative";
+    valueElement.textContent = this.currentPhase === 'turnEnded' ? "Order complete" : "Awaiting orders";
     detailElement.textContent = this.currentPhase === 'deployment'
-      ? "Deploy to begin the battle clock."
-      : "No active formation.";
+      ? "Initiative order begins when the battle starts."
+      : "No formation is active.";
   }
 
   /**
