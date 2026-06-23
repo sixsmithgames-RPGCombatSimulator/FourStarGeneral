@@ -1160,23 +1160,24 @@ registerTest("BATTLESCREEN_TUTORIAL_GUIDED_SELECTION_ACCEPTS_REPEAT_CLICK_ON_SEL
   let completedPhase: string | null = null;
   const tutorialState = ensureTutorialState();
 
-  await Given("the smoke lesson is waiting on a guided infantry unit that is already selected", async () => {
+  await Given("the fire-order lesson is waiting on a guided unit that is already selected", async () => {
     tutorialState.endTutorial();
     tutorialState.startTutorial();
-    tutorialState.jumpToPhase("select_smoke_unit");
+    tutorialState.jumpToPhase("select_attack_unit");
     mountBattleScreenRoot();
-    const smokeUnit = createPlayerUnit("infantry_smoke_1", 8, 7);
+    const firingUnit = createPlayerUnit("infantry_fire_1", 8, 7);
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
     (screen as any).tutorialUserMapClickInProgress = true;
     (screen as any).tutorialGuidedHexKeys = new Set<string>(["8,7"]);
+    (screen as any).getTutorialAttackTargetHexKeys = () => new Set<string>(["9,6"]);
     (screen as any).resolveSelectedPlayerStackMember = () => ({
-      unit: smokeUnit,
-      unitId: smokeUnit.unitId,
+      unit: firingUnit,
+      unitId: firingUnit.unitId,
       isAutomated: false
     });
     (screen as any).battleState = {
       ensureGameEngine: () => ({
-        getUnitCommandState: () => ({ canLaySmoke: true })
+        getUnitCommandState: () => ({ isAutomated: false })
       })
     };
     (screen as any).completeTutorialPhase = (phase: string) => {
@@ -1189,8 +1190,8 @@ registerTest("BATTLESCREEN_TUTORIAL_GUIDED_SELECTION_ACCEPTS_REPEAT_CLICK_ON_SEL
   });
 
   await Then("the selection lesson completes instead of stalling", async () => {
-    if (completedPhase !== "select_smoke_unit") {
-      throw new Error(`Expected select_smoke_unit to complete, received ${completedPhase ?? "none"}.`);
+    if (completedPhase !== "select_attack_unit") {
+      throw new Error(`Expected select_attack_unit to complete, received ${completedPhase ?? "none"}.`);
     }
     tutorialState.endTutorial();
   });

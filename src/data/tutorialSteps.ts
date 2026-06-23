@@ -67,7 +67,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_flak",
     title: "Cover The Rear",
     content:
-      "Add two Flak Batteries. Keep base camp and supply routes under air cover.",
+      "Add one Flak Battery. Keep base camp and supply routes under air cover.",
     highlightSelector: "[data-key='flakBattery']",
     position: "right",
     arrowDirection: "left",
@@ -76,10 +76,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_air_wing",
-    title: "Send Recon",
+    title: "Recon And Guns",
     content:
-      "Add one Recon Bike Patrol. Recon finds enemy positions before your main force commits.",
-    highlightSelector: "[data-key='reconBike']",
+      "Add one Recon Bike Patrol and one Corps Artillery Group. Recon finds targets; corps guns hit them.",
+    highlightSelector: "[data-key='reconBike'], [data-key='corpsArtilleryGroup']",
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
@@ -238,7 +238,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "engineer_intro",
     title: "Select The Engineers",
     content:
-      "The engineers are ready. Click the highlighted Engineering Corps to prepare fieldworks.",
+      "The engineers are ready. Click the highlighted Engineering Corps to build fortifications.",
     highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
     position: "right",
     arrowDirection: "left",
@@ -260,7 +260,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "engineer_orders",
     title: "Build Fortifications",
     content:
-      "Click Fortify. Then choose the hex edge facing the enemy.",
+      "Click Fortify, then choose the edge that faces the enemy.",
     highlightSelector: "#battleFortificationFacingPreview .fortification-facing-preview-svg",
     position: "right",
     arrowDirection: "left",
@@ -276,28 +276,6 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightFirstMatch: true,
     position: "bottom",
     arrowDirection: "up",
-    waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
-    phase: "select_smoke_unit",
-    title: "Select A Smoke Unit",
-    content:
-      "Click the highlighted Infantry Battalion. Its mortar company carries smoke rounds.",
-    highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
-    position: "right",
-    arrowDirection: "left",
-    waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
-    phase: "smoke_demo",
-    title: "Lay Smoke",
-    content:
-      "Click Lay Smoke to fire the battalion mortars. Choose a highlighted hex, then choose the edge to cover.",
-    highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke']",
-    position: "right",
-    arrowDirection: "left",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -439,8 +417,6 @@ export function getCombatPhases(): TutorialPhase[] {
     "intel_overlay_expand",
     "engineer_orders",
     "enemy_response",
-    "select_smoke_unit",
-    "smoke_demo",
     "select_attack_unit",
     "attack_intro",
     "select_artillery_observer",

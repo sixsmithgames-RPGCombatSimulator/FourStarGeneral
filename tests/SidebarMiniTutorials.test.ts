@@ -74,9 +74,7 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getNextPhase("engineer_intro") === "intel_overlay_expand", "Selecting engineers should lead into their order card.");
     expect(getNextPhase("intel_overlay_expand") === "engineer_orders", "The expanded order card should lead into real fortification work.");
     expect(getNextPhase("engineer_orders") === "enemy_response", "Completed fortifications should hand initiative back to the enemy.");
-    expect(getNextPhase("enemy_response") === "select_smoke_unit", "The next friendly group should begin with a smoke-capable formation.");
-    expect(getNextPhase("select_smoke_unit") === "smoke_demo", "Selecting mortar-equipped infantry should lead into a real smoke order.");
-    expect(getNextPhase("smoke_demo") === "select_attack_unit", "Completed smoke should lead to a formation with a legal shot.");
+    expect(getNextPhase("enemy_response") === "select_attack_unit", "The next friendly group should begin with a legal firing unit.");
     expect(getNextPhase("select_attack_unit") === "attack_intro", "A legal firing unit should lead into a confirmed attack.");
     expect(getNextPhase("attack_intro") === "select_artillery_observer", "A completed attack should lead into artillery observation.");
     expect(getNextPhase("select_artillery_observer") === "artillery_intro", "A legal observer should lead into a real artillery request.");
@@ -100,23 +98,17 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(fortificationStep?.waitForAction === true, "Fortifications should require a successful engineer order.");
     expect(fortificationStep?.title === "Build Fortifications", "The engineer lesson should use direct fortification language.");
     expect(
-      fortificationStep?.content === "Click Fortify. Then choose the hex edge facing the enemy.",
+      fortificationStep?.content === "Click Fortify, then choose the edge that faces the enemy.",
       "The engineer lesson should direct the player toward the enemy-facing edge."
     );
     expect(
       fortificationStep?.highlightSelector === "#battleFortificationFacingPreview .fortification-facing-preview-svg",
       "The engineer lesson should spotlight the interactive edge chooser rather than the Fortify card."
     );
-    expect(getTutorialStep("smoke_demo")?.waitForAction === true, "Smoke should require a successful smoke order.");
-    expect(
-      getTutorialStep("smoke_demo")?.content.includes("battalion mortars") === true,
-      "The smoke lesson should explain why infantry can issue the order."
-    );
     expect(getTutorialStep("attack_intro")?.waitForAction === true, "Fire Orders should require a confirmed attack.");
     expect(getTutorialStep("artillery_intro")?.waitForAction === true, "Artillery should require a queued support request.");
     expect(getTutorialStep("enemy_activation")?.waitForAction === true, "Enemy Action should wait for initiative handoff instead of showing a premature Continue button.");
     expect((getTutorialStep("initiative_order")?.content.includes("battle clock") ?? false) === false, "Initiative copy should explain the UI without mystifying phrases.");
-    expect((getTutorialStep("smoke_demo")?.content.includes("opened on one now") ?? false) === false, "Smoke copy should avoid mechanical developer phrasing.");
     expect(
       getTutorialStep("place_units")?.highlightSelector === "#autoDeployEvenly, #autoDeployGrouped",
       "Placement instructions should anchor near the deploy-mode buttons."

@@ -170,9 +170,10 @@ async function requisitionTrainingForce(page: Page): Promise<void> {
   await waitForTutorialPhase(page, "select_engineers");
   await addAllocation(page, "engineer", 1);
   await waitForTutorialPhase(page, "select_flak");
-  await addAllocation(page, "flakBattery", 2);
+  await addAllocation(page, "flakBattery", 1);
   await waitForTutorialPhase(page, "select_air_wing");
   await addAllocation(page, "reconBike", 1);
+  await addAllocation(page, "corpsArtilleryGroup", 1);
   await waitForTutorialPhase(page, "select_ammo");
   await addAllocation(page, "ammo", 1);
   await waitForTutorialPhase(page, "select_fuel");
@@ -202,7 +203,7 @@ async function enterBattle(page: Page, deploymentScreenshotPath?: string): Promi
   await waitForTutorialPhase(page, "place_units");
   await page.locator("#autoDeployEvenly").click();
   await waitForTutorialPhase(page, "begin_battle");
-  await expect(page.locator("#deploymentZoneList")).toContainText("13/13");
+  await expect(page.locator("#deploymentZoneList")).toContainText("12/13");
   await expect(page.locator("#deploymentPanel #beginBattle")).toBeVisible();
   await expect(page.locator(".battle-map-title-row #beginBattle")).toHaveCount(0);
   if (deploymentScreenshotPath) {
@@ -243,23 +244,8 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await expect(fortificationHexagon).toHaveAttribute("data-tutorial-target", "true");
   await expectSpotlightAround(page, fortificationHexagon);
   await expect(tutorialPanel(page)).toContainText("Build Fortifications");
-  await expect(tutorialPanel(page)).toContainText("hex edge facing the enemy");
+  await expect(tutorialPanel(page)).toContainText("edge that faces the enemy");
   await page.screenshot({ path: outputPath("fortification-edge.png") });
-  await clickFirstAvailableEdge(page);
-
-  await waitForTutorialPhase(page, "select_smoke_unit", 20_000);
-  await clickGuidedHex(page);
-  await waitForTutorialPhase(page, "smoke_demo");
-  const laySmokeOrder = page.locator('#battleIntelOverlay [data-selection-action="laySmoke"]');
-  await expect(laySmokeOrder).toBeVisible();
-  await expect(laySmokeOrder).toContainText("battalion mortars");
-  await page.screenshot({ path: outputPath("smoke-order.png") });
-  await laySmokeOrder.click();
-  const smokeTargets = page.locator("#battleMapCanvas .hex-cell.deployment-zone:not(.is-selected)");
-  const smokeTargetCount = await smokeTargets.count();
-  expect(smokeTargetCount, "Lay Smoke must expose a legal map target.").toBeGreaterThan(0);
-  await page.waitForTimeout(550);
-  await smokeTargets.nth(0).click();
   await clickFirstAvailableEdge(page);
 
   await waitForTutorialPhase(page, "select_attack_unit", 15_000);

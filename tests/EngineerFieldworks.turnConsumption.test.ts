@@ -1,4 +1,5 @@
 import { registerTest } from "./harness.js";
+import { axialKey, hexDistance } from "../src/core/Hex";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
 import type {
   ScenarioData,
@@ -259,6 +260,26 @@ registerTest("SMOKE_ACTION_DELEGATES_FROM_GENERIC_MODIFICATION_PATH", async ({ T
   const targetKeys = engine.resolveSmokeTargetHexKeys(smokeTank.hex, smokeTank.unitId);
   if (targetKeys.length === 0) {
     throw new Error("Expected smoke-capable tank to expose in-range smoke target hexes.");
+  }
+  const targetDistances = targetKeys.map((key) => {
+    const [q, r] = key.split(",").map(Number);
+    return hexDistance(smokeTank.hex, { q, r });
+  });
+  if (targetDistances.some((distance) => distance > 1)) {
+    throw new Error(`Expected close smoke to target only this hex or adjacent hexes, received ${targetKeys.join(", ")}.`);
+  }
+  const remoteTarget = { q: 3, r: 1 };
+  if (targetKeys.includes(axialKey(remoteTarget))) {
+    throw new Error(`Expected remote smoke target ${axialKey(remoteTarget)} to be out of range, received ${targetKeys.join(", ")}.`);
+  }
+  let rejectedRemoteSmoke = false;
+  try {
+    engine.laySmoke(smokeTank.hex, "E", smokeTank.unitId, remoteTarget);
+  } catch (error) {
+    rejectedRemoteSmoke = String(error).includes("out of range");
+  }
+  if (!rejectedRemoteSmoke) {
+    throw new Error("Expected laySmoke to reject remote target hexes.");
   }
 
   const movementBefore = engine.getMovementBudget(smokeTank.hex, smokeTank.unitId)?.remaining ?? -1;

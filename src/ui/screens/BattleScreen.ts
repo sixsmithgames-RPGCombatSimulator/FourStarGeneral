@@ -2940,7 +2940,7 @@ export class BattleScreen {
       this.announceBattleUpdate(
         commandState?.buildModificationAvailability?.[modificationType]?.reason ??
         commandState?.buildReason ??
-        "Engineer fieldworks are not available on this hex right now."
+        "Engineer orders are not available on this hex right now."
       );
       this.renderFortificationFacingPreview();
       return;
@@ -3335,8 +3335,7 @@ export class BattleScreen {
     if (phase === "select_artillery_observer") {
       const observerTarget = this.findFirstTutorialUnitTarget(
         (unit, commandState, hexKey) =>
-          this.resolveArtilleryActionState(unit, commandState, hexKey).available,
-        true
+          this.resolveArtilleryActionState(unit, commandState, hexKey).available
       );
       if (observerTarget) {
         this.clearTutorialSelectionOnceForPhase(phase);
@@ -3358,7 +3357,7 @@ export class BattleScreen {
         phase,
         (unit, commandState, hexKey) =>
           this.resolveArtilleryActionState(unit, commandState, hexKey).available,
-        { activeGroupOnly: true, expandIntel: true }
+        { expandIntel: true }
       );
       this.hexMapRenderer?.setZoneHighlights(observerTarget ? new Set([observerTarget.hexKey]) : new Set());
       this.queueTutorialCameraForPhase(
@@ -12057,7 +12056,7 @@ export class BattleScreen {
         this.announceBattleUpdate(
           commandState?.buildModificationAvailability?.[modificationType]?.reason ??
           commandState?.buildReason ??
-          "Engineer fieldworks are not available on this hex right now."
+          "Engineer orders are not available on this hex right now."
         );
         return;
       }
@@ -12953,16 +12952,10 @@ export class BattleScreen {
       });
     }
     if (commandState.isSmokeCapable) {
-      const unitDefinition = this.unitTypes?.[unit.type as keyof UnitTypeDictionary];
-      const usesInfantryMortars =
-        unitDefinition?.class === "infantry" &&
-        (unitDefinition.traits as readonly string[]).includes("smoke");
       actions.push({
         id: "laySmoke",
         label: "Lay Smoke",
-        detail: usesInfantryMortars
-          ? "Fire smoke rounds from the battalion mortars to cover a chosen hex edge. The screen blocks ground line of sight until your next turn. Requires ammo but does not use movement or attacks."
-          : "Fire smoke rounds to cover a chosen hex edge. The screen blocks ground line of sight until your next turn. Requires ammo but does not use movement or attacks.",
+        detail: "Fire close smoke on this hex or an adjacent hex edge. The screen blocks ground line of sight until your next turn. Requires ammo but does not use movement or attacks.",
         tone: "mobility",
         available: commandState.canLaySmoke,
         reason: commandState.smokeReason
@@ -13321,7 +13314,7 @@ export class BattleScreen {
       case "smoke":
         return "a smoke screen";
       default:
-        return "fieldworks";
+        return "fortifications";
     }
   }
 

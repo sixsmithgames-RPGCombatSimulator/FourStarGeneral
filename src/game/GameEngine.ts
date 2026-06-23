@@ -16580,7 +16580,7 @@ private automateSupplyConvoys(
       case "smoke":
         return "a smoke screen";
       default:
-        return "fieldworks";
+        return "fortifications";
     }
   }
 
@@ -16593,18 +16593,18 @@ private automateSupplyConvoys(
 
   /**
    * Returns true when the unit class and definition allow laying a smoke screen.
-   * Tanks, vehicles, and artillery can all fire smoke rounds. Any ground unit with the
-   * 'smoke' trait (e.g. mortar teams) is also eligible.
+   * Smoke is restricted to armored fighting vehicles and artillery with dedicated smoke drills.
    */
   private isSmokeCapableUnit(unit: ScenarioUnit, definition: UnitTypeDefinition): boolean {
     if (definition.moveType === "air") {
       return false;
     }
-    const smokableClasses: UnitClass[] = ["tank", "vehicle", "artillery"];
-    if (smokableClasses.includes(definition.class)) {
-      return true;
-    }
-    return (definition.traits as readonly string[]).includes("smoke");
+    const smokableClasses: UnitClass[] = ["tank", "artillery"];
+    return smokableClasses.includes(definition.class);
+  }
+
+  private resolveSmokePlacementRange(_definition: UnitTypeDefinition): number {
+    return 1;
   }
 
   /**
@@ -16628,7 +16628,7 @@ private automateSupplyConvoys(
       return { available: false, reason: "No player formation occupies this hex." };
     }
     if (!this.isSmokeCapableUnit(unit, definition)) {
-      return { available: false, reason: "Only tanks, vehicles, artillery, and smoke-equipped infantry can deploy smoke." };
+      return { available: false, reason: "Only tanks and artillery can deploy close smoke." };
     }
     if (this.resolveTowState(unit) === "towed") {
       return { available: false, reason: "Deploy the battery before laying smoke." };
@@ -16802,7 +16802,7 @@ private automateSupplyConvoys(
       return this.resolveLaySmokeAvailability(hex, unit, definition, flags);
     }
     if (this._phase !== "playerTurn") {
-      return { available: false, reason: "Engineer fieldworks can be ordered only during the player turn." };
+      return { available: false, reason: "Engineer orders can be issued only during the player turn." };
     }
     if (this.isAutomatedPlayerUnit(unit)) {
       return { available: false, reason: "Automated logistics convoys do not accept engineering orders." };
@@ -17112,8 +17112,8 @@ private automateSupplyConvoys(
   }
 
   /**
-   * Returns all hex keys within the unit's rangeMax that are valid smoke targets (excluding
-   * the unit's own hex, which is handled separately as "pop smoke" on own position).
+   * Returns adjacent hex keys that are valid smoke targets. The unit's own hex is handled
+   * separately as "pop smoke" on own position.
    * Used by the UI to highlight selectable target hexes before the edge-facing step.
    */
   resolveSmokeTargetHexKeys(hex: Axial, unitId?: string): string[] {
@@ -17127,7 +17127,7 @@ private automateSupplyConvoys(
     if (!availability.available) {
       return [];
     }
-    const range = Math.max(1, definition.rangeMax ?? 1);
+    const range = this.resolveSmokePlacementRange(definition);
     const origin = axialKey(hex);
     const visited = new Set<string>([origin]);
     const queue: Axial[] = [hex];
@@ -17152,7 +17152,7 @@ private automateSupplyConvoys(
   /**
    * Places a smoke screen on the specified edge of a hex.
    * When targetHex is provided the smoke is placed there instead of the unit's own hex;
-   * the target must be within the unit's rangeMax. When omitted smoke goes on the unit's hex.
+   * the target must be the unit's own hex or adjacent. When omitted smoke goes on the unit's hex.
    * Smoke is a free action (does not spend movement or attacks) but consumes 1 ammo.
    * Each unit may deploy smoke at most once per turn — the smokeUsed flag prevents reuse.
    * The modification expires at the start of the next player turn via expireSmoke().
@@ -17176,7 +17176,7 @@ private automateSupplyConvoys(
         throw new Error(`laySmoke: target hex ${axialKey(targetHex)} is outside the battlefield.`);
       }
       const dist = hexDistance(hex, targetHex);
-      const range = Math.max(1, definition.rangeMax ?? 1);
+      const range = this.resolveSmokePlacementRange(definition);
       if (dist > range) {
         throw new Error(`laySmoke: target hex is out of range (distance ${dist}, max ${range}).`);
       }

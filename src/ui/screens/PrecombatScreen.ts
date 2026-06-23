@@ -682,7 +682,7 @@ export class PrecombatScreen {
       }, 800);
     }
 
-    if (currentPhase === "select_flak" && optionKey === "flakBattery" && newQuantity >= 2) {
+    if (currentPhase === "select_flak" && optionKey === "flakBattery" && newQuantity >= 1) {
       tutorialState.setCanProceed(true);
       setTimeout(() => {
         const nextPhase = getNextPhase("select_flak");
@@ -690,7 +690,12 @@ export class PrecombatScreen {
       }, 800);
     }
 
-    if (currentPhase === "select_air_wing" && ["reconBike", "recon"].includes(optionKey) && newQuantity > 0) {
+    if (
+      currentPhase === "select_air_wing" &&
+      ["reconBike", "recon", "corpsArtilleryGroup"].includes(optionKey) &&
+      (hasAllocation("reconBike", 1) || hasAllocation("recon", 1)) &&
+      hasAllocation("corpsArtilleryGroup", 1)
+    ) {
       tutorialState.setCanProceed(true);
       setTimeout(() => {
         const nextPhase = getNextPhase("select_air_wing");

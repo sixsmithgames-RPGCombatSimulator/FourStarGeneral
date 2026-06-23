@@ -42,7 +42,8 @@ const towedSmokeGunDef: UnitTypeDefinition = {
 
 const unitTypes: UnitTypeDictionary = {
   AT_Gun_50mm: towedSmokeGunDef,
-  Infantry_42: unitFormations.infantry.tactical
+  Infantry_42: unitFormations.infantry.tactical,
+  APC_Halftrack: unitFormations.apcHalftrackCompany.tactical
 } as unknown as UnitTypeDictionary;
 
 function side(hq = { q: 0, r: 0 }, units: ScenarioUnit[] = []): ScenarioSide {
@@ -146,7 +147,7 @@ registerTest("TOWED_SMOKE_REQUIRES_DEPLOYMENT_BEFORE_FIRING_SMOKE", async ({ The
   await Then("towed guns cannot lay smoke until they deploy", () => {});
 });
 
-registerTest("INFANTRY_BATTALION_MORTARS_SUPPORT_THE_TUTORIAL_SMOKE_ORDER", async ({ Then }) => {
+registerTest("INFANTRY_BATTALION_MORTARS_DO_NOT_CREATE_HEX_EDGE_SMOKE_SCREENS", async ({ Then }) => {
   const infantry: ScenarioUnit = {
     unitId: "tutorial_infantry",
     type: "Infantry_42",
@@ -162,9 +163,38 @@ registerTest("INFANTRY_BATTALION_MORTARS_SUPPORT_THE_TUTORIAL_SMOKE_ORDER", asyn
   const engine = createEngine([infantry]);
   const commandState = engine.getUnitCommandState(infantry.hex, infantry.unitId);
 
-  if (!commandState?.isSmokeCapable || !commandState.canLaySmoke) {
-    throw new Error(`Expected infantry mortar smoke to be available, received ${JSON.stringify(commandState)}.`);
+  if (!commandState || commandState.isSmokeCapable || commandState.canLaySmoke) {
+    throw new Error(`Expected infantry smoke to be unavailable, received ${JSON.stringify(commandState)}.`);
+  }
+  if (!commandState.smokeReason?.includes("Only tanks and artillery")) {
+    throw new Error(`Expected infantry smoke reason to name eligible classes, received ${JSON.stringify(commandState)}.`);
   }
 
-  await Then("line infantry can lay the smoke screen required by the training lesson", () => {});
+  await Then("line infantry mortars no longer create precise hex-edge smoke screens", () => {});
+});
+
+registerTest("HALFTRACK_CARRIERS_DO_NOT_GAIN_SMOKE_FROM_VEHICLE_CLASS_ALONE", async ({ Then }) => {
+  const halftrack: ScenarioUnit = {
+    unitId: "halftrack_carrier",
+    type: "APC_Halftrack",
+    hex: { q: 1, r: 1 },
+    strength: 100,
+    experience: 0,
+    ammo: 2,
+    fuel: 50,
+    entrench: 0,
+    facing: "NE",
+    controlledBy: "Player"
+  };
+  const engine = createEngine([halftrack]);
+  const commandState = engine.getUnitCommandState(halftrack.hex, halftrack.unitId);
+
+  if (!commandState || commandState.isSmokeCapable || commandState.canLaySmoke) {
+    throw new Error(`Expected halftrack smoke to be unavailable, received ${JSON.stringify(commandState)}.`);
+  }
+  if (!commandState.smokeReason?.includes("Only tanks and artillery")) {
+    throw new Error(`Expected halftrack smoke reason to name eligible classes, received ${JSON.stringify(commandState)}.`);
+  }
+
+  await Then("carrier vehicles do not receive smoke screens unless the rules explicitly grant them", () => {});
 });

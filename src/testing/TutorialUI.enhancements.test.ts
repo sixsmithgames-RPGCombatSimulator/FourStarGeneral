@@ -185,14 +185,13 @@ describe('Tutorial Steps Validation', () => {
     expect(phases).toContain('mission_objectives');
   });
 
-  it('should include new smoke_demo phase', () => {
+  it('should keep smoke out of the main first-turn lesson', () => {
     const combatPhases = [
       'initiative_order',
       'active_group_units',
       'movement_intro',
       'attack_intro',
       'intel_overlay_expand',
-      'smoke_demo', // New phase
       'spend_activation',
       'enemy_activation',
       'next_unit',
@@ -206,6 +205,6 @@ describe('Tutorial Steps Validation', () => {
       'complete'
     ];
     
-    expect(combatPhases).toContain('smoke_demo');
+    expect(combatPhases).not.toContain('smoke_demo');
   });
 });

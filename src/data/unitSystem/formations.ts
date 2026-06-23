@@ -323,7 +323,7 @@ const tactical = {
     hardAttack: 4,
     softAttack: 25,
     accuracyBase: 60,
-    traits: ["zoc", "smoke"],
+    traits: ["zoc"],
     cost: 100,
     baseExperience: 0,
     fortificationDamage: "low",
