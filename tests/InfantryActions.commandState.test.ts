@@ -436,6 +436,55 @@ registerTest("STACKED_UNITS_KEEP_ENTRENCHMENT_UNTIL_THEY_MOVE_OFF_HEX", async ({
   await Then("stacking no longer wipes entrenchment off the unit that dug in", () => {});
 });
 
+registerTest("PLAYER_UNITS_CAN_MOVE_ONTO_A_FRIENDLY_HEX_UNTIL_STACK_LIMIT", async ({ Then }) => {
+  const movingInfantry: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    unitId: "moving-infantry",
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const holdingInfantry: ScenarioUnit = {
+    type: "TestShockInfantry" as unknown as ScenarioUnit["type"],
+    unitId: "holding-infantry",
+    hex: { q: 1, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "SE" as ScenarioUnit["facing"]
+  };
+
+  const { engine } = createEngine([movingInfantry, holdingInfantry]);
+  const reachable = engine.getReachableHexes(movingInfantry.hex, movingInfantry.unitId);
+  if (!reachable.some((hex) => hex.q === holdingInfantry.hex.q && hex.r === holdingInfantry.hex.r)) {
+    throw new Error(`Expected friendly occupied hex to be reachable, received ${JSON.stringify(reachable)}.`);
+  }
+
+  const moved = engine.moveUnit(movingInfantry.hex, holdingInfantry.hex, movingInfantry.unitId);
+  if (moved.unit.hex.q !== holdingInfantry.hex.q || moved.unit.hex.r !== holdingInfantry.hex.r) {
+    throw new Error(`Expected moving infantry to enter friendly hex, received ${JSON.stringify(moved.unit.hex)}.`);
+  }
+
+  const destinationStack = engine.getHexStackMembers(holdingInfantry.hex, "Player");
+  const destinationIds = destinationStack.map((entry) => entry.unitId).sort();
+  if (JSON.stringify(destinationIds) !== JSON.stringify(["holding-infantry", "moving-infantry"])) {
+    throw new Error(`Expected both friendly units on destination hex, received ${JSON.stringify(destinationIds)}.`);
+  }
+
+  const originStack = engine.getHexStackMembers(movingInfantry.hex, "Player");
+  if (originStack.length !== 0) {
+    throw new Error(`Expected origin hex to be empty after movement, received ${JSON.stringify(originStack)}.`);
+  }
+
+  await Then("friendly occupied hexes accept movement until the two-formation stack limit", () => {});
+});
+
 registerTest("RECON_BIKES_CAN_ASSAULT_BUT_CANNOT_DIG_IN", async ({ Then }) => {
   const reconBike: ScenarioUnit = {
     type: "Recon_Bike" as unknown as ScenarioUnit["type"],

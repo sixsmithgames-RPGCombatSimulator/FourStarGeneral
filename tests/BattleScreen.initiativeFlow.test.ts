@@ -351,6 +351,59 @@ registerTest("BATTLESCREEN_INITIATIVE_STACKED_HEX_GATE_PREFERS_ACTIVE_MEMBER", a
   });
 });
 
+registerTest("BATTLESCREEN_CLICKING_LEGAL_FRIENDLY_STACK_DESTINATION_MOVES_SELECTED_UNIT", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let movedToKey: string | null = null;
+  let selectedInstead = false;
+
+  await Given("a selected formation with a legal move onto a friendly occupied hex", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).selectedHexKey = "2,2";
+    (screen as any).selectedPlayerUnitId = "moving-unit";
+    (screen as any).playerMoveHexes = new Set<string>(["3,2"]);
+    (screen as any).playerAttackHexes = new Set<string>();
+    (screen as any).smokeTargetingState = null;
+    (screen as any).artilleryTargetingState = null;
+    (screen as any).tutorialMapInputBlockedUntil = 0;
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({})
+    };
+    (screen as any).resolveSelectedPlayerStackMember = (hexKey: string) =>
+      hexKey === "2,2"
+        ? { unitId: "moving-unit", isAutomated: false, unit: createPlayerUnit("moving-unit", 2, 1) }
+        : null;
+    (screen as any).isUnitInCurrentInitiativeGroup = () => true;
+    (screen as any).getPlayerStackMembersAtHex = (hexKey: string) =>
+      hexKey === "3,2"
+        ? [{ unitId: "holding-unit", isAutomated: false, unit: createPlayerUnit("holding-unit", 3, 1) }]
+        : [];
+    (screen as any).applySelectedHex = () => {
+      selectedInstead = true;
+    };
+    (screen as any).executeAnimatedPlayerMove = async (
+      _fromKey: string,
+      toKey: string
+    ) => {
+      movedToKey = toKey;
+    };
+  });
+
+  await When("the occupied friendly destination is clicked", async () => {
+    (screen as any).onPlayerTurnMapClick("3,2");
+  });
+
+  await Then("the click issues the move instead of switching selection", async () => {
+    if (movedToKey !== "3,2") {
+      throw new Error(`Expected move order to 3,2, received ${movedToKey ?? "none"}.`);
+    }
+    if (selectedInstead) {
+      throw new Error("Expected legal friendly stack destination not to be treated as a selection change.");
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_INITIATIVE_SYNC_PRESERVES_EXPLICIT_NON_CURRENT_GROUP_SELECTION", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   const focusCalls: string[] = [];

@@ -11753,6 +11753,10 @@ export class BattleScreen {
       correctiveAction = "Break the pin or wait until the unit recovers before moving it.";
     } else if (reason.includes("Artillery cannot move after attacking")) {
       correctiveAction = "Move before firing next turn, or leave the battery in place now.";
+    } else if (reason.includes("Friendly hex is already at the two-formation stacking limit")) {
+      correctiveAction = "Choose another highlighted hex.";
+    } else if (reason.includes("Enemy-occupied hexes must be attacked")) {
+      correctiveAction = "Attack the enemy or choose a different route.";
     } else if (reason.includes("Destination hex is occupied")) {
       correctiveAction = "Pick an open hex.";
     } else if (reason.includes("Destination is not reachable")) {
@@ -11813,17 +11817,6 @@ export class BattleScreen {
       this.cancelArtilleryTargeting(false);
     }
 
-    // A click on another friendly stack is a selection change, not an order
-    // from the previously selected formation. Resolve it before initiative
-    // validation so a completed unit cannot block selection of the next group.
-    if (
-      this.selectedHexKey !== key &&
-      this.getPlayerStackMembersAtHex(key).length > 0
-    ) {
-      this.applySelectedHex(key);
-      return;
-    }
-
     // If there is an active selection and the user clicked a move/attack destination, execute the action.
     if (this.selectedHexKey) {
       const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
@@ -11855,6 +11848,16 @@ export class BattleScreen {
         this.promptAttackConfirmation(selAxial, clickedAxial, { attackerUnitId: actionableUnitId });
         return;
       }
+    }
+
+    // A click on another friendly stack is a selection change unless that hex
+    // is already highlighted as a legal move for the selected formation.
+    if (
+      this.selectedHexKey !== key &&
+      this.getPlayerStackMembersAtHex(key).length > 0
+    ) {
+      this.applySelectedHex(key);
+      return;
     }
 
     // Otherwise treat as a selection change.

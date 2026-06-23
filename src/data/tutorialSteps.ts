@@ -20,7 +20,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "unit_categories",
-    title: "Build The Task Force",
+    title: "Assemble The Force",
     content:
       "This mission needs infantry, armor, engineers, recon, air defense, and logistics. Each category supports the line in a different way.",
     highlightSelector: "#allocationUnitList, #allocationSupportList, #allocationLogisticsList",

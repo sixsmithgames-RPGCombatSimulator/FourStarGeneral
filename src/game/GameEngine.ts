@@ -10687,6 +10687,12 @@ private automateSupplyConvoys(
       throw new Error("Destination out of bounds.");
     }
     if (!this.canFactionEnterHex(unit, "Player", to)) {
+      if (this.getHostileUnitsAtHex(to, "Player").length > 0) {
+        throw new Error("Enemy-occupied hexes must be attacked, not entered.");
+      }
+      if (this.isStackCountedUnit(unit) && this.countStackedCombatUnitsAtHex(to, "Player") >= 2) {
+        throw new Error("Friendly hex is already at the two-formation stacking limit.");
+      }
       throw new Error("Destination hex is occupied.");
     }
 
