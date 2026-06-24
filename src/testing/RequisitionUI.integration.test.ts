@@ -246,24 +246,31 @@ describe("Requisition UI Integration", () => {
       const unitCosts: Record<string, number> = {
         infantry: 50,
         tank: 100,
+        heavyTankCompany: 140,
+        tankDestroyerCompany: 80,
         engineer: 80,
         flakBattery: 210,
-        fighter: 240,
+        reconBike: 45,
+        howitzer: 180,
         supplyConvoy: 40,
         ammo: 30,
-        fuel: 25
+        medic: 60,
+        maintenance: 55
       };
 
-      // Tutorial composition: 2 infantry, 1 tank, 1 engineer, 1 flak, 1 fighter, supplies
       const composition: Record<string, number> = {
-        infantry: 2,      // 100 RP
-        tank: 1,          // 100 RP
-        engineer: 1,      // 80 RP
-        flakBattery: 1,   // 210 RP
-        fighter: 1,       // 240 RP
-        supplyConvoy: 1,  // 40 RP (auto)
-        ammo: 2,          // 60 RP
-        fuel: 2           // 50 RP
+        infantry: 3,
+        tank: 1,
+        heavyTankCompany: 1,
+        tankDestroyerCompany: 1,
+        engineer: 1,
+        flakBattery: 1,
+        reconBike: 1,
+        howitzer: 1,
+        supplyConvoy: 1,
+        ammo: 1,
+        medic: 1,
+        maintenance: 1
       };
 
       let totalCost = 0;
@@ -271,9 +278,8 @@ describe("Requisition UI Integration", () => {
         totalCost += (unitCosts[key] || 0) * quantity;
       }
 
-      // Total should be: 100 + 100 + 80 + 210 + 240 + 40 + 60 + 50 = 880 RP
       expect(totalCost).toBeLessThanOrEqual(1200);
-      expect(totalCost).toBe(980);
+      expect(totalCost).toBe(1170);
     });
   });
 });

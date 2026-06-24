@@ -43,6 +43,13 @@ async function addAllocation(page: Page, key: string, quantity: number): Promise
   }
 }
 
+async function readRemainingRequisitionPoints(page: Page): Promise<number> {
+  const remainingText = await page.locator("#budgetRemaining").textContent();
+  const match = remainingText?.match(/[\d,]+/);
+  expect(match, "Budget remaining must render a numeric RP value.").not.toBeNull();
+  return Number.parseInt(match?.[0].replace(/,/g, "") ?? "0", 10);
+}
+
 async function clickGuidedHex(page: Page): Promise<string> {
   const guidedHex = page.locator('#battleMapCanvas [data-tutorial-guided-hex="true"]');
   await expect(guidedHex).toHaveCount(1);
@@ -172,8 +179,13 @@ async function requisitionTrainingForce(page: Page): Promise<void> {
   await waitForTutorialPhase(page, "select_flak");
   await addAllocation(page, "flakBattery", 1);
   await waitForTutorialPhase(page, "select_air_wing");
+  await expect(tutorialPanel(page)).toContainText("Add one Recon Bike Patrol");
+  await expect(tutorialPanel(page)).not.toContainText("Corps Artillery Group");
   await addAllocation(page, "reconBike", 1);
-  await addAllocation(page, "corpsArtilleryGroup", 1);
+  await waitForTutorialPhase(page, "select_howitzer");
+  await expect(tutorialPanel(page)).toContainText("Add one Howitzer Battery");
+  await expect(await readRemainingRequisitionPoints(page)).toBeGreaterThanOrEqual(180);
+  await addAllocation(page, "howitzer", 1);
   await waitForTutorialPhase(page, "select_ammo");
   await addAllocation(page, "ammo", 1);
   await waitForTutorialPhase(page, "select_fuel");
@@ -203,7 +215,7 @@ async function enterBattle(page: Page, deploymentScreenshotPath?: string): Promi
   await waitForTutorialPhase(page, "place_units");
   await page.locator("#autoDeployEvenly").click();
   await waitForTutorialPhase(page, "begin_battle");
-  await expect(page.locator("#deploymentZoneList")).toContainText("12/13");
+  await expect(page.locator("#deploymentZoneList")).toContainText("13/13");
   await expect(page.locator("#deploymentPanel #beginBattle")).toBeVisible();
   await expect(page.locator(".battle-map-title-row #beginBattle")).toHaveCount(0);
   if (deploymentScreenshotPath) {

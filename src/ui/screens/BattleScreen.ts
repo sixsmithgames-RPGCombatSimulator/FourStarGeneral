@@ -3277,6 +3277,10 @@ export class BattleScreen {
       if (engineerTarget) {
         this.clearTutorialSelectionOnceForPhase(phase);
       }
+      if (this.selectedUnitMatchesTutorialTarget((unit) => this.isEngineerBattleUnit(unit), true)) {
+        this.completeTutorialPhase(phase);
+        return;
+      }
       this.hexMapRenderer?.setZoneHighlights(engineerTarget ? new Set([engineerTarget.hexKey]) : new Set());
       this.setTutorialGuidedHexTargets(engineerTarget ? [engineerTarget.hexKey] : []);
       this.queueTutorialCameraForPhase(phase, engineerTarget ? [engineerTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
@@ -3305,6 +3309,10 @@ export class BattleScreen {
       if (smokeTarget) {
         this.clearTutorialSelectionOnceForPhase(phase);
       }
+      if (this.selectedUnitCanLaySmoke()) {
+        this.completeTutorialPhase(phase);
+        return;
+      }
       this.hexMapRenderer?.setZoneHighlights(smokeTarget ? new Set([smokeTarget.hexKey]) : new Set());
       this.setTutorialGuidedHexTargets(smokeTarget ? [smokeTarget.hexKey] : []);
       this.queueTutorialCameraForPhase(phase, smokeTarget ? [smokeTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
@@ -3319,6 +3327,10 @@ export class BattleScreen {
       );
       if (attackTarget) {
         this.clearTutorialSelectionOnceForPhase(phase);
+      }
+      if (this.selectedUnitHasAttackTargets()) {
+        this.completeTutorialPhase(phase);
+        return;
       }
       this.hexMapRenderer?.setZoneHighlights(attackTarget ? new Set([attackTarget.hexKey]) : new Set());
       this.setTutorialGuidedHexTargets(attackTarget ? [attackTarget.hexKey] : []);
@@ -3339,6 +3351,10 @@ export class BattleScreen {
       );
       if (observerTarget) {
         this.clearTutorialSelectionOnceForPhase(phase);
+      }
+      if (this.selectedUnitCanCallArtillery(false)) {
+        this.completeTutorialPhase(phase);
+        return;
       }
       this.hexMapRenderer?.setZoneHighlights(observerTarget ? new Set([observerTarget.hexKey]) : new Set());
       this.setTutorialGuidedHexTargets(observerTarget ? [observerTarget.hexKey] : []);
@@ -3761,7 +3777,7 @@ export class BattleScreen {
     return this.getTutorialAttackTargetHexKeys(selectedMember.unit).size > 0;
   }
 
-  private selectedUnitCanCallArtillery(): boolean {
+  private selectedUnitCanCallArtillery(activeGroupOnly = true): boolean {
     if (!this.selectedHexKey) {
       return false;
     }
@@ -3771,6 +3787,7 @@ export class BattleScreen {
       return false;
     }
     if (
+      activeGroupOnly &&
       this.isInitiativeSystemEnabled &&
       !this.isUnitInCurrentInitiativeGroup(selectedMember.unitId)
     ) {

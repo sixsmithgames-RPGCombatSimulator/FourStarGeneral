@@ -224,6 +224,7 @@ registerTest("PRECOMBAT_TRAINING_PRESET_APPLIES_FULL_ALLOCATION_PACKAGE", async 
       "tankDestroyerCompany",
       "flakBattery",
       "reconBike",
+      "howitzer",
       "supplyConvoy",
       "ammo",
       "medic",
@@ -238,15 +239,16 @@ registerTest("PRECOMBAT_TRAINING_PRESET_APPLIES_FULL_ALLOCATION_PACKAGE", async 
     resetLabel = actionButton.textContent?.trim() ?? "";
   });
 
-  await Then("the exact 1,200 RP package is selected and reset returns to the pristine preset offer", async () => {
+  await Then("the tutorial package is selected and reset returns to the pristine preset offer", async () => {
     const expectedCounts = new Map<string, number>([
       ["infantry", 3],
       ["engineer", 1],
       ["tank", 1],
       ["heavyTankCompany", 1],
       ["tankDestroyerCompany", 1],
-      ["flakBattery", 2],
+      ["flakBattery", 1],
       ["reconBike", 1],
+      ["howitzer", 1],
       ["supplyConvoy", 1],
       ["ammo", 1],
       ["medic", 1],
@@ -265,8 +267,8 @@ registerTest("PRECOMBAT_TRAINING_PRESET_APPLIES_FULL_ALLOCATION_PACKAGE", async 
         throw new Error(`Expected Training preset ${key} count ${expected}, saw ${actual}.`);
       }
     }
-    if (spendAfterPreset !== 1200) {
-      throw new Error(`Expected Training preset to spend exactly 1,200 RP, saw ${spendAfterPreset}.`);
+    if (spendAfterPreset !== 1170) {
+      throw new Error(`Expected Training preset to spend 1,170 RP, saw ${spendAfterPreset}.`);
     }
     if (proceedDisabledAfterPreset) {
       throw new Error("Expected Training preset to satisfy proceed gating.");

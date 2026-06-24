@@ -13,6 +13,7 @@ export type TutorialPhase =
   | "select_engineers"
   | "select_flak"
   | "select_air_wing"
+  | "select_howitzer"
   | "select_ammo"
   | "select_fuel"
   | "mission_objectives"

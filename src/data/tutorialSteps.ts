@@ -76,10 +76,21 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_air_wing",
-    title: "Recon And Guns",
+    title: "Send Recon",
     content:
-      "Add one Recon Bike Patrol and one Corps Artillery Group. Recon finds targets; corps guns hit them.",
-    highlightSelector: "[data-key='reconBike'], [data-key='corpsArtilleryGroup']",
+      "Add one Recon Bike Patrol. Recon moves fast and spots enemy positions before the line commits.",
+    highlightSelector: "[data-key='reconBike']",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "select_howitzer",
+    title: "Bring Howitzers",
+    content:
+      "Add one Howitzer Battery. These guns suppress enemy formations and break up prepared positions.",
+    highlightSelector: "[data-key='howitzer']",
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
@@ -389,6 +400,7 @@ export function getPrecombatPhases(): TutorialPhase[] {
     "select_engineers",
     "select_flak",
     "select_air_wing",
+    "select_howitzer",
     "select_ammo",
     "select_fuel",
     "review_allocation"

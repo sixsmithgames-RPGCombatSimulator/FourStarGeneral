@@ -176,6 +176,7 @@ describe('Tutorial Steps Validation', () => {
       'select_engineers',
       'select_flak',
       'select_air_wing',
+      'select_howitzer',
       'select_ammo',
       'select_fuel',
       'review_allocation',

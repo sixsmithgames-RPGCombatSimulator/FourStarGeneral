@@ -117,10 +117,6 @@ test.describe("Requisition Screen Layout", () => {
   });
 
   test("should maintain budget consistency when adding infantry", async ({ page }) => {
-    // Get initial budget values
-    const initialSpent = await page.locator("#budgetSpent").textContent();
-    const initialRemaining = await page.locator("#budgetRemaining").textContent();
-    
     // Find infantry in units list
     const unitList = await page.locator("#allocationUnitList");
     const infantryItem = await unitList.locator('[data-key="infantry"]');
@@ -194,21 +190,27 @@ test.describe("Requisition Screen Layout", () => {
   test("should support complete tutorial force composition", async ({ page }) => {
     // Add units as per tutorial requirements
     const requiredUnits = [
-      { key: "infantry", count: 2, cost: 50 },      // 100 RP
-      { key: "tank", count: 1, cost: 200 },         // 200 RP
-      { key: "engineer", count: 1, cost: 80 },      // 80 RP
-      { key: "flakBattery", count: 1, cost: 210 },  // 210 RP
-      { key: "fighter", count: 1, cost: 240 }       // 240 RP
+      { key: "infantry", count: 3, cost: 50 },
+      { key: "tank", count: 1, cost: 100 },
+      { key: "heavyTankCompany", count: 1, cost: 140 },
+      { key: "tankDestroyerCompany", count: 1, cost: 80 },
+      { key: "engineer", count: 1, cost: 80 },
+      { key: "flakBattery", count: 1, cost: 210 },
+      { key: "reconBike", count: 1, cost: 45 },
+      { key: "howitzer", count: 1, cost: 180 },
+      { key: "ammo", count: 1, cost: 30 },
+      { key: "medic", count: 1, cost: 60 },
+      { key: "maintenance", count: 1, cost: 55 }
     ];
     
     // Calculate expected total (supply convoy auto-added at 40 RP)
     const expectedTotal = requiredUnits.reduce((sum, u) => sum + (u.count * u.cost), 40);
-    expect(expectedTotal).toBe(870); // 830 + 40 convoy
+    expect(expectedTotal).toBe(1170);
     
     // Add each unit type
     for (const unit of requiredUnits) {
-      const listId = unit.key === "fighter" || unit.key === "flakBattery" 
-        ? "#allocationUnitList" 
+      const listId = ["ammo", "fuel", "medic", "maintenance", "supplyConvoy"].includes(unit.key)
+        ? "#allocationLogisticsList"
         : "#allocationUnitList";
       
       const list = await page.locator(listId);
@@ -233,13 +235,14 @@ test.describe("Requisition Screen Layout", () => {
     
     // Verify final budget
     const spentText = await page.locator("#budgetSpent").textContent();
-    expect(spentText).toContain(expectedTotal.toString());
+    const spentMatch = spentText?.match(/[\d,]+/);
+    expect(Number.parseInt(spentMatch?.[0].replace(/,/g, "") ?? "0", 10)).toBe(expectedTotal);
     
     const remainingText = await page.locator("#budgetRemaining").textContent();
     const remainingMatch = remainingText?.match(/[\d,]+/);
     if (remainingMatch) {
       const remaining = parseInt(remainingMatch[0].replace(/,/g, ""), 10);
-      expect(remaining).toBe(1200 - expectedTotal); // Should be 330 RP remaining
+      expect(remaining).toBe(1200 - expectedTotal);
     }
     
     // Take final screenshot

@@ -73,8 +73,9 @@ const TRAINING_ALLOCATION_PRESET: AllocationPresetDefinition = createAllocationP
     { key: "tank", quantity: 1 },
     { key: "heavyTankCompany", quantity: 1 },
     { key: "tankDestroyerCompany", quantity: 1 },
-    { key: "flakBattery", quantity: 2 },
+    { key: "flakBattery", quantity: 1 },
     { key: "reconBike", quantity: 1 },
+    { key: "howitzer", quantity: 1 },
     { key: "supplyConvoy", quantity: 1 },
     { key: "ammo", quantity: 1 },
     { key: "medic", quantity: 1 },
@@ -692,13 +693,20 @@ export class PrecombatScreen {
 
     if (
       currentPhase === "select_air_wing" &&
-      ["reconBike", "recon", "corpsArtilleryGroup"].includes(optionKey) &&
-      (hasAllocation("reconBike", 1) || hasAllocation("recon", 1)) &&
-      hasAllocation("corpsArtilleryGroup", 1)
+      ["reconBike", "recon"].includes(optionKey) &&
+      (hasAllocation("reconBike", 1) || hasAllocation("recon", 1))
     ) {
       tutorialState.setCanProceed(true);
       setTimeout(() => {
         const nextPhase = getNextPhase("select_air_wing");
+        if (nextPhase) tutorialState.advancePhase(nextPhase);
+      }, 800);
+    }
+
+    if (currentPhase === "select_howitzer" && optionKey === "howitzer" && newQuantity > 0) {
+      tutorialState.setCanProceed(true);
+      setTimeout(() => {
+        const nextPhase = getNextPhase("select_howitzer");
         if (nextPhase) tutorialState.advancePhase(nextPhase);
       }, 800);
     }
@@ -1384,6 +1392,7 @@ export class PrecombatScreen {
       "select_engineers",
       "select_flak",
       "select_air_wing",
+      "select_howitzer",
       "select_ammo",
       "select_fuel",
       "review_allocation"

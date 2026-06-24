@@ -69,6 +69,8 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getNextPhase("active_group_units") === "movement_intro", "Selecting an active formation should lead into movement teaching.");
     expect(!deploymentPhases.includes("roster_intro"), "Roster should be taught only by its sidebar mini tutorial.");
     expect(!deploymentPhases.includes("air_support_intro"), "Air Support should be taught only by its sidebar mini tutorial.");
+    expect(getNextPhase("select_air_wing") === "select_howitzer", "Recon requisition should lead into the separate howitzer step.");
+    expect(getNextPhase("select_howitzer") === "select_ammo", "Howitzer requisition should lead into logistics.");
     expect(getNextPhase("movement_intro") === "enemy_activation", "A successful recon move should hand initiative to the enemy.");
     expect(getNextPhase("enemy_activation") === "engineer_intro", "Enemy movement should lead into the engineer lesson.");
     expect(getNextPhase("engineer_intro") === "intel_overlay_expand", "Selecting engineers should lead into their order card.");
