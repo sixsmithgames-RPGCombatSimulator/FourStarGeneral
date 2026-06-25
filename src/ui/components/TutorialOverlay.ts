@@ -30,6 +30,7 @@ const TOP_DOCKED_BATTLE_PHASES = new Set<TutorialPhase>([
   "spend_activation",
   "enemy_activation",
   "enemy_response",
+  "post_artillery_enemy_response",
   "next_unit",
   "skip_group",
   "engineer_intro",
@@ -818,10 +819,7 @@ export class TutorialOverlay {
     if (this.isTopDockedBattleStep(step)) {
       const battleHeader = document.querySelector<HTMLElement>(".battle-map-header");
       const headerRect = battleHeader?.getBoundingClientRect();
-      const preferredTop =
-        viewportWidth <= 768
-          ? headerRect?.top ?? viewportMargin
-          : (headerRect?.bottom ?? viewportMargin) + 12;
+      const preferredTop = (headerRect?.bottom ?? viewportMargin) + (viewportWidth <= 768 ? 8 : 12);
       const maxTop = Math.max(viewportMargin, viewportHeight - panelHeight - viewportMargin);
       const dockTop = Math.max(viewportMargin, Math.min(preferredTop, maxTop));
       this.panelElement.style.setProperty("--tutorial-dock-top", `${dockTop}px`);

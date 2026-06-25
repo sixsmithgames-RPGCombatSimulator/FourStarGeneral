@@ -186,12 +186,11 @@ describe('Tutorial Steps Validation', () => {
     expect(phases).toContain('mission_objectives');
   });
 
-  it('should keep smoke out of the main first-turn lesson', () => {
+  it('should include smoke as a command-card brief before direct fire', () => {
     const combatPhases = [
       'initiative_order',
       'active_group_units',
       'movement_intro',
-      'attack_intro',
       'intel_overlay_expand',
       'spend_activation',
       'enemy_activation',
@@ -201,12 +200,17 @@ describe('Tutorial Steps Validation', () => {
       'engineer_orders',
       'artillery_support_intro',
       'artillery_intro',
+      'post_artillery_enemy_response',
+      'select_attack_unit',
+      'smoke_demo',
+      'attack_intro',
       'flak_intro',
       'round_handoff',
       'mission_objectives',
       'complete'
     ];
     
-    expect(combatPhases).not.toContain('smoke_demo');
+    expect(combatPhases.indexOf('smoke_demo')).toBeGreaterThan(combatPhases.indexOf('select_attack_unit'));
+    expect(combatPhases.indexOf('attack_intro')).toBeGreaterThan(combatPhases.indexOf('smoke_demo'));
   });
 });

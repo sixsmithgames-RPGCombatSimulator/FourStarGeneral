@@ -7070,7 +7070,7 @@ private automateSupplyConvoys(
     this.privateSupportAssets.push(
       {
         id: "support-artillery-alpha",
-        label: "Heavy Artillery Battery",
+        label: "Corps Artillery Group",
         type: "artillery",
         status: "ready",
         charges: 2,
@@ -7078,7 +7078,7 @@ private automateSupplyConvoys(
         cooldown: 0,
         maxCooldown: 3,
         assignedHex: null,
-        notes: "Off-map heavy artillery battery available for observer-directed fire missions.",
+        notes: "Off-map corps artillery available for observer-directed fire missions.",
         queuedHex: null,
         queuedByHex: null,
         strikeDamageCap: 24

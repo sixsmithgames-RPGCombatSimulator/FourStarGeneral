@@ -38,6 +38,7 @@ export type TutorialPhase =
   | "spend_activation"
   | "enemy_activation"
   | "enemy_response"
+  | "post_artillery_enemy_response"
   | "next_unit"
   | "skip_group"
   | "engineer_intro"

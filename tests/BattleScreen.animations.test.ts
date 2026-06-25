@@ -429,7 +429,7 @@ registerTest("BATTLESCREEN_SUPPORT_ARTILLERY_IMPACTS_WAIT_FOR_FOCUS_AND_USE_BARR
     await (screen as any).playSupportImpacts([
       {
         assetId: "support-artillery-alpha",
-        label: "Heavy Artillery Battery",
+        label: "Corps Artillery Group",
         targetHex: { q: 8, r: 1 },
         targetFaction: "Bot",
         hit: true,

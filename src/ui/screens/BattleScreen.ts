@@ -397,6 +397,7 @@ export class BattleScreen {
   private settingsMenu: HTMLElement | null = null;
   private soundToggleButton: HTMLButtonElement | null = null;
   private animationToggleButton: HTMLButtonElement | null = null;
+  private fullscreenToggleButton: HTMLButtonElement | null = null;
   private endTurnButton: HTMLButtonElement | null = null;
   private endMissionButton: HTMLButtonElement | null = null;
   private baseCampStatus: HTMLElement | null = null;
@@ -451,6 +452,9 @@ export class BattleScreen {
     }
     this.setBattleSettingsMenuOpen(false);
     this.settingsToggleButton?.focus();
+  };
+  private readonly fullscreenChangeHandler = (): void => {
+    this.updateFullscreenToggleButton();
   };
 
   // Hex selection state
@@ -1304,8 +1308,8 @@ export class BattleScreen {
           hexKey: targetHexKey,
           icon: "crosshair",
           accentColor: "#d7263d",
-          tooltip: `Heavy artillery queued on ${targetHexKey}. Click to cancel and reposition.`,
-          interactive: true
+          tooltip: `Corps Artillery queued on ${targetHexKey}. Click to cancel and reposition.`,
+          interactive: !this.playerAttackHexes.has(targetHexKey)
         });
         this.queuedTargetMarkerActions.set(markerId, {
           type: "artillery",
@@ -1386,7 +1390,7 @@ export class BattleScreen {
     const readyAssetId = assetId ?? artilleryState.assetId;
     this.applySelectedHex(callerHexKey);
     if (!artilleryState.available || !readyAssetId) {
-      this.announceBattleUpdate(artilleryState.reason ?? `${callerLabel} cannot retask heavy artillery right now.`);
+      this.announceBattleUpdate(artilleryState.reason ?? `${callerLabel} cannot retask Corps Artillery right now.`);
       return false;
     }
     this.beginArtilleryTargeting(callerHexKey, callerLabel, unit.unitId ?? null, readyAssetId, artilleryState.targetHexKeys);
@@ -1398,13 +1402,13 @@ export class BattleScreen {
     const canceled = engine.cancelQueuedSupport(assetId);
     this.syncQueuedTargetMarkers();
     if (!canceled) {
-      this.announceBattleUpdate("Heavy artillery cancellation failed. The queued mission may have already resolved.");
+      this.announceBattleUpdate("Corps Artillery cancellation failed. The queued mission may have already resolved.");
       return;
     }
     this.publishActivityEvent({
       category: "player",
       type: "log",
-      summary: `${callerLabel} canceled heavy artillery on ${targetHexKey}.`
+      summary: `${callerLabel} canceled Corps Artillery on ${targetHexKey}.`
     });
     this.battleState.emitBattleUpdate("manual");
     this.restartQueuedArtilleryTargeting(callerHexKey, callerLabel, assetId);
@@ -1494,7 +1498,7 @@ export class BattleScreen {
       const label = commandState.suppressionState === "broken" ? "Broken" : "Pinned";
       return {
         available: false,
-        reason: `${label} battalions cannot adjust heavy artillery fire until the suppression is broken.`,
+        reason: `${label} battalions cannot adjust Corps Artillery fire until the suppression is broken.`,
         assetId: null,
         targetHexKeys: []
       };
@@ -1508,7 +1512,7 @@ export class BattleScreen {
         available: false,
         reason: queuedAsset
           ? `${queuedAsset.label} is already tasked.`
-          : "No heavy artillery battery is available for this mission.",
+          : "No Corps Artillery is available for this mission.",
         assetId: null,
         targetHexKeys: []
       };
@@ -1517,7 +1521,7 @@ export class BattleScreen {
     if (targetHexKeys.length === 0) {
       return {
         available: false,
-        reason: "No observed enemy hex is close enough to adjust heavy artillery fire.",
+        reason: "No observed enemy hex is close enough to adjust Corps Artillery fire.",
         assetId: readyAsset.id,
         targetHexKeys
       };
@@ -1634,7 +1638,7 @@ export class BattleScreen {
         TUTORIAL_ORDER_CAMERA_ZOOM
       );
     }
-    this.announceBattleUpdate(`${callerLabel} is spotting for heavy artillery. Select an observed enemy hex.`);
+    this.announceBattleUpdate(`${callerLabel} is spotting for Corps Artillery. Select an observed enemy hex.`);
   }
 
   private cancelArtilleryTargeting(restoreSelection = true): void {
@@ -1666,12 +1670,12 @@ export class BattleScreen {
     this.cancelArtilleryTargeting(false);
     if (!queued) {
       this.applySelectedHex(targetingState.callerHexKey);
-      this.announceBattleUpdate("Heavy artillery could not be queued. Keep the caller uncommitted and select an observed enemy hex.");
+      this.announceBattleUpdate("Corps Artillery could not be queued. Keep the caller uncommitted and select an observed enemy hex.");
       return;
     }
     this.clearSelectedHexAfterAction();
     this.syncQueuedTargetMarkers();
-    const summary = `${targetingState.callerLabel} requested heavy artillery on ${targetHexKey}. Impact scheduled for turn transition. Click the red crosshair to cancel and reposition.`;
+    const summary = `${targetingState.callerLabel} requested Corps Artillery on ${targetHexKey}. Impact scheduled for turn transition. Click the red crosshair to cancel and reposition.`;
     this.announceBattleUpdate(summary);
     this.publishActivityEvent({
       category: "player",
@@ -2995,13 +2999,8 @@ export class BattleScreen {
 
   private resolveNextTutorialPhaseAfterCompletion(phase: TutorialPhase): TutorialPhase | null {
     const nextPhase = getNextPhase(phase);
-    if (phase === "artillery_intro" && nextPhase === "select_attack_unit") {
-      const attackTarget = this.findFirstTutorialUnitTarget(
-        (unit, commandState) =>
-          commandState?.isAutomated !== true && this.getTutorialAttackTargetHexKeys(unit).size > 0,
-        true
-      );
-      return attackTarget ? nextPhase : "mission_objectives";
+    if (phase === "select_attack_unit" && nextPhase === "smoke_demo") {
+      return this.selectedUnitCanLaySmoke() ? nextPhase : getNextPhase("smoke_demo");
     }
     return nextPhase;
   }
@@ -3085,6 +3084,7 @@ export class BattleScreen {
       "spend_activation",
       "enemy_activation",
       "enemy_response",
+      "post_artillery_enemy_response",
       "next_unit",
       "skip_group",
       "engineer_intro",
@@ -3242,16 +3242,24 @@ export class BattleScreen {
     }
 
     if (phase === "smoke_demo") {
-      const smokeTarget = this.selectFirstTutorialUnitTarget(
-        phase,
-        (_unit, commandState) => commandState?.isAutomated !== true && commandState?.canLaySmoke === true,
-        {
-          activeGroupOnly: true,
-          expandIntel: true
+      if (!this.selectedUnitCanLaySmoke()) {
+        const smokeTarget = this.findTutorialAttackUnitTarget(true);
+        if (smokeTarget?.commandState?.canLaySmoke === true) {
+          this.selectTutorialUnitTarget(smokeTarget, true);
+        } else {
+          this.completeTutorialPhase("smoke_demo");
+          return;
         }
-      );
-      this.hexMapRenderer?.setZoneHighlights(smokeTarget ? new Set([smokeTarget.hexKey]) : new Set());
-      this.queueTutorialCameraForPhase(phase, smokeTarget ? [smokeTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
+      } else if (!this.isBattleIntelOverlayExpanded() && this.selectedHexKey) {
+        this.tutorialSelectionSyncInProgress = true;
+        try {
+          this.applySelectedHex(this.selectedHexKey, true);
+        } finally {
+          this.tutorialSelectionSyncInProgress = false;
+        }
+      }
+      this.hexMapRenderer?.setZoneHighlights(this.selectedHexKey ? new Set([this.selectedHexKey]) : new Set());
+      this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(), TUTORIAL_ORDER_CAMERA_ZOOM);
       return;
     }
 
@@ -3269,9 +3277,22 @@ export class BattleScreen {
       return;
     }
 
-    if (phase === "enemy_activation" || phase === "enemy_response") {
+    if (phase === "enemy_activation" || phase === "enemy_response" || phase === "post_artillery_enemy_response") {
       this.hexMapRenderer?.setZoneHighlights(new Set());
-      this.queueTutorialCameraForPhase(phase, this.getManualPlayerUnitHexKeys(), TUTORIAL_OVERVIEW_CAMERA_ZOOM);
+      const focusHexKeys = phase === "enemy_activation"
+        ? this.getTutorialUnitFocusHexes((unit) => this.isEngineerBattleUnit(unit), true)
+        : phase === "enemy_response"
+          ? this.getTutorialArtilleryObserverFocusHexes()
+          : this.getTutorialUnitFocusHexes(
+            (unit, commandState) =>
+              commandState?.isAutomated !== true && this.getTutorialAttackTargetHexKeys(unit).size > 0,
+            false
+          );
+      this.queueTutorialCameraForPhase(
+        phase,
+        focusHexKeys.size > 0 ? focusHexKeys : this.getManualPlayerUnitHexKeys(),
+        TUTORIAL_GROUP_CAMERA_ZOOM
+      );
       this.monitorTutorialEnemyActivation(phase);
       return;
     }
@@ -3335,11 +3356,7 @@ export class BattleScreen {
     }
 
     if (phase === "select_attack_unit") {
-      const attackTarget = this.findFirstTutorialUnitTarget(
-        (unit, commandState) =>
-          commandState?.isAutomated !== true && this.getTutorialAttackTargetHexKeys(unit).size > 0,
-        true
-      );
+      const attackTarget = this.findTutorialAttackUnitTarget(true);
       if (attackTarget) {
         this.clearTutorialSelectionOnceForPhase(phase);
       }
@@ -3466,9 +3483,12 @@ export class BattleScreen {
       return;
     }
 
-    const focusRects = hexKeys
-      .map((hexKey) => this.hexMapRenderer?.getHexElement(hexKey)?.getBoundingClientRect() ?? null)
-      .filter((rect): rect is DOMRect => rect !== null && rect.width > 0 && rect.height > 0);
+    const getFocusRects = (): DOMRect[] =>
+      hexKeys
+        .map((hexKey) => this.hexMapRenderer?.getHexElement(hexKey)?.getBoundingClientRect() ?? null)
+        .filter((rect): rect is DOMRect => rect !== null && rect.width > 0 && rect.height > 0);
+
+    let focusRects = getFocusRects();
     if (focusRects.length === 0) {
       return;
     }
@@ -3481,6 +3501,33 @@ export class BattleScreen {
     const shiftY = Math.min(180, availableShift, desiredTop - focusTop);
     if (shiftY > 4) {
       this.mapViewport.pan(0, shiftY);
+      focusRects = getFocusRects();
+    }
+
+    const deploymentPanel = document.querySelector<HTMLElement>("#deploymentPanel:not([hidden])");
+    if (
+      !deploymentPanel ||
+      deploymentPanel.getAttribute("aria-hidden") === "true" ||
+      deploymentPanel.closest(".battle-main")?.getAttribute("data-panel-collapsed") === "true"
+    ) {
+      return;
+    }
+
+    const deploymentPanelStyles = window.getComputedStyle(deploymentPanel);
+    if (deploymentPanelStyles.display === "none" || deploymentPanelStyles.visibility === "hidden") {
+      return;
+    }
+
+    const deploymentPanelRect = deploymentPanel.getBoundingClientRect();
+    const visiblePanelTop = deploymentPanelRect.top > window.innerHeight * 0.45 ? deploymentPanelRect.top : null;
+    if (visiblePanelTop === null) {
+      return;
+    }
+
+    const nextFocusBottom = Math.max(...focusRects.map((rect) => rect.bottom));
+    const overlap = nextFocusBottom - (visiblePanelTop - 18);
+    if (overlap > 4) {
+      this.mapViewport.pan(0, -Math.min(180, overlap));
     }
   }
 
@@ -3509,7 +3556,7 @@ export class BattleScreen {
     }
   }
 
-  private monitorTutorialEnemyActivation(phase: "enemy_activation" | "enemy_response"): void {
+  private monitorTutorialEnemyActivation(phase: "enemy_activation" | "enemy_response" | "post_artillery_enemy_response"): void {
     if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
       this.completeTutorialPhase(phase);
       return;
@@ -3552,14 +3599,14 @@ export class BattleScreen {
     window.setTimeout(() => this.monitorTutorialEnemyActivation(phase), 220);
   }
 
-  private finishTutorialEnemyActivation(phase: "enemy_activation" | "enemy_response"): void {
+  private finishTutorialEnemyActivation(phase: "enemy_activation" | "enemy_response" | "post_artillery_enemy_response"): void {
     this.tutorialEnemyActivationMonitorActive = false;
     this.highlightCurrentInitiativeGroup();
     this.syncInitiativeTurnControlsState();
     this.completeTutorialPhase(phase);
   }
 
-  private resolveTutorialEnemyActivationFallback(phase: "enemy_activation" | "enemy_response"): void {
+  private resolveTutorialEnemyActivationFallback(phase: "enemy_activation" | "enemy_response" | "post_artillery_enemy_response"): void {
     if (!this.initiativeMethods) {
       this.finishTutorialEnemyActivation(phase);
       return;
@@ -3730,6 +3777,7 @@ export class BattleScreen {
       progress.currentPhase === "engineer_intro" ||
       progress.currentPhase === "engineer_orders" ||
       progress.currentPhase === "enemy_response" ||
+      progress.currentPhase === "post_artillery_enemy_response" ||
       progress.currentPhase === "artillery_support_intro" ||
       progress.currentPhase === "artillery_intro" ||
       progress.currentPhase === "select_artillery_observer" ||
@@ -3792,6 +3840,32 @@ export class BattleScreen {
         return CoordinateSystem.makeHexKey(offset.col, offset.row);
       });
     return new Set(targetHexKeys);
+  }
+
+  private findTutorialAttackUnitTarget(activeGroupOnly = true): TutorialUnitTarget | null {
+    const isEligible = (unit: ScenarioUnit, commandState: UnitCommandState | null): boolean =>
+      commandState?.isAutomated !== true && this.getTutorialAttackTargetHexKeys(unit).size > 0;
+    return this.findFirstTutorialUnitTarget(
+      (unit, commandState) => isEligible(unit, commandState) && commandState?.canLaySmoke === true,
+      activeGroupOnly
+    ) ?? this.findFirstTutorialUnitTarget(isEligible, activeGroupOnly);
+  }
+
+  private getTutorialUnitFocusHexes(
+    predicate: (unit: ScenarioUnit, commandState: UnitCommandState | null, hexKey: string) => boolean,
+    activeGroupOnly = false
+  ): Set<string> {
+    const target = this.findFirstTutorialUnitTarget(predicate, activeGroupOnly);
+    return target ? new Set([target.hexKey]) : new Set();
+  }
+
+  private getTutorialArtilleryObserverFocusHexes(): Set<string> {
+    return this.getTutorialUnitFocusHexes(
+      (unit, commandState, hexKey) =>
+        commandState?.isAutomated !== true &&
+        this.resolveArtilleryActionState(unit, commandState, hexKey).available,
+      false
+    );
   }
 
   private selectedUnitHasAttackTargets(): boolean {
@@ -7463,6 +7537,7 @@ export class BattleScreen {
     document.removeEventListener("screen:shown", this.screenShownHandler);
     document.removeEventListener("pointerdown", this.settingsDocumentPointerHandler);
     document.removeEventListener("keydown", this.settingsDocumentKeydownHandler);
+    document.removeEventListener("fullscreenchange", this.fullscreenChangeHandler);
     if (this.airPreviewListener) {
       document.removeEventListener("air:previewRange", this.airPreviewListener);
     }
@@ -7518,6 +7593,7 @@ export class BattleScreen {
     this.settingsMenu = this.element.querySelector("#battleSettingsMenu");
     this.soundToggleButton = this.element.querySelector("#battleSoundToggle");
     this.animationToggleButton = this.element.querySelector("#battleAnimationToggle");
+    this.fullscreenToggleButton = this.element.querySelector("#battleFullscreenToggle");
     this.endTurnButton = this.element.querySelector("#endTurn");
     this.endMissionButton = this.element.querySelector("#endMissionButton");
     this.baseCampStatus = this.element.querySelector("#baseCampStatus");
@@ -7614,6 +7690,11 @@ export class BattleScreen {
     }
     this.soundToggleButton?.addEventListener("click", () => this.handleToggleSound());
     this.animationToggleButton?.addEventListener("click", () => this.handleToggleBattleAnimationMode());
+    this.fullscreenToggleButton?.addEventListener("click", () => {
+      void this.handleToggleBattleFullscreen();
+    });
+    document.addEventListener("fullscreenchange", this.fullscreenChangeHandler);
+    this.updateFullscreenToggleButton();
     this.endTurnButton?.addEventListener("click", () => {
       void this.handleEndTurn();
     });
@@ -10487,7 +10568,13 @@ export class BattleScreen {
     const focusAfterMoveKey = !visibleBefore && visibleAfter ? toKey : null;
     const fallbackFocusKey = visibleBefore ? fromKey : visibleAfter ? toKey : null;
     const canFocusCamera = Boolean(this.mapViewport);
-    const shouldFocusCamera = canFocusCamera && this.battleAnimationMode !== "quick";
+    const tutorialPhase = ensureTutorialState().getCurrentPhase();
+    const shouldHoldTutorialCamera = ensureTutorialState().isTutorialActive() && (
+      tutorialPhase === "enemy_activation" ||
+      tutorialPhase === "enemy_response" ||
+      tutorialPhase === "post_artillery_enemy_response"
+    );
+    const shouldFocusCamera = canFocusCamera && this.battleAnimationMode !== "quick" && !shouldHoldTutorialCamera;
     let lastFocusedKey: string | null = null;
     const paceForAnimationStep = async (durationMs: number): Promise<void> => {
       await this.waitForNextFrame();
@@ -10570,7 +10657,7 @@ export class BattleScreen {
         }
       }
       this.renderEngineUnits();
-    } else if (fallbackFocusKey && canFocusCamera && this.battleAnimationMode !== "quick") {
+    } else if (fallbackFocusKey && shouldFocusCamera) {
       try {
         await this.focusCameraOnHex(fallbackFocusKey);
         await paceForAnimationStep(160);
@@ -10930,6 +11017,68 @@ export class BattleScreen {
     this.settingsToggleButton.setAttribute("aria-expanded", open ? "true" : "false");
     this.settingsToggleButton.setAttribute("aria-label", open ? "Close battle settings" : "Open battle settings");
     this.settingsMenu.classList.toggle("hidden", !open);
+  }
+
+  private getBattleFullscreenTarget(): HTMLElement | null {
+    return document.getElementById("app") ?? this.element;
+  }
+
+  private isBattleFullscreenSupported(): boolean {
+    const target = this.getBattleFullscreenTarget();
+    return Boolean(target?.requestFullscreen && document.fullscreenEnabled);
+  }
+
+  private async handleToggleBattleFullscreen(): Promise<void> {
+    if (!this.isBattleFullscreenSupported()) {
+      this.announceBattleUpdate("Fullscreen is not available in this browser.");
+      this.updateFullscreenToggleButton();
+      return;
+    }
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await this.getBattleFullscreenTarget()?.requestFullscreen();
+      }
+    } catch (error) {
+      console.warn("[BattleScreen] Failed to toggle fullscreen", error);
+      this.announceBattleUpdate("Fullscreen could not be opened. Use the browser controls if needed.");
+    } finally {
+      this.updateFullscreenToggleButton();
+    }
+  }
+
+  private updateFullscreenToggleButton(): void {
+    if (!this.fullscreenToggleButton) {
+      return;
+    }
+
+    const supported = this.isBattleFullscreenSupported();
+    this.fullscreenToggleButton.hidden = !supported;
+    this.fullscreenToggleButton.classList.toggle("hidden", !supported);
+    this.fullscreenToggleButton.disabled = !supported;
+    if (!supported) {
+      return;
+    }
+
+    const target = this.getBattleFullscreenTarget();
+    const active = Boolean(document.fullscreenElement && target?.contains(document.fullscreenElement));
+    const valueElement = this.fullscreenToggleButton.querySelector<HTMLElement>("[data-settings-value]");
+    if (valueElement) {
+      valueElement.textContent = active ? "Exit" : "Enter";
+    }
+    this.fullscreenToggleButton.setAttribute("aria-pressed", active ? "true" : "false");
+    this.fullscreenToggleButton.setAttribute("aria-checked", active ? "true" : "false");
+    this.fullscreenToggleButton.setAttribute(
+      "aria-label",
+      active
+        ? "Fullscreen: On. Exit fullscreen battle display."
+        : "Fullscreen: Off. Use the full browser display for the battlefield."
+    );
+    this.fullscreenToggleButton.title = active
+      ? "Exit fullscreen battle display."
+      : "Use the full browser display for the battlefield.";
   }
 
   private handleToggleSound(): void {
@@ -11523,6 +11672,7 @@ export class BattleScreen {
       this.deploymentPanel?.setSelectedHex(null);
       this.playerMoveHexes.clear();
       this.playerAttackHexes.clear();
+      this.syncQueuedTargetMarkers();
       this.announceBattleUpdate(phase === "deployment" ? "Selection cleared. Choose a deployment hex." : "Selection cleared.");
       this.publishSelectionIntel(null);
       return;
@@ -11597,6 +11747,7 @@ export class BattleScreen {
         return key;
       }));
       this.hexMapRenderer?.setTacticalHighlights(this.playerMoveHexes, this.playerAttackHexes);
+      this.syncQueuedTargetMarkers();
 
       // Provide clear feedback about unit's action state. Resolve labels strictly so bad data surfaces immediately.
       const unitLabel = this.resolveUnitLabelForHex(key, selectedUnitId);
@@ -11615,6 +11766,7 @@ export class BattleScreen {
         this.playerMoveHexes.clear();
         this.playerAttackHexes.clear();
         this.hexMapRenderer?.clearTacticalHighlights();
+        this.syncQueuedTargetMarkers();
         statusMessage += " This convoy is automated. Set battalion resupply priority in Logistics instead of issuing manual orders.";
       } else if (commandState?.isOnSentry) {
         statusMessage += " Holding on sentry. If attacked before its next activation and able to return fire, combat resolves simultaneously.";
@@ -11669,6 +11821,7 @@ export class BattleScreen {
       this.playerMoveHexes.clear();
       this.playerAttackHexes.clear();
       this.hexMapRenderer?.clearTacticalHighlights();
+      this.syncQueuedTargetMarkers();
       const enemyContact = this.findEnemyContactAtHex(axial);
       const terrainNotes: string[] = [];
       if (enemyContact) {
@@ -12008,7 +12161,7 @@ export class BattleScreen {
     if (actionId === "repositionArtillery") {
       const queuedArtillery = this.getQueuedArtilleryForCallerHex(this.selectedHexKey);
       if (!queuedArtillery) {
-        this.announceBattleUpdate("No queued heavy artillery mission is available to reposition.");
+        this.announceBattleUpdate("No queued Corps Artillery mission is available to reposition.");
         return;
       }
       this.cancelQueuedArtilleryStrike(
@@ -12964,7 +13117,7 @@ export class BattleScreen {
         actions.push({
           id: "callArtillery",
           label: "Call Artillery",
-          detail: "Queue an off-map heavy artillery strike on an observed enemy hex. Impact lands during turn transition.",
+          detail: "Queue an off-map Corps Artillery strike on an observed enemy hex. Impact lands during turn transition.",
           tone: "denial",
           available: artilleryState.available,
           reason: artilleryState.reason

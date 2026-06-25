@@ -193,7 +193,6 @@ async function requisitionTrainingForce(page: Page): Promise<void> {
   await addAllocation(page, "flakBattery", 1);
   await waitForTutorialPhase(page, "select_air_wing");
   await expect(tutorialPanel(page)).toContainText("Add one Recon Bike Patrol");
-  await expect(tutorialPanel(page)).not.toContainText("Corps Artillery Group");
   await addAllocation(page, "reconBike", 1);
   await waitForTutorialPhase(page, "select_howitzer");
   await expect(tutorialPanel(page)).toContainText("Add one Howitzer Battery");
@@ -275,7 +274,7 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
 
   await waitForTutorialPhase(page, "artillery_support_intro", 20_000);
   await expect(tutorialPanel(page)).toContainText("Artillery Support");
-  await expect(tutorialPanel(page)).toContainText("Howitzer Battery is ready off-map");
+  await expect(tutorialPanel(page)).toContainText("Corps Artillery is ready off-map");
   await continueTutorial(page);
   await waitForTutorialPhase(page, "select_artillery_observer", 20_000);
   await expect(tutorialPanel(page)).toContainText("Choose Observer");
@@ -290,20 +289,25 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await page.waitForTimeout(550);
   await artilleryTargets.nth(0).click();
 
-  const postArtilleryPhase = await waitForAnyTutorialPhase(page, ["select_attack_unit", "mission_objectives"], 15_000);
-  if (postArtilleryPhase === "select_attack_unit") {
-    await clickGuidedHex(page);
-    await waitForTutorialPhase(page, "attack_intro");
-    await page.screenshot({ path: outputPath("fire-order.png") });
-    const attackTargets = page.locator("#battleMapCanvas .hex-cell.attack-target-highlight");
-    const attackTargetCount = await attackTargets.count();
-    expect(attackTargetCount, "Fire Orders must expose at least one legal enemy target.").toBeGreaterThan(0);
-    await page.waitForTimeout(550);
-    await attackTargets.nth(0).click();
-    await expect(page.locator("#battleAttackConfirm:not(.hidden)")).toBeVisible();
-    await page.locator("#battleAttackConfirmAccept").click();
-    await waitForTutorialPhase(page, "mission_objectives", 15_000);
+  await waitForTutorialPhase(page, "select_attack_unit", 15_000);
+  await clickGuidedHex(page);
+  const postSelectionPhase = await waitForAnyTutorialPhase(page, ["smoke_demo", "attack_intro"], 15_000);
+  if (postSelectionPhase === "smoke_demo") {
+    await expect(tutorialPanel(page)).toContainText("Smoke Screens");
+    await expect(page.locator('#battleIntelOverlay [data-selection-action="laySmoke"]')).toBeVisible();
+    await page.screenshot({ path: outputPath("smoke-brief.png") });
+    await continueTutorial(page);
   }
+  await waitForTutorialPhase(page, "attack_intro");
+  await page.screenshot({ path: outputPath("fire-order.png") });
+  const attackTargets = page.locator("#battleMapCanvas .hex-cell.attack-target-highlight");
+  const attackTargetCount = await attackTargets.count();
+  expect(attackTargetCount, "Fire Orders must expose at least one legal enemy target.").toBeGreaterThan(0);
+  await page.waitForTimeout(550);
+  await attackTargets.nth(0).click();
+  await expect(page.locator("#battleAttackConfirm:not(.hidden)")).toBeVisible();
+  await page.locator("#battleAttackConfirmAccept").click();
+  await waitForTutorialPhase(page, "mission_objectives", 15_000);
   await continueTutorial(page);
   await waitForTutorialPhase(page, "complete");
   await expect(tutorialPanel(page)).toContainText("Good luck, General Field Commander.");

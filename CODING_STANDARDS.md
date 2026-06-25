@@ -172,6 +172,10 @@ Required-action tutorial steps must point players to the real game control or ma
 * Battle prompts should use one consistent upper-screen dock. Move the prompt only when the normal dock would block the required control.
 * Tutorial controls must keep a stable hit target on hover and focus. Do not translate or resize a button while the player is trying to click it.
 * Tutorial panels must fit the viewport and show all copy without hidden overflow at supported desktop and mobile widths.
+* Mobile battle tutorials must be map-first. Use the real visual viewport (`dvh` units and safe-area padding where supported) so the battlefield remains the primary surface instead of becoming a scrollable web page.
+* Required map-click steps must account for every visible overlay, including deployment drawers and unit intel cards. The highlighted hex or edge must remain visible and clickable.
+* Floating desktop controls must not overlap the mobile command rail. Hide, dock, or replace them with a mobile-specific control before shipping.
+* Browser fullscreen must be user-triggered through an in-game control. Do not attempt to enter fullscreen automatically; browsers block it and players should choose when the display changes.
 
 ## 7. Manual Verification Checklist (Visual Integrity)
 Because this is a visual strategy game, the following must be manually verified after relevant changes:

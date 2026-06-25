@@ -89,7 +89,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_howitzer",
     title: "Add Artillery",
     content:
-      "Add one Howitzer Battery. Later, a friendly observer can call these guns onto an enemy position.",
+      "Add one Howitzer Battery. These guns deploy with the force and provide direct battlefield fire.",
     highlightSelector: "[data-key='howitzer']",
     position: "right",
     arrowDirection: "left",
@@ -294,7 +294,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "artillery_support_intro",
     title: "Artillery Support",
     content:
-      "Your Howitzer Battery is ready off-map. First choose an observer, then send the fire mission.",
+      "Corps Artillery is ready off-map. Choose an observer, then send the fire mission.",
     highlightSelector: "#battleMapCanvas",
     showSpotlight: false,
     position: "right",
@@ -306,7 +306,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_artillery_observer",
     title: "Choose Observer",
     content:
-      "Click the highlighted friendly formation. It has eyes on a target and can direct the howitzers.",
+      "Click the highlighted friendly formation. It has eyes on a target and can direct Corps Artillery.",
     highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
     position: "right",
     arrowDirection: "left",
@@ -325,6 +325,18 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Continue"
   },
   {
+    phase: "post_artillery_enemy_response",
+    title: "Enemy Response",
+    content:
+      "Enemy formations now act. Watch the map; command returns to the next friendly group when they finish.",
+    highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status], .battle-activity-log",
+    highlightFirstMatch: true,
+    position: "bottom",
+    arrowDirection: "up",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
     phase: "select_attack_unit",
     title: "Select A Firing Unit",
     content:
@@ -333,6 +345,16 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "smoke_demo",
+    title: "Smoke Screens",
+    content:
+      "This formation can lay smoke on its own hex or a neighboring hex edge. Use smoke to block sight before a risky move or to cover a damaged unit.",
+    highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke']",
+    position: "right",
+    arrowDirection: "left",
     actionLabel: "Continue"
   },
   {
@@ -444,7 +466,9 @@ export function getCombatPhases(): TutorialPhase[] {
     "artillery_support_intro",
     "select_artillery_observer",
     "artillery_intro",
+    "post_artillery_enemy_response",
     "select_attack_unit",
+    "smoke_demo",
     "attack_intro",
     "mission_objectives",
     "complete"

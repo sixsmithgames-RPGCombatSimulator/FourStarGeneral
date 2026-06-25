@@ -79,8 +79,10 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getNextPhase("enemy_response") === "artillery_support_intro", "The next friendly group should begin with the artillery support brief.");
     expect(getNextPhase("artillery_support_intro") === "select_artillery_observer", "The artillery support brief should lead into observer selection.");
     expect(getNextPhase("select_artillery_observer") === "artillery_intro", "A legal observer should lead into a real artillery request.");
-    expect(getNextPhase("artillery_intro") === "select_attack_unit", "Queued artillery should leave the player with a direct-fire lesson.");
-    expect(getNextPhase("select_attack_unit") === "attack_intro", "A legal firing unit should lead into a confirmed attack.");
+    expect(getNextPhase("artillery_intro") === "post_artillery_enemy_response", "Queued artillery should let the enemy initiative group resolve before direct fire.");
+    expect(getNextPhase("post_artillery_enemy_response") === "select_attack_unit", "The post-artillery enemy response should return to a direct-fire lesson.");
+    expect(getNextPhase("select_attack_unit") === "smoke_demo", "A legal firing unit should lead into the smoke-screen command brief.");
+    expect(getNextPhase("smoke_demo") === "attack_intro", "The smoke-screen brief should lead into a confirmed attack.");
     expect(getNextPhase("attack_intro") === "mission_objectives", "A completed attack should lead into final mission orders.");
     expect(getNextPhase("mission_objectives") === "complete", "Final mission orders should advance to the dismissal step.");
     expect(getNextPhase("complete") === null, "Final certification should dismiss instead of looping.");
@@ -111,10 +113,11 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getTutorialStep("attack_intro")?.waitForAction === true, "Fire Orders should require a confirmed attack.");
     expect(getTutorialStep("artillery_support_intro")?.waitForAction === false, "Artillery support should be an explicit briefing before observer selection.");
     expect(
-      getTutorialStep("artillery_support_intro")?.content.includes("Howitzer Battery") === true,
-      "Artillery support should connect the battle order back to the requisitioned howitzers."
+      getTutorialStep("artillery_support_intro")?.content.includes("Corps Artillery") === true,
+      "Artillery support should identify the off-map Corps Artillery asset."
     );
     expect(getTutorialStep("artillery_intro")?.waitForAction === true, "Artillery should require a queued support request.");
+    expect(getTutorialStep("smoke_demo")?.content.includes("neighboring hex edge") === true, "Smoke should be taught as a close screen, not long-range mortar fire.");
     expect(getTutorialStep("enemy_activation")?.waitForAction === true, "Enemy Action should wait for initiative handoff instead of showing a premature Continue button.");
     expect((getTutorialStep("initiative_order")?.content.includes("battle clock") ?? false) === false, "Initiative copy should explain the UI without mystifying phrases.");
     expect(

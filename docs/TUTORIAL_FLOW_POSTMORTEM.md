@@ -22,6 +22,8 @@ The training tutorial had fallen out of step with the initiative battle system. 
 16. Guided markers were attached before a zone-highlight repaint, which replaced the SVG node and erased the marker.
 17. A global Enter shortcut could fire through an edge-selection dialog and open an unrelated initiative warning.
 18. Compact mobile prompts imposed a fixed text height, clipping longer instructions instead of growing with their copy.
+19. The mobile battle screen behaved like a stacked web page: the command rail, tutorial panel, and deployment panel could consume the viewport while the map became too small or blocked.
+20. Desktop floating drawer toggles could paint over the mobile command rail, making the rail look misaligned and failing visual fit checks.
 
 ## Root Cause
 
@@ -63,6 +65,9 @@ The battle UI also crossed two coordinate systems without converting at the boun
 - Global initiative shortcuts ignore handled events and keyboard input originating from buttons, controls, or modal dialogs.
 - Map-targeting orders close the expanded unit card before asking the player to click a hex.
 - Mobile action prompts grow with their content; the walkthrough asserts that every panel fits the viewport and no tutorial copy is clipped.
+- Mobile battle layout now uses the visual viewport as a game surface: compact command rail, map-first sizing, a shorter deployment drawer, and camera avoidance for visible lower drawers.
+- The battle settings menu includes a user-triggered Fullscreen control where the browser supports the Fullscreen API.
+- Desktop drawer toggles are hidden on phone-width battle screens so they cannot overlap the command rail.
 - Sidebar mini tutorials remain separate and open only when the player deliberately selects the matching command-rail icon.
 
 ## Verification Checklist
@@ -85,3 +90,4 @@ The battle UI also crossed two coordinate systems without converting at the boun
 - Tutorial prompts remain near the upper command area without covering required map targets.
 - Desktop and mobile walkthroughs reach the final mission message without duplicate steps, stale selections, or camera jumps.
 - Every tutorial panel remains inside the viewport and its content has no hidden overflow at 1440x900 and 390x844.
+- At 390x844, the base-camp hex, deployment buttons, initiative rail, movement target, artillery order, and battle settings menu remain visible and clickable without horizontal page drift.
