@@ -199,6 +199,7 @@ describe('Tutorial Steps Validation', () => {
       'skip_group',
       'engineer_intro',
       'engineer_orders',
+      'artillery_support_intro',
       'artillery_intro',
       'flak_intro',
       'round_handoff',

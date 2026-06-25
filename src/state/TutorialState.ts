@@ -43,6 +43,7 @@ export type TutorialPhase =
   | "engineer_intro"
   | "engineer_orders"
   | "select_attack_unit"
+  | "artillery_support_intro"
   | "artillery_intro"
   | "select_artillery_observer"
   | "flak_intro"
@@ -120,12 +121,12 @@ class TutorialStateManager {
   /**
    * Advances to the next tutorial phase.
    */
-  advancePhase(nextPhase: TutorialPhase): void {
+  advancePhase(nextPhase: TutorialPhase, canProceed = true): void {
     if (!this.isActive) return;
 
     this.completedPhases.add(this.currentPhase);
     this.currentPhase = nextPhase;
-    this.canProceed = true;
+    this.canProceed = canProceed;
 
     this.notifyListeners();
   }

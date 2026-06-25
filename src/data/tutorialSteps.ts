@@ -87,9 +87,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "select_howitzer",
-    title: "Bring Howitzers",
+    title: "Add Artillery",
     content:
-      "Add one Howitzer Battery. These guns suppress enemy formations and break up prepared positions.",
+      "Add one Howitzer Battery. Later, a friendly observer can call these guns onto an enemy position.",
     highlightSelector: "[data-key='howitzer']",
     position: "right",
     arrowDirection: "left",
@@ -291,6 +291,40 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Continue"
   },
   {
+    phase: "artillery_support_intro",
+    title: "Artillery Support",
+    content:
+      "Your Howitzer Battery is ready off-map. First choose an observer, then send the fire mission.",
+    highlightSelector: "#battleMapCanvas",
+    showSpotlight: false,
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: false,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "select_artillery_observer",
+    title: "Choose Observer",
+    content:
+      "Click the highlighted friendly formation. It has eyes on a target and can direct the howitzers.",
+    highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "artillery_intro",
+    title: "Call Artillery",
+    content:
+      "Click Call Artillery, then select a highlighted enemy hex. The shells arrive during the turn transition.",
+    highlightSelector: "#battleIntelOverlay [data-selection-action='callArtillery']",
+    position: "right",
+    arrowDirection: "left",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
     phase: "select_attack_unit",
     title: "Select A Firing Unit",
     content:
@@ -308,28 +342,6 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
       "Red outlines mark enemy formations in range. Click one, review the fire report, then confirm the attack.",
     highlightSelector: "#battleMapCanvas .hex-cell.attack-target-highlight, #battleMapCanvas .hex-tile.attack-target-highlight",
     showSpotlight: false,
-    position: "right",
-    arrowDirection: "left",
-    waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
-    phase: "select_artillery_observer",
-    title: "Select An Observer",
-    content:
-      "One infantry battalion can see an enemy position and reach the corps guns. Click the highlighted observer.",
-    highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
-    position: "right",
-    arrowDirection: "left",
-    waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
-    phase: "artillery_intro",
-    title: "Call Artillery",
-    content:
-      "Click Call Artillery, then select a highlighted enemy hex. The shells arrive during the turn transition.",
-    highlightSelector: "#battleIntelOverlay [data-selection-action='callArtillery']",
     position: "right",
     arrowDirection: "left",
     waitForAction: true,
@@ -429,10 +441,11 @@ export function getCombatPhases(): TutorialPhase[] {
     "intel_overlay_expand",
     "engineer_orders",
     "enemy_response",
-    "select_attack_unit",
-    "attack_intro",
+    "artillery_support_intro",
     "select_artillery_observer",
     "artillery_intro",
+    "select_attack_unit",
+    "attack_intro",
     "mission_objectives",
     "complete"
   ];

@@ -26,6 +26,19 @@ async function waitForTutorialPhase(page: Page, phase: string, timeout = 12_000)
   await expectTutorialPanelToFit(page);
 }
 
+async function waitForAnyTutorialPhase(page: Page, phases: string[], timeout = 12_000): Promise<string> {
+  await expect.poll(async () => {
+    const className = await tutorialPanel(page).getAttribute("class");
+    return phases.find((phase) => className?.split(/\s+/).includes(`tutorial-phase-${phase}`)) ?? "";
+  }, { timeout }).not.toBe("");
+
+  const className = await tutorialPanel(page).getAttribute("class");
+  const matchedPhase = phases.find((phase) => className?.split(/\s+/).includes(`tutorial-phase-${phase}`));
+  expect(matchedPhase, `Expected one of these tutorial phases: ${phases.join(", ")}.`).toBeTruthy();
+  await expectTutorialPanelToFit(page);
+  return matchedPhase ?? "";
+}
+
 async function continueTutorial(page: Page): Promise<void> {
   const button = page.locator("#tutorialOverlayContainer:not(.hidden) .tutorial-action-btn");
   await expect(button).toBeVisible();
@@ -260,19 +273,12 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await page.screenshot({ path: outputPath("fortification-edge.png") });
   await clickFirstAvailableEdge(page);
 
-  await waitForTutorialPhase(page, "select_attack_unit", 15_000);
-  await clickGuidedHex(page);
-  await waitForTutorialPhase(page, "attack_intro");
-  await page.screenshot({ path: outputPath("fire-order.png") });
-  const attackTargets = page.locator("#battleMapCanvas .hex-cell.attack-target-highlight");
-  const attackTargetCount = await attackTargets.count();
-  expect(attackTargetCount, "Fire Orders must expose at least one legal enemy target.").toBeGreaterThan(0);
-  await page.waitForTimeout(550);
-  await attackTargets.nth(0).click();
-  await expect(page.locator("#battleAttackConfirm:not(.hidden)")).toBeVisible();
-  await page.locator("#battleAttackConfirmAccept").click();
-
+  await waitForTutorialPhase(page, "artillery_support_intro", 20_000);
+  await expect(tutorialPanel(page)).toContainText("Artillery Support");
+  await expect(tutorialPanel(page)).toContainText("Howitzer Battery is ready off-map");
+  await continueTutorial(page);
   await waitForTutorialPhase(page, "select_artillery_observer", 20_000);
+  await expect(tutorialPanel(page)).toContainText("Choose Observer");
   await clickGuidedHex(page);
   await waitForTutorialPhase(page, "artillery_intro");
   await expect(page.locator('#battleIntelOverlay [data-selection-action="callArtillery"]')).toBeVisible();
@@ -284,7 +290,20 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await page.waitForTimeout(550);
   await artilleryTargets.nth(0).click();
 
-  await waitForTutorialPhase(page, "mission_objectives", 15_000);
+  const postArtilleryPhase = await waitForAnyTutorialPhase(page, ["select_attack_unit", "mission_objectives"], 15_000);
+  if (postArtilleryPhase === "select_attack_unit") {
+    await clickGuidedHex(page);
+    await waitForTutorialPhase(page, "attack_intro");
+    await page.screenshot({ path: outputPath("fire-order.png") });
+    const attackTargets = page.locator("#battleMapCanvas .hex-cell.attack-target-highlight");
+    const attackTargetCount = await attackTargets.count();
+    expect(attackTargetCount, "Fire Orders must expose at least one legal enemy target.").toBeGreaterThan(0);
+    await page.waitForTimeout(550);
+    await attackTargets.nth(0).click();
+    await expect(page.locator("#battleAttackConfirm:not(.hidden)")).toBeVisible();
+    await page.locator("#battleAttackConfirmAccept").click();
+    await waitForTutorialPhase(page, "mission_objectives", 15_000);
+  }
   await continueTutorial(page);
   await waitForTutorialPhase(page, "complete");
   await expect(tutorialPanel(page)).toContainText("Good luck, General Field Commander.");

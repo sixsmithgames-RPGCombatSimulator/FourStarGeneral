@@ -35,6 +35,7 @@ const TOP_DOCKED_BATTLE_PHASES = new Set<TutorialPhase>([
   "engineer_intro",
   "engineer_orders",
   "select_attack_unit",
+  "artillery_support_intro",
   "artillery_intro",
   "select_artillery_observer",
   "flak_intro",
@@ -1173,7 +1174,8 @@ export class TutorialOverlay {
     // Get next phase and advance
     const nextPhase = getNextPhase(activeStep.phase);
     if (nextPhase) {
-      tutorialState.advancePhase(nextPhase);
+      const nextStep = getTutorialStep(nextPhase);
+      tutorialState.advancePhase(nextPhase, nextStep?.waitForAction !== true);
     } else {
       tutorialState.endTutorial();
     }

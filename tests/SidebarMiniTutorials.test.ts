@@ -76,11 +76,12 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getNextPhase("engineer_intro") === "intel_overlay_expand", "Selecting engineers should lead into their order card.");
     expect(getNextPhase("intel_overlay_expand") === "engineer_orders", "The expanded order card should lead into real fortification work.");
     expect(getNextPhase("engineer_orders") === "enemy_response", "Completed fortifications should hand initiative back to the enemy.");
-    expect(getNextPhase("enemy_response") === "select_attack_unit", "The next friendly group should begin with a legal firing unit.");
-    expect(getNextPhase("select_attack_unit") === "attack_intro", "A legal firing unit should lead into a confirmed attack.");
-    expect(getNextPhase("attack_intro") === "select_artillery_observer", "A completed attack should lead into artillery observation.");
+    expect(getNextPhase("enemy_response") === "artillery_support_intro", "The next friendly group should begin with the artillery support brief.");
+    expect(getNextPhase("artillery_support_intro") === "select_artillery_observer", "The artillery support brief should lead into observer selection.");
     expect(getNextPhase("select_artillery_observer") === "artillery_intro", "A legal observer should lead into a real artillery request.");
-    expect(getNextPhase("artillery_intro") === "mission_objectives", "Queued artillery should lead into final mission orders.");
+    expect(getNextPhase("artillery_intro") === "select_attack_unit", "Queued artillery should leave the player with a direct-fire lesson.");
+    expect(getNextPhase("select_attack_unit") === "attack_intro", "A legal firing unit should lead into a confirmed attack.");
+    expect(getNextPhase("attack_intro") === "mission_objectives", "A completed attack should lead into final mission orders.");
     expect(getNextPhase("mission_objectives") === "complete", "Final mission orders should advance to the dismissal step.");
     expect(getNextPhase("complete") === null, "Final certification should dismiss instead of looping.");
     expect(!combatPhases.includes("spend_activation"), "The main tutorial should not require a premature End Turn handoff.");
@@ -108,6 +109,11 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
       "The engineer lesson should spotlight the interactive edge chooser rather than the Fortify card."
     );
     expect(getTutorialStep("attack_intro")?.waitForAction === true, "Fire Orders should require a confirmed attack.");
+    expect(getTutorialStep("artillery_support_intro")?.waitForAction === false, "Artillery support should be an explicit briefing before observer selection.");
+    expect(
+      getTutorialStep("artillery_support_intro")?.content.includes("Howitzer Battery") === true,
+      "Artillery support should connect the battle order back to the requisitioned howitzers."
+    );
     expect(getTutorialStep("artillery_intro")?.waitForAction === true, "Artillery should require a queued support request.");
     expect(getTutorialStep("enemy_activation")?.waitForAction === true, "Enemy Action should wait for initiative handoff instead of showing a premature Continue button.");
     expect((getTutorialStep("initiative_order")?.content.includes("battle clock") ?? false) === false, "Initiative copy should explain the UI without mystifying phrases.");
@@ -224,7 +230,7 @@ registerTest("TUTORIAL_ACTION_USES_THE_AUTHORITATIVE_CURRENT_PHASE", async ({ Gi
   });
 
   await Then("the tutorial advances from the live phase instead of the stale cached step", async () => {
-    expect(tutorialState.getCurrentPhase() === "select_artillery_observer", `Expected artillery observer selection, received ${tutorialState.getCurrentPhase()}.`);
+    expect(tutorialState.getCurrentPhase() === "mission_objectives", `Expected final mission orders, received ${tutorialState.getCurrentPhase()}.`);
     overlay.dispose();
     tutorialState.endTutorial();
   });

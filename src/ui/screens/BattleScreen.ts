@@ -66,7 +66,7 @@ import type {
 } from "../announcements/AnnouncementTypes";
 import { ensureCampaignState } from "../../state/CampaignState";
 import { ensureTutorialState, type TutorialPhase } from "../../state/TutorialState";
-import { getNextPhase } from "../../data/tutorialSteps";
+import { getNextPhase, getTutorialStep } from "../../data/tutorialSteps";
 import {
   findGeneralById,
   updateGeneral,
@@ -2985,11 +2985,25 @@ export class BattleScreen {
       return;
     }
     setTimeout(() => {
-      const nextPhase = getNextPhase(phase);
+      const nextPhase = this.resolveNextTutorialPhaseAfterCompletion(phase);
       if (nextPhase) {
-        tutorialState.advancePhase(nextPhase);
+        const nextStep = getTutorialStep(nextPhase);
+        tutorialState.advancePhase(nextPhase, nextStep?.waitForAction !== true);
       }
     }, 800);
+  }
+
+  private resolveNextTutorialPhaseAfterCompletion(phase: TutorialPhase): TutorialPhase | null {
+    const nextPhase = getNextPhase(phase);
+    if (phase === "artillery_intro" && nextPhase === "select_attack_unit") {
+      const attackTarget = this.findFirstTutorialUnitTarget(
+        (unit, commandState) =>
+          commandState?.isAutomated !== true && this.getTutorialAttackTargetHexKeys(unit).size > 0,
+        true
+      );
+      return attackTarget ? nextPhase : "mission_objectives";
+    }
+    return nextPhase;
   }
 
   private clearTutorialSelectionOnceForPhase(phase: TutorialPhase): void {
@@ -3077,6 +3091,7 @@ export class BattleScreen {
       "engineer_orders",
       "select_smoke_unit",
       "select_attack_unit",
+      "artillery_support_intro",
       "artillery_intro",
       "select_artillery_observer",
       "flak_intro",
@@ -3344,15 +3359,34 @@ export class BattleScreen {
       return;
     }
 
+    if (phase === "artillery_support_intro") {
+      const observerTarget = this.findFirstTutorialUnitTarget(
+        (unit, commandState, hexKey) =>
+          commandState?.isAutomated !== true &&
+          this.resolveArtilleryActionState(unit, commandState, hexKey).available,
+        true
+      );
+      this.hexMapRenderer?.setZoneHighlights(observerTarget ? new Set([observerTarget.hexKey]) : new Set());
+      this.setTutorialGuidedHexTargets([]);
+      this.queueTutorialCameraForPhase(
+        phase,
+        observerTarget ? [observerTarget.hexKey] : this.getManualPlayerUnitHexKeys(),
+        TUTORIAL_ORDER_CAMERA_ZOOM
+      );
+      return;
+    }
+
     if (phase === "select_artillery_observer") {
       const observerTarget = this.findFirstTutorialUnitTarget(
         (unit, commandState, hexKey) =>
-          this.resolveArtilleryActionState(unit, commandState, hexKey).available
+          commandState?.isAutomated !== true &&
+          this.resolveArtilleryActionState(unit, commandState, hexKey).available,
+        true
       );
       if (observerTarget) {
         this.clearTutorialSelectionOnceForPhase(phase);
       }
-      if (this.selectedUnitCanCallArtillery(false)) {
+      if (this.selectedUnitCanCallArtillery()) {
         this.completeTutorialPhase(phase);
         return;
       }
@@ -3360,9 +3394,7 @@ export class BattleScreen {
       this.setTutorialGuidedHexTargets(observerTarget ? [observerTarget.hexKey] : []);
       this.queueTutorialCameraForPhase(
         phase,
-        observerTarget
-          ? [observerTarget.hexKey, ...this.resolveArtilleryTargetHexKeys(observerTarget.unit, observerTarget.hexKey)]
-          : this.getManualPlayerUnitHexKeys(),
+        observerTarget ? [observerTarget.hexKey] : this.getManualPlayerUnitHexKeys(),
         TUTORIAL_ORDER_CAMERA_ZOOM
       );
       return;
@@ -3372,8 +3404,9 @@ export class BattleScreen {
       const observerTarget = this.selectFirstTutorialUnitTarget(
         phase,
         (unit, commandState, hexKey) =>
+          commandState?.isAutomated !== true &&
           this.resolveArtilleryActionState(unit, commandState, hexKey).available,
-        { expandIntel: true }
+        { activeGroupOnly: true, expandIntel: true }
       );
       this.hexMapRenderer?.setZoneHighlights(observerTarget ? new Set([observerTarget.hexKey]) : new Set());
       this.queueTutorialCameraForPhase(
@@ -3697,6 +3730,7 @@ export class BattleScreen {
       progress.currentPhase === "engineer_intro" ||
       progress.currentPhase === "engineer_orders" ||
       progress.currentPhase === "enemy_response" ||
+      progress.currentPhase === "artillery_support_intro" ||
       progress.currentPhase === "artillery_intro" ||
       progress.currentPhase === "select_artillery_observer" ||
       progress.currentPhase === "flak_intro" ||
