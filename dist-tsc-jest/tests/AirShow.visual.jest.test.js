@@ -1066,6 +1066,36 @@ describe("AirShow JEST Harness", () => {
         expect(bomberFlight?.actors.length).toBeGreaterThan(0);
         expect(bomberFlight?.actors.every((actor) => actor.active)).toBe(true);
     });
+    test("tutorial playback seeds bomber sprites even when live strength is already zero", async () => {
+        const scene = await captureScene();
+        const zeroLiveStrengthScene = {
+            ...scene,
+            bomber: scene.bomber
+                ? {
+                    ...scene.bomber,
+                    strengthBefore: 0,
+                    strengthAfterEscortPhase: 0,
+                    finalStrength: 0
+                }
+                : scene.bomber,
+            bombers: scene.bombers?.map((bomber) => ({
+                ...bomber,
+                strengthBefore: 0,
+                strengthAfterEscortPhase: 0,
+                finalStrength: 0
+            }))
+        };
+        const report = inspectScene(zeroLiveStrengthScene);
+        const bomberFlight = report.flights.find((flight) => flight.role === "bomber");
+        const targetRun = report.phases.find((phase) => phase.label === "target-run");
+        const targetRunBomberAssignments = targetRun?.assignments.filter((assignment) => assignment.role === "bomber") ?? [];
+        expect(bomberFlight).toBeDefined();
+        expect(bomberFlight?.strengthBefore).toBe(0);
+        expect(bomberFlight?.finalStrength).toBe(0);
+        expect(bomberFlight?.actors.length).toBeGreaterThan(0);
+        expect(bomberFlight?.actors.some((actor) => actor.active)).toBe(true);
+        expect(targetRunBomberAssignments.length).toBeGreaterThan(0);
+    });
     test("runAirShowPhase respects the planned phase visibility instead of reviving unrelated active actors", async () => {
         ensureDomEnvironment();
         const renderer = new HexMapRenderer();

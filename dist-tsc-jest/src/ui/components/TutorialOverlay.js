@@ -3,8 +3,36 @@
  * arrows, and step-by-step progression for the training mission.
  */
 import { ensureTutorialState } from "../../state/TutorialState";
-import { getTutorialStep, getNextPhase, getPreviousPhase, isFirstPhase } from "../../data/tutorialSteps";
+import { getTutorialStep, getNextPhase, getPreviousPhase, getTutorialStepNumber } from "../../data/tutorialSteps";
 import { getSidebarMiniTutorial, SIDEBAR_MINI_TUTORIAL_EVENT } from "../../data/sidebarMiniTutorials";
+import { ensureRosterInitialized, findGeneralById } from "../../utils/rosterStorage";
+const TOP_DOCKED_BATTLE_PHASES = new Set([
+    "initiative_order",
+    "initiative_group",
+    "active_group_units",
+    "movement_intro",
+    "attack_intro",
+    "select_smoke_unit",
+    "intel_overlay_expand",
+    "smoke_demo",
+    "spend_activation",
+    "enemy_activation",
+    "enemy_response",
+    "post_artillery_enemy_response",
+    "next_unit",
+    "skip_group",
+    "engineer_intro",
+    "engineer_orders",
+    "select_attack_unit",
+    "artillery_support_intro",
+    "artillery_intro",
+    "select_artillery_observer",
+    "flak_intro",
+    "round_handoff",
+    "turn_end",
+    "mission_objectives",
+    "complete"
+]);
 /**
  * Creates and manages the tutorial overlay UI.
  */
@@ -26,16 +54,17 @@ export class TutorialOverlay {
         this.anchorTimeoutId = null;
         this.lastResolvedAnchorSelector = null;
         this.lastAnchoredSelector = null;
-        this.suppressCurrentPhaseDisplay = false;
+        this.lastAnchoredTarget = null;
         this.activeMiniTutorial = null;
         this.sidebarMiniTutorialListener = null;
         this.sidebarMiniTutorialStorageKey = "four-star-general.sidebar-mini-tutorials.v1";
     }
     getHighlightTargets(selector) {
-        return Array.from(document.querySelectorAll(selector)).filter((element) => {
+        const visibleTargets = Array.from(document.querySelectorAll(selector)).filter((element) => {
             const rect = element.getBoundingClientRect();
             return rect.width > 0 && rect.height > 0;
         });
+        return this.currentStep?.highlightFirstMatch === true ? visibleTargets.slice(0, 1) : visibleTargets;
     }
     getPrimaryHighlightTarget(selector) {
         return this.getHighlightTargets(selector)[0] ?? document.querySelector(selector);
@@ -170,10 +199,8 @@ export class TutorialOverlay {
             return;
         const backBtn = this.panelElement.querySelector(".tutorial-back-btn");
         const skipBtn = this.panelElement.querySelector(".tutorial-skip-btn");
-        const actionBtn = this.panelElement.querySelector(".tutorial-action-btn");
         backBtn?.addEventListener("click", () => this.handleBack());
         skipBtn?.addEventListener("click", () => this.handleSkip());
-        actionBtn?.addEventListener("click", () => this.handleAction());
         // Handle keyboard navigation
         this.container?.addEventListener("keydown", (e) => {
             if (e.key === "Escape") {
@@ -186,7 +213,7 @@ export class TutorialOverlay {
         if (!this.onViewportChange) {
             this.onViewportChange = () => {
                 // Keep spotlight/panel aligned as the UI changes (scrolling, resize, popups opening)
-                if (this.currentStep?.highlightSelector) {
+                if (this.currentStep?.highlightSelector && this.currentStep.showSpotlight !== false) {
                     this.positionSpotlight(this.currentStep.highlightSelector);
                 }
                 this.positionPanelForCurrentStep();
@@ -205,14 +232,6 @@ export class TutorialOverlay {
             return;
         }
         this.activeMiniTutorial = null;
-        if (this.suppressCurrentPhaseDisplay && progress.currentPhase === "review_allocation") {
-            // Stay hidden after the user dismisses the free-review step. We'll re-enable when phase changes.
-            this.lastRenderedPhase = progress.currentPhase;
-            return;
-        }
-        if (this.suppressCurrentPhaseDisplay && progress.currentPhase !== "review_allocation") {
-            this.suppressCurrentPhaseDisplay = false;
-        }
         const step = getTutorialStep(progress.currentPhase);
         if (!step) {
             this.hide();
@@ -231,7 +250,7 @@ export class TutorialOverlay {
         this.currentStep = step;
         this.lastRenderedPhase = progress.currentPhase;
         this.show();
-        this.renderStep(step, progress);
+        this.renderStep(step);
     }
     handleSidebarMiniTutorialRequest(event) {
         const request = event.detail;
@@ -308,7 +327,7 @@ export class TutorialOverlay {
     /**
      * Renders the current tutorial step.
      */
-    renderStep(step, progress) {
+    renderStep(step) {
         if (!this.panelElement)
             return;
         this.activeMiniTutorial = null;
@@ -319,18 +338,13 @@ export class TutorialOverlay {
         // Update step indicator
         const stepIndicator = this.panelElement.querySelector(".tutorial-step-indicator");
         if (stepIndicator) {
-            const completedCount = progress.completedPhases.length;
-            stepIndicator.textContent = `Step ${completedCount + 1}`;
+            const stepNumber = getTutorialStepNumber(step.phase);
+            stepIndicator.textContent = stepNumber ? `Step ${stepNumber}` : "Step";
         }
-        // Update back button visibility - hide on first step
+        // Back is opt-in because action and battle state cannot be safely rewound.
         const backBtn = this.panelElement.querySelector(".tutorial-back-btn");
         if (backBtn) {
-            if (isFirstPhase(step.phase)) {
-                backBtn.style.display = "none";
-            }
-            else {
-                backBtn.style.display = "";
-            }
+            backBtn.style.display = step.allowBack === true ? "" : "none";
         }
         const skipBtn = this.panelElement.querySelector(".tutorial-skip-btn");
         if (skipBtn) {
@@ -343,19 +357,19 @@ export class TutorialOverlay {
         if (titleEl)
             titleEl.textContent = step.title;
         if (descEl)
-            descEl.textContent = step.content;
-        const waitingForAction = step.waitForAction === true && !progress.canProceed;
+            descEl.textContent = this.resolveStepContent(step);
+        const isActionStep = step.waitForAction === true;
         // Update action button
         const actionBtn = this.panelElement.querySelector(".tutorial-action-btn");
         if (actionBtn) {
-            actionBtn.textContent = step.actionLabel ?? "Continue";
-            actionBtn.disabled = waitingForAction;
-            if (waitingForAction) {
-                actionBtn.classList.add("waiting");
-            }
-            else {
-                actionBtn.classList.remove("waiting");
-            }
+            actionBtn.onclick = () => this.handleAction();
+            actionBtn.textContent = isActionStep
+                ? "To continue, complete the action above"
+                : step.actionLabel ?? "Continue";
+            actionBtn.disabled = isActionStep;
+            // Disabled wait steps use the button's actual text as the full instruction.
+            // Avoid the legacy waiting class because its CSS appends a stale parenthetical hint.
+            actionBtn.classList.remove("waiting");
         }
         if (step.waitForAction === true) {
             if (this.container) {
@@ -397,7 +411,7 @@ export class TutorialOverlay {
         }
         // Handle highlighting
         tutorialState.clearHighlight();
-        if (step.highlightSelector) {
+        if (step.highlightSelector && step.showSpotlight !== false) {
             // Premium anchoring: attempt to ensure the target exists (panels may be closed / DOM may be async)
             this.ensureAnchorTarget(step.highlightSelector);
         }
@@ -449,7 +463,13 @@ export class TutorialOverlay {
                 }
                 const selector = this.currentStep.highlightSelector;
                 if (this.lastAnchoredSelector === selector) {
-                    // Still keep spotlight positioned in case layout shifted.
+                    const primaryTarget = this.getPrimaryHighlightTarget(selector);
+                    if (primaryTarget && primaryTarget !== this.lastAnchoredTarget) {
+                        this.lastAnchoredTarget = primaryTarget;
+                        this.scrollTargetIntoView(selector);
+                    }
+                    // Dynamic selectors can point to a different card after a row rerenders.
+                    ensureTutorialState().highlightElement(selector, this.currentStep.highlightFirstMatch === true);
                     this.positionSpotlight(selector);
                     this.positionPanelForCurrentStep();
                     return;
@@ -470,6 +490,7 @@ export class TutorialOverlay {
     ensureAnchorTarget(selector) {
         this.lastResolvedAnchorSelector = selector;
         this.lastAnchoredSelector = null;
+        this.lastAnchoredTarget = null;
         this.anchorAttemptId += 1;
         const attemptId = this.anchorAttemptId;
         // First attempt: if it exists right now, anchor immediately.
@@ -508,10 +529,11 @@ export class TutorialOverlay {
         this.startDomObserver();
         // Mark as anchored early to avoid mutation feedback loops.
         this.lastAnchoredSelector = selector;
+        this.lastAnchoredTarget = this.getPrimaryHighlightTarget(selector);
         // First scroll the target element into view so users can see and interact with it
         this.scrollTargetIntoView(selector);
         const tutorialState = ensureTutorialState();
-        tutorialState.highlightElement(selector);
+        tutorialState.highlightElement(selector, this.currentStep?.highlightFirstMatch === true);
         this.positionSpotlight(selector);
         if (this.currentStep) {
             this.positionPanel(this.currentStep);
@@ -519,7 +541,7 @@ export class TutorialOverlay {
     }
     /**
      * Scrolls the target element into view if it's not visible in the viewport.
-     * Uses smooth scrolling for a better user experience.
+     * Uses immediate scrolling so spotlight and camera positioning stay in sync.
      * After scrolling completes, repositions the spotlight to match the new element location.
      */
     scrollTargetIntoView(selector) {
@@ -530,20 +552,6 @@ export class TutorialOverlay {
         // Map tiles use SVG `<g>` elements and typically have `data-hex` or `data-q` attributes.
         // The native `.scrollIntoView` interacts poorly with our custom ZoomPanControls viewport.
         if (selector.includes("[data-hex=") || selector.includes("[data-q=") || targetElement.tagName.toLowerCase() === "g") {
-            let hexKey = null;
-            if (targetElement.hasAttribute("data-hex")) {
-                hexKey = targetElement.getAttribute("data-hex");
-            }
-            else if (targetElement.hasAttribute("data-q") && targetElement.hasAttribute("data-r")) {
-                const q = targetElement.getAttribute("data-q");
-                const r = targetElement.getAttribute("data-r");
-                if (q && r) {
-                    // Hex keys in this codebase are typically "<col>,<row>". We may need to convert axial or assume col,row.
-                    // Fallback: dispatch the selector itself if we can't extract the exact key cleanly here,
-                    // though BattleScreen will need to parse it. 
-                    // For now, let's just pass the selector so BattleScreen can query it or we can pass the key if available.
-                }
-            }
             // Dispatch a generic event so BattleScreen can hook into it.
             const event = new CustomEvent("tutorial:focusHex", {
                 detail: { selector, element: targetElement }
@@ -554,6 +562,7 @@ export class TutorialOverlay {
             this.positionPanelForCurrentStep();
             return;
         }
+        const scrolledAncestor = this.scrollNearestScrollableAncestorIntoView(targetElement);
         const rect = targetElement.getBoundingClientRect();
         const viewportHeight = window.innerHeight;
         const viewportWidth = window.innerWidth;
@@ -566,15 +575,63 @@ export class TutorialOverlay {
             rect.right > viewportWidth - margin;
         if (isOutOfView) {
             // Avoid smooth-scroll loops that can repeatedly trigger observers/scroll handlers.
+            // Keep horizontal position stable; centering wide battle-header targets can shove
+            // the mobile map pane off-screen while the tutorial is trying to teach the map.
             targetElement.scrollIntoView({
                 behavior: "auto",
                 block: "center",
-                inline: "center"
+                inline: "nearest"
             });
+            this.resetBattlePaneHorizontalScroll();
             // Reposition immediately since auto scroll completes synchronously.
             this.positionSpotlight(selector);
             this.positionPanelForCurrentStep();
+            window.requestAnimationFrame(() => {
+                this.resetBattlePaneHorizontalScroll();
+                this.positionSpotlight(selector);
+                this.positionPanelForCurrentStep();
+            });
         }
+        else if (scrolledAncestor) {
+            this.positionSpotlight(selector);
+            this.positionPanelForCurrentStep();
+            window.requestAnimationFrame(() => {
+                this.positionSpotlight(selector);
+                this.positionPanelForCurrentStep();
+            });
+        }
+    }
+    scrollNearestScrollableAncestorIntoView(targetElement) {
+        let ancestor = targetElement.parentElement;
+        while (ancestor && ancestor !== document.body) {
+            const styles = window.getComputedStyle(ancestor);
+            const canScrollVertically = /(auto|scroll)/.test(styles.overflowY) &&
+                ancestor.scrollHeight > ancestor.clientHeight + 1;
+            if (canScrollVertically) {
+                const targetRect = targetElement.getBoundingClientRect();
+                const ancestorRect = ancestor.getBoundingClientRect();
+                const targetTop = targetRect.top - ancestorRect.top + ancestor.scrollTop;
+                const centeredTop = targetTop - Math.max(0, (ancestor.clientHeight - targetRect.height) / 2);
+                const maxScroll = ancestor.scrollHeight - ancestor.clientHeight;
+                const nextScroll = Math.max(0, Math.min(maxScroll, centeredTop));
+                if (Math.abs(ancestor.scrollTop - nextScroll) > 1) {
+                    ancestor.scrollTop = nextScroll;
+                    return true;
+                }
+                return false;
+            }
+            ancestor = ancestor.parentElement;
+        }
+        return false;
+    }
+    resetBattlePaneHorizontalScroll() {
+        document
+            .querySelectorAll(".battle-map-pane, .map-shell, .battle-main")
+            .forEach((element) => {
+            if (element.scrollLeft !== 0) {
+                element.scrollLeft = 0;
+            }
+        });
     }
     /**
      * Repositions the panel for the current step after scroll/resize events.
@@ -626,9 +683,12 @@ export class TutorialOverlay {
         this.panelElement.style.removeProperty("top");
         this.panelElement.style.removeProperty("bottom");
         this.panelElement.style.removeProperty("transform");
+        this.panelElement.style.removeProperty("--tutorial-dock-top");
+        this.panelElement.style.removeProperty("--tutorial-target-bottom");
         const phaseClass = `tutorial-phase-${step.phase.replace(/[^a-z0-9_-]/gi, "-")}`;
         const waitClass = step.waitForAction === true ? " tutorial-wait-step" : "";
-        this.panelElement.className = `tutorial-panel tutorial-position-${step.position} ${phaseClass}${waitClass}`;
+        const battleDockClass = this.isTopDockedBattleStep(step) ? " tutorial-battle-docked" : "";
+        this.panelElement.className = `tutorial-panel tutorial-position-${step.position} ${phaseClass}${waitClass}${battleDockClass}`;
         // Viewport boundaries with minimum margin
         const viewportMargin = 20;
         const viewportWidth = window.innerWidth;
@@ -637,6 +697,17 @@ export class TutorialOverlay {
         const panelRect = this.panelElement.getBoundingClientRect();
         const panelWidth = Math.max(1, panelRect.width || 380);
         const panelHeight = Math.max(1, panelRect.height || 280);
+        if (this.isTopDockedBattleStep(step)) {
+            const battleHeader = document.querySelector(".battle-map-header");
+            const headerRect = battleHeader?.getBoundingClientRect();
+            const preferredTop = (headerRect?.bottom ?? viewportMargin) + (viewportWidth <= 768 ? 8 : 12);
+            const maxTop = Math.max(viewportMargin, viewportHeight - panelHeight - viewportMargin);
+            const dockTop = Math.max(viewportMargin, Math.min(preferredTop, maxTop));
+            this.panelElement.style.setProperty("--tutorial-dock-top", `${dockTop}px`);
+            this.panelElement.style.right = `${viewportMargin}px`;
+            this.panelElement.style.top = `${dockTop}px`;
+            return;
+        }
         if (step.position === "center") {
             this.panelElement.style.left = "50%";
             this.panelElement.style.top = "50%";
@@ -730,6 +801,7 @@ export class TutorialOverlay {
                         const panelBottomInPx = Math.max(viewportMargin, Math.min(bottomPos, viewportHeight - panelHeight - viewportMargin));
                         this.panelElement.style.left = `${clampedLeft}px`;
                         this.panelElement.style.bottom = `${panelBottomInPx}px`;
+                        this.panelElement.style.setProperty("--tutorial-target-bottom", `${panelBottomInPx}px`);
                         break;
                     }
                     case "bottom": {
@@ -819,7 +891,7 @@ export class TutorialOverlay {
         const arrow = this.panelElement.querySelector(".tutorial-arrow");
         if (!arrow)
             return;
-        if (!step.arrowDirection) {
+        if (!step.arrowDirection || this.isTopDockedBattleStep(step)) {
             arrow.classList.add("hidden");
             return;
         }
@@ -907,13 +979,16 @@ export class TutorialOverlay {
             this.dismissSidebarMiniTutorial();
             return;
         }
-        if (!this.currentStep)
+        if (!this.currentStep || this.currentStep.allowBack !== true)
             return;
         const previousPhase = getPreviousPhase(this.currentStep.phase);
         if (previousPhase) {
             const tutorialState = ensureTutorialState();
             tutorialState.jumpToPhase(previousPhase);
         }
+    }
+    isTopDockedBattleStep(step) {
+        return TOP_DOCKED_BATTLE_PHASES.has(step.phase);
     }
     /**
      * Handles the action button click.
@@ -923,24 +998,19 @@ export class TutorialOverlay {
             this.dismissSidebarMiniTutorial();
             return;
         }
-        if (!this.currentStep)
-            return;
         const tutorialState = ensureTutorialState();
-        const progress = tutorialState.getProgress();
-        // If waiting for action and can't proceed yet, do nothing
-        if (this.currentStep.waitForAction && !progress.canProceed) {
+        const activeStep = getTutorialStep(tutorialState.getCurrentPhase()) ?? this.currentStep;
+        if (!activeStep)
             return;
-        }
-        // Special case: review_allocation is a dismiss-only overlay. Hide and wait for Begin Battle to advance.
-        if (this.currentStep.phase === "review_allocation") {
-            this.suppressCurrentPhaseDisplay = true;
-            this.hide();
+        // Required-action steps advance from the highlighted UI action, not from this button.
+        if (activeStep.waitForAction) {
             return;
         }
         // Get next phase and advance
-        const nextPhase = getNextPhase(this.currentStep.phase);
+        const nextPhase = getNextPhase(activeStep.phase);
         if (nextPhase) {
-            tutorialState.advancePhase(nextPhase);
+            const nextStep = getTutorialStep(nextPhase);
+            tutorialState.advancePhase(nextPhase, nextStep?.waitForAction !== true);
         }
         else {
             tutorialState.endTutorial();
@@ -959,6 +1029,22 @@ export class TutorialOverlay {
      */
     isOnPhase(phase) {
         return ensureTutorialState().getCurrentPhase() === phase;
+    }
+    resolveStepContent(step) {
+        if (step.phase !== "complete" || !step.content.includes("{generalName}")) {
+            return step.content;
+        }
+        let generalName = "";
+        try {
+            ensureRosterInitialized();
+            const selectedGeneralId = window.localStorage.getItem("selectedGeneralId");
+            const general = selectedGeneralId ? findGeneralById(selectedGeneralId) : null;
+            generalName = general?.identity?.name?.trim() ?? "";
+        }
+        catch {
+            generalName = "";
+        }
+        return step.content.replace("{generalName}", generalName ? ` ${generalName}` : "");
     }
 }
 // Singleton instance

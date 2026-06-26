@@ -384,6 +384,7 @@ export interface RenderedUnitStackMember {
 export class HexMapRenderer implements IMapRenderer {
   private static readonly AIRCRAFT_GHOST_ICON_SIZE = 60;
   private static readonly AIRCRAFT_FORMATION_SPACING = 33;
+  private static readonly MIN_STRENGTH_PER_STACK_ACTOR = 25;
   private static readonly AIRCRAFT_ORBIT_HEADING_BLEND = 0.28;
   // North Star Spec §Speed Model: Fighter V = 11.5 px/100ms, Bomber V/2 = 5.75 px/100ms.
   private static readonly AIR_SHOW_BOMBER_SPEED_PX_PER_MS = AIR_SHOW_POLICY_BOMBER_SPEED_PX_PER_MS;
@@ -3163,7 +3164,7 @@ export class HexMapRenderer implements IMapRenderer {
 
   private resolveUnitStackCount(strength: number): number {
     const normalized = Math.max(0, Math.min(100, strength));
-    return Math.max(1, Math.min(4, Math.ceil(normalized / 25)));
+    return Math.max(1, Math.min(4, Math.ceil(normalized / HexMapRenderer.MIN_STRENGTH_PER_STACK_ACTOR)));
   }
 
   private resolveUnitStackLayout(
@@ -5771,6 +5772,24 @@ export class HexMapRenderer implements IMapRenderer {
     return this.resolveUnitStackCount(strength);
   }
 
+  private resolveAirShowInitialVisualStrength(
+    spec: Pick<ResolvedAirShowFlightSpec, "role" | "strengthBefore" | "strengthAfterEscortPhase" | "finalStrength">
+  ): number {
+    const strongestRecordedStrength = Math.max(
+      0,
+      spec.strengthBefore,
+      spec.strengthAfterEscortPhase ?? 0,
+      spec.finalStrength ?? 0
+    );
+    if (strongestRecordedStrength > 0) {
+      return strongestRecordedStrength;
+    }
+
+    // Tutorial/live playback can receive a bomber after combat state has already
+    // dropped to zero. Keep a visual seed so the planned destruction can play.
+    return spec.role === "bomber" ? HexMapRenderer.MIN_STRENGTH_PER_STACK_ACTOR : 0;
+  }
+
   private resolveScenarioViewportPointForOffsetCoordinate(col: number, row: number): AirShowPoint | null {
     const data = this.scenarioData;
     if (!data) {
@@ -5854,16 +5873,17 @@ export class HexMapRenderer implements IMapRenderer {
     defaultHeadingDegrees: number
   ): AirShowPlannerFlight | null {
     const origin = this.resolveHexCenterByKey(spec.originHexKey) ?? fallbackOrigin;
+    const visualStrength = this.resolveAirShowInitialVisualStrength(spec);
     const actorLayouts = this.resolveAircraftSpriteLayoutSpecs(
       HexMapRenderer.AIRCRAFT_GHOST_ICON_SIZE,
-      spec.strengthBefore,
+      visualStrength,
       spec.role
     );
     if (actorLayouts.length === 0) {
       return null;
     }
 
-    const visibleCount = this.resolveAirShowVisibleActorCount(spec.strengthBefore);
+    const visibleCount = this.resolveAirShowVisibleActorCount(visualStrength);
     const formationMid = actorLayouts.length <= 1 ? 0 : (actorLayouts.length - 1) / 2;
     const actors: AirShowPlannerActor[] = actorLayouts.map((layout, index) => {
       const position = {
@@ -5890,7 +5910,7 @@ export class HexMapRenderer implements IMapRenderer {
     return {
       spec,
       actors,
-      currentStrength: Math.max(0, spec.strengthBefore),
+      currentStrength: visualStrength,
       anchor: this.averageAirShowPosition(actors) ?? origin
     };
   }
@@ -5957,6 +5977,8 @@ export class HexMapRenderer implements IMapRenderer {
       };
     });
 
+    const visualStrength = this.resolveAirShowInitialVisualStrength(flight);
+
     return {
       spec: {
         id: flight.id,
@@ -5971,7 +5993,7 @@ export class HexMapRenderer implements IMapRenderer {
         combatRole: flight.combatRole
       },
       actors,
-      currentStrength: Math.max(0, flight.strengthBefore),
+      currentStrength: visualStrength,
       anchor: this.averageAirShowPosition(actors) ?? (flight.actors[0]?.position ?? { cx: 0, cy: 0 })
     };
   }

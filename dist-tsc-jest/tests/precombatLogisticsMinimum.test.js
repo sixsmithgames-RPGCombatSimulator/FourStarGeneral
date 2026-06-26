@@ -3,6 +3,7 @@ import { registerTest } from "./harness.js";
 import { PrecombatScreen } from "../src/ui/screens/PrecombatScreen";
 import { BattleState } from "../src/state/BattleState";
 import { ensureTutorialState } from "../src/state/TutorialState";
+import { getAllMissionKeys } from "../src/data/missions";
 function mountPrecombatDom() {
     document.body.innerHTML = `
     <section id="precombatScreen">
@@ -176,6 +177,7 @@ registerTest("PRECOMBAT_TRAINING_PRESET_APPLIES_FULL_ALLOCATION_PACKAGE", async 
             "tankDestroyerCompany",
             "flakBattery",
             "reconBike",
+            "howitzer",
             "supplyConvoy",
             "ammo",
             "medic",
@@ -188,15 +190,16 @@ registerTest("PRECOMBAT_TRAINING_PRESET_APPLIES_FULL_ALLOCATION_PACKAGE", async 
         spendAfterReset = internals.calculateSpend();
         resetLabel = actionButton.textContent?.trim() ?? "";
     });
-    await Then("the exact 1,200 RP package is selected and reset returns to the pristine preset offer", async () => {
+    await Then("the tutorial package is selected and reset returns to the pristine preset offer", async () => {
         const expectedCounts = new Map([
             ["infantry", 3],
             ["engineer", 1],
             ["tank", 1],
             ["heavyTankCompany", 1],
             ["tankDestroyerCompany", 1],
-            ["flakBattery", 2],
+            ["flakBattery", 1],
             ["reconBike", 1],
+            ["howitzer", 1],
             ["supplyConvoy", 1],
             ["ammo", 1],
             ["medic", 1],
@@ -214,8 +217,8 @@ registerTest("PRECOMBAT_TRAINING_PRESET_APPLIES_FULL_ALLOCATION_PACKAGE", async 
                 throw new Error(`Expected Training preset ${key} count ${expected}, saw ${actual}.`);
             }
         }
-        if (spendAfterPreset !== 1200) {
-            throw new Error(`Expected Training preset to spend exactly 1,200 RP, saw ${spendAfterPreset}.`);
+        if (spendAfterPreset !== 1170) {
+            throw new Error(`Expected Training preset to spend 1,170 RP, saw ${spendAfterPreset}.`);
         }
         if (proceedDisabledAfterPreset) {
             throw new Error("Expected Training preset to satisfy proceed gating.");
@@ -291,6 +294,50 @@ registerTest("PRECOMBAT_TOWN_DEFENSE_PRESET_APPLIES_FLAK_ARTILLERY_AND_INTERCEPT
         }
         if (interceptorCount !== 3) {
             throw new Error(`Expected Town Defense preset interceptorWing count 3, saw ${interceptorCount}.`);
+        }
+        document.body.innerHTML = "";
+    });
+});
+registerTest("PRECOMBAT_ALL_BATTLE_SCENARIO_PRESETS_APPLY_WITHIN_BUDGET", async ({ Given, When, Then }) => {
+    const failures = [];
+    await Given("every non-campaign battle scenario has a fresh requisition screen", async () => {
+        document.body.innerHTML = "";
+    });
+    await When("the commander applies each mission preset", async () => {
+        for (const missionKey of getAllMissionKeys().filter((key) => key !== "campaign")) {
+            const screen = createScreen();
+            screen.setup(missionKey, null, "Normal");
+            const actionButton = document.getElementById("resetAllocations");
+            const initialLabel = actionButton.textContent?.trim() ?? "";
+            if (initialLabel !== "Use Preset Allocations") {
+                failures.push(`${missionKey}: expected preset offer, saw "${initialLabel}".`);
+                document.body.innerHTML = "";
+                ensureTutorialState().endTutorial();
+                continue;
+            }
+            actionButton.click();
+            const internals = screen;
+            const spend = internals.calculateSpend();
+            const feedback = internals.allocationFeedbackElement.textContent ?? "";
+            if (spend <= 0) {
+                failures.push(`${missionKey}: preset produced no spend.`);
+            }
+            if (spend > internals.allocationBudget) {
+                failures.push(`${missionKey}: preset spend ${spend} exceeded budget ${internals.allocationBudget}.`);
+            }
+            if (internals.proceedToBattleButton.disabled) {
+                failures.push(`${missionKey}: preset did not satisfy proceed gating.`);
+            }
+            if (/Unavailable:|Capped at maximum:/i.test(feedback)) {
+                failures.push(`${missionKey}: preset reported unavailable or capped entries: ${feedback}`);
+            }
+            document.body.innerHTML = "";
+            ensureTutorialState().endTutorial();
+        }
+    });
+    await Then("each preset is available, affordable, and fully applicable", async () => {
+        if (failures.length > 0) {
+            throw new Error(failures.join(" | "));
         }
         document.body.innerHTML = "";
     });

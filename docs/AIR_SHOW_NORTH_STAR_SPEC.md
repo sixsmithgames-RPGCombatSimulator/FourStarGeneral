@@ -690,11 +690,13 @@ This baseline is important because the air show should evolve by tightening arch
 - Complex linked packages must not run in parallel with other complex linked packages in the same visual cluster.
 - Simple standalone flyovers may overlap only when they do not share ownership with a contested package.
 - Camera focus must support readability of the whole package, not just one moment inside it.
+- Strike-package camera focus must include the bomber origin/approach corridor as well as the target hex before the renderer plans visible bounds.
 - Legacy fallback systems must not secretly own part of a package once unified playback is in place.
 
 ### Visual Continuity Rules
 
 - Bombers do not despawn at interception and respawn later for the strike run.
+- Live playback may receive a bomber after engine state has already reached zero strength; the visual plan must still seed bomber sprites from the strongest recorded phase, with a minimum bomber visual seed when all recorded live strengths are zero.
 - Escorts do not vanish because they are rendered on one path and resolved on another.
 - Interceptors do not drift into unrelated movements after their exchange without an explicit egress or patrol decision.
 - Aircraft should enter, fight, attack, and leave in a way the player can follow without guessing.
@@ -1055,6 +1057,8 @@ Retained for traceability. Statuses below reflect the current measured runtime a
 | ~~**Both fighter factions egress toward same side (player HQ)**~~ | ~~High~~ | ✅ **FIXED** | Egress target for interceptors/escorts now uses `hqAxis.botOrigin` (Bot faction) or `hqAxis.playerOrigin` (Player faction) with lane offset, replacing hardcoded `corridorPoint(±146px)` offsets from corridor center. Applied to both `inspectResolvedAirCombatShow` and `animateResolvedAirCombatShow`. Choreography test Invariants 5+6 now pass. |
 | ~~**Bombers reach target simultaneous with fighter clash start**~~ | ~~High~~ | ✅ **FIXED** | Current contested playback starts the clash during early bomber approach instead of at target arrival; regression coverage now measures clash start against bomber pre-target progress. |
 | ~~**Bombers disappear for entire dogfighting scene**~~ | ~~Critical~~ | ✅ **FIXED** | Root cause: `syncAirShowPhaseVisibility` hid any actor not in current phase assignments. Added bomber hold-in-place assignments to every escort clash beat so bombers remain in `phaseAssignments` and stay visible. |
+| ~~**Tutorial/live replay bombers can be missing when post-resolution strength is already zero**~~ | ~~Critical~~ | ✅ **FIXED 2026-06-25** | Runtime planning now seeds bomber visuals from the strongest recorded strength across the phase and falls back to a minimum bomber visual seed when all live strength fields are zero. Regression coverage verifies tutorial-style zero-strength playback still creates active bomber sprites. |
+| ~~**Replay camera focuses only on the target, clipping bomber ingress from the visible package**~~ | ~~High~~ | ✅ **FIXED 2026-06-25** | `BattleScreen` now focuses linked strike playback on the package corridor using rendered origin and target centers before `HexMapRenderer` plans paths from visible bounds. Browser regression coverage verifies bomber ingress is painted inside the focused viewport. |
 | ~~**Escorts snap near-180° turn at dogfight start**~~ | ~~High~~ | ✅ **FIXED** | Clash-entry continuity is now covered directly; current escorts enter the first clash beat without the old near-180° reversal. |
 | ~~**Bombers reappear after dogfighting scene**~~ | ~~Critical~~ | ✅ **FIXED** | Paired with disappearance fix. Removed the force `actor.active=true / opacity="1"` block at target-run start — bombers are never hidden so the restore was never needed, and it was incorrectly reactivating destroyed actors. |
 | ~~**All sprites slow down when bombers reappear**~~ | ~~High~~ | ✅ **FIXED** | The blocking fade-in await was removed; target-run motion no longer stalls when bombers transition through the later beats. |

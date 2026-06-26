@@ -527,9 +527,11 @@ registerTest("PRECOMBAT_RIVER_WATCH_HARD_DIFFICULTY_UPDATES_EXTRACTION_WINDOW", 
 registerTest("MISSION_PROFILE_EXPOSES_REUSABLE_CATEGORY_AND_DEPLOYMENT_DEFAULTS", async ({ When, Then }) => {
     let riverWatchProfile = getMissionProfile("patrol_river_watch", "Hard");
     let patrolProfile = getMissionProfile("patrol", "Normal");
+    let trainingProfile = getMissionProfile("training", "Normal");
     await When("mission profiles are resolved for flagship and baseline patrol missions", async () => {
         riverWatchProfile = getMissionProfile("patrol_river_watch", "Hard");
         patrolProfile = getMissionProfile("patrol", "Normal");
+        trainingProfile = getMissionProfile("training", "Normal");
     });
     await Then("shared mission metadata exposes category and deployment defaults for future mission authoring", async () => {
         if (riverWatchProfile.category !== "patrol") {
@@ -564,6 +566,18 @@ registerTest("MISSION_PROFILE_EXPOSES_REUSABLE_CATEGORY_AND_DEPLOYMENT_DEFAULTS"
         }
         if (patrolProfile.deployment.zoneDoctrine.length !== 1) {
             throw new Error(`Expected baseline patrol doctrine to expose one deployment zone, received ${patrolProfile.deployment.zoneDoctrine.length}`);
+        }
+        if (trainingProfile.deployment.preferredZoneKey !== "zone-alpha") {
+            throw new Error(`Expected training preferred deployment zone zone-alpha, received ${trainingProfile.deployment.preferredZoneKey}`);
+        }
+        if (trainingProfile.deployment.zoneDoctrine.length !== 1) {
+            throw new Error(`Expected training doctrine to expose one deployment zone, received ${trainingProfile.deployment.zoneDoctrine.length}`);
+        }
+        if (trainingProfile.deployment.zoneDoctrine[0]?.zoneKey !== "zone-alpha") {
+            throw new Error(`Expected training doctrine to target zone-alpha, received ${trainingProfile.deployment.zoneDoctrine[0]?.zoneKey}`);
+        }
+        if (trainingProfile.deployment.validation.minimumPlayerZoneCapacityTotal !== 12) {
+            throw new Error(`Expected training doctrine to require 12 player slots, received ${trainingProfile.deployment.validation.minimumPlayerZoneCapacityTotal}`);
         }
     });
 });

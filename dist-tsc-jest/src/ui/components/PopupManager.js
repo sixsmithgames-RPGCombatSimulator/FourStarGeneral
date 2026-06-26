@@ -893,7 +893,7 @@ export class PopupManager {
     /** Disables Escort mission until at least one bomber strike is scheduled for the active faction. */
     disableEscortUnlessBomberScheduled(kindSelect, engine) {
         try {
-            const missions = engine.getScheduledAirMissions(engine.activeFaction);
+            const missions = engine.getScheduledAirMissions(this.resolveAirPlanningFaction(engine));
             const hasBomberStrike = missions.some((m) => m.kind === "strike");
             const escortOption = Array.from(kindSelect.options).find((o) => o.value === "escort");
             if (escortOption) {
@@ -960,7 +960,9 @@ export class PopupManager {
                 this.airPickMode = null;
             }
             if (kind === "escort") {
-                const missions = engine.getScheduledAirMissions(engine.activeFaction).filter((m) => m.kind === "strike");
+                const missions = engine
+                    .getScheduledAirMissions(this.resolveAirPlanningFaction(engine))
+                    .filter((m) => m.kind === "strike");
                 if (missions.length === 0) {
                     select.innerHTML = `<option value="" disabled selected>Schedule a bomber strike first</option>`;
                     select.disabled = true;
@@ -1000,7 +1002,8 @@ export class PopupManager {
             }
             // Air Cover: target is optional, add "Base CAP" as the default option.
             if (kind === "airCover") {
-                const targets = (engine.activeFaction === "Player" ? engine.playerUnits : engine.botUnits) ?? [];
+                const planningFaction = this.resolveAirPlanningFaction(engine);
+                const targets = (planningFaction === "Player" ? engine.playerUnits : engine.botUnits) ?? [];
                 const options = [];
                 // Base CAP option: no target hex means the squadron covers its own base.
                 options.push(`<option value="">Base CAP (cover home base)</option>`);
@@ -1351,6 +1354,13 @@ export class PopupManager {
                 return "Issue Sortie";
         }
     }
+    resolveAirPlanningFaction(engine) {
+        // Initiative sequencing can temporarily hand activeFaction to Bot/Ally while the player still plans orders.
+        if (engine.phase === "playerTurn") {
+            return "Player";
+        }
+        return engine.activeFaction;
+    }
     buildAirPlannerView(engine) {
         const missionTabs = this.buildAirMissionTabs(engine);
         const selectedMission = (() => {
@@ -1382,7 +1392,8 @@ export class PopupManager {
         };
     }
     buildAirMissionTabs(engine) {
-        const queuedStrikeExists = engine.getScheduledAirMissions(engine.activeFaction).some((mission) => mission.kind === "strike" && mission.status === "queued");
+        const planningFaction = this.resolveAirPlanningFaction(engine);
+        const queuedStrikeExists = engine.getScheduledAirMissions(planningFaction).some((mission) => mission.kind === "strike" && mission.status === "queued");
         return engine.listAirMissionTemplates().map((template) => ({
             template,
             disabled: template.kind === "escort" && !queuedStrikeExists,
@@ -1397,7 +1408,8 @@ export class PopupManager {
         }
         const allowedRoles = new Set(mission.allowedRoles);
         const activeAssignments = new Map();
-        engine.getScheduledAirMissions(engine.activeFaction).forEach((entry) => {
+        const planningFaction = this.resolveAirPlanningFaction(engine);
+        engine.getScheduledAirMissions(planningFaction).forEach((entry) => {
             if (entry.status !== "completed") {
                 activeAssignments.set(entry.unitKey, entry);
             }
@@ -1456,7 +1468,7 @@ export class PopupManager {
         if (!mission || mission.kind !== "escort") {
             return [];
         }
-        return engine.getScheduledAirMissions(engine.activeFaction)
+        return engine.getScheduledAirMissions(this.resolveAirPlanningFaction(engine))
             .filter((entry) => entry.kind === "strike" && entry.status === "queued")
             .map((entry) => {
             const origin = entry.originHexKey ?? this.resolveAirMissionOriginHex(engine, entry) ?? "";
@@ -1673,7 +1685,7 @@ export class PopupManager {
         }
         const request = {
             kind: mission.kind,
-            faction: engine.activeFaction,
+            faction: this.resolveAirPlanningFaction(engine),
             unitId: squadron.squadronId,
             unitHex
         };
@@ -1832,7 +1844,8 @@ export class PopupManager {
     }
     /** Renders the mission roster with cancel actions for queued sorties. */
     renderAirMissionList(list, engine) {
-        const missions = engine.getScheduledAirMissions().filter((mission) => mission.status !== "completed");
+        const planningFaction = this.resolveAirPlanningFaction(engine);
+        const missions = engine.getScheduledAirMissions(planningFaction).filter((mission) => mission.status !== "completed");
         if (!missions || missions.length === 0) {
             list.innerHTML = '<li class="air-mission-empty">No sorties queued. Air wings remain on standby until new orders are issued.</li>';
             return;

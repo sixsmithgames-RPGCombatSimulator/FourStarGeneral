@@ -194,6 +194,50 @@ registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_IGNORES_DEFAULT_SELECTION", async 
         resetDeploymentState();
     });
 });
+registerTest("BATTLESCREEN_TUTORIAL_BASE_CAMP_REFOCUSES_ON_SELECTED_ZONE_HEX", async ({ Given, When, Then }) => {
+    let screen;
+    let focusedHex = null;
+    await Given("the base-camp tutorial is active in deployment with multiple valid Zone Alpha hexes", async () => {
+        mountBattleScreenRoot();
+        resetDeploymentState();
+        ensureDeploymentState().registerZones([
+            {
+                zoneKey: "zone-alpha",
+                capacity: 4,
+                hexKeys: ["14,2", "15,2", "14,1", "15,1"],
+                name: "Town Perimeter",
+                description: "Town deployment ring",
+                faction: "Player"
+            }
+        ]);
+        const fakeEngine = {
+            getTurnSummary() {
+                return { phase: "deployment", activeFaction: "Player", turnNumber: 1 };
+            }
+        };
+        screen = new BattleScreen({}, { ensureGameEngine: () => fakeEngine }, {}, null, null, null, null, null, null, null, { selectedMission: "training" });
+        screen.baseCampStatus = document.createElement("div");
+        screen.focusTutorialHex = (hexKey) => {
+            focusedHex = hexKey;
+        };
+        screen.tutorialBaseCampFocusKey = "14,2";
+        ensureTutorialState().startTutorial();
+        ensureTutorialState().jumpToPhase("base_camp");
+    });
+    await When("the commander selects another valid deployment hex in Zone Alpha", async () => {
+        screen.updateSelectionFeedback("15,2");
+    });
+    await Then("tutorial camera focus is refreshed to that newly selected deployment hex", async () => {
+        if (focusedHex !== "15,2") {
+            throw new Error(`Expected base-camp tutorial focus to move to 15,2, received ${focusedHex ?? "<none>"}`);
+        }
+        if (screen.tutorialBaseCampFocusKey !== "15,2") {
+            throw new Error(`Expected tutorial base-camp focus key to update to 15,2, received ${screen.tutorialBaseCampFocusKey}`);
+        }
+        ensureTutorialState().endTutorial();
+        resetDeploymentState();
+    });
+});
 registerTest("BATTLESCREEN_DEFAULT_SELECTION_USES_PLAYER_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
     let screen;
     let defaultSelectionKey = null;
@@ -341,7 +385,10 @@ registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({
     await Given("a battle screen with a sound toggle button and renderer audio controls", async () => {
         document.body.innerHTML = `
       <div id="battleScreen">
-        <button id="battleSoundToggle" type="button">Sound On</button>
+        <button id="battleSoundToggle" type="button">
+          <span>Battle Sound</span>
+          <span data-settings-value>On</span>
+        </button>
       </div>
     `;
         window.localStorage.removeItem("fsg-sound-enabled");
@@ -370,11 +417,15 @@ registerTest("BATTLESCREEN_SOUND_TOGGLE_PERSISTS_AND_UPDATES_RENDERER", async ({
         if (soundEnabled !== true) {
             throw new Error("Expected renderer sound state to be re-enabled after the second toggle.");
         }
-        if (toggleButton.textContent !== "Sound On") {
-            throw new Error(`Expected button label to be Sound On, received ${toggleButton.textContent}`);
+        const value = toggleButton.querySelector("[data-settings-value]")?.textContent;
+        if (value !== "On") {
+            throw new Error(`Expected Battle Sound value to be On, received ${value}`);
         }
         if (toggleButton.getAttribute("aria-pressed") !== "true") {
             throw new Error(`Expected aria-pressed to be true, received ${toggleButton.getAttribute("aria-pressed")}`);
+        }
+        if (toggleButton.getAttribute("aria-checked") !== "true") {
+            throw new Error(`Expected aria-checked to be true, received ${toggleButton.getAttribute("aria-checked")}`);
         }
         window.localStorage.removeItem("fsg-sound-enabled");
     });

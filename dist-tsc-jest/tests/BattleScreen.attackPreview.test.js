@@ -1,6 +1,7 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
+import { ensureDeploymentState } from "../src/state/DeploymentState";
 registerTest("BATTLESCREEN_ATTACK_DIALOG_EXPLAINS_AT_GUN_RANGE_AND_PENETRATION_MATH", async ({ Given, When, Then }) => {
     const root = document.createElement("div");
     root.id = "battleScreen";
@@ -234,12 +235,150 @@ registerTest("BATTLESCREEN_ATTACK_DETAILS_CAP_DAMAGE_DISPLAY_AT_100_PERCENT", as
         const outcomeSection = sections.find((section) => section.title === "Outcome");
         const expectedDamage = previewSection?.entries.find((entry) => entry.label === "Projected Readiness Loss")?.value;
         const dealtDamage = outcomeSection?.entries.find((entry) => entry.label === "Damage Dealt")?.value;
-        if (expectedDamage !== "100.0%") {
-            throw new Error(`Expected capped preview damage of 100.0%, received '${expectedDamage ?? "<missing>"}'.`);
+        if (expectedDamage !== "100%") {
+            throw new Error(`Expected exact capped preview damage of 100%, received '${expectedDamage ?? "<missing>"}'.`);
         }
         if (dealtDamage !== "100") {
             throw new Error(`Expected capped dealt damage of 100, received '${dealtDamage ?? "<missing>"}'.`);
         }
         root.remove();
+    });
+});
+registerTest("BATTLESCREEN_ATTACK_DIALOG_USES_RESOLVED_FORMATION_LABEL_AND_DECIMAL_EXPECTED_HITS", async ({ Given, When, Then }) => {
+    const root = document.createElement("div");
+    root.id = "battleScreen";
+    root.innerHTML = `
+    <div id="battleAttackConfirm" class="battle-dialog hidden" aria-hidden="true">
+      <div class="battle-dialog__surface">
+        <div class="attack-stance-selector">
+          <button type="button" id="stanceFireAtWill" class="stance-button" data-stance="fireAtWill"></button>
+          <button type="button" id="stanceAssault" class="stance-button" data-stance="assault"></button>
+          <button type="button" id="stanceSuppressive" class="stance-button" data-stance="suppressive"></button>
+        </div>
+        <div id="battleAttackConfirmBody"></div>
+        <button type="button" id="battleAttackConfirmAccept">Attack</button>
+        <button type="button" id="battleAttackConfirmCancel">Cancel</button>
+      </div>
+    </div>
+  `;
+    document.body.appendChild(root);
+    const fakeAttacker = {
+        type: "Light_Tank",
+        hex: { q: 0, r: 0 },
+        strength: 92.5,
+        experience: 1,
+        ammo: 6,
+        fuel: 35,
+        entrench: 0,
+        facing: "NW",
+        unitId: "u_tank_1"
+    };
+    const fakeEngine = {
+        getPlayerPlacementsSnapshot: () => [fakeAttacker],
+        getUnitCommandState: () => ({ suppressionState: "clear", suppressorCount: 0 }),
+        getTurnSummary: () => ({ phase: "playerTurn", activeFaction: "Player", turnNumber: 1 }),
+        getHexStackMembers: () => ([
+            {
+                unitId: fakeAttacker.unitId,
+                unit: fakeAttacker,
+                faction: "Player",
+                isAutomated: false
+            }
+        ]),
+        previewAttack: (_attacker, _defender) => {
+            const result = {
+                accuracy: 3.4,
+                shots: 19,
+                damagePerHit: 2.18,
+                expectedHits: 0.6,
+                expectedDamage: 1.3,
+                expectedSuppression: 0.6,
+                effectiveAP: 10,
+                facingArmor: 2,
+                accuracyBreakdown: {
+                    baseRange: 15,
+                    commanderScalar: 1.05,
+                    afterCommander: 15.8,
+                    experienceScalar: 1.03,
+                    afterExperience: 16.2,
+                    terrainModifier: -40,
+                    terrainMultiplier: 0.6,
+                    afterTerrain: 6.9,
+                    spottedMultiplier: 0.5,
+                    finalPreClamp: 3.4,
+                    final: 3.4
+                },
+                damageBreakdown: {
+                    baseTableValue: 1.05,
+                    experienceScalar: 1,
+                    afterExperience: 1.05,
+                    commanderScalar: 1,
+                    final: 2.18
+                },
+                shotBreakdown: {
+                    theoreticalProfileShots: 90,
+                    formationScalar: 1,
+                    strengthScalar: 0.925,
+                    posture: "standard",
+                    postureScalar: 0.24,
+                    movementScalar: 0.95,
+                    suppressionState: "clear",
+                    suppressionScalar: 1,
+                    finalScalar: 0.21,
+                    final: 19
+                }
+            };
+            return {
+                attacker: fakeAttacker,
+                defender: {
+                    type: "Engineer",
+                    hex: { q: 2, r: 0 },
+                    strength: 1.88,
+                    experience: 0,
+                    ammo: 0,
+                    fuel: 0,
+                    entrench: 0,
+                    facing: "SE"
+                },
+                result,
+                commander: { accBonus: 5, dmgBonus: 15 },
+                damageMultiplier: 1,
+                suppressionMultiplier: 1,
+                finalDamagePerHit: 2.18,
+                finalExpectedDamage: 0,
+                finalExpectedSuppression: 0.6,
+                expectedRetaliation: 0,
+                retaliationPossible: false,
+                retaliationNote: "Target is out of return-fire range."
+            };
+        }
+    };
+    const fakeBattleState = {
+        hasEngine: () => true,
+        ensureGameEngine: () => fakeEngine,
+        tryGetGameEngine: () => fakeEngine,
+        getIdlePlayerUnitKeys: () => [],
+        getCurrentTurnSummary: () => ({ phase: "playerTurn", activeFaction: "Player", turnNumber: 1 }),
+        getPrecombatMissionInfo: () => null
+    };
+    let screen;
+    await Given("a deployed medium tank company mapped to the Light_Tank tactical type", async () => {
+        const deploymentState = ensureDeploymentState();
+        deploymentState.reset();
+        deploymentState.initialize([{ key: "tank", label: "Medium Tank Company", remaining: 1 }]);
+        screen = new BattleScreen({}, fakeBattleState, { getActivePopup: () => null, closePopup: () => { } }, null, null, null, null, null, null);
+        screen.cacheElements();
+    });
+    await When("the attack confirmation dialog is opened for that unit", async () => {
+        screen.promptAttackConfirmation({ q: 0, r: 0 }, { q: 2, r: 0 }, { attackerUnitId: "u_tank_1" });
+    });
+    await Then("the attacker card uses the resolved formation label and expected hits keep decimal precision", async () => {
+        const previewText = document.getElementById("battleAttackConfirmBody")?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+        if (!previewText.includes("Your Medium Tank Company")) {
+            throw new Error(`Expected attacker label to use deployment label, received '${previewText}'.`);
+        }
+        if (!previewText.includes("Expected Hits 0.6 impacts")) {
+            throw new Error(`Expected decimal expected-hits display, received '${previewText}'.`);
+        }
     });
 });

@@ -4,16 +4,9 @@
  */
 export const TUTORIAL_STEPS = [
     {
-        phase: "welcome",
-        title: "Field Command",
-        content: "General, enemy scouts are probing the sector. Assemble a task force, establish a blocking position, and break the patrol before it reaches the road net.",
-        position: "center",
-        actionLabel: "Accept Command"
-    },
-    {
         phase: "budget_overview",
         title: "Requisition Order",
-        content: "You have 1,200 RP. Use the Training preset for a balanced field package, or build the same mix by hand if you want to learn each requisition lane.",
+        content: "Welcome, General. This tutorial starts with requisition points (RP): the budget used to raise formations and supplies for the mission.",
         highlightSelector: "#precombatBudgetPanel",
         position: "left",
         arrowDirection: "right",
@@ -21,17 +14,18 @@ export const TUTORIAL_STEPS = [
     },
     {
         phase: "unit_categories",
-        title: "Build The Task Force",
-        content: "For this fight, the preset loads three Infantry Battalions, Engineers, medium and heavy armor, tank destroyers, two Flak Batteries, recon, supply, ammo, medical, and maintenance teams.",
+        title: "Assemble The Force",
+        content: "This mission needs infantry, armor, engineers, recon, air defense, and logistics. Each category supports the line in a different way.",
         highlightSelector: "#allocationUnitList, #allocationSupportList, #allocationLogisticsList",
         position: "right",
         arrowDirection: "left",
+        allowBack: true,
         actionLabel: "Continue"
     },
     {
         phase: "select_infantry",
         title: "Form The Line",
-        content: "Add three Infantry Battalions. They take ground, hold villages and woods, and give the rest of the force something solid to fight around.",
+        content: "Add three Infantry Battalions. They hold ground and anchor the front.",
         highlightSelector: "[data-key='infantry']",
         position: "right",
         arrowDirection: "left",
@@ -41,17 +35,18 @@ export const TUTORIAL_STEPS = [
     {
         phase: "select_tanks",
         title: "Attach Armor",
-        content: "Add one Medium Tank Company, one Heavy Tank Company, and one Tank Destroyer Company. The mix gives you shock, staying power, and anti-armor reach.",
-        highlightSelector: "[data-key='tank'], [data-key='heavyTankCompany'], [data-key='tankDestroyerCompany']",
+        content: "Add one Medium Tank Company, one Heavy Tank Company, and one Tank Destroyer Company. The marker will move to each company in turn.",
+        highlightSelector: "[data-key='tank'][data-quantity='0'], [data-key='heavyTankCompany'][data-quantity='0'], [data-key='tankDestroyerCompany'][data-quantity='0']",
         position: "right",
         arrowDirection: "left",
+        highlightFirstMatch: true,
         waitForAction: true,
         actionLabel: "Continue"
     },
     {
         phase: "select_engineers",
         title: "Bring Engineers",
-        content: "Add one Engineering Corps. Engineers dig, breach, fortify, and keep the advance from stalling at the first obstacle.",
+        content: "Add one Engineering Corps. Engineers dig in, breach obstacles, and fortify key hexes.",
         highlightSelector: "[data-key='engineer']",
         position: "right",
         arrowDirection: "left",
@@ -61,7 +56,7 @@ export const TUTORIAL_STEPS = [
     {
         phase: "select_flak",
         title: "Cover The Rear",
-        content: "Add two Flak Batteries. Keep base camp, reserves, and road approaches under an air-defense umbrella.",
+        content: "Add one Flak Battery. Keep base camp and supply routes under air cover.",
         highlightSelector: "[data-key='flakBattery']",
         position: "right",
         arrowDirection: "left",
@@ -71,8 +66,18 @@ export const TUTORIAL_STEPS = [
     {
         phase: "select_air_wing",
         title: "Send Recon",
-        content: "Add one Recon Bike Patrol. Scouts widen your sight picture and make the enemy pay for moving blind.",
+        content: "Add one Recon Bike Patrol. Recon moves fast and spots enemy positions before the line commits.",
         highlightSelector: "[data-key='reconBike']",
+        position: "right",
+        arrowDirection: "left",
+        waitForAction: true,
+        actionLabel: "Continue"
+    },
+    {
+        phase: "select_howitzer",
+        title: "Add Artillery",
+        content: "Add one Howitzer Battery. These guns deploy with the force and provide direct battlefield fire.",
+        highlightSelector: "[data-key='howitzer']",
         position: "right",
         arrowDirection: "left",
         waitForAction: true,
@@ -81,7 +86,7 @@ export const TUTORIAL_STEPS = [
     {
         phase: "select_ammo",
         title: "Stock Shells",
-        content: "Add one Ammunition Dump. Guns win time only while the depot keeps them fed.",
+        content: "Add one Ammunition Dump. Without ammo, your guns fall silent.",
         highlightSelector: "[data-key='ammo']",
         position: "left",
         arrowDirection: "right",
@@ -91,7 +96,7 @@ export const TUTORIAL_STEPS = [
     {
         phase: "select_fuel",
         title: "Recovery Teams",
-        content: "Add one Medical Detachment and one Recovery & Repair Section. Casualties and damaged vehicles need real teams assigned before the battle starts.",
+        content: "Add one Medical Detachment and one Recovery & Repair Section. Treat casualties and recover damaged vehicles during the fight.",
         highlightSelector: "[data-key='medic'], [data-key='maintenance']",
         position: "left",
         arrowDirection: "right",
@@ -99,25 +104,18 @@ export const TUTORIAL_STEPS = [
         actionLabel: "Continue"
     },
     {
-        phase: "mission_objectives",
-        title: "Mission Orders",
-        content: "Primary objective: stop the enemy patrol before it reaches the coastal road. Expect a small mobile force. Use engineers, smoke, recon, supply, and recovery teams as one plan.",
-        highlightSelector: "#precombatMissionSummary",
-        position: "center",
-        actionLabel: "Understood"
-    },
-    {
         phase: "review_allocation",
-        title: "Final Check",
-        content: "Confirm the force: three Infantry, Engineers, medium and heavy armor, tank destroyers, two Flak, recon, supply, ammo, medical, and maintenance. When it looks right, deploy.",
-        highlightSelector: "#resetAllocations, #proceedToBattle",
+        title: "Begin Deployment",
+        content: "Click Begin Battle to lock this force and open the deployment map.",
+        highlightSelector: "#proceedToBattle",
         position: "center",
-        actionLabel: "Deploy to Field"
+        waitForAction: true,
+        actionLabel: "Begin Battle"
     },
     {
         phase: "ui_overview",
         title: "Command Rail",
-        content: "The sidebar is your command rail. Open those boards when you need them; each one gives its own command brief the first time you click it.",
+        content: "These sidebar buttons open your command boards. Each board gives a short first-time brief.",
         highlightSelector: ".control-sidebar",
         position: "right",
         arrowDirection: "left",
@@ -125,8 +123,8 @@ export const TUTORIAL_STEPS = [
     },
     {
         phase: "mission_briefing",
-        title: "Battle Header",
-        content: "The header tracks the objective, turn state, air activity, and the main battle actions. Use it to keep tempo.",
+        title: "Command Rail",
+        content: "The command rail shows the operation, turn limit, current objective, and which formations can act.",
         highlightSelector: ".battle-map-header",
         position: "bottom",
         arrowDirection: "up",
@@ -135,7 +133,7 @@ export const TUTORIAL_STEPS = [
     {
         phase: "deployment_panel_intro",
         title: "Deployment Board",
-        content: "This board places base camp and your opening formations. It shows what is staged, what zones are legal, and who still needs orders.",
+        content: "Use this board to set base camp and deploy your opening force.",
         highlightSelector: "#deploymentPanel",
         position: "left",
         arrowDirection: "right",
@@ -144,7 +142,7 @@ export const TUTORIAL_STEPS = [
     {
         phase: "deployment_intro",
         title: "Deployment Plan",
-        content: "First establish base camp. Then use Deploy Evenly to spread the line, Deploy Grouped to mass formations, or place units by hand for exact control.",
+        content: "Set base camp first. Deploy Evenly spreads units across open hexes. Deploy Grouped keeps them closer together.",
         highlightSelector: "#assignBaseCamp, #autoDeployEvenly, #autoDeployGrouped",
         position: "left",
         arrowDirection: "right",
@@ -153,7 +151,7 @@ export const TUTORIAL_STEPS = [
     {
         phase: "base_camp",
         title: "Establish Base Camp",
-        content: "Choose a highlighted deployment-zone hex on the map, then click Assign Base Camp. Keep headquarters behind the first line; reserves and convoys route through it.",
+        content: "Click Zone Alpha in the deployment list to center the camera. Pick one highlighted hex, then click Assign Base Camp.",
         highlightSelector: "#battleMapCanvas, #assignBaseCamp",
         position: "right",
         arrowDirection: "left",
@@ -163,17 +161,17 @@ export const TUTORIAL_STEPS = [
     {
         phase: "place_units",
         title: "Place The Line",
-        content: "Deploy the force. Evenly spreads units across legal hexes; Grouped keeps formations together. For full control, select a unit and click legal hexes one by one.",
-        highlightSelector: "#battleMapCanvas, #deploymentUnitList, #autoDeployEvenly, #autoDeployGrouped",
-        position: "right",
-        arrowDirection: "left",
+        content: "Choose a deployment mode. You can also place units one by one for full control.",
+        highlightSelector: "#autoDeployEvenly, #autoDeployGrouped",
+        position: "top",
+        arrowDirection: "down",
         waitForAction: true,
         actionLabel: "Continue"
     },
     {
         phase: "begin_battle",
         title: "Begin Battle",
-        content: "Enemy movement is reported northeast. Begin operations. The next steps cover movement, fire orders, engineers, artillery, air, and supply under contact.",
+        content: "Enemy movement is reported to the northeast. Click Begin Mission when deployment is complete.",
         highlightSelector: "#beginBattle",
         position: "bottom",
         arrowDirection: "up",
@@ -181,29 +179,50 @@ export const TUTORIAL_STEPS = [
         actionLabel: "Engage Enemy"
     },
     {
-        phase: "movement_intro",
-        title: "Movement",
-        content: "Select a friendly unit. Blue hexes are movement, red hexes are attack options. Terrain, fuel, towing, and suppression all matter.",
-        highlightSelector: "#battleMapCanvas",
+        phase: "initiative_order",
+        title: "Initiative Order",
+        content: "Higher initiative groups act first. When the rail shows Your group, only the highlighted friendly formations can receive orders.",
+        highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status]",
+        position: "bottom",
+        arrowDirection: "up",
+        actionLabel: "Continue"
+    },
+    {
+        phase: "active_group_units",
+        title: "Choose A Formation",
+        content: "Click the highlighted Recon Bike Patrol. It moves first in this training battle.",
+        highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
         position: "right",
         arrowDirection: "left",
         waitForAction: true,
         actionLabel: "Continue"
     },
     {
-        phase: "attack_intro",
-        title: "Fire Orders",
-        content: "Click a red target to attack. Check the preview before firing: armor, suppression, expected damage, and retaliation decide whether the shot is worth it.",
-        highlightSelector: "#battleMapCanvas",
+        phase: "movement_intro",
+        title: "Scout Ahead",
+        content: "Recon moves quickly and sees far, but is lightly armed. Drag or scroll the map, then move to the highlighted green hex. Other green outlines are legal moves.",
+        highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
         position: "right",
         arrowDirection: "left",
+        waitForAction: true,
         actionLabel: "Continue"
     },
     {
-        phase: "select_smoke_unit",
-        title: "Pick Smoke",
-        content: "Select one of the highlighted formations that can throw smoke. Smoke orders live on the unit intel card, not the sidebar.",
-        highlightSelector: "#battleMapCanvas",
+        phase: "enemy_activation",
+        title: "Enemy Response",
+        content: "The enemy now answers with formations in the same initiative band. Watch the map; command returns when their movement is complete.",
+        highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status], .battle-activity-log",
+        highlightFirstMatch: true,
+        position: "bottom",
+        arrowDirection: "up",
+        waitForAction: true,
+        actionLabel: "Continue"
+    },
+    {
+        phase: "engineer_intro",
+        title: "Select The Engineers",
+        content: "The engineers are ready. Click the highlighted Engineering Corps to build fortifications.",
+        highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
         position: "right",
         arrowDirection: "left",
         waitForAction: true,
@@ -211,8 +230,8 @@ export const TUTORIAL_STEPS = [
     },
     {
         phase: "intel_overlay_expand",
-        title: "Unit Intel",
-        content: "This card is the unit's command board: status, orders, and detailed readiness. Click Expand before issuing special orders.",
+        title: "Open The Order Card",
+        content: "The compact card shows readiness at a glance. Click Expand to open the engineer's full order card.",
         highlightSelector: "#battleIntelOverlay, #battleIntelOverlayToggle",
         position: "right",
         arrowDirection: "left",
@@ -220,69 +239,110 @@ export const TUTORIAL_STEPS = [
         actionLabel: "Continue"
     },
     {
-        phase: "smoke_demo",
-        title: "Lay Smoke",
-        content: "Click Lay Smoke, then choose your own hex or an in-range target hex and pick the edge to screen. Use smoke to break sight before you move.",
-        highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke']",
-        position: "right",
-        arrowDirection: "left",
-        waitForAction: true,
-        actionLabel: "Continue"
-    },
-    {
-        phase: "engineer_intro",
-        title: "Engineers",
-        content: "Select an Engineering Corps. Engineers control terrain: dig in, fortify, lay traps, and open lanes for the main body.",
-        highlightSelector: "#battleMapCanvas",
-        position: "right",
-        arrowDirection: "left",
-        waitForAction: true,
-        actionLabel: "Continue"
-    },
-    {
         phase: "engineer_orders",
-        title: "Engineer Work",
-        content: "Issue one engineer order from the unit card. Dig In, Fortify, Lay Tank Traps, or Clear Path all count.",
-        highlightSelector: "#battleIntelOverlay",
-        position: "left",
-        arrowDirection: "right",
+        title: "Build Fortifications",
+        content: "Click Fortify, then choose the edge that faces the enemy.",
+        highlightSelector: "#battleFortificationFacingPreview .fortification-facing-preview-svg",
+        position: "right",
+        arrowDirection: "left",
+        waitForAction: true,
+        actionLabel: "Continue"
+    },
+    {
+        phase: "enemy_response",
+        title: "Enemy Response",
+        content: "Enemy formations in this band now act. Watch their movement; your infantry group is next.",
+        highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status], .battle-activity-log",
+        highlightFirstMatch: true,
+        position: "bottom",
+        arrowDirection: "up",
+        waitForAction: true,
+        actionLabel: "Continue"
+    },
+    {
+        phase: "artillery_support_intro",
+        title: "Artillery Support",
+        content: "Corps Artillery is ready off-map. Choose an observer, then send the fire mission.",
+        highlightSelector: "#battleMapCanvas",
+        showSpotlight: false,
+        position: "right",
+        arrowDirection: "left",
+        waitForAction: false,
+        actionLabel: "Continue"
+    },
+    {
+        phase: "select_artillery_observer",
+        title: "Choose Observer",
+        content: "Click the highlighted friendly formation. It has eyes on a target and can direct Corps Artillery.",
+        highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
+        position: "right",
+        arrowDirection: "left",
         waitForAction: true,
         actionLabel: "Continue"
     },
     {
         phase: "artillery_intro",
-        title: "Artillery",
-        content: "Use an infantry or recon spotter, call artillery, then click an observed enemy hex. Off-map guns queue the mission and punish fixed targets.",
-        highlightSelector: "#battleMapCanvas",
+        title: "Call Artillery",
+        content: "Click Call Artillery, then select a highlighted enemy hex. The shells arrive during the turn transition.",
+        highlightSelector: "#battleIntelOverlay [data-selection-action='callArtillery']",
         position: "right",
         arrowDirection: "left",
         waitForAction: true,
         actionLabel: "Continue"
     },
     {
-        phase: "flak_intro",
-        title: "Flak Coverage",
-        content: "Select the Flak Battery. Its main job is automatic air defense, so position it where coverage protects headquarters, reserves, and guns.",
-        highlightSelector: "#battleMapCanvas",
+        phase: "post_artillery_enemy_response",
+        title: "Enemy Response",
+        content: "Enemy formations now act. Watch the map; command returns to the next friendly group when they finish.",
+        highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status], .battle-activity-log",
+        highlightFirstMatch: true,
+        position: "bottom",
+        arrowDirection: "up",
+        waitForAction: true,
+        actionLabel: "Continue"
+    },
+    {
+        phase: "select_attack_unit",
+        title: "Select A Firing Unit",
+        content: "Another formation has a clear shot. Click the highlighted friendly unit to prepare its fire order.",
+        highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
         position: "right",
         arrowDirection: "left",
         waitForAction: true,
         actionLabel: "Continue"
     },
     {
-        phase: "turn_end",
-        title: "End Turn",
-        content: "When movement, fire, support, and supply checks are done, end the turn. The idle warning catches formations still waiting for orders.",
-        highlightSelector: "#endTurn",
-        position: "left",
-        arrowDirection: "right",
+        phase: "smoke_demo",
+        title: "Smoke Screens",
+        content: "This formation can lay smoke on its own hex or a neighboring hex edge. Use smoke to block sight before a risky move or to cover a damaged unit.",
+        highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke']",
+        position: "right",
+        arrowDirection: "left",
+        actionLabel: "Continue"
+    },
+    {
+        phase: "attack_intro",
+        title: "Fire Orders",
+        content: "Red outlines mark enemy formations in range. Click one, review the fire report, then confirm the attack.",
+        highlightSelector: "#battleMapCanvas .hex-cell.attack-target-highlight, #battleMapCanvas .hex-tile.attack-target-highlight",
+        showSpotlight: false,
+        position: "right",
+        arrowDirection: "left",
         waitForAction: true,
+        actionLabel: "Continue"
+    },
+    {
+        phase: "mission_objectives",
+        title: "Mission Orders",
+        content: "Orders: stop the enemy patrol before it reaches the coastal road.",
+        highlightSelector: ".mission-summary-panel, .battle-map-header",
+        position: "center",
         actionLabel: "Continue"
     },
     {
         phase: "complete",
-        title: "Command Certified",
-        content: "You have the command loop: requisition, deploy, maneuver, strike, support, and resupply. Win by combining systems, not by treating them as separate menus.",
+        title: "Ready For Battle",
+        content: "Good luck, General{generalName}.",
         position: "center",
         actionLabel: "Dismiss"
     }
@@ -294,9 +354,15 @@ export function getTutorialStep(phase) {
         return null;
     return TUTORIAL_STEPS[index];
 }
+export function getTutorialStepNumber(phase) {
+    const index = PHASE_INDEX_MAP.get(phase);
+    return index === undefined ? null : index + 1;
+}
 export function getNextPhase(currentPhase) {
     const currentIndex = PHASE_INDEX_MAP.get(currentPhase);
     if (currentIndex === undefined)
+        return null;
+    if (currentPhase === "complete")
         return null;
     const nextIndex = currentIndex + 1;
     if (nextIndex >= TUTORIAL_STEPS.length)
@@ -310,11 +376,10 @@ export function getPreviousPhase(currentPhase) {
     return TUTORIAL_STEPS[currentIndex - 1].phase;
 }
 export function isFirstPhase(phase) {
-    return phase === "welcome";
+    return phase === "budget_overview";
 }
 export function getPrecombatPhases() {
     return [
-        "welcome",
         "budget_overview",
         "unit_categories",
         "select_infantry",
@@ -322,9 +387,9 @@ export function getPrecombatPhases() {
         "select_engineers",
         "select_flak",
         "select_air_wing",
+        "select_howitzer",
         "select_ammo",
         "select_fuel",
-        "mission_objectives",
         "review_allocation"
     ];
 }
@@ -341,16 +406,22 @@ export function getDeploymentPhases() {
 }
 export function getCombatPhases() {
     return [
+        "initiative_order",
+        "active_group_units",
         "movement_intro",
-        "attack_intro",
-        "select_smoke_unit",
-        "intel_overlay_expand",
-        "smoke_demo",
+        "enemy_activation",
         "engineer_intro",
+        "intel_overlay_expand",
         "engineer_orders",
+        "enemy_response",
+        "artillery_support_intro",
+        "select_artillery_observer",
         "artillery_intro",
-        "flak_intro",
-        "turn_end",
+        "post_artillery_enemy_response",
+        "select_attack_unit",
+        "smoke_demo",
+        "attack_intro",
+        "mission_objectives",
         "complete"
     ];
 }

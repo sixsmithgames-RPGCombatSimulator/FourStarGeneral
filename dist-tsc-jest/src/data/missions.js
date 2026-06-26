@@ -394,20 +394,14 @@ const missionDeploymentProfiles = {
         preferredZoneKey: "zone-alpha",
         focusLabel: "training line",
         validation: {
-            minimumPlayerZoneCapacityTotal: 20,
+            minimumPlayerZoneCapacityTotal: 13,
             minimumPlayerZoneFrontage: 5,
             minimumPlayerZoneDepth: 4
         },
         zoneDoctrine: [
             {
                 zoneKey: "zone-alpha",
-                minimumCapacity: 12,
-                minimumFrontage: 5,
-                minimumDepth: 4
-            },
-            {
-                zoneKey: "zone-bravo",
-                minimumCapacity: 16,
+                minimumCapacity: 13,
                 minimumFrontage: 5,
                 minimumDepth: 4
             }
@@ -790,7 +784,7 @@ const missionDeploymentProfiles = {
         preferredZoneKey: "zone-alpha",
         focusLabel: "forward line",
         validation: {
-            minimumPlayerZoneCapacityTotal: 20,
+            minimumPlayerZoneCapacityTotal: 12,
             minimumPlayerZoneFrontage: 5,
             minimumPlayerZoneDepth: 4
         },
@@ -798,12 +792,6 @@ const missionDeploymentProfiles = {
             {
                 zoneKey: "zone-alpha",
                 minimumCapacity: 12,
-                minimumFrontage: 5,
-                minimumDepth: 4
-            },
-            {
-                zoneKey: "zone-bravo",
-                minimumCapacity: 16,
                 minimumFrontage: 5,
                 minimumDepth: 4
             }

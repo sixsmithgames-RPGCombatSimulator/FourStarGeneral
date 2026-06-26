@@ -9,6 +9,7 @@ import { AIR_MISSION_TEMPLATES } from "../data/airMissions";
 import { TOWED_ARTILLERY_UNITS } from "../data/transportModes";
 import { getReconIntelSnapshot as buildInitialReconIntelSnapshot } from "../data/reconIntelSnapshot";
 import { combat as combatBalance, FUEL_COST, supply as supplyBalance } from "../core/balance";
+import { isSoftCombatTarget } from "../core/armorEffects";
 import { accumulateProduction, advanceShipments, applyShipment, createSupplyState, enforceLedgerLimit, getInventoryTotals, recordConsumption } from "../core/SupplyState";
 import { awardCombatExperience, getEffectiveExperience, getExperienceBonus, seedUnitExperience } from "../core/Experience";
 import { applyReadinessScalarToStatus, applyEquipmentRepairToUnit, applyMedicalRecoveryToUnit, createInitialFormationStatus, deriveStrengthFromStatus, ensureFormationStatus, mergeSameTypeFormationStatus, synchronizeUnitStatusWithStrength } from "../data/unitSystem/status";
@@ -458,7 +459,7 @@ export class GameEngine {
             this.clearAirMissionAssignment(mission);
         }
     }
-    refreshStrikeTargetHex(mission, maxFollowDistanceHex) {
+    refreshStrikeTargetHex(mission, _maxFollowDistanceHex) {
         if (mission.template.kind !== "strike") {
             return;
         }
@@ -471,9 +472,6 @@ export class GameEngine {
             return;
         }
         const candidateHex = targetLookup.unit.hex;
-        if (hexDistance(mission.targetHex, candidateHex) > maxFollowDistanceHex) {
-            return;
-        }
         const attackerLookup = this.lookupUnitBySquadronId(mission.unitKey, mission.faction);
         const attackerUnit = attackerLookup?.unit;
         if (!attackerUnit) {
@@ -1880,7 +1878,10 @@ export class GameEngine {
         return {
             attacker: attackerState,
             defender: defenderState,
-            attackerCtx: { hex: structuredClone(attacker.hex) },
+            attackerCtx: {
+                hex: structuredClone(attacker.hex),
+                towState: this.resolveTowState(attacker)
+            },
             defenderCtx: {
                 terrain: this.terrainAt(defender.hex) ?? this.defaultTerrain(),
                 class: defenderDefinition.class,
@@ -1890,7 +1891,7 @@ export class GameEngine {
                 isSpottedOnly: false
             },
             targetFacing: defender.facing,
-            isSoftTarget: defenderDefinition.class === "infantry" || defenderDefinition.class === "specialist"
+            isSoftTarget: isSoftCombatTarget(defenderDefinition)
         };
     }
     /** Builds a guaranteed attack request for mission resolution when LOS shortcuts are required. */
@@ -4113,13 +4114,21 @@ export class GameEngine {
         const units = this.getUnitsAtHexForFaction(hex, "Player").filter((unit) => this.shouldTrackAsPlayerIdle(unit));
         if (units.some((unit) => {
             const flags = this.getUnitActionFlags("Player", unit);
-            return flags.movementPointsUsed === 0 && flags.attacksUsed === 0 && !unit.onSentry;
+            return this.isTrackedPlayerUnitIdle(unit, flags);
         })) {
             this.playerIdleUnitKeys.add(hexKey);
         }
         else {
             this.playerIdleUnitKeys.delete(hexKey);
         }
+    }
+    isTrackedPlayerUnitIdle(unit, flags) {
+        return (flags.movementPointsUsed === 0
+            && flags.attacksUsed === 0
+            && flags.smokeUsed !== true
+            && flags.facingSet !== true
+            && flags.supportQueued !== true
+            && !unit.onSentry);
     }
     rebuildPlayerIdleUnitSet() {
         this.playerIdleUnitKeys.clear();
@@ -4173,7 +4182,7 @@ export class GameEngine {
             const activeUnits = this.getUnitsAtHexForFaction(hex, "Player").filter((unit) => this.shouldTrackAsPlayerIdle(unit));
             if (!activeUnits.some((unit) => {
                 const flags = this.getUnitActionFlags("Player", unit);
-                return flags.movementPointsUsed === 0 && flags.attacksUsed === 0 && !unit.onSentry;
+                return this.isTrackedPlayerUnitIdle(unit, flags);
             })) {
                 this.playerIdleUnitKeys.delete(key);
             }
@@ -4424,7 +4433,7 @@ export class GameEngine {
         }
         this.privateSupportAssets.push({
             id: "support-artillery-alpha",
-            label: "Heavy Artillery Battery",
+            label: "Corps Artillery Group",
             type: "artillery",
             status: "ready",
             charges: 2,
@@ -4432,7 +4441,7 @@ export class GameEngine {
             cooldown: 0,
             maxCooldown: 3,
             assignedHex: null,
-            notes: "Off-map heavy artillery battery available for observer-directed fire missions.",
+            notes: "Off-map corps artillery available for observer-directed fire missions.",
             queuedHex: null,
             queuedByHex: null,
             strikeDamageCap: 24
@@ -5410,7 +5419,7 @@ export class GameEngine {
             return false;
         }
         const callerKey = axialKey(callerHex);
-        const flags = this.playerActionFlags.get(callerKey) ?? this.createDefaultActionFlags();
+        const flags = this.getUnitActionFlags("Player", caller);
         const halfMovement = Math.floor(callerDefinition.movement / 2);
         if (flags.attacksUsed > 0 || flags.movementPointsUsed > halfMovement) {
             return false;
@@ -5422,6 +5431,8 @@ export class GameEngine {
         asset.queuedHex = axialKey(targetHex);
         asset.queuedByHex = callerKey;
         asset.status = "queued";
+        this.setUnitActionFlags("Player", caller, { ...flags, supportQueued: true });
+        this.updateIdleRegistryFor(callerKey);
         this.invalidateSupportSnapshot();
         this.invalidateRosterCache();
         return true;
@@ -5551,7 +5562,8 @@ export class GameEngine {
         if (this._phase === "deployment" || this._phase === "completed") {
             return { ok: false, code: "PHASE_INVALID", reason: "Air missions can only be scheduled during an active battle." };
         }
-        if (request.faction !== this._activeFaction) {
+        const allowPlayerPlanningWindow = this._phase === "playerTurn" && request.faction === "Player";
+        if (request.faction !== this._activeFaction && !allowPlayerPlanningWindow) {
             return { ok: false, code: "WRONG_FACTION", reason: "Only the active faction may schedule missions during its turn." };
         }
         const template = this.getAirMissionTemplate(request.kind);
@@ -5710,11 +5722,10 @@ export class GameEngine {
         const missionId = this.nextAirMissionId();
         let targetUnitKey;
         if (template.kind === "strike" && request.targetHex) {
-            const opponentPlacements = request.faction === "Player" ? this.botPlacements : this.playerPlacements;
-            const defender = opponentPlacements.get(axialKey(request.targetHex));
-            if (defender) {
-                this.ensureUnitId(defender);
-                targetUnitKey = defender.unitId;
+            const defenders = this.getHostileUnitsAtHex(request.targetHex, request.faction);
+            const primaryDefender = defenders[0]?.unit ?? null;
+            if (primaryDefender) {
+                targetUnitKey = this.getSquadronId(primaryDefender);
             }
         }
         const mission = {
@@ -6697,6 +6708,11 @@ export class GameEngine {
         if (this._phase === "deployment" || this._phase === "completed") {
             return null;
         }
+        if (this._phase === "botTurn") {
+            // Initiative-mode round advancement enters through botTurn without running executeBotTurn.
+            // Schedule bot air tasks here so enemy aircraft still launch before round resolution.
+            this.maybeScheduleHeuristicAirOps();
+        }
         this.stepAirMissionsForFaction(this._activeFaction);
         this.advanceAirMissionRefits(this._activeFaction);
         if (this._phase === "playerTurn") {
@@ -6748,6 +6764,10 @@ export class GameEngine {
         }
         // Bot turn was already resolved, so simply advance to the player's next turn.
         if (this._phase === "botTurn" || this._phase === "allyTurn") {
+            // Initiative-mode round advancement can enter through bot/ally phases without flowing through
+            // the player-turn branch; still advance player sortie lifecycles so queued player flights launch.
+            this.stepAirMissionsForFaction("Player");
+            this.advanceAirMissionRefits("Player");
             this.resolveReadyAirMissionsForRound();
             this._phase = "playerTurn";
             this._activeFaction = "Player";
@@ -7590,6 +7610,12 @@ export class GameEngine {
             throw new Error("Destination out of bounds.");
         }
         if (!this.canFactionEnterHex(unit, "Player", to)) {
+            if (this.getHostileUnitsAtHex(to, "Player").length > 0) {
+                throw new Error("Enemy-occupied hexes must be attacked, not entered.");
+            }
+            if (this.isStackCountedUnit(unit) && this.countStackedCombatUnitsAtHex(to, "Player") >= 2) {
+                throw new Error("Friendly hex is already at the two-formation stacking limit.");
+            }
             throw new Error("Destination hex is occupied.");
         }
         const movingUnitId = this.getSquadronId(unit);
@@ -9160,6 +9186,8 @@ export class GameEngine {
             purpose: "direct-fire"
         });
         const canAttackWithoutDirectLOS = this.canAttackWithoutDirectLOS(attackerType);
+        const isObserverDirectedIndirectFire = attackerType.moveType !== "air" &&
+            (attackerType.class === "artillery" || attackerType.traits.includes("indirect"));
         let isSpottedOnly = false;
         if (!hasDirectLOS) {
             if (!canAttackWithoutDirectLOS) {
@@ -9169,7 +9197,9 @@ export class GameEngine {
             if (!hasSpotting) {
                 return null;
             }
-            isSpottedOnly = true;
+            // Indirect fires still require a valid spot/observer, but they do not receive
+            // the direct-fire-only spotted penalty once the fire mission is coordinated.
+            isSpottedOnly = !isObserverDirectedIndirectFire;
         }
         const attackerGeneral = attackerFaction === "Player" ? this.playerSide.general : this.botSide.general;
         const defenderGeneral = defenderFaction === "Player" ? this.playerSide.general : this.botSide.general;
@@ -9202,6 +9232,7 @@ export class GameEngine {
             movementAttackWindow,
             isRetaliation: options?.isRetaliation === true,
             isOnSentry: options?.isOnSentry === true || attacker.onSentry === true,
+            towState: this.resolveTowState(attacker),
             suppressionState: attackerSuppression
         };
         // Check if defender is rushing (loses terrain cover) using the unit's stable action state.
@@ -9230,7 +9261,7 @@ export class GameEngine {
             attackerCtx,
             defenderCtx,
             targetFacing: defender.facing,
-            isSoftTarget: defenderType.class === "infantry" || defenderType.class === "specialist"
+            isSoftTarget: isSoftCombatTarget(defenderType)
         };
     }
     /** Check if target hex is spotted by any friendly unit that can plausibly see it. */
@@ -11326,12 +11357,16 @@ export class GameEngine {
             lister,
             purpose: "direct-fire"
         });
+        const isObserverDirectedIndirectFire = attackerDef.moveType !== "air" &&
+            (attackerDef.class === "artillery" || attackerDef.traits.includes("indirect"));
         let isSpottedOnly = false;
         if (!hasDirectLOS) {
             if (!this.canAttackWithoutDirectLOS(attackerDef) || !this.checkTargetSpotted(targetHex, "Bot")) {
                 return null;
             }
-            isSpottedOnly = true;
+            // Coordinated indirect fires use spotting to authorize the mission, but once
+            // observer corrections are available they are not treated as blind direct fire.
+            isSpottedOnly = !isObserverDirectedIndirectFire;
         }
         const distance = hexDistance(attackerHex, targetHex);
         const minRange = attackerDef.rangeMin ?? 1;
@@ -11578,7 +11613,8 @@ export class GameEngine {
                 },
                 attackerCtx: {
                     hex: attackRequestSource.hex,
-                    stance: effectiveStance
+                    stance: effectiveStance,
+                    towState: this.resolveTowState(attackRequestSource)
                 },
                 defenderCtx: {
                     terrain: this.terrainAt(defenderBefore.hex) ?? this.defaultTerrain(),
@@ -11592,7 +11628,7 @@ export class GameEngine {
                     fortificationFacings: defenderFortificationFacings
                 },
                 targetFacing: defenderBefore.facing,
-                isSoftTarget: defenderDef.class === "infantry" || defenderDef.class === "specialist"
+                isSoftTarget: isSoftCombatTarget(defenderDef)
             };
             const baseAttackResult = resolveAttack(request);
             let scaledAttackResult = {
@@ -12637,7 +12673,7 @@ export class GameEngine {
             case "smoke":
                 return "a smoke screen";
             default:
-                return "fieldworks";
+                return "fortifications";
         }
     }
     resolveActionCommitmentReason(flags) {
@@ -12648,18 +12684,17 @@ export class GameEngine {
     }
     /**
      * Returns true when the unit class and definition allow laying a smoke screen.
-     * Tanks, vehicles, and artillery can all fire smoke rounds. Any ground unit with the
-     * 'smoke' trait (e.g. mortar teams) is also eligible.
+     * Smoke is restricted to armored fighting vehicles and artillery with dedicated smoke drills.
      */
     isSmokeCapableUnit(unit, definition) {
         if (definition.moveType === "air") {
             return false;
         }
-        const smokableClasses = ["tank", "vehicle", "artillery"];
-        if (smokableClasses.includes(definition.class)) {
-            return true;
-        }
-        return definition.traits.includes("smoke");
+        const smokableClasses = ["tank", "artillery"];
+        return smokableClasses.includes(definition.class);
+    }
+    resolveSmokePlacementRange(_definition) {
+        return 1;
     }
     /**
      * Resolves whether the selected unit can lay a smoke screen this turn.
@@ -12677,7 +12712,10 @@ export class GameEngine {
             return { available: false, reason: "No player formation occupies this hex." };
         }
         if (!this.isSmokeCapableUnit(unit, definition)) {
-            return { available: false, reason: "Only tanks, vehicles, artillery, and smoke-equipped infantry can deploy smoke." };
+            return { available: false, reason: "Only tanks and artillery can deploy close smoke." };
+        }
+        if (this.resolveTowState(unit) === "towed") {
+            return { available: false, reason: "Deploy the battery before laying smoke." };
         }
         if (unit.ammo <= 0) {
             return { available: false, reason: "No ammunition remaining — smoke rounds require the unit to have ammo." };
@@ -12816,7 +12854,7 @@ export class GameEngine {
             return this.resolveLaySmokeAvailability(hex, unit, definition, flags);
         }
         if (this._phase !== "playerTurn") {
-            return { available: false, reason: "Engineer fieldworks can be ordered only during the player turn." };
+            return { available: false, reason: "Engineer orders can be issued only during the player turn." };
         }
         if (this.isAutomatedPlayerUnit(unit)) {
             return { available: false, reason: "Automated logistics convoys do not accept engineering orders." };
@@ -13075,6 +13113,7 @@ export class GameEngine {
         }
         unit.facing = facing;
         this.replaceUnitInFactionHex("Player", unit);
+        this.setUnitActionFlags("Player", unit, { ...flags, facingSet: true });
         this.updateIdleRegistryFor(axialKey(hex));
         this.invalidateRosterCache();
         return true;
@@ -13093,8 +13132,8 @@ export class GameEngine {
         };
     }
     /**
-     * Returns all hex keys within the unit's rangeMax that are valid smoke targets (excluding
-     * the unit's own hex, which is handled separately as "pop smoke" on own position).
+     * Returns adjacent hex keys that are valid smoke targets. The unit's own hex is handled
+     * separately as "pop smoke" on own position.
      * Used by the UI to highlight selectable target hexes before the edge-facing step.
      */
     resolveSmokeTargetHexKeys(hex, unitId) {
@@ -13108,7 +13147,7 @@ export class GameEngine {
         if (!availability.available) {
             return [];
         }
-        const range = Math.max(1, definition.rangeMax ?? 1);
+        const range = this.resolveSmokePlacementRange(definition);
         const origin = axialKey(hex);
         const visited = new Set([origin]);
         const queue = [hex];
@@ -13136,7 +13175,7 @@ export class GameEngine {
     /**
      * Places a smoke screen on the specified edge of a hex.
      * When targetHex is provided the smoke is placed there instead of the unit's own hex;
-     * the target must be within the unit's rangeMax. When omitted smoke goes on the unit's hex.
+     * the target must be the unit's own hex or adjacent. When omitted smoke goes on the unit's hex.
      * Smoke is a free action (does not spend movement or attacks) but consumes 1 ammo.
      * Each unit may deploy smoke at most once per turn — the smokeUsed flag prevents reuse.
      * The modification expires at the start of the next player turn via expireSmoke().
@@ -13160,7 +13199,7 @@ export class GameEngine {
                 throw new Error(`laySmoke: target hex ${axialKey(targetHex)} is outside the battlefield.`);
             }
             const dist = hexDistance(hex, targetHex);
-            const range = Math.max(1, definition.rangeMax ?? 1);
+            const range = this.resolveSmokePlacementRange(definition);
             if (dist > range) {
                 throw new Error(`laySmoke: target hex is out of range (distance ${dist}, max ${range}).`);
             }

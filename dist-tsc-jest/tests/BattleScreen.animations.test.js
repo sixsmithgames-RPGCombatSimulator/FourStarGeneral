@@ -366,7 +366,7 @@ registerTest("BATTLESCREEN_SUPPORT_ARTILLERY_IMPACTS_WAIT_FOR_FOCUS_AND_USE_BARR
         await screen.playSupportImpacts([
             {
                 assetId: "support-artillery-alpha",
-                label: "Heavy Artillery Battery",
+                label: "Corps Artillery Group",
                 targetHex: { q: 8, r: 1 },
                 targetFaction: "Bot",
                 hit: true,
@@ -1079,6 +1079,82 @@ registerTest("BATTLESCREEN_STRIKE_USES_CONTINUOUS_SORTIE_WHEN_RENDERER_SUPPORTS_
         }
         if (!(sortieStartIndex < impactIndex && impactIndex < sortieEndIndex)) {
             throw new Error(`Expected impact to occur during the continuous sortie, saw ${JSON.stringify(callOrder)}.`);
+        }
+    });
+});
+registerTest("BATTLESCREEN_INITIATIVE_BOT_RETALIATION_WAITS_FOR_FOCUS_PACING", async ({ Given, When, Then }) => {
+    let screen;
+    const focusCalls = [];
+    const sequenceCalls = [];
+    const waitDurations = [];
+    await Given("an initiative bot activation that includes retaliation", async () => {
+        screen = Object.create(BattleScreen.prototype);
+        screen.isInitiativeSystemEnabled = true;
+        screen.battleAnimationMode = "regular";
+        screen.mapViewport = {};
+        screen.hexMapRenderer = {
+            playAttackSequence: async (attackerHexKey, defenderHexKey, isHardTarget) => {
+                sequenceCalls.push(`${attackerHexKey}->${defenderHexKey}:${isHardTarget ? "hard" : "soft"}`);
+            }
+        };
+        screen.unitTypes = {
+            Infantry_42: { class: "infantry" },
+            Panzer_IV: { class: "tank" }
+        };
+        screen.toOffsetHexKey = (hex) => (hex ? `${hex.q},${hex.r}` : null);
+        screen.isBotUnitVisibleToPlayer = () => false;
+        screen.waitForNextFrame = async () => { };
+        screen.waitMs = async (durationMs) => {
+            waitDurations.push(durationMs);
+        };
+        screen.focusCameraOnHex = async (hexKey) => {
+            focusCalls.push(hexKey);
+        };
+        screen.renderEngineUnits = () => { };
+        screen.logInitiativeBotActivationActivity = () => { };
+        screen.toMovePathKeys = () => [];
+        screen.resolveMoveAnimationDuration = () => 0;
+    });
+    await When("the activation animation pipeline runs", async () => {
+        await screen.handleInitiativeBotActivation({
+            unitId: "u_bot_1",
+            ownerId: "bot",
+            unitType: "Infantry_42",
+            moved: false,
+            fromHex: { q: 4, r: 4 },
+            toHex: { q: 4, r: 4 },
+            visibleBefore: false,
+            visibleAfter: false,
+            attacks: [
+                {
+                    attackerType: "Infantry_42",
+                    defenderType: "Panzer_IV",
+                    fromHex: { q: 4, r: 4 },
+                    targetHex: { q: 4, r: 5 },
+                    inflictedDamage: 9,
+                    defenderDestroyed: false,
+                    retaliation: {
+                        damage: 6,
+                        attackerStrengthAfter: 84
+                    }
+                }
+            ]
+        });
+    });
+    await Then("camera focus and pacing include a retaliation beat before completion", async () => {
+        const expectedFocus = ["4,4", "4,5", "4,4"];
+        if (focusCalls.length !== expectedFocus.length || focusCalls.some((value, index) => value !== expectedFocus[index])) {
+            throw new Error(`Expected focus order ${JSON.stringify(expectedFocus)}, received ${JSON.stringify(focusCalls)}.`);
+        }
+        const expectedSequences = ["4,4->4,5:hard", "4,5->4,4:soft"];
+        if (sequenceCalls.length !== expectedSequences.length ||
+            sequenceCalls.some((value, index) => value !== expectedSequences[index])) {
+            throw new Error(`Expected attack sequence order ${JSON.stringify(expectedSequences)}, received ${JSON.stringify(sequenceCalls)}.`);
+        }
+        const hasTargetSettlePause = waitDurations.includes(240);
+        const retaliationPauseCount = waitDurations.filter((duration) => duration === 220).length;
+        if (!hasTargetSettlePause || retaliationPauseCount < 2) {
+            throw new Error(`Expected pacing waits to include target settle (240ms) and retaliation beats (>=2x220ms), received ${JSON.stringify(waitDurations)}.`);
         }
     });
 });

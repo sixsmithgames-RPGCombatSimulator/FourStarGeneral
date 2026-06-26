@@ -436,6 +436,7 @@ export class BattleScreen {
   private pendingIdleTurnAdvance: { summary: TurnSummary } | null = null;
   private lastFocusedHexKey: string | null = null;
   private lastViewportTransform: { zoom: number; panX: number; panY: number } | null = null;
+  private lastFocusedViewportPoint: { cx: number; cy: number } | null = null;
   private cameraFrozen: boolean = false;
   private soundEnabled = true;
   private battleAnimationMode: BattleAnimationMode = "regular";
@@ -6883,6 +6884,81 @@ export class BattleScreen {
     return hexDistance(a.focusHex, b.focusHex) <= BattleScreen.AIR_PLAYBACK_CLUSTER_LINK_DISTANCE_HEX;
   }
 
+  private resolveRenderedHexCenter(
+    renderer: HexMapRenderer | null | undefined,
+    hexKey: string | null | undefined
+  ): { cx: number; cy: number } | null {
+    if (!hexKey || !renderer) {
+      return null;
+    }
+    const cell = renderer.getHexElement?.(hexKey);
+    if (!cell) {
+      return renderer.getHexCenter?.(hexKey) ?? null;
+    }
+    const cx = Number(cell.dataset.cx ?? NaN);
+    const cy = Number(cell.dataset.cy ?? NaN);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || (cx === 0 && cy === 0)) {
+      return renderer.getHexCenter?.(hexKey) ?? null;
+    }
+    return { cx, cy };
+  }
+
+  private resolveAirPlaybackClusterFocusPoint(
+    cluster: readonly AirPlaybackOperation[],
+    renderer: HexMapRenderer
+  ): { cx: number; cy: number } | null {
+    const pointsByHexKey = new Map<string, { cx: number; cy: number }>();
+    const appendFocusPoint = (hexKey: string | null | undefined): void => {
+      if (!hexKey || pointsByHexKey.has(hexKey)) {
+        return;
+      }
+      const point = this.resolveRenderedHexCenter(renderer, hexKey);
+      if (point) {
+        pointsByHexKey.set(hexKey, point);
+      }
+    };
+
+    cluster.forEach((operation) => {
+      if (operation.kind === "linkedStrike" || operation.kind === "flight") {
+        const flight = operation.flight;
+        if (flight.kind === "strike") {
+          appendFocusPoint(flight.originKey);
+          appendFocusPoint(operation.focusKey ?? flight.destKey);
+          return;
+        }
+      }
+      appendFocusPoint(operation.focusKey);
+    });
+
+    const points = Array.from(pointsByHexKey.values());
+    if (points.length === 0) {
+      return null;
+    }
+    return {
+      cx: points.reduce((sum, point) => sum + point.cx, 0) / points.length,
+      cy: points.reduce((sum, point) => sum + point.cy, 0) / points.length
+    };
+  }
+
+  private async focusCameraOnPoint(
+    point: { cx: number; cy: number },
+    zoom?: number
+  ): Promise<void> {
+    if (!this.mapViewport) {
+      return;
+    }
+    if (zoom !== undefined) {
+      const currentTransform = this.mapViewport.getTransform();
+      this.mapViewport.setTransform(zoom, currentTransform.panX, currentTransform.panY);
+    }
+    this.mapViewport.centerOn(point.cx, point.cy);
+    this.lastFocusedHexKey = null;
+    this.lastFocusedViewportPoint = { cx: point.cx, cy: point.cy };
+    this.lastViewportTransform = this.mapViewport.getTransform();
+    await this.waitForNextFrame();
+    await this.waitForNextFrame();
+  }
+
   private async playAirPlaybackCluster(
     cluster: AirPlaybackOperation[],
     renderer: HexMapRenderer,
@@ -6896,9 +6972,19 @@ export class BattleScreen {
     const focusDelay = cluster.some((operation) => operation.kind === "linkedStrike")
       ? this.scaleAirSequenceMs(220)
       : this.scaleAirSequenceMs(180);
+    const containsStrike = cluster.some((operation) =>
+      (operation.kind === "linkedStrike" || operation.kind === "flight")
+      && operation.flight.kind === "strike"
+    );
+    const airPlaybackZoom = containsStrike ? 0.86 : undefined;
 
     if (focusKey) {
-      await this.focusCameraOnHex(focusKey);
+      const packageFocusPoint = this.resolveAirPlaybackClusterFocusPoint(cluster, renderer);
+      if (packageFocusPoint) {
+        await this.focusCameraOnPoint(packageFocusPoint, airPlaybackZoom);
+      } else {
+        await this.focusCameraOnHex(focusKey, airPlaybackZoom);
+      }
       await this.waitForNextFrame();
       await this.waitMs(focusDelay);
     }
@@ -7179,6 +7265,7 @@ export class BattleScreen {
       transformMatch: afterDOMTransform.includes(afterTransform.panX.toFixed(1))
     });
     this.lastFocusedHexKey = hexKey;
+    this.lastFocusedViewportPoint = { cx, cy };
     this.lastViewportTransform = afterTransform;
 
     // Wait TWO frames to ensure transform fully propagates to DOM
@@ -7191,10 +7278,13 @@ export class BattleScreen {
   }
 
   private recenterLastFocus(): void {
-    if (!this.lastFocusedHexKey) {
+    if (this.lastFocusedHexKey) {
+      this.focusCameraOnHex(this.lastFocusedHexKey);
       return;
     }
-    this.focusCameraOnHex(this.lastFocusedHexKey);
+    if (this.lastFocusedViewportPoint) {
+      this.focusCameraOnPoint(this.lastFocusedViewportPoint);
+    }
   }
 
   private restoreViewportAfterIdleDismiss(): void {
@@ -7300,9 +7390,8 @@ export class BattleScreen {
     // Center the viewport on the zone's average position
     this.mapViewport.centerOn(avgX, avgY);
     this.lastViewportTransform = this.mapViewport.getTransform();
-    if (hexArray.length === 1) {
-      this.lastFocusedHexKey = hexArray[0] ?? null;
-    }
+    this.lastFocusedViewportPoint = { cx: avgX, cy: avgY };
+    this.lastFocusedHexKey = hexArray.length === 1 ? (hexArray[0] ?? null) : null;
   }
 
   /**
@@ -14024,6 +14113,7 @@ export class BattleScreen {
     this.pendingIdleTurnAdvance = null;
     this.lastFocusedHexKey = null;
     this.lastViewportTransform = null;
+    this.lastFocusedViewportPoint = null;
     this.lastAnnouncement = null;
     this.ensureDetailedAirCombatTurnUnitKeys().clear();
     this.publishSelectionIntel(null);

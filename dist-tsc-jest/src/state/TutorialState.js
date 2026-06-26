@@ -19,7 +19,7 @@ class TutorialStateManager {
      */
     startTutorial() {
         this.isActive = true;
-        this.currentPhase = "welcome";
+        this.currentPhase = "budget_overview";
         this.completedPhases.clear();
         this.canProceed = true;
         this.notifyListeners();
@@ -45,15 +45,12 @@ class TutorialStateManager {
     /**
      * Advances to the next tutorial phase.
      */
-    advancePhase(nextPhase) {
+    advancePhase(nextPhase, canProceed = true) {
         if (!this.isActive)
             return;
         this.completedPhases.add(this.currentPhase);
         this.currentPhase = nextPhase;
-        this.canProceed = true;
-        if (nextPhase === "complete") {
-            this.isActive = false;
-        }
+        this.canProceed = canProceed;
         this.notifyListeners();
     }
     /**
@@ -100,9 +97,10 @@ class TutorialStateManager {
     /**
      * Highlights a DOM element for the current tutorial step.
      */
-    highlightElement(selector) {
+    highlightElement(selector, firstMatchOnly = false) {
         this.clearHighlight();
-        const elements = Array.from(document.querySelectorAll(selector));
+        const matches = Array.from(document.querySelectorAll(selector));
+        const elements = firstMatchOnly ? matches.slice(0, 1) : matches;
         if (elements.length > 0) {
             this.highlightedElements = elements;
             elements.forEach((element) => {

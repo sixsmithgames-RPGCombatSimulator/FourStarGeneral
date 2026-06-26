@@ -6,7 +6,7 @@ import { hexDistance } from "../../core/Hex";
 import { SelectionIntelOverlay } from "../announcements/SelectionIntelOverlay";
 import { ensureCampaignState } from "../../state/CampaignState";
 import { ensureTutorialState } from "../../state/TutorialState";
-import { getNextPhase } from "../../data/tutorialSteps";
+import { getNextPhase, getTutorialStep } from "../../data/tutorialSteps";
 import { findGeneralById, updateGeneral, saveRosterToLocalStorage } from "../../utils/rosterStorage";
 import { ensureDeploymentState } from "../../state/DeploymentState";
 import { getScenarioByMissionKey } from "../../data/scenarioRegistry";
@@ -14,6 +14,7 @@ import { normalizeScenarioSource } from "../../data/scenarioNormalizer";
 import { getMissionDeploymentProfile, getMissionTurnLimit } from "../../data/missions";
 import { getCombatProfile } from "../../data/combatProfiles";
 import { combat } from "../../core/balance";
+import { isSoftCombatTarget } from "../../core/armorEffects";
 import terrainSource from "../../data/terrain.json";
 import unitTypesSource from "../../data/unitSystem/derivedUnitTypes";
 import { createMissionRulesController } from "../../state/missionRules";
@@ -24,6 +25,14 @@ import { buildCoordinatedAirClusterPlaybackPlan } from "../airshow/ClusterAirPla
 import { resolveAirInterceptBomberArrivalDelayMs as resolveSharedAirInterceptBomberArrivalDelayMs, resolveBomberInterceptIngressDurationMs as resolveSharedBomberInterceptIngressDurationMs, resolveBomberSortieEgressDurationMs as resolveSharedBomberSortieEgressDurationMs, resolveBomberSortieIngressDurationMs as resolveSharedBomberSortieIngressDurationMs, resolveFighterInterceptIngressDurationMs as resolveSharedFighterInterceptIngressDurationMs, resolveFighterSortieEgressDurationMs as resolveSharedFighterSortieEgressDurationMs, resolveFighterSortieIngressDurationMs as resolveSharedFighterSortieIngressDurationMs, scaleAirShowSequenceMs } from "../airshow/AirShowPlaybackPolicy";
 import { buildCoordinatedAirClusterTimingPolicy, buildResolvedAirCombatSceneTimingPolicy } from "../airshow/AirShowTimingPolicies";
 import { recordAirShowPlaybackCapture } from "../airshow/AirShowPlaybackCapture";
+const TUTORIAL_DEPLOYMENT_CAMERA_ZOOM = 1.9;
+const TUTORIAL_GROUP_CAMERA_ZOOM = 3.35;
+const TUTORIAL_ORDER_CAMERA_ZOOM = 3.25;
+const TUTORIAL_MOVEMENT_CAMERA_ZOOM = 2.55;
+const TUTORIAL_ATTACK_CAMERA_ZOOM = 3.15;
+const TUTORIAL_OVERVIEW_CAMERA_ZOOM = 3.0;
+const TUTORIAL_MAP_INPUT_SETTLE_MS = 450;
+const TUTORIAL_ENEMY_ACTIVATION_TIMEOUT_MS = 9000;
 /**
  * Manages the battle screen where combat takes place.
  * Handles turn management, deployment finalization, and mission completion.
@@ -219,7 +228,9 @@ export class BattleScreen {
         if (!attackerDef || !defenderDef) {
             throw new Error(`Attack preview missing unit definition(s) for '${attackerType}' or '${defenderType}'.`);
         }
-        const attackerLabel = this.toTitleCase(attackerType);
+        const attackerLabel = attackerUnit
+            ? this.resolveReadableUnitLabel(attackerUnit)
+            : this.toTitleCase(attackerType);
         const defenderLabel = this.toTitleCase(defenderType);
         const accuracyDetails = preview.result.accuracyBreakdown;
         const damageDetails = preview.result.damageBreakdown;
@@ -236,7 +247,8 @@ export class BattleScreen {
         const spottedMultiplier = accuracyDetails.spottedMultiplier;
         const finalPreClamp = accuracyDetails.finalPreClamp;
         const shots = preview.result.shots;
-        const expectedHits = preview.result.expectedHits.toFixed(1);
+        const expectedHitsValue = Math.max(0, preview.result.expectedHits);
+        const expectedHits = expectedHitsValue.toFixed(1);
         const effectiveAP = Math.round(preview.result.effectiveAP);
         const facingArmor = Math.round(preview.result.facingArmor);
         const attackerStrength = preview.attacker.strength;
@@ -269,7 +281,7 @@ export class BattleScreen {
         const attackerProfile = getCombatProfile(attackerDef.combat);
         const unitAccuracyScalar = Math.max(0.25, attackerDef.accuracyBase / attackerProfile.accuracyReference);
         const rangeTableAccuracy = baseAccuracyPercent / unitAccuracyScalar;
-        const targetUsesSoftAttack = defenderDef.class === "infantry" || defenderDef.class === "specialist";
+        const targetUsesSoftAttack = isSoftCombatTarget(defenderDef);
         const attackStatLabel = targetUsesSoftAttack ? "Soft attack" : "Hard attack";
         const attackStatValue = targetUsesSoftAttack ? attackerDef.softAttack : attackerDef.hardAttack;
         const attackReference = targetUsesSoftAttack
@@ -308,6 +320,10 @@ export class BattleScreen {
             `After Cmd ${afterCommander.toFixed(1)}% x Exp +${experienceBonusPct}% = ${afterExperience.toFixed(1)}%, ` +
             `After Exp ${afterExperience.toFixed(1)}% x Signature ${signatureMultiplier.toFixed(2)} (${defenderDef.combat.signature}) = ${afterSignature.toFixed(1)}% x Terrain ${terrainMultiplier.toFixed(2)} (${terrainDeltaText}) = ${afterTerrain.toFixed(1)}% x Spot ${spottedMultiplier.toFixed(2)} = ${finalPreClamp.toFixed(1)}% -> Final ${accuracyDetails.final.toFixed(1)}%`;
         const statusConversionLine = `Contact model ${baseDamagePerHit.toFixed(3)} x Exp x${damageExperienceScalar.toFixed(2)} = ${preCommanderDamagePerHit.toFixed(3)} x ${attackStatLabel} x${attackScalar.toFixed(2)} (${attackStatValue}/${attackReference}) = ${afterAttackScalarDamagePerHit.toFixed(3)} x ${penetrationMathLine} = ${afterPenetrationDamagePerHit.toFixed(3)} x Cmd x${commanderDamageScalar.toFixed(2)} = ${prePayloadDamagePerHit.toFixed(3)}; status effects come from per-weapon hit distributions and the target's current personnel/equipment pools`;
+        const shotBreakdown = preview.result.shotBreakdown ?? null;
+        const shotVolumeLine = shotBreakdown
+            ? `${Math.round(shotBreakdown.theoreticalProfileShots)} theoretical shots x readiness ${shotBreakdown.strengthScalar.toFixed(2)} x posture ${shotBreakdown.postureScalar.toFixed(2)} x movement ${shotBreakdown.movementScalar.toFixed(2)} x suppression ${shotBreakdown.suppressionScalar.toFixed(2)} = ${shotBreakdown.final} shots`
+            : "Fire volume is derived from weapon-model shot capacity scaled by readiness and firing posture.";
         const distance = Math.abs(attacker.q - defender.q) + Math.abs(attacker.r - defender.r) + Math.abs((-attacker.q - attacker.r) - (-defender.q - defender.r));
         const range = Math.floor(distance / 2);
         const attackerRangeMin = attackerDef?.rangeMin ?? 1;
@@ -336,6 +352,9 @@ export class BattleScreen {
         const targetEquipmentEffects = this.formatEquipmentDelta(preview.projectedDamage);
         const targetComponentEffects = this.formatComponentDelta(preview.projectedDamage);
         const targetDamageTypes = this.formatDamageTypes(preview.projectedDamage);
+        const lowLethalityNote = expectedHitsValue > 0 && projectedTargetDamage <= 0
+            ? "Low-probability volley: suppression is likely, but confirmed losses are unlikely without more hits."
+            : null;
         const accuracyToneClass = roundedAccuracy >= 75
             ? "attack-preview-outcome__value--good"
             : roundedAccuracy >= 50
@@ -463,7 +482,7 @@ export class BattleScreen {
                   </div>
                   <div class="combat-metric combat-metric--primary">
                     <span class="combat-metric__label">Expected Hits</span>
-                    <strong class="combat-metric__value">${Math.round(Number(expectedHits))}</strong>
+                    <strong class="combat-metric__value">${expectedHits}</strong>
                     <span class="combat-metric__unit">impacts</span>
                   </div>
                   <div class="combat-metric">
@@ -475,6 +494,7 @@ export class BattleScreen {
                     <strong class="combat-metric__value combat-metric__value--text">${this.escapeHtml(targetEquipmentEffects)}</strong>
                   </div>
                 </div>
+                ${lowLethalityNote ? `<p class="attack-preview-footnote">${this.escapeHtml(lowLethalityNote)}</p>` : ""}
 
                 ${this.renderReadinessProjectionRows(preview.projectedDamage)}
 
@@ -574,6 +594,7 @@ export class BattleScreen {
               <div class="attack-preview-breakdown">
                 <p><strong>Profile:</strong> ${this.escapeHtml(profile.description)}</p>
                 <p><strong>Weapon Inputs:</strong> ${this.escapeHtml(weaponStatsLine)}</p>
+                <p><strong>Shot Volume:</strong> ${this.escapeHtml(shotVolumeLine)}</p>
                 <p><strong>Weapon Systems:</strong> ${this.escapeHtml(weaponBreakdown.summary)}</p>
                 
                 <div class="weapon-groups-detail">
@@ -769,8 +790,8 @@ export class BattleScreen {
                 hexKey: targetHexKey,
                 icon: "crosshair",
                 accentColor: "#d7263d",
-                tooltip: `Heavy artillery queued on ${targetHexKey}. Click to cancel and reposition.`,
-                interactive: true
+                tooltip: `Corps Artillery queued on ${targetHexKey}. Click to cancel and reposition.`,
+                interactive: !this.playerAttackHexes.has(targetHexKey)
             });
             this.queuedTargetMarkerActions.set(markerId, {
                 type: "artillery",
@@ -843,10 +864,10 @@ export class BattleScreen {
         const readyAssetId = assetId ?? artilleryState.assetId;
         this.applySelectedHex(callerHexKey);
         if (!artilleryState.available || !readyAssetId) {
-            this.announceBattleUpdate(artilleryState.reason ?? `${callerLabel} cannot retask heavy artillery right now.`);
+            this.announceBattleUpdate(artilleryState.reason ?? `${callerLabel} cannot retask Corps Artillery right now.`);
             return false;
         }
-        this.beginArtilleryTargeting(callerHexKey, callerLabel, readyAssetId, artilleryState.targetHexKeys);
+        this.beginArtilleryTargeting(callerHexKey, callerLabel, unit.unitId ?? null, readyAssetId, artilleryState.targetHexKeys);
         return true;
     }
     cancelQueuedArtilleryStrike(assetId, callerHexKey, callerLabel, targetHexKey) {
@@ -854,13 +875,13 @@ export class BattleScreen {
         const canceled = engine.cancelQueuedSupport(assetId);
         this.syncQueuedTargetMarkers();
         if (!canceled) {
-            this.announceBattleUpdate("Heavy artillery cancellation failed. The queued mission may have already resolved.");
+            this.announceBattleUpdate("Corps Artillery cancellation failed. The queued mission may have already resolved.");
             return;
         }
         this.publishActivityEvent({
             category: "player",
             type: "log",
-            summary: `${callerLabel} canceled heavy artillery on ${targetHexKey}.`
+            summary: `${callerLabel} canceled Corps Artillery on ${targetHexKey}.`
         });
         this.battleState.emitBattleUpdate("manual");
         this.restartQueuedArtilleryTargeting(callerHexKey, callerLabel, assetId);
@@ -941,7 +962,7 @@ export class BattleScreen {
             const label = commandState.suppressionState === "broken" ? "Broken" : "Pinned";
             return {
                 available: false,
-                reason: `${label} battalions cannot adjust heavy artillery fire until the suppression is broken.`,
+                reason: `${label} battalions cannot adjust Corps Artillery fire until the suppression is broken.`,
                 assetId: null,
                 targetHexKeys: []
             };
@@ -955,7 +976,7 @@ export class BattleScreen {
                 available: false,
                 reason: queuedAsset
                     ? `${queuedAsset.label} is already tasked.`
-                    : "No heavy artillery battery is available for this mission.",
+                    : "No Corps Artillery is available for this mission.",
                 assetId: null,
                 targetHexKeys: []
             };
@@ -964,7 +985,7 @@ export class BattleScreen {
         if (targetHexKeys.length === 0) {
             return {
                 available: false,
-                reason: "No observed enemy hex is close enough to adjust heavy artillery fire.",
+                reason: "No observed enemy hex is close enough to adjust Corps Artillery fire.",
                 assetId: readyAsset.id,
                 targetHexKeys
             };
@@ -978,7 +999,9 @@ export class BattleScreen {
     }
     promptSmokeMode(callerAxial, callerLabel, callerUnitId) {
         const engine = this.battleState.ensureGameEngine();
-        const targetHexKeys = engine.resolveSmokeTargetHexKeys(callerAxial, callerUnitId ?? undefined);
+        const targetHexKeys = engine.resolveSmokeTargetHexKeys(callerAxial, callerUnitId ?? undefined)
+            .map((key) => CoordinateSystem.axialKeyToOffsetKey(key))
+            .filter((key) => key !== null);
         const offset = CoordinateSystem.axialToOffset(callerAxial.q, callerAxial.r);
         const callerHexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
         // If the unit can only reach its own hex (range 0 effective), skip the mode prompt and go straight to own-hex facing.
@@ -991,6 +1014,7 @@ export class BattleScreen {
         this.beginSmokeTargeting(callerHexKey, callerAxial, callerLabel, callerUnitId, targetHexKeys);
     }
     beginSmokeTargeting(callerHexKey, callerAxial, callerLabel, callerUnitId, targetHexKeys) {
+        this.closeSelectionIntelForAnimation();
         this.smokeTargetingState = {
             callerHexKey,
             callerAxial,
@@ -1002,6 +1026,9 @@ export class BattleScreen {
         const highlights = new Set(targetHexKeys);
         highlights.add(callerHexKey);
         this.hexMapRenderer?.setZoneHighlights(highlights);
+        if (ensureTutorialState().getCurrentPhase() === "smoke_demo") {
+            this.queueTutorialCameraForPhase("smoke_demo", highlights, TUTORIAL_ORDER_CAMERA_ZOOM);
+        }
     }
     cancelSmokeTargeting(restoreSelection = true) {
         if (!this.smokeTargetingState) {
@@ -1038,16 +1065,21 @@ export class BattleScreen {
         this.renderFortificationFacingPreview();
         this.showFortificationFacingDialog();
     }
-    beginArtilleryTargeting(callerHexKey, callerLabel, assetId, targetHexKeys) {
+    beginArtilleryTargeting(callerHexKey, callerLabel, callerUnitId, assetId, targetHexKeys) {
+        this.closeSelectionIntelForAnimation();
         this.artilleryTargetingState = {
             callerHexKey,
             callerLabel,
+            callerUnitId,
             assetId,
             targetHexKeys: new Set(targetHexKeys)
         };
         this.artilleryPreviewKeys = new Set(targetHexKeys);
         this.hexMapRenderer?.setZoneHighlights(this.artilleryPreviewKeys);
-        this.announceBattleUpdate(`${callerLabel} is spotting for heavy artillery. Select an observed enemy hex.`);
+        if (ensureTutorialState().getCurrentPhase() === "artillery_intro") {
+            this.queueTutorialCameraForPhase("artillery_intro", [callerHexKey, ...targetHexKeys], TUTORIAL_ORDER_CAMERA_ZOOM);
+        }
+        this.announceBattleUpdate(`${callerLabel} is spotting for Corps Artillery. Select an observed enemy hex.`);
     }
     cancelArtilleryTargeting(restoreSelection = true) {
         if (!this.artilleryTargetingState) {
@@ -1077,12 +1109,12 @@ export class BattleScreen {
         this.cancelArtilleryTargeting(false);
         if (!queued) {
             this.applySelectedHex(targetingState.callerHexKey);
-            this.announceBattleUpdate("Heavy artillery could not be queued. Keep the caller uncommitted and select an observed enemy hex.");
+            this.announceBattleUpdate("Corps Artillery could not be queued. Keep the caller uncommitted and select an observed enemy hex.");
             return;
         }
         this.clearSelectedHexAfterAction();
         this.syncQueuedTargetMarkers();
-        const summary = `${targetingState.callerLabel} requested heavy artillery on ${targetHexKey}. Impact scheduled for turn transition. Click the red crosshair to cancel and reposition.`;
+        const summary = `${targetingState.callerLabel} requested Corps Artillery on ${targetHexKey}. Impact scheduled for turn transition. Click the red crosshair to cancel and reposition.`;
         this.announceBattleUpdate(summary);
         this.publishActivityEvent({
             category: "player",
@@ -1091,6 +1123,7 @@ export class BattleScreen {
         });
         this.completeTutorialPhase("artillery_intro");
         this.battleState.emitBattleUpdate("manual");
+        this.completeInitiativeActivationAfterPlayerOrder(targetingState.callerUnitId);
     }
     async triggerSupportImpacts() {
         console.log("[BattleScreen] triggerSupportImpacts called");
@@ -1445,6 +1478,7 @@ export class BattleScreen {
             const defenderOffset = CoordinateSystem.axialToOffset(defender.q, defender.r);
             const attackerHex = CoordinateSystem.makeHexKey(attackerOffset.col, attackerOffset.row);
             const defenderHex = CoordinateSystem.makeHexKey(defenderOffset.col, defenderOffset.row);
+            const actingUnitId = attackerUnitId ?? this.pendingAttack?.attackerUnitId ?? this.selectedPlayerUnitId ?? null;
             let preview = null;
             if (this.hexMapRenderer) {
                 try {
@@ -1577,7 +1611,9 @@ export class BattleScreen {
                     },
                     detailSections
                 });
+                this.completeTutorialPhase("attack_intro");
                 this.battleState.emitBattleUpdate("manual");
+                this.completeInitiativeActivationAfterPlayerOrder(actingUnitId);
             }
             else {
                 this.applySelectedHex(attackerHex);
@@ -1940,6 +1976,16 @@ export class BattleScreen {
     renderFortificationFacingPreview() {
         if (this.fortificationFacingPreview) {
             const pendingBuild = this.pendingFortificationBuild;
+            const title = this.fortificationFacingDialog?.querySelector("#battleFortificationFacingTitle");
+            if (title) {
+                title.textContent = pendingBuild?.modificationType === "smoke"
+                    ? "Choose Smoke Edge"
+                    : pendingBuild?.modificationType === "tankTraps"
+                        ? "Choose Tank-Trap Edge"
+                        : pendingBuild?.modificationType === "facing"
+                            ? "Choose Facing"
+                            : "Choose Fortification Edge";
+            }
             const fortifiedFacings = pendingBuild
                 ? this.battleState.ensureGameEngine()
                     .getHexModifications(pendingBuild.hex)
@@ -2039,8 +2085,11 @@ export class BattleScreen {
             }
             case "Enter":
             case " ": {
-                const activeElement = document.activeElement;
-                const edge = this.normalizeFortificationEdgeFacing(activeElement?.getAttribute("data-fortification-edge"));
+                const eventTarget = event.target instanceof Element ? event.target : null;
+                const focusedElement = document.activeElement instanceof Element ? document.activeElement : null;
+                const edgeElement = eventTarget?.closest("[data-fortification-edge]")
+                    ?? focusedElement?.closest("[data-fortification-edge]");
+                const edge = this.normalizeFortificationEdgeFacing(edgeElement?.getAttribute("data-fortification-edge"));
                 if (edge) {
                     event.preventDefault();
                     void this.handleConfirmFortificationFacing(edge);
@@ -2153,7 +2202,7 @@ export class BattleScreen {
             const commandState = engine.getUnitCommandState(hex, unitId ?? undefined);
             this.announceBattleUpdate(commandState?.buildModificationAvailability?.[modificationType]?.reason ??
                 commandState?.buildReason ??
-                "Engineer fieldworks are not available on this hex right now.");
+                "Engineer orders are not available on this hex right now.");
             this.renderFortificationFacingPreview();
             return;
         }
@@ -2169,6 +2218,7 @@ export class BattleScreen {
         });
         this.completeTutorialPhase("engineer_orders");
         this.battleState.emitBattleUpdate("manual");
+        this.completeInitiativeActivationAfterPlayerOrder(unitId ?? null);
     }
     /** Escapes HTML-sensitive characters when composing dialog copy. */
     escapeHtml(text) {
@@ -2192,27 +2242,119 @@ export class BattleScreen {
             return;
         }
         setTimeout(() => {
-            const nextPhase = getNextPhase(phase);
+            const nextPhase = this.resolveNextTutorialPhaseAfterCompletion(phase);
             if (nextPhase) {
-                tutorialState.advancePhase(nextPhase);
+                const nextStep = getTutorialStep(nextPhase);
+                tutorialState.advancePhase(nextPhase, nextStep?.waitForAction !== true);
             }
         }, 800);
     }
-    syncTutorialPhaseWithCurrentContext(phase) {
+    resolveNextTutorialPhaseAfterCompletion(phase) {
+        const nextPhase = getNextPhase(phase);
+        if (phase === "select_attack_unit" && nextPhase === "smoke_demo") {
+            return this.selectedUnitCanLaySmoke() ? nextPhase : getNextPhase("smoke_demo");
+        }
+        return nextPhase;
+    }
+    clearTutorialSelectionOnceForPhase(phase) {
+        if (this.tutorialSelectionClearedForPhase === phase) {
+            return;
+        }
+        this.tutorialSelectionClearedForPhase = phase;
+        this.clearSelectedHexAfterAction();
+    }
+    completeGuidedTutorialSelectionFromClick(hexKey, unit, commandState) {
         const tutorialState = ensureTutorialState();
         const progress = tutorialState.getProgress();
-        if (!progress.isActive || progress.currentPhase !== phase || progress.canProceed) {
+        if (!progress.isActive || progress.canProceed || !this.tutorialUserMapClickInProgress) {
+            return;
+        }
+        const phase = progress.currentPhase;
+        const isGuidedHex = this.tutorialGuidedHexKeys.has(hexKey);
+        if (!isGuidedHex) {
+            return;
+        }
+        if (phase === "active_group_units" && this.isReconBikeBattleUnit(unit)) {
+            this.completeTutorialPhase(phase);
+            return;
+        }
+        if (phase === "engineer_intro" && this.isEngineerBattleUnit(unit)) {
+            this.completeTutorialPhase(phase);
+            return;
+        }
+        if (phase === "select_smoke_unit" && commandState?.canLaySmoke === true) {
+            this.completeTutorialPhase(phase);
+            return;
+        }
+        if (phase === "select_attack_unit" && this.getTutorialAttackTargetHexKeys(unit).size > 0) {
+            this.completeTutorialPhase(phase);
+            return;
+        }
+        if (phase === "select_artillery_observer" && this.resolveArtilleryActionState(unit, commandState ?? null, hexKey).available) {
+            this.completeTutorialPhase(phase);
+        }
+    }
+    completeGuidedTutorialSelectionForClickedHex(hexKey) {
+        const selectedMember = this.resolveSelectedPlayerStackMember(hexKey);
+        if (!selectedMember) {
+            return;
+        }
+        const engine = this.battleState.ensureGameEngine();
+        const commandState = engine.getUnitCommandState(selectedMember.unit.hex, selectedMember.unitId ?? undefined);
+        this.completeGuidedTutorialSelectionFromClick(hexKey, selectedMember.unit, commandState);
+    }
+    syncTutorialPhaseWithCurrentContext(phase) {
+        if (this.tutorialSelectionSyncInProgress) {
+            return;
+        }
+        const tutorialState = ensureTutorialState();
+        const progress = tutorialState.getProgress();
+        const contextSensitivePhases = new Set([
+            "place_units",
+            "initiative_order",
+            "initiative_group",
+            "active_group_units",
+            "movement_intro",
+            "attack_intro",
+            "intel_overlay_expand",
+            "smoke_demo",
+            "spend_activation",
+            "enemy_activation",
+            "enemy_response",
+            "post_artillery_enemy_response",
+            "next_unit",
+            "skip_group",
+            "engineer_intro",
+            "engineer_orders",
+            "select_smoke_unit",
+            "select_attack_unit",
+            "artillery_support_intro",
+            "artillery_intro",
+            "select_artillery_observer",
+            "flak_intro",
+            "round_handoff",
+            "mission_objectives"
+        ]);
+        if (!progress.isActive || progress.currentPhase !== phase) {
+            return;
+        }
+        if (this.tutorialLastSyncedPhase !== phase) {
+            this.tutorialLastSyncedPhase = phase;
+            this.tutorialCameraSyncKey = null;
+            this.tutorialSelectionClearedForPhase = null;
+            this.setTutorialGuidedHexTargets([]);
+        }
+        if (progress.canProceed && !contextSensitivePhases.has(phase)) {
             return;
         }
         if (phase !== "base_camp") {
             this.tutorialBaseCampSelectionCleared = false;
         }
-        if (phase !== "movement_intro") {
-            this.tutorialMovementFocusKey = null;
-            this.tutorialMovementSelectionCleared = false;
+        if (phase !== "initiative_group") {
+            this.tutorialInitiativeGroupSelectionCleared = false;
         }
-        if (phase !== "select_smoke_unit") {
-            this.tutorialSmokeFocusKey = null;
+        if (phase !== "active_group_units") {
+            this.tutorialActiveGroupSelectionCleared = false;
         }
         if (phase === "base_camp") {
             if (!this.tutorialBaseCampSelectionCleared) {
@@ -2221,81 +2363,539 @@ export class BattleScreen {
                 this.clearSelectedHex();
                 const deploymentZoneHexes = this.getPlayerDeploymentZoneHexes();
                 this.hexMapRenderer?.setZoneHighlights(deploymentZoneHexes);
-                const focusKey = deploymentZoneHexes.values().next().value;
-                if (focusKey) {
-                    this.focusTutorialHex(focusKey);
-                }
+                this.queueTutorialCameraForPhase(phase, deploymentZoneHexes, TUTORIAL_DEPLOYMENT_CAMERA_ZOOM);
             }
+            return;
+        }
+        if (phase === "place_units") {
+            const deploymentZoneHexes = this.getPlayerDeploymentZoneHexes();
+            this.hexMapRenderer?.setZoneHighlights(deploymentZoneHexes);
+            this.queueTutorialCameraForPhase(phase, deploymentZoneHexes, TUTORIAL_DEPLOYMENT_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "initiative_order") {
+            const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
+            const focusHexKeys = activeGroupHexKeys.size > 0 ? activeGroupHexKeys : this.getManualPlayerUnitHexKeys();
+            this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
+            this.queueTutorialCameraForPhase(phase, focusHexKeys, TUTORIAL_GROUP_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "initiative_group") {
+            const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
+            this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
+            if (!this.tutorialInitiativeGroupSelectionCleared) {
+                this.tutorialInitiativeGroupSelectionCleared = true;
+                this.clearSelectedHexAfterAction();
+                this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
+            }
+            this.queueTutorialCameraForPhase(phase, activeGroupHexKeys, TUTORIAL_GROUP_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "active_group_units") {
+            const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
+            const reconTarget = this.findFirstTutorialUnitTarget((unit, commandState) => commandState?.isAutomated !== true && this.isReconBikeBattleUnit(unit), true);
+            const focusHexKeys = reconTarget ? new Set([reconTarget.hexKey]) : activeGroupHexKeys;
+            if (!this.tutorialActiveGroupSelectionCleared) {
+                this.tutorialActiveGroupSelectionCleared = true;
+                this.clearSelectedHexAfterAction();
+            }
+            this.hexMapRenderer?.setZoneHighlights(focusHexKeys);
+            this.setTutorialGuidedHexTargets(reconTarget ? [reconTarget.hexKey] : []);
+            this.queueTutorialCameraForPhase(phase, focusHexKeys, TUTORIAL_GROUP_CAMERA_ZOOM);
             return;
         }
         if (phase === "movement_intro") {
-            if (!this.tutorialMovementSelectionCleared) {
-                this.tutorialMovementSelectionCleared = true;
-                this.clearSelectedHexAfterAction();
+            if (!this.selectedUnitMatchesTutorialTarget((unit) => this.isReconBikeBattleUnit(unit), true)) {
+                const reconTarget = this.findFirstTutorialUnitTarget((unit, commandState) => commandState?.isAutomated !== true && this.isReconBikeBattleUnit(unit), true);
+                if (reconTarget) {
+                    this.selectTutorialUnitTarget(reconTarget, false);
+                }
             }
-            const playerUnitHexKeys = this.getManualPlayerUnitHexKeys();
-            this.hexMapRenderer?.setZoneHighlights(playerUnitHexKeys);
-            if (this.selectedUnitIsManualPlayerUnit()) {
-                this.completeTutorialPhase("movement_intro");
-                return;
-            }
-            const focusKey = playerUnitHexKeys.values().next().value;
-            if (focusKey && this.tutorialMovementFocusKey !== focusKey) {
-                this.tutorialMovementFocusKey = focusKey;
-                this.focusTutorialHex(focusKey);
-            }
+            this.closeSelectionIntelForAnimation();
+            this.hexMapRenderer?.setZoneHighlights(new Set());
+            const movementDestination = this.resolveTutorialMovementDestination();
+            this.setTutorialGuidedHexTargets(movementDestination ? [movementDestination] : []);
+            this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(movementDestination ? [movementDestination] : this.playerMoveHexes), TUTORIAL_MOVEMENT_CAMERA_ZOOM);
             return;
         }
         if (phase === "attack_intro") {
+            const attackTarget = this.findFirstTutorialUnitTarget((unit, commandState) => commandState?.isAutomated !== true && this.getTutorialAttackTargetHexKeys(unit).size > 0, true);
+            if (attackTarget && !this.selectedUnitHasAttackTargets()) {
+                this.selectTutorialUnitTarget(attackTarget, false);
+            }
+            this.closeSelectionIntelForAnimation();
             this.hexMapRenderer?.setZoneHighlights(new Set());
-            return;
-        }
-        if ((phase === "engineer_intro" || phase === "flak_intro") && this.selectedHexKey) {
-            const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
-            if (!selectedMember || selectedMember.isAutomated) {
-                return;
-            }
-            if (phase === "engineer_intro" && this.isEngineerBattleUnit(selectedMember.unit)) {
-                this.completeTutorialPhase("engineer_intro");
-                return;
-            }
-            if (phase === "flak_intro" && this.isFlakBattleUnit(selectedMember.unit)) {
-                this.completeTutorialPhase("flak_intro");
-                return;
-            }
-        }
-        if (phase === "select_smoke_unit") {
-            const smokeCapableHexKeys = this.getSmokeCapableUnitHexKeys();
-            this.hexMapRenderer?.setZoneHighlights(smokeCapableHexKeys);
-            if (this.selectedUnitCanLaySmoke()) {
-                this.completeTutorialPhase("select_smoke_unit");
-                return;
-            }
-            if (this.selectedHexKey) {
-                this.clearSelectedHexAfterAction();
-                this.hexMapRenderer?.setZoneHighlights(smokeCapableHexKeys);
-            }
-            const focusKey = smokeCapableHexKeys.values().next().value;
-            if (focusKey && this.tutorialSmokeFocusKey !== focusKey) {
-                this.tutorialSmokeFocusKey = focusKey;
-                this.focusTutorialHex(focusKey);
-            }
+            this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(this.playerAttackHexes), TUTORIAL_ATTACK_CAMERA_ZOOM);
             return;
         }
         if (phase === "intel_overlay_expand") {
-            this.hexMapRenderer?.setZoneHighlights(new Set());
+            if (!this.selectedUnitIsInActiveInitiativeGroup()) {
+                this.selectFirstTutorialUnitTarget(phase, (_unit, commandState) => commandState?.isAutomated !== true, {
+                    activeGroupOnly: true
+                });
+            }
+            if (!this.isBattleIntelOverlayVisible() && this.selectedHexKey) {
+                this.tutorialSelectionSyncInProgress = true;
+                try {
+                    this.applySelectedHex(this.selectedHexKey, true);
+                }
+                finally {
+                    this.tutorialSelectionSyncInProgress = false;
+                }
+            }
+            this.hexMapRenderer?.setZoneHighlights(this.selectedHexKey ? new Set([this.selectedHexKey]) : new Set());
+            this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(), TUTORIAL_ORDER_CAMERA_ZOOM);
             if (this.isBattleIntelOverlayExpanded()) {
                 this.completeTutorialPhase("intel_overlay_expand");
             }
             return;
         }
-        if (phase === "air_missions") {
-            const summary = this.battleState.ensureGameEngine().getAirSupportSummary();
-            const sortiesFlown = summary.queued + summary.inFlight + summary.resolving + summary.completed + summary.refit;
-            if (sortiesFlown > 0) {
-                this.completeTutorialPhase("air_missions");
+        if (phase === "smoke_demo") {
+            if (!this.selectedUnitCanLaySmoke()) {
+                const smokeTarget = this.findTutorialAttackUnitTarget(true);
+                if (smokeTarget?.commandState?.canLaySmoke === true) {
+                    this.selectTutorialUnitTarget(smokeTarget, true);
+                }
+                else {
+                    this.completeTutorialPhase("smoke_demo");
+                    return;
+                }
+            }
+            else if (!this.isBattleIntelOverlayExpanded() && this.selectedHexKey) {
+                this.tutorialSelectionSyncInProgress = true;
+                try {
+                    this.applySelectedHex(this.selectedHexKey, true);
+                }
+                finally {
+                    this.tutorialSelectionSyncInProgress = false;
+                }
+            }
+            this.hexMapRenderer?.setZoneHighlights(this.selectedHexKey ? new Set([this.selectedHexKey]) : new Set());
+            this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(), TUTORIAL_ORDER_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "spend_activation") {
+            if (this.selectedHexKey || this.isBattleIntelOverlayExpanded()) {
+                this.clearSelectedHexAfterAction();
+            }
+            const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
+            this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
+            this.queueTutorialCameraForPhase(phase, activeGroupHexKeys.size > 0 ? activeGroupHexKeys : this.getManualPlayerUnitHexKeys(), TUTORIAL_GROUP_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "enemy_activation" || phase === "enemy_response" || phase === "post_artillery_enemy_response") {
+            this.hexMapRenderer?.setZoneHighlights(new Set());
+            const focusHexKeys = phase === "enemy_activation"
+                ? this.getTutorialUnitFocusHexes((unit) => this.isEngineerBattleUnit(unit), true)
+                : phase === "enemy_response"
+                    ? this.getTutorialArtilleryObserverFocusHexes()
+                    : this.getTutorialUnitFocusHexes((unit, commandState) => commandState?.isAutomated !== true && this.getTutorialAttackTargetHexKeys(unit).size > 0, false);
+            this.queueTutorialCameraForPhase(phase, focusHexKeys.size > 0 ? focusHexKeys : this.getManualPlayerUnitHexKeys(), TUTORIAL_GROUP_CAMERA_ZOOM);
+            this.monitorTutorialEnemyActivation(phase);
+            return;
+        }
+        if (phase === "next_unit" || phase === "skip_group") {
+            const activeGroupHexKeys = this.getActivePlayerInitiativeGroupHexKeys();
+            const focusHexKeys = activeGroupHexKeys.size > 0 ? activeGroupHexKeys : this.getManualPlayerUnitHexKeys();
+            this.hexMapRenderer?.setZoneHighlights(activeGroupHexKeys);
+            this.queueTutorialCameraForPhase(phase, focusHexKeys, TUTORIAL_GROUP_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "engineer_intro") {
+            const engineerTarget = this.findFirstTutorialUnitTarget((unit, commandState) => commandState?.isAutomated !== true && this.isEngineerBattleUnit(unit), true);
+            if (engineerTarget) {
+                this.clearTutorialSelectionOnceForPhase(phase);
+            }
+            if (this.selectedUnitMatchesTutorialTarget((unit) => this.isEngineerBattleUnit(unit), true)) {
+                this.completeTutorialPhase(phase);
+                return;
+            }
+            this.hexMapRenderer?.setZoneHighlights(engineerTarget ? new Set([engineerTarget.hexKey]) : new Set());
+            this.setTutorialGuidedHexTargets(engineerTarget ? [engineerTarget.hexKey] : []);
+            this.queueTutorialCameraForPhase(phase, engineerTarget ? [engineerTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "engineer_orders") {
+            const engineerTarget = this.selectFirstTutorialUnitTarget(phase, (unit, commandState) => commandState?.isAutomated !== true &&
+                this.isEngineerBattleUnit(unit) &&
+                commandState?.buildModificationAvailability.fortifications.available === true, { activeGroupOnly: true, expandIntel: true });
+            this.hexMapRenderer?.setZoneHighlights(engineerTarget ? new Set([engineerTarget.hexKey]) : new Set());
+            this.queueTutorialCameraForPhase(phase, engineerTarget ? [engineerTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "select_smoke_unit") {
+            const smokeTarget = this.findFirstTutorialUnitTarget((_unit, commandState) => commandState?.isAutomated !== true && commandState?.canLaySmoke === true, true);
+            if (smokeTarget) {
+                this.clearTutorialSelectionOnceForPhase(phase);
+            }
+            if (this.selectedUnitCanLaySmoke()) {
+                this.completeTutorialPhase(phase);
+                return;
+            }
+            this.hexMapRenderer?.setZoneHighlights(smokeTarget ? new Set([smokeTarget.hexKey]) : new Set());
+            this.setTutorialGuidedHexTargets(smokeTarget ? [smokeTarget.hexKey] : []);
+            this.queueTutorialCameraForPhase(phase, smokeTarget ? [smokeTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "select_attack_unit") {
+            const attackTarget = this.findTutorialAttackUnitTarget(true);
+            if (attackTarget) {
+                this.clearTutorialSelectionOnceForPhase(phase);
+            }
+            if (this.selectedUnitHasAttackTargets()) {
+                this.completeTutorialPhase(phase);
+                return;
+            }
+            this.hexMapRenderer?.setZoneHighlights(attackTarget ? new Set([attackTarget.hexKey]) : new Set());
+            this.setTutorialGuidedHexTargets(attackTarget ? [attackTarget.hexKey] : []);
+            this.queueTutorialCameraForPhase(phase, attackTarget
+                ? [attackTarget.hexKey, ...this.getTutorialAttackTargetHexKeys(attackTarget.unit)]
+                : this.getManualPlayerUnitHexKeys(), TUTORIAL_ATTACK_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "artillery_support_intro") {
+            const observerTarget = this.findFirstTutorialUnitTarget((unit, commandState, hexKey) => commandState?.isAutomated !== true &&
+                this.resolveArtilleryActionState(unit, commandState, hexKey).available, true);
+            this.hexMapRenderer?.setZoneHighlights(observerTarget ? new Set([observerTarget.hexKey]) : new Set());
+            this.setTutorialGuidedHexTargets([]);
+            this.queueTutorialCameraForPhase(phase, observerTarget ? [observerTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "select_artillery_observer") {
+            const observerTarget = this.findFirstTutorialUnitTarget((unit, commandState, hexKey) => commandState?.isAutomated !== true &&
+                this.resolveArtilleryActionState(unit, commandState, hexKey).available, true);
+            if (observerTarget) {
+                this.clearTutorialSelectionOnceForPhase(phase);
+            }
+            if (this.selectedUnitCanCallArtillery()) {
+                this.completeTutorialPhase(phase);
+                return;
+            }
+            this.hexMapRenderer?.setZoneHighlights(observerTarget ? new Set([observerTarget.hexKey]) : new Set());
+            this.setTutorialGuidedHexTargets(observerTarget ? [observerTarget.hexKey] : []);
+            this.queueTutorialCameraForPhase(phase, observerTarget ? [observerTarget.hexKey] : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "artillery_intro") {
+            const observerTarget = this.selectFirstTutorialUnitTarget(phase, (unit, commandState, hexKey) => commandState?.isAutomated !== true &&
+                this.resolveArtilleryActionState(unit, commandState, hexKey).available, { activeGroupOnly: true, expandIntel: true });
+            this.hexMapRenderer?.setZoneHighlights(observerTarget ? new Set([observerTarget.hexKey]) : new Set());
+            this.queueTutorialCameraForPhase(phase, observerTarget
+                ? [observerTarget.hexKey, ...this.resolveArtilleryTargetHexKeys(observerTarget.unit, observerTarget.hexKey)]
+                : this.getManualPlayerUnitHexKeys(), TUTORIAL_ORDER_CAMERA_ZOOM);
+            return;
+        }
+        if (phase === "mission_objectives") {
+            this.hexMapRenderer?.setZoneHighlights(new Set());
+            this.queueTutorialCameraForPhase(phase, this.getManualPlayerUnitHexKeys(), TUTORIAL_OVERVIEW_CAMERA_ZOOM);
+        }
+    }
+    queueTutorialCameraForPhase(phase, hexes, zoom) {
+        const hexArray = Array.from(new Set(hexes)).filter(Boolean).sort();
+        if (hexArray.length === 0) {
+            return;
+        }
+        const syncKey = `${phase}:${zoom.toFixed(2)}:${hexArray.join("|")}`;
+        if (this.tutorialCameraSyncKey === syncKey) {
+            return;
+        }
+        this.tutorialCameraSyncKey = syncKey;
+        this.tutorialMapInputBlockedUntil = Date.now() + TUTORIAL_MAP_INPUT_SETTLE_MS;
+        const centerTutorialCamera = () => {
+            this.resetTutorialBattlePaneScroll();
+            void this.centerCameraOnZone(hexArray, zoom)
+                .then(async () => {
+                await this.waitForNextFrame();
+                this.offsetTutorialCameraBelowPrompt(hexArray);
+                this.resetTutorialBattlePaneScroll();
+                window.requestAnimationFrame(() => this.resetTutorialBattlePaneScroll());
+            })
+                .catch((error) => {
+                console.warn("[BattleScreen] Failed to center tutorial camera", { phase, zoom, error });
+            });
+        };
+        [0, 160].forEach((delayMs) => {
+            window.setTimeout(centerTutorialCamera, delayMs);
+        });
+    }
+    offsetTutorialCameraBelowPrompt(hexKeys) {
+        if (window.innerWidth > 768 || !this.mapViewport || !this.hexMapRenderer) {
+            return;
+        }
+        const panel = document.querySelector(".tutorial-panel.tutorial-battle-docked");
+        if (!panel) {
+            return;
+        }
+        const getFocusRects = () => hexKeys
+            .map((hexKey) => this.hexMapRenderer?.getHexElement(hexKey)?.getBoundingClientRect() ?? null)
+            .filter((rect) => rect !== null && rect.width > 0 && rect.height > 0);
+        let focusRects = getFocusRects();
+        if (focusRects.length === 0) {
+            return;
+        }
+        const panelRect = panel.getBoundingClientRect();
+        const focusTop = Math.min(...focusRects.map((rect) => rect.top));
+        const focusBottom = Math.max(...focusRects.map((rect) => rect.bottom));
+        const desiredTop = panelRect.bottom + 20;
+        const availableShift = window.innerHeight - focusBottom - 20;
+        const shiftY = Math.min(180, availableShift, desiredTop - focusTop);
+        if (shiftY > 4) {
+            this.mapViewport.pan(0, shiftY);
+            focusRects = getFocusRects();
+        }
+        const deploymentPanel = document.querySelector("#deploymentPanel:not([hidden])");
+        if (!deploymentPanel ||
+            deploymentPanel.getAttribute("aria-hidden") === "true" ||
+            deploymentPanel.closest(".battle-main")?.getAttribute("data-panel-collapsed") === "true") {
+            return;
+        }
+        const deploymentPanelStyles = window.getComputedStyle(deploymentPanel);
+        if (deploymentPanelStyles.display === "none" || deploymentPanelStyles.visibility === "hidden") {
+            return;
+        }
+        const deploymentPanelRect = deploymentPanel.getBoundingClientRect();
+        const visiblePanelTop = deploymentPanelRect.top > window.innerHeight * 0.45 ? deploymentPanelRect.top : null;
+        if (visiblePanelTop === null) {
+            return;
+        }
+        const nextFocusBottom = Math.max(...focusRects.map((rect) => rect.bottom));
+        const overlap = nextFocusBottom - (visiblePanelTop - 18);
+        if (overlap > 4) {
+            this.mapViewport.pan(0, -Math.min(180, overlap));
+        }
+    }
+    resetTutorialBattlePaneScroll() {
+        [".battle-map-pane", ".map-shell", ".battle-main"].forEach((selector) => {
+            const node = this.element.querySelector(selector);
+            if (node && node.scrollLeft !== 0) {
+                node.scrollLeft = 0;
+            }
+        });
+    }
+    setTutorialGuidedHexTargets(hexKeys) {
+        this.tutorialGuidedHexKeys.forEach((hexKey) => {
+            this.hexMapRenderer?.getHexElement(hexKey)?.removeAttribute("data-tutorial-guided-hex");
+        });
+        this.tutorialGuidedHexKeys.clear();
+        for (const hexKey of hexKeys) {
+            const element = this.hexMapRenderer?.getHexElement(hexKey);
+            if (!element) {
+                continue;
+            }
+            element.setAttribute("data-tutorial-guided-hex", "true");
+            this.tutorialGuidedHexKeys.add(hexKey);
+        }
+    }
+    monitorTutorialEnemyActivation(phase) {
+        if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
+            this.completeTutorialPhase(phase);
+            return;
+        }
+        const progress = ensureTutorialState().getProgress();
+        if (!progress.isActive || progress.currentPhase !== phase) {
+            this.tutorialEnemyActivationMonitorActive = false;
+            return;
+        }
+        const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+        const activeGroup = this.resolveActiveInitiativeGroup(queue);
+        if (!activeGroup || activeGroup.ownerId === "player") {
+            this.finishTutorialEnemyActivation(phase);
+            return;
+        }
+        if (!this.tutorialEnemyActivationMonitorActive) {
+            this.tutorialEnemyActivationMonitorActive = true;
+            this.tutorialEnemyActivationStartedAt = Date.now();
+            this.tutorialEnemyActivationSequenceStart = this.activityEventSequence;
+        }
+        const currentActivation = this.initiativeMethods.getCurrentActivation();
+        if (!currentActivation && this.hasPendingInitiativeActivations(queue)) {
+            try {
+                this.initiativeMethods.processNextInitiativeActivation();
+            }
+            catch (error) {
+                console.warn("[BattleScreen] Failed to resume tutorial enemy activation.", error);
             }
         }
+        const elapsedMs = Date.now() - this.tutorialEnemyActivationStartedAt;
+        if (elapsedMs >= TUTORIAL_ENEMY_ACTIVATION_TIMEOUT_MS) {
+            this.resolveTutorialEnemyActivationFallback(phase);
+            return;
+        }
+        window.setTimeout(() => this.monitorTutorialEnemyActivation(phase), 220);
+    }
+    finishTutorialEnemyActivation(phase) {
+        this.tutorialEnemyActivationMonitorActive = false;
+        this.highlightCurrentInitiativeGroup();
+        this.syncInitiativeTurnControlsState();
+        this.completeTutorialPhase(phase);
+    }
+    resolveTutorialEnemyActivationFallback(phase) {
+        if (!this.initiativeMethods) {
+            this.finishTutorialEnemyActivation(phase);
+            return;
+        }
+        const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+        const activeGroup = this.resolveActiveInitiativeGroup(queue);
+        if (!activeGroup || activeGroup.ownerId === "player") {
+            this.finishTutorialEnemyActivation(phase);
+            return;
+        }
+        if (this.activityEventSequence === this.tutorialEnemyActivationSequenceStart) {
+            this.publishActivityEvent({
+                category: "enemy",
+                type: "log",
+                summary: "Enemy activation resolved with no observed movement or fire."
+            });
+        }
+        try {
+            this.initiativeMethods.skipCurrentGroup();
+        }
+        catch (error) {
+            console.warn("[BattleScreen] Failed to skip stalled tutorial enemy group.", error);
+        }
+        this.finishTutorialEnemyActivation(phase);
+    }
+    getSelectedTutorialFocusHexes(extraHexes = []) {
+        const focusHexes = new Set();
+        if (this.selectedHexKey) {
+            focusHexes.add(this.selectedHexKey);
+        }
+        for (const hexKey of extraHexes) {
+            if (hexKey) {
+                focusHexes.add(hexKey);
+            }
+        }
+        return focusHexes;
+    }
+    resolveTutorialMovementDestination() {
+        if (!this.selectedHexKey) {
+            return null;
+        }
+        const originOffset = CoordinateSystem.parseHexKey(this.selectedHexKey);
+        if (!originOffset) {
+            return null;
+        }
+        const origin = CoordinateSystem.offsetToAxial(originOffset.col, originOffset.row);
+        const candidates = Array.from(this.playerMoveHexes)
+            .filter((hexKey) => hexKey !== this.selectedHexKey)
+            .map((hexKey) => {
+            const offset = CoordinateSystem.parseHexKey(hexKey);
+            if (!offset) {
+                return null;
+            }
+            const destination = CoordinateSystem.offsetToAxial(offset.col, offset.row);
+            return {
+                hexKey,
+                col: offset.col,
+                row: offset.row,
+                distance: hexDistance(origin, destination)
+            };
+        })
+            .filter((candidate) => candidate !== null);
+        const preferred = candidates.filter((candidate) => candidate.distance >= 3 && candidate.distance <= 4);
+        const pool = preferred.length > 0 ? preferred : candidates;
+        pool.sort((left, right) => right.distance - left.distance ||
+            right.col - left.col ||
+            left.row - right.row ||
+            left.hexKey.localeCompare(right.hexKey));
+        return pool[0]?.hexKey ?? null;
+    }
+    selectFirstTutorialUnitTarget(phase, predicate, options = {}) {
+        const target = this.findFirstTutorialUnitTarget(predicate, options.activeGroupOnly === true);
+        if (!target) {
+            return null;
+        }
+        this.selectTutorialUnitTarget(target, options.expandIntel === true);
+        this.queueTutorialCameraForPhase(phase, [target.hexKey], TUTORIAL_ORDER_CAMERA_ZOOM);
+        return target;
+    }
+    findFirstTutorialUnitTarget(predicate, activeGroupOnly = false) {
+        const engine = this.battleState.ensureGameEngine();
+        for (const unit of engine.playerUnits) {
+            if (activeGroupOnly && (!unit.unitId || !this.isUnitInCurrentInitiativeGroup(unit.unitId))) {
+                continue;
+            }
+            const hexKey = this.toOffsetHexKey(unit.hex);
+            if (!hexKey) {
+                continue;
+            }
+            const commandState = engine.getUnitCommandState(unit.hex, unit.unitId ?? undefined);
+            if (predicate(unit, commandState, hexKey)) {
+                return { unit, commandState, hexKey };
+            }
+        }
+        return null;
+    }
+    selectTutorialUnitTarget(target, expandIntel) {
+        const targetUnitId = target.unit.unitId ?? null;
+        const alreadySelected = this.selectedHexKey === target.hexKey &&
+            (targetUnitId === null || this.selectedPlayerUnitId === targetUnitId);
+        if (!alreadySelected) {
+            this.tutorialSelectionSyncInProgress = true;
+            try {
+                this.applySelectedHex(target.hexKey);
+                this.selectedPlayerUnitId = targetUnitId;
+                this.applySelectedHex(target.hexKey, true);
+            }
+            finally {
+                this.tutorialSelectionSyncInProgress = false;
+            }
+        }
+        if (expandIntel) {
+            window.setTimeout(() => this.expandBattleIntelOverlayIfCollapsed(), 0);
+        }
+    }
+    expandBattleIntelOverlayIfCollapsed() {
+        const overlay = this.battleIntelOverlayRoot ?? document.getElementById("battleIntelOverlay");
+        if (!overlay || overlay.classList.contains("hidden") || overlay.dataset.collapsed === "false") {
+            return;
+        }
+        const toggleButton = document.getElementById("battleIntelOverlayToggle");
+        toggleButton?.click();
+    }
+    shouldAllowTutorialHexCameraFocus(phase) {
+        return phase === "base_camp";
+    }
+    shouldDeferTutorialInitiativeAutoFocus() {
+        const progress = ensureTutorialState().getProgress();
+        return progress.isActive && (progress.currentPhase === "begin_battle" ||
+            progress.currentPhase === "initiative_order" ||
+            progress.currentPhase === "initiative_group" ||
+            progress.currentPhase === "active_group_units" ||
+            progress.currentPhase === "movement_intro" ||
+            progress.currentPhase === "attack_intro" ||
+            progress.currentPhase === "select_smoke_unit" ||
+            progress.currentPhase === "select_attack_unit" ||
+            progress.currentPhase === "intel_overlay_expand" ||
+            progress.currentPhase === "smoke_demo" ||
+            progress.currentPhase === "spend_activation" ||
+            progress.currentPhase === "enemy_activation" ||
+            progress.currentPhase === "next_unit" ||
+            progress.currentPhase === "skip_group" ||
+            progress.currentPhase === "engineer_intro" ||
+            progress.currentPhase === "engineer_orders" ||
+            progress.currentPhase === "enemy_response" ||
+            progress.currentPhase === "post_artillery_enemy_response" ||
+            progress.currentPhase === "artillery_support_intro" ||
+            progress.currentPhase === "artillery_intro" ||
+            progress.currentPhase === "select_artillery_observer" ||
+            progress.currentPhase === "flak_intro" ||
+            progress.currentPhase === "round_handoff" ||
+            progress.currentPhase === "mission_objectives");
+    }
+    queueTutorialCombatOverviewCamera() {
+        const focusHexes = this.getManualPlayerUnitHexKeys();
+        if (focusHexes.size === 0) {
+            return;
+        }
+        const centerOverview = () => {
+            void this.centerCameraOnZone(focusHexes, TUTORIAL_OVERVIEW_CAMERA_ZOOM).catch((error) => {
+                console.warn("[BattleScreen] Failed to center tutorial combat overview", error);
+            });
+        };
+        [0, 180, 480, 900].forEach((delayMs) => {
+            window.setTimeout(centerOverview, delayMs);
+        });
     }
     selectedUnitCanLaySmoke() {
         if (!this.selectedHexKey) {
@@ -2309,9 +2909,68 @@ export class BattleScreen {
         if (!selectedMember || selectedMember.isAutomated) {
             return false;
         }
+        if (this.isInitiativeSystemEnabled &&
+            selectedMember.unitId &&
+            !this.isUnitInCurrentInitiativeGroup(selectedMember.unitId)) {
+            return false;
+        }
         const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
         const commandState = this.battleState.ensureGameEngine().getUnitCommandState(axial, selectedMember.unitId ?? this.selectedPlayerUnitId ?? undefined);
         return commandState?.canLaySmoke === true;
+    }
+    getTutorialAttackTargetHexKeys(unit) {
+        const targetHexKeys = this.battleState
+            .ensureGameEngine()
+            .getAttackableTargets(unit.hex, unit.unitId ?? undefined)
+            .map((targetHex) => {
+            const offset = CoordinateSystem.axialToOffset(targetHex.q, targetHex.r);
+            return CoordinateSystem.makeHexKey(offset.col, offset.row);
+        });
+        return new Set(targetHexKeys);
+    }
+    findTutorialAttackUnitTarget(activeGroupOnly = true) {
+        const isEligible = (unit, commandState) => commandState?.isAutomated !== true && this.getTutorialAttackTargetHexKeys(unit).size > 0;
+        return this.findFirstTutorialUnitTarget((unit, commandState) => isEligible(unit, commandState) && commandState?.canLaySmoke === true, activeGroupOnly) ?? this.findFirstTutorialUnitTarget(isEligible, activeGroupOnly);
+    }
+    getTutorialUnitFocusHexes(predicate, activeGroupOnly = false) {
+        const target = this.findFirstTutorialUnitTarget(predicate, activeGroupOnly);
+        return target ? new Set([target.hexKey]) : new Set();
+    }
+    getTutorialArtilleryObserverFocusHexes() {
+        return this.getTutorialUnitFocusHexes((unit, commandState, hexKey) => commandState?.isAutomated !== true &&
+            this.resolveArtilleryActionState(unit, commandState, hexKey).available, false);
+    }
+    selectedUnitHasAttackTargets() {
+        if (!this.selectedHexKey) {
+            return false;
+        }
+        const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
+        if (!selectedMember || selectedMember.isAutomated || !selectedMember.unitId) {
+            return false;
+        }
+        if (this.isInitiativeSystemEnabled &&
+            !this.isUnitInCurrentInitiativeGroup(selectedMember.unitId)) {
+            return false;
+        }
+        return this.getTutorialAttackTargetHexKeys(selectedMember.unit).size > 0;
+    }
+    selectedUnitCanCallArtillery(activeGroupOnly = true) {
+        if (!this.selectedHexKey) {
+            return false;
+        }
+        const parsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
+        const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
+        if (!parsed || !selectedMember || selectedMember.isAutomated || !selectedMember.unitId) {
+            return false;
+        }
+        if (activeGroupOnly &&
+            this.isInitiativeSystemEnabled &&
+            !this.isUnitInCurrentInitiativeGroup(selectedMember.unitId)) {
+            return false;
+        }
+        const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+        const commandState = this.battleState.ensureGameEngine().getUnitCommandState(axial, selectedMember.unitId);
+        return this.resolveArtilleryActionState(selectedMember.unit, commandState, this.selectedHexKey).available;
     }
     selectedUnitIsManualPlayerUnit() {
         if (!this.selectedHexKey) {
@@ -2320,23 +2979,76 @@ export class BattleScreen {
         const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
         return !!selectedMember && !selectedMember.isAutomated;
     }
-    isBattleIntelOverlayExpanded() {
-        const overlay = this.battleIntelOverlayRoot ?? document.getElementById("battleIntelOverlay");
-        if (!overlay || overlay.classList.contains("hidden") || overlay.getAttribute("aria-hidden") === "true") {
+    selectedUnitIsInActiveInitiativeGroup() {
+        if (!this.selectedHexKey || !this.selectedPlayerUnitId) {
             return false;
         }
-        return overlay.dataset.collapsed === "false";
+        const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
+        if (!selectedMember || selectedMember.isAutomated || !selectedMember.unitId) {
+            return false;
+        }
+        return !this.isInitiativeSystemEnabled || this.isUnitInCurrentInitiativeGroup(selectedMember.unitId);
     }
-    getSmokeCapableUnitHexKeys() {
+    selectedUnitMatchesTutorialTarget(predicate, activeGroupOnly = false) {
+        if (!this.selectedHexKey) {
+            return false;
+        }
+        const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
+        if (!selectedMember || selectedMember.isAutomated) {
+            return false;
+        }
+        if (activeGroupOnly &&
+            this.isInitiativeSystemEnabled &&
+            selectedMember.unitId &&
+            !this.isUnitInCurrentInitiativeGroup(selectedMember.unitId)) {
+            return false;
+        }
+        return predicate(selectedMember.unit);
+    }
+    isBattleIntelOverlayExpanded() {
+        if (!this.isBattleIntelOverlayVisible()) {
+            return false;
+        }
+        const overlay = this.battleIntelOverlayRoot ?? document.getElementById("battleIntelOverlay");
+        return overlay?.dataset.collapsed === "false";
+    }
+    isBattleIntelOverlayVisible() {
+        const overlay = this.battleIntelOverlayRoot ?? document.getElementById("battleIntelOverlay");
+        return Boolean(overlay &&
+            !overlay.classList.contains("hidden") &&
+            overlay.getAttribute("aria-hidden") !== "true");
+    }
+    getSmokeCapableUnitHexKeys(activeGroupOnly = false) {
         const engine = this.battleState.ensureGameEngine();
         const keys = new Set();
         engine.playerUnits.forEach((unit) => {
+            if (activeGroupOnly && (!unit.unitId || !this.isUnitInCurrentInitiativeGroup(unit.unitId))) {
+                return;
+            }
             const commandState = engine.getUnitCommandState(unit.hex, unit.unitId ?? undefined);
             if (commandState?.canLaySmoke !== true) {
                 return;
             }
             const offset = CoordinateSystem.axialToOffset(unit.hex.q, unit.hex.r);
             keys.add(CoordinateSystem.makeHexKey(offset.col, offset.row));
+        });
+        return keys;
+    }
+    getActivePlayerInitiativeGroupHexKeys() {
+        if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
+            return this.getManualPlayerUnitHexKeys();
+        }
+        const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+        const activeGroup = this.resolveActiveInitiativeGroup(queue);
+        if (!activeGroup || activeGroup.ownerId !== "player") {
+            return new Set();
+        }
+        const keys = new Set();
+        activeGroup.activations.forEach((activation) => {
+            const hexKey = this.resolveActivationOffsetHexKey(activation.unitId, activation.ownerId);
+            if (hexKey) {
+                keys.add(hexKey);
+            }
         });
         return keys;
     }
@@ -2352,29 +3064,6 @@ export class BattleScreen {
             keys.add(CoordinateSystem.makeHexKey(offset.col, offset.row));
         });
         return keys;
-    }
-    focusTutorialHex(hexKey) {
-        this.bringTutorialHexIntoView(hexKey);
-        this.hexMapRenderer?.focusOnHex(hexKey, { behavior: "auto", padding: 80 });
-        window.setTimeout(() => this.bringTutorialHexIntoView(hexKey), 0);
-        window.setTimeout(() => this.bringTutorialHexIntoView(hexKey), 120);
-        void this.focusCameraOnHex(hexKey).then(() => this.bringTutorialHexIntoView(hexKey), () => this.bringTutorialHexIntoView(hexKey));
-    }
-    bringTutorialHexIntoView(hexKey) {
-        const cell = this.hexMapRenderer?.getHexElement(hexKey);
-        if (!cell) {
-            return;
-        }
-        const viewport = document.querySelector(".map-viewport");
-        if (viewport && viewport.scrollHeight > viewport.clientHeight) {
-            const cellRect = cell.getBoundingClientRect();
-            const viewportRect = viewport.getBoundingClientRect();
-            const cellCenterY = viewport.scrollTop + cellRect.top - viewportRect.top + cellRect.height / 2;
-            const maxTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-            viewport.scrollTop = Math.max(0, Math.min(maxTop, cellCenterY - viewport.clientHeight / 2));
-            return;
-        }
-        cell.scrollIntoView({ behavior: "auto", block: "center", inline: "center" });
     }
     /**
      * WHAT: Wires deployment-panel events into battle-screen engine actions exactly once.
@@ -2410,7 +3099,7 @@ export class BattleScreen {
                         this.reportDeploymentPanelError({
                             title: "Deployment failed.",
                             detail: `${zoneName} is already at capacity.`,
-                            action: "Choose a different open hex in a player deployment zone and try again.",
+                            action: this.buildDeploymentCapacityAction(zoneName),
                             recoverable: true
                         });
                         return;
@@ -2585,6 +3274,14 @@ export class BattleScreen {
                     hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
                 }
                 if (hexKey) {
+                    const tutorialPhase = ensureTutorialState().getCurrentPhase();
+                    if (!this.shouldAllowTutorialHexCameraFocus(tutorialPhase)) {
+                        console.log("[BattleScreen][tutorial:focusHex] preserving combat tutorial camera", {
+                            hexKey,
+                            tutorialPhase
+                        });
+                        return;
+                    }
                     // Safe programmatic pan via the established battle canvas methods.
                     this.focusCameraOnHex(hexKey);
                 }
@@ -2755,7 +3452,8 @@ export class BattleScreen {
             return;
         }
         console.log(`[BattleScreen] setupObjectiveCycling: ${this.scenario.objectives.length} objectives found`);
-        this.currentObjectiveIndex = 0;
+        this.currentObjectiveIndex = -1;
+        this.renderBattleObjectiveSummary();
         this.zoomPanControls.onCycleObjective(async () => {
             if (!this.scenario.objectives || this.scenario.objectives.length === 0 || !this.mapViewport) {
                 console.log("[BattleScreen] Cycle objective: No objectives available or viewport missing");
@@ -2764,6 +3462,7 @@ export class BattleScreen {
             // Cycle to next objective
             this.currentObjectiveIndex = (this.currentObjectiveIndex + 1) % this.scenario.objectives.length;
             const objective = this.scenario.objectives[this.currentObjectiveIndex];
+            this.renderBattleObjectiveSummary();
             console.log(`[BattleScreen] Cycling to objective ${this.currentObjectiveIndex + 1}/${this.scenario.objectives.length}`, objective.hex);
             // Convert to offset key and focus on it
             const offset = CoordinateSystem.axialToOffset(objective.hex.q, objective.hex.r);
@@ -2842,7 +3541,39 @@ export class BattleScreen {
             });
         }
     }
+    renderBattleObjectiveSummary() {
+        if (!this.objectiveSummaryButton || !this.objectiveIndexElement || !this.objectiveTitleElement || !this.objectiveStatusElement) {
+            return;
+        }
+        const missionInfo = this.battleState.getPrecombatMissionInfo();
+        const trackedObjectives = this.missionStatus?.objectives ?? [];
+        const briefingObjectives = missionInfo?.objectives ?? [];
+        const totalObjectives = Math.max(trackedObjectives.length, briefingObjectives.length, this.scenario.objectives.length);
+        const displayIndex = Math.min(Math.max(this.currentObjectiveIndex, 0), Math.max(totalObjectives - 1, 0));
+        const trackedObjective = trackedObjectives[displayIndex];
+        const briefingObjective = briefingObjectives[displayIndex]?.replace(/^(Primary|Secondary|Tertiary):\s*/i, "");
+        const title = trackedObjective?.label ?? briefingObjective ?? "Objective awaiting confirmation";
+        const state = trackedObjective?.state ?? "pending";
+        const stateLabels = {
+            pending: "In Progress",
+            inProgress: "In Progress",
+            completed: "Secured",
+            failed: "Failed"
+        };
+        const tier = trackedObjective?.tier ?? (displayIndex === 0 ? "primary" : "secondary");
+        const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
+        this.objectiveIndexElement.textContent = totalObjectives > 0
+            ? `${tierLabel} Objective ${displayIndex + 1} of ${totalObjectives}`
+            : "Objective";
+        this.objectiveTitleElement.textContent = title;
+        this.objectiveStatusElement.textContent = stateLabels[state] ?? state;
+        this.objectiveStatusElement.dataset.state = state;
+        this.objectiveSummaryButton.disabled = this.scenario.objectives.length === 0;
+        this.objectiveSummaryButton.setAttribute("aria-label", `${title}. Status: ${stateLabels[state] ?? state}. Focus this objective on the map.`);
+        this.objectiveSummaryButton.title = `${title}. Status: ${stateLabels[state] ?? state}. Select to focus it on the map.`;
+    }
     renderMissionStatus() {
+        this.renderBattleObjectiveSummary();
         const objectivesElement = this.missionObjectivesList;
         const doctrineElement = this.missionDoctrineElement;
         const turnLimitElement = this.missionTurnLimitElement;
@@ -2957,7 +3688,7 @@ export class BattleScreen {
     `;
         container.querySelector("[data-mission-end='confirm']")?.addEventListener("click", () => {
             this.disposeMissionEndModal();
-            this.handleEndMission();
+            void this.handleEndMission();
         });
         container.querySelector("[data-mission-end='continue']")?.addEventListener("click", () => {
             this.disposeMissionEndModal();
@@ -4048,15 +4779,40 @@ export class BattleScreen {
         }
     }
     updateTurnStatusDisplay(summary) {
+        const initiativeActive = this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
+        const initiativeActivation = initiativeActive ? this.initiativeMethods?.getCurrentActivation() ?? null : null;
         if (this.turnIndicatorElement) {
-            const label = summary.phase === "deployment" ? "Deployment" : `Turn ${summary.turnNumber}`;
+            const configuredTurnLimit = this.battleState.getPrecombatMissionInfo()?.turnLimit ?? this.scenario.turnLimit;
+            const label = summary.phase === "deployment"
+                ? "Deployment"
+                : configuredTurnLimit > 0
+                    ? `${summary.turnNumber} of ${configuredTurnLimit}`
+                    : String(summary.turnNumber);
             this.turnIndicatorElement.textContent = label;
         }
         if (this.factionIndicatorElement) {
-            this.factionIndicatorElement.textContent = this.formatFactionLabel(summary.activeFaction);
+            this.factionIndicatorElement.textContent =
+                initiativeActivation?.ownerId === "player"
+                    ? "Player"
+                    : initiativeActivation?.ownerId === "bot"
+                        ? "Enemy"
+                        : this.formatFactionLabel(summary.activeFaction);
         }
         if (this.phaseIndicatorElement) {
-            this.phaseIndicatorElement.textContent = this.formatPhaseLabel(summary.phase);
+            if (initiativeActive) {
+                const queue = this.initiativeMethods?.getCurrentInitiativeQueue();
+                const hasPendingActivations = this.hasPendingInitiativeActivations(queue);
+                this.phaseIndicatorElement.textContent = initiativeActivation
+                    ? initiativeActivation.ownerId === "player"
+                        ? "Your initiative group is active"
+                        : "Enemy initiative group is active"
+                    : hasPendingActivations
+                        ? "Initiative order updating"
+                        : "Turn ready to end";
+            }
+            else {
+                this.phaseIndicatorElement.textContent = this.formatPhaseLabel(summary.phase);
+            }
         }
     }
     updateTurnControls(summary) {
@@ -4084,10 +4840,17 @@ export class BattleScreen {
         }
         const initiativeActive = this.isInitiativeSystemEnabled && Boolean(this.initiativeMethods?.isInitiativeSystemActive());
         if (initiativeActive) {
+            const hasEnhancedControls = Boolean(this.initiativeTurnControls) ||
+                Boolean(document.querySelector(".initiative-turn-controls-container"));
             // Initiative mode uses dedicated controls in the top bar, so hide the legacy button
-            // to prevent duplicate "End Turn" actions from appearing.
-            this.endTurnButton.hidden = true;
-            this.endTurnButton.setAttribute("aria-hidden", "true");
+            // when enhanced controls are available to prevent duplicate "End Turn" actions.
+            this.endTurnButton.hidden = hasEnhancedControls;
+            if (hasEnhancedControls) {
+                this.endTurnButton.setAttribute("aria-hidden", "true");
+            }
+            else {
+                this.endTurnButton.removeAttribute("aria-hidden");
+            }
             return;
         }
         this.endTurnButton.hidden = false;
@@ -4505,6 +5268,67 @@ export class BattleScreen {
         }
         return hexDistance(a.focusHex, b.focusHex) <= BattleScreen.AIR_PLAYBACK_CLUSTER_LINK_DISTANCE_HEX;
     }
+    resolveRenderedHexCenter(renderer, hexKey) {
+        if (!hexKey || !renderer) {
+            return null;
+        }
+        const cell = renderer.getHexElement?.(hexKey);
+        if (!cell) {
+            return renderer.getHexCenter?.(hexKey) ?? null;
+        }
+        const cx = Number(cell.dataset.cx ?? NaN);
+        const cy = Number(cell.dataset.cy ?? NaN);
+        if (!Number.isFinite(cx) || !Number.isFinite(cy) || (cx === 0 && cy === 0)) {
+            return renderer.getHexCenter?.(hexKey) ?? null;
+        }
+        return { cx, cy };
+    }
+    resolveAirPlaybackClusterFocusPoint(cluster, renderer) {
+        const pointsByHexKey = new Map();
+        const appendFocusPoint = (hexKey) => {
+            if (!hexKey || pointsByHexKey.has(hexKey)) {
+                return;
+            }
+            const point = this.resolveRenderedHexCenter(renderer, hexKey);
+            if (point) {
+                pointsByHexKey.set(hexKey, point);
+            }
+        };
+        cluster.forEach((operation) => {
+            if (operation.kind === "linkedStrike" || operation.kind === "flight") {
+                const flight = operation.flight;
+                if (flight.kind === "strike") {
+                    appendFocusPoint(flight.originKey);
+                    appendFocusPoint(operation.focusKey ?? flight.destKey);
+                    return;
+                }
+            }
+            appendFocusPoint(operation.focusKey);
+        });
+        const points = Array.from(pointsByHexKey.values());
+        if (points.length === 0) {
+            return null;
+        }
+        return {
+            cx: points.reduce((sum, point) => sum + point.cx, 0) / points.length,
+            cy: points.reduce((sum, point) => sum + point.cy, 0) / points.length
+        };
+    }
+    async focusCameraOnPoint(point, zoom) {
+        if (!this.mapViewport) {
+            return;
+        }
+        if (zoom !== undefined) {
+            const currentTransform = this.mapViewport.getTransform();
+            this.mapViewport.setTransform(zoom, currentTransform.panX, currentTransform.panY);
+        }
+        this.mapViewport.centerOn(point.cx, point.cy);
+        this.lastFocusedHexKey = null;
+        this.lastFocusedViewportPoint = { cx: point.cx, cy: point.cy };
+        this.lastViewportTransform = this.mapViewport.getTransform();
+        await this.waitForNextFrame();
+        await this.waitForNextFrame();
+    }
     async playAirPlaybackCluster(cluster, renderer, engine) {
         if (cluster.length === 0) {
             return;
@@ -4513,8 +5337,17 @@ export class BattleScreen {
         const focusDelay = cluster.some((operation) => operation.kind === "linkedStrike")
             ? this.scaleAirSequenceMs(220)
             : this.scaleAirSequenceMs(180);
+        const containsStrike = cluster.some((operation) => (operation.kind === "linkedStrike" || operation.kind === "flight")
+            && operation.flight.kind === "strike");
+        const airPlaybackZoom = containsStrike ? 0.86 : undefined;
         if (focusKey) {
-            await this.focusCameraOnHex(focusKey);
+            const packageFocusPoint = this.resolveAirPlaybackClusterFocusPoint(cluster, renderer);
+            if (packageFocusPoint) {
+                await this.focusCameraOnPoint(packageFocusPoint, airPlaybackZoom);
+            }
+            else {
+                await this.focusCameraOnHex(focusKey, airPlaybackZoom);
+            }
             await this.waitForNextFrame();
             await this.waitMs(focusDelay);
         }
@@ -4667,7 +5500,7 @@ export class BattleScreen {
      * @param hexKey - Hex key in "col,row" format (offset coordinates)
      * @returns Promise that resolves when camera centering is complete
      */
-    async focusCameraOnHex(hexKey) {
+    async focusCameraOnHex(hexKey, zoom) {
         if (!this.mapViewport || !this.hexMapRenderer) {
             console.warn("[BattleScreen] focusCameraOnHex: mapViewport or hexMapRenderer is null");
             return;
@@ -4694,6 +5527,10 @@ export class BattleScreen {
             return;
         }
         // Only apply centering if camera is not frozen from user input
+        if (zoom !== undefined) {
+            const currentTransform = this.mapViewport.getTransform();
+            this.mapViewport.setTransform(zoom, currentTransform.panX, currentTransform.panY);
+        }
         if (!this.cameraFrozen) {
             this.mapViewport.centerOn(cx, cy);
         }
@@ -4722,6 +5559,7 @@ export class BattleScreen {
             transformMatch: afterDOMTransform.includes(afterTransform.panX.toFixed(1))
         });
         this.lastFocusedHexKey = hexKey;
+        this.lastFocusedViewportPoint = { cx, cy };
         this.lastViewportTransform = afterTransform;
         // Wait TWO frames to ensure transform fully propagates to DOM
         await this.waitForNextFrame();
@@ -4731,10 +5569,13 @@ export class BattleScreen {
         console.log("[BattleScreen] focusCameraOnHex: after frame wait, DOM transform is:", finalDOMTransform);
     }
     recenterLastFocus() {
-        if (!this.lastFocusedHexKey) {
+        if (this.lastFocusedHexKey) {
+            this.focusCameraOnHex(this.lastFocusedHexKey);
             return;
         }
-        this.focusCameraOnHex(this.lastFocusedHexKey);
+        if (this.lastFocusedViewportPoint) {
+            this.focusCameraOnPoint(this.lastFocusedViewportPoint);
+        }
     }
     restoreViewportAfterIdleDismiss() {
         if (!this.mapViewport) {
@@ -4767,7 +5608,7 @@ export class BattleScreen {
     /**
      * Centers the camera on the center of a deployment zone.
      */
-    async centerCameraOnZone(zoneHexes) {
+    async centerCameraOnZone(zoneHexes, zoom) {
         console.log("[BattleScreen] centerCameraOnZone called");
         if (!this.mapViewport || !this.hexMapRenderer) {
             console.warn("[BattleScreen] centerCameraOnZone: mapViewport or hexMapRenderer is null", {
@@ -4813,9 +5654,16 @@ export class BattleScreen {
         }
         const avgX = totalX / count;
         const avgY = totalY / count;
-        console.log("[BattleScreen] Calling mapViewport.centerOn for zone:", { avgX, avgY });
+        if (zoom !== undefined) {
+            const currentTransform = this.mapViewport.getTransform();
+            this.mapViewport.setTransform(zoom, currentTransform.panX, currentTransform.panY);
+        }
+        console.log("[BattleScreen] Calling mapViewport.centerOn for zone:", { avgX, avgY, zoom });
         // Center the viewport on the zone's average position
         this.mapViewport.centerOn(avgX, avgY);
+        this.lastViewportTransform = this.mapViewport.getTransform();
+        this.lastFocusedViewportPoint = { cx: avgX, cy: avgY };
+        this.lastFocusedHexKey = hexArray.length === 1 ? (hexArray[0] ?? null) : null;
     }
     /**
      * Kicks off deployment phase mirrors on first screen load.
@@ -4907,9 +5755,19 @@ export class BattleScreen {
         this.deploymentPrimed = false;
         this.panelEventsBound = false;
         this.tutorialBaseCampSelectionCleared = false;
-        this.tutorialMovementFocusKey = null;
-        this.tutorialMovementSelectionCleared = false;
-        this.tutorialSmokeFocusKey = null;
+        this.tutorialInitiativeGroupSelectionCleared = false;
+        this.tutorialActiveGroupSelectionCleared = false;
+        this.tutorialCameraSyncKey = null;
+        this.tutorialLastSyncedPhase = null;
+        this.tutorialSelectionClearedForPhase = null;
+        this.tutorialSelectionSyncInProgress = false;
+        this.tutorialUserMapClickInProgress = false;
+        this.tutorialMapInputBlockedUntil = 0;
+        this.tutorialQueuedMapClickTimerId = null;
+        this.tutorialGuidedHexKeys = new Set();
+        this.tutorialEnemyActivationMonitorActive = false;
+        this.tutorialEnemyActivationStartedAt = 0;
+        this.tutorialEnemyActivationSequenceStart = 0;
         this.battleUpdateUnsubscribe = null;
         this.tutorialUpdateUnsubscribe = null;
         this.missionRulesController = null;
@@ -4925,7 +5783,9 @@ export class BattleScreen {
         this.initiativeUiSyncIntervalId = null;
         this.initiativeGroupCursorUnitId = null;
         this.initiativeGroupSessionId = null;
+        this.initiativeTurnAdvanceInProgress = false;
         this.initiativeSkippedUnitIds = new Set();
+        this.initiativeEndTurnSkipModeActive = false;
         // DOM element references
         this.battleAnnouncements = null;
         this.battleActivityLogToggleButton = null;
@@ -4960,8 +5820,11 @@ export class BattleScreen {
         this.artilleryTargetingState = null;
         this.smokeTargetingState = null;
         this.beginBattleButton = null;
+        this.settingsToggleButton = null;
+        this.settingsMenu = null;
         this.soundToggleButton = null;
         this.animationToggleButton = null;
+        this.fullscreenToggleButton = null;
         this.endTurnButton = null;
         this.endMissionButton = null;
         this.baseCampStatus = null;
@@ -4983,6 +5846,10 @@ export class BattleScreen {
         this.missionDoctrineElement = null;
         this.missionTurnLimitElement = null;
         this.missionSuppliesList = null;
+        this.objectiveSummaryButton = null;
+        this.objectiveIndexElement = null;
+        this.objectiveTitleElement = null;
+        this.objectiveStatusElement = null;
         this.turnIndicatorElement = null;
         this.factionIndicatorElement = null;
         this.phaseIndicatorElement = null;
@@ -4996,9 +5863,27 @@ export class BattleScreen {
         this.pendingIdleTurnAdvance = null;
         this.lastFocusedHexKey = null;
         this.lastViewportTransform = null;
+        this.lastFocusedViewportPoint = null;
         this.cameraFrozen = false;
         this.soundEnabled = true;
         this.battleAnimationMode = "regular";
+        this.settingsDocumentPointerHandler = (event) => {
+            const target = event.target instanceof Node ? event.target : null;
+            if (!target || this.settingsMenu?.contains(target) || this.settingsToggleButton?.contains(target)) {
+                return;
+            }
+            this.setBattleSettingsMenuOpen(false);
+        };
+        this.settingsDocumentKeydownHandler = (event) => {
+            if (event.key !== "Escape" || this.settingsMenu?.classList.contains("hidden")) {
+                return;
+            }
+            this.setBattleSettingsMenuOpen(false);
+            this.settingsToggleButton?.focus();
+        };
+        this.fullscreenChangeHandler = () => {
+            this.updateFullscreenToggleButton();
+        };
         // Hex selection state
         this.selectedHexKey = null;
         this.selectedPlayerUnitId = null;
@@ -5007,7 +5892,7 @@ export class BattleScreen {
         this.pendingAttack = null;
         this.idleUnitHighlightKeys = new Set();
         this.objectiveHexKeys = new Set();
-        this.currentObjectiveIndex = 0;
+        this.currentObjectiveIndex = -1;
         // Tracks focus management for the attack confirmation dialog so keyboard users remain within the modal context.
         this.attackDialogPreviouslyFocused = null;
         // Prevents double-submitting the confirmation dialog via rapid key presses or overlapping handlers.
@@ -5129,6 +6014,9 @@ export class BattleScreen {
         }
         window.removeEventListener("keydown", this.keyboardNavigationHandler);
         document.removeEventListener("screen:shown", this.screenShownHandler);
+        document.removeEventListener("pointerdown", this.settingsDocumentPointerHandler);
+        document.removeEventListener("keydown", this.settingsDocumentKeydownHandler);
+        document.removeEventListener("fullscreenchange", this.fullscreenChangeHandler);
         if (this.airPreviewListener) {
             document.removeEventListener("air:previewRange", this.airPreviewListener);
         }
@@ -5176,8 +6064,11 @@ export class BattleScreen {
      */
     cacheElements() {
         this.beginBattleButton = this.element.querySelector("#beginBattle");
+        this.settingsToggleButton = this.element.querySelector("#battleSettingsToggle");
+        this.settingsMenu = this.element.querySelector("#battleSettingsMenu");
         this.soundToggleButton = this.element.querySelector("#battleSoundToggle");
         this.animationToggleButton = this.element.querySelector("#battleAnimationToggle");
+        this.fullscreenToggleButton = this.element.querySelector("#battleFullscreenToggle");
         this.endTurnButton = this.element.querySelector("#endTurn");
         this.endMissionButton = this.element.querySelector("#endMissionButton");
         this.baseCampStatus = this.element.querySelector("#baseCampStatus");
@@ -5200,6 +6091,10 @@ export class BattleScreen {
         this.missionDoctrineElement = this.element.querySelector("#battleMissionDoctrine");
         this.missionTurnLimitElement = this.element.querySelector("#battleMissionTurnLimit");
         this.missionSuppliesList = this.element.querySelector("#battleMissionSupplies");
+        this.objectiveSummaryButton = this.element.querySelector("#battleCycleObjective");
+        this.objectiveIndexElement = this.element.querySelector("#battleObjectiveIndex");
+        this.objectiveTitleElement = this.element.querySelector("#battleObjectiveTitle");
+        this.objectiveStatusElement = this.element.querySelector("#battleObjectiveStatus");
         this.battleAnnouncements = this.element.querySelector("#battleAnnouncements");
         this.battleIntelOverlayRoot = this.element.querySelector("#battleIntelOverlay");
         this.battleActivityLogToggleButton = this.element.querySelector("#battleActivityLogToggle");
@@ -5215,7 +6110,7 @@ export class BattleScreen {
     }
     hydrateMissionBriefing(announce = true) {
         const missionInfo = this.battleState.getPrecombatMissionInfo();
-        const title = missionInfo?.title ?? "Mission Briefing";
+        const title = missionInfo?.title ?? this.scenario.name ?? "Operation Pending";
         const briefing = missionInfo?.briefing ?? "Mission details will synchronize once precombat data is available.";
         const objectives = missionInfo?.objectives ?? [];
         const doctrine = missionInfo?.doctrine ?? "Doctrine summary not yet provided.";
@@ -5243,6 +6138,7 @@ export class BattleScreen {
                 ? supplies.map((item) => `<li><strong>${item.label}:</strong> ${item.amount}</li>`).join("")
                 : "<li>Baseline supplies will be listed once confirmed.</li>";
         }
+        this.renderBattleObjectiveSummary();
         const announcementTitle = missionInfo?.title ?? "Mission ready";
         const announcementSummary = missionInfo?.briefing ?? "Awaiting mission briefing details.";
         if (announce) {
@@ -5254,12 +6150,27 @@ export class BattleScreen {
      */
     bindEvents() {
         this.beginBattleButton?.addEventListener("click", () => this.handleBeginBattle());
+        if (this.settingsToggleButton && this.settingsMenu) {
+            this.settingsToggleButton.addEventListener("click", () => {
+                const open = this.settingsToggleButton?.getAttribute("aria-expanded") !== "true";
+                this.setBattleSettingsMenuOpen(open);
+            });
+            document.addEventListener("pointerdown", this.settingsDocumentPointerHandler);
+            document.addEventListener("keydown", this.settingsDocumentKeydownHandler);
+        }
         this.soundToggleButton?.addEventListener("click", () => this.handleToggleSound());
         this.animationToggleButton?.addEventListener("click", () => this.handleToggleBattleAnimationMode());
+        this.fullscreenToggleButton?.addEventListener("click", () => {
+            void this.handleToggleBattleFullscreen();
+        });
+        document.addEventListener("fullscreenchange", this.fullscreenChangeHandler);
+        this.updateFullscreenToggleButton();
         this.endTurnButton?.addEventListener("click", () => {
             void this.handleEndTurn();
         });
-        this.endMissionButton?.addEventListener("click", () => this.handleEndMission());
+        this.endMissionButton?.addEventListener("click", () => {
+            void this.handleEndMission();
+        });
         this.attackConfirmAccept?.addEventListener("click", () => void this.handleConfirmAttack());
         this.attackConfirmCancel?.addEventListener("click", () => this.handleCancelAttack());
         this.baseCampAssignButton?.addEventListener("click", () => this.handleAssignBaseCamp());
@@ -5406,48 +6317,69 @@ export class BattleScreen {
             }
             return a.localeCompare(b);
         });
-        const unitQueue = this.buildUnitQueue(mode);
+        const unitQueue = this.buildInitiativeOrderedUnitQueue();
+        if (unitQueue.length === 0) {
+            return [];
+        }
         const plannedPlacements = [];
-        const hexIterator = sortedHexes[Symbol.iterator]();
-        let nextHex = hexIterator.next();
-        let nextUnit = unitQueue.next();
-        while (!nextHex.done && !nextUnit.done) {
-            plannedPlacements.push({ hexKey: nextHex.value, unitKey: nextUnit.value });
-            nextHex = hexIterator.next();
-            nextUnit = unitQueue.next();
+        if (mode === "grouped") {
+            let unitIndex = 0;
+            for (const hexKey of sortedHexes) {
+                for (let slot = 0; slot < 2 && unitIndex < unitQueue.length; slot += 1) {
+                    plannedPlacements.push({ hexKey, unitKey: unitQueue[unitIndex] });
+                    unitIndex += 1;
+                }
+                if (unitIndex >= unitQueue.length) {
+                    break;
+                }
+            }
+            return plannedPlacements;
+        }
+        const placementCount = Math.min(sortedHexes.length, unitQueue.length);
+        for (let index = 0; index < placementCount; index += 1) {
+            plannedPlacements.push({
+                hexKey: sortedHexes[index],
+                unitKey: unitQueue[index]
+            });
         }
         return plannedPlacements;
     }
     /**
-     * Builds an iterator of unit keys based on the desired auto-deploy mode.
+     * Builds a deployment queue sorted by initiative from lowest to highest.
+     * Units with matching initiative are ordered alphabetically by unit key.
      */
-    *buildUnitQueue(mode) {
+    buildInitiativeOrderedUnitQueue() {
         const deploymentState = ensureDeploymentState();
         const entries = deploymentState.pool
             .map((entry) => ({ key: entry.key, remaining: deploymentState.getReserveCount(entry.key) }))
             .filter((entry) => entry.remaining > 0);
         if (entries.length === 0) {
-            return;
+            return [];
         }
-        if (mode === "grouped") {
-            entries.sort((a, b) => b.remaining - a.remaining || a.key.localeCompare(b.key));
-            for (const entry of entries) {
-                for (let index = 0; index < entry.remaining; index += 1) {
-                    yield entry.key;
-                }
+        entries.sort((a, b) => {
+            const initiativeA = this.resolveInitiativeForDeploymentUnitKey(a.key);
+            const initiativeB = this.resolveInitiativeForDeploymentUnitKey(b.key);
+            if (initiativeA !== initiativeB) {
+                return initiativeA - initiativeB;
             }
-            return;
-        }
-        // Even mode: rotate through unit keys so each type deploys one at a time.
-        const queue = entries.map((entry) => ({ ...entry }));
-        while (queue.some((entry) => entry.remaining > 0)) {
-            for (const entry of queue) {
-                if (entry.remaining > 0) {
-                    entry.remaining -= 1;
-                    yield entry.key;
-                }
+            return a.key.localeCompare(b.key);
+        });
+        const queue = [];
+        entries.forEach((entry) => {
+            for (let count = 0; count < entry.remaining; count += 1) {
+                queue.push(entry.key);
             }
+        });
+        return queue;
+    }
+    resolveInitiativeForDeploymentUnitKey(unitKey) {
+        const deploymentState = ensureDeploymentState();
+        const scenarioType = deploymentState.getScenarioTypeForUnitKey(unitKey) ?? unitKey;
+        const definition = this.unitTypes[scenarioType];
+        if (definition && typeof definition.initiative === "number") {
+            return definition.initiative;
         }
+        return Number.POSITIVE_INFINITY;
     }
     /**
      * Returns a list of zone hex keys that are currently empty and valid for deployment.
@@ -5523,6 +6455,7 @@ export class BattleScreen {
      */
     handleBeginBattle() {
         try {
+            const shouldStageTutorialCombatOverview = this.shouldDeferTutorialInitiativeAutoFocus();
             // Lock reserves directly from the commander-approved allocations to avoid stale mirrors.
             const engine = this.prepareBattleState(true);
             // Check if base camp is set
@@ -5557,6 +6490,11 @@ export class BattleScreen {
             });
             this.collapseDeploymentPanelForBattlePhase();
             this.renderEngineUnits();
+            if (shouldStageTutorialCombatOverview) {
+                this.clearSelectedHexAfterAction();
+                this.hexMapRenderer?.setZoneHighlights(this.getActivePlayerInitiativeGroupHexKeys());
+                this.queueTutorialCombatOverviewCamera();
+            }
             // Update UI to show mission has started
             setMissionStartedUI(true);
             const reserveCount = engine.getReserveSnapshot().length;
@@ -5666,7 +6604,7 @@ export class BattleScreen {
     async handleEndTurn() {
         try {
             if (this.isInitiativeSystemEnabled && this.initiativeMethods?.isInitiativeSystemActive()) {
-                this.handleInitiativeEndTurn();
+                await this.handleInitiativeEndTurn();
                 return;
             }
             const preflightSummary = this.battleState.getCurrentTurnSummary();
@@ -5836,9 +6774,8 @@ export class BattleScreen {
     /**
      * Handles ending the mission and returning to headquarters.
      */
-    handleEndMission() {
-        const confirmed = window.confirm("End this mission and return to headquarters?\n\n" +
-            "This will record your performance in your service record.");
+    async handleEndMission() {
+        const confirmed = await this.confirmMissionEndRequest();
         if (!confirmed) {
             return;
         }
@@ -5936,6 +6873,73 @@ export class BattleScreen {
             this.screenManager.showScreenById("landing");
         }
     }
+    async confirmMissionEndRequest() {
+        return new Promise((resolve) => {
+            const modalRoot = document.createElement("div");
+            modalRoot.className = "initiative-proceed-modal";
+            modalRoot.setAttribute("role", "dialog");
+            modalRoot.setAttribute("aria-modal", "true");
+            modalRoot.setAttribute("aria-labelledby", "missionEndConfirmTitle");
+            modalRoot.innerHTML = `
+        <div class="initiative-proceed-modal__backdrop"></div>
+        <section class="initiative-proceed-modal__content">
+          <h3 class="initiative-proceed-modal__title" id="missionEndConfirmTitle">End Mission?</h3>
+          <p class="initiative-proceed-modal__copy">
+            This will close the battle and record your results in the service record.
+          </p>
+          <footer class="initiative-proceed-modal__actions">
+            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--secondary" data-action="cancel">Keep Fighting</button>
+            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--primary" data-action="confirm">Return To HQ</button>
+          </footer>
+        </section>
+      `;
+            const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            const confirmButton = modalRoot.querySelector('[data-action="confirm"]');
+            const cancelButton = modalRoot.querySelector('[data-action="cancel"]');
+            let finalized = false;
+            const finalize = (confirmed) => {
+                if (finalized) {
+                    return;
+                }
+                finalized = true;
+                document.removeEventListener("keydown", handleKeydown, true);
+                modalRoot.remove();
+                previousFocus?.focus();
+                resolve(confirmed);
+            };
+            const handleKeydown = (event) => {
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    finalize(false);
+                    return;
+                }
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    const focusedAction = document.activeElement
+                        ?.closest("[data-action]")
+                        ?.getAttribute("data-action");
+                    finalize(focusedAction === "cancel" ? false : true);
+                }
+            };
+            modalRoot.addEventListener("click", (event) => {
+                const target = event.target;
+                if (target === modalRoot.querySelector(".initiative-proceed-modal__backdrop")) {
+                    finalize(false);
+                    return;
+                }
+                const action = target?.closest("[data-action]")?.getAttribute("data-action");
+                if (action === "confirm") {
+                    finalize(true);
+                }
+                else if (action === "cancel") {
+                    finalize(false);
+                }
+            });
+            document.addEventListener("keydown", handleKeydown, true);
+            document.body.appendChild(modalRoot);
+            (cancelButton ?? confirmButton)?.focus();
+        });
+    }
     /**
      * Updates the selected general's service record with mission completion data.
      */
@@ -6001,24 +7005,9 @@ export class BattleScreen {
                     : "Review the updated front, losses, and objective board before committing the next patrol.",
             };
         }
-        const objectivesInput = window.prompt("Objectives completed (0-10):", "0");
-        const casualtiesInput = window.prompt("Units lost:", "0");
-        if (objectivesInput === null || casualtiesInput === null) {
-            return {
-                success: false,
-                objectivesCompleted: 0,
-                objectivesFailed: 0,
-                objectivesContested: 0,
-                casualties: 0,
-                reason: "Mission report was cancelled before headquarters metrics were confirmed.",
-                headquartersTitle: "Mission ended.",
-                headquartersAction: "Re-open the debrief and confirm the mission report when ready.",
-                aborted: true
-            };
-        }
-        const objectivesCompleted = Math.max(0, Math.min(10, parseInt(objectivesInput) || 0));
-        const casualties = Math.max(0, parseInt(casualtiesInput) || 0);
-        const success = objectivesCompleted >= 5;
+        const casualties = this.computePlayerCasualties();
+        const objectivesCompleted = 0;
+        const success = false;
         return {
             success,
             objectivesCompleted,
@@ -6270,6 +7259,22 @@ export class BattleScreen {
         return Array.from(summary.entries(), ([label, count]) => `${label} x${count}`).join(", ");
     }
     /**
+     * Builds actionable deployment-capacity guidance that adapts to single-zone missions.
+     */
+    buildDeploymentCapacityAction(zoneName) {
+        const deploymentState = ensureDeploymentState();
+        const playerZones = deploymentState
+            .getZoneUsageSummaries()
+            .filter((zone) => zone.faction === "Player");
+        if (playerZones.length <= 1) {
+            return `${zoneName} is full. Recall a deployed formation or reduce allocations before placing more units.`;
+        }
+        const zoneSummary = playerZones
+            .map((zone) => `${zone.name ?? zone.zoneKey} ${zone.remaining}/${zone.capacity} open`)
+            .join("; ");
+        return `Choose an open hex in another player zone (${zoneSummary}).`;
+    }
+    /**
      * Handles assigning the base camp location.
      */
     handleAssignBaseCamp() {
@@ -6310,7 +7315,7 @@ export class BattleScreen {
             this.reportDeploymentPanelError({
                 title: "Base camp assignment failed.",
                 detail: `Hex ${selectedHexKey} is outside the registered player deployment zones.${zoneSummary}`,
-                action: "Select a highlighted player deployment hex and try again.",
+                action: "Select a highlighted player deployment hex and try again. Tip: click Zone Alpha in the deployment list to center on legal hexes.",
                 recoverable: true
             }, { mirrorToBaseCampStatus: true });
             return;
@@ -6541,13 +7546,11 @@ export class BattleScreen {
             }
             // Initialize initiative methods
             this.initiativeMethods = new GameEngineInitiativeMethods(engine);
-            this.initiativeMethods.setBotActivationListener((event) => {
-                void this.handleInitiativeBotActivation(event);
-            });
+            this.initiativeMethods.setBotActivationListener((event) => this.handleInitiativeBotActivation(event));
             this.isInitiativeSystemEnabled = true;
             this.initiativeGroupCursorUnitId = null;
             this.initiativeGroupSessionId = null;
-            this.initiativeSkippedUnitIds.clear();
+            this.clearInitiativeSkipState();
             this.syncLegacyEndTurnButton();
             this.ensureInitiativeUiSyncLoop();
             // Initialize initiative group highlighting
@@ -6590,10 +7593,13 @@ export class BattleScreen {
         document
             .querySelectorAll('.battle-map-header__command-group.initiative-controls-active')
             .forEach((group) => group.classList.remove('initiative-controls-active'));
+        document
+            .querySelectorAll('.battle-map-header.initiative-controls-active')
+            .forEach((header) => header.classList.remove('initiative-controls-active'));
         this.clearInitiativeGroupHighlights();
         this.initiativeGroupCursorUnitId = null;
         this.initiativeGroupSessionId = null;
-        this.initiativeSkippedUnitIds.clear();
+        this.clearInitiativeSkipState();
         this.initiativeMethods?.setBotActivationListener(null);
         this.initiativeMethods = null;
         this.isInitiativeSystemEnabled = false;
@@ -6633,6 +7639,9 @@ export class BattleScreen {
             document
                 .querySelectorAll('.battle-map-header__command-group.initiative-controls-active')
                 .forEach((group) => group.classList.remove('initiative-controls-active'));
+            document
+                .querySelectorAll('.battle-map-header.initiative-controls-active')
+                .forEach((header) => header.classList.remove('initiative-controls-active'));
             // Remove any existing initiative controls from deployment panel or other locations
             const existingControls = document.querySelectorAll('.enhanced-initiative-turn-controls, .initiative-turn-controls-container');
             existingControls.forEach(control => {
@@ -6646,6 +7655,7 @@ export class BattleScreen {
             const commandGroup = document.querySelector('.battle-map-header__command-group');
             if (commandGroup) {
                 commandGroup.classList.add('initiative-controls-active');
+                commandGroup.closest('.battle-map-header')?.classList.add('initiative-controls-active');
                 commandGroup.appendChild(controlsContainer);
                 console.log('Initiative controls container added to top bar command group');
             }
@@ -6658,15 +7668,19 @@ export class BattleScreen {
             // Initialize enhanced turn controls
             this.initiativeTurnControls = new EnhancedInitiativeTurnControls(controlsContainer, {
                 onSkipTurn: () => this.handleSkipTurn(),
-                onEndTurn: () => this.handleInitiativeEndTurn(),
+                onEndTurn: () => {
+                    void this.handleTutorialAwareEndTurn();
+                },
                 onNextActivation: () => this.handleNextActivation(),
                 onCompleteActivation: (unitId) => this.handleCompleteActivation(unitId),
-                onProceedToNext: () => this.handleProceedToNext(),
+                onProceedToNext: () => {
+                    void this.handleProceedToNext();
+                },
                 onSkipGroup: () => this.handleSkipGroup()
             }, {
                 showSkipTurn: true,
-                showEndTurn: false,
-                showProceedButton: true,
+                showEndTurn: true,
+                showProceedButton: false,
                 showCurrentUnitInfo: true,
                 showGroupInfo: true,
                 enableKeyboardShortcuts: true
@@ -6681,40 +7695,57 @@ export class BattleScreen {
     /**
      * Handle proceed to next unit action
      */
-    handleProceedToNext() {
+    async handleProceedToNext(options) {
         if (!this.initiativeMethods) {
             console.warn('Initiative methods not available');
-            return;
+            return false;
         }
+        const endTurnSkipAll = options?.endTurnSkipAll === true;
+        const bypassConfirmation = options?.bypassConfirmation === true;
         try {
             const queue = this.initiativeMethods.getCurrentInitiativeQueue();
             const activeGroup = this.resolveActiveInitiativeGroup(queue);
-            if (!activeGroup || activeGroup.ownerId !== "player") {
-                this.syncInitiativeTurnControlsState();
-                return;
-            }
-            const uncommittedUnits = this.resolveUncommittedPlayerInitiativeUnits(activeGroup);
             const currentActivation = this.initiativeMethods.getCurrentActivation();
-            const remainingOtherUnits = currentActivation
-                ? uncommittedUnits.filter((unit) => unit.unitId !== currentActivation.unitId)
-                : uncommittedUnits;
-            const shouldConfirmProceed = uncommittedUnits.length > 0 && (remainingOtherUnits.length > 0 ||
-                !currentActivation ||
-                uncommittedUnits.some((unit) => unit.unitId === currentActivation.unitId));
-            if (shouldConfirmProceed) {
-                const confirmProceed = window.confirm(`${uncommittedUnits.length} unit${uncommittedUnits.length === 1 ? "" : "s"} in this initiative group have not acted. Proceed anyway?`);
+            if (!activeGroup || activeGroup.ownerId !== "player" || !currentActivation || currentActivation.ownerId !== "player") {
+                this.syncInitiativeTurnControlsState();
+                return false;
+            }
+            const pendingUnits = this.resolveUncommittedPlayerInitiativeUnits(activeGroup);
+            const currentUnitId = currentActivation.unitId;
+            const currentUnitIsPending = pendingUnits.some((unit) => unit.unitId === currentUnitId);
+            const hasPendingUnits = pendingUnits.length > 0;
+            if (hasPendingUnits && !bypassConfirmation) {
+                const confirmProceed = await this.confirmInitiativeProceedWithPendingUnits(pendingUnits, currentUnitId, currentUnitIsPending);
                 if (!confirmProceed) {
                     this.syncInitiativeTurnControlsState();
-                    return;
+                    return false;
                 }
-                this.markRemainingPlayerInitiativeUnitsSkipped(activeGroup, currentActivation?.unitId ?? null);
+            }
+            if (currentUnitIsPending) {
+                const engine = this.battleState.ensureGameEngine();
+                const currentUnit = engine.playerUnits.find((entry) => entry.unitId === currentUnitId);
+                if (currentUnit && !currentUnit.onSentry) {
+                    engine.enterSentry(currentUnit.hex, currentUnit.unitId ?? undefined);
+                }
+            }
+            if (endTurnSkipAll) {
+                const skippedPlayerActivationCount = this.skipRemainingPlayerInitiativeTurnActivations(queue);
+                this.initiativeEndTurnSkipModeActive = skippedPlayerActivationCount > 0;
+            }
+            else {
+                this.initiativeEndTurnSkipModeActive = false;
             }
             this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative, false);
+            if (endTurnSkipAll && this.initiativeEndTurnSkipModeActive) {
+                this.flushSkippedInitiativeActivations();
+            }
             this.focusCurrentInitiativeActivation();
             this.highlightCurrentInitiativeGroup();
+            return true;
         }
         catch (error) {
             console.error('Failed to proceed from initiative group:', error);
+            return false;
         }
         finally {
             this.syncInitiativeTurnControlsState();
@@ -6743,7 +7774,7 @@ export class BattleScreen {
                 this.initiativeSkippedUnitIds.add(activation.unitId);
             });
             this.initiativeGroupCursorUnitId = null;
-            this.showElegantInitiativeMessage("Group marked to skip. Press Proceed to continue.");
+            this.showElegantInitiativeMessage("Group ordered to hold. Commit Orders to pass initiative.");
             this.highlightCurrentInitiativeGroup();
         }
         catch (error) {
@@ -6756,19 +7787,168 @@ export class BattleScreen {
     /**
      * Handle end turn action for initiative system
      */
-    handleInitiativeEndTurn() {
+    async handleTutorialAwareEndTurn() {
+        const tutorialState = ensureTutorialState();
+        if (tutorialState.isTutorialActive() &&
+            tutorialState.getCurrentPhase() === "spend_activation") {
+            const proceeded = await this.handleProceedToNext({ bypassConfirmation: true });
+            if (proceeded) {
+                this.completeTutorialPhase("spend_activation");
+            }
+            return;
+        }
+        await this.handleInitiativeEndTurn();
+    }
+    /**
+     * Handle end turn action for initiative system
+     */
+    async handleInitiativeEndTurn() {
         if (!this.initiativeMethods) {
             console.warn('Initiative methods not available');
             return;
         }
         try {
-            // End the current turn
-            this.initiativeMethods.endCurrentTurn();
+            let currentActivation = this.initiativeMethods.getCurrentActivation();
+            if (currentActivation?.ownerId === "player") {
+                const proceeded = await this.handleProceedToNext({ endTurnSkipAll: true });
+                if (!proceeded) {
+                    return;
+                }
+            }
+            if (this.initiativeEndTurnSkipModeActive) {
+                this.flushSkippedInitiativeActivations();
+            }
+            const refreshedQueue = this.initiativeMethods.getCurrentInitiativeQueue();
+            currentActivation = this.initiativeMethods.getCurrentActivation();
+            const hasPendingActivations = this.hasPendingInitiativeActivations(refreshedQueue);
+            if (currentActivation?.ownerId === "player") {
+                if (this.initiativeEndTurnSkipModeActive) {
+                    this.initiativeSkippedUnitIds.add(currentActivation.unitId);
+                    this.flushSkippedInitiativeActivations();
+                    currentActivation = this.initiativeMethods.getCurrentActivation();
+                    if (currentActivation?.ownerId === "player") {
+                        this.showElegantInitiativeMessage("Remaining formations are being set to sentry. Enemy activations are resolving.");
+                    }
+                    return;
+                }
+                this.showElegantInitiativeMessage("Complete this activation or press End Turn again to confirm the handoff.");
+                return;
+            }
+            if (!currentActivation && hasPendingActivations) {
+                const recovered = this.recoverInitiativeQueueStall(refreshedQueue);
+                if (!recovered) {
+                    this.showElegantInitiativeMessage("Initiative sequencing is catching up. Please try End Turn again.");
+                }
+                return;
+            }
+            if (!hasPendingActivations) {
+                await this.advanceInitiativeRound();
+                return;
+            }
+            if (this.initiativeEndTurnSkipModeActive) {
+                this.publishActivityEvent({
+                    category: "enemy",
+                    type: "log",
+                    summary: "Enemy activations are resolving. Stand by for movement and fire reports."
+                });
+                this.showElegantInitiativeMessage("Remaining formations set to sentry. Enemy activations are resolving.");
+                return;
+            }
+            this.publishActivityEvent({
+                category: "enemy",
+                type: "log",
+                summary: "Enemy activations are resolving. Stand by for movement and fire reports."
+            });
+            this.showElegantInitiativeMessage("Enemy activations are resolving. Wait for the current movement/combat sequence.");
         }
         catch (error) {
             console.error('Failed to end turn:', error);
         }
         finally {
+            this.syncInitiativeTurnControlsState();
+        }
+    }
+    skipRemainingPlayerInitiativeTurnActivations(queueOverride) {
+        const queue = queueOverride ?? this.initiativeMethods?.getCurrentInitiativeQueue();
+        if (!queue || !Array.isArray(queue.activations)) {
+            return 0;
+        }
+        const engine = this.battleState.ensureGameEngine();
+        let skippedCount = 0;
+        queue.activations.forEach((activation) => {
+            if (activation.ownerId !== "player" || activation.isActivated) {
+                return;
+            }
+            this.initiativeSkippedUnitIds.add(activation.unitId);
+            skippedCount += 1;
+            const unit = this.resolvePlayerUnitForInitiativeActivation(activation.unitId);
+            if (unit && !unit.onSentry && !this.hasUnitCommittedOrders(unit)) {
+                engine.enterSentry(unit.hex, unit.unitId ?? undefined);
+            }
+        });
+        return skippedCount;
+    }
+    hasPendingInitiativeActivations(queue) {
+        return Boolean(queue?.activations?.some((entry) => !entry.isActivated));
+    }
+    recoverInitiativeQueueStall(queueOverride) {
+        if (!this.initiativeMethods || !this.isInitiativeSystemEnabled || this.initiativeTurnAdvanceInProgress) {
+            return false;
+        }
+        const queue = queueOverride ?? this.initiativeMethods.getCurrentInitiativeQueue();
+        if (!this.hasPendingInitiativeActivations(queue)) {
+            return false;
+        }
+        const currentActivation = this.initiativeMethods.getCurrentActivation();
+        if (currentActivation) {
+            return false;
+        }
+        try {
+            const resumed = this.initiativeMethods.processNextInitiativeActivation();
+            if (!resumed) {
+                return false;
+            }
+            this.focusCurrentInitiativeActivation();
+            this.highlightCurrentInitiativeGroup();
+            return true;
+        }
+        catch (error) {
+            console.error("Failed to recover stalled initiative queue:", error);
+            return false;
+        }
+    }
+    async advanceInitiativeRound() {
+        if (!this.initiativeMethods || this.initiativeTurnAdvanceInProgress) {
+            return;
+        }
+        this.initiativeTurnAdvanceInProgress = true;
+        try {
+            const engine = this.battleState.ensureGameEngine();
+            // Initiative mode already resolved tactical bot activations this round.
+            // Force round advancement through the post-bot path so endTurn applies
+            // supply/air bookkeeping without executing a second full bot ground turn.
+            engine._phase = "botTurn";
+            engine._activeFaction = "Bot";
+            const preflight = this.battleState.getCurrentTurnSummary();
+            await this.executeTurnAdvance(preflight);
+            const postAdvanceSummary = this.battleState.getCurrentTurnSummary();
+            if (postAdvanceSummary.phase === "completed") {
+                this.teardownInitiativeSystemUi();
+                return;
+            }
+            this.initiativeGroupCursorUnitId = null;
+            this.initiativeGroupSessionId = null;
+            this.clearInitiativeSkipState();
+            this.initiativeMethods.startNextInitiativeTurnPhase();
+            this.focusCurrentInitiativeActivation();
+            this.highlightCurrentInitiativeGroup();
+        }
+        catch (error) {
+            console.error("Failed to advance initiative round:", error);
+            this.announceBattleUpdate("Unable to advance initiative round. Check console for details.");
+        }
+        finally {
+            this.initiativeTurnAdvanceInProgress = false;
             this.syncInitiativeTurnControlsState();
         }
     }
@@ -6817,8 +7997,10 @@ export class BattleScreen {
                     }
                 }
             }
-            // Move to next activation instead of skipping all remaining
-            this.initiativeMethods.processNextInitiativeActivation();
+            const activationToComplete = this.initiativeMethods.getCurrentActivation();
+            if (activationToComplete) {
+                this.initiativeMethods.completeUnitActivation(activationToComplete.unitId);
+            }
             // Update initiative group highlighting
             this.highlightCurrentInitiativeGroup();
         }
@@ -6863,13 +8045,15 @@ export class BattleScreen {
             if (!activeGroup) {
                 this.initiativeGroupSessionId = null;
                 this.initiativeGroupCursorUnitId = null;
-                this.initiativeSkippedUnitIds.clear();
+                if (!this.hasPendingInitiativeActivations(currentQueue)) {
+                    this.clearInitiativeSkipState();
+                }
                 this.clearInitiativeGroupHighlights();
                 return;
             }
             this.syncInitiativeGroupSession(activeGroup);
             const highlightActivations = activeGroup.ownerId === "player"
-                ? activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId))
+                ? this.resolveSelectablePlayerInitiativeActivations(activeGroup)
                 : [activeGroup.activations[0]].filter((activation) => Boolean(activation));
             const unitHexes = highlightActivations
                 .map((activation) => this.resolveActivationOffsetHexKey(activation.unitId, activation.ownerId))
@@ -6892,16 +8076,15 @@ export class BattleScreen {
      */
     isUnitInCurrentInitiativeGroup(unitId) {
         if (!this.initiativeMethods) {
-            return true; // Fallback: allow all units if initiative system not available
+            return true; // Initiative system not available, defer to normal turn rules.
         }
         try {
-            const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
-            const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
-            if (!activeGroup) {
-                return true; // Fallback: allow all units if no current queue
+            const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+            const activeGroup = this.resolveActiveInitiativeGroup(queue);
+            if (!activeGroup || activeGroup.ownerId !== "player") {
+                return false;
             }
-            return activeGroup.activations.some((activation) => activation.unitId === unitId)
-                && !this.initiativeSkippedUnitIds.has(unitId);
+            return activeGroup.activations.some((activation) => activation.unitId === unitId);
         }
         catch (error) {
             console.error('Failed to check unit initiative group:', error);
@@ -6921,19 +8104,31 @@ export class BattleScreen {
             if (!unit) {
                 return;
             }
-            const unitLabel = this.resolveReadableUnitLabel(unit);
+            const unitReference = this.resolveReadableInitiativeUnitEntry(unit);
             const currentQueue = this.initiativeMethods.getCurrentInitiativeQueue();
             const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
             if (!activeGroup) {
-                this.showElegantInitiativeMessage(`${unitLabel} cannot act right now. No initiative group is currently active.`);
+                const hasPendingActivations = this.hasPendingInitiativeActivations(currentQueue);
+                this.showElegantInitiativeMessage(hasPendingActivations
+                    ? `${unitReference} cannot act yet. Initiative sequencing is still resolving another activation.`
+                    : `${unitReference} cannot act right now. This round is complete. Press End Turn to advance.`);
                 return;
             }
             const unitDefinition = this.unitTypes?.[unit.type];
             const unitInitiative = unitDefinition?.initiative ?? null;
             const activeInitiative = activeGroup.initiative;
-            const message = unitInitiative === null
-                ? `${unitLabel} is waiting. The active initiative group is ${activeInitiative}.`
-                : `${unitLabel} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
+            const currentActivation = this.initiativeMethods.getCurrentActivation();
+            const currentActivationUnit = currentActivation?.ownerId === "player"
+                ? engine.playerUnits.find((entry) => entry.unitId === currentActivation.unitId) ?? null
+                : null;
+            const currentActivationLabel = currentActivationUnit
+                ? this.resolveReadableInitiativeUnitEntry(currentActivationUnit)
+                : "the active formation";
+            const message = unitInitiative === activeInitiative && currentActivation?.ownerId === "player" && currentActivation.unitId !== unitId
+                ? `${unitReference} is in initiative ${activeInitiative}, but ${currentActivationLabel} is currently acting. Complete that order or press End Turn to hand off the next activation.`
+                : unitInitiative === null
+                    ? `${unitReference} cannot act in the current initiative band. Active initiative is ${activeInitiative}. Press End Turn to continue.`
+                    : `${unitReference} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
             this.showElegantInitiativeMessage(message);
         }
         catch (error) {
@@ -6952,6 +8147,95 @@ export class BattleScreen {
         catch {
             return this.toTitleCase(unit.type);
         }
+    }
+    resolveReadableInitiativeUnitEntry(unit) {
+        const label = this.resolveReadableUnitLabel(unit);
+        const hexKey = this.toOffsetHexKey(unit.hex);
+        return hexKey ? `${label} (${hexKey})` : label;
+    }
+    async confirmInitiativeProceedWithPendingUnits(pendingUnits, currentUnitId, currentUnitIsPending) {
+        const currentUnit = pendingUnits.find((unit) => unit.unitId === currentUnitId) ?? null;
+        const currentLabel = currentUnit ? this.resolveReadableUnitLabel(currentUnit) : "This formation";
+        const leadCopy = currentUnitIsPending
+            ? `${this.escapeHtml(currentLabel)} still has actions available. Ending now will place it on sentry and advance initiative.`
+            : "Other formations in this initiative band still have actions available.";
+        const items = pendingUnits
+            .slice(0, 8)
+            .map((unit) => `<li>${this.escapeHtml(this.resolveReadableInitiativeUnitEntry(unit))}</li>`)
+            .join("");
+        const overflowCount = Math.max(0, pendingUnits.length - 8);
+        const overflowItem = overflowCount > 0
+            ? `<li>...and ${overflowCount} more formation${overflowCount === 1 ? "" : "s"}.</li>`
+            : "";
+        return new Promise((resolve) => {
+            const modalRoot = document.createElement("div");
+            modalRoot.className = "initiative-proceed-modal";
+            modalRoot.setAttribute("role", "dialog");
+            modalRoot.setAttribute("aria-modal", "true");
+            modalRoot.setAttribute("aria-labelledby", "initiativeProceedTitle");
+            modalRoot.innerHTML = `
+        <div class="initiative-proceed-modal__backdrop"></div>
+        <section class="initiative-proceed-modal__content">
+          <h3 class="initiative-proceed-modal__title" id="initiativeProceedTitle">Units Still Awaiting Orders</h3>
+          <p class="initiative-proceed-modal__copy">
+            ${leadCopy}
+          </p>
+          <p class="initiative-proceed-modal__copy">
+            ${pendingUnits.length} unit${pendingUnits.length === 1 ? "" : "s"} in this initiative band can still act:
+          </p>
+          <ul class="initiative-proceed-modal__list">${items}${overflowItem}</ul>
+          <footer class="initiative-proceed-modal__actions">
+            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--secondary" data-action="cancel">Keep Commanding</button>
+            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--primary" data-action="confirm">End Turn Anyway</button>
+          </footer>
+        </section>
+      `;
+            const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            const confirmButton = modalRoot.querySelector('[data-action="confirm"]');
+            const cancelButton = modalRoot.querySelector('[data-action="cancel"]');
+            let finalized = false;
+            const finalize = (confirmed) => {
+                if (finalized) {
+                    return;
+                }
+                finalized = true;
+                document.removeEventListener("keydown", handleKeydown, true);
+                modalRoot.remove();
+                previousFocus?.focus();
+                resolve(confirmed);
+            };
+            const handleKeydown = (event) => {
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    finalize(false);
+                    return;
+                }
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    const focusedAction = document.activeElement
+                        ?.closest("[data-action]")
+                        ?.getAttribute("data-action");
+                    finalize(focusedAction === "cancel" ? false : true);
+                }
+            };
+            modalRoot.addEventListener("click", (event) => {
+                const target = event.target;
+                if (target === modalRoot.querySelector(".initiative-proceed-modal__backdrop")) {
+                    finalize(false);
+                    return;
+                }
+                const action = target?.closest("[data-action]")?.getAttribute("data-action");
+                if (action === "confirm") {
+                    finalize(true);
+                }
+                else if (action === "cancel") {
+                    finalize(false);
+                }
+            });
+            document.addEventListener("keydown", handleKeydown, true);
+            document.body.appendChild(modalRoot);
+            (cancelButton ?? confirmButton)?.focus();
+        });
     }
     resolveActivationOffsetHexKey(unitId, ownerId) {
         const engine = this.battleState.ensureGameEngine();
@@ -6979,24 +8263,84 @@ export class BattleScreen {
         };
     }
     syncInitiativeGroupSession(activeGroup) {
-        const nextSessionId = `${activeGroup.ownerId}:${activeGroup.initiative}`;
+        const queue = this.initiativeMethods?.getCurrentInitiativeQueue();
+        const turn = typeof queue?.currentTurn === "number" ? queue.currentTurn : 0;
+        // Track session by turn + initiative band, not by owner, so player-skip state
+        // survives interleaved bot activations inside the same initiative value.
+        const nextSessionId = `${turn}:${activeGroup.initiative}`;
         if (this.initiativeGroupSessionId === nextSessionId) {
             return;
         }
         this.initiativeGroupSessionId = nextSessionId;
         this.initiativeGroupCursorUnitId = null;
-        this.initiativeSkippedUnitIds.clear();
+        if (!this.initiativeEndTurnSkipModeActive) {
+            this.initiativeSkippedUnitIds.clear();
+        }
     }
     resolveUncommittedPlayerInitiativeUnits(activeGroup) {
         if (activeGroup.ownerId !== "player") {
             return [];
         }
-        const engine = this.battleState.ensureGameEngine();
         return activeGroup.activations
             .filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId))
-            .map((activation) => engine.playerUnits.find((unit) => unit.unitId === activation.unitId) ?? null)
+            .map((activation) => this.resolvePlayerUnitForInitiativeActivation(activation.unitId))
             .filter((unit) => Boolean(unit))
             .filter((unit) => !this.hasUnitCommittedOrders(unit));
+    }
+    resolveSelectablePlayerInitiativeActivations(activeGroup) {
+        if (activeGroup.ownerId !== "player") {
+            return [];
+        }
+        const actionable = activeGroup.activations.filter((activation) => {
+            if (this.initiativeSkippedUnitIds.has(activation.unitId)) {
+                return false;
+            }
+            const unit = this.resolvePlayerUnitForInitiativeActivation(activation.unitId);
+            if (!unit) {
+                return false;
+            }
+            return !this.hasUnitCommittedOrders(unit);
+        });
+        return actionable;
+    }
+    focusNextSelectablePlayerInitiativeUnit(activeGroup, anchorUnitId) {
+        if (activeGroup.ownerId !== "player") {
+            return false;
+        }
+        const orderedActivations = activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
+        if (orderedActivations.length === 0) {
+            return false;
+        }
+        const selectableActivations = this.resolveSelectablePlayerInitiativeActivations(activeGroup);
+        if (selectableActivations.length === 0) {
+            return false;
+        }
+        const selectableIds = new Set(selectableActivations.map((activation) => activation.unitId));
+        const orderedCount = orderedActivations.length;
+        let anchorIndex = anchorUnitId
+            ? orderedActivations.findIndex((activation) => activation.unitId === anchorUnitId)
+            : -1;
+        if (anchorIndex < 0 && this.initiativeGroupCursorUnitId) {
+            anchorIndex = orderedActivations.findIndex((activation) => activation.unitId === this.initiativeGroupCursorUnitId);
+        }
+        let nextActivation = null;
+        for (let offset = 1; offset <= orderedCount; offset += 1) {
+            const index = (anchorIndex + offset + orderedCount) % orderedCount;
+            const candidate = orderedActivations[index];
+            if (candidate && selectableIds.has(candidate.unitId)) {
+                nextActivation = candidate;
+                break;
+            }
+        }
+        if (!nextActivation) {
+            nextActivation = selectableActivations[0] ?? null;
+        }
+        if (!nextActivation) {
+            return false;
+        }
+        this.initiativeGroupCursorUnitId = nextActivation.unitId;
+        this.focusInitiativeUnit(nextActivation.unitId);
+        return true;
     }
     markRemainingPlayerInitiativeUnitsSkipped(activeGroup, currentUnitId) {
         if (activeGroup.ownerId !== "player") {
@@ -7008,22 +8352,118 @@ export class BattleScreen {
                 return;
             }
             this.initiativeSkippedUnitIds.add(activation.unitId);
-            const unit = engine.playerUnits.find((entry) => entry.unitId === activation.unitId);
-            if (unit && !unit.onSentry) {
+            const unit = this.resolvePlayerUnitForInitiativeActivation(activation.unitId);
+            if (unit && !unit.onSentry && !this.hasUnitCommittedOrders(unit)) {
                 engine.enterSentry(unit.hex, unit.unitId ?? undefined);
             }
         });
+    }
+    resolvePlayerUnitForInitiativeActivation(activationUnitId) {
+        const engine = this.battleState.ensureGameEngine();
+        const directMatch = engine.playerUnits.find((entry) => entry.unitId === activationUnitId) ?? null;
+        if (directMatch) {
+            return directMatch;
+        }
+        const legacyActivationMatch = /^(.+)-(\d+)$/.exec(activationUnitId);
+        if (!legacyActivationMatch) {
+            return null;
+        }
+        const [, activationType, activationIndexRaw] = legacyActivationMatch;
+        const activationIndex = Number.parseInt(activationIndexRaw, 10);
+        if (!Number.isFinite(activationIndex)) {
+            return null;
+        }
+        const allUnitsForQueueOrder = [
+            ...engine.playerUnits.map((unit) => ({ owner: "player", unit })),
+            ...engine.botUnits.map((unit) => ({ owner: "bot", unit })),
+            ...engine.allyUnits.map((unit) => ({ owner: "bot", unit }))
+        ].filter((entry) => {
+            const definition = this.unitTypes?.[entry.unit.type];
+            return Boolean(definition && typeof definition.initiative === "number" && definition.initiative > 0);
+        });
+        const target = allUnitsForQueueOrder[activationIndex];
+        if (!target || target.owner !== "player" || target.unit.type !== activationType) {
+            return null;
+        }
+        return target.unit;
     }
     hasUnitCommittedOrders(unit) {
         if (unit.onSentry) {
             return true;
         }
         const engineAny = this.battleState.ensureGameEngine();
-        const flags = engineAny.playerActionFlags?.get(unit.unitId ?? "");
+        const actionFlags = engineAny.playerActionFlags;
+        if (!actionFlags) {
+            return false;
+        }
+        const primaryKey = unit.unitId ?? "";
+        const fallbackKey = `${unit.type}@${unit.hex.q},${unit.hex.r}`;
+        const flags = (primaryKey ? actionFlags.get(primaryKey) : undefined) ?? actionFlags.get(fallbackKey);
         if (!flags) {
             return false;
         }
-        return (flags.movementPointsUsed ?? 0) > 0 || (flags.attacksUsed ?? 0) > 0;
+        return ((flags.movementPointsUsed ?? 0) > 0 ||
+            (flags.attacksUsed ?? 0) > 0 ||
+            flags.supportQueued === true);
+    }
+    canPlayerUnitContinueAfterMove(destination, unitId) {
+        if (!this.isInitiativeSystemEnabled || !unitId) {
+            return false;
+        }
+        const engine = this.battleState.ensureGameEngine();
+        if (engine.getReachableHexes(destination, unitId).length > 0 ||
+            engine.getAttackableTargets(destination, unitId).length > 0) {
+            return true;
+        }
+        const commandState = engine.getUnitCommandState(destination, unitId);
+        return commandState?.canLaySmoke === true ||
+            commandState?.canSetFacing === true ||
+            commandState?.canDeployTow === true;
+    }
+    completeInitiativeActivationAfterPlayerOrder(unitId) {
+        if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
+            return;
+        }
+        try {
+            const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+            const activeGroup = this.resolveActiveInitiativeGroup(queue);
+            if (!activeGroup || activeGroup.ownerId !== "player") {
+                return;
+            }
+            const currentActivation = this.initiativeMethods.getCurrentActivation();
+            const activationUnitId = unitId ?? currentActivation?.unitId ?? null;
+            if (!activationUnitId) {
+                return;
+            }
+            let completionUnitId = activationUnitId;
+            const isInActiveGroup = activeGroup.activations.some((activation) => activation.unitId === completionUnitId);
+            if (!isInActiveGroup) {
+                const fallbackUnitId = currentActivation?.unitId ?? null;
+                const fallbackIsInGroup = fallbackUnitId
+                    ? activeGroup.activations.some((activation) => activation.unitId === fallbackUnitId)
+                    : false;
+                if (!fallbackIsInGroup || !fallbackUnitId) {
+                    console.error("[BattleScreen] Initiative completion requested for unit outside the active group.", {
+                        requestedUnitId: activationUnitId,
+                        fallbackUnitId,
+                        activeGroupInitiative: activeGroup.initiative,
+                        activeGroupOwner: activeGroup.ownerId
+                    });
+                    return;
+                }
+                completionUnitId = fallbackUnitId;
+            }
+            this.initiativeMethods.completeUnitActivation(completionUnitId);
+            this.highlightCurrentInitiativeGroup();
+            this.focusCurrentInitiativeActivation();
+        }
+        catch (error) {
+            console.error("Failed to auto-complete player initiative activation:", error);
+            this.recoverInitiativeQueueStall();
+        }
+        finally {
+            this.syncInitiativeTurnControlsState();
+        }
     }
     selectNextInitiativeGroupUnit() {
         if (!this.initiativeMethods) {
@@ -7035,18 +8475,7 @@ export class BattleScreen {
             return;
         }
         this.syncInitiativeGroupSession(activeGroup);
-        const candidateActivations = activeGroup.activations
-            .filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
-        if (candidateActivations.length === 0) {
-            return;
-        }
-        const currentIndex = this.initiativeGroupCursorUnitId
-            ? candidateActivations.findIndex((activation) => activation.unitId === this.initiativeGroupCursorUnitId)
-            : -1;
-        const nextIndex = (currentIndex + 1 + candidateActivations.length) % candidateActivations.length;
-        const nextActivation = candidateActivations[nextIndex];
-        this.initiativeGroupCursorUnitId = nextActivation.unitId;
-        this.focusInitiativeUnit(nextActivation.unitId);
+        this.focusNextSelectablePlayerInitiativeUnit(activeGroup, this.initiativeGroupCursorUnitId);
     }
     focusInitiativeUnit(unitId) {
         const engine = this.battleState.ensureGameEngine();
@@ -7079,14 +8508,16 @@ export class BattleScreen {
                 break;
             }
         }
-        const nextActivation = this.initiativeMethods.getCurrentActivation();
-        const stillInSamePlayerGroup = Boolean(nextActivation) &&
-            nextActivation?.ownerId === "player" &&
-            nextActivation?.initiative === initiative;
-        if (!stillInSamePlayerGroup) {
+        const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+        const stillInSamePlayerInitiativeBand = Boolean(queue?.activations?.some((activation) => activation.ownerId === "player" &&
+            activation.initiative === initiative &&
+            !activation.isActivated));
+        if (!stillInSamePlayerInitiativeBand) {
             this.initiativeGroupCursorUnitId = null;
             this.initiativeGroupSessionId = null;
-            this.initiativeSkippedUnitIds.clear();
+            if (!this.initiativeEndTurnSkipModeActive) {
+                this.initiativeSkippedUnitIds.clear();
+            }
             return;
         }
         if (lastCompletedUnitId && this.initiativeGroupCursorUnitId === lastCompletedUnitId) {
@@ -7094,6 +8525,9 @@ export class BattleScreen {
         }
     }
     focusCurrentInitiativeActivation() {
+        if (this.shouldDeferTutorialInitiativeAutoFocus()) {
+            return;
+        }
         if (!this.initiativeMethods) {
             return;
         }
@@ -7103,13 +8537,22 @@ export class BattleScreen {
             return;
         }
         this.syncInitiativeGroupSession(activeGroup);
-        const candidates = activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
+        const currentActivation = this.initiativeMethods.getCurrentActivation();
+        if (currentActivation?.ownerId === "player") {
+            this.initiativeGroupCursorUnitId = currentActivation.unitId;
+            this.focusInitiativeUnit(currentActivation.unitId);
+            return;
+        }
+        const candidates = this.resolveSelectablePlayerInitiativeActivations(activeGroup);
         if (candidates.length === 0) {
             return;
         }
         const selectedFromCursor = this.initiativeGroupCursorUnitId
             ? candidates.find((activation) => activation.unitId === this.initiativeGroupCursorUnitId) ?? null
             : null;
+        if (!selectedFromCursor && this.focusNextSelectablePlayerInitiativeUnit(activeGroup, this.initiativeGroupCursorUnitId)) {
+            return;
+        }
         const activation = selectedFromCursor ?? candidates[0];
         this.initiativeGroupCursorUnitId = activation.unitId;
         this.focusInitiativeUnit(activation.unitId);
@@ -7118,13 +8561,56 @@ export class BattleScreen {
         if (!activeGroup || activeGroup.ownerId !== "player") {
             return;
         }
-        const candidates = activeGroup.activations.filter((activation) => !this.initiativeSkippedUnitIds.has(activation.unitId));
+        const candidates = this.resolveSelectablePlayerInitiativeActivations(activeGroup);
         if (candidates.length === 0) {
+            return;
+        }
+        if (this.shouldDeferTutorialInitiativeAutoFocus()) {
+            return;
+        }
+        const tutorialProgress = ensureTutorialState().getProgress();
+        if (tutorialProgress.isActive &&
+            tutorialProgress.currentPhase === "active_group_units" &&
+            !tutorialProgress.canProceed &&
+            !this.selectedPlayerUnitId) {
             return;
         }
         const candidateIds = new Set(candidates.map((activation) => activation.unitId));
         const selectedUnitId = this.selectedPlayerUnitId;
+        const currentActivation = this.initiativeMethods?.getCurrentActivation();
+        if (currentActivation?.ownerId === "player" && candidateIds.has(currentActivation.unitId)) {
+            if (selectedUnitId &&
+                selectedUnitId !== currentActivation.unitId &&
+                candidateIds.has(selectedUnitId)) {
+                // Respect explicit commander selection within the active initiative group
+                // instead of snapping focus back to the queue head every sync tick.
+                this.initiativeGroupCursorUnitId = selectedUnitId;
+                return;
+            }
+            const cursorUnitId = this.initiativeGroupCursorUnitId;
+            if (cursorUnitId && cursorUnitId !== currentActivation.unitId && candidateIds.has(cursorUnitId)) {
+                if (this.selectedPlayerUnitId !== cursorUnitId) {
+                    this.focusInitiativeUnit(cursorUnitId);
+                }
+                return;
+            }
+            if (selectedUnitId !== currentActivation.unitId) {
+                this.initiativeGroupCursorUnitId = currentActivation.unitId;
+                this.focusInitiativeUnit(currentActivation.unitId);
+                return;
+            }
+            this.initiativeGroupCursorUnitId = currentActivation.unitId;
+            return;
+        }
         if (!selectedUnitId || !candidateIds.has(selectedUnitId)) {
+            // Keep the existing initiative cursor stable when selection is briefly cleared
+            // after an action so "Next Unit" advances from the player's last position.
+            if (this.initiativeGroupCursorUnitId && candidateIds.has(this.initiativeGroupCursorUnitId)) {
+                return;
+            }
+            if (this.initiativeGroupCursorUnitId && this.focusNextSelectablePlayerInitiativeUnit(activeGroup, this.initiativeGroupCursorUnitId)) {
+                return;
+            }
             this.initiativeGroupCursorUnitId = null;
             this.focusCurrentInitiativeActivation();
             return;
@@ -7137,23 +8623,185 @@ export class BattleScreen {
         if (!this.isInitiativeSystemEnabled) {
             return;
         }
-        const focusBefore = this.isBotUnitVisibleToPlayer(event.unitId, event.fromHex);
+        const renderer = this.hexMapRenderer;
+        const fromKey = this.toOffsetHexKey(event.fromHex);
+        const toKey = this.toOffsetHexKey(event.toHex);
+        const isEnemyActivation = event.ownerId === "bot";
+        const visibleBefore = isEnemyActivation
+            ? (event.visibleBefore || (event.fromHex ? this.isBotUnitVisibleToPlayer(event.unitId, event.fromHex) : false))
+            : true;
+        const visibleAfter = isEnemyActivation
+            ? (event.visibleAfter || (event.toHex ? this.isBotUnitVisibleToPlayer(event.unitId, event.toHex) : false))
+            : true;
+        const focusBeforeMoveKey = visibleBefore ? fromKey : null;
+        const focusAfterMoveKey = !visibleBefore && visibleAfter ? toKey : null;
+        const fallbackFocusKey = visibleBefore ? fromKey : visibleAfter ? toKey : null;
+        const canFocusCamera = Boolean(this.mapViewport);
+        const tutorialPhase = ensureTutorialState().getCurrentPhase();
+        const shouldHoldTutorialCamera = ensureTutorialState().isTutorialActive() && (tutorialPhase === "enemy_activation" ||
+            tutorialPhase === "enemy_response" ||
+            tutorialPhase === "post_artillery_enemy_response");
+        const shouldFocusCamera = canFocusCamera && this.battleAnimationMode !== "quick" && !shouldHoldTutorialCamera;
+        let lastFocusedKey = null;
+        const paceForAnimationStep = async (durationMs) => {
+            await this.waitForNextFrame();
+            if (this.battleAnimationMode !== "quick") {
+                await this.waitMs(durationMs);
+            }
+        };
+        const focusCameraForActivation = async (focusKey, settleMs) => {
+            if (!shouldFocusCamera || !focusKey) {
+                return;
+            }
+            if (lastFocusedKey !== focusKey) {
+                await this.focusCameraOnHex(focusKey);
+                lastFocusedKey = focusKey;
+            }
+            await paceForAnimationStep(settleMs);
+        };
+        const fromHex = event.fromHex;
+        const toHex = event.toHex;
+        if (renderer && event.moved && fromKey && toKey && fromHex && toHex) {
+            const movePath = this.toMovePathKeys([fromHex, toHex], fromKey, toKey);
+            const moveHandle = renderer.primeUnitMove(fromKey, toKey, {
+                path: movePath,
+                unitId: event.unitId
+            });
+            if (moveHandle) {
+                try {
+                    await focusCameraForActivation(focusBeforeMoveKey, 180);
+                    await moveHandle.play(this.resolveMoveAnimationDuration(movePath, BattleScreen.BOT_MOVE_ANIMATION_MS));
+                }
+                catch (animationError) {
+                    console.warn("[BattleScreen] Initiative bot move animation failed; continuing.", {
+                        event,
+                        animationError
+                    });
+                }
+                finally {
+                    moveHandle.dispose();
+                }
+            }
+        }
         this.renderEngineUnits();
-        const focusAfter = this.isBotUnitVisibleToPlayer(event.unitId, event.toHex);
-        if (!focusBefore && !focusAfter) {
+        await focusCameraForActivation(focusAfterMoveKey, 160);
+        if (renderer && event.attacks.length > 0) {
+            for (const attack of event.attacks) {
+                const attackerKey = this.toOffsetHexKey(attack.fromHex);
+                const targetKey = this.toOffsetHexKey(attack.targetHex);
+                if (!attackerKey || !targetKey) {
+                    continue;
+                }
+                try {
+                    await focusCameraForActivation(attackerKey, 180);
+                    await focusCameraForActivation(targetKey, 240);
+                    const defenderDefinition = this.unitTypes?.[attack.defenderType];
+                    const defenderClass = defenderDefinition?.class;
+                    const targetIsHardTarget = defenderClass === "vehicle" || defenderClass === "tank" || defenderClass === "air";
+                    await renderer.playAttackSequence(attackerKey, targetKey, targetIsHardTarget);
+                    await paceForAnimationStep(180);
+                }
+                catch (animationError) {
+                    console.warn("[BattleScreen] Initiative bot attack animation failed; continuing.", {
+                        attack,
+                        animationError
+                    });
+                }
+                if (attack.retaliation && attack.retaliation.damage > 0) {
+                    try {
+                        const attackerDefinition = this.unitTypes?.[attack.attackerType];
+                        const attackerClass = attackerDefinition?.class;
+                        const retaliationTargetIsHardTarget = attackerClass === "vehicle" || attackerClass === "tank" || attackerClass === "air";
+                        await focusCameraForActivation(attackerKey, 220);
+                        await renderer.playAttackSequence(targetKey, attackerKey, retaliationTargetIsHardTarget);
+                        await paceForAnimationStep(220);
+                    }
+                    catch (animationError) {
+                        console.warn("[BattleScreen] Initiative bot retaliation animation failed; continuing.", animationError);
+                    }
+                }
+            }
+            this.renderEngineUnits();
+        }
+        else if (fallbackFocusKey && shouldFocusCamera) {
+            try {
+                await this.focusCameraOnHex(fallbackFocusKey);
+                await paceForAnimationStep(160);
+            }
+            catch {
+                // Ignore camera focus failures during automated initiative bot movement.
+            }
+        }
+        this.logInitiativeBotActivationActivity(event, fromKey, toKey);
+    }
+    logInitiativeBotActivationActivity(event, fromKey, toKey) {
+        const unitLabel = this.toTitleCase(event.unitType ?? "Unit");
+        const eventVisibleBefore = Boolean(event.visibleBefore);
+        const eventVisibleAfter = Boolean(event.visibleAfter);
+        if (event.ownerId === "player") {
+            if (event.moved) {
+                const moveSummary = fromKey && toKey
+                    ? `Friendly ${unitLabel} repositioned from ${fromKey} to ${toKey}.`
+                    : `Friendly ${unitLabel} repositioned.`;
+                this.publishActivityEvent({
+                    category: "player",
+                    type: "move",
+                    summary: moveSummary
+                });
+            }
             return;
         }
-        const focusHex = focusBefore ? event.fromHex : event.toHex;
-        const focusKey = this.toOffsetHexKey(focusHex);
-        if (!focusKey) {
-            return;
+        const contact = this.resolveEnemyContactSnapshot(event.unitId);
+        const contactHexKey = this.toOffsetHexKey(contact?.hex ?? null);
+        if (event.moved) {
+            const moveSummary = eventVisibleBefore || eventVisibleAfter
+                ? `Enemy ${unitLabel} repositioned from ${fromKey ?? "unknown"} to ${toKey ?? "unknown"}.`
+                : contact?.state === "identified" && contactHexKey
+                    ? `Identified enemy ${unitLabel} maneuvered near ${contactHexKey}.`
+                    : contactHexKey
+                        ? `Enemy movement detected near ${contactHexKey}.`
+                        : "Enemy movement detected outside direct observation.";
+            this.publishActivityEvent({
+                category: "enemy",
+                type: "move",
+                summary: moveSummary
+            });
         }
-        try {
-            await this.focusCameraOnHex(focusKey);
+        event.attacks.forEach((attack) => {
+            const attackerVisible = eventVisibleBefore || eventVisibleAfter || this.isBotUnitVisibleToPlayer(event.unitId, attack.fromHex);
+            const attackerHex = this.toOffsetHexKey(attack.fromHex) ?? "unknown";
+            const targetHex = this.toOffsetHexKey(attack.targetHex) ?? "unknown";
+            const damage = this.formatDamageAmount(attack.inflictedDamage);
+            const destructionNote = attack.defenderDestroyed ? " Target destroyed." : "";
+            const effects = attack.damageSummary ? ` Effects: ${attack.damageSummary}.` : "";
+            const retaliationDamage = attack.retaliation ? this.formatDamageAmount(attack.retaliation.damage) : null;
+            const retaliationSummary = retaliationDamage ? ` Counterfire dealt ${retaliationDamage} damage.` : "";
+            const attackerLabel = this.toTitleCase(attack.attackerType);
+            const defenderLabel = this.toTitleCase(attack.defenderType);
+            const summary = attackerVisible
+                ? `Enemy ${attackerLabel} attacked ${defenderLabel} from ${attackerHex} to ${targetHex} for ${damage} damage.${effects}${destructionNote}${retaliationSummary}`
+                : `Enemy fire was detected against ${defenderLabel}. Damage: ${damage}.${effects}${destructionNote}${retaliationSummary}`;
+            this.publishActivityEvent({
+                category: "enemy",
+                type: "attack",
+                summary
+            });
+        });
+        if (!event.moved && event.attacks.length === 0) {
+            const holdSummary = eventVisibleBefore || eventVisibleAfter
+                ? `Enemy ${unitLabel} held position and reported no fire this activation.`
+                : "Enemy activation resolved with no observed movement or fire.";
+            this.publishActivityEvent({
+                category: "enemy",
+                type: "log",
+                summary: holdSummary
+            });
         }
-        catch {
-            // Ignore camera focus failures during automated initiative bot movement.
-        }
+    }
+    resolveEnemyContactSnapshot(unitId) {
+        const engine = this.battleState.ensureGameEngine();
+        const contacts = engine.getEnemyContactSnapshot();
+        return contacts.find((contact) => contact.unitId === unitId) ?? null;
     }
     isBotUnitVisibleToPlayer(unitId, expectedHex) {
         const engine = this.battleState.ensureGameEngine();
@@ -7238,44 +8886,58 @@ export class BattleScreen {
      */
     syncInitiativeTurnControlsState() {
         this.syncLegacyEndTurnButton();
+        if (this.initiativeMethods && this.isInitiativeSystemEnabled) {
+            this.flushSkippedInitiativeActivations();
+        }
         if (!this.initiativeTurnControls) {
             return;
         }
         if (!this.initiativeMethods || !this.isInitiativeSystemEnabled) {
             this.initiativeTurnControls.updateCurrentUnit(null);
+            this.initiativeTurnControls.updateCurrentGroup(null);
             this.initiativeTurnControls.updatePlayerTurn(false);
+            this.initiativeTurnControls.updateRoundAdvanceReady(false);
             this.initiativeTurnControls.updatePhase('turnEnded');
             this.initiativeTurnControls.setControlsEnabled(false);
             this.syncLegacyEndTurnButton();
             return;
         }
         try {
-            this.flushSkippedInitiativeActivations();
+            let queue = this.initiativeMethods.getCurrentInitiativeQueue();
+            this.recoverInitiativeQueueStall(queue);
+            queue = this.initiativeMethods.getCurrentInitiativeQueue();
             const activation = this.initiativeMethods.getCurrentActivation();
-            const queue = this.initiativeMethods.getCurrentInitiativeQueue();
             const activeGroup = this.resolveActiveInitiativeGroup(queue);
             this.ensureFocusedPlayerInitiativeUnit(activeGroup);
-            let displayActivation = activation;
-            if (activeGroup?.ownerId === "player" && this.initiativeGroupCursorUnitId) {
-                const cursorActivation = activeGroup.activations.find((entry) => entry.unitId === this.initiativeGroupCursorUnitId);
-                if (cursorActivation) {
-                    displayActivation = {
-                        ...cursorActivation,
-                        sortOrder: typeof cursorActivation.sortOrder === "number"
-                            ? cursorActivation.sortOrder
-                            : (activation?.sortOrder ?? 0)
-                    };
-                }
-            }
-            const hasRemainingActivations = Boolean(queue?.activations?.some((entry) => !entry.isActivated));
+            const displayActivation = activation;
+            const hasRemainingActivations = this.hasPendingInitiativeActivations(queue);
             const initiativeActive = this.initiativeMethods.isInitiativeSystemActive();
+            const canAdvanceRound = initiativeActive && !hasRemainingActivations && !activation;
+            if (this.initiativeEndTurnSkipModeActive && canAdvanceRound && !this.initiativeTurnAdvanceInProgress) {
+                void this.advanceInitiativeRound();
+            }
             const controlsPhase = initiativeActive && (hasRemainingActivations || Boolean(activation))
                 ? 'initiativeTurn'
-                : 'turnEnded';
+                : initiativeActive
+                    ? 'airShowPhase'
+                    : 'turnEnded';
+            const displayGroup = activeGroup
+                ? {
+                    initiative: activeGroup.initiative,
+                    units: activeGroup.activations.map((activation, index) => ({
+                        ...activation,
+                        sortOrder: activation.sortOrder ?? index
+                    })),
+                    isCompleted: false,
+                    currentUnitIndex: 0
+                }
+                : null;
             this.initiativeTurnControls.updateCurrentUnit(displayActivation);
+            this.initiativeTurnControls.updateCurrentGroup(displayGroup);
             this.initiativeTurnControls.updatePlayerTurn((activeGroup?.ownerId ?? activation?.ownerId) === 'player');
+            this.initiativeTurnControls.updateRoundAdvanceReady(canAdvanceRound);
             this.initiativeTurnControls.updatePhase(controlsPhase);
-            this.initiativeTurnControls.setControlsEnabled(controlsPhase === 'initiativeTurn');
+            this.initiativeTurnControls.setControlsEnabled(controlsPhase !== 'turnEnded');
             this.syncLegacyEndTurnButton();
         }
         catch (error) {
@@ -7290,11 +8952,20 @@ export class BattleScreen {
         while (guard < 64) {
             guard += 1;
             const activation = this.initiativeMethods.getCurrentActivation();
-            if (!activation || activation.ownerId !== "player" || !this.initiativeSkippedUnitIds.has(activation.unitId)) {
+            if (!activation || activation.ownerId !== "player") {
                 break;
             }
+            const shouldAutoSkip = this.initiativeSkippedUnitIds.has(activation.unitId) || this.initiativeEndTurnSkipModeActive;
+            if (!shouldAutoSkip) {
+                break;
+            }
+            this.initiativeSkippedUnitIds.add(activation.unitId);
             this.initiativeMethods.completeUnitActivation(activation.unitId);
         }
+    }
+    clearInitiativeSkipState() {
+        this.initiativeEndTurnSkipModeActive = false;
+        this.initiativeSkippedUnitIds.clear();
     }
     /**
      * Reveals the activity log column once the battle phase begins so commanders can monitor events.
@@ -7371,6 +9042,69 @@ export class BattleScreen {
         }
         this.updateAirHudWidget();
     }
+    setBattleSettingsMenuOpen(open) {
+        if (!this.settingsToggleButton || !this.settingsMenu) {
+            return;
+        }
+        this.settingsToggleButton.setAttribute("aria-expanded", open ? "true" : "false");
+        this.settingsToggleButton.setAttribute("aria-label", open ? "Close battle settings" : "Open battle settings");
+        this.settingsMenu.classList.toggle("hidden", !open);
+    }
+    getBattleFullscreenTarget() {
+        return document.getElementById("app") ?? this.element;
+    }
+    isBattleFullscreenSupported() {
+        const target = this.getBattleFullscreenTarget();
+        return Boolean(target?.requestFullscreen && document.fullscreenEnabled);
+    }
+    async handleToggleBattleFullscreen() {
+        if (!this.isBattleFullscreenSupported()) {
+            this.announceBattleUpdate("Fullscreen is not available in this browser.");
+            this.updateFullscreenToggleButton();
+            return;
+        }
+        try {
+            if (document.fullscreenElement) {
+                await document.exitFullscreen();
+            }
+            else {
+                await this.getBattleFullscreenTarget()?.requestFullscreen();
+            }
+        }
+        catch (error) {
+            console.warn("[BattleScreen] Failed to toggle fullscreen", error);
+            this.announceBattleUpdate("Fullscreen could not be opened. Use the browser controls if needed.");
+        }
+        finally {
+            this.updateFullscreenToggleButton();
+        }
+    }
+    updateFullscreenToggleButton() {
+        if (!this.fullscreenToggleButton) {
+            return;
+        }
+        const supported = this.isBattleFullscreenSupported();
+        this.fullscreenToggleButton.hidden = !supported;
+        this.fullscreenToggleButton.classList.toggle("hidden", !supported);
+        this.fullscreenToggleButton.disabled = !supported;
+        if (!supported) {
+            return;
+        }
+        const target = this.getBattleFullscreenTarget();
+        const active = Boolean(document.fullscreenElement && target?.contains(document.fullscreenElement));
+        const valueElement = this.fullscreenToggleButton.querySelector("[data-settings-value]");
+        if (valueElement) {
+            valueElement.textContent = active ? "Exit" : "Enter";
+        }
+        this.fullscreenToggleButton.setAttribute("aria-pressed", active ? "true" : "false");
+        this.fullscreenToggleButton.setAttribute("aria-checked", active ? "true" : "false");
+        this.fullscreenToggleButton.setAttribute("aria-label", active
+            ? "Fullscreen: On. Exit fullscreen battle display."
+            : "Fullscreen: Off. Use the full browser display for the battlefield.");
+        this.fullscreenToggleButton.title = active
+            ? "Exit fullscreen battle display."
+            : "Use the full browser display for the battlefield.";
+    }
     handleToggleSound() {
         const nextEnabled = !this.soundEnabled;
         this.persistSoundEnabledPreference(nextEnabled);
@@ -7385,10 +9119,17 @@ export class BattleScreen {
         if (!this.soundToggleButton) {
             return;
         }
-        this.soundToggleButton.textContent = enabled ? "Sound On" : "Sound Off";
+        const valueElement = this.soundToggleButton.querySelector("[data-settings-value]");
+        if (valueElement) {
+            valueElement.textContent = enabled ? "On" : "Off";
+        }
+        else {
+            this.soundToggleButton.textContent = `Battle Sound: ${enabled ? "On" : "Off"}`;
+        }
         this.soundToggleButton.setAttribute("aria-pressed", enabled ? "true" : "false");
-        this.soundToggleButton.setAttribute("aria-label", enabled ? "Turn sound off" : "Turn sound on");
-        this.soundToggleButton.title = enabled ? "Turn sound off" : "Turn sound on";
+        this.soundToggleButton.setAttribute("aria-checked", enabled ? "true" : "false");
+        this.soundToggleButton.setAttribute("aria-label", `Battle Sound: ${enabled ? "On" : "Off"}. ${enabled ? "Turn off" : "Turn on"} movement, weapon, and battlefield effects.`);
+        this.soundToggleButton.title = "Battle Sound plays movement, weapon, and battlefield effects.";
         this.soundToggleButton.dataset.soundEnabled = enabled ? "true" : "false";
         this.soundToggleButton.disabled = !this.hexMapRenderer;
     }
@@ -7411,12 +9152,21 @@ export class BattleScreen {
             return;
         }
         const quick = mode === "quick";
-        this.animationToggleButton.textContent = quick ? "Quick Anim" : "Path Anim";
+        const valueElement = this.animationToggleButton.querySelector("[data-settings-value]");
+        if (valueElement) {
+            valueElement.textContent = quick ? "Quick Moves" : "Full Paths";
+        }
+        else {
+            this.animationToggleButton.textContent = `Movement Animation: ${quick ? "Quick Moves" : "Full Paths"}`;
+        }
         this.animationToggleButton.setAttribute("aria-pressed", quick ? "true" : "false");
-        this.animationToggleButton.setAttribute("aria-label", quick ? "Use regular path movement animations" : "Use quick movement animations");
+        this.animationToggleButton.setAttribute("aria-checked", quick ? "true" : "false");
+        this.animationToggleButton.setAttribute("aria-label", quick
+            ? "Movement Animation: Quick Moves. Show full movement routes."
+            : "Movement Animation: Full Paths. Shorten movement playback.");
         this.animationToggleButton.title = quick
-            ? "Use regular path movement animations"
-            : "Use quick movement animations";
+            ? "Quick Moves shortens travel playback. Select to follow full movement routes."
+            : "Full Paths follows each unit along its route. Select to shorten travel playback.";
         this.animationToggleButton.dataset.animationMode = mode;
         this.animationToggleButton.disabled = !this.hexMapRenderer;
     }
@@ -7536,8 +9286,12 @@ export class BattleScreen {
         const engine = this.battleState.ensureGameEngine();
         const summary = engine.getTurnSummary();
         const summaryPhase = summary.phase;
-        const isPlayerControlPhase = summaryPhase === "playerTurn" ||
-            (this.isInitiativeSystemEnabled && summaryPhase === "initiativeTurn");
+        const initiativeActivation = this.isInitiativeSystemEnabled
+            ? this.initiativeMethods?.getCurrentActivation() ?? null
+            : null;
+        const isPlayerControlPhase = this.isInitiativeSystemEnabled
+            ? initiativeActivation?.ownerId === "player"
+            : summaryPhase === "playerTurn";
         if (isPlayerControlPhase) {
             const transferResult = this.tryTransferAllyControl(key);
             if (transferResult) {
@@ -7545,23 +9299,55 @@ export class BattleScreen {
             }
             // Check initiative group validation if system is enabled
             if (this.isInitiativeSystemEnabled) {
-                const parsed = CoordinateSystem.parseHexKey(key);
-                if (parsed) {
-                    const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
-                    const unit = engine.playerUnits.find((u) => `${u.hex.q},${u.hex.r}` === `${axial.q},${axial.r}`);
-                    const isActionDestination = (this.selectedHexKey !== null && (this.playerMoveHexes.has(key) || this.playerAttackHexes.has(key))) ||
-                        (this.smokeTargetingState !== null && (this.smokeTargetingState.targetHexKeys.has(key) || key === this.smokeTargetingState.callerHexKey)) ||
-                        (this.artilleryTargetingState !== null && (this.artilleryTargetingState.targetHexKeys.has(key) || key === this.artilleryTargetingState.callerHexKey));
-                    if (unit && unit.unitId && !isActionDestination && !this.isUnitInCurrentInitiativeGroup(unit.unitId)) {
-                        this.showInitiativeGroupMessage(unit.unitId);
-                        return; // Don't proceed with the action
-                    }
+                const isActionDestination = (this.selectedHexKey !== null && (this.playerMoveHexes.has(key) || this.playerAttackHexes.has(key))) ||
+                    (this.smokeTargetingState !== null && (this.smokeTargetingState.targetHexKeys.has(key) || key === this.smokeTargetingState.callerHexKey)) ||
+                    (this.artilleryTargetingState !== null && (this.artilleryTargetingState.targetHexKeys.has(key) || key === this.artilleryTargetingState.callerHexKey));
+                const unitForInitiativeGate = this.resolveInitiativeGateUnitForHex(key);
+                if (unitForInitiativeGate &&
+                    unitForInitiativeGate.unitId &&
+                    !isActionDestination &&
+                    !this.isUnitInCurrentInitiativeGroup(unitForInitiativeGate.unitId)) {
+                    this.showInitiativeGroupMessage(unitForInitiativeGate.unitId);
+                    return; // Don't proceed with the action
                 }
             }
-            this.onPlayerTurnMapClick(key);
+            this.tutorialUserMapClickInProgress = true;
+            try {
+                this.onPlayerTurnMapClick(key);
+                this.completeGuidedTutorialSelectionForClickedHex(key);
+            }
+            finally {
+                this.tutorialUserMapClickInProgress = false;
+            }
             return;
         }
         this.applySelectedHex(key);
+    }
+    /**
+     * Resolves the player unit used for initiative-gate checks on a clicked hex.
+     * In stacked hexes we must prioritize the currently active activation to avoid
+     * blocking legal actions behind an inactive stack member.
+     */
+    resolveInitiativeGateUnitForHex(key) {
+        const members = this.getPlayerStackMembersAtHex(key);
+        if (members.length === 0) {
+            return null;
+        }
+        const currentActivation = this.initiativeMethods?.getCurrentActivation();
+        if (currentActivation?.ownerId === "player") {
+            const activeMember = members.find((member) => member.unitId === currentActivation.unitId) ?? null;
+            if (activeMember) {
+                return activeMember.unit;
+            }
+        }
+        if (this.selectedPlayerUnitId) {
+            const selectedMember = members.find((member) => member.unitId === this.selectedPlayerUnitId) ?? null;
+            if (selectedMember) {
+                return selectedMember.unit;
+            }
+        }
+        const playerMember = members.find((member) => !member.isAutomated) ?? members[0];
+        return playerMember?.unit ?? null;
     }
     /**
      * Handles clicks on sentry pips to toggle sentry mode off.
@@ -7841,6 +9627,7 @@ export class BattleScreen {
             this.deploymentPanel?.setSelectedHex(null);
             this.playerMoveHexes.clear();
             this.playerAttackHexes.clear();
+            this.syncQueuedTargetMarkers();
             this.announceBattleUpdate(phase === "deployment" ? "Selection cleared. Choose a deployment hex." : "Selection cleared.");
             this.publishSelectionIntel(null);
             return;
@@ -7856,7 +9643,7 @@ export class BattleScreen {
                     this.baseCampStatus.textContent = `Selected hex: ${key} in ${selection.zoneLabel ?? "deployment zone"}.`;
                 }
                 else {
-                    this.baseCampStatus.textContent = `Selected hex: ${key}. Outside the deployment area.`;
+                    this.baseCampStatus.textContent = `Selected hex: ${key}. Outside player deployment zones. Use Zone Alpha from the deployment list to refocus on legal hexes.`;
                 }
             }
             this.hexMapRenderer?.setZoneHighlights(zoneHexes);
@@ -7911,6 +9698,7 @@ export class BattleScreen {
                 return key;
             }));
             this.hexMapRenderer?.setTacticalHighlights(this.playerMoveHexes, this.playerAttackHexes);
+            this.syncQueuedTargetMarkers();
             // Provide clear feedback about unit's action state. Resolve labels strictly so bad data surfaces immediately.
             const unitLabel = this.resolveUnitLabelForHex(key, selectedUnitId);
             if (!unitLabel) {
@@ -7926,6 +9714,7 @@ export class BattleScreen {
                 this.playerMoveHexes.clear();
                 this.playerAttackHexes.clear();
                 this.hexMapRenderer?.clearTacticalHighlights();
+                this.syncQueuedTargetMarkers();
                 statusMessage += " This convoy is automated. Set battalion resupply priority in Logistics instead of issuing manual orders.";
             }
             else if (commandState?.isOnSentry) {
@@ -7958,7 +9747,7 @@ export class BattleScreen {
                         : `${unitLabel} @ ${key} - Move:${this.playerMoveHexes.size} Attack:${this.playerAttackHexes.size}`;
             }
             this.announceBattleUpdate(statusMessage);
-            this.completeTutorialPhase("movement_intro");
+            this.completeGuidedTutorialSelectionFromClick(key, selectedPlayerUnit, commandState);
             this.syncTutorialPhaseWithCurrentContext(ensureTutorialState().getCurrentPhase());
             this.publishSelectionIntel(this.buildBattleSelectionIntel(key, selectedPlayerUnit, unitLabel, movementBudget, statusMessage, commandState, this.buildBattleSelectionUnitTabs(key)));
         }
@@ -7968,6 +9757,7 @@ export class BattleScreen {
             this.playerMoveHexes.clear();
             this.playerAttackHexes.clear();
             this.hexMapRenderer?.clearTacticalHighlights();
+            this.syncQueuedTargetMarkers();
             const enemyContact = this.findEnemyContactAtHex(axial);
             const terrainNotes = [];
             if (enemyContact) {
@@ -8004,11 +9794,14 @@ export class BattleScreen {
     async executeAnimatedPlayerMove(fromKey, toKey, fromAxial, toAxial, unitId) {
         this.closeSelectionIntelForAnimation();
         const engine = this.battleState.ensureGameEngine();
+        const isTutorialMovement = ensureTutorialState().getProgress().isActive &&
+            ensureTutorialState().getCurrentPhase() === "movement_intro";
         const renderer = this.hexMapRenderer;
         let moveHandle = null;
         try {
             // Update engine state
             const resolution = engine.moveUnit(fromAxial, toAxial, unitId ?? undefined);
+            const movedUnitId = resolution.unit.unitId ?? unitId ?? this.selectedPlayerUnitId ?? null;
             const pathKeys = this.toMovePathKeys(resolution.path, fromKey, toKey);
             moveHandle = renderer?.primeUnitMove(fromKey, toKey, {
                 path: pathKeys,
@@ -8026,17 +9819,28 @@ export class BattleScreen {
                     moveHandle.dispose();
                 }
             }
-            // Render the final state and update selection
+            // Render the final state and keep partially spent initiative units active.
+            const canContinueActivation = this.canPlayerUnitContinueAfterMove(toAxial, movedUnitId);
             this.renderEngineUnits();
-            this.selectedPlayerUnitId = unitId ?? this.selectedPlayerUnitId;
-            this.clearSelectedHexAfterAction();
+            if (canContinueActivation && !isTutorialMovement) {
+                this.selectedHexKey = toKey;
+                this.selectedPlayerUnitId = movedUnitId;
+                this.applySelectedHex(toKey, true);
+            }
+            else {
+                this.clearSelectedHexAfterAction();
+            }
             this.announceBattleUpdate(`Moved unit to ${toKey}.`);
             this.publishActivityEvent({
                 category: "player",
                 type: "move",
                 summary: `Unit moved from ${fromKey} to ${toKey}.`
             });
+            this.completeTutorialPhase("movement_intro");
             this.battleState.emitBattleUpdate("manual");
+            if (!canContinueActivation || isTutorialMovement) {
+                this.completeInitiativeActivationAfterPlayerOrder(movedUnitId);
+            }
         }
         catch (err) {
             console.error("Failed to move unit", {
@@ -8077,6 +9881,12 @@ export class BattleScreen {
         else if (reason.includes("Artillery cannot move after attacking")) {
             correctiveAction = "Move before firing next turn, or leave the battery in place now.";
         }
+        else if (reason.includes("Friendly hex is already at the two-formation stacking limit")) {
+            correctiveAction = "Choose another highlighted hex.";
+        }
+        else if (reason.includes("Enemy-occupied hexes must be attacked")) {
+            correctiveAction = "Attack the enemy or choose a different route.";
+        }
         else if (reason.includes("Destination hex is occupied")) {
             correctiveAction = "Pick an open hex.";
         }
@@ -8102,6 +9912,11 @@ export class BattleScreen {
             return;
         }
         const clickedAxial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
+        if (ensureTutorialState().isTutorialActive() &&
+            Date.now() < this.tutorialMapInputBlockedUntil) {
+            this.queueTutorialMapClickAfterCamera(key);
+            return;
+        }
         if (this.smokeTargetingState) {
             if (this.smokeTargetingState.targetHexKeys.has(key)) {
                 this.executeSmokeOnTargetHex(key);
@@ -8130,6 +9945,18 @@ export class BattleScreen {
         }
         // If there is an active selection and the user clicked a move/attack destination, execute the action.
         if (this.selectedHexKey) {
+            const selectedMember = this.resolveSelectedPlayerStackMember(this.selectedHexKey);
+            const actionableUnitId = selectedMember?.unitId ?? this.selectedPlayerUnitId ?? null;
+            if (this.isInitiativeSystemEnabled) {
+                if (!actionableUnitId) {
+                    this.showElegantInitiativeMessage("Select the active formation before issuing orders.");
+                    return;
+                }
+                if (!this.isUnitInCurrentInitiativeGroup(actionableUnitId)) {
+                    this.showInitiativeGroupMessage(actionableUnitId);
+                    return;
+                }
+            }
             if (this.playerMoveHexes.has(key)) {
                 const selParsed = CoordinateSystem.parseHexKey(this.selectedHexKey);
                 if (!selParsed)
@@ -8137,7 +9964,7 @@ export class BattleScreen {
                 const selAxial = CoordinateSystem.offsetToAxial(selParsed.col, selParsed.row);
                 const originKey = this.selectedHexKey ?? CoordinateSystem.makeHexKey(selParsed.col, selParsed.row);
                 // Execute animated player move
-                void this.executeAnimatedPlayerMove(originKey, key, selAxial, clickedAxial, this.selectedPlayerUnitId);
+                void this.executeAnimatedPlayerMove(originKey, key, selAxial, clickedAxial, actionableUnitId);
                 return;
             }
             if (this.playerAttackHexes.has(key)) {
@@ -8145,9 +9972,16 @@ export class BattleScreen {
                 if (!selParsed)
                     return;
                 const selAxial = CoordinateSystem.offsetToAxial(selParsed.col, selParsed.row);
-                this.promptAttackConfirmation(selAxial, clickedAxial, { attackerUnitId: this.selectedPlayerUnitId });
+                this.promptAttackConfirmation(selAxial, clickedAxial, { attackerUnitId: actionableUnitId });
                 return;
             }
+        }
+        // A click on another friendly stack is a selection change unless that hex
+        // is already highlighted as a legal move for the selected formation.
+        if (this.selectedHexKey !== key &&
+            this.getPlayerStackMembersAtHex(key).length > 0) {
+            this.applySelectedHex(key);
+            return;
         }
         // Otherwise treat as a selection change.
         if (this.selectedHexKey === key) {
@@ -8180,6 +10014,10 @@ export class BattleScreen {
             if (!unitId) {
                 return;
             }
+            if (this.isInitiativeSystemEnabled && !this.isUnitInCurrentInitiativeGroup(unitId)) {
+                this.showInitiativeGroupMessage(unitId);
+                return;
+            }
             const stackMembers = this.getPlayerStackMembersAtHex(this.selectedHexKey);
             if (!stackMembers.some((member) => member.unitId === unitId)) {
                 return;
@@ -8191,6 +10029,10 @@ export class BattleScreen {
         if (actionId.startsWith("consolidate:")) {
             const secondaryUnitId = actionId.slice("consolidate:".length).trim();
             if (!secondaryUnitId || !this.selectedPlayerUnitId) {
+                return;
+            }
+            if (this.isInitiativeSystemEnabled && !this.isUnitInCurrentInitiativeGroup(this.selectedPlayerUnitId)) {
+                this.showInitiativeGroupMessage(this.selectedPlayerUnitId);
                 return;
             }
             const engine = this.battleState.ensureGameEngine();
@@ -8217,6 +10059,10 @@ export class BattleScreen {
         if (!parsed) {
             return;
         }
+        if (this.isInitiativeSystemEnabled && this.selectedPlayerUnitId && !this.isUnitInCurrentInitiativeGroup(this.selectedPlayerUnitId)) {
+            this.showInitiativeGroupMessage(this.selectedPlayerUnitId);
+            return;
+        }
         const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
         const engine = this.battleState.ensureGameEngine();
         const unitLabel = this.resolveUnitLabelForHex(this.selectedHexKey, this.selectedPlayerUnitId) ?? "Selected unit";
@@ -8225,12 +10071,13 @@ export class BattleScreen {
         if (!unit) {
             return;
         }
+        const actedUnitId = unit.unitId ?? this.selectedPlayerUnitId ?? null;
         let succeeded = false;
         let summary = "";
         if (actionId === "repositionArtillery") {
             const queuedArtillery = this.getQueuedArtilleryForCallerHex(this.selectedHexKey);
             if (!queuedArtillery) {
-                this.announceBattleUpdate("No queued heavy artillery mission is available to reposition.");
+                this.announceBattleUpdate("No queued Corps Artillery mission is available to reposition.");
                 return;
             }
             this.cancelQueuedArtilleryStrike(queuedArtillery.id, this.selectedHexKey, unitLabel, this.parseAxialKeyToOffsetHexKey(queuedArtillery.queuedHex) ?? "the selected target");
@@ -8242,7 +10089,7 @@ export class BattleScreen {
                 this.announceBattleUpdate(artilleryState.reason ?? "Heavy artillery is not available right now.");
                 return;
             }
-            this.beginArtilleryTargeting(this.selectedHexKey, unitLabel, artilleryState.assetId, artilleryState.targetHexKeys);
+            this.beginArtilleryTargeting(this.selectedHexKey, unitLabel, actedUnitId, artilleryState.assetId, artilleryState.targetHexKeys);
             return;
         }
         if (actionId === "enterSentry") {
@@ -8325,7 +10172,7 @@ export class BattleScreen {
             if (!succeeded) {
                 this.announceBattleUpdate(commandState?.buildModificationAvailability?.[modificationType]?.reason ??
                     commandState?.buildReason ??
-                    "Engineer fieldworks are not available on this hex right now.");
+                    "Engineer orders are not available on this hex right now.");
                 return;
             }
         }
@@ -8337,10 +10184,12 @@ export class BattleScreen {
             type: "log",
             summary
         });
+        this.completeTutorialPhase("spend_activation");
         if ((actionId === "digIn" && this.isEngineerBattleUnit(unit)) || actionId === "clearedPath") {
             this.completeTutorialPhase("engineer_orders");
         }
         this.battleState.emitBattleUpdate("manual");
+        this.completeInitiativeActivationAfterPlayerOrder(actedUnitId);
     }
     collectAirOperationsSummary(engine) {
         const reports = engine.getAirMissionReports().filter((entry) => entry.faction === "Player" && entry.event !== "refitStarted" && entry.event !== "refitCompleted");
@@ -8769,9 +10618,9 @@ export class BattleScreen {
         if (preview) {
             const attackerLabel = this.toTitleCase(preview.attacker.type);
             const defenderLabel = this.toTitleCase(preview.defender.type);
-            // Determine attack type based on defender class
+            // Mirror the canonical engine classification so activity details cannot disagree with combat math.
             const defenderDef = this.unitTypes?.[preview.defender.type];
-            const isSoftTarget = defenderDef ? (defenderDef.class === "infantry" || defenderDef.class === "specialist") : false;
+            const isSoftTarget = defenderDef ? isSoftCombatTarget(defenderDef) : false;
             sections.push({
                 title: "Units",
                 entries: [
@@ -8889,6 +10738,25 @@ export class BattleScreen {
         const matched = this.selectedPlayerUnitId
             ? members.find((member) => member.unitId === this.selectedPlayerUnitId) ?? null
             : null;
+        if (this.isInitiativeSystemEnabled && this.initiativeMethods) {
+            const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+            const activeGroup = this.resolveActiveInitiativeGroup(queue);
+            if (activeGroup?.ownerId === "player") {
+                if (matched && activeGroup.activations.some((activation) => activation.unitId === matched.unitId)) {
+                    this.initiativeGroupCursorUnitId = matched.unitId;
+                    return matched;
+                }
+                const currentActivation = this.initiativeMethods.getCurrentActivation();
+                const activeMember = currentActivation
+                    ? members.find((member) => member.unitId === currentActivation.unitId) ?? null
+                    : null;
+                if (activeMember) {
+                    this.selectedPlayerUnitId = activeMember.unitId;
+                    this.initiativeGroupCursorUnitId = activeMember.unitId;
+                    return activeMember;
+                }
+            }
+        }
         const preferred = matched
             ?? members.find((member) => !member.isAutomated)
             ?? members[0]
@@ -9061,7 +10929,7 @@ export class BattleScreen {
                 actions.push({
                     id: "callArtillery",
                     label: "Call Artillery",
-                    detail: "Queue an off-map heavy artillery strike on an observed enemy hex. Impact lands during turn transition.",
+                    detail: "Queue an off-map Corps Artillery strike on an observed enemy hex. Impact lands during turn transition.",
                     tone: "denial",
                     available: artilleryState.available,
                     reason: artilleryState.reason
@@ -9103,7 +10971,7 @@ export class BattleScreen {
             actions.push({
                 id: "laySmoke",
                 label: "Lay Smoke",
-                detail: "Fire smoke rounds to cover a chosen hex edge. The screen blocks ground line of sight along that edge until the start of your next turn. Requires ammo but does not use movement or attacks.",
+                detail: "Fire close smoke on this hex or an adjacent hex edge. The screen blocks ground line of sight until your next turn. Requires ammo but does not use movement or attacks.",
                 tone: "mobility",
                 available: commandState.canLaySmoke,
                 reason: commandState.smokeReason
@@ -9377,6 +11245,37 @@ export class BattleScreen {
         const traits = (definition?.traits ?? []);
         return unit.type.toLowerCase().includes("engineer") || traits.includes("engineer");
     }
+    queueTutorialMapClickAfterCamera(key) {
+        if (this.tutorialQueuedMapClickTimerId !== null) {
+            window.clearTimeout(this.tutorialQueuedMapClickTimerId);
+        }
+        const queuedPhase = ensureTutorialState().getCurrentPhase();
+        const delayMs = Math.max(0, this.tutorialMapInputBlockedUntil - Date.now()) + 16;
+        this.tutorialQueuedMapClickTimerId = window.setTimeout(() => {
+            this.tutorialQueuedMapClickTimerId = null;
+            const progress = ensureTutorialState().getProgress();
+            if (!progress.isActive || progress.currentPhase !== queuedPhase) {
+                return;
+            }
+            this.tutorialUserMapClickInProgress = true;
+            try {
+                this.onPlayerTurnMapClick(key);
+                this.completeGuidedTutorialSelectionForClickedHex(key);
+            }
+            finally {
+                this.tutorialUserMapClickInProgress = false;
+            }
+        }, delayMs);
+    }
+    isReconBikeBattleUnit(unit) {
+        const definition = this.unitTypes[unit.type];
+        const traits = (definition?.traits ?? []);
+        const normalizedType = unit.type.toLowerCase();
+        const normalizedLabel = (this.resolveUnitLabelForUnit(unit) ?? "").toLowerCase();
+        return (normalizedType.includes("recon") && normalizedType.includes("bike"))
+            || normalizedLabel.includes("recon bike")
+            || traits.includes("reconBike");
+    }
     isFlakBattleUnit(unit) {
         const definition = this.unitTypes[unit.type];
         const traits = (definition?.traits ?? []);
@@ -9394,7 +11293,7 @@ export class BattleScreen {
             case "smoke":
                 return "a smoke screen";
             default:
-                return "fieldworks";
+                return "fortifications";
         }
     }
     normalizeFortificationEdgeFacing(facing) {
@@ -9826,6 +11725,10 @@ export class BattleScreen {
         this.setupObjectiveCycling();
     }
     resetMissionDerivedUiState() {
+        if (this.tutorialQueuedMapClickTimerId !== null) {
+            window.clearTimeout(this.tutorialQueuedMapClickTimerId);
+            this.tutorialQueuedMapClickTimerId = null;
+        }
         this.teardownInitiativeSystemUi();
         this.hideAttackDialog();
         this.pendingAttack = null;
@@ -9842,6 +11745,7 @@ export class BattleScreen {
         this.pendingIdleTurnAdvance = null;
         this.lastFocusedHexKey = null;
         this.lastViewportTransform = null;
+        this.lastFocusedViewportPoint = null;
         this.lastAnnouncement = null;
         this.ensureDetailedAirCombatTurnUnitKeys().clear();
         this.publishSelectionIntel(null);

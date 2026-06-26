@@ -177,6 +177,90 @@ registerTest("MAP_VIEWPORT_MIDDLE_DRAG_PAN", async ({ Given, When, Then }) => {
         }
     });
 });
+registerTest("MAP_VIEWPORT_TOUCH_PAN", async ({ Given, When, Then }) => {
+    let mapViewport;
+    let host;
+    let moveEvent;
+    await Given("a battle map viewport receiving a single touch drag", async () => {
+        const { host: canvas } = setupMapDom();
+        host = canvas;
+        mapViewport = new MapViewport();
+    });
+    await When("the commander drags one finger across the battlefield", async () => {
+        host.dispatchEvent(createPointerEvent("pointerdown", {
+            pointerId: 21,
+            pointerType: "touch",
+            clientX: 200,
+            clientY: 200
+        }));
+        moveEvent = createPointerEvent("pointermove", {
+            pointerId: 21,
+            pointerType: "touch",
+            clientX: 170,
+            clientY: 160
+        });
+        host.dispatchEvent(moveEvent);
+        host.dispatchEvent(createPointerEvent("pointerup", {
+            pointerId: 21,
+            pointerType: "touch",
+            clientX: 170,
+            clientY: 160
+        }));
+    });
+    await Then("the viewport pans and the gesture suppresses native page scrolling", async () => {
+        if (!moveEvent.wasPrevented()) {
+            throw new Error("Touch pan should prevent default browser scrolling");
+        }
+        const transform = mapViewport.getTransform();
+        if (transform.panX !== -30 || transform.panY !== -40) {
+            throw new Error(`Expected touch pan (-30, -40); received (${transform.panX}, ${transform.panY})`);
+        }
+        host.remove();
+    });
+});
+registerTest("MAP_VIEWPORT_TOUCH_PINCH_ZOOM", async ({ Given, When, Then }) => {
+    let mapViewport;
+    let host;
+    let pinchMoveEvent;
+    await Given("a battle map viewport receiving a two-finger pinch", async () => {
+        const { host: canvas } = setupMapDom();
+        host = canvas;
+        mapViewport = new MapViewport();
+    });
+    await When("the commander spreads two fingers apart on the battlefield", async () => {
+        host.dispatchEvent(createPointerEvent("pointerdown", {
+            pointerId: 31,
+            pointerType: "touch",
+            clientX: 150,
+            clientY: 150
+        }));
+        host.dispatchEvent(createPointerEvent("pointerdown", {
+            pointerId: 32,
+            pointerType: "touch",
+            clientX: 250,
+            clientY: 150
+        }));
+        pinchMoveEvent = createPointerEvent("pointermove", {
+            pointerId: 32,
+            pointerType: "touch",
+            clientX: 286,
+            clientY: 150
+        });
+        host.dispatchEvent(pinchMoveEvent);
+    });
+    await Then("the viewport zooms in around the pinch center and consumes the native gesture", async () => {
+        if (!pinchMoveEvent.wasPrevented()) {
+            throw new Error("Touch pinch should prevent default browser gestures");
+        }
+        const transform = mapViewport.getTransform();
+        const expectedZoom = 1.2;
+        const tolerance = 1e-6;
+        if (Math.abs(transform.zoom - expectedZoom) > tolerance) {
+            throw new Error(`Expected pinch zoom ${expectedZoom}; received ${transform.zoom}`);
+        }
+        host.remove();
+    });
+});
 registerTest("MAP_VIEWPORT_CENTER_ON_USES_VIEWBOX_UNITS_WHEN_LAYOUT_IS_SCALED", async ({ Given, When, Then }) => {
     let mapViewport;
     let host;

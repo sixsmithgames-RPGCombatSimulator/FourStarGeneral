@@ -194,9 +194,47 @@ registerTest("FRESH_UNITS_CAN_STILL_ATTACK_AFTER_CALLING_ARTILLERY", async ({ Th
     if (!engine.queueSupportActionFromUnit(observer.hex, supportAsset.id, enemy.hex)) {
         throw new Error("Expected fresh observer to queue heavy artillery.");
     }
-    const resolution = engine.attackUnit(observer.hex, enemy.hex, "suppressive");
-    if (!resolution) {
-        throw new Error("Expected a fresh observer to retain its direct-fire attack after calling artillery.");
+    const attackableTargets = engine.getAttackableTargets(observer.hex);
+    if (!attackableTargets.some((hex) => hex.q === enemy.hex.q && hex.r === enemy.hex.r)) {
+        throw new Error(`Expected a fresh observer to retain direct-fire eligibility after calling artillery, received ${JSON.stringify(attackableTargets)}.`);
     }
     await Then("calling artillery leaves a fresh unit's attack available", () => { });
+});
+registerTest("ARTILLERY_QUEUE_CHECKS_MOVEMENT_SPEND_ON_THE_CALLER_UNIT_ID", async ({ Then }) => {
+    const observer = {
+        type: "TestInfantry",
+        hex: { q: 0, r: 0 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 0,
+        entrench: 0,
+        facing: "NE",
+        unitId: "observer-a"
+    };
+    const enemy = {
+        type: "TestInfantry",
+        hex: { q: 4, r: 0 },
+        strength: 100,
+        experience: 0,
+        ammo: 6,
+        fuel: 0,
+        entrench: 0,
+        facing: "SW"
+    };
+    const engine = createEngine([observer], [enemy]);
+    const firstMove = engine.moveUnit({ q: 0, r: 0 }, { q: 1, r: 0 });
+    const secondMove = engine.moveUnit({ q: 1, r: 0 }, { q: 2, r: 0 });
+    if (firstMove.to.q !== 1 || secondMove.to.q !== 2) {
+        throw new Error("Expected observer to spend two movement points before queueing support.");
+    }
+    const supportAsset = engine.getSupportSnapshot().ready.find((asset) => asset.type === "artillery");
+    if (!supportAsset) {
+        throw new Error("Expected a ready artillery asset for movement-spend validation.");
+    }
+    const queued = engine.queueSupportActionFromUnit({ q: 2, r: 0 }, supportAsset.id, enemy.hex);
+    if (queued) {
+        throw new Error("Expected queueSupportActionFromUnit to reject callers that moved beyond half movement.");
+    }
+    await Then("artillery queue gating follows the caller unit action flags instead of a raw hex key", () => { });
 });

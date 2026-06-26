@@ -133,36 +133,47 @@ describe('Tutorial UI Enhancements', () => {
     });
 });
 describe('Tutorial Steps Validation', () => {
-    it('should include new mission_objectives phase', () => {
+    it('should keep mission_objectives as the final mission-orders phase', () => {
         const phases = [
-            'welcome',
             'budget_overview',
             'unit_categories',
             'select_infantry',
-            'adjust_quantity',
             'select_tanks',
             'select_engineers',
             'select_flak',
             'select_air_wing',
-            'mission_objectives', // New phase
-            'review_allocation'
+            'select_howitzer',
+            'select_ammo',
+            'select_fuel',
+            'review_allocation',
+            'mission_objectives'
         ];
         expect(phases).toContain('mission_objectives');
     });
-    it('should include new smoke_demo phase', () => {
+    it('should include smoke as a command-card brief before direct fire', () => {
         const combatPhases = [
+            'initiative_order',
+            'active_group_units',
             'movement_intro',
-            'attack_intro',
-            'smoke_demo', // New phase
+            'intel_overlay_expand',
+            'spend_activation',
+            'enemy_activation',
+            'next_unit',
+            'skip_group',
             'engineer_intro',
             'engineer_orders',
+            'artillery_support_intro',
             'artillery_intro',
+            'post_artillery_enemy_response',
+            'select_attack_unit',
+            'smoke_demo',
+            'attack_intro',
             'flak_intro',
-            'air_missions',
-            'logistics_intro',
-            'turn_end',
+            'round_handoff',
+            'mission_objectives',
             'complete'
         ];
-        expect(combatPhases).toContain('smoke_demo');
+        expect(combatPhases.indexOf('smoke_demo')).toBeGreaterThan(combatPhases.indexOf('select_attack_unit'));
+        expect(combatPhases.indexOf('attack_intro')).toBeGreaterThan(combatPhases.indexOf('smoke_demo'));
     });
 });

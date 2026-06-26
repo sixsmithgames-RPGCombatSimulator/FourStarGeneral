@@ -422,7 +422,9 @@ export class DeploymentPanel {
     }
     refreshZoneMetadata() {
         const deploymentState = ensureDeploymentState();
-        const summaries = deploymentState.getZoneUsageSummaries();
+        const summaries = deploymentState
+            .getZoneUsageSummaries()
+            .filter((summary) => summary.faction !== "Bot");
         this.zoneMetaMap.clear();
         this.zoneHexLookup.clear();
         this.hexZoneIndex.clear();

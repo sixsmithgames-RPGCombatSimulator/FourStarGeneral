@@ -32,6 +32,18 @@ export class MapViewport implements IMapViewport {
     lastX: 0,
     lastY: 0
   };
+  private readonly activeTouchPointers = new Map<number, { clientX: number; clientY: number }>();
+  private readonly touchGestureState = {
+    active: false,
+    panning: false,
+    lastDistance: 0,
+    lastCenterX: 0,
+    lastCenterY: 0,
+    lastPanX: 0,
+    lastPanY: 0
+  };
+  private readonly touchPanThresholdPx = 4;
+  private readonly touchZoomPixelsPerStep = 180;
   /**
    * Processes browser wheel events and converts them into viewport zoom operations.
    * Defined as an arrow property so the same instance is registered/unregistered safely.
@@ -70,6 +82,10 @@ export class MapViewport implements IMapViewport {
    * Begins a middle-button drag when the commander presses and holds the mouse wheel.
    */
   private readonly handlePointerDown = (event: PointerEvent): void => {
+    if (event.pointerType === "touch") {
+      this.handleTouchPointerDown(event);
+      return;
+    }
     if (event.button !== 1) {
       return;
     }
@@ -94,6 +110,10 @@ export class MapViewport implements IMapViewport {
    * Applies panning deltas while the middle button stays captured.
    */
   private readonly handlePointerMove = (event: PointerEvent): void => {
+    if (event.pointerType === "touch") {
+      this.handleTouchPointerMove(event);
+      return;
+    }
     if (!this.dragState.active || event.pointerId !== this.dragState.pointerId) {
       return;
     }
@@ -116,6 +136,10 @@ export class MapViewport implements IMapViewport {
    * Ends middle-button drag and releases pointer capture once the button lifts or leaves the canvas.
    */
   private readonly handlePointerUp = (event: PointerEvent): void => {
+    if (event.pointerType === "touch") {
+      this.handleTouchPointerUp(event);
+      return;
+    }
     if (!this.dragState.active || event.pointerId !== this.dragState.pointerId) {
       return;
     }
@@ -139,6 +163,118 @@ export class MapViewport implements IMapViewport {
     this.wheelEventTarget.addEventListener("pointerleave", this.handlePointerUp as EventListener);
   };
 
+  private resolveTouchGestureMetrics(): { distance: number; centerX: number; centerY: number } | null {
+    const touches = Array.from(this.activeTouchPointers.values());
+    const first = touches[0];
+    const second = touches[1];
+    if (!first || !second) {
+      return null;
+    }
+    const dx = second.clientX - first.clientX;
+    const dy = second.clientY - first.clientY;
+    return {
+      distance: Math.hypot(dx, dy),
+      centerX: (first.clientX + second.clientX) / 2,
+      centerY: (first.clientY + second.clientY) / 2
+    };
+  }
+
+  private handleTouchPointerDown(event: PointerEvent): void {
+    this.activeTouchPointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    if (typeof (this.wheelEventTarget as Element).setPointerCapture === "function") {
+      (this.wheelEventTarget as Element).setPointerCapture(event.pointerId);
+    }
+
+    const metrics = this.resolveTouchGestureMetrics();
+    if (metrics) {
+      this.touchGestureState.active = true;
+      this.touchGestureState.panning = false;
+      this.touchGestureState.lastDistance = metrics.distance;
+      this.touchGestureState.lastCenterX = metrics.centerX;
+      this.touchGestureState.lastCenterY = metrics.centerY;
+      this.lastUserCameraInputAt = performance.now();
+      event.preventDefault();
+      return;
+    }
+
+    this.touchGestureState.active = false;
+    this.touchGestureState.panning = false;
+    this.touchGestureState.lastPanX = event.clientX;
+    this.touchGestureState.lastPanY = event.clientY;
+  }
+
+  private handleTouchPointerMove(event: PointerEvent): void {
+    if (!this.activeTouchPointers.has(event.pointerId)) {
+      return;
+    }
+
+    this.activeTouchPointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    if (this.activeTouchPointers.size >= 2) {
+      const metrics = this.resolveTouchGestureMetrics();
+      if (!metrics) {
+        return;
+      }
+      const centerDeltaX = metrics.centerX - this.touchGestureState.lastCenterX;
+      const centerDeltaY = metrics.centerY - this.touchGestureState.lastCenterY;
+      const zoomDelta = (metrics.distance - this.touchGestureState.lastDistance) / this.touchZoomPixelsPerStep;
+      this.lastUserCameraInputAt = performance.now();
+      if (centerDeltaX !== 0 || centerDeltaY !== 0) {
+        this.pan(centerDeltaX, centerDeltaY);
+      }
+      if (zoomDelta !== 0) {
+        this.adjustZoomAt(zoomDelta, metrics.centerX, metrics.centerY);
+      }
+      this.touchGestureState.active = true;
+      this.touchGestureState.lastDistance = metrics.distance;
+      this.touchGestureState.lastCenterX = metrics.centerX;
+      this.touchGestureState.lastCenterY = metrics.centerY;
+      event.preventDefault();
+      return;
+    }
+
+    const deltaX = event.clientX - this.touchGestureState.lastPanX;
+    const deltaY = event.clientY - this.touchGestureState.lastPanY;
+    if (!this.touchGestureState.panning && Math.hypot(deltaX, deltaY) < this.touchPanThresholdPx) {
+      return;
+    }
+
+    this.touchGestureState.panning = true;
+    this.lastUserCameraInputAt = performance.now();
+    this.pan(deltaX, deltaY);
+    this.touchGestureState.lastPanX = event.clientX;
+    this.touchGestureState.lastPanY = event.clientY;
+    event.preventDefault();
+  }
+
+  private handleTouchPointerUp(event: PointerEvent): void {
+    const shouldPreventDefault = this.touchGestureState.active || this.touchGestureState.panning || this.activeTouchPointers.size > 1;
+    this.activeTouchPointers.delete(event.pointerId);
+    if (typeof (this.wheelEventTarget as Element).releasePointerCapture === "function") {
+      (this.wheelEventTarget as Element).releasePointerCapture(event.pointerId);
+    }
+
+    const metrics = this.resolveTouchGestureMetrics();
+    if (metrics) {
+      this.touchGestureState.active = true;
+      this.touchGestureState.panning = false;
+      this.touchGestureState.lastDistance = metrics.distance;
+      this.touchGestureState.lastCenterX = metrics.centerX;
+      this.touchGestureState.lastCenterY = metrics.centerY;
+    } else {
+      const remainingTouch = Array.from(this.activeTouchPointers.values())[0] ?? null;
+      this.touchGestureState.active = false;
+      this.touchGestureState.panning = false;
+      if (remainingTouch) {
+        this.touchGestureState.lastPanX = remainingTouch.clientX;
+        this.touchGestureState.lastPanY = remainingTouch.clientY;
+      }
+    }
+
+    if (shouldPreventDefault) {
+      event.preventDefault();
+    }
+  }
+
   // Zoom limits keep interactions bounded; a higher max lets commanders inspect the map closely.
   private readonly MIN_ZOOM = 0.5;
   private readonly MAX_ZOOM = 7.5;
@@ -150,6 +286,7 @@ export class MapViewport implements IMapViewport {
     }
     this.mapElement = element;
     this.wheelEventTarget = this.mapElement.parentElement instanceof HTMLElement ? this.mapElement.parentElement : this.mapElement;
+    this.wheelEventTarget.style.touchAction = "none";
 
     // Find viewportRoot - this is the ONLY element we transform
     this.viewportRoot = element.querySelector<SVGGElement>("#viewportRoot");

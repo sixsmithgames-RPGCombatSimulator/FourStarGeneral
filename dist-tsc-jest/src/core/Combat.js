@@ -246,7 +246,11 @@ export function calculateAccuracy(request) {
     const terrainMultiplier = 1 + terrainMod / 100;
     const afterTerrain = afterDefenderExperience * terrainMultiplier;
     // Step 6: Apply spotted target penalty as multiplier
-    const spottedMultiplier = defenderCtx.isSpottedOnly ? 0.5 : 1.0;
+    const attackerUsesObserverDirectedIndirectFire = attacker.unit.moveType !== "air" &&
+        (attacker.unit.class === "artillery" || attacker.unit.traits.includes("indirect"));
+    const spottedMultiplier = defenderCtx.isSpottedOnly
+        ? (attackerUsesObserverDirectedIndirectFire ? 1.0 : 0.5)
+        : 1.0;
     const afterSpotted = afterTerrain * spottedMultiplier;
     // Assaulting infantry that closes into tank-kill distance is unusually exposed.
     // Apply a dedicated close-defense boost for tanks firing on assaulting infantry
@@ -349,10 +353,12 @@ function mitigateReduction(scalar, experience, maxRestoredLoss) {
  * 1. Air units: Always use full theoretical shots (airSortie: 1.0) - MAXIMUM
  * 2. Retaliation: Defensive fire with limited preparation (sentry: 0.35, retaliation: 0.12)
  * 3. Explicit stances: Offensive tactical choices (assault: 0.25, suppressive: 0.18)
- * 4. Standard: Fresh, stationary, deliberate attack (standard: 0.18) - BASELINE
+ * 4. Deployed towed batteries: Prepared gun line fire (deployedBattery: 0.24-0.26)
+ * 5. Standard: Fresh, stationary, deliberate attack (standard: 0.18) - BASELINE
  *
  * Shot volume comparison (highest to lowest):
- * airSortie (1.0) > sentry (0.35) > assault (0.25) > standard (0.18) = suppressive (0.18) > retaliation (0.12)
+ * airSortie (1.0) > sentry (0.35) > deployedBattery (0.24-0.26) > assault (0.25)
+ *   > standard (0.18) = suppressive (0.18) > retaliation (0.12)
  *
  * SUPPRESSION SYSTEM:
  * - Suppressive stance: Same shot volume as standard, but adds attacker to target's suppressedBy array
@@ -377,6 +383,17 @@ function resolveShotPosture(attacker, context) {
     if (context.stance === "suppressive") {
         // Suppressive fire - same shot volume as standard but focuses on suppression effects
         return { posture: "suppressive", postureScalar: 0.18 };
+    }
+    // Deployed towed gun batteries have pre-laid sights and prepared drill states.
+    // They still do not fire at theoretical maximum, but they sustain materially higher
+    // practical output than maneuver formations using the same five-minute baseline.
+    if (context.towState === "deployed") {
+        if (attacker.class === "artillery") {
+            return { posture: "deployedBattery", postureScalar: 0.24 };
+        }
+        if (attacker.class === "specialist" && attacker.combat.role === "antiTank") {
+            return { posture: "deployedBattery", postureScalar: 0.26 };
+        }
     }
     // Standard posture: Fresh, stationary, deliberate attack
     // 0.18 represents realistic combat efficiency for ideal conditions
@@ -733,7 +750,16 @@ function calculateMixedWeaponDamage(request, facingArmor, shotBreakdown) {
         commanderScalar: 1,
         final: weightedDamagePerHit / Math.max(totalShots, 1)
     };
-    return { totalExpectedDamage, totalExpectedHits, totalExpectedSuppression, aggregatedDamageBreakdown };
+    // Detailed status estimates are expressed as readiness percentage. Small formations can generate
+    // raw overkill above 100%, but callers and AI scoring must never value more readiness than the
+    // defender still has available.
+    const boundedExpectedDamage = Math.min(Math.max(0, request.defender.strength), totalExpectedDamage);
+    return {
+        totalExpectedDamage: boundedExpectedDamage,
+        totalExpectedHits,
+        totalExpectedSuppression,
+        aggregatedDamageBreakdown
+    };
 }
 /** Aggregate helper delivering the full combat math breakdown. */
 export function resolveAttack(request) {

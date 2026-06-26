@@ -1,3 +1,55 @@
+## Airshow Camera and Mobile Battle Zoom Plan
+
+### Intended behavior
+- Airshow strike playback should focus the full bomber package corridor without over-weighting repeated origin or destination hexes.
+- Airshow camera recenter/idle restoration should preserve the most recent point-based package focus instead of reverting to an older hex focus.
+- Zero-strength live/tutorial bomber playback should continue to seed bomber visuals from the same stack threshold used by normal unit rendering.
+- Battle map zoom and pan should work on mobile through touch gestures while preserving desktop wheel zoom and middle-mouse pan.
+
+### Current behavior
+- Point-focused airshow playback updates the viewport transform but does not clear stale hex focus state, so later recenter flows can return to the previous hex.
+- Linked strike focus averages duplicate hex centers when clustered operations share origins or destinations.
+- The bomber visual seed uses a raw numeric threshold that can drift from stack-count rendering rules.
+- Mobile users have no touch-first battle camera path; viewport interactions depend on wheel zoom and middle-mouse panning.
+
+### Expected new behavior
+- Linked strike focus deduplicates hex keys before computing the package centroid.
+- `BattleScreen` tracks either the last focused hex or the last focused viewport point and recenters using the active focus mode.
+- `HexMapRenderer` uses one named minimum-strength-per-stack constant for both stack counts and zero-strength bomber visual seeding.
+- `MapViewport` handles one-finger touch panning and two-finger pinch zoom with native page gestures suppressed on the battle map surface.
+
+### Edge cases
+- Multi-strike clusters with shared origins should not pull the camera toward repeated hexes.
+- Point-focused airshow playback followed by idle-warning dismissal or layout recenter should stay on the package focus.
+- A bomber whose recorded strengths are all zero should still receive at least one visual actor.
+- Releasing one finger after a two-finger pinch should reset touch state without corrupting the remaining pointer.
+
+### Impact analysis
+- Systems consuming this output:
+  - `BattleScreen` air playback clusters and viewport restore/recenter flows
+  - `HexMapRenderer` airshow runtime flight planning
+  - `AirShowPlaybackPlanner.ts` bomber target-run paths
+  - `MapViewport` battle map input handling
+- Events depending on this structure:
+  - Airshow playback timing and visual cluster execution remain unchanged; only camera focus and planned target-run geometry shift.
+  - Pointer and wheel events continue to drive viewport transforms through `MapViewport`.
+- Visual behaviors that could shift:
+  - Strike playback camera centers farther along the full ingress/target corridor.
+  - Multi-bomber target-run spacing becomes more symmetric.
+  - Mobile battle maps can now pan and pinch-zoom instead of allowing the browser page gesture to own the interaction.
+
+### Risk
+- `BattleScreen.ts` and `HexMapRenderer.ts` are high-risk. Changes are targeted UI/rendering behavior fixes only; no engine state, combat math, or event schema changes.
+
+### Verification
+- Add touch pan and pinch zoom regressions in `tests/MapViewport.interactions.test.ts`.
+- Run `npm run build`.
+- Run `npm run test`.
+- Run relevant airshow visual/Jest checks if time permits.
+- Manual checklist: map panning and zoom stability; airshow camera framing; animation timing.
+
+---
+
 ## Smoke Screen Implementation Plan
 
 ### Intent

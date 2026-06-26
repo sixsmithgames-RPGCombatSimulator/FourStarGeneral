@@ -680,7 +680,7 @@ export class PopupManager {
                     feedback && (feedback.textContent = "Unit hex is required (format q,r)");
                     return;
                 }
-                const request = { kind, faction: engine.activeFaction, unitHex };
+                const request = { kind, faction: this.resolveAirPlanningFaction(engine), unitHex };
                 // Determine template requirements
                 let requiresTarget = false;
                 let requiresEscort = false;
@@ -706,11 +706,11 @@ export class PopupManager {
                     // For escort, the target dropdown lists friendly bomber hexes
                     request.escortTargetHex = parsedTarget;
                 }
-                // Confirmation: summarize mission parameters and potential refit impact so the commander explicitly approves.
+                // Summarize mission parameters and refit impact directly in the panel to avoid browser-native dialogs.
                 try {
                     const refitTurns = engine.getAircraftRefitTurns(unitHex);
                     const parts = [];
-                    parts.push(`Confirm ${String(kind)} mission`);
+                    parts.push(`Scheduling ${String(kind)} mission`);
                     parts.push(`Unit: ${this.formatDisplayHex(unitHex)}`);
                     if (request.targetHex) {
                         parts.push(`Target: ${this.formatDisplayHex(request.targetHex)}`);
@@ -721,14 +721,10 @@ export class PopupManager {
                     if (typeof refitTurns === "number") {
                         parts.push(`Refit: ${refitTurns} turn(s) after sortie`);
                     }
-                    const confirmed = window.confirm(parts.join("\n"));
-                    if (!confirmed) {
-                        feedback && (feedback.textContent = "Scheduling cancelled.");
-                        return;
-                    }
+                    feedback && (feedback.textContent = `${parts.join(" · ")}.`);
                 }
                 catch {
-                    // If refit preview fails, proceed without blocking but still try to schedule.
+                    // If refit preview fails, proceed without blocking.
                 }
                 const result = engine.tryScheduleAirMission(request);
                 if (result.ok) {
@@ -756,7 +752,7 @@ export class PopupManager {
     /** Disables Escort mission until at least one bomber strike is scheduled for the active faction. */
     disableEscortUnlessBomberScheduled(kindSelect, engine) {
         try {
-            const missions = engine.getScheduledAirMissions(engine.activeFaction);
+            const missions = engine.getScheduledAirMissions(this.resolveAirPlanningFaction(engine));
             const hasBomberStrike = missions.some((m) => m.kind === "strike");
             const escortOption = Array.from(kindSelect.options).find((o) => o.value === "escort");
             if (escortOption) {
@@ -823,7 +819,9 @@ export class PopupManager {
                 this.airPickMode = null;
             }
             if (kind === "escort") {
-                const missions = engine.getScheduledAirMissions(engine.activeFaction).filter((m) => m.kind === "strike");
+                const missions = engine
+                    .getScheduledAirMissions(this.resolveAirPlanningFaction(engine))
+                    .filter((m) => m.kind === "strike");
                 if (missions.length === 0) {
                     select.innerHTML = `<option value="" disabled selected>Schedule a bomber strike first</option>`;
                     select.disabled = true;
@@ -863,7 +861,8 @@ export class PopupManager {
             }
             // Air Cover: target is optional, add "Base CAP" as the default option.
             if (kind === "airCover") {
-                const targets = (engine.activeFaction === "Player" ? engine.playerUnits : engine.botUnits) ?? [];
+                const planningFaction = this.resolveAirPlanningFaction(engine);
+                const targets = (planningFaction === "Player" ? engine.playerUnits : engine.botUnits) ?? [];
                 const options = [];
                 // Base CAP option: no target hex means the squadron covers its own base.
                 options.push(`<option value="">Base CAP (cover home base)</option>`);
@@ -903,7 +902,9 @@ export class PopupManager {
     }
     /** Renders the mission roster with cancel actions for queued sorties. */
     renderAirMissionList(list, engine) {
-        const missions = engine.getScheduledAirMissions().filter((mission) => mission.status !== "completed");
+        const missions = engine
+            .getScheduledAirMissions(this.resolveAirPlanningFaction(engine))
+            .filter((mission) => mission.status !== "completed");
         if (!missions || missions.length === 0) {
             list.innerHTML = '<li class="air-mission-item">No air missions scheduled.</li>';
             return;
@@ -980,6 +981,12 @@ export class PopupManager {
                 }
             };
         });
+    }
+    resolveAirPlanningFaction(engine) {
+        if (engine.phase === "playerTurn") {
+            return "Player";
+        }
+        return engine.activeFaction;
     }
     /** Parses "q,r" into an axial coordinate. Returns null when invalid. */
     parseAxialString(value) {
