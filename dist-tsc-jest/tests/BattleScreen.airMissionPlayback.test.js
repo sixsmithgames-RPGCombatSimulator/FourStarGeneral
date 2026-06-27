@@ -216,6 +216,139 @@ registerTest("BATTLESCREEN_AIR_OPERATIONS_USE_LIVE_STRIKE_TARGETS_AND_RENDER_LIN
         window.setTimeout = originalSetTimeout;
     }
 });
+registerTest("BATTLESCREEN_STANDALONE_STRIKE_KEEPS_BOMBER_VISIBLE_THROUGH_IMPACT_FX", async ({ Given, When, Then }) => {
+    const root = document.getElementById("battleScreen") ?? document.createElement("div");
+    if (!root.parentElement) {
+        root.id = "battleScreen";
+        document.body.appendChild(root);
+    }
+    const callOrder = [];
+    let resolveImpact = null;
+    const fakeEngine = {
+        playerUnits: [],
+        botUnits: [
+            {
+                type: "Heavy_Tank",
+                hex: { q: 2, r: -1 },
+                strength: 68,
+                experience: 0,
+                ammo: 4,
+                fuel: 18,
+                entrench: 0,
+                facing: "NW"
+            }
+        ],
+        reserveUnits: [],
+        allyUnits: [],
+        getScheduledAirMissions() {
+            return [
+                {
+                    id: "tutorial-strike-1",
+                    kind: "strike",
+                    faction: "Player",
+                    unitKey: "tutorial-bomber-1",
+                    status: "completed",
+                    targetHex: { q: 2, r: -1 },
+                    outcome: {
+                        type: "strike",
+                        result: "partial",
+                        defenderType: "Heavy_Tank",
+                        defenderDestroyed: false,
+                        damageInflicted: 32,
+                        meta: {}
+                    }
+                }
+            ];
+        }
+    };
+    const fakeBattleState = {
+        hasEngine: () => true,
+        ensureGameEngine: () => fakeEngine,
+        tryGetGameEngine: () => fakeEngine
+    };
+    const fakeRenderer = {
+        async animateAircraftSortie(fromKey, targetKey, returnKey, unitType, options) {
+            callOrder.push(`sortie:start:${unitType}:${fromKey}->${targetKey}->${returnKey}`);
+            const targetPass = Promise.resolve(options.onTargetPass?.(100, 120));
+            callOrder.push("sortie:still-visible-during-impact");
+            if (!resolveImpact) {
+                throw new Error(`Expected impact to be active before sortie egress continued. Calls: ${JSON.stringify(callOrder)}`);
+            }
+            resolveImpact();
+            await targetPass;
+            callOrder.push("sortie:complete");
+        },
+        async animateAircraftFlyover() {
+            callOrder.push("legacyLeg");
+        },
+        async animateAircraftArc() {
+            callOrder.push("legacyArc");
+        },
+        async playExplosion(hexKey) {
+            callOrder.push(`impact:start:${hexKey}`);
+            await new Promise((resolve) => {
+                resolveImpact = () => {
+                    callOrder.push("impact:finish");
+                    resolve();
+                };
+            });
+        },
+        async playDustCloud(hexKey) {
+            callOrder.push(`dust:${hexKey}`);
+        },
+        async playAirDamageSmokeTrailAt() { },
+        markHexDamaged: (hexKey) => {
+            callOrder.push(`markDamaged:${hexKey}`);
+        },
+        markHexWrecked: () => { },
+        advanceAftermathTurn: () => { },
+        renderUnit: () => { },
+        clearUnit: () => { },
+        applyHexSelection: () => { },
+        syncQueuedTargetMarkers: () => { }
+    };
+    let screen;
+    await Given("a tutorial-style standalone bomber strike with impact effects", async () => {
+        screen = new BattleScreen({}, fakeBattleState, {}, fakeRenderer, null, null, null, {}, null);
+        screen.focusCameraOnHex = async (hexKey) => {
+            callOrder.push(`focus:${hexKey}`);
+        };
+        screen.waitForNextFrame = async () => { };
+        screen.waitMs = async () => { };
+        screen.closeSelectionIntelForAnimation = () => { };
+        screen.announceBattleUpdate = () => { };
+        screen.publishActivityEvent = () => { };
+        screen.renderEngineUnits = () => {
+            callOrder.push("renderEngineUnits");
+        };
+    });
+    await When("air operations play the strike impact", async () => {
+        await screen.playAirOperations([
+            {
+                missionId: "tutorial-strike-1",
+                faction: "Player",
+                unitKey: "tutorial-bomber-1",
+                originHexKey: "0,0",
+                unitType: "Bomber",
+                unitStrength: 0,
+                kind: "strike",
+                targetHex: { q: 2, r: -1 }
+            }
+        ], []);
+    });
+    await Then("the bomber sortie should remain alive while the explosion promise is active", async () => {
+        const impactStart = callOrder.indexOf("impact:start:2,0");
+        const stillVisible = callOrder.indexOf("sortie:still-visible-during-impact");
+        const impactFinish = callOrder.indexOf("impact:finish");
+        const sortieComplete = callOrder.indexOf("sortie:complete");
+        if (callOrder.includes("legacyLeg") || callOrder.includes("legacyArc")) {
+            throw new Error(`Standalone strike should use persistent sortie instead of split ingress/return legs. Calls: ${JSON.stringify(callOrder)}`);
+        }
+        if (!(impactStart >= 0 && stillVisible > impactStart && impactFinish > stillVisible && sortieComplete > impactFinish)) {
+            throw new Error(`Expected bomber to stay visible during impact FX. Calls: ${JSON.stringify(callOrder)}`);
+        }
+    });
+});
 registerTest("BATTLESCREEN_AIR_INTERCEPTS_PLAY_ESCORT_CLASH_BEFORE_BOMBER_DEFENSE_PASS", async ({ Given, When, Then }) => {
     const callOrder = [];
     const root = document.getElementById("battleScreen") ?? document.createElement("div");

@@ -246,6 +246,17 @@ export function ensureDomEnvironment() {
     if (!("DOM_DELTA_PAGE" in WheelEventImpl)) {
         WheelEventImpl.DOM_DELTA_PAGE = 2;
     }
+    const makeSvgElementConstructor = (tagName) => {
+        const SvgElementConstructor = function SvgElementConstructor() { };
+        Object.defineProperty(SvgElementConstructor, Symbol.hasInstance, {
+            configurable: true,
+            value(value) {
+                return value instanceof jsdomWindow.SVGElement
+                    && value.tagName.toLowerCase() === tagName.toLowerCase();
+            }
+        });
+        return SvgElementConstructor;
+    };
     Object.assign(globalThis, {
         window: jsdomWindow,
         document: jsdomWindow.document,
@@ -256,6 +267,12 @@ export function ensureDomEnvironment() {
         HTMLElement: jsdomWindow.HTMLElement,
         HTMLCanvasElement: jsdomWindow.HTMLCanvasElement,
         SVGElement: jsdomWindow.SVGElement,
+        SVGGElement: jsdomWindow.SVGGElement ?? makeSvgElementConstructor("g"),
+        SVGImageElement: jsdomWindow.SVGImageElement ?? makeSvgElementConstructor("image"),
+        SVGSVGElement: jsdomWindow.SVGSVGElement ?? makeSvgElementConstructor("svg"),
+        SVGPolygonElement: jsdomWindow.SVGPolygonElement ?? makeSvgElementConstructor("polygon"),
+        SVGTextElement: jsdomWindow.SVGTextElement ?? makeSvgElementConstructor("text"),
+        SVGCircleElement: jsdomWindow.SVGCircleElement ?? makeSvgElementConstructor("circle"),
         getComputedStyle: jsdomWindow.getComputedStyle.bind(jsdomWindow),
         requestAnimationFrame: requestAnimationFrameImpl,
         cancelAnimationFrame: cancelAnimationFrameImpl,

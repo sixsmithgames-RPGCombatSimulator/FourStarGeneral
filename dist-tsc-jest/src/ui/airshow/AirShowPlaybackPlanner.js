@@ -302,6 +302,12 @@ export function planResolvedAirCombatShowScene(host, scene) {
         });
     };
     const activeFlights = (flights) => flights.filter((flight) => flight.actors.some((actor) => actor.active));
+    const isVisualSeedOnlyBomberFlight = (flight) => flight.spec.role === "bomber"
+        && Math.max(0, flight.spec.strengthBefore, flight.spec.strengthAfterEscortPhase ?? 0, flight.spec.finalStrength ?? 0) <= 0
+        && flight.currentStrength > 0;
+    const resolvePostTargetRunBomberStrength = (flight) => isVisualSeedOnlyBomberFlight(flight)
+        ? flight.currentStrength
+        : Math.max(0, flight.spec.finalStrength ?? flight.currentStrength);
     const phases = [];
     const phaseTimingAudit = [];
     let previousPhaseAssignments = [];
@@ -3867,7 +3873,7 @@ export function planResolvedAirCombatShowScene(host, scene) {
         previousPhaseAssignments = targetRunAssignments;
         previousPhaseDurationMs = targetRunDurationMs;
         updateFlightAnchors([...bomberFlights, ...interceptorFlights, ...escortFlights]);
-        bomberFlights.forEach((flight) => host.syncAirShowFlightStrengthForInspection(flight, Math.max(0, flight.spec.finalStrength ?? flight.currentStrength)));
+        bomberFlights.forEach((flight) => host.syncAirShowFlightStrengthForInspection(flight, resolvePostTargetRunBomberStrength(flight)));
         const egressFighterFlights = [...activeFlights(interceptorFlights), ...activeFlights(escortFlights)];
         const egressFighterAssignments = egressFighterFlights.flatMap((flight, index) => {
             const current = host.averageAirShowPosition(flight.actors) ?? flight.anchor;

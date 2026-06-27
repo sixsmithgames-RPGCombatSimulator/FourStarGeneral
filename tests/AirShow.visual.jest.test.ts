@@ -1507,7 +1507,9 @@ describe("AirShow JEST Harness", () => {
     const report = inspectScene(zeroLiveStrengthScene);
     const bomberFlight = report.flights.find((flight) => flight.role === "bomber");
     const targetRun = report.phases.find((phase) => phase.label === "target-run");
+    const egress = report.phases.find((phase) => phase.label === "egress");
     const targetRunBomberAssignments = targetRun?.assignments.filter((assignment) => assignment.role === "bomber") ?? [];
+    const egressBomberAssignments = egress?.assignments.filter((assignment) => assignment.role === "bomber") ?? [];
 
     expect(bomberFlight).toBeDefined();
     expect(bomberFlight?.strengthBefore).toBe(0);
@@ -1515,6 +1517,9 @@ describe("AirShow JEST Harness", () => {
     expect(bomberFlight?.actors.length).toBeGreaterThan(0);
     expect(bomberFlight?.actors.some((actor) => actor.active)).toBe(true);
     expect(targetRunBomberAssignments.length).toBeGreaterThan(0);
+    expect(egressBomberAssignments.length).toBeGreaterThan(0);
+    const egressBomberActorIds = new Set(egressBomberAssignments.map((assignment) => assignment.actorId));
+    expect(egress?.visibleActorIds.some((actorId) => egressBomberActorIds.has(actorId))).toBe(true);
   });
 
   test("runAirShowPhase respects the planned phase visibility instead of reviving unrelated active actors", async () => {
