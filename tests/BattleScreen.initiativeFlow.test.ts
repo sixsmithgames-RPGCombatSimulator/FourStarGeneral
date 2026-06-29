@@ -70,7 +70,7 @@ registerTest("BATTLESCREEN_INITIATIVE_ACTIONS_ALLOW_ANY_UNIT_IN_ACTIVE_PLAYER_GR
   });
 });
 
-registerTest("BATTLESCREEN_INITIATIVE_PROCEED_ADVANCES_ONLY_CURRENT_ACTIVATION", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_NEXT_GROUP_COMPLETES_ONLY_THE_ACTIVE_PLAYER_GROUP", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let queue: {
     currentIndex: number;
@@ -79,6 +79,7 @@ registerTest("BATTLESCREEN_INITIATIVE_PROCEED_ADVANCES_ONLY_CURRENT_ACTIVATION",
   };
   let playerLead: ScenarioUnit;
   let playerWing: ScenarioUnit;
+  let playerLater: ScenarioUnit;
   let confirmCalls = 0;
 
   await Given("an interleaved initiative queue with two player units in one initiative band", async () => {
@@ -98,6 +99,7 @@ registerTest("BATTLESCREEN_INITIATIVE_PROCEED_ADVANCES_ONLY_CURRENT_ACTIVATION",
 
     playerLead = createPlayerUnit("u_player_1", 2, 2);
     playerWing = createPlayerUnit("u_player_2", 3, 2);
+    playerLater = createPlayerUnit("u_player_3", 4, 2);
     const botUnit = {
       unitId: "u_bot_1",
       type: "Infantry_42",
@@ -112,7 +114,7 @@ registerTest("BATTLESCREEN_INITIATIVE_PROCEED_ADVANCES_ONLY_CURRENT_ACTIVATION",
     } as ScenarioUnit;
 
     const playerActionFlags = new Map<string, { movementPointsUsed: number; attacksUsed: number }>();
-    const playerUnits = [playerLead, playerWing];
+    const playerUnits = [playerLead, playerWing, playerLater];
     const engine = {
       playerUnits,
       botUnits: [botUnit],
@@ -133,7 +135,8 @@ registerTest("BATTLESCREEN_INITIATIVE_PROCEED_ADVANCES_ONLY_CURRENT_ACTIVATION",
       activations: [
         { unitId: "u_player_1", ownerId: "player", initiative: 5, isActivated: false, sortOrder: 0 },
         { unitId: "u_bot_1", ownerId: "bot", initiative: 5, isActivated: false, sortOrder: 1 },
-        { unitId: "u_player_2", ownerId: "player", initiative: 5, isActivated: false, sortOrder: 2 }
+        { unitId: "u_player_2", ownerId: "player", initiative: 5, isActivated: false, sortOrder: 2 },
+        { unitId: "u_player_3", ownerId: "player", initiative: 4, isActivated: false, sortOrder: 3 }
       ]
     };
 
@@ -158,25 +161,28 @@ registerTest("BATTLESCREEN_INITIATIVE_PROCEED_ADVANCES_ONLY_CURRENT_ACTIVATION",
     };
   });
 
-  await When("the player presses Proceed", async () => {
+  await When("the player selects Next Group and the interleaved enemy activation finishes", async () => {
     await (screen as any).handleProceedToNext();
+    queue.activations[1].isActivated = true;
+    queue.currentIndex = 2;
+    (screen as any).flushSkippedInitiativeActivations();
   });
 
-  await Then("only the current player activation is completed and the next player unit is preserved", async () => {
+  await Then("the whole current group completes while the later initiative group remains available", async () => {
     if (!queue.activations[0]?.isActivated) {
-      throw new Error("Expected the current player activation to complete on Proceed.");
+      throw new Error("Expected the leading activation in the current group to complete.");
     }
-    if (queue.activations[2]?.isActivated) {
-      throw new Error("Expected later player activations in the same initiative band to remain pending after Proceed.");
+    if (!queue.activations[2]?.isActivated) {
+      throw new Error("Expected the interleaved member of the current group to complete after enemy resolution.");
     }
-    if (queue.currentIndex !== 1) {
-      throw new Error(`Expected queue to advance to the bot activation index (1), received ${queue.currentIndex}.`);
+    if (queue.activations[3]?.isActivated || queue.currentIndex !== 3) {
+      throw new Error(`Expected the later initiative group to remain pending at index 3, received ${queue.currentIndex}.`);
     }
-    if (!playerLead.onSentry) {
-      throw new Error("Expected Proceed to place an uncommanded current unit on sentry before advancing.");
+    if (!playerLead.onSentry || !playerWing.onSentry) {
+      throw new Error("Expected untouched formations in the active group to enter sentry before advancing.");
     }
-    if (playerWing.onSentry) {
-      throw new Error("Expected untouched player wing unit to remain off sentry.");
+    if (playerLater.onSentry || (screen as any).initiativeSkippedUnitIds.has("u_player_3")) {
+      throw new Error("Expected Next Group to leave later player groups untouched.");
     }
     if (confirmCalls !== 1) {
       throw new Error(`Expected proceed confirmation to be requested once, received ${confirmCalls}.`);
@@ -452,7 +458,7 @@ registerTest("BATTLESCREEN_INITIATIVE_SYNC_PRESERVES_EXPLICIT_NON_CURRENT_GROUP_
   });
 });
 
-registerTest("BATTLESCREEN_INITIATIVE_SKIP_GROUP_USES_SKIP_COPY_NOT_HOLD", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_INITIATIVE_HOLD_GROUP_REPORTS_GROUP_SCOPED_ADVANCE", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let message: string | null = null;
 
@@ -487,73 +493,28 @@ registerTest("BATTLESCREEN_INITIATIVE_SKIP_GROUP_USES_SKIP_COPY_NOT_HOLD", async
     (screen as any).handleSkipGroup();
   });
 
-  await Then("the commander-facing message uses skip wording instead of hold wording", async () => {
-    if (message !== "Group skipped. Press End Turn to continue initiative.") {
-      throw new Error(`Expected skip-group copy to avoid hold wording, received '${message ?? "null"}'.`);
+  await Then("the commander-facing message confirms only the active group is advancing", async () => {
+    if (message !== "Group ordered to hold. Initiative is advancing to the next group.") {
+      throw new Error(`Expected group-scoped hold copy, received '${message ?? "null"}'.`);
     }
   });
 });
 
-registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_PERSISTS_ACROSS_INITIATIVE_BANDS", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_INITIATIVE_END_TURN_REFUSES_TO_SKIP_AN_ACTIVE_GROUP", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
-  let preservedAcrossBandSwap = false;
-  let clearedOnceSkipModeEnds = false;
+  let advanceCalls = 0;
+  let message: string | null = null;
 
-  await Given("an initiative session where end-turn skip mode is active", async () => {
+  await Given("an initiative round with an unfinished player group", async () => {
     mountBattleScreenRoot();
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
-    (screen as any).initiativeMethods = {
-      getCurrentInitiativeQueue: () => ({ currentTurn: 3 })
-    };
-    (screen as any).initiativeGroupSessionId = "3:6";
-    (screen as any).initiativeGroupCursorUnitId = "u_player_lead";
-    (screen as any).initiativeEndTurnSkipModeActive = true;
-    (screen as any).initiativeSkippedUnitIds = new Set<string>(["u_player_lead", "u_player_wing"]);
-  });
-
-  await When("the active initiative band changes while skip mode remains active", async () => {
-    (screen as any).syncInitiativeGroupSession({
-      initiative: 5,
-      ownerId: "bot",
-      activations: []
-    });
-    preservedAcrossBandSwap = (screen as any).initiativeSkippedUnitIds.has("u_player_wing");
-
-    (screen as any).initiativeEndTurnSkipModeActive = false;
-    (screen as any).syncInitiativeGroupSession({
-      initiative: 4,
-      ownerId: "player",
-      activations: []
-    });
-    clearedOnceSkipModeEnds = (screen as any).initiativeSkippedUnitIds.size === 0;
-  });
-
-  await Then("skip-state persists during end-turn auto-skip and clears again for normal play", async () => {
-    if (!preservedAcrossBandSwap) {
-      throw new Error("Expected skipped unit ids to persist across initiative-band swaps while end-turn skip mode is active.");
-    }
-    if (!clearedOnceSkipModeEnds) {
-      throw new Error("Expected skipped unit ids to clear once end-turn skip mode is no longer active.");
-    }
-  });
-});
-
-registerTest("BATTLESCREEN_INITIATIVE_END_TURN_ROUTES_THROUGH_PROCEED_CONFIRMATION_PATH", async ({ Given, When, Then }) => {
-  let screen: BattleScreen;
-  let proceedCalls = 0;
-  let observedOptions: { endTurnSkipAll?: boolean; bypassConfirmation?: boolean } | undefined;
-  let skipModeChanged = false;
-
-  await Given("an active player activation when the commander presses end turn", async () => {
-    mountBattleScreenRoot();
-    screen = Object.create(BattleScreen.prototype) as BattleScreen;
-    (screen as any).initiativeEndTurnSkipModeActive = false;
     (screen as any).initiativeMethods = {
       getCurrentInitiativeQueue: () => ({
         currentIndex: 0,
-        currentTurn: 1,
+        currentTurn: 3,
         activations: [
-          { unitId: "u_player_1", ownerId: "player", initiative: 6, isActivated: false, sortOrder: 0 }
+          { unitId: "u_player_1", ownerId: "player", initiative: 6, isActivated: false, sortOrder: 0 },
+          { unitId: "u_player_2", ownerId: "player", initiative: 4, isActivated: false, sortOrder: 1 }
         ]
       }),
       getCurrentActivation: () => ({
@@ -562,38 +523,69 @@ registerTest("BATTLESCREEN_INITIATIVE_END_TURN_ROUTES_THROUGH_PROCEED_CONFIRMATI
         initiative: 6,
         isActivated: false,
         sortOrder: 0
-      }),
-      isInitiativeSystemActive: () => true
+      })
     };
-    (screen as any).handleProceedToNext = async (options?: { endTurnSkipAll?: boolean; bypassConfirmation?: boolean }) => {
-      proceedCalls += 1;
-      observedOptions = options;
-      skipModeChanged = (screen as any).initiativeEndTurnSkipModeActive === true;
-      return false;
+    (screen as any).showElegantInitiativeMessage = (text: string) => {
+      message = text;
+    };
+    (screen as any).advanceInitiativeRound = async () => {
+      advanceCalls += 1;
     };
     (screen as any).syncInitiativeTurnControlsState = () => {};
   });
 
-  await When("end turn is requested", async () => {
+  await When("end turn is requested before groups are complete", async () => {
     await (screen as any).handleInitiativeEndTurn();
   });
 
-  await Then("end turn delegates to the proceed confirmation path before enabling skip mode", async () => {
-    if (proceedCalls !== 1) {
-      throw new Error(`Expected end turn to delegate to proceed once, received ${proceedCalls}.`);
+  await Then("the round remains active and directs the player to Next Group", async () => {
+    if (advanceCalls !== 0) {
+      throw new Error(`Expected no round advance while groups remain, received ${advanceCalls}.`);
     }
-    if (!observedOptions || observedOptions.endTurnSkipAll !== true) {
-      throw new Error(`Expected end turn to call proceed with endTurnSkipAll=true, received ${JSON.stringify(observedOptions)}.`);
-    }
-    if (skipModeChanged || (screen as any).initiativeEndTurnSkipModeActive === true) {
-      throw new Error("Expected skip mode to remain disabled until proceed/confirmation succeeds.");
+    if (message !== "This initiative group is still active. Select Next Group before ending the turn.") {
+      throw new Error(`Expected Next Group guidance, received '${message ?? "null"}'.`);
     }
   });
 });
 
-registerTest("BATTLESCREEN_TUTORIAL_END_TURN_FINISHES_ONLY_THE_GUIDED_INITIATIVE_GROUP", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_INITIATIVE_END_TURN_ADVANCES_ONLY_A_DRAINED_ROUND", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
-  let observedOptions: { endTurnSkipAll?: boolean; bypassConfirmation?: boolean } | undefined;
+  let advanceCalls = 0;
+
+  await Given("an initiative round where every activation is complete", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => ({
+        currentIndex: 2,
+        currentTurn: 1,
+        activations: [
+          { unitId: "u_player_1", ownerId: "player", initiative: 6, isActivated: true, sortOrder: 0 },
+          { unitId: "u_bot_1", ownerId: "bot", initiative: 6, isActivated: true, sortOrder: 1 }
+        ]
+      }),
+      getCurrentActivation: () => null
+    };
+    (screen as any).advanceInitiativeRound = async () => {
+      advanceCalls += 1;
+    };
+    (screen as any).syncInitiativeTurnControlsState = () => {};
+  });
+
+  await When("the final End Turn action is requested", async () => {
+    await (screen as any).handleInitiativeEndTurn();
+  });
+
+  await Then("the battle advances exactly one round", async () => {
+    if (advanceCalls !== 1) {
+      throw new Error(`Expected one drained-round advance, received ${advanceCalls}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_TUTORIAL_NEXT_GROUP_FINISHES_ONLY_THE_GUIDED_INITIATIVE_GROUP", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let observedOptions: { bypassConfirmation?: boolean } | undefined;
   let completedPhase: string | null = null;
   const tutorialState = ensureTutorialState();
 
@@ -603,7 +595,7 @@ registerTest("BATTLESCREEN_TUTORIAL_END_TURN_FINISHES_ONLY_THE_GUIDED_INITIATIVE
     tutorialState.jumpToPhase("spend_activation");
     mountBattleScreenRoot();
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
-    (screen as any).handleProceedToNext = async (options?: { endTurnSkipAll?: boolean; bypassConfirmation?: boolean }) => {
+    (screen as any).handleProceedToNext = async (options?: { bypassConfirmation?: boolean }) => {
       observedOptions = options;
       return true;
     };
@@ -615,12 +607,12 @@ registerTest("BATTLESCREEN_TUTORIAL_END_TURN_FINISHES_ONLY_THE_GUIDED_INITIATIVE
     };
   });
 
-  await When("the player clicks the highlighted End Turn control", async () => {
-    await (screen as any).handleTutorialAwareEndTurn();
+  await When("the player clicks the highlighted Next Group control", async () => {
+    await (screen as any).handleTutorialAwareNextGroup();
   });
 
   await Then("the current group advances without the normal confirmation or a full-turn skip", async () => {
-    if (observedOptions?.bypassConfirmation !== true || observedOptions.endTurnSkipAll === true) {
+    if (observedOptions?.bypassConfirmation !== true) {
       throw new Error(`Expected a confirmation-free current-group handoff, received ${JSON.stringify(observedOptions)}.`);
     }
     if (completedPhase !== "spend_activation") {
@@ -786,15 +778,15 @@ registerTest("BATTLESCREEN_MOBILE_TUTORIAL_CAMERA_KEEPS_ACTION_HEXES_BELOW_THE_P
   });
 });
 
-registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_AUTO_ADVANCES_ROUND_WHEN_QUEUE_DRAINS", async ({ Given, When, Then }) => {
+registerTest("BATTLESCREEN_INITIATIVE_DRAINED_QUEUE_REQUIRES_EXPLICIT_END_TURN", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let advanceCalls = 0;
+  let roundAdvanceReady = false;
 
-  await Given("initiative skip mode is active and no activations remain", async () => {
+  await Given("all initiative groups are complete and no activation remains", async () => {
     mountBattleScreenRoot();
     screen = Object.create(BattleScreen.prototype) as BattleScreen;
     (screen as any).isInitiativeSystemEnabled = true;
-    (screen as any).initiativeEndTurnSkipModeActive = true;
     (screen as any).initiativeTurnAdvanceInProgress = false;
     (screen as any).syncLegacyEndTurnButton = () => {};
     (screen as any).flushSkippedInitiativeActivations = () => {};
@@ -816,8 +808,11 @@ registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_AUTO_ADVANCES_ROUND_WHE
     };
     (screen as any).initiativeTurnControls = {
       updateCurrentUnit: () => {},
+      updateCurrentGroup: () => {},
       updatePlayerTurn: () => {},
-      updateRoundAdvanceReady: () => {},
+      updateRoundAdvanceReady: (ready: boolean) => {
+        roundAdvanceReady = ready;
+      },
       updatePhase: () => {},
       setControlsEnabled: () => {}
     };
@@ -830,9 +825,12 @@ registerTest("BATTLESCREEN_INITIATIVE_END_TURN_SKIP_MODE_AUTO_ADVANCES_ROUND_WHE
     (screen as any).syncInitiativeTurnControlsState();
   });
 
-  await Then("round advancement is triggered automatically without requiring another end-turn click", async () => {
-    if (advanceCalls !== 1) {
-      throw new Error(`Expected one auto-advance trigger after drained queue, received ${advanceCalls}.`);
+  await Then("the End Turn state is exposed without advancing automatically", async () => {
+    if (!roundAdvanceReady) {
+      throw new Error("Expected the adaptive initiative control to expose End Turn.");
+    }
+    if (advanceCalls !== 0) {
+      throw new Error(`Expected no automatic round advance, received ${advanceCalls}.`);
     }
   });
 });

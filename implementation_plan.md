@@ -689,3 +689,48 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 ### Verification
 - `npm run build`, `npm run lint`, `npm run test` must all pass.
 - Visual verification: fighters attack immediately after escort clash; dogfight shows head-on passes; flak appears continuously during approach.
+
+## Initiative Group Advancement Plan
+
+### Intended behavior
+- The primary initiative control reads `Next Group` while a player initiative group can receive orders.
+- `Hold Group` applies sentry only to the formations in the active group.
+- Selecting `Next Group` commits the active group without skipping any later player initiative groups.
+- The primary control reads `End Turn` only after every player and enemy activation in the round is complete.
+
+### Current behavior
+- The active-group control reads `Commit Orders`, but dispatches the full initiative end-turn handler.
+- That handler marks every remaining player activation for sentry, so advancing one group can end the player's entire round.
+- The control label and callback therefore describe different scopes.
+
+### Expected new behavior
+- The enhanced control dispatches separate next-group and end-turn events according to queue state.
+- Advancing a group preserves formations with committed orders and places only untouched formations in that group on sentry after confirmation.
+- End-turn handling validates that the initiative queue is drained before advancing the battle round.
+
+### Edge cases
+- Enemy activations keep the primary control disabled.
+- Interleaved player and enemy activations in one initiative band retain group identity without affecting later initiative bands.
+- A held group advances through the same next-group path without changing later groups.
+- Tutorial-only group handoffs use `Next Group` and cannot trigger a full-turn skip.
+
+### Impact analysis
+- Systems consuming this output:
+  - `EnhancedInitiativeTurnControls.ts` adaptive primary-button state and callbacks
+  - `BattleScreen.ts` initiative group commit, sentry assignment, and round advancement
+- Events depending on this structure:
+  - Enhanced initiative control click and Enter-key actions
+  - Initiative activation completion and bot handoff sequencing
+  - Tutorial group-handoff completion
+- Visual behaviors that could shift:
+  - The top-bar primary label changes from `Commit Orders` to `Next Group` during player groups.
+  - `End Turn` appears only after all round activations complete.
+
+### Risk
+- `BattleScreen.ts` is high-risk. The change is limited to existing initiative controls and their focused tests; combat, movement, deployment, and queue ordering are unchanged.
+
+### Verification
+- [x] Add control tests for `Next Group` versus `End Turn` dispatch.
+- [x] Add BattleScreen regressions proving current-group-only completion and drained-queue end-turn gating.
+- [x] Run `npm test`, `npm run build`, `npm run lint`, and `git diff --check`.
+- [x] Load the training requisition and battle surfaces in the local app; verify adaptive control states through deterministic DOM tests because the browser flow requires manual map deployment before initiative begins.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-06-28
+
+### Fixed
+
+- Replaced the initiative `Commit Orders` action with a group-scoped `Next Group` command.
+- Prevented group advancement from placing formations in later initiative groups on sentry.
+- Exposed `End Turn` only after every initiative group in the round is complete.
+
 ## 2026-06-21
 
 ### Fixed

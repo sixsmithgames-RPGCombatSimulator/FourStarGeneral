@@ -17,8 +17,8 @@ import type { ExtendedBattlePhase } from '../../game/GameEngineInitiativeExtensi
 export interface EnhancedTurnControlConfig {
   /** Whether to show skip turn button */
   showSkipTurn: boolean;
-  /** Whether to show end turn button */
-  showEndTurn: boolean;
+  /** Whether to show the adaptive next-group/end-turn button */
+  showAdvanceButton: boolean;
   /** Whether to show proceed button */
   showProceedButton: boolean;
   /** Whether to show current unit info */
@@ -34,7 +34,7 @@ export interface EnhancedTurnControlConfig {
  */
 const DEFAULT_CONFIG: EnhancedTurnControlConfig = {
   showSkipTurn: true,
-  showEndTurn: true,
+  showAdvanceButton: true,
   showProceedButton: true,
   showCurrentUnitInfo: true,
   showGroupInfo: true,
@@ -49,6 +49,8 @@ export interface EnhancedTurnControlEvents {
   onSkipTurn: () => void;
   /** Fired when end turn is requested */
   onEndTurn: () => void;
+  /** Fired when the active initiative group should be completed */
+  onNextGroup: () => void;
   /** Fired when next activation is requested */
   onNextActivation: () => void;
   /** Fired when current unit action is completed */
@@ -85,6 +87,7 @@ export class EnhancedInitiativeTurnControls {
   private currentPhase: ExtendedBattlePhase = 'deployment';
   private isPlayerTurn = false;
   private roundAdvanceReady = false;
+  private controlsEnabled = true;
   private unitCompletionStates: Map<string, UnitCompletionState> = new Map();
 
   /**
@@ -219,10 +222,8 @@ export class EnhancedInitiativeTurnControls {
    * @param enabled - Whether controls should be enabled
    */
   public setControlsEnabled(enabled: boolean): void {
-    const buttons = this.container.querySelectorAll('button');
-    buttons.forEach(button => {
-      (button as HTMLButtonElement).disabled = !enabled;
-    });
+    this.controlsEnabled = enabled;
+    this.updateControlStates();
   }
 
   /**
@@ -311,9 +312,9 @@ export class EnhancedInitiativeTurnControls {
           Next Formation
         </button>
         
-        ${this.config.showEndTurn ? `
-          <button class="compact-button end-turn-btn" disabled title="Commit this group's orders and pass initiative (Enter)">
-            Commit Orders
+        ${this.config.showAdvanceButton ? `
+          <button class="compact-button group-advance-btn" disabled title="Complete this initiative group and pass command (Enter)">
+            Next Group
           </button>
         ` : ''}
       </div>
@@ -340,11 +341,11 @@ export class EnhancedInitiativeTurnControls {
       });
     }
 
-    // End turn button
-    const endBtn = this.container.querySelector('.end-turn-btn') as HTMLButtonElement;
-    if (endBtn) {
-      endBtn.addEventListener('click', () => {
-        this.events.onEndTurn();
+    // Adaptive group/turn advance button
+    const advanceBtn = this.container.querySelector('.group-advance-btn') as HTMLButtonElement;
+    if (advanceBtn) {
+      advanceBtn.addEventListener('click', () => {
+        this.dispatchAdvanceAction();
       });
     }
 
@@ -397,8 +398,8 @@ export class EnhancedInitiativeTurnControls {
           break;
         case 'Enter':
           event.preventDefault();
-          if (this.isControlEnabled('.end-turn-btn')) {
-            this.events.onEndTurn();
+          if (this.isControlEnabled('.group-advance-btn')) {
+            this.dispatchAdvanceAction();
           }
           break;
         case 'Tab':
@@ -439,12 +440,28 @@ export class EnhancedInitiativeTurnControls {
   }
 
   /**
+   * Dispatch the primary initiative action at the scope shown to the player.
+   *
+   * The control advances only the active group until the queue is empty. This
+   * keeps a label change from silently broadening a group command into a full
+   * turn command.
+   */
+  private dispatchAdvanceAction(): void {
+    if (this.roundAdvanceReady) {
+      this.events.onEndTurn();
+      return;
+    }
+
+    this.events.onNextGroup();
+  }
+
+  /**
    * Update control states based on current game state
    */
   private updateControlStates(): void {
     const proceedBtn = this.container.querySelector('.proceed-btn') as HTMLButtonElement;
     const skipGroupBtn = this.container.querySelector('.skip-group-btn') as HTMLButtonElement;
-    const endBtn = this.container.querySelector('.end-turn-btn') as HTMLButtonElement;
+    const advanceBtn = this.container.querySelector('.group-advance-btn') as HTMLButtonElement;
     const nextBtn = this.container.querySelector('.next-activation-btn') as HTMLButtonElement;
 
     // Enable/disable based on phase and activation
@@ -454,23 +471,23 @@ export class EnhancedInitiativeTurnControls {
     const canAdvanceRound = this.roundAdvanceReady;
 
     if (proceedBtn) {
-      proceedBtn.disabled = !isInInitiativePhase || !hasCurrentUnit || !isPlayerUnit || canAdvanceRound;
+      proceedBtn.disabled = !this.controlsEnabled || !isInInitiativePhase || !hasCurrentUnit || !isPlayerUnit || canAdvanceRound;
     }
 
     if (skipGroupBtn) {
-      skipGroupBtn.disabled = !isInInitiativePhase || !this.isPlayerTurn || canAdvanceRound;
+      skipGroupBtn.disabled = !this.controlsEnabled || !isInInitiativePhase || !this.isPlayerTurn || canAdvanceRound;
     }
 
-    if (endBtn) {
-      endBtn.disabled = !((isInInitiativePhase && this.isPlayerTurn) || canAdvanceRound);
-      endBtn.textContent = canAdvanceRound ? "End Turn" : "Commit Orders";
-      endBtn.title = canAdvanceRound
+    if (advanceBtn) {
+      advanceBtn.disabled = !this.controlsEnabled || !((isInInitiativePhase && this.isPlayerTurn) || canAdvanceRound);
+      advanceBtn.textContent = canAdvanceRound ? "End Turn" : "Next Group";
+      advanceBtn.title = canAdvanceRound
         ? "All initiative groups are complete. Advance to the next battle turn (Enter)"
-        : "Commit this group's orders and pass initiative (Enter)";
+        : "Complete this initiative group and pass command (Enter)";
     }
 
     if (nextBtn) {
-      nextBtn.disabled = !isInInitiativePhase || !hasCurrentUnit || !isPlayerUnit || canAdvanceRound;
+      nextBtn.disabled = !this.controlsEnabled || !isInInitiativePhase || !hasCurrentUnit || !isPlayerUnit || canAdvanceRound;
     }
 
     // Update turn indicator

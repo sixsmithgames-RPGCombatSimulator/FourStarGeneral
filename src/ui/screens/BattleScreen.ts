@@ -338,7 +338,6 @@ export class BattleScreen {
   private initiativeGroupSessionId: string | null = null;
   private initiativeTurnAdvanceInProgress = false;
   private readonly initiativeSkippedUnitIds = new Set<string>();
-  private initiativeEndTurnSkipModeActive = false;
 
   // DOM element references
   private battleAnnouncements: HTMLElement | null = null;
@@ -9400,7 +9399,7 @@ export class BattleScreen {
       this.isInitiativeSystemEnabled = true;
       this.initiativeGroupCursorUnitId = null;
       this.initiativeGroupSessionId = null;
-      this.clearInitiativeSkipState();
+      this.clearInitiativeGroupSkipState();
       this.syncLegacyEndTurnButton();
       this.ensureInitiativeUiSyncLoop();
 
@@ -9458,7 +9457,7 @@ export class BattleScreen {
     this.clearInitiativeGroupHighlights();
     this.initiativeGroupCursorUnitId = null;
     this.initiativeGroupSessionId = null;
-    this.clearInitiativeSkipState();
+    this.clearInitiativeGroupSkipState();
     this.initiativeMethods?.setBotActivationListener(null);
     this.initiativeMethods = null;
     this.isInitiativeSystemEnabled = false;
@@ -9540,6 +9539,9 @@ export class BattleScreen {
           onEndTurn: () => {
             void this.handleTutorialAwareEndTurn();
           },
+          onNextGroup: () => {
+            void this.handleTutorialAwareNextGroup();
+          },
           onNextActivation: () => this.handleNextActivation(),
           onCompleteActivation: (unitId: string) => this.handleCompleteActivation(unitId),
           onProceedToNext: () => {
@@ -9549,7 +9551,7 @@ export class BattleScreen {
         },
         {
           showSkipTurn: true,
-          showEndTurn: true,
+          showAdvanceButton: true,
           showProceedButton: false,
           showCurrentUnitInfo: true,
           showGroupInfo: true,
@@ -9569,13 +9571,12 @@ export class BattleScreen {
   /**
    * Handle proceed to next unit action
    */
-  private async handleProceedToNext(options?: { endTurnSkipAll?: boolean; bypassConfirmation?: boolean }): Promise<boolean> {
+  private async handleProceedToNext(options?: { bypassConfirmation?: boolean }): Promise<boolean> {
     if (!this.initiativeMethods) {
       console.warn('Initiative methods not available');
       return false;
     }
 
-    const endTurnSkipAll = options?.endTurnSkipAll === true;
     const bypassConfirmation = options?.bypassConfirmation === true;
 
     try {
@@ -9612,16 +9613,11 @@ export class BattleScreen {
         }
       }
 
-      if (endTurnSkipAll) {
-        const skippedPlayerActivationCount = this.skipRemainingPlayerInitiativeTurnActivations(queue);
-        this.initiativeEndTurnSkipModeActive = skippedPlayerActivationCount > 0;
-      } else {
-        this.initiativeEndTurnSkipModeActive = false;
-      }
+      // Initiative groups may be interleaved with enemy activations. Tag only
+      // this group's remaining members so later player groups stay available.
+      this.markRemainingPlayerInitiativeUnitsSkipped(activeGroup, currentUnitId);
       this.commitCurrentPlayerInitiativeGroup(activeGroup.initiative, false);
-      if (endTurnSkipAll && this.initiativeEndTurnSkipModeActive) {
-        this.flushSkippedInitiativeActivations();
-      }
+      this.flushSkippedInitiativeActivations();
       this.focusCurrentInitiativeActivation();
       this.highlightCurrentInitiativeGroup();
       return true;
@@ -9659,7 +9655,7 @@ export class BattleScreen {
       });
       this.initiativeGroupCursorUnitId = null;
       
-      this.showElegantInitiativeMessage("Group ordered to hold. Commit Orders to pass initiative.");
+      this.showElegantInitiativeMessage("Group ordered to hold. Initiative is advancing to the next group.");
       this.highlightCurrentInitiativeGroup();
     } catch (error) {
       console.error('Failed to skip group:', error);
@@ -9669,9 +9665,9 @@ export class BattleScreen {
   }
 
   /**
-   * Handle end turn action for initiative system
+   * Handle the adaptive next-group action while preserving tutorial handoffs.
    */
-  private async handleTutorialAwareEndTurn(): Promise<void> {
+  private async handleTutorialAwareNextGroup(): Promise<void> {
     const tutorialState = ensureTutorialState();
     if (
       tutorialState.isTutorialActive() &&
@@ -9684,6 +9680,13 @@ export class BattleScreen {
       return;
     }
 
+    await this.handleProceedToNext();
+  }
+
+  /**
+   * Handle the final end-turn action after all initiative groups are complete.
+   */
+  private async handleTutorialAwareEndTurn(): Promise<void> {
     await this.handleInitiativeEndTurn();
   }
 
@@ -9697,96 +9700,32 @@ export class BattleScreen {
     }
 
     try {
-      let currentActivation = this.initiativeMethods.getCurrentActivation();
-      if (currentActivation?.ownerId === "player") {
-        const proceeded = await this.handleProceedToNext({ endTurnSkipAll: true });
-        if (!proceeded) {
-          return;
-        }
-      }
-
-      if (this.initiativeEndTurnSkipModeActive) {
-        this.flushSkippedInitiativeActivations();
-      }
-
       const refreshedQueue = this.initiativeMethods.getCurrentInitiativeQueue();
-      currentActivation = this.initiativeMethods.getCurrentActivation();
+      const currentActivation = this.initiativeMethods.getCurrentActivation();
       const hasPendingActivations = this.hasPendingInitiativeActivations(refreshedQueue);
-
-      if (currentActivation?.ownerId === "player") {
-        if (this.initiativeEndTurnSkipModeActive) {
-          this.initiativeSkippedUnitIds.add(currentActivation.unitId);
-          this.flushSkippedInitiativeActivations();
-          currentActivation = this.initiativeMethods.getCurrentActivation();
-          if (currentActivation?.ownerId === "player") {
-            this.showElegantInitiativeMessage("Remaining formations are being set to sentry. Enemy activations are resolving.");
-          }
-          return;
-        }
-        this.showElegantInitiativeMessage("Complete this activation or press End Turn again to confirm the handoff.");
-        return;
-      }
-
       if (!currentActivation && hasPendingActivations) {
         const recovered = this.recoverInitiativeQueueStall(refreshedQueue);
         if (!recovered) {
-          this.showElegantInitiativeMessage("Initiative sequencing is catching up. Please try End Turn again.");
+          this.showElegantInitiativeMessage("Initiative sequencing is catching up. Complete the remaining group before ending the turn.");
         }
         return;
       }
 
-      if (!hasPendingActivations) {
-        await this.advanceInitiativeRound();
+      if (currentActivation || hasPendingActivations) {
+        this.showElegantInitiativeMessage(
+          currentActivation?.ownerId === "player"
+            ? "This initiative group is still active. Select Next Group before ending the turn."
+            : "Enemy initiative is resolving. End Turn becomes available when every group is complete."
+        );
         return;
       }
 
-      if (this.initiativeEndTurnSkipModeActive) {
-        this.publishActivityEvent({
-          category: "enemy",
-          type: "log",
-          summary: "Enemy activations are resolving. Stand by for movement and fire reports."
-        });
-        this.showElegantInitiativeMessage("Remaining formations set to sentry. Enemy activations are resolving.");
-        return;
-      }
-
-      this.publishActivityEvent({
-        category: "enemy",
-        type: "log",
-        summary: "Enemy activations are resolving. Stand by for movement and fire reports."
-      });
-      this.showElegantInitiativeMessage("Enemy activations are resolving. Wait for the current movement/combat sequence.");
+      await this.advanceInitiativeRound();
     } catch (error) {
       console.error('Failed to end turn:', error);
     } finally {
       this.syncInitiativeTurnControlsState();
     }
-  }
-
-  private skipRemainingPlayerInitiativeTurnActivations(queueOverride?: any): number {
-    const queue = queueOverride ?? this.initiativeMethods?.getCurrentInitiativeQueue();
-    if (!queue || !Array.isArray(queue.activations)) {
-      return 0;
-    }
-
-    const engine = this.battleState.ensureGameEngine();
-    let skippedCount = 0;
-
-    queue.activations.forEach((activation: { unitId: string; ownerId: "player" | "bot"; isActivated: boolean }) => {
-      if (activation.ownerId !== "player" || activation.isActivated) {
-        return;
-      }
-
-      this.initiativeSkippedUnitIds.add(activation.unitId);
-      skippedCount += 1;
-
-      const unit = this.resolvePlayerUnitForInitiativeActivation(activation.unitId);
-      if (unit && !unit.onSentry && !this.hasUnitCommittedOrders(unit)) {
-        engine.enterSentry(unit.hex, unit.unitId ?? undefined);
-      }
-    });
-
-    return skippedCount;
   }
 
   private hasPendingInitiativeActivations(queue: any): boolean {
@@ -9850,7 +9789,7 @@ export class BattleScreen {
 
       this.initiativeGroupCursorUnitId = null;
       this.initiativeGroupSessionId = null;
-      this.clearInitiativeSkipState();
+      this.clearInitiativeGroupSkipState();
       this.initiativeMethods.startNextInitiativeTurnPhase();
       this.focusCurrentInitiativeActivation();
       this.highlightCurrentInitiativeGroup();
@@ -9962,7 +9901,7 @@ export class BattleScreen {
         this.initiativeGroupSessionId = null;
         this.initiativeGroupCursorUnitId = null;
         if (!this.hasPendingInitiativeActivations(currentQueue)) {
-          this.clearInitiativeSkipState();
+          this.clearInitiativeGroupSkipState();
         }
         this.clearInitiativeGroupHighlights();
         return;
@@ -10056,9 +9995,9 @@ export class BattleScreen {
         : "the active formation";
 
       const message = unitInitiative === activeInitiative && currentActivation?.ownerId === "player" && currentActivation.unitId !== unitId
-        ? `${unitReference} is in initiative ${activeInitiative}, but ${currentActivationLabel} is currently acting. Complete that order or press End Turn to hand off the next activation.`
+        ? `${unitReference} is in initiative ${activeInitiative}, but ${currentActivationLabel} is currently acting. Complete that order or select Next Group to pass initiative.`
         : unitInitiative === null
-          ? `${unitReference} cannot act in the current initiative band. Active initiative is ${activeInitiative}. Press End Turn to continue.`
+          ? `${unitReference} cannot act in the current initiative band. Active initiative is ${activeInitiative}. Select Next Group to continue.`
           : `${unitReference} activates at initiative ${unitInitiative}. The current active group is initiative ${activeInitiative}.`;
       this.showElegantInitiativeMessage(message);
     } catch (error) {
@@ -10093,7 +10032,7 @@ export class BattleScreen {
     const currentUnit = pendingUnits.find((unit) => unit.unitId === currentUnitId) ?? null;
     const currentLabel = currentUnit ? this.resolveReadableUnitLabel(currentUnit) : "This formation";
     const leadCopy = currentUnitIsPending
-      ? `${this.escapeHtml(currentLabel)} still has actions available. Ending now will place it on sentry and advance initiative.`
+      ? `${this.escapeHtml(currentLabel)} still has actions available. Advancing now will place it on sentry and pass initiative.`
       : "Other formations in this initiative band still have actions available.";
     const items = pendingUnits
       .slice(0, 8)
@@ -10123,7 +10062,7 @@ export class BattleScreen {
           <ul class="initiative-proceed-modal__list">${items}${overflowItem}</ul>
           <footer class="initiative-proceed-modal__actions">
             <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--secondary" data-action="cancel">Keep Commanding</button>
-            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--primary" data-action="confirm">End Turn Anyway</button>
+            <button type="button" class="initiative-proceed-modal__button initiative-proceed-modal__button--primary" data-action="confirm">Next Group Anyway</button>
           </footer>
         </section>
       `;
@@ -10238,9 +10177,7 @@ export class BattleScreen {
 
     this.initiativeGroupSessionId = nextSessionId;
     this.initiativeGroupCursorUnitId = null;
-    if (!this.initiativeEndTurnSkipModeActive) {
-      this.initiativeSkippedUnitIds.clear();
-    }
+    this.initiativeSkippedUnitIds.clear();
   }
 
   private resolveUncommittedPlayerInitiativeUnits(activeGroup: {
@@ -10561,9 +10498,7 @@ export class BattleScreen {
     if (!stillInSamePlayerInitiativeBand) {
       this.initiativeGroupCursorUnitId = null;
       this.initiativeGroupSessionId = null;
-      if (!this.initiativeEndTurnSkipModeActive) {
-        this.initiativeSkippedUnitIds.clear();
-      }
+      this.initiativeSkippedUnitIds.clear();
       return;
     }
 
@@ -11011,9 +10946,6 @@ export class BattleScreen {
       const hasRemainingActivations = this.hasPendingInitiativeActivations(queue);
       const initiativeActive = this.initiativeMethods.isInitiativeSystemActive();
       const canAdvanceRound = initiativeActive && !hasRemainingActivations && !activation;
-      if (this.initiativeEndTurnSkipModeActive && canAdvanceRound && !this.initiativeTurnAdvanceInProgress) {
-        void this.advanceInitiativeRound();
-      }
       const controlsPhase: 'initiativeTurn' | 'airShowPhase' | 'turnEnded' =
         initiativeActive && (hasRemainingActivations || Boolean(activation))
           ? 'initiativeTurn'
@@ -11056,7 +10988,7 @@ export class BattleScreen {
       if (!activation || activation.ownerId !== "player") {
         break;
       }
-      const shouldAutoSkip = this.initiativeSkippedUnitIds.has(activation.unitId) || this.initiativeEndTurnSkipModeActive;
+      const shouldAutoSkip = this.initiativeSkippedUnitIds.has(activation.unitId);
       if (!shouldAutoSkip) {
         break;
       }
@@ -11065,8 +10997,7 @@ export class BattleScreen {
     }
   }
 
-  private clearInitiativeSkipState(): void {
-    this.initiativeEndTurnSkipModeActive = false;
+  private clearInitiativeGroupSkipState(): void {
     this.initiativeSkippedUnitIds.clear();
   }
 
