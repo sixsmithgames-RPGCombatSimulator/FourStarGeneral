@@ -734,3 +734,48 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 - [x] Add BattleScreen regressions proving current-group-only completion and drained-queue end-turn gating.
 - [x] Run `npm test`, `npm run build`, `npm run lint`, and `git diff --check`.
 - [x] Load the training requisition and battle surfaces in the local app; verify adaptive control states through deterministic DOM tests because the browser flow requires manual map deployment before initiative begins.
+
+## Allied Command At Mission Start Plan
+
+### Intended behavior
+- Every predeployed allied formation transfers to player command when the commander selects `Begin Mission`.
+- Allied formations participate in the opening player initiative queue without requiring same-hex contact.
+- Transfer preserves unit identity, damage status, supply state, stacking, and logistics tracking.
+
+### Current behavior
+- Allied units remain in the engine's Ally placement and initiative collections after deployment.
+- The BattleScreen transfers only one allied unit when the player selects its occupied hex during a player activation.
+- Mission-start initiative therefore classifies untouched allied formations as AI activations.
+
+### Expected new behavior
+- GameEngine provides one authoritative bulk transfer operation for all live allied formations.
+- Each transferred unit is explicitly marked `controlledBy: "Player"` and receives player action state.
+- BattleScreen invokes the bulk operation after deployment finalization and before initiative initialization.
+- The existing contact transfer remains a compatibility path but normally finds no allied units after mission start.
+
+### Edge cases
+- Multiple allied formations stacked on one hex all transfer.
+- Missions without an Ally side return a zero transfer count and begin normally.
+- Supply convoys retain their automatic logistics behavior even though they join the player roster.
+- Destroyed or absent allied formations are not recreated from authored scenario data.
+
+### Impact analysis
+- Systems consuming this output:
+  - `GameEngine.ts` faction placement, supply mirrors, action flags, convoy state, and roster caches
+  - `BattleScreen.ts` deployment-to-initiative transition and battle-start announcement
+  - `GameEngineInitiativeIntegration.ts` opening activation ownership derived from player placements
+- Events depending on this structure:
+  - Begin Mission click
+  - Initiative queue initialization
+  - Player roster, logistics, and idle-unit rendering
+- Visual behaviors that could shift:
+  - Allied unit pips and stack entries render as player-controlled from the opening activation.
+  - No map contact is needed before allied formations become selectable.
+
+### Risk
+- `GameEngine.ts` and `BattleScreen.ts` are high-risk. The change is isolated to ownership transfer at mission start and is covered by stacked-unit, state-preservation, queue-ordering, and call-order regressions.
+
+### Verification
+- [x] Add an engine regression for bulk transfer of stacked allied units and preserved state.
+- [x] Add a BattleScreen regression proving transfer occurs before initiative initialization.
+- [x] Run `npm test`, `npm run build`, focused zero-warning lint, repository lint, and `git diff --check`.

@@ -8187,6 +8187,10 @@ export class BattleScreen {
       const reserves = engine.finalizeDeployment();
       console.log("Deployment finalized. Reserves:", reserves);
 
+      // Allied ownership must be settled before initiative snapshots the faction
+      // rosters; transferring later would leave opening activations AI-owned.
+      const transferredAlliedUnitCount = engine.transferAllAlliedUnitsToPlayerControl();
+
       // Initialize initiative system and move to initiative turn phase
       this.initializeInitiativeSystem(engine);
       this.initiativeMethods?.startInitiativeTurnPhase(true); // Enable initiative system
@@ -8224,8 +8228,11 @@ export class BattleScreen {
       setMissionStartedUI(true);
 
       const reserveCount = engine.getReserveSnapshot().length;
+      const alliedCommandSummary = transferredAlliedUnitCount > 0
+        ? ` ${transferredAlliedUnitCount} allied formation${transferredAlliedUnitCount === 1 ? "" : "s"} transferred to your command.`
+        : "";
       this.announceBattleUpdate(
-        `Battle phase started. ${reserveCount} reserves standing by. Active faction: ${turnSummary.activeFaction}. Phase: ${turnSummary.phase}.`
+        `Battle phase started. ${reserveCount} reserves standing by.${alliedCommandSummary} Active faction: ${turnSummary.activeFaction}. Phase: ${turnSummary.phase}.`
       );
 
       this.completeTutorialPhase("begin_battle");

@@ -895,6 +895,74 @@ registerTest("BATTLESCREEN_REPORTS_MISSING_PLAYER_SELECTION_CONTEXT", async ({ G
   });
 });
 
+registerTest("BATTLESCREEN_BEGIN_MISSION_TRANSFERS_ALLIES_BEFORE_INITIATIVE", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  const callOrder: string[] = [];
+  let announcement = "";
+
+  await Given("a finalized deployment with two predeployed allied formations", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    const engine = {
+      baseCamp: { key: "0,0", hex: { q: 0, r: 0 } },
+      finalizeDeployment: () => {
+        callOrder.push("finalize");
+        return [];
+      },
+      transferAllAlliedUnitsToPlayerControl: () => {
+        callOrder.push("transfer-allies");
+        return 2;
+      },
+      getReserveSnapshot: () => []
+    };
+
+    (screen as any).uiState = { selectedMission: "training" };
+    (screen as any).scenario = { name: "Training Exercise" };
+    (screen as any).shouldDeferTutorialInitiativeAutoFocus = () => false;
+    (screen as any).prepareBattleState = () => engine;
+    (screen as any).assertBattleReady = () => {};
+    (screen as any).initializeInitiativeSystem = () => {
+      callOrder.push("initialize-initiative");
+    };
+    (screen as any).initiativeMethods = {
+      startInitiativeTurnPhase: () => {
+        callOrder.push("start-initiative");
+      }
+    };
+    (screen as any).syncInitiativeTurnControlsState = () => {};
+    (screen as any).focusCurrentInitiativeActivation = () => {};
+    (screen as any).refreshDeploymentMirrors = () => {};
+    (screen as any).battleState = {
+      getCurrentTurnSummary: () => ({ turnNumber: 1, activeFaction: "Player", phase: "playerTurn" })
+    };
+    (screen as any).battleLoadout = null;
+    (screen as any).reservePresenter = null;
+    (screen as any).deploymentPanel = null;
+    (screen as any).lockDeploymentInteractions = () => {};
+    (screen as any).updateUIForBattlePhase = () => {};
+    (screen as any).collapseDeploymentPanelForBattlePhase = () => {};
+    (screen as any).renderEngineUnits = () => {};
+    (screen as any).announceBattleUpdate = (message: string) => {
+      announcement = message;
+    };
+    (screen as any).completeTutorialPhase = () => {};
+  });
+
+  await When("the commander selects Begin Mission", async () => {
+    (screen as any).handleBeginBattle();
+  });
+
+  await Then("allied ownership settles before the opening initiative queue is created", async () => {
+    const expectedOrder = ["finalize", "transfer-allies", "initialize-initiative", "start-initiative"];
+    if (JSON.stringify(callOrder) !== JSON.stringify(expectedOrder)) {
+      throw new Error(`Expected mission-start ownership order ${JSON.stringify(expectedOrder)}, received ${JSON.stringify(callOrder)}.`);
+    }
+    if (!announcement.includes("2 allied formations transferred to your command.")) {
+      throw new Error(`Expected allied command transfer in the battle-start report, received '${announcement}'.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_BEGIN_BATTLE_ERRORS_USE_PANEL_MESSAGING", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let alertCount = 0;

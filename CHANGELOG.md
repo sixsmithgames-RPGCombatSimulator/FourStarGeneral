@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-06-29
+
+### Fixed
+
+- Transferred every predeployed allied formation to player control when `Begin Mission` is selected.
+- Preserved allied unit identity, damage status, supply state, stacking, and logistics tracking during transfer.
+- Ensured transferred allied formations enter the opening player initiative queue without requiring map contact.
+
 ## 2026-06-28
 
 ### Fixed

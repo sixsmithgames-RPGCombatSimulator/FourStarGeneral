@@ -1485,7 +1485,7 @@ export interface GameEngineConfig {
     rations: number;
     parts: number;
   };
-  /** Optional ally faction side. When present, ally units are AI-controlled but can be transferred to player control. */
+  /** Optional ally faction side. Predeployed allied units can be transferred into player command at mission start. */
   allySide?: ScenarioSide;
   /** Optional override that selects the tactical planner driving enemy turns. Defaults to "Heuristic". */
   botStrategyMode?: BotStrategyMode;
@@ -1511,6 +1511,8 @@ export interface GameEngineAPI {
   readonly supportAssets: SupportAssetSnapshot[];
   /** Transfers an ally unit at the specified hex to player control. Returns true on success. */
   transferAllyControl(hex: Axial): boolean;
+  /** Transfers every live allied formation to player control and returns the number transferred. */
+  transferAllAlliedUnitsToPlayerControl(): number;
   getSupplySnapshot(faction?: TurnFaction): SupplySnapshot;
   getSupplyHistory(faction?: TurnFaction): SupplySnapshot[];
   getBattleRequisitionSnapshot(): BattleRequisitionSnapshot;
@@ -1573,7 +1575,6 @@ export interface GameEngineAPI {
   queueSupportActionFromUnit(callerHex: Axial, assetId: string, targetHex: Axial): boolean;
   cancelQueuedSupport(assetId: string): boolean;
   consumeBotTurnSummary(): BotTurnSummary | null;
-  transferAllyControl(hex: Axial): boolean;
   enterSentry(hex: Axial, unitId?: string): boolean;
   exitSentry(hex: Axial, unitId?: string): boolean;
   moveOutTowableUnit(hex: Axial, unitId?: string): boolean;
@@ -7270,9 +7271,7 @@ private automateSupplyConvoys(
     return this.getAllUnitsForFaction("Bot").map((unit) => structuredClone(unit));
   }
 
-  /**
-   * Surfaces ally deployments with defensive copies. Ally units are AI-controlled but can be transferred to player control.
-   */
+  /** Surfaces any allied deployments that have not yet transferred to player command. */
   get allyUnits(): ScenarioUnit[] {
     return this.getAllUnitsForFaction("Ally").map((unit) => structuredClone(unit));
   }
@@ -11665,37 +11664,83 @@ private automateSupplyConvoys(
     return result;
   }
 
-  /** Transfers an ally unit at the specified hex to player control. Returns true if a unit was transferred. */
+  /**
+   * Transfers the first allied unit at a hex to player control.
+   *
+   * This remains available for compatibility with contact-triggered scenarios. New
+   * missions transfer all allied formations before initiative begins.
+   */
   transferAllyControl(hex: Axial): boolean {
-    const allyUnit = this.lookupUnit(hex, "Ally");
+    const allyUnit = this.findUnitInFactionAtHex(hex, "Ally");
     if (!allyUnit) {
       return false;
     }
-    const key = axialKey(hex);
-    const unitId = this.getSquadronId(allyUnit);
+    this.transferAlliedUnitToPlayerControl(allyUnit);
+    this.finalizeAlliedControlTransfer();
+    return true;
+  }
 
-    // Remove from ally placements and supply mirror.
-    this.removeUnitFromFactionHex("Ally", hex, unitId);
-    this.allySupply = this.allySupply.filter((s) => !(axialKey(s.hex) === key && s.unitId === unitId));
+  /**
+   * Transfers every currently deployed allied formation into player command.
+   *
+   * The live placement snapshot is captured before mutation so stacked allied
+   * units are each transferred once even when removing one changes stack order.
+   */
+  transferAllAlliedUnitsToPlayerControl(): number {
+    const alliedUnits = this.getAllUnitsForFaction("Ally").map((unit) => structuredClone(unit));
+    alliedUnits.forEach((unit) => this.transferAlliedUnitToPlayerControl(unit));
+    if (alliedUnits.length > 0) {
+      this.finalizeAlliedControlTransfer();
+    }
+    return alliedUnits.length;
+  }
 
-    // Transfer to player placements and supply mirror.
-    const clone = structuredClone(allyUnit);
-    this.normalizeScenarioUnitState(clone);
-    this.addUnitToFactionHex("Player", clone);
-    const [supplyEntry] = createSupplyUnits([clone]);
+  /**
+   * Migrates one live allied formation and its faction-scoped runtime state.
+   *
+   * @param alliedUnit - Snapshot identifying the allied formation to transfer.
+   */
+  private transferAlliedUnitToPlayerControl(alliedUnit: ScenarioUnit): void {
+    const unitId = this.getSquadronId(alliedUnit);
+    const key = axialKey(alliedUnit.hex);
+    const removed = this.removeUnitFromFactionHex("Ally", alliedUnit.hex, unitId);
+    if (!removed) {
+      throw new Error(`Allied control transfer failed for unit ${unitId} at ${key}: live placement was not found.`);
+    }
+
+    this.deleteUnitActionFlags("Ally", removed);
+    this.allySupply = this.allySupply.filter((entry) => entry.unitId !== unitId);
+
+    const transferred = structuredClone(removed);
+    transferred.controlledBy = "Player";
+    this.normalizeScenarioUnitState(transferred);
+    this.addUnitToFactionHex("Player", transferred);
+
+    const [supplyEntry] = createSupplyUnits([transferred]);
     if (supplyEntry) {
       this.playerSupply.push(supplyEntry);
     }
 
-    // Reset action flags/idle state for the new player unit.
-    this.setUnitActionFlags("Player", clone, this.createDefaultActionFlags());
-    this.updateIdleRegistryFor(key);
+    const alliedTruckState = this.supplyTruckStateByFaction.Ally.get(unitId);
+    if (alliedTruckState) {
+      this.supplyTruckStateByFaction.Ally.delete(unitId);
+      this.supplyTruckStateByFaction.Player.set(unitId, alliedTruckState);
+    }
+    const alliedServiceHistory = this.convoyServiceHistoryByFaction.Ally.get(unitId);
+    if (alliedServiceHistory !== undefined) {
+      this.convoyServiceHistoryByFaction.Ally.delete(unitId);
+      this.convoyServiceHistoryByFaction.Player.set(unitId, alliedServiceHistory);
+    }
 
-    // Keep mirrors and caches consistent.
+    this.setUnitActionFlags("Player", transferred, this.createDefaultActionFlags());
+    this.updateIdleRegistryFor(key);
+  }
+
+  /** Refreshes shared caches and faction supply history after an ownership transaction. */
+  private finalizeAlliedControlTransfer(): void {
     this.invalidateRosterCache();
     this.recordSupplySnapshot("Player");
-
-    return true;
+    this.recordSupplySnapshot("Ally");
   }
 
   /** Executes the ally turn. Placeholder: allies hold position until dedicated ally AI is implemented. */

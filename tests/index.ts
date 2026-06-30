@@ -55,6 +55,7 @@ import "./AirSupport.summary.test.js";
 import "./BotAirHeuristic.test.js";
 import "./BotAirTurnAdvance.airOps.test.js";
 import "./GroundLogistics.enforcement.test.js";
+import "./GameEngine.alliedControl.test.js";
 import "./BattleWarRoomDataProvider.damage.test.js";
 import "./EngineerFieldworks.turnConsumption.test.js";
 import "./InfantryActions.commandState.test.js";
