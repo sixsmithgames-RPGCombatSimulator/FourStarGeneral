@@ -249,15 +249,28 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await waitForTutorialPhase(page, "active_group_units");
   await clickGuidedHex(page);
 
-  await waitForTutorialPhase(page, "movement_intro");
-  await expect(tutorialPanel(page)).toContainText("Recon moves quickly");
-  await expect(tutorialPanel(page)).toContainText("lightly armed");
-  await expect(page.locator("#battleMapCanvas .hex-cell.move-option-highlight")).not.toHaveCount(0);
-  await page.screenshot({ path: outputPath("20-movement.png") });
-  await page.waitForTimeout(700);
-  await clickGuidedHex(page);
+  let reachedEngineerLesson = false;
+  for (let reconLessonIndex = 0; reconLessonIndex < 4; reconLessonIndex += 1) {
+    await waitForTutorialPhase(page, "movement_intro");
+    await expect(tutorialPanel(page)).toContainText("Recon moves quickly");
+    await expect(tutorialPanel(page)).toContainText("lightly armed");
+    await expect(page.locator("#battleMapCanvas .hex-cell.move-option-highlight")).not.toHaveCount(0);
+    const movementScreenshotName = reconLessonIndex === 0
+      ? "20-movement.png"
+      : `20-movement-${reconLessonIndex + 1}.png`;
+    await page.screenshot({ path: outputPath(movementScreenshotName) });
+    await page.waitForTimeout(700);
+    await clickGuidedHex(page);
 
-  await waitForTutorialPhase(page, "engineer_intro", 20_000);
+    const nextPhase = await waitForAnyTutorialPhase(page, ["active_group_units", "engineer_intro"], 20_000);
+    if (nextPhase === "engineer_intro") {
+      reachedEngineerLesson = true;
+      break;
+    }
+    await clickGuidedHex(page);
+  }
+  expect(reachedEngineerLesson, "The tutorial must drain every recon activation before teaching engineer orders.").toBe(true);
+
   await clickGuidedHex(page);
   await waitForTutorialPhase(page, "intel_overlay_expand");
   await page.locator("#battleIntelOverlayToggle").click();

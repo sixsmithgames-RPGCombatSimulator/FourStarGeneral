@@ -2999,10 +2999,37 @@ export class BattleScreen {
 
   private resolveNextTutorialPhaseAfterCompletion(phase: TutorialPhase): TutorialPhase | null {
     const nextPhase = getNextPhase(phase);
+    if (phase === "enemy_activation" && this.hasReadyTutorialReconActivation()) {
+      // Allied mission-start transfers can add another player patrol to the
+      // initiative-7 band. Teach and resolve that activation before claiming
+      // that the initiative-6 engineers are ready.
+      return "active_group_units";
+    }
     if (phase === "select_attack_unit" && nextPhase === "smoke_demo") {
       return this.selectedUnitCanLaySmoke() ? nextPhase : getNextPhase("smoke_demo");
     }
     return nextPhase;
+  }
+
+  /**
+   * Reports whether the active player initiative group still contains a ready
+   * recon patrol that the tutorial must hand to the commander.
+   */
+  private hasReadyTutorialReconActivation(): boolean {
+    if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
+      return false;
+    }
+
+    const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+    const activeGroup = this.resolveActiveInitiativeGroup(queue);
+    if (!activeGroup || activeGroup.ownerId !== "player") {
+      return false;
+    }
+
+    return this.resolveSelectablePlayerInitiativeActivations(activeGroup).some((activation) => {
+      const unit = this.resolvePlayerUnitForInitiativeActivation(activation.unitId);
+      return Boolean(unit && this.isReconBikeBattleUnit(unit));
+    });
   }
 
   private clearTutorialSelectionOnceForPhase(phase: TutorialPhase): void {
@@ -11429,12 +11456,9 @@ export class BattleScreen {
       return null;
     }
 
-    const currentActivation = this.initiativeMethods?.getCurrentActivation();
-    if (currentActivation?.ownerId === "player") {
-      const activeMember = members.find((member) => member.unitId === currentActivation.unitId) ?? null;
-      if (activeMember) {
-        return activeMember.unit;
-      }
+    const activeMember = this.resolveActivePlayerInitiativeStackMember(members);
+    if (activeMember) {
+      return activeMember.unit;
     }
 
     if (this.selectedPlayerUnitId) {
@@ -11446,6 +11470,45 @@ export class BattleScreen {
 
     const playerMember = members.find((member) => !member.isAutomated) ?? members[0];
     return playerMember?.unit ?? null;
+  }
+
+  /**
+   * Resolves the directly controllable member of a friendly stack from the
+   * authoritative active initiative group.
+   *
+   * Explicit in-group selection wins first, followed by the queue cursor and
+   * then queue order. Members from completed or later bands never win here.
+   */
+  private resolveActivePlayerInitiativeStackMember(
+    members: readonly BattleSelectionStackMember[]
+  ): BattleSelectionStackMember | null {
+    if (!this.isInitiativeSystemEnabled || !this.initiativeMethods || members.length === 0) {
+      return null;
+    }
+
+    const queue = this.initiativeMethods.getCurrentInitiativeQueue();
+    const activeGroup = this.resolveActiveInitiativeGroup(queue);
+    if (!activeGroup || activeGroup.ownerId !== "player") {
+      return null;
+    }
+
+    const activeUnitIds = new Set(activeGroup.activations.map((activation) => activation.unitId));
+    if (this.selectedPlayerUnitId && activeUnitIds.has(this.selectedPlayerUnitId)) {
+      const selectedMember = members.find((member) => member.unitId === this.selectedPlayerUnitId) ?? null;
+      if (selectedMember) {
+        return selectedMember;
+      }
+    }
+
+    const currentActivation = this.initiativeMethods.getCurrentActivation();
+    if (currentActivation?.ownerId === "player" && activeUnitIds.has(currentActivation.unitId)) {
+      const currentMember = members.find((member) => member.unitId === currentActivation.unitId) ?? null;
+      if (currentMember) {
+        return currentMember;
+      }
+    }
+
+    return members.find((member) => activeUnitIds.has(member.unitId)) ?? null;
   }
 
   /**
@@ -12097,6 +12160,20 @@ export class BattleScreen {
         return;
       }
       this.cancelArtilleryTargeting(false);
+    }
+
+    if (this.selectedHexKey !== key) {
+      const clickedMembers = this.getPlayerStackMembersAtHex(key);
+      const clickedActiveMember = this.resolveActivePlayerInitiativeStackMember(clickedMembers);
+      const selectedUnitIsActive = Boolean(
+        this.selectedPlayerUnitId && this.isUnitInCurrentInitiativeGroup(this.selectedPlayerUnitId)
+      );
+      if (clickedActiveMember && !selectedUnitIsActive) {
+        // Stale movement highlights from a completed formation must not turn a
+        // deliberate click on the current group into an invalid move attempt.
+        this.applySelectedHex(key);
+        return;
+      }
     }
 
     // If there is an active selection and the user clicked a move/attack destination, execute the action.
@@ -12990,25 +13067,11 @@ export class BattleScreen {
       ? members.find((member) => member.unitId === this.selectedPlayerUnitId) ?? null
       : null;
 
-    if (this.isInitiativeSystemEnabled && this.initiativeMethods) {
-      const queue = this.initiativeMethods.getCurrentInitiativeQueue();
-      const activeGroup = this.resolveActiveInitiativeGroup(queue);
-      if (activeGroup?.ownerId === "player") {
-        if (matched && activeGroup.activations.some((activation) => activation.unitId === matched.unitId)) {
-          this.initiativeGroupCursorUnitId = matched.unitId;
-          return matched;
-        }
-
-        const currentActivation = this.initiativeMethods.getCurrentActivation();
-        const activeMember = currentActivation
-          ? members.find((member) => member.unitId === currentActivation.unitId) ?? null
-          : null;
-        if (activeMember) {
-          this.selectedPlayerUnitId = activeMember.unitId;
-          this.initiativeGroupCursorUnitId = activeMember.unitId;
-          return activeMember;
-        }
-      }
+    const activeMember = this.resolveActivePlayerInitiativeStackMember(members);
+    if (activeMember) {
+      this.selectedPlayerUnitId = activeMember.unitId;
+      this.initiativeGroupCursorUnitId = activeMember.unitId;
+      return activeMember;
     }
     const preferred = matched
       ?? members.find((member) => !member.isAutomated)

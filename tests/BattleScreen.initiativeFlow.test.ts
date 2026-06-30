@@ -320,6 +320,14 @@ registerTest("BATTLESCREEN_INITIATIVE_STACKED_HEX_GATE_PREFERS_ACTIVE_MEMBER", a
     };
 
     (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => ({
+        currentIndex: 0,
+        currentTurn: 1,
+        activations: [
+          { unitId: "u_engineer_first", ownerId: "player", initiative: 6, isActivated: false, sortOrder: 0 },
+          { unitId: "u_engineer_active", ownerId: "player", initiative: 6, isActivated: false, sortOrder: 1 }
+        ]
+      }),
       getCurrentActivation: () => ({
         unitId: "u_engineer_active",
         ownerId: "player",
@@ -330,6 +338,7 @@ registerTest("BATTLESCREEN_INITIATIVE_STACKED_HEX_GATE_PREFERS_ACTIVE_MEMBER", a
     };
 
     (screen as any).tryTransferAllyControl = () => false;
+    (screen as any).completeGuidedTutorialSelectionForClickedHex = () => {};
     (screen as any).onPlayerTurnMapClick = () => {
       playerClickCalls += 1;
     };
@@ -353,6 +362,138 @@ registerTest("BATTLESCREEN_INITIATIVE_STACKED_HEX_GATE_PREFERS_ACTIVE_MEMBER", a
     }
     if (playerClickCalls !== 1) {
       throw new Error(`Expected one onPlayerTurnMapClick call, received ${playerClickCalls}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_TUTORIAL_DRAINS_TRANSFERRED_RECON_BEFORE_ENGINEERS", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let queue: {
+    currentIndex: number;
+    currentTurn: number;
+    activations: Array<{
+      unitId: string;
+      ownerId: "player" | "bot";
+      initiative: number;
+      isActivated: boolean;
+      sortOrder: number;
+    }>;
+  };
+  let phaseWithRecon: string | null = null;
+  let phaseAfterRecon: string | null = null;
+
+  await Given("the enemy response returns command to a transferred recon before the engineers", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    const recon = { ...createPlayerUnit("allied_recon", 8, 6), type: "Recon_Bike" as ScenarioUnit["type"] };
+    const engineer = { ...createPlayerUnit("engineer_1", 6, 5), type: "Engineer" as ScenarioUnit["type"] };
+    queue = {
+      currentIndex: 0,
+      currentTurn: 1,
+      activations: [
+        { unitId: "allied_recon", ownerId: "player", initiative: 7, isActivated: false, sortOrder: 0 },
+        { unitId: "engineer_1", ownerId: "player", initiative: 6, isActivated: false, sortOrder: 1 }
+      ]
+    };
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).initiativeSkippedUnitIds = new Set<string>();
+    (screen as any).isReconBikeBattleUnit = (unit: ScenarioUnit) => unit.type === "Recon_Bike";
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({
+        playerUnits: [recon, engineer],
+        botUnits: [],
+        allyUnits: [],
+        playerActionFlags: new Map()
+      })
+    };
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => queue,
+      getCurrentActivation: () => queue.activations[queue.currentIndex] ?? null
+    };
+  });
+
+  await When("tutorial progression is resolved before and after the remaining recon acts", async () => {
+    phaseWithRecon = (screen as any).resolveNextTutorialPhaseAfterCompletion("enemy_activation");
+    queue.activations[0]!.isActivated = true;
+    queue.currentIndex = 1;
+    phaseAfterRecon = (screen as any).resolveNextTutorialPhaseAfterCompletion("enemy_activation");
+  });
+
+  await Then("the recon lesson repeats once and engineers follow only when initiative six is active", async () => {
+    if (phaseWithRecon !== "active_group_units") {
+      throw new Error(`Expected another recon lesson, received ${phaseWithRecon ?? "none"}.`);
+    }
+    if (phaseAfterRecon !== "engineer_intro") {
+      throw new Error(`Expected engineer instruction after recon initiative drained, received ${phaseAfterRecon ?? "none"}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_ACTIVE_FRIENDLY_SELECTION_OVERRIDES_STALE_MOVE_HIGHLIGHT", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let selectedHexKey: string | null = null;
+  let moveIssued = false;
+
+  await Given("a completed recon still highlights the active engineer hex as a move destination", async () => {
+    mountBattleScreenRoot();
+    ensureTutorialState().endTutorial();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    const recon = { ...createPlayerUnit("recon_1", 3, 2), type: "Recon_Bike" as ScenarioUnit["type"] };
+    const engineer = { ...createPlayerUnit("engineer_1", 6, 5), type: "Engineer" as ScenarioUnit["type"] };
+    const queue = {
+      currentIndex: 1,
+      currentTurn: 1,
+      activations: [
+        { unitId: "recon_1", ownerId: "player" as const, initiative: 7, isActivated: true, sortOrder: 0 },
+        { unitId: "engineer_1", ownerId: "player" as const, initiative: 6, isActivated: false, sortOrder: 1 }
+      ]
+    };
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).selectedHexKey = "3,2";
+    (screen as any).selectedPlayerUnitId = "recon_1";
+    (screen as any).playerMoveHexes = new Set<string>(["6,5"]);
+    (screen as any).playerAttackHexes = new Set<string>();
+    (screen as any).smokeTargetingState = null;
+    (screen as any).artilleryTargetingState = null;
+    (screen as any).tutorialMapInputBlockedUntil = 0;
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => queue,
+      getCurrentActivation: () => queue.activations[1]
+    };
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({
+        playerUnits: [recon, engineer],
+        botUnits: [],
+        allyUnits: []
+      })
+    };
+    (screen as any).getPlayerStackMembersAtHex = (hexKey: string) => {
+      if (hexKey === "3,2") {
+        return [{ unitId: "recon_1", isAutomated: false, unit: recon }];
+      }
+      if (hexKey === "6,5") {
+        return [{ unitId: "engineer_1", isAutomated: false, unit: engineer }];
+      }
+      return [];
+    };
+    (screen as any).applySelectedHex = (hexKey: string) => {
+      selectedHexKey = hexKey;
+    };
+    (screen as any).executeAnimatedPlayerMove = async () => {
+      moveIssued = true;
+    };
+  });
+
+  await When("the commander clicks the engineer", async () => {
+    (screen as any).onPlayerTurnMapClick("6,5");
+  });
+
+  await Then("the engineer is selected instead of validating a recon move", async () => {
+    if (selectedHexKey !== "6,5") {
+      throw new Error(`Expected the engineer hex to be selected, received ${selectedHexKey ?? "none"}.`);
+    }
+    if (moveIssued) {
+      throw new Error("The inactive recon must not issue a move through the engineer selection click.");
     }
   });
 });

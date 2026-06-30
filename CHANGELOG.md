@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-06-30
+
+### Fixed
+
+- Kept the training tutorial in the recon lesson until every player-controlled initiative-7 patrol has acted.
+- Prevented stale inactive-unit movement highlights from blocking selection of the current initiative group.
+
 ## 2026-06-29
 
 ### Fixed

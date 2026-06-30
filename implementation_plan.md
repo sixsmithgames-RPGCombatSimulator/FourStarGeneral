@@ -779,3 +779,46 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 - [x] Add an engine regression for bulk transfer of stacked allied units and preserved state.
 - [x] Add a BattleScreen regression proving transfer occurs before initiative initialization.
 - [x] Run `npm test`, `npm run build`, focused zero-warning lint, repository lint, and `git diff --check`.
+
+## Tutorial Allied Initiative Handoff Plan
+
+### Intended behavior
+- Every player-controlled recon formation receives its initiative-7 activation before the tutorial advances to engineers.
+- Clicking an active friendly formation selects it even when an inactive formation still exposes a stale move highlight on that hex.
+- An active selected formation can still move onto a legal friendly stack.
+
+### Current behavior
+- The first recon move completes the movement lesson, and the following enemy response advances directly to the engineer lesson.
+- The newly transferred allied recon remains ready in initiative 7, leaving no active engineer for the tutorial to highlight.
+- If initiative later reaches the engineers, a stale recon movement destination can intercept the engineer click and report the recon as ineligible.
+
+### Expected new behavior
+- The tutorial returns to the recon selection lesson while another ready recon activation remains.
+- Stack selection uses the active initiative group as its source of truth.
+- Friendly-destination movement retains precedence only when the selected formation belongs to the active initiative group.
+
+### Edge cases
+- Training forces with one recon proceed directly to engineers after the enemy response.
+- Training forces with multiple recons repeat the recon selection and movement lesson until the band is drained.
+- Stacked active and inactive formations select the active member deterministically.
+- Non-tutorial initiative play receives the same stale-selection protection.
+
+### Impact analysis
+- Systems consuming this output:
+  - `BattleScreen.ts` tutorial phase progression, stack resolution, and player click routing
+  - Tutorial guided-hex highlighting and initiative status messaging
+- Events depending on this structure:
+  - Completion of the guided recon move
+  - Enemy activation completion
+  - Friendly map clicks during player initiative groups
+- Visual behaviors that could shift:
+  - The recon lesson repeats when more than one recon formation is ready.
+  - The engineer receives the guided highlight only after initiative 6 is actually active.
+
+### Risk
+- `BattleScreen.ts` is high-risk. The change is limited to tutorial phase selection and click-time initiative selection, with explicit regressions for both selection and legal friendly-stack movement.
+
+### Verification
+- [ ] Add tutorial multi-recon progression coverage.
+- [ ] Add stale-selection click-routing coverage.
+- [ ] Run the complete wide-desktop tutorial, unit tests, build, lint, and `git diff --check`.
