@@ -84,7 +84,7 @@ HexMapRenderer and GameEngine are high-risk. Changes are additive only — no ex
 ### Expected new behavior
 - A canonical combat helper classifies targets from their actual protection: tanks, aircraft, and protected vehicles are hard targets; infantry, specialists, artillery, exposed light recon, and soft-skinned support vehicles are soft targets.
 - Light recon uses the authored exposed-target distribution. Armored recon cars remain protected hard targets.
-- Platform readiness represents the share of capability that has both effective personnel and effective equipment by multiplying the two readiness ratios. This preserves the full loss from a destroyed vehicle at full personnel readiness while ensuring later personnel casualties remain visible.
+- Platform readiness adds full-strength-equivalent loss from personnel and equipment status channels. This preserves the full loss from a destroyed vehicle at full personnel readiness while ensuring later hits are not dampened by unrelated pre-existing crew or platform damage.
 
 ### Edge cases
 - An already-damaged Recon Bike patrol at 88.89% equipment readiness receives one injured scout and must lose additional readiness.
@@ -822,3 +822,46 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 - [ ] Add tutorial multi-recon progression coverage.
 - [ ] Add stale-selection click-routing coverage.
 - [ ] Run the complete wide-desktop tutorial, unit tests, build, lint, and `git diff --check`.
+
+## Platform Readiness Damage Progression Plan
+
+### Intended behavior
+- Personnel and equipment status transitions each contribute their full-strength-equivalent readiness loss to platform formations.
+- Applying the same concrete logistics damage packet to an already-damaged convoy should not lose roughly ten readiness points purely because another status channel was already degraded.
+- Legacy scenario `strength` hydration for platform units should remain stable and should not apply the same abstract loss to both crews and vehicles.
+
+### Current behavior
+- Platform readiness multiplies personnel readiness by equipment readiness.
+- Multiplication makes marginal vehicle damage shrink when personnel readiness is already low, and marginal personnel damage shrink when equipment readiness is already low.
+- Legacy `applyReadinessScalarToStatus()` applies platform readiness to both personnel and equipment pools, which can double-apply imported abstract strength once platform readiness is no longer multiplicative.
+
+### Expected new behavior
+- Platform readiness is `100 - personnel loss - equipment loss`, capped to the normal 0-100 readiness range.
+- Personnel-only or equipment-only platform damage keeps the exact proportional effect expected from the detailed status pools.
+- Legacy platform strength seeds equipment availability while leaving crew pools fit, matching the historic meaning of platform strength in authored scenarios.
+
+### Edge cases
+- A fresh 8-truck convoy that takes one disabled truck, one damaged truck, and several casualties reports the same full-strength-equivalent damage as a similarly hit already-damaged convoy until fit/operational pools are actually exhausted.
+- A one-vehicle loss in tank, air, supply, medical, and maintenance formations keeps using the formation's concrete platform count.
+- Infantry-only and combined engineer readiness remain governed by their existing personnel or weighted-combined models.
+
+### Impact analysis
+- Systems consuming this output:
+  - `damagePackets` packet readiness loss estimation and application parity
+  - `GameEngine` attack previews, resolution summaries, activity log damage values, HQ damage records, and logistics repair/medical recovery
+  - `BattleScreen` confirm-attack percentages and detailed outcome text
+  - Bot scoring and mission combat calls that consume `AttackResult.expectedDamage` or status-derived readiness summaries
+- Events depending on this structure:
+  - Player attack preview and confirmation
+  - Player/enemy attack resolution activity entries
+  - HQ and logistics modal status refreshes
+- Visual behaviors that could shift:
+  - Damaged vehicle/logistics targets may show higher projected readiness loss for concrete follow-up hits.
+  - Imported low-strength platform units hydrate with equipment damage instead of duplicated personnel and equipment damage.
+
+### Risk
+- `src/data/unitSystem/status.ts` is high-risk engine/status code. The change is isolated to readiness composition and legacy scalar seeding; damage packet distribution and combat accuracy are unchanged.
+
+### Verification
+- [x] Add platform follow-up damage regression coverage.
+- [x] Run focused damage tests, full unit tests, build, lint, and `git diff --check`.

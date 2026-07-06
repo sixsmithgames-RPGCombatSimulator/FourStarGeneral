@@ -556,6 +556,54 @@ registerTest("UNIT_STATUS_READINESS_USES_PERSONNEL_AND_EQUIPMENT_POOLS", async (
   });
 });
 
+registerTest("UNIT_STATUS_PLATFORM_DAMAGE_LOSS_DOES_NOT_DECLINE_FROM_EXISTING_DAMAGE", async ({ When, Then }) => {
+  const followUpPacket: DamagePacket = {
+    personnel: { injured: 1, wounded: 3, severelyWounded: 1, killed: 1 },
+    equipment: { damaged: 1, disabled: 1, destroyed: 0 },
+    suppression: 0,
+    fortificationDamage: 0,
+    readinessLoss: 0,
+    weaponHits: []
+  };
+  let freshLoss = 0;
+  let damagedBefore = summarizeFormationStatus(undefined, 0);
+  let damagedLoss = 0;
+
+  await When("the same logistics damage packet is applied to fresh and already-damaged convoys", async () => {
+    const fresh = makeUnit("Supply_Truck", defenderHex, "platform-fresh");
+    const freshBefore = summarizeFormationStatus(fresh.status, fresh.strength);
+    applyDamagePacketToUnit(fresh, followUpPacket);
+    const freshAfter = summarizeFormationStatus(fresh.status, fresh.strength);
+    freshLoss = Math.max(0, Math.round((freshBefore.readiness - freshAfter.readiness) * 100) / 100);
+
+    const damaged = makeUnit("Supply_Truck", defenderHex, "platform-damaged");
+    applyDamagePacketToUnit(damaged, {
+      personnel: { injured: 2, wounded: 5, severelyWounded: 1, killed: 1 },
+      equipment: { damaged: 1, disabled: 2, destroyed: 1 },
+      suppression: 0,
+      fortificationDamage: 0,
+      readinessLoss: 0,
+      weaponHits: []
+    });
+    damagedBefore = summarizeFormationStatus(damaged.status, damaged.strength);
+    applyDamagePacketToUnit(damaged, followUpPacket);
+    const damagedAfter = summarizeFormationStatus(damaged.status, damaged.strength);
+    damagedLoss = Math.max(0, Math.round((damagedBefore.readiness - damagedAfter.readiness) * 100) / 100);
+  });
+
+  await Then("platform readiness reports full-strength-equivalent losses from both status channels", async () => {
+    if (damagedBefore.readiness >= 70 || damagedBefore.readiness <= 20) {
+      throw new Error(`Expected the damaged convoy to start badly hurt but not exhausted, saw ${damagedBefore.readiness} readiness.`);
+    }
+    if (freshLoss < 25) {
+      throw new Error(`Expected the follow-up logistics packet to represent major concrete losses, saw ${freshLoss}.`);
+    }
+    if (damagedLoss < freshLoss - 3) {
+      throw new Error(`Existing platform damage should not dampen the same follow-up packet. Fresh ${freshLoss}, damaged ${damagedLoss}.`);
+    }
+  });
+});
+
 registerTest("UNIT_STATUS_DAMAGE_WORSENS_NON_TERMINAL_POOLS", async ({ When, Then }) => {
   let infantryBefore = summarizeFormationStatus(undefined, 0);
   let infantryAfter = summarizeFormationStatus(undefined, 0);

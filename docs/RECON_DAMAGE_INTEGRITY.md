@@ -18,9 +18,9 @@ Three independent rules disagreed about the target:
 - Recon Bike contacts use the existing authored `vsArtillery` distribution, whose contract already covers exposed artillery and recon targets.
 - Platform readiness is calculated as:
 
-  `personnel availability x equipment availability`
+  `100 - personnel readiness loss - equipment readiness loss`
 
-  Both values are normalized readiness ratios. At full personnel readiness, a destroyed vehicle retains its full proportional effect. Once both channels are degraded, neither can mask the other.
+  Both values are normalized full-strength-equivalent losses. At full personnel readiness, a destroyed vehicle retains its full proportional effect. Once both channels are degraded, later vehicle or personnel hits are not reduced by unrelated damage in the other channel.
 - Abstract expected damage is capped to the defender's remaining strength. Detailed status packets remain the source of truth for displayed and applied damage.
 
 ## Impact

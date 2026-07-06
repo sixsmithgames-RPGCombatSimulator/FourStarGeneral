@@ -170,6 +170,20 @@ function summarizeEquipmentReadiness(status: FormationStatus): FormationReadines
   };
 }
 
+function combinePlatformReadiness(
+  personnel: FormationReadinessComponentSummary,
+  equipment: FormationReadinessComponentSummary
+): number {
+  const personnelLoss = personnel.total > 0 ? personnel.loss : 0;
+  const equipmentLoss = equipment.loss;
+
+  // Platform units already track each casualty and vehicle state independently.
+  // Readiness therefore uses full-strength-equivalent losses from both channels
+  // instead of multiplying percentages, which would dampen later truck/tank hits
+  // just because the crew pool was already hurt, or vice versa.
+  return roundReadiness(100 - personnelLoss - equipmentLoss);
+}
+
 function personnelPoolTotal(pool: PersonnelStatusPool | undefined): number {
   if (!pool) return 0;
   return pool.fit + pool.injured + pool.wounded + pool.severelyWounded + pool.killed;
@@ -393,12 +407,7 @@ export function calculateFormationReadiness(
   } else if (equipment.total <= 0 || model.basis === "personnel") {
     readiness = personnel.total > 0 ? personnel.readiness : roundReadiness(fallbackStrength);
   } else if (model.basis === "platform") {
-    // A platform formation needs both serviceable equipment and effective personnel. Multiplying
-    // those independent availability shares preserves the full loss from either channel at 100%
-    // while ensuring later crew casualties cannot be hidden behind an existing equipment floor.
-    readiness = personnel.total > 0
-      ? (personnel.readiness / 100) * (equipment.readiness / 100) * 100
-      : equipment.readiness;
+    readiness = combinePlatformReadiness(personnel, equipment);
   } else {
     const availablePersonnelWeight = personnel.total > 0 ? model.personnelWeight : 0;
     const availableEquipmentWeight = equipment.total > 0 ? model.equipmentWeight : 0;
@@ -469,7 +478,14 @@ export function applyReadinessScalarToStatus(status: FormationStatus, readiness:
   if (model.basis === "personnel" || model.basis === "combined") {
     Object.values(status.personnel).forEach((pool) => applyPersonnelReadiness(pool, readiness));
   }
-  if (model.basis === "platform" || model.basis === "combined") {
+  if (model.basis === "platform") {
+    // Legacy scenario strength on a platform unit historically represented the
+    // availability of major platforms. Seed that abstract value into equipment
+    // only so a 75% imported tank company remains near 75% after status hydration
+    // instead of suffering the same loss again through its crew pool.
+    Object.values(status.personnel).forEach((pool) => applyPersonnelReadiness(pool, 100));
+    Object.values(status.equipment).forEach((pool) => applyEquipmentReadiness(pool, readiness));
+  } else if (model.basis === "combined") {
     Object.values(status.equipment).forEach((pool) => applyEquipmentReadiness(pool, readiness));
   }
 }

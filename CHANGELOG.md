@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Prevented existing crew or vehicle damage from dampening later concrete platform damage in readiness projections.
 - Kept the training tutorial in the recon lesson until every player-controlled initiative-7 patrol has acted.
 - Prevented stale inactive-unit movement highlights from blocking selection of the current initiative group.
 
