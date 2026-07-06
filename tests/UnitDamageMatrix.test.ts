@@ -15,6 +15,7 @@ import { createInitialFormationStatus, ensureFormationStatus } from "../src/data
 import {
   applyDamagePacketToUnit,
   describeDamagePacket,
+  describeStatusTransitions,
   resolveDamagePacket,
   summarizeFormationStatus,
   type DamagePacket
@@ -332,6 +333,44 @@ function weaponPersonnelCasualtyCount(packet: DamagePacket, weaponId: string): n
     hit.personnel.injured;
 }
 
+function expectTransitionLedgerMatchesPacket(outcome: MatrixOutcome): void {
+  const packet = outcome.packet;
+  if (!packet) {
+    return;
+  }
+  const transitions = packet.statusTransitions;
+  if (!transitions) {
+    throw new Error(`${outcome.attackerType}->${outcome.defenderType} missing status transition ledger.`);
+  }
+  const personnelByTarget = {
+    killed: transitions.personnel.filter((entry) => entry.to === "killed").reduce((sum, entry) => sum + entry.count, 0),
+    severelyWounded: transitions.personnel.filter((entry) => entry.to === "severelyWounded").reduce((sum, entry) => sum + entry.count, 0),
+    wounded: transitions.personnel.filter((entry) => entry.to === "wounded").reduce((sum, entry) => sum + entry.count, 0),
+    injured: transitions.personnel.filter((entry) => entry.to === "injured").reduce((sum, entry) => sum + entry.count, 0)
+  };
+  const equipmentByTarget = {
+    destroyed: transitions.equipment.filter((entry) => entry.to === "destroyed").reduce((sum, entry) => sum + entry.count, 0),
+    disabled: transitions.equipment.filter((entry) => entry.to === "disabled").reduce((sum, entry) => sum + entry.count, 0),
+    damaged: transitions.equipment.filter((entry) => entry.to === "damaged").reduce((sum, entry) => sum + entry.count, 0)
+  };
+  const checks = [
+    ["killed", personnelByTarget.killed, packet.personnel.killed],
+    ["severely wounded", personnelByTarget.severelyWounded, packet.personnel.severelyWounded],
+    ["wounded", personnelByTarget.wounded, packet.personnel.wounded],
+    ["injured", personnelByTarget.injured, packet.personnel.injured],
+    ["destroyed", equipmentByTarget.destroyed, packet.equipment.destroyed],
+    ["disabled", equipmentByTarget.disabled, packet.equipment.disabled],
+    ["damaged", equipmentByTarget.damaged, packet.equipment.damaged]
+  ] as const;
+  checks.forEach(([label, actual, expected]) => {
+    if (actual !== expected) {
+      throw new Error(
+        `${outcome.attackerType}->${outcome.defenderType} transition ledger ${label} count ${actual} did not match packet count ${expected}.`
+      );
+    }
+  });
+}
+
 function resolveBattlefieldPacket(
   attackerType: UnitKey,
   defenderType: UnitKey,
@@ -476,6 +515,7 @@ function pushCsvRow(csvRows: string[], outcome: MatrixOutcome): void {
     packet ? Math.round(packet.suppression) : "",
     packet ? packet.fortificationDamage.toFixed(2) : "",
     packet ? describeDamagePacket(packet) : "",
+    packet ? describeStatusTransitions(packet.statusTransitions) : "",
     weaponBreakdown(packet)
   ].map(csvValue).join(","));
 }
@@ -600,6 +640,77 @@ registerTest("UNIT_STATUS_PLATFORM_DAMAGE_LOSS_DOES_NOT_DECLINE_FROM_EXISTING_DA
     }
     if (damagedLoss < freshLoss - 3) {
       throw new Error(`Existing platform damage should not dampen the same follow-up packet. Fresh ${freshLoss}, damaged ${damagedLoss}.`);
+    }
+  });
+});
+
+registerTest("DAMAGED_PLATFORM_PREVIEWS_EXPLAIN_LOWER_INCREMENTAL_LOSS_WITH_TRANSITIONS", async ({ Given, When, Then }) => {
+  const artilleryHex: Axial = { q: -10, r: 0 };
+  const freshTarget = makeUnit("Supply_Truck", defenderHex, "howitzer-fresh-supply");
+  const damagedTarget = makeUnit("Supply_Truck", defenderHex, "howitzer-damaged-supply");
+  const howitzer = makeUnit("Howitzer_105", artilleryHex, "howitzer-transition-attacker");
+  let freshPacket: DamagePacket | null = null;
+  let damagedPacket: DamagePacket | null = null;
+
+  await Given("one fresh and one already-damaged supply convoy are both under the same howitzer mission", async () => {
+    applyDamagePacketToUnit(damagedTarget, {
+      personnel: { injured: 20, wounded: 0, severelyWounded: 0, killed: 0 },
+      equipment: { damaged: 6, disabled: 0, destroyed: 0 },
+      suppression: 0,
+      fortificationDamage: 0,
+      readinessLoss: 0,
+      weaponHits: []
+    });
+    const damagedSummary = summarizeFormationStatus(damagedTarget.status, damagedTarget.strength);
+    if (damagedSummary.readiness > 60 || damagedSummary.readiness < 45) {
+      throw new Error(`Expected the damaged convoy to mirror a roughly half-strength target, got ${damagedSummary.readiness}.`);
+    }
+  });
+
+  await When("the same howitzer attack is projected against each target", async () => {
+    const freshResult = resolveAttack(makeRequest(howitzer, freshTarget));
+    freshPacket = resolveDamagePacket({
+      attacker: howitzer,
+      attackerDefinition: unitTypes.Howitzer_105,
+      attackerHex: artilleryHex,
+      defender: freshTarget,
+      defenderDefinition: unitTypes.Supply_Truck,
+      defenderHex,
+      attackResult: freshResult,
+      targetFacing: freshTarget.facing,
+      effectScalar: 3
+    });
+
+    const damagedResult = resolveAttack(makeRequest(howitzer, damagedTarget));
+    damagedPacket = resolveDamagePacket({
+      attacker: howitzer,
+      attackerDefinition: unitTypes.Howitzer_105,
+      attackerHex: artilleryHex,
+      defender: damagedTarget,
+      defenderDefinition: unitTypes.Supply_Truck,
+      defenderHex,
+      attackResult: damagedResult,
+      targetFacing: damagedTarget.facing,
+      effectScalar: 3
+    });
+  });
+
+  await Then("the packet exposes whether headline effects are fresh hits or worsening existing damage", async () => {
+    if (!freshPacket || !damagedPacket) {
+      throw new Error("Expected both howitzer/supply packets to resolve.");
+    }
+    const freshTransitions = describeStatusTransitions(freshPacket.statusTransitions);
+    const damagedTransitions = describeStatusTransitions(damagedPacket.statusTransitions);
+    if (!freshTransitions.includes("operational->")) {
+      throw new Error(`Fresh convoy packet should record fresh equipment hits, got ${freshTransitions}.`);
+    }
+    if (!damagedTransitions.includes("damaged->")) {
+      throw new Error(`Damaged convoy packet should record worsening of existing equipment damage, got ${damagedTransitions}.`);
+    }
+    if (damagedPacket.readinessLoss < freshPacket.readinessLoss - 3 && !describeDamagePacket(damagedPacket).includes("worsened existing damage")) {
+      throw new Error(
+        `Lower follow-up loss must be explained by transition detail. Fresh ${describeDamagePacket(freshPacket)}, damaged ${describeDamagePacket(damagedPacket)}.`
+      );
     }
   });
 });
@@ -884,6 +995,7 @@ registerTest("UNIT_DAMAGE_MATRIX_ONE_HEX_BALANCE_HARNESS", async ({ Given, When,
       "suppression",
       "fortificationDamage",
       "description",
+      "statusTransitions",
       "weaponBreakdown"
     ].map(csvValue).join(",")
   ];
@@ -930,6 +1042,7 @@ registerTest("UNIT_DAMAGE_MATRIX_ONE_HEX_BALANCE_HARNESS", async ({ Given, When,
   await Then("eligible cells use status-pool damage and impossible pairings stay blocked", async () => {
     outcomes.forEach((outcome) => {
       expectStatusDeltaMatchesPacket(outcome);
+      expectTransitionLedgerMatchesPacket(outcome);
       if (!outcome.packet || !outcome.scaledAttackResult) {
         return;
       }

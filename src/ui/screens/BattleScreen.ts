@@ -532,6 +532,21 @@ export class BattleScreen {
     return damage.damageTypesUsed.map((type) => this.toTitleCase(type)).join(", ");
   }
 
+  private formatStatusTransitions(damage: CombatDamageSummary | null | undefined): string {
+    const transitions = damage?.statusTransitions;
+    if (!transitions) {
+      return "No status shifts";
+    }
+    const parts: string[] = [];
+    transitions.personnel
+      .filter((entry) => entry.count > 0)
+      .forEach((entry) => parts.push(`${entry.count} ${entry.from}->${entry.to}`));
+    transitions.equipment
+      .filter((entry) => entry.count > 0)
+      .forEach((entry) => parts.push(`${entry.count} ${entry.from}->${entry.to}`));
+    return parts.length > 0 ? parts.join(", ") : "No status shifts";
+  }
+
   private renderReadinessProjectionRows(damage: CombatDamageSummary | null | undefined): string {
     if (!damage) {
       return "";
@@ -567,6 +582,10 @@ export class BattleScreen {
         <div class="damage-projection-row">
           <span>Equipment effects</span>
           <strong>${this.escapeHtml(this.formatEquipmentDelta(damage))}</strong>
+        </div>
+        <div class="damage-projection-row">
+          <span>Status shifts</span>
+          <strong>${this.escapeHtml(this.formatStatusTransitions(damage))}</strong>
         </div>
       </div>
     `;
@@ -836,6 +855,7 @@ export class BattleScreen {
     const targetEquipmentEffects = this.formatEquipmentDelta(preview.projectedDamage);
     const targetComponentEffects = this.formatComponentDelta(preview.projectedDamage);
     const targetDamageTypes = this.formatDamageTypes(preview.projectedDamage);
+    const targetStatusTransitions = this.formatStatusTransitions(preview.projectedDamage);
     const lowLethalityNote = expectedHitsValue > 0 && projectedTargetDamage <= 0
       ? "Low-probability volley: suppression is likely, but confirmed losses are unlikely without more hits."
       : null;
@@ -1101,6 +1121,7 @@ export class BattleScreen {
                 <p><strong>Projected Status Effects:</strong> ${this.escapeHtml(projectedTargetSummary)}</p>
                 <p><strong>Personnel Effects:</strong> ${this.escapeHtml(targetPersonnelEffects)}</p>
                 <p><strong>Equipment Effects:</strong> ${this.escapeHtml(targetEquipmentEffects)}</p>
+                <p><strong>Status Shifts:</strong> ${this.escapeHtml(targetStatusTransitions)}</p>
                 <p><strong>Component Effects:</strong> ${this.escapeHtml(targetComponentEffects)}</p>
                 <p><strong>Damage Types:</strong> ${this.escapeHtml(targetDamageTypes)}</p>
                 ${this.renderWeaponStatusEffects(preview.projectedDamage)}
@@ -12953,6 +12974,7 @@ export class BattleScreen {
       const facingArmor = Math.round(preview.result.facingArmor);
       const personnelEffects = this.formatPersonnelDelta(preview.projectedDamage);
       const equipmentEffects = this.formatEquipmentDelta(preview.projectedDamage);
+      const statusShifts = this.formatStatusTransitions(preview.projectedDamage);
 
       sections.push({
         title: "Preview Odds",
@@ -12964,6 +12986,7 @@ export class BattleScreen {
           { label: "Projected Return Fire", value: preview.retaliationPossible ? `${projectedRetaliation}%` : "None" },
           { label: "Personnel Effects", value: personnelEffects },
           { label: "Equipment Effects", value: equipmentEffects },
+          { label: "Status Shifts", value: statusShifts },
           { label: "Armor Penetration", value: `${effectiveAP} vs ${facingArmor} armor` }
         ]
       });
@@ -12999,6 +13022,10 @@ export class BattleScreen {
         {
           label: "Target Effects",
           value: resolution.defenderDamage?.summary ?? "--"
+        },
+        {
+          label: "Applied Status Shifts",
+          value: this.formatStatusTransitions(resolution.defenderDamage)
         },
         {
           label: "Defender Remaining",

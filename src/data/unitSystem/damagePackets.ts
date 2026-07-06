@@ -43,6 +43,28 @@ export interface EquipmentDamageDelta {
   destroyed: number;
 }
 
+export type PersonnelTransitionSource = "fit" | "injured" | "wounded" | "severelyWounded";
+export type PersonnelTransitionTarget = "injured" | "wounded" | "severelyWounded" | "killed";
+export type EquipmentTransitionSource = "operational" | "damaged" | "disabled";
+export type EquipmentTransitionTarget = "damaged" | "disabled" | "destroyed";
+
+export interface PersonnelStatusTransitionDelta {
+  readonly from: PersonnelTransitionSource;
+  readonly to: PersonnelTransitionTarget;
+  readonly count: number;
+}
+
+export interface EquipmentStatusTransitionDelta {
+  readonly from: EquipmentTransitionSource;
+  readonly to: EquipmentTransitionTarget;
+  readonly count: number;
+}
+
+export interface DamageStatusTransitions {
+  readonly personnel: readonly PersonnelStatusTransitionDelta[];
+  readonly equipment: readonly EquipmentStatusTransitionDelta[];
+}
+
 /**
  * Component-specific damage tracks which vehicle systems were affected by combat.
  * Enables detailed repair tracking and component-specific vulnerability.
@@ -93,6 +115,8 @@ export interface DamagePacket {
   componentDamage?: ComponentDamageDelta;
   /** Set of damage types that contributed to this packet (for activity logging). */
   damageTypesUsed?: ReadonlySet<WeaponDamageType>;
+  /** Exact status shifts applied by the packet so readiness changes can be audited. */
+  statusTransitions?: DamageStatusTransitions;
 }
 
 export interface DamagePacketRequest {
@@ -416,11 +440,11 @@ function suppressionExposureScalar(group: WeaponShotGroup, defender: UnitTypeDef
 }
 
 type PersonnelDamageKey = keyof PersonnelDamageDelta;
-type PersonnelSourceKey = "fit" | "injured" | "wounded" | "severelyWounded";
-type PersonnelTargetKey = "injured" | "wounded" | "severelyWounded" | "killed";
+type PersonnelSourceKey = PersonnelTransitionSource;
+type PersonnelTargetKey = PersonnelTransitionTarget;
 type EquipmentDamageKey = keyof EquipmentDamageDelta;
-type EquipmentSourceKey = "operational" | "damaged" | "disabled";
-type EquipmentTargetKey = "damaged" | "disabled" | "destroyed";
+type EquipmentSourceKey = EquipmentTransitionSource;
+type EquipmentTargetKey = EquipmentTransitionTarget;
 type PersonnelTransition = {
   readonly sources: readonly PersonnelSourceKey[];
   readonly target: PersonnelTargetKey;
@@ -466,6 +490,58 @@ const EQUIPMENT_TRANSITIONS: Record<EquipmentDamageKey, EquipmentTransition> = {
   },
   damaged: { sources: ["operational"], target: "damaged", sourceWeights: { operational: 1 } }
 };
+
+interface MutableDamageStatusTransitions {
+  personnel: PersonnelStatusTransitionDelta[];
+  equipment: EquipmentStatusTransitionDelta[];
+}
+
+function createEmptyStatusTransitions(): MutableDamageStatusTransitions {
+  return {
+    personnel: [],
+    equipment: []
+  };
+}
+
+function addPersonnelStatusTransition(
+  transitions: MutableDamageStatusTransitions | undefined,
+  from: PersonnelTransitionSource,
+  to: PersonnelTransitionTarget,
+  count: number
+): void {
+  if (!transitions || count <= 0) {
+    return;
+  }
+  const existing = transitions.personnel.find((entry) => entry.from === from && entry.to === to);
+  if (existing) {
+    transitions.personnel[transitions.personnel.indexOf(existing)] = {
+      ...existing,
+      count: existing.count + count
+    };
+    return;
+  }
+  transitions.personnel.push({ from, to, count });
+}
+
+function addEquipmentStatusTransition(
+  transitions: MutableDamageStatusTransitions | undefined,
+  from: EquipmentTransitionSource,
+  to: EquipmentTransitionTarget,
+  count: number
+): void {
+  if (!transitions || count <= 0) {
+    return;
+  }
+  const existing = transitions.equipment.find((entry) => entry.from === from && entry.to === to);
+  if (existing) {
+    transitions.equipment[transitions.equipment.indexOf(existing)] = {
+      ...existing,
+      count: existing.count + count
+    };
+    return;
+  }
+  transitions.equipment.push({ from, to, count });
+}
 
 function countEquipmentDelta(delta: EquipmentDamageDelta): number {
   return delta.destroyed + delta.disabled + delta.damaged;
@@ -569,7 +645,8 @@ function allocateSourceTransitions<SourceKey extends string>(
 function applyPersonnelTransitionToPool(
   pool: PersonnelStatusPool,
   amount: number,
-  transition: PersonnelTransition
+  transition: PersonnelTransition,
+  transitions?: MutableDamageStatusTransitions
 ): number {
   let applied = 0;
   const allocations = allocateSourceTransitions(
@@ -582,6 +659,7 @@ function applyPersonnelTransitionToPool(
     const taken = Math.min(Math.max(0, pool[source]), allocations[index] ?? 0);
     pool[source] -= taken;
     pool[transition.target] += taken;
+    addPersonnelStatusTransition(transitions, source, transition.target, taken);
     applied += taken;
   });
   return applied;
@@ -599,7 +677,8 @@ function eligibleEquipmentForTransition(
 function applyEquipmentTransitionToPool(
   pool: VehicleStatusPool,
   amount: number,
-  transition: EquipmentTransition
+  transition: EquipmentTransition,
+  transitions?: MutableDamageStatusTransitions
 ): number {
   let applied = 0;
   const allocations = allocateSourceTransitions(
@@ -612,6 +691,7 @@ function applyEquipmentTransitionToPool(
     const taken = Math.min(Math.max(0, pool[source]), allocations[index] ?? 0);
     pool[source] -= taken;
     pool[transition.target] += taken;
+    addEquipmentStatusTransition(transitions, source, transition.target, taken);
     applied += taken;
   });
   return applied;
@@ -943,8 +1023,9 @@ export function resolveDamagePacket(request: DamagePacketRequest): DamagePacket 
   });
 
   const capStatus = structuredClone(status);
-  const appliedPersonnel = applyPersonnelDelta(capStatus, personnel);
-  const appliedEquipment = applyEquipmentDelta(capStatus, equipment);
+  const statusTransitions = createEmptyStatusTransitions();
+  const appliedPersonnel = applyPersonnelDelta(capStatus, personnel, statusTransitions);
+  const appliedEquipment = applyEquipmentDelta(capStatus, equipment, statusTransitions);
   const appliedWeaponHits = alignWeaponHitsToAppliedDamage(weaponHits, appliedPersonnel, equipment, appliedEquipment);
   const appliedComponentDamage = aggregateComponentDamage(appliedWeaponHits);
 
@@ -957,7 +1038,8 @@ export function resolveDamagePacket(request: DamagePacketRequest): DamagePacket 
     readinessLoss,
     weaponHits: appliedWeaponHits,
     componentDamage: appliedComponentDamage,
-    damageTypesUsed
+    damageTypesUsed,
+    statusTransitions
   };
 }
 
@@ -1125,7 +1207,11 @@ function scaleEquipmentDeltaToCapacity(delta: EquipmentDamageDelta, capacity: nu
   }, totalRequested, maxCapacity);
 }
 
-function applyPersonnelDelta(status: FormationStatus, delta: PersonnelDamageDelta): PersonnelDamageDelta {
+function applyPersonnelDelta(
+  status: FormationStatus,
+  delta: PersonnelDamageDelta,
+  transitions?: MutableDamageStatusTransitions
+): PersonnelDamageDelta {
   const applied: PersonnelDamageDelta = { ...EMPTY_PERSONNEL_DELTA };
   const capacity = livingPersonnel(status);
   const accumulated = roundPersonnelDeltaPreservingMass(delta);
@@ -1140,7 +1226,7 @@ function applyPersonnelDelta(status: FormationStatus, delta: PersonnelDamageDelt
     const allocations = allocate(amount, pools.map((pool) => eligiblePersonnelForTransition(pool, transition)));
     let transitionApplied = 0;
     pools.forEach((pool, index) => {
-      transitionApplied += applyPersonnelTransitionToPool(pool, allocations[index] ?? 0, transition);
+      transitionApplied += applyPersonnelTransitionToPool(pool, allocations[index] ?? 0, transition, transitions);
     });
     return transitionApplied;
   };
@@ -1154,7 +1240,11 @@ function applyPersonnelDelta(status: FormationStatus, delta: PersonnelDamageDelt
   return applied;
 }
 
-function applyEquipmentDelta(status: FormationStatus, delta: EquipmentDamageDelta): EquipmentDamageDelta {
+function applyEquipmentDelta(
+  status: FormationStatus,
+  delta: EquipmentDamageDelta,
+  transitions?: MutableDamageStatusTransitions
+): EquipmentDamageDelta {
   const applied: EquipmentDamageDelta = { ...EMPTY_EQUIPMENT_DELTA };
   const capacity = nonDestroyedEquipment(status);
   const requested = scaleEquipmentDeltaToCapacity(roundEquipmentDeltaPreservingMass(delta), capacity);
@@ -1168,7 +1258,7 @@ function applyEquipmentDelta(status: FormationStatus, delta: EquipmentDamageDelt
     const allocations = allocate(amount, pools.map((pool) => eligibleEquipmentForTransition(pool, transition)));
     let transitionApplied = 0;
     pools.forEach((pool, index) => {
-      transitionApplied += applyEquipmentTransitionToPool(pool, allocations[index] ?? 0, transition);
+      transitionApplied += applyEquipmentTransitionToPool(pool, allocations[index] ?? 0, transition, transitions);
     });
     return transitionApplied;
   };
@@ -1249,6 +1339,42 @@ function formatReadinessLoss(value: number): string {
   return Math.abs(value * 10 - Math.round(value * 10)) < 0.001 ? value.toFixed(1) : value.toFixed(2);
 }
 
+function formatTransitionCount(count: number): string {
+  return Number.isInteger(count) ? count.toFixed(0) : count.toFixed(1);
+}
+
+export function describeStatusTransitions(transitions: DamageStatusTransitions | undefined): string {
+  if (!transitions) {
+    return "";
+  }
+  const parts: string[] = [];
+  transitions.personnel.forEach((entry) => {
+    if (entry.count > 0) {
+      parts.push(`${formatTransitionCount(entry.count)} ${entry.from}->${entry.to}`);
+    }
+  });
+  transitions.equipment.forEach((entry) => {
+    if (entry.count > 0) {
+      parts.push(`${formatTransitionCount(entry.count)} ${entry.from}->${entry.to}`);
+    }
+  });
+  return parts.join(", ");
+}
+
+function describeWorseningTransitions(transitions: DamageStatusTransitions | undefined): string {
+  if (!transitions) {
+    return "";
+  }
+  const parts: string[] = [];
+  transitions.personnel
+    .filter((entry) => entry.count > 0 && entry.from !== "fit")
+    .forEach((entry) => parts.push(`${formatTransitionCount(entry.count)} ${entry.from}->${entry.to}`));
+  transitions.equipment
+    .filter((entry) => entry.count > 0 && entry.from !== "operational")
+    .forEach((entry) => parts.push(`${formatTransitionCount(entry.count)} ${entry.from}->${entry.to}`));
+  return parts.join(", ");
+}
+
 export function describeDamagePacket(packet: DamagePacket): string {
   const personnelBits: string[] = [];
   if (packet.personnel.killed > 0) personnelBits.push(`${packet.personnel.killed} KIA`);
@@ -1264,5 +1390,9 @@ export function describeDamagePacket(packet: DamagePacket): string {
     equipmentBits.length > 0 ? equipmentBits.join(", ") : "no equipment losses",
     `readiness -${formatReadinessLoss(packet.readinessLoss)}`
   ];
+  const worsening = describeWorseningTransitions(packet.statusTransitions);
+  if (worsening) {
+    parts.push(`worsened existing damage: ${worsening}`);
+  }
   return parts.join("; ");
 }

@@ -14,6 +14,7 @@ import type {
 } from "../core/types";
 import type {
   ComponentDamageDelta,
+  DamageStatusTransitions,
   EquipmentDamageDelta,
   PersonnelDamageDelta
 } from "../data/unitSystem/damagePackets";
@@ -38,6 +39,8 @@ export interface DamageRecord {
   equipment: EquipmentDamageDelta;
   /** Component-specific damage */
   componentDamage: ComponentDamageDelta;
+  /** Exact source-to-target status shifts applied by this engagement. */
+  statusTransitions?: DamageStatusTransitions;
   /** Damage types received */
   damageTypes: WeaponDamageType[];
   /** Suppression applied */

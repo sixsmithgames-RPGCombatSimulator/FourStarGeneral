@@ -797,7 +797,10 @@ export class TacticalAnalysisEngine {
     for (const attack of move.attackOpportunities) {
       const targetIndex = newState.playerUnits.findIndex(u => u.unit.unitId === attack.target.unit.unitId);
       if (targetIndex >= 0) {
-        newState.playerUnits[targetIndex].unit.strength -= attack.expectedDamage;
+        const currentStrength = newState.playerUnits[targetIndex].unit.strength;
+        // Planner lookahead works on cloned heuristic snapshots only. Live combat must use
+        // GameEngine's status-pool damage packets so casualties and equipment states stay authoritative.
+        newState.playerUnits[targetIndex].unit.strength = Math.max(0, currentStrength - attack.expectedDamage);
       }
     }
 

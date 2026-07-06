@@ -394,6 +394,7 @@ export interface CombatDamageSummary {
   readonly weaponHits: DamagePacket["weaponHits"];
   readonly componentDamage?: DamagePacket["componentDamage"];
   readonly damageTypesUsed: readonly string[];
+  readonly statusTransitions?: DamagePacket["statusTransitions"];
   readonly summary: string;
 }
 
@@ -6317,7 +6318,13 @@ private automateSupplyConvoys(
             destroyed: { ...packet.componentDamage.destroyed }
           }
         : undefined,
-      damageTypesUsed: new Set(packet.damageTypesUsed ?? [])
+      damageTypesUsed: new Set(packet.damageTypesUsed ?? []),
+      statusTransitions: packet.statusTransitions
+        ? {
+            personnel: packet.statusTransitions.personnel.map((entry) => ({ ...entry })),
+            equipment: packet.statusTransitions.equipment.map((entry) => ({ ...entry }))
+          }
+        : undefined
     };
     return {
       strengthBefore: before.strength,
@@ -6332,6 +6339,7 @@ private automateSupplyConvoys(
       weaponHits: normalizedPacket.weaponHits,
       componentDamage: normalizedPacket.componentDamage,
       damageTypesUsed: Array.from(normalizedPacket.damageTypesUsed ?? []),
+      statusTransitions: normalizedPacket.statusTransitions,
       summary: describeDamagePacket(normalizedPacket)
     };
   }
@@ -6473,6 +6481,7 @@ private automateSupplyConvoys(
       personnel: packet.personnel,
       equipment: packet.equipment,
       componentDamage: packet.componentDamage ?? { damaged: {}, disabled: {}, destroyed: {} },
+      statusTransitions: packet.statusTransitions,
       damageTypes: Array.from(packet.damageTypesUsed ?? []),
       suppression: packet.suppression,
       readinessAfter: defenderStatusSummary.readiness,
@@ -8605,10 +8614,9 @@ private automateSupplyConvoys(
       const strikeDamageCap = this.resolveSupportStrikeDamageCap(asset);
       if (defender) {
         targetUnitType = defender.type;
-        damage = Math.min(Math.max(0, Math.round(defender.strength)), strikeDamageCap);
-        const updatedDefender = structuredClone(defender);
-        updatedDefender.strength = Math.max(0, defender.strength - damage);
-        this.reconcileUnitStatusToStrength(updatedDefender);
+        const strike = this.resolveSupportStrikeDamage(asset, defender, targetHex, strikeDamageCap);
+        const updatedDefender = strike.unit;
+        damage = strike.damage.readinessLoss;
         if (updatedDefender.strength <= 0) {
           destroyed = true;
           this.botPlacements.delete(targetKey);
@@ -8654,6 +8662,158 @@ private automateSupplyConvoys(
       return Math.max(1, Math.round(asset.strikeDamageCap));
     }
     return 22;
+  }
+
+  private resolveSupportStrikeUnitType(asset: InternalSupportAsset): ScenarioUnit["type"] {
+    return (asset.type === "air" ? "Bomber" : "Howitzer_105") as ScenarioUnit["type"];
+  }
+
+  private buildSupportStrikeAttacker(asset: InternalSupportAsset, targetHex: Axial): {
+    readonly unit: ScenarioUnit;
+    readonly definition: UnitTypeDefinition;
+    readonly hex: Axial;
+  } {
+    const type = this.resolveSupportStrikeUnitType(asset);
+    const definition = this.getUnitDefinition(type);
+    const standOffRange = Math.max(3, Math.min(definition.rangeMax || 8, 8));
+    const hex = { q: targetHex.q, r: targetHex.r - standOffRange };
+    const unit: ScenarioUnit = {
+      type,
+      hex,
+      strength: 100,
+      experience: 1,
+      ammo: Math.max(1, definition.ammo),
+      fuel: Math.max(0, definition.fuel),
+      entrench: 0,
+      facing: "SE",
+      unitId: `${asset.id}-fire-mission`
+    };
+    unit.formationKey = this.inferFormationKeyForUnit(unit);
+    return { unit, definition, hex };
+  }
+
+  private buildSupportStrikeAttackResult(
+    attackerDefinition: UnitTypeDefinition,
+    defenderDefinition: UnitTypeDefinition,
+    shots: number,
+    accuracy: number
+  ): AttackResult {
+    const boundedShots = Math.max(0, shots);
+    const boundedAccuracy = Math.max(0, Math.min(95, accuracy));
+    const expectedHits = boundedShots * (boundedAccuracy / 100);
+    const damagePerHit = expectedHits > 0
+      ? Math.max(attackerDefinition.softAttack, attackerDefinition.hardAttack, 1) / expectedHits
+      : 0;
+    const damageBreakdown = {
+      baseTableValue: damagePerHit,
+      experienceScalar: 1,
+      afterExperience: damagePerHit,
+      commanderScalar: 1,
+      final: damagePerHit
+    };
+    return {
+      accuracy: boundedAccuracy,
+      shots: boundedShots,
+      damagePerHit,
+      expectedHits,
+      layeredHits: {
+        targetAreaEffects: boundedShots,
+        effectiveContacts: expectedHits,
+        nonEffectContacts: 0,
+        softComponentContacts: 0,
+        penetratingContacts: 0,
+        areaEffectContacts: expectedHits
+      },
+      expectedDamage: expectedHits * damagePerHit,
+      expectedSuppression: expectedHits,
+      effectiveAP: attackerDefinition.ap ?? 0,
+      facingArmor: defenderDefinition.armor.top,
+      accuracyBreakdown: {
+        baseRange: boundedAccuracy,
+        commanderScalar: 1,
+        afterCommander: boundedAccuracy,
+        experienceScalar: 1,
+        afterExperience: boundedAccuracy,
+        terrainModifier: 0,
+        terrainMultiplier: 1,
+        afterTerrain: boundedAccuracy,
+        spottedMultiplier: 1,
+        finalPreClamp: boundedAccuracy,
+        final: boundedAccuracy
+      },
+      damageBreakdown,
+      shotBreakdown: {
+        theoreticalProfileShots: boundedShots,
+        formationScalar: 1,
+        strengthScalar: 1,
+        posture: "deployedBattery",
+        postureScalar: 1,
+        movementScalar: 1,
+        suppressionState: "clear",
+        suppressionScalar: 1,
+        finalScalar: 1,
+        final: boundedShots
+      }
+    };
+  }
+
+  private previewSupportStrikeDamage(
+    asset: InternalSupportAsset,
+    defender: ScenarioUnit,
+    defenderDefinition: UnitTypeDefinition,
+    targetHex: Axial,
+    effectScalar: number
+  ): { readonly unit: ScenarioUnit; readonly damage: CombatDamageSummary } {
+    const strikeAttacker = this.buildSupportStrikeAttacker(asset, targetHex);
+    const baseShots = strikeAttacker.definition.weaponModel?.groups.reduce((sum, group) => sum + Math.max(0, group.shots), 0) ?? 0;
+    const shotScalar = asset.type === "air" ? 0.9 : 1;
+    const accuracy = asset.type === "air" ? 42 : 46;
+    const attackResult = this.buildSupportStrikeAttackResult(
+      strikeAttacker.definition,
+      defenderDefinition,
+      baseShots * shotScalar,
+      accuracy
+    );
+    return this.previewCombatDamageToUnit(
+      strikeAttacker.unit,
+      strikeAttacker.definition,
+      defender,
+      defenderDefinition,
+      attackResult,
+      strikeAttacker.hex,
+      targetHex,
+      effectScalar,
+      1
+    );
+  }
+
+  private resolveSupportStrikeDamage(
+    asset: InternalSupportAsset,
+    defender: ScenarioUnit,
+    targetHex: Axial,
+    readinessCap: number
+  ): { readonly unit: ScenarioUnit; readonly damage: CombatDamageSummary } {
+    const defenderDefinition = this.getUnitDefinition(defender.type);
+    const cap = Math.max(0, readinessCap);
+    const full = this.previewSupportStrikeDamage(asset, defender, defenderDefinition, targetHex, 1);
+    if (full.damage.readinessLoss <= cap) {
+      return full;
+    }
+
+    let low = 0;
+    let high = 1;
+    let best = this.previewSupportStrikeDamage(asset, defender, defenderDefinition, targetHex, 0);
+    for (let i = 0; i < 10; i += 1) {
+      const mid = (low + high) / 2;
+      const candidate = this.previewSupportStrikeDamage(asset, defender, defenderDefinition, targetHex, mid);
+      if (candidate.damage.readinessLoss <= cap) {
+        best = candidate;
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+    return best;
   }
 
   private ensureIntelBriefStatesForSnapshot(snapshot: ReconIntelSnapshot): void {
@@ -13138,7 +13298,8 @@ private automateSupplyConvoys(
     if (!req) {
       return null;
     }
-    let result = resolveAttack(req);
+    const baseResult = resolveAttack(req);
+    let result = baseResult;
 
     const atkDef = attacker.definition;
     const defDef = defender.definition;
@@ -13152,7 +13313,17 @@ private automateSupplyConvoys(
       result = { ...result, damagePerHit: result.damagePerHit * 4, expectedDamage: result.expectedDamage * 4, expectedSuppression: result.expectedSuppression * 4 };
     }
 
-    const expectedDamage = Math.max(0, Math.round(result.expectedDamage));
+    const damageProjection = this.previewCombatDamageToUnit(
+      atkUnit,
+      atkDef,
+      defUnit,
+      defDef,
+      result,
+      attackerHex,
+      defenderHex,
+      this.resolveDamageEffectScalar(baseResult, result)
+    );
+    const expectedDamage = damageProjection.damage.readinessLoss;
 
     let expectedRetaliation = 0;
     if (!(atkIsAir && !defIsAir) && !this.isRetaliationBlockedByTowState(defUnit)) {
@@ -13167,7 +13338,8 @@ private automateSupplyConvoys(
           isOnSentry: defUnit.onSentry === true
         });
         if (revReq) {
-          let rev = resolveAttack(revReq);
+          const baseRev = resolveAttack(revReq);
+          let rev = baseRev;
           const defIsBomber = this.isBomber(defDef);
           const defIsAirUnit = defDef.moveType === "air";
           const atkIsAirUnit = atkDef.moveType === "air";
@@ -13176,7 +13348,17 @@ private automateSupplyConvoys(
           } else if (defIsAirUnit && !defIsBomber && atkIsAirUnit) {
             rev = { ...rev, damagePerHit: rev.damagePerHit * 4, expectedDamage: rev.expectedDamage * 4, expectedSuppression: rev.expectedSuppression * 4 };
           }
-          expectedRetaliation = Math.max(0, Math.round(rev.expectedDamage));
+          const retaliationProjection = this.previewCombatDamageToUnit(
+            defUnit,
+            defDef,
+            atkUnit,
+            atkDef,
+            rev,
+            defenderHex,
+            attackerHex,
+            this.resolveDamageEffectScalar(baseRev, rev)
+          );
+          expectedRetaliation = retaliationProjection.damage.readinessLoss;
         }
       }
     }
@@ -14493,8 +14675,19 @@ private automateSupplyConvoys(
     }
     const attackerDef = this.getUnitDefinition(attacker.type);
     const targetDef = this.getUnitDefinition(target.type);
-    const scaled = this.scaleAirMissionAttackResult(resolveAttack(req), attackerDef, targetDef);
-    return Math.max(0, Math.round(scaled.expectedDamage));
+    const baseResult = resolveAttack(req);
+    const scaled = this.scaleAirMissionAttackResult(baseResult, attackerDef, targetDef);
+    const projection = this.previewCombatDamageToUnit(
+      attacker,
+      attackerDef,
+      target,
+      targetDef,
+      scaled,
+      attacker.hex,
+      target.hex,
+      this.resolveDamageEffectScalar(baseResult, scaled)
+    );
+    return projection.damage.readinessLoss;
   }
 
   /**

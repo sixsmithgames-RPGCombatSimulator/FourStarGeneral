@@ -1,5 +1,7 @@
 import { registerTest } from "./harness.js";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
+import { unitTypesData } from "../src/data/unitSystem/derivedUnitTypes";
+import { summarizeFormationStatus } from "../src/data/unitSystem/damagePackets";
 import type {
   ScenarioData,
   ScenarioSide,
@@ -61,7 +63,9 @@ const supplyTruckDef: UnitTypeDefinition = {
 
 const unitTypes: UnitTypeDictionary = {
   TestInfantry: infantryDef,
-  Supply_Truck: supplyTruckDef
+  Supply_Truck: supplyTruckDef,
+  Howitzer_105: unitTypesData.Howitzer_105,
+  Bomber: unitTypesData.Bomber
 } as unknown as UnitTypeDictionary;
 
 function side(hq = { q: 0, r: 0 }, units: ScenarioUnit[] = []): ScenarioSide {
@@ -282,4 +286,60 @@ registerTest("ARTILLERY_QUEUE_CHECKS_MOVEMENT_SPEND_ON_THE_CALLER_UNIT_ID", asyn
   }
 
   await Then("artillery queue gating follows the caller unit action flags instead of a raw hex key", () => {});
+});
+
+registerTest("QUEUED_ARTILLERY_SUPPORT_DAMAGE_USES_STATUS_POOLS", async ({ Then }) => {
+  const observer: ScenarioUnit = {
+    type: "TestInfantry" as unknown as ScenarioUnit["type"],
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 0,
+    entrench: 0,
+    facing: "NE" as ScenarioUnit["facing"]
+  };
+  const enemy: ScenarioUnit = {
+    type: "Supply_Truck" as unknown as ScenarioUnit["type"],
+    hex: { q: 3, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 0,
+    fuel: 60,
+    entrench: 0,
+    facing: "SW" as ScenarioUnit["facing"]
+  };
+
+  const engine = createEngine([observer], [enemy]);
+  const supportAsset = engine.getSupportSnapshot().ready.find((asset) => asset.type === "artillery");
+  if (!supportAsset) {
+    throw new Error("Expected a ready artillery support asset for status-pool damage validation.");
+  }
+  if (!engine.queueSupportActionFromUnit(observer.hex, supportAsset.id, enemy.hex)) {
+    throw new Error("Expected observer to queue artillery support against the supply truck.");
+  }
+
+  engine.endTurn();
+  const impact = engine.consumeSupportImpactEvents()[0];
+  if (!impact || impact.damage <= 0 || impact.damage > (supportAsset.strikeDamageCap ?? 24)) {
+    throw new Error(`Expected a capped nonzero support impact event, received ${JSON.stringify(impact)}.`);
+  }
+
+  const updatedEnemy = engine.botUnits.find((unit: ScenarioUnit) => unit.hex.q === enemy.hex.q && unit.hex.r === enemy.hex.r);
+  if (!updatedEnemy) {
+    throw new Error("Expected the support strike to damage, not remove, the supply truck in this guardrail scenario.");
+  }
+  const statusSummary = summarizeFormationStatus(updatedEnemy.status, updatedEnemy.strength);
+  const derivedLoss = Math.round((100 - statusSummary.readiness) * 100) / 100;
+  const personnelEvents = statusSummary.personnel.casualties;
+  const equipmentEvents = statusSummary.equipment.damaged + statusSummary.equipment.disabled + statusSummary.equipment.destroyed;
+
+  if (Math.abs(derivedLoss - impact.damage) > 0.01) {
+    throw new Error(`Expected support impact damage to match status-derived readiness loss, event=${impact.damage}, derived=${derivedLoss}.`);
+  }
+  if (personnelEvents + equipmentEvents <= 0) {
+    throw new Error(`Expected support impact to create detailed status effects, received ${JSON.stringify(statusSummary)}.`);
+  }
+
+  await Then("queued artillery support applies detailed personnel/equipment status damage", () => {});
 });
