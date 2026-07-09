@@ -184,6 +184,14 @@ function nonDestroyedEquipment(status: FormationStatus | undefined): number {
   );
 }
 
+function activeEquipment(status: FormationStatus | undefined): number {
+  if (!status) return 0;
+  return Object.values(status.equipment).reduce(
+    (sum, pool) => sum + Math.max(0, pool.operational + pool.damaged),
+    0
+  );
+}
+
 function outcomeRound(value: number, threshold = 0.35): number {
   if (!Number.isFinite(value) || value <= 0) return 0;
   if (value < threshold) return 0;
@@ -545,6 +553,64 @@ function addEquipmentStatusTransition(
 
 function countEquipmentDelta(delta: EquipmentDamageDelta): number {
   return delta.destroyed + delta.disabled + delta.damaged;
+}
+
+function isOverrunnableDefender(defenderDefinition: UnitTypeDefinition): boolean {
+  if (defenderDefinition.moveType === "air" || defenderDefinition.class === "tank") {
+    return false;
+  }
+  if (defenderDefinition.class === "infantry" || defenderDefinition.class === "specialist") {
+    return true;
+  }
+  if (defenderDefinition.class === "artillery" || defenderDefinition.class === "recon") {
+    return true;
+  }
+  return defenderDefinition.class === "vehicle" && defenderDefinition.combat.role === "support";
+}
+
+function resolveCombatIneffectiveOverrunEquipment(
+  request: DamagePacketRequest,
+  status: FormationStatus,
+  rawEquipment: EquipmentDamageDelta
+): EquipmentDamageDelta {
+  if (!isOverrunnableDefender(request.defenderDefinition)) {
+    return { ...EMPTY_EQUIPMENT_DELTA };
+  }
+
+  const current = summarizeFormationStatus(status, request.defender.strength);
+  const equipmentStillFighting = activeEquipment(status);
+  if (
+    equipmentStillFighting <= 0 ||
+    current.equipment.total <= 0 ||
+    current.personnel.readiness > 5 ||
+    current.readiness > 15 ||
+    request.attackResult.expectedHits < 20
+  ) {
+    return { ...EMPTY_EQUIPMENT_DELTA };
+  }
+
+  const stance = resolvePacketAttackerStance(request);
+  const hitsPerEquipmentTransition = stance === "assault" ? 45 : 80;
+  const pressureEvents = Math.min(
+    equipmentStillFighting,
+    Math.max(0, Math.round(request.attackResult.expectedHits / hitsPerEquipmentTransition))
+  );
+  const roundedRawEquipment = roundEquipmentDeltaPreservingMass(rawEquipment);
+  const rawDecisiveEvents = roundedRawEquipment.destroyed + roundedRawEquipment.disabled;
+  const bonusEvents = Math.max(0, Math.min(equipmentStillFighting - rawDecisiveEvents, pressureEvents - rawDecisiveEvents));
+  if (bonusEvents <= 0) {
+    return { ...EMPTY_EQUIPMENT_DELTA };
+  }
+
+  // Once a soft/support formation's crews are already combat ineffective,
+  // concentrated follow-up fire stops creating meaningful "more wounded"
+  // results. The surviving vehicles, guns, and tools are instead abandoned,
+  // captured, or disabled under close pressure, so readiness loss must be
+  // taken from the remaining active equipment pool.
+  const destroyedShare = stance === "assault" ? 0.35 : 0.2;
+  const destroyed = Math.floor(bonusEvents * destroyedShare);
+  const disabled = Math.max(0, bonusEvents - destroyed);
+  return { destroyed, disabled, damaged: 0 };
 }
 
 function roundDamageCount(value: number): number {
@@ -1022,6 +1088,22 @@ export function resolveDamagePacket(request: DamagePacketRequest): DamagePacket 
     });
   });
 
+  const overrunEquipment = resolveCombatIneffectiveOverrunEquipment(request, status, equipment);
+  if (countEquipmentDelta(overrunEquipment) > 0) {
+    equipment = addEquipment(equipment, overrunEquipment);
+    weaponHits.push({
+      id: "combat-ineffective-overrun",
+      label: "Close Assault Overrun",
+      baseShots: 0,
+      shots: 0,
+      expectedHits: countEquipmentDelta(overrunEquipment),
+      personnel: { ...EMPTY_PERSONNEL_DELTA },
+      equipment: overrunEquipment,
+      suppression: 0,
+      fortificationDamage: 0
+    });
+  }
+
   const capStatus = structuredClone(status);
   const statusTransitions = createEmptyStatusTransitions();
   const appliedPersonnel = applyPersonnelDelta(capStatus, personnel, statusTransitions);
@@ -1063,18 +1145,25 @@ function estimateReadinessLoss(
 
 function allocate(total: number, weights: readonly number[]): number[] {
   const roundedTotal = Math.max(0, Math.round(total));
-  const weightTotal = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
+  const sanitized = weights.map((weight) => Math.max(0, Number.isFinite(weight) ? weight : 0));
+  const weightTotal = sanitized.reduce((sum, weight) => sum + weight, 0);
   if (roundedTotal <= 0 || weightTotal <= 0) {
     return weights.map(() => 0);
   }
-  let remaining = roundedTotal;
-  return weights.map((weight, index) => {
-    const value = index === weights.length - 1
-      ? remaining
-      : Math.min(remaining, Math.round((Math.max(0, weight) / weightTotal) * roundedTotal));
-    remaining -= value;
-    return value;
-  });
+
+  const raw = sanitized.map((weight) => (weight / weightTotal) * roundedTotal);
+  const allocations = raw.map((value, index) => sanitized[index]! > 0 ? Math.floor(value) : 0);
+  let used = allocations.reduce((sum, value) => sum + value, 0);
+  const remainders = raw
+    .map((value, index) => ({ index, remainder: value - Math.floor(value), weight: sanitized[index]! }))
+    .filter((entry) => entry.weight > 0)
+    .sort((left, right) => right.remainder - left.remainder || right.weight - left.weight || left.index - right.index);
+
+  for (let index = 0; used < roundedTotal && remainders.length > 0; index += 1) {
+    allocations[remainders[index % remainders.length]!.index] += 1;
+    used += 1;
+  }
+  return allocations;
 }
 
 function contactPressurePromotionBudget(totalRequested: number, capacity: number): number {

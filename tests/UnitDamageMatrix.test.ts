@@ -11,7 +11,7 @@ import type {
 } from "../src/core/types";
 import unitTypesData from "../src/data/unitSystem/derivedUnitTypes";
 import { formationList } from "../src/data/unitSystem/formations";
-import { createInitialFormationStatus, ensureFormationStatus } from "../src/data/unitSystem/status";
+import { createInitialFormationStatus, deriveStrengthFromStatus, ensureFormationStatus } from "../src/data/unitSystem/status";
 import {
   applyDamagePacketToUnit,
   describeDamagePacket,
@@ -1487,6 +1487,90 @@ registerTest("UNIT_DAMAGE_MATRIX_ONE_HEX_BALANCE_HARNESS", async ({ Given, When,
     if (secondPacket.readinessLoss < firstPacket.readinessLoss * 0.7) {
       throw new Error(
         `Repeat strikes should not lose most of their applied status damage once a unit is already hurt. First ${describeDamagePacket(firstPacket)}, second ${describeDamagePacket(secondPacket)}.`
+      );
+    }
+  });
+
+  await Then("close assaults overrun combat-ineffective engineer remnants instead of wasting hits on already-noncombat casualties", async () => {
+    const attacker = makeUnit("Infantry_42", attackerHex, "overrun-infantry-attacker");
+    attacker.strength = 74.24;
+    const defender = makeUnit("Engineer", defenderHex, "overrun-engineer-defender");
+    const status = ensureFormationStatus(defender, defender.formationKey);
+    Object.values(status.personnel).forEach((pool) => {
+      pool.fit = 0;
+      pool.injured = 0;
+      pool.wounded = 0;
+      pool.severelyWounded = 0;
+      pool.killed = 0;
+    });
+    Object.values(status.equipment).forEach((pool) => {
+      pool.operational = 0;
+      pool.damaged = 0;
+      pool.disabled = 0;
+      pool.destroyed = 0;
+    });
+    const personnelPool = Object.values(status.personnel)[0];
+    const equipmentPool = Object.values(status.equipment)[0];
+    if (!personnelPool || !equipmentPool) {
+      throw new Error("Engineer formation status should expose personnel and equipment pools.");
+    }
+    personnelPool.wounded = 120;
+    personnelPool.severelyWounded = 30;
+    personnelPool.killed = 10;
+    equipmentPool.operational = 4;
+    equipmentPool.damaged = 3;
+    equipmentPool.disabled = 5;
+    defender.strength = deriveStrengthFromStatus(status, defender.strength);
+
+    const before = summarizeFormationStatus(defender.status, defender.strength);
+    const baseRequest = makeBattlefieldRequest(attacker, defender);
+    const request: AttackRequest = {
+      ...baseRequest,
+      attacker: {
+        ...baseRequest.attacker,
+        general: { accBonus: 5, dmgBonus: 15 }
+      },
+      attackerCtx: {
+        ...baseRequest.attackerCtx,
+        stance: "assault"
+      },
+      defenderCtx: {
+        ...baseRequest.defenderCtx,
+        isRushing: true,
+        stance: "assault"
+      }
+    };
+    const result = resolveAttack(request);
+    const packet = resolveDamagePacket({
+      attacker,
+      attackerDefinition: unitTypes.Infantry_42,
+      attackerHex,
+      defender,
+      defenderDefinition: unitTypes.Engineer,
+      defenderHex,
+      attackResult: result,
+      targetFacing: defender.facing
+    });
+    applyDamagePacketToUnit(defender, packet);
+    const after = summarizeFormationStatus(defender.status, defender.strength);
+    const decisiveEquipmentLosses = packet.equipment.destroyed + packet.equipment.disabled;
+    const overrunHit = packet.weaponHits.find((hit) => hit.id === "combat-ineffective-overrun");
+
+    if (Math.abs(before.readiness - 6.87) > 0.05 || before.personnel.readiness !== 0 || Math.abs(before.equipment.readiness - 45.83) > 0.05) {
+      throw new Error(`Regression setup should match a nearly eliminated engineer unit. Got ${JSON.stringify(before)}.`);
+    }
+    if (result.expectedHits < 300) {
+      throw new Error(`Close assault should still generate heavy contact pressure against the remnant. Got ${result.expectedHits.toFixed(1)} hits.`);
+    }
+    if (!overrunHit || overrunHit.equipment.destroyed + overrunHit.equipment.disabled + overrunHit.equipment.damaged <= 0) {
+      throw new Error(`Expected a visible overrun pressure line in the weapon breakdown. Got ${weaponBreakdown(packet)}.`);
+    }
+    if (overrunHit.personnel.killed + overrunHit.personnel.severelyWounded + overrunHit.personnel.wounded + overrunHit.personnel.injured > 0) {
+      throw new Error(`Overrun pressure should not inherit personnel losses through rounding allocation. Got ${weaponBreakdown(packet)}.`);
+    }
+    if (packet.readinessLoss < before.readiness - 0.05 || after.readiness > 0.05 || decisiveEquipmentLosses < 6) {
+      throw new Error(
+        `Combat-ineffective engineer remnants should lose remaining active equipment under assault pressure. Before ${before.readiness}, after ${after.readiness}, packet ${describeDamagePacket(packet)}.`
       );
     }
   });
