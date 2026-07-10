@@ -184,6 +184,32 @@ function combinePlatformReadiness(
   return roundReadiness(100 - personnelLoss - equipmentLoss);
 }
 
+function combinePersonnelGatedReadiness(
+  personnel: FormationReadinessComponentSummary,
+  equipment: FormationReadinessComponentSummary,
+  model: FormationReadinessModel
+): number {
+  const availablePersonnelWeight = personnel.total > 0 ? model.personnelWeight : 0;
+  const availableEquipmentWeight = equipment.total > 0 ? model.equipmentWeight : 0;
+  const totalWeight = availablePersonnelWeight + availableEquipmentWeight;
+  if (totalWeight <= 0) {
+    return 0;
+  }
+
+  const personnelReadiness = personnel.total > 0 ? personnel.readiness : 0;
+  // Combined foot-specialist equipment represents guns, tools, and carriers that
+  // amplify the crews using them. It cannot keep combat readiness alive after the
+  // personnel pool is no longer combat-effective.
+  const equipmentReadiness = equipment.total > 0
+    ? equipment.readiness * (personnelReadiness / 100)
+    : 0;
+
+  return roundReadiness(
+    ((personnelReadiness * availablePersonnelWeight) + (equipmentReadiness * availableEquipmentWeight)) /
+      totalWeight
+  );
+}
+
 function personnelPoolTotal(pool: PersonnelStatusPool | undefined): number {
   if (!pool) return 0;
   return pool.fit + pool.injured + pool.wounded + pool.severelyWounded + pool.killed;
@@ -409,12 +435,7 @@ export function calculateFormationReadiness(
   } else if (model.basis === "platform") {
     readiness = combinePlatformReadiness(personnel, equipment);
   } else {
-    const availablePersonnelWeight = personnel.total > 0 ? model.personnelWeight : 0;
-    const availableEquipmentWeight = equipment.total > 0 ? model.equipmentWeight : 0;
-    const totalWeight = availablePersonnelWeight + availableEquipmentWeight;
-    readiness = totalWeight > 0
-      ? ((personnel.readiness * availablePersonnelWeight) + (equipment.readiness * availableEquipmentWeight)) / totalWeight
-      : roundReadiness(fallbackStrength);
+    readiness = combinePersonnelGatedReadiness(personnel, equipment, model);
   }
 
   return {
@@ -486,7 +507,11 @@ export function applyReadinessScalarToStatus(status: FormationStatus, readiness:
     Object.values(status.personnel).forEach((pool) => applyPersonnelReadiness(pool, 100));
     Object.values(status.equipment).forEach((pool) => applyEquipmentReadiness(pool, readiness));
   } else if (model.basis === "combined") {
-    Object.values(status.equipment).forEach((pool) => applyEquipmentReadiness(pool, readiness));
+    // For foot specialists, old abstract strength represented crew availability.
+    // Keep equipment intact during hydration so the personnel-gated combined
+    // readiness resolves back to the requested legacy strength instead of
+    // applying the same loss twice.
+    Object.values(status.equipment).forEach((pool) => applyEquipmentReadiness(pool, 100));
   }
 }
 

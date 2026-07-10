@@ -1514,7 +1514,8 @@ registerTest("UNIT_DAMAGE_MATRIX_ONE_HEX_BALANCE_HARNESS", async ({ Given, When,
     if (!personnelPool || !equipmentPool) {
       throw new Error("Engineer formation status should expose personnel and equipment pools.");
     }
-    personnelPool.wounded = 120;
+    personnelPool.injured = 4;
+    personnelPool.wounded = 116;
     personnelPool.severelyWounded = 30;
     personnelPool.killed = 10;
     equipmentPool.operational = 4;
@@ -1556,7 +1557,7 @@ registerTest("UNIT_DAMAGE_MATRIX_ONE_HEX_BALANCE_HARNESS", async ({ Given, When,
     const decisiveEquipmentLosses = packet.equipment.destroyed + packet.equipment.disabled;
     const overrunHit = packet.weaponHits.find((hit) => hit.id === "combat-ineffective-overrun");
 
-    if (Math.abs(before.readiness - 6.87) > 0.05 || before.personnel.readiness !== 0 || Math.abs(before.equipment.readiness - 45.83) > 0.05) {
+    if (before.readiness <= 0 || before.readiness > 3 || before.personnel.readiness > 5 || Math.abs(before.equipment.readiness - 45.83) > 0.05) {
       throw new Error(`Regression setup should match a nearly eliminated engineer unit. Got ${JSON.stringify(before)}.`);
     }
     if (result.expectedHits < 300) {
@@ -1568,10 +1569,102 @@ registerTest("UNIT_DAMAGE_MATRIX_ONE_HEX_BALANCE_HARNESS", async ({ Given, When,
     if (overrunHit.personnel.killed + overrunHit.personnel.severelyWounded + overrunHit.personnel.wounded + overrunHit.personnel.injured > 0) {
       throw new Error(`Overrun pressure should not inherit personnel losses through rounding allocation. Got ${weaponBreakdown(packet)}.`);
     }
-    if (packet.readinessLoss < before.readiness - 0.05 || after.readiness > 0.05 || decisiveEquipmentLosses < 6) {
+    if (packet.readinessLoss <= 0 || after.readiness >= before.readiness || decisiveEquipmentLosses < 6) {
       throw new Error(
         `Combat-ineffective engineer remnants should lose remaining active equipment under assault pressure. Before ${before.readiness}, after ${after.readiness}, packet ${describeDamagePacket(packet)}.`
       );
+    }
+  });
+
+  await Then("combined specialist equipment does not preserve ghost combat strength after crews collapse", async () => {
+    const defender = makeUnit("Engineer", defenderHex, "ghost-strength-engineer");
+    const status = ensureFormationStatus(defender, defender.formationKey);
+    Object.values(status.personnel).forEach((pool) => {
+      pool.fit = 0;
+      pool.injured = 0;
+      pool.wounded = 120;
+      pool.severelyWounded = 30;
+      pool.killed = 10;
+    });
+    Object.values(status.equipment).forEach((pool) => {
+      pool.operational = 4;
+      pool.damaged = 3;
+      pool.disabled = 5;
+      pool.destroyed = 0;
+    });
+    defender.strength = 7.5;
+
+    const summary = summarizeFormationStatus(defender.status, defender.strength);
+    const derivedStrength = deriveStrengthFromStatus(defender.status, defender.strength);
+    const seededLegacyStatus = createInitialFormationStatus("Engineer", "engineer", 50);
+    const seededLegacySummary = summarizeFormationStatus(seededLegacyStatus, 50);
+    if (summary.personnel.readiness !== 0 || Math.abs(summary.equipment.readiness - 45.83) > 0.05) {
+      throw new Error(`Regression setup should have zero personnel readiness and active equipment. Got ${JSON.stringify(summary)}.`);
+    }
+    if (summary.readiness !== 0 || derivedStrength !== 0) {
+      throw new Error(`Combined engineer equipment without effective crews should not leave a 7.5% ghost unit. Summary ${JSON.stringify(summary)}, derived ${derivedStrength}.`);
+    }
+    if (Math.abs(seededLegacySummary.readiness - 50) > 0.05 || Math.abs(seededLegacySummary.equipment.readiness - 100) > 0.05) {
+      throw new Error(`Legacy abstract engineer strength should hydrate into crew readiness without double-counting equipment loss. Got ${JSON.stringify(seededLegacySummary)}.`);
+    }
+  });
+
+  await Then("low-contact follow-up fire against combat-ineffective remnants still applies visible status damage", async () => {
+    const attacker = makeUnit("Infantry_42", { q: -1, r: 0 }, "low-contact-infantry-attacker");
+    const defender = makeUnit("Engineer", { q: 1, r: 0 }, "low-contact-engineer-defender");
+    const status = ensureFormationStatus(defender, defender.formationKey);
+    Object.values(status.personnel).forEach((pool) => {
+      pool.fit = 0;
+      pool.injured = 4;
+      pool.wounded = 116;
+      pool.severelyWounded = 30;
+      pool.killed = 10;
+    });
+    Object.values(status.equipment).forEach((pool) => {
+      pool.operational = 4;
+      pool.damaged = 3;
+      pool.disabled = 5;
+      pool.destroyed = 0;
+    });
+    defender.strength = deriveStrengthFromStatus(status, defender.strength);
+
+    const before = summarizeFormationStatus(defender.status, defender.strength);
+    const baseRequest = makeBattlefieldRequest(attacker, defender);
+    const request: AttackRequest = {
+      ...baseRequest,
+      attacker: {
+        ...baseRequest.attacker,
+        general: { accBonus: 5, dmgBonus: 15 }
+      },
+      defender: {
+        ...baseRequest.defender,
+        strength: defender.strength
+      }
+    };
+    const result = resolveAttack(request);
+    const packet = resolveDamagePacket({
+      attacker,
+      attackerDefinition: unitTypes.Infantry_42,
+      attackerHex: attacker.hex,
+      defender,
+      defenderDefinition: unitTypes.Engineer,
+      defenderHex: defender.hex,
+      attackResult: result,
+      targetFacing: defender.facing
+    });
+    const pressureHit = packet.weaponHits.find((hit) => hit.id === "combat-ineffective-overrun");
+
+    if (before.readiness <= 0 || before.readiness > 3 || before.personnel.readiness > 5) {
+      throw new Error(`Regression setup should represent a barely functional remnant. Got ${JSON.stringify(before)}.`);
+    }
+    if (result.expectedHits < 8 || result.expectedHits > 25) {
+      throw new Error(`Regression should match a low-contact distant follow-up, got ${result.expectedHits.toFixed(1)} expected hits.`);
+    }
+    if (!pressureHit || pressureHit.label !== "Combat Ineffective Pressure") {
+      throw new Error(`Expected low-contact remnant pressure to be visible in weapon details. Got ${weaponBreakdown(packet)}.`);
+    }
+    if (packet.readinessLoss <= 0 || packet.equipment.destroyed + packet.equipment.disabled <= 0) {
+      throw new Error(`Low-contact remnant fire should not round to readiness -0. Packet ${describeDamagePacket(packet)}.`);
     }
   });
 

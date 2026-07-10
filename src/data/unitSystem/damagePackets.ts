@@ -571,6 +571,7 @@ function isOverrunnableDefender(defenderDefinition: UnitTypeDefinition): boolean
 function resolveCombatIneffectiveOverrunEquipment(
   request: DamagePacketRequest,
   status: FormationStatus,
+  rawPersonnel: PersonnelDamageDelta,
   rawEquipment: EquipmentDamageDelta
 ): EquipmentDamageDelta {
   if (!isOverrunnableDefender(request.defenderDefinition)) {
@@ -579,12 +580,14 @@ function resolveCombatIneffectiveOverrunEquipment(
 
   const current = summarizeFormationStatus(status, request.defender.strength);
   const equipmentStillFighting = activeEquipment(status);
+  const roundedRawPersonnel = roundPersonnelDeltaPreservingMass(rawPersonnel);
+  const personnelPressureEvents = countPersonnelDelta(roundedRawPersonnel);
   if (
     equipmentStillFighting <= 0 ||
     current.equipment.total <= 0 ||
     current.personnel.readiness > 5 ||
     current.readiness > 15 ||
-    request.attackResult.expectedHits < 20
+    (request.attackResult.expectedHits < 8 && personnelPressureEvents <= 0)
   ) {
     return { ...EMPTY_EQUIPMENT_DELTA };
   }
@@ -593,7 +596,10 @@ function resolveCombatIneffectiveOverrunEquipment(
   const hitsPerEquipmentTransition = stance === "assault" ? 45 : 80;
   const pressureEvents = Math.min(
     equipmentStillFighting,
-    Math.max(0, Math.round(request.attackResult.expectedHits / hitsPerEquipmentTransition))
+    Math.max(
+      personnelPressureEvents > 0 ? 1 : 0,
+      Math.round(request.attackResult.expectedHits / hitsPerEquipmentTransition)
+    )
   );
   const roundedRawEquipment = roundEquipmentDeltaPreservingMass(rawEquipment);
   const rawDecisiveEvents = roundedRawEquipment.destroyed + roundedRawEquipment.disabled;
@@ -603,10 +609,10 @@ function resolveCombatIneffectiveOverrunEquipment(
   }
 
   // Once a soft/support formation's crews are already combat ineffective,
-  // concentrated follow-up fire stops creating meaningful "more wounded"
-  // results. The surviving vehicles, guns, and tools are instead abandoned,
-  // captured, or disabled under close pressure, so readiness loss must be
-  // taken from the remaining active equipment pool.
+  // follow-up contacts stop creating meaningful "more wounded" results. The
+  // surviving vehicles, guns, and tools are instead abandoned, captured, or
+  // disabled under pressure, so readiness loss must come from the remaining
+  // active equipment pool rather than vanishing in a non-readiness personnel shift.
   const destroyedShare = stance === "assault" ? 0.35 : 0.2;
   const destroyed = Math.floor(bonusEvents * destroyedShare);
   const disabled = Math.max(0, bonusEvents - destroyed);
@@ -1088,12 +1094,13 @@ export function resolveDamagePacket(request: DamagePacketRequest): DamagePacket 
     });
   });
 
-  const overrunEquipment = resolveCombatIneffectiveOverrunEquipment(request, status, equipment);
+  const overrunEquipment = resolveCombatIneffectiveOverrunEquipment(request, status, personnel, equipment);
   if (countEquipmentDelta(overrunEquipment) > 0) {
+    const overrunStance = resolvePacketAttackerStance(request);
     equipment = addEquipment(equipment, overrunEquipment);
     weaponHits.push({
       id: "combat-ineffective-overrun",
-      label: "Close Assault Overrun",
+      label: overrunStance === "assault" ? "Close Assault Overrun" : "Combat Ineffective Pressure",
       baseShots: 0,
       shots: 0,
       expectedHits: countEquipmentDelta(overrunEquipment),

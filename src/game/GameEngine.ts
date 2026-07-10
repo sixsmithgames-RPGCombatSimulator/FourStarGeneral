@@ -6297,8 +6297,10 @@ private automateSupplyConvoys(
     after: ScenarioUnit,
     packet: DamagePacket
   ): CombatDamageSummary {
-    const statusBefore = summarizeFormationStatus(before.status, before.strength);
-    const statusAfter = summarizeFormationStatus(after.status, after.strength);
+    const strengthBefore = deriveStrengthFromStatus(before.status, before.strength);
+    const strengthAfter = deriveStrengthFromStatus(after.status, after.strength);
+    const statusBefore = summarizeFormationStatus(before.status, strengthBefore);
+    const statusAfter = summarizeFormationStatus(after.status, strengthAfter);
     const readinessLoss = Math.max(0, Math.round((statusBefore.readiness - statusAfter.readiness) * 100) / 100);
     const normalizedPacket: DamagePacket = {
       personnel: { ...packet.personnel },
@@ -6327,8 +6329,8 @@ private automateSupplyConvoys(
         : undefined
     };
     return {
-      strengthBefore: before.strength,
-      strengthAfter: after.strength,
+      strengthBefore,
+      strengthAfter,
       readinessLoss,
       statusBefore,
       statusAfter,
@@ -6358,6 +6360,7 @@ private automateSupplyConvoys(
     const previewDefender = structuredClone(defender);
     previewDefender.formationKey = previewDefender.formationKey ?? this.inferFormationKeyForUnit(previewDefender);
     ensureFormationStatus(previewDefender, previewDefender.formationKey);
+    previewDefender.strength = deriveStrengthFromStatus(previewDefender.status, previewDefender.strength);
     const before = structuredClone(previewDefender);
     const packet = resolveDamagePacket({
       attacker,
@@ -9944,9 +9947,11 @@ private automateSupplyConvoys(
         entry.faction
       );
       totalExpectedRetaliation += retaliationPreview.expectedDamage;
+      const targetUnit = structuredClone(entry.unit);
+      targetUnit.strength = deriveStrengthFromStatus(targetUnit.status, targetUnit.strength);
       targetRichEntries.push({
         unitId: entry.unitId,
-        unit: structuredClone(entry.unit),
+        unit: targetUnit,
         expectedDamage: finalExpectedDamage,
         expectedRetaliation: retaliationPreview.expectedDamage,
         retaliationPossible: retaliationPreview.possible,
@@ -9984,10 +9989,14 @@ private automateSupplyConvoys(
     const finalDamagePerHit = aggregateAttackResult.damagePerHit;
     const finalExpectedDamage = primaryDamageProjection.readinessLoss;
     const finalExpectedSuppression = totalExpectedSuppression;
+    const previewAttacker = structuredClone(attacker);
+    const previewDefender = structuredClone(defender);
+    previewAttacker.strength = deriveStrengthFromStatus(previewAttacker.status, previewAttacker.strength);
+    previewDefender.strength = deriveStrengthFromStatus(previewDefender.status, previewDefender.strength);
 
     return {
-      attacker: structuredClone(attacker),
-      defender: structuredClone(defender),
+      attacker: previewAttacker,
+      defender: previewDefender,
       result: aggregateAttackResult,
       commander: this.getCommanderBenefits(),
       damageMultiplier,
@@ -11587,14 +11596,14 @@ private automateSupplyConvoys(
         unit: attackRequestSource,
         hex: attackerHex,
         faction: "Player",
-        strengthBefore: attackRequestSource.strength,
+        strengthBefore: deriveStrengthFromStatus(attackRequestSource.status, attackRequestSource.strength),
         strengthAfter: attackerRemainingStrength
       },
       defender: {
         unit: primaryDefender,
         hex: defenderHex,
         faction: primaryDefenderMember.faction,
-        strengthBefore: primaryDefender.strength,
+        strengthBefore: primaryDefenderDamage?.strengthBefore ?? deriveStrengthFromStatus(primaryDefender.status, primaryDefender.strength),
         strengthAfter: primaryDefenderRemainingStrength,
         destroyed: primaryDefenderDestroyed
       },
@@ -12751,16 +12760,18 @@ private automateSupplyConvoys(
 
     const attackerGeneral = attackerFaction === "Player" ? this.playerSide.general : this.botSide.general;
     const defenderGeneral = defenderFaction === "Player" ? this.playerSide.general : this.botSide.general;
+    const attackerStrength = deriveStrengthFromStatus(attacker.status, attacker.strength);
+    const defenderStrength = deriveStrengthFromStatus(defender.status, defender.strength);
 
     const attackerState: UnitCombatState = {
       unit: attackerType,
-      strength: attacker.strength,
+      strength: attackerStrength,
       experience: getEffectiveExperience(attacker),
       general: attackerGeneral
     };
     const defenderState: UnitCombatState = {
       unit: defenderType,
-      strength: defender.strength,
+      strength: defenderStrength,
       experience: getEffectiveExperience(defender),
       general: defenderGeneral
     };
