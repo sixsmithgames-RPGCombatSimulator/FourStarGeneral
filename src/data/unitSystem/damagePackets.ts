@@ -28,7 +28,12 @@ import type {
 } from "../../core/types";
 import { pickFacingArmor } from "../../core/Combat";
 import type { Axial } from "../../core/Hex";
-import { calculateFormationReadiness, deriveStrengthFromStatus, ensureFormationStatus } from "./status";
+import {
+  calculateFormationReadiness,
+  deriveStrengthFromStatus,
+  ensureFormationStatus,
+  synchronizeUnitStatusWithStrength
+} from "./status";
 
 export interface PersonnelDamageDelta {
   injured: number;
@@ -990,6 +995,7 @@ function alignWeaponHitsToAppliedDamage(
 
 export function resolveDamagePacket(request: DamagePacketRequest): DamagePacket {
   const model = request.attackerDefinition.weaponModel;
+  synchronizeUnitStatusWithStrength(request.defender, request.defender.formationKey);
   const status = ensureFormationStatus(request.defender, request.defender.formationKey);
   const personnelAvailable = livingPersonnel(status);
   const equipmentAvailable = nonDestroyedEquipment(status);
@@ -1137,6 +1143,7 @@ function estimateReadinessLoss(
   personnel: PersonnelDamageDelta,
   equipment: EquipmentDamageDelta
 ): number {
+  synchronizeUnitStatusWithStrength(defender, defender.formationKey);
   const beforeStrength = deriveStrengthFromStatus(ensureFormationStatus(defender, defender.formationKey), defender.strength);
   const clone = structuredClone(defender);
   applyDamagePacketToUnit(clone, {
@@ -1369,6 +1376,7 @@ function applyEquipmentDelta(
 }
 
 export function applyDamagePacketToUnit(unit: ScenarioUnit, packet: DamagePacket): void {
+  synchronizeUnitStatusWithStrength(unit, unit.formationKey);
   const status = ensureFormationStatus(unit, unit.formationKey);
   applyPersonnelDelta(status, packet.personnel);
   applyEquipmentDelta(status, packet.equipment);

@@ -2384,7 +2384,7 @@ export class GameEngine implements GameEngineAPI {
             unitKey: cap.unitKey,
             unitType: capLookup.unit.type as string,
             label: this.describeAirUnit(capLookup.unit),
-            strength: capLookup.unit.strength
+            strength: this.deriveCombatStrength(capLookup.unit)
           });
           interceptorParticipants.push({ mission: cap, unit: capLookup.unit });
         }
@@ -2397,7 +2397,7 @@ export class GameEngine implements GameEngineAPI {
             unitKey: em.unitKey,
             unitType: escortLookup.unit.type as string,
             label: this.describeAirUnit(escortLookup.unit),
-            strength: escortLookup.unit.strength
+            strength: this.deriveCombatStrength(escortLookup.unit)
           });
           escortParticipants.push({ mission: em, unit: escortLookup.unit });
         }
@@ -3117,33 +3117,33 @@ export class GameEngine implements GameEngineAPI {
         unitKey: placeholder?.mission.unitKey ?? "cap-clash",
         unitType: placeholder?.unitBefore.type ?? "Fighter",
         label: placeholder ? this.describeAirUnit(placeholder.unitBefore) : "CAP Flight",
-        strength: placeholder?.unitBefore.strength ?? 100
+        strength: placeholder ? this.deriveCombatStrength(placeholder.unitBefore) : 100
       },
       interceptors: alliedCaps.map((delta) => ({
         faction: delta.mission.faction,
         unitKey: delta.mission.unitKey,
         unitType: delta.unitBefore.type as string,
         label: this.describeAirUnit(delta.unitBefore),
-        strength: delta.unitBefore.strength
+        strength: this.deriveCombatStrength(delta.unitBefore)
       })),
       escorts: axisCaps.map((delta) => ({
         faction: delta.mission.faction,
         unitKey: delta.mission.unitKey,
         unitType: delta.unitBefore.type as string,
         label: this.describeAirUnit(delta.unitBefore),
-        strength: delta.unitBefore.strength
+        strength: this.deriveCombatStrength(delta.unitBefore)
       })),
-      bomberStrengthBefore: placeholder?.unitBefore.strength ?? 100,
-      bomberStrengthAfter: placeholder?.unitAfter.strength ?? 100,
+      bomberStrengthBefore: placeholder ? this.deriveCombatStrength(placeholder.unitBefore) : 100,
+      bomberStrengthAfter: placeholder ? this.deriveCombatStrength(placeholder.unitAfter) : 100,
       bomberDestroyed: false,
       escortExchanges: exchanges,
       bomberPassExchanges: [],
-      interceptorsAfterEscortPhase: alliedCaps.filter((delta) => delta.unitAfter.strength > 0).length,
-      escortsAfterEscortPhase: axisCaps.filter((delta) => delta.unitAfter.strength > 0).length,
-      interceptorStrengthsAfterEscortPhase: alliedCaps.map((delta) => delta.unitAfter.strength),
-      escortStrengthsAfterEscortPhase: axisCaps.map((delta) => delta.unitAfter.strength),
-      interceptorFinalStrengths: alliedCaps.map((delta) => delta.unitAfter.strength),
-      escortFinalStrengths: axisCaps.map((delta) => delta.unitAfter.strength)
+      interceptorsAfterEscortPhase: alliedCaps.filter((delta) => this.deriveCombatStrength(delta.unitAfter) > 0).length,
+      escortsAfterEscortPhase: axisCaps.filter((delta) => this.deriveCombatStrength(delta.unitAfter) > 0).length,
+      interceptorStrengthsAfterEscortPhase: alliedCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter)),
+      escortStrengthsAfterEscortPhase: axisCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter)),
+      interceptorFinalStrengths: alliedCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter)),
+      escortFinalStrengths: axisCaps.map((delta) => this.deriveCombatStrength(delta.unitAfter))
     };
   }
 
@@ -3283,23 +3283,23 @@ export class GameEngine implements GameEngineAPI {
           unitKey: mission.unitKey,
           unitType: mission.unitType as string,
           label: this.describeAirUnit(bomberBeforeAirPhase),
-          strength: bomberBeforeAirPhase.strength
+          strength: this.deriveCombatStrength(bomberBeforeAirPhase)
         },
         interceptors: interceptorParticipants.map((entry) => ({
           faction: entry.mission.faction,
           unitKey: entry.mission.unitKey,
           unitType: entry.unit.type as string,
           label: this.describeAirUnit(entry.unit),
-          strength: entry.unit.strength
+          strength: this.deriveCombatStrength(entry.unit)
         })),
         escorts: escortParticipants.map((entry) => ({
           faction: entry.mission.faction,
           unitKey: entry.mission.unitKey,
           unitType: entry.unit.type as string,
           label: this.describeAirUnit(entry.unit),
-          strength: entry.unit.strength
+          strength: this.deriveCombatStrength(entry.unit)
         })),
-        bomberStrengthBefore: bomberBeforeAirPhase.strength,
+        bomberStrengthBefore: this.deriveCombatStrength(bomberBeforeAirPhase),
         bomberStrengthAfter: interception.bomberAfter.strength,
         bomberDestroyed: interception.bomberDestroyed,
         interceptorAttrition: interception.interceptorAttrition,
@@ -3439,10 +3439,10 @@ export class GameEngine implements GameEngineAPI {
     const flakEngagements: FlakEngagementEntry[] = [];
 
     for (const flakEntry of flakUnits) {
-      if (currentBomber.strength <= 0) {
+      if (this.deriveCombatStrength(currentBomber) <= 0) {
         break;
       }
-      const bomberStrengthBeforeBattery = currentBomber.strength;
+      const bomberStrengthBeforeBattery = this.deriveCombatStrength(currentBomber);
       const flakReq = this.buildMissionAttackRequest(
         opponentFaction,
         flakEntry.unit,
@@ -3470,6 +3470,7 @@ export class GameEngine implements GameEngineAPI {
       );
       const damageSummary = this.buildCombatDamageSummary(bomberBeforeDamage, currentBomber, damagePacket);
       const suffered = damageSummary.readinessLoss;
+      const bomberStrengthAfterBattery = this.deriveCombatStrength(currentBomber);
       totalDamage += suffered;
       if (airPhaseFlakState) {
         this.recordAirPhaseFlakEngagement(airPhaseFlakState, opponentFaction, flakEntry.unit);
@@ -3487,12 +3488,14 @@ export class GameEngine implements GameEngineAPI {
         bomberUnitType: mission.unitType as string,
         bomberLabel: this.describeAirUnit(bomber),
         bomberStrengthBefore: bomberStrengthBeforeBattery,
-        bomberStrengthAfter: currentBomber.strength,
+        bomberStrengthAfter: bomberStrengthAfterBattery,
         damageToBomber: suffered,
-        bomberDestroyed: currentBomber.strength <= 0
+        bomberDestroyed: bomberStrengthAfterBattery <= 0
       });
     }
 
+    const bomberStrengthBeforeMission = this.deriveCombatStrength(bomber);
+    const bomberStrengthAfterMission = this.deriveCombatStrength(currentBomber);
     return {
       bomberAfter: currentBomber,
       totalDamage,
@@ -3505,15 +3508,15 @@ export class GameEngine implements GameEngineAPI {
           unitKey: mission.unitKey,
           unitType: mission.unitType as string,
           label: this.describeAirUnit(bomber),
-          strength: bomber.strength
+          strength: bomberStrengthBeforeMission
         },
         interceptors: flakInterceptorsForEvent,
         escorts: [],
         flakDamage: totalDamage,
         flakEngagements,
-        bomberStrengthBefore: bomber.strength,
-        bomberStrengthAfter: currentBomber.strength,
-        bomberDestroyed: currentBomber.strength <= 0
+        bomberStrengthBefore: bomberStrengthBeforeMission,
+        bomberStrengthAfter: bomberStrengthAfterMission,
+        bomberDestroyed: bomberStrengthAfterMission <= 0
       }
     };
   }
@@ -3757,13 +3760,13 @@ export class GameEngine implements GameEngineAPI {
   ): AttackRequest {
     const attackerState: UnitCombatState = {
       unit: attackerDefinition,
-      strength: attacker.strength,
+      strength: this.deriveCombatStrength(attacker),
       experience: attacker.experience,
       general: faction === "Player" ? this.playerSide.general : this.botSide.general
     };
     const defenderState: UnitCombatState = {
       unit: defenderDefinition,
-      strength: defender.strength,
+      strength: this.deriveCombatStrength(defender),
       experience: defender.experience,
       general: faction === "Player" ? this.botSide.general : this.playerSide.general
     };
@@ -6254,6 +6257,17 @@ private automateSupplyConvoys(
     unit.strength = deriveStrengthFromStatus(status, unit.strength);
   }
 
+  private normalizedCombatStatusSnapshot(unit: ScenarioUnit): ScenarioUnit {
+    const snapshot = structuredClone(unit);
+    snapshot.formationKey = snapshot.formationKey ?? this.inferFormationKeyForUnit(snapshot);
+    synchronizeUnitStatusWithStrength(snapshot, snapshot.formationKey);
+    return snapshot;
+  }
+
+  private deriveCombatStrength(unit: ScenarioUnit): number {
+    return this.normalizedCombatStatusSnapshot(unit).strength;
+  }
+
   private resolveDamageEffectScalar(baseResult: AttackResult, scaledResult: AttackResult): number {
     if (!Number.isFinite(baseResult.expectedDamage) || baseResult.expectedDamage <= 0) {
       return 1;
@@ -6297,10 +6311,12 @@ private automateSupplyConvoys(
     after: ScenarioUnit,
     packet: DamagePacket
   ): CombatDamageSummary {
-    const strengthBefore = deriveStrengthFromStatus(before.status, before.strength);
-    const strengthAfter = deriveStrengthFromStatus(after.status, after.strength);
-    const statusBefore = summarizeFormationStatus(before.status, strengthBefore);
-    const statusAfter = summarizeFormationStatus(after.status, strengthAfter);
+    const beforeSnapshot = this.normalizedCombatStatusSnapshot(before);
+    const afterSnapshot = this.normalizedCombatStatusSnapshot(after);
+    const strengthBefore = beforeSnapshot.strength;
+    const strengthAfter = afterSnapshot.strength;
+    const statusBefore = summarizeFormationStatus(beforeSnapshot.status, strengthBefore);
+    const statusAfter = summarizeFormationStatus(afterSnapshot.status, strengthAfter);
     const readinessLoss = Math.max(0, Math.round((statusBefore.readiness - statusAfter.readiness) * 100) / 100);
     const normalizedPacket: DamagePacket = {
       personnel: { ...packet.personnel },
@@ -6357,10 +6373,7 @@ private automateSupplyConvoys(
     effectScalar = 1,
     suppressionScalar = 1
   ): { readonly unit: ScenarioUnit; readonly damage: CombatDamageSummary } {
-    const previewDefender = structuredClone(defender);
-    previewDefender.formationKey = previewDefender.formationKey ?? this.inferFormationKeyForUnit(previewDefender);
-    ensureFormationStatus(previewDefender, previewDefender.formationKey);
-    previewDefender.strength = deriveStrengthFromStatus(previewDefender.status, previewDefender.strength);
+    const previewDefender = this.normalizedCombatStatusSnapshot(defender);
     const before = structuredClone(previewDefender);
     const packet = resolveDamagePacket({
       attacker,
@@ -9947,8 +9960,7 @@ private automateSupplyConvoys(
         entry.faction
       );
       totalExpectedRetaliation += retaliationPreview.expectedDamage;
-      const targetUnit = structuredClone(entry.unit);
-      targetUnit.strength = deriveStrengthFromStatus(targetUnit.status, targetUnit.strength);
+      const targetUnit = this.normalizedCombatStatusSnapshot(entry.unit);
       targetRichEntries.push({
         unitId: entry.unitId,
         unit: targetUnit,
@@ -9989,10 +10001,8 @@ private automateSupplyConvoys(
     const finalDamagePerHit = aggregateAttackResult.damagePerHit;
     const finalExpectedDamage = primaryDamageProjection.readinessLoss;
     const finalExpectedSuppression = totalExpectedSuppression;
-    const previewAttacker = structuredClone(attacker);
-    const previewDefender = structuredClone(defender);
-    previewAttacker.strength = deriveStrengthFromStatus(previewAttacker.status, previewAttacker.strength);
-    previewDefender.strength = deriveStrengthFromStatus(previewDefender.status, previewDefender.strength);
+    const previewAttacker = this.normalizedCombatStatusSnapshot(attacker);
+    const previewDefender = this.normalizedCombatStatusSnapshot(defender);
 
     return {
       attacker: previewAttacker,
@@ -11183,7 +11193,7 @@ private automateSupplyConvoys(
               faction: opponentFaction,
               unitKey: cap.unitKey,
               unitType: capLookup.unit.type as string,
-              strength: capLookup.unit.strength
+              strength: this.deriveCombatStrength(capLookup.unit)
             });
             interceptorParticipants.push({ mission: cap, unit: capLookup.unit });
           }
@@ -11195,7 +11205,7 @@ private automateSupplyConvoys(
               faction: "Player",
               unitKey: escort.unitKey,
               unitType: escortLookup.unit.type as string,
-              strength: escortLookup.unit.strength
+              strength: this.deriveCombatStrength(escortLookup.unit)
             });
             escortParticipants.push({ mission: escort, unit: escortLookup.unit });
           }
@@ -11596,14 +11606,14 @@ private automateSupplyConvoys(
         unit: attackRequestSource,
         hex: attackerHex,
         faction: "Player",
-        strengthBefore: deriveStrengthFromStatus(attackRequestSource.status, attackRequestSource.strength),
+        strengthBefore: this.deriveCombatStrength(attackRequestSource),
         strengthAfter: attackerRemainingStrength
       },
       defender: {
         unit: primaryDefender,
         hex: defenderHex,
         faction: primaryDefenderMember.faction,
-        strengthBefore: primaryDefenderDamage?.strengthBefore ?? deriveStrengthFromStatus(primaryDefender.status, primaryDefender.strength),
+        strengthBefore: primaryDefenderDamage?.strengthBefore ?? this.deriveCombatStrength(primaryDefender),
         strengthAfter: primaryDefenderRemainingStrength,
         destroyed: primaryDefenderDestroyed
       },
@@ -11650,11 +11660,11 @@ private automateSupplyConvoys(
       activeFaction: this._activeFaction,
       turnNumber: this._turnNumber,
       baseCamp: this._baseCamp ? { hex: structuredClone(this._baseCamp.hex), key: this._baseCamp.key } : null,
-      playerPlacements: this.getAllUnitsForFaction("Player").map((unit) => structuredClone(unit)),
-      botPlacements: this.getAllUnitsForFaction("Bot").map((unit) => structuredClone(unit)),
-      reserves: this.reserves.map((entry) => structuredClone(entry.unit)),
+      playerPlacements: this.getAllUnitsForFaction("Player").map((unit) => this.normalizedCombatStatusSnapshot(unit)),
+      botPlacements: this.getAllUnitsForFaction("Bot").map((unit) => this.normalizedCombatStatusSnapshot(unit)),
+      reserves: this.reserves.map((entry) => this.normalizedCombatStatusSnapshot(entry.unit)),
       // Serialize airborne reserves separately from ground reserves.
-      airborneReserves: this.airborneReserves.map((entry) => structuredClone(entry.unit)),
+      airborneReserves: this.airborneReserves.map((entry) => this.normalizedCombatStatusSnapshot(entry.unit)),
       airMissions: Array.from(this.scheduledAirMissions.values()).map((mission) => this.serializeAirMission(mission)),
       airMissionRefits: Array.from(this.airMissionRefitTimers.entries()).map(([unitKey, timer]) => ({
         missionId: timer.missionId,
@@ -11953,7 +11963,7 @@ private automateSupplyConvoys(
     const depotTotals = getInventoryTotals(this.supplyStateByFaction.Player, ["ammo", "fuel", "parts"]);
     const carriedAmmoTotal = this.playerSupply.reduce<number>((sum, entry) => sum + (entry.ammo ?? 0), 0);
     const carriedFuelTotal = this.playerSupply.reduce<number>((sum, entry) => sum + (entry.fuel ?? 0), 0);
-    const maintenanceDemand = placements.reduce<number>((sum, unit) => sum + Math.max(0, 10 - unit.strength), 0);
+    const maintenanceDemand = placements.reduce<number>((sum, unit) => sum + this.calculateRepairNeed(unit), 0);
     const convoyStateMap = this.getSupplyTruckStateMap("Player");
     const convoyCargo = Array.from(convoyStateMap.values()).reduce<{ ammo: number; fuel: number }>((totals, convoy) => {
       totals.ammo += convoy.ammoCargo;
@@ -12760,8 +12770,8 @@ private automateSupplyConvoys(
 
     const attackerGeneral = attackerFaction === "Player" ? this.playerSide.general : this.botSide.general;
     const defenderGeneral = defenderFaction === "Player" ? this.playerSide.general : this.botSide.general;
-    const attackerStrength = deriveStrengthFromStatus(attacker.status, attacker.strength);
-    const defenderStrength = deriveStrengthFromStatus(defender.status, defender.strength);
+    const attackerStrength = this.deriveCombatStrength(attacker);
+    const defenderStrength = this.deriveCombatStrength(defender);
 
     const attackerState: UnitCombatState = {
       unit: attackerType,
@@ -12928,12 +12938,14 @@ private automateSupplyConvoys(
   }
 
   private calculateMedicalNeed(unit: ScenarioUnit): number {
-    const summary = summarizeFormationStatus(unit.status, unit.strength);
+    const statusUnit = this.normalizedCombatStatusSnapshot(unit);
+    const summary = summarizeFormationStatus(statusUnit.status, statusUnit.strength);
     return summary.personnel.injured + summary.personnel.wounded * 2 + summary.personnel.severelyWounded * 3;
   }
 
   private calculateRepairNeed(unit: ScenarioUnit): number {
-    const summary = summarizeFormationStatus(unit.status, unit.strength);
+    const statusUnit = this.normalizedCombatStatusSnapshot(unit);
+    const summary = summarizeFormationStatus(statusUnit.status, statusUnit.strength);
     return summary.equipment.damaged * 2 + summary.equipment.disabled * 3;
   }
 
@@ -15451,14 +15463,14 @@ private automateSupplyConvoys(
         for (const cap of capMissions) {
           const capLookup = this.lookupUnitBySquadronId(cap.unitKey, "Player");
           if (capLookup) {
-            interceptorsForEvent.push({ faction: "Player", unitKey: cap.unitKey, unitType: capLookup.unit.type as string, strength: capLookup.unit.strength });
+            interceptorsForEvent.push({ faction: "Player", unitKey: cap.unitKey, unitType: capLookup.unit.type as string, strength: this.deriveCombatStrength(capLookup.unit) });
             interceptorParticipants.push({ mission: cap, unit: capLookup.unit });
           }
         }
         for (const escort of escortMissions) {
           const escortLookup = this.lookupUnitBySquadronId(escort.unitKey, "Bot");
           if (escortLookup) {
-            escortsForEvent.push({ faction: "Bot", unitKey: escort.unitKey, unitType: escortLookup.unit.type as string, strength: escortLookup.unit.strength });
+            escortsForEvent.push({ faction: "Bot", unitKey: escort.unitKey, unitType: escortLookup.unit.type as string, strength: this.deriveCombatStrength(escortLookup.unit) });
             escortParticipants.push({ mission: escort, unit: escortLookup.unit });
           }
         }
@@ -15584,13 +15596,13 @@ private automateSupplyConvoys(
       const request: AttackRequest = {
         attacker: {
           unit: attackerDef,
-          strength: attackRequestSource.strength,
+          strength: this.deriveCombatStrength(attackRequestSource),
           experience: getEffectiveExperience(attackRequestSource),
           general: this.botSide.general
         },
         defender: {
           unit: defenderDef,
-          strength: defenderBefore.strength,
+          strength: this.deriveCombatStrength(defenderBefore),
           experience: getEffectiveExperience(defenderBefore),
           general: entry.faction === "Player" ? this.playerSide.general : (this.allySide?.general ?? this.playerSide.general)
         },
@@ -16403,13 +16415,14 @@ private automateSupplyConvoys(
     const updatedAt = new Date().toISOString();
 
     const frontline: RosterUnitSummary[] = Array.from(this.playerPlacements.values()).map((unit) => {
+      const statusUnit = this.normalizedCombatStatusSnapshot(unit);
       const definition = this.getUnitDefinition(unit.type);
       const unitKey = deploymentState.getUnitKeyForScenarioType(unit.type as string);
       const label = unitKey ? deploymentState.getLabelForUnitKey(unitKey) : unit.type;
       const sprite = unitKey ? deploymentState.getSpritePath(unitKey) : undefined;
-      const combatPower = Math.max(0, Math.round(((definition.hardAttack + definition.softAttack) * unit.strength) / 10));
+      const combatPower = Math.max(0, Math.round(((definition.hardAttack + definition.softAttack) * statusUnit.strength) / 10));
 
-      const fuel = this.resolveRosterFuel(unit, definition);
+      const fuel = this.resolveRosterFuel(statusUnit, definition);
 
       return {
         unitId: `${unit.type}_${axialKey(unit.hex)}`,
@@ -16417,7 +16430,7 @@ private automateSupplyConvoys(
         label,
         unitType: unit.type,
         unitClass: definition.class,
-        strength: unit.strength,
+        strength: statusUnit.strength,
         experience: unit.experience,
         ammo: unit.ammo,
         fuel,
@@ -16428,12 +16441,12 @@ private automateSupplyConvoys(
         attachments: [],
         tags: [],
         combatPower,
-        statusSummary: summarizeFormationStatus(unit.status, unit.strength),
-        logisticsRole: this.isMedicalLogisticsUnit(unit)
+        statusSummary: summarizeFormationStatus(statusUnit.status, statusUnit.strength),
+        logisticsRole: this.isMedicalLogisticsUnit(statusUnit)
           ? "medical"
-          : this.isMaintenanceLogisticsUnit(unit)
+          : this.isMaintenanceLogisticsUnit(statusUnit)
             ? "repair"
-            : this.isStandardSupplyConvoyUnit(unit)
+            : this.isStandardSupplyConvoyUnit(statusUnit)
               ? "supply"
               : null,
         sprite
@@ -16467,14 +16480,15 @@ private automateSupplyConvoys(
     });
 
     const reserves: RosterUnitSummary[] = this.reserves.map((reserve, index) => {
+      const statusUnit = this.normalizedCombatStatusSnapshot(reserve.unit);
       const definition = this.getUnitDefinition(reserve.unit.type);
       const unitKey = reserve.allocationKey
         ?? deploymentState.getUnitKeyForScenarioType(reserve.unit.type as string);
       const label = unitKey ? deploymentState.getLabelForUnitKey(unitKey) : reserve.unit.type;
       const sprite = reserve.sprite ?? (unitKey ? deploymentState.getSpritePath(unitKey) : undefined);
-      const combatPower = Math.max(0, Math.round(((definition.hardAttack + definition.softAttack) * reserve.unit.strength) / 10));
+      const combatPower = Math.max(0, Math.round(((definition.hardAttack + definition.softAttack) * statusUnit.strength) / 10));
 
-      const fuel = this.resolveRosterFuel(reserve.unit, definition);
+      const fuel = this.resolveRosterFuel(statusUnit, definition);
 
       return {
         unitId: `reserve_${index}`,
@@ -16482,7 +16496,7 @@ private automateSupplyConvoys(
         label,
         unitType: reserve.unit.type,
         unitClass: definition.class,
-        strength: reserve.unit.strength,
+        strength: statusUnit.strength,
         experience: reserve.unit.experience,
         ammo: reserve.unit.ammo,
         fuel,
@@ -16493,12 +16507,12 @@ private automateSupplyConvoys(
         attachments: [],
         tags: ["reserve"],
         combatPower,
-        statusSummary: summarizeFormationStatus(reserve.unit.status, reserve.unit.strength),
-        logisticsRole: this.isMedicalLogisticsUnit(reserve.unit)
+        statusSummary: summarizeFormationStatus(statusUnit.status, statusUnit.strength),
+        logisticsRole: this.isMedicalLogisticsUnit(statusUnit)
           ? "medical"
-          : this.isMaintenanceLogisticsUnit(reserve.unit)
+          : this.isMaintenanceLogisticsUnit(statusUnit)
             ? "repair"
-            : this.isStandardSupplyConvoyUnit(reserve.unit)
+            : this.isStandardSupplyConvoyUnit(statusUnit)
               ? "supply"
               : null,
         sprite
@@ -16506,9 +16520,10 @@ private automateSupplyConvoys(
     });
 
     const casualties: RosterUnitSummary[] = this.casualtyLog.map((casualty, index) => {
+      const statusUnit = this.normalizedCombatStatusSnapshot(casualty.unit);
       const definition = this.getUnitDefinition(casualty.unit.type);
 
-      const fuel = this.resolveRosterFuel(casualty.unit, definition);
+      const fuel = this.resolveRosterFuel(statusUnit, definition);
 
       return {
         unitId: `casualty_${index}`,
@@ -16516,7 +16531,7 @@ private automateSupplyConvoys(
         label: casualty.label,
         unitType: casualty.unit.type,
         unitClass: definition.class,
-        strength: casualty.unit.strength,
+        strength: statusUnit.strength,
         experience: casualty.unit.experience,
         ammo: casualty.unit.ammo,
         fuel,
@@ -16527,12 +16542,12 @@ private automateSupplyConvoys(
         attachments: [],
         tags: ["destroyed"],
         combatPower: 0,
-        statusSummary: summarizeFormationStatus(casualty.unit.status, casualty.unit.strength),
-        logisticsRole: this.isMedicalLogisticsUnit(casualty.unit)
+        statusSummary: summarizeFormationStatus(statusUnit.status, statusUnit.strength),
+        logisticsRole: this.isMedicalLogisticsUnit(statusUnit)
           ? "medical"
-          : this.isMaintenanceLogisticsUnit(casualty.unit)
+          : this.isMaintenanceLogisticsUnit(statusUnit)
             ? "repair"
-            : this.isStandardSupplyConvoyUnit(casualty.unit)
+            : this.isStandardSupplyConvoyUnit(statusUnit)
               ? "supply"
               : null,
         sprite: undefined

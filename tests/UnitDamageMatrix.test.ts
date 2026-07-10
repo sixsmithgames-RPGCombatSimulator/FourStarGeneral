@@ -950,6 +950,67 @@ registerTest("UNIT_STATUS_LEGACY_POOL_OVERSIZE_NORMALIZATION", async ({ When, Th
   });
 });
 
+registerTest("UNIT_STATUS_LEGACY_STRENGTH_NORMALIZES_BEFORE_PACKET_DAMAGE", async ({ When, Then }) => {
+  let directReadinessAfter = 0;
+  let directEquipmentReadinessAfter = 0;
+  let resolvedDefenderStrength = 0;
+  let resolvedPacketLoss = 0;
+
+  await When("a saved unit has full legacy status pools but reduced scalar strength", async () => {
+    const directDefender = makeUnit("Engineer", defenderHex, "legacy-scalar-direct-defender");
+    directDefender.status = createInitialFormationStatus("Engineer", "engineer", 100);
+    delete (directDefender.status as { readinessModel?: unknown }).readinessModel;
+    directDefender.strength = 50;
+
+    applyDamagePacketToUnit(directDefender, {
+      personnel: { injured: 1, wounded: 0, severelyWounded: 0, killed: 0 },
+      equipment: { damaged: 0, disabled: 0, destroyed: 0 },
+      suppression: 0,
+      fortificationDamage: 0,
+      readinessLoss: 0,
+      weaponHits: []
+    });
+
+    const directSummary = summarizeFormationStatus(directDefender.status, directDefender.strength);
+    directReadinessAfter = directSummary.readiness;
+    directEquipmentReadinessAfter = directSummary.equipment.readiness;
+
+    const attacker = makeUnit("Infantry_42", attackerHex, "legacy-scalar-resolve-attacker");
+    const resolvedDefender = makeUnit("Engineer", defenderHex, "legacy-scalar-resolve-defender");
+    resolvedDefender.status = createInitialFormationStatus("Engineer", "engineer", 100);
+    delete (resolvedDefender.status as { readinessModel?: unknown }).readinessModel;
+    resolvedDefender.strength = 50;
+
+    const packet = resolveDamagePacket({
+      attacker,
+      attackerDefinition: unitTypes.Infantry_42,
+      attackerHex,
+      defender: resolvedDefender,
+      defenderDefinition: unitTypes.Engineer,
+      defenderHex,
+      attackResult: syntheticOneHitAttackResult(),
+      targetFacing: resolvedDefender.facing
+    });
+    resolvedDefenderStrength = resolvedDefender.strength;
+    resolvedPacketLoss = packet.readinessLoss;
+  });
+
+  await Then("packet resolution and application hydrate the scalar loss before reading status strength", async () => {
+    if (directReadinessAfter > 50.1 || directReadinessAfter < 45) {
+      throw new Error(`Direct packet application should remain near the saved 50% strength, received ${directReadinessAfter}.`);
+    }
+    if (Math.abs(directEquipmentReadinessAfter - 100) > 0.05) {
+      throw new Error(`Legacy combined engineer strength should hydrate crew readiness without damaging equipment, got equipment readiness ${directEquipmentReadinessAfter}.`);
+    }
+    if (resolvedDefenderStrength > 50.05 || resolvedDefenderStrength < 45) {
+      throw new Error(`Packet resolution should normalize stale saved strength before capping damage, got ${resolvedDefenderStrength}.`);
+    }
+    if (resolvedPacketLoss < 0) {
+      throw new Error(`Packet readiness loss should never be negative after normalization, got ${resolvedPacketLoss}.`);
+    }
+  });
+});
+
 registerTest("UNIT_DAMAGE_MATRIX_ONE_HEX_BALANCE_HARNESS", async ({ Given, When, Then }) => {
   const unitKeys = Object.keys(unitTypes) as UnitKey[];
   const outcomes = new Map<string, MatrixOutcome>();
