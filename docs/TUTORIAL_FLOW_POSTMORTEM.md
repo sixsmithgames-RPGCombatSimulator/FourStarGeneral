@@ -24,6 +24,7 @@ The training tutorial had fallen out of step with the initiative battle system. 
 18. Compact mobile prompts imposed a fixed text height, clipping longer instructions instead of growing with their copy.
 19. The mobile battle screen behaved like a stacked web page: the command rail, tutorial panel, and deployment panel could consume the viewport while the map became too small or blocked.
 20. Desktop floating drawer toggles could paint over the mobile command rail, making the rail look misaligned and failing visual fit checks.
+21. Sidebar tutorials were single information cards that neither explained each modal's sections nor asked the player to use its controls.
 
 ## Root Cause
 
@@ -69,6 +70,8 @@ The battle UI also crossed two coordinate systems without converting at the boun
 - The battle settings menu includes a user-triggered Fullscreen control where the browser supports the Fullscreen API.
 - Desktop drawer toggles are hidden on phone-width battle screens so they cannot overlap the command rail.
 - Sidebar mini tutorials remain separate and open only when the player deliberately selects the matching command-rail icon.
+- Each of the six command-rail modals now has a three- or four-step brief with focused spotlights. Command Post report selection and Air Support mission selection use the real controls before advancing.
+- Sidebar briefs are persisted only after completion or deliberate closure. Required panel actions use a clear instruction strip while the live modal remains interactive.
 
 ## Verification Checklist
 
@@ -91,3 +94,4 @@ The battle UI also crossed two coordinate systems without converting at the boun
 - Desktop and mobile walkthroughs reach the final mission message without duplicate steps, stale selections, or camera jumps.
 - Every tutorial panel remains inside the viewport and its content has no hidden overflow at 1440x900 and 390x844.
 - At 390x844, the base-camp hex, deployment buttons, initiative rail, movement target, artillery order, and battle settings menu remain visible and clickable without horizontal page drift.
+- OPS, General, Recon, Air, Logistics, and Roster briefs complete at 1440x900 and 390x844 with every spotlight aligned to one visible control or record.

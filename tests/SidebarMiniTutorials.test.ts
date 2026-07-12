@@ -43,15 +43,19 @@ registerTest("SIDEBAR_MINI_TUTORIALS_COVER_EVERY_BATTLE_SIDEBAR_ITEM", async ({ 
     expect(SIDEBAR_MINI_TUTORIALS.length === sidebarKeys.length, "Expected one mini tutorial per battle sidebar panel.");
   });
 
-  await Then("each panel has concise briefing data and a real highlight target selector", async () => {
+  await Then("each panel has a concise multi-step brief with real highlight targets", async () => {
     for (const key of sidebarKeys) {
       const tutorial = SIDEBAR_MINI_TUTORIALS.find((candidate) => candidate.key === key);
       expect(Boolean(tutorial), `Missing sidebar mini tutorial for ${key}.`);
-      expect(Boolean(tutorial?.title.trim()), `${key} mini tutorial needs a title.`);
-      expect(Boolean(tutorial?.content.trim()), `${key} mini tutorial needs content.`);
-      expect(Boolean(tutorial?.highlightSelector.trim()), `${key} mini tutorial needs a highlight selector.`);
-      expect(Boolean(tutorial?.actionLabel.trim()), `${key} mini tutorial needs an action label.`);
-      expect((tutorial?.content.length ?? 0) <= 190, `${key} mini tutorial should stay compact.`);
+      expect(Boolean(tutorial?.label.trim()), `${key} mini tutorial needs a brief label.`);
+      expect((tutorial?.steps.length ?? 0) >= 3, `${key} mini tutorial should teach at least three parts of its panel.`);
+      for (const step of tutorial?.steps ?? []) {
+        expect(Boolean(step.title.trim()), `${key} mini tutorial step needs a title.`);
+        expect(Boolean(step.content.trim()), `${key} mini tutorial step needs content.`);
+        expect(Boolean(step.highlightSelector.trim()), `${key} mini tutorial step needs a highlight selector.`);
+        expect(Boolean(step.actionLabel?.trim() || step.actionHint?.trim()), `${key} mini tutorial step needs a next action.`);
+        expect(step.content.length <= 190, `${key} mini tutorial step should stay compact.`);
+      }
     }
 
     expect(normalizeSidebarMiniTutorialKey("supplies") === "logistics", "Supplies should route into the combined Logistics tutorial.");
@@ -400,11 +404,18 @@ registerTest("SIDEBAR_MINI_TUTORIAL_EVENT_RENDERS_DISMISSES_AND_PERSISTS", async
 
     document.body.innerHTML = `
       <div class="battle-popup" data-popup-key="armyRoster">
-        <section id="armyRosterContent">Roster body</section>
+        <section id="armyRosterContent">
+          <div class="army-roster-summary">Roster summary</div>
+          <section data-roster-section="frontline">Frontline</section>
+          <section data-roster-section="reserves">Reserves</section>
+          <button data-open-battle-requisitions>Open Battle Requisitions</button>
+        </section>
       </div>
     `;
-    target = document.getElementById("armyRosterContent") as HTMLElement;
-    setRect(target, { left: 140, top: 140, width: 420, height: 260 });
+    target = document.querySelector(".army-roster-summary") as HTMLElement;
+    Array.from(document.querySelectorAll<HTMLElement>("#armyRosterContent > *")).forEach((element, index) => {
+      setRect(element, { left: 140, top: 140 + index * 70, width: 420, height: 60 });
+    });
 
     overlay = new TutorialOverlay();
     overlay.initialize();
@@ -418,26 +429,34 @@ registerTest("SIDEBAR_MINI_TUTORIAL_EVENT_RENDERS_DISMISSES_AND_PERSISTS", async
     );
   });
 
-  await Then("the mini tutorial appears as a command brief anchored to the open panel", async () => {
+  await Then("the mini tutorial begins a roster walkthrough anchored to the summary", async () => {
     const container = document.getElementById("tutorialOverlayContainer");
     const title = document.querySelector<HTMLElement>(".tutorial-title");
     const indicator = document.querySelector<HTMLElement>(".tutorial-step-indicator");
     const skip = document.querySelector<HTMLButtonElement>(".tutorial-skip-btn");
 
     expect(Boolean(container && !container.classList.contains("hidden")), "Expected mini tutorial overlay to be visible.");
-    expect(title?.textContent === "ROSTER: Order of Battle", `Unexpected mini tutorial title: ${title?.textContent ?? "<missing>"}.`);
-    expect(indicator?.textContent === "Command Brief", `Unexpected mini tutorial indicator: ${indicator?.textContent ?? "<missing>"}.`);
+    expect(container?.getAttribute("aria-modal") === "false", "Sidebar walkthroughs must leave their panel controls available.");
+    expect(title?.textContent === "Order Of Battle", `Unexpected mini tutorial title: ${title?.textContent ?? "<missing>"}.`);
+    expect(indicator?.textContent === "Roster Brief 1 of 4", `Unexpected mini tutorial indicator: ${indicator?.textContent ?? "<missing>"}.`);
     expect(skip?.textContent === "Close", `Expected mini tutorial skip button to read Close, received ${skip?.textContent ?? "<missing>"}.`);
     expect(target.classList.contains("tutorial-highlight"), "Expected the roster panel to be highlighted.");
   });
 
-  await When("the player acknowledges the brief", async () => {
-    document.querySelector<HTMLButtonElement>(".tutorial-action-btn")?.click();
+  await When("the player advances through every roster lesson", async () => {
+    const action = document.querySelector<HTMLButtonElement>(".tutorial-action-btn");
+    action?.click();
+    expect(document.querySelector<HTMLElement>(".tutorial-title")?.textContent === "Frontline Readiness", "Expected frontline lesson second.");
+    action?.click();
+    expect(document.querySelector<HTMLElement>(".tutorial-title")?.textContent === "Reserves And Support", "Expected reserve lesson third.");
+    action?.click();
+    expect(document.querySelector<HTMLElement>(".tutorial-title")?.textContent === "Request Reinforcements", "Expected requisition lesson last.");
+    action?.click();
   });
 
   await Then("the brief closes and does not show again for that panel in the same session", async () => {
     const container = document.getElementById("tutorialOverlayContainer");
-    expect(Boolean(container?.classList.contains("hidden")), "Expected mini tutorial overlay to be hidden after acknowledgement.");
+    expect(Boolean(container?.classList.contains("hidden")), "Expected mini tutorial overlay to be hidden after the full walkthrough.");
 
     document.dispatchEvent(
       new window.CustomEvent(SIDEBAR_MINI_TUTORIAL_EVENT, {
@@ -446,6 +465,57 @@ registerTest("SIDEBAR_MINI_TUTORIAL_EVENT_RENDERS_DISMISSES_AND_PERSISTS", async
     );
     expect(Boolean(container?.classList.contains("hidden")), "Expected the seen roster mini tutorial to stay quiet.");
 
+    overlay.dispose();
+  });
+});
+
+registerTest("SIDEBAR_MINI_TUTORIAL_REQUIRED_ACTION_ADVANCES_AFTER_REAL_PANEL_USE", async ({ Given, When, Then }) => {
+  let overlay: TutorialOverlay;
+  let reportButton: HTMLButtonElement;
+
+  await Given("the command post is open with an interactive report", async () => {
+    window.sessionStorage.clear();
+    ensureTutorialState().endTutorial();
+    document.body.innerHTML = `
+      <div id="warRoomOverlay">
+        <div class="war-room-surface">
+          <div data-war-room-command-strip>Operation status</div>
+          <button type="button" class="war-room-hotspot">Open report</button>
+          <section id="warRoomDetail" class="hidden">Detailed report</section>
+        </div>
+      </div>
+    `;
+    Array.from(document.querySelectorAll<HTMLElement>("#warRoomOverlay *")).forEach((element, index) => {
+      setRect(element, { left: 120 + index * 10, top: 100 + index * 20, width: 320, height: 70 });
+    });
+    reportButton = document.querySelector(".war-room-hotspot") as HTMLButtonElement;
+    reportButton.addEventListener("click", () => {
+      document.getElementById("warRoomDetail")?.classList.remove("hidden");
+    });
+    overlay = new TutorialOverlay();
+    overlay.initialize();
+
+    document.dispatchEvent(
+      new window.CustomEvent(SIDEBAR_MINI_TUTORIAL_EVENT, {
+        detail: { key: "baseOperations" }
+      })
+    );
+  });
+
+  await When("the player reaches the report lesson and opens a highlighted report", async () => {
+    document.querySelector<HTMLButtonElement>(".tutorial-action-btn")?.click();
+    const action = document.querySelector<HTMLButtonElement>(".tutorial-action-btn");
+    const hint = document.querySelector<HTMLElement>(".tutorial-action-hint");
+    expect(action?.hidden === true, "Required panel use should replace the action button instead of disabling it.");
+    expect(hint?.hidden === false, "Required panel use should display a direct instruction.");
+    reportButton.click();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  await Then("the brief advances to the opened report", async () => {
+    expect(document.querySelector<HTMLElement>(".tutorial-title")?.textContent === "Read The Report", "Expected report detail lesson after opening a report.");
+    expect(document.querySelector<HTMLElement>(".tutorial-step-indicator")?.textContent === "OPS Brief 3 of 3", "Expected final OPS brief progress.");
+    expect(document.getElementById("warRoomDetail")?.classList.contains("tutorial-highlight") === true, "Expected the opened report to be highlighted.");
     overlay.dispose();
   });
 });

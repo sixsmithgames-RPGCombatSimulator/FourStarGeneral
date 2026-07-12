@@ -176,6 +176,12 @@ Required-action tutorial steps must point players to the real game control or ma
 * Required map-click steps must account for every visible overlay, including deployment drawers and unit intel cards. The highlighted hex or edge must remain visible and clickable.
 * Floating desktop controls must not overlap the mobile command rail. Hide, dock, or replace them with a mobile-specific control before shipping.
 * Browser fullscreen must be user-triggered through an in-game control. Do not attempt to enter fullscreen automatically; browsers block it and players should choose when the display changes.
+* Every command-rail modal needs its own mini walkthrough, triggered only when the player deliberately opens that panel. A single descriptive notice is not a tutorial.
+* A modal walkthrough must teach the panel in a short sequence: where to read status, which controls issue orders, and where to check the result. Use at least three focused steps when the panel contains all three concerns.
+* Spotlight one bounded control, card, row, or report at a time. Never frame an entire scrolling modal, long list, or multi-screen section as one target.
+* When a modal lesson requires real panel use, hide the tutorial action button and show a direct instruction beside the live control. Advance from the accepted panel interaction; do not use a disabled Continue button as a substitute.
+* Remember a sidebar walkthrough only after the player completes it or deliberately closes it. Opening the first card does not count as completion.
+* Verify every mini-walkthrough step at supported desktop and mobile sizes, including empty and populated panel states where available. Assert that the panel, spotlight, and target all fit the viewport.
 
 ## 7. Manual Verification Checklist (Visual Integrity)
 Because this is a visual strategy game, the following must be manually verified after relevant changes:

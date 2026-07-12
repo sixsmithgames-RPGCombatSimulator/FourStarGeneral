@@ -175,6 +175,105 @@ async function expectBattleTopRailContent(page: Page, outputPath: string): Promi
   await expect(objectiveLabel).toContainText("Objective 2 of");
 }
 
+async function expectMiniBriefStep(
+  page: Page,
+  indicator: string,
+  title: string,
+  targetSelector: string
+): Promise<void> {
+  await expect(page.locator("#tutorialOverlayContainer")).not.toHaveClass(/hidden/);
+  await expect(page.locator(".tutorial-step-indicator")).toHaveText(indicator);
+  await expect(page.locator(".tutorial-title")).toHaveText(title);
+  await expectTutorialPanelToFit(page);
+  const target = page.locator(targetSelector).first();
+  await expect(target).toBeVisible();
+  await expectSpotlightAround(page, target);
+}
+
+async function advanceMiniBrief(page: Page): Promise<void> {
+  const action = page.locator(".tutorial-action-btn");
+  await expect(action).toBeVisible();
+  await expect(action).toBeEnabled();
+  await action.click();
+}
+
+async function closeStandardBattlePopup(page: Page): Promise<void> {
+  await page.locator("#battlePopupClose").click();
+  await expect(page.locator("#battlePopupLayer")).toHaveClass(/hidden/);
+}
+
+async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) => string): Promise<void> {
+  await page.locator('[data-popup="baseOperations"]').click();
+  await expectMiniBriefStep(page, "OPS Brief 1 of 3", "The Command Post", "#warRoomOverlay [data-war-room-command-strip]");
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "OPS Brief 2 of 3", "Open A Report", "#warRoomOverlay .war-room-hotspot");
+  await expect(page.locator(".tutorial-action-btn")).toBeHidden();
+  await expect(page.locator(".tutorial-action-hint")).toHaveText("Select a marked report in the room.");
+  await page.locator("#warRoomOverlay .war-room-hotspot").first().click();
+  await expectMiniBriefStep(page, "OPS Brief 3 of 3", "Read The Report", "#warRoomDetail");
+  await page.screenshot({ path: outputPath("sidebar-ops-brief.png") });
+  await advanceMiniBrief(page);
+  await page.locator("#warRoomClose").click();
+
+  await page.locator('[data-popup="generalProfile"]').click();
+  await expectMiniBriefStep(page, "General Brief 1 of 3", "Your Command Record", ".general-profile__identity");
+  await page.screenshot({ path: outputPath("sidebar-general-brief.png") });
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "General Brief 2 of 3", "Command Bonuses", ".general-profile__benefit");
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "General Brief 3 of 3", "Traits And Directives", "#generalProfileDirectives");
+  await advanceMiniBrief(page);
+  await closeStandardBattlePopup(page);
+
+  await page.locator('[data-popup="recon"]').click();
+  await expectMiniBriefStep(page, "Recon Brief 1 of 3", "The Observation Net", ".recon-readiness-board");
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "Recon Brief 2 of 3", "Your Observers", ".recon-observer-card");
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "Recon Brief 3 of 3", "Read The Contact", ".recon-contact-item");
+  await page.screenshot({ path: outputPath("sidebar-recon-brief.png") });
+  await advanceMiniBrief(page);
+  await closeStandardBattlePopup(page);
+
+  await page.locator('[data-popup="airSupport"]').click();
+  await expectMiniBriefStep(page, "Air Brief 1 of 4", "Air Readiness", ".air-readiness-board");
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "Air Brief 2 of 4", "Choose The Mission", "[data-air-mission-tabs]");
+  await expect(page.locator(".tutorial-action-btn")).toBeHidden();
+  await expect(page.locator(".tutorial-action-hint")).toHaveText("Select a mission type on the sortie board.");
+  await page.locator("[data-air-mission-tab]").first().click();
+  await expectMiniBriefStep(page, "Air Brief 3 of 4", "Prepare The Sortie", "[data-air-sortie-board]");
+  await page.screenshot({ path: outputPath("sidebar-air-brief.png") });
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "Air Brief 4 of 4", "Track Every Sortie", ".air-section");
+  await advanceMiniBrief(page);
+  await closeStandardBattlePopup(page);
+
+  await page.locator('[data-popup="logistics"]').click();
+  await expectMiniBriefStep(page, "Logistics Brief 1 of 4", "Supply Situation", "[data-logistics-overview]");
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "Logistics Brief 2 of 4", "Where The Supply Is", "[data-logistics-supply-categories]");
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "Logistics Brief 3 of 4", "Set Supply Priority", ".logistics-priority-card");
+  await page.screenshot({ path: outputPath("sidebar-logistics-brief.png") });
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "Logistics Brief 4 of 4", "Follow The Convoys", ".logistics-convoy-item");
+  await advanceMiniBrief(page);
+  await closeStandardBattlePopup(page);
+
+  await page.locator('[data-popup="armyRoster"]').click();
+  await expectMiniBriefStep(page, "Roster Brief 1 of 4", "Order Of Battle", ".army-roster-summary");
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "Roster Brief 2 of 4", "Frontline Readiness", "[data-roster-list=\"frontline\"] .army-roster-entry");
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "Roster Brief 3 of 4", "Reserves And Support", "[data-roster-section=\"reserves\"] > header");
+  await advanceMiniBrief(page);
+  await expectMiniBriefStep(page, "Roster Brief 4 of 4", "Request Reinforcements", "[data-open-battle-requisitions]");
+  await page.screenshot({ path: outputPath("sidebar-roster-brief.png") });
+  await advanceMiniBrief(page);
+  await closeStandardBattlePopup(page);
+}
+
 async function requisitionTrainingForce(page: Page): Promise<void> {
   await waitForTutorialPhase(page, "budget_overview");
   await continueTutorial(page);
@@ -329,6 +428,7 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await expect(page.locator("#tutorialOverlayContainer")).toHaveClass(/hidden/);
   await expect(page.locator(".war-room-overlay:not(.hidden)")).toHaveCount(0);
   await expectBattleTopRailContent(page, outputPath("command-rail-settings.png"));
+  await walkSidebarMiniTutorials(page, outputPath);
 }
 
 test.describe("Training tutorial", () => {
