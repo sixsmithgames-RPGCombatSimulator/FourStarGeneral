@@ -13634,12 +13634,22 @@ private automateSupplyConvoys(
       if (toKey !== fromKey) {
         console.log(`[Bot AI] Executing move for ${unit.type} from ${fromLabel} to ${toLabel}`);
         const moved = structuredClone(unit);
+        const unitDef = this.getUnitDefinition(unit.type);
+        const botFlags = this.getUnitActionFlags("Bot", unit);
+        let movementSpent = botFlags.movementPointsUsed;
+        if (this.isTowableUnit(moved) && this.resolveTowState(moved) === "deployed") {
+          // Enemy batteries follow the same limbering drill as player batteries:
+          // hooking up is part of the turn and the gun remains unable to fire.
+          moved.towState = "towed";
+          moved.onSentry = false;
+          moved.entrench = 0;
+          movementSpent += this.resolveTowHookupCost(unitDef, botFlags);
+        }
 
         // Get unit's actual movement points for this turn
-        const unitDef = this.getUnitDefinition(unit.type);
         const maxMovement = unitDef.movement ?? 1;
         const availableFuel = this.resolveFuelBudget(unit, unitDef);
-        let movementSpent = 0;
+        const botMoveType = this.resolveTowState(moved) === "towed" ? "truck" : unitDef.moveType;
         let fuelSpent = 0;
         let hexesMoved = 0;
 
@@ -13653,8 +13663,8 @@ private automateSupplyConvoys(
 
           // Calculate movement cost for this step
           const terrain = this.terrainAt(step);
-          const stepCost = this.resolveMoveCost(unitDef.moveType, terrain, step, current);
-          const stepFuel = this.resolveMovementFuelStep(unitDef.moveType, step);
+          const stepCost = this.resolveMoveCost(botMoveType, terrain, step, current);
+          const stepFuel = this.resolveMovementFuelStep(botMoveType, step);
 
           // Units can always move at least 1 hex per turn, even through difficult terrain
           // After the first hex, check if we have movement points remaining
@@ -13686,6 +13696,10 @@ private automateSupplyConvoys(
           this.botPlacements.set(finalKey, moved);
           this.syncBotFuel(current, moved.fuel);
           this.syncBotEntrench(current, moved.entrench);
+          this.setUnitActionFlags("Bot", moved, {
+            ...botFlags,
+            movementPointsUsed: movementSpent
+          });
           occupancy.delete(fromKey);
           occupancy.add(finalKey);
         moves.push({
@@ -13949,6 +13963,15 @@ private automateSupplyConvoys(
       const unitDefinition = this.getUnitDefinition(unit.type);
       const availableFuel = this.resolveFuelBudget(unit, unitDefinition);
       let fuelSpent = 0;
+      const botFlags = this.getUnitActionFlags("Bot", unit);
+      let movementSpent = botFlags.movementPointsUsed;
+      let movingUnit = structuredClone(unit);
+      if (this.isTowableUnit(movingUnit) && this.resolveTowState(movingUnit) === "deployed") {
+        movingUnit.towState = "towed";
+        movingUnit.onSentry = false;
+        movingUnit.entrench = 0;
+        movementSpent += this.resolveTowHookupCost(unitDefinition, botFlags);
+      }
 
       for (let index = 1; index < plannedPath.length; index += 1) {
         const step = plannedPath[index];
@@ -13959,17 +13982,32 @@ private automateSupplyConvoys(
         if (Number.isFinite(availableFuel) && fuelSpent + stepFuel > availableFuel + 1e-6) {
           break;
         }
+        const stepCost = this.resolveMoveCost(
+          this.resolveTowState(movingUnit) === "towed" ? "truck" : unitDefinition.moveType,
+          this.terrainAt(step),
+          step,
+          current
+        );
+        if (visited.length > 1 && movementSpent + stepCost > this.resolveBaseMovementAllowance(unitDefinition, botFlags, movingUnit)) {
+          break;
+        }
 
         this.botPlacements.delete(axialKey(current));
-        const moved = structuredClone(unit);
+        const moved = structuredClone(movingUnit);
         moved.facing = this.resolveFacingToward(current, step, moved.facing);
         moved.hex = structuredClone(step);
         moved.entrench = 0;
         current = structuredClone(step);
         fuelSpent += stepFuel;
+        movementSpent += stepCost;
+        movingUnit = moved;
         this.botPlacements.set(axialKey(step), moved);
         this.updateBotSupplyPosition(visited[visited.length - 1], step);
         this.syncBotEntrench(step, moved.entrench);
+        this.setUnitActionFlags("Bot", moved, {
+          ...botFlags,
+          movementPointsUsed: movementSpent
+        });
         visited.push(structuredClone(step));
         lastMovedUnit = moved;
 
@@ -15247,6 +15285,20 @@ private automateSupplyConvoys(
 
   private resolveBotAttack(attackingUnit: ScenarioUnit, attackerHex: Axial, targetHex: Axial, stance: CombatStance = "fireAtWill"): BotAttackSummary | null {
     this.ensureUnitId(attackingUnit);
+    let botFlags = this.getUnitActionFlags("Bot", attackingUnit);
+    if (this.isTowableUnit(attackingUnit) && this.resolveTowState(attackingUnit) === "towed") {
+      // A limbered battery may deploy and fire only if it has not moved. The bot
+      // has no command-card click, so resolve that legal deployment automatically.
+      if (botFlags.movementPointsUsed > 0) {
+        return null;
+      }
+      const deployed = structuredClone(attackingUnit);
+      deployed.towState = "deployed";
+      deployed.onSentry = false;
+      this.replaceUnitInFactionHex("Bot", deployed);
+      attackingUnit = deployed;
+      botFlags = this.getUnitActionFlags("Bot", attackingUnit);
+    }
     const attackerKey = this.getSquadronId(attackingUnit);
     const defenderEntries = this.getHostileUnitsAtHex(targetHex, "Bot");
     const preferredPrimaryDefender = defenderEntries[0] ?? null;
@@ -15262,7 +15314,7 @@ private automateSupplyConvoys(
     const primaryDefenderIsAircraft = this.isAircraft(primaryDefenderDef);
     const groundAttackAmmoCost = attackerIsAircraft ? 0 : this.resolveGroundAttackAmmoCost(attackerDef, effectiveStance);
     let attackManeuverCost = 0;
-    const attackerFlags = this.getUnitActionFlags("Bot", attackingUnit);
+    const attackerFlags = botFlags;
     const resolveAircraftRegistryKey = (faction: TurnFaction, unit: ScenarioUnit): string => {
       const registry = faction === "Player" ? this.playerAttackAmmo : this.botAttackAmmo;
       const unitKey = this.getSquadronId(unit);
