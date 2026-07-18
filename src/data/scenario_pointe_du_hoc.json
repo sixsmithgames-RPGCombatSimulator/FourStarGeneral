@@ -3,7 +3,7 @@
   "name": "Pointe du Hoc",
   "size": { "cols": 16, "rows": 14 },
   "mainSupplyDistanceTurns": 3,
-  "battleRequisitionPointsPerTurn": 25,
+  "battleRequisitionPointsPerTurn": 50,
   "battleRequisitionStartingPoints": 25,
   "allowedBattleRequisitions": ["ammo", "infantry", "shoreFireControlParty"],
   "tilePalette": {

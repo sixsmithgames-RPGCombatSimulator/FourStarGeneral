@@ -500,6 +500,11 @@ function scoreEnemyPressure(
   }
 
   const purpose = classifyUnitPurpose(snapshot.definition);
+
+  if (purpose === "artillery") {
+    return scoreArtilleryHoldOrDisplace(snapshot, reachable, enemies, input, modifiers, strongholds);
+  }
+
   let best: ActionCandidate | null = null;
   const otherReconAllies = purpose === "recon"
     ? input.botUnits.filter((ally) =>
@@ -580,6 +585,67 @@ function scoreEnemyPressure(
   }
 
   return best;
+}
+
+/**
+ * Long-range/towed formations should not drive into the enemy's face just because a target is visible.
+ * Once a unit is outside danger range it holds its firing position and waits for a target to come into
+ * range (handled separately by the attack scorer). It only moves when staying put is actually dangerous,
+ * and even then it displaces to the safest reachable hex rather than closing the distance further.
+ */
+function scoreArtilleryHoldOrDisplace(
+  snapshot: PlannerUnitSnapshot,
+  reachable: Map<string, ReachableHex>,
+  enemies: readonly PlannerUnitSnapshot[],
+  input: BotPlannerInput,
+  modifiers: DifficultyModifiers,
+  strongholds: readonly StrongholdProfile[]
+): ActionCandidate | null {
+  const nearestEnemyDistance = Math.min(
+    ...enemies.map((enemy) => hexDistance(snapshot.unit.hex, enemy.unit.hex))
+  );
+
+  if (nearestEnemyDistance > ARTILLERY_DANGER_RANGE) {
+    // Not under threat: hold this position and wait for a target instead of advancing toward the enemy.
+    return null;
+  }
+
+  // Something is actually wrong with staying put (enemy is closing to danger range) - find a safer hex
+  // to displace to. Only reachable hexes that increase distance from every nearby enemy qualify; this is
+  // a retreat/reposition, not an advance.
+  let retreat: ActionCandidate | null = null;
+  for (const option of reachable.values()) {
+    if (option.path.length <= 1) {
+      continue;
+    }
+    const optionNearestEnemyDistance = Math.min(
+      ...enemies.map((enemy) => hexDistance(option.hex, enemy.unit.hex))
+    );
+    if (optionNearestEnemyDistance <= nearestEnemyDistance) {
+      continue; // Must actually gain safety, never just close the gap.
+    }
+
+    let score = 4
+      + (optionNearestEnemyDistance - nearestEnemyDistance) * 3
+      - (option.path.length - 1) * 0.45;
+    score += calculateApproachPositionScore(snapshot, option.hex, null, input, modifiers, option.path.length, strongholds);
+
+    const candidate: ActionCandidate = {
+      destination: option.hex,
+      path: option.path,
+      attackTarget: null,
+      expectedDamage: 0,
+      expectedRetaliation: 0,
+      score,
+      rationale: "Displace to a safer firing position"
+    };
+
+    if (!retreat || candidate.score > retreat.score) {
+      retreat = candidate;
+    }
+  }
+
+  return retreat;
 }
 
 /** Reachable hex bookkeeping used to evaluate movement destinations. */
