@@ -47,6 +47,9 @@ export class CampaignScreen {
   // Stores the first corner of a rectangular selection when Ctrl+Click is used.
   private rectSelectionCorner: string | null = null;
   private campaignStatusMessage: CampaignScreenStatusMessage | null = null;
+  // Overlay shown while campaign mode is locked. Kept as an overlay (not an innerHTML swap)
+  // so late-arriving auth resolution (Clerk loads asynchronously) can unlock without a rebuild.
+  private lockOverlay: HTMLElement | null = null;
 
   constructor(screenManager: IScreenManager, renderer: CampaignMapRenderer) {
     this.screenManager = screenManager;
@@ -268,30 +271,64 @@ export class CampaignScreen {
   }
 
   /**
-   * Displays a locked message when campaign mode is not unlocked.
-   * Redirects user to pricing page for full-game subscription.
+   * Shows or hides the locked overlay based on the current unlock snapshot.
+   * Auth resolves asynchronously (Clerk loads after app init), so this must be
+   * re-evaluated whenever UnlockState hydrates — never decided once at startup.
    */
-  private showCampaignLockedMessage(): void {
+  private syncCampaignLockState(): void {
+    if (this.unlockState.isCampaignLocked("campaign")) {
+      this.showCampaignLockedOverlay();
+    } else {
+      this.removeCampaignLockedOverlay();
+    }
+  }
+
+  /**
+   * Displays a locked overlay when campaign mode is not unlocked.
+   * Redirects user to pricing page for full-game subscription.
+   * Rendered as an overlay so the campaign screen beneath stays intact and can be
+   * revealed the moment entitlements arrive.
+   */
+  private showCampaignLockedOverlay(): void {
+    if (this.lockOverlay) {
+      return;
+    }
     const purchaseUrl = this.unlockState.buildPurchaseUrlForSku("campaign");
-    this.element.innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100%;padding:4rem;text-align:center;">
-        <div style="font-size:3rem;margin-bottom:1rem;">🔒</div>
-        <h1 style="font-size:2rem;font-weight:800;margin-bottom:0.5rem;letter-spacing:0.08em;text-transform:uppercase;">Campaign Locked</h1>
-        <p style="color:#f5c46d;margin-bottom:2rem;max-width:500px;line-height:1.6;">
-          Campaign mode requires a full-game subscription. Unlock the Western Europe offensive by subscribing to Four Star General or the All-Access Bundle.
-        </p>
-        <a href="${purchaseUrl}" style="background:linear-gradient(135deg,#b45309,#f5c46d);color:#080a11;padding:0.875rem 2rem;border-radius:50px;text-decoration:none;font-weight:700;font-size:1rem;">View Plans →</a>
-        <button type="button" class="secondary-button" style="margin-top:1rem;color:#6b7280;font-size:0.875rem;background:none;border:none;cursor:pointer;text-decoration:underline;" onclick="window.location.reload()">Return to Landing Screen</button>
-      </div>
+    const overlay = document.createElement("div");
+    overlay.id = "campaignLockOverlay";
+    overlay.style.cssText = "position:absolute;inset:0;z-index:40;background:rgba(8,10,17,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem;text-align:center;";
+    overlay.innerHTML = `
+      <div style="font-size:3rem;margin-bottom:1rem;">🔒</div>
+      <h1 style="font-size:2rem;font-weight:800;margin-bottom:0.5rem;letter-spacing:0.08em;text-transform:uppercase;">Campaign Locked</h1>
+      <p style="color:#f5c46d;margin-bottom:2rem;max-width:500px;line-height:1.6;">
+        Campaign mode requires a full-game subscription. Unlock the Western Europe offensive by subscribing to Four Star General or the All-Access Bundle.
+      </p>
+      <a href="${purchaseUrl}" style="background:linear-gradient(135deg,#b45309,#f5c46d);color:#080a11;padding:0.875rem 2rem;border-radius:50px;text-decoration:none;font-weight:700;font-size:1rem;">View Plans →</a>
+      <button type="button" class="secondary-button" data-lock-return style="margin-top:1rem;color:#6b7280;font-size:0.875rem;background:none;border:none;cursor:pointer;text-decoration:underline;">Return to Landing Screen</button>
     `;
+    overlay.querySelector<HTMLButtonElement>("[data-lock-return]")?.addEventListener("click", () => {
+      this.screenManager.showScreenById("landing");
+    });
+    if (getComputedStyle(this.element).position === "static") {
+      this.element.style.position = "relative";
+    }
+    this.element.appendChild(overlay);
+    this.lockOverlay = overlay;
+  }
+
+  /** Removes the locked overlay once campaign access is confirmed. */
+  private removeCampaignLockedOverlay(): void {
+    if (this.lockOverlay) {
+      this.lockOverlay.remove();
+      this.lockOverlay = null;
+    }
   }
 
   initialize(): void {
-    // Guard: Prevent campaign access if not unlocked
-    if (this.unlockState.isCampaignLocked("campaign")) {
-      this.showCampaignLockedMessage();
-      return;
-    }
+    // Gate via a live subscription rather than a one-time startup check: Clerk auth
+    // resolves after initializeApplication() runs, so the entitlement snapshot here
+    // may still be the guest bootstrap. The overlay reacts to hydration in both directions.
+    this.unlockState.subscribe(() => this.syncCampaignLockState());
 
     // Capture sidebar hooks if present. These may be null in minimal DOMs (e.g. tests)
     this.economyContainer = this.element.querySelector<HTMLElement>("#campaignEconomySummary");

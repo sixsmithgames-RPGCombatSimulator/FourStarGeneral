@@ -2490,8 +2490,14 @@ export class HexMapRenderer implements IMapRenderer {
     const dist = Math.hypot(dx, dy) || 1;
 
     const arcHeight = options?.arcHeight ?? this.clamp(dist * 0.35, 18, 64);
-    const nx = -dy / dist;
-    const ny = dx / dist;
+    let nx = -dy / dist;
+    let ny = dx / dist;
+    // SVG +y points down-screen. If the perpendicular normal points downward,
+    // flip it so lobbed shells always crest up-and-over instead of down-and-under.
+    if (ny > 0) {
+      nx = -nx;
+      ny = -ny;
+    }
     const ctrlX = (a.cx + endCx) / 2 + nx * arcHeight;
     const ctrlY = (a.cy + endCy) / 2 + ny * arcHeight;
 
