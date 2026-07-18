@@ -86,14 +86,15 @@ export class MapViewport implements IMapViewport {
       this.handleTouchPointerDown(event);
       return;
     }
-    if (event.button !== 1) {
+    // Middle (1) or right (2) button initiates a drag pan; left stays reserved for selection.
+    if (event.button !== 1 && event.button !== 2) {
       return;
     }
     if (event.pointerType && event.pointerType !== "mouse") {
       return;
     }
 
-    // Middle-click initiates a drag pan; capture the pointer so movement outside the SVG still pans.
+    // Capture the pointer so movement outside the SVG still pans.
     this.dragState.active = true;
     this.dragState.pointerId = event.pointerId;
     this.dragState.lastX = event.clientX;
@@ -161,6 +162,8 @@ export class MapViewport implements IMapViewport {
     this.wheelEventTarget.addEventListener("pointerup", this.handlePointerUp as EventListener);
     this.wheelEventTarget.addEventListener("pointercancel", this.handlePointerUp as EventListener);
     this.wheelEventTarget.addEventListener("pointerleave", this.handlePointerUp as EventListener);
+    // Right-drag pans the map, so the browser context menu must not open over the battlefield.
+    this.wheelEventTarget.addEventListener("contextmenu", (event) => event.preventDefault());
   };
 
   private resolveTouchGestureMetrics(): { distance: number; centerX: number; centerY: number } | null {

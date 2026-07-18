@@ -166,6 +166,17 @@ export interface TransportMode {
 }
 
 /**
+ * Player-set split of daily industrial capacity across resources.
+ * Values are percentages that must sum to 100.
+ */
+export interface ProductionAllocation {
+  supplies: number;
+  fuel: number;
+  ammo: number;
+  manpower: number;
+}
+
+/**
  * Summary of resource pools tracked per faction on the campaign layer.
  * Totals influence decision making (reinforcements, supply convoys, etc.).
  */
@@ -183,6 +194,8 @@ export interface CampaignFactionEconomy {
   intelCoverage: number;
   /** Transport assets available for force redeployment. */
   transportCapacity?: TransportCapacity;
+  /** Player-controlled split of daily industrial output. Persists with the scenario in saves. */
+  productionAllocation?: ProductionAllocation;
 }
 
 /**
@@ -310,6 +323,8 @@ export interface CampaignEngagementContext {
   missionType: CampaignMissionType;
   /** True when the assault crosses water; informs template choice in Phase 2. */
   amphibious: boolean;
+  /** True when the battle hex borders declared water — steers template terrain selection. */
+  coastal: boolean;
   /** Friendly force groups eligible to commit, with the hex they stage from. */
   availableForces: Array<{ hexKey: string; unitType: string; count: number }>;
   /** Per-allocation-key quantity caps derived from availableForces via the mapping table. */

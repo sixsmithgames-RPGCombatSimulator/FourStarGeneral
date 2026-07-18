@@ -1,4 +1,4 @@
-import type { CampaignDecision, CampaignPendingEngagement, CampaignScenarioData, CampaignTurnState, CampaignTileInstance, TransportMode } from "../core/campaignTypes";
+import type { CampaignDecision, CampaignPendingEngagement, CampaignScenarioData, CampaignTurnState, CampaignTileInstance, ProductionAllocation, TransportMode } from "../core/campaignTypes";
 import { hexDistance } from "../core/Hex";
 import { getTransportMode, INFANTRY_UNITS } from "../data/transportModes";
 
@@ -30,6 +30,36 @@ const UNIT_SPEEDS_HEX_PER_DAY: Record<string, number> = {
   Infantry: 1,           // 5 km/day → 2.0 days per 10km
   AT_Infantry: 1         // 5 km/day → 2.0 days per 10km
 };
+
+/**
+ * Default industrial split. Chosen so that at these defaults the daily output exactly
+ * matches the legacy fixed formula (supplies = capacity, fuel = 0.8×capacity,
+ * manpower = 100×capacity) while opening a modest new ammo stream (0.2×capacity).
+ */
+export const DEFAULT_PRODUCTION_ALLOCATION: ProductionAllocation = {
+  supplies: 40,
+  fuel: 30,
+  ammo: 10,
+  manpower: 20
+};
+
+/** Output per point of industrial capacity per day, at 100% allocation to that resource. */
+export const PRODUCTION_RATES: ProductionAllocation = {
+  supplies: 2.5,
+  fuel: 8 / 3,
+  ammo: 2.0,
+  manpower: 500
+};
+
+/** Converts capacity + allocation percentages into concrete daily resource output. */
+export function computeDailyProduction(capacity: number, allocation: ProductionAllocation): ProductionAllocation {
+  return {
+    supplies: Math.round(capacity * (allocation.supplies / 100) * PRODUCTION_RATES.supplies),
+    fuel: Math.round(capacity * (allocation.fuel / 100) * PRODUCTION_RATES.fuel),
+    ammo: Math.round(capacity * (allocation.ammo / 100) * PRODUCTION_RATES.ammo),
+    manpower: Math.round(capacity * (allocation.manpower / 100) * PRODUCTION_RATES.manpower)
+  };
+}
 
 export type CampaignUpdateReason =
   | "scenarioLoaded"
@@ -322,8 +352,9 @@ export class CampaignState {
   private processDailyResourceGeneration(): void {
     if (!this.scenario) return;
 
-    // Calculate daily income from controlled tiles
-    const playerIncome = { supplies: 0, fuel: 0, manpower: 0 };
+    // Player output honors the commander's industrial allocation; Bot keeps the legacy
+    // fixed formula so enemy balance is unchanged by the allocation feature.
+    let playerCapacity = 0;
     const botIncome = { supplies: 0, fuel: 0, manpower: 0 };
 
     for (const tile of this.scenario.tiles) {
@@ -334,10 +365,7 @@ export class CampaignState {
       const faction = tile.factionControl ?? palette.factionControl;
 
       if (faction === "Player") {
-        // Player-controlled tiles generate supplies, fuel, and manpower
-        playerIncome.supplies += supplyValue;
-        playerIncome.fuel += Math.round(supplyValue * 0.8); // Fuel is 80% of supply value
-        playerIncome.manpower += Math.round(supplyValue * 100); // Manpower scales higher
+        playerCapacity += supplyValue;
       } else if (faction === "Bot") {
         botIncome.supplies += supplyValue;
         botIncome.fuel += Math.round(supplyValue * 0.8);
@@ -351,9 +379,11 @@ export class CampaignState {
     const botEconomy = economies.find((e) => e.faction === "Bot");
 
     if (playerEconomy) {
-      playerEconomy.supplies = (playerEconomy.supplies ?? 0) + playerIncome.supplies;
-      playerEconomy.fuel = (playerEconomy.fuel ?? 0) + playerIncome.fuel;
-      playerEconomy.manpower = (playerEconomy.manpower ?? 0) + playerIncome.manpower;
+      const output = computeDailyProduction(playerCapacity, this.getProductionAllocation());
+      playerEconomy.supplies = (playerEconomy.supplies ?? 0) + output.supplies;
+      playerEconomy.fuel = (playerEconomy.fuel ?? 0) + output.fuel;
+      playerEconomy.ammo = (playerEconomy.ammo ?? 0) + output.ammo;
+      playerEconomy.manpower = (playerEconomy.manpower ?? 0) + output.manpower;
     }
 
     if (botEconomy) {
@@ -364,6 +394,95 @@ export class CampaignState {
 
     this.scenario.economies = economies;
     this.notify("scenarioLoaded"); // Trigger economy re-render
+  }
+
+  /** Returns the player's industrial allocation, falling back to the balanced default. */
+  getProductionAllocation(): ProductionAllocation {
+    const player = this.scenario?.economies.find((e) => e.faction === "Player");
+    const alloc = player?.productionAllocation;
+    if (!alloc) return { ...DEFAULT_PRODUCTION_ALLOCATION };
+    return { ...alloc };
+  }
+
+  /**
+   * Stores a new industrial allocation on the Player economy (so it persists through
+   * both localStorage snapshots and JSON exports). Values are clamped to >= 0 and
+   * normalized to sum to exactly 100.
+   */
+  setProductionAllocation(allocation: ProductionAllocation): { ok: boolean; reason?: string } {
+    if (!this.scenario) return { ok: false, reason: "No scenario" };
+    const player = this.scenario.economies.find((e) => e.faction === "Player");
+    if (!player) return { ok: false, reason: "No player economy" };
+
+    const clamped = {
+      supplies: Math.max(0, Number(allocation.supplies) || 0),
+      fuel: Math.max(0, Number(allocation.fuel) || 0),
+      ammo: Math.max(0, Number(allocation.ammo) || 0),
+      manpower: Math.max(0, Number(allocation.manpower) || 0)
+    };
+    const total = clamped.supplies + clamped.fuel + clamped.ammo + clamped.manpower;
+    if (total <= 0) return { ok: false, reason: "Allocation must be greater than zero" };
+
+    // Normalize to 100, assigning rounding drift to the largest bucket to keep the sum exact.
+    const normalized: ProductionAllocation = {
+      supplies: Math.round((clamped.supplies / total) * 100),
+      fuel: Math.round((clamped.fuel / total) * 100),
+      ammo: Math.round((clamped.ammo / total) * 100),
+      manpower: Math.round((clamped.manpower / total) * 100)
+    };
+    const drift = 100 - (normalized.supplies + normalized.fuel + normalized.ammo + normalized.manpower);
+    if (drift !== 0) {
+      const keys: Array<keyof ProductionAllocation> = ["supplies", "fuel", "ammo", "manpower"];
+      const largest = keys.reduce((best, k) => (normalized[k] > normalized[best] ? k : best), keys[0]);
+      normalized[largest] += drift;
+    }
+
+    player.productionAllocation = normalized;
+    this.notify("scenarioLoaded");
+    return { ok: true };
+  }
+
+  /**
+   * Snapshot of the player's war economy production: total capacity, where it comes
+   * from, what today's allocation yields, and when the next production tick lands.
+   */
+  getProductionReport(): {
+    capacity: number;
+    allocation: ProductionAllocation;
+    daily: ProductionAllocation;
+    sources: Array<{ offsetKey: string; tile: string; role: string | null; supplyValue: number }>;
+    segmentsUntilNextTick: number;
+  } | null {
+    if (!this.scenario) return null;
+
+    const sources: Array<{ offsetKey: string; tile: string; role: string | null; supplyValue: number }> = [];
+    let capacity = 0;
+    for (const tile of this.scenario.tiles) {
+      const palette = this.scenario.tilePalette[tile.tile];
+      if (!palette) continue;
+      const faction = tile.factionControl ?? palette.factionControl;
+      if (faction !== "Player") continue;
+      const supplyValue = palette.supplyValue ?? 0;
+      if (supplyValue <= 0) continue;
+      capacity += supplyValue;
+      sources.push({
+        offsetKey: this.axialToOffsetKey(tile.hex.q, tile.hex.r),
+        tile: tile.tile,
+        role: palette.role ?? null,
+        supplyValue
+      });
+    }
+    sources.sort((a, b) => b.supplyValue - a.supplyValue);
+
+    const allocation = this.getProductionAllocation();
+    const remainder = this.currentSegment % 8;
+    return {
+      capacity,
+      allocation,
+      daily: computeDailyProduction(capacity, allocation),
+      sources,
+      segmentsUntilNextTick: remainder === 0 ? 8 : 8 - remainder
+    };
   }
 
   /**
@@ -555,6 +674,98 @@ export class CampaignState {
       suppliesCost: Math.ceil(totalSupplies),
       manpowerLoss: Math.floor(totalManpower),
       capacityNeeded: totalCapacityNeeded
+    };
+  }
+
+  /**
+   * Non-mutating preview of a redeploy order. Returns the exact costs and validation
+   * results scheduleRedeploy() would apply, so UI previews never drift from engine rules.
+   */
+  previewRedeploy(
+    originOffsetKey: string,
+    destOffsetKey: string,
+    selections: Array<{ unitType: string; count: number }>,
+    transportModeKey: string
+  ): {
+    ok: boolean;
+    issues: string[];
+    distance: number;
+    timeSegments: number;
+    etaSegment: number;
+    fuelCost: number;
+    suppliesCost: number;
+    manpowerLoss: number;
+    capacityNeeded: number;
+    capacityAvailable: number | null;
+    fuelAvailable: number;
+    suppliesAvailable: number;
+  } | null {
+    if (!this.scenario) return null;
+    const transportMode = getTransportMode(transportModeKey);
+    const a = this.parseOffsetKeyToAxial(originOffsetKey);
+    const b = this.parseOffsetKeyToAxial(destOffsetKey);
+    if (!transportMode || !a || !b) return null;
+
+    const issues: string[] = [];
+    const distance = Math.max(1, hexDistance(a, b));
+
+    const origin = this.findTileByOffsetKey(originOffsetKey);
+    const paletteOrigin = origin ? this.scenario.tilePalette[origin.tile] : null;
+    const dest = this.findTileByOffsetKey(destOffsetKey);
+    const paletteDest = dest ? this.scenario.tilePalette[dest.tile] : null;
+
+    const active = selections.filter((s) => s.count > 0);
+    if (active.length === 0) {
+      issues.push("No units selected");
+    }
+    for (const sel of active) {
+      if (transportMode.applicableUnitTypes && transportMode.applicableUnitTypes.length > 0 && !transportMode.applicableUnitTypes.includes(sel.unitType)) {
+        issues.push(`${sel.unitType} cannot use ${transportMode.label}`);
+      }
+    }
+    if (transportMode.requiresNavalBase && paletteOrigin?.role !== "navalBase" && paletteDest?.role !== "navalBase") {
+      issues.push("Requires a naval base at origin or destination");
+    }
+    if (transportMode.requiresAirbase && (paletteOrigin?.role !== "airbase" || paletteDest?.role !== "airbase")) {
+      issues.push("Requires airbases at both origin and destination");
+    }
+
+    const costs = this.calculateRedeploymentCosts(active, distance, transportMode);
+    const player = this.scenario.economies.find((e) => e.faction === "Player");
+    const fuelAvailable = player?.fuel ?? 0;
+    const suppliesAvailable = player?.supplies ?? 0;
+    if (fuelAvailable < costs.fuelCost) {
+      issues.push(`Insufficient fuel (need ${costs.fuelCost.toLocaleString()}, have ${fuelAvailable.toLocaleString()})`);
+    }
+    if (suppliesAvailable < costs.suppliesCost) {
+      issues.push(`Insufficient supplies (need ${costs.suppliesCost.toLocaleString()}, have ${suppliesAvailable.toLocaleString()})`);
+    }
+
+    let capacityAvailable: number | null = null;
+    if (transportMode.capacityType) {
+      const cap = player?.transportCapacity;
+      const available = cap ? (cap[transportMode.capacityType] ?? 0) : 0;
+      const inTransit = cap ? ((cap[`${transportMode.capacityType}InTransit` as keyof typeof cap] as number) ?? 0) : 0;
+      capacityAvailable = available - inTransit;
+      if (costs.capacityNeeded > capacityAvailable) {
+        issues.push(`Insufficient ${transportMode.capacityType} (need ${costs.capacityNeeded}, available ${capacityAvailable})`);
+      }
+    }
+
+    const timeSegments = Math.max(1, Math.ceil(distance / transportMode.speedHexPerDay));
+    return {
+      ok: issues.length === 0,
+      issues,
+      distance,
+      timeSegments,
+      etaSegment: this.currentSegment + timeSegments,
+      fuelCost: costs.fuelCost,
+      suppliesCost: costs.suppliesCost,
+      manpowerLoss: costs.manpowerLoss,
+      capacityNeeded: costs.capacityNeeded,
+      capacityAvailable,
+      fuelAvailable,
+      suppliesAvailable
     };
   }
 

@@ -41,6 +41,7 @@ import "./scenarioValidation.test.js";
 import "./CampaignMapRenderer.render.test.js";
 import "./CampaignState.observe.test.js";
 import "./EngagementContextBuilder.test.js";
+import "./CampaignBattleGenerator.test.js";
 import "./CampaignScreen.status.test.js";
 import "./MissionRules.riverWatch.test.js";
 import "./MissionRules.townDefense.test.js";

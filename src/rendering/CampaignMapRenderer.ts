@@ -47,6 +47,8 @@ export class CampaignMapRenderer {
   private spriteIndex = new Map<string, SVGImageElement>();
   private hexClickHandler: CampaignHexClickHandler | null = null;
   private boundClickListener: ((event: MouseEvent) => void) | null = null;
+  /** Single pan/zoom transform owner recreated on each render (see MapViewport). */
+  private viewportRoot: SVGGElement | null = null;
   private gridBounds: { minX: number; maxX: number; minY: number; maxY: number } | null = null;
 
   /** Stores the dimensions in pixels so callers can size viewports accordingly. */
@@ -201,12 +203,18 @@ export class CampaignMapRenderer {
     svg.setAttribute("height", `${height}`);
 
     svg.innerHTML = "";
-    const backgroundGroup = this.ensureLayer(svg, BACKGROUND_LAYER_ID);
-    const hexGroup = this.ensureLayer(svg, HEX_LAYER_ID);
-    const terrainOverlayGroup = this.ensureLayer(svg, TERRAIN_OVERLAY_LAYER_ID);
-    const spriteGroup = this.ensureLayer(svg, SPRITE_LAYER_ID);
-    const frontGroup = this.ensureLayer(svg, FRONT_LAYER_ID);
-    const forceGroup = this.ensureLayer(svg, FORCE_LAYER_ID);
+    // All rendered layers live under a single #viewportRoot group. MapViewport applies
+    // pan/zoom transforms ONLY to this group — without it, zoom/pan controls are inert.
+    const viewportRoot = document.createElementNS(SVG_NS, "g");
+    viewportRoot.id = "viewportRoot";
+    svg.appendChild(viewportRoot);
+    this.viewportRoot = viewportRoot;
+    const backgroundGroup = this.ensureLayer(viewportRoot, BACKGROUND_LAYER_ID);
+    const hexGroup = this.ensureLayer(viewportRoot, HEX_LAYER_ID);
+    const terrainOverlayGroup = this.ensureLayer(viewportRoot, TERRAIN_OVERLAY_LAYER_ID);
+    const spriteGroup = this.ensureLayer(viewportRoot, SPRITE_LAYER_ID);
+    const frontGroup = this.ensureLayer(viewportRoot, FRONT_LAYER_ID);
+    const forceGroup = this.ensureLayer(viewportRoot, FORCE_LAYER_ID);
 
     const density = this.getHexDensityScalar();
 
@@ -329,15 +337,20 @@ export class CampaignMapRenderer {
     });
   }
 
-  private ensureLayer(svg: SVGSVGElement, id: string): SVGGElement {
-    let layer = svg.querySelector<SVGGElement>(`#${id}`);
+  private ensureLayer(parent: SVGSVGElement | SVGGElement, id: string): SVGGElement {
+    let layer = parent.querySelector<SVGGElement>(`#${id}`);
     if (!layer) {
       layer = document.createElementNS(SVG_NS, "g");
       layer.id = id;
-      svg.appendChild(layer);
+      parent.appendChild(layer);
     }
     layer.innerHTML = "";
     return layer;
+  }
+
+  /** Returns the transform root created during the last render, so MapViewport can re-bind after re-renders. */
+  getViewportRoot(): SVGGElement | null {
+    return this.viewportRoot;
   }
 
   /** Injects the campaign background illustration. */

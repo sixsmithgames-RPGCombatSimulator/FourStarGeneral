@@ -84,7 +84,8 @@ import {
   type ReserveBlueprint
 } from "../../state/DeploymentState";
 import type { BattleAnimationMode, UIState } from "../../state/UIState";
-import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenarioRegistry";
+import { type ScenarioSource } from "../../data/scenarioRegistry";
+import { resolveScenarioForMission } from "../../game/campaign/CampaignBattleGenerator";
 import { normalizeScenarioSource, type RawScenarioInput } from "../../data/scenarioNormalizer";
 import { getMissionDeploymentProfile, getMissionTurnLimit } from "../../data/missions";
 import { getCombatProfile } from "../../data/combatProfiles";
@@ -14143,7 +14144,9 @@ export class BattleScreen {
    */
   private refreshScenario(): void {
     const missionKey = this.uiState?.selectedMission ?? "training";
-    this.scenarioSource = getScenarioByMissionKey(missionKey);
+    // Campaign engagements resolve through the battle generator so this screen consumes the same
+    // generated (template + Bot roster) scenario object that precombat presented.
+    this.scenarioSource = resolveScenarioForMission(missionKey);
     if (missionKey === "patrol_river_watch") {
       const sourceName = (this.scenarioSource as { name?: string }).name;
       if (sourceName !== "River Crossing Watch") {

@@ -28,6 +28,7 @@ import { getScenarioByMissionKey, type ScenarioSource } from "../../data/scenari
 import { normalizeScenarioSource, type RawScenarioInput } from "../../data/scenarioNormalizer";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { ensureCampaignState } from "../../state/CampaignState";
+import { resolveScenarioForMission } from "../../game/campaign/CampaignBattleGenerator";
 import type { CampaignEngagementContext } from "../../core/campaignTypes";
 import { describeForceRatio, MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
 import { RESERVE_PURCHASABLE_KEYS } from "../../game/campaign/campaignForceMapping";
@@ -593,7 +594,9 @@ export class PrecombatScreen {
   setup(missionKey: MissionKey, selectedGeneralId: string | null, selectedDifficulty: BotDifficulty): void {
     this.activeMissionKey = missionKey;
     this.activeDifficulty = selectedDifficulty;
-    this.scenarioSource = getScenarioByMissionKey(missionKey);
+    // Campaign engagements resolve through the battle generator (template + generated Bot roster,
+    // cached per engagement so BattleScreen receives the identical scenario object).
+    this.scenarioSource = resolveScenarioForMission(missionKey);
     // Load the strategic engagement context before budget priming so committed-force caps and the
     // consumables reserve shape the requisition screen from the first render.
     this.engagementContext = missionKey === "campaign"

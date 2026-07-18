@@ -1,5 +1,5 @@
 import type { IScreenManager } from "../../contracts/IScreenManager";
-import type { CampaignPendingEngagement, CampaignScenarioData } from "../../core/campaignTypes";
+import type { CampaignPendingEngagement, CampaignScenarioData, ProductionAllocation } from "../../core/campaignTypes";
 import {
   buildEngagementContext,
   describeForceRatio,
@@ -8,8 +8,9 @@ import {
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { hexDistance } from "../../core/Hex";
 import { CampaignMapRenderer } from "../../rendering/CampaignMapRenderer";
+import { TRANSPORT_MODES, getDefaultTransportMode } from "../../data/transportModes";
 import { MapViewport } from "../controls/MapViewport";
-import { ensureCampaignState } from "../../state/CampaignState";
+import { computeDailyProduction, ensureCampaignState } from "../../state/CampaignState";
 import { ensureUnlockState } from "../../state/UnlockState";
 
 interface CampaignScreenStatusMessage {
@@ -26,6 +27,8 @@ export class CampaignScreen {
   private readonly unlockState = ensureUnlockState();
   private element: HTMLElement;
   private economyContainer: HTMLElement | null = null;
+  private productionContainer: HTMLElement | null = null;
+  private productionManageButton: HTMLButtonElement | null = null;
   private selectionContainer: HTMLElement | null = null;
   private queueEngagementButton: HTMLButtonElement | null = null;
   private advanceSegmentButton: HTMLButtonElement | null = null;
@@ -66,6 +69,29 @@ export class CampaignScreen {
     this.element = el;
   }
   
+  /**
+   * (Re)binds the pan/zoom viewport after a render. Each render rebuilds the SVG contents,
+   * which recreates #viewportRoot — MapViewport must be pointed at the live group and the
+   * previous camera reapplied, or zoom/pan silently stops working after the first re-render.
+   */
+  private syncViewportAfterRender(): void {
+    if (!this.viewport) {
+      try {
+        this.viewport = new MapViewport("#campaignHexMap");
+        this.bindCampaignControls();
+      } catch {
+        // Defensive: viewport optional in tests / minimal DOMs
+        return;
+      }
+    }
+    const root = this.renderer.getViewportRoot();
+    if (root) {
+      this.viewport.setViewportRoot(root);
+      const t = this.viewport.getTransform();
+      this.viewport.setTransform(t.zoom, t.panX, t.panY);
+    }
+  }
+
   /** Binds campaign zoom/pan buttons present in the sidebar to MapViewport operations. */
   private bindCampaignControls(): void {
     if (!this.viewport) return;
@@ -98,7 +124,12 @@ export class CampaignScreen {
     );
   }
 
-  /** Opens a lightweight modal for scheduling a redeploy from origin to dest with unit picking and cost preview. */
+  /**
+   * Opens the redeployment planner. Transport modes render as selectable cards (invalid modes
+   * disabled with the reason), units use sliders with quick-pick buttons, and the summary is a
+   * live engine-accurate preview via CampaignState.previewRedeploy — so Confirm can never queue
+   * an order the engine would reject.
+   */
   private openRedeployModal(originOffsetKey: string, destOffsetKey: string): void {
     const layer = document.getElementById("battlePopupLayer");
     const dialog = layer?.querySelector<HTMLElement>(".battle-popup");
@@ -114,135 +145,229 @@ export class CampaignScreen {
     const b = parse(destOffsetKey);
     const aAx = CoordinateSystem.offsetToAxial(a.col, a.row);
     const bAx = CoordinateSystem.offsetToAxial(b.col, b.row);
-    const distance = hexDistance(aAx, bAx);
+    const distance = Math.max(1, hexDistance(aAx, bAx));
+    const hexKm = scenario.hexScaleKm ?? 10;
 
-    // Gather origin and destination tile info
     const originTile = scenario.tiles.find((t) => t.hex.q === aAx.q && t.hex.r === aAx.r);
     const destTile = scenario.tiles.find((t) => t.hex.q === bAx.q && t.hex.r === bAx.r);
     const originForces = (originTile?.forces ?? []).map((g) => ({ unitType: g.unitType, count: g.count }));
     if (!originTile || originForces.length === 0) return;
 
-    const originRole = originTile ? (scenario.tilePalette[originTile.tile]?.role ?? null) : null;
+    const originRole = scenario.tilePalette[originTile.tile]?.role ?? null;
     const destRole = destTile ? (scenario.tilePalette[destTile.tile]?.role ?? null) : null;
 
-    // Get player economy for transport capacity display
-    const playerEcon = scenario.economies.find((e) => e.faction === "Player");
-    const transportCap = playerEcon?.transportCapacity;
+    // Card presentation for each transport mode key (data source of truth stays TRANSPORT_MODES).
+    const MODE_PRESENTATION: Record<string, { icon: string; name: string; note: string }> = {
+      foot: { icon: "🥾", name: "March", note: "Infantry only" },
+      truck: { icon: "🚚", name: "Truck", note: "Infantry & towed guns" },
+      armor: { icon: "🛡️", name: "Motorized", note: "Vehicles move themselves" },
+      naval: { icon: "🚢", name: "Sea Lift", note: "Via transport ships" },
+      warship: { icon: "⚓", name: "Warship", note: "Combat vessels" },
+      fighter: { icon: "✈️", name: "Fighter Ferry", note: "Airbase to airbase" },
+      bomber: { icon: "🛩️", name: "Bomber Ferry", note: "Airbase to airbase" }
+    };
+
+    /** Reason a mode is unusable for this origin/destination/garrison, or null if usable. */
+    const modeBlockReason = (key: string): string | null => {
+      const mode = TRANSPORT_MODES[key];
+      if (!mode) return "Unknown mode";
+      if (mode.applicableUnitTypes && mode.applicableUnitTypes.length > 0) {
+        const anyUnit = originForces.some((g) => mode.applicableUnitTypes!.includes(g.unitType));
+        if (!anyUnit) return "No units here can use this";
+      }
+      if (mode.requiresNavalBase && originRole !== "navalBase" && destRole !== "navalBase") {
+        return "Needs a naval base at either end";
+      }
+      if (mode.requiresAirbase && (originRole !== "airbase" || destRole !== "airbase")) {
+        return "Needs airbases at both ends";
+      }
+      return null;
+    };
+
+    // Default mode: recommended mode of the largest usable force group, else first usable mode.
+    const sortedForces = [...originForces].sort((x, y) => y.count - x.count);
+    let selectedModeKey = "foot";
+    let defaulted = false;
+    for (const g of sortedForces) {
+      const candidate = getDefaultTransportMode(g.unitType);
+      if (!modeBlockReason(candidate)) {
+        selectedModeKey = candidate;
+        defaulted = true;
+        break;
+      }
+    }
+    if (!defaulted) {
+      const fallback = Object.keys(TRANSPORT_MODES).find((k) => !modeBlockReason(k));
+      if (fallback) selectedModeKey = fallback;
+    }
 
     title.textContent = "Schedule Redeployment";
-    const rows = originForces
+
+    const modeCards = Object.keys(TRANSPORT_MODES)
+      .map((key) => {
+        const mode = TRANSPORT_MODES[key];
+        const p = MODE_PRESENTATION[key] ?? { icon: "•", name: mode.label, note: "" };
+        const blocked = modeBlockReason(key);
+        return `
+          <button type="button" class="redeploy-mode-card${blocked ? " mode-blocked" : ""}" data-mode="${key}" ${blocked ? "disabled" : ""} title="${this.escapeHtml(mode.description ?? mode.label)}">
+            <span class="mode-icon">${p.icon}</span>
+            <span class="mode-name">${p.name}</span>
+            <span class="mode-speed">${mode.speedHexPerDay} hex / 3h</span>
+            <span class="mode-note">${this.escapeHtml(blocked ?? p.note)}</span>
+          </button>`;
+      })
+      .join("");
+
+    const unitRows = originForces
       .map(
         (g, idx) => `
-        <tr>
-          <td>${g.unitType}</td>
-          <td>${g.count}</td>
-          <td><input type=\"number\" min=\"0\" max=\"${g.count}\" value=\"${g.count}\" data-move-index=\"${idx}\" style=\"width:72px\" /></td>
-        </tr>`
+        <div class="redeploy-unit-row" data-unit-row="${idx}">
+          <div class="unit-label">
+            <span class="unit-name">${this.escapeHtml(g.unitType.replace(/_/g, " "))}</span>
+            <span class="unit-avail">of ${g.count}</span>
+          </div>
+          <input type="range" min="0" max="${g.count}" value="${g.count}" data-move-slider="${idx}" aria-label="${this.escapeHtml(g.unitType)} count" />
+          <input type="number" min="0" max="${g.count}" value="${g.count}" data-move-index="${idx}" />
+          <div class="unit-quick">
+            <button type="button" data-quick="0" data-quick-idx="${idx}" title="Leave all behind">0</button>
+            <button type="button" data-quick="half" data-quick-idx="${idx}" title="Move half">½</button>
+            <button type="button" data-quick="all" data-quick-idx="${idx}" title="Move all">All</button>
+          </div>
+          <div class="unit-note" data-unit-note="${idx}"></div>
+        </div>`
       )
       .join("");
 
     body.innerHTML = `
-      <form id=\"campaignRedeployForm\" class=\"campaign-redeploy-form\">
-        <div class=\"redeploy-summary\">From ${originOffsetKey} → ${destOffsetKey} &middot; Distance ${distance} hex(es)</div>
-        <div style=\"margin:0.5rem 0\">
-          <label for=\"transportModeSelect\" style=\"font-weight:bold\">Transport Mode:</label>
-          <select id=\"transportModeSelect\" style=\"width:100%;margin-top:0.25rem;padding:0.25rem\">
-            <option value=\"foot\">On Foot (1 hex/segment, infantry only)</option>
-            <option value=\"truck\">Truck Transport (3 hex/segment, requires trucks)</option>
-            <option value=\"armor\">Armor/Motorized (2 hex/segment, self-propelled)</option>
-            <option value=\"naval\">Naval Transport (3 hex/segment, ships & naval bases)</option>
-            <option value=\"warship\">Warship (3 hex/segment, combat vessels)</option>
-            <option value=\"fighter\">Fighter Aircraft (75 hex/segment, requires airbases)</option>
-            <option value=\"bomber\">Bomber Aircraft (75 hex/segment, requires airbases)</option>
-          </select>
+      <form id="campaignRedeployForm" class="redeploy-modal">
+        <div class="redeploy-route">
+          <span class="route-node">${originOffsetKey}${originRole ? ` · ${this.escapeHtml(originRole)}` : ""}</span>
+          <span class="route-arrow">→</span>
+          <span class="route-node">${destOffsetKey}${destRole ? ` · ${this.escapeHtml(destRole)}` : ""}</span>
+          <span class="route-distance">${distance} hex · ~${distance * hexKm} km</span>
         </div>
-        <table class=\"redeploy-table\">
-          <thead><tr><th>Unit</th><th>Avail</th><th>Move</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-        <div class=\"redeploy-cost\" id=\"campaignRedeployCost\" style=\"margin-top:0.5rem;font-size:0.9rem\"></div>
-        <div class=\"button-row\" style=\"margin-top:0.5rem\">
-          <button type=\"submit\" class=\"primary-button\">Confirm</button>
-          <button type=\"button\" id=\"campaignRedeployCancel\" class=\"secondary-button\">Cancel</button>
+        <div class="redeploy-section-label">Transport mode</div>
+        <div class="redeploy-modes">${modeCards}</div>
+        <div class="redeploy-section-label">Units to move</div>
+        <div class="redeploy-units">${unitRows}</div>
+        <div class="redeploy-summary-panel" id="campaignRedeploySummary"></div>
+        <div class="redeploy-issues" id="campaignRedeployIssues"></div>
+        <div class="button-row redeploy-actions">
+          <button type="submit" class="primary-button" id="campaignRedeployConfirm">Confirm Orders</button>
+          <button type="button" id="campaignRedeployCancel" class="secondary-button">Cancel</button>
         </div>
       </form>
     `;
 
     const form = body.querySelector<HTMLFormElement>("#campaignRedeployForm");
-    const costEl = body.querySelector<HTMLElement>("#campaignRedeployCost");
+    const summaryEl = body.querySelector<HTMLElement>("#campaignRedeploySummary");
+    const issuesEl = body.querySelector<HTMLElement>("#campaignRedeployIssues");
+    const confirmBtn = body.querySelector<HTMLButtonElement>("#campaignRedeployConfirm");
     const cancelBtn = body.querySelector<HTMLButtonElement>("#campaignRedeployCancel");
-    const modeSelect = body.querySelector<HTMLSelectElement>("#transportModeSelect");
+    if (!form || !summaryEl || !issuesEl || !confirmBtn || !cancelBtn) return;
 
-    const calcAndRenderCost = (): void => {
-      if (!modeSelect || !costEl) return;
+    const numberInputs = Array.from(body.querySelectorAll<HTMLInputElement>("[data-move-index]"));
+    const sliders = Array.from(body.querySelectorAll<HTMLInputElement>("[data-move-slider]"));
+    const modeButtons = Array.from(body.querySelectorAll<HTMLButtonElement>(".redeploy-mode-card"));
 
-      const selectedMode = modeSelect.value;
-      const inputs = Array.from(body.querySelectorAll<HTMLInputElement>("[data-move-index]"));
-      const picks = inputs.map((inp) => Number(inp.value) || 0);
-      const totalUnits = picks.reduce((s, v) => s + Math.max(0, v), 0);
+    const unitAllowedInMode = (unitType: string, modeKey: string): boolean => {
+      const mode = TRANSPORT_MODES[modeKey];
+      if (!mode) return false;
+      return !mode.applicableUnitTypes || mode.applicableUnitTypes.length === 0 || mode.applicableUnitTypes.includes(unitType);
+    };
 
-      if (totalUnits === 0) {
-        costEl.innerHTML = '<span style=\"color:#999\">Select units to see cost estimate</span>';
+    // Units that can't ride the selected mode are excluded (they stay behind) rather than erroring.
+    const currentSelections = (): Array<{ unitType: string; count: number }> =>
+      originForces.map((g, i) => ({
+        unitType: g.unitType,
+        count: unitAllowedInMode(g.unitType, selectedModeKey)
+          ? Math.max(0, Math.min(g.count, Number(numberInputs[i]?.value) || 0))
+          : 0
+      }));
+
+    const fmt = (n: number) => n.toLocaleString();
+
+    const refresh = (): void => {
+      modeButtons.forEach((btnEl) => btnEl.classList.toggle("selected", btnEl.dataset.mode === selectedModeKey));
+
+      originForces.forEach((g, i) => {
+        const allowed = unitAllowedInMode(g.unitType, selectedModeKey);
+        const row = body.querySelector<HTMLElement>(`[data-unit-row="${i}"]`);
+        const note = body.querySelector<HTMLElement>(`[data-unit-note="${i}"]`);
+        row?.classList.toggle("unit-row-disabled", !allowed);
+        if (numberInputs[i]) numberInputs[i].disabled = !allowed;
+        if (sliders[i]) sliders[i].disabled = !allowed;
+        body.querySelectorAll<HTMLButtonElement>(`[data-quick-idx="${i}"]`).forEach((qb) => {
+          qb.disabled = !allowed;
+        });
+        if (note) note.textContent = allowed ? "" : "Stays behind — can't travel by this mode";
+      });
+
+      const preview = this.campaignState.previewRedeploy(originOffsetKey, destOffsetKey, currentSelections(), selectedModeKey);
+      if (!preview) {
+        summaryEl.innerHTML = "";
+        issuesEl.innerHTML = "";
+        confirmBtn.disabled = true;
         return;
       }
 
-      // Get transport mode definition (inline simplified version)
-      const modes = {
-        foot: { speed: 1, fuel: 0, supplies: 1, risk: 0, capacity: null },
-        truck: { speed: 3, fuel: 3, supplies: 1, risk: 0, capacity: { type: 'trucks', perVehicle: 100 } },
-        armor: { speed: 2, fuel: 25, supplies: 5, risk: 0.01, capacity: null },
-        naval: { speed: 3, fuel: 1750, supplies: 70, risk: 0.05, capacity: { type: 'transportShips', perVehicle: 500 } },
-        warship: { speed: 3, fuel: 2250, supplies: 1500, risk: 0.02, capacity: null },
-        fighter: { speed: 75, fuel: 300, supplies: 1, risk: 0.001, capacity: { type: 'transportPlanes', perVehicle: 1 } },
-        bomber: { speed: 75, fuel: 750, supplies: 5, risk: 0.002, capacity: { type: 'transportPlanes', perVehicle: 1 } }
-      };
-      const mode = modes[selectedMode as keyof typeof modes] ?? modes.foot;
+      const etaDisplay = this.campaignState.segmentToTimeDisplay(preview.etaSegment);
+      const fuelBad = preview.fuelCost > preview.fuelAvailable;
+      const supBad = preview.suppliesCost > preview.suppliesAvailable;
+      const capBad = preview.capacityAvailable !== null && preview.capacityNeeded > preview.capacityAvailable;
+      const mode = TRANSPORT_MODES[selectedModeKey];
+      const capLabel = mode?.capacityType === "trucks" ? "🚛 Trucks" : mode?.capacityType === "transportShips" ? "🚢 Ships" : "✈️ Planes";
 
-      const timeSegments = Math.max(1, Math.ceil(distance / mode.speed));
-      const fuel = Math.ceil(totalUnits * distance * mode.fuel);
-      const supplies = Math.ceil(totalUnits * distance * mode.supplies);
-      const manpower = Math.floor(totalUnits * distance * mode.risk);
-
-      let capacityInfo = '';
-      if (mode.capacity && transportCap) {
-        const needed = Math.ceil(totalUnits / mode.capacity.perVehicle);
-        const capType = mode.capacity.type as 'trucks' | 'transportShips' | 'transportPlanes';
-        const available = (transportCap[capType] ?? 0) - (transportCap[`${capType}InTransit` as keyof typeof transportCap] ?? 0);
-        const capColor = available >= needed ? '#0a0' : '#c00';
-        capacityInfo = `<br/>Requires: ${needed} ${capType} (<span style=\"color:${capColor}\">${available} available</span>)`;
-      }
-
-      const warnings: string[] = [];
-      if ((selectedMode === 'naval' || selectedMode === 'warship') && originRole !== 'navalBase' && destRole !== 'navalBase') {
-        warnings.push('⚠ Naval transport requires origin or destination to be a naval base');
-      }
-      if ((selectedMode === 'fighter' || selectedMode === 'bomber') && (originRole !== 'airbase' || destRole !== 'airbase')) {
-        warnings.push('⚠ Air transport requires both origin and destination to be airbases');
-      }
-
-      const warningHtml = warnings.length > 0 ? `<div style=\"color:#f80;margin-top:0.25rem\">${warnings.join('<br/>')}</div>` : '';
-
-      const currentSegment = this.campaignState.getCurrentSegment();
-      const etaSegment = currentSegment + timeSegments;
-      const etaDisplay = this.campaignState.segmentToTimeDisplay(etaSegment);
-
-      costEl.innerHTML = `
-        <strong>ETA: ${etaDisplay} (in ${timeSegments} segment${timeSegments !== 1 ? 's' : ''})</strong>
-        <br/>Fuel: ${fuel} · Supplies: ${supplies}${manpower > 0 ? ` · Est. losses: ${manpower}` : ''}${capacityInfo}${warningHtml}
+      summaryEl.innerHTML = `
+        <div class="summary-eta">Arrives <strong>${etaDisplay}</strong> · ${preview.timeSegments} segment${preview.timeSegments !== 1 ? "s" : ""} in transit</div>
+        <div class="summary-grid">
+          <div class="summary-cell${fuelBad ? " cost-bad" : ""}"><span>⛽ Fuel</span><strong>${fmt(preview.fuelCost)}</strong><em>of ${fmt(preview.fuelAvailable)}</em></div>
+          <div class="summary-cell${supBad ? " cost-bad" : ""}"><span>📦 Supplies</span><strong>${fmt(preview.suppliesCost)}</strong><em>of ${fmt(preview.suppliesAvailable)}</em></div>
+          ${mode?.capacityType ? `<div class="summary-cell${capBad ? " cost-bad" : ""}"><span>${capLabel}</span><strong>${preview.capacityNeeded}</strong><em>of ${preview.capacityAvailable ?? 0}</em></div>` : ""}
+          ${preview.manpowerLoss > 0 ? `<div class="summary-cell cost-warn"><span>💀 Est. losses</span><strong>${fmt(preview.manpowerLoss)}</strong><em>men</em></div>` : ""}
+        </div>
       `;
+
+      issuesEl.innerHTML = preview.ok ? "" : preview.issues.map((issue) => `<div class="redeploy-issue">⚠ ${this.escapeHtml(issue)}</div>`).join("");
+      confirmBtn.disabled = !preview.ok;
     };
 
-    calcAndRenderCost();
-    body.querySelectorAll<HTMLInputElement>("[data-move-index]").forEach((inp) => inp.addEventListener("input", () => calcAndRenderCost()));
-    modeSelect?.addEventListener("change", () => calcAndRenderCost());
+    modeButtons.forEach((btnEl) =>
+      btnEl.addEventListener("click", () => {
+        if (btnEl.disabled) return;
+        selectedModeKey = btnEl.dataset.mode ?? selectedModeKey;
+        refresh();
+      })
+    );
+    numberInputs.forEach((inp, i) =>
+      inp.addEventListener("input", () => {
+        const clamped = Math.max(0, Math.min(originForces[i].count, Number(inp.value) || 0));
+        if (sliders[i]) sliders[i].value = String(clamped);
+        refresh();
+      })
+    );
+    sliders.forEach((sl, i) =>
+      sl.addEventListener("input", () => {
+        if (numberInputs[i]) numberInputs[i].value = sl.value;
+        refresh();
+      })
+    );
+    body.querySelectorAll<HTMLButtonElement>("[data-quick]").forEach((qb) =>
+      qb.addEventListener("click", () => {
+        const i = Number(qb.dataset.quickIdx);
+        const max = originForces[i]?.count ?? 0;
+        const val = qb.dataset.quick === "all" ? max : qb.dataset.quick === "half" ? Math.ceil(max / 2) : 0;
+        if (numberInputs[i]) numberInputs[i].value = String(val);
+        if (sliders[i]) sliders[i].value = String(val);
+        refresh();
+      })
+    );
 
-    if (!form || !cancelBtn || !modeSelect) return;
+    refresh();
+
     form.onsubmit = (ev) => {
       ev.preventDefault();
-      const inputs = Array.from(body.querySelectorAll<HTMLInputElement>("[data-move-index]"));
-      const selections = inputs.map((inp, i) => ({ unitType: originForces[i].unitType, count: Math.max(0, Math.min(originForces[i].count, Number(inp.value) || 0)) }));
-      const transportMode = modeSelect.value;
-      const result = this.campaignState.scheduleRedeploy(originOffsetKey, destOffsetKey, selections, transportMode);
+      const result = this.campaignState.scheduleRedeploy(originOffsetKey, destOffsetKey, currentSelections(), selectedModeKey);
       if (!result.ok) {
         this.setCampaignStatusMessage({
           title: "Redeployment failed.",
@@ -360,6 +485,11 @@ export class CampaignScreen {
 
     // Capture sidebar hooks if present. These may be null in minimal DOMs (e.g. tests)
     this.economyContainer = this.element.querySelector<HTMLElement>("#campaignEconomySummary");
+    this.productionContainer = this.element.querySelector<HTMLElement>("#campaignProductionSummary");
+    this.productionManageButton = this.element.querySelector<HTMLButtonElement>("#campaignProductionManage");
+    if (this.productionManageButton) {
+      this.productionManageButton.addEventListener("click", () => this.openProductionModal());
+    }
     this.selectionContainer = this.element.querySelector<HTMLElement>("#campaignSelectionInfo");
     this.queueEngagementButton = this.element.querySelector<HTMLButtonElement>("#campaignQueueEngagement");
     this.advanceSegmentButton = this.element.querySelector<HTMLButtonElement>("#campaignAdvanceSegment");
@@ -498,15 +628,7 @@ export class CampaignScreen {
         if (svg && canvas && scenario) {
           this.renderer.render(svg, canvas, scenario);
           this.renderer.setTerrainOverlayVisible(this.editMode);
-          // Initialize zoom/pan controls once the SVG is available
-          if (!this.viewport) {
-            try {
-              this.viewport = new MapViewport("#campaignHexMap");
-              this.bindCampaignControls();
-            } catch {
-              // Defensive: viewport optional in tests
-            }
-          }
+          this.syncViewportAfterRender();
         }
       }
       // On day advancement, update the day counter and economy display
@@ -514,6 +636,7 @@ export class CampaignScreen {
         this.renderTimeDisplay();
       }
       this.renderEconomy();
+      this.renderProduction();
       this.renderSelection();
     });
   }
@@ -531,6 +654,7 @@ export class CampaignScreen {
     }
     this.renderer.render(svg, canvas, scenario);
     this.renderer.setTerrainOverlayVisible(this.editMode);
+    this.syncViewportAfterRender();
     this.bindTerrainEditDragHandlers(svg);
     // Handle hex clicks by recording selection and detecting if the hex is part of a front
     this.renderer.onHexClick((hexKey) => {
@@ -611,6 +735,7 @@ export class CampaignScreen {
     // Initial sidebar render
     this.renderTimeDisplay();
     this.renderEconomy();
+    this.renderProduction();
     this.renderSelection();
   }
 
@@ -749,6 +874,179 @@ export class CampaignScreen {
       })
       .join("");
     this.economyContainer.innerHTML = rows;
+  }
+
+  /** Renders the compact production summary in the sidebar (daily output + next tick countdown). */
+  private renderProduction(): void {
+    if (!this.productionContainer) {
+      return;
+    }
+    const report = this.campaignState.getProductionReport();
+    if (!report) {
+      this.productionContainer.innerHTML = "";
+      return;
+    }
+    const fmt = (n: number) => n.toLocaleString();
+    const hoursUntil = report.segmentsUntilNextTick * 3;
+    const row = (icon: string, label: string, value: number) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:0.2rem 0;font-size:0.85em;">
+        <span style="color:rgba(200,200,200,0.85);">${icon} ${label}</span>
+        <span style="font-weight:600;color:rgba(140,220,150,0.95);">+${fmt(value)}</span>
+      </div>`;
+    this.productionContainer.innerHTML = `
+      <div style="padding:0.75rem;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.08);border-radius:8px;">
+        <div style="display:flex;justify-content:space-between;font-size:0.8em;color:rgba(180,190,205,0.75);margin-bottom:0.4rem;">
+          <span>Industry: <strong style="color:rgba(220,240,255,0.95);">${fmt(report.capacity)}</strong></span>
+          <span>${report.sources.length} site${report.sources.length !== 1 ? "s" : ""}</span>
+        </div>
+        <div style="font-size:0.72em;text-transform:uppercase;letter-spacing:0.05em;color:rgba(180,190,205,0.6);margin-bottom:0.25rem;">Daily output</div>
+        ${row("📦", "Supplies", report.daily.supplies)}
+        ${row("⛽", "Fuel", report.daily.fuel)}
+        ${row("💣", "Ammo", report.daily.ammo)}
+        ${row("👥", "Manpower", report.daily.manpower)}
+        <div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid rgba(255,255,255,0.1);font-size:0.78em;color:rgba(245,196,109,0.9);">
+          Next delivery in ${report.segmentsUntilNextTick} segment${report.segmentsUntilNextTick !== 1 ? "s" : ""} (${hoursUntil}h)
+        </div>
+      </div>
+    `;
+  }
+
+  /** Opens the industrial allocation modal: sliders per resource with a live daily-output preview. */
+  private openProductionModal(): void {
+    const layer = document.getElementById("battlePopupLayer");
+    const dialog = layer?.querySelector<HTMLElement>(".battle-popup");
+    const title = dialog?.querySelector<HTMLElement>("[data-popup-title]");
+    const body = dialog?.querySelector<HTMLElement>("[data-popup-body]");
+    const close = dialog?.querySelector<HTMLButtonElement>("#battlePopupClose");
+    if (!layer || !dialog || !title || !body || !close) return;
+
+    const report = this.campaignState.getProductionReport();
+    if (!report) return;
+
+    title.textContent = "War Production";
+    const fmt = (n: number) => n.toLocaleString();
+
+    const RESOURCES: Array<{ key: keyof ProductionAllocation; icon: string; label: string; hint: string }> = [
+      { key: "supplies", icon: "📦", label: "Supplies", hint: "Rations, spares, consumables" },
+      { key: "fuel", icon: "⛽", label: "Fuel", hint: "Powers armor, ships, aircraft" },
+      { key: "ammo", icon: "💣", label: "Ammunition", hint: "Feeds tactical battles" },
+      { key: "manpower", icon: "👥", label: "Manpower", hint: "Replacements & new drafts" }
+    ];
+
+    const sliderRows = RESOURCES.map(
+      (r) => `
+      <div class="production-alloc-row">
+        <div class="alloc-label">
+          <span class="alloc-name">${r.icon} ${r.label}</span>
+          <span class="alloc-hint">${r.hint}</span>
+        </div>
+        <input type="range" min="0" max="100" step="5" value="${report.allocation[r.key]}" data-alloc-slider="${r.key}" aria-label="${r.label} allocation" />
+        <span class="alloc-pct" data-alloc-pct="${r.key}">${report.allocation[r.key]}%</span>
+        <span class="alloc-out" data-alloc-out="${r.key}"></span>
+      </div>`
+    ).join("");
+
+    const topSources = report.sources.slice(0, 8);
+    const sourceRows = topSources.map(
+      (s) => `
+      <div class="production-source-row">
+        <span>${this.escapeHtml(s.tile.replace(/_/g, " "))}${s.role ? ` <em>(${this.escapeHtml(s.role)})</em>` : ""}</span>
+        <span class="source-hex">${s.offsetKey}</span>
+        <span class="source-value">${fmt(s.supplyValue)}</span>
+      </div>`
+    ).join("");
+
+    body.innerHTML = `
+      <div class="production-modal">
+        <div class="production-capacity-banner">
+          Industrial capacity <strong>${fmt(report.capacity)}</strong> from ${report.sources.length} controlled site${report.sources.length !== 1 ? "s" : ""}
+          · next delivery in ${report.segmentsUntilNextTick} segment${report.segmentsUntilNextTick !== 1 ? "s" : ""}
+        </div>
+        <div class="redeploy-section-label">Allocation <span class="alloc-total" id="productionAllocTotal"></span></div>
+        <div class="production-alloc">${sliderRows}</div>
+        <div class="production-alloc-note">Percentages are normalized to 100% when applied.</div>
+        ${topSources.length > 0 ? `
+          <div class="redeploy-section-label">Top production sites</div>
+          <div class="production-sources">${sourceRows}</div>` : ""}
+        <div class="button-row redeploy-actions">
+          <button type="button" class="primary-button" id="productionApply">Apply Allocation</button>
+          <button type="button" class="secondary-button" id="productionCancel">Cancel</button>
+        </div>
+      </div>
+    `;
+
+    const sliders = Array.from(body.querySelectorAll<HTMLInputElement>("[data-alloc-slider]"));
+    const totalEl = body.querySelector<HTMLElement>("#productionAllocTotal");
+    const applyBtn = body.querySelector<HTMLButtonElement>("#productionApply");
+    const cancelBtn = body.querySelector<HTMLButtonElement>("#productionCancel");
+    if (!applyBtn || !cancelBtn) return;
+
+    const readAllocation = (): ProductionAllocation => {
+      const raw: ProductionAllocation = { supplies: 0, fuel: 0, ammo: 0, manpower: 0 };
+      sliders.forEach((sl) => {
+        const key = sl.dataset.allocSlider as keyof ProductionAllocation;
+        raw[key] = Number(sl.value) || 0;
+      });
+      return raw;
+    };
+
+    const refresh = (): void => {
+      const raw = readAllocation();
+      const total = raw.supplies + raw.fuel + raw.ammo + raw.manpower;
+      if (totalEl) {
+        totalEl.textContent = `· total ${total}%`;
+        totalEl.classList.toggle("alloc-total-off", total !== 100);
+      }
+      // Preview uses the normalized share, matching what setProductionAllocation will store.
+      const scale = total > 0 ? 100 / total : 0;
+      const normalized: ProductionAllocation = {
+        supplies: raw.supplies * scale,
+        fuel: raw.fuel * scale,
+        ammo: raw.ammo * scale,
+        manpower: raw.manpower * scale
+      };
+      const daily = computeDailyProduction(report.capacity, normalized);
+      RESOURCES.forEach((r) => {
+        const pctEl = body.querySelector<HTMLElement>(`[data-alloc-pct="${r.key}"]`);
+        const outEl = body.querySelector<HTMLElement>(`[data-alloc-out="${r.key}"]`);
+        if (pctEl) pctEl.textContent = `${raw[r.key]}%`;
+        if (outEl) outEl.textContent = `+${fmt(daily[r.key])}/day`;
+      });
+      applyBtn.disabled = total <= 0;
+    };
+
+    sliders.forEach((sl) => sl.addEventListener("input", refresh));
+    refresh();
+
+    const hide = (): void => {
+      layer.classList.add("hidden");
+      layer.setAttribute("aria-hidden", "true");
+    };
+
+    applyBtn.onclick = () => {
+      const result = this.campaignState.setProductionAllocation(readAllocation());
+      if (!result.ok) {
+        this.setCampaignStatusMessage({
+          title: "Allocation not applied.",
+          detail: result.reason ?? "The production allocation could not be stored.",
+          action: "Adjust the sliders so at least one resource receives output.",
+          tone: "warning"
+        });
+        return;
+      }
+      hide();
+      this.setCampaignStatusMessage({
+        title: "Production allocation updated.",
+        detail: "New output mix takes effect at the next daily delivery.",
+        action: "Advance the campaign clock to collect the adjusted output.",
+        tone: "success"
+      });
+    };
+    cancelBtn.onclick = hide;
+    close.onclick = hide;
+
+    layer.classList.remove("hidden");
+    layer.setAttribute("aria-hidden", "false");
   }
 
   /** Renders current selection details and engagement queue status. */

@@ -887,7 +887,9 @@ const missionDeploymentProfiles: Record<MissionKey, MissionDeploymentProfile> = 
     validation: {
       minimumPlayerZoneCapacityTotal: 12,
       minimumPlayerZoneFrontage: 5,
-      minimumPlayerZoneDepth: 4
+      // Depth 3 (not 4): campaign battles reuse authored templates, and the coastal maps
+      // (Omaha, Gela) legitimately deploy from shallow beachheads three hexes deep.
+      minimumPlayerZoneDepth: 3
     },
     zoneDoctrine: [
       {

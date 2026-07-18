@@ -233,8 +233,9 @@ export function buildEngagementContext(
     attacker,
     defender,
     missionType: deriveMissionType(scenario, options.battleHexKey),
-    // Amphibious detection lands with Phase 2 template selection; coastal context is computed above.
+    // Full amphibious (cross-water assault) detection is future work; coastal steers templates now.
     amphibious: false,
+    coastal,
     availableForces,
     allocationCaps,
     enemyForces,
