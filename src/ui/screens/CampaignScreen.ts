@@ -1,5 +1,10 @@
 import type { IScreenManager } from "../../contracts/IScreenManager";
-import type { CampaignScenarioData } from "../../core/campaignTypes";
+import type { CampaignPendingEngagement, CampaignScenarioData } from "../../core/campaignTypes";
+import {
+  buildEngagementContext,
+  describeForceRatio,
+  MISSION_TYPE_LABELS
+} from "../../game/campaign/EngagementContextBuilder";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { hexDistance } from "../../core/Hex";
 import { CampaignMapRenderer } from "../../rendering/CampaignMapRenderer";
@@ -271,6 +276,29 @@ export class CampaignScreen {
   }
 
   /**
+   * Resolves which hex the battle is actually fought over.
+   * Proximity engagements target the enemy tile adjacent to the selected hex; front engagements
+   * target the first enemy-held hex on the front line, falling back to an enemy tile adjacent to it.
+   */
+  private resolveBattleHexKey(engagement: CampaignPendingEngagement): string | null {
+    if (engagement.tags.includes("proximity") && engagement.hexKeys.length > 0) {
+      return this.campaignState.findAdjacentEnemyHexKey(engagement.hexKeys[0]);
+    }
+    for (const hexKey of engagement.hexKeys) {
+      if (this.campaignState.getTileOwner(hexKey) === "Bot") {
+        return hexKey;
+      }
+    }
+    for (const hexKey of engagement.hexKeys) {
+      const adjacent = this.campaignState.findAdjacentEnemyHexKey(hexKey);
+      if (adjacent) {
+        return adjacent;
+      }
+    }
+    return engagement.hexKeys[0] ?? null;
+  }
+
+  /**
    * Shows or hides the locked overlay based on the current unlock snapshot.
    * Auth resolves asynchronously (Clerk loads after app init), so this must be
    * re-evaluated whenever UnlockState hydrates — never decided once at startup.
@@ -393,11 +421,12 @@ export class CampaignScreen {
         if (!scenario) return;
         const existing = this.campaignState.getPendingEngagements();
         const id = `eng_${Date.now()}`;
+        let engagement: CampaignPendingEngagement | null = null;
         // Prefer front-driven engagement if a front is selected
         if (this.selectedFrontKey) {
           const front = scenario.fronts.find((f) => f.key === this.selectedFrontKey);
           if (!front) return;
-          existing.push({
+          engagement = {
             id,
             frontKey: front.key,
             objectiveKey: null,
@@ -405,10 +434,10 @@ export class CampaignScreen {
             defender: front.initiative === "Player" ? "Bot" : "Player",
             hexKeys: front.hexKeys.slice(),
             tags: ["front"]
-          });
+          };
         } else if (this.selectedHexKey && this.campaignState.isAdjacentToEnemy(this.selectedHexKey)) {
           // Hex-proximity engagement when player forces are near enemy forces
-          existing.push({
+          engagement = {
             id,
             frontKey: null,
             objectiveKey: null,
@@ -416,10 +445,39 @@ export class CampaignScreen {
             defender: "Bot",
             hexKeys: [this.selectedHexKey],
             tags: ["proximity"]
-          });
+          };
         } else {
           return;
         }
+
+        // Capture the strategic context (mission type, forces in position, enemy pool, budget)
+        // so precombat can honor the situation on the map. Failure to build context falls back
+        // to the legacy generic flow rather than blocking the queue.
+        const battleHexKey = this.resolveBattleHexKey(engagement);
+        if (battleHexKey) {
+          const context = buildEngagementContext(scenario, {
+            engagementId: id,
+            battleHexKey,
+            attacker: engagement.attacker,
+            frontKey: engagement.frontKey,
+            objectiveKey: engagement.objectiveKey
+          });
+          if (context) {
+            // Outgunned doctrine: inform, never balance. Worse than ~1:1.5 requires acknowledgment.
+            const ratio = describeForceRatio(context.forceRatio);
+            if (ratio.outgunned) {
+              const proceed = window.confirm(
+                `${MISSION_TYPE_LABELS[context.missionType]} at ${battleHexKey}.\n\n${ratio.label}\n\nLaunch anyway — we understand the odds?`
+              );
+              if (!proceed) {
+                return;
+              }
+            }
+            engagement.context = context;
+          }
+        }
+
+        existing.push(engagement);
         this.campaignState.setPendingEngagements(existing);
         this.campaignState.setActiveEngagementId(id);
         this.renderSelection();

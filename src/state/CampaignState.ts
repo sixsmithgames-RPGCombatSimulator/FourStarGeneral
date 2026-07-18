@@ -865,6 +865,32 @@ export class CampaignState {
     return Math.max(1, Math.ceil(distance / Math.max(1, slowest)));
   }
 
+  /** Returns the controlling faction of the tile at the given offset hex key, or null when no tile exists. */
+  getTileOwner(offsetHexKey: string): string | null {
+    if (!this.scenario) return null;
+    const inst = this.findTileByOffsetKey(offsetHexKey);
+    if (!inst) return null;
+    return inst.factionControl ?? this.scenario.tilePalette[inst.tile]?.factionControl ?? null;
+  }
+
+  /**
+   * Returns the offset hex key of the first Bot-controlled tile adjacent to the given hex, or null.
+   * Used to resolve the contested battle hex when the player queues a proximity engagement.
+   */
+  findAdjacentEnemyHexKey(offsetHexKey: string): string | null {
+    if (!this.scenario) return null;
+    const coords = this.parseOffsetKeyToAxial(offsetHexKey);
+    if (!coords) return null;
+    for (const ax of this.neighborAxials(coords.q, coords.r)) {
+      const key = this.axialToOffsetKey(ax.q, ax.r);
+      const inst = this.findTileByOffsetKey(key);
+      if (!inst) continue;
+      const owner = inst.factionControl ?? this.scenario.tilePalette[inst.tile]?.factionControl;
+      if (owner === "Bot") return key;
+    }
+    return null;
+  }
+
   /** Returns true if the given offset hex key is adjacent to any Bot-controlled tile. */
   isAdjacentToEnemy(offsetHexKey: string): boolean {
     if (!this.scenario) return false;

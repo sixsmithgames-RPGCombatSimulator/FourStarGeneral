@@ -285,6 +285,54 @@ export interface CampaignTurnState {
 }
 
 /**
+ * Mission archetypes derived from the campaign map context at the moment an engagement is queued.
+ * The defender tile's palette role is the primary driver; see docs/CAMPAIGN_BATTLE_GENERATION_DESIGN.md.
+ */
+export type CampaignMissionType =
+  | "fortifiedAssault"
+  | "lineAssault"
+  | "portAssault"
+  | "airfieldRaid"
+  | "depotRaid"
+  | "meetingEngagement";
+
+/**
+ * Structured payload captured when an engagement is queued so precombat and battle generation
+ * can honor the strategic situation: mission type, forces in position, enemy pool, and budget.
+ * All downstream consumers must tolerate its absence (legacy engagements fall back to old behavior).
+ */
+export interface CampaignEngagementContext {
+  engagementId: string;
+  /** Offset hex key ("col,row") of the contested hex the battle is fought over. */
+  battleHexKey: string;
+  attacker: CampaignFactionKey;
+  defender: CampaignFactionKey;
+  missionType: CampaignMissionType;
+  /** True when the assault crosses water; informs template choice in Phase 2. */
+  amphibious: boolean;
+  /** Friendly force groups eligible to commit, with the hex they stage from. */
+  availableForces: Array<{ hexKey: string; unitType: string; count: number }>;
+  /** Per-allocation-key quantity caps derived from availableForces via the mapping table. */
+  allocationCaps: Record<string, number>;
+  /** Defender force pool (exact counts internally; UI surfaces banded estimates only). */
+  enemyForces: Array<{ hexKey: string; unitType: string; count: number }>;
+  /** Air sorties reachable from in-range friendly airbases. */
+  airSorties: number;
+  /** Discretionary consumables budget (RP) granted on top of committed-force value. */
+  rpReserve: number;
+  /** Mapped RP value of the player's available forces. */
+  playerForceValue: number;
+  /** Mapped RP value of the enemy pool. */
+  enemyForceValue: number;
+  /** playerForceValue / enemyForceValue (Infinity when enemy pool is empty). */
+  forceRatio: number;
+  /** Resolved tactical template key; null until Phase 2 template selection lands. */
+  templateKey: string | null;
+  frontKey: string | null;
+  objectiveKey: string | null;
+}
+
+/**
  * Describes a tactical battle opportunity generated from a campaign decision.
  */
 export interface CampaignPendingEngagement {
@@ -297,6 +345,8 @@ export interface CampaignPendingEngagement {
   hexKeys: string[];
   /** Free-form tags help downstream systems decide which battle template to instantiate. */
   tags: string[];
+  /** Structured strategic context captured at queue time. Optional for legacy engagements. */
+  context?: CampaignEngagementContext;
 }
 
 /** Player actions on the campaign map are captured as decisions to enable undo/replay workflows later. */
