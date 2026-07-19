@@ -113,8 +113,19 @@ export class GameEngineInitiativeIntegration {
   }
 
   /**
+   * Register a unit that just entered play mid-turn (e.g. a reserve called up from the roster)
+   * so it can act during the current turn rather than waiting for the queue to rebuild next turn.
+   */
+  public addUnitActivation(unit: ScenarioUnit, ownerId: 'player' | 'bot'): void {
+    if (!this.extensions.isInitiativeSystemEnabled) {
+      return;
+    }
+    this.extensions.initiativeManager.addUnitActivation(unit, ownerId);
+  }
+
+  /**
    * Process the next activation in the initiative queue
-   * 
+   *
    * @returns Next activation or null if queue is exhausted
    * @throws Error if initiative system is not active
    */

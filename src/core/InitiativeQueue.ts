@@ -212,6 +212,49 @@ export class InitiativeQueueManager {
   }
 
   /**
+   * Insert a newly-arrived unit (e.g. a reserve called up mid-turn) into an in-progress queue
+   * so it can act during the current turn instead of waiting for the next queue rebuild.
+   *
+   * The activation is spliced in just ahead of the current cursor position, in the unit's
+   * initiative band ordering is not preserved for this late arrival - reinforcements simply
+   * become available at the next opportunity rather than retroactively re-sorting the turn.
+   *
+   * @param queue - Current initiative queue (will be mutated)
+   * @param unit - The unit that just entered play
+   * @param ownerId - Explicit owner for the new activation. Not inferred from `unit.controlledBy`,
+   * since units already sitting in the engine's per-faction placement maps do not reliably carry
+   * that field - the caller already knows which faction the unit belongs to.
+   */
+  public addUnitActivation(queue: InitiativeQueue, unit: ScenarioUnit, ownerId: 'player' | 'bot'): void {
+    if (!queue || !Array.isArray(queue.activations)) {
+      throw new Error('Invalid queue provided');
+    }
+
+    const unitDef = unitTypesData[unit.type as keyof typeof unitTypesData];
+    if (!unitDef || !(unitDef.initiative > 0)) {
+      return; // Aircraft and other zero-initiative types never get a ground activation slot.
+    }
+
+    const unitId = unit.unitId || `${unit.type}-${queue.activations.length}`;
+    if (queue.activations.some((activation) => activation.unitId === unitId)) {
+      return; // Already present (e.g. reconnected/replayed state); avoid duplicate slots.
+    }
+
+    const activation: UnitActivation = {
+      unitId,
+      ownerId,
+      initiative: unitDef.initiative,
+      isActivated: false,
+      sortOrder: queue.activations.length
+    };
+
+    const activations = queue.activations.slice();
+    const insertAt = Math.min(queue.currentIndex, activations.length);
+    activations.splice(insertAt, 0, activation);
+    (queue as { activations: readonly UnitActivation[] }).activations = Object.freeze(activations);
+  }
+
+  /**
    * Skip all remaining player activations in the current turn
    * 
    * This is used when the player ends their turn early.

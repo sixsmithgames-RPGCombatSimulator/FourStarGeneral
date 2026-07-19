@@ -174,8 +174,24 @@ export class BattleStateInitiativeManager {
   }
 
   /**
+   * Register a unit that just entered play mid-turn (e.g. a reserve called up from the roster)
+   * so it gets an activation slot in the current turn's queue instead of sitting out until the
+   * queue rebuilds next turn.
+   *
+   * @param unit - The unit that just arrived
+   * @param ownerId - Which side the unit belongs to
+   */
+  public addUnitActivation(unit: ScenarioUnit, ownerId: 'player' | 'bot'): void {
+    if (!this.state.isInitiativeSystemActive || !this.state.initiativeQueue) {
+      return;
+    }
+    const initiativeUnit = isInitiativeUnit(unit) ? unit : toInitiativeUnit(unit);
+    initiativeQueueManager.addUnitActivation(this.state.initiativeQueue, initiativeUnit, ownerId);
+  }
+
+  /**
    * Skip all remaining player activations (used when player ends turn early)
-   * 
+   *
    * @param units - Current unit state to update
    * @throws Error if initiative system is not active
    */

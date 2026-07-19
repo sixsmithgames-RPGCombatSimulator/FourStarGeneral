@@ -137,8 +137,20 @@ export class GameEngineInitiativeMethods {
   }
 
   /**
+   * Registers a unit that just entered play mid-turn (e.g. a reserve called up from the roster
+   * during a live battle) with the active initiative queue, so it gets an activation slot for
+   * the current turn instead of sitting idle until the queue rebuilds next turn.
+   */
+  public registerReserveArrival(unit: ScenarioUnit, ownerId: 'player' | 'bot' = 'player'): void {
+    if (!this.integration.isInitiativeSystemActive()) {
+      return;
+    }
+    this.integration.addUnitActivation(unit, ownerId);
+  }
+
+  /**
    * Process the next activation in the initiative queue
-   * 
+   *
    * @returns The next activation or null if queue is exhausted
    */
   public processNextInitiativeActivation(): UnitActivation | null {

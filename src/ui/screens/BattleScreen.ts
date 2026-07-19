@@ -10422,10 +10422,11 @@ export class BattleScreen {
       return false;
     }
 
+    // Calling in an off-map fire mission is an observation order, not a committed action -
+    // like setting facing, it doesn't spend the formation's movement or attack for the turn.
     return (
       (flags.movementPointsUsed ?? 0) > 0 ||
-      (flags.attacksUsed ?? 0) > 0 ||
-      flags.supportQueued === true
+      (flags.attacksUsed ?? 0) > 0
     );
   }
 
@@ -11670,6 +11671,7 @@ export class BattleScreen {
         const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
         try {
           engine.callUpReserveByKey(unitKey, axial);
+          this.registerReserveArrivalForInitiative(engine, axial);
           const label = this.resolveUnitLabel(unitKey);
           this.renderEngineUnits();
           this.refreshDeploymentMirrors("deploy", { unitKey, hexKey: this.selectedHexKey, label });
@@ -11724,12 +11726,30 @@ export class BattleScreen {
     for (const c of candidates) {
       try {
         engine.callUpReserveByKey(unitKey, c.ax);
+        this.registerReserveArrivalForInitiative(engine, c.ax);
         return { hexKey: c.k };
       } catch {
         continue;
       }
     }
     return null;
+  }
+
+  /**
+   * A reserve unit called up mid-battle should be able to act the turn it arrives instead of
+   * sitting idle until the initiative queue rebuilds next turn. Locates the freshly-placed unit
+   * and, if the initiative system is active, gives it an activation slot in the current queue.
+   */
+  private registerReserveArrivalForInitiative(engine: GameEngine, hex: Axial): void {
+    if (!this.initiativeMethods) {
+      return;
+    }
+    const deployedUnit = (engine.playerUnits ?? []).find(
+      (unit) => unit.hex.q === hex.q && unit.hex.r === hex.r
+    );
+    if (deployedUnit) {
+      this.initiativeMethods.registerReserveArrival(deployedUnit);
+    }
   }
 
   private axialDistance(q1: number, r1: number, q2: number, r2: number): number {
