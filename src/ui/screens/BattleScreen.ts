@@ -1706,7 +1706,9 @@ export class BattleScreen {
     });
     this.completeTutorialPhase("artillery_intro");
     this.battleState.emitBattleUpdate("manual");
-    this.completeInitiativeActivationAfterPlayerOrder(targetingState.callerUnitId);
+    // Calling in an off-map fire mission is an observation order, not a committed action - like
+    // setting facing, it should not end the caller's initiative activation. The caller remains free
+    // to move and attack normally this turn.
   }
 
   private async triggerSupportImpacts(): Promise<void> {
