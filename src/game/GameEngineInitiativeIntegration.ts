@@ -54,6 +54,8 @@ export class GameEngineInitiativeMethods {
   private botIntegration: InitiativeBotIntegration;
   private gameEngine: any; // GameEngine instance
   private botActivationObservers = new Set<(result: InitiativeBotActivationResult) => void | Promise<void>>();
+  private supportImpactObservers = new Set<() => void | Promise<void>>();
+  private supportResolutionTurn: number | null = null;
   private plannerIntegrationUnavailableLogged = false;
   private plannerBotIntegrationDisabled = false;
 
@@ -160,9 +162,14 @@ export class GameEngineInitiativeMethods {
         ownerId: nextActivation.ownerId
       });
       // Update UI and game state for the new activation
-      this.onActivationStarted(nextActivation);
+      const supportImpactsQueued = this.resolveSupportAtArtilleryInitiative(nextActivation.initiative);
+      this.onActivationStarted(nextActivation, supportImpactsQueued);
     } else {
       console.log('No more activations, queue complete');
+      const supportImpactsQueued = this.resolveSupportAtArtilleryInitiative(null);
+      if (supportImpactsQueued) {
+        void this.emitSupportImpacts();
+      }
       // No more activations, transition to air show phase
       this.onInitiativeQueueComplete();
     }
@@ -349,6 +356,13 @@ export class GameEngineInitiativeMethods {
     }
   }
 
+  public setSupportImpactListener(listener: (() => void | Promise<void>) | null): void {
+    this.supportImpactObservers.clear();
+    if (listener) {
+      this.supportImpactObservers.add(listener);
+    }
+  }
+
   /**
    * Skip the current initiative group
    */
@@ -502,7 +516,7 @@ export class GameEngineInitiativeMethods {
    * 
    * @param activation - The activation that started
    */
-  private onActivationStarted(activation: UnitActivation): void {
+  private onActivationStarted(activation: UnitActivation, supportImpactsQueued = false): void {
     // Update UI to highlight the active unit
     // This would emit an event for the UI to react to
     console.log(`Activation started: ${activation.unitId} (${activation.ownerId})`);
@@ -510,9 +524,50 @@ export class GameEngineInitiativeMethods {
     // Update game engine state
     this.gameEngine._activeFaction = activation.ownerId === 'player' ? 'Player' : 'Bot';
     
+    const automatedActivation = activation.ownerId === 'bot' || this.isAutomatedPlayerActivation(activation);
+    if (supportImpactsQueued) {
+      // The barrage is part of the artillery initiative. Automated artillery must wait until
+      // the support animation/log has completed so its own move or attack cannot overtake it.
+      void this.emitSupportImpacts().then(() => {
+        if (automatedActivation) {
+          this.executeBotTurn(activation);
+        }
+      });
+      return;
+    }
+
     // Bot units and automated player logistics units execute without manual commands.
-    if (activation.ownerId === 'bot' || this.isAutomatedPlayerActivation(activation)) {
+    if (automatedActivation) {
       this.executeBotTurn(activation);
+    }
+  }
+
+  private resolveSupportAtArtilleryInitiative(initiative: number | null): boolean {
+    const turnNumber = Number.isFinite(this.gameEngine?._turnNumber) ? this.gameEngine._turnNumber : 1;
+    if (this.supportResolutionTurn === turnNumber) {
+      return false;
+    }
+    // Initiative 2 is the authored artillery band. If a scenario has no such units,
+    // the null queue-completion call is the fallback that still guarantees resolution.
+    if (initiative !== null && initiative > 2) {
+      return false;
+    }
+
+    this.supportResolutionTurn = turnNumber;
+    const resolver = this.gameEngine?.resolveQueuedSupportActionsForInitiative;
+    if (typeof resolver !== 'function') {
+      return false;
+    }
+    return resolver.call(this.gameEngine) > 0;
+  }
+
+  private async emitSupportImpacts(): Promise<void> {
+    for (const observer of Array.from(this.supportImpactObservers)) {
+      try {
+        await observer();
+      } catch (error) {
+        console.warn('Initiative support-impact observer failed:', error);
+      }
     }
   }
 

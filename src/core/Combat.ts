@@ -87,6 +87,8 @@ export interface DefenderContext {
   class: UnitClass;
   facing: Facing;
   hex: Axial;
+  /** Prepared fieldworks occupied by the defender (0-2). Reduces exposed target area. */
+  entrenchment?: number;
   isRushing?: boolean; // Infantry rushing loses terrain cover
   isSpottedOnly?: boolean; // Target visible only via aircraft/recon spotting (no direct LOS)
   stance?: "fireAtWill" | "assault" | "suppressive" | "digIn"; // Combat stance (infantry only)
@@ -465,7 +467,12 @@ export function calculateAccuracy(request: AttackRequest): AccuracyBreakdown {
       attacker.unit.class
     )
     : 0;
-  const terrainMod = terrainAccMod(defenderCtx.terrain, defenderCtx.isRushing, fortificationCoverPct, defenderCtx.class);
+  const entrenchmentLevel = defenderCtx.isRushing
+    ? 0
+    : clamp(defenderCtx.entrenchment ?? 0, 0, combatBalance.entrench.max);
+  const entrenchmentCoverPct = entrenchmentLevel * combatBalance.cover.entrenchmentPerLevelPct;
+  const terrainMod = terrainAccMod(defenderCtx.terrain, defenderCtx.isRushing, fortificationCoverPct, defenderCtx.class)
+    + entrenchmentCoverPct;
   const terrainMultiplier = 1 + terrainMod / 100;
   const afterTerrain = afterDefenderExperience * terrainMultiplier;
 

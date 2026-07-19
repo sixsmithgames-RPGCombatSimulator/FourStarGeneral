@@ -614,15 +614,18 @@ function scoreArtilleryHoldOrDisplace(
   // to displace to. Only reachable hexes that increase distance from every nearby enemy qualify; this is
   // a retreat/reposition, not an advance.
   let retreat: ActionCandidate | null = null;
+  const currentEnemyDistances = enemies.map((enemy) => hexDistance(snapshot.unit.hex, enemy.unit.hex));
   for (const option of reachable.values()) {
     if (option.path.length <= 1) {
       continue;
     }
-    const optionNearestEnemyDistance = Math.min(
-      ...enemies.map((enemy) => hexDistance(option.hex, enemy.unit.hex))
+    const optionEnemyDistances = enemies.map((enemy) => hexDistance(option.hex, enemy.unit.hex));
+    const optionNearestEnemyDistance = Math.min(...optionEnemyDistances);
+    const movesTowardAnyEnemy = optionEnemyDistances.some(
+      (distance, index) => distance < (currentEnemyDistances[index] ?? Number.POSITIVE_INFINITY)
     );
-    if (optionNearestEnemyDistance <= nearestEnemyDistance) {
-      continue; // Must actually gain safety, never just close the gap.
+    if (optionNearestEnemyDistance <= nearestEnemyDistance || movesTowardAnyEnemy) {
+      continue; // Must gain safety without creeping toward a different enemy formation.
     }
 
     let score = 4
@@ -2712,6 +2715,12 @@ function pickBestCandidate(
     const rangeMin = snapshot.definition.rangeMin ?? 1;
 
     for (const option of reachable.values()) {
+      // Artillery cannot move and fire in the same activation. Evaluating a mobile
+      // firing hex produced plans whose move succeeded and whose attack was then
+      // rejected by the engine, causing batteries to creep toward the front.
+      if (purpose === "artillery" && axialKey(option.hex) !== axialKey(snapshot.unit.hex)) {
+        continue;
+      }
       const distance = hexDistance(option.hex, playerSnapshot.unit.hex);
       if (distance < rangeMin || distance > rangeMax) {
         continue;
@@ -2744,6 +2753,29 @@ function pickBestCandidate(
         top = candidate;
       }
     }
+  }
+
+  if (purpose === "artillery") {
+    const displacement = scoreArtilleryHoldOrDisplace(
+      snapshot,
+      reachable,
+      input.playerUnits,
+      input,
+      difficultyMods,
+      strongholds
+    );
+    if (displacement && (!top || displacement.score > top.score)) {
+      top = displacement;
+    }
+    return top ?? {
+      destination: snapshot.unit.hex,
+      path: [snapshot.unit.hex],
+      attackTarget: null,
+      expectedDamage: 0,
+      expectedRetaliation: 0,
+      score: 0,
+      rationale: "Hold long-range firing position"
+    };
   }
 
   const setupCandidate = scoreFireSetup(snapshot, reachable, pressureTargets, input, difficultyMods, strongholds);

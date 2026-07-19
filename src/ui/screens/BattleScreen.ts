@@ -1697,7 +1697,7 @@ export class BattleScreen {
     }
     this.clearSelectedHexAfterAction();
     this.syncQueuedTargetMarkers();
-    const summary = `${targetingState.callerLabel} requested Corps Artillery on ${targetHexKey}. Impact scheduled for turn transition. Click the red crosshair to cancel and reposition.`;
+    const summary = `${targetingState.callerLabel} requested Corps Artillery on ${targetHexKey}. Impact scheduled for initiative 2 (artillery). Click the red crosshair to cancel and reposition.`;
     this.announceBattleUpdate(summary);
     this.publishActivityEvent({
       category: "player",
@@ -9452,6 +9452,11 @@ export class BattleScreen {
       // Initialize initiative methods
       this.initiativeMethods = new GameEngineInitiativeMethods(engine);
       this.initiativeMethods.setBotActivationListener((event) => this.handleInitiativeBotActivation(event));
+      this.initiativeMethods.setSupportImpactListener(async () => {
+        this.syncQueuedTargetMarkers();
+        await this.triggerSupportImpacts();
+        this.syncQueuedTargetMarkers();
+      });
       this.isInitiativeSystemEnabled = true;
       this.initiativeGroupCursorUnitId = null;
       this.initiativeGroupSessionId = null;

@@ -1210,6 +1210,89 @@ registerTest("BOT_PLANNER_LONG_RANGE_CHASES_USE_PRESSURE_LOGIC_INSTEAD_OF_DISTAN
   });
 });
 
+registerTest("BOT_ARTILLERY_HOLDS_WHEN_A_LONG_RANGE_TARGET_IS_NOT_YET_SERVICEABLE", async ({ Given, When, Then }) => {
+  let plannedDestination = "";
+  let plannedRationale = "";
+
+  await Given("a safe artillery battery with a spotted enemy beyond its current firing solution", async () => {
+    const artillery = createPlannerSnapshot("BotArtillery", playerArtilleryDef, { q: 0, r: 0 });
+    const enemy = createPlannerSnapshot("PlayerInfantry", playerInfantryDef, { q: 6, r: 0 });
+    const input: BotPlannerInput = {
+      botUnits: [artillery],
+      playerUnits: [enemy],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(artillery.unit.hex), "bot"],
+        [axialKey(enemy.unit.hex), "player"]
+      ]),
+      map: {
+        inBounds: (hex) => hex.q >= 0 && hex.q <= 7 && hex.r >= 0 && hex.r <= 3,
+        terrainAt: () => plains,
+        movementCost: () => 1
+      },
+      losAllows: () => true,
+      movementAllowance: () => 1,
+      attackEstimator: () => null,
+      difficulty: "Normal"
+    };
+
+    const plan = planHeuristicBotTurn(input)[0];
+    plannedDestination = plan ? axialKey(plan.destination) : "";
+    plannedRationale = plan?.rationale ?? "";
+  });
+
+  await When("the planner considers staging and pressure movement", async () => {});
+
+  await Then("the battery should preserve its long-range firing position instead of creeping forward", async () => {
+    if (plannedDestination !== "0,0" || !plannedRationale.toLowerCase().includes("hold")) {
+      throw new Error(`Expected artillery to hold at 0,0, received destination=${plannedDestination || "none"} rationale=${plannedRationale || "none"}.`);
+    }
+  });
+});
+
+registerTest("BOT_ARTILLERY_FIRES_FROM_ITS_CURRENT_HEX_INSTEAD_OF_MOVING_FOR_A_BETTER_SHOT", async ({ Given, When, Then }) => {
+  let plannedDestination = "";
+  let plannedTarget = "";
+
+  await Given("a long-range battery that can fire now but would score more damage from a closer illegal move-and-fire hex", async () => {
+    const artillery = createPlannerSnapshot("BotArtillery", playerArtilleryDef, { q: 0, r: 0 });
+    const enemy = createPlannerSnapshot("PlayerInfantry", playerInfantryDef, { q: 4, r: 0 });
+    const input: BotPlannerInput = {
+      botUnits: [artillery],
+      playerUnits: [enemy],
+      objectives: [],
+      occupancy: new Map<string, "bot" | "player">([
+        [axialKey(artillery.unit.hex), "bot"],
+        [axialKey(enemy.unit.hex), "player"]
+      ]),
+      map: {
+        inBounds: (hex) => hex.q >= 0 && hex.q <= 5 && hex.r >= 0 && hex.r <= 3,
+        terrainAt: () => plains,
+        movementCost: () => 1
+      },
+      losAllows: () => true,
+      movementAllowance: () => 1,
+      attackEstimator: (_attacker, attackerHex) => ({
+        expectedDamage: attackerHex.q === 0 ? 8 : 30,
+        expectedRetaliation: 0
+      }),
+      difficulty: "Normal"
+    };
+
+    const plan = planHeuristicBotTurn(input)[0];
+    plannedDestination = plan ? axialKey(plan.destination) : "";
+    plannedTarget = plan?.attackTarget ? axialKey(plan.attackTarget) : "";
+  });
+
+  await When("the planner ranks current and mobile firing candidates", async () => {});
+
+  await Then("the legal long-range shot from the current hex should be selected", async () => {
+    if (plannedDestination !== "0,0" || plannedTarget !== "4,0") {
+      throw new Error(`Expected artillery to fire 0,0 -> 4,0, received destination=${plannedDestination || "none"} target=${plannedTarget || "none"}.`);
+    }
+  });
+});
+
 registerTest("BOT_PLANNER_ARMORED_ASSAULT_STAGES_OFF_ROAD_WHEN_A_TOWN_STRONGHOLD_IS_UNSUPPRESSED", async ({ Given, When, Then }) => {
   let plannedDestination = "";
 

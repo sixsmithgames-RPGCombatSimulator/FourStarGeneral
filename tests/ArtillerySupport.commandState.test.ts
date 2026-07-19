@@ -1,5 +1,6 @@
 import { registerTest } from "./harness.js";
 import { GameEngine, type GameEngineConfig } from "../src/game/GameEngine";
+import { GameEngineInitiativeMethods } from "../src/game/GameEngineInitiativeIntegration";
 import { unitTypesData } from "../src/data/unitSystem/derivedUnitTypes";
 import { summarizeFormationStatus } from "../src/data/unitSystem/damagePackets";
 import type {
@@ -342,4 +343,66 @@ registerTest("QUEUED_ARTILLERY_SUPPORT_DAMAGE_USES_STATUS_POOLS", async ({ Then 
   }
 
   await Then("queued artillery support applies detailed personnel/equipment status damage", () => {});
+});
+
+registerTest("QUEUED_ARTILLERY_RESOLVES_WHEN_INITIATIVE_REACHES_THE_ARTILLERY_BAND", async ({ Then }) => {
+  const observed = { resolutionCalls: 0, impactNotifications: 0 };
+  const playerUnits: ScenarioUnit[] = [
+    {
+      type: "Infantry_42",
+      hex: { q: 0, r: 0 },
+      strength: 100,
+      experience: 0,
+      ammo: 6,
+      fuel: 0,
+      entrench: 0,
+      facing: "NE",
+      unitId: "initiative-observer"
+    },
+    {
+      type: "Howitzer_105",
+      hex: { q: 1, r: 0 },
+      strength: 100,
+      experience: 0,
+      ammo: 8,
+      fuel: 20,
+      entrench: 0,
+      facing: "NE",
+      unitId: "initiative-artillery"
+    }
+  ];
+  const fakeEngine = {
+    _turnNumber: 1,
+    _phase: "playerTurn",
+    _activeFaction: "Player",
+    playerUnits,
+    botUnits: [],
+    allyUnits: [],
+    resolveQueuedSupportActionsForInitiative: () => {
+      observed.resolutionCalls += 1;
+      return 1;
+    }
+  };
+  const initiative = new GameEngineInitiativeMethods(fakeEngine);
+  initiative.setSupportImpactListener(() => {
+    observed.impactNotifications += 1;
+  });
+
+  const firstActivation = initiative.startNextInitiativeTurnPhase();
+  if (firstActivation?.initiative !== 5 || observed.resolutionCalls !== 0) {
+    throw new Error(`Expected support to remain queued during initiative 5, received activation=${JSON.stringify(firstActivation)} calls=${observed.resolutionCalls}.`);
+  }
+
+  initiative.completeUnitActivation(firstActivation.unitId);
+  const artilleryActivation = initiative.getCurrentActivation();
+  if (artilleryActivation?.initiative !== 2) {
+    throw new Error(`Expected the next activation to enter artillery initiative 2, received ${JSON.stringify(artilleryActivation)}.`);
+  }
+  const finalResolutionCalls = Number(observed.resolutionCalls);
+  const finalImpactNotifications = Number(observed.impactNotifications);
+  if (finalResolutionCalls !== 1 || finalImpactNotifications !== 1) {
+    throw new Error(`Expected one support resolution and impact notification at initiative 2, received calls=${observed.resolutionCalls} notifications=${observed.impactNotifications}.`);
+  }
+
+  await Then("off-map artillery lands once as the artillery initiative begins", () => {});
 });

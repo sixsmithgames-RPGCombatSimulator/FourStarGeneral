@@ -1561,6 +1561,8 @@ export interface GameEngineAPI {
   /** Cancels a queued air mission for the active faction. Returns true if a mission was canceled. */
   cancelQueuedAirMission(missionId: string): boolean;
   consumeSupportImpactEvents(): SupportImpactEvent[];
+  /** Resolves support queued earlier in the round when initiative reaches the artillery band. */
+  resolveQueuedSupportActionsForInitiative(): number;
   serialize(): SerializedBattleState;
   initializeFromAllocations(units: ScenarioUnit[]): void;
   hydrateFromSerialized(state: SerializedBattleState): void;
@@ -3783,6 +3785,7 @@ export class GameEngine implements GameEngineAPI {
         class: defenderDefinition.class,
         facing: defender.facing,
         hex: structuredClone(defender.hex),
+        entrenchment: defender.entrench,
         isRushing: false,
         isSpottedOnly: false
       },
@@ -8346,6 +8349,17 @@ private automateSupplyConvoys(
   }
 
   /**
+   * Initiative battles do not pass through the legacy player-turn transition before the
+   * artillery band. Expose the same support resolver so initiative sequencing can land
+   * queued fire missions at initiative 2 and let the UI consume their impact events.
+   */
+  resolveQueuedSupportActionsForInitiative(): number {
+    const impactCountBefore = this.pendingSupportImpactEvents.length;
+    this.resolveQueuedSupportActions();
+    return Math.max(0, this.pendingSupportImpactEvents.length - impactCountBefore);
+  }
+
+  /**
    * Register a new sortie for the active faction. Validation is intentionally strict to prevent partial state.
    * Future resolution phases will consume the queued missions at end-of-turn.
    */
@@ -10143,7 +10157,8 @@ private automateSupplyConvoys(
       allowBomberAirAttack: true,
       stance: effectiveStance === "assault" ? "assault" : undefined,
       isRetaliation: true,
-      isOnSentry: simultaneousFire
+      isOnSentry: simultaneousFire,
+      defenderIsAssaulting: effectiveStance === "assault"
     });
     if (!retaliationReq) {
       return {
@@ -11473,7 +11488,8 @@ private automateSupplyConvoys(
             allowBomberAirAttack: true,
             stance: effectiveStance === "assault" ? "assault" : undefined,
             isRetaliation: true,
-            isOnSentry: defenderWasOnSentry
+            isOnSentry: defenderWasOnSentry,
+            defenderIsAssaulting: effectiveStance === "assault"
           })
         : null;
 
@@ -12690,14 +12706,14 @@ private automateSupplyConvoys(
   }
 
   /** Backward-compatible overload (legacy call sites assume Player attacks Bot). */
-  private buildAttackRequest(attacker: ScenarioUnit, defender: ScenarioUnit, options?: { allowBomberAirAttack?: boolean; stance?: CombatStance; isRetaliation?: boolean; isOnSentry?: boolean }): AttackRequest | null;
+  private buildAttackRequest(attacker: ScenarioUnit, defender: ScenarioUnit, options?: { allowBomberAirAttack?: boolean; stance?: CombatStance; isRetaliation?: boolean; isOnSentry?: boolean; defenderIsAssaulting?: boolean }): AttackRequest | null;
   /** Faction-aware overload. */
   private buildAttackRequest(
     attacker: ScenarioUnit,
     defender: ScenarioUnit,
     attackerFaction: TurnFaction,
     defenderFaction: TurnFaction,
-    options?: { allowBomberAirAttack?: boolean; stance?: CombatStance; isRetaliation?: boolean; isOnSentry?: boolean }
+    options?: { allowBomberAirAttack?: boolean; stance?: CombatStance; isRetaliation?: boolean; isOnSentry?: boolean; defenderIsAssaulting?: boolean }
   ): AttackRequest | null;
   private buildAttackRequest(
     attacker: ScenarioUnit,
@@ -12708,7 +12724,7 @@ private automateSupplyConvoys(
   ): AttackRequest | null {
     let attackerFaction: TurnFaction = "Player";
     let defenderFaction: TurnFaction = "Bot";
-    let options: { allowBomberAirAttack?: boolean; stance?: CombatStance; isRetaliation?: boolean; isOnSentry?: boolean } | undefined;
+    let options: { allowBomberAirAttack?: boolean; stance?: CombatStance; isRetaliation?: boolean; isOnSentry?: boolean; defenderIsAssaulting?: boolean } | undefined;
 
     if (a3 === "Player" || a3 === "Bot" || a3 === "Ally") {
       attackerFaction = a3 as TurnFaction;
@@ -12823,7 +12839,8 @@ private automateSupplyConvoys(
       class: defenderType.class,
       facing: defender.facing,
       hex: defender.hex,
-      isRushing: isDefenderRushing || isAssault, // Attacker loses cover when assaulting
+      entrenchment: defender.entrench,
+      isRushing: isDefenderRushing || options?.defenderIsAssaulting === true,
       isSpottedOnly,
       stance: isAssault ? "assault" : undefined, // Defender also at close range if assaulted
       fortified: defenderFortified,
@@ -13358,7 +13375,8 @@ private automateSupplyConvoys(
           allowBomberAirAttack: true,
           stance: preferredStance === "assault" ? "assault" : undefined,
           isRetaliation: true,
-          isOnSentry: defUnit.onSentry === true
+          isOnSentry: defUnit.onSentry === true,
+          defenderIsAssaulting: preferredStance === "assault"
         });
         if (revReq) {
           const baseRev = resolveAttack(revReq);
@@ -15668,7 +15686,8 @@ private automateSupplyConvoys(
           class: defenderDef.class,
           facing: defenderBefore.facing,
           hex: defenderBefore.hex,
-          isRushing: effectiveStance === "assault",
+          entrenchment: defenderBefore.entrench,
+          isRushing: this.getUnitActionFlags(entry.faction, defenderBefore).isRushing,
           isSpottedOnly,
           stance: effectiveStance === "assault" ? "assault" : undefined,
           fortified: defenderFortified,
@@ -15786,7 +15805,8 @@ private automateSupplyConvoys(
             allowBomberAirAttack: true,
             stance: effectiveStance === "assault" ? "assault" : undefined,
             isRetaliation: true,
-            isOnSentry: defenderWasOnSentry
+            isOnSentry: defenderWasOnSentry,
+            defenderIsAssaulting: effectiveStance === "assault"
           })
         : null;
       if (retaliationReq) {
