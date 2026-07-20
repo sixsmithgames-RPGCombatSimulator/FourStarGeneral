@@ -213,11 +213,10 @@ export class InitiativeQueueManager {
 
   /**
    * Insert a newly-arrived unit (e.g. a reserve called up mid-turn) into an in-progress queue
-   * so it can act during the current turn instead of waiting for the next queue rebuild.
+   * without replacing the activation that is already in progress.
    *
-   * The activation is spliced in just ahead of the current cursor position, in the unit's
-   * initiative band ordering is not preserved for this late arrival - reinforcements simply
-   * become available at the next opportunity rather than retroactively re-sorting the turn.
+   * A reserve whose initiative band is still ahead is inserted into the remaining sorted queue.
+   * If its band has already passed, it waits for the next turn instead of acting retroactively.
    *
    * @param queue - Current initiative queue (will be mutated)
    * @param unit - The unit that just entered play
@@ -249,9 +248,51 @@ export class InitiativeQueueManager {
     };
 
     const activations = queue.activations.slice();
-    const insertAt = Math.min(queue.currentIndex, activations.length);
-    activations.splice(insertAt, 0, activation);
-    (queue as { activations: readonly UnitActivation[] }).activations = Object.freeze(activations);
+    const currentIndex = activations.findIndex(
+      (candidate, index) => index >= queue.currentIndex && !candidate.isActivated
+    );
+
+    if (currentIndex >= 0 && activation.initiative > activations[currentIndex]!.initiative) {
+      return;
+    }
+
+    const remainingStart = currentIndex >= 0 ? currentIndex + 1 : queue.currentIndex;
+    const remaining = [...activations.slice(remainingStart), activation];
+    const groupedByInitiative = new Map<number, { player: UnitActivation[]; bot: UnitActivation[] }>();
+    remaining.forEach((candidate) => {
+      const group: { player: UnitActivation[]; bot: UnitActivation[] } =
+        groupedByInitiative.get(candidate.initiative) ?? { player: [], bot: [] };
+      if (candidate.ownerId === "player") {
+        group.player.push(candidate);
+      } else {
+        group.bot.push(candidate);
+      }
+      groupedByInitiative.set(candidate.initiative, group);
+    });
+
+    const orderedRemaining: UnitActivation[] = [];
+    Array.from(groupedByInitiative.keys())
+      .sort((left, right) => right - left)
+      .forEach((initiative) => {
+        const group = groupedByInitiative.get(initiative)!;
+        const playerQueue = [...group.player].sort((left, right) => left.sortOrder - right.sortOrder);
+        const botQueue = [...group.bot].sort((left, right) => left.sortOrder - right.sortOrder);
+        while (playerQueue.length > 0 || botQueue.length > 0) {
+          const playerActivation = playerQueue.shift();
+          if (playerActivation) {
+            orderedRemaining.push(playerActivation);
+          }
+          const botActivation = botQueue.shift();
+          if (botActivation) {
+            orderedRemaining.push(botActivation);
+          }
+        }
+      });
+
+    (queue as { activations: readonly UnitActivation[] }).activations = Object.freeze([
+      ...activations.slice(0, remainingStart),
+      ...orderedRemaining
+    ]);
   }
 
   /**

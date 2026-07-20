@@ -246,7 +246,7 @@ registerTest("FRESH_UNITS_CAN_STILL_ATTACK_AFTER_CALLING_ARTILLERY", async ({ Th
   await Then("calling artillery leaves a fresh unit's attack available", () => {});
 });
 
-registerTest("ARTILLERY_QUEUE_CHECKS_MOVEMENT_SPEND_ON_THE_CALLER_UNIT_ID", async ({ Then }) => {
+registerTest("ARTILLERY_QUEUE_ALLOWS_CALLER_AFTER_FULL_MOVEMENT", async ({ Then }) => {
   const observer: ScenarioUnit = {
     type: "TestInfantry" as unknown as ScenarioUnit["type"],
     hex: { q: 0, r: 0 },
@@ -281,12 +281,17 @@ registerTest("ARTILLERY_QUEUE_CHECKS_MOVEMENT_SPEND_ON_THE_CALLER_UNIT_ID", asyn
     throw new Error("Expected a ready artillery asset for movement-spend validation.");
   }
 
-  const queued = engine.queueSupportActionFromUnit({ q: 2, r: 0 }, supportAsset.id, enemy.hex);
-  if (queued) {
-    throw new Error("Expected queueSupportActionFromUnit to reject callers that moved beyond half movement.");
+  const queued = engine.queueSupportActionFromUnit({ q: 2, r: 0 }, supportAsset.id, enemy.hex, observer.unitId);
+  if (!queued) {
+    throw new Error("Expected a unit to call artillery after spending its full movement allowance.");
   }
 
-  await Then("artillery queue gating follows the caller unit action flags instead of a raw hex key", () => {});
+  const budgetAfterQueue = engine.getMovementBudget({ q: 2, r: 0 }, observer.unitId);
+  if (!budgetAfterQueue || budgetAfterQueue.remaining !== 0) {
+    throw new Error(`Expected calling artillery to preserve the fully-spent movement budget, received ${JSON.stringify(budgetAfterQueue)}.`);
+  }
+
+  await Then("artillery remains callable after moving and does not alter movement spend", () => {});
 });
 
 registerTest("QUEUED_ARTILLERY_SUPPORT_DAMAGE_USES_STATUS_POOLS", async ({ Then }) => {

@@ -1688,11 +1688,16 @@ export class BattleScreen {
     const callerAxial = CoordinateSystem.offsetToAxial(callerParsed.col, callerParsed.row);
     const targetAxial = CoordinateSystem.offsetToAxial(targetParsed.col, targetParsed.row);
     const engine = this.battleState.ensureGameEngine();
-    const queued = engine.queueSupportActionFromUnit(callerAxial, targetingState.assetId, targetAxial);
+    const queued = engine.queueSupportActionFromUnit(
+      callerAxial,
+      targetingState.assetId,
+      targetAxial,
+      targetingState.callerUnitId
+    );
     this.cancelArtilleryTargeting(false);
     if (!queued) {
       this.applySelectedHex(targetingState.callerHexKey);
-      this.announceBattleUpdate("Corps Artillery could not be queued. Keep the caller uncommitted and select an observed enemy hex.");
+      this.announceBattleUpdate("Corps Artillery could not be queued. Select an eligible observer and an observed enemy hex.");
       return;
     }
     this.clearSelectedHexAfterAction();
@@ -10448,7 +10453,23 @@ export class BattleScreen {
     const commandState = engine.getUnitCommandState(destination, unitId);
     return commandState?.canLaySmoke === true ||
       commandState?.canSetFacing === true ||
-      commandState?.canDeployTow === true;
+      commandState?.canDeployTow === true ||
+      this.canPlayerUnitCallArtilleryAfterMove(engine, destination, unitId, commandState);
+  }
+
+  private canPlayerUnitCallArtilleryAfterMove(
+    engine: GameEngine,
+    destination: Axial,
+    unitId: string,
+    commandState: UnitCommandState | null
+  ): boolean {
+    const unit = engine.playerUnits.find((candidate) => candidate.unitId === unitId);
+    if (!unit) {
+      return false;
+    }
+    const offset = CoordinateSystem.axialToOffset(destination.q, destination.r);
+    const hexKey = CoordinateSystem.makeHexKey(offset.col, offset.row);
+    return this.resolveArtilleryActionState(unit, commandState, hexKey).available;
   }
 
   private completeInitiativeActivationAfterPlayerOrder(unitId: string | null | undefined): void {
@@ -11672,8 +11693,9 @@ export class BattleScreen {
       if (parsed) {
         const axial = CoordinateSystem.offsetToAxial(parsed.col, parsed.row);
         try {
+          const existingUnitIds = new Set(engine.playerUnits.map((unit) => unit.unitId).filter(Boolean));
           engine.callUpReserveByKey(unitKey, axial);
-          this.registerReserveArrivalForInitiative(engine, axial);
+          this.registerReserveArrivalForInitiative(engine, axial, existingUnitIds);
           const label = this.resolveUnitLabel(unitKey);
           this.renderEngineUnits();
           this.refreshDeploymentMirrors("deploy", { unitKey, hexKey: this.selectedHexKey, label });
@@ -11727,8 +11749,9 @@ export class BattleScreen {
 
     for (const c of candidates) {
       try {
+        const existingUnitIds = new Set(engine.playerUnits.map((unit) => unit.unitId).filter(Boolean));
         engine.callUpReserveByKey(unitKey, c.ax);
-        this.registerReserveArrivalForInitiative(engine, c.ax);
+        this.registerReserveArrivalForInitiative(engine, c.ax, existingUnitIds);
         return { hexKey: c.k };
       } catch {
         continue;
@@ -11742,12 +11765,19 @@ export class BattleScreen {
    * sitting idle until the initiative queue rebuilds next turn. Locates the freshly-placed unit
    * and, if the initiative system is active, gives it an activation slot in the current queue.
    */
-  private registerReserveArrivalForInitiative(engine: GameEngine, hex: Axial): void {
+  private registerReserveArrivalForInitiative(
+    engine: GameEngine,
+    hex: Axial,
+    existingUnitIds: ReadonlySet<string | undefined>
+  ): void {
     if (!this.initiativeMethods) {
       return;
     }
     const deployedUnit = (engine.playerUnits ?? []).find(
-      (unit) => unit.hex.q === hex.q && unit.hex.r === hex.r
+      (unit) =>
+        unit.hex.q === hex.q &&
+        unit.hex.r === hex.r &&
+        !existingUnitIds.has(unit.unitId)
     );
     if (deployedUnit) {
       this.initiativeMethods.registerReserveArrival(deployedUnit);
@@ -13314,7 +13344,7 @@ export class BattleScreen {
         actions.push({
           id: "callArtillery",
           label: "Call Artillery",
-          detail: "Queue an off-map Corps Artillery strike on an observed enemy hex. Impact lands during turn transition.",
+          detail: "Queue an off-map Corps Artillery strike on an observed enemy hex. Impact lands at initiative 2 (artillery).",
           tone: "denial",
           available: artilleryState.available,
           reason: artilleryState.reason

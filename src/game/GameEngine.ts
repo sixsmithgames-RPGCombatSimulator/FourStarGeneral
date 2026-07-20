@@ -1575,7 +1575,7 @@ export interface GameEngineAPI {
   setSupplyPriority(unitId: string, priority: SupplyPriority): boolean;
   getCombatReports(): readonly CombatReportEntry[];
   queueSupportAction(assetId: string, targetHex: Axial): void;
-  queueSupportActionFromUnit(callerHex: Axial, assetId: string, targetHex: Axial): boolean;
+  queueSupportActionFromUnit(callerHex: Axial, assetId: string, targetHex: Axial, callerUnitId?: string | null): boolean;
   cancelQueuedSupport(assetId: string): boolean;
   consumeBotTurnSummary(): BotTurnSummary | null;
   enterSentry(hex: Axial, unitId?: string): boolean;
@@ -8197,11 +8197,16 @@ private automateSupplyConvoys(
     this.invalidateRosterCache();
   }
 
-  queueSupportActionFromUnit(callerHex: Axial, assetId: string, targetHex: Axial): boolean {
+  queueSupportActionFromUnit(
+    callerHex: Axial,
+    assetId: string,
+    targetHex: Axial,
+    callerUnitId?: string | null
+  ): boolean {
     if (this._phase !== "playerTurn") {
       return false;
     }
-    const caller = this.lookupUnit(callerHex, "Player");
+    const caller = this.lookupUnit(callerHex, "Player", false, callerUnitId);
     if (!caller || this.isAutomatedPlayerUnit(caller) || !this.getPlayerEnemyContactStateAtHex(targetHex)) {
       return false;
     }
@@ -8214,8 +8219,7 @@ private automateSupplyConvoys(
     }
     const callerKey = axialKey(callerHex);
     const flags = this.getUnitActionFlags("Player", caller);
-    const halfMovement = Math.floor(callerDefinition.movement / 2);
-    if (flags.attacksUsed > 0 || flags.movementPointsUsed > halfMovement) {
+    if (flags.attacksUsed > 0) {
       return false;
     }
     const asset = this.getInternalSupportAsset(assetId);

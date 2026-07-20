@@ -1,6 +1,7 @@
 import "./domEnvironment.js";
 import { registerTest } from "./harness.js";
 import { BattleScreen } from "../src/ui/screens/BattleScreen";
+import { InitiativeQueueManager } from "../src/core/InitiativeQueue";
 import type { ScenarioUnit } from "../src/core/types";
 import { ensureTutorialState } from "../src/state/TutorialState";
 
@@ -28,6 +29,120 @@ function createPlayerUnit(unitId: string, q: number, r: number): ScenarioUnit {
     onSentry: false
   };
 }
+
+registerTest("INITIATIVE_RESERVE_ARRIVAL_PRESERVES_CURRENT_ACTIVATION_AND_REMAINING_ORDER", async ({ Given, When, Then }) => {
+  const manager = new InitiativeQueueManager();
+  const createUnit = (
+    unitId: string,
+    type: ScenarioUnit["type"],
+    controlledBy: "Player" | "AI"
+  ): ScenarioUnit => ({
+    unitId,
+    type,
+    hex: { q: 0, r: 0 },
+    strength: 100,
+    experience: 0,
+    ammo: 6,
+    fuel: 20,
+    entrench: 0,
+    facing: "NE",
+    controlledBy
+  });
+
+  const queue = manager.generateQueue([
+    createUnit("current-engineer", "Engineer", "Player"),
+    createUnit("waiting-infantry", "Infantry_42", "AI"),
+    createUnit("waiting-supply", "Supply_Truck", "Player")
+  ], 1);
+
+  await Given("an engineer activation already in progress", async () => {
+    const current = manager.getCurrentActivation(queue);
+    if (current?.unitId !== "current-engineer") {
+      throw new Error(`Expected the engineer to be current, received ${current?.unitId ?? "none"}.`);
+    }
+  });
+
+  await When("a lower-initiative reserve and an already-passed higher-initiative reserve arrive", async () => {
+    manager.addUnitActivation(queue, createUnit("reserve-infantry", "Infantry_42", "Player"), "player");
+    manager.addUnitActivation(queue, createUnit("reserve-recon", "Recon_Bike", "Player"), "player");
+  });
+
+  await Then("the current unit remains active and only the later initiative joins this turn", async () => {
+    const current = manager.getCurrentActivation(queue);
+    if (current?.unitId !== "current-engineer") {
+      throw new Error(`Expected reserve deployment to preserve current-engineer, received ${current?.unitId ?? "none"}.`);
+    }
+    const order = queue.activations.map((activation) => activation.unitId);
+    const expected = ["current-engineer", "reserve-infantry", "waiting-infantry", "waiting-supply"];
+    if (JSON.stringify(order) !== JSON.stringify(expected)) {
+      throw new Error(`Expected remaining initiative order ${JSON.stringify(expected)}, received ${JSON.stringify(order)}.`);
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_FULL_MOVE_PRESERVES_ACTIVATION_FOR_ARTILLERY_CALL", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let canContinue = false;
+  let artilleryAvailabilityChecked = false;
+  const observer = createPlayerUnit("moving-observer", 2, 0);
+
+  await Given("a fully moved observer with no movement or direct-fire options remaining", async () => {
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    (screen as any).battleState = {
+      ensureGameEngine: () => ({
+        playerUnits: [observer],
+        getReachableHexes: () => [],
+        getAttackableTargets: () => [],
+        getUnitCommandState: () => ({ canLaySmoke: false, canSetFacing: false, canDeployTow: false })
+      })
+    };
+    (screen as any).resolveArtilleryActionState = () => {
+      artilleryAvailabilityChecked = true;
+      return { available: true, reason: null, assetId: "support-artillery", targetHexKeys: ["4,0"] };
+    };
+  });
+
+  await When("the post-move initiative continuation check runs", async () => {
+    canContinue = (screen as any).canPlayerUnitContinueAfterMove({ q: 2, r: 0 }, observer.unitId);
+  });
+
+  await Then("the activation stays open so artillery can still be called", async () => {
+    if (!artilleryAvailabilityChecked || !canContinue) {
+      throw new Error("Expected artillery availability to keep the fully moved observer's activation open.");
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_RESERVE_REGISTRATION_SELECTS_THE_NEW_STACK_MEMBER", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let registeredUnitId: string | null = null;
+  const existing = createPlayerUnit("existing-unit", 2, 2);
+  const reserve = createPlayerUnit("new-reserve", 2, 2);
+
+  await Given("an arriving reserve stacked with a unit that was already on the map", async () => {
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).initiativeMethods = {
+      registerReserveArrival: (unit: ScenarioUnit) => {
+        registeredUnitId = unit.unitId ?? null;
+      }
+    };
+  });
+
+  await When("the reserve arrival is registered", async () => {
+    (screen as any).registerReserveArrivalForInitiative(
+      { playerUnits: [existing, reserve] },
+      { q: 2, r: 2 },
+      new Set([existing.unitId])
+    );
+  });
+
+  await Then("the new reserve receives the initiative slot", async () => {
+    if (registeredUnitId !== reserve.unitId) {
+      throw new Error(`Expected ${reserve.unitId} to register, received ${registeredUnitId ?? "none"}.`);
+    }
+  });
+});
 
 registerTest("BATTLESCREEN_INITIATIVE_ACTIONS_ALLOW_ANY_UNIT_IN_ACTIVE_PLAYER_GROUP", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
@@ -1024,10 +1139,10 @@ registerTest("BATTLESCREEN_INITIATIVE_SELECTION_KEEPS_FACING_ONLY_UNITS_ACTIONAB
     );
   });
 
-  await Then("free smoke and facing orders preserve the activation while support fire commits it", async () => {
-    const expected = ["u_player_lead", "u_player_wing"];
+  await Then("free smoke, facing, and support orders preserve the activation", async () => {
+    const expected = ["u_player_lead", "u_player_wing", "u_player_rear"];
     if (JSON.stringify(selectableIds) !== JSON.stringify(expected)) {
-      throw new Error(`Expected smoke and facing units to remain selectable, received ${JSON.stringify(selectableIds)}.`);
+      throw new Error(`Expected free-order units to remain selectable, received ${JSON.stringify(selectableIds)}.`);
     }
   });
 });
