@@ -610,9 +610,24 @@ function scoreArtilleryHoldOrDisplace(
     return null;
   }
 
-  // Something is actually wrong with staying put (enemy is closing to danger range) - find a safer hex
-  // to displace to. Only reachable hexes that increase distance from every nearby enemy qualify; this is
-  // a retreat/reposition, not an advance.
+  // A battery that is actually dug into a defensible position (entrenched, or sitting in terrain that
+  // grants real cover/concealment) should stand and fight rather than abandon prepared ground the moment
+  // an enemy formation comes within sight - that's the whole point of a fixed gun pit. Moving also throws
+  // away the entrenchment bonus outright (units re-entrench from zero after moving), so fleeing a strong
+  // position for a marginal safety gain is usually a net loss. Only bail when the enemy is close enough
+  // to be a genuine overrun risk (adjacent) rather than merely "within long-range danger distance".
+  const currentTerrain = input.map.terrainAt(snapshot.unit.hex);
+  const isDugIn = (snapshot.unit.entrench ?? 0) >= 1
+    || (currentTerrain?.defense ?? 0) >= 2
+    || currentTerrain?.blocksLOS === true;
+  const OVERRUN_RANGE = 1;
+  if (isDugIn && nearestEnemyDistance > OVERRUN_RANGE) {
+    return null;
+  }
+
+  // Something is actually wrong with staying put (enemy is closing to danger range, or overrunning an
+  // undefended position) - find a safer hex to displace to. Only reachable hexes that increase distance
+  // from every nearby enemy qualify; this is a retreat/reposition, not an advance.
   let retreat: ActionCandidate | null = null;
   const currentEnemyDistances = enemies.map((enemy) => hexDistance(snapshot.unit.hex, enemy.unit.hex));
   for (const option of reachable.values()) {

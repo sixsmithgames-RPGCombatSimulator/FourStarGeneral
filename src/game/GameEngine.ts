@@ -5050,6 +5050,29 @@ export class GameEngine implements GameEngineAPI {
     });
   }
 
+  /**
+   * Pre-loads the supply trucks present at battle start (scenario-authored or auto-provisioned via
+   * ensureBaselineSupplyConvoysForSide) with a full cargo of ammo and fuel, so they arrive ready to
+   * resupply the front immediately instead of needing a turn at the HQ depot before delivering anything.
+   * Only called once during engine construction - trucks requisitioned mid-battle intentionally still
+   * start empty and must travel to a supply source, which is the normal convoy gameplay loop.
+   */
+  private preloadStartingSupplyConvoyCargo(faction: TurnFaction): void {
+    this.ensureSupplyTruckStatesForFaction(faction);
+    const stateMap = this.getSupplyTruckStateMap(faction);
+    this.getAllUnitsForFaction(faction).forEach((unit) => {
+      if (!this.isSupplyTruckType(unit.type)) {
+        return;
+      }
+      const unitId = this.ensureUnitId(unit);
+      const state = stateMap.get(unitId);
+      if (state) {
+        state.ammoCargo = supplyBalance.convoy.ammoCapacity;
+        state.fuelCargo = supplyBalance.convoy.fuelCapacity;
+      }
+    });
+  }
+
   private loadSupplyTruckFromDepot(
     faction: TurnFaction,
     supplyState: SupplyState,
@@ -7067,6 +7090,13 @@ private automateSupplyConvoys(
         this.normalizeScenarioUnitState(clone);
         this.addUnitToFactionHex("Ally", clone);
       });
+    }
+    // Bot/ally supply convoys (scenario-authored or auto-provisioned via ensureBaselineSupplyConvoysForSide)
+    // should roll in already loaded, not sitting empty until the automation routes them to their HQ to load.
+    // Convoys requisitioned mid-battle are unaffected and still start empty, matching the normal resupply loop.
+    this.preloadStartingSupplyConvoyCargo("Bot");
+    if (this.allySide) {
+      this.preloadStartingSupplyConvoyCargo("Ally");
     }
     if ((this.botSide.units?.length ?? 0) > 0 && this.botPlacements.size === 0) {
       // Fail fast so missing enemies are explicit instead of silently disappearing.
