@@ -90,6 +90,32 @@ registerTest("SCENARIO_REGISTRY_REQUIRES_EXPLICIT_MISSION_MAPPING", async ({ Giv
   });
 });
 
+registerTest("BATTLESCREEN_STANDALONE_SCENARIOS_CLEAR_CAMPAIGN_BACKDROP", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let backdropUrl: string | null | undefined;
+
+  await Given("a standalone historical scenario after campaign state has been initialized", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).uiState = { isFromCampaign: false };
+    (screen as any).hexMapRenderer = {
+      setBackdropImage(url: string | null) {
+        backdropUrl = url;
+      }
+    };
+  });
+
+  await When("the battle screen configures the tactical battlefield backdrop", async () => {
+    (screen as any).configureBattlefieldBackdrop();
+  });
+
+  await Then("the standalone map should not show strategic artwork beyond its authored tiles", async () => {
+    if (backdropUrl !== null) {
+      throw new Error(`Expected standalone battle backdrop to clear, received ${String(backdropUrl)}.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_BASE_CAMP_REQUIRES_A_SELECTED_DEPLOYMENT_HEX", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let assignedAxial: { q: number; r: number } | null = null;

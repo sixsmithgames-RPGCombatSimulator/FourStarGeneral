@@ -254,6 +254,7 @@ export function validateScenarioSource(source: unknown, missionKey: string): Sce
   const size = readScenarioSize(record, issues, missionKey, scenarioName);
   const tilePalette = readTilePalette(record, issues, missionKey, scenarioName);
   const tiles = readTileRows(record, issues, missionKey, scenarioName, size);
+  validateTileCoverage(issues, missionKey, scenarioName, size, tilePalette, tiles);
   validateObjectives(record, issues, missionKey, scenarioName, size, profile);
   validateDeploymentZones(record, issues, missionKey, scenarioName, size, tilePalette, tiles);
   validateRangeEnvelope(record, issues, missionKey, scenarioName, size, profile);
@@ -710,6 +711,62 @@ function readTileRows(
   });
 
   return normalizedRows;
+}
+
+function validateTileCoverage(
+  issues: string[],
+  missionKey: string,
+  scenarioName: string | null,
+  size: RawScenarioSize | null,
+  tilePalette: Record<string, unknown> | null,
+  tiles: unknown[][] | null
+): void {
+  if (!size || !tilePalette || !tiles) {
+    return;
+  }
+
+  const scenarioLabel = scenarioName ?? missionKey;
+  for (let row = 0; row < size.rows; row += 1) {
+    const rowEntries = tiles[row];
+    if (!rowEntries) {
+      continue;
+    }
+
+    for (let col = 0; col < size.cols; col += 1) {
+      if (!Object.prototype.hasOwnProperty.call(rowEntries, col)) {
+        issues.push(`Scenario ${scenarioLabel} is missing tile [${row}][${col}].`);
+        continue;
+      }
+
+      const entry = rowEntries[col];
+      if (typeof entry === "string") {
+        if (!asRecord(tilePalette[entry])) {
+          issues.push(`Scenario ${scenarioLabel} tile [${row}][${col}] references unknown palette key "${entry}".`);
+        }
+        continue;
+      }
+
+      const entryRecord = asRecord(entry);
+      if (!entryRecord) {
+        issues.push(`Scenario ${scenarioLabel} tile [${row}][${col}] is empty or malformed.`);
+        continue;
+      }
+
+      const tileKey = readString(entryRecord["tile"]);
+      if (tileKey) {
+        if (!asRecord(tilePalette[tileKey])) {
+          issues.push(`Scenario ${scenarioLabel} tile [${row}][${col}] references unknown palette key "${tileKey}".`);
+        }
+        continue;
+      }
+
+      if (!readString(entryRecord["terrain"]) || !readString(entryRecord["terrainType"])) {
+        issues.push(
+          `Scenario ${scenarioLabel} tile [${row}][${col}] must reference a palette key or declare terrain and terrainType.`
+        );
+      }
+    }
+  }
 }
 
 function resolveTerrainTypeAt(

@@ -11142,13 +11142,7 @@ export class BattleScreen {
       return;
     }
 
-    // Use the strategic theater map as a backdrop for flavor, whether in campaign mode or standalone mission.
-    // This eliminates empty black space beyond the tactical hex grid and reinforces the operational context.
-    const campaign = ensureCampaignState();
-    const campaignScenario = campaign.getScenario();
-    if (campaignScenario?.background?.imageUrl) {
-      this.hexMapRenderer.setBackdropImage(campaignScenario.background.imageUrl);
-    }
+    this.configureBattlefieldBackdrop();
 
     this.hexMapRenderer.render(svg, canvas, scenarioClone);
     this.hexMapRenderer.setSoundEnabled(this.soundEnabled);
@@ -11165,6 +11159,25 @@ export class BattleScreen {
       this.hexMapRenderer.renderBaseCampMarker(baseCampKey);
     }
     this.updateAirHudWidget();
+  }
+
+  /**
+   * Campaign art belongs behind generated campaign engagements only. Reusing it for standalone
+   * scenarios exposes the tactical grid fringe as map-shaped wedges, making a complete tile matrix
+   * look incomplete.
+   */
+  private configureBattlefieldBackdrop(): void {
+    if (!this.hexMapRenderer) {
+      return;
+    }
+
+    if (!this.uiState?.isFromCampaign) {
+      this.hexMapRenderer.setBackdropImage(null);
+      return;
+    }
+
+    const campaignScenario = ensureCampaignState().getScenario();
+    this.hexMapRenderer.setBackdropImage(campaignScenario?.background?.imageUrl ?? null);
   }
 
   private setBattleSettingsMenuOpen(open: boolean): void {

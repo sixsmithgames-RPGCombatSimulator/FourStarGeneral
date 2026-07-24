@@ -81,20 +81,50 @@ registerTest("SCENARIO_REGISTRY_TILE_ENTRIES_RESOLVE_FOR_RENDERING", async ({ Gi
       .filter((missionKey) => missionKey !== "campaign")
       .forEach((missionKey) => {
         const scenario = getScenarioByMissionKey(missionKey);
-        scenario.tiles.forEach((row, rowIndex) => {
-          row.forEach((entry, colIndex) => {
+        for (let rowIndex = 0; rowIndex < scenario.size.rows; rowIndex += 1) {
+          const row = scenario.tiles[rowIndex];
+          if (!row) {
+            unresolvedTiles.push(`${missionKey}[${rowIndex}]: missing row`);
+            continue;
+          }
+          for (let colIndex = 0; colIndex < scenario.size.cols; colIndex += 1) {
+            if (!Object.prototype.hasOwnProperty.call(row, colIndex)) {
+              unresolvedTiles.push(`${missionKey}[${rowIndex},${colIndex}]: missing entry`);
+              continue;
+            }
+            const entry = row[colIndex];
             const tile = CoordinateSystem.resolveTile(entry as TileEntry, scenario.tilePalette as TilePalette);
             if (!tile) {
               unresolvedTiles.push(`${missionKey}[${rowIndex},${colIndex}]`);
             }
-          });
-        });
+          }
+        }
       });
   });
 
   await Then("every shipped battle scenario tile can render", async () => {
     if (unresolvedTiles.length > 0) {
       throw new Error(`Expected every scenario tile to resolve for rendering, received: ${unresolvedTiles.join(", ")}`);
+    }
+  });
+});
+
+registerTest("SCENARIO_VALIDATION_REJECTS_MISSING_TILE_COORDINATES", async ({ Given, When, Then }) => {
+  let resultIssues: readonly string[] = [];
+
+  await Given("a scenario whose declared footprint contains an empty tile coordinate", async () => {
+    document.body.innerHTML = "";
+  });
+
+  await When("the validator inspects the incomplete matrix", async () => {
+    const invalidScenario = cloneScenario(getScenarioByMissionKey("assault_el_alamein"));
+    invalidScenario.tiles[6]![9] = null as never;
+    resultIssues = validateScenarioSource(invalidScenario, "assault_el_alamein").issues;
+  });
+
+  await Then("validation identifies the exact missing tile", async () => {
+    if (!resultIssues.some((issue) => issue.includes("tile [6][9] is empty or malformed"))) {
+      throw new Error(`Expected exact missing-tile validation failure, received: ${resultIssues.join(" | ")}`);
     }
   });
 });
