@@ -31,7 +31,7 @@
       "recon": "intel"
     },
     "R": {
-      "terrain": "road",
+      "terrain": "plains",
       "terrainType": "grass",
       "density": "average",
       "features": [
@@ -119,7 +119,7 @@
       "recon": "intel"
     },
     "D": {
-      "terrain": "road",
+      "terrain": "plains",
       "terrainType": "grass",
       "density": "average",
       "features": [
