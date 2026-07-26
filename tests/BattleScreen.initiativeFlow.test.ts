@@ -185,6 +185,84 @@ registerTest("BATTLESCREEN_INITIATIVE_ACTIONS_ALLOW_ANY_UNIT_IN_ACTIVE_PLAYER_GR
   });
 });
 
+registerTest("BATTLESCREEN_COMPLETED_PLAYER_FORMATION_REMAINS_ACCESSIBLE_IN_CURRENT_INITIATIVE_BAND", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let completedPeerAllowed = false;
+  let pendingPeerAllowed = false;
+  let laterBandBlocked = false;
+
+  await Given("one formation has completed its main activation while a peer remains in the same initiative band", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    const queue = {
+      currentIndex: 1,
+      currentTurn: 1,
+      activations: [
+        { unitId: "u_player_completed", ownerId: "player" as const, initiative: 5, isActivated: true, sortOrder: 0 },
+        { unitId: "u_player_pending", ownerId: "player" as const, initiative: 5, isActivated: false, sortOrder: 1 },
+        { unitId: "u_player_later", ownerId: "player" as const, initiative: 4, isActivated: false, sortOrder: 2 }
+      ]
+    };
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => queue,
+      getCurrentActivation: () => queue.activations[queue.currentIndex]
+    };
+  });
+
+  await When("the commander selects formations in and out of the current initiative band", async () => {
+    completedPeerAllowed = (screen as any).isUnitInCurrentInitiativeGroup("u_player_completed");
+    pendingPeerAllowed = (screen as any).isUnitInCurrentInitiativeGroup("u_player_pending");
+    laterBandBlocked = !(screen as any).isUnitInCurrentInitiativeGroup("u_player_later");
+  });
+
+  await Then("the completed peer remains available for inspection and legal follow-up orders without opening later bands", async () => {
+    if (!completedPeerAllowed || !pendingPeerAllowed || !laterBandBlocked) {
+      throw new Error(
+        `Expected completed=${completedPeerAllowed}, pending=${pendingPeerAllowed}, laterBlocked=${laterBandBlocked}.`
+      );
+    }
+  });
+});
+
+registerTest("BATTLESCREEN_COMPLETED_PEER_FOLLOW_UP_DOES_NOT_CONSUME_PENDING_ACTIVATION", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  let completionCalls = 0;
+
+  await Given("a completed formation and a pending peer in the current initiative band", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).isInitiativeSystemEnabled = true;
+    const queue = {
+      currentIndex: 1,
+      currentTurn: 1,
+      activations: [
+        { unitId: "u_player_completed", ownerId: "player" as const, initiative: 5, isActivated: true, sortOrder: 0 },
+        { unitId: "u_player_pending", ownerId: "player" as const, initiative: 5, isActivated: false, sortOrder: 1 }
+      ]
+    };
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => queue,
+      getCurrentActivation: () => queue.activations[queue.currentIndex],
+      completeUnitActivation: () => {
+        completionCalls += 1;
+      }
+    };
+    (screen as any).highlightCurrentInitiativeGroup = () => {};
+    (screen as any).focusCurrentInitiativeActivation = () => {};
+    (screen as any).syncInitiativeTurnControlsState = () => {};
+  });
+
+  await When("the completed formation performs a still-legal follow-up order", async () => {
+    (screen as any).completeInitiativeActivationAfterPlayerOrder("u_player_completed");
+  });
+
+  await Then("the pending peer's activation remains untouched", async () => {
+    if (completionCalls !== 0) {
+      throw new Error(`Expected no activation completion, received ${completionCalls}.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_NEXT_GROUP_COMPLETES_ONLY_THE_ACTIVE_PLAYER_GROUP", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let queue: {

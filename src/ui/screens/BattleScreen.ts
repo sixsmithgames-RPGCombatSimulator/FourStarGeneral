@@ -4056,13 +4056,13 @@ export class BattleScreen {
     }
 
     const queue = this.initiativeMethods.getCurrentInitiativeQueue();
-    const activeGroup = this.resolveActiveInitiativeGroup(queue);
-    if (!activeGroup || activeGroup.ownerId !== "player") {
+    const currentBand = this.resolveCurrentPlayerInitiativeBand(queue);
+    if (!currentBand) {
       return new Set();
     }
 
     const keys = new Set<string>();
-    activeGroup.activations.forEach((activation) => {
+    currentBand.activations.forEach((activation) => {
       const hexKey = this.resolveActivationOffsetHexKey(activation.unitId, activation.ownerId);
       if (hexKey) {
         keys.add(hexKey);
@@ -10016,12 +10016,12 @@ export class BattleScreen {
 
     try {
       const queue = this.initiativeMethods.getCurrentInitiativeQueue();
-      const activeGroup = this.resolveActiveInitiativeGroup(queue);
-      if (!activeGroup || activeGroup.ownerId !== "player") {
+      const currentBand = this.resolveCurrentPlayerInitiativeBand(queue);
+      if (!currentBand) {
         return false;
       }
 
-      return activeGroup.activations.some((activation) => activation.unitId === unitId);
+      return currentBand.activations.some((activation) => activation.unitId === unitId);
     } catch (error) {
       console.error('Failed to check unit initiative group:', error);
       return true; // Fallback: allow unit on error
@@ -10232,6 +10232,33 @@ export class BattleScreen {
       initiative: activeActivation.initiative,
       ownerId: activeActivation.ownerId,
       activations: groupedActivations
+    };
+  }
+
+  /**
+   * Returns every player formation in the initiative band currently receiving
+   * player orders. Completed formations remain selectable here so the player
+   * can inspect them or issue any still-legal auxiliary order; the active
+   * group above deliberately remains limited to unfinished activations for
+   * initiative advancement and Next Formation.
+   */
+  private resolveCurrentPlayerInitiativeBand(currentQueue: any): {
+    initiative: number;
+    ownerId: "player";
+    activations: Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }>;
+  } | null {
+    const activeGroup = this.resolveActiveInitiativeGroup(currentQueue);
+    if (!activeGroup || activeGroup.ownerId !== "player") {
+      return null;
+    }
+
+    return {
+      initiative: activeGroup.initiative,
+      ownerId: "player",
+      activations: currentQueue.activations.filter(
+        (activation: { unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }) =>
+          activation.ownerId === "player" && activation.initiative === activeGroup.initiative
+      )
     };
   }
 
@@ -10493,6 +10520,19 @@ export class BattleScreen {
       const currentActivation = this.initiativeMethods.getCurrentActivation();
       const activationUnitId = unitId ?? currentActivation?.unitId ?? null;
       if (!activationUnitId) {
+        return;
+      }
+
+      const isAlreadyCompletedInCurrentBand = queue.activations.some(
+        (activation: { unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean }) =>
+          activation.unitId === activationUnitId &&
+          activation.ownerId === "player" &&
+          activation.initiative === activeGroup.initiative &&
+          activation.isActivated
+      );
+      if (isAlreadyCompletedInCurrentBand) {
+        // Follow-up orders from a completed peer must not consume the queue
+        // head belonging to another formation in the same initiative band.
         return;
       }
 
@@ -11544,10 +11584,10 @@ export class BattleScreen {
 
   /**
    * Resolves the directly controllable member of a friendly stack from the
-   * authoritative active initiative group.
+   * current player initiative band.
    *
    * Explicit in-group selection wins first, followed by the queue cursor and
-   * then queue order. Members from completed or later bands never win here.
+   * then queue order. Completed peers remain selectable; later bands do not.
    */
   private resolveActivePlayerInitiativeStackMember(
     members: readonly BattleSelectionStackMember[]
@@ -11557,12 +11597,12 @@ export class BattleScreen {
     }
 
     const queue = this.initiativeMethods.getCurrentInitiativeQueue();
-    const activeGroup = this.resolveActiveInitiativeGroup(queue);
-    if (!activeGroup || activeGroup.ownerId !== "player") {
+    const currentBand = this.resolveCurrentPlayerInitiativeBand(queue);
+    if (!currentBand) {
       return null;
     }
 
-    const activeUnitIds = new Set(activeGroup.activations.map((activation) => activation.unitId));
+    const activeUnitIds = new Set(currentBand.activations.map((activation) => activation.unitId));
     if (this.selectedPlayerUnitId && activeUnitIds.has(this.selectedPlayerUnitId)) {
       const selectedMember = members.find((member) => member.unitId === this.selectedPlayerUnitId) ?? null;
       if (selectedMember) {
