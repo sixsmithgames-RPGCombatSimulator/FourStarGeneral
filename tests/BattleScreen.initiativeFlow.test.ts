@@ -263,6 +263,49 @@ registerTest("BATTLESCREEN_COMPLETED_PEER_FOLLOW_UP_DOES_NOT_CONSUME_PENDING_ACT
   });
 });
 
+registerTest("BATTLESCREEN_NEXT_FORMATION_CYCLES_PENDING_AND_COMPLETED_PEERS", async ({ Given, When, Then }) => {
+  let screen: BattleScreen;
+  const focusedUnitIds: string[] = [];
+
+  await Given("a current initiative band with one pending formation and two completed peers", async () => {
+    mountBattleScreenRoot();
+    screen = Object.create(BattleScreen.prototype) as BattleScreen;
+    (screen as any).initiativeGroupCursorUnitId = "u_player_pending";
+    (screen as any).initiativeGroupSessionId = "1:5";
+    (screen as any).initiativeSkippedUnitIds = new Set<string>();
+    const queue = {
+      currentIndex: 1,
+      currentTurn: 1,
+      activations: [
+        { unitId: "u_player_completed_first", ownerId: "player" as const, initiative: 5, isActivated: true, sortOrder: 0 },
+        { unitId: "u_player_pending", ownerId: "player" as const, initiative: 5, isActivated: false, sortOrder: 1 },
+        { unitId: "u_player_completed_second", ownerId: "player" as const, initiative: 5, isActivated: true, sortOrder: 2 },
+        { unitId: "u_player_later", ownerId: "player" as const, initiative: 4, isActivated: false, sortOrder: 3 }
+      ]
+    };
+    (screen as any).initiativeMethods = {
+      getCurrentInitiativeQueue: () => queue,
+      getCurrentActivation: () => queue.activations[queue.currentIndex]
+    };
+    (screen as any).focusInitiativeUnit = (unitId: string) => {
+      focusedUnitIds.push(unitId);
+    };
+  });
+
+  await When("Next Formation is used repeatedly", async () => {
+    (screen as any).selectNextInitiativeGroupUnit();
+    (screen as any).selectNextInitiativeGroupUnit();
+    (screen as any).selectNextInitiativeGroupUnit();
+  });
+
+  await Then("the completed peers are included after the pending formation and the cycle returns to the pending formation", async () => {
+    const expected = ["u_player_completed_first", "u_player_completed_second", "u_player_pending"];
+    if (JSON.stringify(focusedUnitIds) !== JSON.stringify(expected)) {
+      throw new Error(`Expected ${JSON.stringify(expected)}, received ${JSON.stringify(focusedUnitIds)}.`);
+    }
+  });
+});
+
 registerTest("BATTLESCREEN_NEXT_GROUP_COMPLETES_ONLY_THE_ACTIVE_PLAYER_GROUP", async ({ Given, When, Then }) => {
   let screen: BattleScreen;
   let queue: {

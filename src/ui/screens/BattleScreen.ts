@@ -10377,6 +10377,66 @@ export class BattleScreen {
     return true;
   }
 
+  /**
+   * Returns the formations a commander may browse with Next Formation. Pending
+   * activations appear first, but completed peers remain in the cycle for
+   * inspection and any legal follow-up orders.
+   */
+  private resolveCycleablePlayerInitiativeBandActivations(activeGroup: {
+    initiative: number;
+    ownerId: "player" | "bot";
+    activations: Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }>;
+  }): Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }> {
+    if (activeGroup.ownerId !== "player") {
+      return [];
+    }
+
+    const queue = typeof this.initiativeMethods?.getCurrentInitiativeQueue === "function"
+      ? this.initiativeMethods.getCurrentInitiativeQueue()
+      : null;
+    const currentBand = this.resolveCurrentPlayerInitiativeBand(queue);
+    const bandActivations = currentBand?.initiative === activeGroup.initiative
+      ? currentBand.activations
+      : activeGroup.activations;
+
+    return [
+      ...bandActivations.filter((activation) => !activation.isActivated),
+      ...bandActivations.filter((activation) => activation.isActivated)
+    ];
+  }
+
+  private focusNextPlayerInitiativeBandUnit(
+    activeGroup: {
+      initiative: number;
+      ownerId: "player" | "bot";
+      activations: Array<{ unitId: string; ownerId: "player" | "bot"; initiative: number; isActivated: boolean; sortOrder?: number }>;
+    },
+    anchorUnitId: string | null
+  ): boolean {
+    const orderedActivations = this.resolveCycleablePlayerInitiativeBandActivations(activeGroup);
+    if (orderedActivations.length === 0) {
+      return false;
+    }
+
+    let anchorIndex = anchorUnitId
+      ? orderedActivations.findIndex((activation) => activation.unitId === anchorUnitId)
+      : -1;
+    if (anchorIndex < 0 && this.initiativeGroupCursorUnitId) {
+      anchorIndex = orderedActivations.findIndex(
+        (activation) => activation.unitId === this.initiativeGroupCursorUnitId
+      );
+    }
+
+    const nextActivation = orderedActivations[(anchorIndex + 1 + orderedActivations.length) % orderedActivations.length];
+    if (!nextActivation) {
+      return false;
+    }
+
+    this.initiativeGroupCursorUnitId = nextActivation.unitId;
+    this.focusInitiativeUnit(nextActivation.unitId);
+    return true;
+  }
+
   private markRemainingPlayerInitiativeUnitsSkipped(
     activeGroup: {
       initiative: number;
@@ -10578,7 +10638,7 @@ export class BattleScreen {
     }
 
     this.syncInitiativeGroupSession(activeGroup);
-    this.focusNextSelectablePlayerInitiativeUnit(activeGroup, this.initiativeGroupCursorUnitId);
+    this.focusNextPlayerInitiativeBandUnit(activeGroup, this.initiativeGroupCursorUnitId);
   }
 
   private focusInitiativeUnit(unitId: string): void {
@@ -10707,6 +10767,14 @@ export class BattleScreen {
       return;
     }
 
+    const queue = typeof this.initiativeMethods?.getCurrentInitiativeQueue === "function"
+      ? this.initiativeMethods.getCurrentInitiativeQueue()
+      : null;
+    const currentBand = this.resolveCurrentPlayerInitiativeBand(queue);
+    const selectableActivations = currentBand?.initiative === activeGroup.initiative
+      ? currentBand.activations
+      : activeGroup.activations;
+    const selectableIds = new Set(selectableActivations.map((activation) => activation.unitId));
     const candidateIds = new Set(candidates.map((activation) => activation.unitId));
     const selectedUnitId = this.selectedPlayerUnitId;
     const currentActivation = this.initiativeMethods?.getCurrentActivation();
@@ -10714,15 +10782,15 @@ export class BattleScreen {
       if (
         selectedUnitId &&
         selectedUnitId !== currentActivation.unitId &&
-        candidateIds.has(selectedUnitId)
+        selectableIds.has(selectedUnitId)
       ) {
-        // Respect explicit commander selection within the active initiative group
+        // Respect explicit commander selection within the current initiative band
         // instead of snapping focus back to the queue head every sync tick.
         this.initiativeGroupCursorUnitId = selectedUnitId;
         return;
       }
       const cursorUnitId = this.initiativeGroupCursorUnitId;
-      if (cursorUnitId && cursorUnitId !== currentActivation.unitId && candidateIds.has(cursorUnitId)) {
+      if (cursorUnitId && cursorUnitId !== currentActivation.unitId && selectableIds.has(cursorUnitId)) {
         if (this.selectedPlayerUnitId !== cursorUnitId) {
           this.focusInitiativeUnit(cursorUnitId);
         }
@@ -10737,7 +10805,7 @@ export class BattleScreen {
       return;
     }
 
-    if (!selectedUnitId || !candidateIds.has(selectedUnitId)) {
+    if (!selectedUnitId || !selectableIds.has(selectedUnitId)) {
       // Keep the existing initiative cursor stable when selection is briefly cleared
       // after an action so "Next Unit" advances from the player's last position.
       if (this.initiativeGroupCursorUnitId && candidateIds.has(this.initiativeGroupCursorUnitId)) {
@@ -10751,7 +10819,7 @@ export class BattleScreen {
       return;
     }
 
-    if (!this.initiativeGroupCursorUnitId || !candidateIds.has(this.initiativeGroupCursorUnitId)) {
+    if (!this.initiativeGroupCursorUnitId || !selectableIds.has(this.initiativeGroupCursorUnitId)) {
       this.initiativeGroupCursorUnitId = selectedUnitId;
     }
   }
