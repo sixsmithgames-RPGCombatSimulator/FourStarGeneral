@@ -1590,7 +1590,13 @@ export class BattleScreen {
       callerUnitId,
       targetHexKeys: new Set(targetHexKeys)
     };
-    // Highlight the in-range hexes using the same zone-highlight infrastructure as artillery.
+    // Smoke targeting replaces movement/attack targeting. Leaving the old tactical
+    // highlights active makes move destinations look clickable and routes those clicks
+    // back through the normal selection flow instead of the smoke flow.
+    this.playerMoveHexes.clear();
+    this.playerAttackHexes.clear();
+    this.hexMapRenderer?.clearTacticalHighlights();
+    // Highlight only the in-range smoke hexes using the same zone-highlight infrastructure as artillery.
     const highlights = new Set(targetHexKeys);
     highlights.add(callerHexKey);
     this.hexMapRenderer?.setZoneHighlights(highlights);
@@ -12238,7 +12244,7 @@ export class BattleScreen {
         this.promptFortificationFacing(state.callerAxial, state.callerLabel, state.callerUnitId, "smoke");
         return;
       }
-      this.cancelSmokeTargeting(false);
+      this.announceBattleUpdate("Select a highlighted smoke target or click the firing unit's hex.");
       return;
     }
 
@@ -13399,7 +13405,7 @@ export class BattleScreen {
       actions.push({
         id: "laySmoke",
         label: "Lay Smoke",
-        detail: "Fire close smoke on this hex or an adjacent hex edge. The screen blocks ground line of sight until your next turn. Requires ammo but does not use movement or attacks.",
+        detail: "Fire smoke on this hex or an adjacent hex; artillery can place it anywhere within its indirect-fire range. The screen blocks ground line of sight until your next turn. Requires ammo but does not use movement or attacks.",
         tone: "mobility",
         available: commandState.canLaySmoke,
         reason: commandState.smokeReason

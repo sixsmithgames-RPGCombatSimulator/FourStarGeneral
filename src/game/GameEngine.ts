@@ -10649,6 +10649,11 @@ private automateSupplyConvoys(
       return [];
     }
     const { unit, definition, moveType, remaining } = context;
+    if (this.isTowableUnit(unit) && this.resolveTowState(unit) !== "towed") {
+      // Emplaced batteries must use Move Out before they can be towed. Keep the
+      // movement overlay consistent with moveUnit(), which enforces the same rule.
+      return [];
+    }
     if (this.isPinnedOrBroken(this.resolveUnitSuppressionState(unit).state)) {
       return [];
     }
@@ -16973,8 +16978,11 @@ private automateSupplyConvoys(
     return smokableClasses.includes(definition.class);
   }
 
-  private resolveSmokePlacementRange(_definition: UnitTypeDefinition): number {
-    return 1;
+  private resolveSmokePlacementRange(definition: UnitTypeDefinition): number {
+    // Tanks use their integral smoke systems for close screening. Artillery smoke
+    // is a projectile mission, so use the same maximum range as the gun's normal
+    // indirect fire rather than limiting howitzers to an adjacent hex.
+    return definition.class === "artillery" ? definition.rangeMax : 1;
   }
 
   /**
@@ -17522,7 +17530,8 @@ private automateSupplyConvoys(
   /**
    * Places a smoke screen on the specified edge of a hex.
    * When targetHex is provided the smoke is placed there instead of the unit's own hex;
-   * the target must be the unit's own hex or adjacent. When omitted smoke goes on the unit's hex.
+   * tanks are limited to adjacent hexes while artillery uses its indirect-fire range.
+   * When omitted smoke goes on the unit's own hex.
    * Smoke is a free action (does not spend movement or attacks) but consumes 1 ammo.
    * Each unit may deploy smoke at most once per turn — the smokeUsed flag prevents reuse.
    * The modification expires at the start of the next player turn via expireSmoke().
