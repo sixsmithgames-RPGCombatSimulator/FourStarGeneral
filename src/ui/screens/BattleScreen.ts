@@ -128,6 +128,11 @@ import {
 
 type ActivityCategory = "player" | "enemy" | "system";
 type ActivityType = "attack" | "move" | "deployment" | "supply" | "turn" | "log";
+type TutorialEnemyPhase =
+  | "enemy_activation"
+  | "enemy_response"
+  | "post_artillery_enemy_response"
+  | "round_handoff";
 
 const TUTORIAL_DEPLOYMENT_CAMERA_ZOOM = 1.9;
 const TUTORIAL_GROUP_CAMERA_ZOOM = 3.35;
@@ -2751,16 +2756,56 @@ export class BattleScreen {
           .map((modification) => this.normalizeFortificationEdgeFacing(modification.facing))
           .filter((facing): facing is HexEdgeFacing => facing !== null)
         : [];
+      const recommendedFacing = pendingBuild?.modificationType === "fortifications"
+        ? this.resolveRecommendedFortificationFacing(pendingBuild.hex)
+        : null;
       this.fortificationFacingPreview.innerHTML = this.buildFortificationFacingPreviewMarkup(
         fortifiedFacings,
-        pendingBuild?.modificationType ?? "fortifications"
+        pendingBuild?.modificationType ?? "fortifications",
+        recommendedFacing
       );
     }
   }
 
+  private resolveRecommendedFortificationFacing(hex: Axial): HexEdgeFacing | null {
+    const enemyUnits = this.battleState.ensureGameEngine().botUnits;
+    if (enemyUnits.length === 0) {
+      return null;
+    }
+
+    const directions: ReadonlyArray<{
+      readonly facing: HexEdgeFacing;
+      readonly dq: number;
+      readonly dr: number;
+    }> = [
+      { facing: "E", dq: 1, dr: 0 },
+      { facing: "NE", dq: 1, dr: -1 },
+      { facing: "SE", dq: 0, dr: 1 },
+      { facing: "NW", dq: 0, dr: -1 },
+      { facing: "SW", dq: -1, dr: 1 },
+      { facing: "W", dq: -1, dr: 0 }
+    ];
+
+    let bestFacing: HexEdgeFacing | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const direction of directions) {
+      const neighbor = { q: hex.q + direction.dq, r: hex.r + direction.dr };
+      const nearestEnemyDistance = enemyUnits.reduce(
+        (nearest, unit) => Math.min(nearest, hexDistance(neighbor, unit.hex)),
+        Number.POSITIVE_INFINITY
+      );
+      if (nearestEnemyDistance < bestDistance) {
+        bestDistance = nearestEnemyDistance;
+        bestFacing = direction.facing;
+      }
+    }
+    return bestFacing;
+  }
+
   private buildFortificationFacingPreviewMarkup(
     fortifiedFacings: readonly HexEdgeFacing[],
-    modificationType: "fortifications" | "tankTraps" | "smoke" | "facing"
+    modificationType: "fortifications" | "tankTraps" | "smoke" | "facing",
+    recommendedFacing: HexEdgeFacing | null = null
   ): string {
     const edgePaths: Record<HexEdgeFacing, string> = {
       NW: "M 35 67 L 110 24",
@@ -2787,16 +2832,18 @@ export class BattleScreen {
         />
         ${(Object.entries(edgePaths) as Array<[HexEdgeFacing, string]>).map(([edge, path]) => {
           const isBuilt = fortifiedFacings.includes(edge);
+          const isRecommended = !isBuilt && edge === recommendedFacing;
           return `
           <path
-            class="fortification-facing-preview-edge${isBuilt ? " fortification-facing-preview-edge--built" : ""}"
+            class="fortification-facing-preview-edge${isBuilt ? " fortification-facing-preview-edge--built" : ""}${isRecommended ? " fortification-facing-preview-edge--recommended" : ""}"
             data-fortification-edge="${edge}"
             data-built="${isBuilt ? "true" : "false"}"
+            data-fortification-recommended="${isRecommended ? "true" : "false"}"
             d="${path}"
             tabindex="${isBuilt ? "-1" : "0"}"
             role="button"
             aria-disabled="${isBuilt ? "true" : "false"}"
-            aria-label="${isBuilt ? `${edge} edge already has ${noun} works` : `Build ${noun} works on the ${edge} edge`}"
+            aria-label="${isBuilt ? `${edge} edge already has ${noun} works` : isRecommended ? `Recommended: build ${noun} works on the ${edge} edge facing the nearest enemy` : `Build ${noun} works on the ${edge} edge`}"
           />
         `;
         }).join("")}
@@ -2961,6 +3008,18 @@ export class BattleScreen {
       return;
     }
 
+    if (
+      modificationType === "fortifications" &&
+      ensureTutorialState().getCurrentPhase() === "engineer_orders"
+    ) {
+      const recommendedFacing = this.resolveRecommendedFortificationFacing(hex);
+      if (recommendedFacing && facing !== recommendedFacing) {
+        this.announceBattleUpdate(`Build on the marked ${recommendedFacing} edge facing the nearest enemy.`);
+        this.renderFortificationFacingPreview();
+        return;
+      }
+    }
+
     const fortifiedFacings = new Set(
       engine
         .getHexModifications(hex)
@@ -3039,9 +3098,6 @@ export class BattleScreen {
       // initiative-7 band. Teach and resolve that activation before claiming
       // that the initiative-6 engineers are ready.
       return "active_group_units";
-    }
-    if (phase === "select_attack_unit" && nextPhase === "smoke_demo") {
-      return this.selectedUnitCanLaySmoke() ? nextPhase : getNextPhase("smoke_demo");
     }
     return nextPhase;
   }
@@ -3305,12 +3361,13 @@ export class BattleScreen {
 
     if (phase === "smoke_demo") {
       if (!this.selectedUnitCanLaySmoke()) {
-        const smokeTarget = this.findTutorialAttackUnitTarget(true);
-        if (smokeTarget?.commandState?.canLaySmoke === true) {
+        const smokeTarget = this.findFirstTutorialUnitTarget(
+          (_unit, commandState) =>
+            commandState?.isAutomated !== true && commandState?.canLaySmoke === true,
+          true
+        );
+        if (smokeTarget) {
           this.selectTutorialUnitTarget(smokeTarget, true);
-        } else {
-          this.completeTutorialPhase("smoke_demo");
-          return;
         }
       } else if (!this.isBattleIntelOverlayExpanded() && this.selectedHexKey) {
         this.tutorialSelectionSyncInProgress = true;
@@ -3319,6 +3376,7 @@ export class BattleScreen {
         } finally {
           this.tutorialSelectionSyncInProgress = false;
         }
+        window.setTimeout(() => this.expandBattleIntelOverlayIfCollapsed(), 0);
       }
       this.hexMapRenderer?.setZoneHighlights(this.selectedHexKey ? new Set([this.selectedHexKey]) : new Set());
       this.queueTutorialCameraForPhase(phase, this.getSelectedTutorialFocusHexes(), TUTORIAL_ORDER_CAMERA_ZOOM);
@@ -3339,22 +3397,15 @@ export class BattleScreen {
       return;
     }
 
-    if (phase === "enemy_activation" || phase === "enemy_response" || phase === "post_artillery_enemy_response") {
+    if (
+      phase === "enemy_activation" ||
+      phase === "enemy_response" ||
+      phase === "post_artillery_enemy_response" ||
+      phase === "round_handoff"
+    ) {
       this.hexMapRenderer?.setZoneHighlights(new Set());
-      const focusHexKeys = phase === "enemy_activation"
-        ? this.getTutorialUnitFocusHexes((unit) => this.isEngineerBattleUnit(unit), true)
-        : phase === "enemy_response"
-          ? this.getTutorialArtilleryObserverFocusHexes()
-          : this.getTutorialUnitFocusHexes(
-            (unit, commandState) =>
-              commandState?.isAutomated !== true && this.getTutorialAttackTargetHexKeys(unit).size > 0,
-            false
-          );
-      this.queueTutorialCameraForPhase(
-        phase,
-        focusHexKeys.size > 0 ? focusHexKeys : this.getManualPlayerUnitHexKeys(),
-        TUTORIAL_GROUP_CAMERA_ZOOM
-      );
+      // Preserve the current tactical view while the enemy acts. The next
+      // friendly lesson owns the next camera move, preventing mid-handoff jumps.
       this.monitorTutorialEnemyActivation(phase);
       return;
     }
@@ -3618,7 +3669,7 @@ export class BattleScreen {
     }
   }
 
-  private monitorTutorialEnemyActivation(phase: "enemy_activation" | "enemy_response" | "post_artillery_enemy_response"): void {
+  private monitorTutorialEnemyActivation(phase: TutorialEnemyPhase): void {
     if (!this.isInitiativeSystemEnabled || !this.initiativeMethods) {
       this.completeTutorialPhase(phase);
       return;
@@ -3632,6 +3683,16 @@ export class BattleScreen {
 
     const queue = this.initiativeMethods.getCurrentInitiativeQueue();
     const activeGroup = this.resolveActiveInitiativeGroup(queue);
+    if (phase === "round_handoff" && activeGroup?.ownerId === "player") {
+      const smokeTarget = this.findFirstTutorialUnitTarget(
+        (_unit, commandState) => commandState?.isAutomated !== true && commandState?.canLaySmoke === true,
+        true
+      );
+      if (!smokeTarget) {
+        window.setTimeout(() => this.monitorTutorialEnemyActivation(phase), 220);
+        return;
+      }
+    }
     if (!activeGroup || activeGroup.ownerId === "player") {
       this.finishTutorialEnemyActivation(phase);
       return;
@@ -3661,14 +3722,14 @@ export class BattleScreen {
     window.setTimeout(() => this.monitorTutorialEnemyActivation(phase), 220);
   }
 
-  private finishTutorialEnemyActivation(phase: "enemy_activation" | "enemy_response" | "post_artillery_enemy_response"): void {
+  private finishTutorialEnemyActivation(phase: TutorialEnemyPhase): void {
     this.tutorialEnemyActivationMonitorActive = false;
     this.highlightCurrentInitiativeGroup();
     this.syncInitiativeTurnControlsState();
     this.completeTutorialPhase(phase);
   }
 
-  private resolveTutorialEnemyActivationFallback(phase: "enemy_activation" | "enemy_response" | "post_artillery_enemy_response"): void {
+  private resolveTutorialEnemyActivationFallback(phase: TutorialEnemyPhase): void {
     if (!this.initiativeMethods) {
       this.finishTutorialEnemyActivation(phase);
       return;
@@ -3911,23 +3972,6 @@ export class BattleScreen {
       (unit, commandState) => isEligible(unit, commandState) && commandState?.canLaySmoke === true,
       activeGroupOnly
     ) ?? this.findFirstTutorialUnitTarget(isEligible, activeGroupOnly);
-  }
-
-  private getTutorialUnitFocusHexes(
-    predicate: (unit: ScenarioUnit, commandState: UnitCommandState | null, hexKey: string) => boolean,
-    activeGroupOnly = false
-  ): Set<string> {
-    const target = this.findFirstTutorialUnitTarget(predicate, activeGroupOnly);
-    return target ? new Set([target.hexKey]) : new Set();
-  }
-
-  private getTutorialArtilleryObserverFocusHexes(): Set<string> {
-    return this.getTutorialUnitFocusHexes(
-      (unit, commandState, hexKey) =>
-        commandState?.isAutomated !== true &&
-        this.resolveArtilleryActionState(unit, commandState, hexKey).available,
-      false
-    );
   }
 
   private selectedUnitHasAttackTargets(): boolean {

@@ -715,13 +715,13 @@ export class PrecombatScreen {
     }
 
     if (
-      currentPhase === "select_air_wing" &&
+      currentPhase === "select_recon" &&
       ["reconBike", "recon"].includes(optionKey) &&
       (hasAllocation("reconBike", 1) || hasAllocation("recon", 1))
     ) {
       tutorialState.setCanProceed(true);
       setTimeout(() => {
-        const nextPhase = getNextPhase("select_air_wing");
+        const nextPhase = getNextPhase("select_recon");
         if (nextPhase) tutorialState.advancePhase(nextPhase);
       }, 800);
     }
@@ -1475,7 +1475,7 @@ export class PrecombatScreen {
       "select_tanks",
       "select_engineers",
       "select_flak",
-      "select_air_wing",
+      "select_recon",
       "select_howitzer",
       "select_ammo",
       "select_fuel",

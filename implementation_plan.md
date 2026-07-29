@@ -865,3 +865,65 @@ AirShowPlaybackPlanner.ts is high-risk. Changes are to existing `buildCorridorCo
 ### Verification
 - [x] Add platform follow-up damage regression coverage.
 - [x] Run focused damage tests, full unit tests, build, lint, and `git diff --check`.
+## First-Class Training Tutorial Completion Plan
+
+### Intended behavior
+- The training journey must be one legal, understandable sequence from requisition through deployment, initiative, reconnaissance, fortification, Corps Artillery, direct fire, smoke, and dismissal.
+- Each required lesson must select a currently active formation that can perform the named order and must advance only after the engine accepts that order.
+- Enemy responses must play without tutorial camera jumps. The next guided camera move begins only when command returns to the player.
+- Battle prompts must use one stable upper dock, fit mobile viewports, and keep the required unit, control, hex, or edge visible and clickable.
+- Every command-board brief must teach status, controls, and results. Where a live control exists, the player must use it.
+
+### Current behavior
+- The smoke lesson follows a firing-unit selection and can be skipped when that unit lacks smoke.
+- Automatic enemy-response lessons can complete too quickly and currently pre-focus future units, producing abrupt camera jumps.
+- The fortification lesson spotlights only the edge picker after it opens, does not mark the enemy-facing edge, and leaves the mobile Fortify control difficult to reach.
+- Main battle step numbers repeat when additional recon activations occur and jump when automatic phases complete.
+- Logistics and Roster briefs describe important controls without requiring the player to use them.
+- The General profile header collapses into a narrow first grid column on mobile.
+- Mission completion can interrupt an active tutorial before its final lessons.
+
+### Expected new behavior
+- Direct fire completes before a real initiative handoff. The tutorial then selects an active smoke-capable formation and requires a real Lay Smoke order.
+- Enemy responses preserve the current tactical view and remain visible long enough to communicate the handoff.
+- Fortify is the initial spotlight target; the edge picker then marks and names the recommended enemy-facing edge.
+- Battle lessons use stable named section indicators so repeated initiative drills do not display duplicate numbered steps.
+- Logistics requires a real priority change and Roster requires opening Battle Requisitions.
+- General profile identity and statistics remain readable at 390px.
+- Mission-end presentation is deferred while the training tutorial is active.
+
+### Edge cases
+- Multiple initiative-7 recon formations repeat the same drill without misleading step numbers.
+- A selected firing formation cannot lay smoke; the tutorial advances initiative until tanks or artillery can.
+- Enemy groups may sit between the firing and smoke-capable friendly groups.
+- The nearest enemy can lie on any of the six hex facings.
+- A command-board control may be unavailable in an empty panel state; the brief remains accurate and dismissible.
+- Desktop and mobile prompts must avoid the edge picker, unit card, and map target.
+
+### Impact analysis
+- Systems consuming this output:
+  - `TutorialState`, `tutorialSteps`, `TutorialOverlay`, and sidebar mini-tutorial definitions
+  - `BattleScreen` initiative progression, camera focus, capability selection, fortification picker, and mission-end presentation
+  - Responsive styles for the tutorial, edge picker, and General profile
+  - Main tutorial and command-board browser tests
+- Events depending on this structure:
+  - Tutorial phase updates and accepted-action auto-advance
+  - Initiative Next Group, selection-intel actions, map target clicks, and enemy activation callbacks
+  - Logistics priority and Battle Requisitions popup interactions
+- Visual behaviors that could shift:
+  - Battle prompt indicator text and dock location
+  - Camera framing at enemy/friendly initiative boundaries
+  - Recommended fortification edge styling
+  - Mobile General profile and engineer-order layout
+
+### Risk
+- `BattleScreen.ts` is high-risk. Changes are constrained to tutorial orchestration, camera guidance, edge recommendation presentation, and tutorial-only mission-end deferral. Combat resolution and normal initiative ordering are unchanged.
+
+### Verification
+- Update focused tutorial sequence, wait-state, initiative handoff, edge recommendation, and mini-tutorial tests.
+- Run build, unit tests, zero-warning lint, and `git diff --check`.
+- Run the complete tutorial serially at 1680x857, 1440x900, and 390x844.
+- Inspect every major handoff screenshot and repeat the player journey in the in-app browser.
+- Run all six command-board briefs and verify their real interactions at desktop and mobile sizes.
+
+---

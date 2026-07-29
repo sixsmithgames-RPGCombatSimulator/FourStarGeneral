@@ -11,7 +11,7 @@ Post-deployment tutorial steps drifted out of alignment once initiative play beg
 - Each step should anchor to the actual UI element or tactical area being taught.
 - Wait-gated steps must leave the real battlefield control clickable.
 - Wait-gated steps must not flash an enabled Continue button during automatic advancement.
-- If an order is conditional, such as fire or smoke, the tutorial must say when the order may not appear.
+- If an order is conditional, such as fire or smoke, the tutorial must select a formation that can legally perform it.
 - Deployment should identify Zone Alpha as the only valid deployment sector for this mission.
 - Post-deployment camera focus should stay on the active friendly group until the player has enough context to act.
 
@@ -24,7 +24,7 @@ Post-deployment tutorial steps drifted out of alignment once initiative play beg
 - Begin Battle step highlights the real button and allows the player to click it.
 - Initiative Status step points to the initiative status line and explains who acts now.
 - Choose A Formation highlights the Recon Bike Patrol when it is the intended first formation.
-- Movement, Fire Orders, Unit Intel, Smoke Orders, and Finish This Formation stay near the edge of the battlefield and avoid covering the target area.
+- Movement, Fire Orders, engineer orders, artillery, and smoke prompts use the same upper dock and avoid covering the target area.
 - Mobile layout keeps tutorial panels compact and below the current map/action focus.
 
 ## June 2026 Follow-up
@@ -40,3 +40,14 @@ Additional fixes:
 - Smoke instruction expands a smoke-capable unit card before pointing at Lay Smoke.
 - The redundant battle-routine step was removed; the final message is a short sendoff.
 - Visual QA should include desktop and narrow viewport screenshots for steps 18, 20, 21, 23, 24, 26, 33, 34, and the final step.
+
+## July 2026 Certification
+
+- The 37-step journey now completes through real requisition, deployment, movement, fortification, artillery, fire, initiative, and smoke actions.
+- Engineer training marks one legal edge facing the nearest enemy and requires that edge during the lesson.
+- Fire completes before the player advances the initiative group.
+- Smoke training waits for a legal tank or artillery formation; infantry no longer exposes Lay Smoke.
+- Repeated initiative loops use named drill labels, while fixed requisition and deployment lessons retain stable step numbers.
+- The final card says "Good luck, General [name]." and offers only Dismiss.
+- Full walkthroughs pass at 1680x857, 1440x900, and 390x844.
+- OPS, General, Recon, Air, Logistics, and Roster briefs fit the same three viewports. Logistics priority and Roster requisition steps require the real modal controls.

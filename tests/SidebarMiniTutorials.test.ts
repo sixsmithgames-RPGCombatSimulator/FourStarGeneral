@@ -73,7 +73,7 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getNextPhase("active_group_units") === "movement_intro", "Selecting an active formation should lead into movement teaching.");
     expect(!deploymentPhases.includes("roster_intro"), "Roster should be taught only by its sidebar mini tutorial.");
     expect(!deploymentPhases.includes("air_support_intro"), "Air Support should be taught only by its sidebar mini tutorial.");
-    expect(getNextPhase("select_air_wing") === "select_howitzer", "Recon requisition should lead into the separate howitzer step.");
+    expect(getNextPhase("select_recon") === "select_howitzer", "Recon requisition should lead into the separate howitzer step.");
     expect(getNextPhase("select_howitzer") === "select_ammo", "Howitzer requisition should lead into logistics.");
     expect(getNextPhase("movement_intro") === "enemy_activation", "A successful recon move should hand initiative to the enemy.");
     expect(getNextPhase("enemy_activation") === "engineer_intro", "Enemy movement should lead into the engineer lesson.");
@@ -85,15 +85,17 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(getNextPhase("select_artillery_observer") === "artillery_intro", "A legal observer should lead into a real artillery request.");
     expect(getNextPhase("artillery_intro") === "post_artillery_enemy_response", "Queued artillery should let the enemy initiative group resolve before direct fire.");
     expect(getNextPhase("post_artillery_enemy_response") === "select_attack_unit", "The post-artillery enemy response should return to a direct-fire lesson.");
-    expect(getNextPhase("select_attack_unit") === "smoke_demo", "A legal firing unit should lead into the smoke-screen command brief.");
-    expect(getNextPhase("smoke_demo") === "attack_intro", "The smoke-screen brief should lead into a confirmed attack.");
-    expect(getNextPhase("attack_intro") === "mission_objectives", "A completed attack should lead into final mission orders.");
-    expect(getNextPhase("mission_objectives") === "complete", "Final mission orders should advance to the dismissal step.");
+    expect(getNextPhase("select_attack_unit") === "attack_intro", "A legal firing unit should lead into a confirmed attack.");
+    expect(getNextPhase("attack_intro") === "spend_activation", "A completed attack should lead into the initiative handoff.");
+    expect(getNextPhase("spend_activation") === "round_handoff", "Advancing the group should show the initiative handoff.");
+    expect(getNextPhase("round_handoff") === "select_smoke_unit", "The next friendly group should lead into the smoke lesson.");
+    expect(getNextPhase("select_smoke_unit") === "smoke_demo", "A smoke-capable formation should lead into a real smoke order.");
+    expect(getNextPhase("smoke_demo") === "complete", "A completed smoke screen should lead to final certification.");
     expect(getNextPhase("complete") === null, "Final certification should dismiss instead of looping.");
-    expect(!combatPhases.includes("spend_activation"), "The main tutorial should not require a premature End Turn handoff.");
+    expect(combatPhases.includes("spend_activation"), "The main tutorial should teach the real Next Group control.");
     expect(!combatPhases.includes("next_unit"), "The main tutorial should stay with the natural action sequence.");
     expect(!combatPhases.includes("skip_group"), "The main tutorial should not interrupt the first turn with optional controls.");
-    expect(!combatPhases.includes("round_handoff"), "The main tutorial should end after teaching the essential orders.");
+    expect(combatPhases.includes("round_handoff"), "The main tutorial should show the initiative handoff before smoke training.");
     expect(!combatPhases.includes("turn_end"), "The redundant battle routine step should stay out of the main tutorial.");
     expect(!combatPhases.includes("flak_intro"), "Air-defense controls belong in their sidebar brief, not the first-turn lesson.");
     expect(!combatPhases.includes("air_missions"), "Air missions should not auto-open the Air sidebar during the main tutorial.");
@@ -107,12 +109,12 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
     expect(fortificationStep?.waitForAction === true, "Fortifications should require a successful engineer order.");
     expect(fortificationStep?.title === "Build Fortifications", "The engineer lesson should use direct fortification language.");
     expect(
-      fortificationStep?.content === "Click Fortify, then choose the edge that faces the enemy.",
+      fortificationStep?.content === "Click Fortify. Then choose the marked edge facing the nearest enemy.",
       "The engineer lesson should direct the player toward the enemy-facing edge."
     );
     expect(
-      fortificationStep?.highlightSelector === "#battleFortificationFacingPreview .fortification-facing-preview-svg",
-      "The engineer lesson should spotlight the interactive edge chooser rather than the Fortify card."
+      fortificationStep?.highlightSelector === "body:not(:has(#battleFortificationFacing:not(.hidden))) #battleIntelOverlay [data-selection-action='fortifications'], #battleFortificationFacing:not(.hidden) [data-fortification-recommended='true']",
+      "The engineer lesson should follow the interaction from the Fortify order to the recommended edge."
     );
     expect(getTutorialStep("attack_intro")?.waitForAction === true, "Fire Orders should require a confirmed attack.");
     expect(getTutorialStep("artillery_support_intro")?.waitForAction === false, "Artillery support should be an explicit briefing before observer selection.");
@@ -121,7 +123,9 @@ registerTest("MAIN_TUTORIAL_DOES_NOT_FORCE_SIDEBAR_PANEL_BRIEFS", async ({ Then 
       "Artillery support should identify the off-map Corps Artillery asset."
     );
     expect(getTutorialStep("artillery_intro")?.waitForAction === true, "Artillery should require a queued support request.");
-    expect(getTutorialStep("smoke_demo")?.content.includes("neighboring hex edge") === true, "Smoke should be taught as a close screen, not long-range mortar fire.");
+    expect(getTutorialStep("select_smoke_unit")?.waitForAction === true, "Smoke training should require a smoke-capable formation.");
+    expect(getTutorialStep("smoke_demo")?.waitForAction === true, "Smoke training should require a completed smoke screen.");
+    expect(getTutorialStep("smoke_demo")?.content.includes("neighboring hex") === true, "Smoke should be taught as a close screen, not long-range mortar fire.");
     expect(getTutorialStep("enemy_activation")?.waitForAction === true, "Enemy Action should wait for initiative handoff instead of showing a premature Continue button.");
     expect((getTutorialStep("initiative_order")?.content.includes("battle clock") ?? false) === false, "Initiative copy should explain the UI without mystifying phrases.");
     expect(
@@ -228,16 +232,16 @@ registerTest("TUTORIAL_ACTION_USES_THE_AUTHORITATIVE_CURRENT_PHASE", async ({ Gi
     overlay = new TutorialOverlay();
     overlay.initialize();
     tutorialState.startTutorial();
-    tutorialState.jumpToPhase("attack_intro");
+    tutorialState.jumpToPhase("artillery_support_intro");
     (overlay as unknown as { currentStep: ReturnType<typeof getTutorialStep> }).currentStep = getTutorialStep("movement_intro");
   });
 
-  await When("the player clicks Continue on Fire Orders", async () => {
+  await When("the player clicks Continue on the artillery briefing", async () => {
     document.querySelector<HTMLButtonElement>(".tutorial-action-btn")?.click();
   });
 
   await Then("the tutorial advances from the live phase instead of the stale cached step", async () => {
-    expect(tutorialState.getCurrentPhase() === "mission_objectives", `Expected final mission orders, received ${tutorialState.getCurrentPhase()}.`);
+    expect(tutorialState.getCurrentPhase() === "select_artillery_observer", `Expected observer selection, received ${tutorialState.getCurrentPhase()}.`);
     overlay.dispose();
     tutorialState.endTutorial();
   });
@@ -357,7 +361,7 @@ registerTest("TUTORIAL_FINAL_CERTIFICATION_RENDERS_BEFORE_DISMISSAL", async ({ G
   let overlay: TutorialOverlay;
   const tutorialState = ensureTutorialState();
 
-  await Given("the command loop step is visible with a highlight target", async () => {
+  await Given("the final certification is visible", async () => {
     tutorialState.endTutorial();
     (globalThis as { MutationObserver?: typeof MutationObserver }).MutationObserver = window.MutationObserver;
     document.body.innerHTML = `
@@ -371,20 +375,20 @@ registerTest("TUTORIAL_FINAL_CERTIFICATION_RENDERS_BEFORE_DISMISSAL", async ({ G
     setRect(initiativeControls, { left: 600, top: 80, width: 320, height: 80 });
     overlay = new TutorialOverlay();
     overlay.initialize();
-    tutorialState.jumpToPhase("mission_objectives");
+    tutorialState.jumpToPhase("complete");
   });
 
-  await When("the player confirms the final mission orders", async () => {
-    const actionButton = document.querySelector<HTMLButtonElement>(".tutorial-action-btn");
-    expect(actionButton?.textContent === "Continue", "Expected Continue action on final mission orders.");
-    actionButton?.click();
+  await When("the player reviews the final message", async () => {
+    await Promise.resolve();
   });
 
-  await Then("the certification step is rendered and then dismisses the tutorial", async () => {
+  await Then("the certification step remains visible until the player dismisses it", async () => {
     const actionButton = document.querySelector<HTMLButtonElement>(".tutorial-action-btn");
+    const skipButton = document.querySelector<HTMLButtonElement>(".tutorial-skip-btn");
     const title = document.querySelector<HTMLElement>(".tutorial-title")?.textContent ?? "";
     expect(title === "Ready For Battle", "Expected final tutorial title to render.");
     expect(actionButton?.textContent === "Dismiss", "Expected Dismiss action on final certification.");
+    expect(skipButton?.style.display === "none", "Final certification should not offer a redundant Skip control.");
     expect(tutorialState.getProgress().isActive, "Tutorial should remain active while final certification is visible.");
 
     actionButton?.click();
@@ -451,7 +455,9 @@ registerTest("SIDEBAR_MINI_TUTORIAL_EVENT_RENDERS_DISMISSES_AND_PERSISTS", async
     expect(document.querySelector<HTMLElement>(".tutorial-title")?.textContent === "Reserves And Support", "Expected reserve lesson third.");
     action?.click();
     expect(document.querySelector<HTMLElement>(".tutorial-title")?.textContent === "Request Reinforcements", "Expected requisition lesson last.");
-    action?.click();
+    const requisitionsButton = document.querySelector<HTMLButtonElement>("[data-open-battle-requisitions]");
+    requisitionsButton?.click();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
 
   await Then("the brief closes and does not show again for that panel in the same session", async () => {
@@ -545,7 +551,7 @@ registerTest("SIDEBAR_MINI_TUTORIALS_DO_NOT_INTERRUPT_ACTIVE_TRAINING", async ({
   await Then("the full training tutorial keeps control of the overlay", async () => {
     const title = document.querySelector<HTMLElement>(".tutorial-title");
     const indicator = document.querySelector<HTMLElement>(".tutorial-step-indicator");
-    expect(title?.textContent === "Requisition Order", `Expected active training title, received ${title?.textContent ?? "<missing>"}.`);
+    expect(title?.textContent === "Welcome To Training", `Expected active training title, received ${title?.textContent ?? "<missing>"}.`);
     expect(indicator?.textContent?.startsWith("Step") === true, `Expected normal step indicator, received ${indicator?.textContent ?? "<missing>"}.`);
 
     overlay.dispose();

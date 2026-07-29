@@ -1057,6 +1057,7 @@
       display: grid;
       gap: 0.6rem 1.25rem;
       grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      grid-column: 1 / -1;
       margin: 0;
     }
     .general-profile__stats dt {
@@ -4240,6 +4241,21 @@
       stroke: rgba(248, 249, 251, 0.42);
       filter: none;
       cursor: default;
+    }
+    .fortification-facing-preview-edge--recommended {
+      stroke: rgba(245, 196, 109, 0.98);
+      stroke-width: 14;
+      filter: drop-shadow(0 0 9px rgba(245, 196, 109, 0.7));
+      animation: fortification-edge-pulse 1.25s ease-in-out infinite;
+    }
+    @keyframes fortification-edge-pulse {
+      0%,
+      100% {
+        stroke-opacity: 0.68;
+      }
+      50% {
+        stroke-opacity: 1;
+      }
     }
     .fortification-facing-preview-edge:hover,
     .fortification-facing-preview-edge:focus,
@@ -8201,6 +8217,49 @@
     }
 
     @media (max-width: 600px) {
+      .general-profile {
+        gap: 1rem;
+      }
+      .general-profile__header {
+        grid-template-columns: 88px minmax(0, 1fr);
+        gap: 0.9rem;
+        align-items: start;
+      }
+      .general-profile__portrait {
+        width: 88px;
+        height: 88px;
+        border-radius: 8px;
+        font-size: 2rem;
+      }
+      .general-profile__identity {
+        min-width: 0;
+      }
+      .general-profile__identity h3,
+      .general-profile__summary {
+        overflow-wrap: anywhere;
+      }
+      .general-profile__stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .general-profile__section {
+        padding: 0.9rem;
+      }
+      body:has(.tutorial-panel.tutorial-phase-engineer_orders) #battleFortificationFacing {
+        place-items: end center;
+        padding: 0.5rem 0.75rem max(0.75rem, env(safe-area-inset-bottom));
+      }
+      body:has(.tutorial-panel.tutorial-phase-engineer_orders) #battleFortificationFacing .battle-dialog__surface {
+        width: min(270px, calc(100vw - 24px));
+      }
+      body:has(.tutorial-panel.tutorial-phase-engineer_orders) #battleFortificationFacing .battle-dialog__header {
+        padding: 0.55rem 0.75rem 0.15rem;
+      }
+      body:has(.tutorial-panel.tutorial-phase-engineer_orders) #battleFortificationFacing .battle-dialog__body {
+        padding: 0 0.75rem 0.55rem;
+      }
+      body:has(.tutorial-panel.tutorial-phase-engineer_orders) .fortification-facing-preview-svg {
+        width: min(100%, 210px);
+      }
       #battleActivityLogToggle,
       #deploymentPanelToggle {
         display: none !important;

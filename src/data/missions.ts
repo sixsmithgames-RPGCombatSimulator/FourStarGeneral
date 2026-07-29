@@ -39,8 +39,8 @@ export const missionTitles: Record<MissionKey, string> = {
  */
 export const missionBriefings: Record<MissionKey, string> = {
   training:
-    "This is a low-stakes training exercise designed to familiarize your forces with operational procedures. " +
-    "Focus on unit coordination and terrain assessment. No hostile contact expected.",
+    "A live opposing force is standing by for a controlled field exercise. " +
+    "Practice deployment, initiative, reconnaissance, field engineering, fire support, and direct combat under training conditions.",
 
   patrol:
     "Enemy battle groups are pushing up the southern road net toward the northern town. " +

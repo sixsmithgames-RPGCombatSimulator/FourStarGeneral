@@ -190,12 +190,13 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
       },
       {
         title: "Set Supply Priority",
-        content: "Raise the priority of a formation that must keep moving or firing. Convoys serve higher priorities first.",
-        highlightSelector: ".battle-popup[data-popup-key=\"logistics\"] .logistics-priority-card",
+        content: "Set the first formation to Critical. Convoys serve critical formations before lower priorities.",
+        highlightSelector: ".battle-popup[data-popup-key=\"logistics\"] .logistics-priority-card [data-logistics-priority=\"critical\"]",
         highlightFirstMatch: true,
         position: "left",
         arrowDirection: "right",
-        actionLabel: "Show Convoys"
+        waitForActionSelector: ".battle-popup[data-popup-key=\"logistics\"] .logistics-priority-card [data-logistics-priority=\"critical\"]",
+        actionHint: "Set the highlighted formation to Critical priority."
       },
       {
         title: "Follow The Convoys",
@@ -239,11 +240,12 @@ export const SIDEBAR_MINI_TUTORIALS: readonly SidebarMiniTutorialDefinition[] = 
       },
       {
         title: "Request Reinforcements",
-        content: "Open Battle Requisitions when the operation allows more forces. Check the cost and arrival delay before committing points.",
+        content: "Open Battle Requisitions. Check each formation's cost and arrival delay before placing the order.",
         highlightSelector: ".battle-popup[data-popup-key=\"armyRoster\"] [data-open-battle-requisitions]",
         position: "left",
         arrowDirection: "right",
-        actionLabel: "Brief Complete"
+        waitForActionSelector: ".battle-popup[data-popup-key=\"armyRoster\"] [data-open-battle-requisitions]",
+        actionHint: "Open Battle Requisitions."
       }
     ]
   }

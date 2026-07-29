@@ -25,6 +25,11 @@ The training tutorial had fallen out of step with the initiative battle system. 
 19. The mobile battle screen behaved like a stacked web page: the command rail, tutorial panel, and deployment panel could consume the viewport while the map became too small or blocked.
 20. Desktop floating drawer toggles could paint over the mobile command rail, making the rail look misaligned and failing visual fit checks.
 21. Sidebar tutorials were single information cards that neither explained each modal's sections nor asked the player to use its controls.
+22. The fortification lesson highlighted the Fortify card after the edge chooser opened, leaving the real decision unmarked.
+23. The tutorial could enter the smoke lesson before the next initiative group exposed a legal smoke order.
+24. Static step numbers repeated during initiative-driven recon loops and made the lesson appear out of sequence.
+25. The final certification still offered Skip after the tutorial was already complete.
+26. Local browser validation could accidentally reuse the occupied in-app preview port and report a workspace error as a tutorial timeout.
 
 ## Root Cause
 
@@ -43,11 +48,12 @@ The battle UI also crossed two coordinate systems without converting at the boun
   1. Read the initiative status.
   2. Select and move Recon.
   3. Watch the enemy response.
-  4. Select Engineers, expand their order card, and build fieldworks.
-  5. Select smoke-capable infantry and lay smoke.
+  4. Select Engineers, expand their order card, and build fortifications on the marked enemy-facing edge.
+  5. Select an eligible observer and call off-map Corps Artillery.
   6. Select a formation with a legal target and confirm an attack.
-  7. Select an eligible observer and call artillery.
-  8. Receive mission orders and dismiss the tutorial.
+  7. Advance the initiative group and watch the handoff.
+  8. Select a smoke-capable armored formation and lay a close smoke screen.
+  9. Dismiss the final certification.
 - Engineer, smoke, fire, and artillery phases advance only after the engine accepts the required action.
 - Optional initiative controls and the premature End Turn lesson were removed from the main walkthrough.
 - Battle prompts now share one compact upper dock and consistent typography on desktop and mobile.
@@ -55,14 +61,13 @@ The battle UI also crossed two coordinate systems without converting at the boun
 - Guided camera transitions queue one intended click and replay it after the view settles, preventing both accidental orders and silently discarded input.
 - Guided unit-selection steps mark one exact legal formation instead of spotlighting an entire initiative band.
 - The guided recon activation clears its selection and tactical outlines before the Engineer group begins.
-- Infantry battalions can use their integral mortar element to lay smoke, giving the training lesson a legal order.
+- Infantry do not receive Lay Smoke. The lesson waits for a tank or artillery formation with a legal smoke order.
 - Enemy-response fallback waits beyond the normal animation window and cannot race visible enemy movement.
 - Guided unit-selection steps advance on the player's click even if the intended formation was already selected by setup.
 - Smoke target keys convert from engine axial coordinates to map offset coordinates before highlighting or click handling.
-- Smoke remains a free order after consuming ammunition, so the same active infantry formation can proceed naturally into the direct-fire lesson.
+- Smoke remains a close order on the acting formation's own or neighboring hex, except for artillery's existing indirect-fire capability.
 - Selection phases clear stale intel first, repaint tactical highlights, and attach the guided marker last so SVG updates cannot erase it.
-- The fortification lesson uses direct language and retargets its spotlight to the interactive edge hexagon, where the player is told to fortify the side facing the enemy.
-- Infantry smoke copy identifies the battalion mortar company as the source of smoke rounds, distinguishing it from vehicle smoke systems.
+- The fortification lesson follows the interaction from the Fortify order to one marked edge facing the nearest enemy. Other edges are rejected during training.
 - Global initiative shortcuts ignore handled events and keyboard input originating from buttons, controls, or modal dialogs.
 - Map-targeting orders close the expanded unit card before asking the player to click a hex.
 - Mobile action prompts grow with their content; the walkthrough asserts that every panel fits the viewport and no tutorial copy is clipped.
@@ -70,8 +75,12 @@ The battle UI also crossed two coordinate systems without converting at the boun
 - The battle settings menu includes a user-triggered Fullscreen control where the browser supports the Fullscreen API.
 - Desktop drawer toggles are hidden on phone-width battle screens so they cannot overlap the command rail.
 - Sidebar mini tutorials remain separate and open only when the player deliberately selects the matching command-rail icon.
-- Each of the six command-rail modals now has a three- or four-step brief with focused spotlights. Command Post report selection and Air Support mission selection use the real controls before advancing.
+- Each of the six command-rail modals now has a three- or four-step brief with focused spotlights. Command Post reports, Air mission tabs, Logistics priority, and Roster requisitions use real controls before advancing.
 - Sidebar briefs are persisted only after completion or deliberate closure. Required panel actions use a clear instruction strip while the live modal remains interactive.
+- Repeated initiative lessons use named drill indicators instead of duplicate step numbers.
+- The initiative handoff does not enter Smoke Drill until a legal active formation is ready and can be highlighted.
+- The final certification offers only Dismiss.
+- Playwright uses a dedicated strict test port so an unrelated preview cannot be mistaken for the game.
 
 ## Verification Checklist
 
@@ -83,15 +92,15 @@ The battle UI also crossed two coordinate systems without converting at the boun
 - A successful recon move hands initiative to the enemy without an extra End Turn click.
 - Recon movement and attack outlines clear before the Engineer lesson.
 - Enemy response returns control to the active Engineer group.
-- Fortify requires selecting an edge and advances only after fieldworks are built.
-- Smoke requires a smoke-capable active infantry formation, a target hex, and an edge.
+- Fortify requires selecting an edge and advances only after the fortifications are built.
+- Smoke requires a smoke-capable active armored or artillery formation, a target hex, and an edge.
 - Each guided selection spotlight identifies only the formation that can perform the next required order.
 - Clicking an already-selected guided formation advances the selection lesson.
 - Fire requires an active formation with a legal target and advances only after attack confirmation.
 - Artillery requires an eligible active observer and advances only after a target is queued.
 - No Air, Logistics, Roster, or other sidebar modal opens during the main tutorial.
 - Tutorial prompts remain near the upper command area without covering required map targets.
-- Desktop and mobile walkthroughs reach the final mission message without duplicate steps, stale selections, or camera jumps.
+- Desktop and mobile walkthroughs reach the final certification without duplicate step labels, stale selections, or camera jumps.
 - Every tutorial panel remains inside the viewport and its content has no hidden overflow at 1440x900 and 390x844.
 - At 390x844, the base-camp hex, deployment buttons, initiative rail, movement target, artillery order, and battle settings menu remain visible and clickable without horizontal page drift.
 - OPS, General, Recon, Air, Logistics, and Roster briefs complete at 1440x900 and 390x844 with every spotlight aligned to one visible control or record.

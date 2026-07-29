@@ -479,7 +479,7 @@ export class TutorialOverlay {
     this.activeMiniTutorial = null;
     if (this.container) {
       this.container.setAttribute("aria-modal", "true");
-      this.container.setAttribute("aria-label", "Tutorial");
+      this.container.setAttribute("aria-label", step.title);
     }
     const tutorialState = ensureTutorialState();
 
@@ -491,7 +491,7 @@ export class TutorialOverlay {
     const stepIndicator = this.panelElement.querySelector(".tutorial-step-indicator");
     if (stepIndicator) {
       const stepNumber = getTutorialStepNumber(step.phase);
-      stepIndicator.textContent = stepNumber ? `Step ${stepNumber}` : "Step";
+      stepIndicator.textContent = step.indicatorLabel ?? (stepNumber ? `Step ${stepNumber}` : "Step");
     }
 
     // Back is opt-in because action and battle state cannot be safely rewound.
@@ -502,7 +502,7 @@ export class TutorialOverlay {
 
     const skipBtn = this.panelElement.querySelector<HTMLButtonElement>(".tutorial-skip-btn");
     if (skipBtn) {
-      skipBtn.style.display = "";
+      skipBtn.style.display = step.phase === "complete" ? "none" : "";
       skipBtn.textContent = "Skip";
     }
 

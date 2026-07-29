@@ -12,6 +12,7 @@ export type TutorialPhase =
   | "select_tanks"
   | "select_engineers"
   | "select_flak"
+  | "select_recon"
   | "select_air_wing"
   | "select_howitzer"
   | "select_ammo"
@@ -61,6 +62,7 @@ export interface TutorialStep {
   readonly highlightSelector?: string;
   readonly position: "top" | "bottom" | "left" | "right" | "center";
   readonly actionLabel?: string;
+  readonly indicatorLabel?: string;
   readonly waitForAction?: boolean;
   readonly allowBack?: boolean;
   readonly highlightFirstMatch?: boolean;

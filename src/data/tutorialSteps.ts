@@ -10,9 +10,9 @@ export type { TutorialStep };
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   {
     phase: "budget_overview",
-    title: "Requisition Order",
+    title: "Welcome To Training",
     content:
-      "Welcome, General. This tutorial starts with requisition points (RP): the budget used to raise formations and supplies for the mission.",
+      "Welcome, General. Requisition points (RP) are the budget for the formations and supplies you take into battle.",
     highlightSelector: "#precombatBudgetPanel",
     position: "left",
     arrowDirection: "right",
@@ -20,9 +20,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "unit_categories",
-    title: "Assemble The Force",
+    title: "Choose Your Force",
     content:
-      "This mission needs infantry, armor, engineers, recon, air defense, and logistics. Each category supports the line in a different way.",
+      "Build a balanced force with infantry, armor, engineers, reconnaissance, air defense, artillery, and logistics.",
     highlightSelector: "#allocationUnitList, #allocationSupportList, #allocationLogisticsList",
     position: "right",
     arrowDirection: "left",
@@ -75,10 +75,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     actionLabel: "Continue"
   },
   {
-    phase: "select_air_wing",
+    phase: "select_recon",
     title: "Send Recon",
     content:
-      "Add one Recon Bike Patrol. Recon moves fast and spots enemy positions before the line commits.",
+      "Add one Recon Bike Patrol. It moves quickly and spots enemy positions, but carries little armor or firepower.",
     highlightSelector: "[data-key='reconBike']",
     position: "right",
     arrowDirection: "left",
@@ -89,7 +89,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "select_howitzer",
     title: "Add Artillery",
     content:
-      "Add one Howitzer Battery. These guns deploy with the force and provide direct battlefield fire.",
+      "Add one Howitzer Battery. It deploys on the map and fires as part of your field force.",
     highlightSelector: "[data-key='howitzer']",
     position: "right",
     arrowDirection: "left",
@@ -130,7 +130,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "ui_overview",
-    title: "Command Rail",
+    title: "Command Boards",
     content:
       "These sidebar buttons open your command boards. Each board gives a short first-time brief.",
     highlightSelector: ".control-sidebar",
@@ -140,9 +140,9 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   },
   {
     phase: "mission_briefing",
-    title: "Command Rail",
+    title: "Operation Rail",
     content:
-      "The command rail shows the operation, turn limit, current objective, and which formations can act.",
+      "The top rail shows the operation, turn count, current objective, and the initiative group awaiting orders.",
     highlightSelector: ".battle-map-header",
     position: "bottom",
     arrowDirection: "up",
@@ -205,10 +205,11 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "initiative_order",
     title: "Initiative Order",
     content:
-      "Higher initiative groups act first. When the rail shows Your group, only the highlighted friendly formations can receive orders.",
+      "Initiative decides who acts next. Higher groups move first. When the rail shows Your group, only the highlighted friendly formations can receive orders.",
     highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .initiative-turn-controls-container [data-initiative-status], [data-initiative-status]",
     position: "bottom",
     arrowDirection: "up",
+    indicatorLabel: "Battle Brief",
     actionLabel: "Continue"
   },
   {
@@ -219,6 +220,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
     position: "right",
     arrowDirection: "left",
+    indicatorLabel: "Recon Drill",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -230,6 +232,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
     position: "right",
     arrowDirection: "left",
+    indicatorLabel: "Recon Drill",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -242,6 +245,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightFirstMatch: true,
     position: "bottom",
     arrowDirection: "up",
+    indicatorLabel: "Enemy Movement",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -253,6 +257,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
     position: "right",
     arrowDirection: "left",
+    indicatorLabel: "Engineer Drill",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -264,6 +269,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightSelector: "#battleIntelOverlay, #battleIntelOverlayToggle",
     position: "right",
     arrowDirection: "left",
+    indicatorLabel: "Engineer Drill",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -271,10 +277,12 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     phase: "engineer_orders",
     title: "Build Fortifications",
     content:
-      "Click Fortify, then choose the edge that faces the enemy.",
-    highlightSelector: "#battleFortificationFacingPreview .fortification-facing-preview-svg",
+      "Click Fortify. Then choose the marked edge facing the nearest enemy.",
+    highlightSelector: "body:not(:has(#battleFortificationFacing:not(.hidden))) #battleIntelOverlay [data-selection-action='fortifications'], #battleFortificationFacing:not(.hidden) [data-fortification-recommended='true']",
+    highlightFirstMatch: true,
     position: "right",
     arrowDirection: "left",
+    indicatorLabel: "Engineer Drill",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -287,6 +295,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightFirstMatch: true,
     position: "bottom",
     arrowDirection: "up",
+    indicatorLabel: "Enemy Movement",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -299,6 +308,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     showSpotlight: false,
     position: "right",
     arrowDirection: "left",
+    indicatorLabel: "Artillery Drill",
     waitForAction: false,
     actionLabel: "Continue"
   },
@@ -310,6 +320,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
     position: "right",
     arrowDirection: "left",
+    indicatorLabel: "Artillery Drill",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -321,6 +332,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightSelector: "#battleIntelOverlay [data-selection-action='callArtillery']",
     position: "right",
     arrowDirection: "left",
+    indicatorLabel: "Artillery Drill",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -333,6 +345,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightFirstMatch: true,
     position: "bottom",
     arrowDirection: "up",
+    indicatorLabel: "Enemy Movement",
     waitForAction: true,
     actionLabel: "Continue"
   },
@@ -344,17 +357,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
     position: "right",
     arrowDirection: "left",
+    indicatorLabel: "Fire Drill",
     waitForAction: true,
-    actionLabel: "Continue"
-  },
-  {
-    phase: "smoke_demo",
-    title: "Smoke Screens",
-    content:
-      "This formation can lay smoke on its own hex or a neighboring hex edge. Use smoke to block sight before a risky move or to cover a damaged unit.",
-    highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke']",
-    position: "right",
-    arrowDirection: "left",
     actionLabel: "Continue"
   },
   {
@@ -366,16 +370,58 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     showSpotlight: false,
     position: "right",
     arrowDirection: "left",
+    indicatorLabel: "Fire Drill",
     waitForAction: true,
     actionLabel: "Continue"
   },
   {
-    phase: "mission_objectives",
-    title: "Mission Orders",
+    phase: "spend_activation",
+    title: "Advance Initiative",
     content:
-      "Orders: stop the enemy patrol before it reaches the coastal road.",
-    highlightSelector: ".mission-summary-panel, .battle-map-header",
-    position: "center",
+      "This group has finished its lesson. Click Next Group to bring the next formations forward.",
+    highlightSelector: ".enhanced-initiative-turn-controls .group-advance-btn",
+    position: "right",
+    arrowDirection: "left",
+    indicatorLabel: "Initiative",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "round_handoff",
+    title: "Initiative Advances",
+    content:
+      "The next initiative groups are moving. Watch the field; your armor will receive orders when its turn arrives.",
+    highlightSelector: ".enhanced-initiative-turn-controls [data-initiative-status], .battle-activity-log",
+    highlightFirstMatch: true,
+    position: "bottom",
+    arrowDirection: "up",
+    indicatorLabel: "Initiative",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "select_smoke_unit",
+    title: "Choose A Smoke Unit",
+    content:
+      "Click the highlighted armored formation. Tanks and artillery can lay close smoke screens; infantry cannot.",
+    highlightSelector: "#battleMapCanvas [data-tutorial-guided-hex='true']",
+    position: "right",
+    arrowDirection: "left",
+    indicatorLabel: "Smoke Drill",
+    waitForAction: true,
+    actionLabel: "Continue"
+  },
+  {
+    phase: "smoke_demo",
+    title: "Lay Smoke",
+    content:
+      "Click Lay Smoke. Choose your own hex or a neighboring hex, then choose the edge to screen.",
+    highlightSelector: "#battleIntelOverlay [data-selection-action='laySmoke'], #battleFortificationFacingPreview .fortification-facing-preview-svg",
+    highlightFirstMatch: true,
+    position: "right",
+    arrowDirection: "left",
+    indicatorLabel: "Smoke Drill",
+    waitForAction: true,
     actionLabel: "Continue"
   },
   {
@@ -384,6 +430,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     content:
       "Good luck, General{generalName}.",
     position: "center",
+    indicatorLabel: "Training Complete",
     actionLabel: "Dismiss"
   }
 ];
@@ -433,7 +480,7 @@ export function getPrecombatPhases(): TutorialPhase[] {
     "select_tanks",
     "select_engineers",
     "select_flak",
-    "select_air_wing",
+    "select_recon",
     "select_howitzer",
     "select_ammo",
     "select_fuel",
@@ -468,9 +515,11 @@ export function getCombatPhases(): TutorialPhase[] {
     "artillery_intro",
     "post_artillery_enemy_response",
     "select_attack_unit",
-    "smoke_demo",
     "attack_intro",
-    "mission_objectives",
+    "spend_activation",
+    "round_handoff",
+    "select_smoke_unit",
+    "smoke_demo",
     "complete"
   ];
 }

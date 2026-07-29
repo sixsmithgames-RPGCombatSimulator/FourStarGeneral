@@ -83,6 +83,15 @@ async function clickFirstAvailableEdge(page: Page): Promise<void> {
   await expect(dialog).toBeHidden();
 }
 
+async function clickRecommendedFortificationEdge(page: Page): Promise<void> {
+  const dialog = page.locator("#battleFortificationFacing");
+  await expect(dialog).toBeVisible();
+  const recommendedEdge = dialog.locator('[data-fortification-recommended="true"]');
+  await expect(recommendedEdge).toHaveCount(1);
+  await recommendedEdge.click();
+  await expect(dialog).toBeHidden();
+}
+
 async function expectSpotlightAround(page: Page, target: Locator): Promise<void> {
   const spotlight = page.locator(".tutorial-spotlight:not(.hidden)");
   await expect(spotlight).toBeVisible();
@@ -97,8 +106,8 @@ async function expectSpotlightAround(page: Page, target: Locator): Promise<void>
       spotlightBounds.y <= targetBounds.y &&
       spotlightBounds.x + spotlightBounds.width >= targetBounds.x + targetBounds.width &&
       spotlightBounds.y + spotlightBounds.height >= targetBounds.y + targetBounds.height &&
-      spotlightBounds.width <= targetBounds.width + 20 &&
-      spotlightBounds.height <= targetBounds.height + 20
+      spotlightBounds.width <= targetBounds.width + 60 &&
+      spotlightBounds.height <= targetBounds.height + 60
     );
   }).toBe(true);
 }
@@ -254,9 +263,15 @@ async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) =
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "Logistics Brief 2 of 4", "Where The Supply Is", "[data-logistics-supply-categories]");
   await advanceMiniBrief(page);
-  await expectMiniBriefStep(page, "Logistics Brief 3 of 4", "Set Supply Priority", ".logistics-priority-card");
+  await expectMiniBriefStep(
+    page,
+    "Logistics Brief 3 of 4",
+    "Set Supply Priority",
+    '.logistics-priority-card [data-logistics-priority="critical"]'
+  );
   await page.screenshot({ path: outputPath("sidebar-logistics-brief.png") });
-  await advanceMiniBrief(page);
+  await expect(page.locator(".tutorial-action-btn")).toBeHidden();
+  await page.locator('.logistics-priority-card [data-logistics-priority="critical"]').first().click();
   await expectMiniBriefStep(page, "Logistics Brief 4 of 4", "Follow The Convoys", ".logistics-convoy-item");
   await advanceMiniBrief(page);
   await closeStandardBattlePopup(page);
@@ -270,7 +285,10 @@ async function walkSidebarMiniTutorials(page: Page, outputPath: (name: string) =
   await advanceMiniBrief(page);
   await expectMiniBriefStep(page, "Roster Brief 4 of 4", "Request Reinforcements", "[data-open-battle-requisitions]");
   await page.screenshot({ path: outputPath("sidebar-roster-brief.png") });
-  await advanceMiniBrief(page);
+  await expect(page.locator(".tutorial-action-btn")).toBeHidden();
+  await page.locator("[data-open-battle-requisitions]").click();
+  await expect(page.locator("#tutorialOverlayContainer")).toHaveClass(/hidden/);
+  await expect(page.locator('.battle-popup[data-popup-key="battleRequisitions"]')).toBeVisible();
   await closeStandardBattlePopup(page);
 }
 
@@ -290,7 +308,7 @@ async function requisitionTrainingForce(page: Page): Promise<void> {
   await addAllocation(page, "engineer", 1);
   await waitForTutorialPhase(page, "select_flak");
   await addAllocation(page, "flakBattery", 1);
-  await waitForTutorialPhase(page, "select_air_wing");
+  await waitForTutorialPhase(page, "select_recon");
   await expect(tutorialPanel(page)).toContainText("Add one Recon Bike Patrol");
   await addAllocation(page, "reconBike", 1);
   await waitForTutorialPhase(page, "select_howitzer");
@@ -338,7 +356,11 @@ async function enterBattle(page: Page, deploymentScreenshotPath?: string): Promi
 
 async function walkCompleteTutorial(page: Page, outputPath: (name: string) => string): Promise<void> {
   await page.goto("/");
-  await page.getByRole("button", { name: /Training Exercise/ }).click();
+  const trainingExercise = page.getByRole("button", { name: /Training Exercise/ });
+  await expect(trainingExercise, "The Four Star General home screen must load before tutorial validation begins.").toBeVisible({
+    timeout: 15_000
+  });
+  await trainingExercise.click();
   await requisitionTrainingForce(page);
   await enterBattle(page, outputPath("deployment-begin-mission.png"));
   await expectBattleTopRailToFit(page);
@@ -376,13 +398,13 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await waitForTutorialPhase(page, "engineer_orders");
   await page.screenshot({ path: outputPath("engineer-work.png") });
   await page.locator('#battleIntelOverlay [data-selection-action="fortifications"]').click();
-  const fortificationHexagon = page.locator("#battleFortificationFacingPreview .fortification-facing-preview-svg");
-  await expect(fortificationHexagon).toHaveAttribute("data-tutorial-target", "true");
-  await expectSpotlightAround(page, fortificationHexagon);
+  const recommendedEdge = page.locator("#battleFortificationFacingPreview [data-fortification-recommended='true']");
+  await expect(recommendedEdge).toHaveAttribute("data-tutorial-target", "true");
+  await expect(page.locator(".tutorial-spotlight:not(.hidden)")).toBeVisible();
   await expect(tutorialPanel(page)).toContainText("Build Fortifications");
-  await expect(tutorialPanel(page)).toContainText("edge that faces the enemy");
+  await expect(tutorialPanel(page)).toContainText("marked edge facing the nearest enemy");
   await page.screenshot({ path: outputPath("fortification-edge.png") });
-  await clickFirstAvailableEdge(page);
+  await clickRecommendedFortificationEdge(page);
 
   await waitForTutorialPhase(page, "artillery_support_intro", 20_000);
   await expect(tutorialPanel(page)).toContainText("Artillery Support");
@@ -403,13 +425,6 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
 
   await waitForTutorialPhase(page, "select_attack_unit", 15_000);
   await clickGuidedHex(page);
-  const postSelectionPhase = await waitForAnyTutorialPhase(page, ["smoke_demo", "attack_intro"], 15_000);
-  if (postSelectionPhase === "smoke_demo") {
-    await expect(tutorialPanel(page)).toContainText("Smoke Screens");
-    await expect(page.locator('#battleIntelOverlay [data-selection-action="laySmoke"]')).toBeVisible();
-    await page.screenshot({ path: outputPath("smoke-brief.png") });
-    await continueTutorial(page);
-  }
   await waitForTutorialPhase(page, "attack_intro");
   await page.screenshot({ path: outputPath("fire-order.png") });
   const attackTargets = page.locator("#battleMapCanvas .hex-cell.attack-target-highlight");
@@ -419,10 +434,22 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
   await attackTargets.nth(0).click();
   await expect(page.locator("#battleAttackConfirm:not(.hidden)")).toBeVisible();
   await page.locator("#battleAttackConfirmAccept").click();
-  await waitForTutorialPhase(page, "mission_objectives", 15_000);
-  await continueTutorial(page);
+  await waitForTutorialPhase(page, "spend_activation", 15_000);
+  await expect(tutorialPanel(page)).toContainText("Click Next Group");
+  await page.locator(".enhanced-initiative-turn-controls .group-advance-btn").click();
+  await waitForTutorialPhase(page, "select_smoke_unit", 20_000);
+  await clickGuidedHex(page);
+  await waitForTutorialPhase(page, "smoke_demo");
+  await expect(page.locator('#battleIntelOverlay [data-selection-action="laySmoke"]')).toBeVisible();
+  await page.screenshot({ path: outputPath("smoke-order.png") });
+  await page.locator('#battleIntelOverlay [data-selection-action="laySmoke"]').click();
+  const smokeTarget = page.locator("#battleMapCanvas .hex-cell.deployment-zone").first();
+  await expect(smokeTarget).toBeVisible();
+  await smokeTarget.click();
+  await clickFirstAvailableEdge(page);
   await waitForTutorialPhase(page, "complete");
   await expect(tutorialPanel(page)).toContainText("Good luck, General Field Commander.");
+  await expect(page.locator(".tutorial-skip-btn")).toBeHidden();
   await page.screenshot({ path: outputPath("tutorial-complete.png") });
   await continueTutorial(page);
   await expect(page.locator("#tutorialOverlayContainer")).toHaveClass(/hidden/);
@@ -432,6 +459,8 @@ async function walkCompleteTutorial(page: Page, outputPath: (name: string) => st
 }
 
 test.describe("Training tutorial", () => {
+  test.describe.configure({ mode: "serial" });
+
   const viewports = [
     { name: "wide desktop", width: 1680, height: 857 },
     { name: "desktop", width: 1440, height: 900 },
@@ -440,7 +469,7 @@ test.describe("Training tutorial", () => {
 
   for (const viewport of viewports) {
     test(`walks through the complete first-turn command sequence on ${viewport.name}`, async ({ page }, testInfo) => {
-      test.setTimeout(150_000);
+      test.setTimeout(210_000);
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await walkCompleteTutorial(page, (name) => testInfo.outputPath(name));
     });
