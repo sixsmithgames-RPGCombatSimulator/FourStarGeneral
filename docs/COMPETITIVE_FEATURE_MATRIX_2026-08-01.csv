@@ -1,0 +1,66 @@
+category,feature,panzer_marshal,panzer_corps_2,order_of_battle,unity_of_command_2,hex_of_steel,four_star_general,fsg_priority
+Content,Standalone historical scenarios,Yes,Yes,Yes,Yes,Yes,Yes,Retain
+Content,Tutorial,Yes,Yes,Yes,Yes,Yes,Yes,Retain
+Content,Linked campaign,Yes,Yes,Yes,Yes,Yes,Partial,Tier 0
+Content,Branching campaign,Partial,Yes,Yes,Yes,Yes,No,Tier 0
+Content,Strategic campaign map,Limited,Limited,Limited,Yes,Varies,Partial,Tier 0
+Content,Random standalone skirmish,No,Yes,Not verified,Not verified,Yes,No,Tier 1
+Content,Large scenario library,Yes,Yes,Yes,Yes,Yes,No,Tier 0
+Content,Large equipment library,Yes,Yes,Yes,Not comparable,Yes,No,Tier 1
+Map,Varied terrain and movement costs,Yes,Yes,Yes,Yes,Yes,Yes,Retain
+Map,Dynamic weather and ground state,Yes,Yes,Yes,Yes,Yes,No,Tier 0
+Map,Line of sight and spotting,Yes,Yes,Yes,Yes,Yes,Yes,Retain
+Map,Tactical visibility or fog of war,Yes,Yes,Yes,Yes,Optional,Partial,Tier 0
+Map,Campaign operational fog,Campaign progression,Campaign progression,Campaign progression,Yes,Optional,Yes,Retain
+Intelligence,Intelligence and counterintelligence operations,Limited,Limited,Limited,HQ and intel assets,Broad reconnaissance,Yes,Retain
+Map,Zone of control,Yes,Yes,Yes,Yes,Optional,Partial,Tier 1
+Map,Encirclement or isolation,Partial,Yes,Yes,Yes,Yes,No,Tier 1
+Map,Rivers bridges and fords,Yes,Yes,Yes,Yes,Yes,Yes,Retain
+Map,Engineer bridge operations,Yes,Yes,Yes,Partial,Yes,No,Tier 1
+Combat,Direct indirect and support fire,Yes,Yes,Yes,Yes,Yes,Yes,Retain
+Combat,Suppression and entrenchment,Yes,Yes,Yes,Yes,Yes,Yes,Retain
+Combat,Armor penetration,Yes,Yes,Yes,Abstract,Yes,Yes,Retain
+Combat,Directional armor facing,Not verified,Limited,Not verified,No,Not verified,Yes,Differentiator
+Combat,Mixed formation weapon groups,No,No,No,No,No,Yes,Differentiator
+Combat,Deterministic primary attack resolution,No,Optional randomness,Not verified,No,Not verified,Yes,Differentiator
+Combat,Interleaved unit initiative,No,No,No,No,No,Yes,Differentiator
+Combat,Retreat and surrender,Partial,Yes,Yes,Operational,Yes,No,Tier 1
+Combat,Smoke fieldworks and engineering,Partial,Yes,Yes,Partial,Yes,Yes,Retain
+Combat,Split and merge units,Partial,Yes,Not verified,Specialist steps,Yes,Partial,Tier 1
+Logistics,Ammunition and fuel,Yes,Yes,Supply abstraction,Supply abstraction,Optional,Yes,Retain
+Logistics,Traced or networked supply,Yes,Yes,Yes,Yes,Optional,Yes,Retain
+Logistics,Tactical convoys and shipments,No,No,No,Truck abstraction,Not verified,Yes,Differentiator
+Logistics,Supply priorities and ledgers,No,No,No,HQ upgrades,Not verified,Yes,Differentiator
+Logistics,Replacement and overstrength loop,Yes,Yes,Yes,Reorganization,Yes,No,Tier 0
+Logistics,Pre-battle force purchase,Yes,Yes,Yes,Force pool,Yes,Yes,Retain
+Logistics,Strategic transport and production,No,No,No,Abstract,Varies,Yes,Differentiator
+Progression,Persistent core units,Yes,Yes,Yes,Partial,Yes,No,Tier 0
+Progression,Unit experience carryover,Yes,Yes,Yes,Yes,Yes,No,Tier 0
+Progression,Leaders heroes and awards,Yes,Yes,Yes,Specialists and HQ,Yes,Partial,Tier 1
+Progression,Persistent commander traits,Unit leaders,Yes,Yes,Yes,Yes,Yes,Retain
+Progression,HQ command point upgrade tree,No,No,Specializations,Yes,Policies,No,Tier 1
+Progression,Campaign force allocation into battle,No,No,No,Abstract,Varies,Yes,Differentiator
+Progression,Battle survivors returned to campaign,Yes,Yes,Yes,Yes,Yes,No,Tier 0
+Progression,Territory changed by battle outcome,Campaign path,Campaign path,Campaign path,Yes,Yes,Partial,Tier 0
+Progression,Strategic AI opponent,Yes,Yes,Yes,Yes,Yes,No,Tier 0
+Progression,Campaign victory and defeat arc,Yes,Yes,Yes,Yes,Yes,No,Tier 0
+Air and naval,Strike escort and CAP planning,Partial,On-map air,On-map air,Abstract assets,On-map air,Yes,Differentiator
+Air and naval,Air transport or airborne drop,Yes,Yes,Yes,Air assets,Yes,Yes,Retain
+Air and naval,Tactical naval combat,Limited,Yes,Yes,Abstract,Yes,No,Tier 2
+Air and naval,Naval transport and amphibious operations,Yes,Yes,Yes,Yes,Yes,Partial,Tier 1
+AI,Tactical opponent AI,Yes,Yes,Yes,Yes,Yes,Yes,Retain
+AI,Objective terrain LOS and combined-arms behavior,Partial,Yes,Yes,Yes,Yes,Yes,Retain
+AI,Multiple difficulty levels,Yes,Yes,Yes,Yes,Yes,Yes,Retain
+Persistence,Player-facing battle save and load,Yes,Yes,Yes,Yes,Yes,Partial,Tier 0
+Persistence,Tactical autosave,Yes,Yes,Yes,Yes,Yes,No,Tier 0
+Persistence,Multiple or cloud save flow,Cloud,Cloud,Yes,Yes,Yes,No,Tier 1
+UX,Combat forecast and breakdown,Yes,Yes,Yes,Yes,Yes,Yes,Retain
+UX,Activity log and after-action information,Yes,Yes,Yes,Yes,Yes,Partial,Tier 1
+UX,Keyboard controls,Yes,Yes,Yes,Yes,Yes,Yes,Retain
+UX,Touch or mobile controls,Yes,No,No,No,Yes,No,Tier 2
+Tools,Scenario or map editor,Not verified,Yes,Yes,Yes,Yes,No,Tier 1
+Tools,Campaign or unit editor,Not verified,Yes,Partial,Yes,Yes,Partial,Tier 1
+Tools,Supported mods or Workshop,Source data,Community editor,Moddable data,Workshop,Workshop,No,Tier 1
+Multiplayer,Local hotseat,Yes,Yes,Yes,No,Yes,No,Tier 2
+Multiplayer,Asynchronous or PBEM,No,Yes,Yes,No,Yes,No,Tier 2
+Multiplayer,Live online or cooperative play,No,Yes,Yes,No,Yes,No,Tier 2

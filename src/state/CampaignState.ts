@@ -1,6 +1,42 @@
-import type { CampaignDecision, CampaignPendingEngagement, CampaignScenarioData, CampaignTurnState, CampaignTileInstance, ProductionAllocation, TransportMode } from "../core/campaignTypes";
+import type {
+  CampaignDecision,
+  CampaignEngagementContext,
+  CampaignFactionKey,
+  CampaignPendingEngagement,
+  CampaignScenarioData,
+  CampaignTurnState,
+  CampaignTileInstance,
+  ProductionAllocation,
+  TransportMode
+} from "../core/campaignTypes";
+import type {
+  CampaignIntelBriefEvent,
+  CampaignIntelOperationView,
+  CampaignIntelOperationType,
+  CampaignIntelligenceBriefing,
+  CampaignKnowledgeState,
+  CampaignMapViewModel
+} from "../core/campaignIntelTypes";
 import { hexDistance } from "../core/Hex";
 import { getTransportMode, INFANTRY_UNITS } from "../data/transportModes";
+import {
+  buildEngagementContext,
+  type BuildEngagementContextOptions
+} from "../game/campaign/EngagementContextBuilder";
+import {
+  INTEL_OPERATION_RULES,
+  buildCampaignMapView,
+  buildIntelligenceBriefing,
+  calculateIntelCapacity,
+  createCampaignKnowledgeState,
+  createIntelOperation,
+  findEligibleIntelAssets,
+  getCommittedCapacity,
+  isIntelAssetInRange,
+  recordBattlefieldIntelligence,
+  resolveCampaignIntelligenceSegment,
+  scheduleBaselineBotOperation
+} from "./CampaignIntelligence";
 
 // Hexes per day by unit type. Slowest selected unit determines redeploy ETA.
 // Each hex = 5km, so multiply by 5 to get km/day, or divide 10 by (speed × 5) to get days per 10km.
@@ -68,6 +104,7 @@ export type CampaignUpdateReason =
   | "decisionsUpdated"
   | "engagementsUpdated"
   | "headquartersStatusUpdated"
+  | "intelligenceUpdated"
   | "reset"
   | "manual";
 
@@ -96,6 +133,8 @@ export class CampaignState {
   /** Current campaign time in 3-hour segments (0 = Day 1, 00:00-03:00; 8 = Day 2, 00:00-03:00) */
   private currentSegment: number = 0;
   private headquartersStatusMessage: HeadquartersStatusMessage | null = null;
+  /** Faction-specific operational pictures. Raw campaign truth never leaves through these projections. */
+  private intelligenceByFaction: Record<string, CampaignKnowledgeState> = {};
   private readonly listeners = new Set<CampaignUpdateListener>();
   private static readonly SAVE_KEY = "fourstar.campaign.save.v1";
 
@@ -118,12 +157,14 @@ export class CampaignState {
     try {
       if (!this.scenario) return;
       const snapshot = {
+        saveVersion: 2,
         scenario: this.scenario,
         turnState: this.turnState,
         decisions: this.decisions,
         engagements: this.engagements,
         activeEngagementId: this.activeEngagementId,
-        currentSegment: this.currentSegment
+        currentSegment: this.currentSegment,
+        intelligenceByFaction: this.intelligenceByFaction
       };
       localStorage.setItem(CampaignState.SAVE_KEY, JSON.stringify(snapshot));
     } catch {
@@ -137,6 +178,7 @@ export class CampaignState {
       const raw = typeof localStorage !== "undefined" ? localStorage.getItem(CampaignState.SAVE_KEY) : null;
       if (!raw) return;
       const parsed = JSON.parse(raw) as Partial<{
+        saveVersion: number;
         scenario: CampaignScenarioData;
         turnState: CampaignTurnState | null;
         decisions: CampaignDecision[];
@@ -144,6 +186,7 @@ export class CampaignState {
         activeEngagementId: string | null;
         currentSegment: number;
         currentDay: number; // Legacy support
+        intelligenceByFaction: Record<string, CampaignKnowledgeState>;
       }>;
       if (parsed.scenario) this.scenario = parsed.scenario;
       this.turnState = parsed.turnState ?? null;
@@ -160,6 +203,16 @@ export class CampaignState {
       } else {
         this.currentSegment = 0;
       }
+
+      if (parsed.intelligenceByFaction && typeof parsed.intelligenceByFaction === "object") {
+        this.intelligenceByFaction = structuredClone(parsed.intelligenceByFaction);
+      } else if (this.scenario) {
+        // v1 migration: the old scalar intelCoverage had no knowledge semantics, so seed a truthful
+        // baseline from scenario briefings and direct/front-line observation.
+        this.initializeCampaignIntelligence();
+      }
+
+      this.refreshIntelCapacity();
 
       this.notify("scenarioLoaded");
     } catch {
@@ -198,12 +251,182 @@ export class CampaignState {
 
     // Auto-calculate power values based on strategic assets
     this.updatePowerValues();
+    this.initializeCampaignIntelligence();
 
     this.notify("scenarioLoaded");
   }
 
   getScenario(): CampaignScenarioData | null {
     return this.scenario ? structuredClone(this.scenario) : null;
+  }
+
+  /** Returns the sanitized campaign projection for one observing faction. */
+  getCampaignMapView(faction: CampaignFactionKey = "Player"): CampaignMapViewModel | null {
+    if (!this.scenario) return null;
+    const state = this.ensureKnowledgeState(faction);
+    return buildCampaignMapView(this.scenario, state, this.currentSegment);
+  }
+
+  /** Returns only the seed-free operation projection needed by the intelligence drawer. */
+  getIntelOperations(faction: CampaignFactionKey = "Player"): CampaignIntelOperationView[] {
+    if (!this.scenario) return [];
+    return this.ensureKnowledgeState(faction).operations.map(({ seed: _seed, ...operation }) => structuredClone(operation));
+  }
+
+  getIntelContactsAtHex(hexKey: string, faction: CampaignFactionKey = "Player") {
+    const view = this.getCampaignMapView(faction);
+    if (!view) return [];
+    return view.enemyContacts.filter((contact) => {
+      const center = this.parseOffsetKeyToAxial(hexKey);
+      const location = this.parseOffsetKeyToAxial(contact.locationHexKey);
+      return Boolean(center && location && hexDistance(center, location) <= contact.uncertaintyRadius);
+    });
+  }
+
+  hasActionableEnemyContactNear(hexKey: string, faction: CampaignFactionKey = "Player", radius = 1): boolean {
+    const origin = this.parseOffsetKeyToAxial(hexKey);
+    const view = this.getCampaignMapView(faction);
+    if (!origin || !view) return false;
+    return view.enemyContacts.some((contact) => {
+      const location = this.parseOffsetKeyToAxial(contact.locationHexKey);
+      return Boolean(location && hexDistance(origin, location) <= radius + contact.uncertaintyRadius);
+    });
+  }
+
+  getIntelBriefEvents(faction: CampaignFactionKey = "Player"): CampaignIntelBriefEvent[] {
+    if (!this.scenario) return [];
+    return structuredClone(this.ensureKnowledgeState(faction).briefEvents)
+      .sort((a, b) => b.segment - a.segment);
+  }
+
+  markIntelBriefsRead(faction: CampaignFactionKey = "Player"): void {
+    if (!this.scenario) return;
+    const state = this.ensureKnowledgeState(faction);
+    state.briefEvents.forEach((event) => { event.read = true; });
+    this.notify("intelligenceUpdated");
+  }
+
+  getIntelOperationRules() {
+    return structuredClone(INTEL_OPERATION_RULES);
+  }
+
+  getEligibleIntelAssets(
+    type: CampaignIntelOperationType,
+    faction: CampaignFactionKey = "Player",
+    targetHexKey?: string
+  ) {
+    if (!this.scenario) return [];
+    const state = this.ensureKnowledgeState(faction);
+    const committedAssets = new Set(state.operations
+      .filter((operation) => operation.status === "planned" || operation.status === "active")
+      .map((operation) => operation.assignedAssetKey)
+      .filter((assetKey): assetKey is string => Boolean(assetKey)));
+    return findEligibleIntelAssets(this.scenario, faction, type)
+      .filter((asset) => !committedAssets.has(asset.assetKey))
+      .filter((asset) => !targetHexKey || isIntelAssetInRange(asset.hexKey, targetHexKey, type));
+  }
+
+  scheduleIntelOperation(options: {
+    type: CampaignIntelOperationType;
+    targetHexKey: string;
+    faction?: CampaignFactionKey;
+    assignedAssetKey?: string;
+    targetContactId?: string;
+  }): { ok: true; operation: CampaignIntelOperationView } | { ok: false; reason: string } {
+    if (!this.scenario) return { ok: false, reason: "No campaign scenario is loaded." };
+    const faction = options.faction ?? "Player";
+    const target = this.parseOffsetKeyToAxial(options.targetHexKey);
+    if (!target) return { ok: false, reason: "Choose a valid campaign hex." };
+    const state = this.ensureKnowledgeState(faction);
+    const rule = INTEL_OPERATION_RULES[options.type];
+    const committed = getCommittedCapacity(state);
+    if (committed + rule.capacityCost > state.capacityTotal) {
+      return { ok: false, reason: `This order needs ${rule.capacityCost} Intelligence Capacity; ${Math.max(0, state.capacityTotal - committed)} is available.` };
+    }
+    const assets = this.getEligibleIntelAssets(options.type, faction, options.targetHexKey);
+    if (rule.requiresAsset !== "none") {
+      if (!options.assignedAssetKey) return { ok: false, reason: "Assign an eligible formation or air unit." };
+      if (!assets.some((asset) => asset.assetKey === options.assignedAssetKey)) {
+        return { ok: false, reason: "The selected asset is unavailable, ineligible, or out of range for this operation." };
+      }
+    }
+    if (rule.requiresAsset === "friendlyForce") {
+      const targetTile = this.findTileByOffsetKey(options.targetHexKey);
+      const owner = targetTile ? (targetTile.factionControl ?? this.scenario.tilePalette[targetTile.tile]?.factionControl) : null;
+      if (owner !== faction || (targetTile?.forces?.length ?? 0) === 0) {
+        return { ok: false, reason: "Operational Security must protect a friendly force concentration." };
+      }
+    }
+    if (options.type === "verify") {
+      const contact = state.contacts.find((candidate) => candidate.id === options.targetContactId);
+      if (!contact) return { ok: false, reason: "Select an existing contact to verify." };
+    }
+    const economy = this.scenario.economies.find((entry) => entry.faction === faction);
+    if (!economy || economy.supplies < rule.suppliesCost || economy.fuel < rule.fuelCost) {
+      return { ok: false, reason: `Insufficient resources: requires ${rule.suppliesCost} supplies and ${rule.fuelCost} fuel.` };
+    }
+    economy.supplies = Math.max(0, economy.supplies - rule.suppliesCost);
+    economy.fuel = Math.max(0, economy.fuel - rule.fuelCost);
+    const operation = createIntelOperation(
+      state,
+      options.type,
+      options.targetHexKey,
+      this.currentSegment,
+      options.assignedAssetKey,
+      options.targetContactId
+    );
+    state.operations.push(operation);
+    this.notify("intelligenceUpdated");
+    const { seed: _seed, ...publicOperation } = operation;
+    return { ok: true, operation: structuredClone(publicOperation) };
+  }
+
+  buildIntelligenceBriefing(battleHexKey: string, faction: CampaignFactionKey = "Player"): CampaignIntelligenceBriefing | null {
+    if (!this.scenario) return null;
+    return buildIntelligenceBriefing(this.ensureKnowledgeState(faction), battleHexKey, this.currentSegment);
+  }
+
+  /** Builds the truth-bearing tactical payload inside the state boundary while freezing a safe briefing. */
+  buildCampaignEngagementContext(
+    options: Omit<BuildEngagementContextOptions, "intelligenceBriefing">,
+    briefingFaction: CampaignFactionKey = "Player"
+  ): CampaignEngagementContext | null {
+    if (!this.scenario) return null;
+    const intelligenceBriefing = buildIntelligenceBriefing(
+      this.ensureKnowledgeState(briefingFaction),
+      options.battleHexKey,
+      this.currentSegment
+    );
+    return buildEngagementContext(this.scenario, { ...options, intelligenceBriefing });
+  }
+
+  private initializeCampaignIntelligence(): void {
+    if (!this.scenario) {
+      this.intelligenceByFaction = {};
+      return;
+    }
+    this.intelligenceByFaction = {
+      Player: createCampaignKnowledgeState(this.scenario, "Player", this.currentSegment),
+      Bot: createCampaignKnowledgeState(this.scenario, "Bot", this.currentSegment)
+    };
+  }
+
+  private ensureKnowledgeState(faction: CampaignFactionKey): CampaignKnowledgeState {
+    const key = String(faction);
+    let state = this.intelligenceByFaction[key];
+    if (!state) {
+      if (!this.scenario) throw new Error("Cannot initialize campaign intelligence without a scenario.");
+      state = createCampaignKnowledgeState(this.scenario, faction, this.currentSegment);
+      this.intelligenceByFaction[key] = state;
+    }
+    return state;
+  }
+
+  private refreshIntelCapacity(): void {
+    if (!this.scenario) return;
+    for (const [faction, state] of Object.entries(this.intelligenceByFaction)) {
+      state.capacityTotal = calculateIntelCapacity(this.scenario, faction);
+    }
   }
 
   setTurnState(state: CampaignTurnState | null): void {
@@ -332,7 +555,28 @@ export class CampaignState {
     // Update power values after processing
     this.updatePowerValues();
 
+    // Resolve observations, report fusion, staleness, and counterintelligence symmetrically.
+    if (this.scenario) {
+      for (const faction of ["Player", "Bot"] as const) this.ensureKnowledgeState(faction);
+      const bot = this.intelligenceByFaction.Bot;
+      const botOperation = scheduleBaselineBotOperation(this.scenario, bot, this.currentSegment);
+      if (botOperation) {
+        const botEconomy = this.scenario.economies.find((entry) => entry.faction === "Bot");
+        if (botEconomy && botEconomy.supplies >= botOperation.suppliesCost && botEconomy.fuel >= botOperation.fuelCost) {
+          botEconomy.supplies -= botOperation.suppliesCost;
+          botEconomy.fuel -= botOperation.fuelCost;
+          bot.operations.push(botOperation);
+        }
+      }
+      this.intelligenceByFaction = resolveCampaignIntelligenceSegment(
+        this.scenario,
+        this.intelligenceByFaction,
+        this.currentSegment
+      );
+    }
+
     this.notify("dayAdvanced"); // Event name kept for compatibility
+    this.notify("intelligenceUpdated");
   }
 
   /**
@@ -1168,6 +1412,12 @@ export class CampaignState {
       return;
     }
 
+    const resolvedId = outcome.activeEngagementId ?? this.activeEngagementId;
+    const resolvedEngagement = resolvedId
+      ? this.engagements.find((engagement) => engagement.id === resolvedId) ?? null
+      : null;
+    const battleHexKey = resolvedEngagement?.context?.battleHexKey ?? resolvedEngagement?.hexKeys[0] ?? null;
+
     // 1) Deduct expended resources from the Player economy (defensive guards keep totals non-negative)
     const economies = this.scenario.economies.map((e) => ({ ...e }));
     const player = economies.find((e) => e.faction === "Player");
@@ -1199,7 +1449,6 @@ export class CampaignState {
     }
 
     // 3) Clear the resolved engagement from the queue.
-    const resolvedId = outcome.activeEngagementId ?? this.activeEngagementId;
     if (resolvedId) {
       this.engagements = this.engagements.filter((e) => e.id !== resolvedId);
       if (this.activeEngagementId === resolvedId) {
@@ -1208,7 +1457,22 @@ export class CampaignState {
       this.notify("engagementsUpdated");
     }
 
-    // 4) Emit a scenario mutation so renderers re-read updated fronts and economy.
+
+    // 4) Both combatants receive the same class of first-hand battlefield report. The fusion
+    // remains faction-local, so neither AI nor UI gains access to the opponent's knowledge state.
+    if (battleHexKey) {
+      for (const faction of ["Player", "Bot"] as const) {
+        this.intelligenceByFaction[faction] = recordBattlefieldIntelligence(
+          this.scenario,
+          this.ensureKnowledgeState(faction),
+          battleHexKey,
+          this.currentSegment
+        );
+      }
+      this.notify("intelligenceUpdated");
+    }
+
+    // 5) Emit a scenario mutation so renderers re-read updated fronts and economy.
     this.notify("scenarioLoaded");
   }
 
@@ -1220,6 +1484,7 @@ export class CampaignState {
     this.activeEngagementId = null;
     this.currentSegment = 0;
     this.headquartersStatusMessage = null;
+    this.intelligenceByFaction = {};
     this.notify("reset");
   }
 }

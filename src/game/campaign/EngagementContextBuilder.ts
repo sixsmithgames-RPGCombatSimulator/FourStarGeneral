@@ -16,6 +16,7 @@ import type {
   CampaignScenarioData,
   CampaignTileInstance
 } from "../../core/campaignTypes";
+import type { CampaignIntelligenceBriefing } from "../../core/campaignIntelTypes";
 import { hexDistance } from "../../core/Hex";
 import {
   buildAllocationCaps,
@@ -38,6 +39,8 @@ export interface BuildEngagementContextOptions {
   attacker: CampaignFactionKey;
   frontKey?: string | null;
   objectiveKey?: string | null;
+  /** Frozen attacker knowledge. UI surfaces this; true enemy force values stay generator-internal. */
+  intelligenceBriefing?: CampaignIntelligenceBriefing | null;
 }
 
 /** Converts an offset hex key ("col,row") to axial coordinates. Mirrors CampaignState's convention. */
@@ -244,6 +247,7 @@ export function buildEngagementContext(
     playerForceValue,
     enemyForceValue,
     forceRatio,
+    intelligenceBriefing: options.intelligenceBriefing ?? undefined,
     templateKey: null,
     frontKey: options.frontKey ?? null,
     objectiveKey: options.objectiveKey ?? null

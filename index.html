@@ -2070,6 +2070,273 @@
       background: rgba(100, 120, 160, 0.6);
     }
 
+    /* First-class campaign operational picture */
+    .campaign-intel-section {
+      border-color: rgba(91, 192, 255, 0.24);
+      background: linear-gradient(145deg, rgba(24, 57, 73, 0.28), rgba(20, 28, 42, 0.35));
+    }
+    .campaign-intel-summary {
+      display: grid;
+      gap: 0.3rem;
+      color: rgba(215, 231, 244, 0.82);
+      font-size: 0.78rem;
+    }
+    .campaign-intel-summary span {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .campaign-intel-sidebar-actions {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.45rem;
+    }
+    .campaign-intel-open,
+    .campaign-intel-layer-toggle {
+      position: relative;
+      min-height: 38px;
+      border: 1px solid rgba(104, 188, 216, 0.4);
+      border-radius: 7px;
+      background: rgba(29, 77, 94, 0.36);
+      color: #dff7ff;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .campaign-intel-layer-toggle {
+      min-width: 42px;
+      font-size: 0.72rem;
+    }
+    .campaign-intel-layer-toggle.active,
+    .campaign-intel-layer-toggle[aria-pressed="true"] {
+      background: rgba(72, 166, 187, 0.52);
+      box-shadow: inset 0 0 0 1px rgba(173, 242, 255, 0.5);
+    }
+    .campaign-intel-unread {
+      position: absolute;
+      top: -7px;
+      right: -7px;
+      min-width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      padding: 0 5px;
+      border-radius: 999px;
+      background: #f2b64f;
+      color: #17110a;
+      font-size: 0.7rem;
+      font-weight: 900;
+      box-shadow: 0 0 0 2px #111823;
+    }
+    .campaign-intel-drawer {
+      order: 0;
+      width: min(430px, 34vw);
+      min-width: 350px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      overflow: hidden;
+      border: 1px solid rgba(113, 163, 190, 0.34);
+      border-radius: 16px;
+      background: linear-gradient(168deg, rgba(13, 24, 35, 0.98), rgba(8, 13, 22, 0.99));
+      box-shadow: 0 14px 44px rgba(0, 0, 0, 0.58);
+    }
+    .campaign-intel-drawer.hidden { display: none !important; }
+    .campaign-intel-drawer__header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      padding: 1rem 1rem 0.75rem;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .campaign-intel-drawer__header span {
+      display: block;
+      color: #79cde0;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .campaign-intel-drawer__header h3 {
+      margin: 0.2rem 0 0;
+      color: #effaff;
+      font-size: 1.1rem;
+    }
+    .campaign-intel-drawer__header button {
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.04);
+      color: #e8f1f7;
+      cursor: pointer;
+      font-size: 1.25rem;
+    }
+    .campaign-intel-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      padding: 0.65rem 0.8rem 0;
+      gap: 0.35rem;
+    }
+    .campaign-intel-tabs button {
+      padding: 0.55rem 0.4rem;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: rgba(203, 218, 230, 0.7);
+      cursor: pointer;
+      font-size: 0.74rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .campaign-intel-tabs button.active {
+      border-color: #70c9dc;
+      color: #effcff;
+      background: rgba(74, 166, 190, 0.09);
+    }
+    .campaign-intel-body {
+      min-height: 0;
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.9rem;
+      color: rgba(225, 236, 244, 0.9);
+    }
+    .campaign-intel-situation-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.45rem;
+    }
+    .campaign-intel-situation-grid article,
+    .campaign-intel-capacity {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      padding: 0.65rem;
+      border: 1px solid rgba(111, 179, 199, 0.18);
+      border-radius: 8px;
+      background: rgba(23, 54, 66, 0.24);
+    }
+    .campaign-intel-situation-grid span,
+    .campaign-intel-capacity span,
+    .campaign-intel-situation-grid small,
+    .campaign-intel-capacity small {
+      color: rgba(188, 209, 221, 0.7);
+      font-size: 0.66rem;
+    }
+    .campaign-intel-situation-grid strong,
+    .campaign-intel-capacity strong { color: #eafaff; font-size: 0.88rem; }
+    .campaign-intel-section-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 1rem 0 0.45rem;
+    }
+    .campaign-intel-section-heading h4 { margin: 0; color: #dff8ff; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.07em; }
+    .campaign-intel-section-heading button,
+    .campaign-intel-report button,
+    .campaign-intel-contact-card footer button {
+      border: 1px solid rgba(107, 184, 207, 0.28);
+      border-radius: 5px;
+      background: rgba(52, 107, 125, 0.24);
+      color: #dff7ff;
+      cursor: pointer;
+      padding: 0.35rem 0.55rem;
+      font-size: 0.7rem;
+    }
+    .campaign-intel-report-list,
+    .campaign-intel-contact-list { display: grid; gap: 0.55rem; }
+    .campaign-intel-report,
+    .campaign-intel-contact-card,
+    .campaign-intel-active-op,
+    .campaign-intel-outcome {
+      padding: 0.72rem;
+      border: 1px solid rgba(255,255,255,0.09);
+      border-left: 3px solid rgba(104, 190, 213, 0.58);
+      border-radius: 7px;
+      background: rgba(255,255,255,0.025);
+    }
+    .campaign-intel-report.unread { border-left-color: #efb54c; background: rgba(154, 104, 27, 0.1); }
+    .campaign-intel-report__time,
+    .campaign-intel-eyebrow {
+      color: #82cada;
+      font-size: 0.64rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .campaign-intel-report strong,
+    .campaign-intel-contact-card strong { display: block; margin-top: 0.2rem; color: #f0f8fb; }
+    .campaign-intel-report p,
+    .campaign-intel-contact-card p,
+    .campaign-intel-outcome p { margin: 0.35rem 0; color: rgba(211, 224, 233, 0.78); font-size: 0.76rem; line-height: 1.45; }
+    .campaign-intel-contact-card[data-state="stale"] { border-left-style: dashed; opacity: 0.82; }
+    .campaign-intel-contact-card[data-state="disputed"] { border-left-color: #c58ad0; }
+    .campaign-intel-contact-card header { display: flex; justify-content: space-between; gap: 0.7rem; }
+    .campaign-intel-age { white-space: nowrap; color: #f0c56a; font-size: 0.68rem; font-weight: 800; }
+    .campaign-intel-contact-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; margin: 0.6rem 0; }
+    .campaign-intel-contact-card dl div { min-width: 0; }
+    .campaign-intel-contact-card dt { color: rgba(173, 195, 207, 0.62); font-size: 0.62rem; text-transform: uppercase; }
+    .campaign-intel-contact-card dd { margin: 0.1rem 0 0; color: #e6f0f5; font-size: 0.72rem; overflow-wrap: anywhere; }
+    .campaign-intel-contact-card footer { display: flex; justify-content: flex-end; gap: 0.4rem; }
+    .campaign-intel-empty { padding: 1rem; border: 1px dashed rgba(255,255,255,0.14); border-radius: 8px; color: rgba(204, 220, 230, 0.72); font-size: 0.78rem; line-height: 1.45; }
+    .campaign-intel-empty.compact { padding: 0.65rem; }
+    .campaign-intel-operation-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; margin-top: 0.7rem; }
+    .campaign-intel-operation-choice {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.15rem;
+      padding: 0.55rem;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 7px;
+      background: rgba(255,255,255,0.025);
+      color: rgba(222, 234, 241, 0.82);
+      cursor: pointer;
+      text-align: left;
+    }
+    .campaign-intel-operation-choice.active { border-color: rgba(111, 211, 228, 0.66); background: rgba(48, 124, 143, 0.24); color: #effdff; }
+    .campaign-intel-operation-choice span { font-size: 0.64rem; color: rgba(189, 205, 215, 0.66); }
+    .campaign-intel-composer { margin-top: 0.75rem; padding: 0.8rem; border: 1px solid rgba(105, 190, 211, 0.27); border-radius: 9px; background: rgba(13, 42, 54, 0.34); }
+    .campaign-intel-composer h4 { margin: 0.25rem 0; color: #ecfbff; }
+    .campaign-intel-composer p { margin: 0.35rem 0 0.65rem; color: rgba(207, 222, 231, 0.78); font-size: 0.74rem; line-height: 1.4; }
+    .campaign-intel-composer label { display: block; margin-top: 0.65rem; color: rgba(206, 222, 231, 0.78); font-size: 0.7rem; }
+    .campaign-intel-composer select { width: 100%; margin-top: 0.25rem; padding: 0.48rem; border: 1px solid rgba(113, 175, 194, 0.36); border-radius: 6px; background: #101d28; color: #e8f5fa; }
+    .campaign-intel-costs { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+    .campaign-intel-costs span { padding: 0.22rem 0.38rem; border-radius: 4px; background: rgba(115, 163, 181, 0.12); color: #cce6ee; font-size: 0.64rem; }
+    .campaign-intel-confirm { width: 100%; margin-top: 0.7rem; padding: 0.58rem; border: 1px solid rgba(119, 214, 222, 0.5); border-radius: 6px; background: linear-gradient(135deg, #27697c, #328899); color: white; cursor: pointer; font-weight: 800; }
+    .campaign-intel-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
+    .campaign-intel-feedback { margin-top: 0.6rem; padding: 0.5rem; border-radius: 5px; background: rgba(238, 183, 77, 0.12); color: #f6d99a; font-size: 0.7rem; }
+    .campaign-intel-active-op { display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 0.4rem; }
+    .campaign-intel-active-op span { color: rgba(193, 212, 222, 0.72); font-size: 0.7rem; }
+
+    @media (max-width: 1050px) {
+      .campaign-intel-drawer {
+        position: fixed;
+        z-index: 80;
+        left: 0.75rem;
+        right: 0.75rem;
+        bottom: 0.75rem;
+        width: auto;
+        min-width: 0;
+        height: min(72vh, 620px);
+        border-radius: 14px;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .campaign-intel-drawer { left: 0; right: 0; bottom: 0; height: 76vh; border-radius: 16px 16px 0 0; }
+      .campaign-intel-situation-grid { grid-template-columns: 1fr; }
+      .campaign-intel-operation-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .campaign-intel-contact,
+      .campaign-intel-uncertainty { animation: none !important; transition: none !important; }
+    }
+
     /* Sidebar Sections */
     .sidebar-section {
       display: flex;
@@ -7368,6 +7635,24 @@
       background: rgba(80, 170, 100, 0.9);
     }
 
+    .campaign-classified-economy {
+      display: grid;
+      gap: 0.3rem;
+      padding: 0.8rem;
+      border: 1px dashed rgba(245, 196, 109, 0.38);
+      border-radius: 8px;
+      background: rgba(48, 38, 22, 0.28);
+      color: rgba(219, 225, 235, 0.82);
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+
+    .campaign-classified-economy strong {
+      color: #f5c46d;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
     /* =====================================================
        TUTORIAL OVERLAY SYSTEM
        Professional-grade tutorial overlays for training
@@ -9262,6 +9547,24 @@
               </div>
             </section>
 
+            <!-- OPERATIONAL PICTURE -->
+            <section class="sidebar-section campaign-intel-section" aria-labelledby="campaignIntelHeading">
+              <h3 id="campaignIntelHeading" class="sidebar-heading">
+                <span class="heading-icon">INT</span>
+                <span>Operational Picture</span>
+              </h3>
+              <div id="campaignIntelSummary" class="campaign-intel-summary">
+                <span>Intelligence awaiting campaign load</span>
+              </div>
+              <div class="campaign-intel-sidebar-actions">
+                <button id="campaignIntelToggle" type="button" class="campaign-intel-open" aria-expanded="false" aria-controls="campaignIntelDrawer">
+                  Open Intelligence
+                  <span id="campaignIntelUnread" class="campaign-intel-unread hidden" aria-label="Unread intelligence reports">0</span>
+                </button>
+                <button id="campaignIntelCoverage" type="button" class="campaign-intel-layer-toggle" aria-pressed="false" title="Toggle collection coverage overlay">COV</button>
+              </div>
+            </section>
+
             <!-- ECONOMY SECTION -->
             <section class="sidebar-section economy-section">
               <h3 class="sidebar-heading">
@@ -9476,6 +9779,21 @@
                 <span>Queue Engagement</span>
               </button>
             </div>
+          </aside>
+          <aside id="campaignIntelDrawer" class="campaign-intel-drawer hidden" aria-labelledby="campaignIntelDrawerTitle">
+            <header class="campaign-intel-drawer__header">
+              <div>
+                <span>Headquarters Intelligence</span>
+                <h3 id="campaignIntelDrawerTitle">Operational Picture</h3>
+              </div>
+              <button type="button" data-intel-close aria-label="Close intelligence drawer">×</button>
+            </header>
+            <div class="campaign-intel-tabs" role="tablist" aria-label="Intelligence views">
+              <button type="button" class="active" role="tab" aria-selected="true" data-intel-tab="situation">Situation</button>
+              <button type="button" role="tab" aria-selected="false" data-intel-tab="contacts">Contacts</button>
+              <button type="button" role="tab" aria-selected="false" data-intel-tab="operations">Operations</button>
+            </div>
+            <div id="campaignIntelBody" class="campaign-intel-body" role="tabpanel"></div>
           </aside>
         </div>
       </div>

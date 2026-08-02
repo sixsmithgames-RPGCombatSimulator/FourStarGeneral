@@ -1636,7 +1636,12 @@ export class PrecombatScreen {
     }
 
     const context = this.engagementContext;
-    const ratio = describeForceRatio(context.forceRatio);
+    const legacyRatio = describeForceRatio(context.forceRatio);
+    const briefing = context.intelligenceBriefing;
+    const assessedDanger = briefing
+      ? briefing.resistanceBand === "heavy" || briefing.resistanceBand === "overwhelming"
+      : legacyRatio.outgunned;
+    const assessmentLabel = briefing?.summary ?? legacyRatio.label;
     const banner = existing ?? document.createElement("div");
     banner.id = "engagementContextBanner";
     banner.style.cssText = [
@@ -1645,7 +1650,7 @@ export class PrecombatScreen {
       "border-radius:8px",
       "line-height:1.45",
       "font-size:0.85rem",
-      ratio.outgunned
+      assessedDanger
         ? "background:rgba(180,83,9,0.18);border:1px solid rgba(245,196,109,0.55);color:#f5c46d"
         : "background:rgba(34,80,44,0.22);border:1px solid rgba(134,196,144,0.45);color:#b9e0c0"
     ].join(";");
@@ -1653,7 +1658,8 @@ export class PrecombatScreen {
     banner.innerHTML = `
       <strong style="display:block;letter-spacing:0.05em;text-transform:uppercase;">${MISSION_TYPE_LABELS[context.missionType]} — hex ${context.battleHexKey}</strong>
       <span style="display:block;">${committedGroups} formation group${committedGroups === 1 ? "" : "s"} in position · ${context.airSorties} air sortie${context.airSorties === 1 ? "" : "s"} in range · ${context.rpReserve.toLocaleString()} RP consumables reserve</span>
-      <span style="display:block;${ratio.outgunned ? "font-weight:700;" : ""}">${ratio.label}</span>
+      <span style="display:block;${assessedDanger ? "font-weight:700;" : ""}">${assessmentLabel}</span>
+      ${briefing ? `<span style="display:block;opacity:0.88;">Intel confidence: ${briefing.confidenceBand} · ${briefing.contacts.length} contact${briefing.contacts.length === 1 ? "" : "s"} · Unknown: ${briefing.explicitUnknowns.join(", ") || "none reported"}</span>` : ""}
     `;
     if (!existing) {
       this.budgetPanel.insertBefore(banner, this.budgetPanel.firstChild);

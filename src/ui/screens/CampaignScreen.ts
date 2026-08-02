@@ -1,10 +1,7 @@
 import type { IScreenManager } from "../../contracts/IScreenManager";
 import type { CampaignPendingEngagement, CampaignScenarioData, ProductionAllocation } from "../../core/campaignTypes";
-import {
-  buildEngagementContext,
-  describeForceRatio,
-  MISSION_TYPE_LABELS
-} from "../../game/campaign/EngagementContextBuilder";
+import type { CampaignIntelOperationType, CampaignIntelOperationView, CampaignMapViewModel } from "../../core/campaignIntelTypes";
+import { MISSION_TYPE_LABELS } from "../../game/campaign/EngagementContextBuilder";
 import { CoordinateSystem } from "../../rendering/CoordinateSystem";
 import { hexDistance } from "../../core/Hex";
 import { CampaignMapRenderer } from "../../rendering/CampaignMapRenderer";
@@ -58,6 +55,15 @@ export class CampaignScreen {
   // Overlay shown while campaign mode is locked. Kept as an overlay (not an innerHTML swap)
   // so late-arriving auth resolution (Clerk loads asynchronously) can unlock without a rebuild.
   private lockOverlay: HTMLElement | null = null;
+  private intelDrawer: HTMLElement | null = null;
+  private intelSummary: HTMLElement | null = null;
+  private intelUnreadBadge: HTMLElement | null = null;
+  private intelCoverageButton: HTMLButtonElement | null = null;
+  private intelTab: "situation" | "contacts" | "operations" = "situation";
+  private intelOperationType: CampaignIntelOperationType = "groundRecon";
+  private intelTargetContactId: string | null = null;
+  private intelFeedback = "";
+  private intelCoverageVisible = false;
 
   constructor(screenManager: IScreenManager, renderer: CampaignMapRenderer) {
     this.screenManager = screenManager;
@@ -90,6 +96,18 @@ export class CampaignScreen {
       const t = this.viewport.getTransform();
       this.viewport.setTransform(t.zoom, t.panX, t.panY);
     }
+  }
+
+  /** Renders only the Player knowledge projection. Raw enemy truth never reaches the map renderer. */
+  private renderCampaignMap(): void {
+    const svg = this.element.querySelector<SVGSVGElement>("#campaignHexMap");
+    const canvas = this.element.querySelector<HTMLDivElement>("#campaignMapCanvas");
+    const view = this.campaignState.getCampaignMapView("Player");
+    if (!svg || !canvas || !view) return;
+    this.renderer.render(svg, canvas, view);
+    this.renderer.setTerrainOverlayVisible(this.editMode);
+    this.renderer.setIntelCoverageVisible(this.intelCoverageVisible);
+    this.syncViewportAfterRender();
   }
 
   /** Binds campaign zoom/pan buttons present in the sidebar to MapViewport operations. */
@@ -138,7 +156,7 @@ export class CampaignScreen {
     const close = dialog?.querySelector<HTMLButtonElement>("#battlePopupClose");
     if (!layer || !dialog || !title || !body || !close) return;
 
-    const scenario = this.campaignState.getScenario();
+    const scenario = this.campaignState.getCampaignMapView("Player")?.scenario ?? null;
     if (!scenario) return;
     const parse = (key: string) => CoordinateSystem.parseHexKey(key)!;
     const a = parse(originOffsetKey);
@@ -500,6 +518,11 @@ export class CampaignScreen {
     this.editModeButton = this.element.querySelector<HTMLButtonElement>("#campaignEditMode");
     this.exportJSONButton = this.element.querySelector<HTMLButtonElement>("#campaignExportJSON");
     this.editPanel = this.element.querySelector<HTMLElement>("#campaignEditPanel");
+    this.intelDrawer = this.element.querySelector<HTMLElement>("#campaignIntelDrawer");
+    this.intelSummary = this.element.querySelector<HTMLElement>("#campaignIntelSummary");
+    this.intelUnreadBadge = this.element.querySelector<HTMLElement>("#campaignIntelUnread");
+    this.intelCoverageButton = this.element.querySelector<HTMLButtonElement>("#campaignIntelCoverage");
+    this.bindCampaignIntelControls();
 
     if (this.advanceSegmentButton) {
       // Clicking the advance segment button progresses the campaign by 3 hours (1 segment)
@@ -525,10 +548,10 @@ export class CampaignScreen {
     });
 
     if (this.saveButton) {
-      this.saveButton.addEventListener("click", () => this.saveCampaignToFile());
+      this.saveButton.addEventListener("click", () => this.saveCampaignSession());
     }
     if (this.loadButton) {
-      this.loadButton.addEventListener("click", () => this.loadCampaignFromFile());
+      this.loadButton.addEventListener("click", () => this.loadCampaignSession());
     }
     if (this.exitButton) {
       this.exitButton.addEventListener("click", () => this.screenManager.showScreenById("landing"));
@@ -547,7 +570,7 @@ export class CampaignScreen {
     if (this.queueEngagementButton) {
       // Clicking the button queues a pending engagement for the currently selected front
       this.queueEngagementButton.addEventListener("click", () => {
-        const scenario = this.campaignState.getScenario();
+        const scenario = this.campaignState.getCampaignMapView("Player")?.scenario ?? null;
         if (!scenario) return;
         const existing = this.campaignState.getPendingEngagements();
         const id = `eng_${Date.now()}`;
@@ -585,19 +608,20 @@ export class CampaignScreen {
         // to the legacy generic flow rather than blocking the queue.
         const battleHexKey = this.resolveBattleHexKey(engagement);
         if (battleHexKey) {
-          const context = buildEngagementContext(scenario, {
+          const context = this.campaignState.buildCampaignEngagementContext({
             engagementId: id,
             battleHexKey,
             attacker: engagement.attacker,
             frontKey: engagement.frontKey,
             objectiveKey: engagement.objectiveKey
-          });
+          }, "Player");
           if (context) {
-            // Outgunned doctrine: inform, never balance. Worse than ~1:1.5 requires acknowledgment.
-            const ratio = describeForceRatio(context.forceRatio);
-            if (ratio.outgunned) {
+            // The battle generator keeps truth internally; commitment UI uses the frozen faction briefing.
+            const briefing = context.intelligenceBriefing;
+            const assessedDanger = briefing?.resistanceBand === "heavy" || briefing?.resistanceBand === "overwhelming";
+            if (assessedDanger) {
               const proceed = window.confirm(
-                `${MISSION_TYPE_LABELS[context.missionType]} at ${battleHexKey}.\n\n${ratio.label}\n\nLaunch anyway — we understand the odds?`
+                `${MISSION_TYPE_LABELS[context.missionType]} at ${battleHexKey}.\n\n${briefing.summary}\nConfidence: ${briefing.confidenceBand}.\n\nLaunch anyway — we understand the intelligence risk?`
               );
               if (!proceed) {
                 return;
@@ -621,15 +645,8 @@ export class CampaignScreen {
     // Subscribe to campaign state changes so the sidebar reflects latest data
     this.unsubscribe = this.campaignState.subscribe((reason) => {
       // On scenario mutations (e.g., post-battle outcome), re-render the map so fronts/economy refresh visually.
-      if (reason === "scenarioLoaded") {
-        const svg = this.element.querySelector<SVGSVGElement>("#campaignHexMap");
-        const canvas = this.element.querySelector<HTMLDivElement>("#campaignMapCanvas");
-        const scenario = this.campaignState.getScenario();
-        if (svg && canvas && scenario) {
-          this.renderer.render(svg, canvas, scenario);
-          this.renderer.setTerrainOverlayVisible(this.editMode);
-          this.syncViewportAfterRender();
-        }
+      if (reason === "scenarioLoaded" || reason === "intelligenceUpdated" || reason === "dayAdvanced") {
+        this.renderCampaignMap();
       }
       // On day advancement, update the day counter and economy display
       if (reason === "dayAdvanced") {
@@ -638,6 +655,7 @@ export class CampaignScreen {
       this.renderEconomy();
       this.renderProduction();
       this.renderSelection();
+      this.renderCampaignIntel();
     });
   }
 
@@ -652,13 +670,11 @@ export class CampaignScreen {
     if (!svg || !canvas) {
       return;
     }
-    this.renderer.render(svg, canvas, scenario);
-    this.renderer.setTerrainOverlayVisible(this.editMode);
-    this.syncViewportAfterRender();
+    this.renderCampaignMap();
     this.bindTerrainEditDragHandlers(svg);
     // Handle hex clicks by recording selection and detecting if the hex is part of a front
     this.renderer.onHexClick((hexKey) => {
-      const scenario = this.campaignState.getScenario();
+      const scenario = this.campaignState.getCampaignMapView("Player")?.scenario ?? null;
       if (this.campaignStatusMessage) {
         this.campaignStatusMessage = null;
       }
@@ -730,6 +746,7 @@ export class CampaignScreen {
       if (this.moveOriginHexKey) this.renderer.highlightHex(this.moveOriginHexKey, "origin");
       if (this.selectedHexKey) this.renderer.highlightHex(this.selectedHexKey, "selected");
       this.renderSelection();
+      this.renderCampaignIntel();
     });
 
     // Initial sidebar render
@@ -737,6 +754,7 @@ export class CampaignScreen {
     this.renderEconomy();
     this.renderProduction();
     this.renderSelection();
+    this.renderCampaignIntel();
   }
 
   /** Binds pointer handlers used to drag-select hexes for bulk terrain marking in edit mode. */
@@ -776,7 +794,7 @@ export class CampaignScreen {
     if (!this.economyContainer) {
       return;
     }
-    const scenario = this.campaignState.getScenario();
+    const scenario = this.campaignState.getCampaignMapView("Player")?.scenario ?? null;
     if (!scenario) {
       this.economyContainer.innerHTML = "";
       return;
@@ -794,6 +812,7 @@ export class CampaignScreen {
     };
 
     const rows = scenario.economies
+      .filter((economy) => economy.faction === "Player")
       .map((e) => {
         const transportCap = e.transportCapacity;
         const trucksAvail = transportCap ? transportCap.trucks - transportCap.trucksInTransit : 0;
@@ -834,7 +853,7 @@ export class CampaignScreen {
                 </span>
                 <span style="font-weight: 600; color: ${getResourceColor(e.ammo ?? 0, 2000)};">${fmt(e.ammo ?? 0)}</span>
               </div>
-              <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1); display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; font-size: 0.8em;">
+              <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1); display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; font-size: 0.8em;">
                 <div style="text-align: center; padding: 0.35rem; background: rgba(60, 120, 200, 0.15); border-radius: 5px;">
                   <div style="font-size: 1.2em;">✈️</div>
                   <div style="color: rgba(180, 180, 180, 0.8); margin-top: 0.15rem;">Air</div>
@@ -844,11 +863,6 @@ export class CampaignScreen {
                   <div style="font-size: 1.2em;">⚓</div>
                   <div style="color: rgba(180, 180, 180, 0.8); margin-top: 0.15rem;">Naval</div>
                   <div style="font-weight: 600; color: rgba(220, 240, 255, 0.95); margin-top: 0.1rem;">${e.navalPower}</div>
-                </div>
-                <div style="text-align: center; padding: 0.35rem; background: rgba(60, 120, 200, 0.15); border-radius: 5px;">
-                  <div style="font-size: 1.2em;">🔍</div>
-                  <div style="color: rgba(180, 180, 180, 0.8); margin-top: 0.15rem;">Intel</div>
-                  <div style="font-weight: 600; color: rgba(220, 240, 255, 0.95); margin-top: 0.1rem;">${e.intelCoverage}</div>
                 </div>
               </div>
               ${transportCap ? `
@@ -873,7 +887,11 @@ export class CampaignScreen {
         `;
       })
       .join("");
-    this.economyContainer.innerHTML = rows;
+    this.economyContainer.innerHTML = `${rows}
+      <div class="campaign-classified-economy" role="note">
+        <strong>Enemy logistics: classified</strong>
+        <span>Strength and sustainment appear only when intelligence sources produce an assessment.</span>
+      </div>`;
   }
 
   /** Renders the compact production summary in the sidebar (daily output + next tick countdown). */
@@ -1087,7 +1105,7 @@ export class CampaignScreen {
     this.selectionContainer.innerHTML = items.join("") || "<div>No selection</div>";
 
     if (this.queueEngagementButton) {
-      const canProximity = this.selectedHexKey ? this.campaignState.isAdjacentToEnemy(this.selectedHexKey) : false;
+      const canProximity = this.selectedHexKey ? this.campaignState.hasActionableEnemyContactNear(this.selectedHexKey) : false;
       const canEngage = Boolean(this.selectedFrontKey) || canProximity;
       this.queueEngagementButton.disabled = !canEngage;
     }
@@ -1096,6 +1114,252 @@ export class CampaignScreen {
     if (this.editMode) {
       this.updateEditPanel();
     }
+  }
+
+  /** Wires the persistent campaign Intelligence drawer and map-safe operation workflow. */
+  private bindCampaignIntelControls(): void {
+    const toggle = this.element.querySelector<HTMLButtonElement>("#campaignIntelToggle");
+    const openDrawer = () => {
+      if (!this.intelDrawer) return;
+      this.intelDrawer.classList.remove("hidden");
+      toggle?.setAttribute("aria-expanded", "true");
+      this.campaignState.markIntelBriefsRead("Player");
+      this.renderCampaignIntel();
+    };
+    toggle?.addEventListener("click", () => {
+      if (!this.intelDrawer) return;
+      if (this.intelDrawer.classList.contains("hidden")) openDrawer();
+      else {
+        this.intelDrawer.classList.add("hidden");
+        toggle.setAttribute("aria-expanded", "false");
+      }
+    });
+    document.addEventListener("campaign:intelligence:open", openDrawer);
+
+    this.intelCoverageButton?.addEventListener("click", () => {
+      this.intelCoverageVisible = !this.intelCoverageVisible;
+      this.intelCoverageButton?.setAttribute("aria-pressed", this.intelCoverageVisible ? "true" : "false");
+      this.intelCoverageButton?.classList.toggle("active", this.intelCoverageVisible);
+      this.renderer.setIntelCoverageVisible(this.intelCoverageVisible);
+    });
+
+    this.intelDrawer?.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      if (target.closest("[data-intel-close]")) {
+        this.intelDrawer?.classList.add("hidden");
+        toggle?.setAttribute("aria-expanded", "false");
+        toggle?.focus();
+        return;
+      }
+      const tab = target.closest<HTMLButtonElement>("[data-intel-tab]")?.dataset.intelTab;
+      if (tab === "situation" || tab === "contacts" || tab === "operations") {
+        this.intelTab = tab;
+        this.renderCampaignIntel();
+        return;
+      }
+      if (target.closest("[data-intel-mark-read]")) {
+        this.campaignState.markIntelBriefsRead("Player");
+        this.renderCampaignIntel();
+        return;
+      }
+      const focusId = target.closest<HTMLButtonElement>("[data-intel-focus]")?.dataset.intelFocus;
+      if (focusId) {
+        const contact = this.campaignState.getCampaignMapView("Player")?.enemyContacts.find((entry) => entry.id === focusId);
+        if (contact) {
+          this.selectedHexKey = contact.locationHexKey;
+          this.moveOriginHexKey = null;
+          this.renderer.clearAllHighlights("selected");
+          this.renderer.highlightHex(contact.locationHexKey, "selected");
+          this.renderSelection();
+        }
+        return;
+      }
+      const verifyId = target.closest<HTMLButtonElement>("[data-intel-verify-contact]")?.dataset.intelVerifyContact;
+      if (verifyId) {
+        const contact = this.campaignState.getCampaignMapView("Player")?.enemyContacts.find((entry) => entry.id === verifyId);
+        if (contact) {
+          this.intelTab = "operations";
+          this.intelOperationType = "verify";
+          this.intelTargetContactId = contact.id;
+          this.selectedHexKey = contact.locationHexKey;
+          this.intelFeedback = `Verification target set: ${contact.label} near ${contact.locationHexKey}.`;
+          this.renderCampaignIntel();
+        }
+        return;
+      }
+      const operationType = target.closest<HTMLButtonElement>("[data-intel-operation-type]")?.dataset.intelOperationType as CampaignIntelOperationType | undefined;
+      if (operationType) {
+        this.intelOperationType = operationType;
+        if (operationType !== "verify") this.intelTargetContactId = null;
+        this.intelFeedback = "";
+        this.renderCampaignIntel();
+        return;
+      }
+      if (target.closest("[data-intel-schedule]")) {
+        this.scheduleSelectedIntelOperation();
+      }
+    });
+  }
+
+  private scheduleSelectedIntelOperation(): void {
+    if (!this.selectedHexKey) {
+      this.intelFeedback = "Select a campaign hex on the map before issuing this order.";
+      this.renderCampaignIntel();
+      return;
+    }
+    const assetSelect = this.intelDrawer?.querySelector<HTMLSelectElement>("#campaignIntelAsset");
+    const result = this.campaignState.scheduleIntelOperation({
+      type: this.intelOperationType,
+      targetHexKey: this.selectedHexKey,
+      assignedAssetKey: assetSelect?.value || undefined,
+      targetContactId: this.intelTargetContactId ?? undefined,
+      faction: "Player"
+    });
+    if (!result.ok) {
+      this.intelFeedback = result.reason;
+      this.renderCampaignIntel();
+      return;
+    }
+    this.intelFeedback = `${this.campaignState.getIntelOperationRules()[this.intelOperationType].label} ordered for ${this.selectedHexKey}; resolves in ${result.operation.resolveSegment - result.operation.startSegment} segment${result.operation.resolveSegment - result.operation.startSegment === 1 ? "" : "s"}.`;
+    this.intelTargetContactId = null;
+    this.renderCampaignIntel();
+  }
+
+  /** Renders compact readiness plus the Situation / Contacts / Operations drawer. */
+  private renderCampaignIntel(): void {
+    const view = this.campaignState.getCampaignMapView("Player");
+    const operations = this.campaignState.getIntelOperations("Player");
+    if (!view) {
+      if (this.intelSummary) this.intelSummary.textContent = "Intelligence unavailable";
+      return;
+    }
+    if (this.intelSummary) {
+      this.intelSummary.innerHTML = `
+        <span><strong>${view.capacity.available}/${view.capacity.total}</strong> capacity available</span>
+        <span><strong>${view.enemyContacts.length}</strong> active contact${view.enemyContacts.length === 1 ? "" : "s"}</span>
+      `;
+    }
+    if (this.intelUnreadBadge) {
+      this.intelUnreadBadge.textContent = String(view.unreadReportCount);
+      this.intelUnreadBadge.classList.toggle("hidden", view.unreadReportCount === 0);
+    }
+    if (!this.intelDrawer || this.intelDrawer.classList.contains("hidden")) return;
+
+    const tabButtons = Array.from(this.intelDrawer.querySelectorAll<HTMLButtonElement>("[data-intel-tab]"));
+    tabButtons.forEach((button) => {
+      const active = button.dataset.intelTab === this.intelTab;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    const body = this.intelDrawer.querySelector<HTMLElement>("#campaignIntelBody");
+    if (!body) return;
+    body.innerHTML = this.intelTab === "situation"
+      ? this.composeIntelSituationMarkup(view)
+      : this.intelTab === "contacts"
+        ? this.composeIntelContactsMarkup(view)
+        : this.composeIntelOperationsMarkup(view, operations);
+  }
+
+  private composeIntelSituationMarkup(view: CampaignMapViewModel): string {
+    const events = this.campaignState.getIntelBriefEvents("Player").slice(0, 16);
+    const eventMarkup = events.length === 0
+      ? `<div class="campaign-intel-empty">No new intelligence has reached headquarters.</div>`
+      : events.map((event) => `
+          <article class="campaign-intel-report${event.read ? "" : " unread"}" data-report-kind="${event.kind}">
+            <div class="campaign-intel-report__time">${this.escapeHtml(this.campaignState.segmentToTimeDisplay(event.segment))}</div>
+            <strong>${this.escapeHtml(event.title)}</strong>
+            <p>${this.escapeHtml(event.detail)}</p>
+            ${event.contactId ? `<button type="button" data-intel-focus="${this.escapeHtml(event.contactId)}">Focus map</button>` : ""}
+          </article>
+        `).join("");
+    const stale = view.enemyContacts.filter((contact) => contact.state === "stale" || contact.state === "disputed").length;
+    return `
+      <div class="campaign-intel-situation-grid">
+        <article><span>Operational picture</span><strong>${view.enemyContacts.length} contacts</strong><small>${stale} stale or disputed</small></article>
+        <article><span>Collection capacity</span><strong>${view.capacity.available}/${view.capacity.total}</strong><small>${view.capacity.committed} committed</small></article>
+        <article><span>Unread reports</span><strong>${view.unreadReportCount}</strong><small>since last briefing</small></article>
+      </div>
+      <div class="campaign-intel-section-heading"><h4>Briefing changes</h4><button type="button" data-intel-mark-read>Mark read</button></div>
+      <div class="campaign-intel-report-list">${eventMarkup}</div>
+    `;
+  }
+
+  private composeIntelContactsMarkup(view: CampaignMapViewModel): string {
+    if (view.enemyContacts.length === 0) {
+      return `<div class="campaign-intel-empty"><strong>No current enemy contacts.</strong><p>Assign reconnaissance to a front or suspected approach. Absence of a marker is not proof the area is clear.</p></div>`;
+    }
+    return `<div class="campaign-intel-contact-list">${view.enemyContacts.map((contact) => `
+      <article class="campaign-intel-contact-card" data-level="${contact.level}" data-state="${contact.state}">
+        <header>
+          <div><span class="campaign-intel-eyebrow">${contact.level} · ${contact.confidenceBand} confidence</span><strong>${this.escapeHtml(contact.label)}</strong></div>
+          <span class="campaign-intel-age">${contact.ageSegments === 0 ? "Current" : `${contact.ageSegments * 3}h old`}</span>
+        </header>
+        <dl>
+          <div><dt>Where</dt><dd>${this.escapeHtml(contact.locationHexKey)}${contact.uncertaintyRadius > 0 ? ` ±${contact.uncertaintyRadius} hex` : ""}</dd></div>
+          <div><dt>Strength</dt><dd>${contact.strengthBand ?? "Unknown"}</dd></div>
+          <div><dt>State</dt><dd>${contact.state}${contact.movementState ? ` · ${contact.movementState}` : ""}</dd></div>
+          <div><dt>Source</dt><dd>${this.escapeHtml(contact.sourceLabels.join(", ") || "Unspecified")}</dd></div>
+        </dl>
+        <p>${this.escapeHtml(contact.analystNotes[0] ?? "No analyst note is available.")}</p>
+        <footer>
+          <button type="button" data-intel-focus="${this.escapeHtml(contact.id)}">Focus map</button>
+          <button type="button" data-intel-verify-contact="${this.escapeHtml(contact.id)}">Verify</button>
+        </footer>
+      </article>
+    `).join("")}</div>`;
+  }
+
+  private composeIntelOperationsMarkup(view: CampaignMapViewModel, operations: CampaignIntelOperationView[]): string {
+    const rules = this.campaignState.getIntelOperationRules();
+    const rule = rules[this.intelOperationType];
+    const assets = this.campaignState.getEligibleIntelAssets(
+      this.intelOperationType,
+      "Player",
+      this.selectedHexKey ?? undefined
+    );
+    const requiresAsset = rule.requiresAsset !== "none";
+    const operationButtons = (Object.keys(rules) as CampaignIntelOperationType[]).map((type) => `
+      <button type="button" class="campaign-intel-operation-choice${type === this.intelOperationType ? " active" : ""}" data-intel-operation-type="${type}">
+        <strong>${this.escapeHtml(rules[type].shortLabel)}</strong><span>${rules[type].capacityCost} capacity · ${rules[type].durationSegments * 3}h</span>
+      </button>
+    `).join("");
+    const active = operations
+      .filter((operation) => operation.status === "planned" || operation.status === "active")
+      .map((operation) => `
+        <article class="campaign-intel-active-op">
+          <strong>${this.escapeHtml(rules[operation.type].label)}</strong>
+          <span>${this.escapeHtml(operation.targetHexKey)} · resolves ${this.escapeHtml(this.campaignState.segmentToTimeDisplay(operation.resolveSegment))}</span>
+        </article>
+      `).join("") || `<div class="campaign-intel-empty compact">No intelligence operations are active.</div>`;
+    const recentlyComplete = operations
+      .filter((operation) => operation.status !== "planned" && operation.status !== "active" && operation.publicOutcome)
+      .slice(-5)
+      .reverse()
+      .map((operation) => `<article class="campaign-intel-outcome"><strong>${this.escapeHtml(operation.publicOutcome!.summary)}</strong><p>${this.escapeHtml(operation.publicOutcome!.detail)}</p></article>`)
+      .join("");
+    return `
+      <div class="campaign-intel-capacity"><span>Capacity</span><strong>${view.capacity.available}/${view.capacity.total} available</strong><small>${view.capacity.committed} committed</small></div>
+      <div class="campaign-intel-operation-grid">${operationButtons}</div>
+      <section class="campaign-intel-composer">
+        <span class="campaign-intel-eyebrow">Order preview</span>
+        <h4>${this.escapeHtml(rule.label)}</h4>
+        <p>${this.escapeHtml(rule.description)}</p>
+        <div class="campaign-intel-costs">
+          <span>${rule.capacityCost} capacity</span><span>${rule.durationSegments * 3} hours</span><span>${rule.suppliesCost} supplies</span><span>${rule.fuelCost} fuel</span>${requiresAsset && rule.assetRangeHex !== undefined ? `<span>${rule.assetRangeHex} hex range</span>` : ""}
+        </div>
+        <label>Target <strong>${this.escapeHtml(this.selectedHexKey ?? "Select a map hex")}</strong></label>
+        ${requiresAsset ? `
+          <label for="campaignIntelAsset">Assigned asset</label>
+          <select id="campaignIntelAsset" ${assets.length === 0 ? "disabled" : ""}>
+            ${assets.length === 0 ? `<option value="">No eligible asset</option>` : assets.map((asset) => `<option value="${this.escapeHtml(asset.assetKey)}">${this.escapeHtml(asset.label)}</option>`).join("")}
+          </select>
+        ` : `<p class="campaign-intel-doctrine">This operation uses headquarters deception capacity and does not require a formation assignment.</p>`}
+        ${this.intelFeedback ? `<div class="campaign-intel-feedback" aria-live="polite">${this.escapeHtml(this.intelFeedback)}</div>` : ""}
+        <button type="button" class="campaign-intel-confirm" data-intel-schedule ${!this.selectedHexKey || (requiresAsset && assets.length === 0) || (this.intelOperationType === "verify" && !this.intelTargetContactId) ? "disabled" : ""}>Issue order</button>
+      </section>
+      <div class="campaign-intel-section-heading"><h4>Active operations</h4></div>${active}
+      ${recentlyComplete ? `<div class="campaign-intel-section-heading"><h4>Recent outcomes</h4></div>${recentlyComplete}` : ""}
+    `;
   }
 
   private setCampaignStatusMessage(message: CampaignScreenStatusMessage | null): void {
@@ -2018,6 +2282,47 @@ export class CampaignScreen {
     });
   }
 
+  /** Saves the full campaign envelope, including faction-local knowledge and active operations. */
+  private saveCampaignSession(): void {
+    if (!this.campaignState.getScenario()) {
+      this.setCampaignStatusMessage({
+        title: "Save failed.",
+        detail: "No campaign scenario is currently loaded.",
+        action: "Load a campaign scenario before saving progress.",
+        tone: "warning"
+      });
+      return;
+    }
+    this.campaignState.saveToStorage();
+    this.setCampaignStatusMessage({
+      title: "Campaign saved.",
+      detail: "Progress, reports, contacts, uncertainty, and intelligence operations are stored in the local campaign slot.",
+      action: "Continue the campaign or use Load to restore this checkpoint.",
+      tone: "success"
+    });
+  }
+
+  /** Restores the full versioned campaign envelope from the local campaign slot. */
+  private loadCampaignSession(): void {
+    if (!this.campaignState.hasSave()) {
+      this.setCampaignStatusMessage({
+        title: "No campaign save found.",
+        detail: "The local campaign slot is empty.",
+        action: "Save the current campaign before trying to restore it.",
+        tone: "warning"
+      });
+      return;
+    }
+    this.campaignState.loadFromStorage();
+    this.renderTimeDisplay();
+    this.setCampaignStatusMessage({
+      title: "Campaign restored.",
+      detail: "The operational picture and all intelligence operations were restored with campaign progress.",
+      action: "Review new and stale reports before issuing the next order.",
+      tone: "success"
+    });
+  }
+
   private loadCampaignFromFile(): void {
     const input = document.createElement("input");
     input.type = "file";
@@ -2055,11 +2360,7 @@ export class CampaignScreen {
           }
 
           this.campaignState.setScenario(scenario);
-          const svg = this.element.querySelector<SVGSVGElement>("#campaignHexMap");
-          const canvas = this.element.querySelector<HTMLDivElement>("#campaignMapCanvas");
-          if (svg && canvas) {
-            this.renderer.render(svg, canvas, scenario);
-          }
+          this.renderCampaignMap();
 
           this.setCampaignStatusMessage({
             title: warnings.length > 0 ? "Campaign loaded with warnings." : "Campaign loaded.",

@@ -1,3 +1,7 @@
+# Superseded analysis
+
+> **This May 2026 report is retained for historical context but is not current.** Its 72-scenario count and claims about internet multiplayer, a built-in editor, and a technology tree were not supported by the official sources rechecked on 2026-08-01. Use [`docs/COMPETITIVE_FEATURE_BENCHMARK_2026-08-01.md`](docs/COMPETITIVE_FEATURE_BENCHMARK_2026-08-01.md) for the current source-backed feature inventory and Four-Star General comparison.
+
 # Panzer Marshal - Competitive Analysis
 ## Feature Deep-Dive & FSG Comparison
 

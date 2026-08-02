@@ -3,6 +3,7 @@ import { registerTest } from "./harness.js";
 import { CampaignMapRenderer } from "../src/rendering/CampaignMapRenderer";
 import { CoordinateSystem } from "../src/rendering/CoordinateSystem";
 import type { CampaignScenarioData } from "../src/core/campaignTypes";
+import type { CampaignMapViewModel } from "../src/core/campaignIntelTypes";
 
 registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) => {
   const canvas = document.createElement("div");
@@ -36,9 +37,18 @@ registerTest("CAMPAIGN_RENDERER_RENDERS_LAYERS", async ({ Given, When, Then }) =
   };
 
   const renderer = new CampaignMapRenderer();
+  const viewModel: CampaignMapViewModel = {
+    observerFaction: "Player",
+    scenario,
+    enemyContacts: [],
+    coverage: [],
+    capacity: { total: 2, committed: 0, available: 2 },
+    unreadReportCount: 0,
+    currentSegment: 0
+  };
 
   await Given("a minimal campaign scenario and DOM targets", async () => {
-    renderer.render(svg, canvas as HTMLDivElement, scenario);
+    renderer.render(svg, canvas as HTMLDivElement, viewModel);
   });
 
   await Then("background, hexes, sprites, and fronts are present", async () => {

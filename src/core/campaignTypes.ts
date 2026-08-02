@@ -1,4 +1,5 @@
 import type { Axial } from "./types";
+import type { CampaignIntelligenceBriefing } from "./campaignIntelTypes";
 
 /**
  * Campaign map tile scale constant so downstream modules can convert distances and ranges.
@@ -341,6 +342,8 @@ export interface CampaignEngagementContext {
   enemyForceValue: number;
   /** playerForceValue / enemyForceValue (Infinity when enemy pool is empty). */
   forceRatio: number;
+  /** Frozen faction knowledge captured at commitment. Player-facing UI must prefer this over true force values. */
+  intelligenceBriefing?: CampaignIntelligenceBriefing;
   /** Resolved tactical template key; null until Phase 2 template selection lands. */
   templateKey: string | null;
   frontKey: string | null;

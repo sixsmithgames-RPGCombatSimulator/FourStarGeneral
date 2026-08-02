@@ -908,7 +908,9 @@ export class PopupManager implements IPopupManager {
     }
 
     if (resolvedKey === "intelligence") {
-      this.openIntelPopup(resolvedKey, trigger);
+      // The campaign drawer is the authoritative first-class intelligence surface. Route the
+      // legacy global sidebar shortcut there instead of opening the tactical prototype modal.
+      document.dispatchEvent(new CustomEvent("campaign:intelligence:open"));
       return;
     }
 
