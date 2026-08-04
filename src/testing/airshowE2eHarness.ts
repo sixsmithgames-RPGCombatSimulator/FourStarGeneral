@@ -10,6 +10,8 @@ import type { AirEngagementEvent, AirMissionArrival } from "../game/GameEngine";
 import type { AirShowPlaybackCapture } from "../ui/airshow/AirShowPlaybackCapture";
 import { buildAirshowHarnessFixture, buildAirshowHarnessFixtureLarge, type AirshowHarnessFixture } from "./airshowHarnessFixture";
 import { buildAirshowPlaybackCaptureFixture } from "./airshowPlaybackCaptureFixture";
+import { getScenarioByMissionKey } from "../data/scenarioRegistry";
+import { normalizeScenarioSource, type RawScenarioInput } from "../data/scenarioNormalizer";
 
 interface AirshowActorSnapshot {
   readonly actorId: string;
@@ -31,12 +33,24 @@ interface AirshowSpawnSnapshot {
 interface AirshowPositionSample {
   readonly elapsedMs: number;
   readonly phaseLabel: string | null;
+  readonly lastCue: string | null;
+  readonly impactFired: boolean;
+  readonly cueCounts: Readonly<Record<string, number>>;
+  readonly effectCounts: Readonly<Record<string, number>>;
   readonly actors: ReadonlyArray<{
     readonly actorId: string;
+    readonly flightId: string;
     readonly role: string;
     readonly combatRole: string;
     readonly faction: string;
     readonly active: boolean;
+    readonly opacity: number;
+    readonly connected: boolean;
+    readonly headingDegrees: number;
+    readonly width: number;
+    readonly height: number;
+    readonly bombReleased: boolean;
+    readonly destroyed: boolean;
     readonly cx: number;
     readonly cy: number;
   }>;
@@ -78,6 +92,7 @@ interface AirshowE2EHarness {
 interface AirshowHarnessPlaybackSpec {
   readonly missionId: string;
   readonly renderScenario: ScenarioData;
+  readonly focusHexKey?: string;
   readonly startPlayback: (renderer: HexMapRenderer) => Promise<void>;
 }
 
@@ -108,6 +123,38 @@ function ensureBattleScreenVisible(): void {
   battleScreen.classList.remove("hidden");
   battleScreen.setAttribute("aria-hidden", "false");
   battleScreen.style.zIndex = "1";
+  const battleMain = document.querySelector<HTMLElement>(".battle-main");
+  battleMain?.setAttribute("data-panel-collapsed", "true");
+  battleMain?.setAttribute("data-activity-collapsed", "true");
+  [
+    document.getElementById("deploymentPanel"),
+    document.getElementById("deploymentPanelToggle"),
+    document.getElementById("battleActivityLog"),
+    document.getElementById("battleActivityLogToggle"),
+    document.getElementById("battleIntelOverlay")
+  ].forEach((element) => {
+    if (element) {
+      element.style.display = "none";
+      element.setAttribute("aria-hidden", "true");
+    }
+  });
+}
+
+function focusRendererForHarness(renderer: HexMapRenderer, hexKey: string): void {
+  const center = renderer.getHexCenter(hexKey);
+  const viewportRoot = renderer.getViewportRoot();
+  const svg = document.getElementById("battleHexMap") as SVGSVGElement | null;
+  const viewBox = svg?.viewBox.baseVal;
+  if (!center || !viewportRoot || !viewBox) {
+    return;
+  }
+  const scale = window.innerWidth <= 600 ? 2.35 : 1.65;
+  const viewportCenterX = viewBox.x + viewBox.width / 2;
+  const viewportCenterY = viewBox.y + viewBox.height / 2;
+  viewportRoot.setAttribute(
+    "transform",
+    `translate(${viewportCenterX - center.cx * scale} ${viewportCenterY - center.cy * scale}) scale(${scale})`
+  );
 }
 
 function createRendererForScenario(renderScenario: ScenarioData): HexMapRenderer { // eslint-disable-line
@@ -275,23 +322,19 @@ function computeTargetRunSampleMs(report: AirShowInspectionReport | null): numbe
     return 2600;
   }
 
-  const roleReadDelayMs = report.phases.some((phase) => phase.label.startsWith("escort-clash")) ? 250 : 0;
-  let elapsedMs = 0;
-  for (const phase of report.phases) {
-    if (phase.label === "target-run") {
-      return roleReadDelayMs + elapsedMs + Math.round(phase.durationMs * 0.55);
-    }
-    elapsedMs += phase.durationMs;
+  const targetRun = report.phases.find((phase) => phase.label === "target-run");
+  if (targetRun) {
+    return Math.round((targetRun.startTimeMs ?? 0) + targetRun.durationMs * 0.55);
   }
-
-  return roleReadDelayMs + Math.round(elapsedMs * 0.7);
+  return Math.round(computeInspectionTotalDurationMs(report) * 0.7);
 }
 
 function computeInspectionTotalDurationMs(report: AirShowInspectionReport | null): number {
   if (!report) {
     return DEFAULT_PHASE_WAIT_TIMEOUT_MS;
   }
-  return report.phases.reduce((sum, phase) => sum + phase.durationMs, 0);
+  return report.timelineTotalDurationMs
+    ?? Math.max(0, ...report.phases.map((phase) => phase.endTimeMs ?? phase.durationMs));
 }
 
 function computePhaseTimeoutMs(report: AirShowInspectionReport | null, label: string): number {
@@ -299,16 +342,12 @@ function computePhaseTimeoutMs(report: AirShowInspectionReport | null, label: st
     return DEFAULT_PHASE_WAIT_TIMEOUT_MS;
   }
 
-  let elapsedMs = 0;
-  for (const phase of report.phases) {
-    const phaseBudgetMs = Math.max(phase.durationMs, 1);
-    if (phase.label === label) {
-      return Math.max(
-        DEFAULT_PHASE_WAIT_TIMEOUT_MS,
-        elapsedMs + phaseBudgetMs + PHASE_WAIT_BUFFER_MS
-      );
-    }
-    elapsedMs += phaseBudgetMs;
+  const phase = report.phases.find((candidate) => candidate.label === label);
+  if (phase) {
+    return Math.max(
+      DEFAULT_PHASE_WAIT_TIMEOUT_MS,
+      (phase.endTimeMs ?? phase.durationMs) + PHASE_WAIT_BUFFER_MS
+    );
   }
 
   return Math.max(
@@ -362,9 +401,11 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
   let activeRenderer: HexMapRenderer | null = null;
   let activeInspection: AirShowInspectionReport | null = null;
   let activeAnimation: Promise<void> | null = null;
+  let activeAnimationError: unknown = null;
   let activePhaseLabel: string | null = null;
   let activePhaseStartedAtMs = 0;
   let activePhaseDurationMs = 0;
+  let activeTimelineElapsedMs = 0;
   let activeTotalDurationMs = DEFAULT_PHASE_WAIT_TIMEOUT_MS;
   let restoreAnimateCapture: (() => void) | null = null;
   let spawnSnapshot: readonly AirshowSpawnSnapshot[] = [];
@@ -374,18 +415,40 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
   let pendingPhasePause: PendingPhasePause | null = null;
 
   function sampleActorPositions(): AirshowPositionSample {
-    const size = 32;
+    const layer = document.querySelector<SVGGElement>(".combat-effects-layer");
+    const cueKinds = ["tracer", "flak", "bomb-release", "impact", "destruction"];
+    const cueCounts = Object.fromEntries(cueKinds.map((kind) => [
+      kind,
+      Number.parseInt(layer?.getAttribute(`data-airshow-cue-count-${kind}`) ?? "0", 10) || 0
+    ]));
+    const effectCounts: Record<string, number> = {};
+    document.querySelectorAll<SVGGElement>('[data-effect-instance="true"]').forEach((effect) => {
+      const effectType = effect.getAttribute("data-effect-type") ?? "unknown";
+      effectCounts[effectType] = (effectCounts[effectType] ?? 0) + 1;
+    });
     return {
-      elapsedMs: performance.now(),
+      elapsedMs: activeTimelineElapsedMs,
       phaseLabel: activePhaseLabel,
+      lastCue: layer?.getAttribute("data-airshow-last-cue") ?? null,
+      impactFired: layer?.getAttribute("data-airshow-impact-fired") === "true",
+      cueCounts,
+      effectCounts,
       actors: Array.from(document.querySelectorAll<SVGImageElement>('[data-testid="airshow-actor"]')).map((el) => ({
         actorId: el.getAttribute("data-airshow-actor-id") ?? "",
+        flightId: el.getAttribute("data-airshow-flight-id") ?? "",
         role: el.getAttribute("data-airshow-role") ?? "",
         combatRole: el.getAttribute("data-airshow-combat-role") ?? "",
         faction: el.getAttribute("data-airshow-faction") ?? "",
         active: el.getAttribute("data-airshow-active") === "true",
-        cx: parseFloat(el.getAttribute("x") ?? "0") + size / 2,
-        cy: parseFloat(el.getAttribute("y") ?? "0") + size / 2
+        opacity: Number.parseFloat(window.getComputedStyle(el).opacity || "0"),
+        connected: el.isConnected,
+        headingDegrees: Number.parseFloat(el.getAttribute("transform")?.match(/rotate\(([-\d.]+)/)?.[1] ?? "0"),
+        width: Number.parseFloat(el.getAttribute("width") ?? "0"),
+        height: Number.parseFloat(el.getAttribute("height") ?? "0"),
+        bombReleased: el.getAttribute("data-airshow-bomb-released") === "true",
+        destroyed: el.getAttribute("data-airshow-destroyed") === "true",
+        cx: Number.parseFloat(el.getAttribute("x") ?? "0") + Number.parseFloat(el.getAttribute("width") ?? "0") / 2,
+        cy: Number.parseFloat(el.getAttribute("y") ?? "0") + Number.parseFloat(el.getAttribute("height") ?? "0") / 2
       }))
     };
   }
@@ -393,71 +456,78 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
   function startPositionSampler(): void {
     positionTimeline = [];
     if (positionSamplerHandle !== null) window.clearInterval(positionSamplerHandle);
-    positionSamplerHandle = window.setInterval(() => { positionTimeline.push(sampleActorPositions()); }, POSITION_SAMPLE_INTERVAL_MS);
+    positionTimeline.push(sampleActorPositions());
+    positionSamplerHandle = window.setInterval(() => {
+      const sample = sampleActorPositions();
+      const previous = positionTimeline[positionTimeline.length - 1];
+      if (!previous || sample.elapsedMs > previous.elapsedMs) {
+        positionTimeline.push(sample);
+      }
+    }, POSITION_SAMPLE_INTERVAL_MS);
   }
 
   function stopPositionSampler(): void {
     if (positionSamplerHandle !== null) { window.clearInterval(positionSamplerHandle); positionSamplerHandle = null; }
   }
 
-  function installPhaseProbe(renderer: HexMapRenderer, phaseLabels: readonly string[]): void {
+  function installPhaseProbe(renderer: HexMapRenderer, phases: AirShowInspectionReport["phases"]): void {
     restorePhaseProbe?.();
     const runtimeRenderer = renderer as unknown as {
-      runAirShowPhase?: (...args: unknown[]) => Promise<void>;
       scheduleAnimationFrame?: (step: FrameRequestCallback) => void;
     };
-    const originalRunAirShowPhase = runtimeRenderer.runAirShowPhase?.bind(renderer);
     const originalScheduleAnimationFrame = runtimeRenderer.scheduleAnimationFrame?.bind(renderer);
-    if (typeof originalRunAirShowPhase !== "function" || typeof originalScheduleAnimationFrame !== "function") {
+    if (typeof originalScheduleAnimationFrame !== "function") {
       restorePhaseProbe = null;
       return;
     }
-    let phaseIndex = 0;
-    runtimeRenderer.runAirShowPhase = async (...args: unknown[]): Promise<void> => {
-      const phaseLabel = phaseLabels[phaseIndex] ?? `phase-${phaseIndex + 1}`;
-      activePhaseLabel = phaseLabel;
-      activePhaseStartedAtMs = performance.now();
-      activePhaseDurationMs = typeof args[1] === "number" ? Math.max(args[1], 1) : 0;
-      phaseIndex += 1;
-      const phasePause = pendingPhasePause?.label === phaseLabel ? pendingPhasePause : null;
-      if (phasePause) {
-        runtimeRenderer.scheduleAnimationFrame = (step: FrameRequestCallback): void => {
-          const targetElapsedMs = activePhaseDurationMs * thisClamp(phasePause.progress, 0, 1);
-          const elapsedMs = performance.now() - activePhaseStartedAtMs;
-          if (!phasePause.engaged && elapsedMs >= targetElapsedMs) {
-            phasePause.engaged = true;
-            phasePause.readyResolve();
-            void phasePause.resumePromise.then(() => {
-              if (pendingPhasePause === phasePause) {
-                pendingPhasePause = null;
-              }
-              originalScheduleAnimationFrame(step);
-            });
-            return;
-          }
-          if (phasePause.engaged) {
-            void phasePause.resumePromise.then(() => {
-              if (pendingPhasePause === phasePause) {
-                pendingPhasePause = null;
-              }
-              originalScheduleAnimationFrame(step);
-            });
-            return;
-          }
-          originalScheduleAnimationFrame(step);
-        };
+    const phaseByLabel = new Map(phases.map((phase) => [phase.label, phase] as const));
+    const readTimelineClock = (): { readonly label: string | null; readonly elapsedMs: number } => {
+      const layer = document.querySelector<SVGGElement>(".combat-effects-layer[data-airshow-time-ms]");
+      return {
+        label: layer?.getAttribute("data-airshow-beat") ?? null,
+        elapsedMs: Number.parseFloat(layer?.getAttribute("data-airshow-time-ms") ?? "0")
+      };
+    };
+    const syncObservedClock = (clock: { readonly label: string | null; readonly elapsedMs: number }): void => {
+      if (clock.label) {
+        activePhaseLabel = clock.label;
+        const phase = phaseByLabel.get(clock.label);
+        activePhaseDurationMs = Math.max(1, phase?.durationMs ?? 1);
+        activePhaseStartedAtMs = performance.now()
+          - Math.max(0, clock.elapsedMs - (phase?.startTimeMs ?? clock.elapsedMs));
       }
-      try {
-        return await originalRunAirShowPhase(...args);
-      } finally {
-        runtimeRenderer.scheduleAnimationFrame = originalScheduleAnimationFrame;
-        if (activePhaseLabel === phaseLabel) {
-          activePhaseDurationMs = 0;
+      activeTimelineElapsedMs = clock.elapsedMs;
+    };
+    runtimeRenderer.scheduleAnimationFrame = (step: FrameRequestCallback): void => {
+      originalScheduleAnimationFrame((timestamp) => {
+        const clock = readTimelineClock();
+        syncObservedClock(clock);
+        const phasePause = pendingPhasePause;
+        const phase = phasePause ? phaseByLabel.get(phasePause.label) : null;
+        const pauseAtMs = phasePause && phase
+          ? (phase.startTimeMs ?? 0) + phase.durationMs * thisClamp(phasePause.progress, 0, 1)
+          : Number.POSITIVE_INFINITY;
+        if (phasePause && !phasePause.engaged && clock.elapsedMs >= pauseAtMs) {
+          activePhaseLabel = phasePause.label;
+          activePhaseDurationMs = Math.max(1, phase?.durationMs ?? 1);
+          activePhaseStartedAtMs = performance.now()
+            - Math.max(0, clock.elapsedMs - (phase?.startTimeMs ?? clock.elapsedMs));
+          phasePause.engaged = true;
+          positionTimeline.push(sampleActorPositions());
+          phasePause.readyResolve();
+          void phasePause.resumePromise.then(() => {
+            if (pendingPhasePause === phasePause) {
+              pendingPhasePause = null;
+            }
+            originalScheduleAnimationFrame(step);
+          });
+          return;
         }
-      }
+        step(timestamp);
+        syncObservedClock(readTimelineClock());
+      });
     };
     restorePhaseProbe = () => {
-      runtimeRenderer.runAirShowPhase = originalRunAirShowPhase;
       runtimeRenderer.scheduleAnimationFrame = originalScheduleAnimationFrame;
       restorePhaseProbe = null;
     };
@@ -496,10 +566,11 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
   async function waitForPhaseProgress(label: string, progress: number): Promise<void> {
     await waitForPhase(label);
     const clampedProgress = thisClamp(progress, 0, 1);
-    const targetElapsedMs = activePhaseDurationMs * clampedProgress;
-    const timeoutMs = Math.max(DEFAULT_PHASE_WAIT_TIMEOUT_MS, targetElapsedMs + PHASE_WAIT_BUFFER_MS);
+    const phase = activeInspection?.phases.find((candidate) => candidate.label === label);
+    const targetTimelineMs = (phase?.startTimeMs ?? 0) + (phase?.durationMs ?? 0) * clampedProgress;
+    const timeoutMs = Math.max(DEFAULT_PHASE_WAIT_TIMEOUT_MS, targetTimelineMs + PHASE_WAIT_BUFFER_MS);
     const startedAt = performance.now();
-    while (activePhaseLabel === label && performance.now() - activePhaseStartedAtMs < targetElapsedMs) {
+    while (activeTimelineElapsedMs < targetTimelineMs) {
       if (performance.now() - startedAt > timeoutMs) {
         throw new Error(
           `Timed out waiting for airshow phase "${label}" progress ${(clampedProgress * 100).toFixed(0)}% ` +
@@ -513,7 +584,9 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
   async function waitForPhase(label: string): Promise<void> {
     const startedAt = performance.now();
     const timeoutMs = computePhaseTimeoutMs(activeInspection, label);
-    while (activePhaseLabel !== label) {
+    const phase = activeInspection?.phases.find((candidate) => candidate.label === label);
+    const phaseStartTimeMs = phase?.startTimeMs ?? 0;
+    while (activeTimelineElapsedMs < phaseStartTimeMs) {
       if (performance.now() - startedAt > timeoutMs) {
         throw new Error(
           `Timed out waiting for airshow phase "${label}" after ${timeoutMs}ms. ` +
@@ -522,6 +595,9 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
       }
       await new Promise((resolve) => window.setTimeout(resolve, 25));
     }
+    activePhaseLabel = label;
+    activePhaseDurationMs = Math.max(1, phase?.durationMs ?? 1);
+    activePhaseStartedAtMs = performance.now();
   }
 
   window.__FSG_AIRSHOW_E2E__ = {
@@ -529,10 +605,15 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
       activePhaseLabel = null;
       activePhaseStartedAtMs = 0;
       activePhaseDurationMs = 0;
+      activeTimelineElapsedMs = 0;
       restoreAnimateCapture?.();
       restorePhaseProbe?.();
       activeInspection = null;
+      activeAnimationError = null;
       activeRenderer = createRendererForScenario(config.renderScenario);
+      if (config.focusHexKey) {
+        focusRendererForHarness(activeRenderer, config.focusHexKey);
+      }
       const renderer = activeRenderer as HexMapRenderer & {
         animateResolvedAirCombatShow: (scene: ResolvedAirShowScene) => Promise<void>;
         inspectResolvedAirCombatShow: (candidate: ResolvedAirShowScene) => AirShowInspectionReport | null;
@@ -543,7 +624,7 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
         if (!activeInspection) {
           activeInspection = renderer.inspectResolvedAirCombatShow(compressedScene);
           activeTotalDurationMs = computeInspectionTotalDurationMs(activeInspection);
-          installPhaseProbe(renderer, activeInspection?.phases.map((phase) => phase.label) ?? []);
+          installPhaseProbe(renderer, activeInspection?.phases ?? []);
         }
         return originalAnimateResolvedAirCombatShow(compressedScene);
       };
@@ -553,18 +634,29 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
       };
       activeAnimation = config.startPlayback(renderer);
       startPositionSampler();
-      activeAnimation.finally(() => {
+      const finishPlayback = (): void => {
         stopPositionSampler();
         activePhaseLabel = "complete";
         restoreAnimateCapture?.();
         restorePhaseProbe?.();
-      });
+      };
+      void activeAnimation.then(
+        () => finishPlayback(),
+        (error) => {
+          activeAnimationError = error;
+          finishPlayback();
+        }
+      );
       await createTimedPromise(
         new Promise<void>((resolve, reject) => {
           const startedAtMs = performance.now();
           const tick = (): void => {
             if (activeInspection) {
               resolve();
+              return;
+            }
+            if (activeAnimationError) {
+              reject(activeAnimationError);
               return;
             }
             if (performance.now() - startedAtMs > DEFAULT_PHASE_WAIT_TIMEOUT_MS) {
@@ -579,13 +671,14 @@ function installAirshowE2EHarnessWithPlayback(config: AirshowHarnessPlaybackSpec
         "initial airshow scene"
       );
       spawnSnapshot = Array.from(document.querySelectorAll<SVGImageElement>('[data-testid="airshow-actor"]')).map((el) => {
-        const size = 32;
+        const width = Number.parseFloat(el.getAttribute("width") ?? "0");
+        const height = Number.parseFloat(el.getAttribute("height") ?? "0");
         return {
           actorId: el.getAttribute("data-airshow-actor-id") ?? "",
           role: el.getAttribute("data-airshow-role") ?? "",
           active: el.getAttribute("data-airshow-active") === "true",
-          cx: parseFloat(el.getAttribute("x") ?? "0") + size / 2,
-          cy: parseFloat(el.getAttribute("y") ?? "0") + size / 2
+          cx: Number.parseFloat(el.getAttribute("x") ?? "0") + width / 2,
+          cy: Number.parseFloat(el.getAttribute("y") ?? "0") + height / 2
         };
       });
       if (!activeInspection) {
@@ -712,6 +805,7 @@ function installAirshowE2EHarnessWithFixture(harnessFixture: AirshowHarnessFixtu
   installAirshowE2EHarnessWithPlayback({
     missionId: harnessFixture.missionId,
     renderScenario: harnessFixture.renderScenario,
+    focusHexKey: harnessFixture.renderScenario.size.cols >= 20 ? harnessFixture.locKey : undefined,
     startPlayback: async (renderer) => {
       const scene = compressSceneForHarness(await captureSceneFromFixture(harnessFixture));
       await renderer.animateResolvedAirCombatShow(scene);
@@ -739,4 +833,74 @@ export function installAirshowE2EHarness(): void {
 
 export function installAirshowE2EHarnessLarge(): void {
   installAirshowE2EHarnessWithFixture(buildAirshowHarnessFixtureLarge());
+}
+
+export function installTutorialStrikeAirshowE2EHarness(): void {
+  const rawScenario = getScenarioByMissionKey("training");
+  const renderScenario = normalizeScenarioSource(
+    cloneHarnessValue(rawScenario) as RawScenarioInput,
+    { turnLimit: 20 }
+  );
+  installAirshowE2EHarnessWithPlayback({
+    missionId: "tutorial-zero-strength-strike",
+    renderScenario,
+    startPlayback: async (renderer) => {
+      const fakeEngine = {
+        playerUnits: renderScenario.sides.Player.units,
+        botUnits: renderScenario.sides.Bot.units,
+        allyUnits: renderScenario.sides.Ally?.units ?? [],
+        reserveUnits: [],
+        getScheduledAirMissions: () => [],
+        getPlayerHq: () => renderScenario.sides.Player.hq,
+        getBotHq: () => renderScenario.sides.Bot.hq
+      };
+      const fakeBattleState = {
+        ensureGameEngine: () => fakeEngine,
+        tryGetGameEngine: () => fakeEngine,
+        hasEngine: () => true
+      } as unknown as import("../state/BattleState").BattleState;
+      const screen = new BattleScreen(
+        {} as never,
+        fakeBattleState,
+        {} as never,
+        renderer,
+        null,
+        null,
+        null,
+        new MapViewport(),
+        null
+      );
+      (screen as unknown as Record<string, unknown>).scenario = renderScenario;
+      (screen as unknown as Record<string, unknown>).scenarioSource = rawScenario;
+      (screen as unknown as Record<string, unknown>).renderEngineUnits = () => {};
+      await (screen as unknown as {
+        playPersistentStrikeSortie: (
+          flight: Record<string, unknown>,
+          activeRenderer: HexMapRenderer,
+          engine: unknown,
+          options: Record<string, unknown>
+        ) => Promise<void>;
+      }).playPersistentStrikeSortie({
+        missionId: "tutorial-zero-strength-strike",
+        faction: "Bot",
+        kind: "strike",
+        unitKey: "tutorial-bomber",
+        originKey: "14,8",
+        destKey: "2,12",
+        unitType: "Bomber",
+        strength: 0,
+        laneOffsetPx: 0
+      }, renderer, fakeEngine, {
+        playEffects: true,
+        strength: 0,
+        returnStrength: 0
+      });
+    }
+  });
+}
+
+function cloneHarnessValue<T>(value: T): T {
+  return typeof structuredClone === "function"
+    ? structuredClone(value)
+    : JSON.parse(JSON.stringify(value)) as T;
 }

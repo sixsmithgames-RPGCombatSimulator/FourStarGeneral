@@ -20,6 +20,7 @@
     "test:airshow:e2e:painted-frames": "node -e \"require('node:fs').rmSync('diagnostics/playwright/screenshots/latest', { recursive: true, force: true })\" && playwright test tests/e2e/airshow-visual.spec.ts --project=chromium --grep @painted-frame --workers=1",
     "test:airshow:e2e:visual": "playwright test tests/e2e/airshow-visual.spec.ts --project=chromium --workers=1",
     "test:airshow:e2e:choreography": "playwright test tests/e2e/airshow-choreography.spec.ts --project=chromium --workers=1",
+    "test:airshow:e2e:temporal": "playwright test tests/e2e/airshow-choreography.spec.ts tests/e2e/airshow-visual.spec.ts --project=chromium --grep @temporal-certificate --workers=1",
     "test:airshow": "npm run test:airshow:diagnostics && npm run test:airshow:report && npm run test:airshow:visual && npm run test:airshow:e2e:visual && npm run test:airshow:e2e:choreography",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",

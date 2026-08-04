@@ -96,7 +96,11 @@ import unitTypesSource from "../../data/unitSystem/derivedUnitTypes";
 import { createMissionRulesController, type MissionPhaseStatus, type MissionRulesController, type MissionStatus } from "../../state/missionRules";
 import { finalizeDeploymentZone } from "../utils/deploymentZonePlanner";
 import { setMissionStartedUI } from "../utils/missionUi";
-import { buildResolvedAirCombatScene } from "../airshow/ResolvedAirCombatSceneBuilder";
+import {
+  buildResolvedAirCombatScene,
+  buildResolvedAirShowFlakBursts
+} from "../airshow/ResolvedAirCombatSceneBuilder";
+import type { ResolvedAirShowScene } from "../airshow/AirShowPlaybackScene";
 import {
   buildCoordinatedAirClusterPlaybackPlan,
   type CoordinatedAirClusterPlaybackPlan
@@ -5371,46 +5375,40 @@ export class BattleScreen {
       if (!bomberFrom) {
         return;
       }
-
-      const flakWindowEnd = event.bomberDestroyed ? 0.84 : 0.92;
-      let nextBurstProgress = 0.68;
       const visibleStrength =
         event.bomberStrengthBefore ?? event.bomber.strength ?? this.resolveAirSquadronStrength(event.bomber.unitKey, event.bomber.faction, engine);
-
-      await this.animateAircraftLeg(
-        renderer,
-        bomberFrom,
-        locKey,
-        event.bomber.unitType,
-        this.resolveBomberSortieIngressDurationMs(),
-        (progress, centerX, centerY) => {
-          while (progress >= nextBurstProgress && nextBurstProgress <= flakWindowEnd) {
-            void renderer.playFlakBurstAt(centerX, centerY, event.interceptors.length, 1.08);
-            nextBurstProgress += 0.08;
-          }
-        },
-        event.bomberDestroyed ? 0.84 : 1,
-        visibleStrength,
+      const finalStrength = event.bomberDestroyed
+        ? 0
+        : event.bomberStrengthAfter ?? event.bomberStrengthBefore ?? event.bomber.strength ?? visibleStrength;
+      const bomber = {
+        id: event.bomber.unitKey,
+        scenarioType: event.bomber.unitType,
+        faction: event.bomber.faction,
+        originHexKey: bomberFrom,
+        targetHexKey: locKey,
+        strengthBefore: visibleStrength,
+        strengthAfterEscortPhase: visibleStrength,
+        finalStrength,
         laneOffsetPx,
-        event.bomber.faction,
-        "bomber"
-      );
-
-      if (!event.bomberDestroyed) {
-        await this.playDamagedAircraftReturn(
-          renderer,
-          locKey,
-          bomberFrom,
-          event.bomber.unitType,
-          event.flakDamage ?? 0,
-          event.bomberStrengthAfter ?? event.bomberStrengthBefore ?? event.bomber.strength,
-          laneOffsetPx,
-          0,
-          event.bomber.faction,
-          this.resolveBomberSortieEgressDurationMs(),
-          "bomber"
-        );
-      }
+        role: "bomber" as const,
+        combatRole: "strike" as const
+      };
+      await renderer.animateResolvedAirCombatShow({
+        kind: "airToAir",
+        hexKey: locKey,
+        interceptors: [],
+        escorts: [],
+        bombers: [bomber],
+        bomber,
+        bomberTargetHexKey: locKey,
+        playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
+        botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot"),
+        strikeAborted: true,
+        flakBursts: buildResolvedAirShowFlakBursts(event, {
+          bomberUnitKey: event.bomber.unitKey,
+          targetHexKey: locKey
+        })
+      });
       return;
     }
 
@@ -5447,9 +5445,6 @@ export class BattleScreen {
     const flakEvent = linkedEvents.find((event) => event.type === "flak") ?? null;
     const airToAirEvent = linkedEvents.find((event) => event.type === "airToAir") ?? null;
     const interceptLocKey = airToAirEvent ? this.toOffsetHexKey(airToAirEvent.location) ?? destKey : destKey;
-
-    let nextBurstProgress = 0.68;
-    const flakWindowEnd = flakEvent?.bomberDestroyed ? 0.84 : 0.92;
 
     // Get bomber strength for formation rendering
     const bomberStrength = flakEvent?.bomberStrengthBefore ?? airToAirEvent?.bomber.strength ?? flight.strength;
@@ -5496,30 +5491,14 @@ export class BattleScreen {
 
     await Promise.all([
       (async () => {
-        const paintFlakOnIngress = (progress: number, centerX: number, centerY: number): void => {
-          if (!flakEvent) {
-            return;
-          }
-          while (progress >= nextBurstProgress && nextBurstProgress <= flakWindowEnd) {
-            void renderer.playFlakBurstAt(centerX, centerY, flakEvent.interceptors.length, 1.08);
-            nextBurstProgress += 0.08;
-          }
-        };
-
         if (bomberDestroyedBeforeImpact) {
-          await this.animateAircraftLeg(
-            renderer,
-            flight.originKey,
-            destKey,
-            flight.unitType,
-            this.resolveBomberSortieIngressDurationMs(),
-            paintFlakOnIngress,
-            flakEvent?.bomberDestroyed ? 0.84 : 1,
-            bomberStrength,
-            flight.laneOffsetPx,
-            flight.faction,
-            "bomber"
-          );
+          await this.playPersistentStrikeSortie(flight, renderer, engine, {
+            strength: bomberStrength,
+            returnStrength: 0,
+            damage: totalAttrition,
+            flakEvent,
+            strikeAborted: true
+          });
           return;
         }
 
@@ -5527,7 +5506,7 @@ export class BattleScreen {
           strength: bomberStrength,
           returnStrength: remainingStrength,
           damage: totalAttrition,
-          onIngressProgress: paintFlakOnIngress
+          flakEvent
         });
       })(),
       ...escortAnimations
@@ -5717,76 +5696,50 @@ export class BattleScreen {
       returnStrength?: number;
       damage?: number;
       onIngressProgress?: (progress: number, centerX: number, centerY: number) => void;
+      flakEvent?: AirEngagementEvent | null;
+      strikeAborted?: boolean;
     } = {}
   ): Promise<void> {
     const destKey = this.resolvePreparedAirMissionDestKey(flight, engine) ?? flight.destKey;
     const playEffects = options.playEffects ?? true;
-    const strength = options.strength ?? flight.strength;
+    const strength = Math.max(0, options.strength ?? flight.strength ?? 0);
     const returnStrength = options.returnStrength ?? strength;
-    const damage = Math.max(0, options.damage ?? 0);
-    const hasPersistentSortie = typeof (renderer as unknown as { animateAircraftSortie?: unknown }).animateAircraftSortie === "function";
+    const bomber = {
+      id: flight.unitKey,
+      scenarioType: flight.unitType,
+      faction: flight.faction,
+      originHexKey: flight.originKey,
+      targetHexKey: destKey,
+      strengthBefore: strength,
+      strengthAfterEscortPhase: strength,
+      finalStrength: Math.max(0, returnStrength),
+      laneOffsetPx: flight.laneOffsetPx,
+      role: "bomber" as const,
+      combatRole: "strike" as const
+    };
+    const scene: ResolvedAirShowScene = {
+      kind: "airToAir",
+      hexKey: destKey,
+      interceptors: [],
+      escorts: [],
+      bombers: [bomber],
+      bomber,
+      bomberTargetHexKey: destKey,
+      playerHqKey: this.resolveEngineHqOffsetKey(engine, "Player"),
+      botHqKey: this.resolveEngineHqOffsetKey(engine, "Bot"),
+      strikeAborted: options.strikeAborted ?? false,
+      flakBursts: buildResolvedAirShowFlakBursts(options.flakEvent, {
+        bomberUnitKey: flight.unitKey,
+        targetHexKey: destKey
+      })
+    };
 
-    if (hasPersistentSortie) {
-      const smokeScale = damage >= 36 ? 0.82 : damage >= 18 ? 0.7 : 0.58;
-      const smokeInterval = damage >= 36 ? 0.12 : damage >= 18 ? 0.16 : 0.22;
-      let nextSmokeProgress = 0.1;
-
-      await renderer.animateAircraftSortie(
-        flight.originKey,
-        destKey,
-        flight.originKey,
-        flight.unitType,
-        {
-          ingressDurationMs: this.resolveBomberSortieIngressDurationMs(),
-          egressDurationMs: this.resolveBomberSortieEgressDurationMs(),
-          strength,
-          laneOffsetPx: flight.laneOffsetPx,
-          faction: flight.faction,
-          role: "bomber",
-          onIngressProgress: options.onIngressProgress,
-          onEgressProgress: damage > 0
-            ? (progress, centerX, centerY) => {
-                while (progress >= nextSmokeProgress && nextSmokeProgress < 0.96) {
-                  void renderer.playAirDamageSmokeTrailAt(centerX - 4, centerY + 2, smokeScale);
-                  nextSmokeProgress += smokeInterval;
-                }
-              }
-            : undefined,
-          onTargetPass: async () => {
-            await this.playResolvedAirStrikeImpact(flight, renderer, engine, playEffects);
-          }
-        }
-      );
-      return;
-    }
-
-    await this.animateAircraftLeg(
-      renderer,
-      flight.originKey,
-      destKey,
-      flight.unitType,
-      this.resolveBomberSortieIngressDurationMs(),
-      options.onIngressProgress,
-      1,
-      strength,
-      flight.laneOffsetPx,
-      flight.faction,
-      "bomber"
-    );
-    await this.playResolvedAirStrikeImpact(flight, renderer, engine, playEffects);
-    await this.playDamagedAircraftReturn(
-      renderer,
-      destKey,
-      flight.originKey,
-      flight.unitType,
-      damage,
-      returnStrength,
-      flight.laneOffsetPx,
-      0,
-      flight.faction,
-      this.resolveBomberSortieEgressDurationMs(),
-      "bomber"
-    );
+    await renderer.animateResolvedAirCombatShow(scene, {
+      playImpactEffects: playEffects,
+      onImpact: scene.strikeAborted
+        ? undefined
+        : () => this.playResolvedAirStrikeImpact(flight, renderer, engine, false)
+    });
   }
 
   private async playResolvedAirStrikeImpact(

@@ -179,13 +179,15 @@ function initializeApplication(): void {
 
   const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const codexTest = searchParams?.get("codex-test");
-  if (codexTest === "airshow" || codexTest === "airshow-large" || codexTest === "airshow-replay") {
+  if (codexTest === "airshow" || codexTest === "airshow-large" || codexTest === "airshow-replay" || codexTest === "airshow-tutorial") {
     void import("./testing/airshowE2eHarness")
-      .then(({ installAirshowE2EHarness, installAirshowE2EHarnessLarge, installAirshowPlaybackReplayE2EHarness }) => {
+      .then(({ installAirshowE2EHarness, installAirshowE2EHarnessLarge, installAirshowPlaybackReplayE2EHarness, installTutorialStrikeAirshowE2EHarness }) => {
         if (codexTest === "airshow-large") {
           installAirshowE2EHarnessLarge();
         } else if (codexTest === "airshow-replay") {
           installAirshowPlaybackReplayE2EHarness();
+        } else if (codexTest === "airshow-tutorial") {
+          installTutorialStrikeAirshowE2EHarness();
         } else {
           installAirshowE2EHarness();
         }

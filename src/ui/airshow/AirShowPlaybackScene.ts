@@ -74,6 +74,7 @@ export type ResolvedAirShowScene = {
   bomberArrivalDelayMs?: number;
   bomberTargetHexKey?: string | null;
   bombReleaseProgress?: number;
+  strikeAborted?: boolean;
   flakBursts?: ReadonlyArray<ResolvedAirShowFlakBurst>;
   playerHqKey?: string | null;
   botHqKey?: string | null;
@@ -211,6 +212,8 @@ export interface AirShowInspectionFlakBurst {
 
 export interface AirShowInspectionPhase {
   readonly label: string;
+  readonly startTimeMs?: number;
+  readonly endTimeMs?: number;
   readonly durationMs: number;
   readonly visibleActorIds: ReadonlyArray<string>;
   readonly assignments: ReadonlyArray<AirShowInspectionAssignment>;
@@ -224,6 +227,10 @@ export interface PlannedAirShowPhase extends Omit<AirShowInspectionPhase, "assig
 }
 
 export interface AirShowInspectionReport {
+  readonly timelineVersion?: 2;
+  readonly timelineScenario?: import("./AirShowTimeline").AirShowScenarioFamily;
+  readonly timelineTotalDurationMs?: number;
+  readonly timelineFindings?: ReadonlyArray<import("./AirShowTimeline").AirShowTimelineFinding>;
   readonly hexKey: string;
   readonly center: AirShowInspectionPoint;
   readonly corridor: {

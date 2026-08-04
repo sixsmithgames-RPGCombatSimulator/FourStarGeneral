@@ -101,30 +101,15 @@ export function buildResolvedAirShowFlakBursts(
           .map((interceptor) => interceptor.hex ? axialKey(interceptor.hex) : null)
           .filter((hexKey): hexKey is string => !!hexKey);
   const normalizedBatteryCount = Math.max(1, batteryCount);
-  const waveCount = Math.max(12, Math.min(18, normalizedBatteryCount * 3 + 9));
-  const startProgress = 0.26;
-  const endProgress = 0.88;
-  const progressStep =
-    waveCount <= 1
-      ? 0
-      : (endProgress - startProgress) / (waveCount - 1);
-  return Array.from({ length: waveCount }, (_, index) => {
+  return Array.from({ length: normalizedBatteryCount }, (_, index) => {
     const seed = ((index + 1) * 1103515245 + normalizedBatteryCount * 2654435761) >>> 0;
     const randA = ((seed >>> 8) & 0xffff) / 0xffff;
     const randB = ((seed >>> 16) & 0xffff) / 0xffff;
     const randC = ((seed >>> 24) & 0xff) / 0xff;
     return {
-      // Flak should open before ordnance release, linger through the approach,
-      // and scale with actual AA batteries instead of blanketing the whole package.
-      progress: Math.max(
-        startProgress,
-        Math.min(
-          endProgress,
-          startProgress
-            + index * progressStep
-            + (randA - 0.5) * progressStep * 0.42
-        )
-      ),
+      // These entries identify independent battery/bomber sources. The director
+      // expands each source into absolute-time single-puff cues along the bomber track.
+      progress: 0.28 + randA * 0.08,
       count: 1,
       scale: 0.56 + randC * 0.1,
       alongOffsetPx: -10 + (randA - 0.5) * 46,
@@ -133,8 +118,8 @@ export function buildResolvedAirShowFlakBursts(
         + (randB - 0.5) * Math.min(62, 28 + normalizedBatteryCount * 8),
       alongSpreadPx: 46 + normalizedBatteryCount * 7,
       lateralSpreadPx: 82 + normalizedBatteryCount * 13,
-      puffCount: 12 + (index % 3),
-      smokePuffCount: 16 + (index % 4),
+      puffCount: 1,
+      smokePuffCount: 2,
       smokeScale: 1.12 + randC * 0.14,
       bomberUnitKey: options.bomberUnitKey ?? null,
       targetHexKey: options.targetHexKey ?? null,

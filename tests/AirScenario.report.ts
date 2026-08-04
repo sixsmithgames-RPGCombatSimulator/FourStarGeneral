@@ -48,7 +48,10 @@ console.log(`Report file: ${textPath}`);
 console.log(`JSON file: ${jsonPath}`);
 console.log(`Bundle dir: ${bundleDir}`);
 
-if ((args.has("--fail-on-anomalies") || args.has("--fail-on-findings")) && result.findings.length > 0) {
+if (
+  (args.has("--fail-on-anomalies") || args.has("--fail-on-findings"))
+  && (result.findings.length > 0 || result.legacyDiagnosticFindings.length > 0)
+) {
   process.exitCode = 1;
 }
 

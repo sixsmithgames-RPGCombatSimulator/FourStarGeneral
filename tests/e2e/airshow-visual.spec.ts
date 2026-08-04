@@ -1,6 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import {
+  auditAirshowTemporalTrace,
+  writeAirshowTemporalArtifacts,
+  type AirshowTemporalOriginPlan,
+  type AirshowTemporalSample,
+  type AirshowTemporalSpawn
+} from "./support/airshowTemporalAudit";
 
 const AIRSHOW_BROWSER_TIMEOUT_MS = 120_000;
 const LATEST_PAINTED_FRAME_DIR = path.resolve(process.cwd(), "diagnostics", "playwright", "screenshots", "latest");
@@ -162,11 +169,11 @@ test.describe("AirShow Browser Harness", () => {
     );
   });
 
-  test("target-run keeps bombers on the strike lane while fighters peel away toward egress", async ({ page }) => {
+  test("target-run keeps bombers spaced while escorts screen and CAP peels away", async ({ page }) => {
     test.setTimeout(AIRSHOW_BROWSER_TIMEOUT_MS);
     await pauseScenarioAtPhaseProgress(page, "target-run", 0.55);
 
-    const { sample, viewBox, midX } = await page.evaluate(() => {
+    const { sample, viewBox } = await page.evaluate(() => {
       const hooks = (window as Window & {
         __FSG_AIRSHOW_E2E__?: { getPositionTimeline: () => ReadonlyArray<{
           elapsedMs: number;
@@ -191,8 +198,7 @@ test.describe("AirShow Browser Harness", () => {
           maxX: vb.x + vb.width,
           minY: vb.y,
           maxY: vb.y + vb.height
-        },
-        midX: vb.x + vb.width / 2
+        }
       };
     });
 
@@ -208,7 +214,8 @@ test.describe("AirShow Browser Harness", () => {
       (actor) => actor.active
     );
     const activeBomberActors = activeActors.filter((actor) => actor.role === "bomber");
-    const onMapActiveFighters = activeActors.filter((actor) => actor.role !== "bomber" && isOnMap(actor));
+    const onMapInterceptors = activeActors.filter((actor) => actor.role === "interceptor" && isOnMap(actor));
+    const onMapEscorts = activeActors.filter((actor) => actor.role === "escort" && isOnMap(actor));
 
     expect(activeBomberActors).toHaveLength(4);
     const nearestBomberPairDistancePx = Math.min(
@@ -232,20 +239,18 @@ test.describe("AirShow Browser Harness", () => {
       Math.max(bomberSpreadWidthPx, bomberSpreadHeightPx),
       `target-run bomber package should present a readable formation box. spread=${bomberSpreadWidthPx.toFixed(1)}x${bomberSpreadHeightPx.toFixed(1)}px`
     ).toBeGreaterThan(86);
-    if (onMapActiveFighters.length > 0) {
-      const bomberMeanDistanceFromCenter = activeBomberActors.reduce(
-        (sum, actor) => sum + Math.abs(actor.cx - midX),
-        0
-      ) / activeBomberActors.length;
-      const fighterMeanDistanceFromCenter = onMapActiveFighters.reduce(
-        (sum, actor) => sum + Math.abs(actor.cx - midX),
-        0
-      ) / onMapActiveFighters.length;
+    const meanNearestBomberDistance = (actors: ReadonlyArray<{ cx: number; cy: number }>): number =>
+      actors.reduce((sum, actor) => sum + Math.min(
+        ...activeBomberActors.map((bomber) => Math.hypot(actor.cx - bomber.cx, actor.cy - bomber.cy))
+      ), 0) / Math.max(1, actors.length);
+    if (onMapInterceptors.length > 0 && onMapEscorts.length > 0) {
+      const interceptorSeparationPx = meanNearestBomberDistance(onMapInterceptors);
+      const escortScreenDistancePx = meanNearestBomberDistance(onMapEscorts);
       expect(
-        fighterMeanDistanceFromCenter,
-        `fighters still visible during target-run should already be peeling away from the strike lane. ` +
-        `fighters=${fighterMeanDistanceFromCenter.toFixed(1)}px from center, bombers=${bomberMeanDistanceFromCenter.toFixed(1)}px`
-      ).toBeGreaterThan(bomberMeanDistanceFromCenter + 20);
+        interceptorSeparationPx,
+        `CAP should be farther from the bomber package than its screening escorts during target run. ` +
+        `CAP=${interceptorSeparationPx.toFixed(1)}px, escorts=${escortScreenDistancePx.toFixed(1)}px`
+      ).toBeGreaterThan(escortScreenDistancePx + 40);
     }
   });
 
@@ -540,6 +545,99 @@ test.describe("AirShow Browser Harness", () => {
   });
 });
 
+test.describe("Training mission airshow", () => {
+  test("tutorial bomber remains continuously painted through the impact animation @temporal-certificate", async ({ page }, testInfo) => {
+    test.setTimeout(150_000);
+    await gotoAirshowHarness(page, "/?codex-test=airshow-tutorial");
+    const result = await page.evaluate(async () => {
+      const hooks = (window as Window & {
+        __FSG_AIRSHOW_E2E__?: { startScenario: () => Promise<unknown> };
+      }).__FSG_AIRSHOW_E2E__;
+      if (!hooks) throw new Error("Airshow e2e hooks were not installed.");
+      return hooks.startScenario();
+    });
+    expect(result).toMatchObject({ missionId: "tutorial-zero-strength-strike" });
+
+    await page.waitForFunction(() =>
+      document.querySelector(".combat-effects-layer")?.getAttribute("data-airshow-impact-fired") === "true",
+    null, { timeout: 105_000 });
+
+    const observation = await page.evaluate(async () => {
+      const first = document.querySelector<SVGImageElement>(
+        '[data-testid="airshow-actor"][data-airshow-role="bomber"]'
+      );
+      if (!first) throw new Error("Tutorial bomber was missing when the impact cue fired.");
+      const actorId = first.getAttribute("data-airshow-actor-id") ?? "";
+      const samples: Array<{ connected: boolean; active: boolean; opacity: number; sameNode: boolean }> = [];
+      const startedAt = performance.now();
+      while (performance.now() - startedAt < 2500) {
+        const current = document.querySelector<SVGImageElement>(`[data-airshow-actor-id="${actorId}"]`);
+        samples.push({
+          connected: Boolean(current?.isConnected),
+          active: current?.getAttribute("data-airshow-active") === "true",
+          opacity: Number.parseFloat(current ? window.getComputedStyle(current).opacity : "0"),
+          sameNode: current === first
+        });
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+      }
+      return {
+        actorId,
+        bombReleased: first.getAttribute("data-airshow-bomb-released") === "true",
+        sampleCount: samples.length,
+        failures: samples.filter((sample) =>
+          !sample.connected || !sample.active || sample.opacity <= 0.05 || !sample.sameNode
+        )
+      };
+    });
+
+    expect(observation.actorId).toBeTruthy();
+    expect(observation.bombReleased).toBe(true);
+    expect(observation.sampleCount).toBeGreaterThanOrEqual(40);
+    expect(observation.failures).toEqual([]);
+
+    const traceCapture = await page.evaluate(async () => {
+      const hooks = (window as Window & {
+        __FSG_AIRSHOW_E2E__?: {
+          waitForCompletion: () => Promise<void>;
+          getPositionTimeline: () => readonly AirshowTemporalSample[];
+          getSpawnSnapshot: () => readonly AirshowTemporalSpawn[];
+          getInspectionSummary: () => { originPlan: AirshowTemporalOriginPlan | null } | null;
+        };
+      }).__FSG_AIRSHOW_E2E__;
+      if (!hooks) throw new Error("Airshow e2e hooks were not installed.");
+      await hooks.waitForCompletion();
+      return {
+        timeline: hooks.getPositionTimeline(),
+        spawn: hooks.getSpawnSnapshot(),
+        originPlan: hooks.getInspectionSummary()?.originPlan ?? null
+      };
+    }) as unknown as {
+      readonly timeline: readonly AirshowTemporalSample[];
+      readonly spawn: readonly AirshowTemporalSpawn[];
+      readonly originPlan: AirshowTemporalOriginPlan | null;
+    };
+    const temporalAudit = auditAirshowTemporalTrace(traceCapture.timeline, {
+      scenarioId: "tutorial-zero-strength-strike",
+      originPlan: traceCapture.originPlan,
+      spawn: traceCapture.spawn,
+      requireImpactContinuity: true
+    });
+    const temporalArtifacts = writeAirshowTemporalArtifacts(
+      "airshow-tutorial-impact-continuity",
+      traceCapture.timeline,
+      temporalAudit
+    );
+    await testInfo.attach("airshow-tutorial-temporal-summary", {
+      path: temporalArtifacts.summary,
+      contentType: "text/plain"
+    });
+    expect(
+      temporalAudit.findings.filter((finding) => finding.severity === "error"),
+      `Temporal audit failed. See ${temporalArtifacts.summary}`
+    ).toEqual([]);
+  });
+});
+
 test.describe("AirShow Browser Replay Harness", () => {
   test.beforeEach(async ({ page }) => {
     await gotoAirshowHarness(page, "/?codex-test=airshow-replay");
@@ -685,5 +783,33 @@ test.describe("AirShow Browser Harness Large Map", () => {
   test("captures painted bomber ingress frame on large map @painted-frame", async ({ page, browserName }, testInfo) => {
     test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
     await expectPaintedPhaseMotionFrame(page, testInfo, "bomber-ingress", "airshow-large-painted-bomber-ingress-mid.png");
+  });
+
+  test("captures painted switched scramble frame on large map @painted-frame", async ({ page, browserName }, testInfo) => {
+    test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
+    await expectPaintedPhaseMotionFrame(
+      page,
+      testInfo,
+      "escort-clash-scramble",
+      "airshow-large-painted-escort-clash-scramble-mid.png"
+    );
+  });
+});
+
+test.describe("AirShow Mobile Viewport", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test.beforeEach(async ({ page }) => {
+    await gotoAirshowHarness(page, "/?codex-test=airshow-large");
+  });
+
+  test("captures the large-map switched scramble on mobile @painted-frame", async ({ page, browserName }, testInfo) => {
+    test.skip(browserName !== "chromium", "Painted-frame snapshots are calibrated on chromium.");
+    await expectPaintedPhaseMotionFrame(
+      page,
+      testInfo,
+      "escort-clash-scramble",
+      "airshow-mobile-large-painted-escort-clash-scramble-mid.png"
+    );
   });
 });

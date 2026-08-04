@@ -1,7 +1,7 @@
 # Four Star General — Master TODO
 
-**Last updated:** 2026-05-05  
-**Build status:** `npm test` passing, `npm run build` passing  
+**Last updated:** 2026-08-03
+**Build status:** `npm test`, air-show report, 20x20 choreography, tutorial continuity, and desktop/mobile painted-frame gates passing
 **Active missions:** 5 registered, 4 fully validated, 1 orphaned (Two Bridges)
 
 ---
@@ -29,8 +29,7 @@ The following TODO files have been moved to `docs/archived-todos/` because all t
 | File | Status | Priority |
 |------|--------|----------|
 | `TODO_air_support_system.md` | Mostly complete; AI heuristics + docs remain | Medium |
-| `TODO_airshow_ingress_fix.md` | Open — 8-hex spawn distance violated | High |
-| `docs/TODO_HQ_CORRIDOR_ORIGINS.md` | Open — HQ-derived corridor axis not yet implemented | High |
+| `docs/AIR_SHOW_NORTH_STAR_SPEC.md` | Implemented and certified; retained as canonical reference | Complete |
 | `TODO_backend_service.md` | Open — not started, deferred | Low |
 | `TODO_battle_combat.md` | Open — attack confirmation dialog missing | Medium |
 | `TODO_battle_race_monitoring.md` | Monitoring — watchlist items, not blocking | Low |
@@ -58,13 +57,12 @@ The following TODO files have been moved to `docs/archived-todos/` because all t
 - `assertBattleReady()` — integrity check on battle entry
 - Smoke system (`laySmoke`) — confirmed working
 - Air support system — scheduling, CAP, escort, interception, HUD, sortie log all working
+- Air show timeline — deterministic HQ-side origins, preset choreography, one-clock playback, independent flak, tutorial continuity, and 20x20 desktop/mobile certification working
 - Mission phase system — probe / commitment / reserve pressure phases in River Crossing Watch
 - Scenario validation gates — `assertScenarioSourceValid` throws loudly at load time
 - `npm test` — passing
 
 ### ⚠️ Known Gaps
-- `TODO_airshow_ingress_fix.md` — aircraft spawn ~1.76 hexes from merge point; spec requires 8 hexes minimum
-- `docs/TODO_HQ_CORRIDOR_ORIGINS.md` — air show corridor uses hardcoded fallback origins instead of HQ-derived axis
 - Two Bridges scenario file exists but is NOT registered in `scenarioRegistry.ts` and has NO deployment zones (unplayable)
 - Attack confirmation dialog (`TODO_battle_combat.md`) — player attacks resolve without confirmation prompt
 - Enemy turn animation pipeline not built — bot turns produce text announcements only
@@ -78,18 +76,12 @@ The following TODO files have been moved to `docs/archived-todos/` because all t
 
 ### P1 — Ship-blocker or flagship quality
 
-1. **Air show ingress fix** (`TODO_airshow_ingress_fix.md` + `docs/TODO_HQ_CORRIDOR_ORIGINS.md`)
-   - Spawn distance: 8-hex minimum from merge point
-   - Ingress timing: fighters ≥ 1250ms, bombers ≥ 3000ms
-   - Role-read beat before weapons exchange
-   - HQ-derived corridor axis replacing hardcoded offsets
-
-2. **Attack confirmation dialog** (`TODO_battle_combat.md`)
+1. **Attack confirmation dialog** (`TODO_battle_combat.md`)
    - Confirm before resolving; cancel leaves state untouched
    - Keyboard shortcuts (Enter / Escape)
    - Accessible ARIA dialog
 
-3. **Precombat budget validation** (`TODO_precombat_budget_validation.md`)
+2. **Precombat budget validation** (`TODO_precombat_budget_validation.md`)
    - Block proceed when zero allocations or over budget
    - Show inline feedback in `#allocationFeedback`
 
@@ -985,4 +977,3 @@ These are design seeds, not complete mission packages. A full Mission Package pe
 | 12 | PS-24 | **Mortain** | Air support as battle-turner; defensive scenario with drama |
 
 Scenarios PS-02 through PS-17 (North Africa and Italy introductory missions), and PS-39 through PS-48 (late-war Germany), are valid campaign progression missions once the production pipeline is proven with the tier-1 and tier-2 scenarios above.
-
