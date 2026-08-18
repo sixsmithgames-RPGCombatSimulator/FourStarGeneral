@@ -281,6 +281,24 @@ registerTest("CAMPAIGN_FCI4_PREVIEW_PRIORITY_REPLACE_AND_CANCEL_PARITY", async (
   });
 });
 
+registerTest("CAMPAIGN_REDEPLOY_PREVIEW_REJECTS_MISSING_MAP_DESTINATION", async ({ Given, When, Then }) => {
+  const state = buildState();
+  const missingDestination = "26,24";
+
+  await Given("a selected destination inside the rendered grid but absent from the authoritative theater tiles", async () => {});
+  await When("the player previews and attempts to draft a redeployment to that location", async () => {});
+  await Then("preview and draft creation reject the target before the order reaches the tray", async () => {
+    const preview = state.previewRedeploy(ORIGIN, missingDestination, [{ unitType: "Infantry_42", count: 8 }], "foot");
+    if (preview?.ok || !preview?.diagnostics.some((entry) => entry.code === "ORDER_TARGET_INVALID")) {
+      throw new Error("Missing theater destination was not rejected by the redeployment preview.");
+    }
+    const draft = state.createRedeployDraft(ORIGIN, missingDestination, [{ unitType: "Infantry_42", count: 8 }], "foot");
+    if (draft.ok || state.getCampaignOrders().length !== 0) {
+      throw new Error("Missing theater destination reached the authoritative order tray.");
+    }
+  });
+});
+
 registerTest("CAMPAIGN_FCI4_PLAYER_COMMIT_AND_INTEL_ASSET_HOLDS_STAY_FACTION_SAFE", async ({ Given, When, Then }) => {
   const state = buildState();
   let playerOrderId = "";

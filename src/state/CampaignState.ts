@@ -2790,6 +2790,25 @@ export class CampaignState {
     const paletteOrigin = origin ? this.scenario.tilePalette[origin.tile] : null;
     const dest = this.findTileByOffsetKey(destOffsetKey);
     const paletteDest = dest ? this.scenario.tilePalette[dest.tile] : null;
+    const runtimeOriginKey = campaignOffsetKeyToRuntimeHexKey(originOffsetKey);
+    const runtimeDestinationKey = campaignOffsetKeyToRuntimeHexKey(destOffsetKey);
+    const runtimeOrigin = runtimeOriginKey ? this.runtime?.tiles[runtimeOriginKey] : null;
+    const runtimeDestination = runtimeDestinationKey ? this.runtime?.tiles[runtimeDestinationKey] : null;
+
+    if (!origin || !runtimeOrigin || runtimeOrigin.controller !== "Player") {
+      addIssue(
+        "ORDER_SOURCE_INVALID",
+        "The redeployment origin is not currently available under Player control.",
+        "Choose a Player-controlled origin with ready formations."
+      );
+    }
+    if (!dest || !runtimeDestination) {
+      addIssue(
+        "ORDER_TARGET_INVALID",
+        "The redeployment destination is not part of the current operational map.",
+        "Choose a visible map hex that belongs to the current theater."
+      );
+    }
 
     const active = selections.filter((s) => s.count > 0);
     if (active.length === 0) {
@@ -2807,7 +2826,6 @@ export class CampaignState {
       addIssue("ORDER_TRANSPORT_INVALID", "Requires airbases at both origin and destination.", "Choose two airbase hexes or use another transport mode.");
     }
 
-    const runtimeOriginKey = campaignOffsetKeyToRuntimeHexKey(originOffsetKey);
     const heldByPool = (kind: "resource" | "transport" | "formation", poolKey: string): number => {
       if (!this.runtime || ignoreDraftHolds) return 0;
       return this.runtime.reservationOrder.reduce((sum, id) => {
