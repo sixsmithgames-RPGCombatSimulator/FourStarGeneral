@@ -261,6 +261,11 @@
     .precombat-screen .info-block strong {
       font-family: var(--font-heading);
     }
+    .landing-screen :is(button, a, input, select):focus-visible {
+      outline: 3px solid #f5c46d !important;
+      outline-offset: 3px;
+      box-shadow: 0 0 0 6px rgba(245, 196, 109, 0.2);
+    }
     .landing-header {
       display: grid;
       gap: 0.45rem;
@@ -1483,8 +1488,14 @@
       gap: 0.85rem;
       flex-wrap: wrap;
       margin-top: 0.5rem;
-      padding-top: 0.35rem;
-      border-top: 1px solid rgba(177, 152, 101, 0.12);
+      padding: 0.65rem;
+      border: 1px solid rgba(177, 152, 101, 0.22);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(24, 27, 21, 0.98), rgba(12, 14, 11, 0.98));
+      box-shadow: 0 -12px 30px rgba(4, 6, 5, 0.36);
+      position: sticky;
+      bottom: 0;
+      z-index: 6;
     }
     .landing-footer .primary-button {
       min-width: 0;
@@ -6351,9 +6362,12 @@
       gap: 1rem;
       justify-content: flex-end;
     }
-    @media (max-width: 1280px) {
+    @media (max-width: 960px) {
       .landing-layout {
         grid-template-columns: 1fr;
+      }
+      .landing-primary {
+        grid-column: 1;
       }
     }
     @media (max-width: 960px) {
@@ -6366,7 +6380,7 @@
         border-radius: 0;
       }
       .screen {
-        padding: 2rem 1.75rem;
+        padding: 1.25rem;
       }
       .control-sidebar {
         width: 72px;
@@ -10621,24 +10635,23 @@
             </div>
           </div>
 
-          <!-- Right column: stack Operations above Campaigns so both are visible without scrolling horizontally. -->
+          <!-- Right column: promote the long-form campaign before the operation catalog. -->
           <div class="landing-primary">
+            <div class="pane">
+              <h2>Campaigns</h2>
+              <p>Choose a theater to enter the strategic command layer.</p>
+              <div id="campaignList" class="campaign-grid" data-campaign-list>
+                <button type="button" class="campaign-card" data-campaign-id="western-europe" data-mission="campaign">
+                  <strong>Western Europe</strong>
+                  <span>Enter campaign command and lead Allied forces through a multi-phase offensive.</span>
+                </button>
+              </div>
+            </div>
+
             <div class="pane">
               <h2>Operations</h2>
               <p id="missionListSummary">Select a commander to receive tailored operations.</p>
               <div id="missionList" class="mission-grid" data-mission-list></div>
-            </div>
-
-            <!-- Campaign selection pane promotes long-form theaters like Western Europe. Placed beneath Operations to keep core flows visible. -->
-            <div class="pane">
-              <h2>Campaigns</h2>
-              <p>Select a theater to launch the strategic campaign layer.</p>
-              <div id="campaignList" class="campaign-grid" data-campaign-list>
-                <button type="button" class="campaign-card" data-campaign-id="western-europe" data-mission="campaign">
-                  <strong>Western Europe</strong>
-                  <span>Lead allied forces across occupied territory in a multi-phase offensive.</span>
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -10671,7 +10684,7 @@
           </div> -->
           <div class="feedback" id="feedback"></div>
           <div class="landing-resume-actions">
-            <button id="enterPrecombat" type="button" class="primary-button" disabled>Enter Operations</button>
+            <button id="enterPrecombat" type="button" class="primary-button" aria-describedby="missionStatus" disabled>Enter Selected Operation</button>
             <button id="resumeTacticalBattle" type="button" class="secondary-button">Resume Saved Battle</button>
           </div>
         </div>

@@ -9,7 +9,7 @@
     "dev": "vite",
     "canon:export": "python tools/export_weapon_canon.py",
     "canon:check": "python tools/export_weapon_canon.py --check",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node tools/verify-production-bundle.mjs",
     "preview": "vite preview",
     "test": "node -e \"require('node:fs').rmSync('dist-tsc', { recursive: true, force: true })\" && tsc --outDir dist-tsc && xcopy /E /I /Y \"src\\assets\" \"dist-tsc\\src\\assets\" && node --loader ./tools/resolve-js-extension-loader.mjs dist-tsc/tests/index.js",
     "test:campaign": "node -e \"require('node:fs').rmSync('dist-tsc', { recursive: true, force: true })\" && tsc --outDir dist-tsc && xcopy /E /I /Y \"src\\assets\" \"dist-tsc\\src\\assets\" && node --loader ./tools/resolve-js-extension-loader.mjs dist-tsc/tests/campaign-only-tests.js",
